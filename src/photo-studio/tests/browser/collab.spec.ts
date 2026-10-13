@@ -49,12 +49,20 @@ test('two people edit and comment on one shared document', async ({ browser }, i
   const access = a.page.locator('dialog .collab-dialog');
   await expect(access).toBeVisible({ timeout: 60_000 });
   await expect(a.page.locator('.collab-bar')).toBeVisible();
+  // Nothing to revoke yet, and inviting by username needs a name.
+  await expect(access.locator('.collab-invites')).toHaveText('No active invitation links');
+  await expect(access.getByRole('button', { name: 'Revoke Invitation Links' })).toBeDisabled();
+  await expect(access.getByRole('button', { name: 'Invite', exact: true })).toBeDisabled();
+  await access.getByRole('textbox', { name: 'Puter username' }).fill('carol');
+  await expect(access.getByRole('button', { name: 'Invite', exact: true })).toBeEnabled();
+  await access.getByRole('textbox', { name: 'Puter username' }).fill('');
   await access.locator('select[name="role"]').selectOption('editor');
   await access.getByRole('button', { name: 'Create Link' }).click();
   const linkInput = access.getByRole('textbox', { name: 'Invitation link' });
   await expect(linkInput).toHaveValue(/#ps-server=.*ps-room=.*ps-invite=/);
   const link = new URL(await linkInput.inputValue());
   await expect(access.locator('.collab-members')).toContainText('alice');
+  await expect(access.getByRole('button', { name: 'Revoke Invitation Links' })).toBeEnabled();
   await access.getByRole('button', { name: 'Done' }).click();
   expect((await sharedState(a.page))?.role).toBe('owner');
 
@@ -97,6 +105,16 @@ test('two people edit and comment on one shared document', async ({ browser }, i
   await b.page.locator('.comment-thread').getByRole('button', { name: 'Reply' }).click();
   await b.page.locator('.comment-thread').getByRole('button', { name: 'Resolve' }).click();
   await expect.poll(async () => (await threads(a.page))[0], { timeout: 30_000 }).toEqual({ anchor: { x: 50, y: 40 }, texts: ['alice: Can we warm this up? @bob', 'bob: Done.'], resolved: true });
+
+  // The people popover: aria-expanded, and Escape returns focus to its button.
+  const people = a.page.locator('.collab-bar .collab-people');
+  await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'true');
+  await expect(a.page.locator('.collab-popover').getByRole('button', { name: 'Stop Sharing…' })).toBeVisible();
+  await a.page.keyboard.press('Escape');
+  await expect(a.page.locator('.collab-popover')).toBeHidden();
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await expect(people).toBeFocused();
 
   // Both settle with nothing pending and no errors.
   await expect.poll(async () => (await sharedState(a.page))?.pending).toBe(0);
