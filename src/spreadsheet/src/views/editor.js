@@ -5471,6 +5471,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     dragOver,
     /** Select a "Sheet!A1:B2" range (from an address with ?range=), switching sheets if needed. */
     goTo(range) { return followInternalLink(`#${range}`); },
+    /** Run an editor command, as the menus and the palette do (tests and automation). */
+    run,
     destroy() {
       destroyed = true;
       palette?.close();
