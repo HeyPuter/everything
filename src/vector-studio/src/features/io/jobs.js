@@ -82,7 +82,7 @@ export async function renderFile(app, editor, format, region, options = {}) {
     return new Blob([bytes], { type: 'application/pdf' });
   }
   if (FORMATS[format]) {
-    return rasterExport(editor, { ...region, format, scale: options.scale || (options.ppi ? options.ppi / 72 : 1), background: options.background, antialias: options.antialias !== false, quality: options.quality });
+    return rasterExport(editor, { ...region, format, scale: options.scale || (options.ppi ? options.ppi / 72 : 1), background: options.background, antialias: options.antialias !== false, quality: options.quality, colorModel: options.colorModel });
   }
   throw new Error(`Unknown format ${format}`);
 }

@@ -144,10 +144,17 @@ export async function formatOptionsDialog(app, format) {
       if (res.value !== 'other') ppi.value = res.value;
     });
     fields.push(row('Resolution', res), ppiRow);
+    const model = select([{ value: 'rgb', label: 'RGB' }, { value: 'grayscale', label: 'Grayscale' }], o.colorModel || 'rgb');
+    fields.push(row('Color Model', model));
     let bg = null;
+    let bgOther = null;
     if (format !== 'jpeg') {
-      bg = select([{ value: 'transparent', label: 'Transparent' }, { value: '#ffffff', label: 'White' }, { value: '#000000', label: 'Black' }], o.background);
-      fields.push(row('Background', bg));
+      const known = ['transparent', '#ffffff', '#000000'];
+      bg = select([{ value: 'transparent', label: 'Transparent' }, { value: '#ffffff', label: 'White' }, { value: '#000000', label: 'Black' }, { value: 'other', label: 'Other...' }], known.includes(o.background) ? o.background : 'other');
+      bgOther = h('input', { type: 'color', 'aria-label': 'Background color', value: known.includes(o.background) ? '#808080' : o.background || '#808080' });
+      bgOther.hidden = bg.value !== 'other';
+      bg.addEventListener('change', () => (bgOther.hidden = bg.value !== 'other'));
+      fields.push(row('Background', h('div.io-inline', bg, bgOther)));
     } else fields.push(h('div.form-row', h('span.form-label', 'Background'), h('span.io-static', 'White')));
     const aa = select([{ value: 'art', label: 'Art Optimized (Supersampling)' }, { value: 'none', label: 'None' }], o.antialias === false ? 'none' : 'art');
     fields.push(row('Anti-aliasing', aa));
@@ -162,7 +169,7 @@ export async function formatOptionsDialog(app, format) {
     readers.push(() => {
       const p = res.value === 'other' ? Number(ppi.value) : Number(res.value);
       if (!Number.isFinite(p) || p < 10 || p > 2400) throw Object.assign(new Error('Enter a resolution between 10 and 2400 ppi.'), { field: ppi });
-      return { ppi: p, scale: p / 72, background: bg ? bg.value : '#ffffff', antialias: aa.value !== 'none', quality: quality ? Math.max(0.05, Number(quality.value) / 10) : undefined };
+      return { ppi: p, scale: p / 72, background: bg ? (bg.value === 'other' ? bgOther.value : bg.value) : '#ffffff', antialias: aa.value !== 'none', quality: quality ? Math.max(0.05, Number(quality.value) / 10) : undefined, colorModel: model.value };
     });
   }
   const error = h('p.form-error', { role: 'alert' });

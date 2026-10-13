@@ -505,3 +505,13 @@ body.io-busy .canvas-host {
   margin-bottom: 6px;
   color: var(--text-2);
 }
+
+.io-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.io-inline input[type='color'][hidden] {
+  display: none;
+}

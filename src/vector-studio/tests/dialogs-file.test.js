@@ -175,3 +175,25 @@ describe('SVG export styling and ids', () => {
     expect(unique).toMatch(/<rect[^>]*id="rect-\d+"/);
   });
 });
+
+describe('Image export options', () => {
+  it('offers a color model and a custom background', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const { formatOptionsDialog } = await import('../src/features/io/dialogs.js');
+    const done = formatOptionsDialog(app, 'png');
+    const d = await waitDialog();
+    const selects = [...d.querySelectorAll('select')];
+    const model = selects.find((s) => [...s.options].some((o) => o.value === 'grayscale'));
+    model.value = 'grayscale';
+    const bg = selects.find((s) => [...s.options].some((o) => o.value === 'transparent'));
+    bg.value = 'other';
+    bg.dispatchEvent(new Event('change'));
+    const color = d.querySelector('.io-inline input[type=color]');
+    expect(color.hidden).toBe(false);
+    color.value = '#123456';
+    button('OK').click();
+    const v = await done;
+    expect(v).toMatchObject({ colorModel: 'grayscale', background: '#123456' });
+  });
+});
