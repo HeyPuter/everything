@@ -202,11 +202,12 @@ function simulateRel(c, plates) {
  * the gray component (black generation); the colored inks are then solved
  * so the simulated press color matches (projected Gauss-Newton, which
  * also clips colors outside the press gamut to the nearest printable one).
- * The darkest display color maps to the press's richest black.
+ * The darkest display color maps to the press's richest black (unless
+ * blackMap is false: then colors darker than the press black clip to it).
  */
-function separateExact(c, rgb) {
+function separateExact(c, rgb, blackMap = true) {
   const p = c.p;
-  const t = [0, 1, 2].map((i) => c.blackRel[i] + clamp01(rgb[i]) * (1 - c.blackRel[i]));
+  const t = [0, 1, 2].map((i) => (blackMap ? c.blackRel[i] + clamp01(rgb[i]) * (1 - c.blackRel[i]) : clamp01(rgb[i])));
   const gray = 1 - Math.max(clamp01(rgb[0]), clamp01(rgb[1]), clamp01(rgb[2]));
   const k = Math.min(p.kmax, c.start >= 1 ? 0 : c.start < 0 ? gray * p.kmax : gray * p.kmax * clamp01((gray - c.start) / (1 - c.start)));
   const ka = dotGain(k, p.gain);
@@ -390,12 +391,30 @@ export const COLOR_SETTING_PRESETS = {
 
 const SETTING_KEYS = Object.keys(DEFAULT_COLOR_SETTINGS);
 
+/**
+ * Profiles beyond the built-in tables (ICC profiles the color engine
+ * registered): id -> { kind: 'RGB' | 'CMYK' | 'Gray', label }.
+ */
+export const externalProfiles = new Map();
+
+/** An ICC profile id of the kind (ids not loaded yet count, so settings survive until the store loads). */
+function isExternal(id, kind) {
+  const e = externalProfiles.get(id);
+  return e ? e.kind === kind : /^icc:[0-9a-f]+$/.test(String(id || ''));
+}
+
+/** Label of any profile id. */
+export function profileLabel(id) {
+  return RGB_SPACES[id]?.label || CMYK_PROFILES[id]?.label || externalProfiles.get(id)?.label || (String(id).startsWith('icc:') ? 'Missing profile' : String(id));
+}
+
 /** Clean settings: known keys only, valid values, the matching preset name (or 'custom'). */
 export function normalizeColorSettings(v = {}) {
   const out = { ...DEFAULT_COLOR_SETTINGS };
   for (const k of SETTING_KEYS) if (v[k] !== undefined) out[k] = v[k];
-  if (!RGB_SPACES[out.rgb]) out.rgb = DEFAULT_COLOR_SETTINGS.rgb;
-  if (!CMYK_PROFILES[out.cmyk]) out.cmyk = DEFAULT_COLOR_SETTINGS.cmyk;
+  // ICC profile ids stay even before the profile store has loaded them.
+  if (!RGB_SPACES[out.rgb] && !isExternal(out.rgb, 'RGB')) out.rgb = DEFAULT_COLOR_SETTINGS.rgb;
+  if (!CMYK_PROFILES[out.cmyk] && !isExternal(out.cmyk, 'CMYK')) out.cmyk = DEFAULT_COLOR_SETTINGS.cmyk;
   if (!['off', 'preserve', 'convert'].includes(out.policyRgb)) out.policyRgb = DEFAULT_COLOR_SETTINGS.policyRgb;
   if (!POLICIES[out.policyCmyk]) out.policyCmyk = DEFAULT_COLOR_SETTINGS.policyCmyk;
   if (!INTENTS[out.intent]) out.intent = DEFAULT_COLOR_SETTINGS.intent;
@@ -425,7 +444,7 @@ export function colorSettings(app) {
 /** The CMYK profile id output uses for a document: its assigned profile, else the working CMYK. */
 export function documentCmykProfile(app, doc) {
   const p = doc?.root?.colorProfile;
-  if (p && CMYK_PROFILES[p]) return p;
+  if (p && (CMYK_PROFILES[p] || externalProfiles.get(p)?.kind === 'CMYK')) return p;
   if (p === 'none') return 'basic';
   return colorSettings(app).cmyk;
 }
@@ -433,7 +452,7 @@ export function documentCmykProfile(app, doc) {
 /** The RGB space of a document: its assigned profile, else the working RGB. */
 export function documentRgbSpace(app, doc) {
   const p = doc?.root?.colorProfile;
-  if (p && RGB_SPACES[p]) return p;
+  if (p && (RGB_SPACES[p] || externalProfiles.get(p)?.kind === 'RGB')) return p;
   if (p === 'none') return 'monitor';
   return colorSettings(app).rgb;
 }
@@ -442,13 +461,13 @@ export function documentRgbSpace(app, doc) {
 export function documentProfileLabel(app, doc) {
   const p = doc?.root?.colorProfile;
   if (p === 'none') return 'Not color managed';
-  if (doc?.root?.colorMode === 'CMYK') return cmykProfile(documentCmykProfile(app, doc)).label;
-  return RGB_SPACES[documentRgbSpace(app, doc)].label;
+  if (doc?.root?.colorMode === 'CMYK') return profileLabel(documentCmykProfile(app, doc));
+  return profileLabel(documentRgbSpace(app, doc));
 }
 
-/** Plate values (0..1, [c, m, y, k]) for an RGB color (0..1). */
-export function platesFor(rgb, profile = 'coatedWeb') {
-  return separateExact(compile(typeof profile === 'string' ? cmykProfile(profile) : profile), rgb);
+/** Plate values (0..1, [c, m, y, k]) for an RGB color (0..1); blackMap false keeps colorimetry (see separateExact). */
+export function platesFor(rgb, profile = 'coatedWeb', { blackMap = true } = {}) {
+  return separateExact(compile(typeof profile === 'string' ? cmykProfile(profile) : profile), rgb, blackMap);
 }
 
 /** The press black point relative to the paper ([r, g, b], 0..1). */
