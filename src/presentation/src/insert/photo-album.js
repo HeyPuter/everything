@@ -120,12 +120,27 @@ export function createPhotoAlbum(ctx) {
               class: "input album-caption",
               value: item.caption,
               "aria-label": `Caption for picture ${i + 1}`,
+              // Typing a caption chooses its picture, keeping the field.
               onclick: (e) => e.stopPropagation(),
+              onfocus: () => choose(i),
               oninput: (e) => (item.caption = e.target.value),
             }),
           ),
         ),
       );
+      sync();
+    }
+    function choose(i) {
+      if (selected === i) return;
+      selected = i;
+      [...list.children].forEach((row, n) => {
+        row.classList.toggle("selected", n === i);
+        row.setAttribute("aria-selected", String(n === i));
+        row.tabIndex = n === i ? 0 : -1;
+      });
+      sync();
+    }
+    function sync() {
       up.disabled = selected <= 0;
       down.disabled = selected < 0 || selected >= items.length - 1;
       removeButton.disabled = selected < 0;

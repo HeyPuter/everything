@@ -334,7 +334,11 @@ export function createShowExtras(ctx, show) {
   function slideShown(slide, i) {
     index = i;
     if (viewed[viewed.length - 1] !== i) viewed.push(i);
+    // Focus on an object of the slide being left stays in the show.
+    const hadFocus = !!layer?.contains(document.activeElement);
     layer?.remove();
+    if (hadFocus)
+      frame.querySelector(".presenter-slide:not(.presenter-leaving)")?.focus();
     for (const p of [...playing]) if (!p.across) p.stop();
     pendingMedia = [];
     layer = el("div", { class: "presenter-objects" });
