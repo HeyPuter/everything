@@ -146,7 +146,8 @@
 }
 
 .sheet .inspector > .panel-head,
-.sheet .assets-panel .asset-tabs-wrap {
+.sheet .assets-panel .asset-tabs-wrap,
+.sheet .assets-panel .asset-tabs-bar {
   display: none;
 }
 
@@ -232,14 +233,16 @@
   display: none;
 }
 
-.editor[data-layout='tablet'] .asset-tabs .tab {
+.editor[data-layout='tablet'] .asset-tabs .tab,
+.editor[data-layout='tablet'] .asset-tabs-more {
   min-width: 40px;
   min-height: 40px;
   padding: 4px;
   justify-content: center;
 }
 
-.editor[data-layout='tablet'] .asset-tabs .tab-label {
+.editor[data-layout='tablet'] .asset-tabs .tab-label,
+.editor[data-layout='tablet'] .asset-tabs-more .tab-label {
   position: absolute;
   width: 1px;
   height: 1px;

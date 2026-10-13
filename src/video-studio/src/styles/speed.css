@@ -116,3 +116,194 @@
   line-height: 1.4;
   color: var(--text-3);
 }
+
+/* Speed > Curve: the velocity ramp a curve came from. */
+.speed-ramp-origin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: var(--accent-text);
+}
+
+.speed-ramp-origin[hidden] {
+  display: none;
+}
+
+/* Speed > Ramps: velocity ramp gallery. */
+.speed-ramp-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+}
+
+.speed-ramp-head.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.speed-ramp-active {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-2);
+}
+
+.speed-ramp-head.is-active .speed-ramp-active {
+  color: var(--text);
+}
+
+.speed-ramp-active .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.speed-ramp-status {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.speed-ramp-tweak {
+  flex: none;
+  white-space: nowrap;
+}
+
+.speed-ramp-tweak[hidden] {
+  display: none;
+}
+
+.speed-ramp-grid {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  margin-bottom: 8px;
+}
+
+.speed-ramp-grid .choice-preview {
+  aspect-ratio: 16 / 10;
+}
+
+.speed-ramp-grid .choice-label {
+  white-space: normal;
+  min-height: 2.5em;
+}
+
+.ramp-none {
+  display: inline-flex;
+  color: var(--text-3);
+}
+
+.ramp-preview {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.ramp-stage {
+  position: absolute;
+  inset: 6px 7px 13px;
+  display: block;
+  transform-origin: 50% 50%;
+}
+
+.ramp-curve {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ramp-curve-base {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.ramp-curve-accent {
+  fill: none;
+  stroke: var(--warning);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.ramp-curve-line {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.choice:hover .ramp-curve-line {
+  stroke: var(--text);
+}
+
+.choice[aria-checked='true'] .ramp-curve-line {
+  stroke: var(--accent-text);
+}
+
+/* The dot layer is the stage's size, so translate(x%, y%) puts the dot at (x, y). */
+.ramp-dot-layer,
+.ramp-tick-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.ramp-dot {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--bg-input);
+}
+
+.ramp-strip {
+  position: absolute;
+  left: 7px;
+  right: 22px;
+  bottom: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--border-strong) 0 3px, transparent 3px 6px);
+}
+
+.ramp-tick {
+  position: absolute;
+  left: -1px;
+  top: -2px;
+  width: 2px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--text);
+}
+
+.ramp-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ramp-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  display: inline-flex;
+  gap: 1px;
+  color: var(--warning);
+  opacity: 0.9;
+}

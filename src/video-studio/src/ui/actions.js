@@ -594,8 +594,27 @@ export function createActions(ctx) {
      * Give a clip a speed curve (null: back to constant 1x). key coalesces a
      * drag into one undo step; span keeps the source length the drag began with.
      */
-    setSpeedCurve(id, points, { label = 'Speed curve', key = null, span } = {}) {
-      return store.update(label, (p) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}) }), key ? { coalesce: `${key}:${id}` } : {});
+    setSpeedCurve(id, points, { label = 'Speed curve', key = null, span, dropRamp = false } = {}) {
+      return store.update(label, (p) => T.setSpeedCurve(p, id, points, { ...store.opts, ...(span !== undefined ? { span } : {}), dropRamp }), key ? { coalesce: `${key}:${id}` } : {});
+    },
+
+    /** Move the selected clips by whole frames (negative: earlier), as one undo step per run of presses. */
+    nudgeSelected(frames) {
+      const ids = sel();
+      const lead = ids.map((id) => T.findClip(store.project, id)).find(Boolean);
+      if (!lead) return false;
+      const d = Math.round((frames * US) / store.fps);
+      return store.update('Nudge clip', (p) => T.moveClip(p, lead.clip.id, { start: Math.max(0, lead.clip.start + d), trackId: lead.track.id }, { ...store.opts, with: ids }), { coalesce: `nudge:${ids.join(',')}` });
+    },
+
+    /** Velocity ramp (curve plus accent) in one undo step; null removes it. */
+    applySpeedRamp(id, rampId, { accent = true, label = rampId ? 'Velocity ramp' : 'Remove velocity ramp' } = {}) {
+      return store.update(label, (p) => T.applySpeedRamp(p, id, rampId, { ...store.opts, accent }));
+    },
+
+    /** Turn the accent of a clip's velocity ramp on or off (the curve stays as it is). */
+    setRampAccent(id, on) {
+      return store.update(on ? 'Add ramp accent' : 'Remove ramp accent', (p) => T.setRampAccent(p, id, on));
     },
 
     toggleClipMute(id) {

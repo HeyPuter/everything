@@ -13,6 +13,7 @@ import { TRACK_KIND_FOR, makeTrack } from './project.js';
 import { splitKeyframes, shiftKeyframes, scaleKeyframes } from './keyframes.js';
 import { beatTimes } from './audio.js';
 import { hasCurve, sourceOffset, sourceSpan, sliceCurve, meanSpeed, edgeSpeeds, localAtSource, normalizeCurve, remapKeyframes, curveTable, curveDuration } from './speed-curve.js';
+import { findRamp, rampPoints, addRampAccents, stripRampAccents } from './speed-ramps.js';
 
 /** Shortest clip the editor allows, one frame at 60 fps rounded up. */
 export const MIN_CLIP = 16_667;
@@ -507,6 +508,8 @@ export function setSpeed(project, id, speed, opts = {}) {
   const span = curved ? sourceSpan(clip) : clip.duration * clip.speed;
   const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(span / s)), opts);
   const before = { ...clip };
+  // Constant speed replaces a velocity ramp, accents included.
+  if (clip.speedRamp) stripRampAccents(clip);
   withRipple(project, opts, () => {
     // A curved clip's keys follow the footage; constant speed just scales them.
     if (clip.keyframes) clip.keyframes = curved ? remapKeyframes(clip.keyframes, (t) => sourceOffset(before, t) / s, duration) : scaleKeyframes(clip.keyframes, duration / clip.duration);
@@ -532,7 +535,8 @@ function fitDuration(track, clip, duration, opts) {
  * its timeline length changes (limited by the next clip without ripple).
  * opts.span overrides the source length to keep (a drag keeps the one it
  * started with so rounding never accumulates). Keyframes stay on the same
- * moments of the footage.
+ * moments of the footage. opts.dropRamp takes away a velocity ramp marker
+ * and its accents (a different preset replaces the ramp).
  */
 export function setSpeedCurve(project, id, points, opts = {}) {
   const found = findClip(project, id);
@@ -541,6 +545,8 @@ export function setSpeedCurve(project, id, points, opts = {}) {
   const pts = normalizeCurve(points);
   if (!pts) return false;
   const { clip, track } = found;
+  // A different curve preset replaces a velocity ramp; edits keep it (shown as edited).
+  if (opts.dropRamp && clip.speedRamp) stripRampAccents(clip);
   const span = opts.span ?? sourceSpan(clip);
   const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(curveDuration(pts, span))), opts);
   const before = { ...clip };
@@ -551,6 +557,44 @@ export function setSpeedCurve(project, id, points, opts = {}) {
     if (clip.keyframes) clip.keyframes = remapKeyframes(clip.keyframes, (t) => localAtSource(clip, sourceOffset(before, t)), duration);
   });
   clampTransition(project, clip);
+  return true;
+}
+
+/**
+ * Give a timed clip a velocity ramp (model/speed-ramps.js): its speed curve
+ * plus, with opts.accent (default on), the ramp's accents. Replaces an
+ * earlier ramp and its accents; null takes the ramp away (constant 1x).
+ */
+export function applySpeedRamp(project, id, rampId, opts = {}) {
+  const found = findClip(project, id);
+  if (!found || !isTimed(found.clip) || found.clip.freeze || found.track.locked) return false;
+  const { clip } = found;
+  if (rampId === null) {
+    if (!clip.speedRamp && !hasCurve(clip)) return false;
+    stripRampAccents(clip);
+    if (hasCurve(clip)) setSpeedCurve(project, id, null, opts);
+    return true;
+  }
+  const ramp = findRamp(rampId);
+  if (!ramp) return false;
+  stripRampAccents(clip);
+  if (!setSpeedCurve(project, id, rampPoints(rampId), opts)) return false;
+  const accent = opts.accent !== false;
+  clip.speedRamp = { id: rampId, accent };
+  if (accent) addRampAccents(clip, ramp);
+  return true;
+}
+
+/** Turn a ramped clip's accent on or off, keeping its curve (tweaked or not). */
+export function setRampAccent(project, id, on) {
+  const found = findClip(project, id);
+  const ramp = findRamp(found?.clip.speedRamp?.id);
+  if (!ramp || found.track.locked) return false;
+  const { clip } = found;
+  if ((clip.speedRamp.accent !== false) === on) return false;
+  stripRampAccents(clip);
+  clip.speedRamp = { id: ramp.id, accent: on };
+  if (on) addRampAccents(clip, ramp);
   return true;
 }
 

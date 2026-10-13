@@ -389,6 +389,98 @@
   padding: 16px 4px;
 }
 
+/* Keyboard layouts and conflicts. */
+.shortcut-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.shortcut-layout .segmented {
+  justify-self: start;
+}
+
+.shortcut-layout .segmented button {
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.shortcut-layout-desc {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.shortcut-tab.is-warning {
+  color: var(--warning);
+}
+
+.shortcut-conflicts {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-size: 12px;
+}
+
+.shortcut-conflicts[hidden] {
+  display: none;
+}
+
+.shortcut-conflicts-title {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.shortcut-conflicts-title .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warning);
+}
+
+.shortcut-conflicts ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 96px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+}
+
+.shortcut-conflicts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kbd-chip.static {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+}
+
+.shortcut-clash {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--warning);
+}
+
+.shortcut-row.has-conflict {
+  box-shadow: inset 2px 0 0 var(--warning);
+}
+
 /* Title bar menu bar --------------------------------------------------------- */
 .menubar {
   display: flex;
@@ -964,11 +1056,14 @@
   box-shadow: inset 0 0 0 2px var(--accent-soft);
 }
 
-/* Asset tab row: compact tabs, arrows when they don't all fit. */
+/* Asset tab row: compact tabs (icon over a short label) spread across the
+   panel; the ones that don't fit go into a More menu (panels/index.js). */
 .asset-tabs-bar {
   position: relative;
   flex: none;
   display: flex;
+  align-items: stretch;
+  padding: 0 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -976,44 +1071,107 @@
   flex: 1;
   min-width: 0;
   border-bottom: 0;
+  overflow: hidden;
 }
 
-.asset-tabs .tab {
-  min-width: 42px;
-  padding: 5px 4px 4px;
-  font-size: 10.5px;
+.tablist.asset-tabs {
+  gap: 0;
+  padding: 4px 0 0;
+  min-width: 0;
+  justify-content: space-between;
+}
+
+.asset-tabs .tab,
+.asset-tabs-more {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  padding: 5px 3px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
   white-space: nowrap;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
-.asset-tabs-arrow {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 22px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-2);
-  background: var(--bg-panel);
+.asset-tabs .tab .icon,
+.asset-tabs-more .icon {
+  width: 18px;
+  height: 18px;
 }
 
-.asset-tabs-arrow.left {
-  left: 0;
-  box-shadow: 6px 0 8px -4px rgba(0, 0, 0, 0.35);
-}
-
-.asset-tabs-arrow.right {
-  right: 0;
-  box-shadow: -6px 0 8px -4px rgba(0, 0, 0, 0.35);
-}
-
-.asset-tabs-arrow:hover {
-  color: var(--text);
-}
-
-.asset-tabs-arrow[hidden] {
+.asset-tabs .tab[hidden],
+.asset-tabs-more[hidden] {
   display: none;
+}
+
+/* Tight: when the row is short of room, before tabs move to More. */
+.asset-tabs-bar.is-tight .tab,
+.asset-tabs-bar.is-tight .asset-tabs-more {
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 9px;
+  letter-spacing: -0.01em;
+}
+
+.asset-tabs-bar.is-tight .asset-tabs-more {
+  min-width: 34px;
+}
+
+/* Measured at their natural width (no stretching) to decide what fits. */
+.asset-tabs-bar.is-measuring .tab,
+.asset-tabs-bar.is-measuring .asset-tabs-more {
+  flex: none;
+}
+
+/* Active tab: accent label and a short bar on the panel edge. */
+.asset-tabs .tab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 18px;
+  height: 2px;
+  margin-left: -9px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--t) var(--ease);
+}
+
+.asset-tabs .tab[aria-selected='true']::after {
+  transform: scaleX(1);
+}
+
+.asset-tabs .tab:focus-visible,
+.asset-tabs-more:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.asset-tabs-more {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 4px;
+  min-width: 40px;
+  color: var(--text-2);
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.asset-tabs-more[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asset-tabs .tab::after {
+    transition: none;
+  }
 }
 
 /* Phones: the narrow track headers keep only their icons. */

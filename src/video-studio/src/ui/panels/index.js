@@ -1,11 +1,14 @@
 /**
  * Assets panel (top left): a row of category tabs (Media, Audio, Text,
- * Captions, Graphics, Transitions, Effects, Filters, Color) over a
- * sidebar of sub-categories and a grid of items.
+ * Captions, Graphics, Transitions, Effects, Filters, Color, Templates)
+ * over a sidebar of sub-categories and a grid of items. The tabs are
+ * compact (icon over a short label) so they all fit a default-width panel;
+ * when the panel is narrower the ones that don't fit go into a More menu.
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { tabs } from '../controls.js';
+import { menuButton } from '../menu.js';
 import { prefs, setPref } from '../prefs.js';
 import { mediaTab } from './media.js';
 import { audioTab } from './audio.js';
@@ -31,6 +34,31 @@ export const ASSET_TABS = [
   { id: 'templates', label: 'Templates', icon: 'template', make: templatesTab },
 ];
 
+/**
+ * Indexes of the tabs to show in a row avail px wide: as many as fit in
+ * order, with room kept for the More button (moreW) when some don't. The
+ * active tab always shows, taking the last place when it would not fit.
+ */
+export function fitTabs(widths, avail, moreW, active = 0, gap = 0) {
+  const total = widths.reduce((a, w) => a + w, 0) + gap * Math.max(0, widths.length - 1);
+  if (total <= avail + 0.5) return widths.map((_, i) => i);
+  const room = avail - moreW;
+  const shown = [];
+  let used = 0;
+  for (let i = 0; i < widths.length; i++) {
+    const w = widths[i] + (shown.length ? gap : 0);
+    if (used + w > room + 0.5) break;
+    shown.push(i);
+    used += w;
+  }
+  if (active >= 0 && !shown.includes(active)) {
+    // Drop tabs from the end until the active one fits.
+    while (shown.length && used + widths[active] + gap > room + 0.5) used -= widths[shown.pop()] + (shown.length ? gap : 0);
+    shown.push(active);
+  }
+  return shown;
+}
+
 export function createAssetsPanel(ctx) {
   const made = new Map();
   let current = ASSET_TABS.some((t) => t.id === prefs().assetsTab) ? prefs().assetsTab : 'media';
@@ -43,24 +71,48 @@ export function createAssetsPanel(ctx) {
     onChange: (id) => show(id),
   });
   const scroller = h('div.asset-tabs-wrap', bar.el);
-  // When the panel is too narrow for every tab, arrows scroll the row.
-  const leftBtn = h('button.asset-tabs-arrow.left', { type: 'button', tabindex: '-1', 'aria-hidden': 'true' }, icon('chevronLeft', 14));
-  const rightBtn = h('button.asset-tabs-arrow.right', { type: 'button', tabindex: '-1', 'aria-hidden': 'true' }, icon('chevronRight', 14));
-  leftBtn.addEventListener('click', () => scroller.scrollBy({ left: -160, behavior: 'smooth' }));
-  rightBtn.addEventListener('click', () => scroller.scrollBy({ left: 160, behavior: 'smooth' }));
-  const syncArrows = () => {
-    leftBtn.hidden = scroller.scrollLeft < 2;
-    rightBtn.hidden = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 2;
-  };
-  scroller.addEventListener('scroll', syncArrows, { passive: true });
-  scroller.addEventListener('wheel', (e) => {
-    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-    scroller.scrollLeft += e.deltaY;
-    e.preventDefault();
-  }, { passive: false });
-  new ResizeObserver(syncArrows).observe(scroller);
-  const scrollBtn = h('div.asset-tabs-bar', leftBtn, scroller, rightBtn);
-  const el = h('section.panel.assets-panel', { 'aria-label': 'Media and assets' }, scrollBtn, body);
+  // Tabs that don't fit go into a More menu (the active tab always stays in the row).
+  const more = h('button.tab.asset-tabs-more', { type: 'button', 'aria-label': 'More categories', hidden: true }, icon('more', 18), h('span.tab-label', 'More'));
+  let overflow = [];
+  menuButton(more, () => overflow.map((t) => ({ label: t.label, icon: t.icon, checked: t.id === current, onSelect: () => {
+    show(t.id);
+    bar.buttons.find((b) => b.id === `tab-${t.id}`)?.focus();
+  } })), { label: 'More categories', align: 'end' });
+  const tabsBar = h('div.asset-tabs-bar', scroller, more);
+  const el = h('section.panel.assets-panel', { 'aria-label': 'Media and assets' }, tabsBar, body);
+
+  /**
+   * Show every tab at their natural width when they fit; else tighter
+   * (smaller label, less padding); else as many as fit and a More menu.
+   */
+  function fit() {
+    const outer = getComputedStyle(tabsBar);
+    const avail = tabsBar.clientWidth - (parseFloat(outer.paddingLeft) || 0) - (parseFloat(outer.paddingRight) || 0);
+    if (avail <= 0) return;
+    tabsBar.classList.add('is-measuring');
+    bar.buttons.forEach((b) => (b.hidden = false));
+    more.hidden = false;
+    const list = getComputedStyle(bar.el);
+    const gap = parseFloat(list.columnGap) || 0;
+    const pad = (parseFloat(list.paddingLeft) || 0) + (parseFloat(list.paddingRight) || 0);
+    const measure = (tight) => {
+      tabsBar.classList.toggle('is-tight', tight);
+      return bar.buttons.map((b) => b.getBoundingClientRect().width);
+    };
+    let widths = measure(false);
+    const need = widths.reduce((a, w) => a + w, 0) + gap * (widths.length - 1);
+    if (need > avail - pad + 0.5) widths = measure(true);
+    const moreW = more.getBoundingClientRect().width;
+    tabsBar.classList.remove('is-measuring');
+    const shown = fitTabs(widths, avail - pad, moreW + gap, ASSET_TABS.findIndex((t) => t.id === current), gap);
+    bar.buttons.forEach((b, i) => (b.hidden = !shown.includes(i)));
+    overflow = ASSET_TABS.filter((_, i) => !shown.includes(i));
+    more.hidden = !overflow.length;
+    tabsBar.classList.toggle('has-more', overflow.length > 0);
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => fit()).observe(tabsBar);
+  // Label widths change once the UI font has loaded.
+  document.fonts?.ready?.then(() => fit());
 
   function show(id) {
     current = id;
@@ -73,7 +125,8 @@ export function createAssetsPanel(ctx) {
       made.set(id, tab);
     }
     body.replaceChildren(tab.el);
-    bar.el.querySelector(`[aria-selected="true"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    // A tab picked from More takes a place in the row.
+    if (bar.buttons.find((b) => b.id === `tab-${id}`)?.hidden) fit();
     body.setAttribute('aria-labelledby', `tab-${id}`);
     tab.shown?.();
   }
@@ -82,6 +135,8 @@ export function createAssetsPanel(ctx) {
   return {
     el,
     show,
+    /** Re-fit the tab row (the panel was resized). */
+    relayout: fit,
     openImport() {
       show('media');
       made.get('media')?.openImport?.();

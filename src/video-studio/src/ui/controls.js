@@ -245,18 +245,20 @@ export function tabs({ label, items, value, onChange, className = '' }) {
       b.tabIndex = on ? 0 : -1;
     });
   };
+  // Arrow keys move between the tabs on show (a row may hide some, see panels/index.js).
   list.addEventListener('keydown', (e) => {
-    const i = btns.indexOf(document.activeElement);
+    const shown = btns.filter((b) => !b.hidden);
+    const i = shown.indexOf(document.activeElement);
     if (i < 0) return;
     let j = -1;
-    if (e.key === 'ArrowRight') j = (i + 1) % btns.length;
-    if (e.key === 'ArrowLeft') j = (i - 1 + btns.length) % btns.length;
+    if (e.key === 'ArrowRight') j = (i + 1) % shown.length;
+    if (e.key === 'ArrowLeft') j = (i - 1 + shown.length) % shown.length;
     if (e.key === 'Home') j = 0;
-    if (e.key === 'End') j = btns.length - 1;
+    if (e.key === 'End') j = shown.length - 1;
     if (j >= 0) {
       e.preventDefault();
-      btns[j].focus();
-      btns[j].click();
+      shown[j].focus();
+      shown[j].click();
     }
   });
   list.append(...btns);

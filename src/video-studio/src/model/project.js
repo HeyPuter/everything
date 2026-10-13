@@ -21,7 +21,8 @@
  *   (main: true marks the base track, the one video track overlays stack on)
  * Clip  = { id, type, start, duration, ... } (see makeClip)
  *   video, image and adjust clips may also carry grade (see model/color.js)
- *   video and audio clips may carry speedCurve (see model/speed-curve.js)
+ *   video and audio clips may carry speedCurve (see model/speed-curve.js) and
+ *   speedRamp, the velocity ramp it came from (see model/speed-ramps.js)
  *   video clips may carry smoothSlow: 'blend'|'flow' (see model/slow-motion.js)
  *   video and image clips may carry masks (model/masks.js), removal
  *   (model/removal.js) and motionBlur, denoise, relight, enhance, canvas
@@ -36,6 +37,7 @@ import { normalizeGrade } from './color.js';
 import { normalizeBins, fixAssetFolders } from './bins.js';
 import { TEXT_STYLE_EXTRAS, normTextExtras } from './text-style.js';
 import { normalizeCurve, meanSpeed } from './speed-curve.js';
+import { normalizeSpeedRamp } from './speed-ramps.js';
 import { normalizeMasks } from './masks.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
@@ -298,7 +300,8 @@ function normKeyframes(k) {
     if (!Array.isArray(list) || unsafeKey(prop)) continue;
     const keys = list
       .filter((x) => x && Number.isFinite(Number(x.t)) && x.v !== undefined)
-      .map((x) => ({ t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear' }))
+      // ramp: added by a velocity ramp's accent (model/speed-ramps.js).
+      .map((x) => ({ t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear', ...(x.ramp === true ? { ramp: true } : {}) }))
       .sort((a, b) => a.t - b.t);
     if (keys.length) out[prop] = keys;
   }
@@ -391,6 +394,8 @@ export function normalizeClip(c) {
     if (curve) {
       out.speedCurve = curve;
       out.speed = meanSpeed(curve);
+      const ramp = normalizeSpeedRamp(c.speedRamp);
+      if (ramp) out.speedRamp = ramp;
     }
     // Kept at 1x too, so the choice survives a speed change; it only acts below 1x.
     const smooth = c.type === 'video' ? normalizeSmoothSlow(c.smoothSlow) : null;
