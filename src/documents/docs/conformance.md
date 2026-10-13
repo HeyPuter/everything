@@ -22882,3 +22882,79 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+## References tab: notes, fields, citations and generated tables (2026-10-13)
+
+Commands on the References tab, the Insert menu (Bookmark, Cross-reference,
+Footnote, Caption, Index and Tables) and the document menu. Evidence:
+[endnotes.test.js](../tests/endnotes.test.js),
+[toc-options.test.js](../tests/toc-options.test.js),
+[citation-styles.test.js](../tests/citation-styles.test.js),
+[bibliography-fields.test.js](../tests/bibliography-fields.test.js),
+[index-authorities.test.js](../tests/index-authorities.test.js),
+[references-fixture.test.js](../tests/references-fixture.test.js) over the
+hand-written [references fixture](../tests/fixtures/references/references.docx)
+(from [references_fixture.py](../tools/references_fixture.py)) and
+[references.spec.js](../tests/browser/references.spec.js). Browser exports and
+the refreshed fixture pass `check-docx-schema.py`, which now also validates
+bibliography custom XML items against `shared-bibliography.xsd` and item
+properties against `shared-customXmlDataProperties.xsd`.
+
+### Footnotes and endnotes (Part 1 §17.11)
+
+| Clause | Supported subset |
+| --- | --- |
+| §17.11.4 `endnote`, §17.11.6 `endnotePr`, §17.11.7 `endnoteRef`, §17.11.8 `endnoteReference`, §17.11.15 `endnotes` | Body endnote references import as atomic note marks; referenced normal endnotes are editable stories; new documents get an endnotes part with separator and continuation separator notes and its relationship and content type. Unreferenced endnotes are pruned on save as footnotes are. |
+| §17.11.14 `@customMarkFollows` | Custom-marked footnote and endnote references import, edit and save; they show no number and take none, the following run holds the mark. |
+| §17.11.17 `numFmt` | decimal, lower/upper letter, lower/upper Roman and `chicago` (\*, †, ‡, §, doubled after four) for both kinds. Other formats keep the read-only decimal approximation. |
+| §17.11.19 `numRestart` | `continuous`, `eachSect` and (footnotes) `eachPage`. Page restarts renumber after the notes' pages are known and lay out once more. |
+| §17.11.20 `numStart` | Digits only, for both kinds. |
+| §17.11.21 `pos` | Footnotes: `pageBottom` and `beneathText` (the area starts after the page's last body line). Endnotes: `docEnd`; `sectEnd` is stored and saved but endnotes are still shown after the last section. |
+| §17.11.11/§17.11.12 settings | The Footnote and Endnote dialog writes `pos`, `numFmt`, `numStart` and `numRestart` in CT_FtnDocProps/CT_EdnDocProps order, referencing the part's separator notes when the element is new. Section-level `footnotePr`/`endnotePr` are not written ("whole document" only). |
+
+Endnotes lay out after the last body line, behind a short separator, and
+continue on added pages; each note stays whole on one page and authored
+separator or continuation-notice content is not drawn. Convert swaps reference
+kinds and moves note text to the other part (the reference keeps its place).
+Note setting changes apply immediately and are saved, but are not part of undo.
+
+### Fields (Part 1 §17.16)
+
+| Field | Clause | Supported subset |
+| --- | --- | --- |
+| `TOC` | §17.16.5.68 | Generated from `\o` ranges and `\u` outline levels, `\t` style-to-level lists, `\c`/`\a` caption sequences (tables of figures) and `\f`/`\l` TC entries, scoped by `\b`. `\h` links entries, `\n` omits page numbers (all or a level range), `\p` replaces the tab, `\z` is kept. Unknown switches are retained on rebuild. Leaders and right alignment are paragraph tab stops (§17.3.1.37). Only whole-paragraph results rebuild; others refresh page numbers only. |
+| `TC` | §17.16.5.63 | Hidden entry (no separator, no result); text, `\f`, `\l`, `\n` are read for tables of contents. |
+| `PAGEREF` | §17.16.5.45 | As before; Update Table can scope the refresh to one table's references. |
+| `SEQ` | §17.16.5.56 | Captions write `\* ARABIC|alphabetic|ALPHABETIC|roman|ROMAN`; labels with spaces use underscores in the identifier. Chapter numbers (`\s`) are not evaluated. |
+| `REF` | §17.16.5.51 | Cross-references to headings, bookmarks, whole captions, label and number, or caption text, optionally followed by a `\p` above/below reference. |
+| `NOTEREF` | §17.16.5.40 | New: evaluates the note number of the note reference inside its bookmark (`\h`, `\f`, `\p`). The formatted variant is inserted as superscript text. |
+| `CITATION` | §17.16.5.8 | Inline result generated from the bibliography part: tag, `\m` extra sources, `\p` pages, `\f` prefix, `\s` suffix, `\v` volume, `\n`/`\y`/`\t` suppression, `\l` kept. Style change refreshes every citation. |
+| `BIBLIOGRAPHY` | §17.16.5.7 | Block result listing the document's sources (placeholders omitted) in the chosen style, with a hanging indent; `\l` kept. Other switches are not evaluated. |
+| `XE` | §17.16.5.72 | Mark Entry writes main/sub/third levels (escaped colons), `\t` cross-references, `\r` page-range bookmarks, `\b`, `\i`, `\f`; new entries are written without a separator. |
+| `INDEX` | §17.16.5.29 | Generated with collation, three levels, indented or `\r` run-in, `\h` letter headings, `\e` (tab with right-aligned leader), `\l`, `\g`, `\k`, `\f`, `\b`, `\p`, `\z`; `\c` columns is stored but shown in one column (no section columns are created). |
+| `TA` | §17.16.5.62 | Mark Citation writes `\l`, `\s`, `\c` on the first mark and `\s` on later ones, `\b`, `\i`. |
+| `TOA` | §17.16.5.67 | One category per field with `\h` heading, `\p` passim (five or more pages), `\f`, `\e`, `\l`; "All" inserts one field per category in use. |
+
+Entry fields (XE, TA, TC) are hidden text: while formatting marks are shown,
+their codes are painted above the line without changing layout (an approximation
+of hidden-text display, which would reflow the line). Generated results are
+written untracked and as one undo step. Index and table-of-authorities page
+numbers come from the current layout and settle over up to four passes.
+
+### Bibliography sources (Part 1 §22.6, §22.5)
+
+Sources live in a custom XML item (`b:Sources`) found through the main
+document's `customXml` relationship; a new item gets `itemProps` (§22.5.2.1)
+with a schema reference to the bibliography namespace. `SelectedStyle` and
+`StyleName` record this editor's style identifier and name (no style sheet is
+referenced). Source types are all of ST_SourceType; the dialog edits the name
+roles and text fields listed in `bibliography.js`. Sources not edited are written
+back byte-for-byte; an edited source keeps elements this editor does not edit.
+DOI is entered as a URL (the schema has no DOI element). The master list is the
+account's own (device storage and Puter KV), not part of the document.
+
+Citation styles are original formatters of the public APA 7, MLA 9, Chicago
+author-date, IEEE and Harvard rules for the common source types; style manuals'
+long tail (translators in every style, series, multiple editions, legal
+citation forms beyond the basic case entry, non-English conventions) is not
+covered. A schema pass is not a check of citation correctness.
