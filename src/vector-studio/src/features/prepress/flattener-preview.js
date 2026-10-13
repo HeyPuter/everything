@@ -200,10 +200,10 @@ export class FlattenerPreviewPanel extends Panel {
     this.fitBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Fit artboard', onclick: () => this.fit() }, icon('maximize', 14));
     this.body = h(
       'div.fp-body',
-      h('div.fp-row', this.refreshBtn, h('label.fp-field', 'Highlight', this.highlight)),
+      h('label.fp-field', 'Highlight', this.highlight),
       h('label.fp-field', 'Overprint', this.overSel),
       h('label.fp-field', 'Preset', this.presetSel),
-      this.optionsBtn,
+      h('div.fp-row', this.refreshBtn, this.optionsBtn),
       this.options,
       h('div.fp-preview', this.canvas, h('div.fp-zoom', this.zoomOut, this.fitBtn, this.zoomIn)),
       this.status,

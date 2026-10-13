@@ -299,7 +299,7 @@ export async function printDialog(app, presetEdit = null) {
         st.mode = v;
         rebuild();
       }, 'Output mode')),
-      field('Color', sel([['color', 'Color'], ['gray', 'Grayscale']], st.color, (v) => (st.color = v), 'Color')),
+      field('Color', Object.assign(sel([['color', 'Color'], ['gray', 'Grayscale']], st.color, (v) => (st.color = v), 'Color'), { disabled: seps })),
       field('Emulsion', seg('Emulsion', [['up', 'Up (right reading)'], ['down', 'Down (mirrored)']], st.emulsion, (v) => (st.emulsion = v))),
       field('Image', seg('Image', [['positive', 'Positive'], ['negative', 'Negative']], st.image, (v) => (st.image = v))),
       h('div.pd-indent', check('Convert all spot colors to process', st.spotToProcess, (v) => {

@@ -131,9 +131,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     const v = st;
     const compat = Number(v.compat);
     top.replaceChildren(
-      nameInput ? h('label.pd-preset-label', 'Name', nameInput) : null,
-      h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el),
-      saveBtn,
+      ...[nameInput ? h('label.pd-inline', 'Name', nameInput) : null, h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el, saveBtn)].filter(Boolean),
       h('label.pd-inline', 'Standard', sel([['none', 'None'], ['press', 'Print production (output intent)']], v.standard, (x) => (st.standard = x), 'Standard')),
       h('label.pd-inline', 'Compatibility', sel([['1.4', 'PDF 1.4'], ['1.5', 'PDF 1.5'], ['1.6', 'PDF 1.6'], ['1.7', 'PDF 1.7']], v.compat, (x) => (st.compat = x), 'Compatibility')),
     );
