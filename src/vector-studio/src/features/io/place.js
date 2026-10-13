@@ -11,6 +11,7 @@ import { uid } from '../../lib/ids.js';
 import { svgToNodesAsync } from './svg-import.js';
 import { withProgress } from './progress.js';
 import { blobToDataUrl, imageSize, sniffMime } from './image-info.js';
+import { fileImporters, imageDecoders } from './hooks.js';
 
 export { RASTER_EXT, PLACE_ACCEPT, fileKind } from './kinds.js';
 import { fileKind } from './kinds.js';
@@ -39,7 +40,17 @@ function targetParent(app, editor) {
 
 /** Image node data for a raster blob: { node, assetId, asset, width, height }. */
 export async function imageNodeData(blob, { name = '' } = {}) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bytes = new Uint8Array(await blob.arrayBuffer());
+  // Formats browsers cannot show (TIFF, PSD...) are converted first.
+  if (!sniffMime(bytes)) {
+    for (const decode of imageDecoders) {
+      const r = await decode(bytes, name || blob.name || '');
+      if (r) {
+        bytes = r.bytes;
+        break;
+      }
+    }
+  }
   const mime = sniffMime(bytes) || blob.type || 'image/png';
   let size = imageSize(bytes);
   const data = await blobToDataUrl(new Blob([bytes], { type: mime }));
@@ -92,12 +103,20 @@ export async function placeImage(app, editor, blob, { point, name = '', select =
 export async function placeSVG(app, editor, text, { point, name = '', select = true } = {}) {
   if (!targetParent(app, editor)) return null;
   const r = await withProgress(app, 'Importing SVG', (onProgress) => svgToNodesAsync(text, { onProgress }));
+  return placeImported(app, editor, r, { point, name, select, empty: 'The SVG has no visible artwork.' });
+}
+
+/**
+ * Insert an imported subtree ({ subtree, root, assets, bounds, warnings },
+ * optionally swatches and patterns for the document) centered at `point`.
+ */
+export function placeImported(app, editor, r, { point, name = '', select = true, empty = 'The file has no visible artwork.', onInsert = null } = {}) {
   // The document may have closed or changed while the import ran.
   if (app.editors && !app.editors.includes(editor)) return null;
   const parent = targetParent(app, editor);
   if (!parent) return null;
   if (!r.root) {
-    app.notify('The SVG has no visible artwork.');
+    app.notify(empty);
     return null;
   }
   const doc = editor.doc;
@@ -105,6 +124,7 @@ export async function placeSVG(app, editor, text, { point, name = '', select = t
   const p = point || viewCenter(editor);
   let id = null;
   doc.transact('Place', () => {
+    onInsert?.(doc);
     const root = { ...r.subtree.nodes[0] };
     if (name && !root.name) root.name = name;
     const placed = doc.importSubtree({ root: r.root, nodes: [root, ...r.subtree.nodes.slice(1)] }, parent);
@@ -139,11 +159,12 @@ export async function placeFile(app, editor, file, opts = {}) {
   try {
     if (kind === 'svg') return await placeSVG(app, editor, await svgFileText(file), { name: baseName(file.name), ...opts });
     if (kind === 'image') return await placeImage(app, editor, file, { name: baseName(file.name), ...opts });
+    if (kind && fileImporters[kind]) return await fileImporters[kind].place(app, editor, file, { name: baseName(file.name), ...opts });
   } catch (err) {
     app.notify(err?.message || `Could not place ${file.name || 'the file'}.`, { error: true });
     return null;
   }
-  app.notify(`${file.name || 'This file'} is not a format that can be placed. Use SVG, PNG, JPEG, WebP or GIF.`, { error: true });
+  app.notify(`${file.name || 'This file'} is not a format that can be placed. Use SVG, PDF, EPS, DXF, PNG, JPEG, WebP, GIF, TIFF, BMP or PSD.`, { error: true });
   return null;
 }
 

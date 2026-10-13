@@ -98,7 +98,7 @@ export function installSystemIO(app, loadIO) {
       await internalPaste();
       return true;
     }
-    const placeable = files.filter((f) => fileKind(f) === 'svg' || fileKind(f) === 'image');
+    const placeable = files.filter((f) => fileKind(f) && fileKind(f) !== 'document');
     const svgText = extractSVG(text) || extractSVG(html);
     if (svgText) {
       try {
@@ -198,7 +198,7 @@ function hasFiles(e) {
 
 async function openDropped(app, file, load) {
   const kind = fileKind(file);
-  if (kind === 'document' || (kind === 'svg' && app.openFileBlob)) {
+  if (kind === 'document' || ((kind === 'svg' || kind === 'pdf' || kind === 'eps' || kind === 'dxf') && app.openFileBlob)) {
     if (app.openFileBlob) return app.openFileBlob(file);
     app.notify('Opening documents is not available.', { error: true });
     return null;

@@ -43,11 +43,14 @@ import { install as installWorkspace } from './features/workspace/index.js';
 import { install as installLayers } from './features/layers/index.js';
 import { install as installPrepress } from './features/prepress/index.js';
 import { install as installGenerative } from './features/generative/index.js';
+import { install as installInterop } from './features/interop/index.js';
 
 export function installFeatures(app) {
   installHome(app);
   installIO(app);
   installFiles(app);
+  // After files and io: adds PDF, EPS, DXF and raster import/export to their hooks.
+  installInterop(app);
   installGeometry(app);
   installPaint(app);
   installArtboards(app);
