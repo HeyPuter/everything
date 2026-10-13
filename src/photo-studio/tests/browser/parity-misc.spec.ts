@@ -68,6 +68,29 @@ test('guides dropped on an artboard belong to it and move with it', async ({ pag
   await run(page, 'view.show-canvas-guides');
   await expect(page.locator('#overlay line.guide')).toHaveCount(2);
 
+  // Show → None hides every kind; Guides (Mod+;) brings both kinds back.
+  await run(page, 'view.show-none');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(0);
+  await run(page, 'view.show-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(2);
+  // While guides are hidden both kinds show unchecked; choosing one shows
+  // guides with that kind on rather than turning it off.
+  await run(page, 'view.show-artboard-guides');
+  await run(page, 'view.show-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(0);
+  const checked = () => page.evaluate(async () => {
+    const { commands } = await import('/src/app/registry.ts');
+    const e = window.photoStudio;
+    return ['view.show-guides', 'view.show-canvas-guides', 'view.show-artboard-guides'].map((id) => commands.get(id)!.checked!(e));
+  });
+  expect(await checked()).toEqual([false, false, false]);
+  await run(page, 'view.show-canvas-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(1);
+  await expect(page.locator('#overlay line.guide.artboard-guide')).toHaveCount(0);
+  expect(await checked()).toEqual([true, true, false]);
+  await run(page, 'view.show-artboard-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(2);
+
   // Clear Selected Artboard Guides keeps canvas guides.
   await run(page, 'view.guides-clear-artboard');
   const after = await page.evaluate(() => ({ canvas: window.photoStudio.doc.guides, board: window.photoStudio.doc.layers.at(-1)!.artboard!.guides }));
@@ -97,6 +120,48 @@ test('an artboard guide is selected and moved with the Move tool and survives a 
     return r.document.layers.at(-1)!.artboard!.guides;
   });
   expect(restored).toEqual([{ orientation: 'vertical', position: 120 }]);
+});
+
+test('resizing an artboard from its left and top edges keeps its guides on the content', async ({ page }) => {
+  await addArtboard(page); // (300, 50), 250 × 300
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Guides', (d) => {
+      d.layers.at(-1)!.artboard!.guides = [{ orientation: 'vertical', position: 100 }, { orientation: 'horizontal', position: 70 }, { orientation: 'vertical', position: 10 }];
+    });
+    e.transform.snapping = false;
+    e.setTool('artboard');
+    e.update();
+  });
+  await idle(page);
+  const dragHandle = async (handle: string, from: [number, number], to: [number, number]) => {
+    const box = (await page.locator(`#overlay [data-artboard-handle="${handle}"] .handle-hit`).boundingBox())!;
+    const [fx, fy] = await client(page, ...from),
+      [tx, ty] = await client(page, ...to);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + tx - fx, box.y + box.height / 2 + ty - fy, { steps: 6 });
+    await page.mouse.up();
+    await idle(page);
+  };
+  // Grow from the top-left corner: the guides stay where they were in the document.
+  await dragHandle('nw', [300, 50], [250, 20]);
+  const state = () =>
+    page.evaluate(() => {
+      const a = window.photoStudio.doc.layers.find((l) => l.artboard)!.artboard!;
+      return { rect: a.rect, guides: a.guides };
+    });
+  expect(await state()).toEqual({
+    rect: { x: 250, y: 20, width: 300, height: 330 },
+    guides: [{ orientation: 'vertical', position: 150 }, { orientation: 'horizontal', position: 100 }, { orientation: 'vertical', position: 60 }],
+  });
+  await expect(page.locator('#overlay line.guide.artboard-guide')).toHaveCount(3);
+  // Shrink from the left edge past the guide at x = 310: it is dropped, the others stay put.
+  await dragHandle('w', [250, 185], [330, 185]);
+  expect(await state()).toEqual({
+    rect: { x: 330, y: 20, width: 220, height: 330 },
+    guides: [{ orientation: 'vertical', position: 70 }, { orientation: 'horizontal', position: 100 }],
+  });
 });
 
 test('New Guides From Shape uses the outline of a shape layer', async ({ page }) => {
@@ -188,7 +253,9 @@ test('Refine Mask Edge rewrites the mask near its edge', async ({ page }) => {
     // A loose rectangular mask on the gray layer.
     const m = new Uint8Array(600 * 400);
     for (let y = 100; y < 300; y++) for (let x = 150; x < 450; x++) m[y * 600 + x] = 255;
-    const grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 600, height: 400, data: m });
+    let grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 600, height: 400, data: m });
+    // Mask data off the canvas (left of it) must survive the refinement.
+    grid = writeRect(e.assets.tiles, grid, -300, 0, { width: 40, height: 40, data: new Uint8Array(1600).fill(77) });
     e.command('Mask', (d) => void (d.layers[0].maskGrid = grid));
     e.selectLayers([e.doc.layers[0].id]);
   });
@@ -202,13 +269,15 @@ test('Refine Mask Edge rewrites the mask near its edge', async ({ page }) => {
     const e = window.photoStudio;
     const { readMask } = await import('/src/model/tiles.ts');
     const m = readMask(e.assets.tiles, e.doc.layers[0].maskGrid!, { x: 0, y: 0, width: 600, height: 400 });
-    return [m.data[200 * 600 + 300], m.data[200 * 600 + 150], m.data[10 * 600 + 10]];
+    const off = readMask(e.assets.tiles, e.doc.layers[0].maskGrid!, { x: -290, y: 10, width: 1, height: 1 });
+    return [m.data[200 * 600 + 300], m.data[200 * 600 + 150], m.data[10 * 600 + 10], off.data[0]];
   });
   // Inside stays shown, the edge is softened, far outside stays hidden.
   expect(values[0]).toBe(255);
   expect(values[1]).toBeGreaterThan(0);
   expect(values[1]).toBeLessThan(255);
   expect(values[2]).toBe(0);
+  expect(values[3]).toBe(77);
 });
 
 test('block text, vertical forms and named stylistic sets', async ({ page }) => {

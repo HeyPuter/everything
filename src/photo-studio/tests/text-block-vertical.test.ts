@@ -44,6 +44,22 @@ describe('block text', () => {
     expect(lay.lines[1].y - lay.lines[0].y).toBeCloseTo(0.22 * first + 0.7 * lay.runs[1].sizePx, 5);
   });
 
+  it('keeps each underline and strikethrough on its own line', () => {
+    for (const leading of ['auto', 12, 4] as const) {
+      for (const kind of ['underline', 'strikethrough'] as const) {
+        const text = 'ABCD\nABCDEFGH';
+        const content = applyCharStyle(fromPlainText(text, { ...style, leading }), 0, text.length, { [kind]: true });
+        const lay = layoutText(point('', { content, block: { width: 160, gap: 4 } }), { measure: mono });
+        expect(lay.decorations.length).toBe(2);
+        // Each spans its own line's full (scaled) width and sits near its baseline.
+        lay.decorations.forEach((d, i) => {
+          expect(d.width).toBeCloseTo(160, 5);
+          expect(Math.abs(d.y - lay.lines[i].y)).toBeLessThan(lay.lines[i].ascent);
+        });
+      }
+    }
+  });
+
   it('places the block by its alignment', () => {
     const centered = point('AB\nABCD', { block: { width: 80, gap: 0 } });
     centered.content.paragraphs.forEach((p) => (p.style.align = 'center'));

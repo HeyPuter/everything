@@ -2,6 +2,7 @@
 // machine. Pure (no DOM, no editor), so tests can drive it with plain
 // objects; tour-ui.ts connects it to the workspace.
 import { allLayers, type Layer, type PhotoDocument } from '../../model/document';
+import type { TileGrid } from '../../model/tiles';
 import type { Activity } from '../../app/activity';
 import type { SampleId } from './samples';
 
@@ -52,6 +53,17 @@ const layersOf = (v: TourView) => allLayers(v.doc.layers);
 const byId = (v: TourView, id: string) => layersOf(v).find((l) => l.id === id);
 const count = (v: TourView, f: (l: Layer) => boolean) => layersOf(v).filter(f).length;
 const hasLayerMask = (l: Layer | undefined) => !!(l?.maskGrid || l?.maskAsset || l?.pixelMask);
+// History states are deep copies, so object identity says nothing about
+// whether content changed: compare tile IDs (tiles are immutable, so new
+// content means new IDs) and the fill of absent tiles. Position is left out:
+// moving a layer does not change its pixels.
+const tilesOf = (g: TileGrid | undefined) =>
+  g ? `${g.fill ?? 0}|${Object.keys(g.tiles).sort().map((k) => `${k}=${g.tiles[k]}`).join(';')}` : '';
+const maskOf = (l: Layer) => `${tilesOf(l.maskGrid)}|${l.maskAsset ?? ''}|${JSON.stringify(l.pixelMask ?? null)}`;
+const selectionOf = (d: PhotoDocument) => {
+  const m = d.selectionMask;
+  return `${JSON.stringify(d.selection ?? null)}|${m ? `${m.x},${m.y}|${tilesOf(m)}` : ''}`;
+};
 
 export const checks = {
   /** More layers than when the step began. */
@@ -62,7 +74,7 @@ export const checks = {
   pixelsChanged: ((now, base) => {
     const l = byId(now, now.selected),
       before = byId(base, now.selected);
-    return !!l?.pixels && !!before && l.pixels !== before.pixels;
+    return !!l?.pixels && !!before && tilesOf(l.pixels) !== tilesOf(before.pixels);
   }) as Check,
   /** Some layer gained a layer mask. */
   maskAdded: ((now, base) => layersOf(now).some((l) => hasLayerMask(l) && !hasLayerMask(byId(base, l.id)))) as Check,
@@ -70,10 +82,10 @@ export const checks = {
   maskEdited: ((now, base) =>
     layersOf(now).some((l) => {
       const before = byId(base, l.id);
-      return hasLayerMask(l) && hasLayerMask(before) && (l.maskGrid !== before!.maskGrid || l.maskAsset !== before!.maskAsset || l.pixelMask !== before!.pixelMask);
+      return hasLayerMask(l) && hasLayerMask(before) && maskOf(l) !== maskOf(before!);
     })) as Check,
   /** There is a selection that was not there (or was different) before. */
-  selectionMade: ((now, base) => !!now.doc.selection && (now.doc.selection !== base.doc.selection || now.doc.selectionMask !== base.doc.selectionMask)) as Check,
+  selectionMade: ((now, base) => !!now.doc.selection && selectionOf(now.doc) !== selectionOf(base.doc)) as Check,
   /** Some layer's opacity was lowered. */
   opacityLowered: ((now, base) => layersOf(now).some((l) => l.opacity < (byId(base, l.id)?.opacity ?? 1) - 1e-6)) as Check,
   /** Some layer that was visible is hidden. */

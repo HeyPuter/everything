@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { cropDocument, mapDocumentGeometry, newDocument, type PhotoDocument } from '../src/model/document';
 import { createArtboard } from '../src/model/artboard';
-import { guideLines, mergeGuides, migrateGuides, parseGuideKey, placedGuides, rectGuides, removeGuides, setOwnerGuides, guideKey } from '../src/model/guides';
+import { guideLines, mergeGuides, migrateGuides, parseGuideKey, placedGuides, rectGuides, removeGuides, resizedArtboardGuides, setArtboardRect, setOwnerGuides, guideKey } from '../src/model/guides';
 import { deserialize, serialize } from '../src/model/serialization';
 import { Assets } from '../src/model/assets';
 import { lineTargets } from '../src/model/transform';
-import { layoutGuides } from '../src/features/guides';
+import { layoutGuides, setGuidesShown, toggleGuideKind } from '../src/features/guides';
 import { actualSizeZoom } from '../src/app/view-transform';
 
 function withArtboard(): PhotoDocument {
@@ -124,5 +124,65 @@ describe('actual size zoom', () => {
     // Unknown ratios fall back to CSS pixels.
     expect(actualSizeZoom(0)).toBe(1);
     expect(actualSizeZoom(Number.NaN)).toBe(1);
+  });
+});
+
+describe('guide visibility', () => {
+  it('shows both kinds when guides are shown with both hidden (after Show → None)', () => {
+    const p = { showGuides: false, showCanvasGuides: false, showArtboardGuides: false };
+    setGuidesShown(p, true);
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: true });
+    // A kind hidden on purpose stays hidden.
+    const q = { showGuides: false, showCanvasGuides: true, showArtboardGuides: false };
+    setGuidesShown(q, true);
+    expect(q).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: false });
+    setGuidesShown(q, false);
+    expect(q.showGuides).toBe(false);
+  });
+
+  it('a kind chosen while guides are hidden shows guides with that kind', () => {
+    // The menu shows both kinds unchecked while guides are off.
+    const p = { showGuides: false, showCanvasGuides: true, showArtboardGuides: false };
+    toggleGuideKind(p, 'showCanvasGuides');
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: false });
+    const q = { showGuides: false, showCanvasGuides: false, showArtboardGuides: false };
+    toggleGuideKind(q, 'showArtboardGuides');
+    expect(q).toEqual({ showGuides: true, showCanvasGuides: false, showArtboardGuides: true });
+  });
+
+  it('toggles a kind while guides are shown and hides guides with the last kind', () => {
+    const p: { showGuides: boolean; showCanvasGuides?: boolean; showArtboardGuides?: boolean } = { showGuides: true };
+    toggleGuideKind(p, 'showArtboardGuides');
+    expect(p).toEqual({ showGuides: true, showArtboardGuides: false });
+    toggleGuideKind(p, 'showCanvasGuides');
+    expect(p).toEqual({ showGuides: false, showCanvasGuides: false, showArtboardGuides: false });
+    setGuidesShown(p, true);
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: true });
+  });
+});
+
+describe('artboard guides through a resize', () => {
+  it('stay on the content when the left or top edge moves', () => {
+    const doc = withArtboard(); // artboard at (100, 50), guides at x = 120 and y = 60
+    const a = doc.layers[0] as Parameters<typeof setArtboardRect>[0];
+    const before = placedGuides(doc, { canvas: false }).map((g) => g.position);
+    setArtboardRect(a, { x: 60, y: 20, width: 240, height: 180 });
+    expect(a.artboard.guides).toEqual([{ orientation: 'vertical', position: 60 }, { orientation: 'horizontal', position: 40 }]);
+    expect(placedGuides(doc, { canvas: false }).map((g) => g.position)).toEqual(before);
+  });
+
+  it('drops guides the new rectangle no longer covers', () => {
+    const g = [{ orientation: 'vertical' as const, position: 20 }, { orientation: 'horizontal' as const, position: 10 }, { orientation: 'vertical' as const, position: 180 }];
+    // Left edge moved right past the first guide; the right edge stays.
+    expect(resizedArtboardGuides(g, { x: 100, y: 50, width: 200, height: 150 }, { x: 150, y: 50, width: 150, height: 150 })).toEqual([
+      { orientation: 'horizontal', position: 10 },
+      { orientation: 'vertical', position: 130 },
+    ]);
+    // Narrower from the right: the guide at 180 falls outside.
+    expect(resizedArtboardGuides(g, { x: 100, y: 50, width: 200, height: 150 }, { x: 100, y: 50, width: 100, height: 150 })).toEqual(g.slice(0, 2));
+    const doc = withArtboard();
+    const a = doc.layers[0] as Parameters<typeof setArtboardRect>[0];
+    setArtboardRect(a, { x: 200, y: 100, width: 10, height: 10 });
+    expect(a.artboard.guides).toBeUndefined();
   });
 });

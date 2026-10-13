@@ -30,6 +30,7 @@ import {
   type ArtboardLayer,
 } from '../../model/artboard';
 import { frameAt } from '../../model/frame';
+import { setArtboardRect } from '../../model/guides';
 import { closestSnap, handles, snapTargets, snapTranslation, transformSelection, type ResizeHandle } from '../../model/transform';
 import { layerLock } from '../../model/locks';
 import { layerMoveHooks, pickFallbacks } from '../../ui/transform';
@@ -201,7 +202,7 @@ function pointerMove(e: Editor, p: CanvasPointer) {
   const draft = structuredClone(e.doc);
   const a = findLayer(draft.layers, drag.id);
   if (isArtboard(a)) {
-    a.artboard.rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    setArtboardRect(a, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
     a.artboard.preset = matchingPreset(x1 - x0, y1 - y0, a.artboard.preset)?.id;
   }
   drag.draft = draft;
@@ -292,7 +293,7 @@ export function resizeArtboard(e: Editor, id: string, rect: Rect, preset?: strin
   layoutCommand(e, 'Resize Artboard', (d) => {
     const a = findLayer(d.layers, id);
     if (!isArtboard(a)) return;
-    a.artboard.rect = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) };
+    setArtboardRect(a, { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.max(1, Math.round(rect.width)), height: Math.max(1, Math.round(rect.height)) });
     a.artboard.preset = matchingPreset(a.artboard.rect.width, a.artboard.rect.height, preset)?.id;
   });
 }

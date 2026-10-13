@@ -69,7 +69,8 @@ export type GlyphRun = {
   angle?: number;
 };
 // `points`, when present, is the decoration's centerline along a path.
-export type Decoration = { kind: 'underline' | 'strikethrough'; x: number; y: number; width: number; thickness: number; color: [number, number, number]; vertical: boolean; points?: [number, number][] };
+// `line` is the source start of the line the decoration belongs to.
+export type Decoration = { kind: 'underline' | 'strikethrough'; x: number; y: number; width: number; thickness: number; color: [number, number, number]; vertical: boolean; line?: number; points?: [number, number][] };
 
 export type LayoutLine = {
   paragraph: number;
@@ -773,10 +774,10 @@ function decorate(line: LayoutLine, seg: Cluster[], advs: number[], visEnd: numb
       let d: Decoration;
       if (!vertical) {
         const y = kind === 'underline' ? line.y - e.shiftPx + e.emPx * 0.1 : line.y - e.shiftPx - e.ascent * 0.3;
-        d = { kind, x: xs ? xs[i] : line.stopPos[i], y, width: len, thickness, color, vertical };
+        d = { kind, x: xs ? xs[i] : line.stopPos[i], y, width: len, thickness, color, vertical, line: line.start };
       } else {
         const x = kind === 'underline' ? line.x + e.sizePx * 0.6 : line.x;
-        d = { kind, x, y: line.stopPos[i], width: len, thickness, color, vertical };
+        d = { kind, x, y: line.stopPos[i], width: len, thickness, color, vertical, line: line.start };
       }
       const last = out[out.length - 1];
       const contiguous = last && last.kind === kind && last.thickness === d.thickness && last.color.every((v, k) => v === color[k])
