@@ -119,9 +119,12 @@ export function installCore(e: Editor) {
     const blob = await serialize(e.doc, e.assets);
     const { deserialize } = await import('../model/serialization');
     const loaded = await deserialize(blob);
-    const s = e.newSession(loaded.document);
+    // The copy is the read document itself (not a spread of it), so the
+    // project's sidecars (its provenance record) stay attached to it.
+    const doc = Object.assign(loaded.document, { id: crypto.randomUUID(), name: v.name });
+    const s = e.newSession(doc);
     s.assets = loaded.assets;
-    s.history.reset({ ...loaded.document, id: crypto.randomUUID(), name: v.name });
+    s.history.reset(doc);
     s.hasDocument = true;
     e.session = s;
     e.fit();
