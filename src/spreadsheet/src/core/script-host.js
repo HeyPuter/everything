@@ -380,6 +380,7 @@ const WRITES = {
   merge(op) {
     const { sheet, range } = this.rangeOf(op);
     this.writable(sheet, range);
+    if (op.across && range.r2 - range.r1 + 1 > 5000) this.fail('At most 5,000 rows can be merged across at once.');
     const rows = op.across ? Array.from({ length: range.r2 - range.r1 + 1 }, (_, i) => ({ ...range, r1: range.r1 + i, r2: range.r1 + i })) : [range];
     for (const rg of rows) if (rg.r1 !== rg.r2 || rg.c1 !== rg.c2) {
       if (!this.wb.mergeCells(sheet.id, rg)) this.fail(`${this.where(sheet, rg)} could not be merged (a table or an array formula may be in the way).`);
@@ -414,6 +415,7 @@ const WRITES = {
     if (!to) this.fail(`"${op.to}" is not a range.`);
     if (to.r1 > range.r1 || to.c1 > range.c1 || to.r2 < range.r2 || to.c2 < range.c2) this.fail(`The destination of autoFill must contain ${this.where(sheet, range)}.`);
     if (to.r1 !== range.r1 && to.r2 !== range.r2 && to.c1 !== range.c1 && to.c2 !== range.c2) this.fail('autoFill extends in one direction at a time.');
+    if ((to.r2 - to.r1 + 1) * (to.c2 - to.c1 + 1) > 2_000_000) this.fail('autoFill: at most 2,000,000 cells at once.');
     this.writable(sheet, to);
     this.wb.ensureSize(sheet.id, to.r2 + 1, to.c2 + 1);
     this.wb.fill(sheet.id, range, to);

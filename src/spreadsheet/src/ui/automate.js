@@ -47,9 +47,10 @@ export function addScriptButton(wb, sheetId, anchor, name) {
 
 /**
  * ctx: the editor context (wb, grid, subscribe, run). options: { env() → ScriptHost env, notify(), transport,
- * library (lib/script-library.js or null), keepFocus() }.
+ * library (lib/script-library.js or null), keepFocus(), busy(on): hold the sheet still while a script runs }.
  */
-export function createAutomate(ctx, { env = () => ({}), notify = () => {}, transport = null, library = Library, keepFocus = () => ctx.grid?.focus?.() } = {}) {
+export function createAutomate(ctx, { env = () => ({}), notify = () => {}, transport = null, library = Library, keepFocus = () => ctx.grid?.focus?.(),
+  busy = (on) => { if (ctx.grid?.el) ctx.grid.el.inert = on; } } = {}) {
   const { wb } = ctx;
   const runTransport = transport || sandboxTransport();
   let openId = null; // the workbook script in the editor
@@ -91,8 +92,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   const work = el('div.sp-work', {},
     el('div.sp-bar', {}, picker, more),
     el('div.sp-actions', {}, runButton, stopButton, status),
-    el('div.sp-code', {}, editor.el),
-    outputSplit, outputBox);
+    el('div.sp-code', {}, editor.el));
   const resizer = el('div.sp-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize Code Editor', tabindex: 0 });
   const pane = el('section.scripts-pane', { role: 'region', 'aria-label': 'Code Editor', hidden: true },
     resizer,
@@ -102,7 +102,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
       el('button.icon-btn', { type: 'button', 'aria-label': 'All scripts', title: 'All scripts', html: icon('allScripts', 18), onclick: () => gallery() }),
       el('button.icon-btn', { type: 'button', 'aria-label': 'Script reference', title: 'Script reference', html: icon('scriptReference', 18), onclick: () => openScriptReference() }),
       el('button.icon-btn', { type: 'button', 'aria-label': 'Close Code Editor', title: 'Close', html: icon('x', 18), onclick: () => hidePane() })),
-    work, empty);
+    work, empty, outputSplit, outputBox);
 
   // Widths and heights the user chose, kept for next time.
   const stored = (key, fallback) => { try { const v = Number(localStorage.getItem(key)); return v > 0 ? v : fallback; } catch { return fallback; } };
@@ -160,6 +160,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     const current = openId ? scriptById(wb, openId) : null;
     work.hidden = !current;
     empty.hidden = !!current;
+    // Without a script of the workbook's open, the output still shows what a sample or one of My Scripts said.
+    outputBox.hidden = outputSplit.hidden = !current && !output.childElementCount;
     pickerLabel.textContent = current?.name || 'No script';
     if (current && (reload || (editor.getValue() !== current.code && !saveTimer))) editor.setValue(current.code);
     runButton.disabled = !!running || !current;
@@ -267,14 +269,17 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
 
   /* ---------- Output ---------- */
 
-  function log({ level = 'log', text = '', line = 0, quiet = false }) {
+  function log({ level = 'log', text = '', line = 0, quiet = false, linkable = true }) {
     while (output.childElementCount >= MAX_LOG_ENTRIES) output.firstElementChild.remove();
     const glyph = level === 'error' ? 'alert' : level === 'warn' ? 'alert' : level === 'info' ? 'info' : quiet ? 'check' : 'chevR';
     const entry = el(`div.sp-log.sp-log-${level}${quiet ? '.sp-log-quiet' : ''}`, {},
       el('span.sp-log-icon', { html: icon(glyph, 13) }),
       el('span.sp-log-text', {}, text),
-      line ? el('button.sp-log-line', { type: 'button', title: `Go to line ${line}`, onclick: () => { if (pane.hidden) showPane(); editor.goToLine(line); } }, `Line ${line}`) : null);
+      // A line of the script in the editor is a link to it; of another (a sample, one of My Scripts), just its number.
+      line && linkable ? el('button.sp-log-line', { type: 'button', title: `Go to line ${line}`, onclick: () => { if (pane.hidden) showPane(); editor.goToLine(line); } }, `Line ${line}`)
+        : line ? el('span.sp-log-line.sp-log-line-plain', {}, `Line ${line}`) : null);
     output.append(entry);
+    outputBox.hidden = outputSplit.hidden = false;
     outputCount.textContent = `${output.childElementCount}`;
     output.scrollTop = output.scrollHeight;
   }
@@ -325,7 +330,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     stopButton.hidden = false;
     editor.setErrorLine(null);
     editor.setReadOnly(true);
-    if (ctx.grid?.el) ctx.grid.el.inert = true;
+    busy(true);
     pane.classList.add('sp-running');
     notify();
     let lastLog = null;
@@ -333,11 +338,11 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     try {
       result = await runScript({
         wb, code: script.code, transport: runTransport, env: env(), label: `Run script: ${script.name}`, signal: controller.signal,
-        onLog: (entry) => { if (entry.clear) { output.replaceChildren(); return; } lastLog = entry; log(entry); },
+        onLog: (entry) => { if (entry.clear) { output.replaceChildren(); return; } lastLog = entry; log({ ...entry, linkable: !!script.id && script.id === openId }); },
       });
     } finally {
       running = null;
-      if (ctx.grid?.el) ctx.grid.el.inert = false;
+      busy(false);
       editor.setReadOnly(false);
       pane.classList.remove('sp-running');
       stopButton.hidden = true;
@@ -352,7 +357,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     } else {
       const where = result.error.line ? ` (line ${result.error.line})` : '';
       status.textContent = result.stopped ? 'Stopped' : result.timedOut ? 'Timed out' : `Failed${where}`;
-      log({ level: 'error', text: result.error.message, line: result.error.line });
+      log({ level: 'error', text: result.error.message, line: result.error.line, linkable: !!script.id && script.id === openId });
       if (script.id && script.id === openId && result.error.line) editor.setErrorLine(result.error.line);
     }
     if (!visible) {

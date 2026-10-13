@@ -5032,6 +5032,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   automate = ctx.automate = createAutomate(ctx, {
     notify,
     keepFocus: () => keepFocus(),
+    // While a script runs, the sheet, the formula bar and the sheet tabs take no input of their own.
+    busy: (on) => { for (const node of [grid.el, formulaBar.el, sheetTabs.el]) node.inert = on; },
     env: () => ({
       name: doc.name,
       selection: () => ({ sheetId: grid.sheetId, range: { ...grid.range } }),
