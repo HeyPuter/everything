@@ -2197,7 +2197,17 @@ export function buildTabs(api) {
   // Tabs from other modules join after the tab they name, or with the
   // contextual tabs at the end.
   const extra = api.extraTabs ? api.extraTabs() : [];
-  const tabs = [home, insert, design, transitions, slideShow, review, viewTab];
+  // The Review tab comes from the review module when the editor has one.
+  const reviewTab = api.reviewTab ? api.reviewTab(api) : review;
+  const tabs = [
+    home,
+    insert,
+    design,
+    transitions,
+    slideShow,
+    reviewTab,
+    viewTab,
+  ];
   for (const t of extra.filter((t) => !t.contextual)) {
     const at = tabs.findIndex((x) => x.id === t.after);
     tabs.splice(at >= 0 ? at + 1 : tabs.length, 0, t);

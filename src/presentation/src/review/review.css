@@ -1,0 +1,860 @@
+/* The review panes, comment markers and the read-only bar. Colours come
+   from the app's tokens, so light, dark and high-contrast modes follow. */
+
+.review-pane {
+  --review-w: 320px;
+  position: relative;
+  flex: none;
+  width: var(--review-w);
+  max-width: 45vw;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  z-index: 20;
+}
+.review-pane[hidden] {
+  display: none;
+}
+.review-pane:focus {
+  outline: none;
+}
+.review-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 45px;
+  padding: 0 6px 0 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.review-pane-title {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.review-pane-tools {
+  display: flex;
+  gap: 2px;
+}
+.review-pane-head .icon-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 7px;
+}
+.review-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 20px;
+  font-size: 13px;
+}
+.review-pane-body .helper {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0;
+}
+.review-label {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.review-status {
+  margin: 8px 0;
+  color: var(--muted);
+}
+.review-error {
+  color: var(--danger);
+}
+.review-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 8px;
+  text-align: center;
+  color: var(--muted);
+}
+.review-empty p {
+  margin: 0;
+}
+.review-empty .btn {
+  margin-top: 6px;
+}
+.review-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.review-footer.top {
+  margin: 8px 0 10px;
+  padding: 0 0 10px;
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+}
+.review-footer > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.review-search {
+  display: flex;
+  gap: 6px;
+}
+.review-search .input {
+  flex: 1;
+  min-width: 0;
+}
+.review-field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.review-choices {
+  border: 0;
+  padding: 0;
+  margin: 4px 0 12px;
+}
+.btn.small {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
+/* ---- Comments ---- */
+
+.comment-filter-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.comment-slide-heading {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.comment-thread {
+  position: relative;
+  margin: 0 0 10px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: default;
+}
+.comment-thread:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.comment-thread.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.comment-thread.resolved {
+  background: var(--surface-2);
+}
+.comment-thread.resolved .comment-text,
+.comment-thread.resolved .comment-reply {
+  color: var(--muted);
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comment-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.comment-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-time {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.comment-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: hsl(var(--hue, 210) 45% 42%);
+}
+.comment-avatar.small {
+  width: 22px;
+  height: 22px;
+  font-size: 9.5px;
+}
+.comment-head .icon-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+}
+.comment-text {
+  margin: 6px 0 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.comment-mention {
+  color: var(--accent);
+  font-weight: 600;
+}
+.comment-mention.me {
+  background: var(--accent-wash);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.comment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--canvas);
+}
+.comment-anchor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-replies {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line);
+}
+.comment-reply {
+  padding: 6px 0 0;
+}
+.comment-reply .comment-text {
+  margin-top: 4px;
+}
+.comment-reply-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.comment-reply-box .mention-box {
+  flex: 1;
+}
+.comment-post {
+  flex: none;
+  min-width: 32px;
+  padding: 6px 8px;
+}
+.mention-box {
+  position: relative;
+}
+.comment-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 34px;
+  font: inherit;
+}
+.comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.mention-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 5;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.16);
+  max-height: 200px;
+  overflow: auto;
+}
+.mention-list[hidden] {
+  display: none;
+}
+.mention-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mention-list li.active,
+.mention-list li:hover {
+  background: var(--accent-wash);
+}
+
+/* Markers over the slide in the editor (never in the show or exports). */
+.comment-marker {
+  position: absolute;
+  z-index: 6;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1.5px solid #fff;
+  border-radius: 2px 12px 12px 12px;
+  background: hsl(var(--hue, 210) 45% 42%);
+  color: #fff;
+  font:
+    700 10px/1 system-ui,
+    sans-serif;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.28);
+  cursor: grab;
+  touch-action: none;
+}
+.comment-marker:hover,
+.comment-marker:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.comment-marker.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 7;
+}
+.comment-marker.resolved {
+  opacity: 0.55;
+}
+.comment-marker.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+.comment-marker-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 9px;
+  line-height: 14px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* A slide thumbnail with open comments. */
+.slide-comment-badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px 1px 3px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  pointer-events: none;
+}
+
+/* ---- Spelling ---- */
+
+.spell-word {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--danger);
+}
+.spell-context {
+  margin: 6px 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.spell-context mark {
+  background: transparent;
+  color: var(--danger);
+  text-decoration: underline wavy;
+}
+.spell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.spell-suggestions {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  max-height: 210px;
+  overflow: auto;
+}
+.spell-option {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.spell-option[aria-selected="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+.spell-option:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.spell-language {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+/* ---- Thesaurus and translation ---- */
+
+.thesaurus-meaning {
+  margin-top: 12px;
+}
+.thesaurus-sense {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.thesaurus-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.thesaurus-word {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.thesaurus-word:hover {
+  border-color: var(--accent);
+}
+.thesaurus-word[aria-selected="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.thesaurus-chosen {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.translate-pane > .btn {
+  width: 100%;
+  justify-content: center;
+}
+.translate-results {
+  margin-top: 12px;
+}
+.translate-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.translate-source {
+  margin: 0 0 4px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.translate-target {
+  margin: 0;
+  white-space: pre-wrap;
+  font-weight: 500;
+}
+
+/* ---- Accessibility ---- */
+
+.a11y-section {
+  margin-bottom: 8px;
+}
+.a11y-section h3 {
+  margin: 8px 0 4px;
+}
+.a11y-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.a11y-section.error .a11y-toggle svg:nth-child(2) {
+  color: var(--danger);
+}
+.a11y-section.warning .a11y-toggle svg:nth-child(2) {
+  color: #b7791f;
+}
+.a11y-kind {
+  margin: 6px 0 2px 26px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.a11y-items {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0 0 0 20px;
+}
+.a11y-items > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border-radius: 6px;
+}
+.a11y-items > li.selected {
+  background: var(--surface-2);
+}
+.a11y-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.a11y-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.a11y-where {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.a11y-fix-menu {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+}
+.a11y-detail {
+  grid-column: 1 / -1;
+  padding: 0 8px 10px;
+}
+.a11y-detail p {
+  margin: 2px 0 6px;
+}
+.a11y-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Reading order. */
+.order-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.order-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.order-item.selected {
+  background: var(--accent-wash);
+}
+.order-item.drop-target {
+  border-color: var(--accent);
+}
+.order-item > svg {
+  color: var(--muted);
+  cursor: grab;
+}
+.order-number {
+  width: 18px;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.order-name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.order-item .icon-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+}
+
+/* ---- Revisions ---- */
+
+.revision-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.revision-slide {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.revision-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+}
+.revision-show {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.revision-type {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.revision-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.revision-detail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.revision-detail del {
+  color: var(--danger);
+}
+.revision-detail ins {
+  text-decoration: none;
+  color: var(--ink);
+}
+.revision-item .icon-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 6px;
+}
+.end-review {
+  margin-top: 14px;
+  width: 100%;
+  justify-content: center;
+}
+
+/* ---- AutoCorrect dialog ---- */
+
+.autocorrect-options {
+  border: 0;
+  padding: 0;
+  margin: 0 0 10px;
+  display: grid;
+  gap: 6px;
+}
+.autocorrect-options legend {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.autocorrect-add {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 6px;
+  margin: 8px 0;
+}
+.autocorrect-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.autocorrect-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.autocorrect-row:last-child {
+  border-bottom: 0;
+}
+.autocorrect-row .icon-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+}
+
+/* ---- Read-only bar ---- */
+
+.final-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--accent-wash);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+}
+.final-bar[hidden] {
+  display: none;
+}
+.final-bar svg {
+  color: var(--accent);
+  flex: none;
+}
+.final-bar-text {
+  flex: 1;
+  min-width: 0;
+}
+.final-bar.flash {
+  animation: final-flash 0.6s ease-out 2;
+}
+@keyframes final-flash {
+  50% {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .final-bar.flash {
+    animation: none;
+  }
+}
+
+/* Narrow windows keep more of the slide in view. */
+@media (max-width: 1150px) {
+  .review-pane {
+    --review-w: 290px;
+  }
+}
+/* A phone has no room beside the slide: the pane is a sheet over the lower
+   part of the screen. */
+@media (max-width: 760px) {
+  .review-pane {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    height: min(66dvh, 540px);
+    z-index: 40;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 24px rgb(0 0 0 / 0.18);
+  }
+  .final-bar-text {
+    display: none;
+  }
+  .comment-marker {
+    width: 30px;
+    height: 28px;
+  }
+}
+@media (forced-colors: active) {
+  .review-pane {
+    border-left: 1px solid CanvasText;
+  }
+  .comment-marker,
+  .comment-avatar {
+    forced-color-adjust: none;
+  }
+  .thesaurus-word[aria-selected="true"],
+  .spell-option[aria-selected="true"] {
+    outline: 2px solid Highlight;
+  }
+}
+@media print {
+  .review-pane,
+  .comment-marker,
+  .final-bar,
+  .slide-comment-badge {
+    display: none !important;
+  }
+}
