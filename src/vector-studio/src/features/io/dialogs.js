@@ -12,11 +12,12 @@
 import { UserError } from '../../lib/errors.js';
 import { h } from '../../lib/dom.js';
 import { icon } from '../../ui/icons.js';
-import { FORMATS, parseRange, artworkBounds, renderFile, outlinesFor } from './jobs.js';
+import { FORMATS, allFormats, parseRange, artworkBounds, renderFile, outlinesFor } from './jobs.js';
+import { exportFormats } from './hooks.js';
 import { canSaveToPuter, deliverFiles, safeFileName } from './deliver.js';
 import { thumbnail } from './raster.js';
 import { placeFile } from './place.js';
-import { pickDeviceFiles } from './kinds.js';
+import { pickDeviceFiles, PLACE_ACCEPT } from './kinds.js';
 import { pdfOptionsDialog } from './pdf-dialog.js';
 
 let uidc = 0;
@@ -93,10 +94,16 @@ export async function formatOptionsDialog(app, format) {
     jpeg: { ppi: 72, quality: 0.8, antialias: true },
     webp: { ppi: 72, quality: 0.9, background: 'transparent', antialias: true },
   }[format];
-  const o = getPref(app, `opts.${format}`, defaults);
+  const custom = exportFormats.get(format);
+  const o = getPref(app, `opts.${format}`, custom ? custom.defaults || {} : defaults);
   const fields = [];
   const readers = [];
-  if (format === 'svg') {
+  if (custom) {
+    const spec = await custom.options?.(app, o, { row, select, checkbox, radios });
+    if (!spec) return o;
+    fields.push(...spec.fields);
+    readers.push(spec.read);
+  } else if (format === 'svg') {
     const prec = select([1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: String(n) })), o.precision);
     const font = select([{ value: 'text', label: 'SVG text' }, { value: 'outlines', label: 'Convert to Outlines' }], o.textMode);
     if (!app.textOutlines) {
@@ -152,7 +159,7 @@ export async function formatOptionsDialog(app, format) {
   }
   const error = h('p.form-error', { role: 'alert' });
   const read = () => Object.assign({}, ...readers.map((r) => r()));
-  const title = { svg: 'SVG Options', png: 'PNG Options', jpeg: 'JPEG Options', webp: 'WebP Options' }[format];
+  const title = custom ? `${custom.title || custom.label} Options` : { svg: 'SVG Options', png: 'PNG Options', jpeg: 'JPEG Options', webp: 'WebP Options' }[format];
   const result = await app.dialogs.open({
     title,
     className: 'io-dialog',
@@ -198,7 +205,7 @@ export async function exportAsDialog(app) {
   const doc = editor.doc;
   const last = getPref(app, 'exportAs', { format: 'svg', useArtboards: true, range: 'all', dest: 'device' });
   const name = h('input', { type: 'text', value: docBaseName(editor), autocomplete: 'off', spellcheck: false });
-  const format = select(Object.entries(FORMATS).map(([value, f]) => ({ value, label: f.label })), last.format);
+  const format = select(Object.entries(allFormats()).map(([value, f]) => ({ value, label: f.label })), last.format);
   const use = checkbox('Use Artboards', last.useArtboards);
   const count = doc.artboards.length;
   const rangeGroup = radios(fid('range'), [{ value: 'all', label: 'All' }, { value: 'range', label: 'Range' }], last.range === 'range' ? 'range' : 'all', 'Export');
@@ -256,7 +263,7 @@ export async function exportAsDialog(app) {
   setPref(app, 'exportAs', { format: step1.format, useArtboards: step1.useArtboards, range: step1.range, dest: step1.dest });
   const options = await formatOptionsDialog(app, step1.format);
   if (!options) return;
-  const fmt = FORMATS[step1.format];
+  const fmt = allFormats()[step1.format];
   app.notify('Exporting...', { timeout: 2000 });
   const files = [];
   try {
@@ -523,7 +530,7 @@ export async function exportScreensDialog(app, mode = 'artboards') {
 // ---------------------------------------------------------------- place
 
 async function pickPuterFiles(app) {
-  const p = app.puter.ui.showOpenFilePicker({ multiple: true, accept: ['.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif'] });
+  const p = app.puter.ui.showOpenFilePicker({ multiple: true, accept: PLACE_ACCEPT.split(',').filter((x) => x.startsWith('.')) });
   // Resolves undefined on cancel where the SDK supports it (the plain promise never settles then).
   const picked = await (p && p.undefinedOnCancel ? p.undefinedOnCancel : p);
   const items = Array.isArray(picked) ? picked : picked ? [picked] : [];
@@ -532,7 +539,7 @@ async function pickPuterFiles(app) {
     const blob = await it.read();
     const name = it.name || 'image';
     const ext = name.split('.').pop().toLowerCase();
-    const type = blob.type || (ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`);
+    const type = blob.type || (ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : ext === 'pdf' || ext === 'ai' ? 'application/pdf' : ext === 'eps' || ext === 'ps' ? 'application/postscript' : ext === 'dxf' ? 'application/dxf' : `image/${ext === 'tif' ? 'tiff' : ext}`);
     const file = new File([blob], name, { type });
     // Images placed from Puter stay linked to their file (Links panel: Update Link, Edit Original).
     if (it.path) file.puterPath = it.path;
@@ -549,7 +556,7 @@ export async function placeCommand(app) {
     source = await app.dialogs.open({
       title: 'Place',
       className: 'io-dialog',
-      body: h('div.io-place', h('p.dialog-message', 'Place SVG artwork or an image (PNG, JPEG, WebP, GIF) in the center of the view.'), h('div.io-place-buttons', h('button.btn.block', { type: 'button', 'data-src': 'device' }, icon('file-down', 16), 'From This Device...'), h('button.btn.block', { type: 'button', 'data-src': 'puter' }, icon('folder-open', 16), 'From Puter...'))),
+      body: h('div.io-place', h('p.dialog-message', 'Place artwork (SVG, PDF, EPS, DXF) or an image (PNG, JPEG, WebP, GIF, TIFF, BMP, PSD) in the center of the view.'), h('div.io-place-buttons', h('button.btn.block', { type: 'button', 'data-src': 'device' }, icon('file-down', 16), 'From This Device...'), h('button.btn.block', { type: 'button', 'data-src': 'puter' }, icon('folder-open', 16), 'From Puter...'))),
       buttons: [{ label: 'Cancel', value: null }],
       onOpen: ({ content, close }) => {
         for (const b of content.querySelectorAll('[data-src]')) b.addEventListener('click', () => close(b.dataset.src));

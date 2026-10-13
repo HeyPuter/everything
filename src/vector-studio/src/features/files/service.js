@@ -450,7 +450,7 @@ export class FileService {
     if (this.cloud && this.puter.ui?.showOpenFilePicker) {
       let picked;
       try {
-        picked = await cancellable(this.puter.ui.showOpenFilePicker({ multiple: true, accept: OPEN_EXTS }));
+        picked = await cancellable(this.puter.ui.showOpenFilePicker({ multiple: true, accept: this.openExtensions() }));
       } catch (err) {
         this.app.notify(`Could not open the file dialog: ${errorText(err) || 'unknown error'}`, { error: true });
         return null;
@@ -469,9 +469,10 @@ export class FileService {
     if (fsAccessAvailable()) {
       let handles;
       try {
+        const other = this.app.importers?.openTypes || [];
         handles = await window.showOpenFilePicker({
           multiple: true,
-          types: [{ description: 'Vector Studio and SVG files', accept: { [NATIVE_MIME]: [NATIVE_EXT], 'image/svg+xml': ['.svg', '.svgz'] } }],
+          types: [{ description: 'Vector Studio and SVG files', accept: { [NATIVE_MIME]: [NATIVE_EXT], 'image/svg+xml': ['.svg', '.svgz'] } }, ...other],
         });
       } catch (err) {
         if (err?.name === 'AbortError') return null;
@@ -486,10 +487,15 @@ export class FileService {
         return last;
       }
     }
-    const files = await pickWithInput(OPEN_EXTS.join(',') + ',image/svg+xml');
+    const files = await pickWithInput(this.openExtensions().join(',') + ',image/svg+xml');
     let last = null;
     for (const f of files) last = (await this.openFileBlob(f)) || last;
     return last;
+  }
+
+  /** Extensions File > Open accepts: native and SVG, plus the formats importers register. */
+  openExtensions() {
+    return [...OPEN_EXTS, ...(this.app.importers?.openExtensions || [])];
   }
 
   /** An editor already showing this file, if any. */
@@ -559,6 +565,9 @@ export class FileService {
   async openBytes(bytes, { name, file = null }) {
     const kind = fileKind(name, bytes.subarray(0, 256));
     if (kind === 'svg') return this.#openSvg(bytes, { name, file });
+    // Other formats (PDF, EPS, DXF, raster images) through the importers that registered them.
+    const format = kind === 'native' ? null : this.app.importers?.detect?.(name, bytes.subarray(0, 1024));
+    if (format) return this.#openForeign(bytes, { name, file, format });
     if (kind === 'unknown' && extensionOf(name) && extensionOf(name) !== NATIVE_EXT) {
       await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" is not a file Vector Studio can open. Open .vstudio documents or .svg files.` });
       return null;
@@ -603,6 +612,23 @@ export class FileService {
     const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null } });
     if (file?.kind === 'puter') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     else if (file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
+    this.app.emit('file-opened', editor);
+    return editor;
+  }
+
+  async #openForeign(bytes, { name, file, format }) {
+    let doc;
+    try {
+      doc = await this.app.importers.open(bytes, { name, format });
+    } catch (err) {
+      await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" could not be imported. ${errorText(err)}` });
+      return null;
+    }
+    if (!doc) return null;
+    // Like SVG, an imported file saves as a new .vstudio document; the original is left untouched.
+    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null } });
+    if (file?.kind === 'puter' || file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
+    if (doc.importWarnings?.length) this.app.importers.report?.(doc.importWarnings);
     this.app.emit('file-opened', editor);
     return editor;
   }

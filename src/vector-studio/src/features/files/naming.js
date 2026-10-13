@@ -7,7 +7,7 @@ export const NATIVE_EXT = '.vstudio';
 export const NATIVE_MIME = 'application/x-vector-studio';
 
 /** Extensions we strip when suggesting a native file name for a document. */
-const KNOWN_EXT = /\.(vstudio|svg|svgz|ai|eps|pdf|json|png|jpe?g|webp)$/i;
+const KNOWN_EXT = /\.(vstudio|svg|svgz|ai|eps|epsf|ps|pdf|dxf|json|png|jpe?g|webp|gif|tiff?|bmp|psd)$/i;
 
 /** "Untitled-N" with N one past both the session counter and any open untitled document. */
 export function nextUntitled(counter = 0, openNames = []) {

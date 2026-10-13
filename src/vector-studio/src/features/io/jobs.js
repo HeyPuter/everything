@@ -14,6 +14,7 @@ import { documentCmykProfile, cmykProfile } from '../prepress/color-management.j
 import { spotInks } from '../prepress/separations.js';
 import { getPreset } from '../prepress/presets.js';
 import { normalizeFlattener } from '../prepress/flattener-presets.js';
+import { exportFormats } from './hooks.js';
 
 export const FORMATS = {
   svg: { label: 'SVG (svg)', ext: 'svg', mime: 'image/svg+xml' },
@@ -22,6 +23,13 @@ export const FORMATS = {
   jpeg: { label: 'JPEG (jpg)', ext: 'jpg', mime: 'image/jpeg' },
   webp: { label: 'WebP (webp)', ext: 'webp', mime: 'image/webp' },
 };
+
+/** Built-in and registered export formats: key -> { label, ext, mime }. */
+export function allFormats() {
+  const out = { ...FORMATS };
+  for (const [key, f] of exportFormats) out[key] = f;
+  return out;
+}
 
 /** Parse "1-3, 5" into zero-based indices (validated against count). Returns null when invalid. */
 export function parseRange(text, count) {
@@ -129,6 +137,7 @@ export async function renderFile(app, editor, format, region, options = {}) {
     if (warnings.length) app.notify?.(warnings.join(' '), { timeout: 6000 });
     return new Blob([bytes], { type: 'application/pdf' });
   }
+  if (exportFormats.has(format)) return exportFormats.get(format).render(app, editor, region, options);
   if (FORMATS[format]) {
     return rasterExport(editor, { ...region, format, scale: options.scale || (options.ppi ? options.ppi / 72 : 1), background: options.background, antialias: options.antialias !== false, quality: options.quality, colorModel: options.colorModel });
   }

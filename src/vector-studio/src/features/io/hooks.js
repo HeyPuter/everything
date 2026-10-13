@@ -47,3 +47,22 @@ export const svgNodeHooks = [];
  *   pdf: type -> async (renderer, ctx, node) => void
  */
 export const exportWriters = { svg: new Map(), pdf: new Map() };
+
+/**
+ * Importers for further file kinds (see kinds.js fileKind), registered by
+ * feature modules: kind -> { place(app, editor, file, opts) -> Promise<id|null> }.
+ */
+export const fileImporters = {};
+
+/**
+ * Raster decoders for image formats browsers cannot show (TIFF, PSD...):
+ * async (bytes, name) -> { mime, bytes } (a web format) or null.
+ */
+export const imageDecoders = [];
+
+/**
+ * Export formats from feature modules: key -> { label, ext, mime,
+ * options(app, prefs) -> { title, fields: [elements], read() -> options } | null,
+ * render(app, editor, region, options) -> Promise<Blob> }.
+ */
+export const exportFormats = new Map();

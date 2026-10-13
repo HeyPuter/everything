@@ -1,0 +1,98 @@
+/* Import dialogs: PDF page preview and options. */
+
+.ix-pdf {
+  display: grid;
+  grid-template-columns: 260px minmax(260px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.ix-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.ix-preview-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 260px;
+  min-height: 200px;
+  max-height: 280px;
+  background: var(--pasteboard);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  overflow: hidden;
+}
+
+.ix-preview-canvas {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.ix-preview-canvas canvas {
+  display: block;
+  max-width: 240px;
+  max-height: 260px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  background: #ffffff;
+}
+
+.ix-preview-box {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  pointer-events: none;
+}
+
+.ix-preview-wait {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  padding: 24px 8px;
+  text-align: center;
+}
+
+.ix-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ix-page-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-2);
+}
+
+.ix-page-input {
+  width: 56px;
+}
+
+.ix-preview-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.ix-file {
+  margin: 0 0 4px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .ix-pdf {
+    grid-template-columns: 1fr;
+  }
+
+  .ix-preview-frame {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
