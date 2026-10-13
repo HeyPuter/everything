@@ -247,7 +247,7 @@ async function clipToMask(doc, imageId, img0, mask, work, { signal, onProgress }
   if (!img || img.asset !== img0.asset || signal?.aborted) return null;
   const m = multiply(img.transform || [1, 0, 0, 1, 0, 0], scaleM(img.width / result.w, img.height / result.h));
   const subs = [];
-  for (const s of result.shapes) if (s.f) for (const p of parsePathData(s.d)) if (p.anchors.length > 2) subs.push(p);
+  for (const s of result.shapes) if (s.f) for (const p of parsePathData(s.d)) if (p.anchors.length > 1) subs.push(p);
   if (!subs.length) throw new UserError('No foreground outline was found. Lower the tolerance and try again.');
   let gid = null;
   doc.transact('Remove Background', () => {
