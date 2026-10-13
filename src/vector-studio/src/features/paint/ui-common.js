@@ -41,6 +41,8 @@ export function displayColor(editor, key, paint) {
       const s = paint.stops[Math.min(paintState.stop, paint.stops.length - 1)] || paint.stops[0];
       return s?.color || '#000000';
     }
+    // Freeform gradients: the selected color point.
+    if (paint.type === 'freeform' && paint.points?.length) return paint.points[Math.min(paintState.stop, paint.points.length - 1)].color;
   }
   return editor.lastSolid?.[key] || (key === 'fill' ? '#ffffff' : '#000000');
 }
@@ -51,6 +53,13 @@ export function displayColor(editor, key, paint) {
  */
 export function setFocusedColor(editor, hex, coalesce = null, { forceSolid = false } = {}) {
   const { key, paint } = focusedPaint(editor);
+  if (!forceSolid && paint && paint !== 'mixed' && paint.type === 'freeform' && paint.points?.length) {
+    const i = Math.min(paintState.stop, paint.points.length - 1);
+    const next = { ...paint, points: paint.points.map((p, j) => (j === i ? { ...p, color: hex } : p)) };
+    delete next.swatchId;
+    applyStyle(editor, { [key]: next }, key === 'fill' ? 'Fill Color' : 'Stroke Color', coalesce);
+    return;
+  }
   if (!forceSolid && paint && paint !== 'mixed' && isGradient(paint)) {
     const i = Math.min(paintState.stop, paint.stops.length - 1);
     const stops = paint.stops.map((s, j) => {

@@ -2,7 +2,8 @@
  * Stroke panel (Cmd+F10): weight, cap, corner, miter limit, align stroke,
  * dashed line (three dash/gap pairs, preserve exact lengths or align to
  * corners) and arrowheads (start/end shape, swap, scale, tip alignment).
- * Changes apply to the selection and the current style.
+ * Changes apply to the selection and the current style. The panel menu
+ * hides everything but the weight (Hide Options).
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
@@ -199,8 +200,9 @@ export class StrokePanel extends Panel {
     this.arrowAlignValue = 'beyond';
 
     const row = (label, ...c) => h('div.pp-row', h('span.pp-label', label), ...c);
-    this.el.append(
-      row('Weight', this.weight.el),
+    // Everything but the weight hides with Hide Options.
+    this.options = h(
+      'div.sp-options',
       row('Cap', this.cap.el),
       row('Corner', this.join.el, this.limit.el),
       row('Align Stroke', this.align.el),
@@ -210,9 +212,21 @@ export class StrokePanel extends Panel {
       row('Scale', this.scaleStart.el, this.scaleEnd.el, this.linkBtn),
       row('Align', this.arrowAlign.el),
     );
+    this.el.append(row('Weight', this.weight.el), this.options);
     this.dashGrid = dashGrid;
     this.extras = StrokePanel.extraSections.map((def) => def.build(app));
-    for (const x of this.extras) this.el.append(x.el);
+    for (const x of this.extras) this.options.append(x.el);
+    this.setOptionsShown(app.prefs.get('strokeOptions') !== false);
+  }
+
+  setOptionsShown(on) {
+    this.optionsShown = on;
+    this.app.prefs.set('strokeOptions', on);
+    this.options.hidden = !on;
+  }
+
+  menu() {
+    return [{ label: this.optionsShown ? 'Hide Options' : 'Show Options', run: () => this.setOptionsShown(!this.optionsShown) }];
   }
 
   commitDash() {

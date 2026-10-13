@@ -21,6 +21,7 @@ import { GradientPanel } from './gradient-panel.js';
 import { StrokePanel } from './stroke-panel.js';
 import { TransparencyPanel, registerTransparencyCommands } from './transparency-panel.js';
 import { installOpacityMasks } from './opacity-mask.js';
+import { installFreeform } from './freeform.js';
 import { AppearancePanel, GraphicStylesPanel, graphicStyleLibraryMenu } from './appearance-panel.js';
 import { GradientTool } from './gradient-tool.js';
 import { registerEffectCommands } from './effects-ui.js';
@@ -88,6 +89,7 @@ export function install(app) {
   registerEditColorCommands(app);
   installRecentColors(app);
   installOpacityMasks();
+  installFreeform();
   registerTransparencyCommands(app);
 
   // New Art Has Basic Appearance (on by default): new paths leave out the current effects.

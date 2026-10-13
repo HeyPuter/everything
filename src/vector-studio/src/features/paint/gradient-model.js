@@ -5,6 +5,7 @@
  * the interval between it and the next stop.
  */
 import { sampleStops, sortedStops, isGradient } from '../../model/gradients.js';
+import { defaultFreeform } from './freeform.js';
 
 export { isGradient };
 
@@ -89,6 +90,13 @@ export function normalizeGradient(paint) {
 /** Switch between linear and radial, keeping stops and end points. */
 export function setGradientType(paint, type) {
   if (paint.type === type) return paint;
+  if (type === 'freeform') return defaultFreeform(paint);
+  if (paint.type === 'freeform') {
+    // Points become evenly spaced stops, in order.
+    const pts = paint.points || [];
+    const stops = (pts.length > 1 ? pts : [...pts, ...pts, { color: '#000000' }].slice(0, 2)).map((p, i, arr) => ({ offset: i / (arr.length - 1), color: p.color, opacity: p.opacity ?? 1 }));
+    return { type, angle: 0, stops };
+  }
   return { ...paint, type };
 }
 

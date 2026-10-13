@@ -9,7 +9,10 @@
  * resize it, just outside the end point to rotate it, stops along the bar
  * to move them (drag away from the bar to remove one), midpoint diamonds to
  * skew the blend, click the bar to add a stop, and for radial gradients
- * drag the dot on the dashed ellipse to change the aspect ratio.
+ * drag the dot on the dashed ellipse to change the aspect ratio. On a
+ * freeform gradient the annotator shows its color points instead: click
+ * the object to add a point, drag points to move them, Delete removes the
+ * selected one.
  * Edits apply to the focused paint (fill or stroke).
  */
 import { Tool, tol, constrain45 } from '../../tools/tool.js';
@@ -19,6 +22,10 @@ import { isGradient } from '../../model/gradients.js';
 import { paintTargets } from '../../ops/paint-ops.js';
 import { setGradientVector, insertStop, moveStop, removeStop, setMidpoint, projectOnVector, DEFAULT_LINEAR } from './gradient-model.js';
 import { paintState } from './ui-common.js';
+import { isFreeform, addPoint, setPoint, removePoint, sampleFreeform } from './freeform.js';
+import { rgbToHex } from '../../lib/color.js';
+
+const POINT_R = 7;
 
 const HANDLE = 6;
 const ROTATE_RING = 16;
@@ -112,7 +119,85 @@ export class GradientTool extends Tool {
     return null;
   }
 
+  /** The single selected object whose focused paint is a freeform gradient, or null. */
+  freeformTarget() {
+    const ed = this.editor;
+    if (!ed || ed.viewOptions.gradientAnnotator === false) return null;
+    const t = paintTargets(ed).filter((n) => isFreeform(n[ed.focusPaint]));
+    return t.length === 1 && paintTargets(ed).length === 1 ? t[0] : null;
+  }
+
+  /** Screen position of a freeform point. */
+  pointScreen(node, pt) {
+    const b = nodeBounds(this.editor.doc, node) || { x: 0, y: 0, w: 1, h: 1 };
+    return this.editor.view.toScreen(b.x + pt.x * b.w, b.y + pt.y * b.h);
+  }
+
+  /** The freeform point under the pointer: { kind: 'point', index, node } or null. */
+  freeformPartAt(e) {
+    const node = this.freeformTarget();
+    if (!node) return null;
+    const pts = node[this.editor.focusPaint].points;
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = this.pointScreen(node, pts[i]);
+      if (Math.hypot(e.sx - p.x, e.sy - p.y) <= POINT_R + 2) return { kind: 'point', index: i, node };
+    }
+    return null;
+  }
+
+  /** Press on a freeform gradient: pick a point, or add one where the object was clicked. */
+  freeformDown(e) {
+    const ed = this.editor;
+    const doc = ed.doc;
+    const node = this.freeformTarget();
+    if (!node) return false;
+    const key = ed.focusPaint;
+    let part = this.freeformPartAt(e);
+    const b = nodeBounds(doc, node);
+    if (!part) {
+      const hit = hitTest(doc, e.x, e.y, tol(ed, 3));
+      const inside = hit && (hit.id === node.id || doc.isAncestor(node.id, hit.id) || doc.isAncestor(hit.id, node.id));
+      if (!inside || !b || !(b.w > 0) || !(b.h > 0)) return false;
+      const u = (e.x - b.x) / b.w;
+      const v = (e.y - b.y) / b.h;
+      const c = sampleFreeform(node[key], u, v, b.w / b.h);
+      const tx = doc.begin('Add Color Point');
+      let index = 0;
+      this.setFreeform(node, (p) => {
+        const r = addPoint(p, u, v, rgbToHex(c));
+        index = r.index;
+        return r.paint;
+      });
+      paintState.setStop(index);
+      this.drag = { part: { kind: 'point', index, node }, tx, node, b, moved: true };
+      this.overlay();
+      return true;
+    }
+    paintState.setStop(part.index);
+    this.drag = { part, tx: doc.begin('Move Color Point'), node, b, x0: e.x, y0: e.y, moved: false };
+    this.overlay();
+    return true;
+  }
+
+  setFreeform(node, fn) {
+    const doc = this.editor.doc;
+    const key = this.editor.focusPaint;
+    const cur = doc.get(node.id);
+    if (!cur || !isFreeform(cur[key])) return;
+    const next = { ...fn(cur[key]) };
+    delete next.swatchId;
+    doc.update(node.id, { [key]: next });
+  }
+
   onHover(e) {
+    if (this.freeformTarget()) {
+      const part = this.freeformPartAt(e);
+      const prev = this.hoverPart;
+      this.hoverPart = part;
+      this.setCursor(part ? 'move' : 'copy');
+      if (prev?.index !== part?.index) this.overlay();
+      return;
+    }
     const part = this.partAt(e);
     const prev = this.hoverPart?.kind;
     this.hoverPart = part;
@@ -138,6 +223,7 @@ export class GradientTool extends Tool {
   }
 
   onPointerDown(e) {
+    if (this.freeformDown(e)) return;
     const ed = this.editor;
     const doc = ed.doc;
     const part = this.partAt(e);
@@ -193,6 +279,14 @@ export class GradientTool extends Tool {
     const ed = this.editor;
     const doc = ed.doc;
     const kind = d.part.kind;
+    if (kind === 'point') {
+      d.moved = true;
+      const u = Math.max(0, Math.min(1, (e.x - d.b.x) / d.b.w));
+      const v = Math.max(0, Math.min(1, (e.y - d.b.y) / d.b.h));
+      this.setFreeform(d.node, (p) => setPoint(p, d.part.index, { x: u, y: v }));
+      this.overlay();
+      return;
+    }
     if (kind === 'vector') {
       if (!d.moved && Math.hypot(e.sx - d.sx0, e.sy - d.sy0) < 3) return;
       d.moved = true;
@@ -262,8 +356,18 @@ export class GradientTool extends Tool {
       if (d.removing) paintState.setStop(Math.max(0, d.part.index - 1));
       else paintState.setStop(d.index ?? d.part.index);
     }
-    if (d.tx) d.tx.commit();
+    if (d.tx) {
+      // A click on a point only selects it.
+      if (d.part.kind === 'point' && !d.moved) d.tx.cancel();
+      else d.tx.commit();
+    }
     const ed = this.editor;
+    const ff = this.freeformTarget();
+    if (ff) {
+      paintState.lastGradient = ff[ed.focusPaint];
+      this.overlay();
+      return;
+    }
     const first = this.targets()[0];
     if (first) {
       const p = first[ed.focusPaint];
@@ -282,6 +386,15 @@ export class GradientTool extends Tool {
       this.cancel();
       return true;
     }
+    // Delete removes the selected freeform point (the object stays).
+    const node = (e.key === 'Delete' || e.key === 'Backspace') && !this.drag ? this.freeformTarget() : null;
+    if (node && node[this.editor.focusPaint].points.length > 1) {
+      const i = Math.min(paintState.stop, node[this.editor.focusPaint].points.length - 1);
+      this.editor.doc.transact('Delete Color Point', () => this.setFreeform(node, (p) => removePoint(p, i)));
+      paintState.setStop(Math.max(0, i - 1));
+      this.overlay();
+      return true;
+    }
     return false;
   }
 
@@ -294,6 +407,44 @@ export class GradientTool extends Tool {
 
   commit() {
     if (this.drag) this.onPointerUp();
+  }
+
+  /** Freeform annotator: each color point as a swatch dot; the selected one ringed, with its spread. */
+  drawFreeform(ctx, node) {
+    const ed = this.editor;
+    const paint = node[ed.focusPaint];
+    const b = nodeBounds(ed.doc, node);
+    const sel = Math.min(paintState.stop, paint.points.length - 1);
+    ctx.save();
+    paint.points.forEach((pt, i) => {
+      const p = this.pointScreen(node, pt);
+      const selected = i === sel;
+      if (selected && pt.spread > 0 && b) {
+        const a = ed.view.toScreen(b.x, b.y);
+        const c = ed.view.toScreen(b.x + b.w, b.y + b.h);
+        const r = pt.spread * Math.hypot(c.x - a.x, c.y - a.y);
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, POINT_R, 0, Math.PI * 2);
+      ctx.fillStyle = pt.color;
+      ctx.fill();
+      ctx.lineWidth = selected ? 2.5 : 1.5;
+      ctx.strokeStyle = selected ? '#3d7bfd' : this.hoverPart?.index === i ? '#000' : '#fff';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, POINT_R + 1.5, 0, Math.PI * 2);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.stroke();
+    });
+    ctx.restore();
   }
 
   drawOverlay(ctx, editor) {
@@ -310,6 +461,11 @@ export class GradientTool extends Tool {
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
       ctx.restore();
+    }
+    const ff = this.freeformTarget();
+    if (ff) {
+      this.drawFreeform(ctx, ff);
+      return;
     }
     const targets = this.targets();
     if (targets.length !== 1 || editor.viewOptions.gradientAnnotator === false) return;

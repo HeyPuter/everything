@@ -217,7 +217,8 @@ export class ColorPanel extends Panel {
   applySolid(hex) {
     const ed = this.app.editor;
     if (!ed) return;
-    setFocusedColor(ed, hex, null, { forceSolid: !isGradient(focusedPaint(ed).paint) });
+    const p = focusedPaint(ed).paint;
+    setFocusedColor(ed, hex, null, { forceSolid: !(isGradient(p) || p?.type === 'freeform') });
   }
 
   apply(hex) {
@@ -267,7 +268,9 @@ export class ColorPanel extends Panel {
       this.tintRange.style.setProperty('--ramp', `linear-gradient(to right, #ffffff, ${linked.paint.color})`);
     }
     const grad = paint && paint !== 'mixed' && isGradient(paint);
-    this.stopNote.hidden = !grad;
+    const ff = paint && paint !== 'mixed' && paint.type === 'freeform' && paint.points?.length;
+    this.stopNote.hidden = !grad && !ff;
     if (grad) this.stopNote.textContent = `Editing gradient stop ${Math.min(paintState.stop, paint.stops.length - 1) + 1} of ${paint.stops.length}`;
+    else if (ff) this.stopNote.textContent = `Editing color point ${Math.min(paintState.stop, paint.points.length - 1) + 1} of ${paint.points.length}`;
   }
 }

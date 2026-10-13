@@ -70,7 +70,8 @@ export function recentColorsRow(app) {
   const apply = (hex) => {
     const ed = app.editor;
     if (!ed) return;
-    setFocusedColor(ed, hex, null, { forceSolid: !isGradient(focusedPaint(ed).paint) });
+    const p = focusedPaint(ed).paint;
+    setFocusedColor(ed, hex, null, { forceSolid: !(isGradient(p) || p?.type === 'freeform') });
   };
   const refresh = () => {
     const list = recentColors(app);

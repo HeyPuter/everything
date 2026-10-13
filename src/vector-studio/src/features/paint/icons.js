@@ -20,6 +20,7 @@ export function registerPaintIcons() {
     'rotate-ccw': RotateCcw,
     'gradient-linear': [['rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }], fill('M5 3h3v18H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'), ['path', { d: 'M12 3v18M16 3v18' }]],
     'gradient-radial': [['circle', { cx: '12', cy: '12', r: '9' }], ['circle', { cx: '12', cy: '12', r: '5' }], fill('M12 10a2 2 0 1 1 0 4a2 2 0 0 1 0-4z')],
+    'gradient-freeform': [['rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }], ['path', { d: 'M8.5 9 15.5 8.5 12 15.5z', 'stroke-dasharray': '2 2' }], fill('M8.5 6.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 0 1 0-5z'), fill('M15.5 6.8a1.7 1.7 0 1 1 0 3.4a1.7 1.7 0 0 1 0-3.4z'), fill('M12 13.3a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 0 1 0-4.4z')],
     'stroke-within': [['rect', { x: '4', y: '4', width: '16', height: '16' }], ['path', { d: 'M9 4v16M15 4v16' }]],
     'stroke-along': [['rect', { x: '4', y: '4', width: '16', height: '16' }], ['path', { d: 'M8 8h8v8' }]],
     'stroke-across': [['rect', { x: '4', y: '4', width: '16', height: '16' }], ['path', { d: 'M4 4l4 4M20 4l-4 4M20 20l-4-4M4 20l4-4' }]],

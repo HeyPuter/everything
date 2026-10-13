@@ -205,7 +205,7 @@ export function swatchRows(doc, { show = 'all', query = '' } = {}) {
   const match = (s) => {
     if (!s.paint) return false;
     if (show === 'color' && s.paint.type !== 'solid') return false;
-    if (show === 'gradient' && s.paint.type !== 'linear' && s.paint.type !== 'radial') return false;
+    if (show === 'gradient' && s.paint.type !== 'linear' && s.paint.type !== 'radial' && s.paint.type !== 'freeform') return false;
     if (show === 'pattern' && s.paint.type !== 'pattern') return false;
     if (q && !(s.name || '').toLowerCase().includes(q) && !(s.paint.color || '').toLowerCase().includes(q)) return false;
     return true;
