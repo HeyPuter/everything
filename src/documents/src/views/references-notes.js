@@ -148,6 +148,7 @@ export function createNoteCommands(ctx) {
     const restart = select('Numbering', [], null, () => remember());
     const pending = { footnote: { ...settings.footnote }, endnote: { ...settings.endnote } };
     function remember() {
+      if (!restart.options.length) return; // Not filled in yet.
       pending[kind] = { ...pending[kind], format: format.value, start: Math.max(1, Math.min(32767, Number(start.value) || 1)), restart: restart.value, position: kind === 'footnote' ? footPosition.value : endPosition.value };
     }
     function switchKind(next) {

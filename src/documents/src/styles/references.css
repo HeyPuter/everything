@@ -71,7 +71,7 @@
 }
 
 /* ---- Modeless panels (Mark Entry, Mark Citation) ---- */
-.ref-panel { position: fixed; top: 132px; right: 24px; z-index: 55; width: 340px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 160px); display: flex; flex-direction: column;
+.ref-panel { position: fixed; top: 156px; right: 24px; z-index: 55; width: 340px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 160px); display: flex; flex-direction: column;
   background: var(--surface); color: var(--ink); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .1); }
 .ref-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 8px 14px; border-bottom: 1px solid var(--hairline); }
 .ref-panel-title { margin: 0; font-size: 14px; font-weight: 650; }
@@ -101,3 +101,5 @@
 .ref-lookup-skeleton { height: 64px; border-radius: 6px; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: ref-shimmer 1.2s linear infinite; }
 @keyframes ref-shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .ref-lookup-skeleton { animation: none; } }
+
+.ed-xref-list.input { background-image: none; padding: 4px; }

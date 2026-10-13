@@ -246,7 +246,7 @@ export function createCitationCommands(ctx) {
     const create = () => sourceDialog({ onSave: async draft => { await saveSources([...documentData().data.sources, draft]); master = rememberSources([draft]); fill(); } });
     const button = (label, onclick, attrs = {}) => el('button.btn.btn-outline.ref-source-button', { type: 'button', onclick, ...attrs }, label);
     fill();
-    openDialog({ title: 'Source Manager', wide: true, className: 'ref-manage-dialog', submitLabel: 'Close', cancelLabel: 'Cancel', body: [
+    openDialog({ title: 'Source Manager', wide: true, className: 'ref-manage-dialog', submitLabel: 'Done', cancelLabel: 'Cancel', body: [
       field('Search', search),
       el('div.ref-manage-lists', {},
         el('div.ref-manage-column', {}, el('span.field-label', {}, 'Master list (all your documents)'), masterList),

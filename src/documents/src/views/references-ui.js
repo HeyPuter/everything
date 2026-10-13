@@ -46,19 +46,22 @@ export const section = (legend, ...children) => el('fieldset.ref-section', {}, e
 export function openDialog({ title, body, submitLabel = 'OK', onSubmit, wide = false, className = '', actions = [], onClose = null, cancelLabel = 'Cancel' }) {
   const error = el('p.field-error.ref-error', { role: 'alert', hidden: true });
   const submit = el('button.btn.btn-primary', { type: 'submit' }, submitLabel);
-  let modal;
+  let modal, busy = false, closed = false;
   const form = el(`form.ed-dialog-body.ref-dialog${className ? `.${className}` : ''}`, { onsubmit: async e => {
     e.preventDefault();
-    if (!form.reportValidity()) return;
-    error.hidden = true;
+    // A second Enter while the first submission is still working must not apply it twice.
+    if (busy || closed || !form.reportValidity()) return;
+    error.hidden = true; busy = true; submit.disabled = true;
     try {
       const result = await onSubmit?.();
       if (result === false) return;
+      closed = true;
       modal.close();
     } catch (failure) { error.textContent = failure?.message || String(failure); error.hidden = false; }
+    finally { busy = false; if (!closed) submit.disabled = false; }
   } }, ...body, error,
   el('div.row.row-end.ref-actions', {}, ...actions, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, cancelLabel), submit));
-  modal = openModal({ title, content: form, wide, onClose });
+  modal = openModal({ title, content: form, wide, onClose: () => { closed = true; onClose?.(); } });
   const showError = message => { error.textContent = message; error.hidden = !message; };
   return { modal, form, submit, showError, close: () => modal.close() };
 }
