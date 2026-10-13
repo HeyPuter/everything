@@ -196,7 +196,7 @@ function draw(e: Editor, el: HTMLElement, force: boolean) {
     if (body.dataset.key !== key) return;
     const shown = filterGenerations(list, view);
     body.innerHTML = !list.length
-      ? '<p class="gen-empty">No AI results yet. Images made with Generate Image, Edit with Prompt, AI Fill, AI Expand, the AI layer of Upscale and the Assistant are kept here, in this browser.</p>'
+      ? '<p class="gen-empty">No AI results yet. Images made with Generate Image, Edit with Prompt, AI Fill, AI Expand, the AI layer of Upscale, Portrait &amp; Restore and the Assistant are kept here, in this browser.</p>'
       : shown.length
         ? `<p class="gen-count muted">${shown.length === list.length ? `${list.length} result${list.length === 1 ? '' : 's'}` : `${shown.length} of ${list.length}`}</p><div class="gen-list" role="list">${shown.map(rowHTML).join('')}</div>`
         : '<p class="gen-empty">No results match.</p>';

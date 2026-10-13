@@ -69,7 +69,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
       `)}</div>
       <div data-show="text">${sectionHtml('Metadata', row('Include', `<select name="metadata"><option value="none">None</option><option value="copyright">Copyright and contact info</option><option value="all">All file info</option></select>`))}</div>
       <div data-show="prov">${sectionHtml('Provenance', `
-        ${row('Attach', `<select name="provenance"><option value="none">Nothing</option><option value="record">How it was made (record)</option><option value="signed">Record and signed manifest</option></select>`)}
+        ${row('Attach', `<select name="provenance"><option value="none">None</option><option value="record">Record of how it was made</option><option value="signed">Record and self-signed manifest</option></select>`)}
         <p class="export-note" data-show="prov-unsigned">This format gets the record only; signed manifests go into PNG and JPEG.</p>
       `)}</div>
       <div data-show="color">${sectionHtml('Color Space', `
