@@ -1217,7 +1217,14 @@ const SHAPE_LOCAL_NAMES = new Set([
   "cxnSp",
   "graphicFrame",
 ]);
+// Removing a shape also removes its animations, which would otherwise point
+// at a shape the file no longer has.
 export function removeAnyShape(slide, shape) {
+  const removed = removeShapeFromSlide(slide, shape);
+  if (removed) P.pruneSlideAnimations(slide);
+  return removed;
+}
+function removeShapeFromSlide(slide, shape) {
   const parents = groupParents(slide);
   const group = parents.get(P.getShapeId(shape));
   if (!group) {
@@ -1628,7 +1635,9 @@ export function slideDiagramDataStamp(pres, slide) {
   }
   return JSON.stringify(values);
 }
-export function preview(pres, slide) {
+// `layer`, when given, draws only part of the slide (see the renderer's
+// RenderSlideOptions.layer); animations play such layers.
+export function preview(pres, slide, layer = null) {
   // SVG is used only as an image, never inserted into the document as markup.
   const embedFonts = hasFontResources(pres);
   const resolved = new Map(),
@@ -1652,6 +1661,7 @@ export function preview(pres, slide) {
     preserveAspectRatio: "none",
     textLayout: "svg",
     stableDefinitionIds: true,
+    ...(layer ? { layer } : {}),
     resolveFontKerning,
     gradientRendering: "css",
     measureText: !embedFonts

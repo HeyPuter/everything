@@ -1,0 +1,58 @@
+/* Animation playback: a stack of slide pictures, each in its own layers
+   (motion, emphasis, entrance/exit), the size of the slide. */
+.anim-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+.anim-stage.waiting {
+  visibility: hidden;
+}
+.anim-stage > img,
+.anim-motion,
+.anim-emph,
+.anim-fx,
+.anim-layer-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.anim-layer-img {
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.anim-motion,
+.anim-emph,
+.anim-fx {
+  will-change: transform, opacity;
+}
+.anim-tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  mix-blend-mode: color;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+}
+.anim-dim {
+  mix-blend-mode: normal;
+}
+.anim-underline {
+  position: absolute;
+  height: 0.6%;
+  min-height: 2px;
+  background: currentColor;
+  color: #202124;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+/* The slide picture under a stage that has taken over. */
+img.anim-covered {
+  opacity: 0;
+}

@@ -2,6 +2,7 @@ import { textEditHistory } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
+import { createSlideAnimator } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -13405,6 +13406,31 @@ async function present() {
       links.append(node);
     }
   }
+  // Shapes that play effects when clicked get a region of their own.
+  function placeTriggers() {
+    for (const { shapeId, box } of animator?.triggers || []) {
+      if (!box) continue;
+      const shape = P.findShapeById(all[n], Number(shapeId));
+      const name = shape ? P.getShapeName(shape) || "object" : "object";
+      const node = el("button", {
+        type: "button",
+        class: "presenter-link presenter-trigger",
+        title: `Play the effects of ${name}`,
+        "aria-label": `Play the effects of ${name}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          animator?.playTrigger(shapeId);
+        },
+      });
+      Object.assign(node.style, {
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
+      });
+      links.append(node);
+    }
+  }
   function follow(link) {
     if (link.kind === "slide") {
       const i = all.findIndex(
@@ -13424,7 +13450,7 @@ async function present() {
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
-    next = iconButton("Next slide", "ChevronRight", () => show(n + 1));
+    next = iconButton("Next slide", "ChevronRight", () => advance());
   // Speaker notes and the slide to come sit beside the slide when asked for.
   const notesText = el("p", { class: "presenter-notes-text" });
   const upcoming = el("img", {
@@ -13479,6 +13505,13 @@ async function present() {
   let shown = false;
   let ended = false;
   let currentTransition;
+  // The current slide's animations: an advance plays its next click step
+  // before the show moves on.
+  let animator = null;
+  function advance() {
+    if (!ended && animator?.next()) return;
+    show(n + 1);
+  }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -13518,6 +13551,7 @@ async function present() {
     typed = "";
   }
   function showPrevious() {
+    if (!ended && animator?.previous()) return;
     show(ended ? n : n - 1, { backward: true });
   }
   let transitionToken = 0;
@@ -13584,6 +13618,8 @@ async function present() {
       playbackTransition?.durationMs ??
       { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    animator?.destroy();
+    animator = null;
     if (
       shown &&
       (n !== from || wrapped) &&
@@ -13624,7 +13660,16 @@ async function present() {
     // distant ones render once here and are kept for the navigator.
     image.src = cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
+    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    if (backward) animator.finish();
+    else {
+      const playing = animator;
+      Promise.resolve(readiness).then(() => {
+        if (animator === playing) playing.start();
+      });
+    }
     placeLinks(all[n]);
+    placeTriggers();
     counter.textContent = `${n + 1} / ${all.length}`;
     previous.disabled = n === 0 && !showTiming.loop;
     next.disabled = false;
@@ -13656,6 +13701,8 @@ async function present() {
     syncPause();
   }
   function close() {
+    animator?.destroy();
+    animator = null;
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
@@ -13768,7 +13815,7 @@ async function present() {
       (e.key === "Enter" && !typed)
     ) {
       e.preventDefault();
-      show(n + 1);
+      advance();
     }
     if (
       key === "p" ||
@@ -13832,7 +13879,7 @@ async function present() {
       close();
       return;
     }
-    if (currentTransition?.advanceOnClick !== false) show(n + 1);
+    if (currentTransition?.advanceOnClick !== false) advance();
   });
   stage.addEventListener("click", (e) => {
     if (e.target.closest(".presenter-controls")) return;
@@ -13870,7 +13917,7 @@ async function present() {
       const dy = end.clientY - start.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         swiped = true;
-        if (dx < 0) show(n + 1);
+        if (dx < 0) advance();
         else showPrevious();
       }
     },
