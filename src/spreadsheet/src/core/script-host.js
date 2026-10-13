@@ -270,6 +270,8 @@ function numberFormatPatch(host, code) {
   const parsed = !text || /^general$/i.test(text) ? null : numFmtToStyle(text);
   if (text && !/^general$/i.test(text) && !parsed) host.fail(`"${text}" is not a number format.`);
   const patch = Object.fromEntries(NUMBER_FORMAT_KEYS.map((k) => [k, null]));
+  // A currency style names no currency when it is US dollars, as the toolbar's Currency leaves it.
+  if (parsed?.cur === 'USD') delete parsed.cur;
   return { ...patch, ...(parsed || {}) };
 }
 
@@ -505,6 +507,16 @@ const WRITES = {
   deleteSheet(op) {
     const sheet = this.sheetOf(op.sheet, { grid: false });
     if (!this.wb.deleteSheet(sheet.id)) this.fail(`"${sheet.name}" could not be deleted: it is the last sheet showing, or the workbook structure is protected.`);
+  },
+  moveSheet(op) {
+    const sheet = this.sheetOf(op.sheet, { grid: false });
+    const index = Math.trunc(Number(op.index));
+    if (!(index >= 0)) this.fail('The position must be 0 or more.');
+    const shown = this.wb.sheets.filter((s) => !s.veryHidden);
+    const target = shown[Math.min(index, shown.length - 1)];
+    if (target === sheet) return;
+    if (this.wb.structureProtected) this.fail(`"${sheet.name}" could not be moved: the workbook structure is protected.`);
+    this.wb.moveSheet(sheet.id, this.wb.sheets.indexOf(target));
   },
   activate(op) {
     const sheet = this.sheetOf(op.sheet, { grid: false });

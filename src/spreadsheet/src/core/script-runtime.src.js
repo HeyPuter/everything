@@ -296,6 +296,15 @@
     },
     /** Its position among the tabs, from 0. */
     getPosition: function () { live(this._id); return book.sheets.findIndex(function (s) { return s.id === this._id; }, this); },
+    /** Move the tab to position `index`, from 0. */
+    setPosition: function (index) {
+      var s = live(this._id);
+      var at = Math.min(book.sheets.length - 1, int(index, 'The position', 0));
+      write({ op: 'moveSheet', sheet: this._id, index: at });
+      book.sheets = book.sheets.filter(function (x) { return x !== s; });
+      book.sheets.splice(at, 0, s);
+      return this;
+    },
     getVisible: function () { return !live(this._id).hidden; },
     setVisible: function (visible) {
       var s = live(this._id);
