@@ -124,7 +124,7 @@ export class TypeTool extends Tool {
 
   newTextNode(x, y, extra = {}) {
     const d = typeDefaults(this.app);
-    return createText('', x, y, { char: { ...d.char }, para: { ...d.para }, fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth, vertical: this.constructor.vertical || undefined, ...extra });
+    return createText('', x, y, { char: { ...d.char }, para: { ...d.para }, fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth, vertical: this.constructor.vertical || undefined, antialias: d.antialias && d.antialias !== 'sharp' ? d.antialias : undefined, ...extra });
   }
 
   /** Insert a new type object, filled with placeholder text (selected) when the preference is on. */

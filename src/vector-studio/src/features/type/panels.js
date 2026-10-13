@@ -17,6 +17,8 @@ import { setFontFamily, SIZE_PRESETS } from './commands.js';
 import { selectedTextNodes } from './outlines.js';
 import { KERN_MODES } from './type-options.js';
 import { LANGUAGES, DEFAULT_LANGUAGE } from '../../model/languages.js';
+import { fontHeightRatio } from '../../model/text-layout.js';
+import { ANTIALIAS, AKI_PRESETS, SIZE_REFERENCES, KINSOKU_MODES, MOJIKUMI_MODES, BURASAGARI_MODES, antialiasOf, setAntialias } from './char-options.js';
 
 let fieldId = 0;
 
@@ -97,6 +99,14 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
   return { el: h('div.ty-field', parts), set, input };
 }
 
+/** A select with an icon label; `options` [[value, label]]. */
+function selectRow(iconName, label, options, onChange, cls = '') {
+  const id = `ty-sel-${++fieldId}`;
+  const sel = h('select.select.ty-select', { id, 'aria-label': label, onchange: () => sel.value !== '' && onChange(sel.value) }, [h('option', { value: '', disabled: true, hidden: true }, 'Mixed'), ...options.map(([v, l]) => h('option', { value: String(v) }, l))]);
+  const row = h(`div.ty-row.full.ty-opt.ty-sel-row${cls}`, h('label.ty-lang-label', { for: id, 'data-tip': label }, icon(iconName, 16)), sel);
+  return { row, sel, set: (v) => (sel.value = v === MIXED || v == null ? '' : String(v)) };
+}
+
 function toggleButton(iconName, label, onClick) {
   const b = h('button.icon-btn.ty-toggle', { type: 'button', 'aria-label': label, 'data-tip': label, 'aria-pressed': 'false', onclick: onClick }, icon(iconName, 16));
   return b;
@@ -123,7 +133,10 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     apply({ fontWeight: Number(w), fontStyle: s }, 'Font Style');
   });
   const typeUnits = () => app.prefs.get('typeUnits');
-  const size = typeField(app, { label: 'Font size', iconName: 'font-size', units: typeUnits, presets: SIZE_PRESETS, min: 0.1, max: 1296, onCommit: (v) => apply({ fontSize: v }, 'Font Size', 'size') });
+  // The size field can show and take a height the font measures (cap height, x height, ideographic face) instead of the em.
+  const sizeRef = () => (app.prefs.get('showFontHeightOptions') === true && app.prefs.get('fontSizeReference')) || 'em';
+  const sizeRatio = () => (cur && cur.fontFamily !== MIXED && cur.fontWeight !== MIXED && cur.fontStyle !== MIXED ? fontHeightRatio({ ...cur, fontSize: 100 }, sizeRef()) : 1) || 1;
+  const size = typeField(app, { label: 'Font size', iconName: 'font-size', units: typeUnits, presets: SIZE_PRESETS, min: 0.1, max: 1296, onCommit: (v) => apply({ fontSize: Math.min(1296, Math.max(0.1, v / sizeRatio())) }, 'Font Size', 'size') });
   const leading = typeField(app, { label: 'Leading', iconName: 'leading', units: typeUnits, auto: true, presets: [null, ...SIZE_PRESETS], min: 0, max: 5000, onCommit: (v) => apply({ leading: v }, 'Leading', 'leading') });
   // Kerning: the automatic kerning mode (Auto, Optical, None) or manual kerning at the insertion point or on the selection.
   const kerning = typeField(app, {
@@ -158,12 +171,25 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     LANGUAGES.map((l) => h('option', { value: l.code }, l.label)),
   );
   const langRow = h('div.ty-row.full.ty-opt.ty-lang-row', h('label.ty-lang-label', { for: langId, 'data-tip': 'Language' }, icon('text-language', 16)), langSel);
+  // Anti-aliasing of the type objects in raster export.
+  const aa = selectRow('antialias', 'Anti-aliasing', ANTIALIAS, (v) => setAntialias(app, v), '.ty-aa-row');
+  // Font height reference (Show Font Height Options).
+  const fh = selectRow('font-height', 'Font height reference', SIZE_REFERENCES, (v) => {
+    app.prefs.set('fontSizeReference', v);
+    refresh();
+  }, '.ty-fh-row');
+  // East Asian options: tsume and aki.
+  const tsume = typeField(app, { label: 'Tsume (tighten the space beside characters)', iconName: 'tsume', kind: 'percent', presets: [0, 10, 25, 50, 75, 100], min: 0, max: 100, step: 5, onCommit: (v) => apply({ tsume: v }, 'Tsume', 'tsume') });
+  const akiOpts = AKI_PRESETS.map(([v, l]) => [String(v), l]);
+  const akiBefore = selectRow('aki-before', 'Aki (space before the characters)', akiOpts, (v) => apply({ akiBefore: Number(v) }, 'Aki'), '.ty-ea-row');
+  const akiAfter = selectRow('aki-after', 'Aki (space after the characters)', akiOpts, (v) => apply({ akiAfter: Number(v) }, 'Aki'), '.ty-ea-row');
+  const tsumeRow = h('div.ty-row.ty-opt.ty-ea-row', tsume.el, h('span'));
   let cur = null;
   const toggleRow = h('div.ty-toggles', { role: 'group', 'aria-label': 'Character options' }, Object.values(toggles));
   // Rows marked ty-opt hide with the panel's Hide Options.
   const rows = compact
     ? [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el)]
-    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row.ty-opt', vscale.el, hscale.el), h('div.ty-row.ty-opt', shift.el, rotation.el), h('div.ty-opt', toggleRow), langRow];
+    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), fh.row, h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row.ty-opt', vscale.el, hscale.el), h('div.ty-row.ty-opt', shift.el, rotation.el), tsumeRow, akiBefore.row, akiAfter.row, h('div.ty-opt', toggleRow), langRow, aa.row];
   const el = h('div.type-controls.char-controls', rows);
   let styleKey = '';
   const refresh = () => {
@@ -182,7 +208,16 @@ export function buildCharacterControls(app, { compact = false } = {}) {
       styleSel.replaceChildren(...opts);
       styleSel.value = curKey;
     }
-    size.set(cur.fontSize);
+    size.set(typeof cur.fontSize === 'number' ? cur.fontSize * sizeRatio() : cur.fontSize);
+    const showFh = app.prefs.get('showFontHeightOptions') === true;
+    const showEa = app.prefs.get('showEastAsianOptions') === true;
+    fh.row.hidden = compact || !showFh;
+    fh.set(sizeRef());
+    for (const r of [tsumeRow, akiBefore.row, akiAfter.row]) r.hidden = compact || !showEa;
+    tsume.set(cur.tsume ?? 0);
+    akiBefore.set(cur.akiBefore === MIXED ? MIXED : String(cur.akiBefore ?? 0));
+    akiAfter.set(cur.akiAfter === MIXED ? MIXED : String(cur.akiAfter ?? 0));
+    aa.set(antialiasOf(app));
     leading.set(cur.leading, { autoValue: typeof cur.fontSize === 'number' ? cur.fontSize * 1.2 : null });
     const k = caretKerning(app, cur);
     // Without manual kerning the field shows the automatic kerning mode.
@@ -287,12 +322,16 @@ export function buildParagraphControls(app, { compact = false } = {}) {
   };
   const listOpts = h('button.icon-btn.ty-toggle', { type: 'button', 'aria-label': 'Bullets and Numbering Options', 'data-tip': 'Bullets and Numbering Options', onclick: () => app.commands.run('type.listOptions') }, icon('sliders-horizontal', 16));
   const listRow = h('div.ty-toggles', { role: 'group', 'aria-label': 'Lists and margins' }, Object.values(listToggles), listOpts);
+  // East Asian options: kinsoku, mojikumi and burasagari.
+  const kinsoku = selectRow('kinsoku', 'Kinsoku (line-break rules)', KINSOKU_MODES, (v) => apply({ kinsoku: v }, 'Kinsoku'), '.ty-ea-row');
+  const mojikumi = selectRow('tsume', 'Mojikumi (punctuation spacing)', MOJIKUMI_MODES, (v) => apply({ mojikumi: v }, 'Mojikumi'), '.ty-ea-row');
+  const burasagari = selectRow('optical-margin', 'Burasagari (hang commas and stops)', BURASAGARI_MODES, (v) => apply({ burasagari: v }, 'Burasagari'), '.ty-ea-row');
   const hyId = `ty-hy-${++fieldId}`;
   const hyBox = h('input', { type: 'checkbox', id: hyId, onchange: () => apply({ hyphenate: hyBox.checked }, 'Hyphenate') });
   const hyRow = h('div.ty-check', hyBox, h('label', { for: hyId }, 'Hyphenate'));
   const rows = compact
     ? [group, h('div.ty-row', left.el, right.el)]
-    : [group, h('div.ty-row', left.el, right.el), h('div.ty-row', first.el, h('span')), h('div.ty-row.ty-opt', before.el, after.el), h('div.ty-opt', listRow), h('div.ty-opt', hyRow)];
+    : [group, h('div.ty-row', left.el, right.el), h('div.ty-row', first.el, h('span')), h('div.ty-row.ty-opt', before.el, after.el), kinsoku.row, mojikumi.row, burasagari.row, h('div.ty-opt', listRow), h('div.ty-opt', hyRow)];
   const el = h('div.type-controls.para-controls', rows);
   const refresh = () => {
     const p = currentParaStyle(app);
@@ -309,6 +348,11 @@ export function buildParagraphControls(app, { compact = false } = {}) {
     first.set(p.indentFirst);
     before.set(p.spaceBefore);
     after.set(p.spaceAfter);
+    const showEa = app.prefs.get('showEastAsianOptions') === true;
+    for (const c of [kinsoku, mojikumi, burasagari]) c.row.hidden = compact || !showEa;
+    kinsoku.set(p.kinsoku ?? 'none');
+    mojikumi.set(p.mojikumi ?? 'none');
+    burasagari.set(p.burasagari ?? 'none');
     hyBox.checked = p.hyphenate === true;
     hyBox.indeterminate = p.hyphenate === MIXED;
     for (const [id, b] of Object.entries(listToggles)) {
@@ -354,10 +398,18 @@ export class CharacterPanel extends Panel {
       'type.subscript',
       'type.underline',
       'type.strikethrough',
+      'type.underlineOptions',
+      'type.strikeOptions',
       '-',
       { label: 'Kerning', submenu: KERN_MODES.map(([m]) => `type.kern.${m}`) },
+      { label: 'Anti-aliasing', submenu: ANTIALIAS.map(([m]) => `type.antialias.${m}`) },
       'type.fractionalWidths',
       'type.noBreak',
+      '-',
+      'type.verticalRoman',
+      'type.tcy',
+      'type.showFontHeight',
+      'type.showEastAsian',
       '-',
       'view.snapGlyph',
       { label: 'Character Edit Tool', enabled: Boolean(this.app.editor), run: (a) => a.setTool('character-edit') },
@@ -418,6 +470,11 @@ export class ParagraphPanel extends Panel {
       '-',
       'type.composer.single',
       'type.composer.every',
+      '-',
+      { label: 'Kinsoku', submenu: KINSOKU_MODES.map(([m]) => `type.kinsoku.${m}`) },
+      { label: 'Mojikumi', submenu: MOJIKUMI_MODES.map(([m]) => `type.mojikumi.${m}`) },
+      { label: 'Burasagari', submenu: BURASAGARI_MODES.map(([m]) => `type.burasagari.${m}`) },
+      'type.showEastAsian',
       '-',
       'type.paragraph.reset',
     ];

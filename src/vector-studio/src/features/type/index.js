@@ -26,6 +26,7 @@ import { installTabsPanel } from './tabs-panel.js';
 import { installTypeOptions } from './type-options.js';
 import { installHyphenation } from './hyphenation.js';
 import { installTypeMetrics } from './type-metrics.js';
+import { installCharOptions } from './char-options.js';
 
 const PAINT = ['fill', 'stroke', 'strokeWidth'];
 
@@ -70,6 +71,7 @@ export function install(app) {
   installTypeOptions(app);
   installHyphenation(app);
   installTypeMetrics(app);
+  installCharOptions(app);
   installTypePanels(app);
   installOpenTypeFeatures(app);
   installTypeStyles(app);

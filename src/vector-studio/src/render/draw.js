@@ -14,7 +14,7 @@
  */
 import { segmentCount, segmentPoints, isLine } from '../model/bezier.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect } from '../model/geometry.js';
-import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks } from '../model/text-layout.js';
+import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
 import { expandStops, focalPoint } from '../model/gradients.js';
 import { multiply } from '../lib/matrix.js';
 import { geomEffectsOf, effectiveSubpaths, paintParts } from '../model/geom-effects.js';
@@ -321,10 +321,48 @@ function textPaint(ctx, doc, node, paint, cache, seg = null) {
   return v;
 }
 
-function decorate(ctx, st, size, x0, x1, base) {
-  const t = Math.max(st.fontSize / 18, 0.25);
-  if (st.underline) ctx.fillRect(x0, base + st.fontSize * 0.12, x1 - x0, t);
-  if (st.strike) ctx.fillRect(x0, base - size * 0.3, x1 - x0, t);
+/** Underline and strikethrough bars; `paintOf(paint)` gives the canvas style of a bar with its own color. */
+function decorate(ctx, st, size, x0, x1, base, fill, paintOf) {
+  for (const r of decorationRects(st, size, x0, x1, base)) {
+    const f = r.paint ? paintOf(r.paint) : fill;
+    if (!f) continue;
+    ctx.fillStyle = f;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  }
+}
+
+/** Text anti-aliasing in raster export (opts.textHints): extra weight of the strokes, in ems. */
+const TEXT_WEIGHT = { crisp: 0.012, strong: 0.028 };
+
+/**
+ * Draw a text node. In raster export (opts.textHints) the object's
+ * anti-aliasing applies: None draws hard-edged pixels, Crisp and Strong
+ * draw heavier strokes, Sharp (the default) draws as on screen.
+ */
+function drawText(ctx, doc, node, opts) {
+  const aa = opts.textHints && !opts.outline ? node.antialias : null;
+  if (aa !== 'none' || !ctx.canvas || typeof ctx.getTransform !== 'function') {
+    drawTextLayout(ctx, doc, node, opts, aa ? TEXT_WEIGHT[aa] || 0 : 0);
+    return;
+  }
+  // Hard edges: draw on a layer of the same size, snap its alpha, then composite it.
+  const { width, height } = ctx.canvas;
+  const layer = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
+  const lctx = layer.getContext('2d');
+  lctx.setTransform(ctx.getTransform());
+  drawTextLayout(lctx, doc, node, opts, 0);
+  try {
+    const img = lctx.getImageData(0, 0, width, height);
+    const d = img.data;
+    for (let i = 3; i < d.length; i += 4) d[i] = d[i] >= 128 ? 255 : 0;
+    lctx.putImageData(img, 0, 0);
+  } catch {
+    /* unreadable layer: keep the smooth edges */
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(layer, 0, 0);
+  ctx.restore();
 }
 
 /**
@@ -332,8 +370,9 @@ function decorate(ctx, st, size, x0, x1, base) {
  * same-styled characters with one fillText each (keeping the browser's
  * kerning and ligatures, positioned from the layout); vertical type, type on
  * a path and rotated characters draw glyph by glyph from glyphPlacements().
+ * `weight` (ems) thickens the letters with a stroke of their fill.
  */
-function drawText(ctx, doc, node, opts) {
+function drawTextLayout(ctx, doc, node, opts, weight = 0) {
   const lay = layoutText(node);
   ctx.save();
   const m = node.transform;
@@ -345,11 +384,21 @@ function drawText(ctx, doc, node, opts) {
   const outline = opts.outline;
   const fillOf = (st, seg) => (outline ? opts.outlineColor || '#000' : textPaint(ctx, doc, node, st.fill, cache, seg));
   const strokeOf = (st, seg) => (outline || !(st.strokeWidth > 0) ? null : textPaint(ctx, doc, node, st.stroke, cache, seg));
+  const embolden = (f, size) => {
+    ctx.strokeStyle = f;
+    ctx.lineWidth = weight * size;
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([]);
+  };
   const paintText = (st, str, x, y, seg) => {
     const f = fillOf(st, seg);
     if (f) {
       ctx.fillStyle = f;
       ctx.fillText(str, x, y);
+      if (weight > 0) {
+        embolden(f, st.fontSize);
+        ctx.strokeText(str, x, y);
+      }
     }
     const s = strokeOf(st, seg);
     if (s) {
@@ -364,6 +413,10 @@ function drawText(ctx, doc, node, opts) {
     if (f) {
       ctx.fillStyle = f;
       ctx.fill(path);
+      if (weight > 0) {
+        embolden(f, st.fontSize);
+        ctx.stroke(path);
+      }
     }
     const s = strokeOf(st, seg);
     if (s) {
@@ -408,12 +461,8 @@ function drawText(ctx, doc, node, opts) {
           ctx.restore();
         }
         if ((st.underline || st.strike) && !outline) {
-          const f = fillOf(st);
-          if (f) {
-            ctx.fillStyle = f;
-            const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
-            decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm));
-          }
+          const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
+          decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm), fillOf(st), (p) => textPaint(ctx, doc, node, p, cache));
         }
         i = j;
       }
@@ -441,13 +490,7 @@ function drawText(ctx, doc, node, opts) {
       const gp = g.glyph != null ? textHooks.glyphPath?.(g.style, g.glyph, g.size) : null;
       if (gp) paintGlyph(g.style, gp, gm);
       else paintText(g.style, g.ch, 0, 0, gm);
-      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) {
-        const f = fillOf(g.style, gm);
-        if (f) {
-          ctx.fillStyle = f;
-          decorate(ctx, g.style, g.size, 0, g.w, 0);
-        }
-      }
+      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) decorate(ctx, g.style, g.size, 0, g.w, 0, fillOf(g.style, gm), (p) => textPaint(ctx, doc, node, p, cache, gm));
       ctx.restore();
     }
   }

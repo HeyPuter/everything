@@ -19,6 +19,7 @@
 import { styledRuns, paragraphRanges, paraAt, baseStyle } from './text-runs.js';
 import { flattenPath, pathBounds } from './bezier.js';
 import { hyphenationOf, hyphenPoints } from './hyphenate.js';
+import { kinsokuAllows, hangsOut, applyMojikumi, isCJKChar } from './cjk.js';
 
 // ---- font hooks and caches ----
 
@@ -67,6 +68,7 @@ let storyCache = new WeakMap(); // first frame of a threaded story -> layouts of
 const widthCache = new Map(); // font key -> Map(char -> width at 100px)
 const kernCache = new Map(); // font key -> Map(pair -> kerning at 100px)
 const metricCache = new Map(); // font key -> { ascent, descent, capHeight, xHeight } at 100px
+let icfCache = new Map(); // font key -> ideographic face height at 100px / 100
 const ensured = new Set();
 const otFonts = new Map(); // family (lower case) -> [{ weight, style, font }]
 
@@ -78,6 +80,8 @@ export function invalidateTextLayout() {
   widthCache.clear();
   kernCache.clear();
   metricCache.clear();
+  inkCache.clear();
+  icfCache = new Map();
   ensured.clear();
 }
 
@@ -201,6 +205,37 @@ function kern100(style, key, a, b) {
   return k;
 }
 
+const inkCache = new Map(); // font key -> Map(char -> [left bearing, right bearing] at 100px)
+
+/** Side bearings of a character's glyph at 100px (the space beside its ink inside its advance). */
+function bearings100(style, key, ch) {
+  let m = inkCache.get(key);
+  if (!m) {
+    m = new Map();
+    inkCache.set(key, m);
+  }
+  let b = m.get(ch);
+  if (b) return b;
+  const w = width100(style, key, ch);
+  const c = ctx();
+  if (c) {
+    c.font = key;
+    const t = c.measureText(ch);
+    if (Number.isFinite(t.actualBoundingBoxLeft) && Number.isFinite(t.actualBoundingBoxRight) && t.actualBoundingBoxRight + t.actualBoundingBoxLeft > 0) b = [Math.max(0, -t.actualBoundingBoxLeft), Math.max(0, w - t.actualBoundingBoxRight)];
+  }
+  if (!b) {
+    const ot = otFontFor(style);
+    const g = ot?.charToGlyph(ch);
+    const bb = g?.getBoundingBox?.();
+    if (bb && bb.x2 > bb.x1) {
+      const k = 100 / ot.unitsPerEm;
+      b = [Math.max(0, bb.x1 * k), Math.max(0, w - bb.x2 * k)];
+    } else b = [w * 0.05, w * 0.05];
+  }
+  m.set(ch, b);
+  return b;
+}
+
 /** Vertical metrics at 100px: { ascent, descent, capHeight, xHeight }. */
 function metrics100(style, key) {
   let m = metricCache.get(key);
@@ -251,6 +286,36 @@ export function glyphMetrics(style) {
   return { ascent: m.ascent * k, descent: m.descent * k, capHeight: m.capHeight * k, xHeight: m.xHeight * k };
 }
 
+/**
+ * A font height as a fraction of the type size: 'em' (1), 'cap' (cap
+ * height), 'x' (x height) or 'icf' (the ideographic character face, the
+ * ink height of a full-width ideograph).
+ */
+export function fontHeightRatio(style, ref) {
+  if (ref === 'cap' || ref === 'x') {
+    const m = metrics100(style, fontKey(style));
+    return (ref === 'cap' ? m.capHeight : m.xHeight) / 100;
+  }
+  if (ref === 'icf') {
+    const key = fontKey(style);
+    let v = icfCache.get(key);
+    if (v === undefined) {
+      v = 0.88;
+      const c = ctx();
+      if (c) {
+        c.font = key;
+        const t = c.measureText('\u56fd');
+        const hgt = (t.actualBoundingBoxAscent || 0) + (t.actualBoundingBoxDescent || 0);
+        if (hgt > 20 && hgt < 120) v = hgt / 100;
+      }
+      if (icfCache.size > 200) icfCache = new Map();
+      icfCache.set(key, v);
+    }
+    return v;
+  }
+  return 1;
+}
+
 export function applyCaps(text, style) {
   return style.caps === 'all' || style.caps === 'small' ? String(text).toUpperCase() : text;
 }
@@ -269,6 +334,46 @@ export function measure(text, style) {
   }
   const track = ((style.tracking || 0) / 1000) * style.fontSize;
   return ((w * style.fontSize) / 100) * ((style.horizontalScale ?? 100) / 100) + track * s.length;
+}
+
+// ---- underline and strikethrough ----
+
+/**
+ * The underline or strikethrough bar of a style drawn at `size`:
+ * { offset (top of the bar from the baseline, down positive), thickness,
+ * paint (null: the text's fill), dash ([on, off] or null) }. Options left
+ * empty in style.underlineStyle / strikeStyle are automatic.
+ */
+export function decorationOf(style, size, kind) {
+  const o = (kind === 'underline' ? style.underlineStyle : style.strikeStyle) || null;
+  const thickness = o?.weight > 0 ? o.weight : Math.max(style.fontSize / 18, 0.25);
+  let offset;
+  if (kind === 'underline') offset = Number.isFinite(o?.offset) ? o.offset : style.fontSize * 0.12;
+  else offset = -(Number.isFinite(o?.offset) ? o.offset + thickness : size * 0.3);
+  const dash = Array.isArray(o?.dash) && o.dash[0] > 0 ? [o.dash[0], o.dash[1] > 0 ? o.dash[1] : o.dash[0]] : null;
+  return { offset, thickness, paint: o?.color || null, dash };
+}
+
+/**
+ * Rectangles of a style's underline and strikethrough between x0 and x1 on
+ * the baseline `base`: [{ x, y, w, h, paint }] (dashed bars come as their
+ * dashes; paint null means the text's fill).
+ */
+export function decorationRects(style, size, x0, x1, base) {
+  const out = [];
+  if (!(x1 > x0)) return out;
+  for (const kind of ['underline', 'strike']) {
+    if (!style[kind]) continue;
+    const d = decorationOf(style, size, kind);
+    const y = base + d.offset;
+    if (!d.dash) {
+      out.push({ x: x0, y, w: x1 - x0, h: d.thickness, paint: d.paint });
+      continue;
+    }
+    const [on, off] = d.dash;
+    for (let x = x0; x < x1 - 1e-6; x += on + off) out.push({ x, y, w: Math.min(on, x1 - x), h: d.thickness, paint: d.paint });
+  }
+  return out;
 }
 
 // ---- per-character measurement ----
@@ -344,6 +449,10 @@ function measureChars(node, text, vertical, tm = TYPE_METRICS) {
     shaped: false,
     perGlyph: false, // spacing the canvas cannot reproduce from strings: draw glyph by glyph
     vertical,
+    text,
+    rot: null, // vertical type: 1 where a half-width character turns sideways
+    tcy: null, // vertical type: { s (first index), w (width of the group), off (offset in it) } where characters sit across the column
+    kin: null, // kinsoku mode of each character's paragraph (or null)
   };
   for (const run of styledRuns(node)) {
     const st = run.style;
@@ -379,7 +488,12 @@ function measureChars(node, text, vertical, tm = TYPE_METRICS) {
       }
       const w = (width100(st, key, d.c) * size) / 100;
       out.gw[i] = w * hs;
-      if (vertical) {
+      if (vertical && st.verticalRoman && !isCJKChar(d.c) && !isSpace(ch)) {
+        // Turned sideways: the glyph's width runs down the column.
+        (out.rot || (out.rot = zeros(n)))[i] = 1;
+        out.adv[i] = w * hs + track;
+        if (prev && prevScale === d.scale && out.rot[i - 1]) out.kern[i] = ((kern100(st, key, prev, d.c) * size) / 100) * hs;
+      } else if (vertical) {
         out.adv[i] = st.fontSize * vs + track;
       } else {
         out.adv[i] = w * hs + track;
@@ -390,8 +504,82 @@ function measureChars(node, text, vertical, tm = TYPE_METRICS) {
     }
     if (textHooks.shape && run.end > run.start && textHooks.shape(st, text, run.start, Math.min(run.end, n), out, key)) out.shaped = true;
   }
-  if (!vertical) applySpacing(node, text, out);
+  if (vertical) groupTcy(text, out);
+  else applySpacing(node, text, out);
+  applyEastAsian(node, text, out);
   return out;
+}
+
+/**
+ * Tate-chu-yoko: in vertical type, each run of `tcy` characters (up to a
+ * line break or space) takes one em of the column and is set across it.
+ */
+function groupTcy(text, out) {
+  const n = text.length;
+  for (let i = 0; i < n; ) {
+    const st = out.sty[i];
+    if (!st?.tcy || !out.adv[i] || isSpace(text[i]) || isBreakChar(text[i])) {
+      i++;
+      continue;
+    }
+    let j = i;
+    let w = 0;
+    while (j < n && out.sty[j]?.tcy && out.adv[j] && !isSpace(text[j]) && !isBreakChar(text[j])) {
+      w += out.gw[j];
+      j++;
+    }
+    const tcy = out.tcy || (out.tcy = new Array(n).fill(null));
+    let off = 0;
+    for (let k = i; k < j; k++) {
+      tcy[k] = { s: i, w, off };
+      off += out.gw[k];
+      if (k > i) {
+        out.adv[k] = 0;
+        out.kern[k] = 0;
+        out.manual[k] = 0;
+      }
+      if (out.rot) out.rot[k] = 0;
+    }
+    i = j;
+  }
+}
+
+/**
+ * Character tsume and aki, and the paragraph's kinsoku and mojikumi
+ * settings (see model/cjk.js).
+ */
+function applyEastAsian(node, text, out) {
+  const n = text.length;
+  for (let i = 0; i < n; i++) {
+    const st = out.sty[i];
+    if (!st || !out.adv[i] || isBreakChar(text[i])) continue;
+    const em = out.size[i];
+    if (st.tsume > 0 && !out.vertical) {
+      const [l, r] = bearings100(st, fontKey(st), out.disp[i]);
+      const k = (Math.min(100, st.tsume) / 100) * (em / 100) * ((st.horizontalScale ?? 100) / 100);
+      out.kern[i] -= l * k;
+      out.adv[i] -= (l + r) * k;
+      out.perGlyph = true;
+    }
+    if (st.akiBefore) {
+      out.kern[i] += st.akiBefore * em;
+      out.perGlyph = true;
+    }
+    if (st.akiAfter) {
+      out.adv[i] += st.akiAfter * em;
+      out.perGlyph = true;
+    }
+  }
+  const ranges = paragraphRanges(text);
+  for (let pi = 0; pi < ranges.length; pi++) {
+    const para = paraAt(node, pi);
+    const pr = ranges[pi];
+    if (para.kinsoku && para.kinsoku !== 'none') {
+      if (!out.kin) out.kin = new Array(n + 1).fill(null);
+      for (let i = pr.start; i <= pr.end && i <= n; i++) out.kin[i] = para.kinsoku;
+    }
+    if (para.mojikumi === 'basic' && applyMojikumi(text, pr.start, Math.min(pr.end, n), out.adv, out.kern, out.size)) out.perGlyph = true;
+  }
 }
 
 // ---- kerning modes, whole-point widths and paragraph spacing ----
@@ -633,9 +821,19 @@ function hangFull(c) {
 
 // ---- line breaking ----
 
-/** Whether a line may break before index b (no-break text on both sides keeps together). */
+/** Whether a line may break before index b (no-break text on both sides keeps together; kinsoku). */
 function canBreak(ch, b, pe) {
-  return !(b < pe && b > 0 && ch.sty[b - 1]?.noBreak && ch.sty[b]?.noBreak);
+  if (b < pe && b > 0 && ch.sty[b - 1]?.noBreak && ch.sty[b]?.noBreak) return false;
+  const k = ch.kin?.[b];
+  if (k && b > 0 && b < pe && !kinsokuAllows(k, ch.text[b - 1], ch.text[b])) return false;
+  // Characters set across a vertical column stay together.
+  if (ch.tcy && b > 0 && b < pe && ch.tcy[b] && ch.tcy[b].s < b) return false;
+  return true;
+}
+
+/** Burasagari setting of the paragraph a character is in (from the style's paragraph: see makeLine/fillLine callers). */
+function hangsAt(opt, c) {
+  return Boolean(opt?.burasagari) && opt.burasagari !== 'none' && hangsOut(c);
 }
 
 const isLetter = (c) => Boolean(c) && /\p{L}/u.test(c);
@@ -679,6 +877,15 @@ function fillLine(text, ch, from, pe, maxW, tc = null, opt = null) {
       continue;
     }
     wx[i - wordStart] = pre;
+    // Burasagari: a comma or stop that does not fit hangs past the margin.
+    if (x + a - sh > maxW + 1e-6 && i > from && hangsAt(opt, c) && x - sh <= maxW + 1e-6) {
+      x += a;
+      if (canBreak(ch, i + 1, pe)) {
+        lastBreak = i + 1;
+        lastBreakX = x;
+      }
+      continue;
+    }
     if (x + a - sh > maxW + 1e-6 && i > from) {
       if (opt?.hy) {
         const b = hyphenBreak(text, ch, from, pe, i, wordStart, wx, maxW + sh, lastBreak > from ? maxW - lastBreakX : Infinity, shrinkK > 0, opt.hy);
@@ -801,6 +1008,12 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
     } else if (para.hangingPunctuation) {
       hangL = hangFull(text[start]) * ch.adv[start];
       hangR = hyphen ? hyW : hangFull(text[contentEnd - 1]) * ch.adv[contentEnd - 1];
+    }
+    // Burasagari: a final comma or stop hangs past the margin (forced: always; standard: when it does not fit).
+    const bura = para.burasagari;
+    if (!point && bura && bura !== 'none' && hangsOut(text[contentEnd - 1])) {
+      const avail = slot.x1 - slot.x0 - left - (para.indentRight || 0);
+      if (bura === 'forced' || width - hangL > avail + 1e-6) hangR = ch.adv[contentEnd - 1];
     }
   }
   const visible = width - hangL - hangR;
@@ -1193,7 +1406,7 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
                 e = step.end;
                 hy = step.hyph;
               } else {
-                e = fillLine(text, ch, p, pr.end, Math.max(1, avail), { stops, origin: s.x0 - cellLeft + left }, { shrink, hy: hyS ? { s: hyS, count: hc } : null });
+                e = fillLine(text, ch, p, pr.end, Math.max(1, avail), { stops, origin: s.x0 - cellLeft + left }, { shrink, hy: hyS ? { s: hyS, count: hc } : null, burasagari: para.burasagari });
                 hy = ch.lastHyphen;
               }
             }
@@ -1356,7 +1569,8 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
       let ce = C.b;
       while (ce > a && (isSpace(text[ce - 1]) || text[ce - 1] === LINE_SEP)) ce--;
       const ka = a > from && a < pe ? ch.kern[a] + ch.manual[a] : 0;
-      const base = P[ce - from] - P[a - from] - ka;
+      let base = P[ce - from] - P[a - from] - ka;
+      if (para.burasagari && para.burasagari !== 'none' && ce > a && hangsOut(text[ce - 1])) base -= ch.adv[ce - 1];
       const w = base + (C.hyph ? hyphenWidth(ch, C.b - 1) : 0);
       const spW = S[ce - from] - S[a - from];
       const lastLine = Boolean(C.last);
@@ -1901,6 +2115,21 @@ export function glyphPlacements(lay) {
         const ox = p.x - (ex[0] * adv) / 2 + ey[0] * v;
         const oy = p.y - (ex[1] * adv) / 2 + ey[1] * v;
         m = [ex[0] * hs, ex[1] * hs, ey[0] * vs, ey[1] * vs, ox, oy];
+      } else if (lay.vertical && ch.tcy?.[i]) {
+        // Tate-chu-yoko: the group sits across the column in the em of its first character, narrowed to fit.
+        const g = ch.tcy[i];
+        const em = st.fontSize * vs;
+        const top = g.s >= line.start ? line.xs[g.s - line.start] : x;
+        const f = g.w > em ? em / g.w : 1;
+        const p = lay.toLocal(0, line.y);
+        m = [hs * f, 0, 0, vs, p.x - (g.w * f) / 2 + g.off * f + rise, lay.toLocal(top + em * 0.82, line.y).y];
+      } else if (lay.vertical && ch.rot?.[i]) {
+        // Turned a quarter clockwise: the baseline runs down the column, the ink centered across it.
+        const fm = fontMetrics(st);
+        const k = ch.size[i] / st.fontSize;
+        const p = lay.toLocal(0, line.y);
+        const bx = p.x - (vs * k * (fm.ascent - fm.descent)) / 2 + rise;
+        m = [0, hs, -vs, 0, bx, lay.toLocal(x, line.y).y];
       } else if (lay.vertical) {
         const top = x;
         const em = st.fontSize * vs;

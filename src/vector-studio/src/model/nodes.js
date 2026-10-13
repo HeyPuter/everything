@@ -129,6 +129,8 @@ export const DEFAULT_CHAR = Object.freeze({
   verticalScale: 100,
   underline: false,
   strike: false,
+  underlineStyle: null, // { weight, offset (below the baseline), color (paint), dash: [on, off] } (null fields: automatic)
+  strikeStyle: null, // the same for strikethrough (offset above the baseline)
   caps: 'normal', // normal | all | small
   kerning: 0, // manual kerning before this character, thousandths of an em
   kernMode: 'metrics', // automatic kerning: metrics (the font's pairs) | optical (from the outlines) | none
@@ -150,6 +152,11 @@ export const DEFAULT_CHAR = Object.freeze({
   otPosition: 'default', // default | sups | subs | numr | dnom
   altGlyph: null, // a specific glyph (font glyph index) for these characters, from the Glyphs panel
   language: 'en-US', // language for hyphenation and spelling (model/languages.js)
+  verticalRoman: false, // vertical type: half-width (Roman) characters turn sideways (standard vertical Roman alignment)
+  tcy: false, // vertical type: these characters sit side by side in one em, across the column (tate-chu-yoko)
+  tsume: 0, // % of the space beside each character's glyph taken away
+  akiBefore: 0, // extra space before each character (fraction of an em)
+  akiAfter: 0, // extra space after each character (fraction of an em)
   charStyle: null, // character style id (doc.root.charStyles) the attributes came from
 });
 
@@ -168,6 +175,9 @@ export const DEFAULT_PARA = Object.freeze({
   hyphenation: null, // { minWord, minBefore, minAfter, limit, zone, capitalized } (see model/hyphenate.js)
   justification: null, // { wordMin/Desired/Max, letterMin/Desired/Max, glyphMin/Desired/Max (%), autoLeading (%), singleWord }
   composer: 'single', // single: fill line by line | every: choose the breaks of the whole paragraph together
+  kinsoku: 'none', // CJK line-break rules: none | soft | hard (characters that may not start or end a line)
+  mojikumi: 'none', // CJK spacing: none | basic (half-width punctuation pairs, space between CJK and Roman text)
+  burasagari: 'none', // CJK punctuation hanging past the right margin: none | standard | forced
   paraStyle: null, // paragraph style id (doc.root.paraStyles) the attributes came from
 });
 

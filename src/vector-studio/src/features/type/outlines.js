@@ -10,7 +10,7 @@
  */
 import { UserError } from '../../lib/errors.js';
 import { otFontIfReady } from './fonts.js';
-import { layoutText, glyphPlacements, riseOf } from '../../model/text-layout.js';
+import { layoutText, glyphPlacements, riseOf, decorationRects } from '../../model/text-layout.js';
 import { createPath, createCompound, createGroup, DEFAULT_STYLE } from '../../model/nodes.js';
 import { multiply } from '../../lib/matrix.js';
 import { nodeBounds, gradientEnds } from '../../model/geometry.js';
@@ -171,12 +171,15 @@ function glyphOutlines(node, lay, fonts) {
           const x0 = line.xs[i - line.start];
           const x1 = j >= line.contentEnd ? line.xs[line.contentEnd - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
           const b = line.y - riseOf(st, lay.chars.tm);
-          const t = Math.max(st.fontSize / 18, 0.25);
           const size = lay.chars.size[i];
-          const contours = [];
-          if (st.underline) contours.push(rectContour(base, x0, b + st.fontSize * 0.12, x1, b + st.fontSize * 0.12 + t));
-          if (st.strike) contours.push(rectContour(base, x0, b - size * 0.3, x1, b - size * 0.3 + t));
-          out.push({ index: i, fill: st.fill ?? null, stroke: null, strokeWidth: 0, contours });
+          // One item per bar color: the text's fill, or a bar's own color.
+          const byPaint = new Map();
+          for (const r of decorationRects(st, size, x0, x1, b)) {
+            const k = r.paint ? JSON.stringify(r.paint) : '';
+            if (!byPaint.has(k)) byPaint.set(k, { paint: r.paint, contours: [] });
+            byPaint.get(k).contours.push(rectContour(base, r.x, r.y, r.x + r.w, r.y + r.h));
+          }
+          for (const g of byPaint.values()) out.push({ index: i, fill: g.paint ?? st.fill ?? null, stroke: null, strokeWidth: 0, contours: g.contours });
         }
         i = j;
       }

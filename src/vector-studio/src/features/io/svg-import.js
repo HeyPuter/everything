@@ -35,7 +35,7 @@ const INHERITED = [
   'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin',
   'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'color', 'font-family', 'font-size', 'font-weight',
   'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'marker-start',
-  'marker-mid', 'marker-end', 'vector-effect', 'white-space',
+  'marker-mid', 'marker-end', 'vector-effect', 'white-space', 'xml:lang',
 ];
 const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin'];
 const PRESENTATION = [...INHERITED, ...NON_INHERITED.filter((p) => p !== 'transform')];
@@ -82,7 +82,7 @@ const MAX_ELEMENTS = 250000;
 const INK = 'http://www.inkscape.org/namespaces/inkscape';
 const XLINK = 'http://www.w3.org/1999/xlink';
 
-const TEXT_KEYS = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-decoration'];
+const TEXT_KEYS = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-decoration', 'xml:lang'];
 
 function textKey(st) {
   return TEXT_KEYS.map((k) => st[k]).join('|');
@@ -1362,6 +1362,8 @@ class Importer {
     const ls = String(st['letter-spacing'] || 'normal').trim();
     const track = ls === 'normal' ? 0 : (parseLength(ls, { fontSize: size, fallback: 0 }) / size) * 1000;
     const deco = String(st['text-decoration'] || '');
+    // The text's language (xml:lang), for hyphenation and spelling.
+    const lang = String(st['xml:lang'] || '').trim();
     return {
       ...DEFAULT_CHAR,
       fontFamily: fam,
@@ -1371,6 +1373,7 @@ class Importer {
       tracking: Math.round(track * 100) / 100,
       underline: /underline/.test(deco),
       strike: /line-through/.test(deco),
+      language: /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(lang) ? lang : DEFAULT_CHAR.language,
     };
   }
 
