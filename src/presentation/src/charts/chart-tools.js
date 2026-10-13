@@ -970,7 +970,7 @@ export function createChartTools(h) {
                   icon: "shapeFill",
                   enabled,
                   color: () => elementPaint("fill"),
-                  run: () => {},
+                  run: () => applyLastPaint("fill"),
                   menu: () => paintMenu("fill"),
                   menuLabel: "Fill colors",
                 },
@@ -981,7 +981,7 @@ export function createChartTools(h) {
                   icon: "shapeOutline",
                   enabled,
                   color: () => elementPaint("outline"),
-                  run: () => {},
+                  run: () => applyLastPaint("outline"),
                   menu: () => paintMenu("outline"),
                   menuLabel: "Outline colors",
                 },
@@ -1022,6 +1022,41 @@ export function createChartTools(h) {
       return spec.legend?.[k.field.slice(7)] || null;
     return spec[k.field] || null;
   }
+  // The colour last picked for a fill or an outline, which the button's face
+  // applies again.
+  const lastPaint = { fill: null, outline: null };
+  function applyLastPaint(which) {
+    const color = lastPaint[which];
+    if (!color) return;
+    applyPaint(which, color);
+  }
+  function applyPaint(which, value) {
+    const k = paintKey(which);
+    if (!k) return;
+    updateSelected((spec) => {
+      if (k.series != null)
+        return {
+          ...spec,
+          series: spec.series.map((s, i) => {
+            if (i !== k.series) return s;
+            const next = { ...s };
+            if (value === undefined) delete next[k.field];
+            else next[k.field] = value;
+            return next;
+          }),
+        };
+      if (k.field.startsWith("legend.")) {
+        const legend = { position: "r", ...(spec.legend || {}) };
+        if (value === undefined) delete legend[k.field.slice(7)];
+        else legend[k.field.slice(7)] = value;
+        return { ...spec, legend };
+      }
+      const out = { ...spec };
+      if (value === undefined) delete out[k.field];
+      else out[k.field] = value;
+      return out;
+    });
+  }
   function paintMenu(which) {
     const k = paintKey(which);
     if (!k)
@@ -1033,34 +1068,14 @@ export function createChartTools(h) {
           onSelect: () => {},
         },
       ];
-    const apply = (value) =>
-      updateSelected((spec) => {
-        if (k.series != null)
-          return {
-            ...spec,
-            series: spec.series.map((s, i) => {
-              if (i !== k.series) return s;
-              const next = { ...s };
-              if (value === undefined) delete next[k.field];
-              else next[k.field] = value;
-              return next;
-            }),
-          };
-        if (k.field.startsWith("legend.")) {
-          const legend = { position: "r", ...(spec.legend || {}) };
-          if (value === undefined) delete legend[k.field.slice(7)];
-          else legend[k.field.slice(7)] = value;
-          return { ...spec, legend };
-        }
-        const out = { ...spec };
-        if (value === undefined) delete out[k.field];
-        else out[k.field] = value;
-        return out;
-      });
+    const apply = (value) => applyPaint(which, value);
     return colorMenuItems({
       theme: h.theme(),
       current: elementPaint(which),
-      onPick: (value, hex) => apply(hex.toUpperCase()),
+      onPick: (value, hex) => {
+        lastPaint[which] = hex.toUpperCase();
+        apply(hex.toUpperCase());
+      },
       automatic: {
         label: "Automatic",
         icon: "o:resetPicture",

@@ -63,11 +63,13 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 7. Charts and SmartArt
 
-- [ ] Insert Chart with every common chart type, a data sheet editor, and
+- [x] Insert Chart with every common chart type, a data sheet editor, and
       Chart Design / Format tabs (styles, colors, elements, layouts, switch
       row/column, change type).
-- [ ] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
-      and Format tabs, and Convert to SmartArt for bulleted text.
+- [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
+      tab and Format pane section, and Convert to SmartArt for bulleted text.
+- [ ] SmartArt: pictures in picture layouts, per-shape formatting (a SmartArt
+      Format tab).
 
 ### 8. Views
 
