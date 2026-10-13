@@ -230,6 +230,23 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   on, the position, opacity or style they change becomes a keyframe.
 - Artboards and a video timeline do not mix: the history hook refuses an edit
   that would combine them, and the artboard commands say so up front.
+- Audio (`src/model/audio-timeline.ts`): `timeline.audio` lists audio tracks
+  (absent: one empty default track, created by `ownTracks` on the first edit)
+  with clips in seconds (`start`, `in`, `length`), a gain in dB and fade
+  lengths; tracks have a volume, mute and solo. A clip plays an audio file
+  (`source`, an opaque source asset) or, with `link`, the sound of a video
+  layer (`video.audio`, the footage asset) and then takes its times from that
+  layer's clip (`clipSpan`), so edits of a linked clip edit the video clip.
+  `syncAudio` (part of `syncTimeline`) drops linked clips of deleted layers
+  and links the sound of video layers that are new in an edit (imports,
+  splits, duplicates). `audioPlan` is what plays after mute and solo.
+- Sound decodes with Web Audio at 48 kHz (`audio-media.ts`, cached by asset,
+  waveform peaks at several block sizes from `imaging/audio/peaks.ts`).
+  `imaging/audio/mix.ts` mixes a plan offline, sample accurately, for Render
+  Video (Opus through WebCodecs into the WebM writer's second track, or WAV)
+  and tests; playback (`audio-playback.ts`) schedules the same plan on an
+  `AudioContext` with gain ramps, and its clock drives the frame shown.
+  Audio clip commands act on `videoView(e).audioClips` while any is selected.
 
 ## Assisted editing (`src/features/assist/`)
 
