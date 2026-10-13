@@ -113,7 +113,7 @@ export class PencilTool extends Tool {
       }
       const style = this.pathStyle();
       const node = createPath(anchors, close && anchors.length > 2, style);
-      doc.insert(node, editor.targetLayer().id);
+      editor.insertDrawn(node);
       if (this.keepSelected) editor.select([node.id]);
       else editor.clearSelection();
     });

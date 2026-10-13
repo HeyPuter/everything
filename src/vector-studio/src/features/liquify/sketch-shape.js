@@ -78,7 +78,7 @@ export class SketchShapeTool extends Tool {
     const style = newPathStyle(editor);
     if (!g.closed) style.fill = null;
     const node = createPath(anchors, g.closed, style, g.shape ? { shape: g.shape } : {});
-    doc.transact('Sketch Shape', () => doc.insert(node, editor.targetLayer().id));
+    doc.transact('Sketch Shape', () => editor.insertDrawn(node));
     editor.select([node.id]);
   }
 
