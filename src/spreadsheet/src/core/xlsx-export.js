@@ -19,6 +19,7 @@ import { tableStyleParts, parseTableSpec } from './tables.js';
 import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
+import { writeXlsxOutlineSettings } from './xlsx-outline.js';
 import { richValueWriter } from './xlsx-rich-values.js';
 import { scenariosXml } from './scenarios.js';
 import { parseKey } from './cell.js';
@@ -152,7 +153,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   }
   const defaultVAlign = wb.sheets.find(s => s.kind !== 'chart')?.defaultVAlign || 'middle';
   const slicers = prepareXlsxSlicers(wb);
-  const styles = exportStyles(sourceStyles, wb.normalFont, wb.colorPalette, defaultVAlign, wb.fontTheme, wb.nativeNormalStyle, wb.nativeNormalFill, wb.nativeDefaultCellFormat);
+  const styles = exportStyles(sourceStyles, wb.normalFont, wb.colorPalette, defaultVAlign, wb.fontTheme, wb.nativeNormalStyle, wb.nativeNormalFill, wb.nativeDefaultCellFormat, wb.cellStyles);
   // Reuse identical hidden helpers after import; never shadow a user name or
   // table, including local names which would intercept a global helper call.
   const usedNames = new Set([...wb.names.map(n => n.name), ...wb.tableNames()].map(n => n.toUpperCase()));
@@ -342,7 +343,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, richValues.sheet(writeXlsxPrint(xml, sheet.printSettings), imageValues));
+    set(path, richValues.sheet(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), imageValues));
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');

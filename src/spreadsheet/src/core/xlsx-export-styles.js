@@ -11,6 +11,7 @@ import { normalFontStyle } from './normal-font.js';
 import { writeNativeNormalStyle } from './native-normal-style.js';
 import { writeNativeDefaultCellFormat } from './native-default-cell-format.js';
 import { xlsxFontName, xlsxFontSize, xlsxSolidColor } from './xlsx-style-projection.js';
+import { styleAsCell, normalizeCellStyles } from './custom-cell-styles.js';
 
 export const xmlText = value => String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -110,7 +111,7 @@ function alignmentXml(s) {
   return xmlTag('alignment', attrs);
 }
 
-export function exportStyles(source, normalFont = null, palette = null, defaultVAlign = null, fontTheme = null, nativeNormalStyle = null, nativeNormalFill = null, nativeDefaultCellFormat = null) {
+export function exportStyles(source, normalFont = null, palette = null, defaultVAlign = null, fontTheme = null, nativeNormalStyle = null, nativeNormalFill = null, nativeDefaultCellFormat = null, namedStyles = []) {
   const normalStyle = normalFontStyle(normalFont);
   const records = (tag, item) => xlsxElements(xlsxElements(source, tag)[0], item);
   const fonts = records('fonts', 'font'), fills = records('fills', 'fill'), borders = records('borders', 'border');
@@ -159,6 +160,12 @@ export function exportStyles(source, normalFont = null, palette = null, defaultV
   };
   const normalFillId = nativeNormalFill ? resourceFill(nativeNormalFill) : null;
   let normalIndex = 0;
+  // The workbook's named cell styles follow Normal among the style XFs, each linked by name from cellStyles; a
+  // cell formatted with one points its xfId at it. The apply flags of a style XF say which parts the style holds.
+  // A modified Normal stays in the app's own record: the file's Normal is the built-in style every format rests on.
+  const named = normalizeCellStyles(namedStyles).filter((def) => def.builtin !== 'normal');
+  const styleBase = nativeNormalStyle || normalFillId != null ? 1 : Math.max(1, records('cellStyleXfs', 'xf').length);
+  const namedIndex = new Map(named.map((def, i) => [def.name.toLowerCase(), styleBase + i]));
   // Format codes are ST_Xstring: compare decoded identities and encode only at
   // the XML boundary, so a literal _x0041_ cannot become A on the next read.
   const formats = new Map(numFmts.map(n => [decodeXlsxString(xlsxAttr(n, 'formatCode')), Number(xlsxAttr(n, 'numFmtId'))]));
@@ -197,7 +204,7 @@ export function exportStyles(source, normalFont = null, palette = null, defaultV
       const numFmtId = original == null ? numberFormat(s) : Number(xlsxAttr(initialXfs[original], 'numFmtId') || 0);
       const index = intern(xfs, xmlTag('xf', {
         numFmtId, fontId: intern(fonts, fontXml({ ...normalStyle, ...s }, false, defaultColor, palette, fontTheme)), fillId: fill ? resourceFill(fill) : intern(fills, fillXml(s, false, palette)), borderId: intern(borders, borderXml(s)),
-        xfId: 0, applyFont: 1, applyFill: 1, applyBorder: 1, applyAlignment: 1, applyNumberFormat: 1,
+        xfId: (typeof s.cellStyle === 'string' && namedIndex.get(s.cellStyle.toLowerCase())) || 0, applyFont: 1, applyFill: 1, applyBorder: 1, applyAlignment: 1, applyNumberFormat: 1,
         applyProtection: s.locked === false || s.formulaHidden ? 1 : null,
       }, alignmentXml(s) + (s.locked === false || s.formulaHidden
         ? xmlTag('protection', { locked: s.locked === false ? 0 : null, hidden: s.formulaHidden ? 1 : null }) : '')));
@@ -236,6 +243,26 @@ export function exportStyles(source, normalFont = null, palette = null, defaultV
         normalIndex = normalFillId;
         const xf = xmlTag('xf', { numFmtId: 0, fontId: 0, fillId: normalFillId, borderId: 0 });
         result = result.replace(/<cellStyleXfs\b[^>]*(?:\/>|>[\s\S]*?<\/cellStyleXfs>)/, () => table('cellStyleXfs', [xf]));
+      }
+      if (named.length) {
+        const styleXfs = named.map((def) => {
+          const s = styleAsCell(def), p = def.parts, flag = (on) => (on ? 1 : 0);
+          return xmlTag('xf', {
+            numFmtId: numberFormat(s), fontId: intern(fonts, fontXml({ ...normalStyle, ...s }, false, defaultColor, palette, fontTheme)),
+            fillId: intern(fills, fillXml(s, false, palette)), borderId: intern(borders, borderXml(s)),
+            applyNumberFormat: flag(p.number), applyFont: flag(p.font), applyFill: flag(p.fill), applyBorder: flag(p.border),
+            applyAlignment: flag(p.alignment), applyProtection: flag(p.protection),
+          }, (p.alignment ? alignmentXml(s) : '') + (p.protection ? xmlTag('protection', { locked: s.locked === false ? 0 : 1, hidden: s.formulaHidden ? 1 : 0 }) : ''));
+        });
+        result = result.replace(/<cellStyleXfs\b[^>]*(?:\/>|>[\s\S]*?<\/cellStyleXfs>)/, (all) => {
+          const kept = xlsxElements(all, 'xf').slice(0, styleBase);
+          return table('cellStyleXfs', [...kept, ...styleXfs]);
+        });
+        const entries = named.map((def, i) => xmlTag('cellStyle', { name: def.name, xfId: styleBase + i }));
+        result = result.replace(/<cellStyles\b[^>]*(?:\/>|>[\s\S]*?<\/cellStyles>)/, (all) => {
+          const kept = xlsxElements(all, 'cellStyle').filter((c) => !named.some((def) => xlsxAttr(c, 'name')?.toLowerCase() === def.name.toLowerCase()));
+          return table('cellStyles', [...kept, ...entries]);
+        });
       }
       for (const [name, entries] of [['fonts', fonts], ['fills', fills], ['borders', borders], ['cellXfs', xfs], ['dxfs', dxfs], ['tableStyles', tableStyles]]) {
         result = result.replace(new RegExp(`<${name}\\b[^>]*(?:/>|>[\\s\\S]*?</${name}>)`), () => table(name, entries));

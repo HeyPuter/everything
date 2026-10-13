@@ -11,7 +11,7 @@ import { GRID_RANGE, rowRuns, mapRangeRecords, compactRangeRecords,
   forEachRangeRecordAt, forEachRangeRecordIn } from './range-records.js';
 export { GRID_RANGE, intersection, rowRuns, mapRangeRecords as mapStyleResets } from './range-records.js';
 
-export const STYLE_KEYS = ['bold', 'italic', 'underline', 'strike', 'align', 'color', 'bg', 'nativeFill', 'fmt', 'dec', 'cur', 'wrap', ...BORDER_STYLE_KEYS, 'size', 'valign', 'dateStyle', 'sec', 'group', 'font', 'scheme', 'code', 'indent', 'rot', 'clip', 'shrink', 'locked', 'formulaHidden'];
+export const STYLE_KEYS = ['bold', 'italic', 'underline', 'strike', 'align', 'color', 'bg', 'nativeFill', 'fmt', 'dec', 'cur', 'wrap', ...BORDER_STYLE_KEYS, 'size', 'valign', 'dateStyle', 'sec', 'group', 'font', 'scheme', 'code', 'indent', 'rot', 'clip', 'shrink', 'locked', 'formulaHidden', 'cellStyle'];
 const sideKeys = new Set(['btBorder', 'bbBorder', 'blBorder', 'brBorder']);
 
 function valueFor(key, value) {

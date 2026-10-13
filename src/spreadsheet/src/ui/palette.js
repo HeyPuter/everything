@@ -162,6 +162,9 @@ export function paletteCommands(flags = {}) {
     flags.hasTable ? c('Edit table…', 'Data', 'table', 'editTable', null, { keywords: 'name style totals' }) : c('Create table…', 'Data', 'table', 'insertTable', null, { keywords: 'structured banded' }),
     flags.hasTable && c('Toggle the table’s totals row', 'Data', 'sigma', 'tableTotals'),
     c('Subtotals…', 'Data', 'sigma', 'subtotal', null, { keywords: 'group by outline' }),
+    c('Auto Outline', 'Data', 'group', 'autoOutline', null, { keywords: 'group rows columns summary totals outline automatic' }),
+    c('Clear Outline', 'Data', 'eraser', 'clearOutline', null, { keywords: 'remove groups ungroup all outline' }),
+    c('Outline settings…', 'Data', 'sliders', 'outlineSettings', null, { keywords: 'summary rows below columns right automatic styles outline' }),
     c('Pivot table…', 'Data', 'pivot', 'pivot', null, { keywords: 'summarize' }),
     c('Column stats…', 'Data', 'chartColumn', 'columnStats', null, { keywords: 'summary distribution' }),
     c('Data form…', 'Data', 'dataForm', 'dataForm', null, { keywords: 'record entry fields list database criteria find' }),
@@ -189,6 +192,8 @@ export function paletteCommands(flags = {}) {
     c('Conditional formatting…', 'Format', 'highlighter', 'condFormat', null, { keywords: 'rules color scale data bars' }),
     c('Alternating colors', 'Format', 'rows', 'bands', null, { keywords: 'banding stripes zebra' }),
     c('Cell styles…', 'Format', 'paint', 'cellStylesMenu', null, { keywords: 'title heading total good bad' }),
+    !flags.editing && c('New cell style…', 'Format', 'plus', 'newCellStyle', null, { keywords: 'named style create define by example' }),
+    !flags.editing && c('Merge cell styles…', 'Format', 'paint', 'mergeCellStyles', null, { keywords: 'copy styles from another workbook spreadsheet import' }),
     c('Paint format', 'Format', 'paint', 'paintFormat', null, { keywords: 'copy formatting brush' }),
     // A single unmerged cell has nothing to merge; one row nothing to merge vertically, one column nothing horizontally.
     flags.merged ? c('Unmerge cells', 'Format', 'unmerge', 'merge', null, { keywords: 'merge split' }) : !flags.singleCell && c('Merge cells', 'Format', 'merge', 'merge', null, { keywords: 'unmerge' }),

@@ -310,6 +310,19 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   has not reached yet: a value typed, pasted or filled into a formatted column
   takes its format wherever it lands, and the column keeps it through inserted,
   deleted and moved lines until Clear formats takes it away.
+- **Cell styles**: a gallery of built-in styles (Title, Heading, Total,
+  Input, Good, Bad, Note and the rest), themed accent styles, and the
+  workbook's own named styles. New Cell Style… makes one by example from the
+  active cell; the Style dialog names it and chooses which parts of a format
+  it holds (number, alignment, font, border, fill, protection), each shown
+  with a summary, and Format… edits it in the Format Cells dialog. Applying a
+  style changes only the parts it holds. Right-click a style (or press the menu
+  key on it) to modify, duplicate or delete it; modifying a style reformats
+  every cell that uses it, in one undo step, and a built-in style can be
+  modified for one workbook and reset later. Merge Styles… copies the styles of
+  another spreadsheet (from the Spreadsheets folder, Puter, or this device) and
+  asks before replacing same-named ones. Named styles travel in .xlsx files as
+  the file's own cell styles, with cells linked to them.
 - **Conditional formatting**: highlight cells that are greater or less than,
   between, equal, contain, begin or end with text, are empty, are duplicates
   or unique, are in the top or bottom N, hold a date that is today, yesterday,
@@ -392,7 +405,12 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,
-  nested, Alt+Shift+Right/Left), column and row resizing (drag, double-click to fit,
+  nested, Alt+Shift+Right/Left); Auto Outline builds nested row and column
+  groups from the summary formulas (`SUM`, `SUBTOTAL`, `AVERAGE` and the like
+  beside the cells they total), Clear Outline removes them, and Outline
+  Settings puts summary rows above or below their detail and summary columns
+  left or right of it (saved in .xlsx files) and can set summary lines in bold
+  automatically (Data ▸ Outline), column and row resizing (drag, double-click to fit,
   or an exact size), zoom from 50% to 200% (presets from the status bar),
   optional gridlines, zero values
   that can be hidden per sheet, notes on cells, and colored sheet tabs. The
@@ -656,6 +674,8 @@ src/
     charts.js         chart model and the data read from a range
     tables.js         tables and structured references (Table1[Column])
     subtotal.js       subtotal rows and their outline groups
+    auto-outline.js   Auto Outline, Clear Outline and outline styles from summary formulas
+    custom-cell-styles.js  the workbook's named cell styles: parts, applying, merging
     importrange.js    IMPORTRANGE, IMPORTDATA, IMPORTHTML, IMPORTXML helpers
     formula/query.js  the QUERY language: parser and executor
     aiformula.js      prompts for the AI formula helper and reading formulas from replies

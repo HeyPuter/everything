@@ -80,6 +80,7 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
+import { readXlsxOutlineSettings } from './xlsx-outline.js';
 import { serializeQueries } from './queries.js';
 
 export const META_SHEET = '_puter_meta';
@@ -540,6 +541,7 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
   if (wb.fontTheme) { meta.fontTheme = wb.fontTheme; any = true; }
   if (wb.themeInfo) { meta.themeInfo = wb.themeInfo; any = true; }
   if (wb.queries?.length) { meta.queries = serializeQueries(wb); any = true; }
+  if (wb.cellStyles?.length) { meta.cellStyles = wb.cellStyles; any = true; }
   const pivotSlicers = !ods && pivotSlicerSidecar(wb);
   if (pivotSlicers?.length) { meta.pivotSlicers = pivotSlicers; any = true; }
   if (structuredNames.length) meta.structuredNames = structuredNames;
@@ -1444,7 +1446,9 @@ function fileCellStyles(styles, native, includeDefaults = true) {
     // bottom even when the entire alignment element is absent (MS-OI29500
     // 2.1.693). Private sidecars own their app defaults, just as for fonts.
     const s = { ...byFont[Number.isInteger(xf?.fontId) ? xf.fontId : 0], ...native?.fills?.[xf?.fillId], ...xlsxAlignment(xf?.alignment || (includeDefaults ? {} : null)), ...native?.borders?.[xf?.borderId], ...(native?.shrink?.[i] ? { shrink: true } : null), ...(native?.protection?.[i]?.unlocked ? { locked: false } : null), ...(native?.protection?.[i]?.hidden ? { formulaHidden: true } : null),
-      ...(completeDefault ? numFmtToStyle(native?.formatCodes?.[xf?.numFmtId]) : null) };
+      ...(completeDefault ? numFmtToStyle(native?.formatCodes?.[xf?.numFmtId]) : null),
+      // The named cell style the format is linked to, so the cell follows the style when it is modified.
+      ...(native?.cellXfStyleNames?.[i] ? { cellStyle: native.cellXfStyleNames[i] } : null) };
     return Object.keys(s).length ? s : null;
   });
   if (completeDefault && byXf[0]) {
@@ -1946,6 +1950,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
+    outlineSettings: readXlsxOutlineSettings(partXml),
     gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
@@ -2423,6 +2428,8 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     nativeNormalFill: book.bookType === 'xlsx' ? nativeStyles.nativeNormalFill : meta?.nativeNormalFill,
     nativeDefaultCellFormat: book.bookType === 'xlsx' ? nativeStyles.nativeDefaultCellFormat : meta?.nativeDefaultCellFormat,
     dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries,
+    // The app's own record of its named styles, else the file's (another program's custom styles).
+    cellStyles: Array.isArray(meta?.cellStyles) ? meta.cellStyles : nativeStyles?.namedStyles,
     fontTheme: themePart ? readFontTheme(new TextDecoder().decode(themePart)) : normalizeFontTheme(meta?.fontTheme),
     themeInfo: importedThemeInfo(themePart ? readThemeInfo(new TextDecoder().decode(themePart)) : null, meta?.themeInfo, normalFont) });
   if (modelRels && /\/pivotCacheDefinition["']/.test(new TextDecoder().decode(modelRels)))

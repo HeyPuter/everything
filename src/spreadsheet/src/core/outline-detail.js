@@ -1,14 +1,18 @@
 /**
  * Data ▸ Outline ▸ Show Detail / Hide Detail: expand or collapse the outline group at the active
  * cell. Hide Detail collapses the innermost open group holding the cell, or the one whose summary
- * line (the line just after it) the cell is on; Show Detail opens the outermost closed group whose
- * summary line the cell is on (or that holds it), one level at a time, as the outline buttons do.
+ * line (just after it, or just before it where the sheet's outline settings say so) the cell is on;
+ * Show Detail opens the outermost closed group whose summary line the cell is on (or that holds it),
+ * one level at a time, as the outline buttons do.
  */
 
 function pick(wb, sheetId, axis, index, show) {
   const groups = wb.outlineGroups(sheetId, axis).filter((g) => (show ? g.collapsed : !g.collapsed));
   const holding = groups.filter((g) => g.from <= index && g.to >= index);
-  const summary = groups.filter((g) => g.to + 1 === index);
+  // The summary line is after the group, or before it where the sheet's outline settings put it there.
+  const settings = wb.sheet(sheetId)?.outlineSettings || {};
+  const after = axis === 'row' ? settings.summaryBelow !== false : settings.summaryRight !== false;
+  const summary = groups.filter((g) => (after ? g.to + 1 : g.from - 1) === index);
   const pool = show ? (summary.length ? summary : holding) : (holding.length ? holding : summary);
   if (!pool.length) return null;
   return pool.reduce((best, g) => (show ? g.level < best.level : g.level > best.level) ? g : best);

@@ -106,11 +106,16 @@ export function numberPatch({ category, dec, group, cur, dateStyle, code, neg = 
   return out;
 }
 
-export function openFormatCellsDialog(ctx, { panel = 'number' } = {}) {
-  if (ctx.grid?.editing) ctx.grid.commitEdit();
-  const style = ctx.style();
-  const selection = ctx.range?.() || { r1: 0, r2: 0, c1: 0, c2: 0 };
-  const value = ctx.wb.getValue(ctx.sheetId(), ctx.active().r, ctx.active().c);
+/**
+ * `style` and `onApply` drive the dialog over a style that belongs to no cell (a named cell style's Format…): the
+ * dialog starts from that style, as one cell with its edges, and hands its result ({ patch, border | borders })
+ * to `onApply` instead of formatting the selection. `title` names the dialog then.
+ */
+export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle = null, onApply = null, title = 'Format Cells' } = {}) {
+  if (ctx.grid?.editing && !draftStyle) ctx.grid.commitEdit();
+  const style = draftStyle || ctx.style();
+  const selection = draftStyle ? { r1: 0, r2: 0, c1: 0, c2: 0 } : ctx.range?.() || { r1: 0, r2: 0, c1: 0, c2: 0 };
+  const value = draftStyle ? null : ctx.wb.getValue(ctx.sheetId(), ctx.active().r, ctx.active().c);
   const current = formatEntry(style);
   const negative = style.fmt === 'custom' ? negativeStyleFor(style.code) : null;
   const state = {
@@ -270,7 +275,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number' } = {}) {
 
   /* ---- Border ---- */
   const border = { preset: 'keep', style: style.bs || 'thin', color: style.bc || '', auto: !style.bc };
-  const originalEdges = readBorderEdges(ctx.wb, ctx.sheetId(), selection);
+  const originalEdges = readBorderEdges(draftStyle ? { styleAt: () => style, mergesIn: () => [] } : ctx.wb, ctx.sheetId?.(), selection);
   let edges = new Map(originalEdges), customEdges = false, baseBorder = null;
   const edgeActions = new Map(), edgeButtons = new Map();
   const currentPen = () => ({ style: border.style, color: border.auto ? null : border.color || null });
@@ -541,7 +546,8 @@ export function openFormatCellsDialog(ctx, { panel = 'number' } = {}) {
       return;
     }
     modal.close();
-    if (Object.keys(out.patch).length || out.border || out.borders?.length) ctx.run('applyFormat', out);
+    if (onApply) onApply(out);
+    else if (Object.keys(out.patch).length || out.border || out.borders?.length) ctx.run('applyFormat', out);
   };
   // Fields on a hidden tab would otherwise fail the browser's own check silently, with nowhere to show its bubble.
   const content = el('form.fc-form', { onsubmit: submit, novalidate: true },
@@ -553,7 +559,8 @@ export function openFormatCellsDialog(ctx, { panel = 'number' } = {}) {
   content.addEventListener('input', refreshAppearance);
   content.addEventListener('change', refreshAppearance);
   let previewResize = null;
-  const modal = openModal({ title: 'Format Cells', content, wide: true, className: 'format-cells', onClose: () => { previewResize?.disconnect(); ctx.grid?.focus?.(); } });
+  // Over a style, the dialog that asked keeps the focus when this one closes.
+  const modal = openModal({ title, content, wide: true, className: 'format-cells', onClose: () => { previewResize?.disconnect(); if (!draftStyle) ctx.grid?.focus?.(); } });
   if (typeof ResizeObserver === 'function') {
     previewResize = new ResizeObserver(refreshAppearance);
     for (const { box } of appearances.values()) previewResize.observe(box);

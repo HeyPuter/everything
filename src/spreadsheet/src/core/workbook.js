@@ -1,4 +1,5 @@
 import { normalizeThemeInfo, themedTableLook } from './workbook-theme.js';
+import { normalizeCellStyles } from './custom-cell-styles.js';
 import { normalizeFillColor, fillColorCss, sameFillColor } from './fill-color.js';
 import { normalizeNativeFill, nativeFillPatch, packNativeFillState, unpackNativeFillState } from './native-fill.js';
 import { tableConversionStyle } from './table-conversion-style.js';
@@ -314,6 +315,25 @@ function shiftCalc(calc, c1, at, n, remove) {
   return out;
 }
 
+/**
+ * A sheet's outline settings, kept only where they differ from the defaults: summary rows below their detail and
+ * summary columns to its right (the outline buttons sit on the summary line), and automatic styles off.
+ */
+export function normalizeOutlineSettings(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  if (raw.summaryBelow === false) out.summaryBelow = false;
+  if (raw.summaryRight === false) out.summaryRight = false;
+  if (raw.autoStyles === true) out.autoStyles = true;
+  return Object.keys(out).length ? out : null;
+}
+
+/** The outline settings in force on a sheet, every field spelt out. */
+export function outlineSettingsOf(sheet) {
+  const s = sheet?.outlineSettings || {};
+  return { summaryBelow: s.summaryBelow !== false, summaryRight: s.summaryRight !== false, autoStyles: s.autoStyles === true };
+}
+
 /** Outline groups: { rows: [{ from, to, collapsed }], cols: [...] }, sorted, sane. */
 function normalizeGroups(raw) {
   // Collapsing and expanding iterate every line. File metadata must never
@@ -593,7 +613,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
+function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, outlineSettings, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -631,6 +651,7 @@ function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeigh
     veryHidden: !!veryHidden,
     protected: !!locked,
     groups: normalizeGroups(groups),
+    ...(normalizeOutlineSettings(outlineSettings) ? { outlineSettings: normalizeOutlineSettings(outlineSettings) } : {}),
     gridlines: gridlines !== false,
     headers: headers !== false,
     rightToLeft: rightToLeft === true,
@@ -814,6 +835,7 @@ function sheetShapeJSON(s) {
     ...(s.split ? { split: normalizeSplit(s.split) } : {}),
     printSettings: s.printSettings ? normalizePrintSettings(s.printSettings) : undefined,
     groups: s.groups.rows.length || s.groups.cols.length ? { rows: s.groups.rows.map((g) => ({ ...g })), cols: s.groups.cols.map((g) => ({ ...g })) } : undefined,
+    ...(s.outlineSettings ? { outlineSettings: { ...s.outlineSettings } } : {}),
     filter: s.filter ? { ...s.filter, range: { ...s.filter.range }, criteria: { ...s.filter.criteria }, ...(s.filter.hiddenButtons ? { hiddenButtons: [...s.filter.hiddenButtons] } : {}) } : null,
     ...(s.otherFilters?.length ? { otherFilters: s.otherFilters.map(copyFilter) } : {}),
     ...(sheetFilters(s).length ? { filterHidden: [...s.filterHidden] } : {}),
@@ -956,6 +978,8 @@ export class Workbook extends EventTarget {
     // Watch Window: cells whose values are kept in view, by sheet id and position.
     // Get & Transform: the workbook's queries (see queries.js); their loaded tables are ordinary tables.
     this.queries = normalizeQueries(json.queries);
+    // Named cell styles this workbook defines, and built-in ones it modified (see custom-cell-styles.js).
+    this.cellStyles = normalizeCellStyles(json.cellStyles);
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -1027,6 +1051,7 @@ export class Workbook extends EventTarget {
       ...(this.structureProtected ? { structureProtected: true } : {}),
       ...(this.linkStartup !== 'ask' ? { linkStartup: this.linkStartup } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
+      ...(this.cellStyles.length ? { cellStyles: normalizeCellStyles(this.cellStyles) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
       ...(this.colorPalette ? { colorPalette: normalizeColorPalette(this.colorPalette) } : {}),
@@ -6852,6 +6877,44 @@ export class Workbook extends EventTarget {
     });
   }
 
+  /** Change a sheet's outline settings (see normalizeOutlineSettings); an undo step of its own. */
+  setOutlineSettings(sheetId, patch) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart') return false;
+    const prev = sheet.outlineSettings ? { ...sheet.outlineSettings } : null;
+    const next = normalizeOutlineSettings({ ...outlineSettingsOf(sheet), ...patch });
+    if (JSON.stringify(prev) === JSON.stringify(next)) return false;
+    const apply = (v) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      if (v) live.outlineSettings = { ...v }; else delete live.outlineSettings;
+      this._changed('layout', live.id);
+    };
+    apply(next);
+    this._push({ label: 'Outline settings', undo: () => apply(prev), redo: () => apply(next) });
+    return true;
+  }
+
+  /**
+   * Replace every outline group on an axis (or both, when axis is null) with `groups`, as one step: Auto Outline
+   * and Clear Outline. Lines a removed group had hidden come back; a new group starts expanded.
+   */
+  replaceGroups(sheetId, next, label = 'Outline') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const wanted = normalizeGroups({ rows: next.rows ?? sheet.groups.rows, cols: next.cols ?? sheet.groups.cols });
+    if (JSON.stringify(wanted) === JSON.stringify(normalizeGroups(sheet.groups))) return false;
+    this._structural(label, () => {
+      for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
+        if (!next[key]) continue;
+        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
+      }
+      sheet.groups = wanted;
+      if (sheetFilters(sheet).length) this._applyFilter(sheet);
+    });
+    return true;
+  }
+
   /** Is line i inside some group that is (still) collapsed? */
   _insideCollapsed(sheet, key, i) {
     return sheet.groups[key].some((g) => g.collapsed && g.from <= i && g.to >= i);
@@ -11739,6 +11802,22 @@ export class Workbook extends EventTarget {
     this._blankKeys = null;
     this._unsettled = []; // circles whose reader kept its provisional answer, judged again once their outermost cell has its value
     this._tentative = []; // cells calculated while a circle was unsettled, dropped if it proves a cycle
+  }
+
+  /* ---------- Named cell styles ---------- */
+
+  /**
+   * Replace the workbook's named cell styles (see custom-cell-styles.js) as an undo step. Inside a transaction the
+   * cells a modified style reformats join the same step.
+   */
+  setCellStyles(next, label = 'Cell styles') {
+    const prev = this.cellStyles;
+    const value = normalizeCellStyles(next);
+    if (JSON.stringify(prev) === JSON.stringify(value)) return false;
+    const apply = (v) => { this.cellStyles = v; this._changed('view'); };
+    apply(value);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(value) });
+    return true;
   }
 
   /* ---------- History ---------- */

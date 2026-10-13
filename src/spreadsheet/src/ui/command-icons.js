@@ -310,6 +310,12 @@ export const COMMAND_ICONS = {
   hideDetail: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + ci(4, 10, 3, 'bs') + p('M2.6 10h2.8', 'wh'),
   group: cells(6.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M3.5 5v10h2', 'b') + ci(3.5, 10, 2.4, 'bs') + p('M2.4 10h2.2M3.5 8.9v2.2', 'wh'),
   ungroup: cells(6.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M3.5 5v10h2', 'b') + ci(3.5, 10, 2.4, 'bs') + p('M2.4 10h2.2', 'wh'),
+  // Auto Outline: a column of cells with nested bracket levels drawn beside it, and a spark for "worked out".
+  autoOutline: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + p('M3 4.5v11h2.5M5.2 8.5v3.8h1.3', 'b') + p('M3.5 1.2l.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6 1.3-.6z', 'ys'),
+  // Clear Outline: the bracket struck out.
+  clearOutline: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + p('M3.5 4.5v11h2', 'o ln') + p('M1.5 8l4 4M5.5 8l-4 4', 'r thick'),
+  // Outline settings: the bracket over a pair of sliders.
+  outlineSettings: cells(7.5, 3.5, 10, 8, 1, 2, { frame: 'of' }) + p('M3.5 4.5v6.5h2', 'b') + p('M3 15h14M3 18h14', 'o ln') + ci(7, 15, 1.4, 'bs') + ci(13, 18, 1.4, 'bs'),
   subtotal: cells(2.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M18 4.5h-5l3 3.2-3 3.3h5', 'b thick') + r(2.5, 13.25, 11, 3.25, 'bw'),
   columnStats: chartAxes + columns([[6, 'bf'], [11, 'bf'], [8, 'bf']]) + p('M4 6.5h13', 'r dash'),
   powerQuery: cells(2.5, 3.5, 12, 13, 2, 3, { frame: 'of' }) + p('M13 9.5l2.5-5 2 1-2.5 5z', 'nf'),
