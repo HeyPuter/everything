@@ -49,12 +49,12 @@ import {
   setInterpolation,
   setTimelineFps,
   splitClip,
+  splitLayers,
   timecode,
   timelineToAnimation,
   toggleKeyAtCurrent,
   toggleStopwatch,
-  trimClipEnd,
-  trimClipStart,
+  trimLayers,
   workArea,
   neededFrames,
 } from '../../model/video-timeline-ops';
@@ -459,63 +459,20 @@ export function splitAtPlayhead(e: Editor, layerIds = selectedClipIds(e)) {
   const t = tl.current;
   const ids = layerIds.filter((id) => splitClip(ownClipCopy(tl, id), t));
   if (!ids.length) return e.message('Move the playhead inside a selected clip to split it.');
-  const made: string[] = [];
+  let made: string[] = [];
   return editTimeline(e, 'Split at Playhead', (d) => {
-    made.length = 0;
-    const t2 = d.timeline!;
-    for (const id of ids) {
-      const parts = splitClip(ownClip(t2, id), t);
-      if (!parts) continue;
-      const container = containerList(d.layers, id);
-      if (!container) continue;
-      const i = container.findIndex((l) => l.id === id);
-      const copy = cloneLayer(container[i]);
-      container.splice(i + 1, 0, copy);
-      t2.clips[id] = parts[0];
-      t2.clips[copy.id] = parts[1];
-      made.push(copy.id);
-    }
+    made = splitLayers(d, ids, t);
   }).then(() => {
     if (made.length) e.selectLayers(made);
     e.update();
   });
 }
 const ownClipCopy = (tl: VideoTimeline, id: string): Clip => structuredClone(tl.clips[id] ?? { start: 0, in: 0, length: tl.duration });
-function containerList(layers: Layer[], id: string): Layer[] | undefined {
-  if (layers.some((l) => l.id === id)) return layers;
-  for (const l of layers) {
-    const found = containerList(l.children, id);
-    if (found) return found;
-  }
-  return undefined;
-}
-/** A copy of a layer (and its children) with new IDs; tiles are shared. */
-function cloneLayer(l: Layer): Layer {
-  const copy = structuredClone(l);
-  const renew = (x: Layer) => {
-    x.id = crypto.randomUUID();
-    delete x.psdId;
-    x.children.forEach(renew);
-  };
-  renew(copy);
-  return copy;
-}
 
 export function trimToPlayhead(e: Editor, edge: 'start' | 'end', ids = selectedClipIds(e)) {
-  const tl = tlOf(e);
-  const t = tl.current;
+  const t = tlOf(e).current;
   return editTimeline(e, edge === 'start' ? 'Trim Start to Playhead' : 'Trim End to Playhead', (d) => {
-    const t2 = d.timeline!;
-    let changed = false;
-    for (const id of ids) {
-      const l = findLayer(d.layers, id)!;
-      const c = ownClip(t2, id);
-      const limit = contentLength(l, t2.fps);
-      const next = edge === 'start' ? trimClipStart(c, t - c.start, limit) : trimClipEnd(c, t + 1 - clipEnd(c), limit);
-      if (JSON.stringify(next) !== JSON.stringify(c)) changed = true;
-      t2.clips[id] = next;
-    }
-    if (!changed) return false;
+    if (!trimLayers(d, ids, edge, t)) return false;
   });
 }
 export function setWorkArea(e: Editor, edge: 'start' | 'end' | 'clear') {

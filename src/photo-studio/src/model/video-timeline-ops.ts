@@ -7,6 +7,7 @@ import { positionable, newFrameId, frameState, type AnimationFrame, type FrameLa
 import { commitPixelTranslation, dropLiveFilters, pixelTransformKind, syncPixelTransform } from './pixel-layer';
 import { emptyGrid, gridDocBounds, gridFromImage, readRGBA, type TileGrid, type TileStore } from './tiles';
 import { footageFrame, placementOf, videoSeconds, type VideoLayerData } from './video-layer';
+import { splitLinkedSound } from './audio-timeline';
 import { mat3Multiply, transformedBounds, transformImage, type Mat3 } from '../imaging/filters/warp';
 import type { Interp } from '../imaging/filters/sampling';
 import {
@@ -101,6 +102,63 @@ export function splitClip(c: Clip, t: number): [Clip, Clip] | null {
   const b: Clip = structuredClone({ ...c, start: t, in: c.in + (t - c.start), length: clipEnd(c) - t });
   delete b.fadeIn;
   return [a, b];
+}
+
+/** Split the clips of layers `ids` at timeline frame `t`: each layer is
+ * followed by a copy (new IDs) holding the second part, and its linked
+ * sound splits with it. Returns the IDs of the copies. */
+export function splitLayers(d: PhotoDocument, ids: string[], t: number): string[] {
+  const tl = d.timeline!;
+  const made: string[] = [];
+  for (const id of ids) {
+    const parts = splitClip(ownClip(tl, id), t);
+    if (!parts) continue;
+    const container = containerList(d.layers, id);
+    if (!container) continue;
+    const i = container.findIndex((l) => l.id === id);
+    const copy = cloneLayer(container[i]);
+    container.splice(i + 1, 0, copy);
+    tl.clips[id] = parts[0];
+    tl.clips[copy.id] = parts[1];
+    splitLinkedSound(d, id, copy.id);
+    made.push(copy.id);
+  }
+  return made;
+}
+function containerList(layers: Layer[], id: string): Layer[] | undefined {
+  if (layers.some((l) => l.id === id)) return layers;
+  for (const l of layers) {
+    const found = containerList(l.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+/** A copy of a layer (and its children) with new IDs; tiles are shared. */
+function cloneLayer(l: Layer): Layer {
+  const copy = structuredClone(l);
+  const renew = (x: Layer) => {
+    x.id = crypto.randomUUID();
+    delete x.psdId;
+    x.children.forEach(renew);
+  };
+  renew(copy);
+  return copy;
+}
+/** Trim the start or end of the clips of layers `ids` to timeline frame
+ * `t` (within their content). Returns whether any clip changed. */
+export function trimLayers(d: PhotoDocument, ids: string[], edge: 'start' | 'end', t: number) {
+  const tl = d.timeline!;
+  let changed = false;
+  for (const id of ids) {
+    const l = allLayers(d.layers).find((x) => x.id === id);
+    if (!l) continue;
+    const c = ownClip(tl, id);
+    const limit = contentLength(l, tl.fps);
+    const next = edge === 'start' ? trimClipStart(c, t - c.start, limit) : trimClipEnd(c, t + 1 - clipEnd(c), limit);
+    if (JSON.stringify(next) !== JSON.stringify(c)) changed = true;
+    tl.clips[id] = next;
+  }
+  return changed;
 }
 
 export function removeKey<T>(keys: Key<T>[], t: number) {

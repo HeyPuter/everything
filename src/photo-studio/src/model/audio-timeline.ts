@@ -128,12 +128,40 @@ export function linkFootageAudio(tl: VideoTimeline, layerId: string, like?: { tr
   track.clips.push(linkedClip(layerId, like?.clip));
 }
 
+/** Split the sound of video layer `from` with its clip (call once both
+ * parts have their clips): the second part `to`, new in this edit, gets a
+ * linked clip after the original's, on its track, with its gain and fade
+ * out; the first part keeps the fade in. A layer whose sound was unlinked
+ * or deleted splits into parts without sound. */
+export function splitLinkedSound(doc: PhotoDocument, from: string, to: string) {
+  const tl = doc.timeline!;
+  for (const track of tl.audio ?? []) {
+    const index = track.clips.findIndex((c) => c.link === from);
+    if (index < 0) continue;
+    const a = track.clips[index];
+    const b = linkedClip(to, a);
+    if (a.fadeOut) b.fadeOut = a.fadeOut;
+    delete a.fadeOut;
+    track.clips.splice(index + 1, 0, b);
+    for (const [c, k] of [[a, 'fadeIn'], [b, 'fadeOut']] as const) {
+      const length = clipSpan(doc, c)?.length ?? 0;
+      if (c[k]) c[k] = Math.min(c[k], length);
+      if (!c[k]) delete c[k];
+    }
+    return;
+  }
+  (tl.soundless ??= []).push(to);
+}
+
 /** History hook: linked clips of deleted layers (or of layers that lost
  * their sound) go; video layers with sound that are new in this edit
- * (imported, split, duplicated or pasted) get a linked clip. */
+ * (imported, duplicated or pasted; split parts are linked by the split)
+ * get a linked clip. */
 export function syncAudio(after: PhotoDocument, before?: PhotoDocument) {
   const tl = after.timeline;
   if (!tl) return;
+  const soundless = new Set(tl.soundless);
+  delete tl.soundless;
   const layers = allLayers(after.layers);
   const sounding = new Map(layers.filter((l) => l.kind === 'pixel' && l.video?.audio).map((l) => [l.id, l]));
   if (tl.audio) for (const t of tl.audio) t.clips = t.clips.filter((c) => !c.link || sounding.has(c.link));
@@ -141,7 +169,7 @@ export function syncAudio(after: PhotoDocument, before?: PhotoDocument) {
   const linked = new Set(allAudioClips(tl).flatMap((c) => (c.link ? [c.link] : [])));
   const old = before?.timeline ? new Set(allLayers(before.layers).map((l) => l.id)) : new Set<string>();
   for (const [id, l] of sounding) {
-    if (linked.has(id) || old.has(id)) continue;
+    if (linked.has(id) || old.has(id) || soundless.has(id)) continue;
     // A copy of a layer keeps the track and gain of the original's clip.
     const twin = allAudioClips(tl).find((c) => c.link && sounding.get(c.link)?.video?.audio?.asset === l.video!.audio!.asset);
     const where = twin && findAudioClip(tl, twin.id);

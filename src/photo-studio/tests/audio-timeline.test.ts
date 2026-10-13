@@ -7,7 +7,7 @@ import { sourceMimeType } from '../src/model/embedded';
 import { deserialize, documentAssetIds, serialize, validateDocument } from '../src/model/serialization';
 import { createTimeline, syncTimeline } from '../src/model/video-timeline';
 import { footageVideo } from '../src/model/video-layer';
-import { contentLength, trimClipStart } from '../src/model/video-timeline-ops';
+import { contentLength, splitLayers, trimClipStart } from '../src/model/video-timeline-ops';
 import {
   audioPlan,
   audioTracks,
@@ -236,6 +236,49 @@ describe('footage sound', () => {
     h.execute('Delete layer', (d) => (d.layers = d.layers.filter((x) => x.id !== l.id)));
     expect(h.document.timeline!.audio![0].clips).toEqual([]);
     expect(allLayers(h.document.layers).map((x) => x.id)).toEqual(['copy']);
+  });
+
+  it('splits linked sound with its video clip, fades included, and never brings back unlinked sound', () => {
+    const { doc, l } = videoDoc();
+    const plain = structuredClone(doc);
+    plain.layers = [];
+    const h = history(plain);
+    h.execute('Add video', (d) => d.layers.push(structuredClone(l)));
+    h.execute('Fades', (d) => Object.assign(d.timeline!.audio![0].clips[0], { gain: -3, fadeIn: 0.3, fadeOut: 0.4 }));
+    const pcm = { footage: ramp(2) };
+    const heard = (d: PhotoDocument) => mix(d, pcm, 0, 3)[0];
+    const whole = heard(h.document);
+    expect(whole[700]).toBeGreaterThan(0);
+    const same = (a: Float32Array, b: Float32Array) => a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
+
+    // Split at 1 s: the second part's sound follows its clip with the fade out.
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    const copy = allLayers(h.document.layers)[1].id;
+    const [a, b] = h.document.timeline!.audio![0].clips;
+    expect(a).toMatchObject({ link: l.id, gain: -3, fadeIn: 0.3 });
+    expect(a.fadeOut).toBeUndefined();
+    expect(b).toMatchObject({ link: copy, gain: -3, fadeOut: 0.4 });
+    expect(b.fadeIn).toBeUndefined();
+    expect(same(heard(h.document), whole)).toBe(true);
+    h.undo();
+
+    // Unlinked sound stays one clip: neither part gets linked sound again.
+    h.execute('Unlink', (d) => {
+      const s = clipSpan(d, d.timeline!.audio![0].clips[0])!;
+      d.timeline!.audio![0].clips = [{ id: 'plain', start: s.start, in: s.in, length: s.length, source: s.source, fadeIn: 0.3, fadeOut: 0.4, gain: -3 }];
+    });
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    expect(allLayers(h.document.layers)).toHaveLength(2);
+    expect(h.document.timeline!.audio![0].clips.map((c) => c.id)).toEqual(['plain']);
+    expect(same(heard(h.document), whole)).toBe(true);
+    expect(h.document.timeline!.soundless).toBeUndefined();
+    h.undo();
+    h.undo();
+
+    // Sound deleted by hand stays deleted after a split.
+    h.execute('Delete sound', (d) => (d.timeline!.audio![0].clips = []));
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    expect(h.document.timeline!.audio![0].clips).toEqual([]);
   });
 
   it('keeps the sound of looping footage extended before its start at the source start', () => {
