@@ -24,6 +24,10 @@ export async function loadRegistry() {
       const { installFeatures } = await import('../src/features/index');
       const registry = await import('../src/app/registry');
       installFeatures(editor as never);
+      // Color registers its swatch libraries from a module it loads during
+      // install; wait for it so the load never outlives the test file.
+      await import('../src/features/color/swatches');
+      await new Promise((r) => setTimeout(r, 0));
       // The dock registers Window → Panels commands at startup.
       for (const p of registry.panels.values())
         if (!registry.commands.has(`window.panel.${p.id}`)) registry.registerCommand({ id: `window.panel.${p.id}`, label: p.title, shortcut: p.shortcut, menu: 'window.panels', run: () => {} });
