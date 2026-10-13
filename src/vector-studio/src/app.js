@@ -442,6 +442,8 @@ export class App extends Emitter {
     this.#pending = true;
     const run = () => {
       this.#pending = false;
+      // The app may be gone by then (its page was replaced).
+      if (!this.root.isConnected || !this.root.ownerDocument.defaultView) return;
       this.refreshChrome();
     };
     if (editor.doc.tx) setTimeout(run, 120);
