@@ -1585,10 +1585,21 @@ export function relativePartName(from, target) {
 }
 const diagramDataXml = new WeakMap();
 const diagramDataRels = new WeakMap();
-// SmartArt text/cache state lives outside the slide XML. Compare its exact
-// data XML across history restores so unchanged slides can keep their SVGs.
-// Relationships may be reused by several frames or use nonstandard names;
-// discover data parts by their relationship type, without parsing their XML.
+// Parts outside the slide XML that change how it draws: a SmartArt graphic's
+// data, layout, style, colors and saved drawing, and a chart's definition.
+const RENDERED_PART_RELS = new Set([
+  REL_TYPES.diagramData,
+  REL_TYPES.diagramLayout,
+  REL_TYPES.diagramQuickStyle,
+  REL_TYPES.diagramColors,
+  REL_TYPES.diagramDrawing,
+  REL_TYPES.chart,
+]);
+// SmartArt and chart state lives outside the slide XML. Compare those parts'
+// exact XML across edits and history restores so unchanged slides can keep
+// their SVGs. Relationships may be reused by several frames or use
+// nonstandard names; discover parts by their relationship type, without
+// parsing their XML.
 export function slideDiagramDataStamp(pres, slide) {
   const pkg = P._internalPackageOf(pres),
     owner = P.getSlidePartName(slide);
@@ -1600,7 +1611,7 @@ export function slideDiagramDataStamp(pres, slide) {
       bytes: partRels.data,
       items: (pkg.getRels(owner)?.items ?? []).filter(
         (rel) =>
-          rel.type === REL_TYPES.diagramData && rel.targetMode === "Internal",
+          RENDERED_PART_RELS.has(rel.type) && rel.targetMode === "Internal",
       ),
     };
     diagramDataRels.set(partRels, relationships);
