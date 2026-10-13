@@ -108,6 +108,53 @@ describe('stack runner', () => {
     const without = await runRestore(src, p, { scale: 1 });
     expect(without.image.data).toEqual(src.data);
   });
+  it('keeps the layer transparency with AI style and scene results', async () => {
+    // Left half transparent, right half opaque; the AI result is opaque orange.
+    const src = image(64, 48, () => [90, 90, 90]);
+    for (let y = 0; y < 48; y++) for (let x = 0; x < 32; x++) src.data[(y * 64 + x) * 4 + 3] = x < 16 ? 0 : 128;
+    const orange = image(64, 48, () => [240, 130, 30]);
+    const aux = (n: string) => (n === 'ai-1' ? orange : undefined);
+    for (const f of [
+      { id: 'scene', enabled: true, params: { protect: false, strength: 100 }, aux: 'ai-1' },
+      { id: 'scene', enabled: true, params: { protect: false, strength: 50 }, aux: 'ai-1' },
+      { id: 'style', enabled: true, params: { style: 'ai', strength: 60 }, aux: 'ai-1' },
+    ]) {
+      const out = await runRestore(src, normalizeRestore({ filters: [f] }), { scale: 1, aux });
+      for (let i = 3; i < src.data.length; i += 4) expect(out.image.data[i]).toBe(src.data[i]);
+      // The colors still change.
+      expect(out.image.data[(10 * 64 + 50) * 4]).toBeGreaterThan(120);
+    }
+  });
+  it('limits "Selection only" skin smoothing by a feathered selection once, not twice', async () => {
+    const r = (() => {
+      let s = 5;
+      return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    })();
+    const src = image(64, 48, () => {
+      const v = (r() - 0.5) * 60;
+      return [200 + v, 150 + v, 125 + v];
+    });
+    // Half coverage everywhere: a feathered selection's edge.
+    const sel: Mask8 = { width: 64, height: 48, data: new Uint8Array(64 * 48).fill(128) };
+    const skin = (area: string) => normalizeRestore({ filters: [{ id: 'skin', enabled: true, params: { area, smoothness: 100, detail: 0 } }] });
+    const whole = await runRestore(src, skin('all'), { scale: 1 });
+    const limited = await runRestore(src, skin('selection'), { scale: 1, selection: sel, overlay: 'skin', affected: true });
+    let diff = 0, n = 0;
+    for (let i = 0; i < src.data.length; i += 4)
+      for (let c = 0; c < 3; c++) {
+        const full = whole.image.data[i + c] - src.data[i + c];
+        if (Math.abs(full) < 8) continue;
+        // Half of the full change, not a quarter.
+        diff += (limited.image.data[i + c] - src.data[i + c]) / full;
+        n++;
+      }
+    expect(n).toBeGreaterThan(100);
+    expect(diff / n).toBeGreaterThan(0.45);
+    expect(diff / n).toBeLessThan(0.55);
+    // The overlay shows the selection, and the affected area is limited by it once.
+    expect(limited.overlay!.data[100]).toBe(128);
+    expect(limited.affected!.data[100]).toBe(128);
+  });
   it('caches stage results by everything they depend on', async () => {
     const src = scratched();
     const cache = new Map<string, unknown>();
