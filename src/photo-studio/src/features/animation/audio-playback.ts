@@ -6,7 +6,7 @@
 // clock, so pictures follow the sound and dropped frames never shift it.
 import type { DocumentSession } from '../../app/session';
 import type { PhotoDocument } from '../../model/document';
-import { audioPlan, envelopeAt, envelopePoints, type PlanItem } from '../../model/audio-timeline';
+import { audioPlan, envelopeAt, envelopePoints, type AudioSource, type PlanItem } from '../../model/audio-timeline';
 import { audioPcm, loadAll } from './audio-media';
 import type { Pcm } from '../../imaging/audio/mix';
 
@@ -26,13 +26,14 @@ function bufferOf(c: BaseAudioContext, pcm: Pcm) {
   return b;
 }
 
+type PcmOf = (source: AudioSource) => Pcm | undefined;
 /** Schedule the part of `items` inside timeline seconds [from, to) to start
  * at context time `when`, into `out`. Returns the sources started. */
-export function scheduleSegment(c: BaseAudioContext, out: AudioNode, items: PlanItem[], from: number, to: number, when: number): AudioBufferSourceNode[] {
+export function scheduleSegment(c: BaseAudioContext, out: AudioNode, items: PlanItem[], from: number, to: number, when: number, pcmOf: PcmOf = audioPcm): AudioBufferSourceNode[] {
   const started: AudioBufferSourceNode[] = [];
   for (const item of items) {
     try {
-      const src = scheduleItem(c, out, item, from, to, when);
+      const src = scheduleItem(c, out, item, from, to, when, pcmOf);
       if (src) started.push(src);
     } catch (error) {
       // One clip that cannot play must not silence the others.
@@ -41,13 +42,13 @@ export function scheduleSegment(c: BaseAudioContext, out: AudioNode, items: Plan
   }
   return started;
 }
-function scheduleItem(c: BaseAudioContext, out: AudioNode, item: PlanItem, from: number, to: number, when: number) {
+function scheduleItem(c: BaseAudioContext, out: AudioNode, item: PlanItem, from: number, to: number, when: number, pcmOf: PcmOf) {
   let a = Math.max(item.at, from);
   const b = Math.min(item.at + item.length, to);
   // Sound starts at the source's start (the plan never asks for earlier).
   if (item.offset + (a - item.at) < 0) a = item.at - item.offset;
   if (!(b - a >= 1e-4)) return undefined;
-  const pcm = audioPcm(item.source);
+  const pcm = pcmOf(item.source);
   const local0 = a - item.at,
     local1 = b - item.at;
   const offset = item.offset + local0;
@@ -68,6 +69,8 @@ type Playing = {
   session: DocumentSession;
   doc: PhotoDocument;
   items: PlanItem[];
+  // The decoded sound of the items, held while playing.
+  pcm: Map<string, Pcm>;
   master: GainNode;
   sources: AudioBufferSourceNode[];
   // Context time at which playback started at timeline second `from`.
@@ -91,10 +94,10 @@ export async function startAudio(session: DocumentSession, doc: PhotoDocument, f
   const c = context();
   const master = c.createGain();
   master.connect(c.destination);
-  const p: Playing = { session, doc, items, master, sources: [], t0: 0, from, range, loop, loops: 0, timer: 0, ready: false };
+  const p: Playing = { session, doc, items, pcm: new Map(), master, sources: [], t0: 0, from, range, loop, loops: 0, timer: 0, ready: false };
   playing = p;
   if (c.state !== 'running') void c.resume().catch(() => {});
-  await loadAll(session, items.map((i) => i.source));
+  p.pcm = await loadAll(session, items.map((i) => i.source));
   if (playing !== p) return;
   // Line the audio clock up with the playback clock.
   p.t0 = c.currentTime - elapsed();
@@ -120,7 +123,7 @@ function topUp(p: Playing, c: AudioContext) {
     const skip = Math.max(0, now - begins);
     // Count the stretch first: a failure never schedules it again and again.
     p.loops++;
-    if (from + skip < b) p.sources.push(...scheduleSegment(c, p.master, p.items, from + skip, b, begins + skip));
+    if (from + skip < b) p.sources.push(...scheduleSegment(c, p.master, p.items, from + skip, b, begins + skip, (s) => p.pcm.get(s.asset)));
     // Forget sources that have finished.
     if (p.sources.length > 512) p.sources = p.sources.slice(-256);
   }
@@ -154,6 +157,8 @@ export function stopAudio() {
 }
 
 let snippet: { master: GainNode } | undefined;
+// The sound scrubbing last loaded (kept should the cache drop it).
+let scrubbed = new Map<string, Pcm>();
 /** Play a short snippet of the mix at timeline second `t` (scrubbing). */
 export function scrubAudio(session: DocumentSession, doc: PhotoDocument, t: number, seconds = 0.09) {
   if (playing) return;
@@ -161,8 +166,9 @@ export function scrubAudio(session: DocumentSession, doc: PhotoDocument, t: numb
   if (!items.length) return;
   const c = context();
   if (c.state !== 'running') void c.resume().catch(() => {});
-  if (items.some((i) => !audioPcm(i.source))) {
-    void loadAll(session, items.map((i) => i.source));
+  const pcmOf = (s: AudioSource) => audioPcm(s) ?? scrubbed.get(s.asset);
+  if (items.some((i) => !pcmOf(i.source))) {
+    void loadAll(session, items.map((i) => i.source)).then((m) => (scrubbed = m));
     return;
   }
   snippet?.master.disconnect();
@@ -173,7 +179,7 @@ export function scrubAudio(session: DocumentSession, doc: PhotoDocument, t: numb
   master.gain.setValueAtTime(1, now + seconds - 0.012);
   master.gain.linearRampToValueAtTime(0, now + seconds);
   master.connect(c.destination);
-  scheduleSegment(c, master, items, t, t + seconds, now);
+  scheduleSegment(c, master, items, t, t + seconds, now, pcmOf);
   snippet = { master };
   setTimeout(() => {
     master.disconnect();

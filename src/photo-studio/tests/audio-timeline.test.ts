@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { allLayers, findLayer, newDocument, type PhotoDocument } from '../src/model/document';
 import { History } from '../src/history/history';
 import { newPixelLayer } from '../src/model/pixel-layer';
@@ -26,6 +26,9 @@ import {
   type PlanItem,
 } from '../src/model/audio-timeline';
 import { mixPlan, type Pcm } from '../src/imaging/audio/mix';
+import { audioPcm, purgeAudioCache } from '../src/features/animation/audio-media';
+import { mixDocument } from '../src/features/animation/audio-export';
+import type { Editor } from '../src/editor';
 import { computePeaks, peakColumns, peakLevelFor, waveformPath } from '../src/imaging/audio/peaks';
 import { decodeWav, encodeWav } from '../src/imaging/codecs/wav';
 import { ebmlIds, muxWebm, opusHead, opusPreSkip, readEbml, type EbmlNode } from '../src/imaging/codecs/webm';
@@ -126,6 +129,34 @@ describe('audio mix', () => {
     expect(l[3]).toBeCloseTo(1.5);
     // The source holds one second: the rest is silent.
     expect(l[1200]).toBe(0);
+  });
+});
+
+describe('decoded sound', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    purgeAudioCache();
+  });
+
+  it('mixes every source even when they do not fit in the cache together', async () => {
+    // A stand-in decoder: each file decodes to a constant that reports 600 MB.
+    vi.stubGlobal(
+      'OfflineAudioContext',
+      class {
+        async decodeAudioData(data: ArrayBuffer) {
+          const ch = new Float32Array(SR).fill(new Uint8Array(data)[0] / 10);
+          Object.defineProperty(ch, 'byteLength', { value: 600 * 2 ** 20 });
+          return { sampleRate: SR, numberOfChannels: 1, getChannelData: () => ch };
+        }
+      },
+    );
+    const session = { assets: { blob: (asset: string) => new Blob([new Uint8Array([asset === 'a' ? 1 : 2])]) } };
+    const e = { session, message() {} } as unknown as Editor;
+    const doc = docWith([{ clips: [clip('a', 0, 1)] }, { clips: [clip('b', 0, 1)] }]);
+    const [l] = await mixDocument(e, doc, 0, 1);
+    // The cache kept only one of them, yet both sound.
+    expect([audioPcm(src('a')), audioPcm(src('b'))].filter(Boolean)).toHaveLength(1);
+    expect(l[480]).toBeCloseTo(0.3, 5);
   });
 });
 
