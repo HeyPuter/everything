@@ -22882,3 +22882,81 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+## Design tab: themes, style sets, watermarks and page fill effects (2026-10-13)
+
+**Clauses.** ECMA-376 Part 1 §20.1.6 (theme part: `theme`, `themeElements`,
+`objectDefaults`, `extraClrSchemeLst`), §20.1.4.1 (`clrScheme` and its twelve
+slots, `fontScheme` with `majorFont`/`minorFont` `latin`/`ea`/`cs`, `fmtScheme`
+with `fillStyleLst`, `lnStyleLst`, `effectStyleLst`, `bgFillStyleLst`);
+WordprocessingML §17.3.2.6 (`color` with `themeColor`/`themeTint`/`themeShade`),
+§17.3.2.26 (`rFonts` `asciiTheme`/`hAnsiTheme`), §17.7.4.17 (`style`),
+§17.7.5 (`docDefaults`), §17.10.1 (`evenAndOddHeaders`), §17.10.5
+(`headerReference`), §17.10.6 (`titlePg`), §20.4.2.3 (`anchor`, `behindDoc`,
+`wrapNone`, `positionH`/`positionV` with `align`), §17.2.1 (`background`), §17.15.1
+(`displayBackgroundShape`), Part 4 VML `background`/`fill` (the representation
+§17.2.1 permits for fill effects). Text watermarks use the WordprocessingML shape
+(`wps:wsp` with `wps:txbx`) from MS-ODRAWXML, already read by the engine.
+
+**Supported subset.**
+- Themes rewrite only the theme part. A theme, color scheme, font scheme or
+  effect scheme replaces `clrScheme` (twelve `srgbClr` slots), the Latin typefaces
+  of `fontScheme` (supplemental script fonts and other font attributes are kept) or
+  `fmtScheme`; `objectDefaults`, extension lists and every other part stay byte-
+  for-byte unchanged. A document without a theme part gets `word/theme/theme1.xml`,
+  a main-document relationship and a content-type override. `.thmx` packages and
+  `.xml` theme files must have an `a:theme` root with all three schemes.
+- Theme-referenced fonts and colors are resolved when the package is read, so a
+  theme change reopens the changed package in place. Display therefore follows
+  exactly what other readers see. The `w:val` beside a `themeColor` in the styles
+  part is refreshed to the new resolved value (readers prefer the theme reference).
+- A new app document (body text in the app default font and no theme part) is
+  linked to the theme on its first theme or style-set change: `docDefaults`
+  `rFonts` becomes `minorHAnsi` and the Default style set is applied. Documents that
+  name explicit fonts keep them; only theme references follow the theme.
+- Style sets manage `pBdr`, `spacing`, `ind`, `jc` and `rFonts`, `b`, `bCs`, `i`,
+  `iCs`, `caps`, `color`, `spacing`, `sz`, `szCs` of Normal, Title, Subtitle,
+  Heading 1–3 and Quote; other properties of those styles are left alone. Missing
+  built-in styles are created with their conventional names (`heading 1`…),
+  `basedOn`/`next` Normal, `qFormat`, and for headings `keepNext`/`keepLines` and
+  `outlineLvl`. Fonts are written as theme references and colors as theme colors.
+- Watermarks are behind-text anchored drawings in the header parts that every
+  page shows: each section's default header, plus first-page headers when
+  `titlePg` is on and even-page headers with `evenAndOddHeaders`. A kind the first
+  section lacks gets a new header part (with relationship and content-type
+  override); later sections inherit missing kinds as §17.10.5 describes. The drawing
+  is centered on the margins (`positionH`/`positionV` `align="center"` relative to
+  `margin`), `wrapNone`, `behindDoc="1"`. Text uses a rotated (315°) or horizontal
+  text box with no fill or line; pictures use `pic:pic` with an optional `a:lum`
+  washout (bright 70%, contrast −70%). The drawing's `docPr` is named
+  `Document Watermark`, and its `descr` records the settings for the dialog.
+- Fill effects are written as `w:background` with a VML `background`/`fill
+  type="tile"` referencing a PNG part, and `displayBackgroundShape` is turned on.
+  Gradients, textures and patterns are rendered to that PNG (the gradient as one
+  page-sized tile at a quarter of the resolution, declared by its `pHYs` chunk);
+  pictures are stored as chosen.
+
+**Undo.** A package change records the bytes before and after it. Undo past the
+editor's own history reopens the earlier package; Redo reopens the later one.
+New edits after an undone change clear its redo. Typing history from before a
+package change is not kept across it.
+
+**Validation.** `tests/design-themes.test.js` checks theme creation, partial
+scheme changes, untouched parts, explicit-font preservation, every style set,
+saved style sets, effect schemes on theme-styled shapes, watermarks on default,
+first and even headers with replacement and removal, picture watermarks, fill
+effects and `.thmx` import, and the independently authored fixture
+`public/fixtures/design-theme.docx` (`tools/design_theme_fixture.py`, Python
+standard library only). `tests/browser/design-themes.spec.js` exports schema-valid
+documents (ECMA-376 transitional XSD and the supported MS-ODRAWXML schemas, via
+`tools/check-docx-schema.py`).
+
+**Gaps.** Gradient, texture and pattern fills are stored as pictures, not as VML
+gradient or pattern fills, and a picture fill tiles at its own resolution (no
+stretched single-picture mode). Semitransparent text watermarks use a color blended
+halfway to white rather than an alpha channel. Watermarks written by other
+producers as VML text paths are not recognized or removed. Hover previews of themes
+and style sets are not shown; choices apply on click and undo in one step. Colors
+outside theme references (direct RGB text colors, app table designs, inserted
+shapes with explicit colors) do not follow the theme. Theme `clrScheme` slots
+are written as `srgbClr` only; imported `sysClr` slots are replaced when colors change.
