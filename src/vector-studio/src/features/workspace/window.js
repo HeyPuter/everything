@@ -30,12 +30,21 @@ export function toolSet(app) {
   return app.prefs.get('toolbarSet') || 'advanced';
 }
 
+/** Named toolbars saved with New Toolbar: [{ name, hidden: [tool ids] }]. */
+export function savedToolbars(app) {
+  const list = app.prefs.get('toolbarSets');
+  return Array.isArray(list) ? list.filter((t) => t && typeof t.name === 'string') : [];
+}
+
+const savedToolbar = (app, set) => (set.startsWith('saved:') ? savedToolbars(app).find((t) => `saved:${t.name}` === set) : null);
+
 /** Tools shown for the current set (ids; `null` means every tool). */
 export function shownTools(app) {
   const set = toolSet(app);
   if (set === 'basic') return new Set(BASIC_TOOLS);
-  if (set === 'custom') {
-    const hidden = new Set(app.prefs.get('toolbarHidden') || []);
+  const saved = savedToolbar(app, set);
+  if (set === 'custom' || saved) {
+    const hidden = new Set(saved ? saved.hidden || [] : app.prefs.get('toolbarHidden') || []);
     return new Set([...app.toolClasses.keys()].filter((id) => !hidden.has(id)));
   }
   return null;
@@ -57,8 +66,93 @@ export function setToolShown(app, id, shown) {
   const visible = shownTools(app) || new Set(app.toolClasses.keys());
   if (shown) visible.add(id);
   else visible.delete(id);
-  app.prefs.set('toolbarHidden', [...app.toolClasses.keys()].filter((t) => !visible.has(t)));
+  const hidden = [...app.toolClasses.keys()].filter((t) => !visible.has(t));
+  // Editing a saved toolbar changes that toolbar; any other set becomes the edited (custom) one.
+  const saved = savedToolbar(app, toolSet(app));
+  if (saved) {
+    app.prefs.set('toolbarSets', savedToolbars(app).map((t) => (t === saved ? { ...t, hidden } : t)));
+    applyToolSet(app);
+    return;
+  }
+  app.prefs.set('toolbarHidden', hidden);
   setToolSet(app, 'custom');
+}
+
+/** Window > Toolbars > New Toolbar: save the tools shown now under a name and switch to it. */
+async function newToolbarDialog(app) {
+  const list = savedToolbars(app);
+  const v = await app.dialogs.form({ title: 'New Toolbar', description: 'Saves the tools shown in the Tools panel now. Edit Toolbar changes the toolbar that is active.', fields: [{ key: 'name', label: 'Name', type: 'text', value: `Toolbar ${list.length + 1}` }] });
+  const name = v?.name.trim();
+  if (!name) return;
+  if (list.some((t) => t.name === name) && !(await app.dialogs.confirm({ title: 'New Toolbar', message: `Replace the toolbar "${name}"?`, okLabel: 'Replace' }))) return;
+  const visible = shownTools(app) || new Set(app.toolClasses.keys());
+  const hidden = [...app.toolClasses.keys()].filter((t) => !visible.has(t));
+  app.prefs.set('toolbarSets', [...list.filter((t) => t.name !== name), { name, hidden }]);
+  setToolSet(app, `saved:${name}`);
+  app.notify(`Saved toolbar "${name}".`, { polite: true });
+}
+
+/**
+ * A list of named items to rename, duplicate and delete (Manage
+ * Workspaces, Manage Toolbars). Resolves to the edited list, each item
+ * with `orig` (its name before), or null when cancelled.
+ */
+async function manageNamedDialog(app, { title, items, label, empty, fallback }) {
+  let list = items.map((w) => ({ ...w, orig: w.name }));
+  const ul = h('ul.ev-list', { role: 'listbox', 'aria-label': label });
+  const name = h('input#mw-name', { type: 'text', autocomplete: 'off', spellcheck: false });
+  let sel = list[0]?.orig || null;
+  const render = () => {
+    ul.replaceChildren(...list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))));
+    if (!list.length) ul.append(h('li.panel-empty', empty));
+    const cur = list.find((w) => w.orig === sel);
+    name.value = cur?.name || '';
+    name.disabled = del.disabled = dup.disabled = !cur;
+  };
+  name.addEventListener('input', () => {
+    const cur = list.find((w) => w.orig === sel);
+    if (cur) cur.name = name.value;
+    const el = ul.querySelector('[aria-selected="true"] .ev-name');
+    if (el) el.textContent = name.value;
+  });
+  const del = h('button.btn.small', { type: 'button', onclick: () => ((list = list.filter((w) => w.orig !== sel)), (sel = list[0]?.orig || null), render()) }, 'Delete');
+  const dup = h('button.btn.small', {
+    type: 'button',
+    onclick: () => {
+      const cur = list.find((w) => w.orig === sel);
+      if (!cur) return;
+      const copy = { ...cur, name: `${cur.name} copy`, orig: `${cur.orig}\u0000${Date.now()}` };
+      list.push(copy);
+      sel = copy.orig;
+      render();
+    },
+  }, 'Duplicate');
+  render();
+  const ok = await openDialog({
+    title,
+    body: h('div.form.edit-views', ul, h('div.form-row', h('label', { for: 'mw-name' }, 'Name'), name), h('div.ev-actions', dup, del)),
+    buttons: [
+      { label: 'Cancel', value: false },
+      { label: 'OK', value: true, primary: true },
+    ],
+  });
+  if (!ok) return null;
+  const seen = new Set();
+  return list.map((w) => {
+    let n = w.name.trim() || fallback;
+    while (seen.has(n)) n = `${n} 2`;
+    seen.add(n);
+    return { ...w, name: n };
+  });
+}
+
+async function manageToolbarsDialog(app) {
+  const out = await manageNamedDialog(app, { title: 'Manage Toolbars', items: savedToolbars(app), label: 'Saved toolbars', empty: 'No saved toolbars. Use New Toolbar to save one.', fallback: 'Toolbar' });
+  if (!out) return;
+  const active = toolSet(app);
+  app.prefs.set('toolbarSets', out.map(({ orig, ...t }) => t));
+  const kept = out.find((t) => `saved:${t.orig}` === active);
+  if (active.startsWith('saved:')) setToolSet(app, kept ? `saved:${kept.name}` : 'advanced');
 }
 
 /**
@@ -223,55 +317,10 @@ async function newWorkspaceDialog(app) {
 }
 
 async function manageWorkspacesDialog(app) {
-  let list = savedWorkspaces(app).map((w) => ({ ...w, orig: w.name }));
-  const ul = h('ul.ev-list', { role: 'listbox', 'aria-label': 'Saved workspaces' });
-  const name = h('input#mw-name', { type: 'text', autocomplete: 'off', spellcheck: false });
-  let sel = list[0]?.orig || null;
-  const render = () => {
-    ul.replaceChildren(...list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))));
-    if (!list.length) ul.append(h('li.panel-empty', 'No saved workspaces. Use New Workspace to save one.'));
-    const cur = list.find((w) => w.orig === sel);
-    name.value = cur?.name || '';
-    name.disabled = del.disabled = dup.disabled = !cur;
-  };
-  name.addEventListener('input', () => {
-    const cur = list.find((w) => w.orig === sel);
-    if (cur) cur.name = name.value;
-    ul.querySelector('[aria-selected="true"] .ev-name') && (ul.querySelector('[aria-selected="true"] .ev-name').textContent = name.value);
-  });
-  const del = h('button.btn.small', { type: 'button', onclick: () => ((list = list.filter((w) => w.orig !== sel)), (sel = list[0]?.orig || null), render()) }, 'Delete');
-  const dup = h('button.btn.small', {
-    type: 'button',
-    onclick: () => {
-      const cur = list.find((w) => w.orig === sel);
-      if (!cur) return;
-      const copy = { ...cur, name: `${cur.name} copy`, orig: `${cur.orig}\u0000${Date.now()}` };
-      list.push(copy);
-      sel = copy.orig;
-      render();
-    },
-  }, 'Duplicate');
-  render();
-  const ok = await openDialog({
-    title: 'Manage Workspaces',
-    body: h('div.form.edit-views', ul, h('div.form-row', h('label', { for: 'mw-name' }, 'Name'), name), h('div.ev-actions', dup, del)),
-    buttons: [
-      { label: 'Cancel', value: false },
-      { label: 'OK', value: true, primary: true },
-    ],
-  });
-  if (!ok) return;
-  const seen = new Set();
-  const out = [];
-  for (const w of list) {
-    let n = w.name.trim() || 'Workspace';
-    while (seen.has(n)) n = `${n} 2`;
-    seen.add(n);
-    const { orig, ...rest } = w;
-    out.push({ ...rest, name: n });
-    if (currentKey(app) === `saved:${orig}`) app.prefs.set('workspace', `saved:${n}`);
-  }
-  app.prefs.set('workspaces', out);
+  const out = await manageNamedDialog(app, { title: 'Manage Workspaces', items: savedWorkspaces(app), label: 'Saved workspaces', empty: 'No saved workspaces. Use New Workspace to save one.', fallback: 'Workspace' });
+  if (!out) return;
+  for (const w of out) if (currentKey(app) === `saved:${w.orig}`) app.prefs.set('workspace', `saved:${w.name}`);
+  app.prefs.set('workspaces', out.map(({ orig, ...rest }) => rest));
 }
 
 // ---- bars ----
@@ -457,6 +506,8 @@ export function installWindow(app) {
     },
     { id: 'window.toolbar.basic', label: 'Basic', checked: (a) => toolSet(a) === 'basic', run: (a) => setToolSet(a, 'basic') },
     { id: 'window.toolbar.advanced', label: 'Advanced', checked: (a) => toolSet(a) === 'advanced', run: (a) => setToolSet(a, 'advanced') },
+    { id: 'window.toolbar.new', label: 'New Toolbar...', run: (a) => newToolbarDialog(a) },
+    { id: 'window.toolbar.manage', label: 'Manage Toolbars...', run: (a) => manageToolbarsDialog(a) },
     { id: 'window.toolbar.edit', label: 'Edit Toolbar...', run: (a) => openToolDrawer(a, a.toolbar?.el.querySelector('.toolbar-misc .tool-btn')) },
     { id: 'window.toolbar', label: 'Tools', checked: (a) => a.prefs.get('toolbarVisible') !== false, run: (a) => setToolbarVisible(a, a.prefs.get('toolbarVisible') === false) },
     { id: 'window.controlBar', label: 'Control', checked: (a) => Boolean(a.prefs.get('controlBar')), run: (a) => setControlBar(a, !a.prefs.get('controlBar')) },
@@ -482,6 +533,7 @@ export function installWindow(app) {
     const list = savedWorkspaces(a);
     return list.map((w) => ({ label: w.name, checked: currentKey(a) === `saved:${w.name}`, run: () => applyWorkspace(a, w, `saved:${w.name}`) }));
   });
+  app.menuSources.set('toolbarSets', (a) => savedToolbars(a).map((t) => ({ label: t.name, checked: toolSet(a) === `saved:${t.name}`, run: () => setToolSet(a, `saved:${t.name}`) })));
   app.openToolDrawer = (anchor) => openToolDrawer(app, anchor);
 
   // A document shown in several windows: closing one window never asks to save.
