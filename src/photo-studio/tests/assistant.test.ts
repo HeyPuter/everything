@@ -365,7 +365,7 @@ describe('Assistant runs', () => {
     expect(run.done).toBe(true);
     expect(plan.steps.map((s) => s.status)).toEqual(['done', 'done', 'done', 'done']);
     expect(e.history.position).toBe(start + 1);
-    expect(e.history.labels.at(-1)).toBe('Assistant: Tint and title');
+    expect(e.history.labels.at(-1)).toBe('Assistant: tint it');
     expect(e.doc.layers.map((l) => [l.name, l.kind, l.opacity, l.blend])).toEqual([['Photo', 'pixel', 0.5, 'normal'], ['Color Fill', 'solid', 0.3, 'soft light']]);
     expect(e.color).toBe('#123456');
     e.history.undo();
@@ -406,7 +406,8 @@ describe('Assistant runs', () => {
     await expect(new PlanRun(e as unknown as Editor, plan).run()).rejects.toThrow('There is no command “nope”.');
   });
   it('names the undo step after the plan', () => {
-    expect(runLabel({ title: '', request: 'make the sky more dramatic and then crop the image to sixteen by nine' })).toBe('Assistant: make the sky more dramatic and then crop the im…');
+    expect(runLabel({ title: 'Sky', request: 'make the sky more dramatic and then crop the image to sixteen by nine' })).toBe('Assistant: make the sky more dramatic and then crop the im…');
+    expect(runLabel({ title: 'Sky', request: '' })).toBe('Assistant: Sky');
   });
 });
 

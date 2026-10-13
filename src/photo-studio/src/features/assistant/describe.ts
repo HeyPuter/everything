@@ -9,7 +9,7 @@ import { describeLayers } from '../scripting/host';
 type LayerInfo = ReturnType<typeof describeLayers>[number];
 const MAX_LAYERS = 60;
 
-export function layerLine(l: LayerInfo, selected: boolean) {
+export function layerLine(l: LayerInfo, selected: boolean, withId = true) {
   const b = l.bounds ? ` @${l.bounds.x},${l.bounds.y} ${l.bounds.width}×${l.bounds.height}` : '';
   const flags = [
     !l.visible && 'hidden',
@@ -23,7 +23,7 @@ export function layerLine(l: LayerInfo, selected: boolean) {
     l.hasStyle && 'effects',
   ].filter(Boolean);
   const text = l.kind === 'text' && l.text ? ` text “${String(l.text).replace(/\s+/g, ' ').slice(0, 60)}”` : '';
-  return `${'  '.repeat(l.depth)}${selected ? '* ' : '- '}“${l.name}” ${l.kind}${text}${b}${flags.length ? ` (${flags.join(', ')})` : ''} [id ${l.id}]`;
+  return `${'  '.repeat(l.depth)}${selected ? '* ' : '- '}“${l.name}” ${l.kind}${text}${b}${flags.length ? ` (${flags.join(', ')})` : ''}${withId ? ` [id ${l.id}]` : ''}`;
 }
 
 /** Plain-text description of the active document (or of the empty workspace). */
@@ -41,7 +41,8 @@ export function describeDocument(e: Editor): string {
     `Selection: ${sel ? `${sel.x},${sel.y} ${sel.width}×${sel.height}${sel.width === doc.width && sel.height === doc.height ? ' (whole canvas)' : ''}` : 'none'}.`,
     `Current tool: ${tool}. Colors: foreground ${e.color}, background ${e.background}.`,
     `Layers, top to bottom (* = selected; bounds as @x,y width×height):`,
-    ...layers.slice(0, MAX_LAYERS).map((l) => layerLine(l, selected.has(l.id))),
+    // IDs only where names repeat (names are enough otherwise).
+    ...layers.slice(0, MAX_LAYERS).map((l) => layerLine(l, selected.has(l.id), layers.filter((x) => x.name === l.name).length > 1)),
   ];
   if (layers.length > MAX_LAYERS) lines.push(`… and ${layers.length - MAX_LAYERS} more layers.`);
   return lines.join('\n');

@@ -9,9 +9,9 @@ import { ScriptHost, type ScriptUI } from '../scripting/host';
 import { opById } from './ops';
 import { commandArg, type Plan, type Step } from './plan';
 
-/** The undo step's name for a request. */
+/** The undo step's name: the request in the user's words. */
 export function runLabel(plan: Pick<Plan, 'title' | 'request'>) {
-  const t = (plan.title || plan.request).replace(/\s+/g, ' ').trim();
+  const t = (plan.request || plan.title).replace(/\s+/g, ' ').trim();
   return `Assistant: ${t.length > 48 ? `${t.slice(0, 47)}…` : t}`;
 }
 

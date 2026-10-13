@@ -92,7 +92,7 @@ test('a described edit becomes a checked plan that runs as one undo step', async
   expect(after.adj).toMatchObject({ kind: 'brightness-contrast', params: { brightness: 40, contrast: 100 } });
   const labels = await historyLabels(page);
   expect(labels.length).toBe(before + 1);
-  expect(labels.at(-1)).toBe('Assistant: Brighter, 16:9');
+  expect(labels.at(-1)).toBe('Assistant: brighten it and crop to 16:9');
   await undo(page);
   expect(await page.evaluate(() => [window.photoStudio.doc.height, window.photoStudio.doc.layers.length])).toEqual([150, 1]);
   // The next request carries the plan and its outcome as conversation history.
@@ -155,7 +155,7 @@ test('plans are validated, edited, run step by step and stopped', async ({ page 
   await expect(steps.nth(2)).toHaveClass(/status-skipped/);
   const labels = await historyLabels(page);
   expect(labels.length).toBe(before + 1);
-  expect(labels.at(-1)).toBe('Assistant: Test plan');
+  expect(labels.at(-1)).toBe('Assistant: do things');
   expect(await page.evaluate(() => window.photoStudio.doc.layers[0].opacity)).toBe(0.5);
   // A new plan with the remaining edits runs all at once; text and fill layers appear.
   await script(page, { calls: [{ name: 'propose_plan', args: { title: 'Text', steps: [{ action: 'op.add_text', args: { text: 'Hello', size: 20, color: 'white' } }, { action: 'op.add_fill_layer', args: { color: '#ff8800', opacity: 30, blendMode: 'Soft Light' } }] } }] });
@@ -234,7 +234,7 @@ test('AI results are recorded in Generation History and placed again', async ({ 
   await expect(plan.locator('.ast-outcome')).toContainText('Done');
   const labels = await historyLabels(page);
   expect(labels.length).toBe(before + 1);
-  expect(labels.at(-1)).toBe('Assistant: A kite');
+  expect(labels.at(-1)).toBe('Assistant: add a red kite');
   // Generate Image from the menu records its variations too.
   await start(page, 'edit.generate-image');
   await expect(dialog.locator('#as-prompt')).toBeVisible();
