@@ -145,7 +145,7 @@ const sizeText = (n: number) => (n < 1048576 ? `${Math.max(1, Math.round(n / 102
 function rowHTML(x: GenerationEntry) {
   const url = urls.get(x.id);
   const name = escapeXML(shortPrompt(x));
-  const meta = [GENERATION_LABELS[x.kind], x.model, relativeTime(x.time), `${x.width} × ${x.height}`, x.docName].filter(Boolean).map((t) => escapeXML(String(t))).join(' · ');
+  const meta = [GENERATION_LABELS[x.kind], typeof x.settings.variation === 'number' ? `variation ${x.settings.variation}` : '', x.model, relativeTime(x.time), `${x.width} × ${x.height}`, x.docName].filter(Boolean).map((t) => escapeXML(String(t))).join(' · ');
   const b = (act: string, icon: string, label: string) => `<button type="button" class="icon-button" data-gen-act="${act}" title="${label}" aria-label="${label}: ${name}">${svg(icon, 14)}</button>`;
   return `<div class="gen-row" role="listitem" data-gen="${x.id}">
 <button type="button" class="gen-thumb" data-gen-act="place" title="Place as a new layer" aria-label="Place as a new layer: ${name}">${url ? `<img src="${url}" alt="">` : svg('image', 18)}</button>

@@ -269,7 +269,17 @@ export const OPS: OpSpec[] = [
       const bad = a.style && typeof a.style === 'object' ? Object.keys(a.style).filter((k) => !keys.includes(k)) : [];
       return bad.length ? [`Unknown effect ${bad.map(quote).join(', ')}; use ${keys.join(', ')}.`] : [];
     },
-    describe: (a) => `${a.style && typeof a.style === 'object' ? Object.keys(a.style).map((k) => k.replace(/([A-Z])/g, ' $1').toLowerCase()).join(', ') : 'no effects'}${a.layer ? ` on ${quote(a.layer)}` : ''}`,
+    describe: (a) => {
+      const style = a.style && typeof a.style === 'object' ? (a.style as Record<string, unknown>) : undefined;
+      const effects = style
+        ? Object.entries(style).map(([k, v]) => {
+            const name = k.replace(/([A-Z])/g, ' $1').toLowerCase();
+            const settings = v && typeof v === 'object' ? Object.entries(v as Record<string, unknown>).map(([sk, sv]) => `${sk} ${typeof sv === 'object' ? compactJSON(sv, 20) : String(sv)}`).join(', ') : '';
+            return settings ? `${name} (${settings})` : name;
+          })
+        : [];
+      return `${effects.length ? effects.join('; ') : 'No effects'}${a.layer ? ` on ${quote(a.layer)}` : ''}`;
+    },
     async run({ host }, a) {
       await host.call('layers.setStyle', [null, await layerId(host, a.layer), a.style ?? null]);
     },
