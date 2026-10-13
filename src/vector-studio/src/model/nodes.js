@@ -144,6 +144,7 @@ export const DEFAULT_CHAR = Object.freeze({
   figures: 'default', // default | tabular-lining | proportional-lining | proportional-oldstyle | tabular-oldstyle
   otPosition: 'default', // default | sups | subs | numr | dnom
   altGlyph: null, // a specific glyph (font glyph index) for these characters, from the Glyphs panel
+  language: 'en-US', // language for hyphenation and spelling (model/languages.js)
   charStyle: null, // character style id (doc.root.charStyles) the attributes came from
 });
 
@@ -165,6 +166,13 @@ export const DEFAULT_PARA = Object.freeze({
   paraStyle: null, // paragraph style id (doc.root.paraStyles) the attributes came from
 });
 
+/**
+ * Paragraph settings of newly created text: the Every-line Composer.
+ * DEFAULT_PARA stays the fallback for stored paragraphs without a value, so
+ * older documents lay out as they did.
+ */
+export const NEW_PARA = Object.freeze({ ...DEFAULT_PARA, composer: 'every' });
+
 export function createText(text, x, y, extra = {}) {
   return {
     id: uid('t'),
@@ -178,7 +186,7 @@ export function createText(text, x, y, extra = {}) {
     height: 0,
     transform: [1, 0, 0, 1, 0, 0],
     char: { ...DEFAULT_CHAR },
-    para: { ...DEFAULT_PARA },
+    para: { ...NEW_PARA },
     hidden: false,
     locked: false,
     ...DEFAULT_STYLE,

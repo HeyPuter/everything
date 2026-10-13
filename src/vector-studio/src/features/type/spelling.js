@@ -9,7 +9,8 @@
  */
 import { h } from '../../lib/dom.js';
 import { layoutText, selectionPolygons } from '../../model/text-layout.js';
-import { replaceRange } from '../../model/text-runs.js';
+import { replaceRange, styleAt } from '../../model/text-runs.js';
+import { canSpellCheck } from '../../model/languages.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
@@ -76,6 +77,12 @@ export function findIssues(text, speller, opts = DEFAULT_SPELL_OPTIONS, accept =
     prev = w;
   }
   return out;
+}
+
+/** Issues in a text node, leaving out words in languages the dictionary does not cover. */
+export function nodeIssues(node, issues) {
+  if (!issues.length || (!node.runs && canSpellCheck(node.char?.language))) return issues;
+  return issues.filter((is) => canSpellCheck(styleAt(node, is.start).language));
 }
 
 /** accept() for findIssues from the custom dictionary and Ignore All. */
@@ -157,7 +164,7 @@ export function spellOverlay(app) {
       if (!b || !rectsIntersect(b, visible)) continue;
       const lay = layoutText(n);
       if (!lay.text) continue;
-      const issues = cachedIssues(lay.text, speller, app.prefs);
+      const issues = nodeIssues(lay.source || n, cachedIssues(lay.text, speller, app.prefs));
       if (!issues.length) continue;
       const m = multiply(view.matrix, n.transform);
       const toScreen = (p) => ({ x: m[0] * p.x + m[2] * p.y + m[4], y: m[1] * p.x + m[3] * p.y + m[5] });
@@ -296,7 +303,7 @@ export async function openCheckSpelling(app) {
     for (; at.k < ids.length; at.k++, at.pos = 0) {
       const n = ed.doc.get(ids[at.k]);
       if (!n) continue;
-      const found = findIssues(n.text, speller, o, accept).find((is) => is.start >= at.pos);
+      const found = nodeIssues(n, findIssues(n.text, speller, o, accept)).find((is) => is.start >= at.pos);
       if (found) {
         show({ id: n.id, ...found });
         return;

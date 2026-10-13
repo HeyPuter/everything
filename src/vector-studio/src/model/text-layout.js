@@ -705,7 +705,7 @@ function hyphenBreak(text, ch, from, pe, i, wordStart, wx, room, gap, justified,
   while (we < pe && isLetter(text[we])) we++;
   if (we - ls < 2) return -1;
   for (let k = ls; k < we; k++) if (ch.sty[k]?.noBreak || ch.glyph?.[k] === -1) return -1;
-  const pts = hyphenPoints(text.slice(ls, we), s);
+  const pts = hyphenPoints(text.slice(ls, we), s, ch.sty[ls]?.language);
   for (let p = pts.length - 1; p >= 0; p--) {
     const b = ls + pts[p];
     if (b > i || b <= from) continue;
@@ -1162,7 +1162,13 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
             if (p < pr.end) {
               let step = null;
               if (every) {
-                if (!plan || !plan.has(p)) plan = composeParagraph(text, ch, p, pr.end, Math.max(1, avail), Math.max(1, s.x1 - s.x0 - lineLeft(para, false, null) - (para.indentRight || 0)), para, hyS, hc);
+                // Composed for the width the lines get; a slot of another width (a shaped frame, a wrap) composes the rest again.
+                const rest = Math.max(1, s.x1 - s.x0 - lineLeft(para, false, null) - (para.indentRight || 0));
+                const width = first ? avail : rest;
+                if (!plan || !plan.has(p) || Math.abs(plan.width - width) > 0.5) {
+                  plan = composeParagraph(text, ch, p, pr.end, Math.max(1, avail), rest, para, hyS, hc);
+                  if (plan) plan.width = width;
+                }
                 step = plan?.get(p) || null;
                 if (step && !planFits(text, ch, p, step, avail, shrink, para)) {
                   step = null;
@@ -1317,7 +1323,7 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
       while (j < pe && isLetter(text[j])) j++;
       let ok = true;
       for (let k = i; k < j; k++) if (ch.sty[k]?.noBreak || ch.glyph?.[k] === -1) ok = false;
-      if (ok) for (const k of hyphenPoints(text.slice(i, j), hyS)) if (ch.glyph?.[i + k] !== -1) cands.push({ b: i + k, hyph: true });
+      if (ok) for (const k of hyphenPoints(text.slice(i, j), hyS, ch.sty[i]?.language)) if (ch.glyph?.[i + k] !== -1) cands.push({ b: i + k, hyph: true });
       i = j;
     }
   }
@@ -1341,7 +1347,8 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
       const spW = S[ce - from] - S[a - from];
       const lastLine = Boolean(C.last);
       const justLine = just && (!lastLine || align === 'justify-all');
-      const shrink = justLine ? spW * shrinkK : 0;
+      // Justified paragraphs may squeeze word spaces on every line, the last one too.
+      const shrink = just ? spW * shrinkK : 0;
       if (base - shrink > avail + 1e-6) break;
       if (w - shrink > avail + 1e-6) continue;
       if (C.hyph && hyS?.limit > 0 && A.count >= hyS.limit) continue;
@@ -1352,7 +1359,7 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
         const stretch = spW * stretchK + gaps * ref * ((J.letterMax - J.letterDesired) / 100) + ((G[ce - from] - G[a - from]) * (J.glyphMax - (J.glyphDesired || 100))) / (J.glyphDesired || 100);
         const r = slack >= 0 ? (stretch > 0 ? slack / stretch : slack > 1 ? 10 : 0) : shrink > 0 ? -slack / shrink : 10;
         bad = 100 * Math.min(10, r) ** 3;
-      } else if (lastLine) bad = 0;
+      } else if (lastLine) bad = slack < 0 && shrink > 0 ? 100 * Math.min(10, -slack / shrink) ** 3 : 0;
       else bad = 100 * ((3 * slack) / Math.max(1, avail)) ** 2;
       let d = (10 + bad) ** 2;
       if (C.hyph) d += A.hyph ? 13000 : 3000;

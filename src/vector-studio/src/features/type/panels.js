@@ -16,6 +16,7 @@ import { applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, cur
 import { setFontFamily, SIZE_PRESETS } from './commands.js';
 import { selectedTextNodes } from './outlines.js';
 import { KERN_MODES } from './type-options.js';
+import { LANGUAGES, DEFAULT_LANGUAGE } from '../../model/languages.js';
 
 let fieldId = 0;
 
@@ -149,12 +150,20 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     underline: toggleButton('underline', 'Underline', () => apply({ underline: cur?.underline !== true }, 'Underline')),
     strike: toggleButton('strikethrough', 'Strikethrough', () => apply({ strike: cur?.strike !== true }, 'Strikethrough')),
   };
+  // Language: hyphenation and spell checking follow it.
+  const langId = `ty-lang-${Math.random().toString(36).slice(2, 8)}`;
+  const langSel = h(
+    'select.select.ty-language',
+    { id: langId, 'aria-label': 'Language', onchange: () => langSel.value && apply({ language: langSel.value }, 'Language') },
+    LANGUAGES.map((l) => h('option', { value: l.code }, l.label)),
+  );
+  const langRow = h('div.ty-row.full.ty-opt.ty-lang-row', h('label.ty-lang-label', { for: langId, 'data-tip': 'Language' }, icon('text-language', 16)), langSel);
   let cur = null;
   const toggleRow = h('div.ty-toggles', { role: 'group', 'aria-label': 'Character options' }, Object.values(toggles));
   // Rows marked ty-opt hide with the panel's Hide Options.
   const rows = compact
     ? [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el)]
-    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row.ty-opt', vscale.el, hscale.el), h('div.ty-row.ty-opt', shift.el, rotation.el), h('div.ty-opt', toggleRow)];
+    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row.ty-opt', vscale.el, hscale.el), h('div.ty-row.ty-opt', shift.el, rotation.el), h('div.ty-opt', toggleRow), langRow];
   const el = h('div.type-controls.char-controls', rows);
   let styleKey = '';
   const refresh = () => {
@@ -189,6 +198,10 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     toggles.sub.setAttribute('aria-pressed', String(cur.position === 'sub'));
     toggles.underline.setAttribute('aria-pressed', String(cur.underline === true));
     toggles.strike.setAttribute('aria-pressed', String(cur.strike === true));
+    const lang = cur.language === MIXED ? '' : cur.language || DEFAULT_LANGUAGE;
+    if (lang && !LANGUAGES.some((l) => l.code === lang)) langSel.append(h('option', { value: lang }, lang));
+    if (!langSel.querySelector('option[value=""]')) langSel.prepend(h('option', { value: '', disabled: true, hidden: true }, 'Mixed'));
+    langSel.value = lang;
   };
   return { el, refresh };
 }

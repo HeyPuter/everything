@@ -41,6 +41,7 @@ import {
   diffAttrs,
   eq,
 } from './text-styles.js';
+import { LANGUAGES } from '../../model/languages.js';
 
 const KINDS = {
   char: { title: 'Character Styles', one: 'Character Style', root: 'charStyles', listKey: 'char' },
@@ -481,6 +482,7 @@ const SECTIONS = [
       { key: 'rotation', label: 'Character Rotation', type: 'angle', min: -360, max: 360 },
       { key: 'noBreak', label: 'No Break', type: 'select', options: ONOFF },
       { key: 'fractionalWidths', label: 'Fractional Widths', type: 'select', options: ONOFF },
+      { key: 'language', label: 'Language', type: 'select', options: LANGUAGES.map((l) => ({ value: l.code, label: l.label })) },
     ],
   },
   {

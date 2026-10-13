@@ -5,7 +5,7 @@
  * for the next typed characters), the selected text objects, or, with
  * nothing selected, the defaults for new type.
  */
-import { DEFAULT_CHAR, DEFAULT_PARA } from '../../model/nodes.js';
+import { DEFAULT_CHAR, DEFAULT_PARA, NEW_PARA } from '../../model/nodes.js';
 import {
   rangeStyle,
   applyRunStyle,
@@ -48,7 +48,7 @@ export function typeDefaults(app) {
   if (!app.typeDefaults) {
     app.typeDefaults = {
       char: { ...DEFAULT_CHAR },
-      para: { ...DEFAULT_PARA },
+      para: { ...NEW_PARA },
       fill: { type: 'solid', color: '#000000' },
       stroke: null,
       strokeWidth: 1,

@@ -46,8 +46,8 @@ describe('automatic hyphenation in area type', () => {
   });
 
   it('keeps short ends unhyphenated inside the hyphenation zone', () => {
-    // The line could end 49pt from the margin; a 50pt zone keeps it whole.
-    const lay = layoutText(area('xx hyphenation', 60, { hyphenate: true, hyphenation: { zone: 50 } }));
+    // The line could end 49pt from the margin; a 50pt zone keeps it whole (the zone is a Single-line Composer setting).
+    const lay = layoutText(area('xx hyphenation', 60, { hyphenate: true, hyphenation: { zone: 50 }, composer: 'single' }));
     expect(lineTexts(lay)).toEqual(['xx', 'hyphenation']);
   });
 

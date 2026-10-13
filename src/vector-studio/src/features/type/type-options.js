@@ -7,7 +7,7 @@
  * auto-sized area type.
  */
 import { h } from '../../lib/dom.js';
-import { DEFAULT_CHAR, DEFAULT_PARA } from '../../model/nodes.js';
+import { DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { layoutText, autoSized, JUSTIFICATION_DEFAULTS, justificationOf } from '../../model/text-layout.js';
 import { HYPHENATION_DEFAULTS, hyphenationOf } from '../../model/hyphenate.js';
 import { session, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, MIXED } from './type-ops.js';
@@ -49,7 +49,7 @@ export const KERN_MODES = [
 
 /** Character attributes Reset Panel restores (paint and the style reference stay). */
 const CHAR_RESET = Object.fromEntries(Object.entries(DEFAULT_CHAR).filter(([k]) => k !== 'charStyle'));
-const PARA_RESET = Object.fromEntries(Object.entries(DEFAULT_PARA).filter(([k]) => k !== 'paraStyle' && k !== 'tabs' && k !== 'list'));
+const PARA_RESET = Object.fromEntries(Object.entries(NEW_PARA).filter(([k]) => k !== 'paraStyle' && k !== 'tabs' && k !== 'list'));
 
 export function resetCharacter(app) {
   applyCharStyle(app, { ...CHAR_RESET }, { label: 'Reset Character' });

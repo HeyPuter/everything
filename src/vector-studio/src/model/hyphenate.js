@@ -5,8 +5,10 @@
  * that can begin a syllable, digraphs stay together, doubled consonants
  * split, and common prefixes and suffixes are syllables of their own. A
  * final silent "e" (and the "-es"/"-ed" endings that do not add a syllable)
- * is not a nucleus. The rules suit English and similar Latin-script text.
+ * is not a nucleus. The rules are English ones: words in other languages
+ * (see model/languages.js) are not hyphenated until rules for them exist.
  */
+import { languageBase } from './languages.js';
 
 export const HYPHENATION_DEFAULTS = Object.freeze({
   minWord: 6, // shortest word to hyphenate (letters)
@@ -131,7 +133,9 @@ function rawPoints(w) {
  * word[k-1]. Words with non-letters, short words and (optionally)
  * capitalized words get none.
  */
-export function hyphenPoints(word, opts = HYPHENATION_DEFAULTS) {
+export function hyphenPoints(word, opts = HYPHENATION_DEFAULTS, language = null) {
+  const rules = hyphenationRules(language);
+  if (!rules) return [];
   const o = { ...HYPHENATION_DEFAULTS, ...opts };
   if (word.length < Math.max(2, o.minWord) || !/^\p{L}+$/u.test(word)) return [];
   if (!o.capitalized && word[0] !== word[0].toLowerCase()) return [];
@@ -139,12 +143,20 @@ export function hyphenPoints(word, opts = HYPHENATION_DEFAULTS) {
   if (word.length > 1 && word === word.toUpperCase()) return [];
   const before = Math.max(1, o.minBefore);
   const after = Math.max(1, o.minAfter);
-  return rawPoints(word.toLowerCase()).filter((k) => k >= before && word.length - k >= after);
+  return rules(word.toLowerCase()).filter((k) => k >= before && word.length - k >= after);
+}
+
+/** Hyphenation rules by primary language subtag: lowercase word -> break offsets. */
+const RULES = { en: rawPoints };
+
+/** The rules for a language (null when it has none: no hyphenation); no language means English. */
+export function hyphenationRules(language) {
+  return RULES[languageBase(language)] || null;
 }
 
 /** A word with its hyphenation points shown (for tests and previews): "hy-phen-ation". */
-export function hyphenateWord(word, opts) {
-  const pts = hyphenPoints(word, opts);
+export function hyphenateWord(word, opts, language) {
+  const pts = hyphenPoints(word, opts, language);
   let out = '';
   let prev = 0;
   for (const k of pts) {

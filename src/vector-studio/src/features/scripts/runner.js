@@ -21,7 +21,7 @@
  *   await vs.prompt(label, value?)   ask for text (null when cancelled)
  *   await vs.confirm(message)
  */
-import { createPath, createText, createGroup, DEFAULT_CHAR, DEFAULT_PARA } from '../../model/nodes.js';
+import { createPath, createText, createGroup, DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { downloadBlob } from '../io/deliver.js';
 
 const BOOT = `
@@ -87,7 +87,7 @@ function nodeFromJSON(data) {
   const t = data?.type;
   const { id, parent, children, ...rest } = data || {};
   if (t === 'path') return createPath(Array.isArray(rest.anchors) ? rest.anchors : [], Boolean(rest.closed), rest);
-  if (t === 'text') return createText(String(rest.text ?? ''), Number(rest.x) || 0, Number(rest.y) || 0, { ...rest, char: { ...DEFAULT_CHAR, ...rest.char }, para: { ...DEFAULT_PARA, ...rest.para } });
+  if (t === 'text') return createText(String(rest.text ?? ''), Number(rest.x) || 0, Number(rest.y) || 0, { ...rest, char: { ...DEFAULT_CHAR, ...rest.char }, para: { ...NEW_PARA, ...rest.para } });
   if (t === 'group') return createGroup([], rest);
   throw new Error(`Scripts can create path, text and group objects, not "${t}".`);
 }

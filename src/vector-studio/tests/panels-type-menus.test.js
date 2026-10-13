@@ -136,16 +136,17 @@ describe('Paragraph panel menu and dialogs', () => {
     const items = panelMenu('paragraph');
     const labels = items.filter((i) => i.type !== 'sep').map((i) => i.label);
     for (const l of ['Hide Options', 'Hanging Punctuation', 'Optical Margin Alignment', 'Justification...', 'Hyphenation...', 'Single-line Composer', 'Every-line Composer', 'Reset Panel']) expect(labels).toContain(l);
-    expect(find(items, 'Single-line Composer').checked).toBe(true);
-    await choose(find(items, 'Every-line Composer'));
-    expect(doc.get(id).para.composer).toBe('every');
+    // New text uses the Every-line Composer.
+    expect(find(items, 'Every-line Composer').checked).toBe(true);
+    await choose(find(items, 'Single-line Composer'));
+    expect(doc.get(id).para.composer).toBe('single');
     await choose(find(items, 'Hanging Punctuation'));
     expect(doc.get(id).para.hangingPunctuation).toBe(true);
     const again = panelMenu('paragraph');
-    expect(find(again, 'Every-line Composer').checked).toBe(true);
+    expect(find(again, 'Single-line Composer').checked).toBe(true);
     expect(find(again, 'Hanging Punctuation').checked).toBe(true);
     await choose(find(again, 'Reset Panel'));
-    expect(doc.get(id).para.composer).toBe('single');
+    expect(doc.get(id).para.composer).toBe('every');
     expect(doc.get(id).para.hangingPunctuation).toBe(false);
   });
 

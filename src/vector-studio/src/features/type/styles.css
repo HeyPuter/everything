@@ -45,6 +45,15 @@
   grid-template-columns: 1fr;
 }
 
+.ty-row.ty-lang-row {
+  grid-template-columns: auto 1fr;
+}
+
+.ty-lang-label {
+  display: inline-flex;
+  color: var(--text-2);
+}
+
 .ty-field {
   display: flex;
   align-items: center;
