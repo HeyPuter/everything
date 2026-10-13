@@ -199,8 +199,30 @@ function normalizeTextStyle(raw) {
   };
 }
 
-/** Bring a stored chart (from a file or JSON) back to a well-formed one, or null. */
+/** The longest name a drawing object keeps (the Selection Pane's name, cNvPr@name in a file). */
+export const OBJECT_NAME_MAX = 255;
+
+/**
+ * Bring a stored chart (from a file or JSON) back to a well-formed one, or null. Every kind of object also
+ * keeps its Arrange state: a name given in the Selection Pane, whether it is hidden, the group it belongs
+ * to, and for a text box its rotation and flips (a picture keeps its own).
+ */
 export function normalizeChart(raw) {
+  const body = normalizeChartBody(raw);
+  if (!body) return null;
+  const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, OBJECT_NAME_MAX) : '';
+  if (name) body.name = name; else delete body.name;
+  if (raw.hidden === true) body.hidden = true; else if (body.type !== 'slicer') delete body.hidden;
+  if (typeof raw.group === 'string' && /^[\w{}-]{1,64}$/.test(raw.group)) body.group = raw.group; else delete body.group;
+  if (body.type === 'text') {
+    if (Number.isFinite(raw.rotation) && raw.rotation % 360) body.rotation = ((raw.rotation % 360) + 360) % 360;
+    if (raw.flipH === true) body.flipH = true;
+    if (raw.flipV === true) body.flipV = true;
+  }
+  return body;
+}
+
+function normalizeChartBody(raw) {
   if (!raw || !raw.anchor) return null;
   if (raw.type === 'scroll') return normalizeScrollControl(raw);
   if (raw.type === 'slicer') return normalizeSlicer(raw);

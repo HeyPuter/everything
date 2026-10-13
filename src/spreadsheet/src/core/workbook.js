@@ -89,7 +89,8 @@ import { filterValueIdentity, sheetFilters, sameFilterRange, filterRangeKey, fil
 import { freeNameTokens } from './formula/names.js';
 import { matchesRule, scaleColor, scaleMidpoint, valueIdentity, bandColor, dataBar, iconFor, barColorOf, DEFAULT_BAR_COLOR } from './condformat.js';
 import { checkValue, listOptions, listOptionIndex, chipFor, isRangeSource, ruleFormulaBody } from './validation.js';
-import { normalizeChart, placeAlong, mapChartReferences, snapshotChartData, preserveCopiedChartFormats } from './charts.js';
+import { normalizeChart, placeAlong, mapChartReferences, snapshotChartData, preserveCopiedChartFormats, OBJECT_NAME_MAX } from './charts.js';
+import { orderObjects, moveObjectTo, groupObjects, ungroupObjects, alignRects, distributeRects, canRotate, rotatePatch } from './arrange.js';
 import { explainError } from './errhelp.js';
 import { impliedFormulaStyle } from './implied-format.js';
 import { formulaReachesOut } from './reaches-out.js';
@@ -7679,6 +7680,156 @@ export class Workbook extends EventTarget {
     if (to == null || to === i) return false;
     next.splice(to, 0, obj);
     this._setCharts(sheet, next, where === 'front' || where === 'forward' ? 'Bring to front' : 'Send to back');
+    return true;
+  }
+
+  /* ---------- Arrange: drawing objects' order, place, groups, visibility and names (see arrange.js) ---------- */
+
+  /** Pixels before line `count` along an axis at 100% zoom, hidden lines counting nothing. */
+  _lineOffset(sheet, axis, count) {
+    const row = axis === 'row';
+    const sizes = row ? sheet.rowHeights : sheet.colWidths, fallback = row ? sheet.defaultRowHeight : sheet.defaultColWidth;
+    let pixels = count * fallback;
+    for (const [i, size] of sizes) if (i < count) pixels += size - fallback;
+    const hidden = row ? new Set([...sheet.hiddenRows, ...sheet.filterHidden]) : sheet.hiddenCols;
+    for (const i of hidden) if (i < count) pixels -= sizes.get(i) ?? fallback;
+    return pixels;
+  }
+
+  /** Where an object sits on its sheet, { id, x, y, w, h } in pixels at 100% zoom from the sheet's corner. */
+  objectRect(sheetId, id) {
+    const sheet = this.sheet(sheetId), ch = sheet?.charts.find((o) => o.id === id);
+    if (!ch) return null;
+    if (sheet.kind === 'chart') return { id, x: ch.dx, y: ch.dy, w: ch.w, h: ch.h };
+    return { id, x: this._lineOffset(sheet, 'col', ch.anchor.c) + ch.dx, y: this._lineOffset(sheet, 'row', ch.anchor.r) + ch.dy, w: ch.w, h: ch.h };
+  }
+
+  /** Apply several objects' patches (place, size, state) as one undo step, as updateChart applies one. */
+  _patchObjects(sheet, patches, label) {
+    if (this._locked(sheet) || !patches.size) return false;
+    let changed = false;
+    const next = sheet.charts.map((ch) => {
+      const patch = patches.get(ch.id);
+      if (!patch) return ch;
+      const merged = absoluteDrawingAnchor(sheet, normalizeChart({ ...ch, ...patch, id: ch.id, range: ch.range, anchor: patch.anchor || ch.anchor }));
+      if (!merged || JSON.stringify(merged) === JSON.stringify(ch)) return ch;
+      changed = true;
+      return ['anchor', 'dx', 'dy', 'w', 'h'].some((k) => Object.hasOwn(patch, k)) ? reanchorCellDrawing(sheet, merged) : merged;
+    });
+    if (!changed) return false;
+    this._setCharts(sheet, next, label);
+    return true;
+  }
+
+  /** Move objects so their top-left corners land at { id, x, y } (pixels at 100% zoom), re-anchored to the cells there. One undo step. */
+  placeObjects(sheetId, places, label = 'Move objects') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    const patches = new Map();
+    for (const { id, x, y } of places) {
+      const ch = sheet.charts.find((o) => o.id === id), at = this.objectRect(sheetId, id);
+      if (!ch || !at || (Math.abs(x - at.x) < 1e-6 && Math.abs(y - at.y) < 1e-6)) continue;
+      if (sheet.kind === 'chart') { patches.set(id, { dx: Math.max(0, x), dy: Math.max(0, y) }); continue; }
+      const col = placeAlong((c) => this.colWidth(sheet.id, c), sheet.cols, ch.anchor.c, ch.dx + (x - at.x), ch.w || 1);
+      const row = placeAlong((r) => this.rowHeight(sheet.id, r), sheet.rows, ch.anchor.r, ch.dy + (y - at.y), ch.h || 1);
+      patches.set(id, { anchor: { r: row.index, c: col.index }, dx: col.offset, dy: row.offset });
+    }
+    return this._patchObjects(sheet, patches, label);
+  }
+
+  /** Align the objects named (left, center, right, top, middle, bottom) or distribute them ('horizontal', 'vertical'). One undo step. */
+  alignObjects(sheetId, ids, how) {
+    const rects = ids.map((id) => this.objectRect(sheetId, id)).filter(Boolean);
+    const places = ['horizontal', 'vertical'].includes(how) ? distributeRects(rects, how) : alignRects(rects, how);
+    const labels = { left: 'Align left', center: 'Align center', right: 'Align right', top: 'Align top', middle: 'Align middle', bottom: 'Align bottom', horizontal: 'Distribute horizontally', vertical: 'Distribute vertically' };
+    return this.placeObjects(sheetId, places, labels[how] || 'Align');
+  }
+
+  /** Bring to Front ('front'), Bring Forward ('forward'), Send Backward ('backward') or Send to Back ('back') several objects at once (whole groups). */
+  orderObjects(sheetId, ids, where) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet)) return false;
+    const next = orderObjects(sheet.charts, ids, where);
+    if (next.every((ch, i) => ch === sheet.charts[i])) return false;
+    this._setCharts(sheet, next, { front: 'Bring to front', forward: 'Bring forward', backward: 'Send backward', back: 'Send to back' }[where]);
+    return true;
+  }
+
+  /** The Selection Pane's drag: put an object (its whole group) at place `to` in the stacking order, counted from the back. */
+  moveObjectInOrder(sheetId, id, to) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet) || !sheet.charts.some((ch) => ch.id === id)) return false;
+    const next = moveObjectTo(sheet.charts, id, to);
+    if (next.every((ch, i) => ch === sheet.charts[i])) return false;
+    this._setCharts(sheet, next, 'Reorder objects');
+    return true;
+  }
+
+  /** Group the objects named into one; returns the group's id. One undo step. */
+  groupObjects(sheetId, ids) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet)) return null;
+    const group = `g${newId().replace(/[^\w]/g, '').slice(0, 24)}`;
+    const next = groupObjects(sheet.charts, ids, group);
+    if (!next) return null;
+    this._setCharts(sheet, next, 'Group');
+    return group;
+  }
+
+  /** Ungroup the groups of the objects named, remembering the last one for Regroup. One undo step. */
+  ungroupObjects(sheetId, ids) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet)) return false;
+    const groups = new Set(sheet.charts.filter((ch) => ids.includes(ch.id) && ch.group).map((ch) => ch.group));
+    const next = ungroupObjects(sheet.charts, ids);
+    if (!next) return false;
+    const last = [...groups].at(-1);
+    (this._ungrouped ||= new Map()).set(sheetId, { group: last, ids: sheet.charts.filter((ch) => ch.group === last).map((ch) => ch.id) });
+    this._setCharts(sheet, next, 'Ungroup');
+    return true;
+  }
+
+  /** Regroup: the group last ungrouped on this sheet, if its objects are all still there and ungrouped. */
+  canRegroup(sheetId) {
+    const last = this._ungrouped?.get(sheetId), sheet = this.sheet(sheetId);
+    return !!last && last.ids.length > 1 && last.ids.every((id) => sheet?.charts.some((ch) => ch.id === id && !ch.group));
+  }
+
+  regroupObjects(sheetId) {
+    if (!this.canRegroup(sheetId)) return null;
+    const { ids } = this._ungrouped.get(sheetId);
+    this._ungrouped.delete(sheetId);
+    return this.groupObjects(sheetId, ids);
+  }
+
+  /** Rotate Right or Left 90°, Flip Vertical or Horizontal the objects named that can turn (pictures, shapes, text boxes). */
+  rotateObjects(sheetId, ids, op) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    const patches = new Map(sheet.charts.filter((ch) => ids.includes(ch.id) && canRotate(ch)).map((ch) => [ch.id, rotatePatch(ch, op)]));
+    return this._patchObjects(sheet, patches, { right: 'Rotate right', left: 'Rotate left', flipH: 'Flip horizontal', flipV: 'Flip vertical' }[op] || 'Rotate');
+  }
+
+  /** Show or hide objects (the Selection Pane's eye; Show All and Hide All). One undo step. */
+  setObjectsHidden(sheetId, ids, hidden) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    const patches = new Map(sheet.charts.filter((ch) => ids.includes(ch.id) && !!ch.hidden !== !!hidden).map((ch) => [ch.id, { hidden: !!hidden }]));
+    return this._patchObjects(sheet, patches, hidden ? 'Hide objects' : 'Show objects');
+  }
+
+  /** The Selection Pane's rename: an object's own name (empty gives it back its default one). */
+  renameObject(sheetId, id, name) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    return this._patchObjects(sheet, new Map([[id, { name: String(name ?? '').trim().slice(0, OBJECT_NAME_MAX) }]]), 'Rename object');
+  }
+
+  /** Delete several objects at once, as one undo step. */
+  deleteObjects(sheetId, ids) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet) || !sheet.charts.some((ch) => ids.includes(ch.id))) return false;
+    this._setCharts(sheet, sheet.charts.filter((ch) => !ids.includes(ch.id)), ids.length === 1 ? `Delete ${objectNoun(sheet.charts.find((ch) => ch.id === ids[0]))}` : 'Delete objects');
     return true;
   }
 
