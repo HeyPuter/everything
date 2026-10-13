@@ -102,12 +102,14 @@ import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
-import { CELL_STYLES, cellStyle } from '../core/cellstyles.js';
+import { cellStyle } from '../core/cellstyles.js';
+import { definitionFor, stylePatch, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
+import { openCellStylesGallery, openStyleDialog, openMergeStylesDialog, saveCellStyle, deleteCellStyle } from '../ui/cellstyles-ui.js';
 import { renderChartSvg, standaloneSvg, setThemeSeriesColors } from '../ui/chartsvg.js';
 import { openWordArtMenu } from '../ui/wordart.js';
 import { openEquationDialog, runInsertEquation } from '../ui/equation.js';
 import { openThemeEffectsMenu } from '../ui/theme-effects.js';
-import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu, themedCellStyleItems } from '../ui/themes.js';
+import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu } from '../ui/themes.js';
 import { themedPreset, themedCellStylePatch, themedSeriesColors } from '../core/workbook-theme.js';
 import { chartData } from '../core/charts.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
@@ -1132,6 +1134,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // active sheet" or "the active cell" have two candidates, and wait until the entry is home again.
       away: !!grid.editing && grid.editState.sheetId !== sheetId,
       canUndo: wb.canUndo(), canRedo: wb.canRedo(), style: styleTarget().style,
+      // The workbook's own cell styles, for the Format menu's Cell styles list.
+      customCellStyles: wb.cellStyles.filter((d) => !d.builtin).map((d) => d.name),
       // The active sheet among those on show, for the Sheet commands: the last one showing cannot be hidden or
       // deleted, an end one not moved past the end, and one holding work is asked about before it goes.
       sheet: sheetFlags(sheetId),
@@ -1557,23 +1561,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'cellStylesMenu': {
-        const anchor = arg instanceof HTMLElement ? arg : null;
-        // The samples are custom items, which the menu does not close on its own as it does its plain items: a picked style closes it here.
-        const menu = openMenu({
-          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: 'Cell styles', minWidth: 200,
-          items: CELL_STYLES.map((s) => ({
-            custom: el('button.menu-item.cell-style-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => { menu.close(); run('cellStyle', s.key); } },
-              // A preset that names no ink or fill of its own shows the sheet's, the paper's in every theme,
-              // as the cell it makes will; the menu's dark tokens made some samples unreadable in dark mode.
-              el('span.cell-style-sample.sheet-paper', { style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', border: '1px solid var(--hairline)', fontWeight: s.patch.bold ? '700' : '400', fontSize: s.patch.size ? `${Math.min(s.patch.size, 16)}px` : '13px', borderBottom: (s.borders || []).some((b) => b.kind === 'bottom') ? `2px solid ${s.borders.find((b) => b.kind === 'bottom').color}` : 'none' } }, s.label)),
-          })).concat(themedCellStyleItems(wb, (key) => { menu.close(); run('cellStyle', key); })),
-          onClose: () => keepFocus(),
-        });
+      case 'cellStylesMenu':
+        // The gallery: built-in, custom and themed styles, with New Cell Style… and Merge Styles… (ui/cellstyles-ui.js).
+        openCellStylesGallery(ctx, arg);
         return;
-      }
       case 'cellStyle': {
-        const preset = themedPreset(cellStyle(arg), wb) || themedCellStylePatch(arg, wb);
+        // A custom style, or a built-in this workbook modified, applies its own definition's parts; a built-in as
+        // it comes applies its preset. Either way the cells keep the style's name, to follow it when it changes.
+        const own = definitionFor(wb, arg);
+        const builtIn = own ? null : themedPreset(cellStyle(arg), wb) || themedCellStylePatch(arg, wb);
+        const preset = own ? { label: own.name, ...stylePatch(own) } : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: arg === 'normal' ? null : builtIn.label } };
         if (!preset) return;
         const borders = (preset.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' }));
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), preset.patch, borders,
@@ -2055,6 +2052,45 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openSubtotalDialog(ctx, range);
         return;
       }
+      /* ---------- Cell styles management ---------- */
+      case 'newCellStyle': if (!committed()) return; openStyleDialog(ctx, { mode: 'new' }); return;
+      case 'modifyCellStyle': case 'duplicateCellStyle': {
+        if (!committed()) return;
+        // From the menus a style comes by its name or preset key; from the gallery as { builtin } or { custom }.
+        const ref = typeof arg === 'string' ? (cellStyle(arg) ? { builtin: arg } : { custom: arg }) : arg;
+        openStyleDialog(ctx, { mode: cmd === 'modifyCellStyle' ? 'modify' : 'duplicate', ref });
+        return;
+      }
+      case 'saveCellStyle': {
+        if (!arg?.def) return;
+        const n = saveCellStyle(wb, arg);
+        toast(arg.oldName ? `Style ${arg.def.name} saved${n ? `; ${n} cell${n === 1 ? '' : 's'} updated` : ''}` : `Style ${arg.def.name} added to Cell Styles`, { icon: 'paint', duration: 2600 });
+        keepFocus();
+        return;
+      }
+      case 'deleteCellStyle': {
+        if (!committed()) return;
+        const ref = typeof arg === 'string' ? (cellStyle(arg) ? { builtin: arg } : { custom: arg }) : arg;
+        if (ref?.builtin) {
+          if (!builtinOverride(wb, ref.builtin)) { toast('Built-in styles stay in the gallery. Modify one to change it for this spreadsheet', { icon: 'info', duration: 3200 }); return; }
+          deleteCellStyle(wb, ref);
+          toast(`${cellStyle(ref.builtin).label} is as built in again`, { icon: 'check' });
+          keepFocus();
+          return;
+        }
+        if (!customStyleNamed(wb, ref?.custom)) return;
+        const ok = await confirmDialog({ title: `Delete style "${ref.custom}"?`, message: 'Cells formatted with it keep their formatting. You can undo this.', confirmLabel: 'Delete style' });
+        if (ok) deleteCellStyle(wb, ref);
+        keepFocus();
+        return;
+      }
+      case 'mergeCellStyles':
+        if (!committed()) return;
+        openMergeStylesDialog(ctx, {
+          listFiles: () => P.listFiles(), pickFile: P.canPickFiles() ? () => P.pickFile({ accept: ['.xlsx', '.xlsm', '.ods'] }) : null,
+          readFile: (path) => P.readFile(path), open: (bytes, name) => workbookFromFile(bytes, name), currentPath: doc.path,
+        });
+        return;
       case 'textCase': {
         if (!committed()) return;
         if (refusedByProtection('change the text')) return;

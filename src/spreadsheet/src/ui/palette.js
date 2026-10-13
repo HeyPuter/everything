@@ -179,6 +179,8 @@ export function paletteCommands(flags = {}) {
     c('Conditional formatting…', 'Format', 'highlighter', 'condFormat', null, { keywords: 'rules color scale data bars' }),
     c('Alternating colors', 'Format', 'rows', 'bands', null, { keywords: 'banding stripes zebra' }),
     c('Cell styles…', 'Format', 'paint', 'cellStylesMenu', null, { keywords: 'title heading total good bad' }),
+    !flags.editing && c('New cell style…', 'Format', 'plus', 'newCellStyle', null, { keywords: 'named style create define by example' }),
+    !flags.editing && c('Merge cell styles…', 'Format', 'paint', 'mergeCellStyles', null, { keywords: 'copy styles from another workbook spreadsheet import' }),
     c('Paint format', 'Format', 'paint', 'paintFormat', null, { keywords: 'copy formatting brush' }),
     // A single unmerged cell has nothing to merge; one row nothing to merge vertically, one column nothing horizontally.
     flags.merged ? c('Unmerge cells', 'Format', 'unmerge', 'merge', null, { keywords: 'merge split' }) : !flags.singleCell && c('Merge cells', 'Format', 'merge', 'merge', null, { keywords: 'unmerge' }),

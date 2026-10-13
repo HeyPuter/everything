@@ -38,6 +38,8 @@ export function nativePivotPaintDelta(after, changedKeys, { defaultFont = null, 
     // Cell protection belongs to the cell's own XF, which the format edit
     // writes beside the report paint; it is not part of the report's look.
     if (key === 'locked' || key === 'formulaHidden') continue;
+    // The named cell style a format came from is the cell's link to it, not paint.
+    if (key === 'cellStyle') continue;
     if (numberKeys.has(key)) { number = true; continue; }
     if (edgeKeys.has(key)) { borderSides.add(key.replace(/Border$/, '')); continue; }
     if (key === 'bs' || key === 'bc') { sharedPen = true; continue; }

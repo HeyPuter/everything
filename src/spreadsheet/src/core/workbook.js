@@ -1,4 +1,5 @@
 import { normalizeThemeInfo, themedTableLook } from './workbook-theme.js';
+import { normalizeCellStyles } from './custom-cell-styles.js';
 import { normalizeFillColor, fillColorCss, sameFillColor } from './fill-color.js';
 import { normalizeNativeFill, nativeFillPatch, packNativeFillState, unpackNativeFillState } from './native-fill.js';
 import { tableConversionStyle } from './table-conversion-style.js';
@@ -951,6 +952,8 @@ export class Workbook extends EventTarget {
     // Watch Window: cells whose values are kept in view, by sheet id and position.
     // Get & Transform: the workbook's queries (see queries.js); their loaded tables are ordinary tables.
     this.queries = normalizeQueries(json.queries);
+    // Named cell styles this workbook defines, and built-in ones it modified (see custom-cell-styles.js).
+    this.cellStyles = normalizeCellStyles(json.cellStyles);
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -1021,6 +1024,7 @@ export class Workbook extends EventTarget {
       ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
       ...(this.structureProtected ? { structureProtected: true } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
+      ...(this.cellStyles.length ? { cellStyles: normalizeCellStyles(this.cellStyles) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
       ...(this.colorPalette ? { colorPalette: normalizeColorPalette(this.colorPalette) } : {}),
@@ -11709,6 +11713,22 @@ export class Workbook extends EventTarget {
     this._blankKeys = null;
     this._unsettled = []; // circles whose reader kept its provisional answer, judged again once their outermost cell has its value
     this._tentative = []; // cells calculated while a circle was unsettled, dropped if it proves a cycle
+  }
+
+  /* ---------- Named cell styles ---------- */
+
+  /**
+   * Replace the workbook's named cell styles (see custom-cell-styles.js) as an undo step. Inside a transaction the
+   * cells a modified style reformats join the same step.
+   */
+  setCellStyles(next, label = 'Cell styles') {
+    const prev = this.cellStyles;
+    const value = normalizeCellStyles(next);
+    if (JSON.stringify(prev) === JSON.stringify(value)) return false;
+    const apply = (v) => { this.cellStyles = v; this._changed('view'); };
+    apply(value);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(value) });
+    return true;
   }
 
   /* ---------- History ---------- */

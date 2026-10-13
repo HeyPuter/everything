@@ -1217,3 +1217,33 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .cfq-row > .input { flex: 1 1 120px; min-width: 0; }
 .cfq-and, .cfq-with { font-size: 13px; color: var(--ink-2); }
 .cfq-row > .select-wrap { flex: 1 1 220px; }
+
+/* Cell styles: the Style dialog (name, the parts a style holds, a sample) and Merge Styles' list of files. */
+.style-dialog .field { margin-bottom: 10px; }
+.style-parts { display: grid; gap: 2px; border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 6px 10px 8px; margin: 0 0 10px; }
+.style-parts legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.style-part { display: grid; grid-template-columns: auto minmax(84px, max-content) 1fr; align-items: baseline; gap: 4px 8px; padding: 3px 0; }
+.style-part input { margin: 0; align-self: center; }
+.style-part-name { font-size: 13px; font-weight: 600; }
+.style-part-summary { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.style-part-summary.muted { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--hairline); }
+.style-preview { display: flex; justify-content: center; padding: 10px; margin-bottom: 10px; background: var(--surface-2, var(--surface)); border-radius: var(--r-sm); }
+.style-preview .cell-style-sample { min-width: 160px; text-align: center; }
+.style-dialog-actions { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
+.style-dialog-actions .spacer { flex: 1; }
+.merge-styles-list {
+  height: 180px; overflow: auto; border: 1px solid var(--field-border); border-radius: var(--r-sm);
+  background: var(--surface); padding: 2px 0; font-size: 13px; margin: 6px 0 4px;
+}
+.merge-styles-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.merge-styles-file { padding: 4px 10px; cursor: default; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merge-styles-file[aria-selected="true"] { background: var(--accent-soft, var(--surface-3)); color: var(--ink); }
+@media (max-width: 640px) {
+  .style-part { grid-template-columns: auto 1fr; }
+  .style-part-summary { grid-column: 2; }
+}
+/* The Cell Styles gallery: samples four to a row, wide enough for the themed styles' six. */
+.menu:has(.cell-style-grid) { max-width: min(92vw, 620px); }
+.cell-style-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px 6px 6px; }
+.cell-style-grid .cell-style-item { padding: 2px; min-width: 0; }
+.cell-style-grid .cell-style-sample { min-width: 0; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 8px; }

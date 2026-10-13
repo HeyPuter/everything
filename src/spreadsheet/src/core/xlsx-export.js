@@ -152,7 +152,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   }
   const defaultVAlign = wb.sheets.find(s => s.kind !== 'chart')?.defaultVAlign || 'middle';
   const slicers = prepareXlsxSlicers(wb);
-  const styles = exportStyles(sourceStyles, wb.normalFont, wb.colorPalette, defaultVAlign, wb.fontTheme, wb.nativeNormalStyle, wb.nativeNormalFill, wb.nativeDefaultCellFormat);
+  const styles = exportStyles(sourceStyles, wb.normalFont, wb.colorPalette, defaultVAlign, wb.fontTheme, wb.nativeNormalStyle, wb.nativeNormalFill, wb.nativeDefaultCellFormat, wb.cellStyles);
   // Reuse identical hidden helpers after import; never shadow a user name or
   // table, including local names which would intercept a global helper call.
   const usedNames = new Set([...wb.names.map(n => n.name), ...wb.tableNames()].map(n => n.toUpperCase()));

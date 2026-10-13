@@ -6,7 +6,8 @@ import { normalizeFontColor, tintRgb, INDEXED_COLORS } from './font-color.js';
 import { normalizeFillColor } from './fill-color.js';
 import { readNativeFillResources } from './native-fill.js';
 /** Formatting the XLSX reader leaves in styles.xml: fills, borders and differential styles. */
-import { fontKeyFor } from './format.js';
+import { fontKeyFor, numFmtToStyle } from './format.js';
+import { normalizeCellStyles, edgesOfStyle, presetByLabel } from './custom-cell-styles.js';
 import { readFontTheme, resolveThemeFont } from './font-theme.js';
 import { normalizeNormalFont } from './normal-font.js';
 import { readThemeInfo } from './workbook-theme.js';
@@ -243,9 +244,74 @@ export function readXlsxStyles(book, fillBaseline = null, fillDefinitions = null
     const tag = element(xf, 'protection');
     return { unlocked: ['0', 'false'].includes(attr(tag, 'locked')), hidden: ['1', 'true'].includes(attr(tag, 'hidden')) };
   });
-  return { borders: borderStyles, fills, dxfs, tables, shrink, protection, fontColors, fontNames, fontSchemes, fontTheme, normalFont, normalFontId,
+  const { namedStyles, cellXfStyleNames } = readNamedStyles({ xml, fontRecords, fontNames, fontSchemes, fontColors, fills, borderStyles, formatCodes: book.SSF });
+  return { borders: borderStyles, fills, dxfs, tables, shrink, protection, fontColors, fontNames, fontSchemes, fontTheme, normalFont, normalFontId, namedStyles, cellXfStyleNames,
     nativeNormalStyle, nativeNormalFill: fillResources.normal, nativeDefaultCellFormat, formatCodes: book.SSF, colorPalette, themeInfo, colors: themes };
 }
+
+/**
+ * The named cell styles a file defines beyond Normal (cellStyles → cellStyleXfs), as the workbook's definitions
+ * (see custom-cell-styles.js), and for each cell format the name of the style it is linked to (null for Normal or
+ * a built-in style this app has no definition of). A style XF's apply flags say which parts the style holds; one
+ * left unsaid is held.
+ */
+function readNamedStyles({ xml, fontRecords, fontNames, fontSchemes, fontColors, fills, borderStyles, formatCodes }) {
+  const styleXfs = elements(element(xml, 'cellStyleXfs'), 'xf');
+  const numFmts = new Map(elements(element(xml, 'numFmts'), 'numFmt').map((n) => [Number(attr(n, 'numFmtId')), decodeXlsxString(attr(n, 'formatCode'))]));
+  const held = (xf, name) => !['0', 'false'].includes(attr(xf, name));
+  const byXf = new Map();
+  const defs = [];
+  for (const entry of elements(element(xml, 'cellStyles'), 'cellStyle')) {
+    const name = attr(entry, 'name')?.trim();
+    const xfId = Number(attr(entry, 'xfId'));
+    // Normal and the other built-in styles are the app's own; a file's custom styles carry no built-in id.
+    if (!name || attr(entry, 'builtinId') != null || !Number.isInteger(xfId) || !styleXfs[xfId]) continue;
+    const xf = styleXfs[xfId];
+    const style = {};
+    const fontId = Number(attr(xf, 'fontId') || 0), font = fontRecords[fontId];
+    if (font) {
+      const family = fontKeyFor(fontNames[fontId], { literal: true });
+      if (family) style.font = family;
+      if (fontSchemes[fontId] && fontSchemes[fontId] !== 'none') style.scheme = fontSchemes[fontId];
+      const size = Number(attr(element(font, 'sz'), 'val'));
+      if (Number.isFinite(size) && size > 0) style.size = size * 4 / 3;
+      for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['strike', 'strike']]) {
+        const item = element(font, tag);
+        if (item && !['0', 'false'].includes(attr(item, 'val'))) style[key] = true;
+      }
+      const u = element(font, 'u');
+      if (u && attr(u, 'val') !== 'none') style.underline = true;
+      const color = fontColors[fontId];
+      if (color && color !== 'windowtext') style.color = color;
+    }
+    Object.assign(style, fills[Number(attr(xf, 'fillId') || 0)] || {});
+    const border = borderStyles[Number(attr(xf, 'borderId') || 0)] || {};
+    const alignTag = element(xf, 'alignment');
+    if (alignTag) {
+      const read = Object.fromEntries(['horizontal', 'vertical', 'wrapText', 'shrinkToFit', 'textRotation', 'indent'].map((k) => [k, attr(alignTag, k)]).filter(([, v]) => v != null));
+      if (read.wrapText) read.wrapText = ['1', 'true'].includes(read.wrapText);
+      Object.assign(style, xlsxAlignment(read));
+      if (!attr(alignTag, 'vertical')) delete style.valign;
+    }
+    const protect = element(xf, 'protection');
+    if (['0', 'false'].includes(attr(protect, 'locked'))) style.locked = false;
+    if (['1', 'true'].includes(attr(protect, 'hidden'))) style.formulaHidden = true;
+    const numFmtId = Number(attr(xf, 'numFmtId') || 0);
+    const code = numFmts.get(numFmtId) ?? formatCodes?.[numFmtId];
+    if (numFmtId && code) Object.assign(style, numFmtToStyle(code) || {});
+    for (const key of Object.keys(style)) if (style[key] == null) delete style[key];
+    const parts = { number: held(xf, 'applyNumberFormat'), alignment: held(xf, 'applyAlignment'), font: held(xf, 'applyFont'),
+      border: held(xf, 'applyBorder'), fill: held(xf, 'applyFill'), protection: held(xf, 'applyProtection') };
+    // A style named as one of the app's presets is that preset, modified for the workbook it was saved from.
+    const builtin = presetByLabel(name)?.key;
+    defs.push({ name, parts, style, borders: edgesOfStyle(border), ...(builtin ? { builtin } : {}) });
+    byXf.set(xfId, name);
+  }
+  const namedStyles = normalizeCellStyles(defs);
+  const cellXfStyleNames = elements(element(xml, 'cellXfs'), 'xf').map((xf) => byXf.get(Number(attr(xf, 'xfId') || 0)) ?? null);
+  return { namedStyles, cellXfStyleNames };
+}
+
 
 /** Character widths use the workbook's Normal font, not the reader's guessed six-pixel digit. */
 export function xlsxMaximumDigitWidth(font) {

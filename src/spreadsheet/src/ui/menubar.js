@@ -378,13 +378,28 @@ export function menubarMenus(f = {}) {
     sep,
     i('Conditional formatting…', 'highlighter', 'condFormat'),
     i('Alternating colors', 'rows', 'bands'),
-    sub('Cell styles', 'paint', CELL_STYLES.map((s) => i(s.label, null, 'cellStyle', s.key, {
-      // A sample of the style as it would look on the sheet: on paper, whatever the app's theme. A preset
-      // that names no ink or fill of its own shows the paper's, as the cell it makes will; the menu's own
-      // dark tokens made a Note sample near-white ink on its pale yellow fill, and a Heading navy on black.
-      paper: true,
-      style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', fontWeight: s.patch.bold ? '700' : '400', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--hairline)' },
-    }))),
+    sub('Cell styles', 'paint', [
+      ...CELL_STYLES.map((s) => i(s.label, null, 'cellStyle', s.key, {
+        // A sample of the style as it would look on the sheet: on paper, whatever the app's theme. A preset
+        // that names no ink or fill of its own shows the paper's, as the cell it makes will; the menu's own
+        // dark tokens made a Note sample near-white ink on its pale yellow fill, and a Heading navy on black.
+        paper: true,
+        style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', fontWeight: s.patch.bold ? '700' : '400', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--hairline)' },
+      })),
+      // The workbook's own styles, then the tools that make, change and bring in styles.
+      (f.customCellStyles || []).length && sep,
+      (f.customCellStyles || []).length && { header: 'Custom' },
+      ...(f.customCellStyles || []).map((name) => i(name, null, 'cellStyle', { custom: name })),
+      sep,
+      waits(i('New cell style…', 'plus', 'newCellStyle')),
+      sub('Modify a style', 'pencil', [
+        ...CELL_STYLES.map((s) => i(s.label, null, 'modifyCellStyle', s.key)),
+        ...(f.customCellStyles || []).map((name) => i(name, null, 'modifyCellStyle', { custom: name })),
+      ].map(waits)),
+      (f.customCellStyles || []).length > 1 && sub('Delete a style', 'trash', (f.customCellStyles || []).map((name) => i(name, null, 'deleteCellStyle', { custom: name })).map(waits)),
+      (f.customCellStyles || []).length === 1 && waits(i(`Delete style “${f.customCellStyles[0]}”`, 'trash', 'deleteCellStyle', { custom: f.customCellStyles[0] })),
+      waits(i('Merge styles…', 'paint', 'mergeCellStyles')),
+    ]),
     i('Paint format', 'paint', 'paintFormat'),
     sep,
     i('Format Cells…', 'formatCells', 'formatCells', null, { shortcut: `${M}+1` }),
