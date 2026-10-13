@@ -23,10 +23,26 @@
   background: var(--bg-panel);
   border-left: 1px solid var(--border);
   overflow-y: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+}
+
+.strip-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.strip-group + .strip-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
 }
 
 .strip-btn {
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -41,6 +57,13 @@
 .strip-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.strip-stack-title {
+  padding: 4px 8px 6px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 
 .strip-btn.active {

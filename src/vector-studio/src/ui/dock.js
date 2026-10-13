@@ -13,8 +13,51 @@ function ariaShortcut(sc) {
   return sc.replace(/\bMod\b/, IS_MAC ? 'Meta' : 'Control');
 }
 
+/** Where the strip becomes a row and the dock a bottom sheet (keep in step with responsive.css). */
+const PHONE_QUERY = '(max-width: 760px)';
+
 /** Minimum time between panel refreshes during a live drag. */
 export const LIVE_PANEL_MS = 150;
+
+/**
+ * Collapsed panels sit in the strip in these groups, separated by a rule.
+ * When the strip is too short for every icon, the largest groups collapse
+ * into one stack button each that lists its panels in a menu. Panels not
+ * listed here go in a last "More" group.
+ */
+export const PANEL_GROUPS = [
+  { id: 'paint', label: 'Color and Paint', panels: ['color', 'swatches', 'colorGuide', 'gradient', 'stroke', 'transparency', 'appearance', 'graphicStyles', 'brushes', 'patternOptions'] },
+  { id: 'arrange', label: 'Arrange and Shape', panels: ['align', 'transform', 'pathfinder', 'blend', '3d', 'traceImage', 'magicWand'] },
+  { id: 'type', label: 'Type', panels: ['character', 'paragraph', 'openType', 'glyphs', 'characterStyles', 'paragraphStyles', 'tabs'] },
+  { id: 'assets', label: 'Assets', panels: ['symbols', 'libraries', 'assetExport', 'generate', 'generationHistory'] },
+  { id: 'document', label: 'Document', panels: ['layers', 'artboards', 'navigator', 'info', 'documentInfo', 'links', 'attributes', 'history', 'comments'] },
+  { id: 'output', label: 'Automation and Output', panels: ['actions', 'variables', 'svgInteractivity', 'separations', 'flattenerPreview'] },
+];
+
+const MORE_GROUP = { id: 'more', label: 'More', panels: [] };
+
+/** The strip's groups for `ids`, in group order: [{ group, ids }]. */
+export function groupStripPanels(ids) {
+  const out = PANEL_GROUPS.map((group) => ({ group, ids: ids.filter((id) => group.panels.includes(id)) }));
+  out.push({ group: MORE_GROUP, ids: ids.filter((id) => !PANEL_GROUPS.some((g) => g.panels.includes(id))) });
+  return out.filter((g) => g.ids.length);
+}
+
+/**
+ * Which groups to stack so the strip fits `available` pixels: the largest
+ * groups first, until it fits (all multi-panel groups at most).
+ */
+export function stacksToFit(groups, available, { unit = 32, divider = 11, padding = 12 } = {}) {
+  const stacked = new Set();
+  if (!(available > 0)) return stacked;
+  const need = () => padding + groups.reduce((n, g) => n + (stacked.has(g.group.id) ? 1 : g.ids.length) * unit, 0) + (groups.length - 1) * divider;
+  const bySize = groups.filter((g) => g.ids.length > 1).sort((a, b) => b.ids.length - a.ids.length);
+  for (const g of bySize) {
+    if (need() <= available) break;
+    stacked.add(g.group.id);
+  }
+  return stacked;
+}
 
 export function createDock(app) {
   const panels = new Map(); // id -> instance
@@ -133,9 +176,15 @@ export function createDock(app) {
     dockBody.append(p.el);
   }
 
-  function addToStrip(id) {
+  // ---- Collapsed panel strip ----
+  const stripButtons = new Map(); // panel id -> button
+  const stackCurrent = new Map(); // group id -> panel shown on its stack button
+  let stacked = new Set();
+  let stackMenu = null;
+
+  function stripButton(id) {
+    if (stripButtons.has(id)) return stripButtons.get(id);
     const PanelClass = panels.get(id).constructor;
-    stripIds.push(id);
     const btn = h(
       'button.strip-btn',
       {
@@ -146,24 +195,178 @@ export function createDock(app) {
         'aria-keyshortcuts': PanelClass.shortcut ? ariaShortcut(PanelClass.shortcut) : null,
         'aria-expanded': 'false',
         'data-panel': id,
-        // Roving tabindex: the strip is one Tab stop, arrows move within it.
-        tabindex: stripIds.length === 1 ? '0' : '-1',
+        tabindex: '-1',
         onclick: () => toggleFlyout(id),
-        onkeydown: (e) => {
-          const btns = [...strip.querySelectorAll('.strip-btn')];
-          const i = btns.indexOf(e.currentTarget);
-          const keys = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: btns.length - 1 };
-          if (!(e.key in keys)) return;
-          e.preventDefault();
-          const next = btns[(keys[e.key] + btns.length) % btns.length];
-          btns.forEach((b) => (b.tabIndex = -1));
-          next.tabIndex = 0;
-          next.focus();
-        },
       },
       icon(PanelClass.icon, 18),
     );
-    strip.append(btn);
+    stripButtons.set(id, btn);
+    return btn;
+  }
+
+  function stackButton(group, ids) {
+    const cur = ids.includes(stackCurrent.get(group.id)) ? stackCurrent.get(group.id) : ids.includes(flyoutId) ? flyoutId : ids[0];
+    const titles = ids.map((id) => panels.get(id).constructor.title);
+    const btn = h(
+      'button.strip-btn.strip-stack',
+      {
+        type: 'button',
+        'aria-label': `${group.label} panels`,
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+        'data-tip': `${group.label}: ${titles.join(', ')}`,
+        'data-group': group.id,
+        tabindex: '-1',
+        onclick: (e) => openStackMenu(group, ids, e.currentTarget),
+      },
+      icon(panels.get(cur).constructor.icon, 18),
+      h('span.tool-corner', { 'aria-hidden': 'true' }),
+    );
+    btn._ids = ids;
+    if (ids.includes(flyoutId)) btn.classList.add('active');
+    return btn;
+  }
+
+  /** Rebuild the strip from stripIds and the stacked groups, keeping the roving tab stop. */
+  function renderStrip() {
+    closeStackMenu(false);
+    const focused = strip.contains(document.activeElement) ? document.activeElement : null;
+    const keep = focused?.dataset.panel || focused?.dataset.group || strip.querySelector('.strip-btn[tabindex="0"]')?.dataset.panel;
+    const groups = groupStripPanels(stripIds);
+    strip.replaceChildren(
+      ...groups.map(({ group, ids }) =>
+        h(
+          'div.strip-group',
+          { role: 'group', 'aria-label': group.label, 'data-group': group.id },
+          stacked.has(group.id) ? stackButton(group, ids) : ids.map(stripButton),
+        ),
+      ),
+    );
+    const btns = [...strip.querySelectorAll('.strip-btn')];
+    btns.forEach((b) => (b.tabIndex = -1));
+    const stop = btns.find((b) => b.dataset.panel === keep || b.dataset.group === keep || b._ids?.includes(keep)) || btns[0];
+    if (stop) stop.tabIndex = 0;
+    if (focused && stop && !focused.isConnected) stop.focus();
+  }
+
+  /** Stack groups when the strip is too short (or, on phones, too narrow) for every icon. */
+  // Phones show the strip as a row along the bottom sheet (responsive.css).
+  const stripIsRow = () => typeof matchMedia === 'function' && matchMedia(PHONE_QUERY).matches;
+
+  function fitStrip() {
+    const row = stripIsRow();
+    strip.setAttribute('aria-orientation', row ? 'horizontal' : 'vertical');
+    const available = row ? strip.clientWidth : strip.clientHeight;
+    const sample = strip.querySelector('.strip-btn');
+    const unit = sample ? (row ? sample.offsetWidth : sample.offsetHeight) + 2 : 32;
+    const next = stacksToFit(groupStripPanels(stripIds), available, { unit: unit > 2 ? unit : 32 });
+    if (next.size === stacked.size && [...next].every((g) => stacked.has(g))) return;
+    stacked = next;
+    renderStrip();
+  }
+
+  let stripFitQueued = false;
+  const queueFit = () => {
+    if (stripFitQueued) return;
+    stripFitQueued = true;
+    requestAnimationFrame(() => {
+      stripFitQueued = false;
+      fitStrip();
+    });
+  };
+  new ResizeObserver(queueFit).observe(strip);
+  window.addEventListener('resize', () => fitStrip());
+
+  // Roving tabindex: the strip is one Tab stop, arrows move within it.
+  strip.addEventListener('keydown', (e) => {
+    const btns = [...strip.querySelectorAll('.strip-btn')];
+    const i = btns.indexOf(e.target);
+    if (i < 0) return;
+    const keys = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: btns.length - 1 };
+    if (!(e.key in keys)) return;
+    e.preventDefault();
+    const next = btns[(keys[e.key] + btns.length) % btns.length];
+    btns.forEach((b) => (b.tabIndex = -1));
+    next.tabIndex = 0;
+    next.focus();
+  });
+
+  function closeStackMenu(returnFocus) {
+    if (!stackMenu) return;
+    const { el: menuEl, btn } = stackMenu;
+    stackMenu = null;
+    menuEl.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outsideStackMenu, true);
+    if (returnFocus) btn.focus();
+  }
+
+  function outsideStackMenu(e) {
+    if (stackMenu && !stackMenu.el.contains(e.target) && !stackMenu.btn.contains(e.target)) closeStackMenu(false);
+  }
+
+  function openStackMenu(group, ids, btn) {
+    if (stackMenu?.btn === btn) return closeStackMenu(true);
+    closeStackMenu(false);
+    const menuEl = h('div.tool-flyout.strip-stack-menu', { role: 'menu', 'aria-label': `${group.label} panels` }, h('div.strip-stack-title', { 'aria-hidden': 'true' }, group.label));
+    for (const id of ids) {
+      const P = panels.get(id).constructor;
+      menuEl.append(
+        h(
+          'button.flyout-item',
+          {
+            type: 'button',
+            role: 'menuitemcheckbox',
+            'aria-checked': String(flyoutId === id),
+            tabindex: '-1',
+            'data-panel': id,
+            onclick: () => {
+              closeStackMenu(false);
+              stackCurrent.set(group.id, id);
+              btn.replaceChild(icon(P.icon, 18), btn.querySelector('svg'));
+              openFlyout(id);
+            },
+            onkeydown: (e) => {
+              const items = [...menuEl.querySelectorAll('.flyout-item')];
+              const i = items.indexOf(e.currentTarget);
+              const move = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+              if (move) items[(i + move + items.length) % items.length].focus();
+              else if (e.key === 'Home' || e.key === 'End') items[e.key === 'Home' ? 0 : items.length - 1].focus();
+              else if (e.key === 'Escape' || e.key === 'ArrowRight' || e.key === 'Tab') closeStackMenu(e.key !== 'Tab');
+              else return;
+              if (e.key !== 'Tab') e.preventDefault();
+              e.stopPropagation();
+            },
+          },
+          icon(P.icon, 18),
+          h('span.flyout-label', P.title),
+          h('span.flyout-shortcut', P.shortcut ? formatShortcut(P.shortcut) : ''),
+        ),
+      );
+    }
+    document.body.append(menuEl);
+    stackMenu = { el: menuEl, btn };
+    btn.setAttribute('aria-expanded', 'true');
+    const r = btn.getBoundingClientRect();
+    const fw = menuEl.offsetWidth;
+    const fh = menuEl.offsetHeight;
+    // Beside the vertical strip; above it when the strip is a row (phones).
+    const row = stripIsRow();
+    menuEl.style.left = `${Math.max(4, row ? Math.min(window.innerWidth - fw - 4, r.left) : r.left - fw - 4)}px`;
+    menuEl.style.top = `${Math.max(4, row ? r.top - fh - 4 : Math.min(window.innerHeight - fh - 4, r.top))}px`;
+    document.addEventListener('pointerdown', outsideStackMenu, true);
+    (menuEl.querySelector('[aria-checked="true"]') || menuEl.querySelector('.flyout-item'))?.focus();
+  }
+
+  /** The strip button that stands for panel `id`: its own, or its group's stack. */
+  function stripButtonFor(id) {
+    return strip.querySelector(`.strip-btn[data-panel="${id}"]`) || [...strip.querySelectorAll('.strip-stack')].find((b) => b._ids.includes(id)) || null;
+  }
+
+  function addToStrip(id) {
+    stripIds.push(id);
+    renderStrip();
+    queueFit();
   }
 
   /** The panel arrangement: { dock: [ids], strip: [ids], active } (panels in neither open from the Window menu). */
@@ -192,9 +395,10 @@ export function createDock(app) {
     dockIds.length = 0;
     stripIds.length = 0;
     tabs.replaceChildren();
-    strip.replaceChildren();
     for (const id of nextDock) addToDock(id);
-    for (const id of nextStrip) addToStrip(id);
+    stripIds.push(...nextStrip);
+    renderStrip();
+    queueFit();
     showTab(nextDock.includes(active) ? active : nextDock.includes(activeTab) ? activeTab : nextDock[0]);
   }
 
@@ -234,8 +438,9 @@ export function createDock(app) {
     flyout.setAttribute('aria-label', p.constructor.title);
     flyoutBody.replaceChildren(p.el);
     flyout.hidden = false;
-    strip.querySelector(`[data-panel="${id}"]`)?.setAttribute('aria-expanded', 'true');
-    strip.querySelector(`[data-panel="${id}"]`)?.classList.add('active');
+    const btn = stripButtonFor(id);
+    if (!btn?.classList.contains('strip-stack')) btn?.setAttribute('aria-expanded', 'true');
+    btn?.classList.add('active');
     p.shown();
     syncMenuButton(flyoutMenuBtn, id);
     if (focus) (p.el.querySelector('button, input, select, [tabindex="0"]') || flyout).focus?.();
@@ -247,8 +452,8 @@ export function createDock(app) {
     panels.get(id)?.hidden();
     flyoutId = null;
     flyout.hidden = true;
-    const btn = strip.querySelector(`[data-panel="${id}"]`);
-    btn?.setAttribute('aria-expanded', 'false');
+    const btn = stripButtonFor(id);
+    if (!btn?.classList.contains('strip-stack')) btn?.setAttribute('aria-expanded', 'false');
     btn?.classList.remove('active');
     if (returnFocus) btn?.focus();
   }
@@ -272,6 +477,7 @@ export function createDock(app) {
     openPanel: openFlyout,
     openPanelMenu,
     closeFlyout,
+    fitStrip,
     getLayout,
     setLayout,
     isOpen: (id) => flyoutId === id || (activeTab === id && dockIds.includes(id)),
