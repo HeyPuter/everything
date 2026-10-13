@@ -81,7 +81,6 @@ export const KNOWN_TRAITS = {
   'pt serif': { category: 'serif', traits: ['transitional'] },
   garamond: { category: 'serif', traits: ['oldstyle'] },
   'eb garamond': { category: 'serif', traits: ['oldstyle'] },
-  'adobe garamond': { category: 'serif', traits: ['oldstyle'] },
   caslon: { category: 'serif', traits: ['oldstyle'] },
   palatino: { category: 'serif', traits: ['oldstyle', 'calligraphic'] },
   minion: { category: 'serif', traits: ['oldstyle'] },
