@@ -414,6 +414,8 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
         { separator: true },
         { label: 'Pivot table…', icon: 'pivot', onSelect: () => ctx.run('pivot') },
         { label: 'Goal seek…', icon: 'sliders', onSelect: () => ctx.run('goalSeek') },
+        { label: 'Solver…', icon: 'solver', onSelect: () => ctx.run('solver') },
+        { label: 'Data analysis…', icon: 'dataAnalysis', onSelect: () => ctx.run('dataAnalysis') },
         { label: 'Column stats…', icon: 'chartColumn', onSelect: () => ctx.run('columnStats') },
       ],
     }),

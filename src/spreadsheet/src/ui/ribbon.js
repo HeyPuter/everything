@@ -296,6 +296,7 @@ const groupsFor = name => ({
     ['Forecast', large(dyn('What-If Analysis', 'whatIf', menus => [command('goalSeek')(menus) && { ...command('goalSeek')(menus), label: 'Goal Seek…' },
       command('scenarioManager')(menus) && { ...command('scenarioManager')(menus), label: 'Scenario Manager…' }, command('dataTable')(menus) && { ...command('dataTable')(menus), label: 'Data Table…' }].filter(Boolean))),
       c('Goal Seek', 'goalSeek', 'goalSeek'), large(direct('Forecast Sheet', 'forecast', 'forecastSheet', null)), c('Column Stats', 'columnStats', 'columnStats')],
+    ['Analyze', large(c('Data Analysis', 'dataAnalysis', 'dataAnalysis')), large(c('Solver', 'solver', 'solver'))],
     ['Outline', m('Group', 'group', 'view', 'Group'), a('Ungroup Rows', 'ungroup', 'ungroup', 'row', { ariaLabel: 'Ungroup Rows' }), c('Subtotal', 'subtotal', 'subtotal'),
       direct('Show Detail', 'showDetail', 'showDetail', null), direct('Hide Detail', 'hideDetail', 'hideDetail', null)],
   ],

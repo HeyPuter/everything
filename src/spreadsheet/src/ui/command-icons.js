@@ -312,6 +312,10 @@ export const COMMAND_ICONS = {
   ungroup: cells(6.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M3.5 5v10h2', 'b') + ci(3.5, 10, 2.4, 'bs') + p('M2.4 10h2.2', 'wh'),
   subtotal: cells(2.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M18 4.5h-5l3 3.2-3 3.3h5', 'b thick') + r(2.5, 13.25, 11, 3.25, 'bw'),
   columnStats: chartAxes + columns([[6, 'bf'], [11, 'bf'], [8, 'bf']]) + p('M4 6.5h13', 'r dash'),
+  // Solver: a curve over the axes with its peak found (the dot) and the search's steps toward it.
+  solver: chartAxes + p('M4.5 15.5C6.5 6 13.5 6 16.5 15.5', 'b thick') + p('M6 12.8l2-3.6 2.1-1.5', 'g dash') + ci(10.5, 8.4, 1.9, 'rs'),
+  // Data Analysis: a histogram with a bell curve over it.
+  dataAnalysis: chartAxes + columns([[3.5, 'bf'], [8, 'bf'], [10.5, 'bf'], [6, 'bf']], 4.6, 2.6, 0.9) + p('M3.8 15.6C7 15.6 7.6 4.6 10.4 4.6S14 15.6 17 15.6', 'r thick'),
   powerQuery: cells(2.5, 3.5, 12, 13, 2, 3, { frame: 'of' }) + p('M13 9.5l2.5-5 2 1-2.5 5z', 'nf'),
   /* Get & Transform: Get Data sources, the Queries & Connections pane, and the query editor's commands. */
   fromText: page(4.5, 2.5, 11, 15) + lines(6.5, 8, 7, 4) + p('M9 7v8.5M11.5 7v8.5', 'g dash'),
