@@ -168,6 +168,10 @@ function piecesOf(pres, slide, items) {
       h: b.h / size.height,
       rotation: slideRotation(shape, parents),
     };
+    let lines = [];
+    try {
+      lines = P.getShapeText(shape).split("\n");
+    } catch {}
     const paragraphs = [...parts].filter((p) => typeof p === "number");
     if (!paragraphs.length) {
       run = null;
@@ -177,6 +181,7 @@ function piecesOf(pres, slide, items) {
         part: "whole",
         box,
         layer: true,
+        text: lines.join(" "),
       });
       continue;
     }
@@ -205,6 +210,7 @@ function piecesOf(pres, slide, items) {
           part: n,
           box,
           layer: { body: false, paragraphs: new Set([n]) },
+          text: lines[n] || "",
         });
       } else addStatic(id, { body: false, paragraphs: new Set([n]) });
     }
@@ -634,6 +640,14 @@ const emphTransform = (s) =>
   `rotate(${s.rotate}deg) scale(${s.scaleX}, ${s.scaleY})`;
 const filterOf = (s) => s.filter || "none";
 
+const textUnits = (value, type) => {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  return type === "word"
+    ? text.split(/\s+/).length
+    : [...text.replace(/\s+/g, "")].length;
+};
+
 /** Keyframes and the end state for one item, from the state before it. */
 function planItem(item, state, piece, frame, reduced) {
   const { effect } = item;
@@ -661,6 +675,26 @@ function planItem(item, state, piece, frame, reduced) {
           })),
       duration: reduced ? Math.min(200, effect.durationMs) : effect.durationMs,
     });
+    // Text a word or letter at a time: the text is uncovered in steps from
+    // its start, one step per word or letter.
+    const count =
+      effect.iterate && !reduced
+        ? textUnits(piece.text, effect.iterate.type)
+        : 0;
+    if (count > 1) {
+      const b = piece.box;
+      const shown = `inset(0 ${pct(1 - b.x - b.w)} 0 0)`;
+      const hidden = `inset(0 ${pct(1 - b.x)} 0 0)`;
+      const steps = entering ? [hidden, shown] : [shown, hidden];
+      out.push({
+        layer: "iter",
+        keyframes: steps.map((clipPath) => ({ clipPath })),
+        duration:
+          effect.durationMs *
+          (1 + ((count - 1) * effect.iterate.delayPercent) / 100),
+        easing: `steps(${count}, ${entering ? "start" : "end"})`,
+      });
+    }
   } else if (cls === "emph") {
     const id = effect.presetId;
     const base = { transform: emphTransform(state), opacity: state.opacity };
@@ -926,6 +960,7 @@ export function createAnimationPlayer({
     const motion = div("anim-motion");
     const emph = div("anim-emph");
     const fx = div("anim-fx");
+    const iter = div("anim-fx anim-iter");
     const tint = div("anim-tint");
     const dim = div("anim-tint anim-dim");
     tint.style.maskImage = tint.style.webkitMaskImage = `url("${img.src}")`;
@@ -941,13 +976,14 @@ export function createAnimationPlayer({
     emph.style.transformOrigin = origin;
     fx.style.transformOrigin = origin;
     fx.append(img, tint, dim, underline);
-    emph.append(fx);
+    iter.append(fx);
+    emph.append(iter);
     motion.append(emph);
     root.append(motion);
     pieces.push({
       ...run,
       key: `${run.shapeId}:${run.part}`,
-      els: { motion, emph, fx, tint, dim, underline, img },
+      els: { motion, emph, iter, fx, tint, dim, underline, img },
       state: { ...INITIAL },
       initial: null,
     });
@@ -1043,7 +1079,7 @@ export function createAnimationPlayer({
           delay: item.at,
           iterations: effect.autoReverse ? iterations * 2 : iterations,
           direction: effect.autoReverse ? "alternate" : "normal",
-          easing: easingOf(effect),
+          easing: a.easing || easingOf(effect),
           fill: "both",
         }),
       );
