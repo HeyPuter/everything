@@ -84,6 +84,8 @@ function typeName(i) {
       file: "File",
       table: "Table",
       frame: "Frame",
+      image: "Image",
+      pen: "Drawing",
     }[i.type] || i.type,
   );
 }
@@ -111,8 +113,14 @@ export function spreadsheetModel(b, regions, added = []) {
   const frames = orderedFrames(all),
     frameRank = new Map(frames.map((f, n) => [f.id, n]));
   const tagNames = new Map((b.tags || []).map((tag) => [tag.id, tag.name]));
+  // Images and drawings are listed by their descriptions.
+  const described = (i) => ["image", "pen"].includes(i.type) && i.alt;
   const objects = items
-    .filter((i) => TEXT_TYPES.has(i.type) && (i.type !== "arrow" || i.text))
+    .filter(
+      (i) =>
+        (TEXT_TYPES.has(i.type) && (i.type !== "arrow" || i.text)) ||
+        described(i),
+    )
     .sort(
       (a, c) =>
         (frameRank.get(a.parentId) ?? Infinity) -
@@ -149,7 +157,7 @@ export function spreadsheetModel(b, regions, added = []) {
         ),
       ...objects.map((i) => [
         typeName(i),
-        textOf(i),
+        described(i) ? i.alt : textOf(i),
         byId.get(i.parentId)?.text || "",
         (i.tagIds || [])
           .map((id) => tagNames.get(id))
@@ -244,19 +252,23 @@ export function toCSV(rows) {
   );
 }
 
+// A sheet with no row below its header holds nothing to export.
+const NOTHING = "Nothing to export as a spreadsheet in this area.";
 export function exportCSV(b, regions, key = "objects", added = []) {
   const sheet = spreadsheetModel(b, regions, added).find((s) => s.key === key);
   if (!sheet)
     throw Error(
       key.startsWith("table:")
         ? "This table is outside the export scope."
-        : "Nothing to export as a spreadsheet in this area.",
+        : NOTHING,
     );
+  if (sheet.rows.length < 2 && !sheet.cells) throw Error(NOTHING);
   return new Blob([toCSV(sheet.rows)], { type: "text/csv;charset=utf-8" });
 }
 
 export function exportXLSX(b, regions, added = []) {
   const sheets = spreadsheetModel(b, regions, added);
+  if (sheets.every((s) => s.rows.length < 2 && !s.cells)) throw Error(NOTHING);
   return new Blob([buildXLSX(sheets, { title: b.title })], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });

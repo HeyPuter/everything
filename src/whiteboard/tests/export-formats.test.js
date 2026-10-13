@@ -442,6 +442,36 @@ test("CSV quoting follows RFC 4180 with a BOM and neutralizes formulas", () => {
   assert.match(text, /,Ada,2026-10-01,2026-10-15,In progress,Design,/);
 });
 
+test("spreadsheet exports list described pictures and refuse an area with nothing to list", async () => {
+  const b = board("Pictures");
+  const drawing = item("pen", 0, 0, {
+      w: 100,
+      h: 50,
+      points: [
+        [0, 0],
+        [100, 50],
+      ],
+    }),
+    photo = item("image", 200, 0, {
+      w: 100,
+      h: 80,
+      src: "data:image/png;base64,iVBORw0KGgo=",
+    });
+  b.items = [drawing, photo];
+  // Nothing to list: no empty file with only a header row.
+  assert.throws(() => exportCSV(b, exportRegions(b)), /Nothing to export/);
+  assert.throws(() => exportXLSX(b, exportRegions(b)), /Nothing to export/);
+  // Descriptions are text, as on PDF pages.
+  photo.alt = "Team photo, =1+1";
+  drawing.alt = "Red and blue arrows";
+  const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+    await blobBytes(exportCSV(b, exportRegions(b))),
+  );
+  assert.match(text, /\r\nDrawing,Red and blue arrows,/);
+  assert.match(text, /\r\nImage,"Team photo, =1\+1",/);
+  assert.ok(exportXLSX(b, exportRegions(b)).size > 0);
+});
+
 test("CSV exports a single table and rejects tables outside the scope", async () => {
   const b = fixture(),
     table = b.items.find((i) => i.type === "table");
