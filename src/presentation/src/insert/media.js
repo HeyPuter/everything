@@ -15,43 +15,14 @@ import {
   svgToPng,
 } from "./util.js";
 
-export const VIDEO_ACCEPT =
-  "video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov";
-export const AUDIO_ACCEPT =
-  "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/ogg,.mp3,.wav,.m4a,.ogg,.oga";
-const TYPES = {
-  mp4: ["video", "video/mp4"],
-  m4v: ["video", "video/mp4"],
-  webm: ["video", "video/webm"],
-  mov: ["video", "video/quicktime"],
-  mp3: ["audio", "audio/mpeg"],
-  wav: ["audio", "audio/wav"],
-  m4a: ["audio", "audio/mp4"],
-  ogg: ["audio", "audio/ogg"],
-  oga: ["audio", "audio/ogg"],
-};
-const MAX_BYTES = 150 * 1024 * 1024;
-export const START_LABELS = [
-  ["inClickSequence", "In Click Sequence"],
-  ["automatically", "Automatically"],
-  ["whenClicked", "When Clicked On"],
-];
-
-/** Kind and content type for a chosen file, by extension or MIME type. */
-export function mediaType(file) {
-  const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (TYPES[ext])
-    return {
-      kind: TYPES[ext][0],
-      contentType: TYPES[ext][1],
-      extension: ext === "m4v" ? "mp4" : ext === "oga" ? "ogg" : ext,
-    };
-  const type = (file.type || "").toLowerCase();
-  const found = Object.entries(TYPES).find(([, [, t]]) => t === type);
-  return found
-    ? { kind: found[1][0], contentType: found[1][1], extension: found[0] }
-    : null;
-}
+import {
+  AUDIO_ACCEPT,
+  VIDEO_ACCEPT,
+  START_LABELS,
+  MAX_BYTES,
+  mediaType,
+} from "./media-types.js";
+export { AUDIO_ACCEPT, VIDEO_ACCEPT, START_LABELS, mediaType };
 
 // A speaker for audio objects, drawn here.
 export const SPEAKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="14" fill="#EEF2F7" stroke="#94A3B8" stroke-width="2"/><path d="M14 26h8l12-10v32L22 38h-8z" fill="#2563EB"/><path d="M40 24c3.5 4.5 3.5 11.5 0 16M45 19c6 7.5 6 18.5 0 26" fill="none" stroke="#2563EB" stroke-width="3.5" stroke-linecap="round"/></svg>`;
@@ -62,7 +33,23 @@ function loadMedia(url, kind) {
     media.preload = "auto";
     media.muted = true;
     media.playsInline = true;
-    media.onloadeddata = () => resolve(media);
+    media.onloadeddata = async () => {
+      // Recordings often carry no duration until the end has been read.
+      if (!Number.isFinite(media.duration)) {
+        await new Promise((done) => {
+          const finish = () => {
+            media.removeEventListener("durationchange", check);
+            done();
+          };
+          const check = () => Number.isFinite(media.duration) && finish();
+          media.addEventListener("durationchange", check);
+          media.currentTime = 1e9;
+          setTimeout(finish, 3000);
+        });
+        media.currentTime = 0;
+      }
+      resolve(media);
+    };
     media.onerror = () =>
       reject(
         new Error(

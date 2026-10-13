@@ -33,7 +33,13 @@ export function createIconFeatures(ctx) {
     P.getShapeKind(obj) === "picture" &&
     P.getShapeObjectData(obj)?.type === "icon" &&
     !!P.getShapeSvgSource(obj);
+  // Icons and SVG pictures of no other kind (equations and zooms have tabs
+  // of their own).
   const isSvgPicture = (obj) =>
+    !!obj &&
+    !["equation", "zoom", "media"].includes(P.getShapeObjectData(obj)?.type) &&
+    isAnySvgPicture(obj);
+  const isAnySvgPicture = (obj) =>
     !!obj &&
     P.getShapeKind(obj) === "picture" &&
     !!P.getShapeSvgSource(obj) &&
@@ -212,13 +218,32 @@ export function createIconFeatures(ctx) {
       search,
       chips,
       grid,
-      el("div", { class: "icon-footer" }, count, insertButton),
+      el(
+        "div",
+        { class: "icon-footer" },
+        count,
+        el(
+          "span",
+          { class: "icon-footer-actions" },
+          el(
+            "button",
+            {
+              type: "button",
+              class: "btn secondary",
+              onclick: () =>
+                body.closest("dialog")?.dispatchEvent(new Event("cancel")),
+            },
+            "Cancel",
+          ),
+          insertButton,
+        ),
+      ),
     );
     const result = dialog({
       title: single ? "Change Graphic" : "Insert Icons",
       body,
       confirm: null,
-      cancel: "Cancel",
+      cancel: null,
     });
     insertButton.addEventListener("click", () => {
       resolved = true;

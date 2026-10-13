@@ -669,3 +669,10 @@
 .presenter-stage.ended .presenter-objects {
   visibility: hidden;
 }
+.icon-footer-actions {
+  display: flex;
+  gap: 8px;
+}
+.dialog:has(.icons-dialog) .dialog-actions:empty {
+  display: none;
+}

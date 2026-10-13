@@ -780,7 +780,7 @@ export function buildTabs(api) {
         items: [
           {
             type: "large",
-            id: "zoom",
+            id: "insert-zoom",
             label: "Zoom",
             icon: "zoomSlide",
             title: "Zoom",

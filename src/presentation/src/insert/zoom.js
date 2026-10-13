@@ -5,37 +5,14 @@
 // it), and its zoom settings in the app's object data.
 import { el, dialog } from "../ui.js";
 import { pickFiles, previewToPng } from "./util.js";
+import { zoomGrid } from "./geometry.js";
+export { zoomGrid };
 
 export const ZOOM_DEFAULTS = {
   slide: { returnToZoom: false, transition: true, duration: 1000 },
   section: { returnToZoom: true, transition: true, duration: 1000 },
   summary: { returnToZoom: true, transition: true, duration: 1000 },
 };
-
-/** A grid of slide boxes of the given aspect inside an area. */
-export function zoomGrid(count, area, aspect) {
-  const cols = Math.max(
-    1,
-    Math.ceil(Math.sqrt((count * (area.w / area.h)) / aspect)),
-  );
-  const rows = Math.ceil(count / cols);
-  const gap = area.w * 0.03;
-  const w = Math.min(
-    (area.w - gap * (cols - 1)) / cols,
-    ((area.h - gap * (rows - 1)) / rows) * aspect,
-  );
-  const h = w / aspect;
-  const totalW = cols * w + (cols - 1) * gap,
-    totalH = rows * h + (rows - 1) * gap;
-  return Array.from({ length: count }, (_, i) => ({
-    x: Math.round(area.x + (area.w - totalW) / 2 + (i % cols) * (w + gap)),
-    y: Math.round(
-      area.y + (area.h - totalH) / 2 + Math.floor(i / cols) * (h + gap),
-    ),
-    w: Math.round(w),
-    h: Math.round(h),
-  }));
-}
 
 export function createZoomFeatures(ctx) {
   const { P } = ctx;

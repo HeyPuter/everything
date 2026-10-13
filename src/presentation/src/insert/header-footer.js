@@ -46,9 +46,13 @@ export function createHeaderFooter(ctx) {
       "aria-label": "Fixed date",
       oninput: (e) => ((fixed = e.target.value), emit()),
     });
+    let enabled = true;
     const sync = () => {
-      select.disabled = mode !== "auto";
-      text.disabled = mode !== "fixed";
+      select.disabled = !enabled || mode !== "auto";
+      text.disabled = !enabled || mode !== "fixed";
+      node
+        ?.querySelectorAll("input[type=radio]")
+        .forEach((r) => (r.disabled = !enabled));
     };
     const emit = () => {
       sync();
@@ -68,8 +72,8 @@ export function createHeaderFooter(ctx) {
         }),
         el("span", {}, label),
       );
-    sync();
-    const node = el(
+    let node = null;
+    node = el(
       "div",
       { class: "hf-date", role: "radiogroup", "aria-label": "Date and time" },
       radio("auto", "Update automatically"),
@@ -77,8 +81,13 @@ export function createHeaderFooter(ctx) {
       radio("fixed", "Fixed"),
       text,
     );
+    sync();
     return {
       node,
+      setEnabled: (on) => {
+        enabled = on;
+        sync();
+      },
       value: () => (mode === "auto" ? { mode, format } : { mode, text: fixed }),
     };
   }
@@ -132,6 +141,8 @@ export function createHeaderFooter(ctx) {
     const refresh = () => slidePreview.replaceChildren(preview(s));
     const slideDate = dateControls(s.date, (v) => (s.date = v));
     const notesDate = dateControls(n.date, (v) => (n.date = v));
+    slideDate.setEnabled(s.dateOn);
+    notesDate.setEnabled(n.dateOn);
     const footerInput = el("input", {
       class: "input",
       value: s.footer,
@@ -165,11 +176,11 @@ export function createHeaderFooter(ctx) {
           "fieldset",
           { class: "hf-fields" },
           el("legend", {}, "Include on slide"),
-          checkbox(
-            "Date and time",
-            s.dateOn,
-            (on) => ((s.dateOn = on), refresh()),
-          ),
+          checkbox("Date and time", s.dateOn, (on) => {
+            s.dateOn = on;
+            slideDate.setEnabled(on);
+            refresh();
+          }),
           el("div", { class: "hf-indent" }, slideDate.node),
           checkbox(
             "Slide number",
@@ -209,7 +220,10 @@ export function createHeaderFooter(ctx) {
         "fieldset",
         { class: "hf-fields" },
         el("legend", {}, "Include on notes pages and handouts"),
-        checkbox("Date and time", n.dateOn, (on) => (n.dateOn = on)),
+        checkbox("Date and time", n.dateOn, (on) => {
+          n.dateOn = on;
+          notesDate.setEnabled(on);
+        }),
         el("div", { class: "hf-indent" }, notesDate.node),
         checkbox("Header", n.headerOn, (on) => (n.headerOn = on)),
         el("div", { class: "hf-indent" }, notesHeader),

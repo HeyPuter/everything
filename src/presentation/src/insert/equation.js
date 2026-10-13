@@ -223,11 +223,12 @@ export function createEquationFeatures(ctx) {
     );
     const update = () => {
       const value = input.value;
-      const { svg } = render(value || PLACEHOLDER, "currentColor", 40);
-      preview.innerHTML = svg;
-      preview.setAttribute(
-        "aria-label",
-        value ? `Preview of ${value}` : "Empty equation",
+      const { svg } = render(value || PLACEHOLDER, "#111111", 40);
+      preview.replaceChildren(
+        el("img", {
+          src: svgDataUrl(svg),
+          alt: value ? `Preview of ${value}` : "Empty equation",
+        }),
       );
     };
     // Inserting a template selects its first slot, so typing fills it.
