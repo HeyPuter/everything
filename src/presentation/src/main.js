@@ -86,6 +86,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFileTools } from "./export/file-tools.js";
+import { createInsertFeatures } from "./insert/index.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
@@ -3313,7 +3314,10 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()]];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => insertFeatures.tabs(),
+];
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3325,6 +3329,39 @@ const drawTools = createDrawTools({
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
   },
+});
+// Icons, media, screenshots, photo albums, equations, header and footer,
+// zooms, action settings and embedded objects (src/insert).
+const insertFeatures = createInsertFeatures({
+  doc: () => doc,
+  slide: () => slide(),
+  currentShape: () => currentShape(),
+  selectedShapes: () => selectedShapes(),
+  selectedIds: () => selectionIds(),
+  selectIds: (ids) => selectIds(ids),
+  selectedSlideParts: () => selectedSlideParts(),
+  commitText: () => commitText(),
+  fail: (e) => fail(e),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  mutateShape: (obj, fn) => mutateShape(obj, fn),
+  currentSize: () => currentSize(),
+  ribbon: () => ribbon,
+  theme: () => THEMES[theme],
+  readImage: (file) => readImage(file),
+  insertImageFile: (file) => insertImageFile(file),
+  altText: () => altText().catch(fail),
+  goToSlide: (i) => {
+    index = Math.max(0, Math.min(i, P.getSlides(doc.pres).length - 1));
+    clearSelection();
+    renderSlideArea();
+    renderInspector();
+  },
+  previewSrc: (s) => slidePreview(s),
+  language: () => deckLanguage(),
+  normalizeUrl: (value) => normalizeUrl(value),
+  startDrawing: (preset) => startDrawing(preset),
+  refreshCanvas: () => renderSelection(),
 });
 function editorRibbon() {
   ribbon = createRibbon({
@@ -5316,6 +5353,7 @@ async function placeDrawn(tool, at) {
     }
     setSlideBounds(doc.pres, obj, next);
     if (isText) setText(obj, "");
+    insertFeatures.afterDraw(obj, tool, at);
   });
   if (!applied) return;
   ribbon?.select("shape-format");
@@ -6012,6 +6050,8 @@ function ribbonApi() {
     tableInsert,
     tableDeleteMenu,
     distributeTable,
+    ...insertFeatures.api(),
+    shapesMenu: () => [...shapesMenu(), ...insertFeatures.shapesGallery()],
   };
 }
 // Table styles: the ones the engine can write (the predefined table styles by
@@ -6803,6 +6843,8 @@ function insertItems() {
     },
     { separator: true },
     { label: "New slide", icon: "Plus", items: layoutItems(slide()) },
+    { separator: true },
+    ...insertFeatures.menuItems(),
   ];
 }
 const insertMenu = menuFor("Insert", insertItems);
@@ -7873,6 +7915,7 @@ function renderSelection() {
       canvas.append(selectionBox(s, b, size));
   });
   if (ids.size > 1) canvas.append(multiBox(size));
+  insertFeatures.decorateCanvas(canvas);
 }
 // Ids of objects that have gone stay out of the selection.
 function pruneSelection() {
@@ -9266,6 +9309,7 @@ function editText(target, event = null) {
   const i = shapeIndex(target);
   if (i < 0) return;
   const obj = shapes()[i];
+  if (insertFeatures.open(obj)) return;
   if (P.isDiagramShape(obj)) {
     editDiagramText(obj);
     return;
@@ -13231,6 +13275,7 @@ function objectContextMenu(e, s) {
             { separator: true },
           ]
         : []),
+      ...insertFeatures.contextItems(obj),
       ...clipboardItems(),
       {
         label: "Duplicate",
@@ -13608,6 +13653,15 @@ async function present(options = {}) {
     }
   }
   const size = P.getSlideSize(pres) || { width: 12192000, height: 6858000 };
+  // Media, zooms and action settings (src/insert/show.js).
+  const showInserted = insertFeatures.slideShow({
+    pres,
+    all,
+    frame,
+    size,
+    show: (i) => show(i),
+    close: () => close(),
+  });
   function fitFrame() {
     const area = frame.parentElement;
     if (!area) return;
@@ -13629,6 +13683,7 @@ async function present(options = {}) {
     links.replaceChildren();
     const parents = groupParents(current);
     for (const shape of visibleSlideShapes(current)) {
+      if (showInserted.claims(shape)) continue;
       const link = linkOf(shape);
       // An address the app would not accept in its own link dialog gets no
       // region: the file may have been written elsewhere.
@@ -13793,6 +13848,9 @@ async function present(options = {}) {
     image.classList.remove("entering", "fade", "push", "zoom", "backward");
   }
   function show(i, { backward = false } = {}) {
+    const redirected = ended ? i : showInserted.navigate(i, n, { backward });
+    if (redirected === null) return;
+    i = redirected;
     laser.hide();
     clearTyped();
     const wrapped = showTiming.loop && (i < 0 || i >= all.length);
@@ -13886,9 +13944,11 @@ async function present(options = {}) {
     shown = true;
     // The navigator already rendered nearby slides from this same state;
     // distant ones render once here and are kept for the navigator.
-    image.src = cachedPreview(previews, pres, all[n]);
+    image.src =
+      showInserted.imageFor(all[n]) ?? cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
     placeLinks(all[n]);
+    showInserted.slideShown(all[n], n);
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
       : `${n + 1} / ${all.length}`;
@@ -13922,6 +13982,7 @@ async function present(options = {}) {
     syncPause();
   }
   function close() {
+    showInserted.dispose();
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
@@ -14178,6 +14239,7 @@ async function present(options = {}) {
     },
     { passive: true },
   );
+  await showInserted.prepare();
   const releaseFonts = retainDocumentFonts(pres);
   document.body.append(d);
   try {

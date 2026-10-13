@@ -646,6 +646,13 @@ export {
   type ExtendedStatistics,
   type PresentationKind,
 } from "./fn/document-statistics.ts";
+// Inserted objects: media, vector pictures, actions, embeddings, footers.
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
