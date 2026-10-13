@@ -22,6 +22,7 @@ import { hasArtboards } from './artboard';
 import { dropLiveFilters } from './pixel-layer';
 import type { TileGrid } from './tiles';
 import { frameAtSeconds, type VideoLayerData } from './video-layer';
+import { syncAudio, validateAudio, type AudioTrack } from './audio-timeline';
 
 export type Key<T> = { t: number; v: T; hold?: true };
 export type KeyProperty = 'position' | 'opacity' | 'style';
@@ -64,6 +65,8 @@ export type VideoTimeline = {
   onion?: OnionSkin;
   // Show the original footage of altered frames.
   hideAltered?: boolean;
+  // Audio tracks under the video tracks (model/audio-timeline.ts).
+  audio?: AudioTrack[];
   // Set by `applyTime` for the history hook (never saved): the edit placed
   // time-dependent state and must not be recorded as a user edit.
   placed?: boolean;
@@ -274,6 +277,7 @@ export function syncTimeline(after: PhotoDocument, before?: PhotoDocument) {
   const live = allLayers(after.layers);
   const ids = new Set(live.map((l) => l.id));
   for (const id of Object.keys(tl.clips)) if (!ids.has(id)) delete tl.clips[id];
+  syncAudio(after, before);
   const prev = before?.timeline;
   if (!before || !prev) return;
   const old = new Map(allLayers(before.layers).map((l) => [l.id, l]));
@@ -366,5 +370,6 @@ export function validateTimeline(value: unknown) {
     if (!validateKeys(c.keys) || !validTransition(c.fadeIn, 'in') || !validTransition(c.fadeOut, 'out')) throw bad();
     if (c.offset !== undefined && !(Array.isArray(c.offset) && c.offset.length === 2 && c.offset.every(finite))) throw bad();
   }
+  validateAudio(tl.audio);
   delete tl.placed;
 }

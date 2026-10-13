@@ -1,6 +1,7 @@
 // Exporting the frame animation: animated GIF, PNG (APNG) and WebP files, and
 // WebM video rendered with WebCodecs (or recorded from a canvas stream where
-// WebCodecs video encoding is unavailable).
+// WebCodecs video encoding is unavailable), with the video timeline's sound
+// mixed in (audio-export.ts) or written alone as a WAV file.
 import type { Editor } from '../../editor';
 import type { RGBA8 } from '../../imaging/types';
 import { download } from '../../persistence/puter';
@@ -9,7 +10,8 @@ import { frameDocument, gifLoop, loopLabel, sampleFrames, totalDuration, type Fr
 import { fpsLabel, timecode, timeDocument, workArea } from '../../model/video-timeline-ops';
 import { encodeApng } from '../../imaging/codecs/apng';
 import { muxAnimatedWebp } from '../../imaging/codecs/webp-anim';
-import { muxWebm, type WebmFrame } from '../../imaging/codecs/webm';
+import { muxWebm, type WebmAudio, type WebmFrame } from '../../imaging/codecs/webm';
+import { audioPlan } from '../../model/audio-timeline';
 import { outputSize, prepareExport, type ExportSettings } from '../files/encode';
 import { bytesBlob, documentSource, effectiveSettings, encodeGifOffThread, encodeOffThread, exportContext, formatBytes, loadSettings } from '../files/pipeline';
 import { zipStore, type ZipEntry } from '../files/zip';
@@ -21,8 +23,8 @@ import { timelineOf } from './video-state';
 
 export type AnimationFormat = 'gif' | 'png' | 'webp';
 const prefsKey = 'photo-studio-animation-export';
-type Prefs = { format: AnimationFormat; scale: number; colors: number; dither: boolean; palette: 'global' | 'local'; quality: number; transparency: boolean; fps: number; videoQuality: string; codec: string; background: string; output: 'webm' | 'png' };
-const defaults: Prefs = { format: 'gif', scale: 100, colors: 256, dither: true, palette: 'global', quality: 90, transparency: true, fps: 30, videoQuality: 'high', codec: 'vp9', background: '#ffffff', output: 'webm' };
+type Prefs = { format: AnimationFormat; scale: number; colors: number; dither: boolean; palette: 'global' | 'local'; quality: number; transparency: boolean; fps: number; videoQuality: string; codec: string; background: string; output: 'webm' | 'png' | 'wav'; audio: boolean };
+const defaults: Prefs = { format: 'gif', scale: 100, colors: 256, dither: true, palette: 'global', quality: 90, transparency: true, fps: 30, videoQuality: 'high', codec: 'vp9', background: '#ffffff', output: 'webm', audio: true };
 function loadPrefs(): Prefs {
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(prefsKey) ?? '{}') };
@@ -217,17 +219,20 @@ export async function renderVideo(e: Editor) {
   rates.sort((a, b) => a - b);
   const fps0 = tl ? tl.fps : prefs.fps;
   const [ws, we] = tl ? workArea(tl) : [0, 0];
+  // Sound: the timeline's audio clips that play (after mute and solo).
+  const sound = !!tl && audioPlan(doc).length > 0;
+  const output0 = prefs.output === 'wav' && !sound ? 'webm' : prefs.output;
   const result = await modal({
     title: 'Render Video',
     submit: 'Render',
     className: 'animation-export-dialog',
     body: `<p>${tl ? 'Renders the video timeline (every layer at each time, with keyframes and transitions)' : 'Renders the Timeline frames'} to a WebM video or a ZIP of numbered PNG images at a fixed frame rate.</p>
-      <label class="dialog-field">Format<select name="output"><option value="webm" ${prefs.output !== 'png' ? 'selected' : ''}>WebM video</option><option value="png" ${prefs.output === 'png' ? 'selected' : ''}>PNG image sequence (ZIP)</option></select></label>
+      <label class="dialog-field">Format<select name="output"><option value="webm" ${output0 === 'webm' ? 'selected' : ''}>WebM video</option><option value="png" ${output0 === 'png' ? 'selected' : ''}>PNG image sequence (ZIP)</option>${sound ? `<option value="wav" ${output0 === 'wav' ? 'selected' : ''}>WAV audio only</option>` : ''}</select></label>
       ${tl ? `<label class="dialog-field">Range<select name="range"><option value="work" ${tl.work ? 'selected' : ''}>Work area (${timecode(ws, tl.fps)} to ${timecode(we, tl.fps)})</option><option value="all" ${tl.work ? '' : 'selected'}>Whole timeline (${timecode(tl.duration, tl.fps)})</option></select></label>` : ''}
-      <label class="dialog-field">Size (%)<input name="scale" type="number" min="1" max="400" step="1" value="${prefs.scale}"></label>
+      <div data-for="webm png"><label class="dialog-field">Size (%)<input name="scale" type="number" min="1" max="400" step="1" value="${prefs.scale}"></label>
       <label class="dialog-field">Frame rate<select name="fps">${rates.map((n) => `<option value="${n}" ${n === fps0 ? 'selected' : ''}>${fpsLabel(n)}${tl && n === tl.fps ? ' (timeline)' : ''}</option>`).join('')}</select></label>
-      ${anim ? `<label class="dialog-field">Play the animation (times)<input name="plays" type="number" min="1" max="1000" step="1" value="${plays0}"></label>` : ''}
-      <div data-for="webm"><label class="dialog-field">Quality<select name="quality">${['low', 'medium', 'high', 'maximum'].map((q) => `<option value="${q}" ${q === prefs.videoQuality ? 'selected' : ''}>${q[0].toUpperCase()}${q.slice(1)}</option>`).join('')}</select></label>
+      ${anim ? `<label class="dialog-field">Play the animation (times)<input name="plays" type="number" min="1" max="1000" step="1" value="${plays0}"></label>` : ''}</div>
+      <div data-for="webm">${sound ? `<label class="dialog-field checkbox-field">Include audio (mixed, Opus)<input name="audio" type="checkbox" ${prefs.audio ? 'checked' : ''}></label>` : ''}<label class="dialog-field">Quality<select name="quality">${['low', 'medium', 'high', 'maximum'].map((q) => `<option value="${q}" ${q === prefs.videoQuality ? 'selected' : ''}>${q[0].toUpperCase()}${q.slice(1)}</option>`).join('')}</select></label>
       <label class="dialog-field">Codec<select name="codec">${videoCodecs.map((c) => `<option value="${c.id}" ${c.id === prefs.codec ? 'selected' : ''}>${c.label}</option>`).join('')}</select></label>
       <label class="dialog-field">Background<input name="background" type="color" value="${prefs.background}"></label>
       <p>Video has no transparency; transparent areas show the background color.</p></div>
@@ -237,7 +242,7 @@ export async function renderVideo(e: Editor) {
       const form = dialog.querySelector('form')!;
       const sync = () => {
         const output = fieldValue(form, 'output');
-        dialog.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => (el.hidden = el.dataset.for !== output));
+        dialog.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => (el.hidden = !el.dataset.for!.split(' ').includes(output)));
         const scale = Math.max(1, Math.min(400, Number(fieldValue(form, 'scale')) || 100));
         const [w, h] = outputSize(doc.width, doc.height, { sizeMode: 'percent', scale, width: 0, height: 0 });
         const fps = Number(fieldValue(form, 'fps')) || 30;
@@ -247,7 +252,8 @@ export async function renderVideo(e: Editor) {
           seconds = timelineSamples(a, b, tl.fps, fps).length / fps;
         } else seconds = (totalDuration(anim!) * Math.max(1, Number(fieldValue(form, 'plays')) || 1)) / 1000;
         const even = output === 'webm';
-        dialog.querySelector('.animation-export-size')!.textContent = `${even ? w + (w & 1) : w} × ${even ? h + (h & 1) : h} px · ${Math.max(1, Math.round(seconds * fps))} frames · ${seconds.toFixed(2)} s`;
+        dialog.querySelector('.animation-export-size')!.textContent =
+          output === 'wav' ? `Stereo, 48 kHz, 16-bit · ${seconds.toFixed(2)} s` : `${even ? w + (w & 1) : w} × ${even ? h + (h & 1) : h} px · ${Math.max(1, Math.round(seconds * fps))} frames · ${seconds.toFixed(2)} s${even && sound && fieldChecked(form, 'audio') ? ' · with sound' : ''}`;
       };
       form.addEventListener('input', sync);
       sync();
@@ -257,7 +263,8 @@ export async function renderVideo(e: Editor) {
   const f = result.form;
   const next: Prefs = {
     ...prefs,
-    output: fieldValue(f, 'output') === 'png' ? 'png' : 'webm',
+    output: fieldValue(f, 'output') === 'png' ? 'png' : fieldValue(f, 'output') === 'wav' && sound ? 'wav' : 'webm',
+    audio: sound ? fieldChecked(f, 'audio') : prefs.audio,
     scale: Math.max(1, Math.min(400, Math.round(Number(fieldValue(f, 'scale')) || 100))),
     fps: Number(fieldValue(f, 'fps')) || 30,
     videoQuality: fieldValue(f, 'quality'),
@@ -271,6 +278,15 @@ export async function renderVideo(e: Editor) {
   savePrefs(next);
   const seq = tl ? await timeSequence(e, doc, range, next.fps) : frameSequence(doc, anim!, next.fps, plays);
   if (next.output === 'png') return renderSequence(e, doc, seq, next);
+  // The sound of the rendered range (as long as the frames last).
+  const audioMod = sound && (next.output === 'wav' || next.audio) ? await import('./audio-export') : undefined;
+  const mix = audioMod && tl ? await audioMod.mixDocument(e, doc, range[0] / tl.fps, next.output === 'wav' ? (range[1] - range[0]) / tl.fps : seq.seconds) : undefined;
+  if (next.output === 'wav') {
+    const wav = audioMod!.wavBlob(mix!);
+    download(wav, `${doc.name}.wav`);
+    e.message(`Audio rendered: ${(mix![0].length / audioMod!.outputRate).toFixed(2)} s, ${formatBytes(wav.size)}`);
+    return;
+  }
   const settings: ExportSettings = { ...loadSettings(), format: 'png', depth: 8, sizeMode: 'percent', scale: next.scale, canvasWidth: 0, canvasHeight: 0, transparency: false, matte: next.background };
   // 4:2:0 video needs even dimensions; frames are padded by repeating the last row/column.
   const render = renderer(e, doc, seq, settings, 'video frame');
@@ -280,11 +296,15 @@ export async function renderVideo(e: Editor) {
   const bitrate = Math.round(width * height * next.fps * (qualityBits[next.videoQuality] ?? 0.2));
   const frame = async (k: number) => (k === 0 ? first : evenSize(await render(k)));
   let blob: Blob;
-  if (await webCodecsSupport(codec, width, height, bitrate, next.fps)) blob = await encodeWithWebCodecs(e, seq.count, frame, width, height, codec, bitrate, next.fps);
-  else if (typeof MediaRecorder !== 'undefined') blob = await recordWithMediaRecorder(e, seq.count, frame, width, height, codec, bitrate, next.fps);
+  // Sound needs an audio encoder too; without one the recording fallback carries it.
+  const opus = mix ? await audioMod!.canEncodeOpus() : true;
+  if (opus && (await webCodecsSupport(codec, width, height, bitrate, next.fps))) {
+    const audio = mix ? await audioMod!.encodeOpus(e, mix) : undefined;
+    blob = await encodeWithWebCodecs(e, seq.count, frame, width, height, codec, bitrate, next.fps, audio);
+  } else if (typeof MediaRecorder !== 'undefined') blob = await recordWithMediaRecorder(e, seq.count, frame, width, height, codec, bitrate, next.fps, mix);
   else throw new Error('This browser cannot encode video.');
   download(blob, `${doc.name}.webm`);
-  e.message(`Video rendered: ${seq.count} frames at ${fpsLabel(next.fps)}, ${formatBytes(blob.size)}`);
+  e.message(`Video rendered: ${seq.count} frames at ${fpsLabel(next.fps)}${mix ? ' with sound' : ''}, ${formatBytes(blob.size)}`);
 }
 
 /** A frame renderer for a sequence: renders frame k at the export settings,
@@ -345,7 +365,7 @@ function evenSize(img: RGBA8): RGBA8 {
 }
 
 /** Encode frames as they render (only one frame is held at a time). */
-async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number): Promise<Blob> {
+async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, audio?: WebmAudio): Promise<Blob> {
   const chunks: WebmFrame[] = [];
   let failure: unknown;
   const encoder = new VideoEncoder({
@@ -372,33 +392,43 @@ async function encodeWithWebCodecs(e: Editor, count: number, frameAt: (k: number
   encoder.close();
   if (failure) throw failure instanceof Error ? failure : new Error(String(failure));
   chunks.sort((a, b) => a.timestampMs - b.timestampMs);
-  const bytes = muxWebm(chunks, { width, height, codec: codec.matroska, frameRate: fps, durationMs: (count * 1000) / fps });
+  const bytes = muxWebm(chunks, { width, height, codec: codec.matroska, frameRate: fps, durationMs: (count * 1000) / fps, ...(audio?.frames.length ? { audio } : {}) });
   return bytesBlob(bytes, 'video/webm');
 }
 
 /** Real-time fallback: draw each frame into a canvas stream while recording. */
-async function recordWithMediaRecorder(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number): Promise<Blob> {
+async function recordWithMediaRecorder(e: Editor, count: number, frameAt: (k: number) => Promise<RGBA8>, width: number, height: number, codec: VideoCodec, bitrate: number, fps: number, mix?: Float32Array[]): Promise<Blob> {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const g = canvas.getContext('2d')!;
   const stream = canvas.captureStream(0);
   const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
-  const mimeType = MediaRecorder.isTypeSupported(codec.recorder) ? codec.recorder : 'video/webm';
+  // The mix plays into the stream one frame's time at a time.
+  const sound = mix ? new (await import('./audio-export')).RecorderSound(mix) : undefined;
+  if (sound) stream.addTrack(sound.track);
+  const wanted = sound ? `${codec.recorder},opus` : codec.recorder;
+  const mimeType = MediaRecorder.isTypeSupported(wanted) ? wanted : MediaRecorder.isTypeSupported(codec.recorder) ? codec.recorder : 'video/webm';
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
   const parts: Blob[] = [];
   recorder.ondataavailable = (ev) => ev.data.size && parts.push(ev.data);
   const done = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
+  await sound?.start();
   recorder.start();
-  for (let k = 0; k < count; k++) {
-    if (k % 10 === 0) e.message(`Recording video frame ${k + 1} of ${count}…`);
-    const img = await frameAt(k);
-    g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
-    track.requestFrame?.();
-    await new Promise((r) => setTimeout(r, 1000 / fps));
+  try {
+    for (let k = 0; k < count; k++) {
+      if (k % 10 === 0) e.message(`Recording video frame ${k + 1} of ${count}…`);
+      const img = await frameAt(k);
+      g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
+      track.requestFrame?.();
+      if (sound) await sound.play(1 / fps);
+      else await new Promise((r) => setTimeout(r, 1000 / fps));
+    }
+  } finally {
+    recorder.stop();
+    await done;
+    stream.getTracks().forEach((t) => t.stop());
+    sound?.close();
   }
-  recorder.stop();
-  await done;
-  stream.getTracks().forEach((t) => t.stop());
   return new Blob(parts, { type: 'video/webm' });
 }

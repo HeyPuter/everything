@@ -11,6 +11,7 @@ import { clipStates, keyProperties, presentTimeline, syncTimeline, videoFrameAt,
 import { registerPresentation } from '../../renderer/renderer';
 import { hasAnimation } from './state';
 import { hasTimeline, isVideoLayer, timelineOf, videoLayerOf, videoView, type VideoLayer } from './video-state';
+import { audioCommands, audioMenu, audioSelected, installAudio } from './audio';
 
 export const videoCommands = lazy(() => import('./video-commands'));
 // The frame cache budget comes from Preferences → Performance.
@@ -26,6 +27,7 @@ export const videoPlaybackModule = lazy(() => import('./video-playback'));
 const docOpen = (e: Editor) => e.hasDocument;
 const single = (e: Editor) => hasTimeline(e) && e.selectedIds.size === 1 && !!e.layer;
 const someSelected = (e: Editor) => hasTimeline(e) && e.selectedIds.size > 0;
+const clipTargets = (e: Editor) => someSelected(e) || audioSelected(e);
 /** Layer frame of the selected video layer at the current time. */
 function currentFrame(e: Editor, l: VideoLayer) {
   const tl = timelineOf(e)!;
@@ -54,7 +56,8 @@ export function videoTimelineMenu() {
     'timeline.animate-position', 'timeline.animate-opacity', 'timeline.animate-style', 'timeline.previous-key', 'timeline.next-key',
     'timeline.key-linear', 'timeline.key-hold', 'timeline.delete-keys', '-',
     'timeline.work-start', 'timeline.work-end', 'timeline.work-clear', '-',
-    'layer.video-new-file', 'layer.video-new-blank', '-',
+    ...audioMenu(), '-',
+    'layer.video-new-file', 'layer.video-new-blank', 'layer.video-mute', '-',
     'animation.onion', 'animation.onion-settings', '-',
     'timeline.settings', 'timeline.convert-to-frames', 'timeline.delete', '-',
     'file.render-video',
@@ -71,6 +74,12 @@ export function installVideo(e: Editor) {
     videoFrames.loaded?.setCacheLimit(cacheMb);
   });
   const cmd = videoCommands;
+  installAudio();
+  // Clip commands act on the selected audio clips while any is selected.
+  const clipRun = (video: (m: typeof import('./video-commands'), e: Editor) => unknown, audio: (m: typeof import('./audio-commands'), e: Editor) => unknown): Pick<Command, 'run' | 'prefetch'> => ({
+    run: async (e) => void (audioSelected(e) ? await audio(await audioCommands(), e) : await video(await cmd(), e)),
+    prefetch: cmd.prefetch,
+  });
   const stopwatch = (prop: KeyProperty): Command => ({
     id: `timeline.animate-${prop}`,
     label: `Animate ${propLabels[prop]}`,
@@ -100,9 +109,9 @@ export function installVideo(e: Editor) {
       },
     },
     // Clips
-    { id: 'timeline.split', label: 'Split at Playhead', enabled: someSelected, description: 'Cut the selected clips in two at the current time', ...lazyRun(cmd, (m, e) => m.splitAtPlayhead(e)) },
-    { id: 'timeline.trim-start', label: 'Trim Start to Playhead', enabled: someSelected, ...lazyRun(cmd, (m, e) => m.trimToPlayhead(e, 'start')) },
-    { id: 'timeline.trim-end', label: 'Trim End to Playhead', enabled: someSelected, ...lazyRun(cmd, (m, e) => m.trimToPlayhead(e, 'end')) },
+    { id: 'timeline.split', label: 'Split at Playhead', enabled: clipTargets, description: 'Cut the selected clips in two at the current time', ...clipRun((m, e) => m.splitAtPlayhead(e), (m, e) => m.splitAudio(e)) },
+    { id: 'timeline.trim-start', label: 'Trim Start to Playhead', enabled: clipTargets, ...clipRun((m, e) => m.trimToPlayhead(e, 'start'), (m, e) => m.trimAudio(e, 'start')) },
+    { id: 'timeline.trim-end', label: 'Trim End to Playhead', enabled: clipTargets, ...clipRun((m, e) => m.trimToPlayhead(e, 'end'), (m, e) => m.trimAudio(e, 'end')) },
     { id: 'timeline.transitions', label: 'Transitions…', enabled: single, description: 'Fades, fades with color and cross fades at the clip ends', ...lazyRun(cmd, (m, e) => m.transitionsDialog(e)) },
     { id: 'timeline.work-start', label: 'Set Start of Work Area', enabled: hasTimeline, ...lazyRun(cmd, (m, e) => m.setWorkArea(e, 'start')) },
     { id: 'timeline.work-end', label: 'Set End of Work Area', enabled: hasTimeline, ...lazyRun(cmd, (m, e) => m.setWorkArea(e, 'end')) },

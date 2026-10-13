@@ -16,6 +16,7 @@ import { validateAnnotations } from './annotations';
 import { validateAnimation } from './animation';
 import { validateTimeline } from './video-timeline';
 import { validateVideoLayer } from './video-layer';
+import { allAudioClips } from './audio-timeline';
 import { validateArtboard } from './artboard';
 import { validateFrame } from './frame';
 import { validateLayerComps } from './layer-comps';
@@ -76,6 +77,7 @@ export async function serialize(
           isVectorPattern(l.vector?.fill) ? l.vector!.fill.asset : undefined,
         ]),
         ...Object.values(doc.embeds ?? {}).flatMap(embedAssetIds),
+        ...audioAssetIds(doc),
       ].filter((id): id is string => !!id),
     ),
     ...packs.keys(),
@@ -100,6 +102,8 @@ export async function serialize(
     type: "application/x-photo-editor",
   });
 }
+/** Audio files of the timeline's clips (footage sound is the footage asset). */
+const audioAssetIds = (doc: PhotoDocument) => (doc.timeline ? allAudioClips(doc.timeline).flatMap((c) => (c.source ? [c.source.asset] : [])) : []);
 // Live Filters: a pixel layer with an unfiltered source and a list of filter
 // settings. Operation IDs are checked when rendering, so unknown filters from
 // newer versions load and are reported instead of failing the whole project.
@@ -380,8 +384,10 @@ export async function deserialize(
     // Up to two image/mask assets per supported layer, plus three document
     // assets and three per embedded object.
     // Altered video frames are one tile pack each.
+    // Audio clips add at most one file each.
     const altered = allLayers(document.layers).reduce((n, l) => n + Object.keys(l.video?.altered ?? {}).length, 0);
-    if (!Array.isArray(data.assets) || data.assets.length > maxLayers * 3 + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered)
+    const audio = document.timeline ? allAudioClips(document.timeline).length : 0;
+    if (!Array.isArray(data.assets) || data.assets.length > maxLayers * 3 + 64 + Object.keys(document.embeds ?? {}).length * 3 + altered + audio)
       throw new Error("Invalid asset table.");
     const assetIds = new Set<string>();
     for (const a of data.assets) {
@@ -481,6 +487,7 @@ export async function deserialize(
           throw new Error('Pixel mask dimensions do not match its coverage asset.');
       }
     }
+    for (const id of audioAssetIds(document)) if (assets.blob(id).type !== sourceMimeType) throw new Error('Invalid audio asset.');
     for (const c of Object.values(document.embeds ?? {})) {
       const { width, height } = assets.dimensions(c.composite);
       if (width !== c.width || height !== c.height) throw new Error('Embedded object size does not match its content.');
