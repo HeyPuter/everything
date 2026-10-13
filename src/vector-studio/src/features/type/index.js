@@ -45,8 +45,9 @@ export function install(app) {
     applyCharStyle(app, run, { label, coalesce });
     return true;
   };
+  const prevCommon = paintHooks.commonStyle;
   paintHooks.commonStyle = (editor, key) => {
-    if (!PAINT.includes(key)) return undefined;
+    if (!PAINT.includes(key)) return prevCommon?.(editor, key);
     if (editor === app.editor && session(app)) {
       const st = currentCharStyle(app);
       if (!st) return undefined;
@@ -54,7 +55,7 @@ export function install(app) {
     }
     // Selected type objects report the paint their characters actually use.
     const targets = paintTargets(editor);
-    if (!targets.some((n) => n.type === 'text' && n.runs)) return undefined;
+    if (!targets.some((n) => n.type === 'text' && n.runs)) return prevCommon?.(editor, key);
     const values = targets.map((n) => (n.type === 'text' ? rangeStyle(n, 0, Math.max(1, n.text.length))[key] : n[key]) ?? null);
     const first = JSON.stringify(values[0]);
     return values.some((v) => v === MIXED || JSON.stringify(v) !== first) ? 'mixed' : values[0];

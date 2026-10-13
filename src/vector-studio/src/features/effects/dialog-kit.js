@@ -8,7 +8,8 @@ import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { formatLength, parseLength, parseNumber } from '../../lib/units.js';
 import { EFFECTS, normalizeEffect, createEffect } from '../paint/effects-model.js';
-import { effectTargets, rememberEffect } from '../paint/effects-ui.js';
+import { effectTargets, rememberEffect, effectsOf, effectsPatch } from '../paint/effects-ui.js';
+import { effectItemIndex } from '../paint/appearance-ops.js';
 import { selectionBounds } from '../../model/geometry.js';
 
 let uid = 0;
@@ -25,7 +26,8 @@ function previewPref(app, v) {
  * Open an effect dialog.
  *   type     effect record type
  *   params   values to start from (merged over the last used ones)
- *   edit     { id, index }: edit that object's existing effect
+ *   edit     { id, index, item? }: edit that object's existing effect (of
+ *            its appearance item `item`)
  *   build(ctx) -> { body, read() -> params, validate?() -> bool, focus? }
  *            ctx: { start, unit, bounds, doc, app, changed() }
  * Resolves true when the effect was applied.
@@ -40,12 +42,14 @@ export async function openEffectDialog(app, type, { params = null, edit = null, 
     app.notify('Select an object to apply the effect to.');
     return false;
   }
-  const existing = edit ? targets[0].effects?.[edit.index] : null;
+  // Effects go to the object, or to the fill or stroke picked in the Appearance panel (edit.item).
+  const slot = edit ? edit.item ?? null : effectItemIndex(ed);
+  const existing = edit ? effectsOf(targets[0], slot)[edit.index] : null;
   const base = existing || app.lastEffects?.[type] || def.defaults;
   let start = normalizeEffect({ ...base, ...(params || {}), type });
   // A new Roughen or Scribble gets its own randomness unless repeating a known one.
   if (!existing && !params?.seed && def.init) start = createEffect(type, { ...start, seed: 0 });
-  const originals = new Map(targets.map((n) => [n.id, n.effects || []]));
+  const originals = new Map(targets.map((n) => [n.id, effectsOf(n, slot)]));
   const tx = doc.begin(def.label);
   const apply = (fx) => {
     for (const [id, orig] of originals) {
@@ -54,7 +58,7 @@ export async function openEffectDialog(app, type, { params = null, edit = null, 
         list = orig.slice();
         list[edit.index] = fx ? { ...fx, ...(orig[edit.index]?.hidden ? { hidden: true } : {}) } : orig[edit.index];
       } else list = fx ? [...orig, fx] : orig;
-      doc.update(id, { effects: list });
+      doc.update(id, effectsPatch(doc.get(id), slot, list));
     }
   };
   let preview = previewPref(app);
@@ -124,8 +128,9 @@ export function addEffectNow(app, type, params = {}) {
     return false;
   }
   const fx = createEffect(type, params);
+  const slot = effectItemIndex(ed);
   ed.doc.transact(EFFECTS[type].describe?.(fx) || EFFECTS[type].label, () => {
-    for (const n of targets) ed.doc.update(n.id, { effects: [...(n.effects || []), { ...fx }] });
+    for (const n of targets) ed.doc.update(n.id, effectsPatch(n, slot, [...effectsOf(n, slot), { ...fx }]));
   });
   rememberEffect(app, fx);
   return true;

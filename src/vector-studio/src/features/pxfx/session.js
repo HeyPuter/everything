@@ -6,7 +6,8 @@
  * previews.
  */
 import { EFFECTS } from '../paint/effects-model.js';
-import { effectTargets, rememberEffect } from '../paint/effects-ui.js';
+import { effectTargets, rememberEffect, effectsOf, effectsPatch } from '../paint/effects-ui.js';
+import { effectItemIndex } from '../paint/appearance-ops.js';
 import { overlayDoc } from './preview.js';
 
 const PREVIEW_PREF = 'effectPreview';
@@ -21,8 +22,10 @@ export function effectSession(app, type, { edit = null } = {}) {
     app.notify('Select an object to apply the effect to.');
     return null;
   }
-  const existing = edit ? targets[0].effects?.[edit.index] || null : null;
-  const originals = new Map(targets.map((n) => [n.id, n.effects || []]));
+  // The object's effects, or those of the fill or stroke picked in the Appearance panel (edit.item).
+  const slot = edit ? edit.item ?? null : effectItemIndex(ed);
+  const existing = edit ? effectsOf(targets[0], slot)[edit.index] || null : null;
+  const originals = new Map(targets.map((n) => [n.id, effectsOf(n, slot)]));
   const ids = doc.sortByPaintOrder ? doc.sortByPaintOrder(targets.map((n) => n.id)) : targets.map((n) => n.id);
   const list = (orig, fx) => {
     if (edit) {
@@ -37,7 +40,7 @@ export function effectSession(app, type, { edit = null } = {}) {
   const tx = doc.begin(EFFECTS[type]?.label || 'Effect');
   const write = () => {
     if (doc.tx !== tx) return;
-    for (const [id, orig] of originals) doc.update(id, { effects: list(orig, preview ? current : null) });
+    for (const [id, orig] of originals) doc.update(id, effectsPatch(doc.get(id), slot, list(orig, preview ? current : null)));
   };
   return {
     doc,
@@ -60,7 +63,7 @@ export function effectSession(app, type, { edit = null } = {}) {
     /** The document as it looks with fx: { doc, ids } for EffectPreview. */
     view(fx) {
       const over = new Map();
-      for (const [id, orig] of originals) over.set(id, { ...doc.get(id), effects: list(orig, fx) });
+      for (const [id, orig] of originals) over.set(id, { ...doc.get(id), ...effectsPatch(doc.get(id), slot, list(orig, fx)) });
       return { doc: overlayDoc(doc, over), ids };
     },
     /** Apply fx for good (null removes the edited effect, or adds nothing). */
@@ -70,7 +73,7 @@ export function effectSession(app, type, { edit = null } = {}) {
           tx.cancel();
           return;
         }
-        for (const [id, orig] of originals) doc.update(id, { effects: orig.filter((_, i) => i !== edit.index) });
+        for (const [id, orig] of originals) doc.update(id, effectsPatch(doc.get(id), slot, orig.filter((_, i) => i !== edit.index)));
         tx.commit();
         return;
       }

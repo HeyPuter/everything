@@ -1187,6 +1187,36 @@
   margin: 4px 0;
 }
 
+.ap-tw,
+.ap-tw-pad {
+  width: 18px;
+  flex: none;
+}
+
+.ap-tw.icon-btn {
+  padding: 0;
+  min-width: 18px;
+}
+
+/* An item's own effects and opacity, under its row. */
+.ap-row.ap-sub {
+  padding-left: 22px;
+  min-height: 26px;
+  font-size: var(--fs-sm);
+}
+
+.ap-badge {
+  display: inline-flex;
+  color: var(--text-2);
+  flex: none;
+}
+
+.ap-item-opacity {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+}
+
 /* ---- Graphic styles ---- */
 .gst-grid {
   display: grid;
