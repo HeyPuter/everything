@@ -270,3 +270,22 @@ describe('merged kind changes', () => {
     expect(findLayer(c.binding.history.document.layers, title)!.kind).toBe('pixel');
   });
 });
+
+describe('per-person settings', () => {
+  it('keeps Image Assets and the 32-bit preview options to each person', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    edit(a, 'Image Assets', (d) => (d.imageAssets = true));
+    edit(a, '32-bit Preview Options', (d) => (d.hdrPreview = { method: 'filmic', exposure: 1, gamma: 1, white: 4 }));
+    edit(b, 'Opacity', (d) => (d.layers[1].opacity = 0.5));
+    await settle(a, b);
+    expect(b.binding.history.document.imageAssets).toBeUndefined();
+    expect(b.binding.history.document.hdrPreview).toBeUndefined();
+    expect(a.client.project.doc.has('imageAssets') || a.client.project.doc.has('hdrPreview')).toBe(false);
+    // The person's own values survive other people's edits arriving.
+    expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
+    expect(a.binding.history.document.imageAssets).toBe(true);
+    expect(a.binding.history.document.hdrPreview?.method).toBe('filmic');
+  });
+});

@@ -16,7 +16,7 @@
 // wins; painting on one layer merges per 256-pixel tile, the same tile being
 // last writer wins. Tile grids inside other registers (alpha channels,
 // patterns, altered video frames) are atomic with their register. Selections
-// are each person's own and never shared.
+// and a few view settings (PRIVATE_DOC) are each person's own and never shared.
 import * as Y from 'yjs';
 import type { Layer, PhotoDocument } from '../model/document';
 import { computeBounds, type TileGrid } from '../model/tiles';
@@ -39,8 +39,12 @@ export const ORIGIN = {
 } as const;
 
 export const SCHEMA = 1;
-// Document properties every participant keeps for themselves.
-const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask']);
+// Document properties every participant keeps for themselves: the selection,
+// File → Generate → Image Assets (it writes files to that person's storage)
+// and the 32-bit preview options (display only).
+const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'imageAssets', 'hdrPreview']);
+/** This person's own document properties, kept through projection. */
+export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'imageAssets' | 'hdrPreview'>>;
 // Layer properties held as per-tile maps.
 export const GRID_KEYS = ['pixels', 'maskGrid', 'liveSource', 'liveMask'] as const;
 const GRID_SET = new Set<string>(GRID_KEYS);
@@ -334,7 +338,7 @@ export class SharedProject {
    * person's selection. Returns `complete: false` while tiles download, and
    * in `dropped` what a merge left invalid and is not shown (see repair.ts).
    * The document passes `validateDocument`; throws when it cannot. */
-  project(local: Pick<PhotoDocument, 'selection' | 'selectionMask'>): { document: PhotoDocument; complete: boolean; dropped: string[] } {
+  project(local: PrivateState): { document: PhotoDocument; complete: boolean; dropped: string[] } {
     let complete = true;
     const ids = [...this.layers.keys()];
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
@@ -390,6 +394,8 @@ export class SharedProject {
     }
     const document = { ...structuredCloneShallow(docRegs), selection: local.selection ?? null } as PhotoDocument;
     if (local.selectionMask) document.selectionMask = local.selectionMask;
+    if (local.imageAssets !== undefined) document.imageAssets = local.imageAssets;
+    if (local.hdrPreview !== undefined) document.hdrPreview = local.hdrPreview;
     const build = (parent: string, depth: number, inFrame: boolean): Layer[] =>
       (groups.get(parent) ?? []).map((id) => {
         const l = { ...this.cache.get(id)! };

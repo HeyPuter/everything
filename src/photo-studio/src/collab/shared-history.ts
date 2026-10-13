@@ -301,7 +301,7 @@ export class SharedBinding {
     let result;
     try {
       // Validated (and repaired where a merge left it invalid) by the projection.
-      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask });
+      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask, imageAssets: local.imageAssets, hdrPreview: local.hdrPreview });
     } catch (error) {
       this.o.onMessage?.(`The shared document contains a change this browser cannot show: ${error instanceof Error ? error.message : String(error)}`);
       return;
