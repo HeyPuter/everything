@@ -13,7 +13,11 @@ import { call } from '../src/collab/api';
 import { commenter, editor, environment, owner, until, viewer, wait } from './collab-helpers';
 import { MemoryStore } from '../src/persistence/local-store';
 import type { OutboxStores } from '../src/collab/client';
-import { closeAll, connect, edit, idOf, invite, paintOn, pixel, SERVER, settle, share, type Env } from './collab-session-helpers';
+import { closeAll, connect, edit, idOf, invite, painted, paintOn, pixel, SERVER, settle, share, type Env } from './collab-session-helpers';
+import { findLayer, layer } from '../src/model/document';
+import { newPixelLayer } from '../src/model/pixel-layer';
+import { textLayer } from '../src/imaging/text/model';
+import type { Assets } from '../src/model/assets';
 
 afterEach(closeAll);
 
@@ -231,5 +235,38 @@ describe('Undo in a shared document', () => {
     expect(a.binding.history.labels).toEqual(['Rename']);
     expect(a.binding.undoManager.undoStack.length).toBe(1);
     expect(a.binding.undoManager.redoStack.length).toBe(0);
+  });
+});
+
+describe('merged kind changes', () => {
+  it('keep every tab showing the document and let others join after a rasterize meets a text edit', async () => {
+    const env = environment();
+    const withText = (assets: Assets) => {
+      const doc = painted(assets);
+      doc.layers.push({ ...layer('text', 'Title', 200, 80), textData: textLayer('Hello') });
+      return doc;
+    };
+    const { room, a } = await share(env, { doc: withText });
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    const title = idOf(a, 'Title');
+    env.offline = true;
+    edit(a, 'Rasterize Layer', (d) => {
+      const l = findLayer(d.layers, title)!;
+      delete l.textData;
+      l.kind = 'pixel';
+      l.pixels = newPixelLayer('x', d).pixels;
+    });
+    edit(b, 'Edit Text', (d) => (findLayer(d.layers, title)!.textData = textLayer('Edited meanwhile')));
+    for (const p of [a, b]) await p.binding.idle();
+    env.offline = false;
+    for (const p of [a, b]) p.client.flush();
+    await settle(a, b);
+    for (const p of [a, b]) {
+      const l = findLayer(p.binding.history.document.layers, title)!;
+      expect(l.kind).toBe('pixel');
+      expect(l.textData).toBeUndefined();
+    }
+    const c = await connect(env, viewer, room, { token: await invite(env, room, 'viewer') });
+    expect(findLayer(c.binding.history.document.layers, title)!.kind).toBe('pixel');
   });
 });

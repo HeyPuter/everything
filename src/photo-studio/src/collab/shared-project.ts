@@ -26,6 +26,7 @@ import type { TileIndex } from './tile-index';
 import { orderKeys } from './order';
 import { hash } from './protocol';
 import { documentAssetIds } from '../model/serialization';
+import { fitLayerToKind, salvageDocument } from './repair';
 
 export { documentAssetIds };
 
@@ -324,12 +325,16 @@ export class SharedProject {
       }
     }
     l.children = [];
+    // Concurrent edits merge per property: keep only what fits the merged kind.
+    fitLayerToKind(l as unknown as Layer);
     return l as unknown as Layer;
   }
 
   /** The shared document as an editor document; `local` supplies this
-   * person's selection. Returns `complete: false` while tiles download. */
-  project(local: Pick<PhotoDocument, 'selection' | 'selectionMask'>): { document: PhotoDocument; complete: boolean } {
+   * person's selection. Returns `complete: false` while tiles download, and
+   * in `dropped` what a merge left invalid and is not shown (see repair.ts).
+   * The document passes `validateDocument`; throws when it cannot. */
+  project(local: Pick<PhotoDocument, 'selection' | 'selectionMask'>): { document: PhotoDocument; complete: boolean; dropped: string[] } {
     let complete = true;
     const ids = [...this.layers.keys()];
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
@@ -385,18 +390,23 @@ export class SharedProject {
     }
     const document = { ...structuredCloneShallow(docRegs), selection: local.selection ?? null } as PhotoDocument;
     if (local.selectionMask) document.selectionMask = local.selectionMask;
-    const build = (parent: string, depth: number): Layer[] =>
+    const build = (parent: string, depth: number, inFrame: boolean): Layer[] =>
       (groups.get(parent) ?? []).map((id) => {
         const l = { ...this.cache.get(id)! };
-        l.children = depth < 12 ? build(id, depth + 1) : [];
+        // Artboards stay at the top level and frames do not nest, whatever
+        // concurrent moves did.
+        if (depth > 0) delete l.artboard;
+        if (inFrame) delete l.frame;
+        l.children = depth < 12 ? build(id, depth + 1, inFrame || !!l.frame) : [];
         // Pixel layers keep their transform equal to their merged content.
         if (l.kind === 'pixel' && l.pixels?.bounds) syncPixelTransform(l, document);
         return l;
       });
-    document.layers = build('', 0);
+    document.layers = build('', 0, false);
     document.version = 1;
+    const dropped = salvageDocument(document);
     this.referencedIds = new Set(documentAssetIds(document));
-    return { document, complete };
+    return { document, complete, dropped };
   }
   private stale = new Set<string>();
   /** Project everything again (after tiles arrived). */

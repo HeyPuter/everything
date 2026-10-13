@@ -9,7 +9,6 @@ import * as Y from 'yjs';
 import { History, type HistoryMark } from '../history/history';
 import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
-import { validateDocument } from '../model/serialization';
 import { ORIGIN } from './shared-project';
 import type { RoomClient } from './client';
 
@@ -301,18 +300,26 @@ export class SharedBinding {
     const local = selectionFrom ?? h.document;
     let result;
     try {
+      // Validated (and repaired where a merge left it invalid) by the projection.
       result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask });
-      validateDocument(result.document);
     } catch (error) {
       this.o.onMessage?.(`The shared document contains a change this browser cannot show: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
+    this.reportDropped(result.dropped);
     this.client.o.tiles.prune();
     this.shown = result.document;
     h.show(result.document);
     this.o.onDocument?.(result.document);
     const missing = this.client.project.missing(this.assets);
     if (!result.complete || missing.tiles.size || missing.assets.size) void this.fetch(missing);
+  }
+  private dropped = '';
+  /** Say once what a merge left invalid and this browser does not show. */
+  reportDropped(dropped: string[]) {
+    const text = dropped.join(', ');
+    if (text && text !== this.dropped) this.o.onMessage?.(`Changes made at the same time could not all be combined: the shared document is shown without ${text}.`);
+    this.dropped = text;
   }
   private async fetch(missing: ReturnType<RoomClient['project']['missing']>) {
     if (this.fetching) return;
@@ -360,6 +367,7 @@ export async function openBinding(client: RoomClient, assets: Assets, o: Binding
     client.project.invalidate();
     result = client.project.project({ selection: null });
   }
-  validateDocument(result.document);
-  return new SharedBinding(client, assets, result.document, o);
+  const binding = new SharedBinding(client, assets, result.document, o);
+  binding.reportDropped(result.dropped);
+  return binding;
 }

@@ -49,7 +49,7 @@ Every editor history step is written as the difference between the document befo
 - Tile grids inside other registers (alpha channels, patterns, altered video frames) are atomic with that register.
 - Each person's selection is their own and is never shared.
 
-Projection (`SharedProject.project`) turns the Yjs state back into an editor document, reusing unchanged layers, and is validated with the same `validateDocument` that checks `.photo` files before the editor shows it.
+Projection (`SharedProject.project`) turns the Yjs state back into an editor document, reusing unchanged layers, and is validated with the same `validateDocument` that checks `.photo` files before the editor shows it. Because layer properties merge separately, concurrent edits can combine into a layer nobody made (one person rasterizes a text layer while another edits its text: kind `pixel` with text data). Projection repairs these the same way in every browser (`src/collab/repair.ts`): data that does not fit the merged kind is left out (text, shape, fill, adjustment, pixel and Live Filter data, artboards below the top level, nested frames, pass-through blending outside groups). Anything still invalid is left out of the shown document (a document setting, or a layer, whose children take its place) and the editor says what, so a merge never stops tabs from updating or people from joining. The repair is not written back; the next edit of the layer writes it normally.
 
 Tiles are addressed by the SHA-256 of their bytes (`TileIndex`). They are uploaded deflated before the edit that refers to them; identical tiles (flat areas, duplicated layers) are stored and sent once. Both the worker and the browsers inflate with a size cap and check the hash, so no one can store other bytes under a tile's address. Large initial states are uploaded the same way: the owner uploads every tile and the Yjs state (in 4 MB chunks), and a joiner downloads the state and then the tiles it needs in batches of 24. (We chose this over sending a `.photo` file for the joiner: tiles then deduplicate across versions, and any tile Undo needs later can be fetched by its address.)
 
@@ -124,7 +124,8 @@ Local documents keep comments outside the history (so Undo never removes a comme
 
 ## Tests
 
-- `tests/collab-project.test.ts`: the Yjs model (round trip, merges, per-tile conflicts, order, cycles, private selections).
+- `tests/collab-project.test.ts`: the Yjs model (round trip, merges, per-tile conflicts, order, cycles, private selections, kind changes merged with content edits).
+- `tests/collab-fixes.test.ts`: refused commits and checkpoints, invitations versus memberships, comment names, the outbox of several tabs, refused tile uploads, one-step Undo, merged kind changes, identifiers, private settings and comment registers.
 - `tests/collab-sessions.test.ts`: two and three simulated people against the real worker service with an in-memory Puter (`tests/collab-helpers.ts`, ported from the Whiteboard tests): joining, merging, three-way order, the offline outbox across a reload, server-side roles, comment threads, per-person Undo, peer edits and presence, access management, tile integrity and a second worker instance.
 - `tests/collab-protocol.test.ts`, `tests/collab-comments-file.test.ts`: links, signatures, topology, colors, the tile codec, the comment model and authorship rules, comments in projects.
 - `tests/browser/collab.spec.ts`: two browser contexts with a stand-in Puter.js forwarding to the worker service in the test process (`tests/browser/collab-harness.ts`, used only by tests): invite, join, paint in one and see it in the other, presence, a comment pin in one and a reply and resolution in the other.
