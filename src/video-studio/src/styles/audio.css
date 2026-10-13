@@ -333,6 +333,16 @@
   margin-top: 4px;
 }
 
+/* Lyrics from music. */
+.lyr-form .field[hidden],
+.lyr-empty[hidden] {
+  display: none;
+}
+
+.lyr-form .switch-field .field-label {
+  white-space: normal;
+}
+
 .cap-sep {
   border: none;
   border-top: 1px solid var(--border);
