@@ -154,7 +154,64 @@
   opacity: 0.5;
 }
 
+/* ---- Recent colors (Color and Swatches panels) ---- */
+.recent-colors {
+  display: grid;
+  gap: 3px;
+}
+
+.rc-label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.rc-cells {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.rc-cell {
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+}
+
+.rc-cell.empty {
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+.rc-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ---- Color panel ---- */
+.cp-fs {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  flex: none;
+}
+
+.cp-fs-btns {
+  display: flex;
+  gap: 2px;
+}
+
+.cp-mini-btn {
+  min-width: 18px !important;
+  min-height: 18px !important;
+  padding: 1px !important;
+}
+
+.panel-color.options-hidden .cp-options {
+  display: none;
+}
+
 .cp-top {
   display: flex;
   gap: 10px;
@@ -464,14 +521,28 @@
   outline-offset: 0;
 }
 
+.sw-list.grid {
+  --sw-size: 22px;
+}
+
+.sw-list.grid.view-smallThumb {
+  --sw-size: 15px;
+  gap: 2px;
+}
+
+.sw-list.grid.view-largeThumb {
+  --sw-size: 36px;
+  gap: 4px;
+}
+
 .sw-list.grid .sw-item {
-  width: 22px;
-  height: 22px;
+  width: var(--sw-size);
+  height: var(--sw-size);
 }
 
 .sw-list.grid .sw-item .paint-swatch {
-  width: 22px;
-  height: 22px;
+  width: var(--sw-size);
+  height: var(--sw-size);
 }
 
 .sw-list.list .sw-item {
@@ -485,6 +556,21 @@
 .sw-list.list .sw-item .paint-swatch {
   width: 18px;
   height: 18px;
+}
+
+.sw-list.list.view-largeList .sw-item {
+  padding: 4px;
+}
+
+.sw-list.list.view-largeList .sw-item .paint-swatch {
+  width: 32px;
+  height: 32px;
+}
+
+.sw-kind-label {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
 }
 
 .sw-list.list .sw-item.grouped {
@@ -549,6 +635,22 @@
   top: 1.5px;
   border-left: 6px solid transparent;
   border-bottom: 6px solid #ffffff;
+}
+
+.sw-spot {
+  border-bottom-color: #000000;
+}
+
+.sw-spot::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  top: 4px;
+  width: 3px;
+  height: 3px;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff;
 }
 
 .sw-list.list .sw-global {
@@ -1075,10 +1177,8 @@
 }
 
 @media (pointer: coarse) {
-  .sw-list.grid .sw-item,
-  .sw-list.grid .sw-item .paint-swatch {
-    width: 30px;
-    height: 30px;
+  .sw-list.grid:not(.view-largeThumb) {
+    --sw-size: 30px;
   }
 
   .gs-stop {
@@ -1086,4 +1186,28 @@
     height: 24px;
     margin-left: -10px;
   }
+}
+
+/* ---- Color panel: global swatch tint ---- */
+.cp-tint {
+  display: grid;
+  gap: 2px;
+}
+
+.cp-tint[hidden] {
+  display: none;
+}
+
+.cp-tint-head {
+  display: flex;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.cp-tint-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

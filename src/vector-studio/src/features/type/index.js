@@ -33,11 +33,13 @@ export function install(app) {
   overlayHooks.add(typeOverlay());
 
   // Fill and stroke changes while editing color the selected characters.
+  const prevApply = paintHooks.applyStyle;
+  const fallThrough = (editor, patch, label, coalesce) => (prevApply ? prevApply(editor, patch, label, coalesce) : false);
   paintHooks.applyStyle = (editor, patch, label, coalesce) => {
-    if (editor !== app.editor || !session(app)) return false;
+    if (editor !== app.editor || !session(app)) return fallThrough(editor, patch, label, coalesce);
     const run = {};
     for (const k of PAINT) if (k in patch) run[k] = patch[k];
-    if (!Object.keys(run).length) return false;
+    if (!Object.keys(run).length) return fallThrough(editor, patch, label, coalesce);
     editor.setStyle(patch);
     applyCharStyle(app, run, { label, coalesce });
     return true;
