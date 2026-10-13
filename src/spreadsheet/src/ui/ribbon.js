@@ -292,7 +292,7 @@ const groupsFor = name => ({
         { label: 'Data Validation…', icon: 'validation', cmd: 'validation' },
         { label: 'Circle Invalid Data', icon: 'validation', cmd: 'circleInvalid' },
         { label: 'Clear Validation Circles', cmd: 'clearCircles' },
-      ]), direct('Consolidate', 'consolidate', 'consolidate', null), m('Data Cleanup', 'clearFormat', 'data', 'Data cleanup')],
+      ]), direct('Consolidate', 'consolidate', 'consolidate', null), c('Form', 'dataForm', 'dataForm'), m('Data Cleanup', 'clearFormat', 'data', 'Data cleanup')],
     ['Forecast', large(dyn('What-If Analysis', 'whatIf', menus => [command('goalSeek')(menus) && { ...command('goalSeek')(menus), label: 'Goal Seek…' },
       command('scenarioManager')(menus) && { ...command('scenarioManager')(menus), label: 'Scenario Manager…' }, command('dataTable')(menus) && { ...command('dataTable')(menus), label: 'Data Table…' }].filter(Boolean))),
       c('Goal Seek', 'goalSeek', 'goalSeek'), large(direct('Forecast Sheet', 'forecast', 'forecastSheet', null)), c('Column Stats', 'columnStats', 'columnStats')],

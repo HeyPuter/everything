@@ -370,6 +370,15 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   input value that makes a formula reach a wanted result; and Column stats,
   a profile of a column (counts, sum, average, median, spread, the most
   frequent values, and a distribution).
+- **Data form** (Data → Form, or Data → Data Tools → Form): a list or table
+  one record at a time, its header row naming the fields and calculated
+  columns shown read-only. Step through records with the slider, the arrow
+  keys or Page Up/Down; edits are written when you move on (one undo step per
+  record) and Restore puts the record back; New adds a record under the list
+  (growing a table, carrying a plain list's formulas down), Delete removes one
+  after asking, and Criteria finds records by field (`>100`, `<>0`, `=Smith`,
+  text that begins with what you type, `*` and `?` wildcards) with Find Prev
+  and Find Next.
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,

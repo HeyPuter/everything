@@ -156,6 +156,7 @@ export function paletteCommands(flags = {}) {
     c('Subtotals…', 'Data', 'sigma', 'subtotal', null, { keywords: 'group by outline' }),
     c('Pivot table…', 'Data', 'pivot', 'pivot', null, { keywords: 'summarize' }),
     c('Column stats…', 'Data', 'chartColumn', 'columnStats', null, { keywords: 'summary distribution' }),
+    c('Data form…', 'Data', 'dataForm', 'dataForm', null, { keywords: 'record entry fields list database criteria find' }),
     c('Goal seek…', 'Data', 'sliders', 'goalSeek', null, { keywords: 'what if solve' }),
     c('Data table…', 'Data', 'table', 'dataTable', null, { keywords: 'what if analysis sensitivity' }),
     c('Remove duplicate rows…', 'Data', 'dedupe', 'dedupe', null, { keywords: 'unique' }),

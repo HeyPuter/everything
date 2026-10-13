@@ -37,3 +37,26 @@
 .af-dialog { display: flex; flex-direction: column; gap: 8px; }
 .af-dialog .check-group.vertical { flex-direction: column; }
 select.sm-list { background-image: none; padding-right: 8px; height: auto; }
+
+/* Data Form: the record's fields on the left, its place and the buttons on the right. */
+.df-form { display: flex; gap: 16px; align-items: stretch; min-width: min(560px, 100%); }
+.df-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.df-fields { display: flex; flex-direction: column; gap: 6px; max-height: min(52vh, 420px); overflow: auto; padding: 2px; }
+.df-row { display: grid; grid-template-columns: minmax(84px, 34%) 1fr; align-items: center; gap: 8px; }
+.df-label { text-align: right; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-input { width: 100%; min-width: 0; padding-top: 6px; padding-bottom: 6px; }
+.df-readonly { display: block; min-height: 34px; line-height: 34px; padding: 0 12px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.df-readonly[hidden], .df-input[hidden] { display: none; }
+.df-slider { width: 100%; accent-color: var(--accent); }
+.df-form.criteria .df-fields { background: var(--surface-2); border-radius: 8px; padding: 8px; }
+.df-message { margin: 0; color: var(--danger, #c22a2a); }
+.df-side { display: flex; flex-direction: column; gap: 6px; min-width: 104px; }
+.df-side .btn { justify-content: center; }
+.df-status { margin: 0 0 6px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; min-height: 1.4em; }
+.df-gap { height: 6px; }
+@media (max-width: 640px) {
+  .df-form { flex-direction: column; min-width: 0; }
+  .df-side { flex-direction: row; flex-wrap: wrap; }
+  .df-status { width: 100%; }
+  .df-gap { display: none; }
+}

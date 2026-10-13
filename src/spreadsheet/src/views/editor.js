@@ -77,6 +77,7 @@ import { runChartAction, insertChart as insertExcelChart, insertChartSheet } fro
 import { createChartUi } from '../ui/chart-format-pane.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { openSubtotalDialog } from '../ui/subtotaldialog.js';
+import { openDataForm } from '../ui/dataform.js';
 import { openFormatCellsDialog } from '../ui/formatcells.js';
 import { openTableDialog } from '../ui/tabledialog.js';
 import { openAiDialog } from '../ui/aidialog.js';
@@ -2045,6 +2046,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           wb.updateTable(sheetId, t.id, { [arg]: !on });
         }
         keepFocus();
+        return;
+      }
+      // Data ▸ Form: a record at a time over the list at the selection (see ui/dataform.js, core/data-form.js).
+      case 'dataForm': {
+        if (!committed()) return;
+        openDataForm(ctx);
         return;
       }
       case 'subtotal': {

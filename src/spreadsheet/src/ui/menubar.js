@@ -428,6 +428,7 @@ export function menubarMenus(f = {}) {
     i('Scenario Manager…', 'scenarioManager', 'scenarioManager'),
     i('Forecast sheet…', 'forecast', 'forecastSheet'),
     i('Advanced filter…', 'filterAdvanced', 'advancedFilter'),
+    i('Form…', 'dataForm', 'dataForm'),
     f.ai && i('Ask AI about this data…', 'sparkle', 'aiAsk'),
     sep,
     i('Data validation…', 'validation', 'validation'),
