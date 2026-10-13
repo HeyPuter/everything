@@ -15,7 +15,7 @@ import { canSpellCheck } from '../../model/languages.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
-import { loadSpeller, loadedSpeller, dictionaryKey } from './spell-dict.js';
+import { loadSpeller, loadedSpeller, dictionaryKey, DICTIONARIES } from './spell-dict.js';
 import { selectedTextNodes } from './outlines.js';
 
 export const DEFAULT_SPELL_OPTIONS = Object.freeze({
@@ -179,7 +179,7 @@ export function spellOverlay(app) {
       }
       return null;
     };
-    for (const k of ['en-US', 'en-GB']) if (loadedSpeller(k)) loaded.push(k);
+    for (const k of Object.keys(DICTIONARIES)) if (loadedSpeller(k)) loaded.push(k);
     const { doc, view } = editor;
     const visible = view.visibleRect(20 / view.zoom);
     const edit = editor.textEdit;

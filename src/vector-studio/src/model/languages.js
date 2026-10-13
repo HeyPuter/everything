@@ -45,7 +45,7 @@ export function languageLabel(code) {
 }
 
 /** Languages the spelling dictionary covers (primary subtags). */
-export const SPELLING_LANGUAGES = new Set(['en']);
+export const SPELLING_LANGUAGES = new Set(['en', 'fr']);
 
 export function canSpellCheck(code) {
   return SPELLING_LANGUAGES.has(languageBase(code));
