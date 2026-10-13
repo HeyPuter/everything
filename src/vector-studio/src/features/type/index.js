@@ -23,6 +23,7 @@ import { installTextWrap } from './wrap.js';
 import { installLayoutCommands } from './layout-commands.js';
 import { CharEditTool } from './char-edit-tool.js';
 import { installTabsPanel } from './tabs-panel.js';
+import { installTypeOptions } from './type-options.js';
 
 const PAINT = ['fill', 'stroke', 'strokeWidth'];
 
@@ -63,6 +64,7 @@ export function install(app) {
   app.textOutlines = textToPathData;
 
   registerTypeCommands(app);
+  installTypeOptions(app);
   installTypePanels(app);
   installOpenTypeFeatures(app);
   installTypeStyles(app);

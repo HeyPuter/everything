@@ -216,7 +216,7 @@ export const MENUS = [
       'panel.glyphs',
       '-',
       { label: 'Type Conversion', submenu: ['type.convertToArea', 'type.convertToPoint'] },
-      { label: 'Area Type Options', submenu: ['type.areaOptions'] },
+      'type.areaOptions',
       {
         label: 'Type on a Path',
         submenu: ['type.path.rainbow', 'type.path.skew', 'type.path.ribbon', 'type.path.stairStep', 'type.path.gravity', '-', 'type.pathOptions', 'type.path.update'],

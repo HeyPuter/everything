@@ -191,4 +191,51 @@ export class OpenTypePanel extends Panel {
     this.controls.refresh();
     this.hint.textContent = currentTextNodes(this.app).length ? '' : 'Settings apply to new type.';
   }
+
+  menu() {
+    return openTypeMenu(this.app);
+  }
+}
+
+/** Every OpenType setting as menu items: features, figure styles, positions and stylistic sets. */
+export function openTypeMenu(app) {
+  const cur = app.editor ? currentCharStyle(app) : null;
+  const en = Boolean(cur);
+  const apply = (patch, label) => applyCharStyle(app, patch, { label });
+  const fam = cur && cur.fontFamily !== MIXED ? cur.fontFamily : null;
+  const font = fam ? shapingFont({ ...cur, fontWeight: cur.fontWeight === MIXED ? 400 : cur.fontWeight, fontStyle: cur.fontStyle === MIXED ? 'normal' : cur.fontStyle }) : null;
+  const features = font ? fontFeatures(font) : null;
+  const toggles = OT_TOGGLES.map(([key, label, , , def]) => {
+    const v = cur?.[key];
+    const on = v === MIXED ? false : v ?? def;
+    return { label, enabled: en, checked: on, run: () => apply({ [key]: !on }, label) };
+  });
+  const pick = (key, options, label) =>
+    options.map(([v, l]) => ({ label: l, enabled: en && (!features || key !== 'figures' || figureAvailable(features, v)), checked: (cur?.[key] || 'default') === v, run: () => apply({ [key]: v }, label) }));
+  const sets = Array.isArray(cur?.stylisticSets) ? cur.stylisticSets : [];
+  const setItems = [];
+  for (let n = 1; n <= 20; n++) {
+    if (features && !features.has(ssTag(n)) && !sets.includes(n)) continue;
+    setItems.push({
+      label: `Set ${n}`,
+      enabled: en,
+      checked: sets.includes(n),
+      run: () => {
+        const next = sets.includes(n) ? sets.filter((x) => x !== n) : [...sets, n].sort((a, b) => a - b);
+        apply({ stylisticSets: next.length ? next : null }, 'Stylistic Sets');
+      },
+    });
+  }
+  if (!setItems.length) setItems.push({ label: 'None in This Font', enabled: false, run() {} });
+  if (sets.length) setItems.push('-', { label: 'Clear Stylistic Sets', enabled: en, run: () => apply({ stylisticSets: null }, 'Stylistic Sets') });
+  const reset = Object.fromEntries(OT_TOGGLES.map(([key, , , , def]) => [key, def]));
+  return [
+    ...toggles,
+    '-',
+    { label: 'Figure', submenu: pick('figures', FIGURE_OPTIONS, 'Figure Style') },
+    { label: 'Position', submenu: pick('otPosition', POSITION_OPTIONS, 'OpenType Position') },
+    { label: 'Stylistic Sets', submenu: setItems },
+    '-',
+    { label: 'Reset OpenType Features', enabled: en, run: () => apply({ ...reset, figures: 'default', otPosition: 'default', stylisticSets: null }, 'Reset OpenType Features') },
+  ];
 }

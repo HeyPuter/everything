@@ -15,22 +15,26 @@ import { familyFaces, styleName, fontEvents } from './fonts.js';
 import { applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, session, MIXED } from './type-ops.js';
 import { setFontFamily, SIZE_PRESETS } from './commands.js';
 import { selectedTextNodes } from './outlines.js';
+import { KERN_MODES } from './type-options.js';
 
 let fieldId = 0;
 
 /**
  * Compact numeric field with an icon label, an optional preset menu and an
  * optional "Auto" value (null). kind: 'pt' | 'percent' | 'number' | 'angle'.
+ * `words` ([[token, label]]) are named values shown and typed as words.
  */
-function typeField(app, { label, iconName, kind = 'pt', units = null, presets = null, auto = false, min = -Infinity, max = Infinity, step = 1, onCommit }) {
+function typeField(app, { label, iconName, kind = 'pt', units = null, presets = null, auto = false, words = null, min = -Infinity, max = Infinity, step = 1, onCommit }) {
   // Lengths show in `units()` (the Type units preference for type sizes), points otherwise.
   const unit = () => (typeof units === 'function' && units()) || 'pt';
   const id = `tf-${++fieldId}`;
   const input = h('input.ty-input', { id, type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: false, 'aria-label': label });
   let value = null;
   let shownAuto = false;
+  const word = (v) => words?.find(([t]) => t === v);
   const fmt = (v, isAuto) => {
     if (v === MIXED || v === undefined) return '';
+    if (typeof v === 'string') return word(v)?.[1] ?? '';
     if (v == null) return auto ? 'Auto' : '';
     const n = Number(v.toFixed(kind === 'pt' ? 2 : 2));
     const txt = kind === 'pt' ? formatLength(v, unit()) : kind === 'percent' ? `${n}%` : kind === 'angle' ? `${n}\u00b0` : String(n);
@@ -38,6 +42,8 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
   };
   const parse = (s) => {
     const t = s.trim().replace(/^\((.*)\)$/, '$1');
+    const w = words?.find(([tok, l]) => t.toLowerCase() === l.toLowerCase() || t.toLowerCase() === tok);
+    if (w) return w[0];
     if (auto && (!t || /^auto$/i.test(t))) return null;
     const v = kind === 'pt' ? parseLength(t, unit()) : parseNumber(t.replace(/[%\u00b0]/g, ''));
     return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : undefined;
@@ -82,7 +88,7 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
     const menuBtn = h('button.ty-menu', { type: 'button', 'aria-label': `${label} presets`, 'aria-haspopup': 'menu' }, icon('chevron-down', 12));
     menuBtn.addEventListener('click', () => {
       const r = menuBtn.getBoundingClientRect();
-      const items = presets.map((p) => ({ type: 'cmd', label: p == null ? 'Auto' : fmt(p), enabled: true, checked: p === value, run: () => commit(p) }));
+      const items = presets.map((p) => (p === '-' ? { type: 'sep' } : { type: 'cmd', label: p == null ? 'Auto' : fmt(p), enabled: true, checked: p === value, run: () => commit(p) }));
       openMenu(app, items, { x: r.left - 60, y: r.bottom + 2, anchor: menuBtn, label: `${label} presets` });
     });
     parts.push(menuBtn);
@@ -118,7 +124,18 @@ export function buildCharacterControls(app, { compact = false } = {}) {
   const typeUnits = () => app.prefs.get('typeUnits');
   const size = typeField(app, { label: 'Font size', iconName: 'font-size', units: typeUnits, presets: SIZE_PRESETS, min: 0.1, max: 1296, onCommit: (v) => apply({ fontSize: v }, 'Font Size', 'size') });
   const leading = typeField(app, { label: 'Leading', iconName: 'leading', units: typeUnits, auto: true, presets: [null, ...SIZE_PRESETS], min: 0, max: 5000, onCommit: (v) => apply({ leading: v }, 'Leading', 'leading') });
-  const kerning = typeField(app, { label: 'Kerning (between the characters at the insertion point)', iconName: 'kerning', kind: 'number', presets: [0, -100, -75, -50, -25, -10, -5, 5, 10, 25, 50, 75, 100, 200], min: -1000, max: 10000, step: 10, onCommit: (v) => kern(app, v) });
+  // Kerning: the automatic kerning mode (Auto, Optical, None) or manual kerning at the insertion point or on the selection.
+  const kerning = typeField(app, {
+    label: 'Kerning (between the characters at the insertion point)',
+    iconName: 'kerning',
+    kind: 'number',
+    words: KERN_MODES,
+    presets: [...KERN_MODES.map(([m]) => m), '-', 0, -100, -75, -50, -25, -10, -5, 5, 10, 25, 50, 75, 100, 200],
+    min: -1000,
+    max: 10000,
+    step: 10,
+    onCommit: (v) => (typeof v === 'string' ? applyCharStyle(app, { kernMode: v, kerning: 0 }, { label: 'Kerning' }) : kern(app, v)),
+  });
   const tracking = typeField(app, { label: 'Tracking', iconName: 'tracking', kind: 'number', presets: [-100, -75, -50, -25, -10, -5, 0, 5, 10, 25, 50, 75, 100, 200], min: -1000, max: 10000, step: 10, onCommit: (v) => apply({ tracking: v }, 'Tracking', 'tracking') });
   const vscale = typeField(app, { label: 'Vertical scale', iconName: 'vertical-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ verticalScale: v }, 'Vertical Scale', 'vscale') });
   const hscale = typeField(app, { label: 'Horizontal scale', iconName: 'horizontal-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ horizontalScale: v }, 'Horizontal Scale', 'hscale') });
@@ -134,9 +151,10 @@ export function buildCharacterControls(app, { compact = false } = {}) {
   };
   let cur = null;
   const toggleRow = h('div.ty-toggles', { role: 'group', 'aria-label': 'Character options' }, Object.values(toggles));
+  // Rows marked ty-opt hide with the panel's Hide Options.
   const rows = compact
     ? [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el)]
-    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row', vscale.el, hscale.el), h('div.ty-row', shift.el, rotation.el), toggleRow];
+    : [h('div.ty-row.full', picker.el), h('div.ty-row.full', styleSel), h('div.ty-row', size.el, leading.el), h('div.ty-row', kerning.el, tracking.el), h('div.ty-row.ty-opt', vscale.el, hscale.el), h('div.ty-row.ty-opt', shift.el, rotation.el), h('div.ty-opt', toggleRow)];
   const el = h('div.type-controls.char-controls', rows);
   let styleKey = '';
   const refresh = () => {
@@ -157,7 +175,9 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     }
     size.set(cur.fontSize);
     leading.set(cur.leading, { autoValue: typeof cur.fontSize === 'number' ? cur.fontSize * 1.2 : null });
-    kerning.set(caretKerning(app, cur));
+    const k = caretKerning(app, cur);
+    // Without manual kerning the field shows the automatic kerning mode.
+    kerning.set(k === 0 || k == null ? (cur.kernMode === MIXED ? MIXED : cur.kernMode || 'metrics') : k);
     tracking.set(cur.tracking);
     vscale.set(cur.verticalScale);
     hscale.set(cur.horizontalScale);
@@ -254,7 +274,12 @@ export function buildParagraphControls(app, { compact = false } = {}) {
   };
   const listOpts = h('button.icon-btn.ty-toggle', { type: 'button', 'aria-label': 'Bullets and Numbering Options', 'data-tip': 'Bullets and Numbering Options', onclick: () => app.commands.run('type.listOptions') }, icon('sliders-horizontal', 16));
   const listRow = h('div.ty-toggles', { role: 'group', 'aria-label': 'Lists and margins' }, Object.values(listToggles), listOpts);
-  const rows = compact ? [group, h('div.ty-row', left.el, right.el)] : [group, h('div.ty-row', left.el, right.el), h('div.ty-row', first.el, h('span')), h('div.ty-row', before.el, after.el), listRow];
+  const hyId = `ty-hy-${++fieldId}`;
+  const hyBox = h('input', { type: 'checkbox', id: hyId, onchange: () => apply({ hyphenate: hyBox.checked }, 'Hyphenate') });
+  const hyRow = h('div.ty-check', hyBox, h('label', { for: hyId }, 'Hyphenate'));
+  const rows = compact
+    ? [group, h('div.ty-row', left.el, right.el)]
+    : [group, h('div.ty-row', left.el, right.el), h('div.ty-row', first.el, h('span')), h('div.ty-row.ty-opt', before.el, after.el), h('div.ty-opt', listRow), h('div.ty-opt', hyRow)];
   const el = h('div.type-controls.para-controls', rows);
   const refresh = () => {
     const p = currentParaStyle(app);
@@ -271,6 +296,8 @@ export function buildParagraphControls(app, { compact = false } = {}) {
     first.set(p.indentFirst);
     before.set(p.spaceBefore);
     after.set(p.spaceAfter);
+    hyBox.checked = p.hyphenate === true;
+    hyBox.indeterminate = p.hyphenate === MIXED;
     for (const [id, b] of Object.entries(listToggles)) {
       const cmd = app.commands.get(id);
       b.setAttribute('aria-pressed', String(Boolean(cmd?.checked?.(app))));
@@ -292,6 +319,7 @@ export class CharacterPanel extends Panel {
     this.controls = buildCharacterControls(this.app);
     this.note = h('p.panel-note');
     this.el.append(this.controls.el, this.note);
+    syncOptions(this);
   }
 
   update() {
@@ -302,6 +330,47 @@ export class CharacterPanel extends Panel {
     this.controls.refresh();
     this.note.textContent = currentTextNodes(this.app).length ? '' : 'Settings apply to new type.';
   }
+
+  menu() {
+    return [
+      optionsItem(this),
+      '-',
+      'type.allCaps',
+      'type.smallCaps',
+      'type.superscript',
+      'type.subscript',
+      'type.underline',
+      'type.strikethrough',
+      '-',
+      { label: 'Kerning', submenu: KERN_MODES.map(([m]) => `type.kern.${m}`) },
+      'type.fractionalWidths',
+      'type.noBreak',
+      '-',
+      'view.snapGlyph',
+      { label: 'Character Edit Tool', enabled: Boolean(this.app.editor), run: (a) => a.setTool('character-edit') },
+      '-',
+      'type.character.reset',
+    ];
+  }
+}
+
+/** Show or hide a panel's optional rows (remembered per panel). */
+function optionsShown(panel) {
+  return panel.app.prefs.get(`${panel.id}Options`) !== false;
+}
+
+function syncOptions(panel) {
+  panel.el.classList.toggle('ty-options-hidden', !optionsShown(panel));
+}
+
+function optionsItem(panel) {
+  return {
+    label: optionsShown(panel) ? 'Hide Options' : 'Show Options',
+    run: () => {
+      panel.app.prefs.set(`${panel.id}Options`, !optionsShown(panel));
+      syncOptions(panel);
+    },
+  };
 }
 
 export class ParagraphPanel extends Panel {
@@ -315,12 +384,30 @@ export class ParagraphPanel extends Panel {
     this.controls = buildParagraphControls(this.app);
     this.note = h('p.panel-note');
     this.el.append(this.controls.el, this.note);
+    syncOptions(this);
   }
 
   update() {
     if (!this.app.editor) return;
     this.controls.refresh();
     this.note.textContent = currentTextNodes(this.app).length ? '' : 'Settings apply to new type.';
+  }
+
+  menu() {
+    return [
+      optionsItem(this),
+      '-',
+      'type.hangingPunctuation',
+      'type.opticalMargin',
+      '-',
+      'type.justification',
+      'type.hyphenation',
+      '-',
+      'type.composer.single',
+      'type.composer.every',
+      '-',
+      'type.paragraph.reset',
+    ];
   }
 }
 

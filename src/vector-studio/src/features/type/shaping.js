@@ -498,8 +498,124 @@ export function glyphPath(st, glyph, size) {
   return p;
 }
 
+// ---- optical kerning ----
+
+const BANDS = 12;
+const profiles = new Map(); // `${faceKey}|${char}` -> { left, right, adv } at 100px, or null
+const opticalPairs = new Map(); // `${faceKey}|${pair}` -> kerning at 100px
+const targets = new Map(); // faceKey -> the font's own gap between straight-sided lower case
+
+/**
+ * Horizontal ink profile of a character at 100px: for each of BANDS bands
+ * between the cap height and the baseline, the leftmost and rightmost ink
+ * (null where the band has none) and the advance.
+ */
+function inkProfile(font, key, c) {
+  const pk = `${key}|${c}`;
+  if (profiles.has(pk)) return profiles.get(pk);
+  let out = null;
+  const g = font.charToGlyph(c);
+  if (g && g.index) {
+    const upem = font.unitsPerEm || 1000;
+    const cap = ((font.tables?.os2?.sCapHeight || font.ascender * 0.7) * 100) / upem;
+    const left = new Array(BANDS).fill(null);
+    const right = new Array(BANDS).fill(null);
+    const add = (x, y) => {
+      const b = Math.floor(((y + cap) / cap) * BANDS);
+      if (b < 0 || b >= BANDS) return;
+      if (left[b] == null || x < left[b]) left[b] = x;
+      if (right[b] == null || x > right[b]) right[b] = x;
+    };
+    let lx = 0;
+    let ly = 0;
+    let mx = 0;
+    let my = 0;
+    const line = (x, y) => {
+      const steps = Math.max(1, Math.ceil(Math.abs(y - ly) / (cap / BANDS / 2)));
+      for (let k = 1; k <= steps; k++) add(lx + ((x - lx) * k) / steps, ly + ((y - ly) * k) / steps);
+      lx = x;
+      ly = y;
+    };
+    for (const cmd of g.getPath(0, 0, 100).commands) {
+      if (cmd.type === 'M') {
+        lx = mx = cmd.x;
+        ly = my = cmd.y;
+        add(lx, ly);
+      } else if (cmd.type === 'L') line(cmd.x, cmd.y);
+      else if (cmd.type === 'Q' || cmd.type === 'C') {
+        const x0 = lx;
+        const y0 = ly;
+        for (let k = 1; k <= 8; k++) {
+          const t = k / 8;
+          const u = 1 - t;
+          let x;
+          let y;
+          if (cmd.type === 'Q') {
+            x = u * u * x0 + 2 * u * t * cmd.x1 + t * t * cmd.x;
+            y = u * u * y0 + 2 * u * t * cmd.y1 + t * t * cmd.y;
+          } else {
+            x = u ** 3 * x0 + 3 * u * u * t * cmd.x1 + 3 * u * t * t * cmd.x2 + t ** 3 * cmd.x;
+            y = u ** 3 * y0 + 3 * u * u * t * cmd.y1 + 3 * u * t * t * cmd.y2 + t ** 3 * cmd.y;
+          }
+          line(x, y);
+        }
+      } else if (cmd.type === 'Z') line(mx, my);
+    }
+    out = { left, right, adv: ((g.advanceWidth || 0) * 100) / upem };
+  }
+  profiles.set(pk, out);
+  return out;
+}
+
+/** Visual gap between two profiles: half the closest approach, half the average gap (open counters count up to a limit). */
+function visualGap(a, b) {
+  let min = Infinity;
+  let sum = 0;
+  let count = 0;
+  for (let k = 0; k < BANDS; k++) {
+    if (a.right[k] == null || b.left[k] == null) continue;
+    const g = a.adv - a.right[k] + b.left[k];
+    min = Math.min(min, g);
+    sum += Math.min(g, 30);
+    count++;
+  }
+  return count ? 0.5 * min + 0.5 * (sum / count) : null;
+}
+
+/**
+ * Kerning for a pair judged from the outlines (px at 100px): the pair's
+ * visual gap is brought to the gap the font itself puts between straight
+ * sided lower case letters. Null while the font loads.
+ */
+export function opticalKern(st, a, b) {
+  const font = shapingFont(st);
+  if (!font) return null;
+  const key = faceKey(st);
+  const pk = `${key}|${a}${b}`;
+  if (opticalPairs.has(pk)) return opticalPairs.get(pk);
+  let target = targets.get(key);
+  if (target === undefined) {
+    const n = inkProfile(font, key, 'n');
+    const l = inkProfile(font, key, 'l');
+    target = (n && l && visualGap(n, l)) ?? 6;
+    targets.set(key, target);
+  }
+  const pa = inkProfile(font, key, a);
+  const pb = inkProfile(font, key, b);
+  let k = 0;
+  if (pa && pb) {
+    const g = visualGap(pa, pb);
+    if (g != null) k = Math.max(-15, Math.min(8, target - g));
+  }
+  k = Math.round(k * 10) / 10;
+  if (opticalPairs.size > 20000) opticalPairs.clear();
+  opticalPairs.set(pk, k);
+  return k;
+}
+
 /** Install the shaping hooks on the layout engine. */
 export function installShaping() {
   textHooks.shape = shapeRun;
   textHooks.glyphPath = glyphPath;
+  textHooks.opticalKern = opticalKern;
 }

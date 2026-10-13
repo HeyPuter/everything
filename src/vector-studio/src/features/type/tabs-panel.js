@@ -11,7 +11,6 @@ import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { icon, registerIcons } from '../../ui/icons.js';
 import { iconButton, numberField, segmented } from '../../ui/widgets.js';
-import { openMenu } from '../../ui/menubar.js';
 import { UNITS, formatLength } from '../../lib/units.js';
 import { apply as applyM } from '../../lib/matrix.js';
 import { layoutText } from '../../model/text-layout.js';
@@ -249,13 +248,12 @@ export class TabsPanel extends Panel {
     this.alignOn.addEventListener('keydown', (e) => e.stopPropagation());
     this.snapBtn = iconButton('tab-snap', 'Snap to Ruler Ticks', () => this.toggleSnap(), { className: 'small', pressed: this.snapOn() });
     this.canvasBtn = iconButton('tab-magnet', 'Show Ruler Above the Text', () => this.toggleCanvas(), { className: 'small', pressed: this.canvasOn() });
-    this.menuBtn = iconButton('ellipsis', 'Tabs Menu', (e) => this.openMenu(e.currentTarget), { className: 'small' });
     this.ruler = new TabRuler(this);
     this.canvasRuler = new TabRuler(this, { onCanvas: true });
     this.note = h('p.panel-note');
     const lab = (text, el) => h('label.tab-label', text, el);
     this.el.append(
-      h('div.tab-bar', this.alignSeg.el, h('span.tab-spacer'), this.snapBtn, this.canvasBtn, this.menuBtn),
+      h('div.tab-bar', this.alignSeg.el, h('span.tab-spacer'), this.snapBtn, this.canvasBtn),
       h('div.tab-fields', h('div.tab-pos', this.posField.el), lab('Leader', this.leader), lab('Align On', this.alignOn)),
       h('div.tab-ruler-wrap', this.ruler.el),
       this.note,
@@ -403,20 +401,20 @@ export class TabsPanel extends Panel {
     this.refresh();
   }
 
-  openMenu(anchor) {
-    const r = anchor.getBoundingClientRect();
-    const hasSel = this.selected != null && Boolean(this.tabs()[this.selected]);
-    openMenu(
-      this.app,
-      [
-        { type: 'cmd', label: 'Clear All', enabled: this.tabs().length > 0, run: () => (this.commit([], 'Clear Tabs'), (this.selected = null), this.refresh()) },
-        { type: 'cmd', label: 'Delete Tab', enabled: hasSel, run: () => this.removeTab(this.selected) },
-        { type: 'cmd', label: 'Repeat Tab', enabled: hasSel, run: () => this.repeatTab() },
-        { type: 'sep' },
-        { type: 'cmd', label: 'Reset Indents', enabled: true, run: () => (applyParaStyle(this.app, { indentLeft: 0, indentFirst: 0 }, { label: 'Reset Indents' }), this.refresh()) },
-      ],
-      { x: r.left - 120, y: r.bottom + 2, anchor, label: 'Tabs menu' },
-    );
+  menu() {
+    const ctx = this.app.editor ? rulerContext(this.app) : null;
+    this.ctx = ctx;
+    const hasSel = Boolean(ctx) && this.selected != null && Boolean(this.tabs()[this.selected]);
+    return [
+      { label: 'Clear All', enabled: Boolean(ctx) && this.tabs().length > 0, run: () => (this.commit([], 'Clear Tabs'), (this.selected = null), this.refresh()) },
+      { label: 'Delete Tab', enabled: hasSel, run: () => this.removeTab(this.selected) },
+      { label: 'Repeat Tab', enabled: hasSel, run: () => this.repeatTab() },
+      '-',
+      { label: 'Reset Indents', enabled: Boolean(ctx), run: () => (applyParaStyle(this.app, { indentLeft: 0, indentFirst: 0 }, { label: 'Reset Indents' }), this.refresh()) },
+      '-',
+      { label: 'Snap to Ruler Ticks', checked: this.snapOn(), run: () => this.toggleSnap() },
+      { label: 'Show Ruler Above the Text', checked: this.canvasOn(), run: () => this.toggleCanvas() },
+    ];
   }
 
   refreshFields() {

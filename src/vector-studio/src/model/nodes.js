@@ -126,6 +126,9 @@ export const DEFAULT_CHAR = Object.freeze({
   strike: false,
   caps: 'normal', // normal | all | small
   kerning: 0, // manual kerning before this character, thousandths of an em
+  kernMode: 'metrics', // automatic kerning: metrics (the font's pairs) | optical (from the outlines) | none
+  fractionalWidths: true, // false rounds character advances to whole points
+  noBreak: false, // keep these characters on one line
   rotation: 0, // character rotation in degrees
   position: 'normal', // normal | super | sub
   // OpenType features (applied where the font has them, see features/type/shaping.js).
@@ -154,6 +157,11 @@ export const DEFAULT_PARA = Object.freeze({
   tabs: null, // [{ pos, align: 'left'|'center'|'right'|'decimal', leader, decimal }] from the frame's left edge
   list: null, // { kind: 'bullet'|'number', bullet, format: '1'|'a'|'A'|'i'|'I', suffix, start } bullets and numbering
   opticalMargin: false, // hang punctuation outside the margins
+  hangingPunctuation: false, // hang punctuation fully outside the margins (this paragraph)
+  hyphenate: false, // automatic hyphenation
+  hyphenation: null, // { minWord, minBefore, minAfter, limit, zone, capitalized } (see model/hyphenate.js)
+  justification: null, // { wordMin/Desired/Max, letterMin/Desired/Max, glyphMin/Desired/Max (%), autoLeading (%), singleWord }
+  composer: 'single', // single: fill line by line | every: choose the breaks of the whole paragraph together
   paraStyle: null, // paragraph style id (doc.root.paraStyles) the attributes came from
 });
 

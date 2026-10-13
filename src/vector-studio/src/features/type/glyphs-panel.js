@@ -197,7 +197,8 @@ export class GlyphsPanel extends Panel {
     const fam = cur && cur.fontFamily !== MIXED ? cur.fontFamily : null;
     const face = cur && cur.fontWeight !== MIXED && cur.fontStyle !== MIXED ? { weight: cur.fontWeight, style: cur.fontStyle } : { weight: 400, style: 'normal' };
     const key = fam ? `${fam}|${face.weight}|${face.style}` : null;
-    if (key && key !== this.followed) {
+    const follow = this.app.prefs.get('glyphsFollow') !== false;
+    if (key && key !== this.followed && (follow || !this.family)) {
       this.followed = key;
       this.pickFont(fam, face);
     } else if (!this.family) this.pickFont(allFamilies()[0]?.family || 'Inter', null);
@@ -249,6 +250,7 @@ export class GlyphsPanel extends Panel {
   setFilter(f) {
     this.filter = f;
     this.focus = null;
+    if (this.show && [...this.show.options].some((o) => o.value === f)) this.show.value = f;
     this.render();
   }
 
@@ -264,6 +266,28 @@ export class GlyphsPanel extends Panel {
     this.el.style.setProperty('--gl-cell', `${this.zoom}px`);
     this.zoomOut.disabled = this.zoom === ZOOMS[0];
     this.zoomIn.disabled = this.zoom === ZOOMS[ZOOMS.length - 1];
+  }
+
+  menu() {
+    const recent = this.app.prefs.get('glyphsRecent') || [];
+    return [
+      { label: 'Show', submenu: CATEGORIES.map(([v, l]) => ({ label: l, checked: this.filter === v, run: () => this.setFilter(v) })) },
+      '-',
+      { label: 'Insert Glyph', enabled: this.focus != null && Boolean(this.font && session(this.app)), run: () => this.insert(this.focus) },
+      { label: 'Follow the Selected Text', checked: this.app.prefs.get('glyphsFollow') !== false, run: () => this.app.prefs.set('glyphsFollow', this.app.prefs.get('glyphsFollow') === false) },
+      '-',
+      { label: 'Smaller Glyphs', enabled: this.zoom > ZOOMS[0], run: () => this.setZoom(-1) },
+      { label: 'Larger Glyphs', enabled: this.zoom < ZOOMS[ZOOMS.length - 1], run: () => this.setZoom(1) },
+      '-',
+      {
+        label: 'Clear Recently Used Glyphs',
+        enabled: recent.length > 0,
+        run: () => {
+          this.app.prefs.set('glyphsRecent', []);
+          this.renderRecent();
+        },
+      },
+    ];
   }
 
   /** Glyph indexes the current filter shows. */
