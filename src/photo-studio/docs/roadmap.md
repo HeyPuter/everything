@@ -174,9 +174,9 @@ Status: `[ ]` planned, `[x]` done.
 
 ## Assistant and generation
 
-- [ ] Assistant panel: describe an edit in words; the assistant plans it as registry commands, shows each step and runs it as one undoable change
-- [ ] Describe-an-edit box on the start screen (opens the image and hands the prompt to the assistant)
-- [ ] Generation History panel: every AI result with its prompt and settings, reusable as a new layer or a starting point
+- [x] Assistant panel: describe an edit in words; the assistant plans it as registry commands, shows each step and runs it as one undoable change
+- [x] Describe-an-edit box on the start screen (opens the image and hands the prompt to the assistant)
+- [x] Generation History panel: every AI result with its prompt and settings, reusable as a new layer or a starting point
 
 ## Portrait and restoration filters
 
@@ -191,8 +191,9 @@ Status: `[ ]` planned, `[x]` done.
 
 ## Remaining parity items
 
-- [ ] View: Actual Size, sRGB and legacy Mac RGB proof presets, separate canvas and artboard guides, New Guides From Shape, show mesh and pins, pattern tile bounds
-- [ ] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
-- [ ] Layer: Convert to Linked, mask edge enhancement; Edit → Rotate Object
-- [ ] Help: What's New and hands-on tutorials (guided tours of real tasks)
+- [x] View: Actual Size, sRGB and legacy Mac RGB proof presets, separate canvas and artboard guides, New Guides From Shape, show mesh and pins, pattern tile bounds
+- [x] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
+- [x] Layer: Convert to Linked, Refine Mask Edge
+- [ ] Rotate Object (turning a flat object in depth): not planned; it needs a generative model that understands 3D shape
+- [x] Help: What's New and hands-on tutorials (guided tours of real tasks)
 - [x] Audio tracks on the video timeline (import, mix, render with sound)
