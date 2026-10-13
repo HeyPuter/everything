@@ -26,9 +26,26 @@ export function createOutlineView(ctx) {
   let dirty = false;
   let typing = false;
   let inflight = 0;
+  let titleHints = new Map();
   let timer = null;
   let committing = Promise.resolve();
   const pres = () => ctx.doc().pres;
+  // The deck's outline, read again only when a slide changed: choosing a
+  // slide redraws the editor without changing any.
+  let cached = { xml: [], outline: null };
+  function outlineOfDeck() {
+    const xml = P.getSlides(pres()).map(
+      (s) => P.getSlidePartName(s) + "\u0000" + P.getSlideXmlString(s),
+    );
+    if (
+      cached.outline &&
+      xml.length === cached.xml.length &&
+      xml.every((x, i) => x === cached.xml[i])
+    )
+      return cached.outline;
+    cached = { xml, outline: readOutline(pres()) };
+    return cached.outline;
+  }
   const plaintext = (() => {
     const probe = document.createElement("div");
     try {
@@ -66,7 +83,7 @@ export function createOutlineView(ctx) {
     pane = null;
   }
   function load() {
-    rows = rowsFromOutline(readOutline(pres()));
+    rows = rowsFromOutline(outlineOfDeck());
   }
 
   // The slide each row belongs to: the index of its title row.
@@ -87,7 +104,15 @@ export function createOutlineView(ctx) {
 
   function render(focus = null) {
     if (!pane) return;
-    const hidden = new Map(readOutline(pres()).map((s) => [s.part, s.hidden]));
+    const slides = new Map(outlineOfDeck().map((s) => [s.part, s]));
+    const hidden = new Map([...slides].map(([part, s]) => [part, s.hidden]));
+    // A slide without a title placeholder gets one when a title is typed.
+    titleHints = new Map(
+      [...slides].map(([part, s]) => [
+        part,
+        s.hasTitle ? "Slide title" : "Add a title",
+      ]),
+    );
     const current = P.getSlidePartName(ctx.currentSlide());
     const nodes = [];
     let slideNode = null;
@@ -169,7 +194,8 @@ export function createOutlineView(ctx) {
         "aria-label": label,
         spellcheck: "true",
         "data-row": String(i),
-        "data-placeholder": row.level === 0 ? "Slide title" : "",
+        "data-placeholder":
+          row.level === 0 ? titleHints.get(row.part) || "Slide title" : "",
       },
       row.text,
     );
@@ -414,7 +440,7 @@ export function createOutlineView(ctx) {
     // Typing still to be saved, or a later save of the outline already on
     // its way, is newer than the deck shown.
     if (dirty || inflight > 1) return;
-    const next = rowsFromOutline(readOutline(pres()));
+    const next = rowsFromOutline(outlineOfDeck());
     // The deck reads a body holding one empty paragraph as no body; the
     // empty line just started here is kept.
     const local = rows.filter(

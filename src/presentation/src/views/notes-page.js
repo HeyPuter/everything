@@ -226,11 +226,9 @@ export function createNotesPage(ctx) {
     for (const part of [...timers.keys()]) flush(part);
   }
 
+  // Page Up and Page Down go from page to page, from the notes too.
   function keydown(e) {
     if (e.key !== "PageDown" && e.key !== "PageUp") return;
-    if (e.target.matches("textarea") && !e.ctrlKey && !e.metaKey) {
-      // In the notes, Page Up and Down still go to the next page.
-    }
     e.preventDefault();
     const all = slides();
     const i = all.findIndex(

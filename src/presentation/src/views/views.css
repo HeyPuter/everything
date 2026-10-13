@@ -266,6 +266,7 @@
 .notes-page {
   position: relative;
   flex: none;
+  scroll-margin: 24px;
   width: var(--notes-page-width);
   height: var(--notes-page-height);
   background: #fff;
