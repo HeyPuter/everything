@@ -383,7 +383,7 @@ export function selectionBounds(doc, ids, visual = false) {
  * plain move, so rotating, skewing, reflecting or scaling the object turns,
  * slants and stretches its gradient along with it.
  */
-function transformPaint(paint, m, bounds, opts = {}) {
+export function transformPaint(paint, m, bounds, opts = {}) {
   // Pattern paints carry their own pattern-to-document matrix; Transform Patterns off leaves it put.
   if (paint?.type === 'pattern') return opts.transformPatterns === false ? paint : { ...paint, transform: multiply(m, paint.transform || [1, 0, 0, 1, 0, 0]) };
   if (!paint || (paint.type !== 'linear' && paint.type !== 'radial')) return paint;
@@ -518,14 +518,15 @@ function transformShapeParams(shape, m, opts) {
 
 /**
  * Properties that feature modules keep in step with an object's transform
- * (e.g. a linked opacity mask): fn(node, m, opts) -> patch or null, merged
- * into the node's patch whenever the node itself is transformed.
+ * (e.g. a linked opacity mask): fn(node, m, opts, doc) -> patch or null,
+ * merged into the node's patch whenever the node itself is transformed
+ * (`doc` resolves the node's children as they were before the transform).
  */
 export const transformHooks = [];
 
-function hookPatches(node, m, opts, out) {
+function hookPatches(node, m, opts, out, doc) {
   for (const fn of transformHooks) {
-    const p = fn(node, m, opts);
+    const p = fn(node, m, opts, doc);
     if (p) out.set(node.id, { ...out.get(node.id), ...p });
   }
 }
@@ -605,7 +606,7 @@ export function transformPatches(doc, node, m, opts = {}, out = new Map()) {
       break;
     }
   }
-  if (transformHooks.length) hookPatches(node, m, opts, out);
+  if (transformHooks.length) hookPatches(node, m, opts, out, doc);
   return out;
 }
 
@@ -685,7 +686,7 @@ export function transformFromOriginals(doc, originals, m, opts = {}) {
       if ('frameAngle' in fp || lp) patches.set(n.id, { ...fp, ...lp });
     }
   }
-  if (transformHooks.length) for (const n of originals.values()) hookPatches(n, inner.get(n.id) || m, opts, patches);
+  if (transformHooks.length) for (const n of originals.values()) hookPatches(n, inner.get(n.id) || m, opts, patches, view);
   // A drag back to a plain move restores the original frame angle a previous step changed.
   for (const n of originals.values()) {
     const p = patches.get(n.id);

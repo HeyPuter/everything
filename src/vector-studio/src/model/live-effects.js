@@ -12,6 +12,8 @@
  * items, or null while its result is still being computed), and the effects
  * after it apply to those.
  */
+// Appearance stacks are tried before group effects (a group's stack hands its effects to its contents).
+import './appearance.js';
 import { registerLive, virtualId, liveDef, liveArtwork } from './live.js';
 import { geomEffectsOf, geomEffectDef, geomEffectsToken, effectiveSubpaths, paintParts } from './geom-effects.js';
 import { nodeBounds, unionRect } from './geometry.js';
