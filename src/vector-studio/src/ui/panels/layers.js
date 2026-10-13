@@ -66,7 +66,7 @@ function thumbnail(doc, node, { defer = null, size: THUMB = 20 } = {}) {
 }
 
 const ROW_H = 28;
-const coarse = () => Boolean(window.matchMedia?.('(pointer: coarse)')?.matches);
+const coarse = () => Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches);
 
 export class LayersPanel extends Panel {
   static id = 'layers';
@@ -163,6 +163,7 @@ export class LayersPanel extends Panel {
     this.deferThumbs = () => {
       clearTimeout(this.thumbTimer);
       this.thumbTimer = setTimeout(() => {
+        if (!this.el.isConnected) return;
         this.thumbsSettled = true;
         try {
           this.renderRows();
