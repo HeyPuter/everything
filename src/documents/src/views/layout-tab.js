@@ -38,7 +38,7 @@ export const PAPER_PRESETS = [
 ];
 export const SECTION_BREAKS = [
   ['nextPage', 'Next Page', 'breakNextPage', 'Start a new section on the next page.'],
-  ['continuous', 'Continuous', 'breakContinuous', 'Start a new section on the same page, for a change of columns or margins.'],
+  ['continuous', 'Continuous', 'breakContinuous', 'Start a new section on the same page.'],
   ['evenPage', 'Even Page', 'breakEvenPage', 'Start a new section on the next even-numbered page.'],
   ['oddPage', 'Odd Page', 'breakOddPage', 'Start a new section on the next odd-numbered page.'],
 ];
