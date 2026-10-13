@@ -9,7 +9,7 @@ import { registerIcons } from '../../ui/icons.js';
 import { viewHooks } from '../../render/canvas-view.js';
 import { PROOFS, proofHooks, applyProof } from '../workspace/view.js';
 import { cmykEngine } from '../../lib/color.js';
-import { documentCmykProfile, separate, simulate } from './color-management.js';
+import { rgbToCmyk, cmykToRgb, nearestPrintable } from '../icc/cms.js';
 import { proofBody, documentCmykLabel } from './proof.js';
 import { colorSettingsDialog, assignProfileDialog, proofCustomizeDialog } from './color-dialogs.js';
 import { drawSeparations, separationState } from './separations.js';
@@ -44,11 +44,15 @@ export function install(app) {
   PROOFS.cmyk.label = (a) => documentCmykLabel(a);
   PROOFS.custom.label = 'Custom';
 
-  // Convert to CMYK separates with the document's press model.
-  cmykEngine.toCmyk = (rgb) => separate([rgb.r / 255, rgb.g / 255, rgb.b / 255], documentCmykProfile(app, app.editor?.doc));
+  // CMYK numbers (Convert to CMYK, the Color panel, imports) come from the ICC transform between the document's profiles.
+  cmykEngine.toCmyk = (rgb) => rgbToCmyk(app, app.editor?.doc, [rgb.r / 255, rgb.g / 255, rgb.b / 255]);
   cmykEngine.toRgb = (cmyk) => {
-    const v = simulate(cmyk, documentCmykProfile(app, app.editor?.doc));
+    const v = cmykToRgb(app, app.editor?.doc, cmyk);
     return { r: v[0] * 255, g: v[1] * 255, b: v[2] * 255 };
+  };
+  cmykEngine.gamut = (rgb) => {
+    const v = nearestPrintable(app, app.editor?.doc, [rgb.r / 255, rgb.g / 255, rgb.b / 255]);
+    return v && { r: v[0] * 255, g: v[1] * 255, b: v[2] * 255 };
   };
 
   app.commands.register([

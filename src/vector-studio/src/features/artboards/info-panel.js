@@ -7,7 +7,7 @@ import { h } from '../../lib/dom.js';
 import { Panel, emptyState } from '../../ui/panels/panel.js';
 import { paintSwatch, updatePaintSwatch } from '../../ui/widgets.js';
 import { formatLength } from '../../lib/units.js';
-import { hexToRgb, rgbToCmyk } from '../../lib/color.js';
+import { hexToRgb, cmykEngine } from '../../lib/color.js';
 import { commonStyle } from '../../ops/paint-ops.js';
 import { measureValues } from './measure-reshape.js';
 
@@ -23,7 +23,8 @@ export function paintInfo(p, mode = 'RGB', doc = null) {
   if (p.type === 'solid') {
     const c = hexToRgb(p.color);
     if (mode === 'CMYK') {
-      const k = rgbToCmyk(c);
+      // Converted colors keep their CMYK numbers; others go through the document's CMYK profile.
+      const k = p.cmyk || cmykEngine.toCmyk(c);
       const r = (v) => Math.round(v);
       return `C ${r(k.c)}%  M ${r(k.m)}%  Y ${r(k.y)}%  K ${r(k.k)}%`;
     }

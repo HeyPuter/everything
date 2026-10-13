@@ -6,7 +6,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToCmyk, cmykToRgb, isHex, normalizeHex, webSafe, clamp } from '../../lib/color.js';
+import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, cmykEngine, isHex, normalizeHex, webSafe, clamp } from '../../lib/color.js';
 import { paintSwatch } from '../../ui/widgets.js';
 
 const SIZE = 256;
@@ -172,7 +172,7 @@ export function openColorPickerDialog(app, { value = '#000000', title = 'Color P
     const hex = current();
     newPrev.style.background = hex;
     const vals = { h: hsb.h, s: hsb.s, v: hsb.v, r: rgb.r, g: rgb.g, b: rgb.b };
-    const cm = rgbToCmyk(rgb);
+    const cm = cmykEngine.toCmyk(rgb);
     for (const f of fields) if (document.activeElement !== f.input) f.input.value = String(Math.round(vals[f.key]));
     for (const f of cmykFields) if (document.activeElement !== f.input) f.input.value = String(Math.round(cm[f.key]));
     if (document.activeElement !== hexInput) hexInput.value = hex.slice(1).toUpperCase();
@@ -208,8 +208,8 @@ export function openColorPickerDialog(app, { value = '#000000', title = 'Color P
     if (HSB_KEYS.includes(key)) setHsb({ ...hsb, [key]: v });
     else if (['r', 'g', 'b'].includes(key)) setRgb({ ...rgb, [key]: v });
     else {
-      const cm = { ...rgbToCmyk(rgb), [key]: v };
-      setRgb(cmykToRgb(cm));
+      const cm = { ...cmykEngine.toCmyk(rgb), [key]: v };
+      setRgb(cmykEngine.toRgb(cm));
     }
     draw();
   };

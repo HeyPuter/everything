@@ -4,7 +4,7 @@
  * '#rrggbb' color to channel values and back, and describes the slider
  * ramps (CSS gradients showing what each channel would do to the color).
  */
-import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToCmyk, cmykToRgb, rgbToGray, grayToRgb, webSafe, clamp } from '../../lib/color.js';
+import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, cmykEngine, rgbToGray, grayToRgb, webSafe, clamp } from '../../lib/color.js';
 
 const pct = (key, label) => ({ key, label, min: 0, max: 100, step: 1, unit: '%' });
 const byte = (key, label) => ({ key, label, min: 0, max: 255, step: 1, unit: '' });
@@ -41,11 +41,12 @@ export const MODES = {
     id: 'cmyk',
     label: 'CMYK',
     channels: [pct('c', 'C'), pct('m', 'M'), pct('y', 'Y'), pct('k', 'K')],
+    // Through the color-managed CMYK conversion (the document's CMYK profile) when color management is installed.
     from: (hex) => {
-      const { c, m, y, k } = rgbToCmyk(hexToRgb(hex));
+      const { c, m, y, k } = cmykEngine.toCmyk(hexToRgb(hex));
       return [c, m, y, k];
     },
-    to: ([c, m, y, k]) => rgbToHex(cmykToRgb({ c: clamp(c, 0, 100), m: clamp(m, 0, 100), y: clamp(y, 0, 100), k: clamp(k, 0, 100) })),
+    to: ([c, m, y, k]) => rgbToHex(cmykEngine.toRgb({ c: clamp(c, 0, 100), m: clamp(m, 0, 100), y: clamp(y, 0, 100), k: clamp(k, 0, 100) })),
   },
   web: {
     id: 'web',

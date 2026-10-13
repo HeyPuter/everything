@@ -88,10 +88,12 @@ export function cmykToRgb({ c, m, y, k }) {
 }
 
 /**
- * The CMYK conversion of Edit > Convert to CMYK: plain by default; color
- * management swaps in the document's press model.
+ * The CMYK conversion of Edit > Convert to CMYK and the Color panel: plain
+ * by default; color management swaps in the document's CMYK profile.
+ * gamut(rgb) returns the closest printable color when rgb cannot print
+ * (null when it can, or without color management).
  */
-export const cmykEngine = { toCmyk: rgbToCmyk, toRgb: cmykToRgb };
+export const cmykEngine = { toCmyk: rgbToCmyk, toRgb: cmykToRgb, gamut: () => null };
 
 /** Grayscale percentage (0 = white, 100 = black) like the Color panel's K slider. */
 export function rgbToGray({ r, g, b }) {

@@ -208,7 +208,9 @@ function simulateRel(c, plates) {
 function separateExact(c, rgb, blackMap = true) {
   const p = c.p;
   const t = [0, 1, 2].map((i) => (blackMap ? c.blackRel[i] + clamp01(rgb[i]) * (1 - c.blackRel[i]) : clamp01(rgb[i])));
-  const gray = 1 - Math.max(clamp01(rgb[0]), clamp01(rgb[1]), clamp01(rgb[2]));
+  // Black generation follows the gray component measured from the press black up to the paper.
+  const rel = [0, 1, 2].map((i) => clamp01((t[i] - c.blackRel[i]) / Math.max(1e-6, 1 - c.blackRel[i])));
+  const gray = 1 - Math.max(rel[0], rel[1], rel[2]);
   const k = Math.min(p.kmax, c.start >= 1 ? 0 : c.start < 0 ? gray * p.kmax : gray * p.kmax * clamp01((gray - c.start) / (1 - c.start)));
   const ka = dotGain(k, p.gain);
   const kf = c.absorb[3].map((ab) => 1 - ka * ab);
@@ -373,6 +375,7 @@ export const DEFAULT_COLOR_SETTINGS = Object.freeze({
   policyRgb: 'preserve',
   policyCmyk: 'preserveNumbers',
   askOpen: false,
+  askPaste: false,
   askMissing: false,
   intent: 'relative',
   bpc: true,
@@ -381,9 +384,9 @@ export const DEFAULT_COLOR_SETTINGS = Object.freeze({
 /** Named color settings (presets). Values override the defaults. */
 export const COLOR_SETTING_PRESETS = {
   general: { label: 'General Purpose (print and screen)', values: {} },
-  prepress: { label: 'Commercial Prepress', values: { cmyk: 'coatedSheet', policyCmyk: 'preserve', askOpen: true, askMissing: true } },
+  prepress: { label: 'Commercial Prepress', values: { cmyk: 'coatedSheet', policyCmyk: 'preserve', askOpen: true, askPaste: true, askMissing: true } },
   uncoated: { label: 'Uncoated Print', values: { cmyk: 'uncoated' } },
-  news: { label: 'Newspaper', values: { cmyk: 'newsprint', policyCmyk: 'preserve', askOpen: true, askMissing: true } },
+  news: { label: 'Newspaper', values: { cmyk: 'newsprint', policyCmyk: 'preserve', askOpen: true, askPaste: true, askMissing: true } },
   screen: { label: 'Screen and Web', values: { policyRgb: 'convert', policyCmyk: 'preserve', intent: 'perceptual' } },
   wide: { label: 'Wide Gamut Displays', values: { rgb: 'p3', intent: 'perceptual' } },
   unmanaged: { label: 'Monitor Color (unmanaged)', values: { rgb: 'monitor', cmyk: 'basic', policyRgb: 'off', policyCmyk: 'off', bpc: false } },
@@ -418,7 +421,7 @@ export function normalizeColorSettings(v = {}) {
   if (!['off', 'preserve', 'convert'].includes(out.policyRgb)) out.policyRgb = DEFAULT_COLOR_SETTINGS.policyRgb;
   if (!POLICIES[out.policyCmyk]) out.policyCmyk = DEFAULT_COLOR_SETTINGS.policyCmyk;
   if (!INTENTS[out.intent]) out.intent = DEFAULT_COLOR_SETTINGS.intent;
-  for (const k of ['askOpen', 'askMissing', 'bpc']) out[k] = Boolean(out[k]);
+  for (const k of ['askOpen', 'askPaste', 'askMissing', 'bpc']) out[k] = Boolean(out[k]);
   out.preset = matchPreset(out);
   return out;
 }

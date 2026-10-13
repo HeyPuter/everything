@@ -57,7 +57,7 @@ export function invertCurve(curve) {
 
 // ---- lookup tables ----
 
-/** Multilinear interpolation in a CLUT; x (0..1 per input) -> out. */
+/** Interpolation in a CLUT (tetrahedral for three inputs, multilinear otherwise); x (0..1 per input) -> out. */
 export function clutEval(clut, x, out = new Float64Array(clut.outputs)) {
   const { grid, inputs, outputs, data } = clut;
   let strides = clut._strides;
@@ -70,6 +70,7 @@ export function clutEval(clut, x, out = new Float64Array(clut.outputs)) {
     }
     clut._strides = strides;
   }
+  if (inputs === 3) return clutTetra(clut, strides, x, out);
   const base = new Array(inputs);
   const frac = new Array(inputs);
   let origin = 0;
@@ -95,6 +96,41 @@ export function clutEval(clut, x, out = new Float64Array(clut.outputs)) {
     }
     if (!w) continue;
     for (let o = 0; o < outputs; o++) out[o] += w * data[off + o];
+  }
+  return out;
+}
+
+function clutTetra(clut, strides, x, out) {
+  const { grid, outputs, data } = clut;
+  let c0 = 0;
+  const r = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const n1 = grid[i] - 1;
+    const p = clamp01(x[i]) * n1;
+    const i0 = Math.min(n1 - 1, Math.floor(p));
+    r[i] = p - i0;
+    c0 += i0 * strides[i];
+  }
+  const [sx, sy, sz] = strides;
+  const [rx, ry, rz] = r;
+  let a;
+  let b;
+  let ra;
+  let rb;
+  let rc;
+  if (rx >= ry) {
+    if (ry >= rz) [a, b, ra, rb, rc] = [sx, sx + sy, rx, ry, rz];
+    else if (rx >= rz) [a, b, ra, rb, rc] = [sx, sx + sz, rx, rz, ry];
+    else [a, b, ra, rb, rc] = [sz, sx + sz, rz, rx, ry];
+  } else if (rz >= ry) [a, b, ra, rb, rc] = [sz, sy + sz, rz, ry, rx];
+  else if (rz >= rx) [a, b, ra, rb, rc] = [sy, sy + sz, ry, rz, rx];
+  else [a, b, ra, rb, rc] = [sy, sx + sy, ry, rx, rz];
+  const c3 = c0 + sx + sy + sz;
+  for (let o = 0; o < outputs; o++) {
+    const v0 = data[c0 + o];
+    const v1 = data[c0 + a + o];
+    const v2 = data[c0 + b + o];
+    out[o] = v0 + ra * (v1 - v0) + rb * (v2 - v1) + rc * (data[c3 + o] - v2);
   }
   return out;
 }

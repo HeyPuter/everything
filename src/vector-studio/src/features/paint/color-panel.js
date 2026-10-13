@@ -13,7 +13,7 @@ import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { applyStyle, swapFillStroke, defaultFillStroke } from '../../ops/paint-ops.js';
-import { isHex, normalizeHex, invert, complement, webSafe } from '../../lib/color.js';
+import { isHex, normalizeHex, invert, complement, webSafe, cmykEngine, hexToRgb, rgbToHex } from '../../lib/color.js';
 import { MODES, MODE_IDS, spectrumColor, isWebSafe } from './color-modes.js';
 import { colorSliders, miniFillStroke, focusedPaint, displayColor, setFocusedColor, gestureKey, paintState } from './ui-common.js';
 import { isGradient } from '../../model/gradients.js';
@@ -60,6 +60,12 @@ export class ColorPanel extends Panel {
       this.coalesce = gestureKey('color');
       this.apply(webSafe(this.current));
     }, { className: 'small cp-web-warn' });
+    this.gamutWarn = iconButton('gamut-warning', 'Out of Gamut Warning: this color cannot print in the document’s CMYK profile; click to use the closest printable color', () => {
+      const near = app.editor && cmykEngine.gamut(hexToRgb(this.current));
+      if (!near) return;
+      this.coalesce = gestureKey('color');
+      this.apply(rgbToHex(near));
+    }, { className: 'small cp-web-warn cp-gamut-warn' });
     this.recent = recentColorsRow(app);
     this.swapBtn = iconButton('swap-fill-stroke', 'Swap Fill and Stroke', () => app.editor && swapFillStroke(app.editor), { className: 'small cp-mini-btn', size: 12 });
     this.defaultBtn = iconButton('default-fill-stroke', 'Default Fill and Stroke', () => app.editor && defaultFillStroke(app.editor), { className: 'small cp-mini-btn', size: 12 });
@@ -124,7 +130,7 @@ export class ColorPanel extends Panel {
     this.el.append(
       this.recent.el,
       h('div.cp-top', h('div.cp-fs', this.fs.el, h('div.cp-fs-btns', this.defaultBtn, this.swapBtn)), h('div.cp-right.cp-options', h('div.cp-modebar', this.modeSel), this.sliders.el)),
-      h('div.cp-hexrow.cp-options', h('label.cp-hexlabel', '#'), this.hex, this.webWarn),
+      h('div.cp-hexrow.cp-options', h('label.cp-hexlabel', '#'), this.hex, this.gamutWarn, this.webWarn),
       this.tintRow,
       this.stopNote,
       h('div.cp-specrow', this.chips, this.spectrum),
@@ -258,6 +264,9 @@ export class ColorPanel extends Panel {
     if (document.activeElement !== this.hex) this.hex.value = mixed ? '' : color.slice(1).toUpperCase();
     this.hex.placeholder = mixed ? 'Mixed' : '';
     this.webWarn.hidden = isWebSafe(color) || mixed;
+    // CMYK work: warn about colors the document's CMYK profile cannot print.
+    const cmykWork = this.mode === 'cmyk' || ed.doc.root.colorMode === 'CMYK';
+    this.gamutWarn.hidden = !cmykWork || none || mixed || !cmykEngine.gamut(hexToRgb(color));
     const linked = this.linkedSwatch();
     this.tintRow.hidden = !linked;
     if (linked) {

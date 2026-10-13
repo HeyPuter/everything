@@ -12,7 +12,7 @@
 import { colorSettings, documentCmykProfile, documentRgbSpace, profileLabel, cmykProfile, profileColors, blackPoint as pressBlackPoint } from '../prepress/color-management.js';
 import { profileEntry, profileModel, transformBetween, listProfiles } from './profiles.js';
 import { chainTransforms } from './transform.js';
-import { pcsToSrgb, clamp01 } from './math.js';
+import { pcsToSrgb, clamp01, deltaE, xyzToLab } from './math.js';
 
 export const DISPLAY_PROFILE = 'srgb';
 const FALLBACK = { RGB: 'srgb', CMYK: 'coatedWeb', Gray: 'gray22' };
@@ -74,6 +74,21 @@ export function cmykToRgb(app, doc, cmyk, overrides) {
   return t ? t.convert(v) : [0, 1, 2].map((i) => (1 - v[i]) * (1 - v[3]));
 }
 
+/**
+ * The closest color the document's CMYK profile prints, when `rgb` (document
+ * RGB, 0..1) is out of its gamut (more than `tolerance` delta E away after
+ * the round trip); null when it prints.
+ */
+export function nearestPrintable(app, doc, rgb, tolerance = 4) {
+  const opts = conversionOptions(app);
+  const to = rgbToCmykTransform(app, doc, opts);
+  const back = cmykToRgbTransform(app, doc, opts);
+  if (!to || !back) return null;
+  const out = back.convert(to.convert(rgb));
+  const src = profileModel(docRgbProfile(app, doc)).toPcs('relative');
+  return deltaE(xyzToLab(src(rgb)), xyzToLab(src(out))) > tolerance ? out : null;
+}
+
 /** Convert values between two profile ids; null when either is unusable. */
 export function convertValues(values, src, dst, opts = {}) {
   const t = transformBetween(src, dst, opts);
@@ -91,8 +106,12 @@ export function convertValues(values, src, dst, opts = {}) {
  *   black    show the device's real black (no black point compensation)
  *   preserve RGB devices: show the numbers as the device would (no conversion)
  */
-export function proofTransform(app, doc, { device, intent = 'relative', bpc = true, paper = false, black = false, preserve = false }) {
-  const src = docRgbProfile(app, doc);
+export function proofTransform(app, doc, opts) {
+  return deviceProofTransform(docRgbProfile(app, doc), opts.device, opts);
+}
+
+/** The proof transform from RGB profile `src` (see proofTransform). */
+export function deviceProofTransform(src, device, { intent = 'relative', bpc = true, paper = false, black = false, preserve = false } = {}) {
   if (device.kind === 'rgb') {
     const dev = usableProfile(device.id, 'RGB');
     const show = transformBetween(dev, DISPLAY_PROFILE, { intent: 'relative' });
