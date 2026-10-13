@@ -155,9 +155,14 @@ async function buildDocument(s: Smoke) {
     const { allLayers } = await import('/src/model/document.ts');
     const { defaultDropShadow } = await import('/src/imaging/effects/types.ts');
     const { newLayerComp } = await import('/src/model/layer-comps.ts');
+    const { emptyGrid, writeRect } = await import('/src/model/tiles.ts');
     const pixelId = e.selected;
     await e.runCommand('path.from-selection');
     const shape = allLayers(e.doc.layers).find((l) => l.kind === 'vector')!;
+    // A layer mask with an edge on the embedded object (Refine Mask Edge).
+    const reveal = new Uint8Array(320 * 240);
+    for (let y = 30; y < 210; y++) reveal.fill(255, y * 320 + 40, y * 320 + 280);
+    const maskGrid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 320, height: 240, data: reveal });
     e.command('Smoke fixture', (d) => {
       d.paths = [{ id: 'smoke-path', name: 'Path 1', mask: structuredClone(d.workPath!) }];
       d.guides = [{ orientation: 'vertical', position: 100 }, { orientation: 'horizontal', position: 80 }];
@@ -165,6 +170,7 @@ async function buildDocument(s: Smoke) {
       d.layerComps = [newLayerComp(d, 'Comp 1', { visibility: true, position: true, appearance: true })];
       const target = allLayers(d.layers).find((l) => l.id === shape.id)!;
       target.style = { enabled: true, dropShadow: [defaultDropShadow()] };
+      allLayers(d.layers).find((l) => l.embed)!.maskGrid = maskGrid;
     });
     e.selectLayers([pixelId]);
     await e.runCommand('filter.convert-live');
