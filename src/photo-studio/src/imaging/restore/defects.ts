@@ -14,7 +14,7 @@
 import { denoise, estimateNoise } from '../filters/restore';
 import { minMaxPlane } from '../filters/common';
 import type { Mask8, Progress, RGBA8 } from '../types';
-import { boxMean, clamp, clamp255, dilate, fromYCC, gaussian, hash01, labelComponents, lumaOf, pushPull, toYCC } from './util';
+import { boxMean, clamp, clamp255, dilate, fromYCC, gaussian, hash01, labelComponents, lumaOf, minMax, pushPull, toYCC } from './util';
 
 export type DefectOptions = {
   // 0..100 sensitivity for small specks and for long thin lines.
@@ -39,6 +39,20 @@ export function detectDefects(img: RGBA8, o: DefectOptions): Mask8 {
   for (let i = 0; i < n; i++) hp[i] = Math.max(Y[i] - open[i], close[i] - Y[i]);
   // Texture: the typical top-hat response around each pixel.
   const act = boxMean(hp, w, h, Math.max(3, r * 4 + 2));
+  // Structure: edges of the defect-free background (the opening for bright
+  // defects, the closing for dark ones). Small features at strong edges, such
+  // as the corners of eyes or letters, are image content rather than dust.
+  const edges = (bg: Uint8Array) => {
+    const g = new Float32Array(n);
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        g[i] = Math.max(Math.abs(bg[i + 1] - bg[i - 1]), Math.abs(bg[i + w] - bg[i - w]));
+      }
+    return minMax(g, w, h, r + 1, true);
+  };
+  const eo = edges(open), ec = edges(close);
+  for (let i = 0; i < n; i++) act[i] += 0.35 * (Y[i] - open[i] > close[i] - Y[i] ? eo[i] : ec[i]);
   const noise = estimateNoise(Yf, w, h);
   const thr = (s: number) => 6 + 2.5 * noise + (1 - s / 100) * 46;
   const tDust = o.dust > 0 ? thr(o.dust) : Infinity, tScratch = o.scratches > 0 ? thr(o.scratches) : Infinity;
@@ -129,7 +143,11 @@ export function repairFade(img: RGBA8, amount: number): RGBA8 {
     out.data[i + 2] = lut[2][d[i + 2]];
   }
   const [Y, Cb, Cr] = toYCC(out);
-  const sat = 1 + 0.35 * t;
+  // Saturation comes back only as far as the photo looks washed out.
+  let chroma = 0, c = 0;
+  for (let i = 0; i < n; i += 3) if (d[i * 4 + 3] > 0) (chroma += Math.hypot(Cb[i], Cr[i])), c++;
+  const washed = clamp((20 - chroma / Math.max(1, c)) / 14, 0, 1);
+  const sat = 1 + 0.5 * t * washed;
   for (let i = 0; i < n; i++) {
     Cb[i] *= sat;
     Cr[i] *= sat;

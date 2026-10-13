@@ -38,9 +38,12 @@ export function skinLikelihood(img: RGBA8, tolerance = 50): Plane {
     const e = Math.sqrt(((x - ECX) * (x - ECX)) / (A * A) + ((y - ECY) * (y - ECY)) / (B * B));
     let p = 1 - smoothstep(grow * 0.85, grow * 1.35, e);
     // Very dark and blown-out pixels carry no reliable color.
-    p *= smoothstep(25, 55, Y) * (1 - smoothstep(245, 254, Y));
+    p *= smoothstep(30, 65, Y) * (1 - smoothstep(245, 254, Y));
     // Skin is warm: red above green above blue (with slack for shadows).
     if (!(r > b && r >= g * 0.92)) p *= 0.25;
+    // Hue: skin is about as red as it is yellow; beige and khaki surfaces lean yellow.
+    const yellow = 128 - cb, red = cr - 128;
+    if (yellow > 2) p *= smoothstep(0.72 - tolerance / 500, 0.92 - tolerance / 500, red / yellow);
     out[i] = p;
   }
   return out;
@@ -57,13 +60,19 @@ export function skinMask(img: RGBA8, o: SkinOptions): Mask8 {
   // specks in backgrounds); a region's score is its mean likelihood.
   const bin = new Uint8Array(w * h);
   for (let i = 0; i < bin.length; i++) bin[i] = p[i] > 0.35 ? 1 : 0;
-  const { labels, sizes } = labelComponents(bin, w, h);
+  const { labels, sizes, boxes } = labelComponents(bin, w, h);
   const minArea = Math.max(6, w * h * 0.0015);
-  const keep = sizes.map((s) => s >= minArea);
+  // Regions spanning the frame from side to side are walls, floors or
+  // ground rather than people.
+  const weight = sizes.map((s, k) => {
+    if (s < minArea) return 0.15;
+    const [x0, , x1] = boxes[k];
+    return x0 <= 1 && x1 >= w - 2 ? 0.3 : 1;
+  });
   const region = new Float32Array(w * h);
   for (let i = 0; i < region.length; i++) {
     const l = labels[i];
-    region[i] = l >= 0 && keep[l] ? p[i] : p[i] * 0.15;
+    region[i] = p[i] * (l >= 0 ? weight[l] : 0.15);
   }
   // Fill small holes (pores, specular highlights) but not eyes or mouths.
   const closed = gaussian(region, w, h, Math.max(0.8, Math.min(w, h) * 0.004));

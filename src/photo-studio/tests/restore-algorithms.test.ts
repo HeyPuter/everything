@@ -108,6 +108,19 @@ describe('photo restoration', () => {
     expect(fp / total).toBeLessThan(0.005);
     expect(detectDefects(base, { dust: 60, scratches: 60, size: 4 }).data.filter((v) => v).length).toBeLessThan(W * H * 0.003);
   });
+  it('leaves small image features at strong edges alone', () => {
+    // An eye: a white almond with a dark pupil on skin.
+    const face = image(96, 64, (x, y) => {
+      const v = noisy() - 128;
+      const inEye = ((x - 48) / 12) ** 2 + ((y - 32) / 6) ** 2 < 1;
+      if (Math.hypot(x - 48, y - 32) < 4) return [40 + v, 30 + v, 25 + v];
+      return inEye ? [235 + v, 230 + v, 225 + v] : [210 + v, 160 + v, 130 + v];
+    });
+    const m = detectDefects(face, { dust: 60, scratches: 60, size: 4 });
+    let hits = 0;
+    for (let y = 22; y < 42; y++) for (let x = 32; x < 64; x++) if (m.data[y * 96 + x]) hits++;
+    expect(hits).toBeLessThan(12);
+  });
   it('inpaints defects to match their surroundings', () => {
     const m = detectDefects(damaged, { dust: 60, scratches: 60, size: 4 });
     const out = inpaint(damaged, m);

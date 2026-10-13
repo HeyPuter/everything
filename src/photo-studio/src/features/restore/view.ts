@@ -146,10 +146,13 @@ export class CompareView {
     return [(vx - ox) / this.zoom + this.cx, (vy - oy) / this.zoom + this.cy];
   }
   private drawPic(ctx: CanvasRenderingContext2D, pic: Pic, ox: number, oy: number) {
-    const x = ox - this.cx * this.zoom, y = oy - this.cy * this.zoom;
+    // Whole device pixels at the edges, so no checkerboard shows through.
+    const dpr = window.devicePixelRatio || 1, snap = (v: number) => Math.round(v * dpr) / dpr;
+    const x = snap(ox - this.cx * this.zoom), y = snap(oy - this.cy * this.zoom);
+    const w = snap(ox - this.cx * this.zoom + this.docW * this.zoom) - x, h = snap(oy - this.cy * this.zoom + this.docH * this.zoom) - y;
     ctx.imageSmoothingEnabled = this.zoom * (this.docW / pic.w) < 2;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(pic.canvas, x, y, this.docW * this.zoom, this.docH * this.zoom);
+    ctx.drawImage(pic.canvas, x, y, w, h);
   }
   draw() {
     if (this.disposed) return;
@@ -165,7 +168,8 @@ export class CompareView {
       ctx.clip();
       const ox = pane.x + pane.w / 2, oy = H / 2;
       // Checkerboard under the image so transparency reads as such.
-      const x0 = ox - this.cx * this.zoom, y0 = oy - this.cy * this.zoom, iw = this.docW * this.zoom, ih = this.docH * this.zoom;
+      const snap = (v: number) => Math.round(v * dpr) / dpr;
+      const x0 = snap(ox - this.cx * this.zoom), y0 = snap(oy - this.cy * this.zoom), iw = snap(ox - this.cx * this.zoom + this.docW * this.zoom) - x0, ih = snap(oy - this.cy * this.zoom + this.docH * this.zoom) - y0;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(x0, y0, iw, ih);
       ctx.fillStyle = '#d6d6d6';

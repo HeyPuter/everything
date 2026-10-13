@@ -3,9 +3,10 @@
 //   (large, then small where detail differs), each stroke following the local
 //   edge direction from the structure tensor (after Hertzmann, "Painterly
 //   Rendering with Curved Brush Strokes of Multiple Sizes", SIGGRAPH 1998).
-// - Ink: extended difference-of-Gaussians lines (Winnemöller, Kyprianidis
-//   and Olsen, "XDoG", Computers & Graphics 2012) with a light ink wash.
-// - Pencil: soft XDoG lines over diagonal hatching whose density follows tone.
+// - Ink: difference-of-Gaussians lines (Winnemöller, Olsen and Gooch,
+//   "Real-time video abstraction", SIGGRAPH 2006) over a soft ink wash.
+// - Pencil: soft difference-of-Gaussians lines over diagonal hatching whose
+//   density follows tone, cross-hatched in the darkest areas.
 // - Watercolor: abstraction with a wobbling boundary, darkened pigment at
 //   region edges and paper granulation (after Bousseau et al., "Interactive
 //   watercolor rendering with temporal coherence and abstraction", NPAR 2006).
@@ -91,6 +92,7 @@ function painterly(img: RGBA8, s: number, seed: number, progress?: Progress): RG
       }
     strokes.sort((p, q) => p.k - q.k);
     const half = Math.max(0.6, size / 2);
+    const bristles = new Float32Array(Math.ceil(half * 4) + 4);
     for (const st of strokes) {
       const i0 = st.y * w + st.x, t = theta[i0];
       const len = size * (1.6 + 1.6 * st.k), ux = Math.cos(t), uy = Math.sin(t);
@@ -98,16 +100,19 @@ function painterly(img: RGBA8, s: number, seed: number, progress?: Progress): RG
       const ax = st.x - (ux * len) / 2, ay = st.y - (uy * len) / 2;
       const x0 = Math.max(0, Math.floor(Math.min(ax, ax + ux * len) - half - 1)), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, ax + ux * len) + half + 1));
       const y0 = Math.max(0, Math.floor(Math.min(ay, ay + uy * len) - half - 1)), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, ay + uy * len) + half + 1));
+      // Bristle streaks: brightness varies across the stroke.
+      const nb = Math.ceil(half * 4) + 4;
+      for (let k = 0; k < nb; k++) bristles[k] = (hash01(seed + 3, k, st.x * 31 + st.y) - 0.5) * 0.06;
+      const outer = (half + 0.7) * (half + 0.7);
       for (let y = y0; y <= y1; y++)
         for (let x = x0; x <= x1; x++) {
           const px = x - ax, py = y - ay;
           const along = clamp(px * ux + py * uy, 0, len);
-          const dx = px - ux * along, dy = py - uy * along, dist = Math.hypot(dx, dy);
-          const cov = smoothstep(half + 0.7, half - 0.7, dist) * 0.92;
-          if (cov <= 0) continue;
-          // Bristle streaks: brightness varies across the stroke.
+          const dx = px - ux * along, dy = py - uy * along, d2 = dx * dx + dy * dy;
+          if (d2 >= outer) continue;
+          const cov = smoothstep(half + 0.7, half - 0.7, Math.sqrt(d2)) * 0.92;
           const across = dx * -uy + dy * ux;
-          const bristle = (hash01(seed + 3, Math.round(across * 2 + half * 2), st.x * 31 + st.y) - 0.5) * 0.06;
+          const bristle = bristles[clamp(Math.round(across * 2 + half * 2) + 1, 0, nb - 1)];
           const i = y * w + x;
           for (let c = 0; c < 3; c++) canvas[c][i] += (col[c] + bristle - canvas[c][i]) * cov;
         }
@@ -123,28 +128,45 @@ function painterly(img: RGBA8, s: number, seed: number, progress?: Progress): RG
   return out;
 }
 
-/** XDoG edge image in [0, 1] (1 = paper, 0 = ink). */
-export function xdog(Y: Plane, w: number, h: number, sigma: number, phi: number, eps: number, p = 20): Plane {
+/** Difference-of-Gaussians lines (Winnemöller, Olsen and Gooch, "Real-time
+ * video abstraction", SIGGRAPH 2006): 1 on paper, falling toward 0 on the
+ * darker side of edges; flat areas stay paper whatever their tone. */
+function dogLines(Y: Plane, w: number, h: number, sigma: number, tau: number, phi: number): Plane {
   const g1 = gaussian(Y, w, h, sigma), g2 = gaussian(Y, w, h, sigma * 1.6);
   const out = new Float32Array(Y.length);
   for (let i = 0; i < out.length; i++) {
-    const u = ((1 + p) * g1[i] - p * g2[i]) / 255;
-    out[i] = u >= eps ? 1 : clamp(1 + Math.tanh(phi * (u - eps)), 0, 1);
+    const d = (g1[i] - tau * g2[i]) / 255;
+    out[i] = d > 0 ? 1 : Math.max(0, 1 + Math.tanh(phi * d));
   }
   return out;
 }
 
+/** Lines of the darkest channel response, so edges between colors of equal
+ * brightness are drawn too. */
+function colorLines(img: RGBA8, pre: number, sigma: number, tau: number, phi: number): Plane {
+  const { width: w, height: h, data: d } = img, n = w * h;
+  let out: Plane | undefined;
+  for (let c = 0; c < 3; c++) {
+    const ch = new Float32Array(n);
+    for (let i = 0; i < n; i++) ch[i] = d[i * 4 + c];
+    const l = dogLines(gaussian(ch, w, h, pre), w, h, sigma, tau, phi);
+    if (!out) out = l;
+    else for (let i = 0; i < n; i++) if (l[i] < out[i]) out[i] = l[i];
+  }
+  return out!;
+}
+
 function ink(img: RGBA8, s: number): RGBA8 {
   const { width: w, height: h, data: d } = img, n = w * h;
-  const Y = lumaOf(img);
-  const sm = gaussian(Y, w, h, Math.max(0.5, s * 0.15));
-  const lines = xdog(sm, w, h, Math.max(0.6, s * 0.18), 18, 0.42);
-  const wash = gaussian(Y, w, h, Math.max(1, s * 0.6));
+  const Y = gaussian(lumaOf(img), w, h, Math.max(0.8, s * 0.2));
+  const lines = colorLines(img, Math.max(0.8, s * 0.2), Math.max(0.9, s * 0.2), 0.97, 60);
+  const wash = gaussian(Y, w, h, Math.max(1, s * 0.8));
   const out: RGBA8 = { width: w, height: h, data: new Uint8ClampedArray(d.length) };
   const inkC = [26, 26, 34];
   for (let i = 0, j = 0; i < n; i++, j += 4) {
-    // Light wash in three tones under the lines.
-    const t = wash[i] / 255, tone = t > 0.66 ? 1 : t > 0.33 ? 0.82 : 0.6;
+    // A soft two-tone wash under the lines: light areas stay paper.
+    const t = wash[i] / 255;
+    const tone = 1 - 0.3 * (1 - smoothstep(0.3, 0.55, t)) - 0.22 * (1 - smoothstep(0.08, 0.28, t));
     const v = lines[i] * tone;
     for (let c = 0; c < 3; c++) out.data[j + c] = inkC[c] + (PAPER[c] - inkC[c]) * v;
     out.data[j + 3] = d[j + 3];
@@ -152,36 +174,59 @@ function ink(img: RGBA8, s: number): RGBA8 {
   return out;
 }
 
+/** Average of a plane along 45° lines over 2L + 1 pixels (prefix sums along
+ * each diagonal, so the cost does not depend on L). `rising` is the "/" direction. */
+function diagonalMean(p: Plane, w: number, h: number, L: number, rising: boolean): Plane {
+  const out = new Float32Array(p.length);
+  const cum = new Float64Array(Math.max(w, h) + 1);
+  for (let c = 0; c < w + h - 1; c++) {
+    // Cells of diagonal c, in order of x.
+    const x0 = rising ? Math.max(0, c - h + 1) : Math.max(0, c - (h - 1)), x1 = rising ? Math.min(w - 1, c) : Math.min(w - 1, c - (h - 1) + h - 1);
+    const at = (x: number) => (rising ? (c - x) * w + x : (x - (c - (h - 1))) * w + x);
+    const m = x1 - x0 + 1;
+    cum[0] = 0;
+    for (let k = 0; k < m; k++) cum[k + 1] = cum[k] + p[at(x0 + k)];
+    for (let k = 0; k < m; k++) {
+      const lo = Math.max(0, k - L), hi = Math.min(m - 1, k + L);
+      out[at(x0 + k)] = (cum[hi + 1] - cum[lo]) / (hi - lo + 1);
+    }
+  }
+  return out;
+}
+
 function pencil(img: RGBA8, s: number, seed: number): RGBA8 {
   const { width: w, height: h, data: d } = img, n = w * h;
-  const Y = lumaOf(img);
-  const lines = xdog(gaussian(Y, w, h, Math.max(0.4, s * 0.1)), w, h, Math.max(0.5, s * 0.12), 6, 0.5);
+  const Y = gaussian(lumaOf(img), w, h, Math.max(0.6, s * 0.12));
+  const lines = colorLines(img, Math.max(0.6, s * 0.12), Math.max(0.7, s * 0.16), 0.975, 22);
   const tone = gaussian(Y, w, h, Math.max(1, s * 0.5));
-  // Diagonal hatching: noise averaged along a 45° line.
-  const L = Math.max(2, Math.round(s * 2.5));
+  // Hatching: noise streaked along the diagonals; strokes are a little wider
+  // than a pixel so they read as graphite rather than grain.
   const noise = new Float32Array(n);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) noise[y * w + x] = hash01(seed, x, y);
+  const wide = gaussian(noise, w, h, Math.max(0.5, s * 0.08));
+  const L = Math.max(3, Math.round(s * 2.5));
+  const hatchA = diagonalMean(wide, w, h, L, true), hatchB = diagonalMean(wide, w, h, L, false);
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += hatchA[i];
+  mean /= n;
+  let dev = 0;
+  for (let i = 0; i < n; i += 7) dev += (hatchA[i] - mean) ** 2;
+  const sd = Math.sqrt(dev / Math.ceil(n / 7)) || 1;
   const out: RGBA8 = { width: w, height: h, data: new Uint8ClampedArray(d.length) };
-  const lead = [58, 58, 62];
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      let sum = 0, c = 0;
-      for (let k = -L; k <= L; k += 1) {
-        const xx = x + k, yy = y - k;
-        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-        sum += noise[yy * w + xx];
-        c++;
-      }
-      const streak = (sum / Math.max(1, c) - 0.5) * Math.sqrt(c) * 0.9 + 0.5;
-      const dark = 1 - tone[i] / 255;
-      const hatch = streak < dark * 0.95 ? 0.35 + 0.65 * (1 - dark) : 1;
-      const paper = 0.97 + 0.03 * hash01(seed + 5, x >> 1, y >> 1);
-      const v = Math.min(lines[i], hatch) * paper;
-      const j = i * 4;
-      for (let k = 0; k < 3; k++) out.data[j + k] = lead[k] + (PAPER[k] - lead[k]) * v;
-      out.data[j + 3] = d[j + 3];
-    }
+  const lead = [62, 62, 68];
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    const dark = 1 - tone[i] / 255;
+    // Stroke coverage grows with darkness; the darkest areas get cross-hatching.
+    const za = (hatchA[i] - mean) / sd, zb = (hatchB[i] - mean) / sd;
+    const density = smoothstep(0.28, 0.9, dark), cross = smoothstep(0.6, 0.95, dark);
+    const a = za > 2.4 - 3.2 * density ? 0.55 + 0.45 * (1 - density) : 1;
+    const b = zb > 2.4 - 3.2 * cross ? 0.6 : 1;
+    const x = i % w, y = (i - x) / w;
+    const paper = 0.97 + 0.03 * hash01(seed + 5, x >> 1, y >> 1);
+    const v = Math.min(lines[i], a * b) * paper;
+    for (let k = 0; k < 3; k++) out.data[j + k] = lead[k] + (PAPER[k] - lead[k]) * v;
+    out.data[j + 3] = d[j + 3];
+  }
   return out;
 }
 

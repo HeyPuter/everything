@@ -148,6 +148,7 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
     maybeFull();
     updateBefore();
   };
+  zoomEl.textContent = `${Math.round(view.zoom * 1000) / 10}%`;
   const preview = new RestoreClient('preview'), full = new RestoreClient('full');
   preview.load(src.image, src.selection);
   full.load(src.image, src.selection);
