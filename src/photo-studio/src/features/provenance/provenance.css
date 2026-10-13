@@ -26,8 +26,10 @@
 .prov-prompt { font-style: italic; color: var(--muted); }
 .prov-empty, .prov-more { margin: 8px 0; }
 .prov-timeline code { font-size: 10px; }
-.inspect-provenance { width: min(720px, calc(100vw - 32px)); }
-.inspect-provenance .prov-report { max-height: min(60vh, 520px); overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.inspect-provenance { width: min(720px, calc(100vw - 32px)); max-width: none; }
+.inspect-provenance .prov-report { max-height: min(60vh, 520px); overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--surface2); }
+.inspect-provenance .prov-report:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.inspect-provenance .prov-report:focus:not(:focus-visible) { outline: none; }
 .inspect-provenance h3 { margin: 4px 0; font-size: 12px; }
 .inspect-provenance .prov-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .inspect-provenance .prov-check { display: flex; gap: 6px; align-items: baseline; }

@@ -115,6 +115,9 @@ test.describe('Provenance', () => {
     await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Valid', 'Intact', 'Bound']);
     await expect(dialog).toContainText('self-signed');
     await expect(dialog.locator('.prov-timeline')).toContainText('Invert');
+    // A report: Done and Inspect Another, no Cancel; wider than a plain dialog.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+    expect((await dialog.boundingBox())!.width).toBeGreaterThan(600);
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toHaveCount(0);
     await idle(page);

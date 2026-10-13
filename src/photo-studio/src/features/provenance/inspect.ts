@@ -60,7 +60,15 @@ export async function inspectFile(e: Editor, file?: File | null) {
   if (!file) return;
   if (file.size > 512 * 1024 * 1024) throw new Error('The file is larger than 512 MB.');
   const { html } = await reportHtml(file.name, new Uint8Array(await file.arrayBuffer()));
-  const done = await modal({ title: 'Provenance', className: 'inspect-provenance', body: `<div class="prov-report">${html}</div>`, submit: 'Done', extra: [{ id: 'another', label: 'Inspect Another…' }] });
+  const done = await modal({
+    title: 'Provenance',
+    className: 'inspect-provenance',
+    body: `<div class="prov-report">${html}</div>`,
+    submit: 'Done',
+    extra: [{ id: 'another', label: 'Inspect Another…' }],
+    // A report, not a form: Done (or Escape) closes it, so no Cancel.
+    bind: (d) => d.querySelector('[data-act="cancel"]')?.remove(),
+  });
   done?.close();
   if (done?.action === 'another') await inspectFile(e);
 }
