@@ -156,7 +156,7 @@ export function writePageFieldResult(field, resultNodes, doc, readInstruction = 
   const end = source.findIndex(n => delimiter(n, 'end'));
   if (end !== source.length - 1 || end < 0) throw new Error('Invalid retained page field end.');
   const opening = source.slice(0, separate < 0 ? end : separate + 1).map(n => doc.importNode(n, true));
-  if (separate < 0 && field.type !== 'XE') {
+  if (separate < 0 && !['XE', 'TA', 'TC'].includes(field.type)) {
     const run = doc.createElementNS(W, 'w:r'), marker = doc.createElementNS(W, 'w:fldChar');
     marker.setAttributeNS(W, 'w:fldCharType', 'separate'); run.append(marker); opening.push(run);
   }

@@ -312,6 +312,18 @@ export const COMMAND_ICONS = {
   tableOfFigures: picture(2.5, 2.5, 7, 5.5) + p('M11.5 4.5h6M11.5 7h4M2.5 10.5h15M2.5 13.5h15M2.5 16.5h9', 'o'),
   markEntry: p('M3.5 5.5h13M3.5 9.5h13', 'o') + r(3.5, 12, 8, 5, 'ys', 1.2) + p('M5.5 14.5h4', 'o'),
   index: r(4.5, 2.5, 11, 15, 'of') + t(10, 9.5, 'A', 5, { weight: 700, c: 'txb' }) + lines(7, 12, 6, 3, 2),
+  // A note page with the corner arrow the dialog launchers draw.
+  noteSettings: r(2.5, 2.5, 11, 13, 'of') + lines(4.5, 6, 7, 2, 2.5) + p('M4.5 12h4', 'b') + r(10.5, 10.5, 7, 7, 'bf') + p('M12.8 12.8l2.8 2.8M15.6 13.2v2.4h-2.4', 'b'),
+  // A magnifier with a small spark: look something up.
+  smartLookup: magnifier(8.5, 9, 5) + p('M15 2.5l.9 1.9 1.9.9-1.9.9-.9 1.9-.9-1.9-1.9-.9 1.9-.9z', 'ys'),
+  // Two source cards, the front one ruled.
+  manageSources: r(2.5, 2.5, 10, 12, 'of') + r(6.5, 5.5, 11, 12, 'bf') + lines(8.5, 9.5, 7, 3, 2.5),
+  // Marked text with a quotation tag.
+  markCitation: p('M3.5 4.5h13M3.5 8.5h13', 'o') + r(3.5, 11, 10, 6.5, 'gs', 1.4) + t(8.5, 18.3, '“”', 9, { c: 'txw' }),
+  // A page of entries grouped under a green category line.
+  tableOfAuthorities: sheet(3.5, 2.5, 13, 15) + p('M5.5 6h6', 'g thick') + p('M5.5 9.5h7M5.5 13h5', 'o') + p('M13.5 9.5h1M11.5 13h3', 'o dash'),
+  updateIndex: r(3.5, 2.5, 10, 13, 'of') + t(8.5, 8.6, 'A', 4.5, { weight: 700, c: 'txb' }) + lines(5.5, 11, 5, 2, 2) + refresh,
+  updateAuthorities: sheet(3.5, 2.5, 10, 13) + p('M5.5 6h4', 'g thick') + lines(5.5, 9, 6, 2, 2.5) + refresh,
 
   /* Review */
   spelling: t(8.5, 10, 'abc', 8.5) + p('M7 14l2.5 2.5 6-6', 'g thick'),

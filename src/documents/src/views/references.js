@@ -1,11 +1,18 @@
 /**
- * References and page furniture: table of contents, headers and footers that do not exist yet,
- * and page numbers, offered on the Insert and References tabs. Engine
- * code loads on demand, like the rest of the editor's engine.
+ * The References tab and page furniture: tables of contents and figures, footnotes and endnotes,
+ * citations and bibliography, captions and cross-references, index, table of authorities, Smart
+ * Lookup, plus headers and footers that do not exist yet and page numbers (Insert tab). Each area
+ * lives in its own module; this one wires them to the ribbon, menus and keyboard. Engine code loads
+ * on demand, like the rest of the editor's engine.
  */
 import { openMenu } from '../ui/menu.js';
-import { openModal } from '../ui/modal.js';
-import { el } from '../ui/dom.js';
+import { el, MOD_KEY } from '../ui/dom.js';
+import { createTocCommands } from './references-toc.js';
+import { createNoteCommands } from './references-notes.js';
+import { createCitationCommands } from './references-citations.js';
+import { createIndexCommands } from './references-index.js';
+import { createSmartLookup } from './smart-lookup.js';
+import { check, field, openDialog, select, text } from './references-ui.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -99,133 +106,263 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     ];
   }
 
-  /* ---- Table of contents ---- */
-  async function withBody(action) {
-    const engine = ready(); if (!engine) return;
-    engine.finishComposition();
-    if (engine.session.path !== null) engine.editStory(null);
-    const [toc, refresh] = await Promise.all([import('../engine/toc.js'), import('../engine/page-reference-refresh.js')]);
-    const body = engine.session.body, tracking = body.trackChanges;
-    body.trackChanges = false;
-    try {
-      engine.execute(() => {
-        const result = action(body, toc);
-        refresh.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false });
-        return result;
-      });
-    } finally { body.trackChanges = tracking; }
-    engine.focus(); onChange();
-  }
-  const insertToc = title => withBody((body, toc) => toc.insertTableOfContents(body, { title, existing: toc.tableOfContents(body.paragraphs) }));
-  const hasToc = () => (editor()?.session.body.paragraphs || []).some(p => p.fieldMarkers?.some(m => m.field.type === 'TOC'));
-
-  /* ---- Footnotes ---- */
-  async function insertFootnote() {
-    try {
-      const engine = ready(); if (!engine) return;
-      engine.finishComposition();
-      if (engine.session.path !== null) {
-        if (engine.pageStories?.stories[engine.session.path]?.kind === 'footnote') throw new Error('Footnotes cannot contain other footnotes.');
-        engine.editStory(null);
-      }
-      const { TextDocument, paragraph } = await import('../engine/model.js');
-      const body = engine.session.body, styles = body.styles.definitions || {};
-      const named = (type, name) => Object.values(styles).find(s => s.type === type && s.name?.toLowerCase() === name)?.id;
-      const textStyle = named('paragraph', 'footnote text'), referenceStyle = named('character', 'footnote reference');
-      const note = pkg().addFootnote();
-      if (!engine.execute(() => body.insertFootnoteReference(note.id))) return;
-      // The note opens with its own number mark, then a space, as existing documents start one.
-      const draft = new TextDocument([paragraph('', textStyle ? { styleId: textStyle } : {})], body.pageSettings, body.numbering, body.styles, [], body.assets);
-      const { footnoteOpeningRuns } = await import('../engine/footnotes.js');
-      draft.paragraphs[0].runs = footnoteOpeningRuns(draft.typingRun(0), referenceStyle);
-      if (!textStyle) { draft.select(0, 2); draft.setRunFormat({ fontSize: 10 }); draft.setParagraphFormat({ spaceBefore: 0, spaceAfter: 0, lineRule: 'auto', lineSpacing: 1 }); }
-      engine.attachPageStory(note.path, 'footnote', draft.paragraphs, { footnotes: note.settings, story: { noteId: note.id } });
-      const area = engine.layout.footnoteAreas?.find(a => a.notes.some(n => n.path === note.path));
-      engine.editStory(note.path, area?.page ?? 0);
-      engine.model.select(engine.model.text.length);
-      engine.focus(); engine.revealCaret?.(); onChange();
-    } catch (e) { fail(e); }
-  }
-
-  /* ---- Captions, cross-references and field updates ---- */
-  async function bodyAction(action) {
+  /* ---- Shared plumbing for the References modules ---- */
+  const ENGINE = {
+    toc: () => import('../engine/toc.js'),
+    captions: () => import('../engine/captions.js'),
+    bibliography: () => import('../engine/bibliography-fields.js'),
+    index: () => import('../engine/index-entries.js'),
+    authorities: () => import('../engine/authorities.js'),
+    generated: () => import('../engine/generated-fields.js'),
+  };
+  let pageLookupModule = null;
+  import('../engine/page-lookup.js').then(m => { pageLookupModule = m; }).catch(() => {});
+  /** Printed pages of body positions, from a fresh layout of `body`. */
+  const pageOf = body => {
+    const engine = editor();
+    return pageLookupModule.pageLookup(engine.layoutModel(body), engine.pageStories);
+  };
+  /**
+   * Run `action(body, ...modules)` on the document body as one undo step, without tracking changes,
+   * then refresh page references (all, or `result.only`). Returns the action's result.
+   */
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
-    const [captions, refresh] = await Promise.all([import('../engine/captions.js'), import('../engine/page-reference-refresh.js')]);
-    const ok = engine.execute(() => {
-      const result = action(engine.session.body, captions);
-      refresh.refreshPageReferences(engine.session.body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false });
-      return result;
-    });
-    engine.focus(); onChange(); return ok;
+    const [refreshModule, ...loaded] = await Promise.all([import('../engine/page-reference-refresh.js'), ...modules.map(name => ENGINE[name]())]);
+    if (!pageLookupModule) pageLookupModule = await import('../engine/page-lookup.js');
+    const body = engine.session.body, tracking = body.trackChanges;
+    body.trackChanges = false;
+    let result;
+    try {
+      engine.execute(() => {
+        result = action(body, ...loaded);
+        if (result === false) return false;
+        if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
+        return result;
+      });
+    } finally { body.trackChanges = tracking; }
+    if (!keepFocus) engine.focus();
+    onChange();
+    return result;
   }
+  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
+  const toc = createTocCommands(ctx);
+  const notes = createNoteCommands(ctx);
+  const citations = createCitationCommands(ctx);
+  const indexes = createIndexCommands(ctx);
+  const lookup = createSmartLookup({ editor, error });
+  const hasToc = () => toc.hasToc();
+
+  /* ---- Field updates (F9) ---- */
+  async function noteNumberMaps() {
+    const engine = editor(), notesModule = await import('../engine/footnotes.js');
+    const definition = engine?.pageStories, paragraphs = engine?.session.body.paragraphs || [];
+    const maps = {};
+    for (const kind of ['footnote', 'endnote']) maps[kind] = notesModule.noteNumbers(paragraphs, definition?.[`${kind}s`] || { format: kind === 'footnote' ? 'decimal' : 'lowerRoman' }, kind);
+    return maps;
+  }
+  /** Update every field this editor can evaluate: sequences, references, citations, bibliographies and page numbers. */
   async function updateAllFields() {
+    if (!ready()) return;
     const { updateSequenceFields } = await import('../engine/field-update.js');
-    const issues = [];
-    await bodyAction(body => { updateSequenceFields(body, { onIssue: issue => issues.push(issue) }); return true; });
+    const issues = [], notesMaps = await noteNumberMaps();
+    await runBody(body => { updateSequenceFields(body, { onIssue: issue => issues.push(issue), notes: notesMaps }); return true; });
+    await citations.refreshFields();
     if (issues.length) error(new Error([...new Set(issues.map(issue => issue.message))].join(' ')));
   }
-  function captionDialog() {
+
+  /* ---- Captions ---- */
+  const LABELS_KEY = 'documents.captions.labels';
+  const customLabels = () => { try { const list = JSON.parse(localStorage.getItem(LABELS_KEY) || '[]'); return Array.isArray(list) ? list.filter(l => typeof l === 'string') : []; } catch { return []; } };
+  const saveLabels = list => { try { localStorage.setItem(LABELS_KEY, JSON.stringify([...new Set(list)])); } catch { /* storage unavailable */ } };
+  async function captionDialog() {
     const engine = ready(); if (!engine) return;
-    const { CAPTION_LABELS } = { CAPTION_LABELS: ['Figure', 'Table', 'Equation'] };
-    const label = el('select.input', { 'aria-label': 'Label' }, ...CAPTION_LABELS.map(l => el('option', { value: l }, l)));
-    label.value = engine.model.tableContext ? 'Table' : 'Figure';
-    const text = el('input.input', { type: 'text', 'aria-label': 'Caption text', placeholder: 'Optional description' });
-    const position = el('select.input', { 'aria-label': 'Position' }, el('option', { value: 'below' }, 'Below selected item'), el('option', { value: 'above' }, 'Above selected item'));
-    const preview = el('p.field-hint');
-    const sync = () => { preview.textContent = `${label.value} N${text.value ? `: ${text.value}` : ''}`; };
-    label.addEventListener('change', sync); text.addEventListener('input', sync); sync();
-    let modal;
-    const field = (name, control) => el('label.field', {}, el('span.field-label', {}, name), control);
-    modal = openModal({ title: 'Caption', onClose: () => queueMicrotask(() => editor()?.focus()), content: el('form.ed-dialog-body', { onsubmit: e => {
-      e.preventDefault(); modal.close();
-      bodyAction((body, captions) => captions.insertCaption(body, { label: label.value, text: text.value.trim(), above: position.value === 'above' }));
-    } }, field('Caption text', text), preview, field('Label', label), field('Position', position),
-    el('div.modal-actions', {}, el('button.btn.btn-outline', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))) });
-    text.focus();
+    if (engine.session.path !== null) engine.editStory(null);
+    const captions = await import('../engine/captions.js');
+    const body = engine.session.body;
+    const labels = () => captions.captionLabels(body, customLabels());
+    const label = select('Label', labels().map(l => [l, l]), engine.model.selectedImage ? 'Figure' : engine.model.tableContext ? 'Table' : 'Figure', () => sync());
+    const caption = text('Caption text', '', { placeholder: 'Optional description' });
+    const position = select('Position', [['below', 'Below selected item'], ['above', 'Above selected item']], engine.model.tableContext && !engine.model.selectedImage ? 'above' : 'below');
+    const format = select('Numbering', Object.entries(captions.CAPTION_FORMATS).map(([id, name]) => [id, name]), 'ARABIC', () => sync());
+    const exclude = check('Exclude label from caption', false, () => sync());
+    const preview = el('p.ref-caption-preview', { 'aria-live': 'polite' });
+    const sample = { ARABIC: '1', alphabetic: 'a', ALPHABETIC: 'A', roman: 'i', ROMAN: 'I' };
+    function sync() {
+      const used = customLabels().includes(label.value);
+      deleteLabel.disabled = !used;
+      const t = caption.value.trim();
+      preview.textContent = `${exclude.box.checked ? '' : `${label.value} `}${sample[format.value]}${t ? `${/^[\s:.\-–—]/.test(t) ? '' : ': '}${t}` : ''}`;
+    }
+    const newLabel = el('button.btn.btn-outline', { type: 'button', onclick: () => {
+      const input = text('New label', '', { required: true, maxLength: 40, pattern: '[A-Za-z][A-Za-z0-9 _]{0,39}' });
+      openDialog({ title: 'New Label', body: [field('Label', input, 'Letters, numbers and spaces, such as Chart or Plate.')], onSubmit: () => {
+        const value = input.value.trim().replace(/\s+/g, ' ');
+        if (!/^[A-Za-z][A-Za-z0-9 _]{0,39}$/.test(value)) throw new Error('Start the label with a letter and use letters, numbers and spaces.');
+        saveLabels([...customLabels(), value]);
+        label.replaceChildren(...labels().map(l => el('option', { value: l }, l))); label.value = value; sync();
+      } });
+    } }, 'New Label…');
+    const deleteLabel = el('button.btn.btn-outline', { type: 'button', onclick: () => {
+      saveLabels(customLabels().filter(l => l !== label.value));
+      label.replaceChildren(...labels().map(l => el('option', { value: l }, l))); sync();
+    } }, 'Delete Label');
+    caption.addEventListener('input', sync);
+    sync();
+    openDialog({ title: 'Caption', className: 'ref-caption-dialog', body: [
+      field('Caption', caption), preview,
+      el('div.ref-two-column.ref-tight', {}, field('Label', label), field('Position', position)),
+      exclude, field('Numbering', format),
+      el('div.row', {}, newLabel, deleteLabel),
+    ], onSubmit: () => runBody((doc, c) => c.insertCaption(doc, { label: label.value, text: caption.value.trim(), above: position.value === 'above', format: format.value, excludeLabel: exclude.box.checked }), { modules: ['captions'] }) });
+    caption.focus();
+  }
+
+  /* ---- Cross-references ---- */
+  async function noteTargets() {
+    const engine = editor(), notesModule = await import('../engine/footnotes.js'), maps = await noteNumberMaps();
+    const definition = engine.pageStories, result = [];
+    for (const kind of ['footnote', 'endnote']) {
+      const part = definition?.[`${kind}s`]?.part;
+      for (const [id, display] of maps[kind]) {
+        const story = part && definition.stories[notesModule.footnoteStoryPath(part, id)];
+        const textOf = story ? story.paragraphs.map(p => p.runs.filter(r => !r.noteMark).map(r => r.text).join('')).join(' ').trim().slice(0, 60) : '';
+        result.push({ kind, id, display, text: textOf });
+      }
+    }
+    return result;
   }
   async function crossReferenceDialog() {
     const engine = ready(); if (!engine) return;
     if (engine.session.path !== null) engine.editStory(null);
-    const { referenceTargets } = await import('../engine/captions.js');
-    const targets = referenceTargets(engine.session.body);
-    const kinds = [['heading', 'Heading', targets.headings], ...[...new Set(targets.captions.map(c => c.kind))].map(k => [k, k, targets.captions.filter(c => c.kind === k)]), ['bookmark', 'Bookmark', targets.bookmarks]];
-    const type = el('select.input', { 'aria-label': 'Reference type' }, ...kinds.map(([id, name]) => el('option', { value: id }, name)));
-    const show = el('select.input', { 'aria-label': 'Insert reference to' });
+    const captions = await import('../engine/captions.js');
+    const targets = captions.referenceTargets(engine.session.body, { notes: await noteTargets() });
+    const captionKinds = [...new Set([...captions.CAPTION_LABELS.map(captions.sequenceId), ...targets.captions.map(c => c.kind)])];
+    const kinds = [['heading', 'Heading', targets.headings], ['bookmark', 'Bookmark', targets.bookmarks], ['footnote', 'Footnote', targets.footnotes], ['endnote', 'Endnote', targets.endnotes],
+      ...captionKinds.map(k => [k, k.replace(/_/g, ' '), targets.captions.filter(c => c.kind === k)])];
+    const type = select('Reference type', kinds.map(([id, name]) => [id, name]), kinds.find(k => k[2].length)?.[0] || 'heading', () => fill());
+    const show = select('Insert reference to', []);
     const list = el('select.input.ed-xref-list', { 'aria-label': 'For which item', size: 8 });
-    const fill = () => {
-      const kind = kinds.find(k => k[0] === type.value), caption = !['heading', 'bookmark'].includes(type.value);
-      show.replaceChildren(el('option', { value: 'text' }, caption ? 'Only label and number' : type.value === 'heading' ? 'Heading text' : 'Bookmark text'), el('option', { value: 'page' }, 'Page number'));
+    const hyperlink = check('Insert as hyperlink', true);
+    const aboveBelow = check('Include above/below', false);
+    const empty = el('p.field-hint', { hidden: true }, 'There are no items of this type yet.');
+    const insert = el('button.btn.btn-primary', { type: 'submit' }, 'Insert');
+    function fill() {
+      const kind = kinds.find(k => k[0] === type.value);
+      show.replaceChildren(...captions.referenceChoices(['heading', 'bookmark', 'footnote', 'endnote'].includes(type.value) ? type.value : 'caption').map(([v, l]) => el('option', { value: v }, l)));
       list.replaceChildren(...kind[2].map((item, i) => el('option', { value: String(i) }, item.label)));
       if (kind[2].length) list.value = '0';
-      insert.disabled = !kind[2].length;
-    };
-    const insert = el('button.btn.btn-primary', { type: 'submit' }, 'Insert');
-    type.addEventListener('change', fill);
-    let modal;
-    const field = (name, control) => el('label.field', {}, el('span.field-label', {}, name), control);
-    modal = openModal({ title: 'Cross-reference', onClose: () => queueMicrotask(() => editor()?.focus()), content: el('form.ed-dialog-body', { onsubmit: e => {
-      e.preventDefault();
+      empty.hidden = !!kind[2].length; insertButton.disabled = !kind[2].length;
+      aboveBelow.box.disabled = show.value === 'position';
+    }
+    show.addEventListener('change', () => { aboveBelow.box.disabled = show.value === 'position'; });
+    let insertButton;
+    const dialog = openDialog({ title: 'Cross-reference', className: 'ref-xref-dialog', submitLabel: 'Insert', body: [
+      el('div.ref-two-column.ref-tight', {}, field('Reference type', type), field('Insert reference to', show)),
+      el('div.row', {}, hyperlink, aboveBelow),
+      field('For which item', list), empty,
+    ], onSubmit: async () => {
       const target = kinds.find(k => k[0] === type.value)[2][Number(list.value)];
-      if (!target) return;
-      modal.close();
-      bodyAction((body, captions) => { captions.insertCrossReference(body, target, { show: show.value }); return true; });
-    } }, field('Reference type', type), field('Insert reference to', show), field('For which item', list),
-    el('div.modal-actions', {}, el('button.btn.btn-outline', { type: 'button', onclick: () => modal.close() }, 'Cancel'), insert)) });
+      if (!target) throw new Error('Choose an item to refer to.');
+      await runBody((body, c) => { c.insertCrossReference(body, target, { show: show.value, hyperlink: hyperlink.box.checked, aboveBelow: aboveBelow.box.checked }); return true; });
+    } });
+    insertButton = dialog.submit;
+    list.addEventListener('dblclick', () => dialog.form.requestSubmit());
     fill(); type.focus();
   }
+
+  /* ---- Ribbon ---- */
+  const noSteal = (...buttons) => { for (const b of buttons) b.addEventListener('mousedown', e => e.preventDefault()); };
   function extendTab(tabId, kit) {
     if (tabId !== 'references') return [];
-    const caption = kit.command('Insert Caption', 'caption', () => captionDialog(), { size: 'large', text: 'Insert Caption' });
-    const xref = kit.command('Cross-reference', 'crossReference', () => crossReferenceDialog(), { text: 'Cross-reference' });
-    const update = kit.command('Update Fields', 'updateFields', () => updateAllFields(), { text: 'Update Fields', shortcut: 'F9' });
-    for (const b of [caption, xref, update]) { b.addEventListener('mousedown', e => e.preventDefault()); kit.when(b, () => !!ready()); }
-    return [{ id: 'captions', label: 'Captions', icon: 'caption', priority: 4, after: 'footnotes', items: [caption, kit.rows([xref], [update])] }];
+    const { command, menuButton, rows, when, focusEditor } = kit;
+    const bodyReady = () => !!ready() && editor()?.session.path === null;
+    // Research
+    const smart = command('Smart Lookup', 'smartLookup', () => lookup.open(), { size: 'large', text: 'Smart Lookup' });
+    when(smart, () => { const group = smart.closest('.ribbon-group'); const available = lookup.available(); if (group) group.hidden = !available; return available && !!editor(); });
+    // Citations & Bibliography
+    const citation = menuButton('Insert Citation', 'citation', () => citations.citationItems(), { text: 'Insert Citation' });
+    const manage = command('Manage Sources', 'manageSources', () => citations.manageSources(), { text: 'Manage Sources' });
+    const style = citations.styleControl();
+    const styleWrap = el('label.ribbon-spin.ref-style-wrap', { title: 'Citation style' }, el('span.ribbon-spin-label', {}, 'Style:'), style.control);
+    const bibliography = menuButton('Bibliography', 'bibliography', () => citations.bibliographyItems(focusEditor), { size: 'small', text: 'Bibliography' });
+    when(citation, () => !!ready()); when(manage, () => !!ready()); when(bibliography, () => !!ready());
+    when(style.control, () => { style.sync(); return !!ready(); });
+    // Captions
+    const caption = command('Insert Caption', 'caption', () => captionDialog(), { size: 'large', text: 'Insert Caption' });
+    const figures = command('Insert Table of Figures', 'tableOfFigures', () => toc.figuresDialog(), { text: 'Insert Table of Figures' });
+    const updateFigures = command('Update Table of Figures', 'updateTable', () => toc.updateDialog(true), { text: 'Update Table' });
+    const xref = command('Cross-reference', 'crossReference', () => crossReferenceDialog(), { text: 'Cross-reference' });
+    when(caption, () => !!ready()); when(figures, bodyReady); when(updateFigures, () => !!ready() && toc.hasFigures()); when(xref, bodyReady);
+    // Index
+    const markEntry = command('Mark Entry', 'markEntry', () => indexes.markEntryPanel(), { size: 'large', text: 'Mark Entry', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+Shift+X' : 'Alt+Shift+X' });
+    const insertIndex = command('Insert Index', 'index', () => indexes.insertIndexDialog(), { text: 'Insert Index' });
+    const updateIndex = command('Update Index', 'updateIndex', () => indexes.updateIndex(), { text: 'Update Index' });
+    when(markEntry, bodyReady); when(insertIndex, bodyReady); when(updateIndex, () => !!ready() && hasField('INDEX'));
+    // Table of authorities
+    const markCitation = command('Mark Citation', 'markCitation', () => indexes.markCitationPanel(), { size: 'large', text: 'Mark Citation', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+Shift+I' : 'Alt+Shift+I' });
+    const insertToa = command('Insert Table of Authorities', 'tableOfAuthorities', () => indexes.insertAuthoritiesDialog(), { text: 'Insert Table' });
+    const updateToa = command('Update Table of Authorities', 'updateAuthorities', () => indexes.updateAuthorities(), { text: 'Update Table' });
+    when(markCitation, bodyReady); when(insertToa, bodyReady); when(updateToa, () => !!ready() && hasField('TOA'));
+    noSteal(smart, manage, caption, figures, updateFigures, xref, markEntry, insertIndex, updateIndex, markCitation, insertToa, updateToa);
+    return [
+      { id: 'research', label: 'Research', icon: 'smartLookup', priority: 2, after: 'footnotes', items: [smart] },
+      { id: 'citations', label: 'Citations & Bibliography', icon: 'citation', priority: 4, after: 'research', items: [citation, rows([manage], [styleWrap], [bibliography])] },
+      { id: 'captions', label: 'Captions', icon: 'caption', priority: 4, after: 'citations', items: [caption, rows([figures], [updateFigures], [xref])] },
+      { id: 'index', label: 'Index', icon: 'index', priority: 3, after: 'captions', items: [markEntry, rows([insertIndex], [updateIndex])] },
+      { id: 'authorities', label: 'Table of Authorities', icon: 'tableOfAuthorities', priority: 1, after: 'index', items: [markCitation, rows([insertToa], [updateToa])] },
+    ];
+  }
+  const hasField = type => (editor()?.session.body.paragraphs || []).some(p => p.fieldMarkers?.some(m => m.field.type === type));
+
+  /* ---- Menu bar and context menu contributions ---- */
+  function extendMenu(menuId) {
+    const disabled = !ready(), body = editor()?.session.path === null;
+    if (menuId === 'insert') return [
+      { separator: true },
+      { label: 'Bookmark…', icon: 'bookmark', disabled: disabled || !body, onSelect: () => base.openBookmarks?.() },
+      { label: 'Cross-reference…', icon: 'crossReference', disabled: disabled || !body, onSelect: () => crossReferenceDialog() },
+      { separator: true },
+      { label: 'Footnote…', icon: 'footnote', disabled, onSelect: () => notes.notesDialog() },
+      { label: 'Caption…', icon: 'caption', disabled, onSelect: () => captionDialog() },
+      { label: 'Index and Tables', icon: 'toc', disabled, items: [
+        { label: 'Index…', icon: 'index', onSelect: () => indexes.insertIndexDialog() },
+        { label: 'Table of Contents…', icon: 'toc', onSelect: () => toc.customDialog() },
+        { label: 'Table of Figures…', icon: 'tableOfFigures', onSelect: () => toc.figuresDialog() },
+        { label: 'Table of Authorities…', icon: 'tableOfAuthorities', onSelect: () => indexes.insertAuthoritiesDialog() },
+      ] },
+    ];
+    if (menuId === 'view') return [{ label: 'Footnotes', icon: 'showNotes', disabled: !editor(), onSelect: () => notes.showNotes() }];
+    if (menuId === 'tools' && lookup.available()) return [{ label: 'Smart Lookup…', icon: 'smartLookup', disabled: !editor(), onSelect: () => lookup.open() }];
+    return [];
+  }
+  let fieldsModule = null;
+  import('../engine/body-fields.js').then(m => { fieldsModule = m; }).catch(() => {});
+  /** Whether the caret is in a body field's result (or at an index or authority entry). */
+  function fieldAtCaret() {
+    const engine = editor();
+    if (!engine || engine.session.path !== null || !engine.model.hasBodyFields || !fieldsModule) return false;
+    const [start, end] = engine.model.range;
+    try { return fieldsModule.bodyFieldRanges(engine.model.paragraphs).some(r => r.start <= start && end <= r.end && (r.start < r.end || r.start === start)); } catch { return false; }
+  }
+  function contextMenuItems(context) {
+    const items = [];
+    if (['text', 'field', 'link'].includes(context) && lookup.available() && editor()) items.push({ label: 'Smart Lookup', icon: 'smartLookup', onSelect: () => lookup.open() });
+    if (context === 'field' || context === 'text') {
+      items.push(...citations.contextItems());
+      if (context === 'field' && ready()) items.push({ label: 'Update Field', icon: 'updateFields', shortcut: 'F9', onSelect: () => updateAllFields() });
+    }
+    return items;
   }
 
   const commands = {
-    insertFootnote,
+    insertFootnote: () => notes.insertNote('footnote'),
+    insertEndnote: () => notes.insertNote('endnote'),
+    nextNoteItems: () => notes.nextNoteItems(),
+    showNotes: () => notes.showNotes(),
+    notesDialog: () => notes.notesDialog(),
     canInsertFootnote: () => !!ready() && editor()?.session.path === null,
     canEditHeader: () => !!ready(),
     editHeader,
@@ -236,23 +373,20 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       openMenu({ anchor, label: 'Page Number', minWidth: 220, items: pageNumberItems(), pointer: !!event?.detail, onClose: event?.detail ? () => editor()?.focus() : null });
     },
     pageNumberItems,
-    tocItems: () => [
-      { header: 'Built-In' },
-      { label: 'Automatic Table 1', hint: 'Contents', icon: 'toc', disabled: !ready(), onSelect: () => insertToc('Contents') },
-      { label: 'Automatic Table 2', hint: 'Table of Contents', icon: 'toc', disabled: !ready(), onSelect: () => insertToc('Table of Contents') },
-      { separator: true },
-      { label: 'Update Table', disabled: !ready() || !hasToc(), onSelect: () => commands.updateFields() },
-      { label: 'Remove Table of Contents', disabled: !ready() || !hasToc(), onSelect: () => withBody((body, toc) => toc.removeTableOfContents(body)) },
-    ],
+    tocItems: focusEditor => toc.tocItems(focusEditor),
+    addTextItems: () => toc.addTextItems(),
+    updateTocDialog: () => toc.updateDialog(false),
+    customToc: () => toc.customDialog(),
+    updateAllFields,
     canUpdateFields: () => !!ready() && (hasToc() || !!base.canUpdateFields?.()),
     updateFields() {
       if (!hasToc()) { base.updateFields?.(); return; }
-      withBody((body, toc) => {
-        const existing = toc.tableOfContents(body.paragraphs);
-        if (existing?.whole) return toc.insertTableOfContents(body, { existing });
-        return true; // Page numbers still refresh below.
-      });
+      toc.updateTable(false, 'pages');
     },
+    smartLookup: () => lookup.open(),
+    canSmartLookup: () => lookup.available(),
+    extendMenu,
+    contextMenuItems,
   };
   /* ---- Contextual Header & Footer tab, shown while a header or footer is active ---- */
   const activeStoryKind = () => { const engine = editor(); return engine?.session.path ? engine.pageStories?.stories[engine.session.path]?.kind : null; };
@@ -301,13 +435,20 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     ] }];
   }
 
-  // Cmd+Option+F on a Mac, Ctrl+Alt+F elsewhere.
+  // Keyboard: Cmd+Option+F footnote and Cmd+Option+E endnote on a Mac (Ctrl+Alt+F and Ctrl+Alt+D
+  // elsewhere), F9 updates fields, Cmd+Option+Shift+X / Alt+Shift+X marks an index entry and
+  // Cmd+Option+Shift+I / Alt+Shift+I marks a citation for the table of authorities.
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || e.isComposing || !e.target?.matches?.('.canvas-input')) return;
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-    if (e.code === 'KeyF' && e.altKey && !e.shiftKey && (mac ? e.metaKey : e.ctrlKey)) { e.preventDefault(); insertFootnote(); }
+    const chord = mac ? e.metaKey && e.altKey && !e.ctrlKey : e.ctrlKey && e.altKey && !e.metaKey;
+    const mark = mac ? e.metaKey && e.altKey && e.shiftKey : e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey;
+    if (chord && !e.shiftKey && e.code === 'KeyF') { e.preventDefault(); notes.insertNote('footnote'); }
+    else if (chord && !e.shiftKey && e.code === (mac ? 'KeyE' : 'KeyD')) { e.preventDefault(); notes.insertNote('endnote'); }
+    else if (mark && e.code === 'KeyX') { e.preventDefault(); indexes.markEntryPanel(); }
+    else if (mark && e.code === 'KeyI') { e.preventDefault(); indexes.markCitationPanel(); }
     else if (e.key === 'F9' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); updateAllFields(); }
   }, { signal: keyAbort.signal });
-  return { commands, contextTabs, extendTab, activeStoryKind, updateAllFields, destroy: () => keyAbort.abort() };
+  return { commands, contextTabs, extendTab, extendMenu, contextMenuItems, fieldAtCaret, activeStoryKind, updateAllFields, lookupPane: lookup.pane, destroy: () => { keyAbort.abort(); lookup.close(); document.querySelectorAll('.ref-panel').forEach(p => p.closePanel?.()); } };
 }
