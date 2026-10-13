@@ -285,3 +285,27 @@ describe('creative styles', () => {
       expect(diff / a.data.length).toBeGreaterThan(3);
     });
 });
+
+describe('blot repair', () => {
+  it('fills a larger blot with texture from around it', () => {
+    const r = rng(11);
+    const W = 80, H = 80;
+    const tex = image(W, H, (x) => {
+      const v = 120 + 30 * Math.sin(x * 0.9) + (r() - 0.5) * 6;
+      return [v, v, v];
+    });
+    const blot = { width: W, height: H, data: new Uint8ClampedArray(tex.data) };
+    const mask = { width: W, height: H, data: new Uint8Array(W * H) };
+    for (let y = 34; y < 44; y++)
+      for (let x = 34; x < 44; x++) {
+        blot.data.set([255, 255, 255], (y * W + x) * 4);
+        mask.data[y * W + x] = 255;
+      }
+    const out = inpaint(blot, mask);
+    // The stripes continue through the repaired area (not a flat smear).
+    const vals: number[] = [];
+    for (let x = 35; x < 43; x++) vals.push(px(out, x, 39)[0]);
+    expect(Math.max(...vals) - Math.min(...vals)).toBeGreaterThan(20);
+    expect(Math.max(...vals)).toBeLessThan(200);
+  });
+});

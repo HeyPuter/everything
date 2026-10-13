@@ -8,11 +8,13 @@
 // structure. Responses are compared with the local activity of the image so
 // textured areas are not taken for defects, and connected candidates are
 // kept when they are small (dust) or long and thin (scratches).
-// Defects are filled from their surroundings with a push-pull pyramid
+// Thin defects are filled from their surroundings with a push-pull pyramid
 // (Gortler et al., "The Lumigraph", 1996) plus matched grain, so the repair
-// does not look smoother than the photograph around it.
+// does not look smoother than the photograph around it; larger blots are
+// filled with texture by Context Fill (PatchMatch).
 import { denoise, estimateNoise } from '../filters/restore';
 import { minMaxPlane } from '../filters/common';
+import { contextFillSmall } from '../retouch/context-fill';
 import type { Mask8, Progress, RGBA8 } from '../types';
 import { boxMean, clamp, clamp255, dilate, fromYCC, gaussian, hash01, labelComponents, lumaOf, minMax, pushPull, toYCC } from './util';
 
@@ -110,6 +112,32 @@ export function inpaint(img: RGBA8, mask: Mask8, seed = 7): RGBA8 {
       const g = (hash01(seed, x, y) + hash01(seed + 1, x, y) + hash01(seed + 2, x, y) - 1.5) * 2 * grain;
       for (let ch = 0; ch < 3; ch++) out.data[i * 4 + ch] = clamp255(out.data[i * 4 + ch] + g);
     }
+  // Larger blots (not thin lines) are filled with texture from around them by
+  // the PatchMatch-based Context Fill, which a smooth fill would show up.
+  const bin = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bin[i] = known[i] ? 0 : 1;
+  const { labels, sizes, boxes } = labelComponents(bin, w, h);
+  let filled = 0;
+  for (let k = 0; k < sizes.length && filled < 64; k++) {
+    const [x0, y0, x1, y1] = boxes[k];
+    const len = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+    if (sizes[k] < 24 || sizes[k] / len < 3) continue;
+    filled++;
+    const m = Math.max(16, len);
+    const R = { x: Math.max(0, x0 - m), y: Math.max(0, y0 - m), width: 0, height: 0 };
+    R.width = Math.min(w, x1 + m + 1) - R.x;
+    R.height = Math.min(h, y1 + m + 1) - R.y;
+    const sub: RGBA8 = { width: R.width, height: R.height, data: new Uint8ClampedArray(R.width * R.height * 4) };
+    const hole: Mask8 = { width: R.width, height: R.height, data: new Uint8Array(R.width * R.height) };
+    for (let y = 0; y < R.height; y++) {
+      sub.data.set(out.data.subarray(((y + R.y) * w + R.x) * 4, ((y + R.y) * w + R.x + R.width) * 4), y * R.width * 4);
+      for (let x = 0; x < R.width; x++) if (labels[(y + R.y) * w + x + R.x] === k) hole.data[y * R.width + x] = 255;
+    }
+    contextFillSmall(sub, hole, { seed: seed + k, inPlace: true });
+    for (let y = 0; y < R.height; y++)
+      for (let x = 0; x < R.width; x++)
+        if (hole.data[y * R.width + x]) out.data.set(sub.data.subarray((y * R.width + x) * 4, (y * R.width + x) * 4 + 4), ((y + R.y) * w + x + R.x) * 4);
+  }
   return out;
 }
 

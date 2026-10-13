@@ -16,6 +16,7 @@ import type { Mask8, ParamValues, RGBA8 } from '../../imaging/types';
 import { GROUPS, RESTORE_FILTERS, filterDef, isDeterministic, needsPixels, normalizeRestore, replayable, defaultParams, type RestoreEntry, type RestoreFilterId, type RestoreParams } from '../../imaging/restore/defs';
 import { RESTORE_ID, RESTORE_LABEL } from '../../imaging/restore/id';
 import { transferStats } from '../../imaging/restore/transfer';
+import { estimateGrid } from '../../imaging/restore/deblock';
 import { labToRgb8 } from '../../imaging/restore/util';
 import { paramForm } from '../filters/form';
 import { applyDirect } from '../filters/apply';
@@ -271,8 +272,27 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const aiStatus = new Map<RestoreFilterId, string>();
   const styleRefs: { image?: RGBA8; name?: string } = {};
 
+  // Blocking measured once on a central crop aligned to the 8x8 grid.
+  let jpegInfo: string | undefined;
+  const jpegEstimate = () => {
+    if (jpegInfo) return jpegInfo;
+    const cw = Math.max(16, Math.min(W, 1024) & ~7), ch = Math.max(16, Math.min(H, 1024) & ~7);
+    const x0 = Math.max(0, ((W - cw) >> 1) & ~7), y0 = Math.max(0, ((H - ch) >> 1) & ~7);
+    const cwr = Math.min(cw, W - x0), chr = Math.min(ch, H - y0);
+    const Y = new Float32Array(cwr * chr), d = src.image.data;
+    for (let y = 0; y < chr; y++)
+      for (let x = 0; x < cwr; x++) {
+        const j = ((y + y0) * W + x + x0) * 4;
+        Y[y * cwr + x] = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+      }
+    const g = estimateGrid(Y, cwr, chr);
+    jpegInfo = g.blockiness < 1.08 ? 'No visible compression blocks were found.' : `${g.blockiness < 1.3 ? 'Mild' : 'Strong'} compression blocking found${g.px || g.py ? ` (block grid offset by ${g.px}, ${g.py} pixels)` : ''}.`;
+    return jpegInfo;
+  };
   const extras = (en: RestoreEntry): string => {
     switch (en.id) {
+      case 'jpeg':
+        return `<p class="pr-note">${escapeXML(jpegEstimate())} Automatic strength follows it. Compare at 100% zoom: block edges are too small to see when zoomed out.</p>`;
       case 'colorize': {
         const n = en.hints?.length ?? 0;
         const ai = en.params.source === 'ai';
@@ -320,6 +340,9 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     form = paramForm(host, def.params, en.params, (v) => {
       const relayout = (en.id === 'style' && 'style' in v && v.style !== en.params.style) || ('source' in v && v.source !== en.params.source) || (en.id === 'scene' && 'preset' in v && v.preset !== en.params.preset);
       en.params = { ...en.params, ...v };
+      // Hint Size also resizes the selected hint.
+      const hint = en.id === 'colorize' && 'radius' in v ? en.hints?.[view.selectedHint] : undefined;
+      if (hint) hint.radius = v.radius as number;
       if (!en.enabled) {
         en.enabled = true;
         renderList();
