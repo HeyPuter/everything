@@ -6,7 +6,8 @@ import { TUTORIAL_STEPS, tutorial } from '../src/features/help/tutorials';
 import { makeSample, SAMPLE_IDS, SKIN_SPOTS } from '../src/features/help/samples';
 import { cardPosition } from '../src/features/help/tour-ui';
 
-const grid = (id: string) => ({ tiles: {}, channels: 4, fill: 0, id }) as never;
+// A grid whose content is one tile; new content means a new tile ID.
+const grid = (id: string) => ({ tiles: { '0,0': id }, channels: 4, x: 0, y: 0, bounds: null }) as never;
 function docWith(layers: Layer[]): PhotoDocument {
   return { ...newDocument(100, 80, 'Test'), layers };
 }
@@ -63,6 +64,30 @@ describe('tutorial steps', () => {
     expect(checks.zoomedIn({ ...base, zoom: 2 }, base)).toBe(true);
     expect(checks.zoomedIn({ ...base, zoom: 1.01 }, base)).toBe(true);
     expect(checks.zoomedIn({ ...base, zoom: 0.5 }, base)).toBe(false);
+  });
+
+  it('does not take a copied history state for an edit', () => {
+    // History states are deep copies: every grid is a new object with the same tiles.
+    const added = { ...layer('pixel', 'Layer 1', 100, 80), id: 'l1', pixels: grid('b'), maskGrid: grid('m1') };
+    const start = view({ ...docWith([bg, added]), selection: { x: 0, y: 0, width: 10, height: 10 }, selectionMask: grid('s1') });
+    const renamed = structuredClone(start.doc);
+    renamed.layers[1].name = 'Sky';
+    renamed.layers[1].blend = 'multiply';
+    const now = view(renamed);
+    expect(checks.pixelsChanged(now, start)).toBe(false);
+    expect(checks.maskEdited(now, start)).toBe(false);
+    expect(checks.selectionMade(now, start)).toBe(false);
+    // Moving a layer keeps its tiles; painting replaces them.
+    const moved = structuredClone(start.doc);
+    moved.layers[1].pixels = { ...moved.layers[1].pixels!, x: 30 };
+    expect(checks.pixelsChanged(view(moved), start)).toBe(false);
+    const painted = structuredClone(start.doc);
+    painted.layers[1].pixels = { ...painted.layers[1].pixels!, tiles: { '0,0': 'b', '1,0': 'b2' } };
+    expect(checks.pixelsChanged(view(painted), start)).toBe(true);
+    // A moved selection is a different selection.
+    const shifted = structuredClone(start.doc);
+    shifted.selectionMask = { ...shifted.selectionMask!, x: 5 };
+    expect(checks.selectionMade(view(shifted), start)).toBe(true);
   });
 
   it('notices edited adjustment settings and new effects', () => {

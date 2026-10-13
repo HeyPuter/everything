@@ -1,6 +1,6 @@
 // Help → Hands-on Tutorials, What's New and the start screen's Learn area.
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasClick, canvasDrag, idle, menu, tool } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, menu, openImage, tool } from './helpers';
 
 const card = (page: Page) => page.locator('.tour-card');
 
@@ -67,6 +67,69 @@ test('a tutorial advances when the user performs each step', async ({ page }) =>
   await card(page).getByRole('button', { name: 'Close tutorial' }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(page.locator('.tour-ring')).toHaveCount(0);
+});
+
+test('steps finish only for the real action in the tutorial document', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => (await import('/src/features/help/windows.ts')).beginTutorial(window.photoStudio, 'layers'));
+  await expect(card(page)).toContainText('Step 1 of 7');
+  await card(page).getByRole('button', { name: 'Next' }).click();
+  await expect(card(page)).toContainText('Add an empty layer');
+  // Long enough for the poll (250 ms) and the done delay (700 ms) to have acted.
+  const settle = () => page.waitForTimeout(1500);
+
+  // Another document with more layers is not the tutorial's layer added.
+  await openImage(page, 300, 200, '#405060', 'other.png');
+  await page.evaluate(async () => {
+    const { layer } = await import('/src/model/document.ts');
+    window.photoStudio.command('Add layers', (d) => void d.layers.push(layer('pixel', 'A', 300, 200), layer('pixel', 'B', 300, 200)));
+  });
+  await settle();
+  await expect(card(page)).toContainText('Step 2 of 7');
+  // Back in the sample, adding a layer finishes the step.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.session = e.sessions.find((s) => s.history.document.name === 'Meadow')!;
+    e.update();
+  });
+  await idle(page);
+  await settle();
+  await expect(card(page)).toContainText('Step 2 of 7');
+  await page.locator('[data-panel="layers"] [data-command="layer.new-quick"]').click();
+  await expect(card(page)).toContainText('Step 3 of 7');
+  await tool(page, 'Brush Tool');
+  await expect(card(page)).toContainText('Step 4 of 7');
+
+  // Renaming the new layer or changing its blend mode is not painting on it.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const id = e.selected;
+    e.command('Rename Layer', (d) => void (d.layers.find((l) => l.id === id)!.name = 'Sky strokes'));
+    e.command('Blend Mode', (d) => void (d.layers.find((l) => l.id === id)!.blend = 'multiply'));
+  });
+  await settle();
+  await expect(card(page)).toContainText('Step 4 of 7');
+  // Painting in another document does not count either.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.session = e.sessions.find((s) => s.history.document.name !== 'Meadow')!;
+    e.update();
+  });
+  await idle(page);
+  await canvasDrag(page, [[50, 50], [200, 120]]);
+  await settle();
+  await expect(card(page)).toContainText('Step 4 of 7');
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.session = e.sessions.find((s) => s.history.document.name === 'Meadow')!;
+    e.update();
+  });
+  await idle(page);
+  await settle();
+  await expect(card(page)).toContainText('Step 4 of 7');
+  // Painting on the new layer finishes it.
+  await canvasDrag(page, [[200, 120], [400, 160], [600, 120]]);
+  await expect(card(page)).toContainText('Step 5 of 7');
 });
 
 test('an export step finishes when the command runs', async ({ page }) => {

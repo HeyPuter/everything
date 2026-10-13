@@ -26,6 +26,8 @@ export const runningTour = () => current;
 class TourRun {
   machine: TourMachine;
   base: TourView;
+  // The document the current step began in; only edits there count.
+  session: Editor['session'];
   card: HTMLElement;
   ring: HTMLElement;
   private stop: (() => void)[] = [];
@@ -38,6 +40,7 @@ class TourRun {
   ) {
     this.machine = new TourMachine(tour.steps.length);
     this.base = view(e);
+    this.session = e.session;
     this.ring = document.createElement('div');
     this.ring.className = 'tour-ring';
     this.ring.setAttribute('aria-hidden', 'true');
@@ -70,6 +73,7 @@ class TourRun {
     const s = this.step;
     if (s?.panel) this.e.dock?.show(s.panel);
     this.base = view(this.e);
+    this.session = this.e.session;
     this.pending = 0;
     this.render();
     // A step already satisfied (the tool is already chosen) finishes at once.
@@ -78,6 +82,14 @@ class TourRun {
   evaluate(activity?: Activity) {
     const s = this.step;
     if (!s || this.pending || !isAction(s)) return;
+    if (this.e.session !== this.session) {
+      // Work in another document does not count. If the step's document was
+      // closed, the step continues from the document now active.
+      if (this.e.sessions.includes(this.session)) return;
+      this.session = this.e.session;
+      this.base = view(this.e);
+      return;
+    }
     if (!stepDone(s, view(this.e), this.base, activity)) return;
     this.card.classList.add('done');
     this.render(true);

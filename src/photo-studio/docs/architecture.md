@@ -442,6 +442,8 @@ UI can generate dialogs, presets, recorded actions and live filters from `params
   `commands` (one of them ran), `tool` (it is active) or `check(now, base)`, which
   compares the workspace with its state when the step began (`checks` in `tour.ts`:
   layer added, pixels or mask changed, selection made, opacity lowered and so on).
+  History states are deep copies, so checks compare content (tile IDs), never
+  object identity. A step counts only work in the document it began in.
   Steps without any of these are read and continued with Next.
 - `TourMachine` (`tour.ts`, pure) holds the step index, completed steps, back, skip and
   restart; `tour-ui.ts` draws the card and the ring around the anchor and evaluates the
