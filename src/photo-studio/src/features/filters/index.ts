@@ -5,7 +5,7 @@ import { commands, registerCommand, renamedCommands } from '../../app/registry';
 import { layerRowExtras } from '../panels/layers';
 import { lazy, lazyRun } from '../../app/lazy';
 import { selectionBounds, selectionGrid } from '../../model/selection';
-import { GALLERY_ID, categorySlug, commandId, filterLabel, filterMenu, renamedFilters, topLevelFilter } from './menu';
+import { GALLERY_ID, RESTORE_ID, categorySlug, commandId, filterLabel, filterMenu, renamedFilters, topLevelFilter } from './menu';
 import { canFade, fadeLabel, filterState, isLiveLayer } from './state';
 import { bindLiveRows, liveRows } from './live-rows';
 import { deferRecording, installRecorderWrapper } from './record';
@@ -46,6 +46,7 @@ export function installFilters(e: Editor) {
     });
   }
   deferRecording('filter.gallery');
+  deferRecording('filter.portrait-restore');
   deferRecording('edit.fade');
   registerCommand(
     {
@@ -54,6 +55,14 @@ export function installFilters(e: Editor) {
       enabled: canFilter,
       description: 'Stack texture effects as effect layers with one preview.',
       run: (e, arg) => runFilter(e, GALLERY_ID, arg),
+      prefetch: running.prefetch,
+    },
+    {
+      id: 'filter.portrait-restore',
+      label: 'Portrait & Restore…',
+      enabled: canFilter,
+      description: 'Skin smoothing, JPEG cleanup, photo restoration, colorizing, depth blur, color and style transfer and scene changes in one workspace with a before/after preview.',
+      run: (e, arg) => runFilter(e, RESTORE_ID, arg),
       prefetch: running.prefetch,
     },
     {

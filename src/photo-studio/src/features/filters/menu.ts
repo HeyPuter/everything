@@ -3,11 +3,14 @@
 // dialog or run, and in the filter worker). `filterMenu` is generated from
 // the catalog; tests/filters-menu.test.ts checks it and rewrites it with
 // UPDATE_FILTER_MENU=1.
+import { RESTORE_ID, RESTORE_LABEL } from '../../imaging/restore/id';
 // IDs of renamed operations, still found in projects and actions saved by
 // earlier versions.
 export const renamedFilters: Record<string, string> = { 'smart-blur': 'edge-preserving-blur', 'smart-sharpen': 'advanced-sharpen' };
 // The Filter Gallery stacks other filters; it runs as one pseudo-operation.
 export const GALLERY_ID = 'filter-gallery';
+// Portrait & Restore runs its own filter stack as one pseudo-operation too.
+export { RESTORE_ID };
 
 export function categorySlug(category: string) {
   return category.toLowerCase().replace(/[^a-z]+/g, '-');
@@ -23,10 +26,12 @@ const special: Record<string, string> = {
 /** Filters with their own entry at the top of the Filter menu. */
 export const topLevelFilter = (opId: string) => opId in special;
 export function commandId(opId: string) {
+  if (opId === RESTORE_ID) return 'filter.portrait-restore';
   return opId === GALLERY_ID ? 'filter.gallery' : (special[opId] ?? `filter.apply.${opId}`);
 }
 export function opIdFromCommand(id: string): string | undefined {
   if (id === 'filter.gallery') return GALLERY_ID;
+  if (id === 'filter.portrait-restore') return RESTORE_ID;
   if (id.startsWith('filter.apply.')) return id.slice('filter.apply.'.length);
   return Object.entries(special).find(([, c]) => c === id)?.[0];
 }
@@ -35,6 +40,7 @@ export type FilterMenuEntry = { id: string; label: string; category: string; imm
 /** Menu label of an operation (or the gallery). */
 export function filterLabel(opId: string) {
   const id = renamedFilters[opId] ?? opId;
+  if (id === RESTORE_ID) return RESTORE_LABEL;
   return id === GALLERY_ID ? 'Filter Gallery' : (filterMenu.find((f) => f.id === id)?.label ?? opId);
 }
 

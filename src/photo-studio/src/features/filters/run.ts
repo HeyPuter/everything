@@ -1,9 +1,9 @@
 // Running filters from menus, actions and the Live Filter rows: loads with
 // the first filter used (with the operation catalog, dialogs and Liquify).
 import type { Editor } from '../../editor';
-import { defaults } from '../../imaging/types';
+import { defaults, type ParamValues } from '../../imaging/types';
 import { isBlendMode, type BlendMode } from '../../imaging/blend';
-import { GALLERY_ID, filterOp, normalizeFor } from './catalog';
+import { GALLERY_ID, RESTORE_ID, filterOp, normalizeFor } from './catalog';
 import { applyDirect, filterState } from './apply';
 import { filterDialog, lastUsed } from './dialog';
 import { galleryDialog } from './gallery';
@@ -31,6 +31,15 @@ export async function runFilter(e: Editor, opId: string, arg?: unknown) {
     else await galleryDialog(e);
     return;
   }
+  if (opId === RESTORE_ID) {
+    // Settings (actions, scripts) apply directly; otherwise the workspace opens.
+    if (given) {
+      // Pixel-dependent parts (AI results, depth layers) cannot be replayed.
+      const { normalizeRestore, replayable } = await import('../../imaging/restore/defs');
+      await applyDirect(e, opId, replayable(normalizeRestore(given)) as unknown as ParamValues);
+    } else await (await import('../restore/workspace')).openRestore(e);
+    return;
+  }
   const op = filterOp(opId);
   if (!op) return;
   if (given || op.immediate) {
@@ -41,6 +50,7 @@ export async function runFilter(e: Editor, opId: string, arg?: unknown) {
 export function editLive(e: Editor, layerId: string, index: number, id: string) {
   void e.run(async () => {
     if (id === GALLERY_ID) await galleryDialog(e, { edit: { layerId, index } });
+    else if (id === RESTORE_ID) await (await import('../restore/workspace')).openRestore(e, { edit: { layerId, index } });
     else await filterDialog(e, id, { edit: { layerId, index } });
   });
 }

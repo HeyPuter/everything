@@ -159,7 +159,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
     items: [
       'filter.last', '-', 'filter.convert-live', '-',
       'filter.gallery', 'filter.adaptive-wide-angle', 'filter.develop', 'filter.lens-correction', 'filter.liquify', 'filter.vanishing-point', '-',
-      'filter.denoise', 'filter.sharpen-details', '-',
+      'filter.denoise', 'filter.sharpen-details', 'filter.portrait-restore', '-',
       { label: 'Blur', id: 'filter.blur', items: [] },
       { label: 'Blur Gallery', id: 'filter.blur-gallery', items: [] },
       { label: 'Distort', id: 'filter.distort', items: [] },

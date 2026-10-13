@@ -156,7 +156,14 @@ dialog applies `arg` directly instead. For example:
 ```js
 await studio.commands.run('adjust.desaturate');
 await studio.commands.run('filter.apply.gaussian-blur', { params: { radius: 4 } });
+// Portrait & Restore: list the filters to turn on with their settings.
+await studio.commands.run('filter.portrait-restore', { params: { filters: [{ id: 'restore', enabled: true, params: { dust: 60 } }, { id: 'skin', enabled: true }] } });
 ```
+
+Portrait & Restore filter IDs are `skin`, `jpeg`, `restore`, `colorize` (with
+`hints: [{ x, y, color, radius }]`, positions from 0 to 1), `transfer`,
+`depth`, `style` and `scene`; AI options and layer-based depth need the
+workspace and are skipped when run with settings.
 
 `studio.commands.list()` returns `{ id, label, enabled }` for every command.
 Commands that manage scripts cannot be run from scripts.

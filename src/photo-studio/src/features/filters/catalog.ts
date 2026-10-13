@@ -7,9 +7,12 @@ import { cleanPaths, cleanPins, type ImageOperation, type ParamSpec, type ParamV
 
 export const allFilters: ImageOperation[] = [...filtersA, ...filtersB];
 const byId = new Map(allFilters.map((op) => [op.id, op]));
-export { GALLERY_ID, renamedFilters, categorySlug, topLevelFilter, commandId, opIdFromCommand } from './menu';
-import { GALLERY_ID, renamedFilters } from './menu';
+export { GALLERY_ID, RESTORE_ID, renamedFilters, categorySlug, topLevelFilter, commandId, opIdFromCommand } from './menu';
+import { GALLERY_ID, RESTORE_ID, renamedFilters } from './menu';
+import { normalizeRestore } from '../../imaging/restore/defs';
 
+/** Pseudo-operations that run stacks of their own (not in the menu catalog). */
+export const isStackOp = (id: string) => id === GALLERY_ID || id === RESTORE_ID;
 export function filterOp(id: string): ImageOperation | undefined {
   return byId.get(renamedFilters[id] ?? id);
 }
@@ -129,9 +132,11 @@ export function normalizeParams(specs: ParamSpec[], params: Record<string, unkno
   }
   return out;
 }
-/** Params for an operation ID, including the gallery's effect list. */
+/** Params for an operation ID, including the gallery's effect list and the
+ * Portrait & Restore stack. */
 export function normalizeFor(id: string, params: Record<string, unknown>): ParamValues {
   if (id === GALLERY_ID) return { effects: galleryEffects(params as ParamValues) } as unknown as ParamValues;
+  if (id === RESTORE_ID) return normalizeRestore(params) as unknown as ParamValues;
   const op = filterOp(id);
   return op ? normalizeParams(op.params, params) : {};
 }
