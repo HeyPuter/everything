@@ -229,3 +229,20 @@ describe('JPEG 2000 decoding', () => {
     expect(ix.px.at(1, 0).slice(0, 3)).toEqual([255 - J2K_GRAY_PIXELS[1], 0, 0]);
   });
 });
+
+describe('PostScript fax images', () => {
+  it('decodes CCITTFaxDecode filters once the codec is loaded', async () => {
+    const { interpretEPS } = await import('../src/features/interop/ps/eps.js');
+    const { loadImageCodecs } = await import('../src/features/interop/pdf/images.js');
+    await loadImageCodecs(['CCITTFaxDecode']);
+    const bm = F.randomBitmap(24, 10, 4);
+    const data = F.encodeCCITT(rowsOf(bm), bm.w, { k: -1 });
+    const hex = Buffer.from(data).toString('hex');
+    const body = `gsave 24 10 scale /DeviceGray setcolorspace << /ImageType 1 /Width 24 /Height 10 /BitsPerComponent 1 /Decode [0 1] /ImageMatrix [24 0 0 -10 0 10] /DataSource currentfile /ASCIIHexDecode filter << /K -1 /Columns 24 >> /CCITTFaxDecode filter >> image\n${hex}>\ngrestore`;
+    const eps = new TextEncoder().encode(`%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 24 10\n%%EndComments\n${body}\n%%EOF\n`);
+    const r = interpretEPS(eps, { families: ['Inter'] });
+    const img = r.images[0].img;
+    expect([img.width, img.height]).toEqual([24, 10]);
+    for (const [x, y] of [[0, 0], [3, 1], [10, 5], [23, 9]]) expect(img.data[(y * 24 + x) * 4]).toBe(bm.d[y * 24 + x] ? 0 : 255);
+  });
+});

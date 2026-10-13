@@ -16,12 +16,18 @@ import { filtersOf } from './filters.js';
 // ---------------------------------------------------------------- codecs loaded on demand
 
 const LOADERS = {
-  CCITTFaxDecode: () => import('../codec/ccitt.js').then((m) => ccittCodec(m.decodeCCITT)),
-  JBIG2Decode: () => import('../codec/jbig2.js').then((m) => jbig2Codec(m.decodeJBIG2)),
-  JPXDecode: () => import('../codec/jpx.js').then((m) => jpxCodec(m.decodeJPX)),
+  CCITTFaxDecode: () => import('../codec/ccitt.js').then((m) => (rawDecoders.set('CCITTFaxDecode', m.decodeCCITT), ccittCodec(m.decodeCCITT))),
+  JBIG2Decode: () => import('../codec/jbig2.js').then((m) => (rawDecoders.set('JBIG2Decode', m.decodeJBIG2), jbig2Codec(m.decodeJBIG2))),
+  JPXDecode: () => import('../codec/jpx.js').then((m) => (rawDecoders.set('JPXDecode', m.decodeJPX), jpxCodec(m.decodeJPX))),
 };
 const ALIASES = { CCF: 'CCITTFaxDecode' };
 const codecs = new Map();
+const rawDecoders = new Map();
+
+/** The plain decode function of a loaded codec module (for the PostScript filters), or null. */
+export function loadedDecoder(name) {
+  return rawDecoders.get(ALIASES[name] || name) || null;
+}
 
 /** Load the codecs for the given filter names (unknown names are ignored). */
 export async function loadImageCodecs(names) {

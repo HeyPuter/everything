@@ -22,6 +22,7 @@ import { rgbHex, parseColorSpace } from '../pdf/colors.js';
 import { PDFDict, PDFStream, Name } from '../pdf/primitives.js';
 import { shadingToPaint, familyMatcher } from '../pdf/interpret.js';
 import { meshShadingNodes } from '../pdf/shading-mesh.js';
+import { loadedDecoder } from '../pdf/images.js';
 import { parseFontName } from '../pdf/fonts.js';
 import { inflate } from '../codec/zlib.js';
 import { lzw as lzwDecode } from '../pdf/filters.js';
@@ -1824,18 +1825,24 @@ export class PSInterpreter {
       }));
       return;
     }
-    void params;
     const file = new PSFile(() => {
       const raw = this.rawFrom(src, fname === 'ASCII85Decode' ? '~>' : fname === 'ASCIIHexDecode' ? '>' : null);
-      const out = this.decodeFilter(fname, raw);
+      const out = this.decodeFilter(fname, raw, params);
       return { bytes: out, pos: 0, end: out.length };
     });
     if (fname === 'DCTDecode') file.jpeg = true;
     this.push(file);
   }
 
-  decodeFilter(fname, raw) {
+  decodeFilter(fname, raw, params = null) {
     switch (fname) {
+      case 'CCITTFaxDecode': {
+        // The codec is loaded before interpreting files that use it.
+        const decode = loadedDecoder('CCITTFaxDecode');
+        if (!decode) return raw;
+        const p = (k, d) => (params instanceof PSDict && params.get(k) !== undefined ? params.get(k) : d);
+        return decode(raw, { K: p('K', 0), columns: p('Columns', 1728), rows: p('Rows', 0), blackIs1: p('BlackIs1', false) === true, byteAlign: p('EncodedByteAlign', false) === true, endOfBlock: p('EndOfBlock', true) !== false }).data;
+      }
       case 'ASCII85Decode':
         return decodeA85(raw);
       case 'ASCIIHexDecode': {

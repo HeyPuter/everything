@@ -16,6 +16,7 @@ import { collectTextOutlines } from '../io/outlines.js';
 import { bytesToDataUrl, imageSize, sniffMime } from '../io/image-info.js';
 import { allFamilies } from '../type/fonts.js';
 import { isPDF, PDFError } from './pdf/document.js';
+import { loadImageCodecs } from './pdf/images.js';
 import { pdfPages, pdfToDocument, pdfToNodes } from './pdf/import.js';
 import { makeLayerNode } from './pdf/build.js';
 import { isPostScript, interpretEPS, previewNodes } from './ps/eps.js';
@@ -182,6 +183,12 @@ export async function openPDFInfo(app, bytes, name) {
   return pdfPasswordDialog(app, { name, attempt });
 }
 
+/** Load the fax codec before interpreting PostScript that uses it (the interpreter is synchronous). */
+async function preparePostScript(bytes) {
+  const text = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 4 << 20)));
+  if (text.includes('CCITTFaxDecode')) await loadImageCodecs(['CCITTFaxDecode']);
+}
+
 // ---------------------------------------------------------------- place
 
 export async function placeForeign(app, editor, file, kind, opts = {}) {
@@ -201,6 +208,7 @@ export async function placeForeign(app, editor, file, kind, opts = {}) {
       r = await withProgress(app, 'Importing PDF', () => pdfToNodes(info.doc, { page: choice.page, crop: choice.crop, families: fams, textMode: choice.textMode }));
       if (info.pages.length > 1 && !opts.name) r.name = `${name} (page ${choice.page + 1})`;
     } else if (kind === 'eps') {
+      await preparePostScript(bytes);
       r = await withProgress(app, 'Importing PostScript', async () => {
         const res = interpretEPS(bytes, { families: families() });
         const built = res.kind === 'vector' ? res : { ...previewNodes(res.image, res.bbox), warnings: res.warnings };
@@ -259,6 +267,7 @@ export async function openForeign(app, bytes, { name, format }) {
       return await withProgress(app, 'Opening PDF', (onProgress) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress }));
     }
     if (format === 'eps') {
+      await preparePostScript(bytes);
       return await withProgress(app, 'Opening PostScript', async () => {
         const res = interpretEPS(bytes, { families: families() });
         const built = res.kind === 'vector' ? res : { ...previewNodes(res.image, res.bbox), warnings: res.warnings };
