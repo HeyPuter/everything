@@ -15,9 +15,11 @@ export type JumbfSuperbox = {
   // Signature (0x08) and private box (0x10) of the description, kept raw.
   extra?: Uint8Array;
   children: JumbfBox[];
-  // Byte range of the whole box in the parsed input (reader only).
+  // Byte range of the whole box in the parsed input and where its contents
+  // start after the header (reader only).
   start?: number;
   end?: number;
+  body?: number;
 };
 export type JumbfBox = JumbfContent | JumbfSuperbox;
 
@@ -104,7 +106,7 @@ function readSuperbox(bytes: Uint8Array, start: number, body: number, end: numbe
   const uuid = bytes.slice(p, p + 16);
   const toggles = bytes[p + 16];
   p += 17;
-  const box: JumbfSuperbox = { kind: 'super', uuid, toggles, children: [], start, end };
+  const box: JumbfSuperbox = { kind: 'super', uuid, toggles, children: [], start, end, body };
   if (toggles & 0x02) {
     const z = bytes.indexOf(0, p);
     if (z < 0 || z >= dEnd) throw new CodecError('JUMBF label is not terminated.');

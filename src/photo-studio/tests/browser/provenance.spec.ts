@@ -102,8 +102,9 @@ test.describe('Provenance', () => {
     await (await chooser).setFiles({ name: 'exported.png', mimeType: 'image/png', buffer: png.bytes });
     const dialog = page.locator('dialog.inspect-provenance');
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Valid', 'Intact', 'Bound']);
+    await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Matches', 'Intact', 'Bound']);
     await expect(dialog).toContainText('self-signed');
+    await expect(dialog).toContainText('No trust list is checked');
     await expect(dialog.locator('.prov-timeline')).toContainText('Invert');
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toHaveCount(0);
