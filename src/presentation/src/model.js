@@ -1628,7 +1628,9 @@ export function slideDiagramDataStamp(pres, slide) {
   }
   return JSON.stringify(values);
 }
-export function preview(pres, slide) {
+// `layer` draws part of the slide, for transitions that move its pieces:
+// `{ includeShape, background, gradientRendering }` (see RenderSlideOptions).
+export function preview(pres, slide, layer = null) {
   // SVG is used only as an image, never inserted into the document as markup.
   const embedFonts = hasFontResources(pres);
   const resolved = new Map(),
@@ -1668,6 +1670,7 @@ export function preview(pres, slide) {
           resolved.set(result, family);
           return result;
         },
+    ...layer,
   });
   const fontStyles = embeddedFontStyles(used, pres);
   if (fontStyles)

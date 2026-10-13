@@ -426,6 +426,10 @@ export {
   getSlideTitle,
   getSlideTransition,
   getEffectiveSlideTransition,
+  setSlideTransitionTiming,
+  addSlideTransitionSound,
+  shareSlideTransitionSound,
+  getSlideTransitionSoundData,
   getSlideXmlString,
   getSlides,
   getSlidesByLayout,
@@ -620,6 +624,7 @@ export type {
   PresetShape,
   TransitionEffect,
   TransitionOptions,
+  TransitionSound,
 } from "../internal/presentationml/index.ts";
 
 // Compatibility version of the absorbed source; maintained in this repository.

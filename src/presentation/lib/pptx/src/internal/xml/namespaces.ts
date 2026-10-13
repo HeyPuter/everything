@@ -39,6 +39,8 @@ export const NS = {
   p14: "http://schemas.microsoft.com/office/powerpoint/2010/main",
   p15: "http://schemas.microsoft.com/office/powerpoint/2012/main",
   p16: "http://schemas.microsoft.com/office/powerpoint/2015/main",
+  // 2015/09 extension carrying the morph slide transition.
+  p159: "http://schemas.microsoft.com/office/powerpoint/2015/09/main",
   // Reserved XML namespaces
   xml: "http://www.w3.org/XML/1998/namespace",
   xmlns: "http://www.w3.org/2000/xmlns/",
@@ -68,5 +70,6 @@ export const SUGGESTED_PREFIX: Readonly<Record<string, string>> = {
   [NS.p14]: "p14",
   [NS.p15]: "p15",
   [NS.p16]: "p16",
+  [NS.p159]: "p159",
   [NS.xml]: "xml",
 };

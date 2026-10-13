@@ -1075,7 +1075,11 @@ export function buildTabs(api) {
                 label: "Sound",
                 icon: "transitionSound",
                 title: "Transition Sound",
+                description:
+                  "Play a sound as the slide arrives, or stop the one playing.",
                 visible: () => !!api.transitionSoundMenu,
+                dynamicLabel: () => api.transitionSoundLabel?.() || "Sound",
+                menuWidth: 220,
                 menu: () => api.transitionSoundMenu?.(),
               },
               {
@@ -1100,6 +1104,7 @@ export function buildTabs(api) {
                 title: "Apply To All",
                 description:
                   "Use this slide's transition and timing for every slide.",
+                enabled: () => api.canApplyTransitionToAll?.() ?? true,
                 run: () => api.applyTransitionToAll(),
               },
             ],

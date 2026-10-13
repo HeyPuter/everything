@@ -11704,9 +11704,11 @@ const renderSlideSvgInContext = (
     }
   }
 
+  const include = opts.includeShape;
   const shapesSvg = topLevelShapes(getSlideShapes(slide), {
     dropPlaceholders: false,
   })
+    .filter((s) => !include || include(s))
     .map((s) => renderShape(s, pres, theme, ctx))
     .join("");
 
@@ -11717,16 +11719,20 @@ const renderSlideSvgInContext = (
     opts.preserveAspectRatio === "none" ? "none" : "xMidYMid meet";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${E(W)}" height="${E(H)}" viewBox="0 0 ${E(W)} ${E(H)}" preserveAspectRatio="${preserveAspectRatio}">`,
-    bgGradientDefs,
-    // A translucent slide background composites onto the white page, not
-    // onto the editor chrome or the overridden layout/master background.
-    bgOpacity < 1
-      ? `<rect width="${E(W)}" height="${E(H)}" fill="#FFFFFF"/>`
-      : "",
-    `<rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"${bgOpacity < 1 ? ` fill-opacity="${bgOpacity}"` : ""}/>`,
-    bgGradient,
-    bgImage,
-    layoutBgShapes,
+    ...(opts.background === false
+      ? []
+      : [
+          bgGradientDefs,
+          // A translucent slide background composites onto the white page, not
+          // onto the editor chrome or the overridden layout/master background.
+          bgOpacity < 1
+            ? `<rect width="${E(W)}" height="${E(H)}" fill="#FFFFFF"/>`
+            : "",
+          `<rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"${bgOpacity < 1 ? ` fill-opacity="${bgOpacity}"` : ""}/>`,
+          bgGradient,
+          bgImage,
+          layoutBgShapes,
+        ]),
     shapesSvg,
     "</svg>",
   ].join("");

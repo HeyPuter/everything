@@ -85,6 +85,8 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createTransitionTools } from "./transitions/editor.js";
+import { prefersReducedMotion } from "./transitions/player.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -3273,6 +3275,19 @@ const drawTools = createDrawTools({
     syncToolbar();
   },
 });
+const transitionTools = createTransitionTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  skip: SKIP_MUTATION,
+  picture: (s) => cachedPreview(doc.previews, doc.pres, s),
+  render: (s, layer) => preview(doc.pres, s, layer),
+  canvas: () => document.querySelector("#slide-canvas"),
+  chooseFile: (accept) =>
+    new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
+  report: (error) => fail(error),
+});
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -5604,42 +5619,7 @@ function ribbonApi() {
       show("formatPane", true);
     },
     // Transitions
-    canPreviewTransition: () => slideTransition(slide()) !== "none",
-    previewTransition: () => previewTransition(),
-    transitionChoices: () =>
-      TRANSITIONS.map(([id, label]) => ({
-        id,
-        label,
-        icon: id === "none" ? "noAnimation" : "previewTransition",
-      })),
-    transitionSections: (choices) => [{ label: "Subtle", items: choices }],
-    currentTransition: () => slideTransition(slide()),
-    setTransition: (id) => setTransition(slide(), id),
-    transitionOptions: () => [],
-    transitionOptionsMenu: () => [],
-    transitionDuration: () => {
-      const t = transitionDetails(slide());
-      if (!t || t.effect === "none") return null;
-      return (
-        (t.durationMs ??
-          { fast: 500, med: 750, slow: 1000 }[t.speed ?? "fast"]) / 1000
-      );
-    },
-    setTransitionDuration: (seconds) =>
-      updateTransition({ durationMs: Math.round(seconds * 1000) }),
-    applyTransitionToAll: () =>
-      setTransition(slide(), slideTransition(slide()), { all: true }),
-    advanceOnClick: () => transitionDetails(slide())?.advanceOnClick !== false,
-    setAdvanceOnClick: (on) => updateTransition({ advanceOnClick: on }),
-    advanceAfter: () => {
-      const ms = transitionDetails(slide())?.advanceAfterMs;
-      return ms == null ? null : ms / 1000;
-    },
-    setAdvanceAfter: (seconds) =>
-      updateTransition({
-        advanceAfterMs:
-          seconds == null ? undefined : Math.round(seconds * 1000),
-      }),
+    ...transitionTools.ribbonApi(),
     formatSeconds: (n) => {
       const m = Math.floor(n / 60),
         s = n - m * 60;
@@ -5931,46 +5911,6 @@ function applyTableStyle(id) {
   const obj = currentShape();
   if (obj && isTable(obj) && P.setTableStyleId)
     mutateShape(obj, (obj) => P.setTableStyleId(obj, id));
-}
-// Transition settings other than the effect: duration and advance timing.
-function updateTransition(changes) {
-  mutateSlide(slide(), (target) => {
-    const current = P.getEffectiveSlideTransition(target);
-    if (
-      !current &&
-      changes.advanceAfterMs === undefined &&
-      changes.advanceOnClick === undefined &&
-      !changes.durationMs
-    )
-      return SKIP_MUTATION;
-    P.setSlideTransition(target, {
-      effect: current?.effect || "none",
-      speed: current?.speed,
-      durationMs: current?.durationMs,
-      advanceOnClick: current?.advanceOnClick,
-      advanceAfterMs: current?.advanceAfterMs,
-      ...changes,
-    });
-  });
-}
-// Preview plays the current slide's transition on the editing canvas.
-function previewTransition() {
-  const canvas = document.querySelector("#slide-canvas");
-  const t = transitionDetails(slide());
-  if (!canvas || !t || t.effect === "none") return;
-  const duration =
-    t.durationMs ?? { fast: 500, med: 750, slow: 1000 }[t.speed ?? "fast"];
-  const frames = {
-    fade: [{ opacity: 0 }, { opacity: 1 }],
-    push: [{ transform: "translateY(100%)" }, { transform: "none" }],
-    zoom: [
-      { transform: "scale(0.3)", opacity: 0 },
-      { transform: "none", opacity: 1 },
-    ],
-  }[t.effect] || [{ opacity: 0 }, { opacity: 1 }];
-  canvas
-    .querySelector(".slide-image")
-    ?.animate(frames, { duration, easing: "ease-out" });
 }
 // Spelling: the browser's own checker, switched on for the deck's text and
 // pointed at the slides that have text to check.
@@ -7079,6 +7019,7 @@ function renderSlideArea(refreshNavigator = true) {
           el("span", { class: "slide-hidden" }, icon("EyeOff", 11), "Hidden"),
         );
       else if (!hidden && badge) badge.remove();
+      transitionTools.markRow(row, s, i + 1);
       row
         .querySelector(":scope > .icon-btn")
         .setAttribute("aria-label", `Options for slide ${i + 1}`);
@@ -11680,66 +11621,28 @@ function replaceMatch(all) {
   });
 }
 /* ---------- Transitions ----------
- * A slide's transition plays as it arrives while presenting: a fade, a push
- * from the side, or a zoom. It is saved in the file as standard
- * PresentationML, and every slide can take the same one at once.
+ * A slide's transition plays as it arrives while presenting. The gallery,
+ * its effect options, timing and sounds live in src/transitions/; it is saved
+ * in the file as standard PresentationML with the newer effects in
+ * compatibility alternatives, and every slide can take the same one at once.
  */
-const TRANSITIONS = [
-  ["none", "None"],
-  ["fade", "Fade"],
-  ["push", "Push"],
-  ["zoom", "Zoom"],
-];
-const PLAYABLE_TRANSITIONS = new Set(TRANSITIONS.map(([effect]) => effect));
+const PLAYABLE_TRANSITIONS = transitionTools.playable;
+const TRANSITIONS = transitionTools.entries.map((entry) => [
+  entry.id,
+  entry.label,
+]);
 function transitionDetails(target, options) {
-  try {
-    return P.getEffectiveSlideTransition(target, options);
-  } catch {
-    return null;
-  }
+  return transitionTools.details(target, options);
 }
 function slideTransition(target) {
-  const effect = transitionDetails(target)?.effect || "none";
-  return PLAYABLE_TRANSITIONS.has(effect) ? effect : "other";
+  return transitionTools.current(target);
 }
-function setTransition(target, effect, { all = false } = {}) {
-  // Only the transitions the app offers are written; "other" stands for one
-  // an imported file carries and names no effect the file could hold.
-  if (!TRANSITIONS.some(([value]) => value === effect)) return;
-  mutateSlide(target, (target) => {
-    const slides = all ? P.getSlides(doc.pres) : [target];
-    let changed = false;
-    for (const s of slides) {
-      if (slideTransition(s) === effect) continue;
-      const current = P.getEffectiveSlideTransition(s);
-      P.setSlideTransition(s, {
-        effect,
-        speed: current?.speed ?? (current ? "fast" : "med"),
-        durationMs: current?.durationMs,
-        advanceOnClick: current?.advanceOnClick,
-        advanceAfterMs: current?.advanceAfterMs,
-      });
-      changed = true;
-    }
-    if (!changed) return SKIP_MUTATION;
-  });
+function setTransition(target, id, { all = false } = {}) {
+  if (all) transitionTools.applyToAll(target);
+  else transitionTools.choose(target, id, { preview: false });
 }
 function transitionItems(target) {
-  const current = slideTransition(target);
-  return [
-    ...TRANSITIONS.map(([value, label]) => ({
-      label,
-      checked: current === value,
-      onSelect: () => setTransition(target, value),
-    })),
-    { separator: true },
-    {
-      label: "Apply to all slides",
-      icon: "Copy",
-      disabled: current === "other",
-      onSelect: () => setTransition(target, current, { all: true }),
-    },
-  ];
+  return transitionTools.menuItems(target);
 }
 /* ---------- Tables ----------
  * A table is a grid of cells inside a graphic frame. Cells are edited in
@@ -13520,13 +13423,11 @@ async function present() {
   function showPrevious() {
     show(ended ? n : n - 1, { backward: true });
   }
-  let transitionToken = 0;
+  // The transition playing over the frame (see src/transitions/player.js).
+  let playing = null;
   function clearTransition() {
-    transitionToken++;
-    frame
-      .querySelectorAll(".presenter-leaving")
-      .forEach((node) => node.remove());
-    image.classList.remove("entering", "fade", "push", "zoom", "backward");
+    playing?.cancel();
+    playing = null;
   }
   function show(i, { backward = false } = {}) {
     laser.hide();
@@ -13578,47 +13479,28 @@ async function present() {
       : transition;
     let readiness;
     const effect = playbackTransition?.effect || "none";
-    // Durations for each spd value of the three base effects we play.
-    // p14:dur overrides speed; omitted spd is fast (CT_SlideTransition).
-    const duration =
-      playbackTransition?.durationMs ??
-      { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    const leaving = shown ? image.getAttribute("src") : null;
+    const arriving = cachedPreview(previews, pres, all[n]);
     if (
       shown &&
       (n !== from || wrapped) &&
-      ["fade", "push", "zoom"].includes(effect) &&
-      duration > 0 &&
-      !matchMedia("(prefers-reduced-motion: reduce)").matches
+      effect !== "none" &&
+      !prefersReducedMotion()
     ) {
-      frame.style.setProperty(
-        "--presenter-transition-duration",
-        `${duration}ms`,
-      );
-      const leaving = image.cloneNode();
-      leaving.className = `presenter-slide presenter-leaving ${effect} ${backward ? "backward" : ""}`;
-      leaving.removeAttribute("tabindex");
-      leaving.alt = "";
-      frame.append(leaving);
-      void image.offsetWidth;
-      image.classList.add("entering", effect);
-      if (backward) image.classList.add("backward");
-      // A transition started later takes over; the earlier one's ending
-      // must not strip the classes the new one is playing with.
-      const token = ++transitionToken;
-      const settle = () => {
-        leaving.remove();
-        if (transitionToken !== token) return;
-        image.classList.remove("entering", "fade", "push", "zoom", "backward");
-      };
-      // Follow actual completion (or cancellation), including long durations
-      // and a motion preference changed while playing. No fixed cleanup timer.
-      readiness = Promise.allSettled(
-        [...image.getAnimations(), ...leaving.getAnimations()].map(
-          (animation) => animation.finished,
-        ),
-      ).then(settle);
+      playing = transitionTools.play({
+        host: frame,
+        fromSlide: all[from],
+        toSlide: all[n],
+        from: leaving,
+        to: arriving,
+        transition: playbackTransition,
+        backward,
+      });
+      readiness = playing.finished;
     }
+    if (shown && !backward && (n !== from || wrapped))
+      transitionTools.playArrivalSound(all[n]);
     shown = true;
     // The navigator already rendered nearby slides from this same state;
     // distant ones render once here and are kept for the navigator.
@@ -13656,6 +13538,7 @@ async function present() {
     syncPause();
   }
   function close() {
+    transitionTools.stopSound();
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();

@@ -2,6 +2,7 @@ import { splitGraphemes } from "unicode-segmenter/grapheme";
 import type {
   DateFieldOptions,
   SlideLayoutData,
+  SlideShapeData,
 } from "../../pptx/src/index.ts";
 
 // Pure-SVG text layout engine for the preview renderer.
@@ -84,6 +85,13 @@ export interface RenderSlideOptions {
   /** Font-provider capabilities may further restrict the resolved OOXML
    * kerning. Uses the same resolved face for measuring and painting. */
   readonly resolveFontKerning?: (spec: FontSpec) => FontSpec["kerning"];
+  /** Draws only the slide's own top-level shapes this accepts (each is
+   * offered once, in drawing order). Template decorations are background. */
+  readonly includeShape?: (shape: SlideShapeData) => boolean;
+  /** Draw the background, including layout and master decorations, under
+   * the shapes. Defaults to true; false leaves a transparent page, so that
+   * layers can be composed, as slide transitions do. */
+  readonly background?: boolean;
 }
 
 // ---------------------------------------------------------------------------
