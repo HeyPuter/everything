@@ -7,6 +7,7 @@ import { sourceMimeType } from '../src/model/embedded';
 import { deserialize, documentAssetIds, serialize, validateDocument } from '../src/model/serialization';
 import { createTimeline, syncTimeline } from '../src/model/video-timeline';
 import { footageVideo } from '../src/model/video-layer';
+import { contentLength, trimClipStart } from '../src/model/video-timeline-ops';
 import {
   audioPlan,
   audioTracks,
@@ -204,6 +205,26 @@ describe('footage sound', () => {
     h.execute('Delete layer', (d) => (d.layers = d.layers.filter((x) => x.id !== l.id)));
     expect(h.document.timeline!.audio![0].clips).toEqual([]);
     expect(allLayers(h.document.layers).map((x) => x.id)).toEqual(['copy']);
+  });
+
+  it('keeps the sound of looping footage extended before its start at the source start', () => {
+    const { doc, l } = videoDoc();
+    l.video!.loops = 0;
+    // Looping footage trims without a content limit: the start goes 0.3 s before the footage.
+    doc.timeline!.clips[l.id] = trimClipStart({ start: 5, in: 0, length: 10 }, -3, contentLength(l, 10));
+    expect(doc.timeline!.clips[l.id]).toMatchObject({ start: 2, in: -3, length: 13 });
+    ownTracks(doc.timeline!)[0].clips.push({ id: 'k', start: 0, in: 0, length: 0, link: l.id });
+    // The sound starts where the footage does, never before its first sample.
+    expect(clipSpan(doc, doc.timeline!.audio![0].clips[0])).toMatchObject({ start: 0.5, in: 0, length: 1, linked: true });
+    const [item] = audioPlan(doc);
+    expect(item).toMatchObject({ at: 0.5, offset: 0, length: 1 });
+    const [left] = mixPlan([item], () => ramp(2), 0, 2, SR);
+    expect(left[499]).toBe(0);
+    expect(left[500]).toBe(0);
+    expect(left[501]).toBe(1);
+    // Trimmed past the end of the sound: nothing plays.
+    doc.timeline!.clips[l.id] = { start: 0, in: -40, length: 30 };
+    expect(audioPlan(doc)).toEqual([]);
   });
 
   it('saves audio clips, tracks and footage sound in projects', async () => {

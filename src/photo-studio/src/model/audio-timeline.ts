@@ -97,7 +97,8 @@ const videoAudioLayer = (doc: PhotoDocument, id: string): VideoWithAudio | undef
 };
 
 /** Where a clip plays: its own times, or for a linked clip the times of
- * the video layer's clip (cut to the length of the footage sound). */
+ * the video layer's clip (cut to the footage sound: a clip of looping
+ * footage extended before the footage's start is silent until it). */
 export type ClipSpan = { start: number; in: number; length: number; source?: AudioSource; muted: boolean; linked: boolean };
 export function clipSpan(doc: PhotoDocument, c: AudioClip): ClipSpan | undefined {
   if (!c.link) return { start: c.start, in: c.in, length: c.length, source: c.source, muted: false, linked: false };
@@ -105,9 +106,11 @@ export function clipSpan(doc: PhotoDocument, c: AudioClip): ClipSpan | undefined
   const l = tl && videoAudioLayer(doc, c.link);
   if (!tl || !l) return undefined;
   const v = tl.clips[l.id] ?? { start: 0, in: 0, length: tl.duration };
-  const start = v.start / tl.fps,
-    at = v.in / tl.fps;
-  const length = Math.min(v.length / tl.fps, l.video.audio.seconds - at);
+  // Content before the footage's first frame (in < 0) has no sound.
+  const lead = Math.max(0, -v.in / tl.fps);
+  const start = v.start / tl.fps + lead,
+    at = Math.max(0, v.in / tl.fps);
+  const length = Math.min(v.length / tl.fps - lead, l.video.audio.seconds - at);
   return { start, in: at, length: Math.max(0, length), source: l.video.audio, muted: !!l.video.muted, linked: true };
 }
 

@@ -31,26 +31,37 @@ function bufferOf(c: BaseAudioContext, pcm: Pcm) {
 export function scheduleSegment(c: BaseAudioContext, out: AudioNode, items: PlanItem[], from: number, to: number, when: number): AudioBufferSourceNode[] {
   const started: AudioBufferSourceNode[] = [];
   for (const item of items) {
-    const a = Math.max(item.at, from),
-      b = Math.min(item.at + item.length, to);
-    if (b - a < 1e-4) continue;
-    const pcm = audioPcm(item.source);
-    const local0 = a - item.at,
-      local1 = b - item.at;
-    const offset = item.offset + local0;
-    if (!pcm || offset >= pcm.channels[0].length / pcm.sampleRate) continue;
-    const src = c.createBufferSource();
-    src.buffer = bufferOf(c, pcm);
-    const gain = c.createGain();
-    // The envelope from the segment start: its value there, then its corners.
-    const at = (local: number) => when + (item.at + local - from);
-    gain.gain.setValueAtTime(envelopeAt(item, local0), Math.max(0, at(local0)));
-    for (const [t, g] of envelopePoints(item)) if (t > local0 && t <= local1) gain.gain.linearRampToValueAtTime(g, at(t));
-    src.connect(gain).connect(out);
-    src.start(Math.max(0, at(local0)), offset, b - a);
-    started.push(src);
+    try {
+      const src = scheduleItem(c, out, item, from, to, when);
+      if (src) started.push(src);
+    } catch (error) {
+      // One clip that cannot play must not silence the others.
+      console.warn('Audio clip not scheduled:', error);
+    }
   }
   return started;
+}
+function scheduleItem(c: BaseAudioContext, out: AudioNode, item: PlanItem, from: number, to: number, when: number) {
+  let a = Math.max(item.at, from);
+  const b = Math.min(item.at + item.length, to);
+  // Sound starts at the source's start (the plan never asks for earlier).
+  if (item.offset + (a - item.at) < 0) a = item.at - item.offset;
+  if (!(b - a >= 1e-4)) return undefined;
+  const pcm = audioPcm(item.source);
+  const local0 = a - item.at,
+    local1 = b - item.at;
+  const offset = item.offset + local0;
+  if (!pcm || !(offset >= 0) || offset >= pcm.channels[0].length / pcm.sampleRate) return undefined;
+  const src = c.createBufferSource();
+  src.buffer = bufferOf(c, pcm);
+  const gain = c.createGain();
+  // The envelope from the segment start: its value there, then its corners.
+  const at = (local: number) => when + (item.at + local - from);
+  gain.gain.setValueAtTime(envelopeAt(item, local0), Math.max(0, at(local0)));
+  for (const [t, g] of envelopePoints(item)) if (t > local0 && t <= local1) gain.gain.linearRampToValueAtTime(g, at(t));
+  src.connect(gain).connect(out);
+  src.start(Math.max(0, at(local0)), offset, b - a);
+  return src;
 }
 
 type Playing = {
@@ -107,8 +118,9 @@ function topUp(p: Playing, c: AudioContext) {
     if (begins - c.currentTime > 1.5) break;
     const now = c.currentTime + lead;
     const skip = Math.max(0, now - begins);
-    if (from + skip < b) p.sources.push(...scheduleSegment(c, p.master, p.items, from + skip, b, begins + skip));
+    // Count the stretch first: a failure never schedules it again and again.
     p.loops++;
+    if (from + skip < b) p.sources.push(...scheduleSegment(c, p.master, p.items, from + skip, b, begins + skip));
     // Forget sources that have finished.
     if (p.sources.length > 512) p.sources = p.sources.slice(-256);
   }

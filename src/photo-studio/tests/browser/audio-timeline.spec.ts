@@ -50,6 +50,36 @@ async function drag(page: Page, box: { x: number; y: number; width: number; heig
   await idle(page);
 }
 
+/** Add a 1 s WebM (VP8 pictures, a 330 Hz Opus tone; written with the
+ * app's own writer) as a video layer. */
+async function addFootage(page: Page) {
+  await page.evaluate(async () => {
+    const { muxWebm } = await import('/src/imaging/codecs/webm.ts');
+    const chunks: { data: Uint8Array; timestampMs: number; key: boolean }[] = [];
+    const ve = new VideoEncoder({
+      output: (c) => {
+        const data = new Uint8Array(c.byteLength);
+        c.copyTo(data);
+        chunks.push({ data, timestampMs: c.timestamp / 1000, key: c.type === 'key' });
+      },
+      error: (err) => console.warn(err),
+    });
+    ve.configure({ codec: 'vp8', width: 32, height: 32, bitrate: 200_000, framerate: 10 });
+    for (let k = 0; k < 10; k++) {
+      const frame = new VideoFrame(new Uint8ClampedArray(32 * 32 * 4).fill(25 * k), { format: 'RGBA', codedWidth: 32, codedHeight: 32, timestamp: k * 100_000, duration: 100_000 });
+      ve.encode(frame, { keyFrame: k === 0 });
+      frame.close();
+    }
+    await ve.flush();
+    const { encodeOpus } = await import('/src/features/animation/audio-export.ts');
+    const tone = Float32Array.from({ length: 48000 }, (_, i) => 0.4 * Math.sin((2 * Math.PI * 330 * i) / 48000));
+    const audio = await encodeOpus(window.photoStudio, [tone, tone]);
+    const bytes = muxWebm(chunks, { width: 32, height: 32, codec: 'V_VP8', frameRate: 10, audio });
+    await window.photoStudio.runCommand('layer.video-new-file', new File([bytes], 'tone.webm', { type: 'video/webm' }));
+  });
+  await idle(page);
+}
+
 test.describe('audio tracks', () => {
   test.beforeEach(async ({ page }) => {
     await boot(page);
@@ -248,33 +278,7 @@ test.describe('audio tracks', () => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
     await openImage(page, 64, 48, '#ffffff', 'footage.png');
-    // A 1 s WebM with VP8 pictures and an Opus tone, written with the app's own writer.
-    await page.evaluate(async () => {
-      const { muxWebm } = await import('/src/imaging/codecs/webm.ts');
-      const chunks: { data: Uint8Array; timestampMs: number; key: boolean }[] = [];
-      const ve = new VideoEncoder({
-        output: (c) => {
-          const data = new Uint8Array(c.byteLength);
-          c.copyTo(data);
-          chunks.push({ data, timestampMs: c.timestamp / 1000, key: c.type === 'key' });
-        },
-        error: (err) => console.warn(err),
-      });
-      ve.configure({ codec: 'vp8', width: 32, height: 32, bitrate: 200_000, framerate: 10 });
-      for (let k = 0; k < 10; k++) {
-        const frame = new VideoFrame(new Uint8ClampedArray(32 * 32 * 4).fill(25 * k), { format: 'RGBA', codedWidth: 32, codedHeight: 32, timestamp: k * 100_000, duration: 100_000 });
-        ve.encode(frame, { keyFrame: k === 0 });
-        frame.close();
-      }
-      await ve.flush();
-      const { encodeOpus } = await import('/src/features/animation/audio-export.ts');
-      const tone = Float32Array.from({ length: 48000 }, (_, i) => 0.4 * Math.sin((2 * Math.PI * 330 * i) / 48000));
-      const audio = await encodeOpus(window.photoStudio, [tone, tone]);
-      const bytes = muxWebm(chunks, { width: 32, height: 32, codec: 'V_VP8', frameRate: 10, audio });
-      (window as unknown as { __clip: File }).__clip = new File([bytes], 'tone.webm', { type: 'video/webm' });
-    });
-    await page.evaluate(() => window.photoStudio.runCommand('layer.video-new-file', (window as unknown as { __clip: File }).__clip));
-    await idle(page);
+    await addFootage(page);
     const layer = await page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.video)!);
     expect(layer.video!.audio).toMatchObject({ asset: layer.video!.footage!.asset, channels: 2, sampleRate: 48000 });
     expect(layer.video!.audio!.seconds).toBeGreaterThan(0.9);
@@ -369,5 +373,80 @@ test.describe('audio tracks', () => {
     expect(diff.items).toBe(2);
     expect(diff.level).toBeGreaterThan(0.3);
     expect(diff.worst).toBeLessThan(2e-3);
+  });
+});
+
+test.describe('audio edge cases', () => {
+  test.beforeEach(async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => localStorage.removeItem('photo-studio-bottom-dock'));
+  });
+
+  test('looping footage extended before its start plays, scrubs and schedules every clip', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    await openImage(page, 32, 32, '#ffffff', 'loop.png');
+    await addFootage(page);
+    await page.evaluate(async (b64) => {
+      const e = window.photoStudio;
+      const id = e.doc.layers.find((l) => l.video)!.id;
+      // Looping footage, its clip trimmed 0.5 s before the footage starts.
+      e.command('Loop', (d) => {
+        d.layers.find((l) => l.id === id)!.video!.loops = 0;
+        d.timeline!.duration = 60;
+        d.timeline!.clips[id] = { start: 3, in: 0, length: 10 };
+      });
+      const { trimClipStart, contentLength } = await import('/src/model/video-timeline-ops.ts');
+      e.command('Trim', (d) => (d.timeline!.clips[id] = trimClipStart(d.timeline!.clips[id], -5, contentLength(d.layers.find((l) => l.id === id)!, d.timeline!.fps))));
+      await e.runCommand('timeline.go-to', e.doc.timeline!.fps);
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await e.runCommand('timeline.audio-add', new File([bytes], 'later.wav', { type: 'audio/wav' }));
+    }, toneWav(1));
+    await idle(page);
+    const tl = await timeline(page);
+    const id = (await page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.video)!.id))!;
+    expect(tl.clips[id]).toMatchObject({ start: 0, in: -3 });
+    const result = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { audioPlan } = await import('/src/model/audio-timeline.ts');
+      const { mixPlan } = await import('/src/imaging/audio/mix.ts');
+      const { audioPcm, loadAll } = await import('/src/features/animation/audio-media.ts');
+      const { scheduleSegment } = await import('/src/features/animation/audio-playback.ts');
+      const plan = audioPlan(e.doc);
+      await loadAll(e.session, plan.map((p) => p.source));
+      const rate = 48000;
+      const render = async (items: typeof plan) => {
+        const ctx = new OfflineAudioContext(2, rate * 2, rate);
+        const n = scheduleSegment(ctx, ctx.destination, items, 0, 2, 0).length;
+        const live = await ctx.startRendering();
+        const mix = mixPlan(items, (p) => audioPcm(p.source), 0, 2, rate, 2);
+        let worst = 0;
+        for (let c = 0; c < 2; c++) for (let i = 0; i < 2 * rate; i++) worst = Math.max(worst, Math.abs(live.getChannelData(c)[i] - mix[c][i]));
+        return { n, worst };
+      };
+      // A hand-made item asking for sound before the source start is
+      // scheduled from the source start and does not stop later clips.
+      const early = { ...plan[0], at: 0, offset: -0.4, clip: 'early' };
+      return { plan: plan.map((p) => [p.at, p.offset]), linked: await render(plan), early: await render([early, plan[1]]) };
+    });
+    expect(result.plan[0][0]).toBeCloseTo(3 / tl.fps, 5);
+    expect(result.plan[0][1]).toBe(0);
+    expect(result.linked.n).toBe(2);
+    expect(result.linked.worst).toBeLessThan(2e-3);
+    expect(result.early.n).toBe(2);
+    expect(result.early.worst).toBeLessThan(2e-3);
+    // Playback and scrubbing from the start run without errors.
+    await run(page, 'timeline.go-to', 0);
+    const panel = page.locator('.panel-body[aria-label="Timeline"]');
+    await panel.locator('.timeline-play').click();
+    await expect.poll(() => page.evaluate(async () => (await import('/src/features/animation/audio-playback.ts')).isAudioPlaying())).toBe(true);
+    await page.waitForTimeout(400);
+    await panel.locator('.timeline-play').click();
+    await idle(page);
+    await page.evaluate(async () => {
+      const { scrubAudio } = await import('/src/features/animation/audio-playback.ts');
+      for (const t of [0, 0.05, 0.1, 0.2]) scrubAudio(window.photoStudio.session, window.photoStudio.doc, t);
+    });
+    expect(errors).toEqual([]);
   });
 });
