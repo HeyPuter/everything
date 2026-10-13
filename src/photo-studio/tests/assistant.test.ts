@@ -400,6 +400,43 @@ describe('Assistant runs', () => {
     expect(e.history.position).toBe(start + 1);
     expect(e.doc.layers[0].visible).toBe(true);
   });
+  it('keeps edits made while a plan is paused as their own undo steps', async () => {
+    const e = mockEditor();
+    const plan = buildPlan({ title: 'Steps', steps: [{ action: 'op.set_layer', args: { opacity: 40 } }, { action: 'op.set_layer', args: { name: 'Photo' } }, { action: 'op.set_layer', args: { visible: false } }] }, 'r', planEnv());
+    const run = new PlanRun(e as unknown as Editor, plan);
+    await run.run(1);
+    // Paused: the first step is already an undo step of its own.
+    expect(e.history.labels).toEqual(['Assistant: r']);
+    e.command('Manual', (d) => void (d.layers[0].blend = 'multiply'));
+    await run.run(1);
+    // Nothing changed since that step: the next one continues its undo step.
+    await run.run(1);
+    expect(run.done).toBe(true);
+    expect(e.history.labels).toEqual(['Assistant: r', 'Manual', 'Assistant: r']);
+    expect(run.undoSteps).toBe(2);
+    const top = () => e.doc.layers[0];
+    expect([top().name, top().visible, top().blend, top().opacity]).toEqual(['Photo', false, 'multiply', 0.4]);
+    e.history.undo();
+    expect([top().name, top().visible, top().blend, top().opacity]).toEqual(['Background', true, 'multiply', 0.4]);
+    e.history.undo();
+    expect([top().name, top().blend, top().opacity]).toEqual(['Background', 'normal', 0.4]);
+    e.history.undo();
+    expect(top().opacity).toBe(1);
+  });
+  it('does not hold history open while a plan is paused', async () => {
+    const e = mockEditor();
+    e.history.limit = 3;
+    const plan = buildPlan({ title: 'Steps', steps: [{ action: 'op.set_layer', args: { opacity: 40 } }, { action: 'op.set_layer', args: { opacity: 60 } }] }, 'r', planEnv());
+    const run = new PlanRun(e as unknown as Editor, plan);
+    await run.run(1);
+    for (let i = 0; i < 6; i++) e.command(`Manual ${i}`, (d) => void (d.layers[0].name = `L${i}`));
+    // The limit applies while the plan waits.
+    expect(e.history.labels).toEqual(['Manual 3', 'Manual 4', 'Manual 5']);
+    run.stop();
+    await run.run();
+    expect(run.done).toBe(true);
+    expect(e.history.labels).toEqual(['Manual 3', 'Manual 4', 'Manual 5']);
+  });
   it('refuses a step with unresolved problems', async () => {
     const e = mockEditor();
     const plan = buildPlan({ steps: [{ action: 'nope' }] }, 'r', planEnv());

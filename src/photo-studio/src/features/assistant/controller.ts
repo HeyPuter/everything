@@ -19,7 +19,7 @@ export type Message =
   | { id: string; role: 'assistant'; kind: 'text' | 'answer' | 'error'; text: string; pointers?: Pointer[] }
   | { id: string; role: 'assistant'; kind: 'plan'; text: string; plan: Plan; state: 'ready' | 'running' | 'stepping' | 'done' | 'stopped' | 'failed' | 'discarded'; outcome?: string };
 export type PlanMessage = Extract<Message, { kind: 'plan' }>;
-export type Conversation = { key: string; messages: Message[]; pending?: { abort: AbortController; status: string }; run?: { run: PlanRun; message: PlanMessage; lastDoc?: unknown } };
+export type Conversation = { key: string; messages: Message[]; pending?: { abort: AbortController; status: string }; run?: { run: PlanRun; message: PlanMessage } };
 
 const conversations = new Map<string, Conversation>();
 const listeners = new Set<() => void>();
@@ -282,19 +282,15 @@ export async function runPlan(e: Editor, m: PlanMessage, mode: 'all' | 'step') {
     e.transform.apply();
     e.modal?.apply();
     c.run = { run: new PlanRun(e, m.plan), message: m };
-  } else if (c.run.lastDoc !== undefined && c.run.lastDoc !== e.doc) {
-    // The document was edited between steps: keep those edits a separate
-    // undo step and continue the plan in a new one.
-    c.run.run.finish();
-    for (const s of m.plan.steps) if (s.status === 'skipped') s.status = 'pending';
-    c.run.run = new PlanRun(e, m.plan);
   }
+  // Between steps the run's undo step is closed (PlanRun.pause): edits made
+  // meanwhile stay their own steps, and the plan continues in a new undo step
+  // after them (or in the same one when the document did not change).
   const r = c.run;
   m.state = 'running';
   changed();
   try {
     await r.run.run(mode === 'step' ? 1 : Infinity);
-    r.lastDoc = e.doc;
     if (r.run.done) end(e, c, m, r.run.stopped ? 'stopped' : 'done');
     else m.state = 'stepping';
   } catch {
@@ -320,14 +316,15 @@ export function stopPlan(e: Editor, m: PlanMessage) {
   }
 }
 function end(e: Editor, c: Conversation, m: PlanMessage, state: 'done' | 'stopped' | 'failed') {
+  const steps = c.run?.run.undoSteps ?? 1;
   c.run = undefined;
   m.state = state;
   const ran = m.plan.steps.filter((s) => s.status === 'done').length, all = m.plan.steps.length;
   const failed = m.plan.steps.find((s) => s.status === 'failed');
-  const undo = ran ? ' Undo removes the changes in one step.' : '';
+  const undo = !ran ? '' : steps > 1 ? ` Undo removes the changes in ${steps} steps, around the edits made in between.` : ' Undo removes the changes in one step.';
   m.outcome =
     state === 'done'
-      ? `Done: ${all} step${all === 1 ? '' : 's'} applied as one undo step.`
+      ? `Done: ${all} step${all === 1 ? '' : 's'} applied as ${steps > 1 ? `${steps} undo steps (the document was edited between steps)` : 'one undo step'}.`
       : state === 'stopped'
         ? `Stopped after ${ran} of ${all} steps.${undo}`
         : `Step ${m.plan.steps.indexOf(failed!) + 1} failed: ${failed?.error ?? 'unknown error'}${ran ? ` The ${ran} step${ran === 1 ? '' : 's'} before it were applied.` : ''}${undo}`;

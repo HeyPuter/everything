@@ -176,8 +176,11 @@ export class ScriptHost {
     // Documents whose edits from the start belong to the run (default: all
     // open documents); others join when the run first edits them.
     only?: DocumentSession[],
+    // Continue the latest undo step of those documents when it carries this
+    // run's label (a paused Assistant plan going on with its next step).
+    resume = false,
   ) {
-    for (const s of only ?? e.sessions) this.marks.set(s, s.history.mark());
+    for (const s of only ?? e.sessions) this.marks.set(s, resume ? s.history.resume(label) : s.history.mark());
     this.methods = this.table();
   }
   /** Run an API method for the script. */

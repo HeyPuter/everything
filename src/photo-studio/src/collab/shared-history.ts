@@ -13,10 +13,11 @@ import { validateDocument } from '../model/serialization';
 import { ORIGIN } from './shared-project';
 import type { RoomClient } from './client';
 
-// One step of this person's history. `shared` when it changed the shared
-// document (an Undo item exists for it); otherwise it changed only this
-// person's selection, which is restored on Undo.
-type Entry = { label: string; before: PhotoDocument; after: PhotoDocument; shared: boolean; written: boolean };
+// One step of this person's history. `items` counts the Undo items it wrote
+// into the shared document (more than one when a paused run continued the
+// step); without any it changed only this person's selection, which is
+// restored on Undo.
+type Entry = { label: string; before: PhotoDocument; after: PhotoDocument; items: number; written: boolean };
 
 export class SharedHistory extends History {
   binding!: SharedBinding;
@@ -73,6 +74,13 @@ export class SharedHistory extends History {
   override mark(): HistoryMark {
     if (!this.marks++) this.markedAt = this.binding.undoCount;
     this.binding.boundary();
+    return { state: { label: '', doc: this.document }, existing: new Set(), open: true };
+  }
+  override resume(label: string): HistoryMark {
+    // Continue this person's latest step (nothing undone since): later edits merge into it.
+    if (this.marks || !this.binding.undoCount || this.binding.redoCount || this.binding.topLabel() !== label) return this.mark();
+    this.marks++;
+    this.markedAt = this.binding.undoCount - 1;
     return { state: { label: '', doc: this.document }, existing: new Set(), open: true };
   }
   override squash(mark: HistoryMark, label: string) {
@@ -179,7 +187,7 @@ export class SharedBinding {
       entry = top;
       entry.after = after;
     } else {
-      entry = { label, before, after, shared: false, written: false };
+      entry = { label, before, after, items: 0, written: false };
       this.entries.push(entry);
     }
     this.redoEntries = [];
@@ -191,14 +199,15 @@ export class SharedBinding {
       if (fresh) this.undoManager.stopCapturing();
       const count = this.undoManager.undoStack.length;
       this.client.project.write(before, after, prepared, ORIGIN.local);
-      // A new step that changed nothing shared (only the selection) has no Undo item.
-      if (this.undoManager.undoStack.length > count) entry.shared = true;
+      // A step that changed nothing shared (only the selection) has no Undo item;
+      // a continued step can gain one after a boundary.
+      entry.items += Math.max(0, this.undoManager.undoStack.length - count);
       this.undoManager.clear(false, true);
       entry.written = true;
       // Older steps beyond the history limit are forgotten.
       while (this.entries.length > Math.max(1, limit) && this.entries[0].written) {
         const old = this.entries.shift()!;
-        if (old.shared) this.undoManager.undoStack.shift();
+        this.undoManager.undoStack.splice(0, old.items);
       }
     });
   }
@@ -231,9 +240,9 @@ export class SharedBinding {
     if (!entry) return;
     this.redoEntries.push(entry);
     this.run(() => {
-      if (entry.shared) {
+      if (entry.items) {
         this.undoManager.stopCapturing();
-        this.undoManager.undo();
+        for (let i = 0; i < entry.items; i++) this.undoManager.undo();
         this.undoManager.stopCapturing();
       }
       this.project(true, entry.before);
@@ -244,9 +253,9 @@ export class SharedBinding {
     if (!entry) return;
     this.entries.push(entry);
     this.run(() => {
-      if (entry.shared) {
+      if (entry.items) {
         this.undoManager.stopCapturing();
-        this.undoManager.redo();
+        for (let i = 0; i < entry.items; i++) this.undoManager.redo();
         this.undoManager.stopCapturing();
       }
       this.project(true, entry.after);
