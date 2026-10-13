@@ -31,12 +31,34 @@ export type VideoView = {
   expanded: Set<string>;
   // Playback loops over the work area.
   loop: boolean;
+  // Selected audio clips (clip commands act on them while any is selected)
+  // and the audio track that receives new clips.
+  audioClips: string[];
+  audioTrack: string;
+  // Play short snippets of sound while scrubbing.
+  scrubAudio: boolean;
 };
 const views = new WeakMap<DocumentSession, VideoView>();
 export function videoView(e: Editor): VideoView {
   let v = views.get(e.session);
-  if (!v) views.set(e.session, (v = { zoom: 0, keys: [], expanded: new Set(), loop: true }));
+  if (!v) views.set(e.session, (v = { zoom: 0, keys: [], expanded: new Set(), loop: true, audioClips: [], audioTrack: '', scrubAudio: false }));
   return v;
+}
+/** The selected audio clips that still exist. */
+export function selectedAudioClips(e: Editor) {
+  const tl = timelineOf(e);
+  if (!tl?.audio) return [];
+  const ids = new Set(tl.audio.flatMap((t) => t.clips.map((c) => c.id)));
+  return videoView(e).audioClips.filter((id) => ids.has(id));
+}
+/** The selected audio track (the first track when none is selected). */
+export function selectedAudioTrack(e: Editor) {
+  const tl = timelineOf(e);
+  if (!tl) return undefined;
+  const tracks = tl.audio?.length ? tl.audio : undefined;
+  if (!tracks) return undefined;
+  const id = videoView(e).audioTrack;
+  return tracks.find((t) => t.id === id) ?? tracks.find((t) => t.clips.some((c) => videoView(e).audioClips.includes(c.id))) ?? tracks[0];
 }
 
 // Playback (set by the playback module while a timeline plays).

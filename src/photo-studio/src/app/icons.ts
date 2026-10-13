@@ -362,6 +362,15 @@ const custom: Record<string, Node[]> = {
   'keyframe': [['path', { d: 'M12 4l8 8-8 8-8-8Z', fill: 'currentColor', 'fill-opacity': 0.35 }]],
   'split-clip': [['rect', { x: 2.5, y: 7, width: 8, height: 10, rx: 1.5 }], ['rect', { x: 13.5, y: 7, width: 8, height: 10, rx: 1.5 }], p('M12 3v2.5M12 18.5V21')],
   'transition': [['rect', { x: 2.5, y: 7, width: 11, height: 10, rx: 1.5 }], ['rect', { x: 10.5, y: 7, width: 11, height: 10, rx: 1.5, 'stroke-dasharray': '2 2' }], ['path', { d: 'M10.5 8.5 13.5 15.5', opacity: 0.6 }]],
+  // Timeline audio (original glyphs): a loudspeaker with sound waves or
+  // crossed out, ear cups for solo, level bars for sound, bars with a plus
+  // for adding sound, and a chain broken in two for unlinking.
+  'speaker': [p('M4 9.5h3.5L12 5.5v13l-4.5-4H4Z'), p('M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11')],
+  'speaker-off': [p('M4 9.5h3.5L12 5.5v13l-4.5-4H4Z'), p('M16 9.5l5 5M21 9.5l-5 5')],
+  'headphones': [p('M4 15v-3a8 8 0 0 1 16 0v3'), ['rect', { x: 3, y: 14, width: 4, height: 6.5, rx: 1.5 }], ['rect', { x: 17, y: 14, width: 4, height: 6.5, rx: 1.5 }]],
+  'audio-wave': [p('M3 11.5v1M6.5 9v6M10 5v14M13.5 8v8M17 10.5v3M20.5 11.5v1')],
+  'audio-add': [p('M3 11v2M6.5 8.5v7M10 5.5v13M13.5 9v6'), p('M19 13.5v7M15.5 17h7')],
+  'unlink': [p('M9.5 14.5 7 17a3.2 3.2 0 0 1-4.5-4.5L5 10'), p('M14.5 9.5 17 7a3.2 3.2 0 0 1 4.5 4.5L19 14'), p('M8 3v2.5M3 8h2.5M16 21v-2.5M21 16h-2.5')],
   // Embedded object (original glyph): a frame holding a nested page.
   'embedded-object': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 3 }], ['rect', { x: 9.5, y: 9.5, width: 8, height: 8, rx: 1.5, fill: 'currentColor', 'fill-opacity': 0.35 }]],
   'path-op-exclude': [['path', { d: 'M3 3h12v6H9v6H3Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['path', { d: 'M15 9h6v12H9v-6h6Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['rect', { x: 9, y: 9, width: 6, height: 6 }]],

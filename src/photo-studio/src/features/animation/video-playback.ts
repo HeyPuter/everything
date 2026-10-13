@@ -3,13 +3,15 @@
 // frames whose video is still decoding are skipped, so playback keeps time
 // on slow machines. Playback loops over the work area until stopped (or
 // plays it once with looping off); stopping shows the frame on screen as
-// the current time. Edits and document switches stop it.
+// the current time. Edits and document switches stop it. Sound plays along
+// (audio-playback.ts); while it does, its clock drives the frame shown.
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 import type { PhotoDocument } from '../../model/document';
 import { neededFrames, timeDocument, workArea } from '../../model/video-timeline-ops';
 import { cacheLookup, prefetchFrames, setTime } from './video-frames';
 import { videoPlayback, videoView } from './video-state';
+import { audioElapsed, startAudio, stopAudio } from './audio-playback';
 
 type Playing = { session: DocumentSession; doc: PhotoDocument; t0: number; from: number; range: [number, number]; shown: number; raf: number; loop: boolean; last?: PhotoDocument };
 let playing: Playing | undefined;
@@ -30,6 +32,8 @@ export function playVideo(e: Editor) {
   videoPlayback.session = e.session;
   videoPlayback.frame = from;
   notify();
+  const p = playing;
+  void startAudio(e.session, e.doc, from / tl.fps, [range[0] / tl.fps, range[1] / tl.fps], p.loop, () => (performance.now() - p.t0) / 1000).catch(() => {});
   tick(e);
 }
 
@@ -38,7 +42,8 @@ function tick(e: Editor) {
   const tl = p?.doc.timeline;
   if (!p || !tl) return;
   const [a, b] = p.range;
-  let f = p.from + Math.floor(((performance.now() - p.t0) / 1000) * tl.fps);
+  const elapsed = audioElapsed() ?? (performance.now() - p.t0) / 1000;
+  let f = p.from + Math.max(0, Math.floor(elapsed * tl.fps + 1e-6));
   if (f >= b) {
     if (!p.loop) {
       showFrame(e, p, b - 1);
@@ -70,6 +75,7 @@ export function stopVideo(e: Editor, select = true) {
   if (!p) return;
   cancelAnimationFrame(p.raf);
   playing = undefined;
+  stopAudio();
   videoPlayback.session = undefined;
   notify();
   if (select && e.session === p.session && e.doc === p.doc && p.shown >= 0) void setTime(e, p.shown);
@@ -88,6 +94,7 @@ export function videoPlaybackUpdate(e: Editor) {
   if (p.session !== e.session || p.doc !== e.doc) {
     cancelAnimationFrame(p.raf);
     playing = undefined;
+    stopAudio();
     videoPlayback.session = undefined;
     notify();
     return;

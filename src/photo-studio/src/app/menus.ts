@@ -103,7 +103,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       { label: 'Video Layers', id: 'layer.video', items: [
         'layer.video-new-file', '-',
         'layer.video-new-blank', 'layer.video-insert-frame', 'layer.video-duplicate-frame', 'layer.video-delete-frame', '-',
-        'layer.video-replace', 'layer.video-interpret', '-',
+        'layer.video-replace', 'layer.video-interpret', 'layer.video-mute', '-',
         'layer.video-show-altered', '-',
         'layer.video-restore-frame', 'layer.video-restore-all', '-',
         'layer.video-reload-frame', '-',

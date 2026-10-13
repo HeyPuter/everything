@@ -1,8 +1,9 @@
 // The video timeline view in the Timeline panel: a time ruler with the
 // work area and the current-time indicator, one track per layer (children of
 // open groups indented) with its clip, keyframe lanes for position, opacity
-// and style, and transport and zoom controls. Clips drag to move, their ends
-// drag to trim, keyframes drag to retime; the ruler scrubs.
+// and style, audio tracks under the layer tracks (audio-panel.ts), and
+// transport and zoom controls. Clips drag to move, their ends drag to trim,
+// keyframes drag to retime; the ruler scrubs.
 import type { Editor } from '../../editor';
 import { commands } from '../../app/registry';
 import { svg } from '../../app/icons';
@@ -27,6 +28,10 @@ import { isVideoLayer, timelineOf, videoPlayback, videoView, isVideoPlaying, typ
 import { setTime } from './video-frames';
 import { onVideoPlayback } from './video-playback';
 import * as cmd from './video-commands';
+import { audioPropsHtml, audioRowsHtml, beginAudioDrag, endAudioDrag, moveAudioDrag, type AudioDrag } from './audio-panel';
+import { onAudioDecoded } from './audio-media';
+import { scrubAudio } from './audio-playback';
+import { audioClipMenu, audioTrackMenu } from './audio';
 
 const HEAD = 200;
 const minZoom = 0.02;
@@ -37,13 +42,15 @@ type Drag =
   | { kind: 'scrub' }
   | { kind: 'work'; edge: 'start' | 'end'; x0: number; from: [number, number] }
   | { kind: 'clip'; ids: string[]; mode: 'move' | 'start' | 'end'; x0: number; moved: boolean; base: Map<string, Clip> }
-  | { kind: 'keys'; keys: KeyRef[]; x0: number; moved: boolean };
+  | { kind: 'keys'; keys: KeyRef[]; x0: number; moved: boolean }
+  | { kind: 'audio'; g: AudioDrag };
 
 let host: HTMLElement | undefined;
 let editor: Editor | undefined;
 let lastBody = '';
 let lastControls = '';
 let lastTicks = '';
+let lastProps = '';
 let drag: Drag | undefined;
 let scrubTarget = -1;
 let scrubFrame = 0;
@@ -129,7 +136,7 @@ function bodyHtml(e: Editor, tl: VideoTimeline, zoom: number) {
       const open = view.expanded.has(l.id);
       const icon = isVideoLayer(l) ? 'film' : l.kind === 'group' ? 'folder' : l.kind === 'adjustment' ? 'adjustment-layer' : l.kind === 'text' ? 'type' : l.kind === 'vector' ? 'shapes' : 'image';
       const sel = e.selectedIds.has(l.id);
-      const head = `<div class="vt-head" data-select="${l.id}" style="--depth:${depth}"><button class="icon-button vt-disclosure" data-expand="${l.id}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} keyframes" aria-label="${open ? 'Hide' : 'Show'} keyframes of ${escapeXML(l.name)}">${svg(open ? 'chevron-down' : 'chevron-right', 12)}</button><span class="vt-icon" aria-hidden="true">${svg(icon, 13)}</span><span class="vt-name" title="${escapeXML(l.name)}">${escapeXML(l.name)}</span></div>`;
+      const head = `<div class="vt-head" data-select="${l.id}" style="--depth:${depth}"><button class="icon-button vt-disclosure" data-expand="${l.id}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} keyframes" aria-label="${open ? 'Hide' : 'Show'} keyframes of ${escapeXML(l.name)}">${svg(open ? 'chevron-down' : 'chevron-right', 12)}</button><span class="vt-icon" aria-hidden="true">${svg(icon, 13)}</span><span class="vt-name" title="${escapeXML(l.name)}">${escapeXML(l.name)}</span>${isVideoLayer(l) && l.video.audio ? `<button class="icon-button vt-track-toggle" data-video-mute="${l.id}" aria-pressed="${!!l.video.muted}" title="${l.video.muted ? 'Unmute' : 'Mute'} the sound of this video layer" aria-label="Mute the sound of ${escapeXML(l.name)}">${svg(l.video.muted ? 'speaker-off' : 'speaker', 13)}</button>` : ''}</div>`;
       const props = open ? keyProperties.filter((p) => canAnimate(l, p)).map((p) => keyLane(e, tl, l, p, zoom)).join('') : '';
       return `<div class="vt-row vt-track${sel ? ' selected' : ''}" data-row="${l.id}">${head}<div class="vt-lane" data-lane="${l.id}">${clipHtml(e, tl, l, zoom)}</div></div>${props}`;
     })
@@ -141,7 +148,7 @@ function bodyHtml(e: Editor, tl: VideoTimeline, zoom: number) {
 <div class="vt-out" style="left:${we * zoom}px;width:${Math.max(0, (tl.duration - we) * zoom)}px"></div><div class="vt-out" style="left:0;width:${ws * zoom}px"></div>
 <div class="vt-work" style="left:${ws * zoom}px;width:${(we - ws) * zoom}px" title="Work area: ${timecode(ws, tl.fps)} to ${timecode(we, tl.fps)}"><span class="vt-work-handle start" data-work="start" title="Drag to set the start of the work area"></span><span class="vt-work-handle end" data-work="end" title="Drag to set the end of the work area"></span></div>
 <span class="vt-knob" aria-hidden="true"></span></div></div>
-${rows}${empty}<div class="vt-end" style="left:${HEAD + width}px" title="End of the timeline"></div><div class="vt-playhead" aria-hidden="true"></div></div>`;
+${rows}${empty}${audioRowsHtml(e, tl, zoom)}<div class="vt-end" style="left:${HEAD + width}px" title="End of the timeline"></div><div class="vt-playhead" aria-hidden="true"></div></div>`;
 }
 
 function controlsHtml(e: Editor, tl: VideoTimeline, zoom: number) {
@@ -240,6 +247,13 @@ export function renderVideoTimeline(e: Editor, el: HTMLElement) {
     controls.innerHTML = lastControls = ctl;
     if (focused) controls.querySelector<HTMLElement>(`.${focused.split(' ').join('.')}`)?.focus();
   }
+  const bar = el.querySelector<HTMLElement>('.vt-audio-props')!;
+  const props = audioPropsHtml(e, tl);
+  // Keep the bar while one of its fields has focus (typing a value).
+  if (props !== lastProps && !(bar.contains(document.activeElement) && document.activeElement?.matches('input'))) {
+    bar.innerHTML = lastProps = props;
+    bar.hidden = !props;
+  }
   renderTicks(e);
   placePlayhead(e, drag?.kind === 'scrub' ? scrubFrame : undefined);
 }
@@ -271,10 +285,37 @@ function setZoom(e: Editor, zoom: number, anchorClientX?: number) {
 function mount(e: Editor, el: HTMLElement) {
   host = el;
   el.classList.add('vt');
-  el.innerHTML = `<div class="vt-body" tabindex="0" aria-label="Video timeline: tracks, clips and keyframes"></div><div class="timeline-controls vt-controls" role="toolbar" aria-label="Timeline controls"></div>`;
-  lastBody = lastControls = lastTicks = '';
+  el.innerHTML = `<div class="vt-body" tabindex="0" aria-label="Video timeline: tracks, clips, keyframes and audio"></div><div class="vt-audio-props" role="group" aria-label="Audio properties" hidden></div><div class="timeline-controls vt-controls" role="toolbar" aria-label="Timeline controls"></div>`;
+  lastBody = lastControls = lastTicks = lastProps = '';
   const body = el.querySelector<HTMLElement>('.vt-body')!;
   const controls = el.querySelector<HTMLElement>('.vt-controls')!;
+  const bar = el.querySelector<HTMLElement>('.vt-audio-props')!;
+  // Waveforms draw once their sound is decoded.
+  let decodedFrame = 0;
+  onAudioDecoded(() => {
+    if (decodedFrame) return;
+    decodedFrame = requestAnimationFrame(() => {
+      decodedFrame = 0;
+      if (editor && host?.isConnected && timelineOf(editor) && !drag) {
+        lastBody = '';
+        renderVideoTimeline(editor, host);
+      }
+    });
+  });
+  bar.addEventListener('input', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    const out = t.parentElement?.querySelector('output');
+    if (out && t.type === 'range') out.textContent = `${Number(t.value) > 0 ? '+' : Number(t.value) < 0 ? '−' : ''}${Math.abs(Number(t.value)).toFixed(1)} dB`;
+  });
+  bar.addEventListener('change', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    const key = t.dataset.audio;
+    const ed = editor;
+    if (!key || !ed || ed.busy) return;
+    const v = Number(t.value);
+    if (!Number.isFinite(v)) return;
+    void ed.runCommand('timeline.audio-set', t.dataset.track ? { track: t.dataset.track, [key]: v } : { clip: t.dataset.clip, [key]: v });
+  });
   // While playing only the indicator moves; the view redraws when playback starts or stops.
   let wasPlaying = false;
   onVideoPlayback(() => {
@@ -344,6 +385,13 @@ function mount(e: Editor, el: HTMLElement) {
       void cmd.gotoKey(ed, Number(nav.dataset.keyNav) as 1 | -1, { id, prop: prop as KeyProperty });
       return;
     }
+    const mute = t.closest<HTMLElement>('[data-video-mute]');
+    if (mute && !ed.busy) {
+      videoView(ed).audioClips = [];
+      ed.selectLayers([mute.dataset.videoMute!]);
+      void ed.runCommand('layer.video-mute');
+      return;
+    }
     const tr = t.closest<HTMLElement>('[data-transition]');
     if (tr && !ed.busy) {
       ed.selectLayers([tr.dataset.transition!]);
@@ -351,7 +399,26 @@ function mount(e: Editor, el: HTMLElement) {
       return;
     }
     const head = t.closest<HTMLElement>('[data-select]');
-    if (head && !t.closest('button')) ed.selectLayer(head.dataset.select!, ev.metaKey || ev.ctrlKey, ev.shiftKey);
+    if (head && !t.closest('button')) {
+      videoView(ed).audioClips = [];
+      ed.selectLayer(head.dataset.select!, ev.metaKey || ev.ctrlKey, ev.shiftKey);
+    }
+    const audioHead = t.closest<HTMLElement>('[data-audio-track]');
+    if (audioHead && !t.closest('button')) {
+      const view = videoView(ed);
+      view.audioTrack = audioHead.dataset.audioTrack!;
+      view.audioClips = [];
+      ed.update();
+    }
+  });
+
+  body.addEventListener('dblclick', (ev) => {
+    const ed = editor;
+    const t = ev.target as HTMLElement;
+    if (!ed || ed.busy || t.closest('button')) return;
+    const audioHead = t.closest<HTMLElement>('[data-audio-track]');
+    if (audioHead) void ed.runCommand('timeline.audio-track-rename', audioHead.dataset.audioTrack);
+    else if (t.closest('[data-audio-clip]') && !t.closest('[data-trim],[data-afade]')) void ed.runCommand('timeline.audio-settings');
   });
 
   body.addEventListener('contextmenu', (ev) => {
@@ -360,6 +427,23 @@ function mount(e: Editor, el: HTMLElement) {
     const t = ev.target as HTMLElement;
     const key = t.closest<HTMLElement>('[data-key]');
     const clip = t.closest<HTMLElement>('[data-clip]');
+    const audioClip = t.closest<HTMLElement>('[data-audio-clip]');
+    const audioHead = t.closest<HTMLElement>('[data-audio-track]');
+    if (audioClip || audioHead) {
+      ev.preventDefault();
+      const view = videoView(ed);
+      if (audioClip) {
+        const id = audioClip.dataset.audioClip!;
+        if (!view.audioClips.includes(id)) view.audioClips = [id];
+        view.audioTrack = audioClip.closest<HTMLElement>('[data-audio-lane]')?.dataset.audioLane ?? view.audioTrack;
+      } else {
+        view.audioTrack = audioHead!.dataset.audioTrack!;
+        view.audioClips = [];
+      }
+      ed.update();
+      showContextMenu(ed, ev.clientX, ev.clientY, audioClip ? audioClipMenu() : audioTrackMenu());
+      return;
+    }
     if (!key && !clip) return;
     ev.preventDefault();
     if (key) {
@@ -389,6 +473,7 @@ function mount(e: Editor, el: HTMLElement) {
     else if (ev.key === 'End') void setTime(ed, we - 1);
     else if (ev.key === ' ') void ed.runCommand('animation.play');
     else if ((ev.key === 'Delete' || ev.key === 'Backspace') && videoView(ed).keys.length) void ed.runCommand('timeline.delete-keys');
+    else if ((ev.key === 'Delete' || ev.key === 'Backspace') && videoView(ed).audioClips.length) void ed.runCommand('timeline.audio-delete');
     else return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -406,8 +491,23 @@ function mount(e: Editor, el: HTMLElement) {
     const clip = t.closest<HTMLElement>('[data-clip]');
     const ruler = t.closest('[data-ruler],.vt-corner');
     const lane = t.closest<HTMLElement>('[data-lane]');
+    const audioClip = t.closest<HTMLElement>('[data-audio-clip]');
+    const audioLane = t.closest<HTMLElement>('[data-audio-lane]');
     if (isVideoPlaying(ed)) void ed.runCommand('animation.play');
-    if (work) {
+    if (audioClip) {
+      const g = beginAudioDrag(ed, ev, t);
+      if (!g) return;
+      drag = { kind: 'audio', g };
+      ed.update();
+    } else if (audioLane) {
+      const view = videoView(ed);
+      view.audioTrack = audioLane.dataset.audioLane!;
+      view.audioClips = [];
+      view.keys = [];
+      drag = { kind: 'scrub' };
+      ed.update();
+      scrub(ed, frameAt(ed, ev.clientX));
+    } else if (work) {
       drag = { kind: 'work', edge: work.dataset.work as 'start' | 'end', x0: ev.clientX, from: workArea(tl) };
     } else if (key) {
       const ref = parseKey(key.dataset.key!);
@@ -419,6 +519,7 @@ function mount(e: Editor, el: HTMLElement) {
       lastBody = '';
       renderVideoTimeline(ed, host!);
     } else if (clip) {
+      videoView(ed).audioClips = [];
       const id = clip.dataset.clip!;
       const trim = t.closest<HTMLElement>('[data-trim]')?.dataset.trim as 'start' | 'end' | undefined;
       if (ev.shiftKey || ev.metaKey || ev.ctrlKey) ed.selectLayer(id, true, false);
@@ -428,6 +529,7 @@ function mount(e: Editor, el: HTMLElement) {
       drag = { kind: 'clip', ids: ids.length ? ids : [id], mode: trim ?? 'move', x0: ev.clientX, moved: false, base: new Map(ids.map((x) => [x, clipOf(tl, x)])) };
     } else if (ruler || lane) {
       if (lane && !ruler) {
+        videoView(ed).audioClips = [];
         ed.selectLayer(lane.dataset.lane!, ev.metaKey || ev.ctrlKey, ev.shiftKey);
         videoView(ed).keys = [];
       }
@@ -446,6 +548,7 @@ function mount(e: Editor, el: HTMLElement) {
     if (!tl) return;
     const zoom = zoomOf(ed, tl);
     if (drag.kind === 'scrub') scrub(ed, frameAt(ed, ev.clientX));
+    else if (drag.kind === 'audio') moveAudioDrag(ed, drag.g, ev, host!, zoom);
     else if (drag.kind === 'work') {
       const f = frameAt(ed, ev.clientX);
       const [a, b] = drag.from;
@@ -489,6 +592,13 @@ function mount(e: Editor, el: HTMLElement) {
     if (!tl) return;
     if (body.hasPointerCapture(ev.pointerId)) body.releasePointerCapture(ev.pointerId);
     const zoom = zoomOf(ed, tl);
+    if (g.kind === 'audio') {
+      void endAudioDrag(ed, g.g, ev, host!).finally(() => {
+        lastBody = '';
+        if (host) renderVideoTimeline(ed, host);
+      });
+      return;
+    }
     if (g.kind === 'scrub') {
       if (scrubTarget >= 0) void setTime(ed, scrubTarget);
       scrubTarget = -1;
@@ -559,6 +669,8 @@ function scrub(e: Editor, f: number) {
   placePlayhead(e, f);
   if (scrubTarget === f) return;
   scrubTarget = f;
+  const tl = timelineOf(e);
+  if (tl && videoView(e).scrubAudio) scrubAudio(e.session, e.doc, f / tl.fps);
   void setTime(e, f);
 }
 const parseKey = (s: string): KeyRef => {
