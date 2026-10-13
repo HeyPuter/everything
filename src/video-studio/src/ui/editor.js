@@ -181,6 +181,7 @@ export class Editor {
         el.setAttribute('aria-valuenow', String(Math.round((1 - v) * 100)));
       }
       this.ctx.playerView.relayout?.();
+      if (which === 'left') this.ctx.assets.relayout?.();
     };
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -293,6 +294,7 @@ export class Editor {
       else r.setAttribute('aria-valuenow', String(Math.round((1 - l.upperH) * 100)));
     }
     this.ctx.playerView.relayout?.();
+    this.ctx.assets.relayout?.();
     this.ctx.timeline.render?.(true);
     announce(`${l.label} layout`);
   }
