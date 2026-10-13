@@ -115,3 +115,24 @@ describe('Preference effects', () => {
     expect(s.y).toBeCloseTo(300);
   });
 });
+
+describe('Type and slice preferences', () => {
+  it('limits and hides recent fonts', async () => {
+    const app = await bootAppWithFeatures();
+    const { recentFonts } = await import('../src/features/type/font-tools.js');
+    app.prefs.set('recentFonts', ['Inter', 'Inter', 'Inter'].map((f, i) => (i ? `${f}` : f)));
+    const all = recentFonts(app).length;
+    app.prefs.set('recentFontsCount', 1);
+    expect(recentFonts(app).length).toBeLessThanOrEqual(1);
+    expect(all).toBeGreaterThanOrEqual(recentFonts(app).length);
+    app.prefs.set('showRecentFonts', false);
+    expect(app.menuSources.get('recentFonts')(app)).toEqual([]);
+  });
+
+  it('offers slice line colors as colors', async () => {
+    const app = await bootAppWithFeatures();
+    const slices = sections(app).find((s) => s.id === 'slices');
+    const f = slices.fields.find((x) => x.key === 'sliceLineColor');
+    expect(f.options.every((o) => /^#[0-9a-f]{6}$/i.test(o.value))).toBe(true);
+  });
+});

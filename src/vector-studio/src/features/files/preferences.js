@@ -47,8 +47,11 @@ export const PREF_DEFAULTS = {
   typeTrackingIncrement: 20,
   typeBaselineIncrement: 2,
   typePlaceholder: true,
+  showRecentFonts: true,
+  recentFontsCount: 10,
   bareNumbersArePoints: false,
   showSliceNumbers: true,
+  sliceLineColor: '#e8590c',
   canvasColor: 'match',
   undoLevels: 200,
 };
@@ -165,6 +168,9 @@ export function sections(app) {
         { key: 'typeBaselineIncrement', label: 'Baseline Shift', type: 'length', min: 0.001, max: 72 },
         { type: 'heading', label: 'New Type' },
         { key: 'typePlaceholder', label: 'Fill New Type Objects With Placeholder Text', type: 'checkbox' },
+        { type: 'heading', label: 'Fonts' },
+        { key: 'showRecentFonts', label: 'Show Recent Fonts', type: 'checkbox', help: 'Type > Recent Fonts lists the fonts you used last.' },
+        { key: 'recentFontsCount', label: 'Number of Recent Fonts', type: 'number', min: 1, max: 30, integer: true },
       ],
     },
     {
@@ -207,7 +213,10 @@ export function sections(app) {
     {
       id: 'slices',
       label: 'Slices',
-      fields: [{ key: 'showSliceNumbers', label: 'Show Slice Numbers', type: 'checkbox' }],
+      fields: [
+        { key: 'showSliceNumbers', label: 'Show Slice Numbers', type: 'checkbox' },
+        { key: 'sliceLineColor', label: 'Line Color', type: 'color-select', options: [{ value: '#e8590c', label: 'Orange', color: '#e8590c' }, ...GUIDE_COLORS.filter((c) => c.value !== 'orange').map((c) => ({ ...c, value: c.color }))] },
+      ],
     },
     {
       id: 'ui',

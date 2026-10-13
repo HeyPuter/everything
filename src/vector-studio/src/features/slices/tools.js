@@ -12,6 +12,14 @@ import { Tool } from '../../tools/tool.js';
 import { sliceTable, sliceAt, findSlice, addSlice, updateSlice, promote, sliceRect, pixelRect, removeSlices } from './model.js';
 
 export const SLICE_COLOR = '#e8590c';
+
+/** The slice line color (Preferences > Slices) as rgba with alpha `a`. */
+function sliceColor(editor, a = 1) {
+  const c = editor?.prefs?.get('sliceLineColor');
+  const hex = /^#[0-9a-f]{6}$/i.test(c || '') ? c : SLICE_COLOR;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
 const HANDLE = 7;
 
 /** Table of the active document, cached per document state. */
@@ -63,11 +71,11 @@ export function drawSliceOverlay(ctx, editor) {
     pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     ctx.closePath();
     ctx.setLineDash(auto ? [3, 3] : []);
-    ctx.strokeStyle = auto ? 'rgba(232, 89, 12, 0.55)' : SLICE_COLOR;
+    ctx.strokeStyle = sliceColor(editor, auto ? 0.55 : 1);
     ctx.lineWidth = on ? 2 : 1;
     ctx.stroke();
     if (on) {
-      ctx.fillStyle = 'rgba(232, 89, 12, 0.08)';
+      ctx.fillStyle = sliceColor(editor, 0.08);
       ctx.fill();
     }
     ctx.setLineDash([]);
@@ -76,7 +84,7 @@ export function drawSliceOverlay(ctx, editor) {
     const tag = String(row.number).padStart(2, '0') + (row.kind === 'object' ? ' ◆' : '');
     const tw = ctx.measureText(tag).width + 8;
     const p = pts[0];
-    ctx.fillStyle = auto ? 'rgba(120, 120, 120, 0.85)' : on ? SLICE_COLOR : 'rgba(232, 89, 12, 0.85)';
+    ctx.fillStyle = auto ? 'rgba(120, 120, 120, 0.85)' : sliceColor(editor, on ? 1 : 0.85);
     ctx.fillRect(Math.round(p.x) + 1, Math.round(p.y) + 1, tw, 14);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(tag, Math.round(p.x) + 5, Math.round(p.y) + 8.5);
@@ -85,7 +93,7 @@ export function drawSliceOverlay(ctx, editor) {
   const one = editor.tool?.id === 'slice-select' && sel.size === 1 ? table.find((r) => sel.has(r.id) && r.kind === 'user') : null;
   if (one && !editor.viewOptions.lockSlices) {
     ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = SLICE_COLOR;
+    ctx.strokeStyle = sliceColor(editor);
     ctx.lineWidth = 1;
     for (const [x, y] of Object.values(handlePoints(one.rect))) {
       const s = editor.view.toScreen(x, y);
@@ -161,7 +169,7 @@ export class SliceTool extends Tool {
     if (!r) return;
     const pts = corners(editor, pixelRect(r));
     ctx.save();
-    ctx.strokeStyle = SLICE_COLOR;
+    ctx.strokeStyle = sliceColor(editor);
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
     pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
