@@ -24,7 +24,7 @@ const describeKeys = keys => [...new Set(keys.map(k => LABELS[k] || k))].join(',
  * the dialogs that change it).
  *
  * actions: apply(id), modify(id), create(), remove(id), selectAll(id), updateToMatch(id), clearFormatting(),
- * clearParagraph(), clearText(), resetParagraphStyle(), clearCharacterStyle(), openTarget(target), focusEditor()
+ * clearParagraph(), clearText(), resetParagraphStyle(), clearCharacterStyle(), openTarget(target), manage(), focusEditor()
  */
 export function createStylesPane({ editor, readOnly, actions }) {
   let view = 'styles', signature = '';
@@ -78,7 +78,7 @@ export function createStylesPane({ editor, readOnly, actions }) {
       const look = showPreview ? preview(s.id) : {};
       const more = el('button.icon-btn.styles-pane-more', { type: 'button', 'aria-label': `${styleDisplayName(s.name)} options`, title: 'Style options', 'aria-haspopup': 'menu', onclick: e2 => { e2.stopPropagation(); menu(s, more); } }, iconEl('more', 16));
       const item = el('div.styles-pane-item', { role: 'option', 'aria-selected': String(active), dataset: { style: s.id } },
-        el('button.styles-pane-apply', { type: 'button', disabled: ro, title: `Apply ${styleDisplayName(s.name)}${s.count ? ` · used ${s.count} ${s.count === 1 ? 'time' : 'times'}` : ''}`, onclick: () => actions.apply(s.id),
+        el('button.styles-pane-apply', { type: 'button', disabled: ro, 'aria-label': `Apply ${styleDisplayName(s.name)} (${s.type === 'character' ? 'character' : 'paragraph'} style)`, title: `Apply ${styleDisplayName(s.name)}${s.count ? ` · used ${s.count} ${s.count === 1 ? 'time' : 'times'}` : ''}`, onclick: () => actions.apply(s.id),
           oncontextmenu: ev => { ev.preventDefault(); menu(s, more, ev); } },
         el('span.styles-pane-name', { style: look }, styleDisplayName(s.name)),
         el('span.styles-pane-kind', { 'aria-label': s.type === 'character' ? 'Character style' : 'Paragraph style', title: s.type === 'character' ? 'Character style' : 'Paragraph style' }, s.type === 'character' ? 'a' : '¶')), more);
@@ -97,7 +97,8 @@ export function createStylesPane({ editor, readOnly, actions }) {
           el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.create() }, 'New Style…'),
           el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.clearFormatting() }, 'Clear Formatting'))),
       el('div.styles-pane-list', { role: 'listbox', 'aria-label': 'Apply a style' }, ...items, !items.length && el('p.field-hint', {}, 'No styles to show with this filter.')),
-      el('div.styles-pane-footer', {}, el('label.ed-font-field', {}, el('span.field-label', {}, 'List'), filterSelect), el('label.ed-check', {}, previewBox, 'Show styles as they look')));
+      el('div.styles-pane-footer', {}, el('label.ed-font-field', {}, el('span.field-label', {}, 'List'), filterSelect), el('label.ed-check', {}, previewBox, 'Show styles as they look'),
+        el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => actions.manage() }, 'Manage Styles…')));
   }
   function menu(style, anchor, event) {
     const e = engine(); if (!e) return;

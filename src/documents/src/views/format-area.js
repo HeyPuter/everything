@@ -219,7 +219,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     clearText: () => run(m => m.clearDirectTextFormatting()),
     resetParagraphStyle: () => run(m => m.setParagraphStyle(m.styles.defaultParagraph || '')),
     clearCharacterStyle: () => run(m => m.setCharacterStyle('')),
-    openTarget: target => openTarget(target), focusEditor: focus } });
+    openTarget: target => openTarget(target), manage: () => styleDialog(), focusEditor: focus } });
   function applyStyle(id) {
     const engine = ready(); if (!engine) return false;
     const type = engine.model.styles.definitions[id]?.type;
@@ -377,7 +377,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     const rect = engine.input.getBoundingClientRect(), root = host();
     if (!root || !rect.width && !rect.height) return;
     const bounds = root.getBoundingClientRect();
-    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Paste Options', title: `Paste Options (${MOD_KEY})`, 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
+    const button = el('button.paste-options-chip', { type: 'button', 'aria-label': 'Pasted text options', title: 'Pasted text options: keep, merge or drop the formatting', 'aria-haspopup': 'menu', onclick: () => openMenu({ anchor: button, label: 'Paste Options', onClose: () => editor()?.focus(), items: pasteModeItems() }) },
       commandIconEl('paste', 16), el('span.ribbon-caret', { 'aria-hidden': 'true' }));
     button.addEventListener('mousedown', e => e.preventDefault());
     button.style.left = `${Math.max(4, Math.min(bounds.width - 48, rect.left - bounds.left + root.scrollLeft + 4))}px`;

@@ -61,7 +61,7 @@ export function revealFormatting(model, { styleName = id => model.styles.definit
     paraEntry('Indentation', `Left ${inches(format.indentLeft)}, right ${inches(format.indentRight)}`, ['indentLeft', 'indentRight']),
     paraEntry('Special indent', special, ['firstLine']),
     paraEntry('Spacing', `Before ${pt(format.spaceBefore)}, after ${pt(format.spaceAfter)}`, ['spaceBefore', 'spaceAfter']),
-    paraEntry('Line spacing', format.lineRule === 'auto' ? `${lineRules.auto} ${Math.round(format.lineSpacing * 100) / 100} lines` : `${lineRules[format.lineRule]} ${pt(format.lineSpacing)}`, ['lineSpacing', 'lineRule']),
+    paraEntry('Line spacing', format.lineRule === 'auto' ? (format.lineSpacing === 1 ? 'Single' : `${lineRules.auto} ${Math.round(format.lineSpacing * 100) / 100} lines`) : `${lineRules[format.lineRule]} ${pt(format.lineSpacing)}`, ['lineSpacing', 'lineRule']),
     paraEntry('Pagination', [format.widowControl && 'Widow/orphan control', format.keepNext && 'Keep with next', format.keepLines && 'Keep lines together', format.pageBreakBefore && 'Page break before'].filter(Boolean).join(', ') || 'None', ['widowControl', 'keepNext', 'keepLines', 'pageBreakBefore']),
     paraEntry('Tabs', format.tabs.length ? format.tabs.map(t => `${inches(t.position)} ${t.alignment}`).join(', ') : 'Default stops', ['tabs'], 'tabs'),
     paraEntry('Borders', visibleParagraphBorders(format.paragraphBorders) ? 'Custom' : 'None', ['paragraphBorders'], 'borders'),
