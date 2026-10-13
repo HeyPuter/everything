@@ -33,8 +33,9 @@ function edit(app, id, a, b) {
 
 function addStyle(app, kind, style) {
   const doc = app.editor.doc;
-  const lists = styleLists(doc);
-  doc.transact('Add style', () => doc.updateRoot({ [kind === 'char' ? 'charStyles' : 'paraStyles']: [...lists[kind].filter((s) => s.id !== NORMAL), style] }));
+  const key = kind === 'char' ? 'charStyles' : 'paraStyles';
+  // Keep a stored Normal style (new documents store the Normal Paragraph Style's composer).
+  doc.transact('Add style', () => doc.updateRoot({ [key]: [...(doc.root[key] || []), style] }));
 }
 
 describe('style model', () => {

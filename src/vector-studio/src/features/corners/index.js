@@ -2,8 +2,9 @@
  * Corner widgets: a small handle inside every corner of the selected paths
  * (Selection tool) or of the selected anchors (Direct Selection). Drag it
  * into the shape to round the corners, Option-click to switch between
- * round, inverted round and chamfer, double-click for the Corners dialog.
- * Live rectangles change their corner radii; other paths keep their sharp
+ * round, inverted round and chamfer, double-click for the Corners dialog
+ * (type, radius, absolute or relative rounding). Live rectangles change
+ * their corner radii and types; other paths keep their sharp
  * anchors and carry the corner on the anchor (model/corners.js), so the
  * rounding stays editable. View > Hide Corner Widget turns them off.
  */
@@ -16,7 +17,8 @@ import { apply, rotate } from '../../lib/matrix.js';
 import { formatLength } from '../../lib/units.js';
 
 export const CORNER_TYPES = ['round', 'inverted', 'chamfer'];
-const TYPE_LABELS = { round: 'Round', inverted: 'Inverted Round', chamfer: 'Chamfer' };
+export const TYPE_LABELS = { round: 'Round', inverted: 'Inverted Round', chamfer: 'Chamfer' };
+export const ROUNDING_LABELS = { relative: 'Relative', absolute: 'Absolute' };
 const REST = 14; // px from the corner when not rounded
 const R = 4.5; // widget radius, px
 const MAX_WIDGETS = 64;
@@ -68,7 +70,10 @@ export function cornerTargets(app) {
     if (n.shape?.kind === 'rect') {
       // Small rectangles on screen have no room for widgets.
       if (Math.min(n.shape.w, n.shape.h) * zoom < 24) continue;
-      for (const c of rectCorners(n.shape)) out.push({ node: n, rect: true, ...c, r: n.shape.radii?.[c.k] || 0, type: 'round', limited: (n.shape.radii?.[c.k] || 0) >= Math.min(n.shape.w, n.shape.h) / 2 - 1e-6 });
+      for (const c of rectCorners(n.shape)) {
+        const r = n.shape.radii?.[c.k] || 0;
+        out.push({ node: n, rect: true, ...c, r, arcR: r, type: n.shape.cornerTypes?.[c.k] || 'round', rounding: n.shape.rounding || 'absolute', limited: r >= Math.min(n.shape.w, n.shape.h) / 2 - 1e-6 });
+      }
       continue;
     }
     const sel = tool === 'direct-selection' ? editor.selectedAnchors?.(id) : null;
@@ -78,14 +83,18 @@ export function cornerTargets(app) {
       const g = cornerGeometry(n.anchors, n.closed, i);
       if (!g) continue;
       const a = n.anchors[i];
-      out.push({ node: n, index: i, x: g.x, y: g.y, theta: g.theta, bisector: g.bisector, r: a.corner?.r || 0, type: a.corner?.type || 'round', limited: lim[i].limited });
+      const r = a.corner?.r || 0;
+      const rounding = a.corner?.rounding || 'absolute';
+      // The widget sits on the arc: a relative corner's r is a distance along the segments.
+      const arcR = rounding === 'relative' ? radiusFor(r, g.theta) : r;
+      out.push({ node: n, index: i, x: g.x, y: g.y, theta: g.theta, bisector: g.bisector, r, arcR, type: a.corner?.type || 'round', rounding, limited: lim[i].limited });
     }
   }
   return out.length > MAX_WIDGETS ? [] : out;
 }
 
 function widgetPos(editor, c) {
-  const d = widgetDist(c.r, c.theta, editor.view.zoom);
+  const d = widgetDist(c.arcR ?? c.r, c.theta, editor.view.zoom);
   return { x: c.x + c.bisector.x * d, y: c.y + c.bisector.y * d };
 }
 
@@ -118,9 +127,17 @@ function setCorners(doc, targets, patch) {
     if (!n) continue;
     if (n.shape?.kind === 'rect') {
       const radii = [...(n.shape.radii || [0, 0, 0, 0])];
+      const types = [...(n.shape.cornerTypes || ['round', 'round', 'round', 'round'])];
       const max = Math.min(n.shape.w, n.shape.h) / 2;
-      for (const t of list) radii[t.k] = Math.max(0, Math.min(max, patch.r ?? radii[t.k]));
+      for (const t of list) {
+        radii[t.k] = Math.max(0, Math.min(max, patch.r ?? radii[t.k]));
+        if (patch.type) types[t.k] = patch.type;
+      }
       const shape = { ...n.shape, radii };
+      if (types.some((t) => t !== 'round')) shape.cornerTypes = types;
+      else delete shape.cornerTypes;
+      if (patch.rounding === 'relative') shape.rounding = 'relative';
+      else if (patch.rounding) delete shape.rounding;
       doc.update(id, { shape, anchors: shapeAnchors(shape) });
       continue;
     }
@@ -129,9 +146,10 @@ function setCorners(doc, targets, patch) {
       if (!idx.has(i)) return a;
       const r = Math.max(0, patch.r ?? a.corner?.r ?? 0);
       const type = patch.type ?? a.corner?.type ?? 'round';
+      const rounding = patch.rounding ?? a.corner?.rounding ?? 'absolute';
       const { corner, ...rest } = a;
       // A corner type chosen before any rounding is kept for the next drag.
-      return r > 0 || type !== 'round' ? { ...rest, corner: { r, type } } : rest;
+      return r > 0 || type !== 'round' ? { ...rest, corner: { r, type, ...(rounding === 'relative' ? { rounding } : {}) } } : rest;
     });
     doc.update(id, { anchors });
   }
@@ -146,7 +164,7 @@ function beginDrag(app, picked, e) {
   const zoom = editor.view.zoom;
   // Where the pointer grabbed the widget, measured along the corner's bisector.
   const along0 = (e.x - picked.x) * picked.bisector.x + (e.y - picked.y) * picked.bisector.y;
-  const s0 = widgetDist(picked.r, picked.theta, zoom);
+  const s0 = widgetDist(picked.arcR ?? picked.r, picked.theta, zoom);
   let tx = null;
   let moved = false;
   const units = doc.root.units || 'pt';
@@ -157,7 +175,8 @@ function beginDrag(app, picked, e) {
       moved = true;
       // Keep the widget under the pointer: its distance from the corner maps back to a radius.
       const mid = Math.max(0, s0 + (along - along0) - REST / zoom);
-      const r = mid / (1 / Math.sin(picked.theta / 2) - 1);
+      const arcR = mid / (1 / Math.sin(picked.theta / 2) - 1);
+      const r = picked.rounding === 'relative' ? trimFor(arcR, picked.theta) : arcR;
       tx ||= doc.begin('Round Corners');
       setCorners(doc, targets, { r });
       editor.feedback = { sx: ev.sx, sy: ev.sy, text: `Radius: ${formatLength(r, units)}` };
@@ -170,7 +189,7 @@ function beginDrag(app, picked, e) {
         return;
       }
       // A click with Option switches the corner type.
-      if (ev?.alt && !picked.rect) {
+      if (ev?.alt) {
         const next = CORNER_TYPES[(CORNER_TYPES.indexOf(picked.type) + 1) % CORNER_TYPES.length];
         doc.transact('Corner Type', () => setCorners(doc, targets, { type: next, r: picked.r || undefined }));
         app.notify?.(`Corners: ${TYPE_LABELS[next]}`, { polite: true });
@@ -189,18 +208,20 @@ function beginDrag(app, picked, e) {
 }
 
 /** The Corners dialog for the widget's corners. */
-async function cornersDialog(app, picked) {
+export async function cornersDialog(app, picked) {
   const editor = app.editor;
   const doc = editor.doc;
   const targets = group(app, picked);
   const fields = [
-    ...(picked.rect ? [] : [{ key: 'type', label: 'Corner', type: 'radio', value: picked.type, options: CORNER_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] })) }]),
+    { key: 'type', label: 'Corner', type: 'radio', value: picked.type, options: CORNER_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] })) },
     { key: 'r', label: 'Radius', type: 'length', value: picked.r, min: 0, max: 100000 },
+    { key: 'rounding', label: 'Rounding', type: 'radio', value: picked.rounding || 'absolute', options: Object.entries(ROUNDING_LABELS).map(([value, label]) => ({ value, label })) },
   ];
   let tx = null;
+  const patch = (v) => ({ r: v.r, type: v.type, rounding: v.rounding });
   const preview = (v) => {
     tx ||= doc.begin('Corners');
-    setCorners(doc, targets, { r: v.r, type: v.type });
+    setCorners(doc, targets, patch(v));
   };
   const v = await app.dialogs.form({ title: 'Corners', fields, onChange: preview });
   if (!v) {
@@ -208,7 +229,7 @@ async function cornersDialog(app, picked) {
     return;
   }
   if (!tx) tx = doc.begin('Corners');
-  setCorners(doc, targets, { r: v.r, type: v.type });
+  setCorners(doc, targets, patch(v));
   tx.commit();
 }
 

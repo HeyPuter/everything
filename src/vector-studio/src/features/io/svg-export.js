@@ -392,6 +392,8 @@ class SVGWriter {
     if (s.kind === 'rect') {
       const r = s.radii || [0, 0, 0, 0];
       if (r.some((v) => Math.abs(v - r[0]) > 1e-9)) return null;
+      // Only round corners are an rx.
+      if (s.cornerTypes?.some((t, i) => t && t !== 'round' && r[i] > 0)) return null;
       const rr = Math.min(r[0] || 0, s.w / 2, s.h / 2);
       return `<rect x="${this.n(p.x)}" y="${this.n(p.y)}" width="${this.n(s.w)}" height="${this.n(s.h)}"${rr > 0 ? ` rx="${this.n(rr)}"` : ''}`;
     }

@@ -1,7 +1,7 @@
 /**
  * Document Info panel: what the document (or, with Selection Only, the
  * selection) contains: document settings, objects by kind, graphic styles,
- * brushes, global color, pattern and gradient objects, swatches, fonts (and
+ * brushes, global color, spot color, pattern and gradient objects, swatches, fonts (and
  * their details), and linked and embedded images. The category menu (also
  * in the panel menu) narrows the view; Save writes the report as a text
  * file. File > Document Info shows the same document summary as a dialog.
@@ -25,6 +25,7 @@ export const CATEGORIES = [
   { id: 'styles', label: 'Graphic Styles' },
   { id: 'brushes', label: 'Brushes' },
   { id: 'globalColors', label: 'Global Color Objects' },
+  { id: 'spotColors', label: 'Spot Color Objects' },
   { id: 'patterns', label: 'Pattern Objects' },
   { id: 'gradients', label: 'Gradient Objects' },
   { id: 'swatches', label: 'Swatches' },
@@ -110,8 +111,16 @@ export function documentReport(editor, { selectionOnly = false } = {}) {
   const brushItems = (selectionOnly ? brushes.filter((b) => brushUse.has(b.id)) : brushes).map((b) => `${b.name}${brushUse.has(b.id) ? ` (${plural(brushUse.get(b.id), 'object')})` : ''}`);
   sections.push({ id: 'brushes', title: 'Brushes', items: brushItems });
   const swatchById = new Map(swatchesOf(doc).map((sw) => [sw.id, sw]));
-  const globalUse = tally(nodes, (n) => [n.fill, n.stroke].filter((p) => p?.swatchId && swatchById.get(p.swatchId)?.global).map((p) => p.swatchId));
+  // Swatch ids a paint uses: its own, and its gradient stops'.
+  const paintSwatchIds = (p) => (p ? [p.swatchId, ...((p.type === 'linear' || p.type === 'radial') && p.stops ? p.stops.map((st) => st.swatchId) : [])].filter(Boolean) : []);
+  const swatchUse = (test, perObject) => tally(nodes, (n) => {
+    const ids = [n.fill, n.stroke].flatMap(paintSwatchIds);
+    return (perObject ? [...new Set(ids)] : ids).filter((id) => test(swatchById.get(id)));
+  });
+  const globalUse = swatchUse((sw) => sw?.global && !sw.spot);
   sections.push({ id: 'globalColors', title: 'Global Color Objects', items: [...globalUse].map(([id, k]) => `${swatchById.get(id).name}: ${plural(k, 'use')}`) });
+  const spotUse = swatchUse((sw) => sw?.spot, true);
+  sections.push({ id: 'spotColors', title: 'Spot Color Objects', items: [...spotUse].map(([id, k]) => `${swatchById.get(id).name}: ${plural(k, 'object')}`) });
   const patternNames = new Map((root.patterns || []).map((pt) => [pt.id, pt.name]));
   const patternUse = tally(nodes, (n) => [n.fill, n.stroke].filter((p) => p?.type === 'pattern').map((p) => p.id));
   sections.push({ id: 'patterns', title: 'Pattern Objects', items: [...patternUse].map(([id, k]) => `${patternNames.get(id) || 'Pattern'}: ${plural(k, 'use')}`) });
@@ -119,7 +128,7 @@ export function documentReport(editor, { selectionOnly = false } = {}) {
   sections.push({ id: 'gradients', title: 'Gradient Objects', items: [...gradientUse].map(([k, c]) => `${k} (${plural(c, 'use')})`) });
   const swatches = swatchesOf(doc);
   const usedSwatches = swatches.filter((s) => swatchRefs.has(s.id) || (s.paint?.type === 'solid' && colors.has(s.paint.color.toLowerCase())));
-  sections.push({ id: 'swatches', title: 'Swatches', items: (selectionOnly ? usedSwatches : swatches).map((s) => `${s.name}${s.global ? ' (global)' : ''}${s.mode === 'cmyk' ? ' (CMYK)' : ''}`) });
+  sections.push({ id: 'swatches', title: 'Swatches', items: (selectionOnly ? usedSwatches : swatches).map((s) => `${s.name}${s.spot ? ' (spot)' : s.global ? ' (global)' : ''}${s.mode === 'cmyk' ? ' (CMYK)' : ''}`) });
   const fontDoc = { walk: (fn) => nodes.forEach((n) => fn(n)) };
   const fonts = fontsUsed(fontDoc);
   const styleName = (f) => `${f.weight === 700 ? 'Bold' : f.weight === 400 ? 'Regular' : f.weight}${f.style === 'italic' ? ' Italic' : ''}`;

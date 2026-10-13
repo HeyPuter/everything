@@ -12,7 +12,7 @@ import { numberField, paintSwatch, updatePaintSwatch, iconButton, selectField } 
 import { icon } from '../icons.js';
 import { commonStyle, applyStyle } from '../../ops/paint-ops.js';
 import { openPaintPopover } from '../popover.js';
-import { regenerateShape, isPie } from '../../model/shapes.js';
+import { createShapeSection } from './shape-section.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { UNITS } from '../../lib/units.js';
 import { BLEND_MODES } from '../../render/draw.js';
@@ -66,13 +66,17 @@ export class PropertiesPanel extends Panel {
   static placement = 'dock';
   /**
    * Extra sections: [{ id, title, when(editor) => bool, build(app) => { el, refresh() }, noSelection }]
-   * `noSelection: true` lets a section show without a selection (e.g. tool controls).
+   * `noSelection: true` lets a section show without a selection (e.g. tool controls);
+   * `toolSection: true` marks drawing-tool settings: while one shows, the panel
+   * shows the appearance new artwork gets and a Tool Options button instead
+   * of the document settings.
    */
   static extraSections = [];
 
   build() {
     const app = this.app;
     this.header = h('p.props-kind');
+    this.toolOptions = h('button.btn.small.props-tool-options', { type: 'button', hidden: true, onclick: () => app.tool?.openOptions?.() }, 'Tool Options');
     this.transform = createTransformSection(app);
     this.sections = {};
 
@@ -129,8 +133,8 @@ export class PropertiesPanel extends Panel {
     );
 
     // ---- Shape properties ----
-    this.shapeBody = h('div.shape-props');
-    this.shapeSection = section('Shape', this.shapeBody);
+    this.shapes = createShapeSection(app);
+    this.shapeSection = section('Shape', this.shapes.el);
 
     // ---- Appearance ----
     this.fillSw = paintSwatch(null);
@@ -190,7 +194,7 @@ export class PropertiesPanel extends Panel {
     this.quickSection = section('Quick Actions', this.quick);
 
     this.empty = h('p.panel-empty', 'Open or create a document to see its properties.');
-    this.el.append(this.empty, this.header, this.docSection, section('Transform', this.transform.el), this.shapeSection, this.appearance, ...this.extra.map((e) => e.sec), this.alignSection, this.quickSection);
+    this.el.append(this.empty, h('div.props-head', this.header, this.toolOptions), this.docSection, section('Transform', this.transform.el), this.shapeSection, this.appearance, ...this.extra.map((e) => e.sec), this.alignSection, this.quickSection);
     this.transformSection = this.transform.el.parentElement;
   }
 
@@ -202,12 +206,15 @@ export class PropertiesPanel extends Panel {
     if (!ed) return;
     const hasSel = ed.selection.size > 0;
     this.header.textContent = selectionKind(ed);
-    this.docSection.hidden = hasSel;
+    // A drawing tool with settings here: show what new artwork looks like instead of the document.
+    const toolMode = !hasSel && this.extra.some((e) => e.def.toolSection && e.def.when(ed));
+    this.toolOptions.hidden = !toolMode;
+    this.docSection.hidden = hasSel || toolMode;
     this.transformSection.hidden = !hasSel;
     this.alignSection.hidden = !hasSel;
     this.quickSection.hidden = !hasSel;
-    this.appearance.hidden = !hasSel;
-    if (!hasSel) {
+    this.appearance.hidden = !hasSel && !toolMode;
+    if (!hasSel && !toolMode) {
       this.unitSel.set(ed.doc.root.units);
       const boards = ed.doc.artboards;
       this.boardSel.replaceChildren(...boards.map((a, i) => h('option', { value: i, selected: i === ed.activeArtboard }, `${i + 1} ${a.name}`)));
@@ -240,23 +247,9 @@ export class PropertiesPanel extends Panel {
   }
 
   #updateShape(ed) {
-    const nodes = ed.selectedNodes();
-    const n = nodes.length === 1 ? nodes[0] : null;
-    const shape = n?.type === 'path' ? n.shape : null;
-    this.shapeSection.hidden = !shape || !SHAPE_TITLES[shape.kind];
-    if (this.shapeSection.hidden) return;
-    this.shapeSection.querySelector('.section-title').textContent = SHAPE_TITLES[shape.kind];
-    const radii = shape.radii || [0, 0, 0, 0];
-    if (this.shapeId !== n.id) this.cornersLinked = new Set(radii).size === 1;
-    const key = `${n.id}:${shape.kind}:${this.cornersLinked}:${isPie(shape)}`;
-    if (this.shapeKey !== key) {
-      this.shapeKey = key;
-      this.shapeId = n.id;
-      const built = buildShapeFields(this, ed, n.id, shape);
-      this.shapeFields = built;
-      this.shapeBody.replaceChildren(...built.els, h('button.btn.small', { type: 'button', onclick: () => ed.doc.transact('Expand Shape', () => ed.doc.update(n.id, { shape: undefined })) }, 'Expand Shape'));
-    }
-    this.shapeFields.refresh(shape);
+    const shown = this.shapes.update(ed);
+    this.shapeSection.hidden = !shown;
+    if (shown) this.shapeSection.querySelector('.section-title').textContent = this.shapes.title;
   }
 
   #updateQuick(ed) {
@@ -296,113 +289,6 @@ export class PropertiesPanel extends Panel {
     if (top.length === 1 && (only('path') || only('compound') || only('text'))) add('select.globalEdit');
     this.quick.replaceChildren(...actions);
   }
-}
-
-const SHAPE_TITLES = { rect: 'Rectangle Properties', ellipse: 'Ellipse Properties', polygon: 'Polygon Properties', star: 'Star Properties', line: 'Line Properties' };
-
-/**
- * Fields for a live shape's params: { els, refresh(shape) }. Edits
- * regenerate the anchors; dragging a field's label or using the arrow keys
- * coalesces into one undo step.
- */
-function buildShapeFields(panel, ed, id, shape) {
-  const unit = ed.doc.root.units;
-  const doc = ed.doc;
-  const set = (patchFn, live) => {
-    const cur = doc.get(id);
-    if (!cur?.shape) return;
-    const next = { ...cur.shape, ...patchFn(cur.shape) };
-    const anchors = regenerateShape(next, cur.anchors);
-    if (!anchors) return;
-    doc.transact('Change Shape', () => doc.update(id, { shape: next, anchors }), { coalesce: live ? `shape-${id}` : null });
-  };
-  const len = (label, get, put, extra = {}) => {
-    const f = numberField({ label, value: 0, unit, min: 0, onCommit: (v, o) => set((s) => put(v, s), o?.live), ...extra });
-    return { el: f.el, refresh: (s) => f.set(get(s)) };
-  };
-  const num = (label, get, put, extra = {}) => len(label, get, put, { kind: 'number', unit: undefined, ...extra });
-  const ang = (label, get, put) => len(label, get, put, { kind: 'angle', unit: undefined, min: -360, max: 360 });
-  const fields = [];
-  const extras = [];
-  const k = shape.kind;
-  // Polygons and stars round every corner alike (live corners on their anchors).
-  const cornerField = () => {
-    const f = numberField({
-      label: 'Corner radius',
-      icon: 'square-dashed',
-      value: 0,
-      unit,
-      min: 0,
-      onCommit: (v, o) => {
-        const cur = doc.get(id);
-        if (!cur) return;
-        const anchors = cur.anchors.map((a) => {
-          const { corner, ...rest } = a;
-          return v > 0 ? { ...rest, corner: { r: v, type: corner?.type || 'round' } } : rest;
-        });
-        doc.transact('Round Corners', () => doc.update(id, { anchors }), { coalesce: o?.live ? `corners-${id}` : null });
-      },
-    });
-    return { el: f.el, refresh: () => f.set(doc.get(id)?.anchors[0]?.corner?.r || 0) };
-  };
-  if (k === 'rect' || k === 'ellipse') {
-    fields.push(len('W', (s) => s.w, (v) => ({ w: Math.max(0.01, v) }), { ariaLabel: 'Shape width' }));
-    fields.push(len('H', (s) => s.h, (v) => ({ h: Math.max(0.01, v) }), { ariaLabel: 'Shape height' }));
-  }
-  if (k === 'rect') {
-    const linkBtn = iconButton(panel.cornersLinked ? 'link' : 'unlink', 'Link corner radius values', () => {
-      panel.cornersLinked = !panel.cornersLinked;
-      panel.shapeKey = null;
-      panel.update();
-    }, { pressed: panel.cornersLinked });
-    if (panel.cornersLinked) {
-      fields.push(len('Corner radius', (s) => s.radii?.[0] || 0, (v) => ({ radii: [v, v, v, v] }), { icon: 'square-dashed' }));
-    } else {
-      ['Top left', 'Top right', 'Bottom right', 'Bottom left'].forEach((name, i) => {
-        fields.push(len(['TL', 'TR', 'BR', 'BL'][i], (s) => s.radii?.[i] || 0, (v, s) => {
-          const radii = [...(s.radii || [0, 0, 0, 0])];
-          radii[i] = v;
-          return { radii };
-        }, { ariaLabel: `${name} corner radius` }));
-      });
-    }
-    extras.push(h('div.shape-corners-link', linkBtn, h('span.prop-label', panel.cornersLinked ? 'Same radius for all corners' : 'Each corner separately')));
-  } else if (k === 'ellipse') {
-    fields.push(ang('Pie start', (s) => (isPie(s) ? s.pieStart : 0), (v, s) => ({ pieStart: ((v % 360) + 360) % 360, pieEnd: isPie(s) ? s.pieEnd : 0 })));
-    fields.push(ang('Pie end', (s) => (isPie(s) ? s.pieEnd : 0), (v, s) => ({ pieEnd: ((v % 360) + 360) % 360, pieStart: isPie(s) ? s.pieStart : 0 })));
-    if (isPie(shape)) {
-      extras.push(h('div.shape-actions',
-        h('button.btn.small', { type: 'button', onclick: () => set((s) => ({ pieStart: s.pieEnd, pieEnd: s.pieStart })) }, 'Invert Pie'),
-        h('button.btn.small', { type: 'button', onclick: () => set(() => ({ pieStart: undefined, pieEnd: undefined })) }, 'Close Pie'),
-      ));
-    }
-  } else if (k === 'polygon') {
-    fields.push(num('Sides', (s) => s.sides, (v) => ({ sides: Math.max(3, Math.min(1000, Math.round(v))) }), { min: 3, max: 1000 }));
-    fields.push(len('Radius', (s) => s.r, (v) => ({ r: v })));
-    fields.push(len('Side length', (s) => 2 * s.r * Math.sin(Math.PI / s.sides), (v, s) => ({ r: v / (2 * Math.sin(Math.PI / s.sides)) })));
-    fields.push(ang('Angle', (s) => -(s.angle || 0), (v) => ({ angle: -v })));
-    fields.push(cornerField());
-  } else if (k === 'star') {
-    fields.push(num('Points', (s) => s.points, (v) => ({ points: Math.max(3, Math.min(1000, Math.round(v))) }), { min: 3, max: 1000 }));
-    fields.push(len('Radius 1', (s) => s.r1, (v) => ({ r1: v })));
-    fields.push(len('Radius 2', (s) => s.r2, (v) => ({ r2: v })));
-    fields.push(cornerField());
-  } else if (k === 'line') {
-    const angleOf = (s) => (-Math.atan2(s.y2 - s.y1, s.x2 - s.x1) * 180) / Math.PI;
-    fields.push(len('Length', (s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1), (v, s) => {
-      const a = (-angleOf(s) * Math.PI) / 180;
-      return { x2: s.x1 + Math.cos(a) * v, y2: s.y1 + Math.sin(a) * v };
-    }));
-    fields.push(ang('Angle', angleOf, (v, s) => {
-      const l = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
-      const a = (-v * Math.PI) / 180;
-      return { x2: s.x1 + Math.cos(a) * l, y2: s.y1 + Math.sin(a) * l };
-    }));
-  }
-  return {
-    els: [h('div.shape-fields', fields.map((f) => f.el)), ...extras],
-    refresh: (s) => fields.forEach((f) => f.refresh(s)),
-  };
 }
 
 function section(title, ...children) {

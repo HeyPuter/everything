@@ -142,6 +142,8 @@ export class VDocument extends Emitter {
       artboards: boards,
       guides: [],
       swatches: DEFAULT_SWATCHES.map((s) => ({ ...s })),
+      // New documents compose paragraphs with the Every-line Composer (older ones keep the single-line one).
+      paraStyles: [{ id: 'normal', name: 'Normal Paragraph Style', basedOn: null, attrs: { composer: 'every' } }],
       units,
       colorMode,
       bleed: bleeds,

@@ -425,14 +425,6 @@
 }
 
 /* ---- Transform panel ---- */
-.panel-transform .shape-props .tf-fields {
-  grid-template-columns: 1fr;
-  margin-bottom: 8px;
-}
-
-.panel-transform .shape-props .num-label {
-  min-width: 64px;
-}
 
 .panel-transform .tp-checks .check-row:first-child {
   margin-top: 0;

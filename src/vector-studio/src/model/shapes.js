@@ -13,8 +13,12 @@ import { rotate } from '../lib/matrix.js';
 
 export const KAPPA = 0.5522847498307936;
 
-/** Rectangle with optional per-corner radii [tl, tr, br, bl]. */
-export function rectangle(x, y, w, h, radii = 0) {
+/**
+ * Rectangle with optional per-corner radii [tl, tr, br, bl] and corner
+ * types (same order): 'round' (default), 'inverted' (a round notch into the
+ * corner) or 'chamfer' (a straight cut).
+ */
+export function rectangle(x, y, w, h, radii = 0, types = null) {
   if (w < 0) {
     x += w;
     w = -w;
@@ -32,7 +36,7 @@ export function rectangle(x, y, w, h, radii = 0) {
   const out = [];
   const k = KAPPA;
   // Each rounded corner contributes two anchors; square corners one.
-  const corner = (cx, cy, r, inDir, outDir) => {
+  const corner = (cx, cy, r, inDir, outDir, type) => {
     if (!r) {
       out.push(anchor(cx, cy));
       return;
@@ -41,13 +45,22 @@ export function rectangle(x, y, w, h, radii = 0) {
     const ay = cy + inDir[1] * r;
     const bx = cx + outDir[0] * r;
     const by = cy + outDir[1] * r;
-    out.push(anchor(ax, ay, ax, ay, ax - inDir[0] * r * k, ay - inDir[1] * r * k));
-    out.push(anchor(bx, by, bx - outDir[0] * r * k, by - outDir[1] * r * k, bx, by));
+    if (type === 'chamfer') {
+      out.push(anchor(ax, ay), anchor(bx, by));
+    } else if (type === 'inverted') {
+      // A quarter circle around the corner point, bulging into the shape.
+      out.push(anchor(ax, ay, ax, ay, ax + outDir[0] * r * k, ay + outDir[1] * r * k));
+      out.push(anchor(bx, by, bx + inDir[0] * r * k, by + inDir[1] * r * k, bx, by));
+    } else {
+      out.push(anchor(ax, ay, ax, ay, ax - inDir[0] * r * k, ay - inDir[1] * r * k));
+      out.push(anchor(bx, by, bx - outDir[0] * r * k, by - outDir[1] * r * k, bx, by));
+    }
   };
-  corner(x, y, tl, [0, 1], [1, 0]);
-  corner(x + w, y, tr, [-1, 0], [0, 1]);
-  corner(x + w, y + h, br, [0, -1], [-1, 0]);
-  corner(x, y + h, bl, [1, 0], [0, -1]);
+  const t = types || [];
+  corner(x, y, tl, [0, 1], [1, 0], t[0]);
+  corner(x + w, y, tr, [-1, 0], [0, 1], t[1]);
+  corner(x + w, y + h, br, [0, -1], [-1, 0], t[2]);
+  corner(x, y + h, bl, [1, 0], [0, -1], t[3]);
   return out;
 }
 
@@ -250,7 +263,7 @@ export function shapeAnchors(shape) {
   let pts;
   switch (shape.kind) {
     case 'rect':
-      pts = rectangle(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h, shape.radii || 0);
+      pts = rectangle(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h, shape.radii || 0, shape.cornerTypes);
       break;
     case 'ellipse':
       pts = isPie(shape) ? pie(shape.cx, shape.cy, shape.w / 2, shape.h / 2, shape.pieStart, shape.pieEnd) : ellipse(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h);

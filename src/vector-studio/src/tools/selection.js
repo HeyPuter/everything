@@ -1,7 +1,7 @@
 /**
  * Selection tool (V): select, move, duplicate (Alt-drag), scale through the
  * bounding box handles and rotate just outside its corners; marquee select;
- * double-click a group to isolate it.
+ * double-click a group or a single object to isolate it.
  */
 import { Tool, tol, fmt, constrainAngle } from './tool.js';
 import { hitTest, marqueeHits } from '../render/hit.js';
@@ -71,9 +71,8 @@ export class SelectionTool extends Tool {
 
   hitAt(e) {
     const editor = this.editor;
-    const iso = editor.isolation;
-    // In isolation mode only the isolated group's contents are selectable.
-    const filter = iso ? (n) => editor.doc.isAncestor(iso, n.id) : null;
+    // In isolation mode only the isolated object (or the group's contents) is selectable.
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
     return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), filter });
   }
 
@@ -83,8 +82,7 @@ export class SelectionTool extends Tool {
    */
   behindAt(e) {
     const editor = this.editor;
-    const iso = editor.isolation;
-    const filter = iso ? (n) => editor.doc.isAncestor(iso, n.id) : null;
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
     const skip = new Set();
     const stack = [];
     for (let i = 0; i < 64; i++) {
@@ -314,8 +312,7 @@ export class SelectionTool extends Tool {
     if (d.kind === 'marquee') {
       const r = rectFrom(d);
       if (r.w * editor.view.zoom > 2 || r.h * editor.view.zoom > 2) {
-        const iso = editor.isolation;
-        const hits = marqueeHits(editor.doc, r).filter((n) => !iso || editor.doc.isAncestor(iso, n.id));
+        const hits = marqueeHits(editor.doc, r).filter((n) => editor.inIsolation(n.id));
         const targets = [...new Set(hits.map((n) => editor.selectionTarget(n.id).id))];
         // Shift-marquee toggles: unselected objects join the selection, selected ones leave it.
         editor.select(targets, d.add ? { toggle: true } : {});
@@ -350,7 +347,8 @@ export class SelectionTool extends Tool {
       return;
     }
     if (target && selectionDoubleClickHooks.some((fn) => fn(this, target, hit))) return;
-    if (target && target.type === 'group' && this.app.prefs.get('doubleClickToIsolate') !== false) {
+    // A group, or a single path, compound path or other object, opens in isolation mode.
+    if (target && target.id !== editor.isolation && target.type !== 'layer' && this.app.prefs.get('doubleClickToIsolate') !== false && !editor.doc.isLocked(target.id)) {
       this.app.commands.run('object.isolate', { id: target.id });
       return;
     }

@@ -181,11 +181,59 @@
   color: var(--text);
 }
 
+.props-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 .props-kind {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
   font-weight: 600;
+}
+
+.props-tool-options {
+  margin-right: 12px;
+}
+
+.props-tool-options[hidden] {
+  display: none;
+}
+
+.tool-settings {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-settings .num-field {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) 96px;
+  gap: 8px;
+}
+
+.tool-range {
+  display: grid;
+  grid-template-columns: 70px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-range input {
+  width: 100%;
+  min-width: 0;
+}
+
+.tool-range output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-brush {
+  margin-top: 6px;
 }
 
 .prop-row {
@@ -430,9 +478,29 @@
 }
 
 .shape-corners-link,
-.shape-actions {
+.shape-actions,
+.shape-corner-row {
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+.shape-corner-row .prop-label {
+  min-width: 64px;
+}
+
+.shape-corner-row .corner-type {
+  flex: 1;
+  min-width: 0;
+}
+
+.shape-corner-row .num-field {
+  width: 108px;
+  flex: none;
+}
+
+.shape-corners {
+  display: grid;
   gap: 6px;
 }
 
@@ -478,6 +546,26 @@
 
 .layers-search {
   width: 100%;
+}
+
+.layers-isolation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-hover);
+  font-size: 12px;
+}
+
+.layers-isolation[hidden] {
+  display: none;
+}
+
+.layers-iso-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .layers-viewport {

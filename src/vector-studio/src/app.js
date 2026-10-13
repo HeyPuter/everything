@@ -428,7 +428,7 @@ export class App extends Emitter {
     const g = ed.doc.get(ed.isolation);
     this.isolationBar.replaceChildren(
       h('button.icon-btn', { type: 'button', 'aria-label': 'Exit Isolation Mode', 'data-tip': 'Exit Isolation Mode (Esc)', onclick: () => this.commands.run('object.exitIsolation') }, icon('chevron-left', 14)),
-      h('span', `${ed.doc.layerOf(ed.isolation)?.name || 'Layer'} › ${g?.name || '<Group>'}`),
+      h('span', `${ed.doc.layerOf(ed.isolation)?.name || 'Layer'} › ${g ? defaultLabel(g) : '<Group>'}`),
     );
   }
 

@@ -156,7 +156,15 @@ export class LayersPanel extends Panel {
         iconButton('trash', 'Delete Selection', () => this.deleteSelected()),
       ),
     );
-    this.el.append(h('div.layers-top', this.search), this.viewport, footer);
+    // Isolation mode: the tree shows only the isolated object, under this bar.
+    this.isoLabel = h('span.layers-iso-label');
+    this.isoBar = h(
+      'div.layers-isolation',
+      { hidden: true },
+      h('button.icon-btn.small', { type: 'button', 'aria-label': 'Exit Isolation Mode', 'data-tip': 'Exit Isolation Mode (Esc)', onclick: () => app.commands.run('object.exitIsolation') }, icon('chevron-left', 14)),
+      this.isoLabel,
+    );
+    this.el.append(h('div.layers-top', this.search), this.isoBar, this.viewport, footer);
     this.dragState = null;
     this.thumbsSettled = false;
     this.thumbTimer = 0;
@@ -260,6 +268,15 @@ export class LayersPanel extends Panel {
       rows.push({ id, depth, node: n, hasKids: kids.length > 0, open, dimHidden: parentHidden, dimLocked: parentLocked });
       if (open) for (let i = kids.length - 1; i >= 0; i--) visit(kids[i], depth + 1, parentHidden || n.hidden, parentLocked || n.locked);
     };
+    const iso = ed.isolation && doc.get(ed.isolation);
+    if (iso) {
+      // Isolation mode lists the isolated object (open) and what is inside it.
+      if (this.isoShown !== iso.id) this.expanded.add(iso.id);
+      this.isoShown = iso.id;
+      visit(iso.id, 0, doc.isHidden(iso.id) && !iso.hidden, doc.isLocked(iso.id) && !iso.locked);
+      return rows;
+    }
+    this.isoShown = null;
     const layers = doc.root.children;
     for (let i = layers.length - 1; i >= 0; i--) visit(layers[i], 0, false, false);
     return rows;
@@ -276,6 +293,9 @@ export class LayersPanel extends Panel {
     // Reveal selected objects by expanding their ancestors.
     for (const id of ed.selection) for (const a of ed.doc.ancestors(id)) this.expanded.add(a.id);
     this.rows = this.flatten();
+    const iso = ed.isolation && ed.doc.get(ed.isolation);
+    this.isoBar.hidden = !iso;
+    if (iso) this.isoLabel.textContent = `Isolation Mode: ${defaultLabel(iso)}`;
     this.locateBtn.disabled = !ed.selection.size;
     const layerCount = ed.doc.layers().length;
     this.countEl.textContent = `${layerCount} ${layerCount === 1 ? 'Layer' : 'Layers'}`;
