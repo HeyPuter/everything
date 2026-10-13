@@ -157,7 +157,6 @@ export async function effectOptionsDialog({
   const hasText = tools.hasText(effect.shapeId);
   const paragraphs = tools.shapeParagraphCount(effect.shapeId);
   const panels = {};
-  const fields = [];
 
   // ---- Effect ----
   const effectPanel = el("div", { class: "anim-tab-panel" });
@@ -447,7 +446,6 @@ export async function effectOptionsDialog({
     confirm: "OK",
   });
   if (!ok) return null;
-  void fields;
 
   // Collect the changes.
   let change = {};

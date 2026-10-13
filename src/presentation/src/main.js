@@ -6715,6 +6715,14 @@ function formatItems() {
       disabled: !obj,
       items: arrangeItems(),
     },
+    {
+      label: "Animation Painter",
+      icon: "o:animationPainter",
+      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      checked: animationTools.painting,
+      disabled: !animationTools.painting && !animationTools.current().length,
+      onSelect: () => animationTools.startPainter(false),
+    },
     { separator: true },
     { label: "Theme", icon: "Palette", onSelect: run(themeDialog) },
   ];
@@ -7103,6 +7111,8 @@ function renderSlideArea(refreshNavigator = true) {
       rows.delete(part);
       if (!row) row = slideRow(part);
       row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
+      // A slide with animations is marked beside its number.
+      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
       row.querySelector(".slide-number").textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
       thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));

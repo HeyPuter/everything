@@ -55,6 +55,31 @@ export function reversePath(d) {
   return `${out} E`;
 }
 
+/** Moves a path's end point (and the control point leading into it). */
+export function movePathEnd(d, dx, dy) {
+  const parts = String(d || "")
+    .replace(/\s*E\s*$/i, "")
+    .match(/[A-Za-z]|-?[\d.]+(?:e-?\d+)?/gi);
+  if (!parts) return d;
+  const numbers = [];
+  parts.forEach((p, i) => /[\d]/.test(p) && numbers.push(i));
+  if (numbers.length < 2) return d;
+  const shift = (i, by) => {
+    parts[i] = String(+(Number(parts[i]) + by).toFixed(5));
+  };
+  const [xi, yi] = numbers.slice(-2);
+  shift(xi, dx);
+  shift(yi, dy);
+  // A curve's second control point moves with its end, keeping its shape.
+  const lastCommand = parts.findLastIndex((p) => /[A-Za-z]/.test(p));
+  if (/c/i.test(parts[lastCommand]) && numbers.length >= 4) {
+    const [cx, cy] = numbers.slice(-4, -2);
+    shift(cx, dx);
+    shift(cy, dy);
+  }
+  return `${parts.join(" ")} E`;
+}
+
 const groupLabel = (entry) => {
   if (entry.cls === "path" && entry.id === 35) return "Shape";
   if (entry.id === 21 && entry.cls !== "emph") return "Spokes";

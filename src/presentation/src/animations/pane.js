@@ -49,7 +49,6 @@ export function createAnimationPane({ tools, P, ctx }) {
   };
   // Rows: one per effect, in sequence order, with timing for the bars.
   function rowsOf(effects) {
-    const s = ctx.slide();
     const sequences = [];
     const main = effects
       .map((effect, index) => ({ effect, index }))
@@ -88,7 +87,6 @@ export function createAnimationPane({ tools, P, ctx }) {
           }),
         ),
       );
-      void s;
       return { trigger, rows };
     });
   }
@@ -246,6 +244,7 @@ export function createAnimationPane({ tools, P, ctx }) {
         tabindex: selected || (!chosen.size && index === 0) ? 0 : -1,
         "aria-selected": String(selected),
         "aria-label": label,
+        "aria-expanded": effect.text ? String(expanded.has(index)) : null,
         "data-index": String(index),
         title: label,
         onclick: (e) => select(index, e),
@@ -285,15 +284,14 @@ export function createAnimationPane({ tools, P, ctx }) {
       ),
       effect.text
         ? el(
-            "button",
+            "span",
             {
-              type: "button",
+              // Pointer only: the row's Right and Left arrow keys do this.
               class: "anim-expand",
-              tabindex: -1,
-              "aria-label": expanded.has(index)
+              "aria-hidden": "true",
+              title: expanded.has(index)
                 ? "Collapse paragraphs"
                 : "Expand paragraphs",
-              "aria-expanded": String(expanded.has(index)),
               onclick: (e) => {
                 e.stopPropagation();
                 if (expanded.has(index)) expanded.delete(index);
@@ -308,13 +306,12 @@ export function createAnimationPane({ tools, P, ctx }) {
       el("span", { class: "anim-name" }, name),
       timeline ? timelineBar(row) : null,
       el(
-        "button",
+        "span",
         {
-          type: "button",
+          // Pointer only: the row's context-menu key opens the same menu.
           class: "anim-row-menu",
-          tabindex: -1,
-          "aria-label": `Options for ${effectName(effect)} on ${name}`,
-          "aria-haspopup": "menu",
+          "aria-hidden": "true",
+          title: `Options for ${effectName(effect)} on ${name}`,
           onclick: (e) => {
             e.stopPropagation();
             if (!chosen.has(index)) tools().choose([index]);
@@ -496,6 +493,14 @@ export function createAnimationPane({ tools, P, ctx }) {
       if (e.altKey) return tools().move(step);
       const next = rows[at + step];
       if (next) select(Number(next.dataset.index), e);
+    } else if (
+      (e.key === "ArrowRight" || e.key === "ArrowLeft") &&
+      effects[index]?.text
+    ) {
+      e.preventDefault();
+      if (e.key === "ArrowRight") expanded.add(index);
+      else expanded.delete(index);
+      render();
     } else if (e.key === "Home" || e.key === "End") {
       e.preventDefault();
       const target = e.key === "Home" ? rows[0] : rows[rows.length - 1];
@@ -522,12 +527,15 @@ export function createAnimationPane({ tools, P, ctx }) {
     } else if (e.key === "Escape") {
       e.stopPropagation();
     }
-    void effects;
   }
 
   // Dragging a row moves its effect to where it is dropped.
   function startDrag(e, index) {
-    if (e.button !== 0 || e.target.closest("button")) return;
+    if (
+      e.button !== 0 ||
+      e.target.closest("button, .anim-row-menu, .anim-expand")
+    )
+      return;
     const row = e.currentTarget;
     const list = row.parentElement;
     const startY = e.clientY;

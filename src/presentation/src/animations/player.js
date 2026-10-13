@@ -14,7 +14,6 @@
 import { P, groupParents, slideBounds, slideRotation } from "../model.js";
 import { entryFor } from "./catalog.js";
 
-const SVGNS = "http://www.w3.org/2000/svg";
 export const prefersReducedMotion = () =>
   typeof matchMedia === "function" &&
   matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -668,10 +667,9 @@ function planItem(item, state, piece, frame, reduced) {
       layer: "fx",
       keyframes: entering
         ? kf
-        : [...kf].reverse().map((f, i, all) => ({
+        : [...kf].reverse().map((f) => ({
             ...f,
             ...(f.offset !== undefined ? { offset: 1 - f.offset } : {}),
-            ...(i === all.length - 1 ? {} : {}),
           })),
       duration: reduced ? Math.min(200, effect.durationMs) : effect.durationMs,
     });
@@ -960,7 +958,7 @@ export function createAnimationPlayer({
     const motion = div("anim-motion");
     const emph = div("anim-emph");
     const fx = div("anim-fx");
-    const iter = div("anim-fx anim-iter");
+    const iter = div("anim-iter");
     const tint = div("anim-tint");
     const dim = div("anim-tint anim-dim");
     tint.style.maskImage = tint.style.webkitMaskImage = `url("${img.src}")`;
@@ -1291,4 +1289,3 @@ function div(className) {
   return node;
 }
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-void SVGNS;

@@ -19,7 +19,8 @@ import {
   newEffect,
   noneIcon,
 } from "./catalog.js";
-import { createAnimationPlayer, slideTimeline } from "./player.js";
+import { createAnimationPlayer, pathEnd, slideTimeline } from "./player.js";
+import { movePathEnd } from "./options.js";
 import { createAnimationPane } from "./pane.js";
 import { effectOptionsDialog, moreEffectsDialog } from "./dialogs.js";
 import { optionGroups } from "./options.js";
@@ -455,6 +456,15 @@ export function createAnimationTools(ctx) {
     const finish = () => {
       const shape = shapes[0];
       stopDrawing();
+      // A double-click to finish lands its clicks on the last point.
+      for (let i = points.length - 1; i > 0; i--)
+        if (
+          Math.hypot(
+            points[i][0] - points[i - 1][0],
+            points[i][1] - points[i - 1][1],
+          ) < 0.003
+        )
+          points.splice(i, 1);
       if (points.length < 2) return;
       const [x0, y0] = points[0];
       const d =
@@ -634,11 +644,84 @@ export function createAnimationTools(ctx) {
         path.setAttribute("d", d);
         path.setAttribute("vector-effect", "non-scaling-stroke");
         svg.append(path);
+        // Where the object starts and ends; the end can be dragged.
+        const source =
+          effect.path || P.motionPathFor(effect.presetId, effect.presetSubtype);
+        const [ex, ey] = pathEnd(source);
+        const at = (x, y) =>
+          `left:${cx / 10 + x * 100}%;top:${cy / 10 + y * 100}%`;
+        layer.append(
+          el("span", { class: "anim-path-start", style: at(0, 0) }),
+          endHandle(effect, source, at(ex, ey), ctx.shapeLabel(shape)),
+        );
       }
       layer.append(svg);
     }
     canvas.append(layer);
   }
+
+  // Dragging a path's end moves its last point (and the control point that
+  // leads into it); arrow keys nudge it.
+  function endHandle(effect, source, style, name) {
+    const index = effects().findIndex((e) => sameEffect(e, effect));
+    const moveEnd = (dx, dy) =>
+      write(
+        effects().map((e, i) =>
+          i === index ? { ...e, path: movePathEnd(source, dx, dy) } : e,
+        ),
+        { pick: [index], label: "Path changed" },
+      );
+    const handle = el("button", {
+      type: "button",
+      class: "anim-path-end",
+      style,
+      "aria-label": `End of the motion path of ${name}. Drag or use the arrow keys to move it.`,
+      title: "Drag to move the end of the path",
+      onpointerdown: (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const canvas = ctx.canvas();
+        const r = canvas.getBoundingClientRect();
+        const x0 = e.clientX,
+          y0 = e.clientY;
+        const left = parseFloat(handle.style.left),
+          top = parseFloat(handle.style.top);
+        handle.setPointerCapture(e.pointerId);
+        const move = (ev) => {
+          handle.style.left = `${left + ((ev.clientX - x0) / r.width) * 100}%`;
+          handle.style.top = `${top + ((ev.clientY - y0) / r.height) * 100}%`;
+        };
+        const up = (ev) => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          const dx = (ev.clientX - x0) / r.width,
+            dy = (ev.clientY - y0) / r.height;
+          if (Math.abs(dx) + Math.abs(dy) > 0.002) moveEnd(dx, dy);
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+      },
+      onkeydown: (e) => {
+        const step = e.shiftKey ? 0.05 : 0.01;
+        const d = {
+          ArrowLeft: [-step, 0],
+          ArrowRight: [step, 0],
+          ArrowUp: [0, -step],
+          ArrowDown: [0, step],
+        }[e.key];
+        if (!d) return;
+        e.preventDefault();
+        e.stopPropagation();
+        moveEnd(...d);
+      },
+    });
+    return handle;
+  }
+  const sameEffect = (a, b) =>
+    a.source && b.source
+      ? a.source === b.source
+      : JSON.stringify(a) === JSON.stringify(b);
 
   // ---- The tab ----
   const one = () => current().length > 0;

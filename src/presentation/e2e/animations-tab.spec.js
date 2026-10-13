@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { P, createDeck, parseDeck, shape, text } from "../src/model.js";
@@ -224,4 +225,83 @@ test("the Animations tab is reachable and usable on a phone", async ({
   const width = page.viewportSize().width;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+});
+
+test("the Animation Pane reorders by dragging and is accessible", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Pointer dragging on desktop");
+  const pres = twoShapes();
+  const slide = P.getSlides(pres)[0];
+  const [box, body] = P.getSlideShapes(slide);
+  const fade = (s) => ({
+    shapeId: String(P.getShapeId(s)),
+    presetClass: "entr",
+    presetId: 10,
+    presetSubtype: 0,
+    start: "click",
+    delayMs: 0,
+    durationMs: 500,
+  });
+  P.setSlideAnimations(slide, [fade(box), fade(body)]);
+  await load(page, pres);
+  await openTab(page);
+  await expect(page.locator(".slide-item.has-animations")).toHaveCount(1);
+  await page.getByRole("button", { name: "Animation Pane" }).click();
+  const pane = page.getByRole("complementary", { name: "Animation Pane" });
+  const rows = pane.getByRole("option");
+  await expect(rows).toHaveCount(2);
+  const first = await rows.nth(0).boundingBox();
+  const second = await rows.nth(1).boundingBox();
+  await page.mouse.move(first.x + 60, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(second.x + 60, second.y + second.height - 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect(rows.nth(0)).toHaveAttribute("aria-label", /Alpha/);
+  await expect(rows.nth(1)).toHaveAttribute("aria-label", /Rectangle/);
+  const results = await new AxeBuilder({ page })
+    .include(".animation-pane")
+    .include(".ribbon")
+    .analyze();
+  expect(results.violations).toEqual([]);
+  // The effect dialog is accessible too.
+  await rows.nth(0).click();
+  await rows.nth(0).press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  const dialogResults = await new AxeBuilder({ page })
+    .include("dialog[open]")
+    .analyze();
+  expect(dialogResults.violations).toEqual([]);
+});
+
+test("a custom motion path is drawn on the slide and its end dragged", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "Pointer drawing on desktop");
+  await load(page, twoShapes());
+  await openTab(page);
+  await hits(page).first().click();
+  await pick(page, "Custom Path");
+  const draw = page.locator(".anim-path-draw");
+  await expect(draw).toBeFocused();
+  const r = await draw.boundingBox();
+  await page.mouse.click(r.x + r.width * 0.2, r.y + r.height * 0.3);
+  await page.mouse.click(r.x + r.width * 0.5, r.y + r.height * 0.6);
+  await page.mouse.dblclick(r.x + r.width * 0.7, r.y + r.height * 0.3);
+  await expect(draw).toHaveCount(0);
+  const end = page.locator(".anim-path-end");
+  await expect(end).toHaveCount(1);
+  // Nudge the end with the keyboard.
+  await end.focus();
+  await end.press("ArrowRight");
+  const saved = await download(page);
+  const [effect] = P.getSlideAnimations(P.getSlides(saved)[0]);
+  expect(effect.presetClass).toBe("path");
+  expect(effect.presetId).toBe(0);
+  const points = effect.path.match(/-?[\d.]+/g).map(Number);
+  expect(points.slice(0, 2)).toEqual([0, 0]);
+  // Third point: half a slide right of the first, plus the 1% nudge.
+  expect(points.at(-2)).toBeCloseTo(0.51, 1);
 });

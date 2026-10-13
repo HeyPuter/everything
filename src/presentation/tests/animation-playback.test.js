@@ -7,7 +7,11 @@ import {
   samplePath,
   slideTimeline,
 } from "../src/animations/player.js";
-import { optionGroups, reversePath } from "../src/animations/options.js";
+import {
+  movePathEnd,
+  optionGroups,
+  reversePath,
+} from "../src/animations/options.js";
 import {
   EFFECTS,
   effectName,
@@ -70,6 +74,14 @@ describe("motion paths", () => {
       "M 0.25 0.5 L 0.25 0 L 0 0 E",
     );
     expect(reversePath("M 0 0 C 0 1 1 1 1 0 E")).toBe("M 1 0 C 1 1 0 1 0 0 E");
+  });
+  it("moves a path's end with its last control point", () => {
+    expect(movePathEnd("M 0 0 L 0.25 0 E", 0.05, 0.1)).toBe(
+      "M 0 0 L 0.3 0.1 E",
+    );
+    expect(movePathEnd("M 0 0 C 0 0.2 0.25 0.2 0.25 0 E", 0.1, 0)).toBe(
+      "M 0 0 C 0 0.2 0.35 0.2 0.35 0 E",
+    );
   });
 });
 

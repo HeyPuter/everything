@@ -194,6 +194,7 @@
   color: var(--chrome-muted);
 }
 .anim-expand {
+  cursor: pointer;
   display: grid;
   place-items: center;
   width: 14px;
@@ -235,6 +236,7 @@
   background: var(--ico-blue, #007aff);
 }
 .anim-row-menu {
+  cursor: pointer;
   display: grid;
   place-items: center;
   width: 22px;
@@ -349,6 +351,32 @@
   stroke-dasharray: 5 4;
 }
 
+.anim-path-start,
+.anim-path-end {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: #1fa34a;
+  border: 1px solid #fff;
+}
+.anim-path-end {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  padding: 0;
+  background: #e8352b;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.anim-path-end:focus-visible {
+  outline: 2px solid var(--ribbon-focus);
+  outline-offset: 2px;
+}
+
 /* Preview over the canvas, and the canvas while painting animations */
 .anim-preview {
   position: absolute;
@@ -420,4 +448,27 @@
     border-top: 1px solid var(--chrome-rule);
     box-shadow: 0 -8px 24px #0000002e;
   }
+}
+
+/* Slides with animations are marked under their number in the navigator. */
+.slide-item.has-animations .slide-number::after {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 4px auto 0;
+  background: currentColor;
+  opacity: 0.7;
+  clip-path: polygon(
+    50% 0%,
+    61% 35%,
+    98% 35%,
+    68% 57%,
+    79% 91%,
+    50% 70%,
+    21% 91%,
+    32% 57%,
+    2% 35%,
+    39% 35%
+  );
 }
