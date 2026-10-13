@@ -1,6 +1,6 @@
 # Vector Studio
 
-A professional vector illustration editor for the web, built on [Puter](https://developer.puter.com): a free, open-source alternative to desktop vector illustration apps. Files are stored in your own Puter cloud.
+A professional vector illustration editor for the web, built on [Puter](https://developer.puter.com): a free, open-source alternative to Adobe Illustrator, CorelDRAW and Affinity Designer. Files are stored in your own Puter cloud.
 
 No UI framework: plain ES modules, Canvas 2D for artwork rendering, Rust compiled to WebAssembly for heavy geometry, and Vite for the build.
 

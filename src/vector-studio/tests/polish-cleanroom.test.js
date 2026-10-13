@@ -27,7 +27,10 @@ describe('clean-room names', () => {
     const hits = [];
     for (const f of list) {
       const lines = fs.readFileSync(f, 'utf8').split('\n');
+      const readme = path.basename(f) === 'README.md';
       lines.forEach((line, i) => {
+        // The README may say which products this is an alternative to.
+        if (readme && line.includes('open-source alternative to')) return;
         const m = PATTERN.exec(line);
         if (m) hits.push(`${path.relative(ROOT, f)}:${i + 1}: ${m[0]}`);
       });
