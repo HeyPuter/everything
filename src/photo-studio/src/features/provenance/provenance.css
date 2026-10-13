@@ -1,0 +1,36 @@
+/* Provenance panel and Inspect Provenance dialog (workspace tokens only). */
+.provenance-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.provenance-panel .prov-head { padding: 6px 8px 2px; }
+.prov-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prov-summary { color: var(--muted); font-size: 11px; display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.provenance-panel .prov-filters { display: flex; flex-wrap: wrap; gap: 3px; padding: 2px 8px 6px; }
+.provenance-panel .prov-filters button { padding: 1px 7px; min-height: 20px; border-radius: 10px; font-size: 11px; }
+.provenance-panel .prov-filters button[aria-checked='true'] { background: var(--accent-fill); color: var(--accent-text); border-color: transparent; }
+.provenance-panel .prov-body { flex: 1; overflow: auto; padding: 0 8px 6px; min-height: 60px; }
+.provenance-panel .prov-foot { padding: 4px 8px; border-top: 1px solid var(--line-soft); font-size: 11px; }
+.prov-timeline { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--line-soft); }
+.prov-entry { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 0 6px; padding: 3px 0 4px 6px; }
+.prov-entry::before { content: ''; position: absolute; left: -15px; top: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.prov-entry.prov-sources::before { background: var(--accent); }
+.prov-entry.prov-ai::before { background: #d9a400; }
+.prov-entry.prov-exports::before { background: #2fa36b; }
+.prov-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding-top: 1px; min-width: 42px; }
+.prov-text { overflow-wrap: anywhere; }
+.prov-entry time { grid-column: 2; font-size: 10px; color: var(--muted); }
+.prov-undone .prov-text { text-decoration: line-through; color: var(--muted); }
+.prov-meta { color: var(--muted); font-size: 11px; }
+.prov-count { color: var(--muted); }
+.prov-prompt { font-style: italic; color: var(--muted); }
+.prov-empty, .prov-more { margin: 8px 0; }
+.prov-timeline code { font-size: 10px; }
+.inspect-provenance { width: min(720px, calc(100vw - 32px)); }
+.inspect-provenance .prov-report { max-height: min(60vh, 520px); overflow: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.inspect-provenance h3 { margin: 4px 0; font-size: 12px; }
+.inspect-provenance .prov-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.inspect-provenance .prov-check { display: flex; gap: 6px; align-items: baseline; }
+.inspect-provenance .prov-check b { min-width: 64px; }
+.inspect-provenance .prov-check b::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--muted); }
+.inspect-provenance .prov-ok b::before { background: #2fa36b; }
+.inspect-provenance .prov-bad b::before { background: #e5484d; border-radius: 1px; }
+.inspect-provenance .prov-note { color: var(--muted); margin: 0; }
+.inspect-provenance .prov-actions-list { margin: 0; padding-left: 18px; }

@@ -365,6 +365,33 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   `menu: 'file.scripts'`. A new API method is one entry in `ScriptHost.table`, one wrapper in
   `runtime.js` and a line in `docs/scripting.md`.
 
+## Libraries, provenance and image assets
+
+- Libraries (`src/features/libraries/`): `model.ts` is the index format and
+  the edit operations (`LibraryOp`), which are idempotent and refer to IDs, so
+  replaying queued edits on a newer index merges concurrent changes.
+  `storage.ts` keeps the working copy in IndexedDB (`photo-studio-libraries`:
+  index, queued edits, content-addressed asset blobs) and, while signed in,
+  syncs with the app's Puter folder (`libraries/index.json`,
+  `libraries/assets/<sha256>`): read, replay, write with a new revision and
+  writer nonce, read back to confirm, retry otherwise; recently written edits
+  are replayed for a while so a writer that missed them cannot drop them.
+  Tabs hear about changes through a BroadcastChannel. Placements made with
+  Place Linked are embedded objects whose `link.kind` is `library`
+  (`linkReaders` in `embedded/link-state.ts` reads them).
+- Provenance (`src/features/provenance/`, codecs in `src/imaging/provenance/`):
+  the recorder watches new history states of the active document (labels,
+  `e.currentCommand` / `e.lastCommand`), placed embedded contents and
+  `openedFiles` (`app/app-events.ts`), and keeps one `ProvenanceRecord`
+  (`model/provenance.ts`) per session. Projects store it as a sidecar
+  (`projectSidecars` in `model/serialization.ts`: data beside the document,
+  outside the undo history). `attachProvenance` writes the XMP packet, then
+  the C2PA-format store with a hard binding found by fixed-point layout;
+  `inspectProvenance` never throws.
+- Image Assets (`src/features/image-assets/`): `names.ts` parses layer names,
+  `plan.ts` turns a document into outputs, `generate.ts` renders, encodes
+  (export worker) and writes them; see `docs/image-assets.md`.
+
 ## Preferences, versions and recovery
 
 - `src/model/preferences.ts` is the schema of Edit → Preferences (pages, sections,

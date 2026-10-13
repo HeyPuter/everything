@@ -30,6 +30,7 @@ const stripSections: [string, string[]][] = [
   ['Painting', ['brushes', 'brush-settings', 'tool-presets', 'clone-source']],
   ['Type', ['character', 'paragraph', 'glyphs', 'character-styles', 'paragraph-styles']],
   ['Layers', ['styles', 'shapes', 'layer-comps']],
+  ['Assets', ['libraries', 'provenance']],
 ];
 const stripSection = (id: string) => {
   const i = stripSections.findIndex(([, ids]) => ids.includes(id));
@@ -196,9 +197,9 @@ export class Dock {
   }
   /** Register Window → Panels commands for every panel. */
   registerCommands() {
+    // A feature may register its panel's command itself (to place it
+    // directly in the Window menu rather than under Panels).
     for (const p of panels.values())
-      // A feature may register the command itself (listed directly in the
-      // Window menu instead of Window → Panels); it is kept.
       if (!commands.has(`window.panel.${p.id}`))
         registerCommand({
           id: `window.panel.${p.id}`,

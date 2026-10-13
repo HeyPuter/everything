@@ -1,0 +1,47 @@
+/* Libraries panel. Uses workspace tokens only, so every theme applies. */
+.libraries-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.libraries-panel .lib-head { padding: 6px 8px 4px; display: flex; flex-direction: column; gap: 4px; }
+.libraries-panel .lib-toolbar { display: flex; gap: 4px; align-items: center; }
+.libraries-panel .lib-select { flex: 1; min-width: 0; }
+.libraries-panel .lib-search { width: 100%; box-sizing: border-box; }
+.libraries-panel .lib-body { flex: 1; overflow: auto; padding: 0 8px 6px; min-height: 60px; }
+.libraries-panel .lib-section + .lib-section { border-top: 1px solid var(--line-soft); margin-top: 6px; padding-top: 4px; }
+.libraries-panel .lib-section-title { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 4px 0 2px; }
+.libraries-panel .lib-section-title .link-button { color: var(--text); font-weight: 600; padding: 0; background: none; border: 0; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.libraries-panel .lib-group-title { color: var(--muted); font-size: 11px; padding: 4px 0 2px; }
+.libraries-panel .lib-count { color: var(--muted); font-weight: 400; font-size: 11px; }
+.libraries-panel .lib-items.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 4px; }
+.libraries-panel .lib-items.lib-list { display: flex; flex-direction: column; gap: 1px; }
+.libraries-panel .lib-item { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 3px; min-height: 0; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--text); text-align: left; cursor: pointer; }
+.libraries-panel .lib-list .lib-item { flex-direction: row; align-items: center; gap: 8px; padding: 2px 4px; }
+.libraries-panel .lib-item:hover { background: var(--hover); }
+.libraries-panel .lib-item[aria-selected='true'] { background: var(--row-selected); }
+.libraries-panel .lib-item[aria-selected='true'] .lib-extra { color: var(--muted-selected); }
+.libraries-panel .lib-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.libraries-panel .lib-item.dragging { opacity: 0.5; }
+.libraries-panel .drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.libraries-panel .lib-section-title.drop-before, .libraries-panel .lib-empty-note.drop-before { box-shadow: inset 0 -2px 0 var(--accent); }
+.libraries-panel .lib-thumb { display: block; aspect-ratio: 1; width: 100%; border-radius: 2px; overflow: hidden; border: 1px solid #0006; box-sizing: border-box; }
+.libraries-panel .lib-list .lib-thumb { width: 28px; height: 28px; flex: none; }
+.libraries-panel .lib-swatch { background: var(--swatch); }
+.libraries-panel .lib-image { background: var(--fx-checker); }
+.libraries-panel .lib-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.libraries-panel .lib-pattern img { object-fit: cover; }
+.libraries-panel .lib-brush { background: var(--input); display: flex; align-items: center; }
+.libraries-panel .lib-brush img { width: 100%; }
+.libraries-panel .lib-text { display: flex; align-items: center; justify-content: center; font-size: 18px; background: var(--input); color: var(--text); }
+.libraries-panel .lib-list .lib-text { font-size: 13px; }
+.libraries-panel .lib-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.libraries-panel .lib-list .lib-name { flex: 1; font-size: 12px; }
+.libraries-panel .lib-extra { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.libraries-panel .lib-empty { padding: 12px 4px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.libraries-panel .lib-empty p { margin: 0; color: var(--muted); }
+.libraries-panel .lib-empty-note { margin: 2px 0 4px; font-size: 11px; }
+.libraries-panel .lib-status { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; min-height: 22px; }
+.libraries-panel .lib-sync { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.libraries-panel .lib-sync span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.libraries-panel .lib-sync-syncing svg { animation: lib-spin 1.2s linear infinite; }
+.libraries-panel .lib-sync-error, .libraries-panel .lib-sync-offline { color: var(--text); }
+.libraries-panel .lib-total { white-space: nowrap; }
+@keyframes lib-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .libraries-panel .lib-sync-syncing svg { animation: none; } }

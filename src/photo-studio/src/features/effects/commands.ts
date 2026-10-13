@@ -47,6 +47,10 @@ function editStyles(e: Editor, label: string, edit: (l: Layer) => void) {
     }
   });
 }
+/** Give the selected layers a copy of `style` as one step (Libraries). */
+export function applyLayerStyle(e: Editor, style: LayerStyle, label = 'Apply Style') {
+  editStyles(e, label, (l) => (l.style = structuredClone(style) as Record<string, unknown>));
+}
 export function applyStylePreset(e: Editor, id: string) {
   const preset = allStyles().find((s) => s.id === id);
   const style = preset ? structuredClone(preset.style) : stylePreset(id);

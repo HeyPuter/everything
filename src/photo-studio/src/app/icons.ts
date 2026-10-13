@@ -3,6 +3,7 @@ import {
   ChevronFirst, ChevronLast, StepBack, StepForward,
   AppWindow, PanelsTopLeft, Wrench, FileCog, ImageDown, Gauge, MousePointerClick, Package, FileClock, ArchiveRestore, Smartphone, Monitor, Clapperboard, Globe, Clock, RotateCcwSquare, Star, Scaling,
   SquareCode, Braces,
+  CloudOff,
 } from 'lucide';
 
 // Interface icons are inline SVG strings: Lucide (ISC) plus original glyphs
@@ -11,6 +12,7 @@ import {
 type Node = readonly [string, Record<string, string | number>];
 type IconNode = readonly [string, Record<string, string | number>, Node[]?];
 const lucide: Record<string, IconNode> = {
+  'cloud-off': CloudOff as unknown as IconNode,
   'move': Move as unknown as IconNode,
   'square-dashed': SquareDashed as unknown as IconNode,
   'circle-dashed': CircleDashed as unknown as IconNode,
@@ -401,6 +403,14 @@ const custom: Record<string, Node[]> = {
   'assistant': [p('M5 3.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6.5L7 20.5v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z'), p('M12 6.5c.35 1.9 1.1 2.65 3 3-1.9.35-2.65 1.1-3 3-.35-1.9-1.1-2.65-3-3 1.9-.35 2.65-1.1 3-3Z')],
   // Generation History (original glyph): stacked pictures, the front one with a spark.
   'generation-history': [['rect', { x: 3, y: 7, width: 14, height: 14, rx: 2 }], p('M7 3.5h12a2 2 0 0 1 2 2v12'), p('m3.5 18.5 4-4 3 3 2-2 4 4'), p('M12.5 9c.2 1.05.65 1.5 1.7 1.7-1.05.2-1.5.65-1.7 1.7-.2-1.05-.65-1.5-1.7-1.7 1.05-.2 1.5-.65 1.7-1.7Z')],
+  // Libraries (original glyph): three item cards standing on a shelf.
+  'libraries': [['rect', { x: 3, y: 4, width: 5, height: 14, rx: 1 }], ['rect', { x: 9.5, y: 6, width: 5, height: 12, rx: 1 }], p('M15.2 8.8l4.4-1.2 2.6 9.6-4.4 1.2Z'), p('M2 21h20')],
+  // Provenance (original glyph): a page whose history runs down a timeline.
+  'provenance': [p('M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z'), p('M14 3v6h6'), p('M9 11v6'), ['circle', { cx: 9, cy: 11, r: 1.3, fill: 'currentColor' }], ['circle', { cx: 9, cy: 17, r: 1.3, fill: 'currentColor' }], p('M12 11h3M12 17h4')],
+  // Inspect provenance: the provenance page under a magnifier.
+  'provenance-inspect': [p('M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5'), p('M12 3l6 6v2'), p('M8 9v5'), ['circle', { cx: 8, cy: 9, r: 1.2, fill: 'currentColor' }], ['circle', { cx: 16.5, cy: 16.5, r: 3.5 }], p('m19 19 2.5 2.5')],
+  // Image Assets (original glyph): a layer sheet exported down into a file.
+  'image-assets': [p('M3 7l6-3 6 3-6 3Z'), p('M9 10v6M6.5 13.5 9 16l2.5-2.5'), p('M13 12h5l3 3v6h-8Z'), p('M18 12v3h3')],
 };
 const attrs = (a: Record<string, string | number>) =>
   Object.entries(a)

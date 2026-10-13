@@ -91,6 +91,19 @@ export function setUserBrushPresets(list: StoredPreset[]) {
 }
 export const builtinBrushPresets = (): StoredPreset[] => brushPresets.map((p) => ({ name: p.name, tip: p.tip }));
 export const brushPresetPreview = (p: StoredPreset) => strokePreview(p, 96, 24);
+/** The active painting tool's brush as a preset (Libraries). */
+export function currentBrushPreset(e: Editor, name: string): StoredPreset {
+  const s = activeBrush(e);
+  const { sample, ...tip } = structuredClone(s) as BrushSettings & { sample?: Mask8 };
+  return { name, tip: tip as Partial<BrushSettings>, ...(sample ? { sample: { width: sample.width, height: sample.height, data: toB64(sample.data) } } : {}) };
+}
+/** Make a preset the active painting tool's brush (Brushes panel, Libraries). */
+export function applyBrushPreset(e: Editor, p: StoredPreset) {
+  const s = activeBrush(e);
+  Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...p.tip, dynamics: { ...(p.tip.dynamics ?? {}) }, sample: sampleOf(p) });
+  e.options();
+  e.dock.update();
+}
 
 const brushesPanel: Panel = {
   id: 'brushes',
@@ -101,11 +114,7 @@ const brushesPanel: Panel = {
     el.addEventListener('click', (ev) => {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-brush-preset]');
       if (!b) return;
-      const p = allPresets()[Number(b.dataset.brushPreset)];
-      const s = activeBrush(e);
-      Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...p.tip, dynamics: { ...(p.tip.dynamics ?? {}) }, sample: sampleOf(p) });
-      e.options();
-      e.dock.update();
+      applyBrushPreset(e, allPresets()[Number(b.dataset.brushPreset)]);
     });
     el.addEventListener('input', (ev) => {
       const t = ev.target as HTMLInputElement;

@@ -39,6 +39,12 @@ const maxLayers = 1000;
 export const projectExtras = new WeakMap<Assets, (doc: PhotoDocument) => Record<string, unknown>>();
 // A portable binary bundle: magic, JSON byte length, metadata, then original image blobs.
 const magic = new TextEncoder().encode("PHOTO001");
+/** Project data kept beside the document rather than in it (state outside
+ * the undo history, such as the provenance record), stored under `key` in
+ * the project's "sidecars" object. `write` returns undefined for nothing;
+ * `read` failures are ignored (the project still opens). */
+export type ProjectSidecar = { key: string; write(doc: PhotoDocument): unknown; read(doc: PhotoDocument, value: unknown): void };
+export const projectSidecars: ProjectSidecar[] = [];
 export async function serialize(
   live: PhotoDocument,
   assets: Assets,
@@ -78,8 +84,13 @@ export async function serialize(
     size: blobOf(id).size,
     type: blobOf(id).type,
   }));
+  const sidecars: Record<string, unknown> = {};
+  for (const s of projectSidecars) {
+    const v = s.write(live);
+    if (v !== undefined) sidecars[s.key] = v;
+  }
   const json = new TextEncoder().encode(
-    JSON.stringify({ document: doc, assets: records }),
+    JSON.stringify({ document: doc, assets: records, ...(Object.keys(sidecars).length ? { sidecars } : {}) }),
   );
   const header = new Uint8Array(12);
   if (
@@ -366,6 +377,7 @@ export function validateDocument(value: unknown): PhotoDocument {
     validateTimeline(doc.timeline);
   }
   if (doc.textStyles !== undefined && !validTextStyles(doc.textStyles)) throw new Error('Invalid text styles.');
+  if (doc.imageAssets !== undefined && typeof doc.imageAssets !== 'boolean') throw new Error('Invalid Image Assets setting.');
   if (
     doc.perspectivePlanes !== undefined &&
     !(Array.isArray(doc.perspectivePlanes) && doc.perspectivePlanes.length <= 64 && doc.perspectivePlanes.every((q) => Array.isArray(q) && q.length === 4 && q.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))))
@@ -391,9 +403,18 @@ export async function deserialize(
   const data = JSON.parse(await blob.slice(12, 12 + length).text()) as {
     document: unknown;
     assets: { id: string; size: number; type: string }[];
+    sidecars?: Record<string, unknown>;
   };
   const document = validateDocument(data.document),
     assets = into ?? new Assets();
+  if (data.sidecars && typeof data.sidecars === 'object')
+    for (const s of projectSidecars)
+      if (data.sidecars[s.key] !== undefined)
+        try {
+          s.read(document, data.sidecars[s.key]);
+        } catch {
+          /* Optional data from a damaged or newer project is left out. */
+        }
   let offset = 12 + length;
   const packs = new Map<string, Blob>();
   try {

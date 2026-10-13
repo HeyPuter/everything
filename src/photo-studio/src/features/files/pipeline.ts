@@ -85,8 +85,10 @@ export function bytesBlob(bytes: Uint8Array, mime: string) {
 export async function quickExport(e: Editor, format: ExportSettings['format'] = e.preferences.quickExportFormat) {
   const s = { ...loadSettings(), format };
   const out = await encodeDocument(e, s);
-  const blob = bytesBlob(out.bytes, out.mime),
-    name = preferredFileName(exportFileName(e.doc.name, format));
+  const name = preferredFileName(exportFileName(e.doc.name, format));
+  const { withProvenance } = await import('../provenance/export');
+  out.bytes = await withProvenance(e.session, out.bytes, name, e.preferences.provenanceAttach, { prompts: e.preferences.provenancePrompts, width: out.width, height: out.height });
+  const blob = bytesBlob(out.bytes, out.mime);
   const where = e.preferences.quickExportLocation;
   const docPath = e.session.storage.path;
   if (where === 'download' || (where === 'beside' && !docPath)) {

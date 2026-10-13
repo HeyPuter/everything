@@ -1,0 +1,17 @@
+/* Images from Device (camera capture) dialog. */
+.camera-dialog { width: min(900px, calc(100vw - 32px)); max-width: min(900px, calc(100vw - 32px)); padding: 20px; }
+.camera-dialog h2 { margin: 0 0 12px; }
+.camera-dialog .camera-body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; }
+.camera-dialog .camera-stage { position: relative; background: #000; border-radius: 4px; overflow: hidden; aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; max-height: min(56vh, 480px); }
+.camera-dialog video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camera-dialog video.mirrored { transform: scaleX(-1); }
+.camera-dialog .camera-status { position: absolute; inset: auto 12px 12px; padding: 8px 10px; border-radius: 4px; background: #000c; color: #fff; text-align: center; }
+.camera-dialog .camera-count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 96px; font-weight: 700; color: #fff; text-shadow: 0 2px 12px #000; pointer-events: none; }
+.camera-dialog .camera-settings { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.camera-dialog .camera-settings select { min-width: 0; width: 100%; }
+.camera-dialog .camera-target { border: 1px solid var(--line-soft); border-radius: 4px; padding: 6px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.camera-dialog .camera-target legend { padding: 0 4px; color: var(--muted); }
+.camera-dialog.flash .camera-stage { animation: camera-flash 0.25s ease-out; }
+@keyframes camera-flash { from { box-shadow: inset 0 0 0 999px #fff8; } to { box-shadow: inset 0 0 0 999px #fff0; } }
+@media (prefers-reduced-motion: reduce) { .camera-dialog.flash .camera-stage { animation: none; } }
+@media (max-width: 720px) { .camera-dialog .camera-body { grid-template-columns: 1fr; } }
