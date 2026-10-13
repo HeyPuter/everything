@@ -27,7 +27,18 @@ export function effectFields(type, p) {
         { key: 'x', label: 'X Offset', type: 'length', value: p.x },
         { key: 'y', label: 'Y Offset', type: 'length', value: p.y },
         { key: 'blur', label: 'Blur', type: 'length', value: p.blur, min: 0 },
-        { key: 'color', label: 'Color', type: 'color', value: p.color },
+        {
+          key: 'shadowFrom',
+          label: 'Shadow',
+          type: 'radio',
+          value: p.shadowFrom || 'color',
+          options: [
+            { value: 'color', label: 'Color' },
+            { value: 'darkness', label: 'Darkness' },
+          ],
+        },
+        { key: 'color', label: 'Color', type: 'color', value: p.color, disabled: (v) => v.shadowFrom === 'darkness' },
+        { key: 'darkness', label: 'Darkness', type: 'percent', value: (p.darkness ?? 1) * 100, min: 0, max: 100, disabled: (v) => v.shadowFrom !== 'darkness' },
       ];
     case 'innerGlow':
       return [
@@ -60,7 +71,7 @@ export function effectFromValues(type, v) {
   const out = { type };
   for (const [k, val] of Object.entries(v)) {
     if (k === 'preview' || k === '__action') continue;
-    out[k] = k === 'opacity' ? val / 100 : val;
+    out[k] = k === 'opacity' || k === 'darkness' ? val / 100 : val;
   }
   return normalizeEffect(out);
 }

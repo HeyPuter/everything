@@ -23,7 +23,10 @@ export const EFFECTS = {
   dropShadow: {
     label: 'Drop Shadow',
     command: 'effect.dropShadow',
-    defaults: { mode: 'multiply', opacity: 0.75, x: 7, y: 7, blur: 5, color: '#000000' },
+    // shadowFrom 'color' paints the shadow in `color`; 'darkness' mixes the artwork's own colors with `darkness` black.
+    defaults: { mode: 'multiply', opacity: 0.75, x: 7, y: 7, blur: 5, color: '#000000', shadowFrom: 'color', darkness: 1 },
+    enums: { shadowFrom: ['color', 'darkness'] },
+    ranges: { darkness: [0, 1] },
   },
   innerGlow: {
     label: 'Inner Glow',

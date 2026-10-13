@@ -240,7 +240,25 @@ export function compositeWithEffects(ctx, layer, effects, scale, pool, x = 0, y 
   }
   const baseOp = ctx.globalCompositeOperation;
   for (const e of effects) {
-    if (e.type === 'dropShadow') {
+    if (e.type === 'dropShadow' && e.shadowFrom === 'darkness') {
+      // Darkness: the shadow is the artwork's own colors mixed with black.
+      ctx.globalCompositeOperation = e.mode && e.mode !== 'normal' ? BLEND[e.mode] || baseOp : baseOp;
+      const dark = pool.acquire(content.canvas.width, content.canvas.height);
+      const c = dark.ctx;
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.drawImage(content.canvas, 0, 0);
+      c.globalCompositeOperation = 'source-atop';
+      c.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(1, e.darkness ?? 1))})`;
+      c.fillRect(0, 0, content.canvas.width, content.canvas.height);
+      c.globalCompositeOperation = 'source-over';
+      const soft = blurred(dark.canvas, (e.blur || 0) * scale * 0.5, pool);
+      const alpha = ctx.globalAlpha;
+      ctx.globalAlpha = alpha * (e.opacity ?? 0.75);
+      ctx.drawImage(soft.canvas, x + (e.x || 0) * scale, y + (e.y || 0) * scale);
+      ctx.globalAlpha = alpha;
+      pool.release(soft);
+      pool.release(dark);
+    } else if (e.type === 'dropShadow') {
       ctx.globalCompositeOperation = e.mode && e.mode !== 'normal' ? BLEND[e.mode] || baseOp : baseOp;
       drawShadowOnly(ctx, content.canvas, rgba(e.color || '#000000', e.opacity ?? 0.75), (e.blur || 0) * scale, (e.x || 0) * scale, (e.y || 0) * scale, x, y);
     } else if (e.type === 'outerGlow') {
