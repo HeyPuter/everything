@@ -187,3 +187,17 @@ describe("thesaurus and AI replies", () => {
     expect(offlineLookup("zzz")).toBe(null);
   });
 });
+
+describe("slide titles from existing text", () => {
+  it("picks the largest text and makes it the title placeholder", async () => {
+    const { titleCandidate } = await import("../src/review/accessibility.js");
+    const pres = createDeck("pitch");
+    const slide = P.getSlides(pres)[0];
+    expect(P.getSlideTitle(slide)).toBe(null);
+    const pick = titleCandidate(pres, slide);
+    expect(P.getShapeText(pick)).toMatch(/Small idea/);
+    P.setShapeAsTitlePlaceholder(pick);
+    const back = await P.loadPresentation(await P.savePresentation(pres));
+    expect(P.getSlideTitle(P.getSlides(back)[0])).toMatch(/Small idea/);
+  });
+});

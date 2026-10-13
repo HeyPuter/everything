@@ -92,6 +92,33 @@ export function visualOrder(items, tolerance) {
   return rows.flatMap((r) => r.sort((a, b) => a.x - b.x));
 }
 
+// A slide named by its first line of text.
+function slideLabel(slide) {
+  for (const s of visibleSlideShapes(slide)) {
+    const text = (P.getShapeText(s) || "").trim().split("\n")[0];
+    if (text) return text.length > 48 ? `${text.slice(0, 47)}…` : text;
+  }
+  return "Untitled slide";
+}
+// The text that reads as a slide's title: in the largest type, then
+// nearest the top.
+export function titleCandidate(pres, slide) {
+  let best = null;
+  for (const s of visibleSlideShapes(slide)) {
+    if (P.getShapeKind(s) !== "shape" || P.getShapePlaceholderType(s)) continue;
+    const text = (P.getShapeText(s) || "").trim();
+    if (!text) continue;
+    let size = 18;
+    try {
+      size = P.getShapeRunFormatEffective(pres, s, 0, 0)?.size || 18;
+    } catch {}
+    const y = P.getShapeBounds(s)?.y ?? 0;
+    if (!best || size > best.size || (size === best.size && y < best.y))
+      best = { s, size, y };
+  }
+  return best?.s || null;
+}
+
 const ALT_KINDS = new Set(["picture", "graphicFrame", "group"]);
 const isTitlePh = (type) => type === "title" || type === "ctrTitle";
 
@@ -116,8 +143,7 @@ export function findAccessibilityIssues(pres, env) {
         part,
         slide,
         shapeId: shape ? P.getShapeId(shape) : null,
-        label:
-          label || (shape ? shapeLabel(shape, pres) : `Slide ${index + 1}`),
+        label: label || (shape ? shapeLabel(shape, pres) : slideLabel(slide)),
       });
     const shapes = visibleSlideShapes(slide);
     const ownGroupChildren = new Set();
@@ -184,7 +210,7 @@ export function findAccessibilityIssues(pres, env) {
           part,
           slide,
           shapeId: null,
-          label: `Slide ${index + 1}`,
+          label: slideLabel(slide),
         });
     }
   });
@@ -243,7 +269,16 @@ export function createAccessibility(env, host) {
         const empty = visibleSlideShapes(s).find((x) =>
           isTitlePh(P.getShapePlaceholderType?.(x)),
         );
+        const candidate = !empty && titleCandidate(env.pres(), s);
+        const short = (t) => (t.length > 28 ? `${t.slice(0, 27)}…` : t);
         return [
+          candidate && {
+            label: `Use “${short(P.getShapeText(candidate).trim().split("\n")[0])}” as the Title`,
+            run: () =>
+              env.mutateShape(candidate, (x) =>
+                P.setShapeAsTitlePlaceholder(x),
+              ),
+          },
           empty
             ? {
                 label: "Edit the Title",

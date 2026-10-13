@@ -8,6 +8,7 @@ import {
   parseFragment,
 } from "../../internal/xml/index.ts";
 import {
+  SHAPE_ELEMENT,
   SHAPE_SLIDE,
   SHAPE_SNAPSHOT,
   SLIDE_SHAPES,
@@ -147,4 +148,28 @@ export const setShapeIdentifier = (shape: SlideShapeData, id: number): void => {
   );
   commitSlideData(slide);
   rebuildShapesFromDocument(slide);
+};
+
+/**
+ * Makes a text shape the slide's title placeholder, so screen readers and
+ * outlines take its text as the slide's title. Its own position and text
+ * formatting stay as they are.
+ */
+export const setShapeAsTitlePlaceholder = (shape: SlideShapeData): void => {
+  if (shape[SHAPE_SNAPSHOT].kind !== "shape")
+    throw new Error("setShapeAsTitlePlaceholder: not a text shape");
+  const nvSpPr = childElements(shape[SHAPE_ELEMENT]).find(
+    (c) => c.name.localName === "nvSpPr",
+  );
+  const nvPr = nvSpPr
+    ? childElements(nvSpPr).find((c) => c.name.localName === "nvPr")
+    : null;
+  if (!nvPr) throw new Error("setShapeAsTitlePlaceholder: no nvPr");
+  nvPr.children = nvPr.children.filter(
+    (n) => !(n.kind === "element" && n.name.localName === "ph"),
+  );
+  const ph = parseFragment(`<p:ph xmlns:p="${NS_P}" type="title"/>`);
+  ph.prefixDecls = new Map();
+  nvPr.children.unshift(ph);
+  commitAndRefresh(shape);
 };

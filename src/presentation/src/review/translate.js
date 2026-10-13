@@ -220,9 +220,7 @@ export function createTranslate(env, host) {
           el(
             "div",
             { class: "translate-item" },
-            state.items.length > 1 &&
-              el("p", { class: "review-label" }, item.label || `Text ${i + 1}`),
-            el("p", { class: "translate-source", lang: "" }, item.text),
+            el("p", { class: "translate-source" }, item.text),
             el("p", { class: "translate-target", lang: to }, state.result[i]),
           ),
         ),
