@@ -337,6 +337,10 @@ body.io-busy .canvas-host {
   align-items: start;
 }
 
+.pd-section[hidden] {
+  display: none;
+}
+
 .pd-settings > .pd-section {
   grid-column: 2;
   grid-row: 1;

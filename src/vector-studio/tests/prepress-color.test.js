@@ -10,6 +10,7 @@ import { fitColorTransform, rgbProofBody, cmykProofBody, proofBody } from '../sr
 import { proofFilterMarkup, PROOFS } from '../src/features/workspace/view.js';
 import { quantizeCmyk } from '../src/features/panels/edit-commands.js';
 import { MENUS } from '../src/ui/menus.js';
+import { applyOpenPolicy, mismatchAction } from '../src/features/prepress/color-policies.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const dlg = () => document.querySelector('dialog[open]');
@@ -208,5 +209,36 @@ describe('Color Settings', () => {
     expect(fill.cmyk.k).toBe(90);
     expect(fill.cmyk.c + fill.cmyk.m + fill.cmyk.y + fill.cmyk.k).toBeLessThanOrEqual(241);
     expect(quantizeCmyk('#000000').cmyk).toEqual(fill.cmyk);
+  });
+});
+
+describe('color management policies', () => {
+  it('maps policies to actions', () => {
+    expect(['off', 'preserve', 'convert', 'preserveNumbers'].map(mismatchAction)).toEqual(['discard', 'keep', 'convert', 'discard']);
+  });
+
+  it('converts a mismatched document to the working space as it opens', async () => {
+    const { app, ed, doc, add } = await setup();
+    app.prefs.set('colorSettings', { policyRgb: 'convert' });
+    const id = add({ fill: { type: 'solid', color: '#808080' } });
+    doc.transact('Profile', () => doc.updateRoot({ colorProfile: 'mac18' }));
+    expect(await applyOpenPolicy(app, ed)).toBe('convert');
+    expect(doc.root.colorProfile).toBeUndefined();
+    // Gamma 1.8 gray converts to a lighter sRGB gray.
+    expect(parseInt(doc.get(id).fill.color.slice(1, 3), 16)).toBeGreaterThan(0x90);
+  });
+
+  it('asks when told to, and applies on open', async () => {
+    const { app, doc } = await setup();
+    app.prefs.set('colorSettings', { askOpen: true });
+    doc.transact('Profile', () => doc.updateRoot({ colorProfile: 'p3' }));
+    const ed2 = app.addDocument(doc, { file: { name: 'opened.vstudio' } });
+    await tick();
+    await tick();
+    expect(dlg().querySelector('.dialog-title').textContent).toBe('Profile Mismatch');
+    dlg().querySelector('input[value="discard"]').click();
+    button('OK').click();
+    await tick();
+    expect(ed2.doc.root.colorProfile).toBeUndefined();
   });
 });

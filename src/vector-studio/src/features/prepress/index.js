@@ -18,6 +18,7 @@ import { SeparationsPanel } from './separations-panel.js';
 import { FlattenerPreviewPanel } from './flattener-preview.js';
 import { videoEffectCommands } from './video-effects.js';
 import { presetsManagerDialog } from './presets.js';
+import { applyOpenPolicy } from './color-policies.js';
 import { flattenTransparencyDialog } from './flattener-presets.js';
 import './print-presets.js';
 import './pdf-presets.js';
@@ -81,6 +82,14 @@ export function install(app) {
     else drawGpuProof(app, ctx, editor);
   });
   proofHooks.canvas = (editor) => separationState(editor).on || gpuHandlesProof(app, editor);
+
+  // Color management policies apply to documents as they open.
+  const addDocument = app.addDocument.bind(app);
+  app.addDocument = (doc, opts = {}) => {
+    const editor = addDocument(doc, opts);
+    if (opts.file) Promise.resolve().then(() => applyOpenPolicy(app, editor)).catch(() => {});
+    return editor;
+  };
 
   app.prefs.on?.('change', ({ key }) => {
     if (key === 'colorSettings' || key === 'proofCustom') refreshProof();

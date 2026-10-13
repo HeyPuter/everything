@@ -76,13 +76,12 @@ export async function colorSettingsDialog(app) {
   const polRgb = selectEl(['off', 'preserve', 'convert'].map((k) => [k, POLICIES[k]]), st.policyRgb);
   const polCmyk = selectEl(['off', 'preserveNumbers', 'preserve', 'convert'].map((k) => [k, POLICIES[k]]), st.policyCmyk);
   const askOpen = check('Ask when opening', st.askOpen);
-  const askPaste = check('Ask when pasting', st.askPaste);
   const askMissing = check('Ask when opening documents without a profile', st.askMissing);
   const intent = selectEl(Object.entries(INTENTS), st.intent);
   const bpc = check('Use black point compensation', st.bpc);
   const read = () => normalizeColorSettings({
     rgb: rgbSel.value, cmyk: cmykSel.value, policyRgb: polRgb.value, policyCmyk: polCmyk.value,
-    askOpen: askOpen.input.checked, askPaste: askPaste.input.checked, askMissing: askMissing.input.checked,
+    askOpen: askOpen.input.checked, askMissing: askMissing.input.checked,
     intent: intent.value, bpc: bpc.input.checked,
   });
   const fill = (s) => {
@@ -91,7 +90,6 @@ export async function colorSettingsDialog(app) {
     polRgb.value = s.policyRgb;
     polCmyk.value = s.policyCmyk;
     askOpen.input.checked = s.askOpen;
-    askPaste.input.checked = s.askPaste;
     askMissing.input.checked = s.askMissing;
     intent.value = s.intent;
     bpc.input.checked = s.bpc;
@@ -111,7 +109,7 @@ export async function colorSettingsDialog(app) {
     const c = separate([0.5, 0.5, 0.5], cmykSel.value);
     sample.textContent = `50% gray separates as C${Math.round(c.c)} M${Math.round(c.m)} Y${Math.round(c.y)} K${Math.round(c.k)}.`;
   };
-  for (const el of [rgbSel, cmykSel, polRgb, polCmyk, askOpen.input, askPaste.input, askMissing.input, intent, bpc.input]) el.addEventListener('change', () => (changed(), updateSample()));
+  for (const el of [rgbSel, cmykSel, polRgb, polCmyk, askOpen.input, askMissing.input, intent, bpc.input]) el.addEventListener('change', () => (changed(), updateSample()));
   const describe = (el, key) => {
     const show = () => (desc.textContent = HELP[key]);
     el.addEventListener('focus', show);
@@ -122,7 +120,7 @@ export async function colorSettingsDialog(app) {
   describe(cmykSel, 'cmyk');
   describe(polRgb, 'policyRgb');
   describe(polCmyk, 'policyCmyk');
-  for (const c of [askOpen, askPaste, askMissing]) describe(c.input, 'ask');
+  for (const c of [askOpen, askMissing]) describe(c.input, 'ask');
   describe(intent, 'intent');
   describe(bpc.input, 'bpc');
 
@@ -158,7 +156,7 @@ export async function colorSettingsDialog(app) {
     h('h3.form-heading', 'Color Management Policies'),
     row('RGB', polRgb),
     row('CMYK', polCmyk),
-    h('div.form-row', h('span.form-label', 'Profile mismatches'), h('div.pp-checks', askOpen.el, askPaste.el)),
+    h('div.form-row', h('span.form-label', 'Profile mismatches'), askOpen.el),
     h('div.form-row', h('span.form-label', 'Missing profiles'), askMissing.el),
     h('h3.form-heading', 'Conversion Options'),
     row('Intent', intent),

@@ -171,6 +171,7 @@ export async function printDialog(app, presetEdit = null) {
     }
   };
   const pane = (label) => panes.find((p) => p.label === label).panel;
+  const fillPane = (el, ...kids) => el.replaceChildren(...kids.filter((k) => k != null && k !== false));
 
   const rebuild = () => {
     const focus = keepFocus(bodyRef.el);
@@ -233,7 +234,7 @@ export async function printDialog(app, presetEdit = null) {
     });
     const overlap = lenInput(st.overlap, 'Tile overlap', (v) => (st.overlap = Math.max(0, v)));
     overlap.disabled = st.scaling !== 'tile';
-    pane('General').replaceChildren(
+    fillPane(pane('General'), 
       field('Copies', copies, collate.el, reverse.el),
       field('Artboards', which),
       h('div.pd-indent', ignore.el, skip.el),
@@ -267,7 +268,7 @@ export async function printDialog(app, presetEdit = null) {
       el.disabled = st.useDocBleed;
       return h('label.pd-bleed', side[0].toUpperCase() + side.slice(1), el);
     };
-    pane('Marks and Bleed').replaceChildren(
+    fillPane(pane('Marks and Bleed'), 
       h('h3.pd-heading', 'Marks'),
       all.el,
       h('div.pd-grid2', mark('trim', 'Trim marks'), mark('registration', 'Registration marks'), mark('colorBars', 'Color bars'), mark('pageInfo', 'Page information')),
@@ -294,12 +295,12 @@ export async function printDialog(app, presetEdit = null) {
       });
       return h('li.pd-ink', h('label.pd-check', input, p.name, p.spot ? h('span.pd-muted', ' (spot)') : null, !p.used ? h('span.pd-muted', ' — not used') : null));
     }));
-    pane('Output').replaceChildren(
+    fillPane(pane('Output'), 
       field('Mode', sel([['composite', 'Composite'], ['separations', 'Separations (host-based)']], st.mode, (v) => {
         st.mode = v;
         rebuild();
       }, 'Output mode')),
-      field('Color', sel([['color', 'Color'], ['gray', 'Grayscale']], st.color, (v) => (st.color = v), 'Color')),
+      field('Color', Object.assign(sel([['color', 'Color'], ['gray', 'Grayscale']], st.color, (v) => (st.color = v), 'Color'), { disabled: seps })),
       field('Emulsion', seg('Emulsion', [['up', 'Up (right reading)'], ['down', 'Down (mirrored)']], st.emulsion, (v) => (st.emulsion = v))),
       field('Image', seg('Image', [['positive', 'Positive'], ['negative', 'Negative']], st.image, (v) => (st.image = v))),
       h('div.pd-indent', check('Convert all spot colors to process', st.spotToProcess, (v) => {
@@ -312,14 +313,14 @@ export async function printDialog(app, presetEdit = null) {
     );
 
     // Graphics
-    pane('Graphics').replaceChildren(
+    fillPane(pane('Graphics'), 
       field('Text', sel([['text', 'Print as text'], ['outlines', 'Convert to outlines']], st.textMode, (v) => (st.textMode = v), 'Text')),
       h('p.form-help', 'Outlines print every glyph exactly, independent of the fonts the printer or browser has.'),
     );
 
     // Color Management
     const proof = st.colorHandling === 'proof';
-    pane('Color Management').replaceChildren(
+    fillPane(pane('Color Management'), 
       field('Color handling', sel([['browser', 'Let the browser and printer manage colors'], ['proof', 'Simulate a press']], st.colorHandling, (v) => {
         st.colorHandling = v;
         rebuild();
@@ -333,7 +334,7 @@ export async function printDialog(app, presetEdit = null) {
     const flat = listPresets(app, 'flattener');
     const bitmapPpi = sel([['150', '150 ppi'], ['300', '300 ppi'], ['600', '600 ppi']], String(st.bitmapPpi), (v) => (st.bitmapPpi = Number(v)), 'Bitmap resolution');
     bitmapPpi.disabled = !st.bitmap;
-    pane('Advanced').replaceChildren(
+    fillPane(pane('Advanced'), 
       field('', check('Print as bitmap', st.bitmap, (v) => {
         st.bitmap = v;
         rebuild();

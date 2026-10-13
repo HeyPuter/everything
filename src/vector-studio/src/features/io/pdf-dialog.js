@@ -120,6 +120,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     } }, p.label);
   });
   const pane = (label) => panes.find((p) => p.label === label).panel;
+  const fillPane = (el, ...kids) => el.replaceChildren(...kids.filter((k) => k != null && k !== false));
 
   function rebuild() {
     const focus = keepFocus(body);
@@ -131,14 +132,12 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     const v = st;
     const compat = Number(v.compat);
     top.replaceChildren(
-      nameInput ? h('label.pd-preset-label', 'Name', nameInput) : null,
-      h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el),
-      saveBtn,
+      ...[nameInput ? h('label.pd-inline', 'Name', nameInput) : null, h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el, saveBtn)].filter(Boolean),
       h('label.pd-inline', 'Standard', sel([['none', 'None'], ['press', 'Print production (output intent)']], v.standard, (x) => (st.standard = x), 'Standard')),
       h('label.pd-inline', 'Compatibility', sel([['1.4', 'PDF 1.4'], ['1.5', 'PDF 1.5'], ['1.6', 'PDF 1.6'], ['1.7', 'PDF 1.7']], v.compat, (x) => (st.compat = x), 'Compatibility')),
     );
 
-    pane('General').replaceChildren(
+    fillPane(pane('General'), 
       h('h3.pd-heading', 'Options'),
       check('Create layers from top-level layers', v.layers && compat >= 1.5, (x) => (st.layers = x), { disabled: compat < 1.5 }),
       check('Embed page thumbnails', v.thumbnails, (x) => (st.thumbnails = x)),
@@ -146,7 +145,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
       compat < 1.5 ? h('p.form-help', 'Layers need PDF 1.5 or later.') : null,
     );
 
-    pane('Compression').replaceChildren(
+    fillPane(pane('Compression'), 
       h('h3.pd-heading', 'Images'),
       field('Downsampling', sel([['none', 'Do Not Downsample'], ['average', 'Average Downsampling'], ['bicubic', 'Bicubic Downsampling']], v.downsample, (x) => (st.downsample = x), 'Downsampling')),
       field('To', numInput(v.downsamplePpi, 'Downsample to (ppi)', (x) => (st.downsamplePpi = x), { min: 9, max: 2400, disabled: v.downsample === 'none' }), h('span', 'ppi for images above'), numInput(v.downsampleAbove, 'Downsample images above (ppi)', (x) => (st.downsampleAbove = x), { min: 9, max: 4800, disabled: v.downsample === 'none' }), h('span', 'ppi')),
@@ -160,7 +159,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     const mark = (key, label) => check(label, m[key], (x) => (st.marks = { ...st.marks, [key]: x }));
     const docBleed = doc?.root.bleed;
     const b = v.useDocBleed && docBleed != null ? (typeof docBleed === 'number' ? { top: docBleed, bottom: docBleed, left: docBleed, right: docBleed } : { top: 0, bottom: 0, left: 0, right: 0, ...docBleed }) : v.bleed;
-    pane('Marks and Bleeds').replaceChildren(
+    fillPane(pane('Marks and Bleeds'), 
       h('h3.pd-heading', 'Marks'),
       check("All printer's marks", m.trim && m.registration && m.colorBars && m.pageInfo, (x) => (st.marks = { trim: x, registration: x, colorBars: x, pageInfo: x })),
       h('div.pd-grid2', mark('trim', 'Trim marks'), mark('registration', 'Registration marks'), mark('colorBars', 'Color bars'), mark('pageInfo', 'Page information')),
@@ -175,7 +174,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     const convert = v.colorConversion === 'convert';
     const docProfile = doc ? `Document press (${CMYK_PROFILES[documentCmykProfile(app, doc)].label})` : 'Document press model';
     const destinations = [['cmyk:document', docProfile], ...Object.entries(CMYK_PROFILES).map(([k, p]) => [`cmyk:${k}`, p.label]), ['rgb:srgb', RGB_SPACES.srgb.label]];
-    pane('Output').replaceChildren(
+    fillPane(pane('Output'), 
       h('h3.pd-heading', 'Color'),
       field('Color conversion', sel([['none', 'No Conversion'], ['convert', 'Convert to Destination']], v.colorConversion, (x) => (st.colorConversion = x), 'Color conversion')),
       field('Destination', sel(destinations, v.destination, (x) => (st.destination = x), 'Destination', { disabled: !convert })),
@@ -187,7 +186,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     );
 
     const flat = listPresets(app, 'flattener');
-    pane('Advanced').replaceChildren(
+    fillPane(pane('Advanced'), 
       h('h3.pd-heading', 'Fonts'),
       check('Convert text to outlines', v.textOutlines && Boolean(app.textOutlines), (x) => (st.textOutlines = x), { disabled: !app.textOutlines }),
       h('h3.pd-heading', 'Overprint and Transparency Flattener Options'),
@@ -198,7 +197,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     );
 
     const noSecurity = v.standard === 'press';
-    pane('Security').replaceChildren(
+    fillPane(pane('Security'), 
       h('h3.pd-heading', 'Document Open Password'),
       check('Require a password to open the document', v.requireOpen, (x) => (st.requireOpen = x), { disabled: noSecurity }),
       field('Open password', password(v.openPassword, 'Document open password', (x) => (st.openPassword = x), noSecurity || !v.requireOpen)),
@@ -217,7 +216,7 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
   function refresh() {
     const v = normalizePdf(st);
     const warnings = pdfWarnings(v, { hasSpots: doc ? spotInks(doc).length > 0 : false, hasTextOutlines: Boolean(app.textOutlines) });
-    pane('Summary').replaceChildren(
+    fillPane(pane('Summary'), 
       h('h3.pd-heading', 'Options'),
       h('dl.pd-summary-list', pdfSummary(v).flatMap(([k, x]) => [h('dt', k), h('dd', x)])),
       h('h3.pd-heading', 'Warnings'),

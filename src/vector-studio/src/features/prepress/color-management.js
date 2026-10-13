@@ -372,7 +372,6 @@ export const DEFAULT_COLOR_SETTINGS = Object.freeze({
   policyRgb: 'preserve',
   policyCmyk: 'preserveNumbers',
   askOpen: false,
-  askPaste: false,
   askMissing: false,
   intent: 'relative',
   bpc: true,
@@ -381,7 +380,7 @@ export const DEFAULT_COLOR_SETTINGS = Object.freeze({
 /** Named color settings (presets). Values override the defaults. */
 export const COLOR_SETTING_PRESETS = {
   general: { label: 'General Purpose (print and screen)', values: {} },
-  prepress: { label: 'Commercial Prepress', values: { cmyk: 'coatedSheet', policyCmyk: 'preserve', askOpen: true, askPaste: true, askMissing: true } },
+  prepress: { label: 'Commercial Prepress', values: { cmyk: 'coatedSheet', policyCmyk: 'preserve', askOpen: true, askMissing: true } },
   uncoated: { label: 'Uncoated Print', values: { cmyk: 'uncoated' } },
   news: { label: 'Newspaper', values: { cmyk: 'newsprint', policyCmyk: 'preserve', askOpen: true, askMissing: true } },
   screen: { label: 'Screen and Web', values: { policyRgb: 'convert', policyCmyk: 'preserve', intent: 'perceptual' } },
@@ -400,7 +399,7 @@ export function normalizeColorSettings(v = {}) {
   if (!['off', 'preserve', 'convert'].includes(out.policyRgb)) out.policyRgb = DEFAULT_COLOR_SETTINGS.policyRgb;
   if (!POLICIES[out.policyCmyk]) out.policyCmyk = DEFAULT_COLOR_SETTINGS.policyCmyk;
   if (!INTENTS[out.intent]) out.intent = DEFAULT_COLOR_SETTINGS.intent;
-  for (const k of ['askOpen', 'askPaste', 'askMissing', 'bpc']) out[k] = Boolean(out[k]);
+  for (const k of ['askOpen', 'askMissing', 'bpc']) out[k] = Boolean(out[k]);
   out.preset = matchPreset(out);
   return out;
 }
