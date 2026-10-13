@@ -35,19 +35,18 @@ export function scheduleSegment(c: BaseAudioContext, out: AudioNode, items: Plan
       b = Math.min(item.at + item.length, to);
     if (b - a < 1e-4) continue;
     const pcm = audioPcm(item.source);
-    if (!pcm) continue;
+    const local0 = a - item.at,
+      local1 = b - item.at;
+    const offset = item.offset + local0;
+    if (!pcm || offset >= pcm.channels[0].length / pcm.sampleRate) continue;
     const src = c.createBufferSource();
     src.buffer = bufferOf(c, pcm);
     const gain = c.createGain();
     // The envelope from the segment start: its value there, then its corners.
-    const local0 = a - item.at,
-      local1 = b - item.at;
     const at = (local: number) => when + (item.at + local - from);
     gain.gain.setValueAtTime(envelopeAt(item, local0), Math.max(0, at(local0)));
     for (const [t, g] of envelopePoints(item)) if (t > local0 && t <= local1) gain.gain.linearRampToValueAtTime(g, at(t));
     src.connect(gain).connect(out);
-    const offset = item.offset + local0;
-    if (offset >= pcm.channels[0].length / pcm.sampleRate) continue;
     src.start(Math.max(0, at(local0)), offset, b - a);
     started.push(src);
   }

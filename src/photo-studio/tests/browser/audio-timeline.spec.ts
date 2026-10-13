@@ -139,6 +139,31 @@ test.describe('audio tracks', () => {
     await run(page, 'timeline.audio-delete');
     expect((await timeline(page)).audio![0].clips).toHaveLength(2);
     await run(page, 'timeline.audio-track-new');
+    // Drag the second part down onto the new track, then undo.
+    const second = panel.locator(`[data-audio-clip="${b.id}"]`);
+    await panel.locator('.vt-body').evaluate((el) => (el.scrollTop = el.scrollHeight));
+    const row2 = (await panel.locator(`[data-audio-row="${(await timeline(page)).audio![1].id}"]`).boundingBox())!;
+    const from = (await second.boundingBox())!;
+    await drag(page, from, 0, row2.y + row2.height / 2 - (from.y + from.height / 2));
+    tl = await timeline(page);
+    expect(tl.audio![0].clips.map((c) => c.id)).toEqual([a.id]);
+    expect(tl.audio![1].clips).toEqual([expect.objectContaining({ id: b.id, start: 1 })]);
+    await run(page, 'edit.undo');
+    // The fade out handle of the second part drags to set its fade.
+    const handle = (await second.locator('[data-afade="out"]').boundingBox())!;
+    await drag(page, handle, -9 * zoom);
+    expect((await timeline(page)).audio![0].clips[1].fadeOut).toBeCloseTo(0.3, 2);
+    await run(page, 'edit.undo');
+    expect((await timeline(page)).audio![0].clips[1].fadeOut).toBeUndefined();
+    // Scrubbing with audio scrubbing on plays snippets without errors.
+    await run(page, 'timeline.audio-scrub');
+    const ruler = (await panel.locator('.vt-ruler').boundingBox())!;
+    await page.mouse.move(ruler.x + 31 * zoom, ruler.y + ruler.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(ruler.x + 40 * zoom, ruler.y + ruler.height / 2, { steps: 4 });
+    await page.mouse.up();
+    await idle(page);
+    await run(page, 'timeline.audio-scrub');
     await run(page, 'timeline.audio-track-solo', (await timeline(page)).audio![1].id);
     expect((await timeline(page)).audio![1]).toMatchObject({ name: 'Audio 2', solo: true, clips: [] });
     await expect(panel.locator('.vt-clip.audio.muted')).toHaveCount(2);

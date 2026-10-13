@@ -50,6 +50,8 @@ function envelope(w: number, fi: number, fo: number) {
   return `<svg class="vt-env" viewBox="0 0 ${Math.max(1, w)} 100" preserveAspectRatio="none" aria-hidden="true">${fi > 0 ? `<polygon class="vt-env-shade" points="0,0 ${a},0 0,100"/>` : ''}${fo > 0 ? `<polygon class="vt-env-shade" points="${b},0 ${w},0 ${w},100"/>` : ''}<polyline points="0,${fi > 0 ? 100 : 0} ${a},0 ${b},0 ${w},${fo > 0 ? 100 : 0}"/></svg>`;
 }
 
+/** Handle position: at the end of the fade, kept inside the clip. */
+const handleAt = (px: number, width: number) => Math.max(4.5, Math.min(px, width - 4.5));
 function clipHtml(e: Editor, tl: VideoTimeline, c: AudioClip, zoom: number, silent: boolean, selected: Set<string>) {
   const span = clipSpan(e.doc, c);
   if (!span || !span.source) return '';
@@ -63,7 +65,7 @@ function clipHtml(e: Editor, tl: VideoTimeline, c: AudioClip, zoom: number, sile
   const range = `${timecode(span.start * tl.fps, tl.fps)} to ${timecode((span.start + span.length) * tl.fps, tl.fps)}`;
   const tip = `${name}: ${range}${gain ? `, ${fmtDb(gain)}` : ''}${span.linked ? ' (sound of the video layer; moves with its clip)' : ''}${span.muted ? ' (muted)' : ''}`;
   const cls = `vt-clip audio${span.linked ? ' linked' : ''}${selected.has(c.id) ? ' selected' : ''}${silent || span.muted ? ' muted' : ''}`;
-  return `<div class="${cls}" data-audio-clip="${c.id}" style="left:${left}px;width:${width}px" title="${escapeXML(tip)}"><span class="vt-trim start" data-trim="start" title="Drag to trim the start"></span>${wave(e, span, width, gain)}${envelope(width, fi, fo)}<span class="vt-afade-handle in" data-afade="in" style="left:${Math.min(fi, width)}px" title="Drag to set the fade in"></span><span class="vt-afade-handle out" data-afade="out" style="right:${Math.min(fo, width)}px" title="Drag to set the fade out"></span><span class="vt-clip-label">${span.linked ? svg('link', 11) : svg('audio-wave', 11)}${escapeXML(name)}</span><span class="vt-trim end" data-trim="end" title="Drag to trim the end"></span></div>`;
+  return `<div class="${cls}" data-audio-clip="${c.id}" style="left:${left}px;width:${width}px" title="${escapeXML(tip)}"><span class="vt-trim start" data-trim="start" title="Drag to trim the start"></span>${wave(e, span, width, gain)}${envelope(width, fi, fo)}<span class="vt-afade-handle in" data-afade="in" style="left:${handleAt(fi, width)}px" title="Drag to set the fade in"></span><span class="vt-afade-handle out" data-afade="out" style="right:${handleAt(fo, width)}px" title="Drag to set the fade out"></span><span class="vt-clip-label">${span.linked ? svg('link', 11) : svg('audio-wave', 11)}${escapeXML(name)}</span><span class="vt-trim end" data-trim="end" title="Drag to trim the end"></span></div>`;
 }
 
 /** The audio header row and track rows. */
@@ -174,7 +176,7 @@ export function moveAudioDrag(e: Editor, g: AudioDrag, ev: PointerEvent, host: H
       const fi = (g.edge === 'in' ? g.value : (hit.clip.fadeIn ?? 0)) * px,
         fo = (g.edge === 'out' ? g.value : (hit.clip.fadeOut ?? 0)) * px;
       el.querySelector('.vt-env')!.outerHTML = envelope(el.offsetWidth, fi, fo);
-      el.querySelector<HTMLElement>(`.vt-afade-handle.${g.edge}`)!.style[g.edge === 'in' ? 'left' : 'right'] = `${g.edge === 'in' ? fi : fo}px`;
+      el.querySelector<HTMLElement>(`.vt-afade-handle.${g.edge}`)!.style[g.edge === 'in' ? 'left' : 'right'] = `${handleAt(g.edge === 'in' ? fi : fo, el.offsetWidth)}px`;
       readout(host, `Fade ${g.edge}: ${secs(g.value)}`);
     }
     return;
