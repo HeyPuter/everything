@@ -248,11 +248,57 @@ export function htmlParagraphs(html) {
 /**
  * The Selection Pane's list: every object top of the stack first, with
  * show/hide, rename (double-click or F2), drag or Alt+arrow to reorder, and
- * Show All / Hide All. `ctx`: { items(): [{ id, label, hidden, selected }],
- * select(id, extend), setHidden(id, on), setAllHidden(on), rename(id, name),
- * moveTo(id, index) (index counted from the top), close() }.
+ * Show All / Hide All. `ctx`: { items(): [{ id, label, hidden, selected,
+ * depth }], select(id, extend), setHidden(id, on), setAllHidden(on),
+ * rename(id, name), moveTo(id, targetId) }. Objects inside a group are listed
+ * under it, indented; only top-level objects reorder.
  */
 export function selectionPaneContent(ctx) {
+  // Rows reorder by dragging (mouse, pen or touch): past a few pixels a
+  // press becomes a drag, the row under the pointer shows where it lands,
+  // and the click that would follow is dropped.
+  let suppressClick = false;
+  function startDrag(e, item, row) {
+    if (
+      item.depth ||
+      e.button !== 0 ||
+      e.target.closest(".selection-eye, input")
+    )
+      return;
+    const x0 = e.clientX,
+      y0 = e.clientY;
+    let dragging = false,
+      target = null;
+    const move = (ev) => {
+      if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+      dragging = true;
+      row.classList.add("dragging");
+      const under = document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest?.("li[data-id]");
+      const next =
+        under && under !== row && !under.dataset.depth ? under : null;
+      if (next !== target) {
+        target?.classList.remove("drop-target");
+        target = next;
+        target?.classList.add("drop-target");
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      row.classList.remove("dragging");
+      target?.classList.remove("drop-target");
+      if (!dragging) return;
+      suppressClick = true;
+      setTimeout(() => (suppressClick = false));
+      if (target) ctx.moveTo(item.id, Number(target.dataset.id));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
   const items = ctx.items();
   const list = el("ul", {
     class: "selection-list",
@@ -260,8 +306,9 @@ export function selectionPaneContent(ctx) {
     "aria-label": "Objects on this slide",
     "aria-multiselectable": "true",
   });
-  let dragId = null;
-  items.forEach((item, index) => {
+  const top = items.filter((item) => !item.depth);
+  const neighbor = (item, step) => top[top.indexOf(item) + step];
+  items.forEach((item) => {
     const name = el(
       "button",
       {
@@ -270,6 +317,7 @@ export function selectionPaneContent(ctx) {
         title:
           "Double-click or press F2 to rename. Alt+Up and Alt+Down reorder.",
         onclick: (e) =>
+          !suppressClick &&
           ctx.select(item.id, e.shiftKey || e.metaKey || e.ctrlKey),
         ondblclick: () => startRename(),
         onkeydown: (e) => {
@@ -278,19 +326,12 @@ export function selectionPaneContent(ctx) {
             startRename();
           } else if (
             e.altKey &&
+            !item.depth &&
             (e.key === "ArrowUp" || e.key === "ArrowDown")
           ) {
             e.preventDefault();
-            ctx.moveTo(
-              item.id,
-              Math.max(
-                0,
-                Math.min(
-                  items.length - 1,
-                  index + (e.key === "ArrowUp" ? -1 : 1),
-                ),
-              ),
-            );
+            const other = neighbor(item, e.key === "ArrowUp" ? -1 : 1);
+            if (other) ctx.moveTo(item.id, other.id);
           }
         },
       },
@@ -302,27 +343,15 @@ export function selectionPaneContent(ctx) {
         role: "option",
         "aria-selected": String(item.selected),
         class: item.hidden ? "hidden-object" : "",
-        draggable: "true",
+        style: item.depth ? `padding-left:${item.depth * 16}px` : null,
+        "data-depth": item.depth || null,
         "data-id": item.id,
-        ondragstart: (e) => {
-          dragId = item.id;
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", String(item.id));
-        },
-        ondragover: (e) => {
-          if (dragId == null) return;
-          e.preventDefault();
-          row.classList.add("drop-target");
-        },
-        ondragleave: () => row.classList.remove("drop-target"),
-        ondrop: (e) => {
-          e.preventDefault();
-          row.classList.remove("drop-target");
-          if (dragId != null && dragId !== item.id) ctx.moveTo(dragId, index);
-          dragId = null;
-        },
+        onpointerdown: (e) => startDrag(e, item, row),
       },
-      el("span", { class: "selection-grip", "aria-hidden": "true" }),
+      el("span", {
+        class: `selection-grip${item.depth ? " nested" : ""}`,
+        "aria-hidden": "true",
+      }),
       name,
       el(
         "button",
@@ -342,7 +371,10 @@ export function selectionPaneContent(ctx) {
         value: item.label,
         "aria-label": `Rename ${item.label}`,
       });
+      let done = false;
       const finish = (save) => {
+        if (done) return;
+        done = true;
         const value = input.value.trim();
         input.replaceWith(name);
         if (save && value && value !== item.label) ctx.rename(item.id, value);

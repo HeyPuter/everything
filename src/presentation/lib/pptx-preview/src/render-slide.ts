@@ -11237,7 +11237,11 @@ const renderShape = (
       stroke,
       theme,
     );
-    const solid = apply3D(shape, picture, { x, y, w, h });
+    const solid = apply3D(
+      shape,
+      withPictureEffects(pres, shape, picture, { x, y, w, h }),
+      { x, y, w, h },
+    );
     return solid.defs + solid.svg;
   }
 
@@ -11258,9 +11262,10 @@ const renderShape = (
       stroke,
       theme,
     );
+    const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
     return diagramTextTransform
-      ? `${picture}<g${textTransform}>${textOverlay}</g>`
-      : picture;
+      ? `${painted}<g${textTransform}>${textOverlay}</g>`
+      : painted;
   }
 
   if (kind === "connector") {
@@ -11853,6 +11858,31 @@ const apply3D = (
     out = `<g transform="${projection}">${out}</g>`;
   }
   return { svg: out, defs, projection };
+};
+
+// Shadows, glow, soft edges and reflections on a picture, as on any shape.
+const withPictureEffects = (
+  pres: PresentationData,
+  shape: SlideShapeData,
+  svg: string,
+  box: { x: number; y: number; w: number; h: number },
+): string => {
+  let effects: readonly ReturnType<typeof getShapeEffects>[number][] = [];
+  try {
+    effects = getShapeEffectsEffective(pres, shape, activeColorMap);
+  } catch {
+    return svg;
+  }
+  if (!effects.length) return svg;
+  const fx = buildEffectsFilter(effects);
+  let out = fx ? `<g filter="url(#${fx.id})">${svg}</g>` : svg;
+  let defs = fx ? fx.defs : "";
+  const reflection = buildReflection(effects, svg, box);
+  if (reflection) {
+    out = reflection.svg + out;
+    defs += reflection.defs;
+  }
+  return defs + out;
 };
 
 // Builds the reflection: a vertically mirrored copy of the shape's raw

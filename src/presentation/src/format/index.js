@@ -718,11 +718,8 @@ export function createFormatTools(ctx) {
   function previewTile({ filter = "", overlay = "" }) {
     return el(
       "span",
-      {
-        class: "fmt-photo-tile",
-        style: `filter:${filter}`,
-        "aria-hidden": "true",
-      },
+      { class: "fmt-photo-frame", "aria-hidden": "true" },
+      el("span", { class: "fmt-photo-tile", style: `filter:${filter}` }),
       overlay && el("span", { class: "fmt-photo-overlay", style: overlay }),
     );
   }
@@ -1077,8 +1074,9 @@ export function createFormatTools(ctx) {
     return ctx.insertImageFile(
       new File([blob], "Pasted objects.png", { type: "image/png" }),
       {
-        x: union.x0,
-        y: union.y0,
+        // A step down and to the right of the originals, as pastes go.
+        x: union.x0 + 137160,
+        y: union.y0 + 137160,
         w: union.x1 - union.x0,
         h: union.y1 - union.y0,
       },
@@ -1490,29 +1488,70 @@ export function createFormatTools(ctx) {
   }
 
   // ---- Selection pane ------------------------------------------------------
-  function selectionPane() {
-    const all = ctx.shapes();
+  // The pane is drawn again only when its objects change; a change of
+  // selection updates the rows in place, so a double-click or a drag that
+  // starts by selecting keeps its row.
+  let paneKey = null;
+  function renderSelectionPane(container, header) {
+    const content = selectionPane();
     const chosen = ctx.selectionIds();
-    return selectionPaneContent({
-      items: () =>
-        [...all.keys()].reverse().map((i) => {
-          const s = all[i];
-          return {
-            id: P.getShapeId(s),
-            label: ctx.shapeLabel(s),
-            hidden: !!P.isShapeHidden?.(s),
-            selected: chosen.has(P.getShapeId(s)),
-          };
-        }),
+    if (
+      content.key === paneKey &&
+      container.querySelector(".selection-list, .helper")
+    ) {
+      for (const li of container.querySelectorAll("li[data-id]"))
+        li.setAttribute(
+          "aria-selected",
+          String(chosen.has(Number(li.dataset.id))),
+        );
+      return;
+    }
+    paneKey = content.key;
+    container.replaceChildren(header, ...content.nodes);
+  }
+  function selectionPane() {
+    const target = ctx.slide();
+    const all = P.getSlideShapes(target);
+    const chosen = ctx.selectionIds();
+    const children = new Map();
+    const nested = new Set();
+    for (const s of all)
+      if (P.getShapeKind(s) === "group") {
+        const kids = P.getGroupChildren(s);
+        children.set(P.getShapeId(s), kids);
+        for (const k of kids) nested.add(P.getShapeId(k));
+      }
+    // Top of the stack first; a group's objects follow it, indented.
+    const items = [];
+    const visit = (s, depth) => {
+      const id = P.getShapeId(s);
+      items.push({
+        id,
+        label: P.getShapeName(s) || ctx.shapeLabel(s),
+        hidden: !!P.isShapeHidden?.(s),
+        selected: chosen.has(id),
+        depth,
+      });
+      for (const kid of [...(children.get(id) || [])].reverse())
+        visit(kid, depth + 1);
+    };
+    for (const s of [...all].reverse())
+      if (!nested.has(P.getShapeId(s))) visit(s, 0);
+    const key = JSON.stringify([
+      P.getSlidePartName(target),
+      items.map((i) => [i.id, i.label, i.hidden, i.depth]),
+    ]);
+    const nodes = selectionPaneContent({
+      items: () => items,
       select: (id, extend) => ctx.selectFromPane(id, extend),
       setHidden: (id, on) => {
         const s = P.findShapeById(ctx.slide(), id);
         if (s) ctx.mutateShape(s, (x) => P.setShapeHidden(x, on));
       },
       setAllHidden: (on) =>
-        ctx.mutateSlide(ctx.slide(), (target) => {
+        ctx.mutateSlide(ctx.slide(), (slide) => {
           let changed = false;
-          for (const s of P.getSlideShapes(target))
+          for (const s of P.getSlideShapes(slide))
             if (!!P.isShapeHidden?.(s) !== on) {
               P.setShapeHidden(s, on);
               changed = true;
@@ -1523,17 +1562,18 @@ export function createFormatTools(ctx) {
         const s = P.findShapeById(ctx.slide(), id);
         if (s) ctx.mutateShape(s, (x) => P.renameShape(x, name));
       },
-      moveTo: (id, index) => {
+      moveTo: (id, targetId) => {
         const s = P.findShapeById(ctx.slide(), id);
         if (!s) return;
-        // The list shows the top of the stack first.
-        const count = P.getSlideShapes(ctx.slide()).length;
-        const z = Math.max(0, Math.min(count - 1, count - 1 - index));
-        ctx.mutateShape(s, (x) =>
-          P.getShapeZIndex(x) === z ? ctx.SKIP : P.setShapeZIndex(x, z),
-        );
+        ctx.mutateShape(s, (x, slide) => {
+          const other = P.findShapeById(slide, targetId);
+          if (!other) return ctx.SKIP;
+          const z = P.getShapeZIndex(other);
+          return P.getShapeZIndex(x) === z ? ctx.SKIP : P.setShapeZIndex(x, z);
+        });
       },
     });
+    return { key, nodes };
   }
 
   return {
@@ -1542,7 +1582,7 @@ export function createFormatTools(ctx) {
     editMenuItems,
     formatMenuItems,
     arrangeMenuItems,
-    selectionPane,
+    renderSelectionPane,
     onKeydown,
     repeat,
     alignToSlide: () => alignToSlide,

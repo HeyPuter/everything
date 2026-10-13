@@ -3320,7 +3320,7 @@ const formatTools = createFormatTools({
         }
       });
     }),
-  insertImageFile: (file) => insertImageFile(file),
+  insertImageFile: (file, placement) => insertImageFile(file, placement),
   clipboardInfo: () => clipboard,
   pasteClipboard: (options) => pasteClipboard(options),
   pasteText: (value) => pasteText(value),
@@ -4011,14 +4011,16 @@ function toggleSelectionPane() {
 }
 function renderSelectionPane() {
   if (!selectionPaneOpen() || !doc) return;
-  selectionPane.replaceChildren(
+  // A name being typed stays until it is committed.
+  if (selectionPane.querySelector(".selection-rename")) return;
+  formatTools.renderSelectionPane(
+    selectionPane,
     el(
       "div",
       { class: "task-pane-head" },
       el("h2", {}, "Selection"),
       iconButton("Close Selection Pane", "X", toggleSelectionPane),
     ),
-    ...formatTools.selectionPane(),
   );
 }
 // Format Painter: the selection's formatting is picked up, and applied to the
@@ -10069,7 +10071,9 @@ async function readImage(file) {
 async function readImageFile(file) {
   return (await readImage(file)).bytes;
 }
-async function insertImageFile(file) {
+// `placement`, when given, is where the picture goes (EMU), as a picture
+// pasted in place of copied objects does.
+async function insertImageFile(file, placement = null) {
   commitText();
   const target = doc,
     part = P.getSlidePartName(slide());
@@ -10087,12 +10091,23 @@ async function insertImageFile(file) {
       throw new Error(
         "The original slide was removed. Insert the image again on another slide.",
       );
-    const s = P.addSlideImage(destination, bytes, {
-      x: P.inches(1),
-      y: P.inches(1.5),
-      w: P.inches(w),
-      h: P.inches(height),
-    });
+    const s = P.addSlideImage(
+      destination,
+      bytes,
+      placement
+        ? {
+            x: Math.round(placement.x),
+            y: Math.round(placement.y),
+            w: Math.max(1, Math.round(placement.w)),
+            h: Math.max(1, Math.round(placement.h)),
+          }
+        : {
+            x: P.inches(1),
+            y: P.inches(1.5),
+            w: P.inches(w),
+            h: P.inches(height),
+          },
+    );
     P.setShapeDescription(s, file.name);
     // The same picture inserted twice travels once in the file.
     dedupeSlideMedia(doc.pres, destination);

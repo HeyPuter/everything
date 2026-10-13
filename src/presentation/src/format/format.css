@@ -342,6 +342,15 @@
 .fmt-shape-preview svg {
   display: block;
 }
+.fmt-photo-frame {
+  position: relative;
+  display: block;
+  width: 44px;
+  height: 32px;
+  border-radius: 3px;
+  overflow: hidden;
+  isolation: isolate;
+}
 .fmt-photo-tile {
   position: relative;
   display: block;
@@ -655,7 +664,6 @@
 .edit-points-layer .ep-outline {
   fill: none;
   stroke: var(--accent);
-  vector-effect: non-scaling-stroke;
   pointer-events: stroke;
 }
 .edit-points-layer .ep-node {
