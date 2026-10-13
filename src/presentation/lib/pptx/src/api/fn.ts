@@ -62,6 +62,8 @@ export * from "./fn/slide-title.ts";
 
 // Tables / charts / comments / validation / package introspection
 export * from "./fn/comments.ts";
+export * from "./fn/comment-threads.ts";
+export * from "./fn/custom-properties.ts";
 export * from "./fn/charts.ts";
 export * from "./fn/tables.ts";
 export { getTableStyleResolver } from "./fn/table-styles.ts";

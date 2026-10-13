@@ -78,6 +78,7 @@ import {
   isDiagramRelationship,
 } from "./diagram-copy.ts";
 import { copyChartRelationships } from "./chart-copy.ts";
+import { detachCopiedSlideComments } from "./comment-threads.ts";
 import { withPackageTransaction } from "../../internal/parts/package-transaction.ts";
 import { copyPartGraph } from "../../internal/parts/copy-graph.ts";
 
@@ -602,6 +603,8 @@ const duplicateSlideUnchecked = (
   const slides = getSlides(pres);
   const dup = slides[slides.length - 1];
   if (!dup) throw new Error("duplicateSlide: post-condition failed");
+  // A copy starts without comments, and never shares its source's part.
+  detachCopiedSlideComments(dup);
   return dup;
 };
 
