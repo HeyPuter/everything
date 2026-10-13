@@ -151,6 +151,14 @@ const EXPORT_HELP = {
   csv: "UTF-8 comma-separated values for Excel and other spreadsheet apps.",
   json: "An editable Whiteboard file that can be imported again.",
 };
+// What the PDF scale and page size chosen do, beside Readable detail's
+// EXPORT_HELP.pdf.
+const PDF_SCALE_HELP = {
+  fit: "Each area prints on one page, reduced to fit. Text in a large area can become too small to read; choose Readable detail to split it across pages.",
+  percent:
+    "Areas larger than a page split across pages at {scale}, with an overview page that shows the page grid.",
+  page: "Each area prints on one page sized to its content.",
+};
 const RENDERING_HELP = {
   raster:
     "Image rendering matches the board exactly, including its fonts. An invisible copy of its text and image descriptions can be searched, selected and read aloud.",
@@ -210,6 +218,12 @@ addTranslations({
     "Valeurs séparées par des virgules en UTF-8 pour Excel et d’autres tableurs.",
   [EXPORT_HELP.json]:
     "Un fichier Whiteboard modifiable que vous pouvez importer de nouveau.",
+  [PDF_SCALE_HELP.fit]:
+    "Chaque zone tient sur une seule page, réduite pour s’y ajuster. Le texte d’une grande zone peut devenir trop petit pour être lu ; choisissez Détail lisible pour la répartir sur plusieurs pages.",
+  [PDF_SCALE_HELP.percent]:
+    "Les zones plus grandes qu’une page sont réparties sur plusieurs pages à {scale}, avec une page de vue d’ensemble qui montre la grille des pages.",
+  [PDF_SCALE_HELP.page]:
+    "Chaque zone est imprimée sur une page dimensionnée selon son contenu.",
   [RENDERING_HELP.raster]:
     "Le rendu en image reproduit exactement le tableau, polices comprises. Une copie invisible de son texte et des descriptions d’images peut être recherchée, sélectionnée et lue à voix haute.",
   [RENDERING_HELP.vector]:
@@ -236,8 +250,7 @@ addTranslations({
   Landscape: "Paysage",
   Portrait: "Portrait",
   Scale: "Échelle",
-  "Readable detail (split large areas)":
-    "Détail lisible (grandes zones réparties)",
+  "Readable detail": "Détail lisible",
   "Fit each area on one page": "Chaque zone sur une seule page",
   Margins: "Marges",
   Narrow: "Étroites",
@@ -2763,7 +2776,7 @@ export function createFeatures(api) {
       "Export board",
       `<form><label class="field">Export scope<select id="export-scope"><option value="board">Entire board</option><option value="selection" ${api.selection().size || api.region() ? "" : "disabled"}>Selected objects or region</option>${api.region() ? `<option value="region">Export region</option>` : ""}<option value="frames" ${frames.length ? (framesChosen ? "selected" : "") : "disabled"}>Defined frames</option></select></label><div id="export-frames" class="slide-choices" role="group" aria-label="${t("Frames to export")}" aria-describedby="export-error" hidden>${frames.map((f) => `<label><input type="checkbox" value="${escape(f.id)}" aria-describedby="export-error" ${!selectedFrames.length || selectedFrames.includes(f) ? "checked" : ""}><span>${frameTitleHTML(f, "Untitled frame")}</span></label>`).join("")}</div><label class="field">Export format<select id="export-format"><optgroup label="${t("Documents and slides")}">${option("pdf", "PDF document")}${option("pptx", "PowerPoint slides")}</optgroup><optgroup label="${t("Images")}">${option("png", "PNG image")}${option("jpeg", "JPEG image")}${option("svg", "SVG vector image")}</optgroup><optgroup label="${t("Spreadsheets")}">${option("xlsx", "Excel workbook")}${option("csv", "CSV spreadsheet")}</optgroup><optgroup label="${t("Editable")}">${option("json", "Whiteboard file")}</optgroup></select></label>` +
         `<fieldset id="pdf-options" class="export-options"><legend>PDF options</legend><div class="field-row"><label class="field">Page size<select id="pdf-page-size">${option("letter", "Letter", letter)}${option("legal", "Legal")}${option("tabloid", "Tabloid")}${option("a4", "A4", !letter)}${option("a3", "A3")}${option("fit", "Fit to content")}</select></label><label class="field">Orientation<select id="pdf-orientation">${option("auto", "Automatic")}${option("landscape", "Landscape")}${option("portrait", "Portrait")}</select></label></div>` +
-        `<div class="field-row"><label class="field">Scale<select id="pdf-scale">${option("auto", "Readable detail (split large areas)")}${option("fit", "Fit each area on one page")}${[25, 50, 75, 100, 150, 200].map((n) => option(n, `${n}%`)).join("")}</select></label><label class="field">Margins<select id="pdf-margin">${option("narrow", "Narrow")}${option("normal", "Normal", true)}${option("wide", "Wide")}</select></label></div>` +
+        `<div class="field-row"><label class="field">Scale<select id="pdf-scale">${option("auto", "Readable detail")}${option("fit", "Fit each area on one page")}${[25, 50, 75, 100, 150, 200].map((n) => option(n, `${n}%`)).join("")}</select></label><label class="field">Margins<select id="pdf-margin">${option("narrow", "Narrow")}${option("normal", "Normal", true)}${option("wide", "Wide")}</select></label></div>` +
         `<label class="field">Rendering<select id="pdf-mode" aria-describedby="pdf-mode-help">${option("raster", "Image (matches the board exactly)")}${option("vector", "Vector (text and shapes)")}</select></label><p id="pdf-mode-help" class="dialog-copy"></p><label class="export-check"><input type="checkbox" id="pdf-markers" checked> Show page boundaries and labels</label><p id="pdf-estimate" class="dialog-copy" aria-live="polite"></p></fieldset>` +
         `<fieldset class="frame-choices" id="sheet-choice" hidden><legend>${t("Spreadsheet content")}</legend><div class="slide-choices" id="export-sheet">${sheetChoicesHTML}</div></fieldset>` +
         `<p id="export-help" class="dialog-copy"></p><p id="export-error" class="dialog-copy" role="alert" hidden></p><div class="dialog-footer"><p id="export-status" class="dialog-copy export-status" role="status" aria-live="polite"></p><button class="primary" type="submit">Export</button></div></form>`,
@@ -2804,7 +2817,16 @@ export function createFeatures(api) {
           $("#pdf-orientation").disabled = $("#pdf-page-size").value === "fit";
           if (!scaleChosen)
             $("#pdf-scale").value = scope === "frames" ? "fit" : "auto";
-          $("#export-help").textContent = t(EXPORT_HELP[format]);
+          const scale = $("#pdf-scale").value;
+          $("#export-help").textContent =
+            format !== "pdf" ||
+            (scale === "auto" && $("#pdf-page-size").value !== "fit")
+              ? t(EXPORT_HELP[format])
+              : $("#pdf-page-size").value === "fit"
+                ? t(PDF_SCALE_HELP.page)
+                : scale === "fit"
+                  ? t(PDF_SCALE_HELP.fit)
+                  : t(PDF_SCALE_HELP.percent).replace("{scale}", `${scale}%`);
           $("#pdf-mode-help").textContent = t(
             RENDERING_HELP[$("#pdf-mode").value],
           );

@@ -28145,6 +28145,24 @@ test("selected frames export as those frames by default", async () => {
         doc.querySelector("#pdf-estimate").textContent,
         "Estimated length: 2 pages.",
       );
+      // The help says what the chosen scale and page size do.
+      const help = () => doc.querySelector("#export-help").textContent,
+        choose = (selector, value) => {
+          const field = doc.querySelector(selector);
+          field.value = value;
+          field.dispatchEvent(new app.w.Event("change", { bubbles: true }));
+        };
+      assert.match(help(), /^Each area prints on one page, reduced to fit/);
+      choose("#pdf-scale", "50");
+      assert.match(help(), /split across pages at 50%/);
+      choose("#pdf-scale", "auto");
+      assert.match(help(), /at a readable scale/);
+      choose("#pdf-page-size", "fit");
+      assert.equal(
+        help(),
+        "Each area prints on one page sized to its content.",
+      );
+      choose("#pdf-page-size", "a4");
       // The PowerPoint help says how a large area is split.
       const format = doc.querySelector("#export-format");
       format.value = "pptx";
