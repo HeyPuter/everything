@@ -85,6 +85,7 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createChartTools } from "./charts/chart-tools.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -3260,7 +3261,7 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()]];
+const extraTabProviders = [() => [drawTools.tab()], () => chartTools.tabs()];
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3272,7 +3273,32 @@ const drawTools = createDrawTools({
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
   },
+}); // Charts: Insert Chart, the data sheet, and the Chart Design and Format tabs.
+const chartTools = createChartTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  showFormatPane: () => show("formatPane", true),
+  refresh: () => {
+    renderInspector();
+  },
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
+  },
 });
+
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -5194,11 +5220,13 @@ function ribbonApi() {
     const list = selectedShapes();
     if (!list.length) return null;
     if (list.length === 1 && isTable(list[0])) return "table";
+    if (list.length === 1 && chartTools.isChart(list[0])) return "chart";
     if (list.every((s) => P.getShapeKind(s) === "picture")) return "picture";
     return "shape";
   };
   return {
     extraTabs: () => extraTabProviders.flatMap((provide) => provide()),
+    insertChart: () => chartTools.insert(),
     modKey: MOD_KEY,
     newSlideKeys: IS_MAC ? "⌘+Shift+N" : "Ctrl+M",
     selection: () => selectedShapes(),
@@ -8998,6 +9026,10 @@ function editText(target, event = null) {
     editDiagramText(obj);
     return;
   }
+  if (chartTools.isChart(obj)) {
+    chartTools.editData(obj);
+    return;
+  }
   if (isTable(obj)) {
     let { row, col } = currentCell(obj);
     if (event) {
@@ -10143,6 +10175,7 @@ function colorInput(
 }
 function renderInspector() {
   syncToolbar();
+  chartTools.sync();
   assistant?.refresh();
   const panel = document.querySelector("#inspector");
   if (!panel) return;
@@ -10301,11 +10334,12 @@ function renderInspectorContents(panel, obj) {
           ? "Format Background"
           : multiSelected()
             ? "Format"
-            : P.getShapeKind(obj) === "picture"
-              ? "Format Picture"
-              : isTable(obj)
-                ? "Format Table"
-                : "Format Shape",
+            : chartTools.formatTitle(obj) ||
+              (P.getShapeKind(obj) === "picture"
+                ? "Format Picture"
+                : isTable(obj)
+                  ? "Format Table"
+                  : "Format Shape"),
       ),
       iconButton(
         "Close format panel",
@@ -10591,6 +10625,8 @@ function renderInspectorContents(panel, obj) {
       ),
     );
   }
+  const chartSection = chartTools.inspector(obj);
+  if (chartSection) body.append(...chartSection);
   if (!isTable(obj)) body.append(...textBox.childNodes);
 
   // Only ordinary shapes take a fill: groups, tables, and charts refuse one,

@@ -1687,7 +1687,12 @@ export function buildTabs(api) {
     id: "shape-format",
     label: "Shape Format",
     contextual: true,
-    visible: () => shapeSel() || (some() && !pictureSel() && !tableSel()),
+    visible: () =>
+      shapeSel() ||
+      (some() &&
+        !pictureSel() &&
+        !tableSel() &&
+        !["chart", "smartart"].includes(api.selectionKind())),
     groups: [
       {
         id: "insert-shapes",
