@@ -173,8 +173,11 @@ export class ScriptHost {
     private e: Editor,
     private ui: ScriptUI,
     private label: string,
+    // Documents whose edits from the start belong to the run (default: all
+    // open documents); others join when the run first edits them.
+    only?: DocumentSession[],
   ) {
-    for (const s of e.sessions) this.marks.set(s, s.history.mark());
+    for (const s of only ?? e.sessions) this.marks.set(s, s.history.mark());
     this.methods = this.table();
   }
   /** Run an API method for the script. */

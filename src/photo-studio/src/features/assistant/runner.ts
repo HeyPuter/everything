@@ -35,7 +35,9 @@ export class PlanRun {
     readonly plan: Plan,
     host?: ScriptHost,
   ) {
-    this.host = host ?? new ScriptHost(e, quietUI(e), runLabel(plan));
+    // Only the active document's edits join the run; edits of other open
+    // documents made meanwhile stay their own steps.
+    this.host = host ?? new ScriptHost(e, quietUI(e), runLabel(plan), e.hasDocument ? [e.session] : []);
   }
   /** Index of the next step to run, or -1 when none is left. */
   get next() {
