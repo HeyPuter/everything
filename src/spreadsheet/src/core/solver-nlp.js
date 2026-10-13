@@ -126,86 +126,130 @@ export function* solveNLP(problem, { precision = 1e-6, convergence = 1e-4, maxIt
     if (worst(r) <= precision && (!bestFeasible || r.f < bestFeasible.at.f)) bestFeasible = { x, at: r };
   };
 
-  /** Minimize the merit function over the box from x; returns the point reached and whether it is stationary. */
-  const inner = function* (x, at, J) {
-    let H = null; // inverse Hessian estimate, null for the identity
+  // The Hessian estimate (null until the first curvature is measured), kept from one subproblem to the next.
+  let B = null;
+  /** Solve M d = r for a symmetric positive definite M by Cholesky; null when M is not positive definite. */
+  const cholSolve = (M, r) => {
+    const k = r.length;
+    const L = Array.from({ length: k }, () => new Float64Array(k));
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j <= i; j++) {
+        let sum = M[i][j];
+        for (let q = 0; q < j; q++) sum -= L[i][q] * L[j][q];
+        if (i === j) { if (!(sum > 1e-14 * Math.max(1, Math.abs(M[i][i])))) return null; L[i][i] = Math.sqrt(sum); }
+        else L[i][j] = sum / L[j][j];
+      }
+    }
+    const z = new Float64Array(k);
+    for (let i = 0; i < k; i++) { let sum = r[i]; for (let q = 0; q < i; q++) sum -= L[i][q] * z[q]; z[i] = sum / L[i][i]; }
+    for (let i = k - 1; i >= 0; i--) { let sum = z[i]; for (let q = i + 1; q < k; q++) sum -= L[q][i] * z[q]; z[i] = sum / L[i][i]; }
+    return z;
+  };
+  /**
+   * Minimize the merit function over the box from x until its projected gradient is within `omega`. Like a
+   * reduced-gradient method, each step moves only the variables free of their bounds, along a quasi-Newton
+   * direction in their subspace, as far as the first bound in the way; a variable that reaches a bound stays
+   * there until the gradient pulls it back inside. Returns the point reached, whether that tolerance was met
+   * (`stationary`) and whether the search stalled first (`flat`: no progress left at the precision the finite
+   * differences allow).
+   */
+  const inner = function* (x, at, J, omega) {
     let phi = merit(at), grad = meritGradient(at, J);
     let flat = 0, stationary = false;
-    for (let k = 0; k < 400; k++) {
+    const atLower = (j) => x[j] <= lb[j] + 1e-12 * Math.max(1, Math.abs(lb[j]));
+    const atUpper = (j) => x[j] >= ub[j] - 1e-12 * Math.max(1, Math.abs(ub[j]));
+    for (let k = 0; k < 500; k++) {
       halted = stop();
       if (halted) break;
       if (iterations >= maxIter) { halted = 'iterationLimit'; break; }
       iterations++;
-      const free = grad.map((gj, j) => !((x[j] <= lb[j] + 1e-12 && gj > 0) || (x[j] >= ub[j] - 1e-12 && gj < 0)));
       // Projected gradient: how far a unit steepest-descent step moves inside the box.
       let pg = 0;
       for (let j = 0; j < n; j++) pg = Math.max(pg, Math.abs(Math.min(ub[j], Math.max(lb[j], x[j] - grad[j])) - x[j]));
-      if (pg <= 1e-9) { stationary = true; break; }
+      if (pg <= omega) { stationary = true; break; }
+      // The free variables: off their bounds, or on one with the gradient pointing back inside.
+      const free = Array.from({ length: n }, (_, j) => lb[j] < ub[j] && !((atLower(j) && grad[j] > 0) || (atUpper(j) && grad[j] < 0)));
       let d = new Float64Array(n);
-      const qn = () => {
-        for (let i = 0; i < n; i++) {
-          if (!free[i]) continue;
-          let s = 0;
-          for (let j = 0; j < n; j++) if (free[j]) s += (H ? H[i][j] : i === j ? 1 : 0) * grad[j];
-          d[i] = -s;
-        }
-      };
-      qn();
+      for (let pass = 0; pass <= n; pass++) {
+        const F = [];
+        for (let j = 0; j < n; j++) if (free[j]) F.push(j);
+        d = new Float64Array(n);
+        if (!F.length) break;
+        let z = B ? cholSolve(F.map((i) => F.map((j) => B[i][j])), F.map((j) => -grad[j])) : null;
+        if (B && !z) B = null; // lost positive definiteness: start the estimate again
+        if (!z) z = F.map((j) => -grad[j]);
+        F.forEach((j, q) => { d[j] = z[q]; });
+        // A variable on a bound that the step would push through is held there, and the step worked out again.
+        let held = false;
+        for (const j of F) if ((atLower(j) && d[j] < 0) || (atUpper(j) && d[j] > 0)) { free[j] = false; held = true; }
+        if (!held) break;
+      }
       let slope = 0;
       for (let j = 0; j < n; j++) slope += grad[j] * d[j];
-      if (!(slope < 0)) { H = null; qn(); slope = 0; for (let j = 0; j < n; j++) slope += grad[j] * d[j]; }
-      if (!(slope < 0)) { stationary = true; break; }
+      if (!(slope < 0)) {
+        // Not a descent direction (a stale estimate): steepest descent on the free variables instead.
+        B = null;
+        for (let j = 0; j < n; j++) d[j] = free[j] ? -grad[j] : 0;
+        slope = 0;
+        for (let j = 0; j < n; j++) slope += grad[j] * d[j];
+        if (!(slope < 0)) { stationary = true; break; }
+      }
+      // The longest step before a free variable meets a bound.
+      let alphaMax = Infinity, blocking = -1;
+      for (let j = 0; j < n; j++) {
+        if (!d[j]) continue;
+        const room = d[j] > 0 ? (ub[j] - x[j]) / d[j] : (lb[j] - x[j]) / d[j];
+        if (room < alphaMax) { alphaMax = Math.max(0, room); blocking = j; }
+      }
       const dmax = Math.max(...d.map(Math.abs));
       const xmax = Math.max(1, ...x.map(Math.abs));
-      let alpha = H ? 1 : Math.min(1, (0.1 * xmax) / dmax);
+      let alpha = Math.min(alphaMax, B ? 1 : Math.min(1, (0.1 * xmax) / dmax));
       const tryAt = function* (a) {
-        const xt = clampTo(x.map((v, j) => v + a * d[j]), lb, ub);
-        const rt = yield* evaluate(xt);
+        const xt = x.map((v, j) => (d[j] ? v + a * d[j] : v));
+        if (a >= alphaMax && blocking >= 0) xt[blocking] = d[blocking] > 0 ? ub[blocking] : lb[blocking];
+        const clamped = clampTo(xt, lb, ub);
+        const rt = yield* evaluate(clamped);
         if (!rt) return null;
         let dec = 0;
-        for (let j = 0; j < n; j++) dec += grad[j] * (xt[j] - x[j]);
-        return { xt, rt, phit: merit(rt), dec };
+        for (let j = 0; j < n; j++) dec += grad[j] * (clamped[j] - x[j]);
+        return { xt: clamped, rt, phit: merit(rt), dec };
       };
       let step = null;
-      for (let tries = 0; tries < 40; tries++) {
+      for (let tries = 0; tries < 40 && alpha > 0; tries++) {
         const t = yield* tryAt(alpha);
         if (t && t.phit <= phi + 1e-4 * t.dec && t.xt.some((v, j) => v !== x[j])) { step = t; break; }
         alpha *= t && Number.isFinite(t.phit) ? Math.max(0.1, Math.min(0.5, (-0.5 * slope * alpha) / (t.phit - phi - slope * alpha) || 0.5)) : 0.25;
       }
-      if (step && alpha >= 1 && step.phit < phi) {
+      if (step && alpha >= 1 && alpha < alphaMax && step.phit < phi) {
         // The full step worked: reach further while the merit keeps falling (an unbounded or long valley).
-        for (let grow = 0; grow < 30; grow++) {
-          const t = yield* tryAt(alpha * 4);
+        for (let grow = 0; grow < 30 && alpha < alphaMax; grow++) {
+          const t = yield* tryAt(Math.min(alphaMax, alpha * 4));
           if (!t || !(t.phit <= step.phit + 1e-4 * (t.dec - step.dec)) || !(t.phit < step.phit)) break;
-          alpha *= 4; step = t;
+          alpha = Math.min(alphaMax, alpha * 4); step = t;
           if (big(t.rt, t.xt)) break;
         }
       }
       if (!step) {
-        if (H) { H = null; continue; }
-        stationary = true;
-        break;
+        if (B) { B = null; continue; }
+        return { x, at, J, stationary: false, flat: true };
       }
       const Jn = yield* jacobian(step.xt, step.rt);
       const gn = meritGradient(step.rt, Jn);
-      // BFGS update of the inverse Hessian from the step and the change in gradient.
+      // BFGS update of the Hessian estimate from the step and the change in gradient.
       const s = step.xt.map((v, j) => v - x[j]);
       const y = Array.from(gn, (v, j) => v - grad[j]);
       let sy = 0;
       for (let j = 0; j < n; j++) sy += s[j] * y[j];
       if (sy > 1e-12 * norm(s) * norm(y)) {
-        if (!H) {
+        if (!B) {
           let yy = 0;
           for (let j = 0; j < n; j++) yy += y[j] * y[j];
-          const g0 = sy / yy; // the first update starts from a scaled identity
-          H = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? g0 : 0)));
+          const b0 = yy / sy; // the first estimate is a scaled identity
+          B = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? b0 : 0)));
         }
-        const r = 1 / sy;
-        const Hy = H.map((row) => row.reduce((acc, v, j) => acc + v * y[j], 0));
-        const yHy = y.reduce((acc, v, j) => acc + v * Hy[j], 0);
-        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-          H[i][j] += -r * (Hy[i] * s[j] + s[i] * Hy[j]) + (r * r * yHy + r) * s[i] * s[j];
-        }
+        const Bs = B.map((row) => row.reduce((acc, v, j) => acc + v * s[j], 0));
+        const sBs = s.reduce((acc, v, j) => acc + v * Bs[j], 0);
+        if (sBs > 0) for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) B[i][j] += (y[i] * y[j]) / sy - (Bs[i] * Bs[j]) / sBs;
       }
       const change = Math.abs(step.phit - phi);
       x = step.xt; at = step.rt; J = Jn; grad = gn;
@@ -214,24 +258,29 @@ export function* solveNLP(problem, { precision = 1e-6, convergence = 1e-4, maxIt
       phi = step.phit;
       if (big(at, x)) break;
       flat = change <= convergence * 1e-3 * Math.max(1, Math.abs(before)) ? flat + 1 : 0;
-      if (flat >= 5) break;
-      if (Math.max(...s.map(Math.abs)) <= 1e-13 * Math.max(1, ...x.map(Math.abs))) { stationary = true; break; }
+      if (flat >= 5) return { x, at, J, stationary: false, flat: true };
+      if (Math.max(...s.map(Math.abs)) <= 1e-13 * Math.max(1, ...x.map(Math.abs))) return { x, at, J, stationary: false, flat: true };
     }
-    return { x, at, J, stationary };
+    return { x, at, J, stationary, flat: false };
   };
 
   note(at, x);
+  // Subproblems are solved loosely at first and more tightly as the multipliers settle; the penalty
+  // stiffens only when a subproblem leaves the constraints no better met.
+  const omegaMin = 1e-7;
+  let omega = m ? 1e-2 : omegaMin, eta = 0.1;
   let lastViolation = Infinity;
-  let stationary = false;
+  let stationary = false, flat = false;
   let restarts = 0;
-  for (let outer = 0; outer < 60; outer++) {
-    ({ x, at, J, stationary } = yield* inner(x, at, J));
+  for (let outer = 0; outer < 80; outer++) {
+    ({ x, at, J, stationary, flat } = yield* inner(x, at, J, omega));
     if (halted) break;
     if (big(at, x)) return { status: 'unbounded', x, objective: at.f, g: at.g, iterations, evals };
     const v = worst(at);
     const ok = v <= precision;
-    if (ok && (stationary || outer > 0) && (m === 0 || maxMultiplierChange(at) <= Math.sqrt(precision))) break;
-    if (!ok && stationary && bestFeasible && restarts < 2 && v >= lastViolation * 0.99) {
+    const settled = (stationary || flat) && omega <= omegaMin;
+    if (ok && settled) break;
+    if (!ok && (stationary || flat) && bestFeasible && restarts < 2 && v >= lastViolation * 0.99 && rho >= 1e6) {
       // Stuck outside the feasible region (a constraint whose gradient vanishes there): go back to the best
       // feasible point with a much stiffer penalty.
       restarts++;
@@ -239,25 +288,23 @@ export function* solveNLP(problem, { precision = 1e-6, convergence = 1e-4, maxIt
       x = bestFeasible.x; at = bestFeasible.at;
       J = yield* jacobian(x, at);
       lam.fill(0);
+      B = null;
       lastViolation = Infinity;
       continue;
     }
-    if (!ok && v > 0.25 * lastViolation) rho = Math.min(1e12, rho * 10);
+    if (v <= Math.max(eta, precision)) {
+      for (let i = 0; i < m; i++) {
+        const c = sign[i] * at.g[i] * cs[i];
+        lam[i] = isEq[i] ? lam[i] + rho * c : Math.max(0, lam[i] + rho * c);
+      }
+      eta = Math.max(precision, eta * 0.1);
+      omega = Math.max(omegaMin, omega * 0.1);
+    } else {
+      rho = Math.min(1e12, rho * 10);
+      B = null; // the merit's curvature changed with the penalty
+      omega = Math.max(omegaMin, omega * 0.5);
+    }
     lastViolation = v;
-    for (let i = 0; i < m; i++) {
-      const c = sign[i] * at.g[i] * cs[i];
-      lam[i] = isEq[i] ? lam[i] + rho * c : Math.max(0, lam[i] + rho * c);
-    }
-    if (ok && m === 0) break;
-  }
-  function maxMultiplierChange(r) {
-    let worstChange = 0;
-    for (let i = 0; i < m; i++) {
-      const c = sign[i] * r.g[i] * cs[i];
-      const next = isEq[i] ? lam[i] + rho * c : Math.max(0, lam[i] + rho * c);
-      worstChange = Math.max(worstChange, Math.abs(next - lam[i]) / Math.max(1, Math.abs(lam[i])));
-    }
-    return worstChange;
   }
   const feasibleNow = worst(at) <= precision;
   // Multipliers in the problem's units: ∂f/∂(right side) for each row, and the reduced gradient of each variable.
@@ -282,7 +329,7 @@ export function* solveNLP(problem, { precision = 1e-6, convergence = 1e-4, maxIt
     const pushOut = (x[j] <= lb[j] + 1e-9 * Math.max(1, Math.abs(lb[j])) && gj > 0) || (x[j] >= ub[j] - 1e-9 * Math.max(1, Math.abs(ub[j])) && gj < 0);
     if (!pushOut) kkt = Math.max(kkt, Math.abs(gj));
   }
-  const status = halted || (!feasibleNow ? 'infeasible' : stationary || kkt <= 1e-4 * scaleG ? 'optimal' : 'converged');
+  const status = halted || (!feasibleNow ? 'infeasible' : (stationary && !flat) || kkt <= 1e-4 * scaleG ? 'optimal' : 'converged');
   return { status, x, objective: at.f, g: at.g, multipliers: multipliers.map((v) => -v), reducedGradient, iterations, evals, feasible: feasibleNow };
 }
 

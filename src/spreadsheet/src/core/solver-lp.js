@@ -236,7 +236,7 @@ export function sensitivity(result) {
   const rows = [];
   for (let i = 0; i < m; i++) {
     const s = n + i;
-    const dual = -d[s];
+    const dual = -d[s] || 0;
     // Raising b_i by Δ moves the basic values by Δ·B⁻¹e_i, the slack's column.
     let up = Infinity, down = Infinity;
     for (let k = 0; k < m; k++) {
