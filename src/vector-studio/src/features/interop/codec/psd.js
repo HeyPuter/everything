@@ -67,7 +67,7 @@ export function decodePSD(bytes) {
   let mergedAlpha = false;
   if (lmLen >= 8) {
     const liLen = psb ? Number(dv.getBigUint64(lmStart)) : dv.getUint32(lmStart);
-    if (liLen > 2) mergedAlpha = dv.getInt16(lmStart + (psb ? 8 : 4)) < 0;
+    if (liLen >= 2) mergedAlpha = dv.getInt16(lmStart + (psb ? 8 : 4)) < 0;
   }
   p = lmStart + lmLen;
   const compression = dv.getUint16(p);
