@@ -6,6 +6,7 @@ import { drawingmlColor } from './drawingml-color.js';
 import { refToText } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { CHART_DISPLAY_UNITS } from './charts.js';
+import { excelChartAppearance } from './chart-subtypes.js';
 import { nativeDrawing, drawingNodeKey } from './drawingml-native.js';
 import { resolveDrawingStyle } from './drawingml-style.js';
 import { drawingDecorative } from './drawingml-accessibility.js';
@@ -402,7 +403,12 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
         dx: layout(node)?.x || 0, dy: layout(node)?.y || 0 });
     }
     const line = path(s, 'spPr', 'ln');
+    const ofPie = group.name === 'ofPieChart' ? { kind: val(group, 'ofPieType') === 'bar' ? 'bar' : 'pie',
+      // Splits other than by position keep the default count of three in the second plot.
+      split: (val(group, 'splitType') ?? 'pos') === 'pos' && number(group, 'splitPos') >= 1 ? Math.round(number(group, 'splitPos')) : 3,
+      secondSize: number(group, 'secondPieSize') ?? 75, gap: number(group, 'gapWidth') ?? 100 } : null;
     return { type: group.name === 'doughnutChart' ? 'donut' : 'pie', range: { r1: 0, c1: 0, r2: 0, c2: 0 }, ...geometry,
+      ...(ofPie ? { ofPie } : {}), ...(number(s, 'explosion') > 0 ? { explosion: number(s, 'explosion') } : {}),
       ...titleText(title), legend: !!legend, legendPos, includeHidden: val(chart, 'plotVisOnly') === '0',
       sourceRefs: [{ name: text(path(s, 'tx', 'v')), nameRef: text(path(s, 'tx', 'strRef', 'f')), nativeNameText: cachedText(child(s, 'tx')),
         categories: categories(child(s, 'cat')), values, categoryFormat: format(child(s, 'cat')), categoryPointFormats: pointFormats(child(s, 'cat')), nativeCategoryTexts: categoryTexts(child(s, 'cat')),
@@ -448,10 +454,72 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
       ...(box(title) ? { titleBox: box(title) } : {}), ...(box(legend) ? { legendBox: box(legend) } : {}),
       ...(Object.keys(effects).length ? { effects } : {}) };
   };
+  /**
+   * Treemap, sunburst, box and whisker and funnel layouts: their series' named or direct references,
+   * their layout options, title, legend and data labels, drawn in the default chart style.
+   */
+  const readChartExLayout = (space, chart, plot, series, geometry) => {
+    const layoutId = series[0].attrs.layoutId, type = layoutId;
+    const hierarchy = type === 'treemap' || type === 'sunburst';
+    const used = hierarchy || type === 'funnel' ? series.slice(0, 1) : series;
+    const datas = children(child(space, 'chartData'), 'data');
+    const on = v => ['1', 'true'].includes(v);
+    const sourceRefs = used.map(s => {
+      const data = datas.find(d => d.attrs.id === val(s, 'dataId'));
+      const cat = children(data, 'strDim').find(d => d.attrs.type === 'cat') || children(data, 'numDim').find(d => d.attrs.type === 'cat');
+      const num = children(data, 'numDim').find(d => ['val', 'size'].includes(d.attrs.type));
+      // Cached levels stand in for references a file left out: the innermost level names the points.
+      const cached = dim => children(child(dim, 'lvl'), 'pt').reduce((out, pt) => { const i = Number(pt.attrs.idx); if (Number.isInteger(i) && i >= 0 && i < 5000) out[i] = text(pt); return out; }, []);
+      const levelCount = Number(child(num, 'lvl')?.attrs.ptCount) || 0;
+      const literal = {};
+      if (!text(child(cat, 'f')) && cat) literal.categories = Array.from({ length: Math.max(levelCount, cached(cat).length) }, (_, i) => cached(cat)[i] ?? '');
+      if (!text(child(num, 'f')) && num) literal.values = Array.from({ length: Math.max(levelCount, cached(num).length) }, (_, i) => (cached(num)[i] != null && Number.isFinite(Number(cached(num)[i])) ? Number(cached(num)[i]) : null));
+      return { name: text(path(s, 'tx', 'txData', 'v')), nameRef: text(path(s, 'tx', 'txData', 'f')), categories: text(child(cat, 'f')), values: text(child(num, 'f')),
+        valueFormat: child(num, 'lvl')?.attrs.formatCode || '', ...(Object.keys(literal).length ? { literal } : {}) };
+    });
+    if (!sourceRefs.some(s => s.values || s.literal?.values)) return null;
+    const axes = children(plot, 'axis'), cat = axes.find(a => child(a, 'catScaling')), valueAxis = axes.find(a => child(a, 'valScaling'));
+    const gap = Number(child(cat, 'catScaling')?.attrs.gapWidth);
+    const scaling = key => { const v = child(valueAxis, 'valScaling')?.attrs[key]; return v != null && v !== 'auto' && Number.isFinite(Number(v)) ? Number(v) : null; };
+    const titleNode = child(chart, 'title'), legendNode = child(chart, 'legend');
+    const labels = children(series[0], 'dataLabels')[0], visibility = child(labels, 'visibility');
+    const baseStyle = style(child(space, 'txPr'), { size: 14.67 });
+    const font = baseStyle.font || 'calibri';
+    const subtype = type === 'boxWhisker' ? 'boxWhisker' : type;
+    const appearance = { ...excelChartAppearance(subtype, { font }),
+      background: fill(child(space, 'spPr')) || '#ffffff', border: fill(path(space, 'spPr', 'ln')) !== 'none',
+      ...(fill(path(space, 'spPr', 'ln')) && fill(path(space, 'spPr', 'ln')) !== 'none' ? { borderColor: fill(path(space, 'spPr', 'ln')) } : {}),
+      ...(child(titleNode, 'txPr') ? { titleStyle: style(child(titleNode, 'txPr'), excelChartAppearance(subtype, { font }).titleStyle) } : {}),
+      ...(child(legendNode, 'txPr') ? { legendStyle: style(child(legendNode, 'txPr'), baseStyle) } : {}),
+      ...(child(cat, 'txPr') ? { xStyle: style(child(cat, 'txPr'), baseStyle) } : {}),
+      ...(child(valueAxis, 'txPr') ? { yStyle: style(child(valueAxis, 'txPr'), baseStyle) } : {}),
+      ...(['1', 'true'].includes(cat?.attrs.hidden) ? { hideXAxis: true } : {}), ...(['1', 'true'].includes(valueAxis?.attrs.hidden) ? { hideYAxis: true } : {}),
+      ...(type === 'funnel' && Number.isFinite(gap) ? { gapWidth: gap * 100 } : {}),
+      ...(scaling('majorUnit') ? { yStep: scaling('majorUnit') } : {}),
+      ...(child(valueAxis, 'numFmt')?.attrs.formatCode ? { yFormat: child(valueAxis, 'numFmt').attrs.formatCode } : {}),
+      legendPos: ({ t: 'top', r: 'right', l: 'right' }[legendNode?.attrs.pos] || 'bottom') };
+    const layoutPr = child(series[0], 'layoutPr'), boxVisibility = child(layoutPr, 'visibility');
+    const titleRef = text(path(titleNode, 'tx', 'txData', 'f'));
+    return { type, range: { r1: 0, c1: 0, r2: 0, c2: 0 }, ...geometry,
+      title: titleNode ? text(path(titleNode, 'tx', 'txData', 'v')) || richText(path(titleNode, 'tx', 'rich')) : '',
+      ...(titleRef ? { titleRef } : {}),
+      legend: !!legendNode, legendPos: appearance.legendPos,
+      labels: !!labels && !!visibility && ['value', 'categoryName', 'seriesName'].some(k => on(visibility.attrs[k])),
+      gridlines: !!child(valueAxis, 'majorGridlines'), yMin: scaling('min'), yMax: scaling('max'),
+      sourceRefs, colors: hierarchy ? [] : used.map(s => fill(child(s, 'spPr'))),
+      ...(type === 'treemap' ? { treemapLabels: val(layoutPr, 'parentLabelLayout') || 'overlapping' } : {}),
+      ...(type === 'boxWhisker' ? { box: { quartiles: child(layoutPr, 'statistics')?.attrs.quartileMethod === 'inclusive' ? 'inclusive' : 'exclusive',
+        meanLine: on(boxVisibility?.attrs.meanLine), meanMarkers: boxVisibility ? on(boxVisibility.attrs.meanMarker) : true,
+        innerPoints: on(boxVisibility?.attrs.nonoutliers), outliers: boxVisibility ? on(boxVisibility.attrs.outliers) : true,
+        gapWidth: Number.isFinite(gap) ? gap * 100 : 100 } } : {}),
+      appearance };
+  };
   const readChartEx = (root, geometry) => {
     const space = child(root, 'chartSpace'), chart = child(space, 'chart'), plot = child(chart, 'plotArea');
     const all = children(child(plot, 'plotAreaRegion'), 'series');
     const hidden = s => ['1', 'true'].includes(s?.attrs.hidden);
+    const layouts = all.filter(s => !hidden(s) && ['treemap', 'sunburst', 'boxWhisker', 'funnel'].includes(s.attrs.layoutId));
+    if (layouts.length && layouts.every(s => s.attrs.layoutId === layouts[0].attrs.layoutId)) return readChartExLayout(space, chart, plot, layouts, geometry);
     // A Pareto line inherits visibility and data from its owner. Some templates
     // retain a second, hidden column/line pair with unrelated source ranges.
     const visible = all.filter(s => !hidden(s) && (s.attrs.layoutId !== 'paretoLine'
@@ -498,10 +566,50 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
       },
     };
   };
+  /** Stock charts (with or without volume columns) and surfaces: their series in column order, and the subtype they make. */
+  const readStockOrSurface = (space, chart, plot, groups, geometry) => {
+    const stock = child(plot, 'stockChart'), bar = child(plot, 'barChart');
+    const surface = child(plot, 'surface3DChart') || child(plot, 'surfaceChart');
+    if (stock ? groups.some(g => g !== stock && g !== bar) || (bar && children(bar, 'ser').length !== 1) : groups.length !== 1) return null;
+    const series = stock ? [...children(bar, 'ser'), ...children(stock, 'ser')] : children(surface, 'ser');
+    const prices = children(stock, 'ser').length;
+    if (stock && ![3, 4].includes(prices)) return null;
+    const kind = stock ? `${bar ? 'v' : ''}${prices === 4 ? 'o' : ''}hlc` : null;
+    const wire = ['1', 'true'].includes(val(surface, 'wireframe'));
+    const view = surface ? surface.name === 'surfaceChart' ? (wire ? 'wireframeContour' : 'contour') : (wire ? 'wireframe3d' : 'surface3d') : null;
+    const subtype = stock ? { hlc: 'stockHlc', ohlc: 'stockOhlc', vhlc: 'stockVhlc', vohlc: 'stockVohlc' }[kind]
+      : { surface3d: 'surface3d', wireframe3d: 'surfaceWireframe3d', contour: 'contour', wireframeContour: 'contourWireframe' }[view];
+    const sourceRefs = series.map(s => ({ name: text(path(s, 'tx', 'v')) || text(path(s, 'tx', 'strRef', 'strCache', 'pt', 'v')),
+      nameRef: text(path(s, 'tx', 'strRef', 'f')), nativeNameText: cachedText(child(s, 'tx')), categories: categories(child(s, 'cat')), values: ref(child(s, 'val')),
+      categoryFormat: format(child(s, 'cat')), valueFormat: format(child(s, 'val')),
+      literal: Object.fromEntries([['categories', child(s, 'cat')], ['values', child(s, 'val')]].map(([key, node]) => [key, literal(node)]).filter(([, v]) => v != null)) }));
+    if (!sourceRefs.length || sourceRefs.some(s => !s.values && !s.literal.values?.length)) return null;
+    for (const s of sourceRefs) if (!s.categories && !s.literal.categories) s.categories = sourceRefs.find(r => r.categories)?.categories || '';
+    const title = child(chart, 'title'), legend = child(chart, 'legend');
+    const axes = plot.children.filter(n => ['catAx', 'dateAx', 'valAx'].includes(n.name));
+    const cat = axes.find(a => a.name !== 'valAx'), values = axes.filter(a => a.name === 'valAx');
+    // With volume, the prices read on the second value axis; the first scales the volume.
+    const axis = values[0];
+    const baseStyle = style(child(space, 'txPr'), { size: 14.67 });
+    const appearance = { ...excelChartAppearance(subtype, { font: baseStyle.font || 'calibri' }),
+      background: fill(child(space, 'spPr')) || '#ffffff', border: fill(path(space, 'spPr', 'ln')) !== 'none',
+      ...formatExtras(space, chart, plot, title, legend, series),
+      titleStyle: style(title, { ...baseStyle, size: 18.67 }), legendStyle: style(child(legend, 'txPr'), baseStyle),
+      xStyle: style(child(cat, 'txPr'), baseStyle), yStyle: style(child(axis, 'txPr'), baseStyle),
+      hideXAxis: ['1', 'true'].includes(val(cat, 'delete')), hideYAxis: ['1', 'true'].includes(val(axis, 'delete')),
+      ...(number(axis, 'majorUnit') ? { yStep: number(axis, 'majorUnit') } : {}),
+      ...(values[1] ? { y2Min: number(child(values[1], 'scaling'), 'min'), y2Max: number(child(values[1], 'scaling'), 'max') } : {}),
+      legendPos: ({ t: 'top', r: 'right', l: 'right', tr: 'right' }[val(legend, 'legendPos')] || 'bottom') };
+    return { type: stock ? 'stock' : 'surface', ...(stock ? { stock: kind } : { surfaceView: view }), range: { r1: 0, c1: 0, r2: 0, c2: 0 }, ...geometry,
+      ...titleText(title), legend: !!legend, legendPos: appearance.legendPos, sourceRefs, includeHidden: val(chart, 'plotVisOnly') === '0',
+      gridlines: gridlines(axis).visible, yMin: number(child(axis, 'scaling'), 'min'), yMax: number(child(axis, 'scaling'), 'max'),
+      labels: series.some(s => chartBoolean(child(s, 'dLbls'), 'showVal').showVal === true), appearance };
+  };
   const readChart = (root, geometry) => {
     const space = child(root, 'chartSpace'), chart = child(space, 'chart'), plot = child(chart, 'plotArea');
     const groups = plot?.children.filter(n => n.name.endsWith('Chart')) || [];
-    if (groups.length === 1 && ['pieChart', 'doughnutChart'].includes(groups[0].name)) return readPieChart(space, chart, plot, groups[0], geometry);
+    if (groups.length === 1 && ['pieChart', 'doughnutChart', 'ofPieChart'].includes(groups[0].name)) return readPieChart(space, chart, plot, groups[0], geometry);
+    if (groups.some(g => ['stockChart', 'surfaceChart', 'surface3DChart'].includes(g.name))) return readStockOrSurface(space, chart, plot, groups, geometry);
     const line = child(plot, 'lineChart'), bar = child(plot, 'barChart');
     const area = child(plot, 'areaChart'), scatter = child(plot, 'scatterChart'), bubble = child(plot, 'bubbleChart');
     const areaOnly = groups.length === 1 && !!area;
