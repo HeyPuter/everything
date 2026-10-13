@@ -1658,7 +1658,7 @@ export class TextDocument {
         const length = this.text.length;
         this.replaceUntracked(text, { ...rest, checkpoint: false });
         const inserted = this.text.length - length, insertion = this.newRevision('ins');
-        // Text deleted by this author and put back elsewhere is a move (§17.13.5.22/.25).
+        // Text deleted by this author and put back elsewhere is a move (§17.13.5.21/.25).
         const moved = this.trackMoves !== false && this.lastTrackedDeletion?.text === text && /\p{L}/u.test(text) && text.trim().length >= 3 ? this.lastTrackedDeletion : null;
         if (moved) {
           const name = `move${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

@@ -1,4 +1,4 @@
-// Adding and removing editing-permission ranges (§17.13.6) as undoable model edits.
+// Adding and removing editing-permission ranges (§17.13.7) as undoable model edits.
 import { permissionMarker } from './docx-permissions.js';
 import { permissionRanges, nextPermissionId } from './protection.js';
 

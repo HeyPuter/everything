@@ -61,7 +61,7 @@ export class StorySession {
       const result = action(model);
       if (this.path !== before.path) throw new Error('A text command cannot switch page stories.');
       if (model.revision !== before.revision) {
-        // With Track Changes on, a formatting change keeps the formatting it replaced (§17.13.5.29/.31).
+        // With Track Changes on, a formatting change keeps the formatting it replaced (§17.13.5.29/.30).
         if (model.trackChanges && model.trackFormatting !== false && !model.formatTrackingSuppressed && this.path === null) trackFormatChanges(before.state.paragraphs, model.paragraphs, () => model.newRevision('format'), { stylesChanged: JSON.stringify(before.state.styles) !== JSON.stringify(model.styles) });
         this.publish(model, before.state);
         this.guard?.(before.state, model, this.path);

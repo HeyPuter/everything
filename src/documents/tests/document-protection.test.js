@@ -8,6 +8,7 @@ import { StorySession } from '../src/engine/story-session.js';
 import { digest } from '../src/engine/sha.js';
 import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, bytesToBase64, createPasswordVerifier, verifyPassword, permissionRanges, permissionApplies, protectionGuard, ProtectionError, nextPermissionId } from '../src/engine/protection.js';
 import { permissionMarker } from '../src/engine/docx-permissions.js';
+import { addPermissionRange, removePermissionRanges } from '../src/engine/permission-edits.js';
 import { contentControlRanges } from '../src/engine/content-controls.js';
 
 let dom;
@@ -192,6 +193,28 @@ describe('enforcement', () => {
   it('is inert when protection is not enforced', () => {
     expect(protectionGuard({ edit: 'readOnly', enforcement: false })).toBeNull();
     expect(protectionGuard(null)).toBeNull();
+  });
+
+  it('adds and removes permission ranges as undoable edits and saves them', async () => {
+    const { pkg, model } = await open(protectedDocx({ settings: '' }));
+    const at = model.text.indexOf('Closing');
+    const id = addPermissionRange(model, at, at + 7, { ed: 'grace@example.com' });
+    expect(id).toBe('2'); // the lowest identifier not in use (1 and 7 are)
+    expect(addPermissionRange(model, at, at + 7, { ed: 'grace@example.com' })).toBe('2'); // the same range is not added twice
+    expect(permissionRanges(model.paragraphs).map(r => [model.text.slice(r.start, r.end), r.ed])).toContainEqual(['Closing', 'grace@example.com']);
+    const xml = strFromU8((await save(pkg, model))['word/document.xml']);
+    expect(xml).toMatch(/<w:permStart w:id="2" w:ed="grace@example.com"\/><w:r><w:t xml:space="preserve">Closing<\/w:t><\/w:r><w:permEnd w:id="2"\/>/);
+    expect(removePermissionRanges(model, ['2'])).toBe(1);
+    expect(permissionRanges(model.paragraphs).some(r => r.id === '2')).toBe(false);
+    model.undo();
+    expect(permissionRanges(model.paragraphs).some(r => r.id === '2')).toBe(true);
+    expect(() => addPermissionRange(model, 0, 1, {})).toThrow(/who may edit/);
+  });
+
+  it('refuses locked styles under a formatting restriction', async () => {
+    const { s, model } = await session({ edit: 'none', formatting: true, enforcement: true, lockedStyles: ['Heading1'] });
+    expect(tryEdit(s, m => { m.select(0); m.setParagraphStyle('Heading1'); })).toBe(false);
+    expect(model.paragraphs[0].styleId).not.toBe('Heading1');
   });
 
   it('numbers new permission ranges after existing ones', () => {

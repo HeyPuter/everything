@@ -1,8 +1,8 @@
 // Review and protection settings (ECMA-376 Part 1 §17.15.1): documentProtection (§17.15.1.29),
-// writeProtection (§17.15.1.93), hideSpellingErrors/hideGrammaticalErrors (§17.15.1.50/.49),
-// revisionView (§17.15.1.69), doNotTrackMoves/doNotTrackFormatting (§17.15.1.45/.44), plus the
+// writeProtection, hideSpellingErrors (§17.15.1.52)/hideGrammaticalErrors, revisionView,
+// doNotTrackMoves/doNotTrackFormatting (all §17.15.1 settings), plus the
 // document's default proofing language (§17.3.2.20 lang in docDefaults, §17.7.5.1) and locked
-// styles for formatting restrictions (§17.7.4.7 locked). Only declarations that change are
+// styles for formatting restrictions (§17.7.4 style `locked`). Only declarations that change are
 // rewritten; everything else in the settings and styles parts is kept as it was.
 import { strToU8 } from 'fflate';
 import { parseXml } from './docx-xml.js';

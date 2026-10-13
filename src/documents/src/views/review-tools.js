@@ -53,7 +53,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
   function updateOptions(patch) {
     Object.assign(revisionView.options, patch);
     rememberTrackingOptions();
-    // What markup the document shows is also a document setting (§17.15.1.69).
+    // What markup the document shows is also a document setting (§17.15.1 revisionView).
     const view = { ...docRevisionView(), ...(('showInsDel' in patch) ? { insDel: patch.showInsDel } : {}), ...(('showFormatting' in patch) ? { formatting: patch.showFormatting } : {}) };
     if (('showInsDel' in patch || 'showFormatting' in patch) && !pkg()?.readOnly) setSettings({ revisionView: view });
     editor()?.relayout(); review.refresh(true); onChange();

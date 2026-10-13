@@ -1,4 +1,4 @@
-// Range permissions (ECMA-376 Part 1 §17.13.6.1 permEnd, §17.13.6.2 permStart): the regions of a
+// Range permissions (ECMA-376 Part 1 §17.13.7 range permissions: permEnd, permStart): the regions of a
 // protected document that named editors or everyone may still change. They are zero-width markers
 // kept beside bookmark markers in `paragraph.bookmarks` (flagged `perm`), so edits move them
 // exactly as they move bookmarks and comment anchors.

@@ -4,12 +4,12 @@
 // was inserted or deleted carries `paragraph.markRevision`. Deleted text keeps
 // its document positions until the change is accepted, as an all-markup view
 // shows it. Moved text is a deletion/insertion pair flagged `move` (moveFrom /
-// moveTo, §17.13.5.22/.25) sharing a `moveName`.
+// moveTo, §17.13.5.21/.25) sharing a `moveName`.
 //
 // A formatting change keeps the formatting it replaced: `run.formatRevision` and
 // `paragraph.formatRevision` = { type: 'format', author, date, id?, previous },
 // where `previous` holds the run's or paragraph's former formatting fields
-// (§17.13.5.31 rPrChange, §17.13.5.29 pPrChange). Rejecting restores them.
+// (§17.13.5.30 rPrChange, §17.13.5.29 pPrChange). Rejecting restores them.
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 
 export const REVISION_COLORS = ['B5082E', '2E6EB5', '2F8A3A', '8A3FB0', 'C25E00', '00838F', 'A0306E', '5B6B00'];

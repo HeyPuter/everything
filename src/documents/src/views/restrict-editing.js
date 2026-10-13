@@ -2,7 +2,7 @@
  * Restrict Editing: formatting restrictions (allowed styles), editing restrictions (read only,
  * tracked changes, comments, filling in forms) with per-region exceptions for everyone or named
  * people, and enforcement with an optional password (documentProtection, §17.15.1.29; permStart/
- * permEnd, §17.13.6). Also Lock Tracking and the Always Open Read-Only recommendation.
+ * permEnd, §17.13.7). Also Lock Tracking and the Always Open Read-Only recommendation.
  */
 import { el } from '../ui/dom.js';
 import { openModal, confirmDialog, promptDialog } from '../ui/modal.js';

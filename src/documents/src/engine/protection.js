@@ -1,5 +1,5 @@
 // Original document-protection model (ECMA-376 Part 1 §17.15.1.29
-// documentProtection, §17.13.6.1–2 permStart/permEnd). The password
+// documentProtection, §17.13.7 permStart/permEnd). The password
 // verifier is the specification's iterated, salted hash. Writers that follow
 // the legacy-compatible procedure first reduce the password to a 32-bit key
 // (the spec's high-order/low-order word construction) and hash that key's
@@ -100,7 +100,7 @@ function normalizedAlgorithm(name) {
   return { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA384: 'SHA-384', SHA512: 'SHA-512' }[key] || null;
 }
 
-/* ---- Editing permissions (§17.13.6 permStart / permEnd) ---- */
+/* ---- Editing permissions (§17.13.7 permStart / permEnd) ---- */
 
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 export const isPermissionMarker = marker => !!marker?.perm;

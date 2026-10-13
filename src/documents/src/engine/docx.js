@@ -724,7 +724,7 @@ function writeMarkRevision(node, revision, make) {
   if (inserted) rPr.prepend(revisionElement(node.ownerDocument, { type: 'ins', ...inserted }));
 }
 const FORMAT_CHANGE_STRIP = ['rPrChange', 'ins', 'del', 'moveFrom', 'moveTo'];
-/** Append a regenerated rPrChange (§17.13.5.31) recording a run's former properties; it is the last child of rPr. */
+/** Append a regenerated rPrChange (§17.13.5.30) recording a run's former properties; it is the last child of rPr. */
 function writeRunChange(properties, revision, make, previousProperties) {
   for (const n of children(properties)) if (n.namespaceURI === W && n.localName === 'rPrChange') n.remove();
   if (!revision) return properties;
@@ -738,7 +738,7 @@ function writeRunChange(properties, revision, make, previousProperties) {
   change.append(former); properties.append(change);
   return properties;
 }
-/** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.23–.28). */
+/** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
 function writeMoveRanges(node, names, counters, make) {
   const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
   for (const container of containers) {
@@ -1161,7 +1161,7 @@ export class DocxPackage {
     let bodyInlineOrder = 0;
     const commentReferences = [];
     let currentRevision = null;
-    // Open move ranges (§17.13.5.23–.28) name the moveFrom/moveTo content they enclose.
+    // Open move ranges (§17.13.5.22–.27) name the moveFrom/moveTo content they enclose.
     const moveNames = { from: null, to: null };
     const readMoveRange = node => {
       const side = node.localName.startsWith('moveFrom') ? 'from' : 'to';
@@ -1174,7 +1174,7 @@ export class DocxPackage {
       const move = ['moveFrom', 'moveTo'].includes(node.localName);
       return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '', ...(move ? { move: true, moveName: moveNames[node.localName === 'moveFrom' ? 'from' : 'to'] || '' } : {}) };
     };
-    // A recorded formatting change keeps its former formatting for rejection (§17.13.5.29/.31).
+    // A recorded formatting change keeps its former formatting for rejection (§17.13.5.29/.30).
     const changeMeta = change => ({ type: 'format', author: change.getAttributeNS(W, 'author') || '', date: change.getAttributeNS(W, 'date') || '', ...(change.getAttributeNS(W, 'id') ? { id: change.getAttributeNS(W, 'id') } : {}) });
     const readRunChange = rPr => {
       const change = child(rPr, 'rPrChange'); if (!change) return null;
