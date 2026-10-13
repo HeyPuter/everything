@@ -1056,7 +1056,21 @@
 }
 
 .rc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 6px 0;
+}
+
+.rc-preserve {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.rc-new:disabled {
+  opacity: 0.4;
 }
 
 @media (max-width: 760px) {

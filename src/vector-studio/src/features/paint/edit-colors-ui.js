@@ -8,6 +8,31 @@ import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { icon } from '../../ui/icons.js';
 import { colorTargets, colorPatches, collectColors, invertColor, grayscaleColor, adjustColor, saturateColor, blendFills, recolorFn } from './edit-colors.js';
+import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
+import { reduceColorsMap, harmonyMap, paletteMap, HARMONY_RULES } from '../panels/color-harmony.js';
+import { swatchesOf } from './swatch-model.js';
+import { SWATCH_LIBRARIES } from './swatch-libraries.js';
+
+/** Colors kept as they are by the Preserve options. */
+export function preservedColor(hex, { white = false, black = false, grays = false } = {}) {
+  const { r, g, b } = hexToRgb(hex);
+  const gray = Math.abs(r - g) < 3 && Math.abs(g - b) < 3;
+  if (white && r > 251 && g > 251 && b > 251) return true;
+  if (black && r < 4 && g < 4 && b < 4) return true;
+  return grays && gray && !(r > 251 || r < 4);
+}
+
+/** A random saturation and brightness for a color (hue kept), for Recolor's randomize button. */
+export function randomSatBright(hex, rand = Math.random) {
+  const c = rgbToHsb(hexToRgb(hex));
+  return rgbToHex(hsbToRgb({ h: c.h, s: 15 + rand() * 85, v: 25 + rand() * 75 }));
+}
+
+/** Palettes to recolor with: the document swatches and the built-in libraries (solid colors). */
+function recolorPalettes(doc) {
+  const solids = (list) => list.filter((s) => s.paint?.type === 'solid').map((s) => s.paint.color.toLowerCase());
+  return [{ id: 'document', name: 'Document Swatches', colors: solids(swatchesOf(doc)) }, ...SWATCH_LIBRARIES.map((l) => ({ id: l.id, name: l.name, colors: solids(l.swatches) }))].filter((p) => p.colors.length);
+}
 
 function selectedColorNodes(editor) {
   return colorTargets(editor.doc, editor.topSelection());
@@ -193,24 +218,78 @@ export async function recolorDialog(app, preset = {}) {
     });
     body.dispatchEvent(new Event('input'));
   } }, 'Randomly Change Color Order');
+  const randomize = h('button.btn.small', { type: 'button', onclick: () => {
+    // New saturation and brightness for every new color; hues stay.
+    rows.forEach((r) => {
+      if (preserve().some(Boolean) && preservedColor(r.color, preserveOpts())) return;
+      r.input.value = randomSatBright(r.input.value);
+      map[r.color] = r.input.value;
+    });
+    body.dispatchEvent(new Event('input'));
+  } }, 'Randomly Change Saturation and Brightness');
+  // Set the new colors from a rule: fewer colors, a harmony, or the nearest colors of a library.
+  const palettes = recolorPalettes(ed.doc);
+  const ruleSel = h(
+    'select.select',
+    { id: 'rc-rule', 'aria-label': 'Set new colors from' },
+    h('option', { value: '' }, 'Choose...'),
+    h('optgroup', { label: 'Number of colors' }, [1, 2, 3, 4, 5, 6, 8].filter((k) => k < colors.length).map((k) => h('option', { value: `reduce:${k}` }, `${k} color${k === 1 ? '' : 's'}`))),
+    h('optgroup', { label: 'Harmony' }, HARMONY_RULES.map((r) => h('option', { value: `harmony:${r.id}` }, r.label))),
+    h('optgroup', { label: 'Library' }, palettes.map((p) => h('option', { value: `library:${p.id}` }, p.name))),
+  );
+  ruleSel.addEventListener('change', () => {
+    const [kind, arg] = ruleSel.value.split(':');
+    if (!kind) return;
+    const m = kind === 'reduce' ? reduceColorsMap(colors, Number(arg)) : kind === 'harmony' ? harmonyMap(colors, arg) : paletteMap(colors, palettes.find((p) => p.id === arg)?.colors || []);
+    rows.forEach((r) => {
+      const next = m[r.color.toLowerCase()];
+      if (!next || preservedColor(r.color, preserveOpts())) return;
+      r.input.value = next;
+      map[r.color] = next;
+    });
+    ruleSel.value = '';
+    body.dispatchEvent(new Event('input'));
+  });
+  const keepWhite = checkbox('White', false);
+  const keepBlack = checkbox('Black', false);
+  const keepGrays = checkbox('Grays', false);
+  const preserve = () => [keepWhite.input.checked, keepBlack.input.checked, keepGrays.input.checked];
+  const preserveOpts = () => ({ white: keepWhite.input.checked, black: keepBlack.input.checked, grays: keepGrays.input.checked });
+  // Preserved colors go back to themselves.
+  const syncPreserved = () => {
+    for (const r of rows) {
+      const keep = preservedColor(r.color, preserveOpts());
+      r.input.disabled = keep;
+      if (keep) {
+        r.input.value = r.color;
+        delete map[r.color];
+      }
+    }
+  };
+  for (const c of [keepWhite, keepBlack, keepGrays]) c.input.addEventListener('change', syncPreserved);
   const prev = checkbox('Preview');
   const body = h(
     'div.form.ec.recolor',
     h('div.rc-head', h('span', 'Current Colors'), h('span', 'New')),
     h('div.rc-list', { role: 'list' }, rows.map((r) => r.el)),
+    h('div.form-row', h('label', { for: 'rc-rule' }, 'Set new colors from'), ruleSel),
+    h('div.rc-preserve', h('span.form-label', 'Preserve'), keepWhite.el, keepBlack.el, keepGrays.el),
     h('h3.form-heading', 'Adjust All'),
     hue.el,
     sat.el,
     bri.el,
-    h('div.rc-actions', shuffle),
+    h('div.rc-actions', shuffle, randomize),
     prev.el,
   );
   return previewDialog(app, {
     title: preset.title || 'Recolor Artwork',
     body,
-    read: () => ({ map: { ...map }, h: hue.value, s: sat.value, b: bri.value }),
+    read: () => ({ map: { ...map }, h: hue.value, s: sat.value, b: bri.value, preserve: preserveOpts() }),
     previewBox: prev.input,
-    compute: (v) => recolorFn(v.map, { h: v.h, s: v.s, b: v.b }),
+    compute: (v) => {
+      const fn = recolorFn(v.map, { h: v.h, s: v.s, b: v.b });
+      return (hex) => (preservedColor(hex, v.preserve) ? hex : fn(hex));
+    },
   });
 }
 
