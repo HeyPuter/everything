@@ -1,5 +1,5 @@
 // Reading and writing the document's hyphenation settings in the settings part
-// (ECMA-376 Part 1 §17.15.1.10, .21, .37, .53). Only changed elements are written,
+// (ECMA-376 Part 1 §17.15.1.10, .22, .37 and hyphenationZone). Only changed elements are written,
 // in CT_Settings order; every other setting stays as it was.
 import { HYPHENATION_DEFAULTS } from './hyphenation-settings.js';
 

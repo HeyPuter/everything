@@ -1,6 +1,6 @@
 /**
- * The document's hyphenation settings (§17.15.1.10 autoHyphenation, §17.15.1.21
- * consecutiveHyphenLimit, §17.15.1.37 doNotHyphenateCaps, §17.15.1.53 hyphenationZone).
+ * The document's hyphenation settings (§17.15.1.10 autoHyphenation, §17.15.1.22
+ * consecutiveHyphenLimit, §17.15.1.37 doNotHyphenateCaps, §17.15.1 hyphenationZone).
  * They are document-wide: page settings carry them, but section breaks never change them.
  */
 export const HYPHENATION_DEFAULTS = Object.freeze({ autoHyphenation: false, doNotHyphenateCaps: false, hyphenationZone: 360, consecutiveHyphenLimit: 0 });

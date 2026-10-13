@@ -22885,8 +22885,8 @@ property definition, not a prescribed filter algorithm. No production change.
 
 ### Hyphenation: automatic, manual and options (2026-10-13)
 
-Clauses (ECMA-376 Part 1): §17.15.1.10 `autoHyphenation`, §17.15.1.21
-`consecutiveHyphenLimit`, §17.15.1.37 `doNotHyphenateCaps`, §17.15.1.53
+Clauses (ECMA-376 Part 1): §17.15.1.10 `autoHyphenation`, §17.15.1.22
+`consecutiveHyphenLimit`, §17.15.1.37 `doNotHyphenateCaps`, §17.15.1
 `hyphenationZone` (settings part), §17.3.1.34 `suppressAutoHyphens` (paragraph and
 paragraph-style properties), §17.3.3.29 `softHyphen` and §17.3.3.18 `noBreakHyphen`.
 
