@@ -201,14 +201,14 @@ function openRecolor(app, map, title) {
 async function presetReduce(app, k) {
   const colors = selectionColors(app.editor);
   if (!colors.length) throw new UserError('The selection has no colors to recolor.');
-  return openRecolor(app, reduceColorsMap(colors, k), `Recolor Artwork: ${k} Color${k === 1 ? '' : 's'}`);
+  return openRecolor(app, reduceColorsMap(colors, k), `Recolor: ${k} Color${k === 1 ? '' : 's'}`);
 }
 
 async function presetHarmony(app) {
   const colors = selectionColors(app.editor);
   if (!colors.length) throw new UserError('The selection has no colors to recolor.');
   const rule = ruleById(app.prefs.get('colorGuideRule') || 'complementary');
-  return openRecolor(app, harmonyMap(colors, rule.id), `Recolor Artwork: ${rule.label}`);
+  return openRecolor(app, harmonyMap(colors, rule.id), `Recolor: ${rule.label}`);
 }
 
 /** Palettes for "Limit to library": the document swatches and the built-in libraries. */
@@ -228,7 +228,7 @@ async function presetLibrary(app) {
   });
   if (!v) return false;
   const lib = choices.find((c) => c.id === v.lib) || choices[0];
-  return openRecolor(app, paletteMap(colors, lib.colors), `Recolor Artwork: ${lib.name}`);
+  return openRecolor(app, paletteMap(colors, lib.colors), `Recolor: ${lib.name}`);
 }
 
 export function registerEditCommands(app) {

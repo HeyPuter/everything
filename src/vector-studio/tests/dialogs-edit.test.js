@@ -72,7 +72,7 @@ describe('Adjust Colors', () => {
   });
 });
 
-describe('Recolor Artwork', () => {
+describe('Recolor', () => {
   it('sets new colors from a rule and keeps preserved colors', async () => {
     const { createPath } = await import('../src/model/nodes.js');
     const { rectangle } = await import('../src/model/shapes.js');

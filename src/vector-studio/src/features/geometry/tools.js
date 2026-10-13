@@ -1,6 +1,6 @@
 /**
  * Geometry tools: Shape Builder (Shift+M), Scissors (C), Knife, Eraser
- * (Shift+E), Blob Brush (Shift+B) and Join.
+ * (Shift+E), Merge Brush (Shift+B) and Join.
  *
  * Heavy work goes through the geometry engine (async; large jobs run in the
  * worker). Tools snapshot the nodes they operate on and drop a result if the
@@ -508,7 +508,7 @@ export class KnifeTool extends Tool {
 }
 
 // ---------------------------------------------------------------------------
-// Brush-based tools (Eraser, Blob Brush)
+// Brush-based tools (Eraser, Merge Brush)
 
 class RoundBrushTool extends Tool {
   static sizePref = 'brushSize';
@@ -715,7 +715,7 @@ export class EraserTool extends RoundBrushTool {
 
 export class BlobBrushTool extends RoundBrushTool {
   static id = 'blob-brush';
-  static label = 'Blob Brush Tool';
+  static label = 'Merge Brush Tool';
   static shortcut = 'Shift+B';
   static icon = 'tool-blob-brush';
   static hint = 'Paint filled shapes that merge with overlapping shapes of the same color | [ and ] change the size';
@@ -757,7 +757,7 @@ export class BlobBrushTool extends RoundBrushTool {
         ? editableLeaves(doc).filter((n) => doc.layerOf(n.id)?.id === layer.id && !(n.stroke && n.strokeWidth > 0) && solidKey(n) === key && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds))
         : [];
       const snap = snapshot(doc, candidates);
-      const result = await withBusy(this.app, 'Blob Brush', async () => {
+      const result = await withBusy(this.app, 'Merge Brush', async () => {
         const outline = await this.brushOutline();
         if (!outline.length) return null;
         if (!candidates.length) return { subpaths: outline, merged: [] };
@@ -772,7 +772,7 @@ export class BlobBrushTool extends RoundBrushTool {
       if (!result || !unchangedSince(doc, snap)) return;
       const { merged, subpaths } = result;
       let id;
-      doc.transact('Blob Brush', () => {
+      doc.transact('Merge Brush', () => {
         const built = nodeFromSubpaths(subpaths, merged.length ? { ...styleOf(merged[merged.length - 1]) } : style);
         if (!built) return;
         if (merged.length) id = replaceWith(doc, merged, [built], insertionPoint(doc, merged))[0];

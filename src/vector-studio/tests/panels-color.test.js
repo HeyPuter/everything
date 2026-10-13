@@ -168,7 +168,7 @@ describe('Overprint Black', () => {
 });
 
 describe('Recolor with Preset', () => {
-  it('opens Recolor Artwork with the reduced colors assigned', async () => {
+  it('opens Recolor with the reduced colors assigned', async () => {
     const { app, ed, doc, add } = await setup();
     const a = add({ fill: solid('#ff0000'), stroke: null });
     const b = add({ fill: solid('#0000ff'), stroke: null });
@@ -176,7 +176,7 @@ describe('Recolor with Preset', () => {
     const done = app.commands.run('color.preset.one');
     await tick();
     const dlg = document.querySelector('dialog[open]');
-    expect(dlg.querySelector('.dialog-title').textContent).toBe('Recolor Artwork: 1 Color');
+    expect(dlg.querySelector('.dialog-title').textContent).toBe('Recolor: 1 Color');
     const news = [...dlg.querySelectorAll('input.rc-new')].map((i) => i.value);
     expect(new Set(news.map((c) => Math.round(hue(c)))).size).toBe(1);
     [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'OK').click();
@@ -196,7 +196,7 @@ describe('Recolor with Preset', () => {
     await tick();
     await tick();
     dlg = document.querySelector('dialog[open]');
-    expect(dlg.querySelector('.dialog-title').textContent).toBe('Recolor Artwork: Brights');
+    expect(dlg.querySelector('.dialog-title').textContent).toBe('Recolor: Brights');
     expect(dlg.querySelector('input.rc-new').value).toBe('#ff2d3c');
     [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'Cancel').click();
     await done;

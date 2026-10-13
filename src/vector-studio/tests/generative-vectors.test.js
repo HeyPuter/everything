@@ -262,7 +262,7 @@ describe('Generation History panel', () => {
   });
 });
 
-describe('contextual task bar', () => {
+describe('task bar', () => {
   it('offers generative actions for the selection', async () => {
     const { app, ed, doc } = await setup();
     const labels = () => [...app.taskbar.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent);

@@ -1,7 +1,7 @@
 /**
  * Geometry feature: Pathfinder (panel, Properties section, commands),
  * Object > Path commands, Expand, and the Shape Builder, Scissors, Knife,
- * Eraser, Blob Brush and Join tools. Geometry runs in the Rust/WASM engine
+ * Eraser, Merge Brush and Join tools. Geometry runs in the Rust/WASM engine
  * (src/wasm/geom.wasm, built from wasm/geom).
  */
 import './styles.css';

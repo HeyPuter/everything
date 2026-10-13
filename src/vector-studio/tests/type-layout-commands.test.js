@@ -159,7 +159,7 @@ describe('vertical tools', () => {
   });
 });
 
-describe('snap to glyph', () => {
+describe('snap to letterforms', () => {
   it('adds baseline and x-height points of visible type', () => {
     add(createText('Snap here', 50, 100, { char: { ...CHAR } }));
     const points = [];

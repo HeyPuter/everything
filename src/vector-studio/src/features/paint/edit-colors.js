@@ -166,7 +166,7 @@ export function saturateColor(hex, amount) {
   return rgbToHex({ r: clamp(gray + (r - gray) * f, 0, 255), g: clamp(gray + (g - gray) * f, 0, 255), b: clamp(gray + (b - gray) * f, 0, 255) });
 }
 
-/** Shift hue/saturation/brightness (used by Recolor Artwork's global adjustments). */
+/** Shift hue/saturation/brightness (used by Recolor's global adjustments). */
 export function shiftHsb(hex, { h = 0, s = 0, b = 0 } = {}) {
   const c = rgbToHsb(hexToRgb(hex));
   return rgbToHex(hsbToRgb({ h: (((c.h + h) % 360) + 360) % 360, s: clamp(c.s + s, 0, 100), v: clamp(c.v + b, 0, 100) }));

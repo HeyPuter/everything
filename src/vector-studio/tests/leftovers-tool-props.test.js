@@ -51,7 +51,7 @@ describe('Properties panel tool settings', () => {
     expect(props.toolOptions.hidden).toBe(true);
   });
 
-  it('edits Blob Brush size, polygon sides and rounded rectangle radius in place', () => {
+  it('edits Merge Brush size, polygon sides and rounded rectangle radius in place', () => {
     app.setTool('blob-brush');
     props.update();
     commit(field('Size'), '24');

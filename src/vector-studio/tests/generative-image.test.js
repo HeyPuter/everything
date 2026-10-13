@@ -39,7 +39,7 @@ async function recolorSetup() {
   return { app, ed, doc, ai, ids: ids.map((p) => p.id), colors };
 }
 
-describe('Generative Recolor', () => {
+describe('Recolor from Prompt', () => {
   it('previews palettes on the artwork and applies one as a single undo step', async () => {
     const { app, doc, ai, ids, colors } = await recolorSetup();
     expect(app.commands.isEnabled('generative.recolor')).toBe(true);
@@ -61,7 +61,7 @@ describe('Generative Recolor', () => {
     button(dlg, 'Apply').click();
     expect(await done).toBe(true);
     expect(doc.undoStack.length).toBe(undoBefore + 1);
-    expect(doc.undoLabel).toBe('Generative Recolor');
+    expect(doc.undoLabel).toBe('Recolor from Prompt');
     doc.undo();
     ids.forEach((id, i) => expect(doc.get(id).fill.color).toBe(colors[i]));
     expect(app.generativeHistory.entries[0]).toMatchObject({ kind: 'recolor', prompt: 'campfire at night' });
@@ -81,14 +81,14 @@ describe('Generative Recolor', () => {
     expect(doc.undoStack.length).toBe(undoBefore);
   });
 
-  it('opens a palette in Recolor Artwork to refine it', async () => {
+  it('opens a palette in Recolor to refine it', async () => {
     const { app } = await recolorSetup();
     app.commands.run('generative.recolor');
     const dlg = await dialog();
     dlg.querySelector('.gen-prompt').value = 'sea';
     dlg.querySelector('.gen-go').click();
     await until(() => dlg.querySelectorAll('.gen-palette').length === 2);
-    button(dlg, 'Edit in Recolor Artwork').click();
+    button(dlg, 'Edit in Recolor').click();
     const rc = await until(() => document.querySelector('dialog[open] .recolor'));
     const values = [...rc.querySelectorAll('.rc-new')].map((i) => i.value);
     expect(values).toContain('#2b0f0e');

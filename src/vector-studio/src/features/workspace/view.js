@@ -3,7 +3,7 @@
  * Colors, Rotate View presets and Rotate View to Selection, saved views
  * (New View / Edit Views, stored in the document), Print Tiling with its
  * tool, global and video rulers, Show Template, Overprint Preview and the
- * Gradient Annotator / Corner Widget switches.
+ * Gradient Controls / Corner Widget switches.
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
@@ -437,7 +437,7 @@ export function installView(app) {
     toggle('view.template', 'template', (a) => (a.editor?.viewOptions.template === false ? 'Show Template' : 'Hide Template'), 'Shift+Mod+W'),
     toggle('view.globalRulers', 'globalRulers', (a) => (a.editor?.viewOptions.globalRulers ? 'Change to Artboard Rulers' : 'Change to Global Rulers'), 'Alt+Mod+R'),
     toggle('view.videoRulers', 'videoRulers', (a) => (a.editor?.viewOptions.videoRulers ? 'Hide Video Rulers' : 'Show Video Rulers')),
-    toggle('view.gradientAnnotator', 'gradientAnnotator', (a) => (a.editor?.viewOptions.gradientAnnotator === false ? 'Show Gradient Annotator' : 'Hide Gradient Annotator'), 'Alt+Mod+G'),
+    toggle('view.gradientAnnotator', 'gradientAnnotator', (a) => (a.editor?.viewOptions.gradientAnnotator === false ? 'Show Gradient Controls' : 'Hide Gradient Controls'), 'Alt+Mod+G'),
     toggle('view.cornerWidget', 'cornerWidget', (a) => (a.editor?.viewOptions.cornerWidget === false ? 'Show Corner Widget' : 'Hide Corner Widget')),
     {
       id: 'view.newView',

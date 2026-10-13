@@ -6,7 +6,7 @@
  *  - Align (Shift+F7), Transform (Shift+F8), Info (F8) and Navigator panels
  *  - Free Transform (E), Magic Wand (Y), Measure, Reshape and Blend (W)
  *    tools, Object > Blend commands with live blends and the Blend panel
- *  - the contextual task bar, guide selection with the Selection tool,
+ *  - the task bar, guide selection with the Selection tool,
  *    key objects and Object > Transform > Reset Bounding Box
  */
 import './styles.css';

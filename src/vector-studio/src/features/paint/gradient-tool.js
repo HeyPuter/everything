@@ -1,5 +1,5 @@
 /**
- * Gradient tool (G) with an on-canvas gradient annotator.
+ * Gradient tool (G) with on-canvas gradient controls.
  *
  * Drag across an object to set its gradient vector (stored as x1, y1, x2,
  * y2 in document space; Shift constrains to 45 degrees). Clicking an
@@ -79,7 +79,7 @@ export class GradientTool extends Tool {
 
   /** What the pointer is over on the annotator (screen space test). */
   partAt(e) {
-    // View > Hide Gradient Annotator: dragging always draws a new gradient vector.
+    // View > Hide Gradient Controls: dragging always draws a new gradient vector.
     if (this.editor.viewOptions.gradientAnnotator === false) return null;
     const t = this.targets();
     if (t.length !== 1) return null;

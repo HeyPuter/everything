@@ -150,7 +150,7 @@ export class App extends Emitter {
     this.canvasWrap = h('div.canvas-wrap', this.canvasHost);
     this.rulers = createRulers(this, this.canvasWrap);
     this.isolationBar = h('div.isolation-bar', { hidden: true });
-    this.taskbar = h('div.taskbar', { role: 'toolbar', 'aria-label': 'Contextual task bar', hidden: true });
+    this.taskbar = h('div.taskbar', { role: 'toolbar', 'aria-label': 'Task bar', hidden: true });
     this.home = h('div.home-host', { hidden: true });
     this.statusbar = createStatusbar(this);
     this.docArea = h('main#main.doc-area', this.tabsEl, this.isolationBar, h('div.canvas-stack', this.canvasWrap, this.taskbar, this.home), this.statusbar.el, this.canvasDesc);
@@ -668,7 +668,7 @@ export class App extends Emitter {
       { id: 'window.toggleDock', label: (a) => (a.dockOpen ? 'Hide Panels' : 'Show Panels'), run: (a) => a.setDockOpen(!a.dockOpen) },
       {
         id: 'window.resetWorkspace',
-        label: 'Reset Essentials',
+        label: 'Reset Standard',
         run: (a) => {
           a.setDockOpen(true);
           a.root.classList.remove('hide-panels', 'hide-dock');
