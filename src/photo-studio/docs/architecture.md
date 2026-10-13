@@ -318,6 +318,15 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   older one between stages. Previews render a coarse level, then a level
   matching the zoom; zooming past it renders full size on a second worker,
   which Stop terminates.
+- AI filters are sent the stack's result at their own input (the filters
+  before them in `RUN_ORDER`), rendered on a third worker and kept per
+  setting of those filters, so generating again sends the same pixels. AI
+  stages keep the layer's alpha. While OK applies, the settings are snapshot
+  and the controls inert; previews pause and arriving AI results wait.
+- Live output adds the filter to the layer's own stack (`LiveTarget` in
+  `filters/apply.ts`), also while its mask or Quick Mask is edited. Its
+  preview follows the layer's Live Filter mask; with a selection it is offered
+  only when the selection would become a mask for this filter alone.
 - Global estimates (skin regions, depth, colorization) run at a working size
   relative to the image so previews match the full-size result; JPEG cleanup
   as the first filter cleans the full-resolution source even for previews,

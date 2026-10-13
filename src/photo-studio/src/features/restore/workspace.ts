@@ -13,7 +13,7 @@ import { canvasRect, selectionBounds, selectionGrid } from '../../model/selectio
 import { emptyGrid, gridFromImage, readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
 import { svg } from '../../app/icons';
 import type { Mask8, ParamValues, RGBA8 } from '../../imaging/types';
-import { GROUPS, RESTORE_FILTERS, filterDef, isDeterministic, needsPixels, normalizeRestore, replayable, defaultParams, type RestoreEntry, type RestoreFilterId, type RestoreParams } from '../../imaging/restore/defs';
+import { GROUPS, RESTORE_FILTERS, RUN_ORDER, filterDef, isDeterministic, needsPixels, normalizeRestore, replayable, defaultParams, type RestoreEntry, type RestoreFilterId, type RestoreParams } from '../../imaging/restore/defs';
 import { RESTORE_ID, RESTORE_LABEL } from '../../imaging/restore/id';
 import { transferStats } from '../../imaging/restore/transfer';
 import { estimateGrid } from '../../imaging/restore/deblock';
@@ -101,6 +101,26 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const aux = new Map<string, RGBA8>();
   let auxCount = 0;
   const entry = (id: RestoreFilterId) => params.filters.find((f) => f.id === id)!;
+  // While OK applies the result the settings are fixed: controls are inert,
+  // previews pause and AI results wait (`whenIdle`).
+  let applying = false, closed = false;
+  let idleWaiters: (() => void)[] = [];
+  const whenIdle = () => (applying ? new Promise<void>((r) => idleWaiters.push(r)) : Promise.resolve());
+
+  // A Live Filter added to a layer that already has Live Filters is limited by
+  // the layer's Live Filter mask, and a selection would become the mask of every
+  // Live Filter on it: the preview of Live output follows the mask, and Live
+  // output with a selection is offered only where the selection limits just
+  // this filter (as the preview shows it).
+  const liveLayer = !src.edit && isLiveLayer(src.layer) ? src.layer : undefined;
+  const liveMask = liveLayer?.liveMask && !liveLayer.liveMaskDisabled ? readMask(e.assets.tiles, liveLayer.liveMask, canvasRect(e.doc)) : undefined;
+  const liveSelectionNote = !src.selection || !liveLayer
+    ? ''
+    : liveLayer.liveMask
+      ? 'Live Filter output is not available with a selection: this layer’s Live Filter mask limits all of its Live Filters. Deselect to add one.'
+      : liveLayer.liveFilters.some((f) => f.enabled)
+        ? 'Live Filter output is not available with a selection: the selection would become the mask of every Live Filter on this layer. Deselect to add one.'
+        : '';
 
   const ws = openWorkspace(
     src.edit ? `${RESTORE_LABEL} (Live Filter)` : RESTORE_LABEL,
@@ -160,6 +180,10 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const preview = new RestoreClient('preview'), full = new RestoreClient('full');
   preview.load(src.image, src.selection);
   full.load(src.image, src.selection);
+  // Renders what an AI filter is sent: the image as the filters before it leave it.
+  const aiClient = new RestoreClient('ai-input');
+  aiClient.load(src.image);
+  const clients = [preview, full, aiClient];
 
   const say = (t: string) => (statusEl.textContent = t);
   const busy = (label: string | null, f = 0) => {
@@ -214,7 +238,7 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   };
   const aiNotice = (what: string) =>
     `<div class="ai-notice pr-ai-notice" role="note"><strong>Uses your Puter account</strong><p>${escapeXML(what)} This needs a Puter account (you may be asked to sign in) and can use credits from your Puter balance. Nothing is sent until you press the button.</p></div>`;
-  const sendNote = `The layer’s pixels (reduced to at most 1024 pixels on the longer side) and the instruction are sent to Puter’s AI service.`;
+  const sendNote = `The layer’s pixels with the filters that run before this one applied (reduced to at most 1024 pixels on the longer side) and the instruction are sent to Puter’s AI service.`;
   const sourceOptions = (current: string, withNone: string) => {
     const docs = e.sessions.filter((s) => s.hasDocument && s !== e.session);
     const layers: Layer[] = [];
@@ -261,8 +285,7 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const setAux = (en: RestoreEntry, image: RGBA8 | null) => {
     if (en.aux) {
       aux.delete(en.aux);
-      preview.setAux(en.aux, null);
-      full.setAux(en.aux, null);
+      for (const c of clients) c.setAux(en.aux, null);
     }
     if (!image) {
       delete en.aux;
@@ -270,13 +293,42 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
     }
     const name = `${en.id}-${++auxCount}`;
     aux.set(name, image);
-    preview.setAux(name, image);
-    full.setAux(name, image);
+    for (const c of clients) c.setAux(name, image);
     en.aux = name;
   };
   // AI requests per filter, so Cancel and Stop can abandon them.
   const aiRuns = new Map<RestoreFilterId, AbortController>();
   const aiStatus = new Map<RestoreFilterId, string>();
+  /** Abandon running AI requests (Reset All, loading a preset). */
+  const abortAI = (why: string) => {
+    if (!aiRuns.size) return false;
+    for (const [id, ac] of aiRuns) {
+      ac.abort();
+      aiStatus.set(id, why);
+    }
+    aiRuns.clear();
+    return true;
+  };
+  // An AI filter works on the image as the filters before it in the run order
+  // leave it (repairs before creative filters). Inputs are kept per setting of
+  // those filters, so generating again sends the same pixels; renders run one
+  // at a time so one request's input never supersedes another's.
+  const aiInputs = new Map<string, RGBA8>();
+  let aiQueue: Promise<unknown> = Promise.resolve();
+  async function aiInput(id: RestoreFilterId): Promise<RGBA8> {
+    const at = RUN_ORDER.indexOf(id);
+    const before: RestoreParams = structuredClone({ filters: params.filters.map((f) => (RUN_ORDER.indexOf(f.id) < at ? f : { ...f, enabled: false })) });
+    if (!before.filters.some((f) => f.enabled)) return src.image;
+    const key = JSON.stringify(before);
+    const hit = aiInputs.get(key);
+    if (hit) return hit;
+    const run = aiQueue.then(() => aiClient.run({ params: before, level: levelFor(W, H, 2048) }));
+    aiQueue = run.catch(() => undefined);
+    const { image } = await run;
+    if (aiInputs.size >= 4) aiInputs.delete(aiInputs.keys().next().value!);
+    aiInputs.set(key, image);
+    return image;
+  }
   const styleRefs: { image?: RGBA8; name?: string } = {};
 
   // Blocking measured once on a central crop aligned to the 8x8 grid.
@@ -318,7 +370,7 @@ ${ai ? `${aiNotice(sendNote)}<div class="pr-row pr-buttons"><button type="button
         const layerMode = en.params.source === 'layer';
         return `${layerMode ? `<label class="pr-row pr-col"><span>Depth Source</span><select class="pr-depth-src" aria-label="Depth source">${sourceOptions('', en.aux ? 'Keep the current depth source' : 'Choose a layer or channel…')}</select></label><p class="pr-note">${en.aux ? 'White is near unless Invert Depth is on.' : 'Choose where the depth map comes from.'}</p>` : ''}
 <p class="pr-note">Click the preview to focus on that point.</p>
-${src.edit ? '' : `<label class="pr-row pr-check"><input type="checkbox" class="pr-depth-channel" ${depthChannel ? 'checked' : ''}> Save the depth map as a channel</label>`}`;
+${src.edit ? '' : output === 'live' ? `<label class="pr-row pr-check"><input type="checkbox" class="pr-depth-channel" disabled> Save the depth map as a channel</label><p class="pr-note">Not available for Live Filter output: choose another output to save the depth map.</p>` : `<label class="pr-row pr-check"><input type="checkbox" class="pr-depth-channel" ${depthChannel ? 'checked' : ''}> Save the depth map as a channel</label>`}`;
       }
       case 'style': {
         if (en.params.style !== 'ai') return '';
@@ -443,53 +495,64 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
   });
 
   async function generateAI(en: RestoreEntry) {
-    const prev = aiRuns.get(en.id);
+    const id = en.id;
+    const prev = aiRuns.get(id);
     if (prev) {
       prev.abort();
-      aiRuns.delete(en.id);
-      aiStatus.set(en.id, 'Stopped. A result that arrives later is ignored.');
+      aiRuns.delete(id);
+      aiStatus.set(id, 'Stopped. A result that arrives later is ignored.');
       renderControls();
       return;
     }
     const instruction = aiInstruction(en);
     if (!instruction) {
-      aiStatus.set(en.id, 'Describe the change first.');
+      aiStatus.set(id, 'Describe the change first.');
       renderControls();
       controls.querySelector<HTMLTextAreaElement>('.pr-prompt')?.focus();
       return;
     }
+    const summary = aiSummary(en);
     const ac = new AbortController();
-    aiRuns.set(en.id, ac);
-    aiStatus.set(en.id, 'Connecting to Puter…');
+    aiRuns.set(id, ac);
+    const status = (t: string) => {
+      aiStatus.set(id, t);
+      const st = selected === id ? controls.querySelector('.pr-ai-status') : null;
+      if (st) st.textContent = t;
+    };
+    aiStatus.set(id, 'Preparing the image…');
     renderControls();
     const btn = controls.querySelector<HTMLButtonElement>('.pr-ai-go');
     if (btn) btn.textContent = 'Stop';
     try {
-      const image = await runAI(src.image, instruction, { reference: en.id === 'style' ? styleRefs.image : undefined, signal: ac.signal, onStatus: (t) => {
-        aiStatus.set(en.id, t);
-        const st = selected === en.id ? controls.querySelector('.pr-ai-status') : null;
-        if (st) st.textContent = t;
-      } });
+      const input = await aiInput(id);
+      if (ac.signal.aborted) return;
+      const image = await runAI(input, instruction, { reference: id === 'style' ? styleRefs.image : undefined, signal: ac.signal, onStatus: status });
       if (ac.signal.aborted) return;
       const area = canvasRect(e.doc);
-      void recordGeneration(e, { kind: 'restore', prompt: aiSummary(en), settings: { filter: en.id, instruction, dialog: 'restore' }, placement: { x: area.x, y: area.y, width: area.width, height: area.height } }, image);
-      setAux(en, image);
-      en.enabled = true;
-      aiStatus.set(en.id, en.id === 'colorize' ? 'AI colors are applied; hints refine them.' : en.id === 'style' ? 'The AI style is applied; Strength blends it.' : 'The changed scene is applied.');
+      void recordGeneration(e, { kind: 'restore', prompt: summary, settings: { filter: id, instruction, dialog: 'restore' }, placement: { x: area.x, y: area.y, width: area.width, height: area.height } }, image);
+      // Settings do not change while OK applies them; the result waits.
+      await whenIdle();
+      if (ac.signal.aborted || closed) return;
+      // The filter's current entry (Reset All and presets replace entries).
+      const target = entry(id);
+      setAux(target, image);
+      target.enabled = true;
+      aiStatus.set(id, id === 'colorize' ? 'AI colors are applied; hints refine them.' : id === 'style' ? 'The AI style is applied; Strength blends it.' : 'The changed scene is applied.');
       renderList();
       changed();
     } catch (error) {
-      if (ac.signal.aborted) return;
-      aiStatus.set(en.id, error instanceof Error ? error.message : String(error));
+      if (ac.signal.aborted || closed) return;
+      aiStatus.set(id, isCancel(error) ? 'Stopped.' : error instanceof Error ? error.message : String(error));
     } finally {
-      if (aiRuns.get(en.id) === ac) aiRuns.delete(en.id);
-      if (selected === en.id) renderControls();
+      if (aiRuns.get(id) === ac) aiRuns.delete(id);
+      if (selected === id && !closed) renderControls();
     }
   }
 
   // ----- Preview clicks: hints and focus -----
   let depthOverlay: Mask8 | undefined;
   view.onClick = (x, y, ev) => {
+    if (applying) return;
     const en = entry(selected);
     if (selected === 'colorize') {
       const r = view.canvas.getBoundingClientRect();
@@ -542,7 +605,17 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     if (!def?.overlay) return undefined;
     return showOverlay || selected === 'depth' ? selected : undefined;
   };
-  const sigOf = () => JSON.stringify(params) + '|' + (overlayId() ?? '');
+  // What limits the preview: the selection, or for Live output the layer's Live Filter mask.
+  const limit = () => (output === 'live' && liveMask ? liveMask : src.selection);
+  let loadedLimit = src.selection;
+  const syncLimit = () => {
+    const l = limit();
+    if (l === loadedLimit) return;
+    loadedLimit = l;
+    preview.load(src.image, l);
+    full.load(src.image, l);
+  };
+  const sigOf = () => JSON.stringify(params) + '|' + (overlayId() ?? '') + (loadedLimit === src.selection ? '' : '|live-mask');
   const showResult = (r: RunResult) => {
     view.setAfter(r.image);
     const id = overlayId();
@@ -565,6 +638,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     void refresh();
   }
   async function refresh() {
+    if (applying) return;
     const my = ++gen;
     const sig = sigOf();
     clearTimeout(fullTimer);
@@ -601,6 +675,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
   // Zoomed in past the preview's resolution: render full size once settled.
   function maybeFull() {
     clearTimeout(fullTimer);
+    if (applying) return;
     const sig = sigOf();
     if (fullDone?.sig === sig) return;
     if (view.neededResolution() <= (fullSide / 2 ** fineLevel()) * 1.15 || fineLevel() === 0) return;
@@ -680,8 +755,8 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
       outputBox.innerHTML = `<h3>Output</h3><p class="pr-note">Updates the Live Filter on “${escapeXML(src.layer.name)}”.${isDeterministic(params) ? '' : ' AI results and layer-based depth cannot be kept in a Live Filter and are left out.'}</p>`;
       return;
     }
-    const liveOk = isDeterministic(params) && !src.layer.video;
-    if (output === 'live' && !liveOk) output = 'new-layer';
+    const liveOk = isDeterministic(params) && !src.layer.video && !liveSelectionNote;
+    if (output === 'live' && !liveOk) setOutput('new-layer');
     outputBox.innerHTML = `<h3>Output</h3><label class="pr-row pr-col"><span>Send the result to</span><select class="pr-out">${OUTPUTS.map((o) => `<option value="${o.id}" ${o.id === output ? 'selected' : ''} ${o.id === 'live' && !liveOk ? 'disabled' : ''}>${escapeXML(o.label)}</option>`).join('')}</select></label>
 <p class="pr-note">${escapeXML(
       output === 'masked-layer'
@@ -693,13 +768,22 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
             : output === 'document'
               ? 'Opens the result as a new document.'
               : 'Adds the result as a new layer above the current one.',
-    )}${liveOk ? '' : ' Live Filter output is not available with AI results or layer-based depth.'}${src.selection ? ' Limited to the selection.' : ''}</p>`;
+    )}${liveSelectionNote ? ` ${liveSelectionNote}` : liveOk ? '' : ' Live Filter output is not available with AI results or layer-based depth.'}${output === 'live' && liveMask ? ' Limited to the layer’s Live Filter mask.' : src.selection ? ' Limited to the selection.' : ''}</p>`;
   };
+  function setOutput(o: OutputKind) {
+    const was = output;
+    output = o;
+    if ((was === 'live') === (o === 'live')) return;
+    // Save the depth map as a channel does not apply to Live output.
+    if (selected === 'depth') renderControls();
+    syncLimit();
+  }
   outputBox.addEventListener('change', (ev) => {
     const t = ev.target as HTMLSelectElement;
     if (t.classList.contains('pr-out')) {
-      output = t.value as OutputKind;
+      setOutput(t.value as OutputKind);
       renderOutput();
+      void refresh();
     }
   });
 
@@ -726,7 +810,9 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     if (load !== undefined) {
       const p = presets[Number(load)];
       if (!p) return;
-      // Hints and AI results of this image are kept; settings come from the preset.
+      // Hints and AI results of this image are kept; settings come from the
+      // preset. A running AI request was made for the old settings.
+      const stopped = abortAI('Stopped because a preset was loaded. Press the button to try again.');
       const keep = params;
       params = normalizeRestore(p.params);
       for (const f of params.filters) {
@@ -739,7 +825,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
       renderControls();
       renderOutput();
       changed();
-      say(`Preset “${p.name}” loaded.`);
+      say(`Preset “${p.name}” loaded.${stopped ? ' The running AI request was stopped.' : ''}`);
     } else if (del !== undefined) {
       const p = presets[Number(del)];
       if (p) deletePreset(p.name);
@@ -780,35 +866,35 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     }
   });
   q('.pr-reset-all').addEventListener('click', () => {
+    const stopped = abortAI('Stopped by Reset All. Press the button to try again.');
     params = normalizeRestore({ filters: [] });
-    for (const name of [...aux.keys()]) {
-      preview.setAux(name, null);
-      full.setAux(name, null);
-    }
+    for (const name of [...aux.keys()]) for (const c of clients) c.setAux(name, null);
     aux.clear();
     renderList();
     renderControls();
     renderOutput();
     changed();
+    if (stopped) say('Reset All stopped the running AI request.');
   });
 
   // ----- Apply -----
   const label = RESTORE_LABEL;
-  const layerName = () => {
-    const on = params.filters.filter((f) => f.enabled);
+  const layerName = (p: RestoreParams) => {
+    const on = p.filters.filter((f) => f.enabled);
     return `${src.layer.name} (${on.length === 1 ? filterDef(on[0].id)!.label : label})`;
   };
-  async function finalRender(): Promise<RunResult> {
-    const wantDepth = depthChannel && entry('depth').enabled;
-    const affected = output === 'masked-layer';
+  /** What OK applies, fixed when it is pressed. */
+  type Snapshot = { params: RestoreParams; output: OutputKind; depth: boolean; sig: string };
+  async function finalRender(snap: Snapshot): Promise<RunResult> {
+    const affected = snap.output === 'masked-layer';
     // The full-size preview can be reused when nothing extra is needed.
-    if (fullDone?.sig === sigOf() && !wantDepth && !affected) return fullDone.result;
+    if (fullDone?.sig === snap.sig && !snap.depth && !affected) return fullDone.result;
     gen++;
     clearTimeout(fullTimer);
     preview.terminate();
     busy('Rendering full size…', 0);
     try {
-      return await full.run({ params, level: 0, overlay: wantDepth ? 'depth' : undefined, affected }, (f) => busy('Rendering full size…', f));
+      return await full.run({ params: snap.params, level: 0, overlay: snap.depth ? 'depth' : undefined, affected }, (f) => busy('Rendering full size…', f));
     } finally {
       busy(null);
     }
@@ -816,11 +902,12 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
   const addDepthChannel = (d: { channels?: { id: string; name: string; grid: TileGrid }[] }, store: typeof e.assets.tiles, m: Mask8) => {
     d.channels = [...(d.channels ?? []), { id: crypto.randomUUID(), name: 'Depth Map', grid: writeRect(store, emptyGrid(1), 0, 0, m) }];
   };
-  const generatedInfo = () => {
-    const ai = params.filters.find((f) => f.enabled && needsPixels(f) && f.aux && f.id !== 'depth');
+  const generatedInfo = (p: RestoreParams) => {
+    const ai = p.filters.find((f) => f.enabled && needsPixels(f) && f.aux && f.id !== 'depth');
     return ai ? { kind: 'edit' as const, prompt: aiSummary(ai) } : undefined;
   };
-  async function apply(): Promise<boolean> {
+  async function apply(snap: Snapshot): Promise<boolean> {
+    const { params, output } = snap;
     if (!params.filters.some((f) => f.enabled)) {
       say('Turn on at least one filter.');
       return false;
@@ -834,25 +921,29 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     if (output === 'live') {
       const rp = replayable(params);
       const mark = e.history.mark();
+      let ok = false;
       try {
         if (!isLiveLayer(findLayer(e.doc.layers, src.layer.id))) await convertForLiveFilters(e);
-        await applyDirect(e, RESTORE_ID, rp as unknown as ParamValues);
+        // The layer's own stack, also while its mask or Quick Mask is being
+        // edited (the preview shows the layer's pixels, not the mask).
+        if (isLiveLayer(findLayer(e.doc.layers, src.layer.id))) ok = await applyDirect(e, RESTORE_ID, rp as unknown as ParamValues, { layerId: src.layer.id });
       } finally {
         e.history.squash(mark, label);
         e.update();
       }
+      if (!ok) return false;
       recordStep(e, 'filter.portrait-restore', { params: rp });
       return true;
     }
-    const r = await finalRender();
-    const depth = depthChannel && entry('depth').enabled ? r.overlay : undefined;
+    const r = await finalRender(snap);
+    const depth = snap.depth ? r.overlay : undefined;
     const id = src.layer.id;
     if (output === 'document') {
-      const name = layerName();
+      const name = layerName(params);
       await openDocument(e, name, W, H, (doc, s) => {
         if (depth) addDepthChannel(doc, s.assets.tiles, depth);
         const l = imageLayer(s, doc, name, r.image);
-        const g = generatedInfo();
+        const g = generatedInfo(params);
         if (g) l.generated = g;
         return [l];
       });
@@ -860,7 +951,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     }
     if (output === 'layer') {
       const grid = writeRect(store, src.target!.grid, 0, 0, r.image);
-      const g = generatedInfo();
+      const g = generatedInfo(params);
       e.command(label, (d) => {
         const l = findLayer(d.layers, id);
         if (!l) return;
@@ -872,9 +963,9 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
       if (isDeterministic(params)) recordStep(e, 'filter.portrait-restore', { params: replayable(params) });
       return true;
     }
-    const nl = newPixelLayer(layerName(), e.doc, gridFromImage(store, r.image, 0, 0));
+    const nl = newPixelLayer(layerName(params), e.doc, gridFromImage(store, r.image, 0, 0));
     if (output === 'masked-layer' && r.affected) nl.maskGrid = writeRect(store, emptyGrid(1), 0, 0, r.affected);
-    const g = generatedInfo();
+    const g = generatedInfo(params);
     if (g) nl.generated = g;
     e.command(label, (d) => {
       const list = containerOf(d.layers, id) ?? d.layers;
@@ -886,22 +977,35 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     return true;
   }
 
+  /** Fix the settings while OK applies them (Stop in the toolbar still works). */
+  const setApplying = (on: boolean) => {
+    applying = on;
+    for (const el of [list, q('.pr-side'), q('.pr-presets'), q('.pr-reset-all')]) el.inert = on;
+    okBtn.disabled = on;
+    ws.dialog.classList.toggle('pr-applying', on);
+    if (on) return;
+    const waiting = idleWaiters;
+    idleWaiters = [];
+    for (const r of waiting) r();
+  };
+
   // ----- Start -----
   renderList();
   renderControls();
   renderOutput();
+  syncLimit();
 
   return new Promise<boolean>((resolve) => {
     let done = false;
     const finish = (applied: boolean) => {
       if (done) return;
-      done = true;
+      done = closed = true;
       for (const ac of aiRuns.values()) ac.abort();
       clearTimeout(fullTimer);
       clearTimeout(zoomTimer);
+      setApplying(false);
       view.dispose();
-      preview.dispose();
-      full.dispose();
+      for (const c of clients) c.dispose();
       ws.close();
       e.update();
       resolve(applied);
@@ -909,11 +1013,12 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     void ws.closed.then(() => finish(false));
     q('.pr-cancel').addEventListener('click', () => finish(false));
     okBtn.addEventListener('click', async () => {
-      if (okBtn.disabled) return;
-      okBtn.disabled = true;
+      if (okBtn.disabled || applying) return;
+      const snap: Snapshot = { params: structuredClone(params), output, depth: depthChannel && output !== 'live' && entry('depth').enabled, sig: sigOf() };
+      setApplying(true);
       try {
-        if (await apply()) {
-          saveLast({ params: storable(params), output, selected, depthChannel });
+        if (await apply(snap)) {
+          saveLast({ params: storable(snap.params), output: snap.output, selected, depthChannel });
           finish(true);
           return;
         }
@@ -921,7 +1026,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
         if (!isCancel(error)) say(error instanceof Error ? error.message : String(error));
         else say('Stopped.');
       }
-      okBtn.disabled = false;
+      if (!done) setApplying(false);
     });
     void refresh();
     okBtn.focus();

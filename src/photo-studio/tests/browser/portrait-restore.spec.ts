@@ -3,7 +3,7 @@
 // layer, the current layer or a Live Filter, and undo restores the document.
 // AI requests go to a stubbed Puter SDK.
 import { test, expect, type Page } from '@playwright/test';
-import { boot, historyLabels, idle, menu, run, undo } from './helpers';
+import { boot, historyLabels, idle, menu, openImage, run, undo } from './helpers';
 
 // txt2img returns a flat orange image, and records each call.
 const PUTER = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:async(prompt,opts)=>{window.puter.ai.calls.push({prompt,opts});const c=document.createElement('canvas');c.width=200;c.height=150;const g=c.getContext('2d');g.fillStyle='#f08020';g.fillRect(0,0,200,150);return {src:c.toDataURL()};}}};`;
@@ -32,6 +32,23 @@ async function scene(page: Page) {
   });
   await idle(page);
 }
+// The same, but each request waits for window.__aiOpen() while window.__aiGate is set.
+const PUTER_GATED = PUTER.replace('window.puter.ai.calls.push({prompt,opts});', 'window.puter.ai.calls.push({prompt,opts});if(window.__aiGate)await window.__aiGate;window.__aiReturned=(window.__aiReturned||0)+1;');
+// Holds the final-render worker's run requests while window.__holdFull is set.
+const HOLD_FULL = `(() => {
+  window.__heldRuns = [];
+  const W = window.Worker;
+  window.Worker = class extends W {
+    constructor(url, opts) { super(url, opts); this.__full = opts && opts.name === 'restore-full'; }
+    postMessage(m, t) {
+      if (this.__full && window.__holdFull && m && m.type === 'run') { window.__heldRuns.push(() => super.postMessage(m, t)); return; }
+      return super.postMessage(m, t);
+    }
+  };
+  window.__releaseFull = () => { window.__holdFull = false; for (const f of window.__heldRuns.splice(0)) f(); };
+})();`;
+type AIWindow = { puter: { ai: { calls: { prompt: string; opts: { input_image?: string } }[] } }; __aiGate?: Promise<void>; __aiOpen?: () => void; __aiReturned?: number; __holdFull?: boolean; __heldRuns: unknown[]; __releaseFull: () => void };
+
 const dialog = (page: Page) => page.locator('dialog.pr-workspace[open]');
 /** Wait until the preview has rendered (no busy indicator). */
 async function settled(page: Page) {
@@ -48,6 +65,31 @@ async function docToScreen(page: Page, x: number, y: number): Promise<[number, n
   const z = Math.min(box.width / 200, box.height / 150) * 0.96;
   return [box.x + box.width / 2 + (x - 100) * z, box.y + box.height / 2 + (y - 75) * z];
 }
+/** A pixel of the preview canvas at a document point. */
+async function previewPixel(page: Page, x: number, y: number) {
+  const [sx, sy] = await docToScreen(page, x, y);
+  return page.evaluate(
+    ([sx, sy]) => {
+      const c = document.querySelector<HTMLCanvasElement>('dialog.pr-workspace[open] .pr-canvas')!;
+      const r = c.getBoundingClientRect(), k = c.width / r.width;
+      return Array.from(c.getContext('2d')!.getImageData(Math.round((sx - r.left) * k), Math.round((sy - r.top) * k), 1, 1).data);
+    },
+    [sx, sy],
+  );
+}
+/** Red at (x, y) of a PNG data URL. */
+const dataUrlRed = (page: Page, uri: string, x: number, y: number) =>
+  page.evaluate(
+    async ({ uri, x, y }) => {
+      const img = new Image();
+      img.src = uri;
+      await img.decode();
+      const c = new OffscreenCanvas(img.width, img.height), g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      return g.getImageData(x, y, 1, 1).data[0];
+    },
+    { uri, x, y },
+  );
 const pixel = (page: Page, layer: number, x: number, y: number) =>
   page.evaluate(
     async ({ layer, x, y }) => {
@@ -313,5 +355,231 @@ test('AI style with a reference image, and depth blur focus with the depth map s
   const channels = await page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name));
   expect(channels).toContain('Depth Map');
   await undo(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.channels?.length ?? 0)).toBe(0);
+});
+
+test('Live output while a layer mask or Quick Mask is edited filters the layer, not the mask', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  // A white layer mask, being edited.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { emptyGrid, writeRect } = await import('/src/model/tiles.ts');
+    const grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 200, height: 150, data: new Uint8Array(200 * 150).fill(255) });
+    e.command('Add mask', (d) => void (d.layers[0].maskGrid = grid));
+    e.maskTarget = e.doc.layers[0].id;
+  });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.editingMask)).toBe(true);
+  const maskSum = () =>
+    page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { readMask } = await import('/src/model/tiles.ts');
+      const grid = (e.settings.quickMask ?? e.doc.layers[0].maskGrid) as Parameters<typeof readMask>[1];
+      return readMask(e.assets.tiles, grid, { x: 0, y: 0, width: 200, height: 150 }).data.reduce((a, v) => a + v, 0);
+    });
+  const liveOnce = async () => {
+    await openWorkspace(page);
+    const d = dialog(page);
+    await d.getByRole('checkbox', { name: 'Use Skin Smoothing' }).uncheck();
+    await d.getByRole('checkbox', { name: 'Use Photo Restoration' }).check();
+    await settled(page);
+    // The preview shows the layer's pixels with the scratch repaired.
+    await d.getByTitle('Result only').click();
+    expect((await previewPixel(page, 30.5, 70))[0]).toBeLessThan(150);
+    await d.getByLabel('Send the result to').selectOption('live');
+    await d.getByRole('button', { name: 'OK' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    await idle(page);
+  };
+  const mask = await maskSum();
+  await liveOnce();
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].liveFilters?.map((f) => f.id))).toEqual(['portrait-restore']);
+  expect((await pixel(page, 0, 30, 70))[0]).toBeLessThan(150);
+  expect(await maskSum()).toBe(mask);
+  await undo(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].liveFilters)).toBeUndefined();
+  // Quick Mask: the quick mask stays as it was.
+  await page.evaluate(() => (window.photoStudio.maskTarget = ''));
+  await run(page, 'select.quick-mask');
+  const quick = await maskSum();
+  await liveOnce();
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].liveFilters?.map((f) => f.id))).toEqual(['portrait-restore']);
+  expect((await pixel(page, 0, 30, 70))[0]).toBeLessThan(150);
+  expect(await maskSum()).toBe(quick);
+});
+
+test('AI filters are sent the image as the filters before them leave it, the same each time', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByRole('checkbox', { name: 'Use Skin Smoothing' }).uncheck();
+  await d.getByRole('checkbox', { name: 'Use Photo Restoration' }).check();
+  await d.getByRole('button', { name: 'Scene Changer' }).click();
+  await d.getByLabel('Protect Subject').uncheck();
+  await d.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('The changed scene is applied.');
+  await d.getByRole('button', { name: 'Generate Again' }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('The changed scene is applied.');
+  const sent = await page.evaluate(() => (window as unknown as AIWindow).puter.ai.calls.map((c) => c.opts.input_image!));
+  expect(sent.length).toBe(2);
+  // The scratch (250 in the original) was repaired before the image was sent.
+  expect(await dataUrlRed(page, sent[0], 30, 70)).toBeLessThan(150);
+  expect(sent[1]).toBe(sent[0]);
+  await expect(d.locator('.pr-ai-notice')).toContainText('filters that run before this one');
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+});
+
+test('Live output follows a Live Filter mask in the preview and is not offered with a selection it would ignore', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  await run(page, 'filter.convert-live');
+  // A Live Filter mask covering the right half: the scratch (x = 30) is outside it.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { emptyGrid, writeRect } = await import('/src/model/tiles.ts');
+    const data = new Uint8Array(200 * 150);
+    for (let y = 0; y < 150; y++) data.fill(255, y * 200 + 100, y * 200 + 200);
+    const grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 200, height: 150, data });
+    e.command('Add Live Filter Mask', (d) => void (d.layers[0].liveMask = grid));
+  });
+  await idle(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByRole('checkbox', { name: 'Use Skin Smoothing' }).uncheck();
+  await d.getByRole('checkbox', { name: 'Use Photo Restoration' }).check();
+  await d.getByTitle('Result only').click();
+  await settled(page);
+  expect((await previewPixel(page, 30.5, 70))[0]).toBeLessThan(150);
+  await d.getByLabel('Send the result to').selectOption('live');
+  await settled(page);
+  // Preview and result agree: the masked-out scratch stays.
+  await expect.poll(async () => (await previewPixel(page, 30.5, 70))[0]).toBeGreaterThan(220);
+  await expect(d.locator('.pr-output')).toContainText('Limited to the layer’s Live Filter mask.');
+  await d.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await idle(page);
+  expect((await pixel(page, 0, 30, 70))[0]).toBeGreaterThan(220);
+  // With a selection the existing mask would override it: Live output is not offered.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const data = new Uint8Array(200 * 150);
+    for (let y = 0; y < 150; y++) data.fill(255, y * 200, y * 200 + 60);
+    commitSelectionMask(e, { width: 200, height: 150, data }, 'replace', 'Select');
+  });
+  await idle(page);
+  await openWorkspace(page);
+  const out = dialog(page).getByLabel('Send the result to');
+  expect(await out.locator('option[value="live"]').evaluate((o) => (o as HTMLOptionElement).disabled)).toBe(true);
+  await expect(out).not.toHaveValue('live');
+  await expect(dialog(page).locator('.pr-output')).toContainText('Live Filter mask limits all of its Live Filters');
+  await dialog(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+});
+
+test('OK fixes the settings and zooming does not cancel the final render', async ({ page }) => {
+  await page.addInitScript(HOLD_FULL);
+  await boot(page, 'default', PUTER);
+  // Large enough that zooming in asks for a full-size render, small enough that the fitted view does not.
+  await openImage(page, 1700, 1275, '#b08070');
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByLabel('Send the result to').selectOption('new-layer');
+  await page.evaluate(() => ((window as unknown as AIWindow).__holdFull = true));
+  await d.getByRole('button', { name: 'OK' }).click();
+  await expect(d.locator('.pr-busy-text')).toHaveText('Rendering full size…');
+  expect(await page.evaluate(() => (window as unknown as AIWindow).__heldRuns.length)).toBe(1);
+  // The settings are inert while applying; Stop stays available.
+  expect(await d.locator('.pr-side').evaluate((el) => el.inert)).toBe(true);
+  expect(await d.locator('.pr-list').evaluate((el) => el.inert)).toBe(true);
+  await expect(d.locator('.pr-stop')).toBeEnabled();
+  // Zooming in past the preview would normally ask for a full-size render.
+  for (let i = 0; i < 4; i++) await d.getByLabel('Zoom in').click();
+  await d.getByRole('button', { name: '100%' }).click();
+  // Give the zoom's debounce timers (250 ms, then 450 ms) time to fire.
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => (window as unknown as AIWindow).__heldRuns.length)).toBe(1);
+  const before = await page.evaluate(() => window.photoStudio.doc.layers.length);
+  await page.evaluate(() => (window as unknown as AIWindow).__releaseFull());
+  await expect(dialog(page)).toHaveCount(0, { timeout: 60_000 });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(before + 1);
+});
+
+test('Reset All and loading a preset stop a running AI request', async ({ page }) => {
+  await boot(page, 'default', PUTER_GATED);
+  await page.evaluate(() => localStorage.removeItem('photo-studio-portrait-restore-presets'));
+  await scene(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  const gate = () => page.evaluate(() => {
+    const w = window as unknown as AIWindow;
+    w.__aiGate = new Promise<void>((r) => (w.__aiOpen = r));
+  });
+  const release = async (n: number) => {
+    await page.evaluate(() => (window as unknown as AIWindow).__aiOpen!());
+    await page.waitForFunction((n) => (window as unknown as AIWindow).__aiReturned === n, n);
+    // The result decodes and would be applied within a few frames.
+    await page.waitForTimeout(500);
+  };
+  // A preset to load later.
+  await d.locator('.pr-presets summary').click();
+  await d.getByLabel('Preset name').fill('Plain');
+  await d.locator('[data-preset-act="save"]').click();
+  await d.locator('.pr-presets summary').click();
+  await d.getByRole('button', { name: 'Scene Changer' }).click();
+  await d.getByLabel('Protect Subject').uncheck();
+  await gate();
+  await d.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toContainText('Generating');
+  await d.getByRole('button', { name: 'Reset All' }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('Stopped by Reset All. Press the button to try again.');
+  await expect(d.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+  await release(1);
+  await expect(d.getByRole('checkbox', { name: 'Use Scene Changer' })).not.toBeChecked();
+  await expect(d.locator('.pr-ai-status')).toHaveText('Stopped by Reset All. Press the button to try again.');
+  // Loading a preset stops it too.
+  await d.getByLabel('Protect Subject').uncheck();
+  await gate();
+  await d.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toContainText('Generating');
+  await d.locator('.pr-presets summary').click();
+  await d.getByRole('button', { name: 'Plain', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('Stopped because a preset was loaded. Press the button to try again.');
+  await release(2);
+  await expect(d.getByRole('checkbox', { name: 'Use Scene Changer' })).not.toBeChecked();
+  // Without interruptions a request still applies.
+  await d.getByLabel('Protect Subject').uncheck();
+  await page.evaluate(() => delete (window as unknown as AIWindow).__aiGate);
+  await d.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('The changed scene is applied.');
+  await expect(d.getByRole('checkbox', { name: 'Use Scene Changer' })).toBeChecked();
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+});
+
+test('saving the depth map as a channel is not offered for Live Filter output', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByRole('button', { name: 'Depth Blur', exact: true }).click();
+  await d.getByRole('checkbox', { name: 'Use Depth Blur' }).check();
+  await d.getByLabel('Save the depth map as a channel').check();
+  await d.getByLabel('Send the result to').selectOption('live');
+  await expect(d.getByLabel('Save the depth map as a channel')).toBeDisabled();
+  await expect(d.locator('.pr-extra')).toContainText('Not available for Live Filter output');
+  await d.getByLabel('Send the result to').selectOption('new-layer');
+  await expect(d.getByLabel('Save the depth map as a channel')).toBeEnabled();
+  await expect(d.getByLabel('Save the depth map as a channel')).toBeChecked();
+  await d.getByLabel('Send the result to').selectOption('live');
+  await settled(page);
+  await d.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].liveFilters?.map((f) => f.id))).toEqual(['portrait-restore']);
   expect(await page.evaluate(() => window.photoStudio.doc.channels?.length ?? 0)).toBe(0);
 });
