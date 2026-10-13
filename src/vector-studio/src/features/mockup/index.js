@@ -9,6 +9,9 @@
  *
  * Match Font (Type > Match Font, the Match Font panel): identify lettering
  * in images or outlined type with Puter AI and set it as editable type.
+ *
+ * Expand Image (Object > Generative > Expand Image, Fill Bleed): extend a
+ * placed image with Puter AI or, without it, on this device.
  */
 import './styles.css';
 import './mockup-model.js';
@@ -21,6 +24,7 @@ import { targetMockups, singleMockup, makeTargets, makeCommand, releaseCommand, 
 import { selectionDoubleClickHooks } from '../../tools/selection.js';
 import { MatchFontPanel } from './match-font-panel.js';
 import { matchSources } from './match-font.js';
+import { singleImage, frameTargets, makeFrame, fillFrame, expandBy, fillBleed } from './expand-image.js';
 
 /** Double-clicking a mockup with the Selection tool edits its art. */
 function editOnDoubleClick(tool, target) {
@@ -69,6 +73,10 @@ function registerCommands(app) {
         return null;
       },
     },
+    { id: 'expandImage.makeFrame', label: 'Make Frame', enabled: (a) => Boolean(singleImage(a.editor)), run: (a) => makeFrame(a) },
+    { id: 'expandImage.fill', label: 'Fill Frame...', enabled: (a) => Boolean(frameTargets(a.editor)), run: (a) => fillFrame(a) },
+    { id: 'expandImage.expand', label: 'Expand By...', enabled: (a) => Boolean(singleImage(a.editor)), run: (a) => expandBy(a) },
+    { id: 'expandImage.bleed', label: 'Fill Bleed...', enabled: (a) => Boolean(singleImage(a.editor)), run: (a) => fillBleed(a) },
   ]);
 }
 
