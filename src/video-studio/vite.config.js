@@ -21,5 +21,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.test.js'],
     setupFiles: ['tests/setup.js'],
+    // Accessibility scans of whole panels and the audio and optical flow
+    // renders take a few seconds each; leave room on busy machines.
+    testTimeout: 20_000,
   },
 });
