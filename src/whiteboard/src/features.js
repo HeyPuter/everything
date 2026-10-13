@@ -1,6 +1,7 @@
 import { openClusters } from "./clusters-ui.js";
 import { busy } from "./accessibility/busy.js";
 import { fileName } from "./file-name.js";
+import { fileDetails } from "./file-details.js";
 import { createTextEditor } from "./text-editor.js";
 import { equalTextRuns, textDifference } from "./rich-text.js";
 import { spliceTextBlocks } from "./text-blocks.js";
@@ -783,7 +784,7 @@ export function createFeatures(api) {
   function fileDialog(i) {
     api.modal(
       "File attachment",
-      `<form aria-describedby="file-conflict-error"><div class="field"><span id="file-label-label">Label</span><div id="file-label"></div></div><p class="dialog-copy" data-user-content>${escape(i.fileName)}</p><p id="file-conflict-error" class="dialog-copy" role="alert" tabindex="-1" hidden></p><div class="dialog-footer"><button class="secondary" type="button" id="replace-file">Attach file</button><button class="secondary" type="button" id="download-file">Download attachment</button>${api.canImportFile?.(i) ? `<button class="secondary" type="button" id="import-file">Import contents</button>` : ""}<button class="primary">Save changes</button></div></form>`,
+      `<form aria-describedby="file-conflict-error"><div class="field"><span id="file-label-label">Label</span><div id="file-label"></div></div><p class="dialog-copy"><span data-user-content>${escape(i.fileName)}</span> · ${escape(fileDetails({ ...i, text: i.fileName }))}</p><p id="file-conflict-error" class="dialog-copy" role="alert" tabindex="-1" hidden></p><div class="dialog-footer"><button class="secondary" type="button" id="replace-file">Attach file</button><button class="secondary" type="button" id="download-file">Download attachment</button>${api.canImportFile?.(i) ? `<button class="secondary" type="button" id="import-file">Import contents</button>` : ""}<button class="primary">Save changes</button></div></form>`,
       (d) => {
         const field = labelField(d, "file-label", i),
           form = d.querySelector("form"),

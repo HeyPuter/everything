@@ -54,6 +54,7 @@ import {
 } from "./connectors.js";
 import { imageLayout } from "./image-crop.js";
 import { drawEmbedCard } from "./content/embed-card.js";
+import { fileDetails } from "./file-details.js";
 
 const previews = new Map();
 const canvasFonts = new WeakMap();
@@ -362,7 +363,7 @@ export function drawObject(
     ctx.font = `400 ${(labelSize * 2) / 3}px ${fontStack(fontFamily(i))}`;
     ctx.fillStyle = "#52624b";
     ctx.fillText(
-      i.type === "link" ? new URL(i.url).hostname : i.fileName || "",
+      i.type === "link" ? new URL(i.url).hostname : fileDetails(i),
       16,
       h - 30,
     );

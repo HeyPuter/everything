@@ -10,6 +10,7 @@ import { tableFont, tableFontSize, tableTextAlign } from "./table-sizing.js";
 import { tagFooter } from "./tags.js";
 import { fontFamily, fontStack } from "./fonts.js";
 import { linkColor, inkOver } from "./text-link-data.js";
+import { fileDetails } from "./file-details.js";
 import { connectorPath, connectorLabel } from "./connectors.js";
 import { imageLayout } from "./image-crop.js";
 import { SHAPE_COLORS, shapeBorder } from "./shape-specs.js";
@@ -460,7 +461,7 @@ export function cardLayout(i, ctx) {
   const lines = cachedWrapText(ctx, i.text || i.fileName || i.url || "", w - 32)
     .slice(0, 3)
     .map((text, n) => ({ text, x: 16, y: 16 + (n * labelSize * 4) / 3 }));
-  let host = i.fileName || "";
+  let host = i.type === "file" ? fileDetails(i) : "";
   if (i.type === "link")
     try {
       host = new URL(i.url).hostname;
