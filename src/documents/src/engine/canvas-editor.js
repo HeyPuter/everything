@@ -245,10 +245,11 @@ export class CanvasEditor {
     this.rangeTints = tints; this.tintRects = null; this.paint();
   }
   /** Vertical bars in the left margin beside lines that touch the given ranges (tracked changes). */
-  setMarginBars(ranges = [], color = '#7a7a7a') {
-    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color]);
+  // side: 'left', 'right' or 'outside' (right on odd pages, left on even ones).
+  setMarginBars(ranges = [], color = '#7a7a7a', side = 'left') {
+    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
     if (key === this.marginBarKey) return;
-    this.marginBarKey = key; this.marginBars = { ranges, color }; this.paint();
+    this.marginBarKey = key; this.marginBars = { ranges, color, side }; this.paint();
   }
   rangeTintRects() {
     const tints = this.rangeTints, layout = this.session.path === null ? this.selectionLayout : null;
@@ -642,7 +643,8 @@ export class CanvasEditor {
         }
         if (!printing && !pageStory) for (const r of tinted) if (r.page === index) { ctx.fillStyle = r.fill; ctx.fillRect(r.x, r.y, r.width, r.height); }
         if (!printing && !pageStory && this.marginBars?.ranges.length) {
-          const bars = this.marginBars.ranges, x = Math.max(4, (geometry.left ?? 96) - 22);
+          const side = this.marginBars.side === 'outside' ? (index % 2 ? 'left' : 'right') : this.marginBars.side;
+          const bars = this.marginBars.ranges, x = side === 'right' ? Math.min(geometry.width - 5, geometry.width - (geometry.right ?? 96) + 20) : Math.max(4, (geometry.left ?? 96) - 22);
           ctx.fillStyle = this.marginBars.color;
           for (const line of pageLines) if (bars.some(r => r.start <= line.end && r.end > line.start)) ctx.fillRect(x, line.y, 1.25, line.height);
         }
