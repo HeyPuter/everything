@@ -583,6 +583,33 @@ describe('Generation History storage', () => {
     // Another document: centered at its own proportions.
     expect(placementOf(generated({ fit: 'fill' }), { id: 'other', width: 64, height: 64 }, img)).toEqual({ x: 0, y: 8, width: 64, height: 48, mode: 'scale' });
   });
+  it('never keeps an image without its entry', async () => {
+    type S = 'entries' | 'images';
+    const quota = () => new Error('Quota exceeded');
+    // One write of both records: a failure stores neither.
+    const atomic = new MemoryStore<S>();
+    atomic.putAll = async () => {
+      throw quota();
+    };
+    await expect(new GenerationStore(atomic).add(entry('p'), blob(10))).rejects.toThrow('Quota');
+    expect(await atomic.keys('images')).toEqual([]);
+    // A store without combined writes removes the image again.
+    const plain = new MemoryStore<S>();
+    const put = plain.put.bind(plain);
+    Object.assign(plain, { putAll: undefined, put: async (store: S, key: string, value: unknown) => (store === 'entries' ? Promise.reject(quota()) : put(store, key, value)) });
+    await expect(new GenerationStore(plain).add(entry('p'), blob(10))).rejects.toThrow('Quota');
+    expect(await plain.keys('images')).toEqual([]);
+    // Images left behind earlier (an interrupted removal) go with the next prune and with Clear.
+    const mem = new MemoryStore<S>();
+    const store = new GenerationStore(mem);
+    await mem.put('images', 'orphan', blob(5));
+    await store.add(entry('kept'), blob(10));
+    expect(await mem.keys('images')).toEqual([(await store.list())[0].id]);
+    await mem.put('images', 'orphan-2', blob(5));
+    await store.clear();
+    expect(await mem.keys('images')).toEqual([]);
+    expect(await mem.keys('entries')).toEqual([]);
+  });
   it('filters by kind and searches prompts', async () => {
     const store = new GenerationStore(new MemoryStore());
     await store.add(entry('red kite over hills', 'generate', 1), blob(1));

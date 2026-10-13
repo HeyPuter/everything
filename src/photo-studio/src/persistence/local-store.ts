@@ -11,6 +11,10 @@ export interface LocalStore<S extends string = StoreName> {
   delete(store: S, key: string): Promise<void>;
   /** Every value of a store (small record stores only). */
   all<T>(store: S): Promise<T[]>;
+  /** Write records of several stores together: all of them or none. */
+  putAll?(writes: { store: S; key: string; value: unknown }[]): Promise<void>;
+  /** The keys of a store. */
+  keys?(store: S): Promise<string[]>;
 }
 
 /** In-memory backend (tests, and browsers without IndexedDB). */
@@ -32,6 +36,12 @@ export class MemoryStore<S extends string = StoreName> implements LocalStore<S> 
   }
   async all<T>(store: S) {
     return [...this.map(store).values()] as T[];
+  }
+  async putAll(writes: { store: S; key: string; value: unknown }[]) {
+    for (const w of writes) this.map(w.store).set(w.key, w.value);
+  }
+  async keys(store: S) {
+    return [...this.map(store).keys()];
   }
 }
 
@@ -76,6 +86,19 @@ export class IndexedDbStore<S extends string = StoreName> implements LocalStore<
   }
   async all<T>(store: S) {
     return (await request((await this.tx(store, 'readonly')).getAll())) as T[];
+  }
+  async putAll(writes: { store: S; key: string; value: unknown }[]) {
+    const tx = (await this.open()).transaction([...new Set(writes.map((w) => w.store))], 'readwrite');
+    const done = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Browser storage failed.'));
+      tx.onabort = () => reject(tx.error ?? new Error('Browser storage failed.'));
+    });
+    for (const w of writes) tx.objectStore(w.store).put(w.value, w.key);
+    await done;
+  }
+  async keys(store: S) {
+    return (await request((await this.tx(store, 'readonly')).getAllKeys())).map(String);
   }
 }
 

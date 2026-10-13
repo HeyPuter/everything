@@ -52,12 +52,27 @@ export class GenerationStore {
   /** Store a result; older entries beyond the limits are removed. */
   async add(entry: Omit<GenerationEntry, 'id' | 'time' | 'size'> & { time?: number }, image: Blob, limits: GenerationLimits = DEFAULT_GENERATION_LIMITS): Promise<GenerationEntry> {
     const full: GenerationEntry = { ...entry, id: crypto.randomUUID(), time: entry.time ?? Date.now(), size: image.size };
-    await this.store.put('images', full.id, image);
-    await this.store.put('entries', full.id, full);
+    // The image and its entry are written together, so a failed write (quota)
+    // leaves no image without an entry.
+    if (this.store.putAll)
+      await this.store.putAll([
+        { store: 'images', key: full.id, value: image },
+        { store: 'entries', key: full.id, value: full },
+      ]);
+    else {
+      await this.store.put('images', full.id, image);
+      try {
+        await this.store.put('entries', full.id, full);
+      } catch (error) {
+        await this.store.delete('images', full.id).catch(() => {});
+        throw error;
+      }
+    }
     await this.prune(limits);
     return full;
   }
-  /** Remove the oldest entries until both limits hold (the newest always stays). */
+  /** Remove the oldest entries until both limits hold (the newest always
+   * stays), and images no entry refers to (left by an interrupted removal). */
   async prune(limits: GenerationLimits = DEFAULT_GENERATION_LIMITS) {
     const list = await this.list();
     let bytes = list.reduce((s, x) => s + x.size + (x.thumb?.size ?? 0), 0);
@@ -65,6 +80,15 @@ export class GenerationStore {
       bytes -= list[i].size + (list[i].thumb?.size ?? 0);
       await this.remove(list[i].id);
     }
+    await this.removeOrphans();
+  }
+  private async removeOrphans() {
+    if (!this.store.keys) return;
+    // Images first: an entry written meanwhile (with its image, at once) is
+    // then among the entries read after.
+    const images = await this.store.keys('images');
+    const ids = new Set(await this.store.keys('entries'));
+    for (const key of images) if (!ids.has(key)) await this.store.delete('images', key);
   }
   /** Every entry, newest first. */
   async list(): Promise<GenerationEntry[]> {
@@ -82,6 +106,7 @@ export class GenerationStore {
   }
   async clear() {
     for (const e of await this.store.all<GenerationEntry>('entries')) await this.remove(e.id);
+    await this.removeOrphans();
   }
 }
 
