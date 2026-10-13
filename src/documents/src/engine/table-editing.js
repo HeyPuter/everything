@@ -5,7 +5,7 @@
 // reads the change flags it leaves (`gridChanged`, `spanChanged`...), and
 // layout and painting simply follow the model.
 import { tableModelInternals as M, paragraph, paragraphText, locate } from './model.js';
-import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext } from './tables.js';
+import { tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, rowGrid, spanWidth, cellContext, documentBlocks } from './tables.js';
 import { cellBlockPlacements, normalizeCellBlock, blockBetween, ownerPlacements } from './table-selection.js';
 import { resolveStyledParagraph } from './styles.js';
 import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
@@ -81,6 +81,20 @@ function selectOwner(model, table, rowIndex, column = 0) {
     || placements.find(p => p.rowIndex <= rowIndex && p.endRow >= rowIndex) || placements.at(-1);
   if (hit) model.selectCell(hit.cell.id);
 }
+// Continuation cells whose merge has no first cell above them (imported documents can have these).
+function orphans(table) {
+  const owners = verticalMerges(table);
+  return new Set(tableCells(table).filter(cell => cell.vMerge === 'continue' && owners.get(cell.id).cell === cell).map(cell => cell.id));
+}
+/** After a structural edit: the table must still read as rows of cells whose merges line up. */
+function checkStructure(model, table, before, message = 'Cells merged across rows would no longer line up. Split them first.') {
+  let after;
+  try { after = orphans(table); documentBlocks(model.paragraphs, model.tables); } catch { throw new Error(message); }
+  for (const id of after) if (!before.has(id)) throw new Error(message);
+}
+function validate(model) {
+  try { documentBlocks(model.paragraphs, model.tables); } catch (error) { throw new Error(`The table cannot be changed that way: ${error.message}`); }
+}
 function setGrid(table, widths, { fixed = table.layout !== 'autofit' } = {}) {
   table.grid = widths; table.gridChanged = true;
   if (fixed) {
@@ -115,6 +129,7 @@ export function insertRows(model, { above = false, count = null } = {}) {
   if (!above) state.bookmarks.insertedRow = { tableId: table.id, after: row.id, id: created[0].id };
   table.rows.splice(above ? reference : reference + 1, 0, ...created);
   M.applyTableContent(model, table, state);
+  validate(model);
   const first = created[0].cells.find(cell => state.byCell.has(cell.id));
   if (first) model.selectCell(first.id);
   model.didChange(); return true;
@@ -157,6 +172,7 @@ export function insertColumns(model, { left = false, count = null, widths: measu
   });
   setGrid(table, grid, { fixed: !automatic });
   M.applyTableContent(model, table, state);
+  validate(model);
   if (selected) model.selectCell(selected);
   model.didChange(); return true;
 }
@@ -198,6 +214,7 @@ export function deleteRows(model) {
     table.rows.splice(rowIndex, 1);
   }
   M.applyTableContent(model, table, state);
+  validate(model);
   selectOwner(model, table, Math.min(block.top, table.rows.length - 1), block.left);
   model.didChange(); return true;
 }
@@ -221,6 +238,7 @@ export function deleteColumns(model, { widths: measured } = {}) {
   for (const row of table.rows) row.cells = row.cells.filter(cell => !removed.has(cell.id));
   setGrid(table, automatic ? widths : integerWidths(widths), { fixed: !automatic });
   M.applyTableContent(model, table, state);
+  validate(model);
   selectOwner(model, table, block.top, Math.min(column, table.grid.length - 1));
   model.didChange(); return true;
 }
@@ -257,7 +275,7 @@ export function deleteCells(model, { shift = 'left' } = {}) {
   if (shift === 'left') {
     if (block.left === 0 && block.right === table.grid.length) return deleteRows(model);
     const removed = new Set(cellBlockPlacements(table, block).flatMap(p => verticalMerges(table).get(p.cell.id).cells.map(c => c.id)));
-    const state = M.tableContent(model, table);
+    const state = M.tableContent(model, table), before = orphans(table);
     model.checkpoint();
     for (let r = block.top; r <= block.bottom; r++) {
       const row = table.rows[r], gone = row.cells.filter(cell => removed.has(cell.id));
@@ -267,8 +285,8 @@ export function deleteCells(model, { shift = 'left' } = {}) {
       row.widthAfter = { type: 'auto', value: 0 }; row.widthAfterChanged = true; row.gridAfterChanged = true;
       if (!row.cells.length) throw new Error('Each row must keep at least one cell. Delete the row instead.');
     }
-    try { verticalMerges(table); } catch { throw new Error('Cells merged across rows would no longer line up. Split them first.'); }
     M.applyTableContent(model, table, state);
+    checkStructure(model, table, before);
     selectOwner(model, table, block.top, Math.max(0, block.left - 1));
     model.didChange(); return true;
   }
@@ -288,6 +306,7 @@ export function deleteCells(model, { shift = 'left' } = {}) {
     });
   }
   M.applyTableContent(model, table, state);
+  validate(model);
   selectOwner(model, table, block.top, block.left);
   model.didChange(); return true;
 }
@@ -304,7 +323,7 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
     const extra = Math.max(0, ...Array.from({ length: height }, (_, i) => width - (table.rows[block.top + i].gridAfter || 0)));
     if (table.grid.length + extra > 32) throw new Error('A table can have up to 32 columns.');
     checkLength(model, height * width);
-    const base = columnWidths(model, table, measured), state = M.tableContent(model, table), owners = verticalMerges(table);
+    const base = columnWidths(model, table, measured), state = M.tableContent(model, table), owners = verticalMerges(table), before = orphans(table);
     model.checkpoint();
     if (extra) {
       // The longer rows run past the table's right edge into new grid columns.
@@ -329,8 +348,8 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
       // Rows that needed fewer new grid columns than the widest keep the rest as omitted cells.
       if (extra && width - used < extra) { row.gridAfter = (row.gridAfter || 0) + extra - (width - used); row.gridAfterChanged = true; row.widthAfter = { type: 'auto', value: 0 }; row.widthAfterChanged = true; }
     }
-    try { verticalMerges(table); } catch { throw new Error('Cells merged across rows would no longer line up. Split them first.'); }
     M.applyTableContent(model, table, state);
+    checkStructure(model, table, before);
     selectOwner(model, table, block.top, block.left);
     model.didChange(); return true;
   }
@@ -359,6 +378,7 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
     });
   }
   M.applyTableContent(model, table, state);
+  validate(model);
   selectOwner(model, table, block.top, block.left);
   model.didChange(); return true;
 }
@@ -399,6 +419,7 @@ export function mergeBlock(model) {
     row.cells.splice(index, inside.length, keep);
   }
   M.applyTableContent(model, table, state);
+  validate(model);
   model.selectCell(owner.id);
   model.didChange(); return true;
 }
@@ -431,7 +452,7 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
   if (rows > 1 && height === 1 && table.rows.length + rows - 1 > 1000) throw new Error('A table can have up to 1,000 rows.');
   const widths = columnWidths(model, table, measured).map(w => Math.max(1, w));
   checkLength(model, rows * columns * 2);
-  const state = M.tableContent(model, table);
+  const state = M.tableContent(model, table), before = orphans(table);
   if (startPlacements.length <= 1) model.checkpoint();
   // Columns: cut the cell at equal widths, adding grid lines where none fall close enough.
   let pieces = [target.cell];
@@ -504,8 +525,8 @@ export function splitCells(model, { rows = 1, columns = 2, widths: measured } = 
       }
     }
   }
-  try { verticalMerges(table); } catch { throw new Error('The split cells would not line up with the merged cells around them.'); }
   M.applyTableContent(model, table, state);
+  checkStructure(model, table, before, 'The split cells would not line up with the merged cells around them.');
   model.selectCell(target.cell.id);
   model.didChange(); return true;
 }
@@ -876,6 +897,7 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   model.checkpoint();
   table.rows.splice(first, sorted.length, ...sorted.map(item => item.row));
   M.applyTableContent(model, table, state);
+  validate(model);
   model.didChange(); return true;
 }
 
@@ -1035,7 +1057,7 @@ export function drawLine(model, { tableId: id, orientation, cellIds, offset, wid
     }
     const rowIndex = Math.min(...placements.map(p => p.endRow));
     if (placements.some(p => p.endRow !== rowIndex || p.rowIndex !== rowIndex)) throw new Error('Draw across cells in one row.');
-    const state = M.tableContent(model, table), owners = verticalMerges(table), ids = new Set(cellIds), row = table.rows[rowIndex];
+    const state = M.tableContent(model, table), owners = verticalMerges(table), ids = new Set(cellIds), row = table.rows[rowIndex], before = orphans(table);
     model.checkpoint();
     for (const cell of row.cells) if (!ids.has(cell.id) && owners.get(cell.id).cell === cell && !cell.vMerge) { cell.vMerge = 'restart'; cell.mergeChanged = true; }
     const next = { ...copy(row), id: tableId('row'), headerChanged: true, cells: row.cells.map(source => {
@@ -1045,8 +1067,8 @@ export function drawLine(model, { tableId: id, orientation, cellIds, offset, wid
       return cell;
     }) };
     table.rows.splice(rowIndex + 1, 0, next);
-    try { verticalMerges(table); } catch { throw new Error('The new line would not line up with the merged cells around it.'); }
     M.applyTableContent(model, table, state);
+    checkStructure(model, table, before, 'The new line would not line up with the merged cells around it.');
     model.selectCell(next.cells.find(c => state.byCell.has(c.id))?.id);
     model.didChange(); return true;
   }
@@ -1058,7 +1080,7 @@ export function drawLine(model, { tableId: id, orientation, cellIds, offset, wid
   const existing = Math.abs(offset - left) <= 30 ? at : Math.abs(offset - left - widths[at]) <= 30 ? at + 1 : null;
   if (existing === null && (offset - left < MIN_COLUMN_WIDTH || left + widths[at] - offset < MIN_COLUMN_WIDTH)) throw new Error('Draw the line farther from the cell edge.');
   if (existing === null && widths.length >= 32) throw new Error('A table can have up to 32 columns.');
-  const state = M.tableContent(model, table);
+  const state = M.tableContent(model, table), before = orphans(table);
   model.checkpoint();
   let line = existing;
   if (line === null) { splitGridColumn(table, widths, at, offset - left); line = at + 1; table.grid = integerWidths(widths); table.gridChanged = true; }
@@ -1074,8 +1096,8 @@ export function drawLine(model, { tableId: id, orientation, cellIds, offset, wid
     if (entry.cell.vMerge !== 'continue') state.byCell.set(right.id, [blankFor(state, entry.cell, right)]);
     row.cells.splice(index + 1, 0, right);
   }
-  try { verticalMerges(table); } catch { throw new Error('The new line would not line up with the merged cells around it.'); }
   M.applyTableContent(model, table, state);
+  checkStructure(model, table, before, 'The new line would not line up with the merged cells around it.');
   model.didChange(); return true;
 }
 
@@ -1099,6 +1121,7 @@ export function clearCells(model) {
   model.checkpoint();
   for (const { cell } of placements) state.byCell.set(cell.id, [blankFor(state, cell, cell)]);
   M.applyTableContent(model, table, state);
+  validate(model);
   model.setCellBlock({ tableId: table.id, top: block.top, bottom: block.bottom, left: block.left, right: block.right });
   model.didChange(); return true;
 }
