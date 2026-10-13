@@ -137,7 +137,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       '-', 'type.create-work-path', 'type.convert-to-shape', 'type.rasterize', '-',
       'type.convert-paragraph', { label: 'Convert to Arc Text', id: 'type.arc', items: [] }, 'type.path-options', 'type.warp', 'type.match-font', '-',
       { label: 'Font Preview Size', id: 'type.font-preview-size', items: ['type.preview-none', 'type.preview-small', 'type.preview-medium', 'type.preview-large', 'type.preview-xlarge', 'type.preview-huge'] },
-      { label: 'Language Options', id: 'type.language-options', items: ['type.dir-ltr', 'type.dir-rtl', '-', 'type.digits-western', 'type.digits-arabic', 'type.digits-persian'] },
+      { label: 'Language Options', id: 'type.language-options', items: ['type.dir-ltr', 'type.dir-rtl', '-', 'type.vertical-upright', 'type.vertical-rotate', 'type.vertical-combine', '-', 'type.digits-western', 'type.digits-arabic', 'type.digits-persian'] },
       '-', 'type.update-all', 'type.replace-missing', '-', 'type.paste-lorem', '-', 'type.load-default-styles', 'type.save-default-styles',
     ],
   },

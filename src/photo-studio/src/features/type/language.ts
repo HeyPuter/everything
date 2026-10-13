@@ -125,6 +125,17 @@ export function installLanguageCommands(e: Editor) {
     { id: 'type.dir-ltr', label: 'Left-to-Right Text', checked: (e) => (para(e).direction ?? 'ltr') === 'ltr', run: direction('ltr'), description: 'Paragraph base direction for mixed-direction text.' },
     { id: 'type.dir-rtl', label: 'Right-to-Left Text', checked: (e) => para(e).direction === 'rtl', run: direction('rtl'), description: 'Paragraph base direction for Hebrew, Arabic and other right-to-left text.' },
   );
+  // Vertical text: how Latin letters and digits stand in the column.
+  const vertical = (v: '' | 'rotate' | 'combine') => async (e: Editor) => {
+    await applyChar(e, { vertical: v });
+    if (session) focusInput(e);
+  };
+  const isVertical = (e: Editor) => (session ? session.data.orientation : e.layer?.textData?.orientation) === 'vertical' || e.tool.includes('vertical');
+  registerCommand(
+    { id: 'type.vertical-upright', label: 'Upright Latin in Vertical Text', checked: (e) => !char(e).vertical, enabled: isVertical, run: vertical(''), description: 'Stack Latin letters and digits upright, one per cell.' },
+    { id: 'type.vertical-rotate', label: 'Rotated Latin in Vertical Text', checked: (e) => char(e).vertical === 'rotate', enabled: isVertical, run: vertical('rotate'), description: 'Turn Latin letters and digits sideways so words read along the column; ideographs stay upright.' },
+    { id: 'type.vertical-combine', label: 'Horizontal Short Runs in Vertical Text', checked: (e) => char(e).vertical === 'combine', enabled: isVertical, run: vertical('combine'), description: 'Set runs of up to three Latin letters or digits (dates, numbers) side by side in one cell; longer runs turn sideways.' },
+  );
   const digits = (d: '' | 'arabic' | 'persian') => async (e: Editor) => {
     await applyChar(e, { digits: d });
     if (session) focusInput(e);

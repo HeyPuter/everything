@@ -929,7 +929,7 @@ export async function savePsd(
       if (l.kind === "text" && l.textData) {
         // Path and area text have no PSD equivalent here: their pixels are
         // written, and .photo projects keep them editable.
-        if (!l.textData.path) result.text = exportPsdText(l.textData, textMatrix(l), documentPpi(doc));
+        if (!l.textData.path && !l.textData.block) result.text = exportPsdText(l.textData, textMatrix(l), documentPpi(doc));
         const crop = cropToInk(result.imageData!);
         if (crop) {
           result.imageData = crop.pixels;

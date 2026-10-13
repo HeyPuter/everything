@@ -125,6 +125,7 @@ export function scaleTextData(data: TextLayerData, s: number, cx = 0, cy = 0): T
     origin: { x: cx + (data.origin.x - cx) * s, y: cy + (data.origin.y - cy) * s },
     box: data.box ? { width: data.box.width * s, height: data.box.height * s } : undefined,
     warp: data.warp ? { ...data.warp } : undefined,
+    ...(data.block ? { block: { width: data.block.width * s, gap: data.block.gap * s } } : {}),
     path: data.path
       ? {
           ...data.path,
@@ -226,6 +227,7 @@ export function validateTextData(d: unknown): asserts d is TextLayerData {
     )
       fail('path');
   }
+  if (t.block !== undefined && (!t.block || !num(t.block.width, 1, 1e6) || !num(t.block.gap, -1e5, 1e5) || t.orientation !== 'horizontal' || !!t.path)) fail('block');
   const paras = t.content?.paragraphs;
   if (!Array.isArray(paras) || !paras.length || paras.length > 100_000) fail('paragraphs');
   let chars = 0;
@@ -249,7 +251,8 @@ export function validateTextData(d: unknown): asserts d is TextLayerData {
         typeof c.language !== 'string' ||
         (c.charStyle !== undefined && typeof c.charStyle !== 'string') ||
         (c.features !== undefined && (typeof c.features !== 'string' || c.features.length > 200)) ||
-        (c.digits !== undefined && c.digits !== '' && c.digits !== 'arabic' && c.digits !== 'persian')
+        (c.digits !== undefined && c.digits !== '' && c.digits !== 'arabic' && c.digits !== 'persian') ||
+        (c.vertical !== undefined && c.vertical !== '' && c.vertical !== 'rotate' && c.vertical !== 'combine')
       )
         fail('character style');
     }

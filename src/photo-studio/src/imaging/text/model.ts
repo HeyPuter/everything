@@ -36,6 +36,9 @@ export type CharStyle = {
   features?: string;
   // Digit shapes for Arabic-script text (undefined: Western digits).
   digits?: '' | 'arabic' | 'persian';
+  // Vertical text: Latin and digits upright (undefined or ''), rotated
+  // sideways, or short runs combined horizontally in one cell ('combine').
+  vertical?: '' | 'rotate' | 'combine';
 };
 export type Align = 'left' | 'center' | 'right' | 'justify-left' | 'justify-center' | 'justify-right' | 'justify-all';
 export type ParagraphStyle = {
@@ -93,6 +96,9 @@ export type TextLayerData = {
   warp?: Warp;
   // Path or area text (horizontal only; warp does not apply).
   path?: TypePath;
+  // Block text (horizontal point text): every line scaled to `width` pixels
+  // and stacked with `gap` pixels between lines (imaging/text/block-text.ts).
+  block?: { width: number; gap: number };
 };
 
 export const defaultCharStyle = (): CharStyle => ({
@@ -146,7 +152,7 @@ export function textLayer(text = '', style: Partial<CharStyle> = {}, opts: Parti
 
 // ---------------------------------------------------------------- styles
 
-export const optionalCharKeys = ['charStyle', 'features', 'digits'] as const;
+export const optionalCharKeys = ['charStyle', 'features', 'digits', 'vertical'] as const;
 export const optionalParagraphKeys = ['paragraphStyle', 'direction'] as const;
 const charKeys = [...Object.keys(defaultCharStyle()), ...optionalCharKeys] as (keyof CharStyle)[];
 const paraKeys = [...Object.keys(defaultParagraphStyle()), ...optionalParagraphKeys] as (keyof ParagraphStyle)[];

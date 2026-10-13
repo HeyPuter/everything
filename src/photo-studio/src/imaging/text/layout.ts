@@ -13,6 +13,7 @@ import { featureFamily } from './fonts';
 import { featureOn } from './feature-list';
 import { graphemeBoundaries, ptToPx, type Align, type CharStyle, type TextLayerData } from './model';
 import { layoutOnPath, pathGeometry, shapeSpans, type PathGeometry, type PathPlacement } from './path-text';
+import { applyBlock } from './block-text';
 
 export type FontMetrics = { width: number; ascent: number; descent: number };
 // `font` is a CSS font shorthand; `kerning` false asks for unkerned advances.
@@ -147,6 +148,9 @@ type Cluster = {
   forced: boolean;
   soft: boolean; // soft hyphen: invisible unless it ends a line
   tab: boolean;
+  // Vertical text: upright, rotated sideways, or one cell of a short run set
+  // horizontally ('first' starts it, 'rest' continues it).
+  form?: 'up' | 'rot' | 'first' | 'rest';
 };
 
 const isLower = (s: string) => s !== s.toUpperCase() && s === s.toLowerCase();
@@ -416,7 +420,16 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
 
   const visLines = lines.filter((l) => l.visible);
   const bounds = unionRects(visLines.map((l) => lineRect(l, vertical)));
-  return makeLayout({ lines, runs, decorations, bounds, box, overflow, visibleEnd, length, vertical, ...(shape ? { shape } : {}) });
+  const core = { lines, runs, decorations, bounds, box, overflow, visibleEnd, length, vertical, ...(shape ? { shape } : {}) };
+  if (data.block && !vertical && !paragraphMode && !shape) {
+    // Block text: lines scaled to one width, stacked from the first baseline.
+    const align = paras[0]?.style.align ?? 'left';
+    const w = data.block.width;
+    const left = data.origin.x - (align === 'center' || align === 'justify-center' ? w / 2 : align === 'right' || align === 'justify-right' ? w : 0);
+    const plain = paras.map((p) => p.runs.map((r) => r.text).join('')).join('\n');
+    return makeLayout(applyBlock(core, data.block, left, data.origin.y, (a, b) => plain.slice(a, b)));
+  }
+  return makeLayout(core);
 }
 
 function geometryBounds(g: PathGeometry): Rect {
@@ -438,6 +451,36 @@ function hyphenWidth(eff: EffectiveStyle, measure: Measure, vertical: boolean) {
   return measure('-', eff.font, eff.kerning).width * eff.scaleX + eff.trackPx;
 }
 
+// Characters that stay upright in vertical text whatever the style says:
+// ideographs, kana, hangul and full-width forms.
+const UPRIGHT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u;
+// Most characters a short horizontal run may hold in one cell.
+export const COMBINE_MAX = 3;
+/** How each cluster of vertical text is set (CharStyle.vertical): upright
+ * (default), rotated sideways ('rotate'), or for 'combine' a run of up to
+ * COMBINE_MAX characters set horizontally in one cell, longer runs rotated. */
+function verticalForms(cl: Cluster[]) {
+  const mode = (c: Cluster) => (c.forced || c.soft || UPRIGHT.test(c.src) ? '' : (c.eff.style.vertical ?? ''));
+  for (let i = 0; i < cl.length; ) {
+    const m = mode(cl[i]);
+    if (m === 'rotate') {
+      cl[i++].form = 'rot';
+      continue;
+    }
+    if (m !== 'combine' || cl[i].space) {
+      // Spaces inside rotated text keep their own width.
+      cl[i].form = m === 'combine' && cl[i - 1]?.form === 'rot' ? 'rot' : 'up';
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < cl.length && mode(cl[j]) === 'combine' && !cl[j].space) j++;
+    const short = j - i <= COMBINE_MAX;
+    for (let k = i; k < j; k++) cl[k].form = short ? (k === i ? 'first' : 'rest') : 'rot';
+    i = j;
+  }
+}
+
 // Advances for every cluster: the cluster's own width plus the kerning
 // against the previous same-style cluster, where kerning is measured as
 // w(ab) - w(a) - w(b). With the persistent measure cache this needs one
@@ -445,8 +488,22 @@ function hyphenWidth(eff: EffectiveStyle, measure: Measure, vertical: boolean) {
 // almost free, and it equals prefix measurement for pairwise (GPOS) kerning.
 function measureClusters(cl: Cluster[], measure: Measure, vertical: boolean) {
   if (vertical) {
-    // Upright stacked glyphs advance one em plus tracking.
-    for (const c of cl) c.adv = c.forced || c.soft ? 0 : c.eff.sizePx * c.eff.scaleY + c.eff.trackPx;
+    // Upright stacked glyphs advance one em plus tracking; text rotated
+    // sideways advances by its width; a short run set horizontally takes one cell.
+    verticalForms(cl);
+    let prev: Cluster | undefined;
+    let prevW = 0;
+    for (const c of cl) {
+      const e = c.eff;
+      if (c.forced || c.soft || c.form === 'rest') { c.adv = 0; prev = undefined; continue; }
+      if (c.form !== 'rot') { c.adv = e.sizePx * e.scaleY + e.trackPx; prev = undefined; continue; }
+      const w = measure(c.text, e.font, e.kerning).width;
+      let kern = 0;
+      if (e.kerning && prev && prev.eff === e) kern = measure(prev.text + c.text, e.font, true).width - prevW - w;
+      c.adv = (w + kern) * e.scaleX + e.trackPx;
+      prev = c;
+      prevW = w;
+    }
     return;
   }
   let prev: Cluster | undefined;
@@ -612,6 +669,38 @@ function emitRuns(
   if (vertical) {
     for (let i = 0; i < visEnd; i++) {
       const c = seg[i];
+      if (c.form === 'rot' && !c.soft && !c.forced) {
+        // Sideways: one run along the column, tops facing right, centered on it.
+        const e = c.eff;
+        let j = i + 1;
+        while (j < visEnd && seg[j].form === 'rot' && seg[j].eff === e && !seg[j].soft && !seg[j].forced) j++;
+        const advances = advs.slice(i, j);
+        runs.push({
+          x: line.x - (e.ascent - e.descent) / 2, y: pos[i], text: seg.slice(i, j).map((x) => x.text).join(''), font: e.font, style: e.style,
+          width: advances.reduce((a, b) => a + b, 0), advances, clusters: seg.slice(i, j).map((x) => x.text), sizePx: e.sizePx, scaleX: e.scaleX, scaleY: e.scaleY,
+          letterSpacing: e.scaleX ? e.trackPx / e.scaleX : 0, start: c.start, end: seg[j - 1].end, ascent: e.ascent, descent: e.descent, vertical: false, kerning: e.kerning,
+          angle: Math.PI / 2,
+        });
+        i = j - 1;
+        continue;
+      }
+      if (c.form === 'first') {
+        // A short run set horizontally in one cell, condensed to fit it.
+        const e = c.eff;
+        let j = i + 1;
+        while (j < visEnd && seg[j].form === 'rest') j++;
+        const widths = seg.slice(i, j).map((x) => measure(x.text, x.eff.font, x.eff.kerning).width * e.scaleX);
+        const total = widths.reduce((a, b) => a + b, 0) || 1;
+        const fit = Math.min(1, e.sizePx / total);
+        const glyphH = e.ascent + e.descent;
+        runs.push({
+          x: line.x - (total * fit) / 2, y: pos[i] + (advs[i] - e.trackPx - glyphH) / 2 + e.ascent, text: seg.slice(i, j).map((x) => x.text).join(''), font: e.font, style: e.style,
+          width: total * fit, advances: widths.map((w) => w * fit), clusters: seg.slice(i, j).map((x) => x.text), sizePx: e.sizePx, scaleX: e.scaleX * fit, scaleY: e.scaleY,
+          letterSpacing: 0, start: c.start, end: seg[j - 1].end, ascent: e.ascent, descent: e.descent, vertical: false, kerning: e.kerning,
+        });
+        i = j - 1;
+        continue;
+      }
       if (c.space || c.soft || c.forced) continue;
       const e = c.eff;
       const w = measure(c.text, e.font, e.kerning).width * e.scaleX;
