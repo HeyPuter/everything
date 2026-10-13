@@ -186,6 +186,13 @@ import {
   type TableResolvedFill,
   type TextFormat,
 } from "../../pptx/src/index.ts";
+import { getParagraphLayout } from "../../pptx/src/api/fn/paragraph-format.ts";
+import {
+  getShapeImageFillMode,
+  getShapeLineGradient,
+  getShapePictureAdjustments,
+} from "../../pptx/src/api/fn/shape-paint-format.ts";
+import { getShapeStrokeWidth } from "../../pptx/src/index.ts";
 import {
   defaultMeasurer,
   layoutCore,
@@ -305,6 +312,144 @@ const mimeFromPartName = (name: string | null): string | null => {
   return EXT_TO_MIME[ext] ?? null;
 };
 
+// Pixel size of a PNG, JPEG, GIF or BMP from its header, for tiling.
+const imagePixelSize = (bytes: Uint8Array): { w: number; h: number } | null => {
+  const u32 = (o: number) =>
+    ((bytes[o]! << 24) |
+      (bytes[o + 1]! << 16) |
+      (bytes[o + 2]! << 8) |
+      bytes[o + 3]!) >>>
+    0;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes.length > 24)
+    return { w: u32(16), h: u32(20) };
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes.length > 10)
+    return { w: bytes[6]! | (bytes[7]! << 8), h: bytes[8]! | (bytes[9]! << 8) };
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d && bytes.length > 26)
+    return {
+      w: bytes[18]! | (bytes[19]! << 8),
+      h: Math.abs(
+        bytes[22]! |
+          (bytes[23]! << 8) |
+          (bytes[24]! << 16) |
+          (bytes[25]! << 24) |
+          0,
+      ),
+    };
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < bytes.length) {
+      if (bytes[o] !== 0xff) return null;
+      const marker = bytes[o + 1]!;
+      const length = (bytes[o + 2]! << 8) | bytes[o + 3]!;
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        ![0xc4, 0xc8, 0xcc].includes(marker)
+      )
+        return {
+          h: (bytes[o + 5]! << 8) | bytes[o + 6]!,
+          w: (bytes[o + 7]! << 8) | bytes[o + 8]!,
+        };
+      o += 2 + length;
+    }
+  }
+  return null;
+};
+
+// Picture-layer adjustments (saturation, temperature, sharpness and an
+// artistic effect) as SVG filter primitives, applied after the blip's own
+// color effects. The artistic effects are drawn as close relatives of the
+// named looks: blur, pencil and line drawings from an edge filter,
+// photocopy and cutout by posterizing, film grain from noise, and painted
+// looks by displacing the picture along a noise field.
+const pictureAdjustmentPrimitives = (shape: SlideShapeData): string[] => {
+  const adj = getShapePictureAdjustments(shape);
+  const prims: string[] = [];
+  if (adj.saturation !== null && adj.saturation !== 1)
+    prims.push(
+      `<feColorMatrix type="saturate" values="${Math.max(0, adj.saturation)}"/>`,
+    );
+  if (adj.temperature !== null && adj.temperature !== 6500) {
+    const t = Math.max(-1, Math.min(1, (adj.temperature - 6500) / 5000));
+    prims.push(
+      `<feComponentTransfer><feFuncR type="linear" slope="${(1 + 0.18 * t).toFixed(3)}"/><feFuncB type="linear" slope="${(1 - 0.18 * t).toFixed(3)}"/></feComponentTransfer>`,
+    );
+  }
+  if (adj.sharpness !== null && adj.sharpness > 0) {
+    const k = (adj.sharpness * 0.9).toFixed(3);
+    const c = (1 + 4 * adj.sharpness * 0.9).toFixed(3);
+    prims.push(
+      `<feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="0 -${k} 0 -${k} ${c} -${k} 0 -${k} 0"/>`,
+    );
+  } else if (adj.sharpness !== null && adj.sharpness < 0)
+    prims.push(
+      `<feGaussianBlur stdDeviation="${(-adj.sharpness * 2.5).toFixed(2)}"/>`,
+    );
+  const art = adj.artistic;
+  if (art) {
+    const amount = Math.max(0.05, art.amount);
+    const gray =
+      '<feColorMatrix type="matrix" values="0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0 0 0 1 0"/>';
+    const edges =
+      '<feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1"/>';
+    const invert =
+      '<feComponentTransfer><feFuncR type="table" tableValues="1 0"/><feFuncG type="table" tableValues="1 0"/><feFuncB type="table" tableValues="1 0"/></feComponentTransfer>';
+    const steps = (n: number) =>
+      Array.from({ length: n }, (_, i) => (i / (n - 1)).toFixed(3)).join(" ");
+    switch (art.effect) {
+      case "artisticBlur":
+        prims.push(
+          `<feGaussianBlur stdDeviation="${(amount * 6).toFixed(2)}"/>`,
+        );
+        break;
+      case "artisticPencilGrayscale":
+      case "artisticPencilSketch":
+      case "artisticLineDrawing":
+        prims.push(
+          gray,
+          edges,
+          invert,
+          `<feComponentTransfer><feFuncR type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/><feFuncG type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/><feFuncB type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/></feComponentTransfer>`,
+        );
+        break;
+      case "artisticGlowEdges":
+        prims.push(
+          edges,
+          `<feGaussianBlur stdDeviation="${(amount * 1.2).toFixed(2)}"/>`,
+        );
+        break;
+      case "artisticPhotocopy":
+        prims.push(
+          gray,
+          `<feComponentTransfer><feFuncR type="discrete" tableValues="0 0 1 1"/><feFuncG type="discrete" tableValues="0 0 1 1"/><feFuncB type="discrete" tableValues="0 0 1 1"/></feComponentTransfer>`,
+        );
+        break;
+      case "artisticCutout": {
+        const levels = steps(Math.max(2, Math.round(2 + amount * 4)));
+        prims.push(
+          `<feComponentTransfer><feFuncR type="discrete" tableValues="${levels}"/><feFuncG type="discrete" tableValues="${levels}"/><feFuncB type="discrete" tableValues="${levels}"/></feComponentTransfer>`,
+        );
+        break;
+      }
+      case "artisticFilmGrain":
+        prims.push(
+          '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="grain"/>',
+          '<feColorMatrix in="grain" type="saturate" values="0" result="mono"/>',
+          `<feComposite in="SourceGraphic" in2="mono" operator="arithmetic" k1="0" k2="1" k3="${(amount * 0.35).toFixed(3)}" k4="${(-amount * 0.17).toFixed(3)}"/>`,
+        );
+        break;
+      default:
+        // Paint strokes, marker, watercolor and pastels: a painterly smear.
+        prims.push(
+          '<feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2" seed="7" result="field"/>',
+          `<feDisplacementMap in="SourceGraphic" in2="field" scale="${(4 + amount * 14).toFixed(1)}" xChannelSelector="R" yChannelSelector="G"/>`,
+          `<feGaussianBlur stdDeviation="${(0.4 + amount).toFixed(2)}"/>`,
+        );
+    }
+  }
+  return prims;
+};
+
 // Render the picture if @office-kit/pptx handed us bytes; fall back to a
 // labelled placeholder describing why nothing is drawn. EMF / WMF
 // pictures still won't display (no browser can decode them) but the
@@ -349,12 +494,28 @@ const renderPicture = (
           (p) => p.fill !== "none" && p.fill !== "norm",
         ));
     const crop = imagePaint?.crop;
-    let imgX = x,
-      imgY = y,
-      imgW = w,
-      imgH = h;
+    let fillMode: ReturnType<typeof getShapeImageFillMode> = null;
+    try {
+      fillMode = imageOverride ? null : getShapeImageFillMode(shape);
+    } catch {}
+    // Stretch offsets move the picture's edges in from (or out past) the
+    // shape's; the shape's outline still clips it.
+    const inset =
+      fillMode?.mode === "stretch" &&
+      (fillMode.left || fillMode.top || fillMode.right || fillMode.bottom)
+        ? fillMode
+        : null;
+    let imgX = inset ? x + w * inset.left : x,
+      imgY = inset ? y + h * inset.top : y,
+      imgW = inset ? w * Math.max(0.001, 1 - inset.left - inset.right) : w,
+      imgH = inset ? h * Math.max(0.001, 1 - inset.top - inset.bottom) : h;
     let clipDef = "";
     let clipAttr = "";
+    if (inset) {
+      const clipId = mintId();
+      clipDef = `<defs><clipPath id="${clipId}"><rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}"/></clipPath></defs>`;
+      clipAttr = ` clip-path="url(#${clipId})"`;
+    }
     const cropL = crop?.left ?? 0;
     const cropT = crop?.top ?? 0;
     const cropR = crop?.right ?? 0;
@@ -366,10 +527,12 @@ const renderPicture = (
       // to the shape's bounds.
       const scaleX = 1 / Math.max(0.001, 1 - cropL - cropR);
       const scaleY = 1 / Math.max(0.001, 1 - cropT - cropB);
-      imgW = w * scaleX;
-      imgH = h * scaleY;
-      imgX = x - imgW * cropL;
-      imgY = y - imgH * cropT;
+      const baseX = imgX,
+        baseY = imgY;
+      imgW = imgW * scaleX;
+      imgH = imgH * scaleY;
+      imgX = baseX - imgW * cropL;
+      imgY = baseY - imgH * cropT;
       const clipId = mintId();
       clipDef = `<defs><clipPath id="${clipId}"><rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}"/></clipPath></defs>`;
       clipAttr = ` clip-path="url(#${clipId})"`;
@@ -415,11 +578,16 @@ const renderPicture = (
     const biLevel = imagePaint?.biLevelThreshold ?? null;
     const duotone = imagePaint?.duotone ?? null;
     let filterAttr = "";
+    let adjustments: string[] = [];
+    try {
+      adjustments = pictureAdjustmentPrimitives(shape);
+    } catch {}
     if (
       brightness !== 0 ||
       contrast !== 1 ||
       grayscale ||
       biLevel !== null ||
+      adjustments.length > 0 ||
       (duotone && (duotone.firstColor || duotone.secondColor))
     ) {
       // SVG filter pipeline: contrast/brightness (linear), then optional
@@ -480,10 +648,64 @@ const renderPicture = (
           `<feComponentTransfer><feFuncR type="discrete" tableValues="${tableStr}"/><feFuncG type="discrete" tableValues="${tableStr}"/><feFuncB type="discrete" tableValues="${tableStr}"/></feComponentTransfer>`,
         );
       }
-      clipDef += `<defs><filter id="${fid}">${prims.join("")}</filter></defs>`;
+      prims.push(...adjustments);
+      clipDef += `<defs><filter id="${fid}"${adjustments.length ? ' x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB"' : ""}>${prims.join("")}</filter></defs>`;
       filterAttr = ` filter="url(#${fid})"`;
     }
     const opacityAttr = opacity !== 1 ? ` opacity="${opacity.toFixed(3)}"` : "";
+    const natural = fillMode?.mode === "tile" ? imagePixelSize(bytes) : null;
+    if (fillMode?.mode === "tile" && natural) {
+      // Tiles repeat the picture at its own size (96 dpi) times the scale,
+      // starting from the alignment corner plus the offsets.
+      const tw = Math.max(EMU_PER_PX, natural.w * EMU_PER_PX * fillMode.scaleX);
+      const th = Math.max(EMU_PER_PX, natural.h * EMU_PER_PX * fillMode.scaleY);
+      const al = fillMode.align;
+      const ox =
+        x +
+        fillMode.offsetX +
+        (al.endsWith("r")
+          ? w - tw
+          : al === "t" || al === "b" || al === "ctr"
+            ? (w - tw) / 2
+            : 0);
+      const oy =
+        y +
+        fillMode.offsetY +
+        (al.startsWith("b")
+          ? h - th
+          : al === "l" || al === "r" || al === "ctr"
+            ? (h - th) / 2
+            : 0);
+      const mirrorX = fillMode.mirror === "x" || fillMode.mirror === "xy";
+      const mirrorY = fillMode.mirror === "y" || fillMode.mirror === "xy";
+      const cell = (fx: boolean, fy: boolean, dx: number, dy: number) =>
+        `<image x="${E(dx)}" y="${E(dy)}" width="${E(tw)}" height="${E(th)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="none"${fx || fy ? ` transform="translate(${E(fx ? 2 * dx + tw : 0)} ${E(fy ? 2 * dy + th : 0)}) scale(${fx ? -1 : 1} ${fy ? -1 : 1})"` : ""}${filterAttr}/>`;
+      const patternId = mintId();
+      const pw = tw * (mirrorX ? 2 : 1),
+        ph = th * (mirrorY ? 2 : 1);
+      const cells = [
+        cell(false, false, 0, 0),
+        mirrorX ? cell(true, false, tw, 0) : "",
+        mirrorY ? cell(false, true, 0, th) : "",
+        mirrorX && mirrorY ? cell(true, true, tw, th) : "",
+      ].join("");
+      const pattern = `<defs><pattern id="${patternId}" patternUnits="userSpaceOnUse" x="${E(ox)}" y="${E(oy)}" width="${E(pw)}" height="${E(ph)}">${cells}</pattern></defs>`;
+      const area = geometry
+        ? shapeGeometryToSvg(geometry, x, y, w, h, {
+            fill: `url(#${patternId})`,
+            stroke: "none",
+            strokeWidth: 0,
+            defs: "",
+            strokeAttrs: "",
+            markerAttrs: "",
+          })
+        : `<rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" fill="url(#${patternId})"/>`;
+      const tileOutline =
+        stroke.kind === "solid"
+          ? paint(shape, { kind: "none" }, stroke, theme, false, pres)
+          : null;
+      return `${clipDef}${pattern}${tileOutline?.defs ?? ""}<g${transform}${opacityAttr}>${area}${tileOutline && tileOutline.stroke !== "none" && tileOutline.strokeWidth > 0 ? shapeGeometryToSvg(geometry, x, y, w, h, tileOutline) : ""}</g><g${transform}>${textOverlay}</g>`;
+    }
     const outlinePaint =
       stroke.kind === "solid"
         ? paint(shape, { kind: "none" }, stroke, theme, false, pres)
@@ -1314,15 +1536,32 @@ const paint = (
   let strokeWidth = 0;
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
+  // A gradient line paints its stroke with a gradient; width, dashes, caps,
+  // joins and arrows are read as for a solid line.
+  let lineGradient: GradientFillOptions | null = null;
+  try {
+    lineGradient = shape && pres ? getShapeLineGradient(pres, shape) : null;
+  } catch {}
+  if (lineGradient && shape)
+    stroke = {
+      kind: "solid",
+      color: lineGradient.stops[0]!.color,
+      widthEmu: getShapeStrokeWidth(shape) ?? 12_700,
+    };
   if (stroke.kind === "solid") {
     let resolved: string | null = null;
-    if (shape && pres)
+    if (shape && pres && !lineGradient)
       resolved = getShapeStrokeColorResolvedEffective(
         pres,
         shape,
         activeColorMap,
       );
     strokeColor = resolved ?? resolveColor(stroke.color, theme, "#9CA3AF");
+    if (lineGradient) {
+      const built = gradientDef(lineGradient, theme, bounds, false, fillFrame);
+      defs += built.defs;
+      strokeColor = built.fillAttr;
+    }
     strokeWidth = stroke.widthEmu ?? 9_525; // 1pt
     if (shape) {
       const formatting = getShapeStrokeFormattingEffective(shape);
@@ -1760,6 +1999,7 @@ interface ParaData {
   readonly spcBefPct?: number;
   readonly spcAftPct?: number;
   readonly indent: ReturnType<typeof getParagraphIndent>;
+  readonly tabs?: ReturnType<typeof getParagraphLayout>;
 }
 
 // Collapses every ST_TextUnderlineType token onto the 3 styles the SVG text
@@ -1774,6 +2014,35 @@ const underlineStyleOf = (
   if (u === undefined || u === false || u === "none") return "none";
   if (typeof u === "string" && u.startsWith("wavy")) return "wavy";
   return "single";
+};
+// Underline color, double lines and the text outline, as the SVG text
+// engine draws them.
+const drawnTextDecorations = (
+  fmt: TextFormat | null,
+  theme: PresentationTheme | null,
+  sizePx: number,
+): Partial<PieceInput> => {
+  const out: {
+    underlineHex?: string;
+    underlineDouble?: boolean;
+    strikeDouble?: boolean;
+    strokeHex?: string;
+    strokeWidthPx?: number;
+    strokeOpacity?: number;
+  } = {};
+  if (fmt?.underlineColor)
+    out.underlineHex = resolveColor(fmt.underlineColor, theme, "#000000");
+  if (fmt?.underline === "dbl") out.underlineDouble = true;
+  if (fmt?.strike === "dblStrike") out.strikeDouble = true;
+  const outline = fmt?.outline;
+  if (outline && outline.widthEmu > 0) {
+    out.strokeHex = resolveColor(outline.color, theme, "#000000");
+    // Hairline outlines stay visible on small text.
+    out.strokeWidthPx = Math.max(0.5, outline.widthEmu / EMU_PER_PX);
+    if (outline.opacity !== undefined) out.strokeOpacity = outline.opacity;
+  }
+  void sizePx;
+  return out;
 };
 const hasStrikeFmt = (fmt: TextFormat | null): boolean => {
   const s = fmt?.strike;
@@ -1811,7 +2080,102 @@ export interface SvgTextArgs {
   readonly resolveFamily?: ((family: string | null) => string) | undefined;
   readonly resolveKerning?:
     RenderSlideOptions["resolveFontKerning"] | undefined;
+  /** Collects gradient definitions for gradient-filled text, keyed by the
+   * gradient; set only on the pass that emits SVG. */
+  readonly textGradients?: Map<string, { id: string; svg: string }>;
 }
+
+// Plain numbers for values already in SVG pixels (E() converts EMU).
+const PX = (n: number): string => (Math.round(n * 1000) / 1000).toString();
+
+// A gradient text fill as an SVG paint server, minted once per gradient.
+const textGradientFill = (
+  gradient: NonNullable<TextFormat["gradient"]>,
+  theme: PresentationTheme | null,
+  defs: Map<string, { id: string; svg: string }>,
+): string => {
+  const key = JSON.stringify(gradient);
+  let entry = defs.get(key);
+  if (!entry) {
+    const id = mintId();
+    const rad = (gradient.angleDeg * Math.PI) / 180;
+    const dx = Math.cos(rad) / 2,
+      dy = Math.sin(rad) / 2;
+    const stops = [...gradient.stops]
+      .sort((a, b) => a.offset - b.offset)
+      .map(
+        (stop) =>
+          `<stop offset="${PX(stop.offset)}" stop-color="${resolveColor(stop.color, theme, "#000000")}"${stop.opacity !== undefined && stop.opacity < 1 ? ` stop-opacity="${PX(stop.opacity)}"` : ""}/>`,
+      )
+      .join("");
+    entry = {
+      id,
+      svg: `<linearGradient id="${id}" x1="${PX(0.5 - dx)}" y1="${PX(0.5 - dy)}" x2="${PX(0.5 + dx)}" y2="${PX(0.5 + dy)}">${stops}</linearGradient>`,
+    };
+    defs.set(key, entry);
+  }
+  return `url(#${entry.id})`;
+};
+
+// Shadow, glow and reflection drawn with a shape's text: the first run that
+// carries effects speaks for the text body, as WordArt styles apply to all of it.
+const wrapTextEffects = (
+  svg: string,
+  paraData: readonly ParaData[],
+  theme: PresentationTheme | null,
+  box: { x: number; y: number; w: number; h: number },
+): string => {
+  const effects = paraData
+    .flatMap((p) => p.runs)
+    .find((run) => run.fmt?.effects)?.fmt?.effects;
+  if (
+    !effects ||
+    (!effects.shadow && !effects.glow && !effects.reflection) ||
+    !svg
+  )
+    return svg;
+  const px = (emu: number) => emu / EMU_PER_PX;
+  let defs = "";
+  let out = svg;
+  const layers: string[] = [];
+  if (effects.glow && effects.glow.radiusEmu > 0) {
+    const r = px(effects.glow.radiusEmu);
+    layers.push(
+      `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
+    );
+  }
+  if (effects.shadow && !effects.shadow.inner) {
+    const rad = (effects.shadow.angleDeg * Math.PI) / 180;
+    const d = px(effects.shadow.distEmu);
+    layers.push(
+      `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
+    );
+  }
+  if (layers.length) {
+    const id = mintId();
+    const merge = [
+      effects.shadow && !effects.shadow.inner ? "shadow" : null,
+      effects.glow && effects.glow.radiusEmu > 0 ? "glow" : null,
+      "SourceGraphic",
+    ]
+      .filter(Boolean)
+      .map((name) => `<feMergeNode in="${name}"/>`)
+      .join("");
+    defs += `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">${layers.join("")}<feMerge>${merge}</feMerge></filter>`;
+    out = `<g filter="url(#${id})">${out}</g>`;
+  }
+  if (effects.reflection) {
+    const id = mintId(),
+      maskId = mintId(),
+      gradId = mintId();
+    const bottom = box.y + box.h;
+    const gap = px(effects.reflection.distEmu);
+    const size = box.h * Math.max(0.05, Math.min(1, effects.reflection.endPos));
+    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(effects.reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
+    out = `<g id="${id}">${out}</g><g mask="url(#${maskId})" data-pptx-text-reflection="1"><use href="#${id}" transform="translate(0 ${PX(2 * bottom + gap)}) scale(1 -1)"/></g>`;
+  }
+  return `<defs>${defs}</defs>${out}`;
+};
 
 const alignOf = (a: string): ParaInput["align"] =>
   a === "center" || a === "right" || a === "justify" ? a : "left";
@@ -1894,9 +2258,13 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
       const effectivePt = autofitFontSizePt(run.sizePt, scale);
       const sizePx = effectivePt * PX_PER_PT;
       const fillHex =
-        fmt?.color !== undefined && fmt.color !== null
-          ? resolveColor(fmt.color, a.theme, "#000000")
-          : a.defaultColor;
+        fmt?.gradient && a.textGradients
+          ? textGradientFill(fmt.gradient, a.theme, a.textGradients)
+          : fmt?.gradient
+            ? resolveColor(fmt.gradient.stops[0]!.color, a.theme, "#000000")
+            : fmt?.color !== undefined && fmt.color !== null
+              ? resolveColor(fmt.color, a.theme, "#000000")
+              : a.defaultColor;
       const superSub: 0 | 1 | -1 =
         fmt?.baseline !== undefined && fmt.baseline !== 0
           ? fmt.baseline > 0
@@ -1919,6 +2287,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         fillOpacity: fmt?.colorOpacity ?? 1,
         underline: underlineStyleOf(fmt),
         strike: hasStrikeFmt(fmt),
+        ...drawnTextDecorations(fmt, a.theme, sizePx),
         superSub,
         href: run.href ?? null,
       });
@@ -1998,6 +2367,17 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         : {}),
       ...(para.emptyLineFormat
         ? { emptyLineFont: lineFont(para.emptyLineFormat) }
+        : {}),
+      ...(para.tabs
+        ? {
+            tabStops: para.tabs.tabs.map((t) => ({
+              posPx: t.pos / EMU_PER_PX,
+              align: t.align,
+            })),
+            ...(para.tabs.defaultTab
+              ? { defaultTabPx: para.tabs.defaultTab / EMU_PER_PX }
+              : {}),
+          }
         : {}),
     };
   });
@@ -2380,6 +2760,11 @@ export const resolveTextBodyModel = (
       if (spacing.beforePts !== null) spcBefPts = spacing.beforePts;
       if (spacing.afterPts !== null) spcAftPts = spacing.afterPts;
     } catch {}
+    let tabs: ReturnType<typeof getParagraphLayout> | undefined;
+    try {
+      const layout = getParagraphLayout(shape, p);
+      if (layout.tabs.length || layout.defaultTab !== null) tabs = layout;
+    } catch {}
     try {
       const lit = getParagraphIndent(shape, p);
       if (lit.leftEmu !== null) indent.leftEmu = lit.leftEmu;
@@ -2511,6 +2896,7 @@ export const resolveTextBodyModel = (
         ? { spcAftPct: effective.spcAftPct }
         : {}),
       indent,
+      ...(tabs ? { tabs } : {}),
     });
   }
   if (!hasAnyText) return null;
@@ -2902,9 +3288,19 @@ const renderTextBody = (
     };
     // Both render paths use the stored font scale, including its 100% default.
     const svgScale = authoredAutofit ? autoFitScale : 1;
-    const svgInner = buildAndLayoutSvgText({
+    const textGradients = new Map<string, { id: string; svg: string }>();
+    let svgInner = buildAndLayoutSvgText({
       ...svgArgsBase,
       autoFitScale: svgScale,
+      textGradients,
+    });
+    if (textGradients.size)
+      svgInner = `<defs>${[...textGradients.values()].map((g) => g.svg).join("")}</defs>${svgInner}`;
+    svgInner = wrapTextEffects(svgInner, paraData, theme, {
+      x: vInnerX / EMU_PER_PX,
+      y: vInnerY / EMU_PER_PX,
+      w: vInnerW / EMU_PER_PX,
+      h: vInnerH / EMU_PER_PX,
     });
     const bodyRotDegSvg = getShapeTextBodyRotationDeg(shape);
     if (bodyRotDegSvg !== null && bodyRotDegSvg !== 0) {

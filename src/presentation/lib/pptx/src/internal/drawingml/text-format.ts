@@ -145,7 +145,261 @@ export interface TextFormat {
    * format as `color`. Mirrors `<a:rPr><a:highlight>…</a:highlight></a:rPr>`.
    */
   highlight?: string | null;
+  /**
+   * Underline color (`<a:uFill>`). `null` makes the underline follow the
+   * text color again.
+   */
+  underlineColor?: string | null;
+  /** Equalize character height (`normalizeH`): every glyph as tall as a capital. */
+  normalizeHeight?: boolean;
+  /** Text outline (`<a:ln>` on the run). `null` removes it. */
+  outline?: TextOutline | null;
+  /**
+   * Gradient text fill (`<a:gradFill>`), in place of a solid color. `null`
+   * removes it (the text then takes `color`, or inherits).
+   */
+  gradient?: TextGradient | null;
+  /** Effects drawn with the letters (`<a:effectLst>`). `null` removes them. */
+  effects?: TextEffects | null;
 }
+
+/** An outline drawn round each letter. */
+export interface TextOutline {
+  readonly color: string;
+  /** Width in EMU (12700 = 1pt). */
+  readonly widthEmu: number;
+  /** Optional `ST_PresetLineDashVal` token. */
+  readonly dash?: string;
+  readonly opacity?: number;
+}
+
+/** A linear gradient across the text. */
+export interface TextGradient {
+  readonly stops: readonly {
+    readonly offset: number;
+    readonly color: string;
+    readonly opacity?: number;
+  }[];
+  /** Degrees clockwise from 3 o'clock; 90 runs top to bottom. */
+  readonly angleDeg: number;
+}
+
+/** Shadow, glow and reflection drawn with the text. */
+export interface TextEffects {
+  readonly shadow?: {
+    readonly color: string;
+    readonly opacity?: number;
+    readonly blurEmu: number;
+    readonly distEmu: number;
+    readonly angleDeg: number;
+    readonly inner?: boolean;
+  } | null;
+  readonly glow?: {
+    readonly color: string;
+    readonly opacity?: number;
+    readonly radiusEmu: number;
+  } | null;
+  readonly reflection?: {
+    readonly startOpacity: number;
+    readonly endPos: number;
+    readonly distEmu: number;
+    readonly blurEmu: number;
+  } | null;
+}
+
+const alphaColor = (color: string, opacity?: number): XmlElement => {
+  const el = buildColorElement(color);
+  if (opacity !== undefined && opacity < 1)
+    el.children.push(
+      elem(qname("a", "alpha", NS.dml), {
+        attrs: [
+          attr(
+            ATTR_VAL,
+            String(Math.round(Math.max(0, Math.min(1, opacity)) * 100000)),
+          ),
+        ],
+      }),
+    );
+  return el;
+};
+
+const intAttr = (name: string, value: number) =>
+  attr(qname("", name, ""), String(Math.round(value)));
+
+/** Builds a run-level `<a:effectLst>` in the schema's effect order. */
+export const buildTextEffectList = (effects: TextEffects): XmlElement => {
+  const children: XmlElement[] = [];
+  if (effects.glow)
+    children.push(
+      elem(qname("a", "glow", NS.dml), {
+        attrs: [intAttr("rad", effects.glow.radiusEmu)],
+        children: [alphaColor(effects.glow.color, effects.glow.opacity)],
+      }),
+    );
+  if (effects.shadow?.inner)
+    children.push(
+      elem(qname("a", "innerShdw", NS.dml), {
+        attrs: [
+          intAttr("blurRad", effects.shadow.blurEmu),
+          intAttr("dist", effects.shadow.distEmu),
+          intAttr(
+            "dir",
+            (((effects.shadow.angleDeg % 360) + 360) % 360) * 60000,
+          ),
+        ],
+        children: [alphaColor(effects.shadow.color, effects.shadow.opacity)],
+      }),
+    );
+  else if (effects.shadow)
+    children.push(
+      elem(qname("a", "outerShdw", NS.dml), {
+        attrs: [
+          intAttr("blurRad", effects.shadow.blurEmu),
+          intAttr("dist", effects.shadow.distEmu),
+          intAttr(
+            "dir",
+            (((effects.shadow.angleDeg % 360) + 360) % 360) * 60000,
+          ),
+          attr(qname("", "algn", ""), "tl"),
+          attr(qname("", "rotWithShape", ""), "0"),
+        ],
+        children: [alphaColor(effects.shadow.color, effects.shadow.opacity)],
+      }),
+    );
+  if (effects.reflection)
+    children.push(
+      elem(qname("a", "reflection", NS.dml), {
+        attrs: [
+          intAttr("blurRad", effects.reflection.blurEmu),
+          intAttr("stA", effects.reflection.startOpacity * 100000),
+          intAttr("endPos", effects.reflection.endPos * 100000),
+          intAttr("dist", effects.reflection.distEmu),
+          intAttr("dir", 5400000),
+          intAttr("sy", -100000),
+          attr(qname("", "algn", ""), "bl"),
+          attr(qname("", "rotWithShape", ""), "0"),
+        ],
+      }),
+    );
+  return elem(qname("a", "effectLst", NS.dml), { children });
+};
+
+const FILL_NAMES = [
+  "noFill",
+  "solidFill",
+  "gradFill",
+  "blipFill",
+  "pattFill",
+  "grpFill",
+];
+const dropChildren = (rPr: XmlElement, names: readonly string[]) => {
+  rPr.children = rPr.children.filter(
+    (c) =>
+      !(
+        c.kind === "element" &&
+        c.name.namespaceURI === NS.dml &&
+        names.includes(c.name.localName)
+      ),
+  );
+};
+
+const applyExtendedRunFormat = (rPr: XmlElement, format: TextFormat) => {
+  if (format.underlineColor !== undefined) {
+    dropChildren(rPr, ["uFillTx", "uFill"]);
+    if (format.underlineColor !== null)
+      insertChildByRank(
+        rPr,
+        elem(qname("a", "uFill", NS.dml), {
+          children: [
+            elem(NAME_SOLID_FILL, {
+              children: [buildColorElement(format.underlineColor)],
+            }),
+          ],
+        }),
+        rprChildRank,
+      );
+  }
+  if (format.normalizeHeight !== undefined)
+    rPr.attrs = setOrRemoveAttr(
+      rPr.attrs,
+      qname("", "normalizeH", ""),
+      format.normalizeHeight ? "1" : null,
+    );
+  if (format.outline !== undefined) {
+    dropChildren(rPr, ["ln"]);
+    if (format.outline !== null) {
+      const children: XmlElement[] = [
+        elem(NAME_SOLID_FILL, {
+          children: [alphaColor(format.outline.color, format.outline.opacity)],
+        }),
+      ];
+      if (format.outline.dash)
+        children.push(
+          elem(qname("a", "prstDash", NS.dml), {
+            attrs: [attr(ATTR_VAL, format.outline.dash)],
+          }),
+        );
+      insertChildByRank(
+        rPr,
+        elem(qname("a", "ln", NS.dml), {
+          attrs: [
+            intAttr(
+              "w",
+              Math.max(0, Math.min(20116800, format.outline.widthEmu)),
+            ),
+          ],
+          children,
+        }),
+        rprChildRank,
+      );
+    }
+  }
+  if (format.gradient !== undefined) {
+    dropChildren(rPr, ["gradFill"]);
+    if (format.gradient !== null) {
+      if (format.gradient.stops.length < 2)
+        throw new Error("a text gradient needs two or more stops");
+      dropChildren(rPr, FILL_NAMES);
+      const stops = format.gradient.stops.map((stop) =>
+        elem(qname("a", "gs", NS.dml), {
+          attrs: [
+            intAttr("pos", Math.max(0, Math.min(1, stop.offset)) * 100000),
+          ],
+          children: [alphaColor(stop.color, stop.opacity)],
+        }),
+      );
+      insertChildByRank(
+        rPr,
+        elem(qname("a", "gradFill", NS.dml), {
+          attrs: [attr(qname("", "rotWithShape", ""), "1")],
+          children: [
+            elem(qname("a", "gsLst", NS.dml), { children: stops }),
+            elem(qname("a", "lin", NS.dml), {
+              attrs: [
+                intAttr(
+                  "ang",
+                  (((format.gradient.angleDeg % 360) + 360) % 360) * 60000,
+                ),
+                attr(qname("", "scaled", ""), "0"),
+              ],
+            }),
+          ],
+        }),
+        rprChildRank,
+      );
+    }
+  }
+  if (format.effects !== undefined) {
+    dropChildren(rPr, ["effectLst", "effectDag"]);
+    if (
+      format.effects &&
+      (format.effects.shadow ||
+        format.effects.glow ||
+        format.effects.reflection)
+    )
+      insertChildByRank(rPr, buildTextEffectList(format.effects), rprChildRank);
+  }
+};
 
 const setOrRemoveAttr = (
   attrs: XmlAttr[],
@@ -162,13 +416,17 @@ const setOrRemoveAttr = (
 };
 
 const setSolidFill = (rPr: XmlElement, value: string | null): void => {
-  // Remove any existing solidFill first.
+  // Remove any existing fill choice first: a run holds one.
   rPr.children = rPr.children.filter(
     (c) =>
       !(
         c.kind === "element" &&
         c.name.namespaceURI === NS.dml &&
-        c.name.localName === "solidFill"
+        (c.name.localName === "solidFill" ||
+          (value !== null &&
+            (c.name.localName === "gradFill" ||
+              c.name.localName === "noFill" ||
+              c.name.localName === "pattFill")))
       ),
   );
   if (value === null) return;
@@ -342,6 +600,7 @@ export const applyRunFormat = (rPr: XmlElement, format: TextFormat): void => {
     );
   }
   if (format.highlight !== undefined) setHighlight(rPr, format.highlight);
+  applyExtendedRunFormat(rPr, format);
 
   void NAME_CS;
 };

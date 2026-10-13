@@ -90,9 +90,12 @@ const mergeRPrLayer = (
   }
   if (base.size === undefined && layer.size !== undefined)
     base.size = layer.size;
-  if (base.color === undefined && layer.color !== undefined) {
-    base.color = layer.color;
-    base.colorOpacity = layer.colorOpacity ?? 1;
+  // A run's fill is one choice: the nearest solid color or gradient wins.
+  if (base.color === undefined && base.gradient === undefined) {
+    if (layer.color !== undefined) {
+      base.color = layer.color;
+      base.colorOpacity = layer.colorOpacity ?? 1;
+    } else if (layer.gradient !== undefined) base.gradient = layer.gradient;
   }
   if (base.bold === undefined && layer.bold !== undefined)
     base.bold = layer.bold;
@@ -112,6 +115,14 @@ const mergeRPrLayer = (
   if (base.highlight === undefined && layer.highlight !== undefined) {
     base.highlight = layer.highlight;
   }
+  for (const key of [
+    "underlineColor",
+    "normalizeHeight",
+    "outline",
+    "effects",
+  ] as const)
+    if (base[key] === undefined && layer[key] !== undefined)
+      (base as Record<string, unknown>)[key] = layer[key];
 };
 
 /**

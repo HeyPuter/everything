@@ -624,3 +624,4 @@ export type {
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
+export * from "./format.ts";
