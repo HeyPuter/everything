@@ -57,6 +57,11 @@ function editDistance(a, b) {
   return d[a.length][b.length];
 }
 
+const swapped = (a, b) =>
+  a.length === b.length &&
+  [...a].filter((ch, i) => ch !== b[i]).length === 2 &&
+  [...a].sort().join() === [...b].sort().join();
+
 /**
  * Suggestions closest first; ties keep the engine's order. They take the
  * word's capitalization: "Teh" → "The", "TEH" → "THE".
@@ -72,6 +77,8 @@ export function orderSuggestions(word, suggestions, limit = 8) {
     .map((s, i) => {
       const c = s.toLowerCase();
       let score = editDistance(lower, c) * 10;
+      // Two letters typed the wrong way round is the commonest slip.
+      if (swapped(lower, c)) score -= 6;
       if (c[0] !== lower[0]) score += 3;
       if (c.length !== lower.length) score += 1;
       return { s, score, i };
