@@ -4,7 +4,9 @@
  * Entities: LINE, LWPOLYLINE and POLYLINE (with bulges), ARC, CIRCLE,
  * ELLIPSE, SPLINE (exact Bezier conversion for non-rational splines up to
  * degree 3, fitted otherwise), TEXT, MTEXT, SOLID/TRACE, 3DFACE, HATCH
- * (solid fills from polyline and edge boundaries), POINT, LEADER, INSERT
+ * (solid fills, and pattern fills from the hatch's line families, with
+ * polyline and edge boundaries), polygon and polyface meshes (their
+ * visible edges, seen from above), POINT, LEADER, INSERT
  * (blocks with scale, rotation and arrays, nested) and DIMENSION (its
  * block). Layers become layers (with their colors, visibility and lock),
  * colors come from the color index or true color (ByLayer/ByBlock
@@ -16,6 +18,8 @@ import { Builder } from '../pdf/build.js';
 import { createPath, createCompound, createGroup, createText, DEFAULT_CHAR, DEFAULT_PARA } from '../../../model/nodes.js';
 import { fitCurve } from '../../../model/bezier.js';
 import { multiply } from '../../../lib/matrix.js';
+import { uid } from '../../../lib/ids.js';
+import { readHatchPattern, patternTile } from './dxf-hatch.js';
 
 /** Group code / value pairs. */
 export function dxfPairs(text) {
@@ -400,6 +404,8 @@ class DXFConverter {
     this.warnings = new Set();
     this.families = families || [];
     this.count = 0;
+    this.patterns = [];
+    this.patternCache = new Map();
   }
 
   layerRec(name) {
@@ -437,14 +443,14 @@ class DXFConverter {
   }
 
   /** Emit subpaths (DXF coordinates) as a path or compound with the entity's style. */
-  emitPaths(subs, e, m, ctx, { fill = false } = {}) {
+  emitPaths(subs, e, m, ctx, { fill = false, paint = null } = {}) {
     subs = subs.filter(Boolean);
     if (!subs.length) return;
     const layerName = g(e, 8, '0');
     const { rec, L } = this.layerRec(ctx.layer && layerName === '0' ? ctx.layer : layerName);
     const color = this.colorOf(e, ctx, L);
     const style = fill
-      ? { fill: { type: 'solid', color }, stroke: null, strokeWidth: 1 }
+      ? { fill: paint || { type: 'solid', color }, stroke: null, strokeWidth: 1 }
       : { fill: null, stroke: { type: 'solid', color }, strokeWidth: this.widthOf(e, L), strokeCap: 'round', strokeJoin: 'round', dash: this.dashOf(e, L, m) };
     const toAnchors = (s) => {
       const a = [];
@@ -511,7 +517,7 @@ class DXFConverter {
       case 'POLYLINE': {
         const flags = n(70);
         if (flags & 16 || flags & 64) {
-          this.warnings.add('Polygon meshes and polyface meshes were skipped.');
+          this.emitPaths(meshEdges(e, flags), e, em, ctx);
           break;
         }
         this.emitPaths([polySub(e.vertices || [], Boolean(flags & 1))], e, em, ctx);
@@ -699,8 +705,41 @@ class DXFConverter {
       // Skip source boundary references.
       while (i < p.length && p[i][0] !== 92 && p[i][0] !== 75) i++;
     }
-    if (!solid) this.warnings.add('Hatch patterns were imported as solid fills.');
-    this.emitPaths(subs, e, m, ctx, { fill: true });
+    let paint = null;
+    if (!solid) {
+      paint = this.hatchPaint(e, m, ctx, i);
+      if (!paint) this.warnings.add('Some hatch patterns could not be repeated as pattern fills and were imported as solid fills.');
+    }
+    this.emitPaths(subs, e, m, ctx, { fill: true, paint });
+  }
+
+  /** A pattern fill for a pattern hatch (the line families as a tile), or null. */
+  hatchPaint(e, m, ctx, from) {
+    const pat = readHatchPattern(e.pairs, from);
+    if (!pat) return null;
+    const layerName = g(e, 8, '0');
+    const { L } = this.layerRec(ctx.layer && layerName === '0' ? ctx.layer : layerName);
+    const color = this.colorOf(e, ctx, L);
+    const s = scaleOf(m);
+    const width = Math.max(0.05, this.widthOf(e, L) / s);
+    const key = JSON.stringify([pat.lines, color, Math.round(width * 1e6)]);
+    let def = this.patternCache.get(key);
+    if (def === undefined) {
+      def = null;
+      const tile = patternTile(pat.lines);
+      if (tile && tile.segments.length) {
+        const kids = tile.segments.map(([x0, y0, x1, y1]) => createPath([anchor(x0, y0), anchor(x1, y1)], false, { fill: null, stroke: null }));
+        const dots = tile.segments.some(([x0, y0, x1, y1]) => x0 === x1 && y0 === y1);
+        const comp = createCompound(kids.map((k) => k.id), { fill: null, stroke: { type: 'solid', color }, strokeWidth: width, strokeCap: dots ? 'round' : 'butt', strokeJoin: 'miter' }, { fillRule: 'nonzero' });
+        const nodes = [comp, ...kids.map((k) => ({ ...k, parent: comp.id }))];
+        const name = pat.name && pat.name !== 'SOLID' ? pat.name : `Hatch ${this.patterns.length + 1}`;
+        def = { id: uid('pat'), name: this.patterns.some((p) => p.name === name) ? `${name} ${this.patterns.length + 1}` : name, tileType: 'grid', brickOffset: '1/2', width: tile.w, height: tile.h, hSpacing: 0, vSpacing: 0, sizeToArt: false, moveWithArt: true, overlapH: 'left', overlapV: 'top', art: { roots: [comp.id], nodes } };
+        this.patterns.push(def);
+      }
+      this.patternCache.set(key, def);
+    }
+    // Pattern units are drawing units at the drawing's origin.
+    return def ? { type: 'pattern', id: def.id, transform: m.slice() } : null;
   }
 
   text(e, m, ctx) {
@@ -799,6 +838,48 @@ class DXFConverter {
 }
 
 const app = (m, p) => ({ x: m[0] * p[0] + m[2] * p[1] + m[4], y: m[1] * p[0] + m[3] * p[1] + m[5] });
+const anchor = (x, y) => ({ x, y, ix: x, iy: y, ox: x, oy: y });
+
+/**
+ * The visible edges of a polygon mesh (M x N vertices, flag 16) or a
+ * polyface mesh (vertices and faces, flag 64) as open two-point subpaths,
+ * seen from above (z is dropped), each edge once.
+ */
+function meshEdges(e, flags) {
+  const verts = e.vertices || [];
+  const edges = new Map();
+  const add = (a, b) => {
+    if (!a || !b || (Math.abs(a.x - b.x) < 1e-12 && Math.abs(a.y - b.y) < 1e-12)) return;
+    const k1 = `${a.x},${a.y}|${b.x},${b.y}`;
+    const k2 = `${b.x},${b.y}|${a.x},${a.y}`;
+    if (edges.has(k1) || edges.has(k2)) return;
+    const s = new Sub(a.x, a.y);
+    s.line(b.x, b.y);
+    edges.set(k1, s);
+  };
+  if (flags & 64) {
+    const points = verts.filter((v) => v.flags & 64);
+    for (const f of verts.filter((v) => v.flags & 128 && !(v.flags & 64))) {
+      const idx = f.faces.filter((x) => x !== 0);
+      for (let i = 0; i < idx.length; i++) {
+        // A negative index hides the edge that starts at that vertex.
+        if (idx[i] < 0) continue;
+        add(points[Math.abs(idx[i]) - 1], points[Math.abs(idx[(i + 1) % idx.length]) - 1]);
+      }
+    }
+  } else {
+    const M = Math.max(1, gn(e, 71, 0));
+    const N = Math.max(1, gn(e, 72, 0));
+    const at = (i, j) => verts[i * N + j];
+    for (let i = 0; i < M; i++) {
+      for (let j = 0; j < N; j++) {
+        if (j + 1 < N || flags & 32) add(at(i, j), at(i, (j + 1) % N));
+        if (i + 1 < M || flags & 1) add(at(i, j), at((i + 1) % M, j));
+      }
+    }
+  }
+  return [...edges.values()];
+}
 const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
 
 /** Attach VERTEX records to their POLYLINE (and drop SEQEND). */
@@ -811,8 +892,9 @@ function joinPolylines(recs) {
       poly.vertices = [];
       out.push(r);
     } else if (r.type === 'VERTEX' && poly) {
-      if (gn(r, 70, 0) & 16) continue; // spline frame control point
-      poly.vertices.push({ x: gn(r, 10), y: gn(r, 20), bulge: gn(r, 42, 0) });
+      const flags = gn(r, 70, 0);
+      if (flags & 16) continue; // spline frame control point
+      poly.vertices.push({ x: gn(r, 10), y: gn(r, 20), bulge: gn(r, 42, 0), flags, faces: [gn(r, 71), gn(r, 72), gn(r, 73), gn(r, 74)] });
     } else if (r.type === 'SEQEND') poly = null;
     else {
       poly = null;
@@ -841,7 +923,7 @@ export function readDXF(text) {
 /**
  * Convert a DXF drawing. opts: { unitPt (points per drawing unit; default
  * from $INSUNITS, or 1 mm for unitless metric drawings), families }.
- * Returns { layers, nodes, bounds, warnings }.
+ * Returns { layers, nodes, bounds, warnings, patterns (pattern definitions for hatches) }.
  */
 export function convertDXF(data, opts = {}) {
   const unitPt = opts.unitPt || UNITS[data.units].pt || (data.metric ? 72 / 25.4 : 72);
@@ -865,7 +947,7 @@ export function convertDXF(data, opts = {}) {
   const shim = { get: (id) => nodes.get(id) };
   let bounds = null;
   for (const l of layers) for (const id of l.ids) bounds = unionBounds(bounds, nodeBoundsSafe(shim, nodes.get(id)));
-  return { layers, nodes, bounds, warnings, unitPt };
+  return { layers, nodes, bounds, warnings, unitPt, patterns: conv.patterns };
 }
 
 import { nodeBounds } from '../../../model/geometry.js';

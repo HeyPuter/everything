@@ -13,12 +13,16 @@
  *   gradients            Level 3 shfill / shading patterns; on Level 2
  *                        drawn as fine bands
  *   images               Level 2 image dictionaries with ASCII85 data
- *                        (JPEG passed through with DCTDecode), alpha
- *                        flattened on white
+ *                        (JPEG passed through with DCTDecode); images with
+ *                        transparency (JPEG with a soft mask too) become
+ *                        Level 3 masked images, or are flattened on white
+ *                        for Level 2
  *   groups               form XObjects inlined in gsave/grestore
  *
- * PostScript has no transparency: opacity and blend modes are dropped (and
- * reported). An optional TIFF preview makes a binary (DOS) EPS file.
+ * PostScript has no transparency: with a flattener preset (opts.flatten)
+ * transparent artwork is flattened first (eps-flatten.js), else opacity
+ * and blend modes are dropped (and reported). An optional TIFF preview
+ * makes a binary (DOS) EPS file.
  */
 import { writePDF } from '../../io/pdf.js';
 import { PDFDocument } from '../pdf/document.js';
@@ -29,6 +33,7 @@ import { decodeImage } from '../pdf/images.js';
 import { parseColorSpace, rgbHex } from '../pdf/colors.js';
 import { compileFunction } from '../pdf/functions.js';
 import { cmykEngine } from '../../../lib/color.js';
+import { flattenForOutput } from './eps-flatten.js';
 
 const num = (v) => {
   if (!Number.isFinite(v)) return '0';
@@ -468,32 +473,53 @@ class Translator {
     } catch {
       img = null;
     }
-    if (!img || img.kind === 'unsupported') return;
+    if (!img || img.kind === 'unsupported' || img.kind === 'deferred') return;
     const W = img.width;
     const H = img.height;
-    if (img.kind === 'jpeg' && !img.alpha) {
+    const matrix = `[${W} 0 0 -${H} 0 ${H}]`;
+    if (img.kind === 'jpeg') {
       const cs = d.get('ColorSpace');
       const n = cs instanceof Name ? (cs.name === 'DeviceCMYK' ? 4 : cs.name === 'DeviceGray' ? 1 : 3) : parseColorSpace(this.pdf, cs, resources).n || 3;
       const space = n === 4 ? '/DeviceCMYK' : n === 1 ? '/DeviceGray' : '/DeviceRGB';
       const own = d.array('Decode');
       const decode = own ? `[${own.map(num).join(' ')}]` : `[${new Array(n).fill('0 1').join(' ')}]`;
-      this.emit(`q ${space} setcolorspace\n<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 8 /ImageMatrix [${W} 0 0 -${H} 0 ${H}] /Decode ${decode} /DataSource currentfile /ASCII85Decode filter /DCTDecode filter >> image\n${ascii85(img.bytes)}\nQ`);
+      const dataDict = `<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 8 /ImageMatrix ${matrix} /Decode ${decode} /DataSource currentfile /ASCII85Decode filter /DCTDecode filter >>`;
+      const mask = img.alpha ? maskBits(img.alpha.gray, img.alpha.width, img.alpha.height) : null;
+      if (mask && !mask.opaque) {
+        if (this.level >= 3) {
+          this.emit(`q ${space} setcolorspace\n${this.maskedImage(dataDict, mask, img.alpha.width, img.alpha.height)}\n${ascii85(img.bytes)}\nQ`);
+          return;
+        }
+        this.warnings.add('Level 2 PostScript cannot mask images: transparent parts of JPEG images were drawn opaque.');
+      }
+      this.emit(`q ${space} setcolorspace\n${dataDict} image\n${ascii85(img.bytes)}\nQ`);
       return;
     }
-    // RGBA pixels: alpha flattened on white.
-    let rgba;
-    if (img.kind === 'jpeg') {
-      this.warnings.add('A JPEG image with transparency was skipped (PostScript cannot mask it).');
+    const rgba = img.data;
+    if (img.stencil) {
+      // A stencil: imagemask in the fill color.
+      const bits = new Uint8Array(Math.ceil(W / 8) * H);
+      const rb = Math.ceil(W / 8);
+      for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (rgba[(y * W + xx) * 4 + 3] < 128) bits[y * rb + (xx >> 3)] |= 0x80 >> (xx & 7);
+      this.emit(`q ${this.color(fill)}\n<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 1 /ImageMatrix ${matrix} /Decode [0 1] /DataSource currentfile /ASCII85Decode filter >> imagemask\n${ascii85(bits)}\nQ`);
       return;
     }
-    rgba = img.data;
+    const alpha = new Uint8Array(W * H);
+    let anyAlpha = false;
+    let soft = false;
+    for (let i = 0; i < W * H; i++) {
+      const a = rgba[i * 4 + 3];
+      alpha[i] = a;
+      if (a < 255) anyAlpha = true;
+      if (a > 0 && a < 255) soft = true;
+    }
+    // Level 3 masks the transparent pixels; partly transparent ones blend with white.
+    const masked = anyAlpha && this.level >= 3;
     const gray = !this.cmyk && isGray(rgba);
     const n = this.cmyk ? 4 : gray ? 1 : 3;
     const data = new Uint8Array(W * H * n);
-    let anyAlpha = false;
     for (let i = 0; i < W * H; i++) {
-      const a = rgba[i * 4 + 3] / 255;
-      if (a < 1) anyAlpha = true;
+      const a = masked && alpha[i] >= 128 && !soft ? 1 : rgba[i * 4 + 3] / 255;
       const r = rgba[i * 4] * a + 255 * (1 - a);
       const g = rgba[i * 4 + 1] * a + 255 * (1 - a);
       const b = rgba[i * 4 + 2] * a + 255 * (1 - a);
@@ -510,19 +536,43 @@ class Translator {
         data[i * 4 + 3] = Math.round((c.k / 100) * 255);
       }
     }
-    if (anyAlpha && !img.stencil) this.warnings.add('Image transparency was flattened on white.');
-    if (img.stencil) {
-      // A stencil: imagemask in the fill color.
-      const bits = new Uint8Array(Math.ceil(W / 8) * H);
-      const rb = Math.ceil(W / 8);
-      for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (rgba[(y * W + xx) * 4 + 3] < 128) bits[y * rb + (xx >> 3)] |= 0x80 >> (xx & 7);
-      this.emit(`q ${this.color(fill)}\n<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 1 /ImageMatrix [${W} 0 0 -${H} 0 ${H}] /Decode [0 1] /DataSource currentfile /ASCII85Decode filter >> imagemask\n${ascii85(bits)}\nQ`);
-      return;
-    }
     const space = n === 4 ? '/DeviceCMYK' : n === 1 ? '/DeviceGray' : '/DeviceRGB';
     const decode = new Array(n).fill('0 1').join(' ');
-    this.emit(`q ${space} setcolorspace\n<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 8 /ImageMatrix [${W} 0 0 -${H} 0 ${H}] /Decode [${decode}] /DataSource currentfile /ASCII85Decode filter >> image\n${ascii85(data)}\nQ`);
+    const dataDict = `<< /ImageType 1 /Width ${W} /Height ${H} /BitsPerComponent 8 /ImageMatrix ${matrix} /Decode [${decode}] /DataSource currentfile /ASCII85Decode filter >>`;
+    if (masked) {
+      if (soft) this.warnings.add('Soft image edges were blended with white where they are mostly opaque.');
+      this.emit(`q ${space} setcolorspace\n${this.maskedImage(dataDict, maskBits(alpha, W, H), W, H)}\n${ascii85(data)}\nQ`);
+      return;
+    }
+    if (anyAlpha) this.warnings.add('Image transparency was flattened on white.');
+    this.emit(`q ${space} setcolorspace\n${dataDict} image\n${ascii85(data)}\nQ`);
   }
+
+  /**
+   * A Level 3 masked image (ImageType 3): the 1-bit mask is read first
+   * into a reusable stream, then the image data follows the operator.
+   */
+  maskedImage(dataDict, mask, mw, mh) {
+    return [
+      `/VSmask currentfile /ASCII85Decode filter /ReusableStreamDecode filter\n${ascii85(mask.bits)}`,
+      'def',
+      `<< /ImageType 3 /InterleaveType 3 /DataDict ${dataDict} /MaskDict << /ImageType 1 /Width ${mw} /Height ${mh} /BitsPerComponent 1 /ImageMatrix [${mw} 0 0 -${mh} 0 ${mh}] /Decode [1 0] /DataSource VSmask >> >> image`,
+    ].join('\n');
+  }
+}
+
+/** A 1-bit mask (1 = shown) from alpha or gray values, threshold at half. */
+function maskBits(alpha, w, h) {
+  const rb = Math.ceil(w / 8);
+  const bits = new Uint8Array(rb * h);
+  let opaque = true;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (alpha[y * w + x] >= 128) bits[y * rb + (x >> 3)] |= 0x80 >> (x & 7);
+      else opaque = false;
+    }
+  }
+  return { bits, opaque };
 }
 
 function isGray(rgba) {
@@ -532,14 +582,24 @@ function isGray(rgba) {
 
 /**
  * PostScript text for one region of a document.
- * opts: { rect, ids, level 2|3, colorMode 'rgb'|'cmyk', outlines (Map), title }
+ * opts: { rect, ids, level 2|3, colorMode 'rgb'|'cmyk', outlines (Map), title,
+ *         flatten (flattenSelection options; null keeps transparency out) }
  * Returns { text, warnings }.
  */
 export async function writeEPS(doc, opts = {}) {
   const rect = opts.rect;
-  const { bytes, warnings } = await writePDF(doc, [rect], { ids: opts.ids || null, outlines: opts.outlines, outlinesWanted: Boolean(opts.outlines), title: opts.title, compress: false });
+  let src = doc;
+  let ids = opts.ids || null;
+  const pre = [];
+  if (opts.flatten) {
+    const r = await flattenForOutput(doc, ids, opts.flatten, opts.flattenDeps);
+    src = r.doc;
+    ids = r.ids;
+    if (r.failed) pre.push('Some transparent artwork could not be flattened: its opacity and blending modes were not kept.');
+  }
+  const { bytes, warnings } = await writePDF(src, [rect], { ids, outlines: opts.outlines, outlinesWanted: Boolean(opts.outlines), title: opts.title, compress: false });
   const out = pdfToPostScript(bytes, { ...opts, title: opts.title || doc.name });
-  return { ...out, warnings: [...warnings, ...out.warnings] };
+  return { ...out, warnings: [...pre, ...warnings, ...out.warnings] };
 }
 
 /** EPS text for the first page of a PDF file (see writeEPS for options). */

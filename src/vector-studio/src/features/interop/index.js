@@ -83,7 +83,7 @@ export function install(app) {
   };
   const render = (key) => async (a, editor, region, options) => (await loadInterop()).renderExport(app, key, editor, region, options);
   const options = (key) => async (a, prefs, ui) => (await loadInterop()).exportOptions(app, key, prefs, ui);
-  exportFormats.set('eps', { label: 'EPS (eps)', title: 'EPS', ext: 'eps', mime: 'application/postscript', defaults: { level: 3, colorMode: 'rgb', preview: 'tiff', textOutlines: true }, options: options('eps'), render: render('eps') });
+  exportFormats.set('eps', { label: 'EPS (eps)', title: 'EPS', ext: 'eps', mime: 'application/postscript', defaults: { level: 3, colorMode: 'rgb', preview: 'tiff', textOutlines: true, flattener: 'Medium Resolution' }, options: options('eps'), render: render('eps') });
   exportFormats.set('tiff', { label: 'TIFF (tif)', title: 'TIFF', ext: 'tif', mime: 'image/tiff', defaults: { ppi: 300, mode: 'rgb', compression: 'lzw', byteOrder: 'II', antialias: true, alpha: false }, options: options('tiff'), render: render('tiff') });
   exportFormats.set('dxf', { label: 'DXF (dxf)', title: 'DXF', ext: 'dxf', mime: 'application/dxf', defaults: { version: 'R2000', unit: 'mm', curves: 'splines', fills: true, textOutlines: false }, options: options('dxf'), render: render('dxf') });
 }
