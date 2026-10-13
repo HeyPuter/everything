@@ -12,6 +12,10 @@
  * - Gradients: axial/radial shadings with stitching functions (fills paint
  *   the shading inside a clip; strokes use a shading pattern). Stop opacity
  *   is approximated by the average stop opacity.
+ * - Freeform gradients: fills draw the blend as an image inside the shape
+ *   (turned with the object); strokes and type use the average color.
+ * - Opacity masks: a luminosity soft mask (SMask) made from the mask art,
+ *   applied to the object drawn as a transparency group.
  * - Clip groups: the clipping path as a clip (W / W*).
  * - Images: JPEG passthrough (DCTDecode), anything else as Flate RGB with
  *   an SMask for alpha.
@@ -35,6 +39,7 @@ import { multiply } from '../../lib/matrix.js';
 import { renderSubpaths, isElliptical, radialFrame } from './geometry-helpers.js';
 import { exportView } from './export-view.js';
 import { exportWriters } from './hooks.js';
+import { averageColor, freeformFrame, frameFractionMatrix, freeformPixels } from '../paint/freeform.js';
 
 
 
@@ -311,7 +316,26 @@ class PDFRenderer {
   paintAlpha(paint) {
     if (!paint) return 1;
     if (paint.type === 'solid') return paint.opacity ?? 1;
+    // A freeform fill carries its alpha in the image.
+    if (paint.type === 'freeform') return 1;
     return this.gradientAlpha(paint);
+  }
+
+  /** A freeform gradient over a node's frame as an image XObject and its placement matrix (cached per paint). */
+  freeformImage(paint, node) {
+    const f = freeformFrame(this.doc, node);
+    if (!f) return null;
+    this.freeformCache ||= new WeakMap();
+    let id = this.freeformCache.get(paint)?.[`${(f.w / f.h).toFixed(4)}`];
+    if (!id) {
+      const k = Math.sqrt(f.w / f.h);
+      const w = Math.max(8, Math.round(256 * Math.min(1, k)));
+      const h = Math.max(8, Math.round(256 * Math.min(1, 1 / k)));
+      id = this.pixelsXObject({ width: w, height: h, data: freeformPixels(paint, w, h, f.w / f.h) });
+      this.freeformCache.set(paint, { ...this.freeformCache.get(paint), [`${(f.w / f.h).toFixed(4)}`]: id });
+    }
+    // Image space is the unit square with its first row at the top: flip it into the frame.
+    return { id, m: multiply(frameFractionMatrix(f), [1, 0, 0, -1, 0, 1]) };
   }
 
   helvetica(char) {
@@ -414,6 +438,8 @@ class PDFRenderer {
     const res = ctx.res;
     const path = this.pathOps(subpaths);
     if (!path) return;
+    // A stroke cannot clip an image: freeform strokes take their average color.
+    if (stroke?.type === 'freeform') stroke = { type: 'solid', color: averageColor(stroke) };
     const op = node.opacity ?? 1;
     const fa = op * this.paintAlpha(fill);
     const sa = op * this.paintAlpha(stroke);
@@ -424,6 +450,11 @@ class PDFRenderer {
     const doFill = () => {
       if (!fill) return '';
       if (fill.type === 'solid') return `${rgbOps(fill.color, 'rg')}\n${path}${evenOdd ? 'f*' : 'f'}\n`;
+      if (fill.type === 'freeform') {
+        const img = this.freeformImage(fill, node);
+        if (!img) return `${rgbOps(averageColor(fill), 'rg')}\n${path}${evenOdd ? 'f*' : 'f'}\n`;
+        return `q\n${path}${W} n\n${img.m.map((v) => this.f(v)).join(' ')} cm\n/${res.name(res.xobject, 'Im', img.id)} Do\nQ\n`;
+      }
       return `q\n${path}${W} n\n${this.shadeOps(res, fill, node)}Q\n`;
     };
     const strokeColor = () => {
@@ -472,6 +503,10 @@ class PDFRenderer {
       const b = nodeBounds(this.doc, node);
       if (b) ctx.links.push({ b, url: node.url });
     }
+    if (node.opacityMask && !node.opacityMask.disabled && node.opacityMask.art) {
+      await this.masked(ctx, node);
+      return;
+    }
     const fx = rasterEffects(node);
     if (fx) {
       // Shadows and outer glows sit behind the object, which stays vector on top; other effects change the object itself.
@@ -515,7 +550,7 @@ class PDFRenderer {
     const res = ctx.res;
     const { mode, items } = textPieces(node);
     if (!items.length) return;
-    const solid = (p) => (p ? (p.type === 'solid' ? p.color : [...p.stops].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
+    const solid = (p) => (p ? (p.type === 'solid' ? p.color : p.type === 'freeform' ? averageColor(p) : [...(p.stops || [])].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
     const op = node.opacity ?? 1;
     const m = node.transform;
     let out = `q\n${m.map((v) => this.f(v)).join(' ')} cm\n`;
@@ -640,6 +675,57 @@ class PDFRenderer {
     for (const k of kids) await this.node(ctx, k);
   }
 
+  /**
+   * An object with an opacity mask: the object as a transparency group,
+   * painted through a luminosity soft mask drawn from the mask art (on
+   * black when the mask clips, white otherwise; inverted by a transfer
+   * function). Blending applies to the masked result.
+   */
+  async masked(ctx, node) {
+    const om = node.opacityMask;
+    const inner = { ops: [], res: new Resources(), patternBase: [1, 0, 0, 1, 0, 0], cull: ctx.cull, links: ctx.links };
+    await this.node(inner, { ...node, opacityMask: undefined, blendMode: 'normal' });
+    if (!inner.ops.length) return;
+    const b = inflate(visualBounds(this.doc, node) || ctx.cull, 2);
+    const bbox = `[${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}]`;
+    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS /DeviceRGB /I true >> /Resources ${this.w.add(inner.res.dict())} 0 R`, inner.ops.join(''));
+    // The mask art lives outside the document tree: render it from a view of its own nodes.
+    const art = new Map(om.art.nodes.map((n) => [n.id, n]));
+    const base = this.doc;
+    const raw = {
+      get: (id) => art.get(id) ?? base.get(id),
+      has: (id) => art.has(id) || base.has(id),
+      assets: base.assets,
+      root: { ...base.root, children: [om.art.root] },
+      artboards: base.artboards,
+      walk(fn, id = 'root', depth = 0) {
+        const n = id === 'root' ? this.root : this.get(id);
+        if (!n) return;
+        if (id !== 'root' && fn(n, depth) === false) return;
+        for (const c of n.children || []) this.walk(fn, c, depth + 1);
+      },
+    };
+    const view = exportView(raw, { native: ['freeform'] });
+    const mctx = { ops: [], res: new Resources(), patternBase: [1, 0, 0, 1, 0, 0], cull: inflate(b, 1e5), links: [] };
+    mctx.ops.push(`${om.clip ? '0 0 0' : '1 1 1'} rg\n${this.f(b.x)} ${this.f(b.y)} ${this.f(b.w)} ${this.f(b.h)} re f\n`);
+    const t = om.transform || [1, 0, 0, 1, 0, 0];
+    mctx.ops.push(`q\n${t.map((v) => this.f(v)).join(' ')} cm\n`);
+    this.doc = view;
+    try {
+      const root = view.get(om.art.root);
+      if (root) await this.node(mctx, { ...root, hidden: false });
+    } finally {
+      this.doc = base;
+    }
+    mctx.ops.push('Q\n');
+    const group = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS /DeviceRGB >> /Resources ${this.w.add(mctx.res.dict())} 0 R`, mctx.ops.join(''));
+    const tr = om.invert ? ' /TR << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>' : '';
+    const bm = BLEND_PDF[node.blendMode];
+    const gs = this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R /BC [${om.clip ? '0 0 0' : '1 1 1'}]${tr} >>${bm ? ` /BM /${bm}` : ''} >>`);
+    const res = ctx.res;
+    ctx.ops.push(`q\n/${res.name(res.ext, 'GS', gs)} gs\n/${res.name(res.xobject, 'Fm', form)} Do\nQ\n`);
+  }
+
   async group(ctx, node) {
     const op = node.opacity ?? 1;
     const blend = BLEND_PDF[node.blendMode];
@@ -757,7 +843,8 @@ async function decodePixels(asset) {
  * Returns { bytes: Uint8Array, warnings: string[] }.
  */
 export async function writePDF(source, pages, opts = {}) {
-  const doc = exportView(source);
+  // Freeform fills are drawn natively (as images inside their shapes).
+  const doc = exportView(source, { native: ['freeform'] });
   const w = new PDFWriter({ compress: opts.compress !== false });
   const r = new PDFRenderer(doc, w, opts);
   const catalog = w.alloc();
