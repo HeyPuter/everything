@@ -73,7 +73,7 @@ export function install(app) {
     watched.add(ed.doc);
     // The History panel's "opened" snapshot: the document as it was first shown
     // (after the code that opened it finished setting it up).
-    queueMicrotask(() => ensureOpenSnapshot(ed));
+    queueMicrotask(() => ensureOpenSnapshot(ed, app.prefs));
     ed.doc.on('history', () => app.editor?.doc === ed.doc && app.dock?.update());
   });
   app.on('started', () => syncActionCommands(app, app.actions));

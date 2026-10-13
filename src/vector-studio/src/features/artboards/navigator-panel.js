@@ -2,6 +2,8 @@
  * Navigator panel: a thumbnail of the document (artboards and artwork,
  * re-rendered lazily after edits settle), the view rectangle you can drag
  * or click to pan, and zoom controls (out, slider, in, percentage field).
+ * The panel menu has View Artboard Only (the thumbnail shows just the
+ * active artboard) and Panel Options (view box color, outline thumbnail).
  */
 import { h } from '../../lib/dom.js';
 import { Panel, emptyState } from '../../ui/panels/panel.js';
@@ -15,9 +17,13 @@ const THUMB_H = 170;
 const LOG_MIN = Math.log(MIN_ZOOM);
 const LOG_MAX = Math.log(MAX_ZOOM);
 
-/** Document rect shown in the navigator: artboards plus artwork, padded. */
-export function navigatorExtent(doc) {
+/** Document rect shown in the navigator: artboards plus artwork (or one artboard), padded. */
+export function navigatorExtent(doc, { artboard = null } = {}) {
   let r = null;
+  if (artboard) {
+    const pad = Math.max(artboard.w, artboard.h) * 0.04 + 1;
+    return { x: artboard.x - pad, y: artboard.y - pad, w: artboard.w + pad * 2, h: artboard.h + pad * 2 };
+  }
   for (const a of doc.artboards) r = unionRect(r, a);
   for (const id of doc.root.children) {
     const l = doc.get(id);
@@ -33,6 +39,43 @@ export class NavigatorPanel extends Panel {
   static title = 'Navigator';
   static icon = 'compass';
   static placement = 'strip';
+
+  menu() {
+    const o = this.options;
+    return [
+      { label: 'View Artboard Only', checked: o.artboardOnly, run: () => this.setOptions({ artboardOnly: !o.artboardOnly }) },
+      '-',
+      'view.zoomIn',
+      'view.zoomOut',
+      'view.fitArtboard',
+      'view.fitAll',
+      '-',
+      { label: 'Panel Options...', run: () => this.panelOptions() },
+    ];
+  }
+
+  get options() {
+    return { artboardOnly: false, boxColor: '#e5484d', outline: false, ...(this.app.prefs.get('navigator') || {}) };
+  }
+
+  setOptions(patch) {
+    this.app.prefs.set('navigator', { ...this.options, ...patch });
+    this.thumbFor = null;
+    if (this.visible) this.renderThumb();
+  }
+
+  async panelOptions() {
+    const o = this.options;
+    const v = await this.app.dialogs.form({
+      title: 'Navigator Options',
+      fields: [
+        { key: 'boxColor', label: 'View box color', type: 'color', value: o.boxColor },
+        { key: 'outline', label: 'Show artwork as outlines', type: 'checkbox', value: o.outline },
+        { key: 'artboardOnly', label: 'View Artboard Only', type: 'checkbox', value: o.artboardOnly },
+      ],
+    });
+    if (v) this.setOptions(v);
+  }
 
   build() {
     const app = this.app;
@@ -86,7 +129,8 @@ export class NavigatorPanel extends Panel {
     this.listeners.push(
       ed.on('view', () => this.visible && this.updateView()),
       ed.on('doc-change', (e) => this.visible && e.commit && this.scheduleThumb()),
-      ed.on('artboard', () => this.visible && this.scheduleThumb()),
+      // The active artboard changes what View Artboard Only shows.
+      ed.on('artboard', () => this.visible && this.scheduleThumb(this.options.artboardOnly ? 0 : 350)),
     );
     this.thumbFor = null;
   }
@@ -99,7 +143,7 @@ export class NavigatorPanel extends Panel {
   /** Map between document and thumbnail coordinates. */
   mapping() {
     const ed = this.app.editor;
-    const ext = navigatorExtent(ed.doc);
+    const ext = navigatorExtent(ed.doc, { artboard: this.options.artboardOnly ? ed.artboard() : null });
     const s = Math.min(THUMB_W / ext.w, THUMB_H / ext.h);
     const ox = (THUMB_W - ext.w * s) / 2 - ext.x * s;
     const oy = (THUMB_H - ext.h * s) / 2 - ext.y * s;
@@ -123,18 +167,29 @@ export class NavigatorPanel extends Panel {
     ctx.fillStyle = cs.getPropertyValue('--pasteboard').trim() || '#d8d8d8';
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.setTransform(m.s * dpr, 0, 0, m.s * dpr, m.ox * dpr, m.oy * dpr);
-    for (const a of ed.doc.artboards) {
+    const o = this.options;
+    const only = o.artboardOnly ? ed.artboard() : null;
+    const boards = only ? [only] : ed.doc.artboards;
+    for (const a of boards) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(a.x, a.y, a.w, a.h);
     }
+    if (only) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(only.x, only.y, only.w, only.h);
+      ctx.clip();
+    }
     try {
-      drawArtwork(ctx, ed.doc, { viewRect: null, outline: ed.viewOptions.mode === 'outline', hairline: 1 / (m.s * dpr), outlineColor: '#000000', scale: m.s * dpr });
+      drawArtwork(ctx, ed.doc, { viewRect: only ? { ...only } : null, outline: o.outline || ed.viewOptions.mode === 'outline', hairline: 1 / (m.s * dpr), outlineColor: '#000000', scale: m.s * dpr });
     } catch {
       // A thumbnail is best effort; the canvas view reports real render errors.
     }
+    if (only) ctx.restore();
     ctx.lineWidth = 1 / (m.s * dpr);
     ctx.strokeStyle = cs.getPropertyValue('--artboard-border').trim() || '#2b2b2b';
-    for (const a of ed.doc.artboards) ctx.strokeRect(a.x, a.y, a.w, a.h);
+    for (const a of boards) ctx.strokeRect(a.x, a.y, a.w, a.h);
+    this.viewBox.style.borderColor = o.boxColor;
     this.thumbFor = ed;
     this.updateView();
   }

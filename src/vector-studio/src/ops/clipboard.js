@@ -15,12 +15,13 @@ import { deleteSelection, selectedSegment, selectedSegmentHits } from './object-
 export const clipboard = { data: null };
 
 /**
- * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items) }].
+ * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item) }].
  * copy() can add what the copied objects need to the clipboard data (e.g.
  * the brush or symbol definitions they use); paste() runs inside the Paste
  * transaction, before the objects arrive, to bring that into the target
  * document, and may return the items to insert instead (e.g. with symbol
- * references renamed).
+ * references renamed). targetLayer() may name the layer an item pastes
+ * into (Paste Remembers Layers); null keeps the usual target.
  */
 export const clipboardHooks = [];
 
@@ -152,7 +153,9 @@ export function paste(editor, mode = 'center') {
       const ids = [];
       let i = index;
       for (const item of items) {
-        const node = doc.importSubtree(item, parentId, i);
+        // Paste Remembers Layers: a hook may send the item back to the layer it came from.
+        const into = mode === 'front' || mode === 'back' ? null : clipboardHooks.reduce((r, hk) => r || hk.targetLayer?.(doc, data, item) || null, null);
+        const node = into ? doc.importSubtree(item, into) : doc.importSubtree(item, parentId, i);
         if (Number.isFinite(i)) i++;
         ids.push(node.id);
       }

@@ -214,7 +214,7 @@ export function defaultLabel(node) {
     case 'compound':
       return '<Compound Path>';
     case 'group':
-      return node.blend ? '<Blend>' : node.clip ? '<Clip Group>' : '<Group>';
+      return node.blend ? '<Blend>' : node.clip ? '<Clip Group>' : node.compoundShape ? '<Compound Shape>' : '<Group>';
     case 'text':
       return (node.text || '').split('\n')[0].slice(0, 40) || '<Text>';
     case 'image':

@@ -30,6 +30,11 @@ export class InfoPanel extends Panel {
   static placement = 'strip';
   static shortcut = 'F8';
 
+  menu() {
+    const on = this.app.prefs.get('infoShowOptions') !== false;
+    return [{ label: on ? 'Hide Options' : 'Show Options', run: () => (this.app.prefs.set('infoShowOptions', !on), this.update()) }];
+  }
+
   build() {
     const cell = (label) => {
       const v = h('output.info-val');
@@ -48,7 +53,8 @@ export class InfoPanel extends Panel {
     this.empty = emptyState('Open a document to see measurements.');
     this.grid = h('div.info-grid', this.x.el, this.w.el, this.y.el, this.hh.el, this.d.el, this.a.el);
     this.paints = h('div.info-paints', h('div.info-paint-row', this.fillSw, h('span.info-key', 'Fill'), this.fillTxt), h('div.info-paint-row', this.strokeSw, h('span.info-key', 'Stroke'), this.strokeTxt));
-    this.el.append(this.empty, h('section.panel-section', this.grid), h('section.panel-section', this.paints));
+    this.paintSection = h('section.panel-section', this.paints);
+    this.el.append(this.empty, h('section.panel-section', this.grid), this.paintSection);
     this.pointer = null;
     this.dragStart = null;
     this.frame = 0;
@@ -83,6 +89,8 @@ export class InfoPanel extends Panel {
     this.empty.hidden = Boolean(ed);
     for (const c of this.el.children) if (c !== this.empty) c.hidden = !ed;
     if (!ed) return;
+    // Hide Options hides the fill and stroke rows.
+    this.paintSection.hidden = this.app.prefs.get('infoShowOptions') === false;
     const unit = ed.doc.root.units || 'pt';
     const f = (v) => (v == null || !Number.isFinite(v) ? '' : formatLength(v, unit));
     const o = this.app.rulerOrigin?.(ed) || ed.artboard() || { x: 0, y: 0 };

@@ -2,7 +2,7 @@
  * Icons for the utility panels: Lucide glyphs where one fits, plus original
  * glyphs on the same 24px grid with 2px strokes.
  */
-import { History, ListVideo, Link2, FileText, WandSparkles, Play, Square, Camera, FolderPlus, FilePlus, RefreshCw, Crosshair, ExternalLink, FileInput, FileOutput, ListPlus, Settings2, LayoutGrid, Rows3, StepForward, Undo2, Redo2, Images, SwatchBook, ArrowDownToLine, CopyPlus, Menu } from 'lucide';
+import { History, ListVideo, Link2, FileText, WandSparkles, Play, Square, Camera, FolderPlus, FilePlus, RefreshCw, Crosshair, ExternalLink, FileInput, FileOutput, ListPlus, Settings2, LayoutGrid, Rows3, StepForward, Undo2, Redo2, Images, SwatchBook, ArrowDownToLine, CopyPlus, Menu, TriangleAlert } from 'lucide';
 import { registerIcons } from '../../ui/icons.js';
 
 const P = (d, extra = {}) => ['path', { d, ...extra }];
@@ -12,6 +12,7 @@ const R = (x, y, w, h, extra = {}) => ['rect', { x: String(x), y: String(y), wid
 export function registerPanelIcons() {
   registerIcons({
     'panel-history': History,
+    'link-missing': TriangleAlert,
     'panel-actions': ListVideo,
     'panel-links': Link2,
     'panel-document-info': FileText,

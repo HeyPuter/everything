@@ -3,13 +3,57 @@
  * and fits an artboard, double-click the name to rename (F2 from the
  * keyboard), the options button opens Artboard Options, dragging a row (or
  * Alt+Up/Down) reorders and renumbers, and the footer has Rearrange All,
- * Move Up/Down, New Artboard and Delete Artboard.
+ * Move Up/Down, New Artboard and Delete Artboard. Cmd/Ctrl-click and
+ * Shift-click pick several artboards for Duplicate and Delete in the panel
+ * menu.
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
-import { addArtboard, deleteArtboard, reorderArtboard, updateArtboard } from './artboard-ops.js';
+import { addArtboard, deleteArtboard, reorderArtboard, updateArtboard, duplicateArtboard, artworkOnArtboard } from './artboard-ops.js';
+
+/** Indexes of the artboards picked in the Artboards panel (the active one when none is), ascending. */
+export function pickedArtboards(app) {
+  const ed = app.editor;
+  if (!ed) return [];
+  const picked = app.dock?.panels.get('artboards')?.picked;
+  const boards = ed.doc.artboards;
+  const out = picked?.size ? boards.map((b, i) => (picked.has(b.id) ? i : -1)).filter((i) => i >= 0) : [];
+  if (!out.length && boards.length) out.push(Math.min(ed.activeArtboard, boards.length - 1));
+  return out;
+}
+
+/** Duplicate artboards side by side to the right of all artboards (with their artwork when asked). Returns the new indexes. */
+export function duplicateArtboards(doc, indexes, { withArtwork = true, gap = 20 } = {}) {
+  const ids = indexes.map((i) => doc.artboards[i]?.id).filter(Boolean);
+  const made = [];
+  let x = Math.max(...doc.artboards.map((b) => b.x + b.w)) + gap;
+  for (const id of ids) {
+    const i = doc.artboards.findIndex((b) => b.id === id);
+    const src = doc.artboards[i];
+    const { index } = duplicateArtboard(doc, i, x - src.x, 0, { withArtwork });
+    made.push(index);
+    x += src.w + gap;
+  }
+  return made;
+}
+
+/** Delete artboards by index (a document keeps at least one). Returns how many went. */
+export function deleteArtboards(doc, indexes) {
+  const ids = indexes.map((i) => doc.artboards[i]?.id).filter(Boolean);
+  let n = 0;
+  for (const id of ids) {
+    const i = doc.artboards.findIndex((b) => b.id === id);
+    if (deleteArtboard(doc, i)) n++;
+  }
+  return n;
+}
+
+/** Indexes of artboards with no artwork on them. */
+export function emptyArtboards(doc) {
+  return doc.artboards.map((_, i) => i).filter((i) => !artworkOnArtboard(doc, i).length);
+}
 
 export class ArtboardsPanel extends Panel {
   static id = 'artboards';
@@ -17,9 +61,15 @@ export class ArtboardsPanel extends Panel {
   static icon = 'tool-artboard';
   static placement = 'strip';
 
+  menu() {
+    return ['artboards.new', 'artboards.duplicate', 'artboards.delete', 'artboards.deleteEmpty', '-', 'artboards.convert', 'artboards.options', 'artboards.rearrange', '-', 'artboards.moveUp', 'artboards.moveDown', '-', 'artboards.fitArtwork', 'artboards.fitSelection', 'artboards.switchOrientation', '-', 'artboards.resetNames'];
+  }
+
   build() {
     const app = this.app;
+    this.picked = new Set();
     this.list = h('ul.ab-list', {
+      'aria-multiselectable': 'true',
       role: 'listbox',
       'aria-label': 'Artboards',
       tabindex: '0',
@@ -49,6 +99,12 @@ export class ArtboardsPanel extends Panel {
     if (this.renaming >= 0) return;
     const boards = ed.doc.artboards;
     const active = Math.min(ed.activeArtboard, boards.length - 1);
+    for (const id of [...this.picked]) if (!boards.some((b) => b.id === id)) this.picked.delete(id);
+    // The active artboard is always picked: a plain click picks just it.
+    if (boards[active] && !this.picked.has(boards[active].id)) {
+      this.picked.clear();
+      this.picked.add(boards[active].id);
+    }
     const focused = this.list.contains(document.activeElement);
     this.list.setAttribute('aria-activedescendant', `ab-row-${active}`);
     this.list.replaceChildren(
@@ -58,7 +114,8 @@ export class ArtboardsPanel extends Panel {
           {
             id: `ab-row-${i}`,
             role: 'option',
-            'aria-selected': String(i === active),
+            'aria-selected': String(this.picked.has(a.id)),
+            'aria-current': i === active ? 'true' : null,
             draggable: 'false',
             dataset: { index: String(i) },
           },
@@ -183,11 +240,39 @@ export class ArtboardsPanel extends Panel {
     input.addEventListener('pointerdown', (e) => e.stopPropagation());
   }
 
+  /** Pick rows with the pointer: Cmd/Ctrl toggles a row, Shift adds the range from the active row. */
+  pick(i, e) {
+    const ed = this.app.editor;
+    const boards = ed.doc.artboards;
+    const id = boards[i]?.id;
+    if (!id) return;
+    if (e.metaKey || e.ctrlKey) {
+      if (this.picked.has(id) && this.picked.size > 1) {
+        this.picked.delete(id);
+        const next = boards.findIndex((b) => this.picked.has(b.id));
+        ed.setActiveArtboard(next);
+        return;
+      }
+      this.picked.add(id);
+    } else if (e.shiftKey) {
+      const from = ed.activeArtboard;
+      for (let k = Math.min(from, i); k <= Math.max(from, i); k++) this.picked.add(boards[k].id);
+    } else {
+      this.picked.clear();
+      this.picked.add(id);
+    }
+    ed.setActiveArtboard(i);
+  }
+
   startDrag(e, i, row) {
     if (e.button !== 0 || e.target.closest('button, input, .ab-opt')) return;
     const ed = this.app.editor;
     if (!ed) return;
-    this.activate(i);
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      this.pick(i, e);
+      return;
+    }
+    this.pick(i, e);
     const y0 = e.clientY;
     let moved = false;
     let target = i;

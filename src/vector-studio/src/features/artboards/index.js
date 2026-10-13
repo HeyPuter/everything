@@ -17,7 +17,8 @@ import { nodeFrameAngle } from '../../model/geometry.js';
 import { ArtboardTool } from './artboard-tool.js';
 import { artboardControlsSection } from './controls.js';
 const dialogs = () => import('./dialogs.js'); // loaded on first use
-import { ArtboardsPanel } from './artboards-panel.js';
+import { ArtboardsPanel, pickedArtboards, duplicateArtboards, deleteArtboards, emptyArtboards } from './artboards-panel.js';
+import { moveArtworkEnabled } from './artboard-tool.js';
 import { AlignPanel } from './align-panel.js';
 import { TransformPanel } from './transform-panel.js';
 import { InfoPanel } from './info-panel.js';
@@ -99,6 +100,77 @@ function registerArtboardCommands(app) {
       run: () => {
         const e = ed();
         e.doc.transact('Fit to Selected Art', () => fitArtboardToIds(e.doc, e.activeArtboard, e.topSelection()));
+      },
+    },
+    {
+      id: 'artboards.new',
+      label: 'New Artboard',
+      enabled: hasDoc,
+      run: (a) => a.dock.panels.get('artboards').newArtboard(),
+    },
+    {
+      id: 'artboards.duplicate',
+      label: (a) => (pickedArtboards(a).length > 1 ? 'Duplicate Artboards' : 'Duplicate Artboard'),
+      enabled: hasDoc,
+      run: (a) => {
+        const e = ed();
+        let made = [];
+        e.doc.transact('Duplicate Artboards', () => {
+          made = duplicateArtboards(e.doc, pickedArtboards(a), { withArtwork: moveArtworkEnabled(a) });
+        });
+        if (made.length) e.setActiveArtboard(made.at(-1));
+      },
+    },
+    {
+      id: 'artboards.delete',
+      label: (a) => (pickedArtboards(a).length > 1 ? 'Delete Artboards' : 'Delete Artboard'),
+      enabled: (a) => Boolean(a.editor && a.editor.doc.artboards.length > 1),
+      run: (a) => {
+        const e = ed();
+        const picked = pickedArtboards(a);
+        let n = 0;
+        e.doc.transact(picked.length > 1 ? 'Delete Artboards' : 'Delete Artboard', () => {
+          n = deleteArtboards(e.doc, picked);
+        });
+        if (n < picked.length) a.notify('A document needs at least one artboard.');
+        e.setActiveArtboard(Math.min(picked[0], e.doc.artboards.length - 1));
+      },
+    },
+    {
+      id: 'artboards.deleteEmpty',
+      label: 'Delete Empty Artboards',
+      enabled: (a) => Boolean(a.editor && a.editor.doc.artboards.length > 1),
+      run: (a) => {
+        const e = ed();
+        const empty = emptyArtboards(e.doc);
+        if (!empty.length) return a.notify('Every artboard has artwork on it.', { polite: true });
+        let n = 0;
+        e.doc.transact('Delete Empty Artboards', () => {
+          n = deleteArtboards(e.doc, empty);
+        });
+        e.setActiveArtboard(Math.min(e.activeArtboard, e.doc.artboards.length - 1));
+        a.notify(`Deleted ${n} empty artboard${n === 1 ? '' : 's'}.`, { polite: true });
+      },
+    },
+    {
+      id: 'artboards.moveUp',
+      label: 'Move Up',
+      enabled: (a) => Boolean(a.editor && a.editor.activeArtboard > 0),
+      run: (a) => a.dock.panels.get('artboards').move(-1),
+    },
+    {
+      id: 'artboards.moveDown',
+      label: 'Move Down',
+      enabled: (a) => Boolean(a.editor && a.editor.activeArtboard < a.editor.doc.artboards.length - 1),
+      run: (a) => a.dock.panels.get('artboards').move(1),
+    },
+    {
+      id: 'artboards.resetNames',
+      label: 'Reset Names',
+      enabled: (a) => Boolean(a.editor?.doc.artboards.some((b, i) => b.name !== `Artboard ${i + 1}`)),
+      run: () => {
+        const e = ed();
+        e.doc.transact('Reset Artboard Names', () => e.doc.updateRoot({ artboards: e.doc.artboards.map((b, i) => ({ ...b, name: `Artboard ${i + 1}` })) }));
       },
     },
     {

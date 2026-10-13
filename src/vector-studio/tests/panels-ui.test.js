@@ -162,7 +162,7 @@ describe('Document Info panel', () => {
     expect(sel.find((s) => s.id === 'document').rows.find(([k]) => k === 'Scope')[1]).toMatch(/1 object/);
     expect(reportText(sel)).toMatch(/Objects:\n {2}Paths: 1/);
     const p = panel('documentInfo');
-    expect(p.body.querySelectorAll('.di-sec').length).toBe(7);
+    expect(p.body.querySelectorAll('.di-sec').length).toBe(12);
     p.cat.value = 'objects';
     p.cat.dispatchEvent(new Event('change'));
     expect(p.body.querySelectorAll('.di-sec').length).toBe(1);
