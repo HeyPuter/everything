@@ -143,13 +143,17 @@ export function inpaint(img: RGBA8, mask: Mask8, seed = 7): RGBA8 {
 
 /** Faded color and contrast repair: each channel is stretched between low and
  * high percentiles (which also removes a color cast from uneven fading), and
- * color saturation lost to fading is partly restored. */
+ * color saturation lost to fading is partly restored. How far a channel is
+ * stretched follows its measured range: a channel with a small range (a
+ * near-uniform image or area) is left as it is rather than having its noise
+ * blown up to the full range. */
+const FADE_MIN = 24, FADE_FULL = 64;
 export function repairFade(img: RGBA8, amount: number): RGBA8 {
   const { width: w, height: h, data: d } = img, n = w * h;
   const t = clamp(amount / 100, 0, 1);
   const out: RGBA8 = { width: w, height: h, data: new Uint8ClampedArray(d) };
   if (t <= 0) return out;
-  const lo = [0, 0, 0], hi = [255, 255, 255];
+  const lo = [0, 0, 0], hi = [255, 255, 255], weight = [1, 1, 1];
   for (let c = 0; c < 3; c++) {
     const hist = new Uint32Array(256);
     let count = 0;
@@ -162,9 +166,11 @@ export function repairFade(img: RGBA8, amount: number): RGBA8 {
     acc = 0;
     k = 255;
     for (; k > 0 && acc + hist[k] <= cut; k--) acc += hist[k];
-    hi[c] = Math.max(lo[c] + 16, k);
+    hi[c] = Math.max(lo[c] + 1, k);
+    // Full stretch from a range of FADE_FULL levels, none below FADE_MIN.
+    weight[c] = clamp((hi[c] - lo[c] - FADE_MIN) / (FADE_FULL - FADE_MIN), 0, 1);
   }
-  const lut = [0, 1, 2].map((c) => Uint8ClampedArray.from({ length: 256 }, (_, v) => v + ((255 * (v - lo[c])) / (hi[c] - lo[c]) - v) * t));
+  const lut = [0, 1, 2].map((c) => Uint8ClampedArray.from({ length: 256 }, (_, v) => v + ((255 * (v - lo[c])) / (hi[c] - lo[c]) - v) * t * weight[c]));
   for (let i = 0; i < d.length; i += 4) {
     out.data[i] = lut[0][d[i]];
     out.data[i + 1] = lut[1][d[i + 1]];
