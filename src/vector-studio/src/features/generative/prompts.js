@@ -192,7 +192,7 @@ export function fitPrompt(text, target, { lines = 0 } = {}) {
 }
 
 /** Prompt that describes an image's visual style in a sentence (style reference). */
-export const STYLE_DESCRIBE_PROMPT = 'Describe the visual style of this picture in one sentence of at most 35 words for an illustrator: technique, shapes, line quality, shading and color mood. Do not describe the subject.';
+export const STYLE_DESCRIBE_PROMPT = 'Describe the visual style of this picture in one sentence of at most 35 words for an artist: technique, shapes, line quality, shading and color mood. Do not describe the subject.';
 
 /** A short label for history and layer names: "a fox curled up asleep" -> "A fox curled up asleep". */
 export function promptTitle(prompt, max = 48) {
