@@ -860,10 +860,13 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     }
     if (output === 'layer') {
       const grid = writeRect(store, src.target!.grid, 0, 0, r.image);
+      const g = generatedInfo();
       e.command(label, (d) => {
         const l = findLayer(d.layers, id);
         if (!l) return;
         setLayerPixels(l, grid, d);
+        // The layer now holds AI-made pixels (Generation History and Provenance note it).
+        if (g) l.generated = g;
         if (depth) addDepthChannel(d, store, depth);
       });
       if (isDeterministic(params)) recordStep(e, 'filter.portrait-restore', { params: replayable(params) });

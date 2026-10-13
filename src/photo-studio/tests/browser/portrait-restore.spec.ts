@@ -182,6 +182,34 @@ test('Scene Changer sends a request only on Generate and applies as a masked lay
   expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(1);
 });
 
+test('an AI result applied to the current layer marks it generated and is noted in provenance', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByRole('button', { name: 'Scene Changer' }).click();
+  await d.getByLabel('Protect Subject').uncheck();
+  await d.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('The changed scene is applied.');
+  await settled(page);
+  await d.getByLabel('Send the result to').selectOption('layer');
+  await d.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(1);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].generated?.prompt)).toBe('Scene: Golden hour');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { recordOf } = await import('/src/features/provenance/recorder.ts');
+        const ps = window.photoStudio;
+        const s = ps.sessions.find((x) => x.doc === ps.doc)!;
+        return recordOf(s).ai.map((a) => a.kind);
+      }),
+    )
+    .toContain('edit');
+});
+
 test('applies as an editable Live Filter in one step and replays from settings', async ({ page }) => {
   await boot(page, 'default', PUTER);
   await scene(page);
