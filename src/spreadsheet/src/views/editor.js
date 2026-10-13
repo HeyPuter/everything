@@ -123,6 +123,7 @@ import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
 import { openShareDialog } from '../ui/share.js';
 import { createPeopleBar, peopleHere, roomStatus } from '../ui/coauthor.js';
+import { mapLine, mapGap } from '../collab/ops.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
@@ -4966,6 +4967,27 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const onRoomRefused = (e) => toast(e.detail?.message || 'That change could not be shared', { icon: 'alert', duration: 4000 });
   const onRoomRole = (e) => toast(e.detail?.role === 'viewer' ? 'You can now only view this shared workbook' : 'You can now edit this shared workbook', { icon: 'info', duration: 4000 });
   const onRoomClosed = (e) => toast(`${e.detail?.message || 'This shared workbook is no longer available'} What you see stays open; use File > Save a copy to keep it.`, { icon: 'alert', duration: 8000 });
+  // Rows or columns someone else inserted, deleted or moved carry this person's selection along with the cells.
+  const onRoomRemote = (e) => {
+    const ops = (e.detail?.ops || []).filter((op) => op.s === grid.sheetId && op.axis);
+    if (!ops.length || grid.editing) return;
+    const map = (range) => {
+      let { r1, c1, r2, c2 } = range;
+      for (const op of ops) {
+        const along = op.axis === 'row' ? ['r1', 'r2'] : ['c1', 'c2'];
+        const box = { r1, c1, r2, c2 };
+        let a = mapLine(op, op.s, op.axis, box[along[0]]), b = mapLine(op, op.s, op.axis, box[along[1]]);
+        if (a < 0 || b < 0) { a = Math.max(0, mapGap(op, op.s, op.axis, box[along[0]])); b = Math.max(a, mapGap(op, op.s, op.axis, box[along[1]] + 1) - 1); }
+        if (op.t === 'insert' && box[along[0]] < op.at && box[along[1]] >= op.at) b = box[along[1]] + op.n;
+        box[along[0]] = a; box[along[1]] = Math.max(a, b);
+        ({ r1, c1, r2, c2 } = box);
+      }
+      return { r1, c1, r2, c2 };
+    };
+    const ranges = grid.ranges.map(map);
+    const act = map({ r1: grid.active.r, c1: grid.active.c, r2: grid.active.r, c2: grid.active.c });
+    grid.setRanges(ranges, { r: act.r1, c: act.c1 });
+  };
   const onRoomOnline = () => room?.resume();
   const onRoomVisible = () => { if (document.visibilityState === 'visible') room?.resume(); };
 
@@ -5342,6 +5364,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   wb.addEventListener('change', onWbChange);
   if (room) {
     room.addEventListener('people', showPeople);
+    room.addEventListener('remote', onRoomRemote);
     room.addEventListener('status', refreshStatus);
     room.addEventListener('refused', onRoomRefused);
     room.addEventListener('role', onRoomRole);
@@ -5573,6 +5596,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (room) {
         clearTimeout(flagTimer);
         room.removeEventListener('people', showPeople);
+        room.removeEventListener('remote', onRoomRemote);
         room.removeEventListener('status', refreshStatus);
         room.removeEventListener('refused', onRoomRefused);
         room.removeEventListener('role', onRoomRole);

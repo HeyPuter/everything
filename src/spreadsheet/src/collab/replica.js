@@ -501,6 +501,7 @@ export class Replica extends EventTarget {
     const wb = this.wb;
     let rolled = false, applied = false, structural = false;
     const touched = []; // what was applied, when nothing structural was: the shadow is brought up to date for it alone
+    const moved = []; // structural operations as they landed here (past the pending changes), for the view to follow
     wb._coalesce(() => {
       for (const rec of list) {
         if (rec.rev !== this.rev + 1) break;
@@ -523,6 +524,7 @@ export class Replica extends EventTarget {
           applied = true;
           if (ch.ops.some((o) => isStructure(o) || o.t === 'put')) structural = true;
           else touched.push(...ch.ops);
+          moved.push(...theirs.filter(isStructure));
         }
         this.rev = rec.rev;
       }
@@ -531,7 +533,7 @@ export class Replica extends EventTarget {
     if (rolled || structural) this.shadow = this._fullShadow();
     else this._refreshShadow(touched);
     this._resetDirty();
-    if (applied) this.dispatchEvent(new CustomEvent('remote', { detail: { structural } }));
+    if (applied) this.dispatchEvent(new CustomEvent('remote', { detail: { structural, ops: moved } }));
     // Not a step of this person's: the workbook's 'history' event (which the editor counts steps by) is not sent.
     this.dispatchEvent(new CustomEvent('history'));
     return applied;

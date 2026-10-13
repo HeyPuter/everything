@@ -99,3 +99,15 @@ it('takes back a viewer\'s edit and says why', async () => {
   expect(mine.wb.getValue(mine.wb.sheets[0].id, 4, 4)).toBe(null);
   await until(() => toast.mock.calls.some(([text]) => /view this shared workbook/.test(text)), 2000, 'notice');
 });
+
+it('keeps this person\'s selection on its cells when someone inserts rows above it', async () => {
+  const { mine, join } = await sharedEditor();
+  const bob = await join(editor);
+  const s = mine.wb.sheets[0].id;
+  view.goTo('Plan!B5:C6');
+  bob.wb.insertRows(s, 1, 2);
+  await until(() => mine.replica.rev === bob.replica.rev && mine.replica.rev > 0, 4000, 'insertion');
+  // The name box shows the selection, two rows further down now.
+  await until(() => document.querySelector('input.name-box')?.value === 'B7:C8', 4000, 'selection to follow');
+  expect(mine.wb.getValue(s, 0, 0)).toBe('Task');
+});
