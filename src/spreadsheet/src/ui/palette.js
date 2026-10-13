@@ -159,6 +159,8 @@ export function paletteCommands(flags = {}) {
     c('Column stats…', 'Data', 'chartColumn', 'columnStats', null, { keywords: 'summary distribution' }),
     c('Goal seek…', 'Data', 'sliders', 'goalSeek', null, { keywords: 'what if solve' }),
     c('Data table…', 'Data', 'table', 'dataTable', null, { keywords: 'what if analysis sensitivity' }),
+    c('Solver…', 'Data', 'solver', 'solver', null, { keywords: 'optimize optimization maximize minimize linear programming constraints simplex nonlinear evolutionary' }),
+    c('Data analysis…', 'Data', 'dataAnalysis', 'dataAnalysis', null, { keywords: 'statistics anova regression histogram correlation covariance descriptive t-test z-test f-test fourier sampling random moving average smoothing rank percentile' }),
     c('Remove duplicate rows…', 'Data', 'dedupe', 'dedupe', null, { keywords: 'unique' }),
     c('Remove empty rows', 'Data', 'rows', 'removeEmptyRows', null, { keywords: 'blank' }),
     c('Randomize range', 'Data', 'sortAsc', 'shuffle', null, { keywords: 'shuffle random order' }),

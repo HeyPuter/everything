@@ -427,6 +427,8 @@ export function menubarMenus(f = {}) {
     i('Data table…', 'table', 'dataTable'),
     i('Scenario Manager…', 'scenarioManager', 'scenarioManager'),
     i('Forecast sheet…', 'forecast', 'forecastSheet'),
+    i('Solver…', 'solver', 'solver'),
+    i('Data analysis…', 'dataAnalysis', 'dataAnalysis'),
     i('Advanced filter…', 'filterAdvanced', 'advancedFilter'),
     f.ai && i('Ask AI about this data…', 'sparkle', 'aiAsk'),
     sep,

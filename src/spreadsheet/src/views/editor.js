@@ -91,6 +91,8 @@ import { openGoalSeek } from '../ui/goalseek.js';
 import { openDataTable } from '../ui/datatable.js';
 import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
+import { openSolver } from '../ui/solver.js';
+import { openDataAnalysis } from '../ui/analysis-tools.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
@@ -2986,6 +2988,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'dataTable': if (!committed()) return; openDataTable(ctx); return;
       case 'forecastSheet': if (!committed()) return; openForecastSheet(ctx); return;
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
+      case 'solver': if (!committed()) return; openSolver(ctx); return;
+      case 'dataAnalysis': if (!committed()) return; openDataAnalysis(ctx); return;
       case 'advancedFilter': if (!committed()) return; if (refusedByProtection('filter the list')) return; openAdvancedFilter(ctx); return;
       // Data ▸ Get & Transform Data and Queries & Connections (see ui/get-data.js, ui/query-editor.js, core/queries.js).
       case 'getDataText': if (!committed()) return; getDataText(ctx, editQuery); return;
