@@ -70,6 +70,10 @@ export type VideoTimeline = {
   // Set by `applyTime` for the history hook (never saved): the edit placed
   // time-dependent state and must not be recorded as a user edit.
   placed?: boolean;
+  // Set by edits for the history hook (never saved): video layers new in the
+  // edit that get no linked sound (split parts of a layer whose sound was
+  // unlinked or deleted).
+  soundless?: string[];
 };
 
 export const frameRates = [8, 10, 12, 12.5, 15, 23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60];
@@ -372,4 +376,5 @@ export function validateTimeline(value: unknown) {
   }
   validateAudio(tl.audio);
   delete tl.placed;
+  delete tl.soundless;
 }

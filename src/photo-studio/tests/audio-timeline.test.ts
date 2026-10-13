@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { allLayers, findLayer, newDocument, type PhotoDocument } from '../src/model/document';
 import { History } from '../src/history/history';
 import { newPixelLayer } from '../src/model/pixel-layer';
@@ -7,13 +7,18 @@ import { sourceMimeType } from '../src/model/embedded';
 import { deserialize, documentAssetIds, serialize, validateDocument } from '../src/model/serialization';
 import { createTimeline, syncTimeline } from '../src/model/video-timeline';
 import { footageVideo } from '../src/model/video-layer';
+import { contentLength, splitLayers, trimClipStart } from '../src/model/video-timeline-ops';
 import {
+  allAudioClips,
+  audioClipLimit,
   audioPlan,
   audioTracks,
   clipSpan,
   dbToGain,
   envelopeAt,
   envelopePoints,
+  maxAudioClips,
+  maxAudioSeconds,
   moveSpan,
   ownTracks,
   snapTime,
@@ -24,7 +29,10 @@ import {
   type AudioSource,
   type PlanItem,
 } from '../src/model/audio-timeline';
-import { mixPlan, type Pcm } from '../src/imaging/audio/mix';
+import { downmix, downmixGains, mixPlan, type Pcm } from '../src/imaging/audio/mix';
+import { audioPcm, purgeAudioCache } from '../src/features/animation/audio-media';
+import { mixDocument } from '../src/features/animation/audio-export';
+import type { Editor } from '../src/editor';
 import { computePeaks, peakColumns, peakLevelFor, waveformPath } from '../src/imaging/audio/peaks';
 import { decodeWav, encodeWav } from '../src/imaging/codecs/wav';
 import { ebmlIds, muxWebm, opusHead, opusPreSkip, readEbml, type EbmlNode } from '../src/imaging/codecs/webm';
@@ -84,6 +92,33 @@ describe('audio mix', () => {
     expect(envelopePoints(item)).toEqual([[0, 0], [0.5, 1], [1, 1], [2, 0]]);
   });
 
+  it('gives playback corners that trace the mixed envelope, also when the fades overlap', () => {
+    const lerp = (pts: [number, number][], t: number) => {
+      for (let i = 1; i < pts.length; i++) {
+        const [t0, g0] = pts[i - 1],
+          [t1, g1] = pts[i];
+        if (t <= t1) return t1 === t0 ? g1 : g0 + ((g1 - g0) * (t - t0)) / (t1 - t0);
+      }
+      return pts.at(-1)![1];
+    };
+    for (const p of [
+      { gain: 1, fadeIn: 0.5, fadeOut: 1, length: 2 },
+      { gain: 0.8, fadeIn: 1.5, fadeOut: 1.5, length: 2 },
+      { gain: 1, fadeIn: 2, fadeOut: 0.5, length: 2 },
+      { gain: 1, fadeIn: 0.3, fadeOut: 2, length: 2 },
+      { gain: 0.5, fadeIn: 0, fadeOut: 0, length: 2 },
+    ]) {
+      const pts = envelopePoints(p);
+      for (let t = 0; t <= 2; t += 0.01) expect(Math.abs(lerp(pts, t) - envelopeAt(p, t))).toBeLessThan(1e-9);
+      // The offline mix follows the same curve.
+      const doc = docWith([{ clips: [clip('a', 0, 2, { fadeIn: p.fadeIn || undefined, fadeOut: p.fadeOut || undefined, gain: 20 * Math.log10(p.gain) })] }]);
+      const [l] = mix(doc, { a: dc(1) }, 0, 2);
+      for (let i = 0; i < 2000; i += 37) expect(Math.abs(l[i] - envelopeAt(p, i / SR))).toBeLessThan(1e-5);
+    }
+    // Overlapping fades cross where the ramps meet.
+    expect(envelopeAt({ gain: 1, fadeIn: 1.5, fadeOut: 1.5, length: 2 }, 1)).toBeCloseTo(2 / 3, 9);
+  });
+
   it('sums overlapping clips and tracks', () => {
     const doc = docWith([{ clips: [clip('a', 0, 2), clip('b', 1, 2)] }, { clips: [clip('c', 1.5, 1)] }]);
     const [l] = mix(doc, { a: dc(0.1), b: dc(0.2), c: dc(0.4) });
@@ -117,6 +152,40 @@ describe('audio mix', () => {
     expect(l[2000]).toBe(0);
   });
 
+  it('folds surround sources down to stereo without losing center or surround channels', () => {
+    const h = Math.SQRT1_2;
+    const levels = (values: number[]): Pcm => ({ sampleRate: SR, channels: values.map((v) => new Float32Array(SR).fill(v)) });
+    const at = (values: number[]) => {
+      const items: PlanItem[] = [{ source: src('s', 1, values.length), at: 0, offset: 0, length: 1, gain: 1, fadeIn: 0, fadeOut: 0, clip: 'x' }];
+      const [l, r] = mixPlan(items, () => levels(values), 0, 1, SR);
+      // The same fold for playback buffers (mono and stereo stay as they are).
+      const folded = downmix(levels(values));
+      expect(folded.channels).toHaveLength(Math.min(2, values.length));
+      expect(folded.channels[0][5]).toBeCloseTo(l[5], 6);
+      expect(folded.channels.at(-1)![5]).toBeCloseTo(r[5], 6);
+      return [l[5], r[5]];
+    };
+    // 5.1: L R C LFE SL SR (the LFE is dropped).
+    const [l6, r6] = at([0.1, 0.2, 0.3, 0.4, 0.05, 0.06]);
+    expect(l6).toBeCloseTo(0.1 + h * 0.3 + h * 0.05, 6);
+    expect(r6).toBeCloseTo(0.2 + h * 0.3 + h * 0.06, 6);
+    // Quad: L R SL SR.
+    const [l4, r4] = at([0.1, 0.2, 0.3, 0.4]);
+    expect(l4).toBeCloseTo(0.1 + h * 0.3, 6);
+    expect(r4).toBeCloseTo(0.2 + h * 0.4, 6);
+    // 7.1 and an unusual layout keep every channel but the LFE.
+    const [l8, r8] = at([0.1, 0.2, 0.3, 0.4, 0.01, 0.02, 0.03, 0.04]);
+    expect(l8).toBeCloseTo(0.1 + h * (0.3 + 0.01 + 0.03), 6);
+    expect(r8).toBeCloseTo(0.2 + h * (0.3 + 0.02 + 0.04), 6);
+    const [l3, r3] = at([0.1, 0.2, 0.3]);
+    expect(l3).toBeCloseTo(0.1 + h * 0.3, 6);
+    expect(r3).toBeCloseTo(0.2 + h * 0.3, 6);
+    // Mono and stereo are unchanged.
+    expect(at([0.25])).toEqual([0.25, 0.25]);
+    expect(at([0.25, -0.5])).toEqual([0.25, -0.5]);
+    expect(downmixGains(2, 2)).toEqual([[1, 0], [0, 1]]);
+  });
+
   it('resamples sources at another rate and stops at the end of the source', () => {
     const half: Pcm = { sampleRate: SR / 2, channels: [Float32Array.from({ length: 500 }, (_, i) => i)] };
     const items: PlanItem[] = [{ source: src('h'), at: 0, offset: 0, length: 2, gain: 1, fadeIn: 0, fadeOut: 0, clip: 'x' }];
@@ -125,6 +194,34 @@ describe('audio mix', () => {
     expect(l[3]).toBeCloseTo(1.5);
     // The source holds one second: the rest is silent.
     expect(l[1200]).toBe(0);
+  });
+});
+
+describe('decoded sound', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    purgeAudioCache();
+  });
+
+  it('mixes every source even when they do not fit in the cache together', async () => {
+    // A stand-in decoder: each file decodes to a constant that reports 600 MB.
+    vi.stubGlobal(
+      'OfflineAudioContext',
+      class {
+        async decodeAudioData(data: ArrayBuffer) {
+          const ch = new Float32Array(SR).fill(new Uint8Array(data)[0] / 10);
+          Object.defineProperty(ch, 'byteLength', { value: 600 * 2 ** 20 });
+          return { sampleRate: SR, numberOfChannels: 1, getChannelData: () => ch };
+        }
+      },
+    );
+    const session = { assets: { blob: (asset: string) => new Blob([new Uint8Array([asset === 'a' ? 1 : 2])]) } };
+    const e = { session, message() {} } as unknown as Editor;
+    const doc = docWith([{ clips: [clip('a', 0, 1)] }, { clips: [clip('b', 0, 1)] }]);
+    const [l] = await mixDocument(e, doc, 0, 1);
+    // The cache kept only one of them, yet both sound.
+    expect([audioPcm(src('a')), audioPcm(src('b'))].filter(Boolean)).toHaveLength(1);
+    expect(l[480]).toBeCloseTo(0.3, 5);
   });
 });
 
@@ -149,6 +246,36 @@ describe('audio clips', () => {
     expect(splitAudioClip(c, 1)).toBeNull();
     expect(snapTime(1.02, [0, 1, 2], 0.05)).toBe(1);
     expect(snapTime(1.2, [0, 1, 2], 0.05)).toBe(1.2);
+  });
+
+  it('keeps edits within what projects hold, and opens projects past the limits', async () => {
+    // Moving or trimming stops at four hours.
+    expect(moveSpan(clip('a', 14_000, 1), 5000).start).toBe(maxAudioSeconds);
+    expect(trimSpanStart({ ...clip('a', 14_000, 3000), source: src('a', 4000) }, 2000, 0.1).start).toBe(maxAudioSeconds);
+    const doc = docWith([{ clips: [] }]);
+    const h = new History(doc);
+    h.normalize = (d, before) => syncTimeline(d, before);
+    const many = (n: number) => Array.from({ length: n }, (_, i) => clip('a', i, 1));
+    h.execute('Add', (d) => d.timeline!.audio![0].clips.push(...many(maxAudioClips)));
+    // One more clip is refused with a message; the state is unchanged.
+    expect(() => h.execute('One more', (d) => d.timeline!.audio![0].clips.push(clip('b', 0, 1)))).toThrow(audioClipLimit);
+    expect(allAudioClips(h.document.timeline!)).toHaveLength(maxAudioClips);
+    // Starts past four hours are clamped by the history hook.
+    h.execute('Far', (d) => (d.timeline!.audio![0].clips[0].start = 5 * 3600));
+    expect(h.document.timeline!.audio![0].clips[0].start).toBe(maxAudioSeconds);
+    expect(() => validateDocument(structuredClone(h.document))).not.toThrow();
+
+    // A project saved past the limits still opens (starts clamped) and stays editable.
+    const old = docWith([{ clips: [...many(maxAudioClips + 5), clip('c', 5 * 3600, 1)] }]);
+    expect(() => validateDocument(old)).not.toThrow();
+    expect(old.timeline!.audio![0].clips.at(-1)!.start).toBe(maxAudioSeconds);
+    const h2 = new History(old);
+    h2.normalize = (d, before) => syncTimeline(d, before);
+    h2.execute('Gain', (d) => (d.timeline!.audio![0].clips[0].gain = -3));
+    expect(h2.document.timeline!.audio![0].clips[0].gain).toBe(-3);
+    expect(() => h2.execute('One more', (d) => d.timeline!.audio![0].clips.push(clip('b', 0, 1)))).toThrow(audioClipLimit);
+    // Hostile sizes are still refused.
+    expect(() => validateDocument(docWith([{ clips: many(maxAudioClips * 10 + 1) }]))).toThrow(/audio/);
   });
 
   it('shows one default track until tracks are added', () => {
@@ -204,6 +331,69 @@ describe('footage sound', () => {
     h.execute('Delete layer', (d) => (d.layers = d.layers.filter((x) => x.id !== l.id)));
     expect(h.document.timeline!.audio![0].clips).toEqual([]);
     expect(allLayers(h.document.layers).map((x) => x.id)).toEqual(['copy']);
+  });
+
+  it('splits linked sound with its video clip, fades included, and never brings back unlinked sound', () => {
+    const { doc, l } = videoDoc();
+    const plain = structuredClone(doc);
+    plain.layers = [];
+    const h = history(plain);
+    h.execute('Add video', (d) => d.layers.push(structuredClone(l)));
+    h.execute('Fades', (d) => Object.assign(d.timeline!.audio![0].clips[0], { gain: -3, fadeIn: 0.3, fadeOut: 0.4 }));
+    const pcm = { footage: ramp(2) };
+    const heard = (d: PhotoDocument) => mix(d, pcm, 0, 3)[0];
+    const whole = heard(h.document);
+    expect(whole[700]).toBeGreaterThan(0);
+    const same = (a: Float32Array, b: Float32Array) => a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
+
+    // Split at 1 s: the second part's sound follows its clip with the fade out.
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    const copy = allLayers(h.document.layers)[1].id;
+    const [a, b] = h.document.timeline!.audio![0].clips;
+    expect(a).toMatchObject({ link: l.id, gain: -3, fadeIn: 0.3 });
+    expect(a.fadeOut).toBeUndefined();
+    expect(b).toMatchObject({ link: copy, gain: -3, fadeOut: 0.4 });
+    expect(b.fadeIn).toBeUndefined();
+    expect(same(heard(h.document), whole)).toBe(true);
+    h.undo();
+
+    // Unlinked sound stays one clip: neither part gets linked sound again.
+    h.execute('Unlink', (d) => {
+      const s = clipSpan(d, d.timeline!.audio![0].clips[0])!;
+      d.timeline!.audio![0].clips = [{ id: 'plain', start: s.start, in: s.in, length: s.length, source: s.source, fadeIn: 0.3, fadeOut: 0.4, gain: -3 }];
+    });
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    expect(allLayers(h.document.layers)).toHaveLength(2);
+    expect(h.document.timeline!.audio![0].clips.map((c) => c.id)).toEqual(['plain']);
+    expect(same(heard(h.document), whole)).toBe(true);
+    expect(h.document.timeline!.soundless).toBeUndefined();
+    h.undo();
+    h.undo();
+
+    // Sound deleted by hand stays deleted after a split.
+    h.execute('Delete sound', (d) => (d.timeline!.audio![0].clips = []));
+    h.execute('Split', (d) => splitLayers(d, [l.id], 10));
+    expect(h.document.timeline!.audio![0].clips).toEqual([]);
+  });
+
+  it('keeps the sound of looping footage extended before its start at the source start', () => {
+    const { doc, l } = videoDoc();
+    l.video!.loops = 0;
+    // Looping footage trims without a content limit: the start goes 0.3 s before the footage.
+    doc.timeline!.clips[l.id] = trimClipStart({ start: 5, in: 0, length: 10 }, -3, contentLength(l, 10));
+    expect(doc.timeline!.clips[l.id]).toMatchObject({ start: 2, in: -3, length: 13 });
+    ownTracks(doc.timeline!)[0].clips.push({ id: 'k', start: 0, in: 0, length: 0, link: l.id });
+    // The sound starts where the footage does, never before its first sample.
+    expect(clipSpan(doc, doc.timeline!.audio![0].clips[0])).toMatchObject({ start: 0.5, in: 0, length: 1, linked: true });
+    const [item] = audioPlan(doc);
+    expect(item).toMatchObject({ at: 0.5, offset: 0, length: 1 });
+    const [left] = mixPlan([item], () => ramp(2), 0, 2, SR);
+    expect(left[499]).toBe(0);
+    expect(left[500]).toBe(0);
+    expect(left[501]).toBe(1);
+    // Trimmed past the end of the sound: nothing plays.
+    doc.timeline!.clips[l.id] = { start: 0, in: -40, length: 30 };
+    expect(audioPlan(doc)).toEqual([]);
   });
 
   it('saves audio clips, tracks and footage sound in projects', async () => {

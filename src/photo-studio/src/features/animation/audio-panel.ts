@@ -11,6 +11,7 @@ import {
   audioTracks,
   clipSpan,
   dbToGain,
+  envelopePoints,
   findAudioClip,
   snapTime,
   type AudioClip,
@@ -45,9 +46,10 @@ function wave(e: Editor, span: ClipSpan, width: number, gain: number) {
 }
 /** The gain envelope over a clip `w` px wide with fades in px. */
 function envelope(w: number, fi: number, fo: number) {
-  const a = Math.min(fi, w),
-    b = Math.max(a, w - fo);
-  return `<svg class="vt-env" viewBox="0 0 ${Math.max(1, w)} 100" preserveAspectRatio="none" aria-hidden="true">${fi > 0 ? `<polygon class="vt-env-shade" points="0,0 ${a},0 0,100"/>` : ''}${fo > 0 ? `<polygon class="vt-env-shade" points="${b},0 ${w},0 ${w},100"/>` : ''}<polyline points="0,${fi > 0 ? 100 : 0} ${a},0 ${b},0 ${w},${fo > 0 ? 100 : 0}"/></svg>`;
+  // The corners the mix and playback use (overlapping fades meet where they cross).
+  const pts = envelopePoints({ gain: 1, fadeIn: Math.min(fi, w), fadeOut: Math.min(fo, w), length: w }).map(([x, g]) => `${x},${100 - g * 100}`);
+  const shade = fi > 0 || fo > 0 ? `<polygon class="vt-env-shade" points="0,0 ${w},0 ${[...pts].reverse().join(' ')}"/>` : '';
+  return `<svg class="vt-env" viewBox="0 0 ${Math.max(1, w)} 100" preserveAspectRatio="none" aria-hidden="true">${shade}<polyline points="${pts.join(' ')}"/></svg>`;
 }
 
 /** Handle position: at the end of the fade, kept inside the clip. */
@@ -108,7 +110,7 @@ export function audioPropsHtml(e: Editor, tl: VideoTimeline) {
 <label class="vt-ap-field" title="Length of the fade in (seconds)">Fade in<input type="number" min="0" max="${max}" step="0.05" value="${c.fadeIn ?? 0}" data-audio="fadeIn" data-clip="${escapeXML(c.id)}" aria-label="Fade in (seconds)">s</label>
 <label class="vt-ap-field" title="Length of the fade out (seconds)">Fade out<input type="number" min="0" max="${max}" step="0.05" value="${c.fadeOut ?? 0}" data-audio="fadeOut" data-clip="${escapeXML(c.id)}" aria-label="Fade out (seconds)">s</label>
 <span class="timeline-sep"></span>${volume}
-${linked ? `<span class="timeline-sep"></span><button class="icon-button" data-command="layer.video-mute" aria-pressed="${!!layerMuted}" title="${layerMuted ? 'Unmute' : 'Mute'} the sound of the video layer" aria-label="Mute the sound of the video layer">${svg(layerMuted ? 'speaker-off' : 'speaker', 15)}</button><button class="icon-button" data-command="timeline.audio-unlink" title="Unlink the sound from its video clip" aria-label="Unlink audio">${svg('unlink', 15)}</button>` : ''}
+${linked ? `<span class="timeline-sep"></span><button class="icon-button" data-command="timeline.audio-video-mute" data-arg="${escapeXML(c.link!)}" aria-pressed="${!!layerMuted}" title="${layerMuted ? 'Unmute' : 'Mute'} the sound of the video layer" aria-label="Mute the sound of the video layer">${svg(layerMuted ? 'speaker-off' : 'speaker', 15)}</button><button class="icon-button" data-command="timeline.audio-unlink" title="Unlink the sound from its video clip" aria-label="Unlink audio">${svg('unlink', 15)}</button>` : ''}
 <span class="vt-ap-length" title="Length of the clip">${span ? secs(span.length) : ''}</span>`;
 }
 

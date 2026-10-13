@@ -32,7 +32,9 @@ export type VideoView = {
   // Playback loops over the work area.
   loop: boolean;
   // Selected audio clips (clip commands act on them while any is selected)
-  // and the audio track that receives new clips.
+  // and the audio track that receives new clips. Selecting other layers
+  // (anywhere: the Layers panel, the canvas, undo) drops the clips, so clip
+  // commands then act on the layers.
   audioClips: string[];
   audioTrack: string;
   // Play short snippets of sound while scrubbing.
@@ -41,8 +43,30 @@ export type VideoView = {
 const views = new WeakMap<DocumentSession, VideoView>();
 export function videoView(e: Editor): VideoView {
   let v = views.get(e.session);
-  if (!v) views.set(e.session, (v = { zoom: 0, keys: [], expanded: new Set(), loop: true, audioClips: [], audioTrack: '', scrubAudio: false }));
+  if (!v) views.set(e.session, (v = newView(e.session)));
   return v;
+}
+function newView(s: DocumentSession): VideoView {
+  // The layer selection the audio clips were selected with.
+  const layers = () => [...s.selectedIds].sort().join('\n');
+  let clips: string[] = [];
+  let selectedWith = '';
+  return {
+    zoom: 0,
+    keys: [],
+    expanded: new Set(),
+    loop: true,
+    get audioClips() {
+      if (clips.length && layers() !== selectedWith) clips = [];
+      return clips;
+    },
+    set audioClips(ids: string[]) {
+      clips = ids;
+      selectedWith = layers();
+    },
+    audioTrack: '',
+    scrubAudio: false,
+  };
 }
 /** The selected audio clips that still exist. */
 export function selectedAudioClips(e: Editor) {

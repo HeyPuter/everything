@@ -76,9 +76,19 @@ export function loadAudio(s: DocumentSession, source: AudioSource): Promise<Pcm>
   }
   return p;
 }
-/** Decode every source a list of sources needs; missing ones stay silent. */
-export async function loadAll(s: DocumentSession, sources: AudioSource[]) {
-  await Promise.all(sources.map((src) => loadAudio(s, src).catch(() => undefined)));
+/** Decode every source of a list, by asset; missing ones stay silent. The
+ * map holds the sound for as long as the caller needs it (a mix or a
+ * playback), even when the cache has to drop some of it to stay in budget. */
+export async function loadAll(s: DocumentSession, sources: AudioSource[]): Promise<Map<string, Pcm>> {
+  const out = new Map<string, Pcm>();
+  const assets = [...new Set(sources.map((src) => src.asset))];
+  await Promise.all(
+    assets.map(async (asset) => {
+      const pcm = await loadAudio(s, sources.find((src) => src.asset === asset)!).catch(() => undefined);
+      if (pcm) out.set(asset, pcm);
+    }),
+  );
+  return out;
 }
 export const audioFailed = (source: AudioSource) => failed.has(source.asset);
 

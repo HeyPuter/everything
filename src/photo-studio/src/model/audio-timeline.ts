@@ -54,7 +54,11 @@ export type AudioTrack = {
 export const defaultTrackId = 'audio-1';
 export const maxAudioTracks = 32;
 export const maxAudioClips = 2000;
+// Projects saved before edits kept to the limit open with up to this many.
+const maxLoadedClips = maxAudioClips * 10;
 export const maxAudioSeconds = 4 * 3600;
+export const audioClipLimit = `A video timeline holds at most ${maxAudioClips} audio clips.`;
+export const audioStartLimit = 'Audio clips start within the first four hours of the timeline.';
 export const gainRange: [number, number] = [-60, 24];
 export const volumeRange: [number, number] = [-60, 12];
 export const audioFileLimit = 256 * 1024 * 1024;
@@ -98,7 +102,8 @@ const videoAudioLayer = (doc: PhotoDocument, id: string): VideoWithAudio | undef
 };
 
 /** Where a clip plays: its own times, or for a linked clip the times of
- * the video layer's clip (cut to the length of the footage sound). */
+ * the video layer's clip (cut to the footage sound: a clip of looping
+ * footage extended before the footage's start is silent until it). */
 export type ClipSpan = { start: number; in: number; length: number; source?: AudioSource; muted: boolean; linked: boolean };
 export function clipSpan(doc: PhotoDocument, c: AudioClip): ClipSpan | undefined {
   if (!c.link) return { start: c.start, in: c.in, length: c.length, source: c.source, muted: false, linked: false };
@@ -106,9 +111,11 @@ export function clipSpan(doc: PhotoDocument, c: AudioClip): ClipSpan | undefined
   const l = tl && videoAudioLayer(doc, c.link);
   if (!tl || !l) return undefined;
   const v = tl.clips[l.id] ?? { start: 0, in: 0, length: tl.duration };
-  const start = v.start / tl.fps,
-    at = v.in / tl.fps;
-  const length = Math.min(v.length / tl.fps, l.video.audio.seconds - at);
+  // Content before the footage's first frame (in < 0) has no sound.
+  const lead = Math.max(0, -v.in / tl.fps);
+  const start = v.start / tl.fps + lead,
+    at = Math.max(0, v.in / tl.fps);
+  const length = Math.min(v.length / tl.fps - lead, l.video.audio.seconds - at);
   return { start, in: at, length: Math.max(0, length), source: l.video.audio, muted: !!l.video.muted, linked: true };
 }
 
@@ -126,26 +133,63 @@ export function linkFootageAudio(tl: VideoTimeline, layerId: string, like?: { tr
   track.clips.push(linkedClip(layerId, like?.clip));
 }
 
+/** Split the sound of video layer `from` with its clip (call once both
+ * parts have their clips): the second part `to`, new in this edit, gets a
+ * linked clip after the original's, on its track, with its gain and fade
+ * out; the first part keeps the fade in. A layer whose sound was unlinked
+ * or deleted splits into parts without sound. */
+export function splitLinkedSound(doc: PhotoDocument, from: string, to: string) {
+  const tl = doc.timeline!;
+  for (const track of tl.audio ?? []) {
+    const index = track.clips.findIndex((c) => c.link === from);
+    if (index < 0) continue;
+    const a = track.clips[index];
+    const b = linkedClip(to, a);
+    if (a.fadeOut) b.fadeOut = a.fadeOut;
+    delete a.fadeOut;
+    track.clips.splice(index + 1, 0, b);
+    for (const [c, k] of [[a, 'fadeIn'], [b, 'fadeOut']] as const) {
+      const length = clipSpan(doc, c)?.length ?? 0;
+      if (c[k]) c[k] = Math.min(c[k], length);
+      if (!c[k]) delete c[k];
+    }
+    return;
+  }
+  (tl.soundless ??= []).push(to);
+}
+
 /** History hook: linked clips of deleted layers (or of layers that lost
  * their sound) go; video layers with sound that are new in this edit
- * (imported, split, duplicated or pasted) get a linked clip. */
+ * (imported, duplicated or pasted; split parts are linked by the split)
+ * get a linked clip. */
 export function syncAudio(after: PhotoDocument, before?: PhotoDocument) {
   const tl = after.timeline;
   if (!tl) return;
+  const soundless = new Set(tl.soundless);
+  delete tl.soundless;
+  // Keep within what projects can hold: starts are clamped; an edit that
+  // adds clips beyond the limit is refused.
+  for (const c of allAudioClips(tl)) if (c.start > maxAudioSeconds) c.start = maxAudioSeconds;
+  const count = () => allAudioClips(tl).length;
+  const allowed = Math.max(maxAudioClips, before?.timeline ? allAudioClips(before.timeline).length : 0);
   const layers = allLayers(after.layers);
   const sounding = new Map(layers.filter((l) => l.kind === 'pixel' && l.video?.audio).map((l) => [l.id, l]));
   if (tl.audio) for (const t of tl.audio) t.clips = t.clips.filter((c) => !c.link || sounding.has(c.link));
-  if (!sounding.size) return;
+  if (!sounding.size) {
+    if (count() > allowed) throw new Error(audioClipLimit);
+    return;
+  }
   const linked = new Set(allAudioClips(tl).flatMap((c) => (c.link ? [c.link] : [])));
   const old = before?.timeline ? new Set(allLayers(before.layers).map((l) => l.id)) : new Set<string>();
   for (const [id, l] of sounding) {
-    if (linked.has(id) || old.has(id)) continue;
+    if (linked.has(id) || old.has(id) || soundless.has(id)) continue;
     // A copy of a layer keeps the track and gain of the original's clip.
     const twin = allAudioClips(tl).find((c) => c.link && sounding.get(c.link)?.video?.audio?.asset === l.video!.audio!.asset);
     const where = twin && findAudioClip(tl, twin.id);
     linkFootageAudio(tl, id, where);
     linked.add(id);
   }
+  if (count() > allowed) throw new Error(audioClipLimit);
 }
 
 // ----- Mix plan -----
@@ -176,29 +220,38 @@ export function audioPlan(doc: PhotoDocument): PlanItem[] {
   return out;
 }
 
-/** Gain of a plan item at `t` seconds into the clip (fades are linear). */
+/** Fraction of the gain `t` seconds into a clip: linear fades, and fades
+ * that overlap meet where their ramps cross (the lower ramp applies). */
+export function fadeShape(t: number, fadeIn: number, fadeOut: number, length: number) {
+  let f = 1;
+  if (fadeIn > 0 && t < fadeIn) f = t / fadeIn;
+  if (fadeOut > 0 && t > length - fadeOut) f = Math.min(f, (length - t) / fadeOut);
+  return f;
+}
+/** Gain of a plan item at `t` seconds into the clip (see `fadeShape`). */
 export function envelopeAt(p: Pick<PlanItem, 'gain' | 'fadeIn' | 'fadeOut' | 'length'>, t: number) {
   if (t < 0 || t > p.length) return 0;
-  let g = p.gain;
-  if (p.fadeIn > 0 && t < p.fadeIn) g *= t / p.fadeIn;
-  if (p.fadeOut > 0 && t > p.length - p.fadeOut) g *= (p.length - t) / p.fadeOut;
-  return g;
+  return p.gain * fadeShape(t, p.fadeIn, p.fadeOut, p.length);
 }
-/** The corners of the gain envelope, as [seconds into the clip, gain]. */
+/** The corners of the gain envelope, as [seconds into the clip, gain]:
+ * straight lines between them trace `envelopeAt` exactly. */
 export function envelopePoints(p: Pick<PlanItem, 'gain' | 'fadeIn' | 'fadeOut' | 'length'>): [number, number][] {
-  const times = [0, p.fadeIn, p.length - p.fadeOut, p.length].filter((t) => t >= 0 && t <= p.length).sort((a, b) => a - b);
-  return [...new Set(times)].map((t) => [t, envelopeAt(p, t)]);
+  const times = [0, p.fadeIn, p.length - p.fadeOut, p.length];
+  // Overlapping fades: the point where the ramps cross.
+  if (p.fadeIn > 0 && p.fadeOut > 0 && p.fadeIn + p.fadeOut > p.length) times.push((p.fadeIn * p.length) / (p.fadeIn + p.fadeOut));
+  const inside = times.filter((t) => t >= 0 && t <= p.length).sort((a, b) => a - b);
+  return [...new Set(inside)].map((t) => [t, envelopeAt(p, t)]);
 }
 
 // ----- Clip edits (seconds) -----
 
 export type Span = { start: number; in: number; length: number };
-/** Move a clip by `d` seconds (it cannot start before the timeline). */
-export const moveSpan = <T extends Span>(c: T, d: number): T => ({ ...c, start: Math.max(0, c.start + d) });
+/** Move a clip by `d` seconds (it starts within the timeline's first four hours). */
+export const moveSpan = <T extends Span>(c: T, d: number): T => ({ ...c, start: clamp(c.start + d, 0, Math.max(c.start, maxAudioSeconds)) });
 /** Move the clip's start by `d` (positive trims, negative extends up to the
  * start of the source and of the timeline); `min` is the shortest length. */
 export function trimSpanStart<T extends Span>(c: T, d: number, min: number): T {
-  let start = Math.min(c.start + d, c.start + c.length - min);
+  let start = Math.min(c.start + d, c.start + c.length - min, Math.max(c.start, maxAudioSeconds));
   start = Math.max(start, 0, c.start - c.in);
   const by = start - c.start;
   return { ...c, start, in: c.in + by, length: c.length - by };
@@ -257,6 +310,8 @@ export function validAudioSource(s: AudioSource | undefined) {
     s.sampleRate <= 768000
   );
 }
+/** Check the audio tracks of a project (throws when they are not valid).
+ * Clip starts past the limit (from earlier versions) are clamped. */
 export function validateAudio(tracks: unknown) {
   const bad = () => new Error('Invalid audio tracks.');
   if (tracks === undefined) return;
@@ -269,10 +324,11 @@ export function validateAudio(tracks: unknown) {
     if (t.volume !== undefined && !(finite(t.volume) && t.volume >= volumeRange[0] && t.volume <= volumeRange[1])) throw bad();
     if ((t.muted !== undefined && t.muted !== true) || (t.solo !== undefined && t.solo !== true)) throw bad();
     clips += t.clips.length;
-    if (clips > maxAudioClips) throw bad();
+    if (clips > maxLoadedClips) throw bad();
     for (const c of t.clips) {
       if (!c || typeof c !== 'object' || !isDocumentId(c.id) || ids.has(c.id)) throw bad();
       ids.add(c.id);
+      if (finite(c.start) && c.start > maxAudioSeconds) c.start = maxAudioSeconds;
       if (![c.start, c.in, c.length].every(seconds)) throw bad();
       if (c.link !== undefined ? !isDocumentId(c.link) || c.source !== undefined : !validAudioSource(c.source) || c.length <= 0) throw bad();
       if (c.gain !== undefined && !(finite(c.gain) && c.gain >= gainRange[0] && c.gain <= gainRange[1])) throw bad();

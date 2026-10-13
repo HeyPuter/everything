@@ -8,7 +8,7 @@ import { audioPlan } from '../../model/audio-timeline';
 import { mixPlan } from '../../imaging/audio/mix';
 import { encodeWav } from '../../imaging/codecs/wav';
 import { opusPreSkip, type WebmAudio, type WebmFrame } from '../../imaging/codecs/webm';
-import { audioPcm, loadAll, mixRate } from './audio-media';
+import { loadAll, mixRate } from './audio-media';
 
 export const outputRate = mixRate;
 const channels = 2;
@@ -20,8 +20,8 @@ export const hasSound = (doc: PhotoDocument) => audioPlan(doc).length > 0;
 export async function mixDocument(e: Editor, doc: PhotoDocument, from: number, seconds: number): Promise<Float32Array[]> {
   const plan = audioPlan(doc);
   e.message('Mixing audio…');
-  await loadAll(e.session, plan.map((p) => p.source));
-  return mixPlan(plan, (p) => audioPcm(p.source), from, from + seconds, outputRate, channels);
+  const pcm = await loadAll(e.session, plan.map((p) => p.source));
+  return mixPlan(plan, (p) => pcm.get(p.source.asset), from, from + seconds, outputRate, channels);
 }
 
 export function wavBlob(mix: Float32Array[]) {
