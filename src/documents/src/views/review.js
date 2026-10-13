@@ -6,8 +6,9 @@
 import { el, isComposing, relativeTime, MOD_KEY } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
-import { revisionView, revisionAuthors } from '../engine/revisions.js';
+import { revisionView, revisionAuthors, describeFormatChange } from '../engine/revisions.js';
 import { createReadAloud } from './read-aloud.js';
+import { renderMentions } from './mentions.js';
 
 export const MARKUP_VIEWS = [['simple', 'Simple Markup'], ['all', 'All Markup'], ['none', 'No Markup'], ['original', 'Original']];
 
@@ -32,7 +33,11 @@ export function commentThreads(list) {
   return [...threads.values()].filter(t => t.root);
 }
 
-export function createReview({ editor, pkg, host, error, author, onChange = () => {}, onShift = () => {} }) {
+/**
+ * hooks (filled in by the review tools): tints() for extra range tints, trackingLocked(),
+ * people() for @mentions, commentsPane(), trackingOptions(), showMarkupItems(), lockTracking().
+ */
+export function createReview({ editor, pkg, host, error, author, onChange = () => {}, onShift = () => {}, hooks = {} }) {
   const layer = el('div.ed-comments-layer', { role: 'complementary', 'aria-label': 'Comments' });
   let markupButton = null;
   let activeId = null, pinned = false, pinnedRange = '', draft = null, editing = null, signature = '', positionsKey = '';
@@ -42,7 +47,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   let paneShown = false, paneSignature = '';
   const paneList = el('div.review-pane-list', { role: 'list' });
   const paneSummary = el('p.review-pane-summary');
-  const pane = el('aside.review-pane', { 'aria-label': 'Reviewing Pane', hidden: true },
+  let paneOrientation = revisionView.options.paneOrientation || 'vertical';
+  const pane = el('aside.review-pane', { 'aria-label': 'Reviewing Pane', hidden: true, dataset: { orientation: paneOrientation } },
     el('div.canvas-panel-heading', {}, el('h2', {}, 'Revisions'), el('button.icon-btn', { type: 'button', 'aria-label': 'Close Reviewing Pane', onclick: () => { paneShown = false; refresh(true); editor()?.focus(); } }, '✕')),
     paneSummary, paneList);
   function renderPane() {
@@ -56,7 +62,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const count = type => changes.filter(c => c.type === type).length;
     paneSummary.textContent = `${changes.length + notes.length} revisions: ${count('ins')} insertions, ${count('del')} deletions, ${count('format')} formatting, ${notes.length} comments`;
     const items = [
-      ...changes.map(c => ({ at: c.start, kind: { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); engine.focus(); engine.revealCaret?.(); onChange(); } })),
+      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(body, c) : (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); engine.focus(); engine.revealCaret?.(); onChange(); } })),
       ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),
     ].sort((a, b) => a.at - b.at);
     paneList.replaceChildren(...items.map(item => el('button.review-pane-item', { type: 'button', role: 'listitem', onclick: item.select },
@@ -64,6 +70,24 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)'))));
     if (!items.length) paneList.append(el('p.field-hint', {}, 'No comments or tracked changes.'));
   }
+  /** What a formatting change did, e.g. "Bold, Font size 14 pt". */
+  function formatSummary(body, change) {
+    let at = 0;
+    for (const p of body.paragraphs) {
+      const size = p.runs.reduce((n, r) => n + r.text.length, 0);
+      if (at + size + 1 > change.start) {
+        if (p.formatRevision && change.end > at + size) return describeFormatChange(p).join(', ');
+        let offset = at;
+        for (const run of p.runs) { if (offset >= change.start && run.formatRevision) return describeFormatChange(run).join(', '); offset += run.text.length; }
+        return 'Formatted';
+      }
+      at += size + 1;
+    }
+    return 'Formatted';
+  }
+  /** Changes shown under the current Show Markup choices (reviewers, kinds). */
+  const shownChanges = list => list.filter(c => !revisionView.options.hiddenAuthors.includes(c.author) && (c.type === 'format' ? revisionView.options.showFormatting : revisionView.options.showInsDel));
+  const locked = () => !!hooks.trackingLocked?.();
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && engine.model.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
   const threads = () => { const engine = editor(); return engine?.model.comments ? commentThreads(engine.model.commentList) : []; };
@@ -130,13 +154,33 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       selectThread(next);
     },
     toggleShown() { commentsShown = !commentsShown; refresh(true); editor()?.focus(); },
+    selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { commentsShown = true; selectThread(thread); } },
+    /** Delete every comment by the reviewers shown (Show Markup › Specific People). */
+    deleteAllShown() {
+      const hidden = new Set(revisionView.options.hiddenAuthors);
+      const ids = threads().filter(t => !hidden.has(t.root.author)).map(t => t.id);
+      if (!ids.length) return;
+      run(() => { for (const id of ids) editor().model.deleteComment(id); }); activeId = null; refresh(true);
+    },
+    get paneShown() { return paneShown; },
+    toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); },
+    setPaneOrientation(value = 'vertical') { paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
+    /** 'everyone' writes Track Changes into the document; 'mine' tracks this session only. */
+    get trackingMode() { const body = editor()?.session.body; return !body?.trackChanges ? 'off' : body.trackChangesMode === 'mine' ? 'mine' : 'everyone'; },
+    setTrackingMode(mode) {
+      const engine = ready(); if (!engine) return;
+      if (locked() && mode === 'off') { error(new Error('Tracking is locked. Unlock it to turn Track Changes off.')); return; }
+      engine.session.body.trackChangesMode = mode === 'mine' ? 'mine' : 'everyone';
+      commands.toggleTracking(mode !== 'off', { force: true });
+    },
     /* ---- Tracked changes ---- */
     get tracking() { return !!editor()?.session.body.trackChanges; },
     canTrack() { return !!ready(); },
-    toggleTracking(on = !commands.tracking) {
+    toggleTracking(on = !commands.tracking, { force = false } = {}) {
       const engine = ready(); if (!engine) return;
       engine.finishComposition();
-      if (!!engine.session.body.trackChanges === !!on) return;
+      if (!on && locked()) { error(new Error('Tracking is locked. Unlock it to turn Track Changes off.')); return; }
+      if (!!engine.session.body.trackChanges === !!on) { if (force) { engine.session.revision++; engine.onChange(); onChange(); } return; }
       engine.session.body.trackChanges = !!on;
       engine.session.revision++;
       engine.onChange();
@@ -155,9 +199,12 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     hasRevisions() { return (editor()?.session.body.revisions || []).length > 0; },
     resolve(accept, scope = 'here', { moveNext = false, stopTracking = false } = {}) {
       const engine = ready(); if (!engine) return;
+      if (locked()) { error(new Error('Tracking is locked: changes cannot be accepted or rejected.')); return; }
       if (engine.session.path !== null) engine.editStory(null);
       const body = engine.session.body, [a, b] = body.range;
-      const ok = run(() => scope === 'all' ? body.resolveRevisions(accept) : body.resolveRevisions(accept, a, b));
+      // "All shown" leaves the changes of reviewers and kinds hidden by Show Markup alone.
+      const shown = scope === 'shown' ? shownChanges(body.revisions) : null;
+      const ok = run(() => shown ? shown.reverse().reduce((done, r) => body.resolveRevisions(accept, r.start, Math.min(r.end, body.text.length + 1)) || done, false) : scope === 'all' ? body.resolveRevisions(accept) : body.resolveRevisions(accept, a, b));
       if (!accept && body.formatRejectSkipped) error(new Error('Formatting changes cannot be rejected here yet, so they were kept. Accept them, or change the formatting back by hand.'));
       if (stopTracking) commands.toggleTracking(false);
       if (ok && moveNext) commands.goChange(1, { from: body.range[0] });
@@ -190,19 +237,46 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     return el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, (initials || initialsFor(name) || '?').slice(0, 2));
   }
   function textEditor({ value = '', placeholder, submitLabel, onSubmit, onCancel }) {
-    const input = el('textarea.wcc-input', { rows: 1, placeholder, 'aria-label': placeholder }, value);
+    const input = el('textarea.wcc-input', { rows: 1, placeholder: `${placeholder} (type @ to mention someone)`, 'aria-label': placeholder, 'aria-autocomplete': 'list' }, value);
     input.value = value;
     const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(200, input.scrollHeight + 2)}px`; };
     const submit = el('button.btn.btn-primary.btn-sm.wcc-post', { type: 'button', disabled: !value.trim(), onclick: () => onSubmit(input.value) }, submitLabel);
     const cancel = el('button.btn.btn-sm.wcc-cancel', { type: 'button', onclick: () => onCancel?.() }, 'Cancel');
-    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); grow(); });
+    // @mentions: names of the people taking part in the review, offered as the name is typed.
+    const mentions = el('div.wcc-mentions', { role: 'listbox', 'aria-label': 'People', hidden: true });
+    let mention = null, chosen = 0;
+    const query = () => {
+      const before = input.value.slice(0, input.selectionStart), match = /(^|[\s(])@([\p{L}\p{N} .'-]{0,30})$/u.exec(before);
+      if (!match) return null;
+      const typed = match[2].toLowerCase(), names = (hooks.people?.() || []).filter(n => n.toLowerCase().startsWith(typed) || n.toLowerCase().split(/\s+/).some(w => w.startsWith(typed)));
+      return names.length && !names.some(n => n.toLowerCase() === typed) ? { start: before.length - match[2].length - 1, names: names.slice(0, 6) } : null;
+    };
+    const showMentions = () => {
+      mention = query(); chosen = 0;
+      mentions.hidden = !mention;
+      if (!mention) return;
+      mentions.replaceChildren(...mention.names.map((name, i) => el('button.wcc-mention', { type: 'button', role: 'option', 'aria-selected': String(i === chosen), onmousedown: e => e.preventDefault(), onclick: () => pick(name) }, el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, initialsFor(name).slice(0, 2)), name)));
+    };
+    const pick = name => {
+      const end = input.selectionStart, text = `@${name} `;
+      input.setRangeText(text, mention.start, end, 'end');
+      mention = null; mentions.hidden = true;
+      input.dispatchEvent(new Event('input')); input.focus();
+    };
+    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); grow(); showMentions(); });
+    input.addEventListener('blur', () => { mentions.hidden = true; });
     input.addEventListener('keydown', e => {
       if (isComposing(e)) return;
+      if (mention && !mentions.hidden) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); chosen = (chosen + (e.key === 'ArrowDown' ? 1 : -1) + mention.names.length) % mention.names.length; [...mentions.children].forEach((b, i) => b.setAttribute('aria-selected', String(i === chosen))); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(mention.names[chosen]); return; }
+        if (e.key === 'Escape') { e.preventDefault(); mentions.hidden = true; mention = null; return; }
+      }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (input.value.trim()) onSubmit(input.value); }
       else if (e.key === 'Escape') { e.preventDefault(); onCancel?.(); }
     });
     queueMicrotask(grow);
-    return el('div.wcc-editor', {}, input, el('div.wcc-actions', {}, cancel, submit));
+    return el('div.wcc-editor', {}, input, mentions, el('div.wcc-actions', {}, cancel, submit));
   }
   function entry(comment, thread, isRoot) {
     const editable = !!ready();
@@ -216,7 +290,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
     const body = editing === comment.id
       ? textEditor({ value: comment.text, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; run(() => editor().model.editComment(comment.id, text)); refresh(true); }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
-      : el('div.wcc-text', {}, comment.text);
+      : el('div.wcc-text', {}, ...renderMentions(comment.text, hooks.people?.() || []));
     return el(`div.wcc-entry${editing === comment.id ? '.is-editing' : ''}`, { dataset: { commentId: comment.id } }, head, body);
   }
   function card(thread) {
@@ -250,13 +324,32 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         onCancel: () => { draft = null; activeId = null; refresh(true); editor()?.focus(); } }));
   }
 
+  /* ---- Balloons: deletions and formatting changes in the margin (Show Markup › Balloons) ---- */
+  function balloonChanges() {
+    const engine = editor(); if (!engine || revisionView.mode !== 'all') return [];
+    const mode = revisionView.options.balloons;
+    if (mode === 'inline') return [];
+    return shownChanges(engine.session.body.revisions).filter(c => c.type === 'format' || mode === 'balloons' && c.type === 'del' && !c.move);
+  }
+  function balloonCard(change) {
+    const engine = editor(), body = engine.session.body;
+    const text = change.type === 'format' ? formatSummary(body, change) : body.text.slice(change.start, Math.min(change.end, body.text.length)).replace(/\n/g, ' ¶ ');
+    const editable = !!ready() && !locked();
+    const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept); };
+    return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
+      el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
+        el('button.icon-btn.wcc-more', { type: 'button', title: 'Accept', 'aria-label': 'Accept change', disabled: !editable, onclick: () => act(true) }, '✓'),
+        el('button.icon-btn.wcc-more', { type: 'button', title: 'Reject', 'aria-label': 'Reject change', disabled: !editable, onclick: () => act(false) }, '✕')),
+      el('div.wcc-text.is-clamped', {}, el('span.ed-revision-kind', {}, change.type === 'format' ? 'Formatted: ' : 'Deleted: '), change.type === 'format' ? text : el('del', {}, text.slice(0, 160))));
+  }
+
   /* ---- Layout: cards level with their anchors, stacked without overlap ---- */
   function place() {
     const engine = editor(); if (!engine || !layer.isConnected) return;
     const items = [...layer.querySelectorAll('.ed-comment-card')];
     const anchored = items.map(node => {
       const id = node.dataset.thread, thread = id ? threads().find(t => t.id === id) : null;
-      const start = id ? thread?.start : draft?.start;
+      const start = node.dataset.anchor !== undefined ? Number(node.dataset.anchor) : id ? thread?.start : draft?.start;
       return { node, geometry: start === null || start === undefined ? null : engine.positionGeometry(start), active: node.classList.contains('is-active') };
     }).filter(item => item.geometry).sort((a, b) => a.geometry.top - b.geometry.top);
     const right = Math.max(0, ...anchored.map(item => item.geometry.pageRight));
@@ -281,8 +374,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const ranges = [];
     for (const t of list) if (t.start !== null && t.end > t.start && (!t.root.done || t.id === activeId)) ranges.push({ start: t.start, end: t.end, fill: t.id === activeId ? ACTIVE_TINT : TINT });
     if (draft && draft.end > draft.start) ranges.push({ start: draft.start, end: draft.end, fill: ACTIVE_TINT });
-    ranges.sort((a, b) => a.start - b.start);
-    engine.setRangeTints?.(commentsShown ? ranges : []);
+    const all = [...(commentsShown ? ranges : []), ...(hooks.tints?.() || [])];
+    all.sort((a, b) => a.start - b.start);
+    engine.setRangeTints?.(all);
   }
 
   /** Bring the column up to date; cheap when nothing changed. */
@@ -302,17 +396,19 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     }
     if (draft && engine.model.revision !== draft.revision && draft.revision !== undefined) draft = null;
     if (draft) draft.revision ??= engine.model.revision;
-    const visible = commentsShown && (list.length > 0 || !!draft);
+    const balloons = balloonChanges();
+    const visible = commentsShown && (list.length > 0 || !!draft) || balloons.length > 0;
     if (scroller.classList.contains('has-comment-markup') !== visible) { scroller.classList.toggle('has-comment-markup', visible); positionsKey = ''; queueMicrotask(onShift); }
     layer.hidden = !visible;
-    const sig = JSON.stringify([list, activeId, editing, !!draft, commentsShown, !!ready()]);
+    const sig = JSON.stringify([list, activeId, editing, !!draft, commentsShown, !!ready(), balloons, locked()]);
     if (force || sig !== signature) {
       signature = sig;
       const focused = layer.contains(document.activeElement) ? document.activeElement : null;
       const keep = focused?.matches?.('textarea') ? { thread: focused.closest('[data-thread]')?.dataset.thread, value: focused.value, start: focused.selectionStart, end: focused.selectionEnd, draft: !!focused.closest('.ed-comment-draft') } : null;
       cards.clear();
-      const nodes = visible ? list.map(thread => { const node = card(thread); cards.set(thread.id, node); return node; }) : [];
-      if (visible && draft) nodes.push(draftCard());
+      const nodes = visible && commentsShown ? list.map(thread => { const node = card(thread); cards.set(thread.id, node); return node; }) : [];
+      if (visible && commentsShown && draft) nodes.push(draftCard());
+      nodes.push(...balloons.map(balloonCard));
       layer.replaceChildren(...nodes);
       if (keep && !force) {
         const target = keep.draft ? layer.querySelector('.ed-comment-draft textarea') : cards.get(keep.thread)?.querySelector('textarea');
@@ -324,10 +420,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const body = engine.session.body;
     body.revisionAuthor = author() || 'Author';
     for (const name of revisionAuthors(body.paragraphs)) if (!revisionView.authors.includes(name)) revisionView.authors.push(name);
-    engine.setMarginBars?.(['all', 'simple'].includes(revisionView.mode) ? body.revisions : [], revisionView.mode === 'simple' ? '#C4314B' : '#7A7A7A');
+    const o = revisionView.options, barColor = o.changeBarColor && !['auto', 'author'].includes(o.changeBarColor) ? `#${o.changeBarColor}` : revisionView.mode === 'simple' ? '#C4314B' : '#7A7A7A';
+    engine.setMarginBars?.(['all', 'simple'].includes(revisionView.mode) && o.changeBars !== 'none' ? shownChanges(body.revisions) : [], barColor, o.changeBars === 'none' ? 'left' : o.changeBars || 'left');
     const label = markupButton?.querySelector('.ribbon-small-label'), name = MARKUP_VIEWS.find(([mode]) => mode === revisionView.mode)?.[1];
     if (label && name && label.textContent !== name) label.textContent = name;
-    const key = `${engine.layout?.pageCount}:${engine.zoom}:${engine.model.revision}:${layer.childElementCount}:${scroller.clientWidth}:${activeId}`;
+    const key = `${engine.layout?.pageCount}:${engine.zoom}:${engine.model.revision}:${engine.session.body.revision}:${layer.childElementCount}:${scroller.clientWidth}:${activeId}`;
     if (visible && key !== positionsKey) { positionsKey = key; place(); }
   }
 
@@ -346,12 +443,17 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const removeSplit = split(remove, { label: 'Delete options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Delete', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
       { label: 'Delete', icon: 'deleteComment', disabled: !(commands.activeThread() || threadAtCaret()), onSelect: () => commands.deleteActive() },
       { label: 'Delete All Resolved Comments', disabled: !threads().some(t => t.root.done), onSelect: () => commands.deleteAll({ resolvedOnly: true }) },
+      { label: 'Delete All Comments Shown', disabled: !threads().some(t => !revisionView.options.hiddenAuthors.includes(t.root.author)), onSelect: () => commands.deleteAllShown() },
       { label: 'Delete All Comments in Document', disabled: !threads().length, onSelect: () => commands.deleteAll() },
     ] }) });
     const previous = command('Previous Comment', 'previous', () => commands.go(-1), { text: 'Previous' });
     const next = command('Next Comment', 'next', () => commands.go(1), { text: 'Next' });
     const resolve = command('Resolve Comment', 'resolveComment', () => commands.resolveActive(), { text: 'Resolve' });
     const show = command('Show Comments', 'showComments', () => commands.toggleShown(), { size: 'large', text: 'Show Comments' });
+    const showSplit = split(show, { label: 'Show Comments options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Show Comments', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
+      { label: 'Contextual', radio: true, checked: commentsShown, onSelect: () => { if (!commentsShown) commands.toggleShown(); } },
+      { label: 'List', radio: true, checked: false, onSelect: () => hooks.commentsPane?.() },
+    ] }) });
     for (const b of [add, remove, previous, next, show, resolve]) b.addEventListener('mousedown', e => e.preventDefault());
     when(add, () => commands.canComment());
     when(remove, () => !!ready() && !!(commands.activeThread() || threadAtCaret()));
@@ -359,11 +461,24 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(previous, () => threads().length > 0); when(next, () => threads().length > 0);
     when(resolve, () => !!ready() && !!(commands.activeThread() || threadAtCaret()));
     when(show, () => !!editor()?.model.comments, () => String(commentsShown));
+    when(showSplit.arrow, () => !!editor()?.model.comments);
     const track = command('Track Changes', 'trackChanges', () => commands.toggleTracking(), { size: 'large', text: 'Track Changes', shortcut: `${MOD_KEY}+Shift+E` });
+    const trackSplit = split(track, { label: 'Track Changes options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Track Changes', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
+      { label: 'For Everyone', radio: true, checked: commands.trackingMode === 'everyone', disabled: !commands.canTrack(), hint: 'Saved with the document', onSelect: () => commands.setTrackingMode('everyone') },
+      { label: 'Just Mine', radio: true, checked: commands.trackingMode === 'mine', disabled: !commands.canTrack() || locked(), hint: 'Only while you edit here', onSelect: () => commands.setTrackingMode('mine') },
+      { label: 'Off', radio: true, checked: commands.trackingMode === 'off', disabled: !commands.canTrack() || locked(), onSelect: () => commands.setTrackingMode('off') },
+      { separator: true },
+      { label: locked() ? 'Unlock Tracking…' : 'Lock Tracking…', icon: 'lockTracking', disabled: !commands.canTrack() || !hooks.lockTracking, onSelect: () => hooks.lockTracking?.() },
+    ] }) });
     const markup = markupButton = menuButton('Display for Review', 'markup', () => MARKUP_VIEWS.map(([mode, label]) => ({ label, radio: true, checked: revisionView.mode === mode, onSelect: () => commands.setMarkupView(mode) })), { size: 'small', text: 'All Markup' });
+    const showMarkup = menuButton('Show Markup', 'showMarkup', () => hooks.showMarkupItems?.() || [], { size: 'small', text: 'Show Markup' });
+    const options = command('Tracking Options', 'trackingOptions', () => hooks.trackingOptions?.(), { text: 'Tracking Options' });
+    options.addEventListener('mousedown', e => e.preventDefault());
+    when(showMarkup, () => !!editor() && !!hooks.showMarkupItems); when(options, () => !!editor() && !!hooks.trackingOptions);
     const resolveMenu = accept => [
       { label: `${accept ? 'Accept' : 'Reject'} and Move to Next`, icon: accept ? 'accept' : 'reject', disabled: !commands.revisionsAround().length, onSelect: () => commands.resolve(accept, 'here', { moveNext: true }) },
       { label: `${accept ? 'Accept' : 'Reject'} This Change`, disabled: !commands.revisionsAround().length, onSelect: () => commands.resolve(accept) },
+      { label: `${accept ? 'Accept' : 'Reject'} All Changes Shown`, disabled: !shownChanges(editor()?.session.body.revisions || []).length, onSelect: () => commands.resolve(accept, 'shown') },
       { label: `${accept ? 'Accept' : 'Reject'} All Changes`, disabled: !commands.hasRevisions(), onSelect: () => commands.resolve(accept, 'all') },
       { label: `${accept ? 'Accept' : 'Reject'} All Changes and Stop Tracking`, disabled: !commands.hasRevisions(), onSelect: () => commands.resolve(accept, 'all', { stopTracking: true }) },
     ];
@@ -375,19 +490,25 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const nextChange = command('Next Change', 'nextArrow', () => commands.goChange(1), { text: 'Next' });
     for (const b of [track, accept, reject, previousChange, nextChange]) b.addEventListener('mousedown', e => e.preventDefault());
     when(track, () => commands.canTrack(), () => String(commands.tracking));
+    when(trackSplit.arrow, () => commands.canTrack());
     when(markup, () => !!editor());
-    when(accept, () => !!ready() && commands.revisionsAround().length > 0); when(reject, () => !!ready() && commands.revisionsAround().length > 0);
-    when(acceptSplit.arrow, () => !!ready() && commands.hasRevisions()); when(rejectSplit.arrow, () => !!ready() && commands.hasRevisions());
+    when(accept, () => !!ready() && !locked() && commands.revisionsAround().length > 0); when(reject, () => !!ready() && !locked() && commands.revisionsAround().length > 0);
+    when(acceptSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions()); when(rejectSplit.arrow, () => !!ready() && !locked() && commands.hasRevisions());
     when(previousChange, () => commands.hasRevisions()); when(nextChange, () => commands.hasRevisions());
     const speak = command('Read Aloud', 'readAloud', () => readAloud.active ? readAloud.stop() : readAloud.start(), { size: 'large', text: 'Read Aloud', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+Space' : 'Ctrl+Alt+Space' });
     speak.addEventListener('mousedown', e => e.preventDefault());
     when(speak, () => readAloud.supported && !!editor(), () => String(readAloud.active));
     const reviewing = command('Reviewing Pane', 'reviewingPane', () => { paneShown = !paneShown; paneSignature = ''; refresh(true); }, { text: 'Reviewing Pane' });
     reviewing.addEventListener('mousedown', e => e.preventDefault());
+    const reviewingSplit = split(reviewing, { label: 'Reviewing Pane options', open: (anchor, e) => openMenu({ anchor, label: 'Reviewing Pane', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
+      { label: 'Reviewing Pane Vertical', radio: true, checked: paneShown && paneOrientation === 'vertical', onSelect: () => { commands.setPaneOrientation('vertical'); commands.toggleReviewingPane(true); } },
+      { label: 'Reviewing Pane Horizontal', radio: true, checked: paneShown && paneOrientation === 'horizontal', onSelect: () => { commands.setPaneOrientation('horizontal'); commands.toggleReviewingPane(true); } },
+    ] }) });
     when(reviewing, () => !!editor(), () => String(paneShown));
+    when(reviewingSplit.arrow, () => !!editor());
     return [{ id: 'speech', label: 'Speech', icon: 'readAloud', priority: 2, after: 'proofing', items: [speak] },
-      { id: 'comments', label: 'Comments', icon: 'comment', priority: 6, after: 'proofing', items: [add, removeSplit, rows([previous], [next], [resolve]), show] },
-      { id: 'tracking', label: 'Tracking', icon: 'trackChanges', priority: 7, after: 'proofing', items: [track, rows([markup], [reviewing])] },
+      { id: 'comments', label: 'Comments', icon: 'comment', priority: 6, after: 'proofing', items: [add, removeSplit, rows([previous], [next], [resolve]), showSplit] },
+      { id: 'tracking', label: 'Tracking', icon: 'trackChanges', priority: 7, after: 'proofing', items: [trackSplit, rows([markup], [showMarkup], [reviewingSplit]), rows([options])] },
       { id: 'changes', label: 'Changes', icon: 'accept', priority: 5, after: 'proofing', items: [acceptSplit, rejectSplit, rows([previousChange], [nextChange])] }];
   }
 

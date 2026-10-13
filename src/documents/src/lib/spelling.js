@@ -11,13 +11,15 @@ const ADDRESS = /^(?:https?:\/\/|www\.|mailto:)|@|\\|\/|\.[a-z]{2,4}$/i;
 // Keep source offsets while introducing proofing boundaries at exempt runs.
 // The ordinary fragment of a mixed noProof word is checked independently.
 // The original text/model is never changed; no-exemption documents reuse text.
+const foreignLanguage = language => !!language && !/^(?:en|x-none)(?:-|$)/i.test(language);
 export function proofingText(text, paragraphs) {
   const pieces = [];
   let offset = 0, start = 0;
   for (const paragraph of paragraphs) {
     for (const run of paragraph.runs) {
       const end = offset + run.text.length;
-      if (run.noProof && end > offset) {
+      // No-proofing text and text marked in another language (§17.3.2.20) are not checked against English.
+      if ((run.noProof || foreignLanguage(run.fontLanguage)) && end > offset) {
         pieces.push(text.slice(start, offset), ' '.repeat(end - offset));
         start = end;
       }

@@ -308,12 +308,13 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- Review ---- */
-  const spellingButton = command('Spelling', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Spelling', shortcut: 'F7' });
+  const spellingButton = command('Editor', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Editor', shortcut: 'F7' });
   const spelling = split(spellingButton, { label: 'Spelling options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Spelling options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument(w.spellingItems?.() || []) }) });
   const wordCount = command('Word Count', 'wordCount', () => w.wordCount?.(), { size: 'large', text: 'Word Count' });
-  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.());
+  const thesaurus = command('Thesaurus', 'thesaurus', () => w.thesaurus?.(), { size: 'large', text: 'Thesaurus', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+R' : 'Shift+F7' });
+  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.()); when(thesaurus, () => !!w.thesaurus && !!a.hasDocument?.());
   const review = { id: 'review', label: 'Review', groups: [
-    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, wordCount] },
+    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, thesaurus, wordCount] },
   ] };
 
   /* ---- View ---- */

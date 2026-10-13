@@ -342,6 +342,18 @@ export const COMMAND_ICONS = {
   compare: r(2.5, 3.5, 7.5, 11, 'of') + lines(4, 6.5, 4.5, 3, 2) + r(10, 5.5, 7.5, 11, 'bf glassy') + lines(11.5, 8.5, 4.5, 3, 2, 'b'),
   protect: page(2.5, 2.5, 10, 14) + lines(4.5, 7, 6, 2, 2) + lock(9.5, 11.5),
   readOnly: page(2.5, 2.5, 10, 14) + lock(9.5, 11.5),
+  // Translate: a sheet with a capital A, and a glass card in front with a lowercase a.
+  translate: r(2.5, 2.5, 10, 10, 'of') + t(7.5, 10.4, 'A', 7.5, { weight: 700 }) + r(8.5, 8.5, 9, 9, 'bf glassy') + t(13, 15.6, 'a', 8, { serif: true, c: 'txb' }),
+  // Combine: two pages meeting in one.
+  combine: r(2.5, 2.5, 5.5, 7.5, 'of') + r(12, 2.5, 5.5, 7.5, 'of') + p('M5.25 10v2.3h3.2M14.75 10v2.3h-3.2', 'b') + r(6.5, 11, 7, 6.5, 'bf') + p('M8.3 14.2h3.4', 'b'),
+  // Show Markup: a marked-up page with a filter.
+  showMarkup: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h6', 'r') + p('M4.5 10h6', 'b') + p('M4.5 13h3.5', 'o ln') + p('M10.5 11.5h7l-2.7 3.2v2.6l-1.6.9v-3.5z', 'pf'),
+  // Tracking Options: a marked-up page with a dial.
+  trackingOptions: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h6', 'r') + p('M4.5 10h5', 'b') + ci(14.5, 14.5, 4.2, 'knock') + ci(14.5, 14.5, 3.2, 'nf') + ci(14.5, 14.5, 1.1, 'o') + p('M14.5 10.6v1.2M14.5 17.2v1.2M10.6 14.5h1.2M17.2 14.5h1.2', 'o'),
+  // Lock Tracking: the tracked page, locked.
+  lockTracking: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h4.5', 'o') + p('M4.5 10h6', 'r') + p('M4.5 13h4', 'b') + lock(10, 12),
+  // Hide Ink: a pen stroke, struck through.
+  hideInk: p('M2.5 13.5c1.6-3.4 3.4-3.4 4.4 0s2.8 3.4 4.4 0 2.8-3.4 4.2-1.2', 'b thick') + p('M3.5 3.5l13 13', 'o thick'),
 
   /* View */
   readMode: p('M2.5 4.5c3-1 5.5-1 7.5.5v12c-2-1.5-4.5-1.5-7.5-.5zM17.5 4.5c-3-1-5.5-1-7.5.5v12c2-1.5 4.5-1.5 7.5-.5z', 'of') + lines(4.5, 7.5, 3.5, 2, 2.5, 'b') + lines(12, 7.5, 3.5, 2, 2.5, 'b'),
