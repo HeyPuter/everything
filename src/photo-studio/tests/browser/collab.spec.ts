@@ -1,7 +1,7 @@
 // Two people in two browser contexts on one shared document, against the
 // real room worker service running in the test process (collab-harness.ts).
 import { test, expect, type Page } from '@playwright/test';
-import { canvasClick, canvasDrag, idle, openImage } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, openImage, tool } from './helpers';
 import { environment, owner, editor } from '../collab-helpers';
 import { person, relay } from './collab-harness';
 
@@ -148,4 +148,23 @@ test('a review link opens the review view; reviewers comment but cannot edit', a
   expect(a.errors).toEqual([]);
   await ctxA.close();
   await ctxR.close();
+});
+
+test('the Comment tool puts the cursor in the new comment, even when the panel was closed', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 320, 240, '#808080', 'local.png');
+  expect(await page.evaluate(() => window.photoStudio.dock.isVisible('comments'))).toBe(false);
+  await tool(page, 'Comment Tool');
+  await canvasClick(page, 100, 80);
+  const draft = page.getByRole('textbox', { name: 'New comment' });
+  await expect(draft).toBeFocused();
+  // Typing goes into the comment, not to tool shortcuts.
+  await page.keyboard.type('hello');
+  await expect(draft).toHaveValue('hello');
+  expect(await page.evaluate(() => window.photoStudio.activeTool?.id)).toBe('comment');
+  // While drafting the panel shows the draft without the empty-state text.
+  await expect(page.locator('.comments-panel')).not.toContainText('No comments yet');
+  await expect(page.locator('.comment-draft').getByRole('button', { name: 'Comment' })).toHaveAttribute('title', /Post the comment/);
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+  await expect(page.locator('.comment-thread')).toHaveCount(1);
 });

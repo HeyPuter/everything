@@ -111,7 +111,16 @@ export function revealThread(e: Editor, id: string, zoom = true) {
   e.dock.update();
 }
 export function focusComposer(e: Editor) {
-  requestAnimationFrame(() => e.root.querySelector<HTMLTextAreaElement>('#comment-draft')?.focus());
+  // The panel may still be mounting (it loads on first use), so wait for the
+  // field rather than leave focus on the canvas, where typing would run tool
+  // shortcuts. Timers, not animation frames, so a background tab works too.
+  let tries = 0;
+  const attempt = () => {
+    const field = e.root.querySelector<HTMLTextAreaElement>('#comment-draft');
+    if (field) field.focus();
+    else if (view.draft && ++tries < 40) setTimeout(attempt, 25);
+  };
+  setTimeout(attempt, 0);
 }
 
 function suggest(e: Editor, input: HTMLTextAreaElement) {
