@@ -148,6 +148,7 @@
 }
 .chart-sheet-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -158,6 +159,8 @@
 }
 .chart-sheet-title {
   margin: 0;
+  min-width: 0;
+  flex: 1 1 120px;
   font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
@@ -165,8 +168,9 @@
 }
 .chart-sheet-tools {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
-  flex: none;
+  min-width: 0;
 }
 .chart-sheet-scroll {
   overflow: auto;

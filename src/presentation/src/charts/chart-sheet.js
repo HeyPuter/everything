@@ -354,6 +354,7 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
 
   draw();
   document.body.append(panel);
+  fitToViewport(panel);
   requestAnimationFrame(() => focusCell(1, 1));
   return {
     panel,
@@ -368,6 +369,15 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
   };
 }
 
+// A phone's layout can be wider than its screen; keep the window on screen.
+export function fitToViewport(panel) {
+  const width = document.documentElement.clientWidth;
+  const rect = panel.getBoundingClientRect();
+  if (rect.right <= width && rect.left >= 0) return;
+  panel.style.left = "8px";
+  panel.style.right = "auto";
+  panel.style.width = `${Math.max(200, width - 16)}px`;
+}
 // The sheet moves by its title bar, inside the window.
 function dragBy(handle, panel) {
   handle.addEventListener("pointerdown", (e) => {

@@ -16,12 +16,30 @@ async function start(page) {
   );
   await page.goto("/");
 }
+// A ribbon command, opening its group's drop-down where a narrow window has
+// folded the group away.
 async function ribbonCommand(page, tab, command) {
   await page.getByRole("tab", { name: tab, exact: true }).click();
-  await page.locator(`[data-command="${command}"]`).first().click();
+  const panel = page.locator(".ribbon-panel:not([hidden])");
+  const button = panel.locator(`[data-command="${command}"]`).first();
+  if (!(await button.isVisible())) {
+    await panel
+      .locator(`.ribbon-group:has([data-command="${command}"]) .ribbon-fold`)
+      .click();
+    await page
+      .locator(`.ribbon-fold-panel [data-command="${command}"]`)
+      .first()
+      .click();
+    return;
+  }
+  await button.click();
 }
 async function download(page) {
-  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "File", exact: true })
+    .or(page.getByRole("button", { name: "File options" }))
+    .filter({ visible: true })
+    .click();
   const event = page.waitForEvent("download");
   await page
     .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
