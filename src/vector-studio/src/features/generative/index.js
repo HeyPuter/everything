@@ -49,9 +49,10 @@ export function install(app) {
   app.taskbarExtras ||= [];
   app.taskbarExtras.push((ctx, { cmdButton, menuButton }) => {
     if (ctx === 'none') return [cmdButton('generative.vectors', 'Generate Vectors', 'gen-vectors')];
-    if (ctx === 'path') return [cmdButton('generative.shapeFill', 'Shape Fill', 'gen-shape-fill', { text: false })];
+    if (ctx === 'path' || ctx === 'shape') return [cmdButton('generative.shapeFill', 'Shape Fill', 'gen-shape-fill', { text: false })];
     if (ctx === 'text') return [menuButton('Rewrite', 'gen-text', TEXT_MENU, { text: false })];
-    if (ctx === 'group' || ctx === 'multiple' || ctx === 'live') return [cmdButton('generative.recolor', 'Generative Recolor', 'gen-recolor', { text: false })];
+    if (ctx === 'group' || ctx === 'multiple' || ctx === 'live' || ctx === 'clip' || ctx === 'blend') return [cmdButton('generative.recolor', 'Generative Recolor', 'gen-recolor', { text: false })];
+    if (ctx === 'image') return [cmdButton('object.removeBackground', 'Remove Background', 'gen-remove-bg', { text: false })];
     if (ctx === 'other') {
       const n = app.editor?.doc.get(app.editor.topSelection()[0]);
       if (n?.type === 'image') return [cmdButton('object.removeBackground', 'Remove Background', 'gen-remove-bg', { text: false })];
