@@ -297,6 +297,11 @@ function checkPackage(entries) {
     if (!name.endsWith(".rels")) continue;
     const base = name.replace(/_rels\/[^/]*\.rels$/, "");
     for (const r of doc.querySelectorAll("Relationship")) {
+      // A web link's target is an address, not a part of the package.
+      if (r.getAttribute("TargetMode") === "External") {
+        assert.match(r.getAttribute("Target"), /^https?:\/\//);
+        continue;
+      }
       const target = new URL(
         r.getAttribute("Target"),
         `http://x/${base}`,
@@ -2621,4 +2626,78 @@ test("SVG exports keep web links clickable", () => {
   ];
   const many = exportSVG(framed, exportRegions(framed, { scope: "frames" }));
   assert.equal(many.match(/<a /g).length, 3);
+});
+
+test("PowerPoint slides keep web links clickable", async () => {
+  const b = linkedBoard();
+  const entries = readZip(
+    await blobBytes(await exportPPTX(b, exportRegions(b), { rasterizer })),
+  );
+  const text = checkPackage(entries);
+  const all = (node, name) => [...node.getElementsByTagNameNS("*", name)];
+  const slide = parseXML(text("ppt/slides/slide1.xml")),
+    relations = parseXML(text("ppt/slides/_rels/slide1.xml.rels"));
+  const targets = new Map(
+    all(relations, "Relationship").map((r) => [
+      r.getAttribute("Id"),
+      r.getAttribute("TargetMode") === "External" && r.getAttribute("Target"),
+    ]),
+  );
+  const [picture] = all(slide, "pic"),
+    [pictureBox] = all(picture, "off"),
+    [pictureSize] = all(picture, "ext");
+  const area = {
+    x: +pictureBox.getAttribute("x"),
+    y: +pictureBox.getAttribute("y"),
+    w: +pictureSize.getAttribute("cx"),
+    h: +pictureSize.getAttribute("cy"),
+  };
+  const links = all(slide, "hlinkClick").map((link) => {
+    const shape = link.parentNode.parentNode.parentNode,
+      [off] = all(shape, "off"),
+      [ext] = all(shape, "ext"),
+      [box] = all(shape, "xfrm");
+    return {
+      url: targets.get(link.getAttribute("r:id")),
+      name: link.parentNode.getAttribute("descr"),
+      x: +off.getAttribute("x"),
+      y: +off.getAttribute("y"),
+      w: +ext.getAttribute("cx"),
+      h: +ext.getAttribute("cy"),
+      rot: box.getAttribute("rot"),
+      // Clear, yet taking clicks across the shape.
+      clear: all(shape, "alpha")[0]?.getAttribute("val"),
+    };
+  });
+  assert.deepEqual(
+    links.map(({ url, name, rot, clear }) => ({ url, name, rot, clear })),
+    [
+      {
+        url: "https://example.com/a?b=1&c=(2",
+        name: "Example",
+        rot: String(30 * 60000),
+        clear: "0",
+      },
+      {
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        name: "Video",
+        rot: null,
+        clear: "0",
+      },
+      {
+        url: "https://example.com/spec",
+        name: "spec",
+        rot: null,
+        clear: "0",
+      },
+    ],
+  );
+  // Unturned links lie on the board's picture.
+  for (const l of links.filter((l) => !l.rot)) {
+    assert.ok(l.x >= area.x - 1 && l.x + l.w <= area.x + area.w + 1);
+    assert.ok(l.y >= area.y - 1 && l.y + l.h <= area.y + area.h + 1);
+  }
+  // Shape ids stay unique on the slide.
+  const ids = all(slide, "cNvPr").map((c) => c.getAttribute("id"));
+  assert.equal(new Set(ids).size, ids.length);
 });
