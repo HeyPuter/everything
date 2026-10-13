@@ -14,6 +14,9 @@
  */
 
 import { ICON_GLYPHS } from './icon-glyphs.js';
+import { designIcons } from './icons/design-icons.js';
+import { layoutIcons } from './icons/layout-icons.js';
+import { textFlowIcons } from './icons/text-flow-icons.js';
 
 const p = (d, c = 'o') => `<path class="${c}" d="${d}"/>`;
 /** Outlined rectangles (frames, sheets, tiles) get softly rounded corners unless `rx` says otherwise; fills laid inside a frame stay square. */
@@ -401,6 +404,10 @@ export const COMMAND_ICONS = {
   paragraphAfter: cells(3.5, 2.5, 13, 8.5, 3, 2) + p('M3.5 14h8M3.5 16.5h5', 'o') + badge(15.5, 15.5, 'plus', 'g', 3),
   insertTab: p('M3.5 10h11M11.5 7l3 3-3 3', 'b thick') + p('M16.5 5v10', 'o'),
 };
+
+/* Feature areas draw their own icons in src/ui/icons/, with the same helpers and classes. */
+const HELPERS = { p, r, ci, t, cells, page, lines, arrowDown, arrowRight, arrowUp, arrowLeft, badge, n, sheet, tintedPage, headBand, footBand, rows, pencil, settingsBadge, corners, picture, ROUND };
+for (const icons of [designIcons, layoutIcons, textFlowIcons]) Object.assign(COMMAND_ICONS, icons(HELPERS));
 
 /** Aliases: the editor's existing control icon names that map onto a drawing above. */
 const ALIASES = {

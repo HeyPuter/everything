@@ -479,11 +479,13 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   fileButton.addEventListener('mousedown', e => { if (document.activeElement?.matches?.('.canvas-input')) e.preventDefault(); });
 
   // Feature modules add their own groups: w.extendTab(tabId, kit) returns groups, each optionally
-  // placed `after` an existing group id (otherwise appended).
+  // placed `after` an existing group id (otherwise appended), or taking the place of the group it `replaces`.
   const kit = { command, menuButton, split, rows, divider, large, small, when, check, inDocument, engineReady, focusEditor, separator, commandIconEl };
   for (const tab of [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat]) {
     const placed = new Map();
     for (const group of w.extendTab?.(tab.id, kit) || []) {
+      const replaced = group.replaces ? tab.groups.findIndex(g => g.id === group.replaces) : -1;
+      if (replaced >= 0) { tab.groups[replaced] = group; continue; }
       const at = group.after ? tab.groups.findIndex(g => g.id === (placed.get(group.after) ?? group.after)) : -1;
       if (at >= 0) { tab.groups.splice(at + 1, 0, group); placed.set(group.after, group.id); } else tab.groups.push(group);
     }

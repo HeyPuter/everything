@@ -62,6 +62,10 @@ import { styleDisplayName } from '../lib/style-names.js';
 import { createProofing } from './proofing.js';
 import { keyboardShortcuts } from './keyboard-shortcuts.js';
 import { commandIconEl } from '../ui/ribbon.js';
+import { createDesignTab } from './design-tab.js';
+import { createLayoutTab } from './layout-tab.js';
+import { createLineNumbers } from './line-numbers.js';
+import { createHyphenation } from './hyphenation.js';
 
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
 export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
@@ -699,6 +703,15 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+  // Design and Layout: each module adds commands, ribbon groups, menu-bar items and context-menu items.
+  const pageModules = [createDesignTab, createLayoutTab, createLineNumbers, createHyphenation].map(create => create({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(), commands: editorCommands }));
+  for (const module of pageModules) {
+    Object.assign(editorCommands, module.commands);
+    const extendTab = editorCommands.extendTab, extendMenu = editorCommands.extendMenu, contextMenuItems = editorCommands.contextMenuItems;
+    editorCommands.extendTab = (id, kit) => [...(extendTab?.(id, kit) || []), ...module.extendTab(id, kit)];
+    editorCommands.extendMenu = (id, kit) => [...(extendMenu?.(id, kit) || []), ...module.extendMenu(id, kit)];
+    editorCommands.contextMenuItems = (context, kit) => [...(contextMenuItems?.(context, kit) || []), ...module.contextMenuItems(context, kit)];
+  }
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -1093,7 +1106,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);
