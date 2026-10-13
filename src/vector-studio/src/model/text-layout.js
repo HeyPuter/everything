@@ -18,6 +18,7 @@
  */
 import { styledRuns, paragraphRanges, paraAt, baseStyle } from './text-runs.js';
 import { flattenPath, pathBounds } from './bezier.js';
+import { hyphenationOf, hyphenPoints } from './hyphenate.js';
 
 // ---- font hooks and caches ----
 
@@ -39,8 +40,11 @@ import { flattenPath, pathBounds } from './bezier.js';
  *   wraps(node)        text wrap obstacles for an area type node:
  *                      { deps: [nodes they come from], list: [{ polys (in the
  *                      node's local space), offset, invert }] }, or null.
+ *   opticalKern(style, a, b)
+ *                      kerning between characters a and b judged from their
+ *                      outlines, in px at 100px (null while the font loads).
  */
-export const textHooks = { ensureFont: null, shape: null, glyphPath: null, story: null, wraps: null };
+export const textHooks = { ensureFont: null, shape: null, glyphPath: null, story: null, wraps: null, opticalKern: null };
 
 let generation = 0;
 let layoutCache = new WeakMap();
@@ -322,7 +326,9 @@ function measureChars(node, text, vertical) {
     desc: zeros(n),
     lead: zeros(n),
     glyph: null, // shaped glyph indices (see textHooks.shape)
+    gs: null, // extra horizontal glyph scale per character (paragraph glyph scaling), or null
     shaped: false,
+    perGlyph: false, // spacing the canvas cannot reproduce from strings: draw glyph by glyph
     vertical,
   };
   for (const run of styledRuns(node)) {
@@ -370,7 +376,99 @@ function measureChars(node, text, vertical) {
     }
     if (textHooks.shape && run.end > run.start && textHooks.shape(st, text, run.start, Math.min(run.end, n), out, key)) out.shaped = true;
   }
+  if (!vertical) applySpacing(node, text, out);
   return out;
+}
+
+// ---- kerning modes, whole-point widths and paragraph spacing ----
+
+export const JUSTIFICATION_DEFAULTS = Object.freeze({
+  wordMin: 80, // word spacing, % of the font's space
+  wordDesired: 100,
+  wordMax: 133,
+  letterMin: 0, // letter spacing, % of a space added between characters
+  letterDesired: 0,
+  letterMax: 0,
+  glyphMin: 100, // glyph scaling, % of the glyph width
+  glyphDesired: 100,
+  glyphMax: 100,
+  autoLeading: 120, // auto leading, % of the type size
+  singleWord: 'justify', // a justified line holding one word: justify | left | center | right
+});
+
+/** Justification settings of a paragraph with the defaults filled in. */
+export function justificationOf(para) {
+  return { ...JUSTIFICATION_DEFAULTS, ...(para?.justification || {}) };
+}
+
+const spaceCache = new WeakMap();
+
+/** Width of a space in a style at a draw size. */
+function spaceWidth(st, size) {
+  let w = spaceCache.get(st);
+  if (w === undefined) {
+    w = width100(st, fontKey(st), ' ') * ((st.horizontalScale ?? 100) / 100);
+    spaceCache.set(st, w);
+  }
+  return (w * size) / 100;
+}
+
+const isBreakChar = (c) => c === '\n' || c === LINE_SEP || c === SHY || c === '\t';
+
+/**
+ * Character settings the canvas cannot apply by itself (kerning mode,
+ * whole-point advances) and a paragraph's desired word, letter and glyph
+ * spacing and auto leading.
+ */
+function applySpacing(node, text, out) {
+  const n = text.length;
+  for (let i = 0; i < n; i++) {
+    const st = out.sty[i];
+    if (!st) continue;
+    const km = st.kernMode;
+    if ((km === 'none' || km === 'optical') && i > 0) {
+      out.perGlyph = true;
+      if (km === 'none') out.kern[i] = 0;
+      else if (out.sty[i - 1] === st && out.adv[i] > 0 && out.adv[i - 1] > 0 && !isBreakChar(text[i]) && !isBreakChar(text[i - 1]) && textHooks.opticalKern) {
+        const k = textHooks.opticalKern(st, out.disp[i - 1], out.disp[i]);
+        if (k != null) out.kern[i] = ((k * out.size[i]) / 100) * ((st.horizontalScale ?? 100) / 100);
+      }
+    }
+    if (st.fractionalWidths === false && out.adv[i]) {
+      out.adv[i] = Math.round(out.adv[i]);
+      out.kern[i] = Math.round(out.kern[i]);
+      out.perGlyph = true;
+    }
+  }
+  const ranges = paragraphRanges(text);
+  for (let pi = 0; pi < ranges.length; pi++) {
+    const para = paraAt(node, pi);
+    if (!para.justification) continue;
+    const J = justificationOf(para);
+    const wd = J.wordDesired / 100;
+    const ld = J.letterDesired / 100;
+    const gd = J.glyphDesired / 100;
+    const al = J.autoLeading / 100;
+    if (wd !== 1 || ld || gd !== 1) out.perGlyph = true;
+    const pr = ranges[pi];
+    for (let i = pr.start; i < pr.end && i < n; i++) {
+      const st = out.sty[i];
+      if (st.leading == null) out.lead[i] = st.fontSize * al;
+      const c = text[i];
+      if (!out.adv[i] || isBreakChar(c)) continue;
+      if (c === ' ' || c === '\u3000') {
+        out.adv[i] *= wd;
+        continue;
+      }
+      if (gd !== 1) {
+        if (!out.gs) out.gs = new Array(n).fill(1);
+        out.adv[i] += out.gw[i] * (gd - 1);
+        out.gw[i] *= gd;
+        out.gs[i] = gd;
+      }
+      if (ld) out.adv[i] += spaceWidth(st, out.size[i]) * ld;
+    }
+  }
 }
 
 // ---- tabs, lists and margins ----
@@ -514,30 +612,107 @@ function hangOf(c) {
   return 0;
 }
 
+/** How far a character hangs outside the margin with hanging punctuation (fraction of its advance). */
+function hangFull(c) {
+  return c && '.,\'"‘’“”‚„:;-‐–—«»‹›'.includes(c) ? 1 : 0;
+}
+
 // ---- line breaking ----
 
-/** Greedy line fill from `from` within `maxW`; returns the end index (exclusive). */
-function fillLine(text, ch, from, pe, maxW, tc = null) {
+/** Whether a line may break before index b (no-break text on both sides keeps together). */
+function canBreak(ch, b, pe) {
+  return !(b < pe && b > 0 && ch.sty[b - 1]?.noBreak && ch.sty[b]?.noBreak);
+}
+
+const isLetter = (c) => Boolean(c) && /\p{L}/u.test(c);
+const isDash = (c) => c === '-' || c === SHY || c === '‐' || c === '–' || c === '—' || c === '/';
+
+/** Width of a hyphen drawn after the character at i. */
+function hyphenWidth(ch, i) {
+  const st = ch.sty[i];
+  return st ? measure('-', st) * (ch.size[i] / st.fontSize || 1) : 0;
+}
+
+/**
+ * Greedy line fill from `from` within `maxW`; returns the end index
+ * (exclusive). `opt.shrink` is the fraction of each space justified text
+ * may give up to fit; `opt.hy` ({ s: settings, count: hyphenated lines
+ * just before }) turns on automatic hyphenation, and `ch.lastHyphen` then
+ * says whether the line ends at an automatic hyphen.
+ */
+function fillLine(text, ch, from, pe, maxW, tc = null, opt = null) {
+  ch.lastHyphen = false;
+  const shrinkK = opt?.shrink || 0;
   let x = 0;
+  let sh = 0;
   let lastBreak = -1;
+  let lastBreakX = 0;
+  let wordStart = from;
+  const wx = []; // content width before each character of the current word
   for (let i = from; i < pe; i++) {
     const c = text[i];
     if (c === LINE_SEP) return i + 1;
+    const pre = x;
     if (i > from) x += ch.kern[i] + ch.manual[i];
     const a = c === '\t' ? tabAdvance(text, ch, i, x, tc, pe).adv : ch.adv[i];
     if (isSpace(c)) {
+      if (!isSpace(text[i - 1]) || i === from) lastBreakX = pre;
       x += a;
-      lastBreak = i + 1;
+      sh += a * shrinkK;
+      if (canBreak(ch, i + 1, pe)) lastBreak = i + 1;
+      wordStart = i + 1;
+      wx.length = 0;
       continue;
     }
-    if (x + a > maxW + 1e-6 && i > from) {
+    wx[i - wordStart] = pre;
+    if (x + a - sh > maxW + 1e-6 && i > from) {
+      if (opt?.hy) {
+        const b = hyphenBreak(text, ch, from, pe, i, wordStart, wx, maxW + sh, lastBreak > from ? maxW - lastBreakX : Infinity, shrinkK > 0, opt.hy);
+        if (b > from) {
+          ch.lastHyphen = true;
+          return b;
+        }
+      }
       if (lastBreak > from) return lastBreak;
       return i;
     }
     x += a;
-    if (c === '-' || c === SHY || c === '‐' || c === '–' || c === '—' || c === '/' || isCJK(c) || isCJK(text[i + 1])) lastBreak = i + 1;
+    if ((isDash(c) || isCJK(c) || isCJK(text[i + 1])) && canBreak(ch, i + 1, pe)) {
+      lastBreak = i + 1;
+      lastBreakX = x;
+      if (isDash(c)) {
+        wordStart = i + 1;
+        wx.length = 0;
+      }
+    }
   }
   return pe;
+}
+
+/**
+ * The best automatic hyphen break for a line that overflows at character i
+ * inside the word starting at wordStart, or -1. `room` is the width the line
+ * may use; `gap` how far from the margin it would end without hyphenating.
+ */
+function hyphenBreak(text, ch, from, pe, i, wordStart, wx, room, gap, justified, hy) {
+  const s = hy.s;
+  if (s.limit > 0 && hy.count >= s.limit) return -1;
+  // Unjustified text hyphenates only when the line would otherwise end far from the margin.
+  if (!justified && gap < (s.zone || 0)) return -1;
+  let ls = wordStart;
+  while (ls < i && !isLetter(text[ls])) ls++;
+  let we = ls;
+  while (we < pe && isLetter(text[we])) we++;
+  if (we - ls < 2) return -1;
+  for (let k = ls; k < we; k++) if (ch.sty[k]?.noBreak || ch.glyph?.[k] === -1) return -1;
+  const pts = hyphenPoints(text.slice(ls, we), s);
+  for (let p = pts.length - 1; p >= 0; p--) {
+    const b = ls + pts[p];
+    if (b > i || b <= from) continue;
+    if (ch.glyph?.[b] === -1) continue; // inside a ligature
+    if (wx[b - wordStart] + hyphenWidth(ch, b - 1) <= room + 1e-6) return b;
+  }
+  return -1;
 }
 
 /** Positions (relative to the line start) of each caret index in [start, end]; tabs resolved go to `tabsOut`. */
@@ -599,15 +774,28 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
   const tabs = [];
   const tc = { stops: tabStops(para), origin: (point ? 0 : slot.x0 - (opts.cellLeft ?? slot.x0)) + left };
   const rel = positions(text, ch, start, end, tc, tabs);
-  const width = rel[contentEnd - start];
+  // A line ending at a discretionary or automatic hyphen shows a hyphen after its last character.
+  const hyphen = !lastInPara && end > start && (opts.hyphen || text[end - 1] === SHY);
+  const hyW = hyphen ? hyphenWidth(ch, end - 1) : 0;
+  const width = rel[contentEnd - start] + hyW;
   let hangL = 0;
   let hangR = 0;
-  if (para.opticalMargin && contentEnd > start) {
-    hangL = hangOf(text[start]) * ch.adv[start];
-    hangR = hangOf(text[contentEnd - 1]) * ch.adv[contentEnd - 1];
+  if (contentEnd > start) {
+    if (para.opticalMargin) {
+      hangL = hangOf(text[start]) * ch.adv[start];
+      hangR = hangOf(text[contentEnd - 1]) * ch.adv[contentEnd - 1];
+    } else if (para.hangingPunctuation) {
+      hangL = hangFull(text[start]) * ch.adv[start];
+      hangR = hyphen ? hyW : hangFull(text[contentEnd - 1]) * ch.adv[contentEnd - 1];
+    }
   }
   const visible = width - hangL - hangR;
-  const align = para.align || 'left';
+  let align = para.align || 'left';
+  let spaces = 0;
+  for (let i = start; i < contentEnd; i++) if (text[i] === ' ' || text[i] === '\u3000') spaces++;
+  const J = align.startsWith('justify') ? justificationOf(para) : null;
+  // A justified line holding a single word follows the single word setting.
+  if (J && !spaces && !lastInPara && J.singleWord !== 'justify' && contentEnd > start) align = J.singleWord;
   let offset;
   let extra = 0;
   if (point) {
@@ -617,7 +805,8 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
   } else {
     const avail = slot.x1 - slot.x0 - left - right;
     const justify = align.startsWith('justify') && (!lastInPara || align === 'justify-all');
-    if (justify && avail > visible) {
+    // Justified lines stretch to the margins; one squeezed in by tighter word spacing gives the room back.
+    if ((justify && avail > visible) || (J && spaces && visible > avail + 1e-6)) {
       extra = avail - visible;
       offset = slot.x0 + left - hangL;
     } else {
@@ -629,17 +818,22 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
     }
   }
   const xs = zeros(rel.length);
-  if (extra > 0) {
-    // Distribute between words; lines without spaces spread the letters.
-    let spaces = 0;
-    for (let i = start; i < contentEnd; i++) if (text[i] === ' ' || text[i] === '　') spaces++;
-    const gaps = spaces || Math.max(1, contentEnd - start - 1);
-    const per = extra / gaps;
+  let gscale = 1;
+  let spread = false;
+  if (extra !== 0) {
+    const d = distribute(text, ch, start, contentEnd, extra, spaces, J || justificationOf(para));
+    gscale = d.glyph;
+    spread = d.letter !== 0 || d.glyph !== 1;
     let add = 0;
     for (let k = 0; k < rel.length; k++) {
       xs[k] = offset + rel[k] + add;
       const i = start + k;
-      if (spaces ? i < contentEnd && (text[i] === ' ' || text[i] === '　') : i < contentEnd - 1) add += per;
+      if (i >= contentEnd) continue;
+      if (text[i] === ' ' || text[i] === '\u3000') add += d.space;
+      else {
+        add += ch.gw[i] * (d.glyph - 1);
+        if (i < contentEnd - 1) add += d.letter;
+      }
     }
   } else {
     for (let k = 0; k < rel.length; k++) xs[k] = offset + rel[k];
@@ -663,9 +857,9 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
     const origin = point ? slot.x0 : opts.cellLeft ?? slot.x0;
     for (let u = origin + Math.ceil((u0 - origin) / lw - 1e-6) * lw; u + lw <= u1 + 0.01; u += lw) pushExtra({ str: L, u, style: st, size: st.fontSize, w: lw });
   }
-  if (text[end - 1] === SHY && !lastInPara) {
+  if (hyphen) {
     const st = ch.sty[end - 1];
-    pushExtra({ str: '-', u: xs[end - start], style: st, size: ch.size[end - 1], w: measure('-', st) });
+    pushExtra({ str: '-', u: xs[contentEnd - start], style: st, size: ch.size[end - 1], w: hyW });
   }
   return {
     start,
@@ -679,10 +873,62 @@ function makeLine(text, ch, start, end, pi, para, firstInPara, lastInPara, slot,
     desc: m.desc,
     lead: m.lead,
     para: pi,
-    justified: extra > 0,
+    justified: extra !== 0,
+    spread, // letters spaced or glyphs scaled to justify: drawn glyph by glyph
+    gscale, // glyph scaling of the line's characters (justification)
+    hyphen,
     text: text.slice(start, end),
     extras,
   };
+}
+
+/**
+ * Share `extra` width (negative to squeeze) between word spaces, letter
+ * spacing and glyph scaling within a paragraph's justification limits:
+ * word spaces first, then letters, then glyphs; what is left goes to the
+ * word spaces (or the letters of a line without spaces). Returns the
+ * amount per space, per letter gap and the glyph scale factor.
+ */
+function distribute(text, ch, start, end, extra, spaces, J) {
+  let spaceW = 0;
+  let glyphW = 0;
+  let gaps = 0;
+  let ref = 0;
+  for (let i = start; i < end; i++) {
+    if (text[i] === ' ' || text[i] === '\u3000') spaceW += ch.adv[i];
+    else if (ch.adv[i]) {
+      glyphW += ch.gw[i];
+      if (!ref && ch.sty[i]) ref = spaceWidth(ch.sty[i], ch.size[i]);
+    }
+    if (i < end - 1 && text[i] !== ' ') gaps++;
+  }
+  const out = { space: 0, letter: 0, glyph: 1 };
+  const grow = extra > 0;
+  let rest = Math.abs(extra);
+  const take = (cap) => {
+    const v = Math.max(0, Math.min(rest, cap));
+    rest -= v;
+    return v;
+  };
+  const wd = J.wordDesired || 100;
+  const gd = J.glyphDesired || 100;
+  const capWord = spaces ? (spaceW * (grow ? J.wordMax - wd : wd - J.wordMin)) / wd : 0;
+  const capLetter = gaps * ref * ((grow ? J.letterMax - J.letterDesired : J.letterDesired - J.letterMin) / 100);
+  const capGlyph = (glyphW * (grow ? J.glyphMax - gd : gd - J.glyphMin)) / gd;
+  const sign = grow ? 1 : -1;
+  let w = take(capWord);
+  const l = take(capLetter);
+  const g = take(capGlyph);
+  // Stretching past the limits goes to the word spaces; squeezing never goes past them.
+  if (grow && rest > 0) {
+    if (spaces) w += rest;
+    else if (gaps) out.letter += rest / gaps;
+    rest = 0;
+  }
+  if (spaces) out.space = (sign * w) / spaces;
+  if (gaps) out.letter += (sign * l) / gaps;
+  if (glyphW) out.glyph = 1 + (sign * g) / glyphW;
+  return out;
 }
 
 // ---- frames ----
@@ -770,6 +1016,12 @@ function wrapSlots(slots, w, y0, y1) {
   return out;
 }
 
+/** Whether an area frame sizes its height to its text (one row and column, a box, horizontal, not threaded). */
+export function autoSized(node) {
+  const o = node.areaOptions;
+  return Boolean(o?.autoSize) && node.kind === 'area' && !node.vertical && !(node.areaPath && node.areaPath.length > 2) && !(node.threadNext || node.threadPrev) && (o.rows || 1) <= 1 && (o.columns || 1) <= 1;
+}
+
 /** Area frame cells: rows and columns of the box, or the container shape. */
 function areaCells(node, vertical) {
   const o = node.areaOptions || {};
@@ -781,7 +1033,8 @@ function areaCells(node, vertical) {
   }
   // Flow space for vertical type: u down the column, v from the right edge leftward.
   const W = vertical ? node.height : node.width;
-  const H = vertical ? node.width : node.height;
+  // Auto-sized frames grow with their text: lay out without a bottom.
+  const H = vertical ? node.width : autoSized(node) ? 1e7 : node.height;
   const X = vertical ? 0 : node.x;
   const Y = vertical ? 0 : node.y;
   const rows = Math.max(1, Math.round(o.rows || 1));
@@ -863,6 +1116,12 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
     const para = paraAt(node, pi);
     const stops = tabStops(para);
     const marker = markers?.[pi] || null;
+    const J = (para.align || 'left').startsWith('justify') ? justificationOf(para) : null;
+    const shrink = J && J.wordDesired > 0 ? Math.max(0, 1 - J.wordMin / J.wordDesired) : 0;
+    const hyS = para.hyphenate ? hyphenationOf(para) : null;
+    const every = para.composer === 'every' && !stops && !text.slice(pr.start, pr.end).includes('\t');
+    let plan = null; // every-line composer: line start -> { end, hyph }
+    let hyCount = 0; // hyphenated lines just before
     let pos = pr.start;
     let firstInPara = true;
     for (let guardRows = 0; guardRows < 100000; guardRows++) {
@@ -893,17 +1152,38 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
           const out = [];
           let p = pos;
           let first = firstInPara;
+          let hc = hyCount;
           for (const s of slots) {
             if (p >= pr.end && out.length) break;
             const left = lineLeft(para, first, first ? marker : null);
             const avail = s.x1 - s.x0 - left - (para.indentRight || 0);
-            const e = p >= pr.end ? p : fillLine(text, ch, p, pr.end, Math.max(1, avail), { stops, origin: s.x0 - cellLeft + left });
+            let e = p;
+            let hy = false;
+            if (p < pr.end) {
+              let step = null;
+              if (every) {
+                if (!plan || !plan.has(p)) plan = composeParagraph(text, ch, p, pr.end, Math.max(1, avail), Math.max(1, s.x1 - s.x0 - lineLeft(para, false, null) - (para.indentRight || 0)), para, hyS, hc);
+                step = plan?.get(p) || null;
+                if (step && !planFits(text, ch, p, step, avail, shrink, para)) {
+                  step = null;
+                  plan = null;
+                }
+              }
+              if (step) {
+                e = step.end;
+                hy = step.hyph;
+              } else {
+                e = fillLine(text, ch, p, pr.end, Math.max(1, avail), { stops, origin: s.x0 - cellLeft + left }, { shrink, hy: hyS ? { s: hyS, count: hc } : null });
+                hy = ch.lastHyphen;
+              }
+            }
+            hc = hy ? hc + 1 : 0;
             const lm = lineMetrics(text, ch, p, e) || mm;
-            out.push({ s, p, e, first, lm });
+            out.push({ s, p, e, first, lm, hy });
             first = false;
             p = e;
           }
-          return { out, p, bs };
+          return { out, p, bs, hc };
         };
         let built = build(m, base);
         let actual = built.out.reduce((acc, r) => ({ asc: Math.max(acc.asc, r.lm.asc), desc: Math.max(acc.desc, r.lm.desc), lead: Math.max(acc.lead, r.lm.lead), cap: Math.max(acc.cap, r.lm.cap), xh: Math.max(acc.xh, r.lm.xh) }), { asc: 0, desc: 0, lead: 0, cap: 0, xh: 0 });
@@ -914,7 +1194,7 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
           continue;
         }
         row = built.out.map((r) => {
-          const line = makeLine(text, ch, r.p, r.e, pi, para, r.first, r.e >= pr.end, r.s, m, false, { cellLeft, marker: r.first ? marker : null });
+          const line = makeLine(text, ch, r.p, r.e, pi, para, r.first, r.e >= pr.end, r.s, m, false, { cellLeft, marker: r.first ? marker : null, hyphen: r.hy });
           line.y = base;
           line.asc = m.asc;
           line.desc = m.desc;
@@ -924,6 +1204,7 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
           return line;
         });
         rowEnd = built.p;
+        hyCount = built.hc;
         break;
       }
       if (!row) {
@@ -942,7 +1223,153 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
     pendingSpace = para.spaceAfter || 0;
   }
   if (overflow) visibleEnd = lines.length ? lines[lines.length - 1].end : 0;
+  if (!vertical) alignVertically(cells, lines);
   return { lines, overflow: overflow && visibleEnd < text.length, visibleEnd, cells, inset: cells[0]?.inset || 0 };
+}
+
+/** Area type vertical alignment (areaOptions.verticalAlign: top | center | bottom | justify) in each box cell. */
+function alignVertically(cells, lines) {
+  cells.forEach((cell, ci) => {
+    const va = cell.node.areaOptions?.verticalAlign;
+    if (!va || va === 'top' || cell.poly || cell.wraps || autoSized(cell.node)) return;
+    const ls = lines.filter((l) => l.cell === ci);
+    if (!ls.length) return;
+    const last = ls[ls.length - 1];
+    const slack = cell.y + cell.h - cell.inset - (last.y + last.desc);
+    if (!(slack > 0.01)) return;
+    if (va === 'justify') {
+      const rows = [...new Set(ls.map((l) => l.y))];
+      if (rows.length < 2) return;
+      const per = slack / (rows.length - 1);
+      for (const l of ls) l.y += per * rows.indexOf(l.y);
+      return;
+    }
+    const d = va === 'center' ? slack / 2 : va === 'bottom' ? slack : 0;
+    for (const l of ls) l.y += d;
+  });
+}
+
+/** Width of the content of [a, b) (trailing spaces left out). */
+function contentWidth(text, ch, a, b) {
+  while (b > a && (isSpace(text[b - 1]) || text[b - 1] === LINE_SEP)) b--;
+  let w = 0;
+  for (let i = a; i < b; i++) w += ch.adv[i] + (i > a ? ch.kern[i] + ch.manual[i] : 0);
+  return w;
+}
+
+/** Whether a composed line still fits the room it gets (frames can narrow below the first line). */
+function planFits(text, ch, a, step, avail, shrink, para) {
+  let w = contentWidth(text, ch, a, step.end) + (step.hyph ? hyphenWidth(ch, step.end - 1) : 0);
+  if (shrink) {
+    let sp = 0;
+    for (let i = a; i < step.end; i++) if (text[i] === ' ') sp += ch.adv[i];
+    w -= sp * shrink;
+  }
+  if (para.hangingPunctuation || para.opticalMargin) w -= ch.adv[a] || 0; // hanging characters may sit outside
+  return w <= avail + 0.5;
+}
+
+/**
+ * Every-line composer: line breaks for the rest of a paragraph from `from`
+ * chosen together, so lines come out evenly full (even word spacing in
+ * justified text, an even rag otherwise) and hyphens are rare and not
+ * stacked. Candidate breaks are word boundaries, dashes, forced line breaks
+ * and (with hyphenation) hyphenation points; the cost of a line grows with
+ * the cube of how far it stretches or squeezes, and the cheapest sequence
+ * wins. Returns a Map line start -> { end, hyph }, or null when some word
+ * cannot fit (the greedy filler then breaks it).
+ */
+function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, hyCount0 = 0) {
+  if (pe - from < 2) return null;
+  const align = para.align || 'left';
+  const J = justificationOf(para);
+  const just = align.startsWith('justify');
+  const wd = J.wordDesired || 100;
+  const shrinkK = just ? Math.max(0, 1 - J.wordMin / wd) : 0;
+  const stretchK = Math.max(0, J.wordMax / wd - 1);
+  const n = pe - from;
+  // Prefix sums: widths (with kerning inside the line), space widths and glyph widths.
+  const P = zeros(n + 1);
+  const S = zeros(n + 1);
+  const G = zeros(n + 1);
+  for (let k = 0; k < n; k++) {
+    const i = from + k;
+    P[k + 1] = P[k] + ch.adv[i] + (k > 0 ? ch.kern[i] + ch.manual[i] : 0);
+    const sp = text[i] === ' ' || text[i] === '\u3000';
+    S[k + 1] = S[k] + (sp ? ch.adv[i] : 0);
+    G[k + 1] = G[k] + (sp ? 0 : ch.gw[i]);
+  }
+  const cands = [];
+  for (let i = from; i < pe; i++) {
+    const c = text[i];
+    if (c === LINE_SEP) cands.push({ b: i + 1, forced: true });
+    else if (isSpace(c)) {
+      if (i + 1 < pe && !isSpace(text[i + 1]) && canBreak(ch, i + 1, pe)) cands.push({ b: i + 1 });
+    } else if ((isDash(c) || isCJK(c) || isCJK(text[i + 1])) && i + 1 < pe && canBreak(ch, i + 1, pe)) cands.push({ b: i + 1 });
+  }
+  if (hyS) {
+    for (let i = from; i < pe; ) {
+      if (!isLetter(text[i])) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j < pe && isLetter(text[j])) j++;
+      let ok = true;
+      for (let k = i; k < j; k++) if (ch.sty[k]?.noBreak || ch.glyph?.[k] === -1) ok = false;
+      if (ok) for (const k of hyphenPoints(text.slice(i, j), hyS)) if (ch.glyph?.[i + k] !== -1) cands.push({ b: i + k, hyph: true });
+      i = j;
+    }
+  }
+  cands.sort((p, q) => p.b - q.b);
+  cands.push({ b: pe, last: true });
+  const ref = ch.sty[from] ? spaceWidth(ch.sty[from], ch.size[from]) : 3;
+  const best = new Array(cands.length).fill(null);
+  const startNode = { cost: 0, hyph: false, count: hyCount0 };
+  for (let ai = -1; ai < cands.length - 1; ai++) {
+    const A = ai < 0 ? startNode : best[ai];
+    if (!A) continue;
+    const a = ai < 0 ? from : cands[ai].b;
+    const avail = a === from ? availFirst : availRest;
+    for (let bi = ai + 1; bi < cands.length; bi++) {
+      const C = cands[bi];
+      let ce = C.b;
+      while (ce > a && (isSpace(text[ce - 1]) || text[ce - 1] === LINE_SEP)) ce--;
+      const ka = a > from && a < pe ? ch.kern[a] + ch.manual[a] : 0;
+      const base = P[ce - from] - P[a - from] - ka;
+      const w = base + (C.hyph ? hyphenWidth(ch, C.b - 1) : 0);
+      const spW = S[ce - from] - S[a - from];
+      const lastLine = Boolean(C.last);
+      const justLine = just && (!lastLine || align === 'justify-all');
+      const shrink = justLine ? spW * shrinkK : 0;
+      if (base - shrink > avail + 1e-6) break;
+      if (w - shrink > avail + 1e-6) continue;
+      if (C.hyph && hyS?.limit > 0 && A.count >= hyS.limit) continue;
+      const slack = avail - w;
+      let bad;
+      if (justLine) {
+        const gaps = Math.max(0, ce - a - 1);
+        const stretch = spW * stretchK + gaps * ref * ((J.letterMax - J.letterDesired) / 100) + ((G[ce - from] - G[a - from]) * (J.glyphMax - (J.glyphDesired || 100))) / (J.glyphDesired || 100);
+        const r = slack >= 0 ? (stretch > 0 ? slack / stretch : slack > 1 ? 10 : 0) : shrink > 0 ? -slack / shrink : 10;
+        bad = 100 * Math.min(10, r) ** 3;
+      } else if (lastLine) bad = 0;
+      else bad = 100 * ((3 * slack) / Math.max(1, avail)) ** 2;
+      let d = (10 + bad) ** 2;
+      if (C.hyph) d += A.hyph ? 13000 : 3000;
+      const cost = A.cost + d;
+      if (!best[bi] || cost < best[bi].cost) best[bi] = { cost, prev: ai, hyph: Boolean(C.hyph), count: C.hyph ? A.count + 1 : 0 };
+      if (C.forced) break;
+    }
+  }
+  if (!best[cands.length - 1]) return null;
+  const plan = new Map();
+  for (let bi = cands.length - 1; bi >= 0; ) {
+    const B = best[bi];
+    const a = B.prev < 0 ? from : cands[B.prev].b;
+    plan.set(a, { end: cands[bi].b, hyph: B.hyph });
+    bi = B.prev;
+  }
+  return plan;
 }
 
 function flowPoint(node, text, ch, anchorX, markers = null) {
@@ -1453,7 +1880,9 @@ export function glyphPlacements(lay) {
         const gw = ch.gw[i];
         m = [hs, 0, 0, vs, p.x - gw / 2 + rise, lay.toLocal(base, line.y).y];
       } else {
-        m = [hs, 0, 0, vs, x, line.y - rise];
+        // Paragraph glyph scaling (desired and justification) widens the glyph.
+        const gsc = (ch.gs ? ch.gs[i] : 1) * (line.gscale || 1);
+        m = [hs * gsc, 0, 0, vs, x, line.y - rise];
       }
       if (st.rotation) {
         const r = (-st.rotation * Math.PI) / 180;
@@ -1481,7 +1910,8 @@ function mul(a, b) {
 
 /** True when a layout can be drawn as horizontal line segments (the fast path). */
 export function drawsAsSegments(lay) {
-  if (lay.kind === 'path' || lay.vertical || lay.chars.shaped) return false;
+  if (lay.kind === 'path' || lay.vertical || lay.chars.shaped || lay.chars.perGlyph) return false;
+  for (const l of lay.lines) if (l.spread) return false;
   for (const r of styledRuns(lay.source || lay.node)) if (r.style.rotation) return false;
   return true;
 }

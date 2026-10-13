@@ -84,64 +84,6 @@ function convertToPoint(app) {
   });
 }
 
-async function areaOptions(app) {
-  const ed = app.editor;
-  const nodes = selectedTextNodes(ed).filter((n) => n.kind === 'area');
-  if (!nodes.length) return;
-  const n = nodes[0];
-  const o = n.areaOptions || {};
-  const v = await app.dialogs.form({
-    title: 'Area Type Options',
-    fields: [
-      { key: 'width', type: 'length', label: 'Width', value: n.width, min: 1 },
-      { key: 'height', type: 'length', label: 'Height', value: n.height, min: 1 },
-      { type: 'heading', label: 'Rows' },
-      { key: 'rows', type: 'number', label: 'Number', value: o.rows || 1, min: 1, max: 100 },
-      { key: 'rowGutter', type: 'length', label: 'Gutter', value: o.rowGutter ?? 18, min: 0 },
-      { type: 'heading', label: 'Columns' },
-      { key: 'columns', type: 'number', label: 'Number', value: o.columns || 1, min: 1, max: 100 },
-      { key: 'columnGutter', type: 'length', label: 'Gutter', value: o.columnGutter ?? 18, min: 0 },
-      { type: 'heading', label: 'Offset' },
-      { key: 'inset', type: 'length', label: 'Inset Spacing', value: o.inset || 0, min: 0 },
-      {
-        key: 'firstBaseline',
-        type: 'select',
-        label: 'First Baseline',
-        value: o.firstBaseline || 'ascent',
-        options: [
-          { value: 'ascent', label: 'Ascent' },
-          { value: 'capHeight', label: 'Cap Height' },
-          { value: 'leading', label: 'Leading' },
-          { value: 'xHeight', label: 'x Height' },
-          { value: 'fixed', label: 'Fixed' },
-        ],
-      },
-      { key: 'minBaseline', type: 'length', label: 'Min', value: o.minBaseline || 0, min: 0 },
-      {
-        key: 'flow',
-        type: 'select',
-        label: 'Text Flow',
-        value: o.flow || 'rows',
-        options: [
-          { value: 'rows', label: 'By Rows, Left to Right' },
-          { value: 'columns', label: 'By Columns, Left to Right' },
-        ],
-      },
-    ],
-  });
-  if (!v) return;
-  ed.doc.transact('Area Type Options', () => {
-    for (const node of nodes) {
-      const patch = { areaOptions: { rows: Math.round(v.rows), rowGutter: v.rowGutter, columns: Math.round(v.columns), columnGutter: v.columnGutter, inset: v.inset, firstBaseline: v.firstBaseline, minBaseline: v.minBaseline, flow: v.flow } };
-      if (!node.areaPath) {
-        patch.width = v.width;
-        patch.height = v.height;
-      }
-      ed.doc.update(node.id, patch);
-    }
-  });
-}
-
 /** Type > Fit Headline: track a one-line paragraph out to the full width of its area. */
 function fitHeadline(app) {
   const ed = app.editor;
@@ -222,7 +164,6 @@ export function registerTypeCommands(app) {
     { id: 'type.case.sentence', label: 'Sentence case.', enabled: hasText, run: (a) => applyCase(a, 'sentence') },
     { id: 'type.convertToArea', label: 'Convert to Area Type', enabled: (a) => !session(a) && a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'point' && !n.vertical), run: convertToArea },
     { id: 'type.convertToPoint', label: 'Convert to Point Type', enabled: (a) => !session(a) && a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'area' && !n.vertical), run: convertToPoint },
-    { id: 'type.areaOptions', label: 'Area Type Options...', enabled: (a) => a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'area'), run: areaOptions },
     { id: 'type.fitHeadline', label: 'Fit Headline', enabled: (a) => currentTextNodes(a).some((n) => n.kind === 'area'), run: fitHeadline },
     {
       id: 'type.showHidden',
