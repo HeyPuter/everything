@@ -403,6 +403,15 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   gridlines, headings and zeros, which sheets are hidden, and the sheet in
   front, with the edits among those one undo step. Views are saved in the
   file as native custom workbook and sheet views.
+- **Sheet views**: View ▸ Sheet View ▸ New starts a temporary view of the
+  sheet in which you filter for yourself while everyone else keeps the
+  default view (the headings take a tint and the sheet tab an eye); Keep
+  names it so it stays with the workbook, Exit goes back to the default
+  view, the Sheet View menu switches between the sheet's views, and Options
+  renames, duplicates or deletes them. Files and drafts always hold the
+  default view's filters with the named views beside them, the view you are
+  in is remembered on this device for that file, and sorting (which moves
+  the rows themselves) still applies to everyone.
 - **Arranging objects**: charts, pictures, shapes, text boxes, WordArt,
   slicers, timelines and controls stack in an order of their own. Page
   Layout ▸ Arrange (and a chart's Format tab, and the object menu) brings
