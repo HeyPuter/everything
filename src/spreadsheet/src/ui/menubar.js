@@ -462,6 +462,13 @@ export function menubarMenus(f = {}) {
     f.ai && i('Write a formula with AI…', 'sparkle', 'aiFormula'),
     f.ai && i('Explain this formula (AI)…', 'sparkle', 'aiExplain', null, { disabled: !f.hasFormula }),
     sep,
+    sub('Automate', 'codeEditor', [
+      i('Code Editor', 'codeEditor', 'scriptsPane', null, { checked: !!f.scriptsPane }),
+      i('New script', 'newScript', 'newScript'),
+      i(f.recording ? 'Stop recording' : 'Record actions', 'recordActions', 'recordActions', null, { checked: !!f.recording }),
+      i('All scripts…', 'allScripts', 'scriptGallery'),
+      i('Script reference', 'scriptReference', 'scriptReference'),
+    ]),
     i('Check spelling as you type', 'text', 'toggleSpellcheck', null, { checked: f.spell !== false }),
     fn('Regional format…', 'monitor', f.fns?.locale),
   ];

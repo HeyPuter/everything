@@ -70,6 +70,7 @@ export class ScriptHost {
       sheets: this.sheetList(),
       activeSheet: wb.activeSheetId,
       selection: sel && wb.sheet(sel.sheetId) ? { sheet: sel.sheetId, address: scriptAddress(normalizeRange(sel.range)) } : null,
+      tables: wb.tableNames(),
     };
   }
 

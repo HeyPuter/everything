@@ -193,7 +193,7 @@
 
   /* ---------- The workbook mirror ---------- */
 
-  var book = { name: '', sheets: [], activeId: null, selection: null };
+  var book = { name: '', sheets: [], activeId: null, selection: null, tableNames: [] };
   var tokens = 0;
   function sheetEntry(id) {
     for (var i = 0; i < book.sheets.length; i++) if (book.sheets[i].id === id) return book.sheets[i];
@@ -371,6 +371,10 @@
       options = options || {};
       var name = options.name == null ? null : String(options.name);
       if (name != null && !/^[A-Za-z_\\][A-Za-z0-9_.]{0,254}$/.test(name)) fail('"' + name + '" cannot be a table name: use letters, digits, _ and ., starting with a letter.');
+      var taken = book.tableNames.map(function (t) { return t.toLowerCase(); });
+      if (name == null) { var n = 1; while (taken.indexOf('table' + n) >= 0) n++; name = 'Table' + n; }
+      else if (taken.indexOf(name.toLowerCase()) >= 0) fail('There is already a table named "' + name + '".');
+      book.tableNames.push(name);
       var token = 'table:' + (++tokens);
       write({ op: 'addTable', sheet: range._sheet, a: addressOf(range._b), token: token, name: name, hasHeaders: options.hasHeaders !== false, style: options.style == null ? null : String(options.style) });
       return new Table(range._sheet, name, token);
@@ -392,22 +396,24 @@
   Table.prototype = {
     getName: function () { return this._name; },
     getWorksheet: function () { return new Worksheet(this._sheet); },
-    ref: function () { return this._token && this._name == null ? { token: this._token } : { name: this._name, token: this._token }; },
+    _ref: function () { return this._token && this._name == null ? { token: this._token } : { name: this._name, token: this._token }; },
     setName: function (name) {
       if (!/^[A-Za-z_\\][A-Za-z0-9_.]{0,254}$/.test(String(name))) fail('"' + name + '" cannot be a table name.');
-      write({ op: 'renameTable', table: this.ref(), name: String(name) });
+      var was = this._name;
+      write({ op: 'renameTable', table: this._ref(), name: String(name) });
+      book.tableNames = book.tableNames.filter(function (t) { return t !== was; }).concat([String(name)]);
       this._name = String(name);
       return this;
     },
-    setStyle: function (style) { write({ op: 'tableStyle', table: this.ref(), style: String(style) }); return this; },
-    setShowTotals: function (on) { write({ op: 'tableTotals', table: this.ref(), on: bool(on, 'setShowTotals') }); return this; },
+    setStyle: function (style) { write({ op: 'tableStyle', table: this._ref(), style: String(style) }); return this; },
+    setShowTotals: function (on) { write({ op: 'tableTotals', table: this._ref(), on: bool(on, 'setShowTotals') }); return this; },
     /** The table's cells, header and totals included. */
     getRange: function () {
       var self = this;
-      return read({ op: 'tableRange', table: this.ref() }).then(function (t) { self._name = t.name; return new Range(t.sheet, parseAddress(t.address)); });
+      return read({ op: 'tableRange', table: this._ref() }).then(function (t) { self._name = t.name; return new Range(t.sheet, parseAddress(t.address)); });
     },
     /** Turn the table back into a plain range, keeping its cells. */
-    convertToRange: function () { write({ op: 'tableConvert', table: this.ref() }); },
+    convertToRange: function () { write({ op: 'tableConvert', table: this._ref() }); },
   };
 
   function Range(sheet, b) { this._sheet = sheet; this._b = b; }
@@ -633,6 +639,7 @@
       book.sheets = m.context.sheets || [];
       book.activeId = m.context.activeSheet;
       book.selection = m.context.selection || null;
+      book.tableNames = m.context.tables || [];
       if (typeof main !== 'function') { end(ScriptError('The script needs a function named main: async function main(workbook) { … }', 1)); return; }
       var result;
       try { result = main(new Workbook()); } catch (err) { end(err); return; }

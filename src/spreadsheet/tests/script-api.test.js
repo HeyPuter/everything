@@ -192,4 +192,20 @@ describe('script API', () => {
     expect(wb.sheetByName('Hidden').hidden).toBe(false);
     expect(wb.isHidden(sid(wb, 'Sheet1'), 'row', 1)).toBe(false);
   });
+
+  it('documents exactly the methods the runtime has', async () => {
+    const { SCRIPT_API } = await import('../src/core/script-api-docs.js');
+    const wb = book([['a', 'b'], ['1', '2']]);
+    const res = await run(wb, `async function main(workbook) {
+      const names = (o) => Object.keys(Object.getPrototypeOf(o) === Object.prototype ? o : Object.getPrototypeOf(o)).filter((k) => !k.startsWith('_')).sort();
+      const sheet = workbook.getActiveWorksheet();
+      const range = sheet.getRange('A1');
+      const table = sheet.addTable('A1:B2');
+      console.log(JSON.stringify({ Workbook: names(workbook), Worksheet: names(sheet), Range: names(range), Format: names(range.getFormat()),
+        Fill: names(range.getFormat().getFill()), Font: names(range.getFormat().getFont()), Table: names(table), console: names(console) }));
+    }`);
+    expect(res.error).toBe(null);
+    const actual = JSON.parse(res.logs[0].text);
+    for (const [owner, methods] of Object.entries(SCRIPT_API)) expect(actual[owner], owner).toEqual(methods.map(([name]) => name).sort());
+  });
 });

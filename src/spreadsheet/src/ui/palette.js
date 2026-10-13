@@ -3,6 +3,7 @@
  * (or Alt+/) opens it; typing filters, arrows move, Enter runs.
  */
 
+import { SAMPLE_SCRIPTS } from '../core/scripts.js';
 import { isComposing, el, MOD_KEY, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
 import { ariaKeyShortcuts } from './menu.js';
@@ -229,6 +230,12 @@ export function paletteCommands(flags = {}) {
     c('Replace formulas with values', 'Formula', 'number', 'toValues', null, { keywords: 'convert static results constants' }),
     flags.ai && c(flags.aiPanel ? 'Close the AI assistant' : 'Open the AI assistant', 'View', 'sparkle', 'aiPanel', null, { shortcut: `${M}+J`, keywords: 'chat copilot gemini ask analyze agent sidebar panel help' }),
     flags.ai && c('Write a formula with AI…', 'Formula', 'sparkle', 'aiFormula', null, { keywords: 'generate assistant' }),
+    c(flags.scriptsPane ? 'Close the Code Editor' : 'Open the Code Editor', 'Automate', 'codeEditor', 'scriptsPane', null, { keywords: 'script macro code automate javascript editor' }),
+    c('New script', 'Automate', 'newScript', 'newScript', null, { keywords: 'macro code automate javascript' }),
+    c(flags.recording ? 'Stop recording actions' : 'Record actions', 'Automate', 'recordActions', 'recordActions', null, { keywords: 'macro recorder automate script' }),
+    c('All scripts…', 'Automate', 'allScripts', 'scriptGallery', null, { keywords: 'gallery samples macros my scripts library' }),
+    c('Script reference', 'Automate', 'scriptReference', 'scriptReference', null, { keywords: 'api documentation help javascript' }),
+    ...SAMPLE_SCRIPTS.map((sample) => c(`Run sample script: ${sample.name}`, 'Automate', 'runScript', 'runScript', { sample: sample.id }, { keywords: `macro ${sample.description}` })),
     flags.ai && flags.hasFormula && c('Explain this formula (AI)…', 'Formula', 'sparkle', 'aiExplain', null, { keywords: 'assistant' }),
     flags.ai && c('Ask AI about this data…', 'Data', 'sparkle', 'aiAsk', null, { keywords: 'question summarize insights assistant analyze' }),
 

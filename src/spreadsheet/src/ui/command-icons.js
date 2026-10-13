@@ -436,6 +436,36 @@ Object.assign(COMMAND_ICONS, {
   resetStyle: r(3.5, 3.5, 11, 11, 'of', 1) + p('M7 7a4 4 0 1 1-1 4', 'b') + p('M5 6.5l1.5 1.5L8 6.5', 'b'),
 });
 
+/* ---- Automate: scripts, drawn as pages and windows of code in braces ---- */
+/** A pair of curly braces about (cx, cy), `h` tall and `w` apart. */
+const braces = (cx, cy, h = 6, w = 5, c = 'b') => {
+  const t = cy - h / 2, b = cy + h / 2, l = cx - w / 2, r = cx + w / 2;
+  return p(`M${l + 1} ${t}c-.8 0-1 .4-1 1v${h / 2 - 1.6}c0 .4-.3.6-.8.6.5 0 .8.2.8.6v${h / 2 - 1.6}c0 .6.2 1 1 1`
+    + `M${r - 1} ${t}c.8 0 1 .4 1 1v${h / 2 - 1.6}c0 .4.3.6.8.6-.5 0-.8.2-.8.6v${h / 2 - 1.6}c0 .6-.2 1-1 1`, `${c} thick`);
+};
+const scriptPage = (c = 'b') => page(3.5, 2.5, 13, 15, 3.5) + braces(10, 11.5, 7, 6, c);
+Object.assign(COMMAND_ICONS, {
+  recordActions: ci(10, 10, 7.5, 'of') + ci(10, 10, 4.2, 'rs') + ci(8.6, 8.6, 1.1, 'glint'),
+  stopScript: r(4.5, 4.5, 11, 11, 'rs', 2.2),
+  runScript: ci(10, 10, 7.5, 'gs') + p('M8.3 6.6v6.8l5.4-3.4z', 'wh thick') + p('M8.9 7.7v4.6l3.6-2.3z', 'glint'),
+  newScript: page(2.5, 2.5, 12.5, 15, 3.5) + braces(8.5, 11.5, 7, 5.5) + badge(15, 15, 'plus'),
+  scriptFile: scriptPage(),
+  scriptSample: scriptPage('n') + ci(14.5, 4.5, 2.6, 'knock') + p('M14.5 2.3l.6 1.5 1.6.1-1.2 1 .4 1.6-1.4-.9-1.4.9.4-1.6-1.2-1 1.6-.1z', 'ys'),
+  scriptLibrary: p('M2.5 5a1 1 0 0 1 1-1h4l1.6 1.8h7.4a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z', 'yf') + braces(10, 11.6, 6, 6),
+  codeEditor: r(2.5, 3, 15, 14, 'of', 1.6) + p('M2.5 6.2h15', 'o') + ci(4.6, 4.6, 0.55, 's') + ci(6.4, 4.6, 0.55, 's')
+    + p('M7.6 9.6 5.4 11.8l2.2 2.2M12.4 9.6l2.2 2.2-2.2 2.2', 'b thick') + p('M10.9 9.2 9.1 14.4', 'o'),
+  allScripts: r(2.5, 2.5, 6.5, 6.5, 'bf', 1.2) + r(11, 2.5, 6.5, 6.5, 'of', 1.2) + r(2.5, 11, 6.5, 6.5, 'of', 1.2) + r(11, 11, 6.5, 6.5, 'of', 1.2)
+    + braces(5.75, 5.75, 3.6, 3.4) + lines(12.6, 5, 3.4, 2, 1.8) + lines(4.1, 13.5, 3.4, 2, 1.8) + lines(12.6, 13.5, 3.4, 2, 1.8),
+  scriptReference: p('M10 5.2C8.4 4 6.2 3.5 3 3.8v11.6c3.2-.3 5.4.2 7 1.4 1.6-1.2 3.8-1.7 7-1.4V3.8c-3.2-.3-5.4.2-7 1.4z', 'of') + p('M10 5.2v11.6', 'o')
+    + p('M6.8 7.6c-.6 0-.8.3-.8.7v.9c0 .3-.2.5-.6.5.4 0 .6.2.6.5v.9c0 .4.2.7.8.7M13.2 7.6c.6 0 .8.3.8.7v.9c0 .3.2.5.6.5-.4 0-.6.2-.6.5v.9c0 .4-.2.7-.8.7', 'b'),
+  highlightDuplicates: cells(2.5, 3.5, 15, 13, 3, 4) + r(7.5, 6.75, 5, 3.25, 'ys') + r(2.5, 13.25, 5, 3.25, 'ys') + cells(2.5, 3.5, 15, 13, 3, 4, { frame: 'o' }),
+  unhideAll: p('M1.8 10S4.8 4.6 10 4.6 18.2 10 18.2 10 15.2 15.4 10 15.4 1.8 10 1.8 10z', 'of') + ci(10, 10, 3, 'bs') + ci(9, 9, 0.9, 'glint'),
+  sumColumns: cells(2.5, 2.5, 15, 10, 3, 3) + r(2.5, 13.5, 15, 4, 'gf', 1) + p('M5 14.6h3.4L6.6 15.5l1.8.9H5', 'g'),
+  tableOfContents: page(3.5, 2.5, 13, 15, 3.5) + ci(6.6, 7.6, 0.9, 'bs') + ci(6.6, 10.6, 0.9, 'bs') + ci(6.6, 13.6, 0.9, 'bs') + lines(8.6, 7.6, 5, 3, 3, 'b'),
+  headerRow: cells(2.5, 3.5, 15, 13, 3, 4, { head: 'bs' }) + p('M2.5 6.75h15', 'b thick'),
+  removeBlankRows: cells(2.5, 3.5, 13, 13, 2, 4) + r(2.5, 9.9, 13, 3.2, 'rw') + badge(15.5, 15, 'minus', 'r'),
+});
+
 /** The icons drawn here with a larger canvas in mind are the same drawings; the ribbon shows them at 32px. */
 export function commandIcon(name, size) {
   const body = COMMAND_ICONS[name];
