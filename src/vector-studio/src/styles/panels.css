@@ -181,11 +181,59 @@
   color: var(--text);
 }
 
+.props-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 .props-kind {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
   font-weight: 600;
+}
+
+.props-tool-options {
+  margin-right: 12px;
+}
+
+.props-tool-options[hidden] {
+  display: none;
+}
+
+.tool-settings {
+  display: grid;
+  gap: 6px;
+}
+
+.tool-settings .num-field {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) 96px;
+  gap: 8px;
+}
+
+.tool-range {
+  display: grid;
+  grid-template-columns: 70px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-range input {
+  width: 100%;
+  min-width: 0;
+}
+
+.tool-range output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-brush {
+  margin-top: 6px;
 }
 
 .prop-row {

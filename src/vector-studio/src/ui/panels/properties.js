@@ -66,13 +66,17 @@ export class PropertiesPanel extends Panel {
   static placement = 'dock';
   /**
    * Extra sections: [{ id, title, when(editor) => bool, build(app) => { el, refresh() }, noSelection }]
-   * `noSelection: true` lets a section show without a selection (e.g. tool controls).
+   * `noSelection: true` lets a section show without a selection (e.g. tool controls);
+   * `toolSection: true` marks drawing-tool settings: while one shows, the panel
+   * shows the appearance new artwork gets and a Tool Options button instead
+   * of the document settings.
    */
   static extraSections = [];
 
   build() {
     const app = this.app;
     this.header = h('p.props-kind');
+    this.toolOptions = h('button.btn.small.props-tool-options', { type: 'button', hidden: true, onclick: () => app.tool?.openOptions?.() }, 'Tool Options');
     this.transform = createTransformSection(app);
     this.sections = {};
 
@@ -190,7 +194,7 @@ export class PropertiesPanel extends Panel {
     this.quickSection = section('Quick Actions', this.quick);
 
     this.empty = h('p.panel-empty', 'Open or create a document to see its properties.');
-    this.el.append(this.empty, this.header, this.docSection, section('Transform', this.transform.el), this.shapeSection, this.appearance, ...this.extra.map((e) => e.sec), this.alignSection, this.quickSection);
+    this.el.append(this.empty, h('div.props-head', this.header, this.toolOptions), this.docSection, section('Transform', this.transform.el), this.shapeSection, this.appearance, ...this.extra.map((e) => e.sec), this.alignSection, this.quickSection);
     this.transformSection = this.transform.el.parentElement;
   }
 
@@ -202,12 +206,15 @@ export class PropertiesPanel extends Panel {
     if (!ed) return;
     const hasSel = ed.selection.size > 0;
     this.header.textContent = selectionKind(ed);
-    this.docSection.hidden = hasSel;
+    // A drawing tool with settings here: show what new artwork looks like instead of the document.
+    const toolMode = !hasSel && this.extra.some((e) => e.def.toolSection && e.def.when(ed));
+    this.toolOptions.hidden = !toolMode;
+    this.docSection.hidden = hasSel || toolMode;
     this.transformSection.hidden = !hasSel;
     this.alignSection.hidden = !hasSel;
     this.quickSection.hidden = !hasSel;
-    this.appearance.hidden = !hasSel;
-    if (!hasSel) {
+    this.appearance.hidden = !hasSel && !toolMode;
+    if (!hasSel && !toolMode) {
       this.unitSel.set(ed.doc.root.units);
       const boards = ed.doc.artboards;
       this.boardSel.replaceChildren(...boards.map((a, i) => h('option', { value: i, selected: i === ed.activeArtboard }, `${i + 1} ${a.name}`)));
