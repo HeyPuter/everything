@@ -134,7 +134,7 @@ export async function convertToFrames(e: Editor) {
       { name: 'range', label: 'Range', type: 'select', value: tl.work ? 'work' : 'all', options: [['all', `Whole timeline (${timecode(tl.duration, tl.fps)})`], ['work', `Work area (${timecode(we - ws, tl.fps)})`]] },
     ],
     'Convert',
-    'Each frame shows the timeline at its time. Video layers become one layer per frame.',
+    `Each frame shows the timeline at its time. Video layers become one layer per frame.${tl.audio?.some((t) => t.clips.length) ? ' Frame animations have no sound: the audio tracks are removed.' : ''}`,
   );
   if (!v) return;
   const rate = Math.max(1, Math.min(tl.fps, Number(v.fps) || 10));
