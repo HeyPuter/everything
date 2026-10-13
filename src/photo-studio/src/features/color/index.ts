@@ -5,6 +5,7 @@
 import type { Editor } from '../../editor';
 import { registerCommand, registerOverlay, type Command } from '../../app/registry';
 import type { ColorMode } from '../../model/document';
+import { installSwatchLibraries } from './swatches';
 
 type Mod = typeof import('./lazy');
 let mod: Mod | undefined;
@@ -120,7 +121,7 @@ export function installColor(e: Editor) {
   cmd('file.export-mode-png', 'Export PNG in Image Mode', (m, e) => m.exportModePng(e), { enabled: (e) => e.hasDocument && ['grayscale', 'bitmap', 'indexed'].includes(e.doc.mode ?? ''), menu: 'file.export', recordable: false });
 
   // Swatch libraries register synchronously so the panel menu lists them.
-  void import('./swatches').then((m) => m.installSwatchLibraries());
+  installSwatchLibraries();
 
   registerOverlay('color.gamut-warning', (e) => (mod ? mod.gamutOverlaySvg(e) : ''));
   e.tabBadges.push((s) => (mod ? mod.proofBadge(s) : ''));
