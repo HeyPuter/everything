@@ -777,8 +777,7 @@ export class BlobBrushTool extends RoundBrushTool {
         if (!built) return;
         if (merged.length) id = replaceWith(doc, merged, [built], insertionPoint(doc, merged))[0];
         else {
-          doc.insert(built.node, layer.id, Infinity, built.descendants);
-          id = built.node.id;
+          id = editor.insertDrawn(built.node, built.descendants);
         }
       });
       if (id) editor.select([id]);

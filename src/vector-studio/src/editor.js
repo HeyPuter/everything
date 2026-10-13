@@ -339,6 +339,24 @@ export class Editor extends Emitter {
     return layer;
   }
 
+  /**
+   * Where drawing tools put new artwork: { parentId, index } (index counts
+   * back to front). Drawing modes (behind, inside) redirect it through
+   * `drawTargetHook`, which may also build a container inside the open
+   * transaction.
+   */
+  drawTarget() {
+    const base = { parentId: this.targetLayer().id, index: Infinity };
+    return this.drawTargetHook?.(this, base) || base;
+  }
+
+  /** Insert newly drawn artwork (and its built descendants) at the draw target. */
+  insertDrawn(node, descendants = []) {
+    const t = this.drawTarget();
+    this.doc.insert(node, t.parentId, t.index, descendants);
+    return node.id;
+  }
+
   canDrawInTarget() {
     const t = this.targetLayer();
     return t && !this.doc.isLocked(t.id) && !this.doc.isHidden(t.id);

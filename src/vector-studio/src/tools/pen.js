@@ -215,7 +215,7 @@ export class PenTool extends Tool {
       y = snap.y;
       const tx = doc.begin('Pen');
       const node = createPath([anchor(x, y)], false, newPathStyle(editor));
-      doc.insert(node, editor.targetLayer().id);
+      editor.insertDrawn(node);
       this.pathId = node.id;
       editor.selectAnchors(node.id, [0]);
       this.drag = { tx, index: 0, x0: x, y0: y };
@@ -577,7 +577,7 @@ export class CurvatureTool extends Tool {
       if (!editor.canDrawInTarget()) return;
       const tx = doc.begin('Curvature');
       const node = createPath([anchor(e.x, e.y)], false, newPathStyle(editor));
-      doc.insert(node, editor.targetLayer().id);
+      editor.insertDrawn(node);
       this.pathId = node.id;
       this.corners = [e.alt];
       editor.selectAnchors(this.pathId, [0]);

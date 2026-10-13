@@ -178,3 +178,16 @@ describe('Star tool modifiers', () => {
     t.onPointerUp(ev(app, 300, 100, { alt: true }));
   });
 });
+
+describe('shape keys over command shortcuts', () => {
+  it('F flips the arc base while dragging instead of changing the screen mode', () => {
+    app.setTool('arc');
+    dragTo(100, 100, 200, 200);
+    const before = app.prefs.get('screenMode');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', bubbles: true }));
+    expect(app.tool.options.base).toBe('y');
+    expect(app.prefs.get('screenMode')).toBe(before);
+    expect(app.root.className).not.toMatch(/screen-full/);
+    app.tool.onPointerUp(ev(app, 200, 200));
+  });
+});

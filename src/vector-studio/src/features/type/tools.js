@@ -138,7 +138,6 @@ export class TypeTool extends Tool {
     let text = '';
     if (placeholder) text = node.kind === 'point' ? 'Lorem ipsum' : fillPlaceholder(node);
     const n = { ...node, text };
-    const layer = editor.targetLayer();
     editor.doc.transact(node.kind === 'area' ? 'Area Type' : node.kind === 'path' ? 'Type on a Path' : 'Type', () => {
       const old = replaceId ? editor.doc.get(replaceId) : null;
       if (old) {
@@ -146,7 +145,7 @@ export class TypeTool extends Tool {
         const parent = editor.doc.get(old.parent);
         editor.doc.insert(n, parent.id, parent.children.indexOf(old.id) + 1);
         editor.doc.remove(old.id);
-      } else editor.doc.insert(n, layer.id);
+      } else editor.insertDrawn(n);
     });
     const s = this.editText(n.id, null);
     if (s) {

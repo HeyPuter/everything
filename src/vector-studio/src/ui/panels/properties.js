@@ -325,6 +325,26 @@ function buildShapeFields(panel, ed, id, shape) {
   const fields = [];
   const extras = [];
   const k = shape.kind;
+  // Polygons and stars round every corner alike (live corners on their anchors).
+  const cornerField = () => {
+    const f = numberField({
+      label: 'Corner radius',
+      icon: 'square-dashed',
+      value: 0,
+      unit,
+      min: 0,
+      onCommit: (v, o) => {
+        const cur = doc.get(id);
+        if (!cur) return;
+        const anchors = cur.anchors.map((a) => {
+          const { corner, ...rest } = a;
+          return v > 0 ? { ...rest, corner: { r: v, type: corner?.type || 'round' } } : rest;
+        });
+        doc.transact('Round Corners', () => doc.update(id, { anchors }), { coalesce: o?.live ? `corners-${id}` : null });
+      },
+    });
+    return { el: f.el, refresh: () => f.set(doc.get(id)?.anchors[0]?.corner?.r || 0) };
+  };
   if (k === 'rect' || k === 'ellipse') {
     fields.push(len('W', (s) => s.w, (v) => ({ w: Math.max(0.01, v) }), { ariaLabel: 'Shape width' }));
     fields.push(len('H', (s) => s.h, (v) => ({ h: Math.max(0.01, v) }), { ariaLabel: 'Shape height' }));
@@ -361,10 +381,12 @@ function buildShapeFields(panel, ed, id, shape) {
     fields.push(len('Radius', (s) => s.r, (v) => ({ r: v })));
     fields.push(len('Side length', (s) => 2 * s.r * Math.sin(Math.PI / s.sides), (v, s) => ({ r: v / (2 * Math.sin(Math.PI / s.sides)) })));
     fields.push(ang('Angle', (s) => -(s.angle || 0), (v) => ({ angle: -v })));
+    fields.push(cornerField());
   } else if (k === 'star') {
     fields.push(num('Points', (s) => s.points, (v) => ({ points: Math.max(3, Math.min(1000, Math.round(v))) }), { min: 3, max: 1000 }));
     fields.push(len('Radius 1', (s) => s.r1, (v) => ({ r1: v })));
     fields.push(len('Radius 2', (s) => s.r2, (v) => ({ r2: v })));
+    fields.push(cornerField());
   } else if (k === 'line') {
     const angleOf = (s) => (-Math.atan2(s.y2 - s.y1, s.x2 - s.x1) * 180) / Math.PI;
     fields.push(len('Length', (s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1), (v, s) => {

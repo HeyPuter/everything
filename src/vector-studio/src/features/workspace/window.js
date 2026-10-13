@@ -23,7 +23,7 @@ export const BASIC_TOOLS = [
   'type', 'area-type', 'type-on-path',
   'rotate', 'reflect', 'scale', 'width', 'free-transform', 'shape-builder',
   'gradient', 'eyedropper', 'blend',
-  'artboard', 'hand', 'zoom',
+  'artboard', 'hand', 'rotate-view', 'zoom',
 ];
 
 export function toolSet(app) {

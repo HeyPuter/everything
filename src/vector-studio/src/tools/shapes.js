@@ -94,10 +94,8 @@ class DragShapeTool extends Tool {
 
   /** Insert a new shape (and descendants) in the target layer, through the drawing plane if any. Returns the id to select. */
   place(doc, node, descendants, plane) {
-    const layer = this.editor.targetLayer().id;
-    if (plane) return plane.insert(doc, node, layer, descendants);
-    doc.insert(node, layer, Infinity, descendants);
-    return node.id;
+    if (plane) return plane.insert(doc, node, this.editor.targetLayer().id, descendants);
+    return this.editor.insertDrawn(node, descendants);
   }
 
   onPointerMove(e) {
@@ -219,6 +217,11 @@ class DragShapeTool extends Tool {
 
   arrow() {
     return false;
+  }
+
+  /** While a shape is being dragged its keys (F, X, C, R, ...) come before command shortcuts. */
+  claimsKey() {
+    return Boolean(this.drag?.moved);
   }
 
   cancel() {
