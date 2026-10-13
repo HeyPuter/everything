@@ -127,37 +127,144 @@ function makeDraggable(dialog, handle) {
   });
 }
 
+const NUMERIC = ['length', 'number', 'angle', 'percent'];
+
+/** Text shown in a numeric field for a value. */
+function showValue(f, v, unit) {
+  if (f.type === 'length') return formatLength(v ?? 0, unit);
+  if (f.type === 'angle') return `${Number((v ?? 0).toFixed(3))}°`;
+  if (f.type === 'percent') return `${Number((v ?? 0).toFixed(3))}%`;
+  return v ?? '';
+}
+
+const REF_POINTS = [
+  [0, 0, 'Top left'],
+  [0.5, 0, 'Top center'],
+  [1, 0, 'Top right'],
+  [0, 0.5, 'Middle left'],
+  [0.5, 0.5, 'Center'],
+  [1, 0.5, 'Middle right'],
+  [0, 1, 'Bottom left'],
+  [0.5, 1, 'Bottom center'],
+  [1, 1, 'Bottom right'],
+];
+
+/**
+ * A 3x3 reference point picker (a radio group). `value` is { x, y } with
+ * coordinates 0, 0.5 or 1 in the object's bounding box.
+ */
+export function refPointPicker({ value = { x: 0.5, y: 0.5 }, label = 'Reference point', onChange } = {}) {
+  let cur = { ...value };
+  const cells = REF_POINTS.map(([x, y, name]) =>
+    h('button.refpoint-cell', { type: 'button', role: 'radio', 'aria-label': name, 'data-tip': name, dataset: { x: String(x), y: String(y) } }),
+  );
+  const el = h('div.refpoint', { role: 'radiogroup', 'aria-label': label }, cells);
+  const sync = () => {
+    for (const c of cells) {
+      const on = Number(c.dataset.x) === cur.x && Number(c.dataset.y) === cur.y;
+      c.setAttribute('aria-checked', String(on));
+      c.tabIndex = on ? 0 : -1;
+    }
+  };
+  const set = (v, notify = true) => {
+    cur = { x: v.x, y: v.y };
+    sync();
+    if (notify) {
+      onChange?.(cur);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  cells.forEach((c, i) => {
+    c.addEventListener('click', () => set({ x: Number(c.dataset.x), y: Number(c.dataset.y) }));
+    c.addEventListener('keydown', (e) => {
+      const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -3, ArrowDown: 3 }[e.key];
+      if (d == null) return;
+      e.preventDefault();
+      const j = i + d;
+      if (j < 0 || j > 8 || (Math.abs(d) === 1 && Math.floor(j / 3) !== Math.floor(i / 3))) return;
+      cells[j].click();
+      cells[j].focus();
+    });
+  });
+  sync();
+  return { el, get: () => ({ ...cur }), set };
+}
+
 /**
  * A form dialog. Field types: number, length (document units, stored in
- * points), angle (degrees), percent, text, checkbox, select, range, color,
- * radio. Returns an object of values, or null when cancelled.
+ * points), angle (degrees), percent, text, textarea, checkbox, select, range,
+ * color, radio, refpoint (3x3 reference point, { x, y }), heading. Returns
+ * an object of values, or null when cancelled.
+ *
+ * Field options:
+ *   slider: [min, max]       a slider next to a numeric field
+ *   disabled(values)         greys the field out (re-evaluated on every edit)
+ *   onInput(value, form)     runs when the user edits this field; `form.get(key)`
+ *                            and `form.set(key, value)` keep linked fields in step
+ *   inline: true             shares a line with the previous checkbox/radio
  * `onChange(values)` runs on every edit (for live previews).
  */
-export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = [], onChange, description, previewToggle = false }) {
+export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = [], onChange, description, previewToggle = false, className = '' }) {
   fields = dialogHooks.fields?.(title, fields) || fields;
   const unit = app?.editor?.doc.root.units || 'pt';
   const inputs = new Map();
+  const rowsByKey = new Map();
+  const sliders = new Map();
   let fid = 0;
+  const readOne = (f) => {
+    const el = inputs.get(f.key);
+    if (!el) return undefined;
+    if (f.type === 'checkbox') return el.checked;
+    if (f.type === 'length') return parseLength(el.value, unit);
+    if (NUMERIC.includes(f.type)) return parseNumber(el.value);
+    if (f.type === 'range') return Number(el.value);
+    if (f.type === 'radio') return el.querySelector('input:checked')?.value;
+    if (f.type === 'refpoint') return el._picker.get();
+    return el.value;
+  };
   const read = () => {
     const out = {};
     for (const f of fields) {
-      if (f.type === 'heading') continue;
-      const el = inputs.get(f.key);
-      if (!el) continue;
-      if (f.type === 'checkbox') out[f.key] = el.checked;
-      else if (f.type === 'length') out[f.key] = parseLength(el.value, unit);
-      else if (f.type === 'number' || f.type === 'angle' || f.type === 'percent') out[f.key] = parseNumber(el.value);
-      else if (f.type === 'range') out[f.key] = Number(el.value);
-      else if (f.type === 'radio') out[f.key] = el.querySelector('input:checked')?.value;
-      else out[f.key] = el.value;
+      if (f.type === 'heading' || !inputs.has(f.key)) continue;
+      out[f.key] = readOne(f);
     }
     return out;
+  };
+  const writeOne = (key, v) => {
+    const f = fields.find((x) => x.key === key);
+    const el = inputs.get(key);
+    if (!f || !el) return;
+    if (f.type === 'checkbox') el.checked = Boolean(v);
+    else if (f.type === 'radio') {
+      const r = el.querySelector(`input[value="${CSS.escape(String(v))}"]`);
+      if (r) r.checked = true;
+    } else if (f.type === 'refpoint') el._picker.set(v, false);
+    else if (NUMERIC.includes(f.type)) el.value = showValue(f, v, unit);
+    else el.value = v;
+    syncSlider(f);
+  };
+  const form = { get: (key) => readOne(fields.find((x) => x.key === key) || {}), set: writeOne, values: read };
+  const syncSlider = (f) => {
+    const s = sliders.get(f.key);
+    if (!s) return;
+    const v = readOne(f);
+    if (Number.isFinite(v)) s.value = String(f.type === 'length' ? v / (UNITS[unit]?.factor || 1) : v);
+  };
+  const syncDisabled = () => {
+    const v = read();
+    for (const f of fields) {
+      if (!f.disabled || !rowsByKey.has(f.key)) continue;
+      const off = Boolean(f.disabled(v));
+      const row = rowsByKey.get(f.key);
+      row.classList.toggle('disabled', off);
+      for (const el of row.querySelectorAll('input, select, textarea, button')) el.disabled = off;
+    }
   };
   const valid = () => {
     const v = read();
     for (const f of fields) {
       const val = v[f.key];
-      if (['length', 'number', 'angle', 'percent'].includes(f.type)) {
+      if (NUMERIC.includes(f.type) && !inputs.get(f.key)?.disabled) {
         if (!Number.isFinite(val)) return { ok: false, field: f };
         if (f.min != null && val < f.min) return { ok: false, field: f };
         if (f.max != null && val > f.max) return { ok: false, field: f };
@@ -165,14 +272,25 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
     }
     return { ok: true };
   };
-  const rows = fields.map((f) => {
-    if (f.type === 'heading') return h('h3.form-heading', f.label);
+  const rows = [];
+  for (const f of fields) {
+    if (f.type === 'heading') {
+      rows.push(h('h3.form-heading', f.label));
+      continue;
+    }
     const id = `f-${counter}-${++fid}`;
     let input;
+    let row;
     if (f.type === 'checkbox') {
       input = h('input', { type: 'checkbox', id, checked: Boolean(f.value) });
       inputs.set(f.key, input);
-      return h('div.form-row.check', input, h('label', { for: id }, f.label));
+      row = h('div.form-row.check', input, h('label', { for: id }, f.label));
+      const prev = rows[rows.length - 1];
+      if (f.inline && prev?.classList.contains('form-inline')) prev.append(row);
+      else if (f.inline && prev?.classList.contains('check')) rows[rows.length - 1] = h('div.form-inline', prev, row);
+      else rows.push(row);
+      rowsByKey.set(f.key, row);
+      continue;
     }
     if (f.type === 'select') {
       input = h('select', { id }, f.options.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
@@ -183,31 +301,42 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
         f.options.map((o, i) => h('label.radio', h('input', { type: 'radio', name: id, value: o.value, checked: o.value === f.value || (!f.value && i === 0) }), o.label)),
       );
       inputs.set(f.key, input);
-      return h('div.form-row', h('span.form-label', { id: `${id}-l` }, f.label), input);
+      row = h('div.form-row', h('span.form-label', { id: `${id}-l` }, f.label), input);
+      rowsByKey.set(f.key, row);
+      rows.push(row);
+      continue;
+    } else if (f.type === 'refpoint') {
+      const picker = refPointPicker({ value: f.value, label: f.label });
+      input = picker.el;
+      input._picker = picker;
+      inputs.set(f.key, input);
+      row = h('div.form-row', h('span.form-label', f.label), input);
+      rowsByKey.set(f.key, row);
+      rows.push(row);
+      continue;
     } else if (f.type === 'range') {
       const out = h('output.range-out', { for: id }, String(f.value));
       input = h('input', { type: 'range', id, min: f.min ?? 0, max: f.max ?? 100, step: f.step ?? 1, value: f.value, oninput: () => (out.textContent = input.value) });
       inputs.set(f.key, input);
-      return h('div.form-row', h('label', { for: id }, f.label), h('div.range-wrap', input, out));
+      row = h('div.form-row', h('label', { for: id }, f.label), h('div.range-wrap', input, out));
+      rowsByKey.set(f.key, row);
+      rows.push(row);
+      continue;
     } else if (f.type === 'color') {
       input = h('input', { type: 'color', id, value: f.value || '#000000' });
     } else if (f.type === 'textarea') {
       input = h('textarea', { id, rows: f.rows || 4 }, f.value ?? '');
     } else {
-      let shown = f.value ?? '';
-      if (f.type === 'length') shown = formatLength(f.value ?? 0, unit);
-      if (f.type === 'angle') shown = `${Number((f.value ?? 0).toFixed(3))}°`;
-      if (f.type === 'percent') shown = `${Number((f.value ?? 0).toFixed(3))}%`;
       input = h('input', {
         type: 'text',
         id,
-        value: shown,
-        inputmode: ['length', 'number', 'angle', 'percent'].includes(f.type) ? 'decimal' : undefined,
+        value: NUMERIC.includes(f.type) ? showValue(f, f.value, unit) : (f.value ?? ''),
+        inputmode: NUMERIC.includes(f.type) ? 'decimal' : undefined,
         spellcheck: false,
         autocomplete: 'off',
         'aria-describedby': f.help ? `${id}-help` : undefined,
       });
-      if (['length', 'number', 'angle', 'percent'].includes(f.type)) {
+      if (NUMERIC.includes(f.type)) {
         // Arrow keys step the value (Shift for 10x).
         input.addEventListener('keydown', (e) => {
           if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -227,20 +356,49 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
         });
         input.addEventListener('blur', () => {
           const v = f.type === 'length' ? parseLength(input.value, unit) : parseNumber(input.value);
-          if (!Number.isFinite(v)) return;
-          if (f.type === 'length') input.value = formatLength(v, unit);
-          else if (f.type === 'angle') input.value = `${Number(v.toFixed(3))}°`;
-          else if (f.type === 'percent') input.value = `${Number(v.toFixed(3))}%`;
+          if (Number.isFinite(v)) input.value = showValue(f, v, unit);
         });
       }
     }
     inputs.set(f.key, input);
-    return h('div.form-row', h('label', { for: id }, f.label), input, f.help ? h('p.form-help', { id: `${id}-help` }, f.help) : null);
-  });
+    let control = input;
+    if (f.slider && NUMERIC.includes(f.type)) {
+      const factor = f.type === 'length' ? UNITS[unit]?.factor || 1 : 1;
+      const s = h('input', { type: 'range', min: f.slider[0], max: f.slider[1], step: f.sliderStep ?? 'any', 'aria-label': `${f.label} slider`, tabindex: '-1' });
+      sliders.set(f.key, s);
+      s.addEventListener('input', () => {
+        const v = Number(s.value) * factor;
+        input.value = showValue(f, Number(v.toFixed(4)), unit);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      input.addEventListener('input', () => syncSlider(f));
+      control = h('div.range-wrap.slider-field', s, input);
+    }
+    row = h('div.form-row', h('label', { for: id }, f.label), control, f.help ? h('p.form-help', { id: `${id}-help` }, f.help) : null);
+    rowsByKey.set(f.key, row);
+    rows.push(row);
+  }
+  for (const f of fields) if (f.slider) syncSlider(f);
   const error = h('p.form-error', { role: 'alert' });
   const body = h('div.form', description ? h('p.form-description', description) : null, rows, error);
+  // Linked fields: a field's own hook runs before previews read the values.
+  const fieldOf = (target) => fields.find((f) => {
+    const el = inputs.get(f.key);
+    return el && (el === target || el.contains?.(target));
+  });
+  const onEdit = (e) => {
+    const f = fieldOf(e.target);
+    if (f?.onInput) {
+      const v = readOne(f);
+      if (!NUMERIC.includes(f.type) || Number.isFinite(v)) f.onInput(v, form);
+    }
+    syncDisabled();
+  };
+  body.addEventListener('input', onEdit);
+  body.addEventListener('change', onEdit);
   if (onChange) body.addEventListener('input', () => valid().ok && onChange(read()));
   if (onChange) body.addEventListener('change', () => valid().ok && onChange(read()));
+  syncDisabled();
   const validate = () => {
     const r = valid();
     if (!r.ok) {
@@ -254,6 +412,7 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
   return openDialog({
     title,
     body,
+    className,
     buttons: [
       ...extraButtons.map((b) => ({ ...b, value: () => ({ ...read(), __action: b.action }), validate })),
       { label: 'Cancel', value: null },

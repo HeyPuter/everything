@@ -72,6 +72,7 @@ export function drawSliceOverlay(ctx, editor) {
     }
     ctx.setLineDash([]);
     // Number tag in the top-left corner.
+    if (editor.prefs?.get('showSliceNumbers') === false) continue;
     const tag = String(row.number).padStart(2, '0') + (row.kind === 'object' ? ' ◆' : '');
     const tw = ctx.measureText(tag).width + 8;
     const p = pts[0];

@@ -40,14 +40,14 @@ export const PRESETS = {
     { name: 'Story', width: 1080, height: 1920, units: 'px' },
   ],
   print: [
-    { name: 'Letter', width: 612, height: 792, units: 'in' },
-    { name: 'Legal', width: 612, height: 1008, units: 'in' },
-    { name: 'Tabloid', width: 792, height: 1224, units: 'in' },
-    { name: 'A5', width: mm(148), height: mm(210), units: 'mm' },
-    { name: 'A4', width: mm(210), height: mm(297), units: 'mm' },
-    { name: 'A3', width: mm(297), height: mm(420), units: 'mm' },
-    { name: 'Business Card', width: inch(3.5), height: inch(2), units: 'in', bleed: inch(0.125) },
-    { name: 'Postcard', width: inch(6), height: inch(4), units: 'in', bleed: inch(0.125) },
+    { name: 'Letter', width: 612, height: 792, units: 'in', colorMode: 'CMYK' },
+    { name: 'Legal', width: 612, height: 1008, units: 'in', colorMode: 'CMYK' },
+    { name: 'Tabloid', width: 792, height: 1224, units: 'in', colorMode: 'CMYK' },
+    { name: 'A5', width: mm(148), height: mm(210), units: 'mm', colorMode: 'CMYK' },
+    { name: 'A4', width: mm(210), height: mm(297), units: 'mm', colorMode: 'CMYK' },
+    { name: 'A3', width: mm(297), height: mm(420), units: 'mm', colorMode: 'CMYK' },
+    { name: 'Business Card', width: inch(3.5), height: inch(2), units: 'in', bleed: inch(0.125), colorMode: 'CMYK' },
+    { name: 'Postcard', width: inch(6), height: inch(4), units: 'in', bleed: inch(0.125), colorMode: 'CMYK' },
   ],
   film: [
     { name: 'HD 720p', width: 1280, height: 720, units: 'px' },
@@ -82,6 +82,37 @@ export const RASTER_OPTIONS = [
   { value: 150, label: 'Medium (150 ppi)' },
   { value: 300, label: 'High (300 ppi)' },
 ];
+
+export const COLOR_MODE_OPTIONS = [
+  { value: 'RGB', label: 'RGB Color' },
+  { value: 'CMYK', label: 'CMYK Color' },
+];
+
+/** How several artboards are laid out in a new document. */
+export const LAYOUT_OPTIONS = [
+  { value: 'gridRow', label: 'Grid by Row' },
+  { value: 'gridCol', label: 'Grid by Column' },
+  { value: 'row', label: 'Arrange by Row' },
+  { value: 'col', label: 'Arrange by Column' },
+];
+
+/**
+ * Positions { x, y } of `n` artboards of size w x h: rows of `columns` (or
+ * columns of `columns` when filling by column), one row, or one column;
+ * `rtl` starts on the right.
+ */
+export function artboardPositions(n, w, h, { layout = 'gridRow', spacing = 20, columns = 0, rtl = false } = {}) {
+  const per = columns > 0 ? Math.round(columns) : Math.max(1, Math.ceil(Math.sqrt(n)));
+  const cells = [];
+  for (let i = 0; i < n; i++) {
+    if (layout === 'row') cells.push([i, 0]);
+    else if (layout === 'col') cells.push([0, i]);
+    else if (layout === 'gridCol') cells.push([Math.floor(i / per), i % per]);
+    else cells.push([i % per, Math.floor(i / per)]);
+  }
+  const maxCol = Math.max(0, ...cells.map((c) => c[0]));
+  return cells.map(([c, r]) => ({ x: (rtl ? maxCol - c : c) * (w + spacing), y: r * (h + spacing) }));
+}
 
 export const PREVIEW_OPTIONS = [
   { value: 'default', label: 'Default' },
@@ -132,10 +163,19 @@ export function parsePresetForm(raw) {
   const ppi = Number(raw.rasterResolution ?? 72);
   const rasterResolution = Number.isFinite(ppi) && ppi >= 72 && ppi <= 2400 ? ppi : 72;
   const previewMode = raw.previewMode === 'pixel' ? 'pixel' : 'default';
-  return {
-    ok: true,
-    value: { name, width, height, units, artboards, bleed, colorMode: 'RGB', rasterResolution, previewMode },
-  };
+  const colorMode = raw.colorMode === 'CMYK' ? 'CMYK' : 'RGB';
+  const value = { name, width, height, units, artboards, bleed, colorMode, rasterResolution, previewMode };
+  if (artboards > 1) {
+    const spacing = raw.spacing === '' || raw.spacing == null ? 20 : len(raw.spacing);
+    if (!Number.isFinite(spacing) || spacing < 0 || spacing > LIMITS.maxSize) return fail('spacing', `Spacing must be between 0 and ${LIMITS.maxSize} pt.`);
+    const columns = raw.columns === '' || raw.columns == null ? 0 : parseNumber(String(raw.columns));
+    if (!Number.isInteger(columns) || columns < 0 || columns > LIMITS.maxArtboards) return fail('columns', 'Enter a whole number of columns (0 picks one).');
+    value.layout = LAYOUT_OPTIONS.some((o) => o.value === raw.layout) ? raw.layout : 'gridRow';
+    value.spacing = spacing;
+    value.columns = columns;
+    value.rtl = Boolean(raw.rtl);
+  }
+  return { ok: true, value };
 }
 
 /** Orientation of a size. Squares count as portrait. */

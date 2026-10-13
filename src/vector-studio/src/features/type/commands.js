@@ -28,7 +28,7 @@ export function setFontFamily(app, family) {
 function stepSize(app, dir, mult) {
   const cur = currentCharStyle(app);
   const size = cur?.fontSize === MIXED || cur?.fontSize == null ? 12 : cur.fontSize;
-  applyCharStyle(app, { fontSize: Math.max(0.1, Math.min(1296, size + dir * 2 * mult)) }, { label: 'Font Size', coalesce: 'type-size' });
+  applyCharStyle(app, { fontSize: Math.max(0.1, Math.min(1296, size + dir * (app.prefs.get('typeSizeIncrement') || 2) * mult)) }, { label: 'Font Size', coalesce: 'type-size' });
 }
 
 /** Point type -> area type with the same lines. */

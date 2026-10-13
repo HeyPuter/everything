@@ -374,16 +374,24 @@ function transformSub(s, m) {
  * before (copies become extra outlines). Random draws each step's amounts
  * between none and the full values.
  */
-export function transformEffect(subs, fx, b) {
+export function transformEffect(subs, fx, b, strokeWidth = 0) {
   const copies = Math.max(0, Math.min(1000, Math.round(fx.copies || 0)));
   const seed = fx.seed | 0;
   const step = (n) => (fx.random ? transformStep(fx, b, [0, 1, 2, 3, 4].map((j) => (noise(seed, n, j) + 1) / 2)) : transformStep(fx, b));
-  if (!copies) return subs.map((s) => transformSub(s, step(0)));
+  // Scale Strokes & Effects: each transformed outline's stroke follows its scale.
+  const sub = (s, m) => {
+    const t = transformSub(s, m);
+    if (!fx.scaleStrokes) return t;
+    const w = s.paint?.strokeWidth ?? strokeWidth;
+    if (!(w > 0)) return t;
+    return { ...t, paint: { ...s.paint, strokeWidth: w * Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) } };
+  };
+  if (!copies) return subs.map((s) => sub(s, step(0)));
   const out = [...subs];
   let m = [1, 0, 0, 1, 0, 0];
   for (let n = 1; n <= copies; n++) {
     m = multiply(step(n), m);
-    for (const s of subs) out.push(transformSub(s, m));
+    for (const s of subs) out.push(sub(s, m));
   }
   return out;
 }

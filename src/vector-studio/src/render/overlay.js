@@ -211,7 +211,9 @@ function drawPathAnchors(ctx, editor, node, color, mode, batch = null) {
   if (mode === 'direct') {
     // Handles of selected anchors and of the neighbors on segments touching them.
     const show = new Set();
-    for (const i of sel) {
+    // Several selected anchors show their handles only when Preferences say so.
+    const handles = sel.size <= 1 || editor.prefs?.get('showMultiHandles') !== false;
+    for (const i of handles ? sel : []) {
       show.add(i);
       if (partial) {
         show.add(i - 1 >= 0 ? i - 1 : node.closed ? n - 1 : -1);
@@ -342,7 +344,7 @@ function labelBitmap(text, weight, color, dpr) {
 
 function drawArtboardLabels(ctx, editor, colors) {
   const { view, doc } = editor;
-  if (!editor.viewOptions.artboards || view.rotation) return;
+  if (!editor.viewOptions.artboards || view.rotation || editor.prefs?.get('showArtboardNames') === false) return;
   const dpr = view.dpr || 1;
   doc.artboards.forEach((a, i) => {
     const p = view.toScreen(a.x, a.y);

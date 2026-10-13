@@ -340,10 +340,10 @@ describe('type with geometry effects', () => {
 describe('rasterizing', () => {
   it('keeps document raster settings and the effects that follow them in step', async () => {
     const { doc, id } = await setup();
-    expect(docRasterSettings(doc)).toEqual({ resolution: 72, background: 'transparent', antialias: true, padding: 0 });
+    expect(docRasterSettings(doc)).toEqual({ colorModel: 'rgb', resolution: 72, background: 'transparent', antialias: true, padding: 0 });
     doc.transact('fx', () => doc.update(id, { effects: [createEffect('rasterize', { useDocument: true }), createEffect('rasterize', { useDocument: false, resolution: 150 })] }));
     doc.transact('settings', () => setDocRasterSettings(doc, { resolution: 300, background: 'white', padding: 4 }));
-    expect(docRasterSettings(doc)).toEqual({ resolution: 300, background: 'white', antialias: true, padding: 4 });
+    expect(docRasterSettings(doc)).toEqual({ colorModel: 'rgb', resolution: 300, background: 'white', antialias: true, padding: 4 });
     const fx = doc.get(id).effects;
     expect(fx[0]).toMatchObject({ resolution: 300, background: 'white', padding: 4 });
     expect(fx[1]).toMatchObject({ resolution: 150, background: 'transparent' });
@@ -359,7 +359,7 @@ describe('rasterizing', () => {
       return { data: 'data:image/png;base64,AAAA', width: Math.round((rect.w * o.ppi) / 72), height: Math.round((rect.h * o.ppi) / 72) };
     };
     const out = await rasterizeObjects(ed, [id], { resolution: 144, background: 'white', antialias: true, padding: 5, clip: true }, render);
-    expect(calls[0].o).toEqual({ ppi: 144, background: 'white', antialias: true });
+    expect(calls[0].o).toEqual({ ppi: 144, background: 'white', antialias: true, colorModel: undefined });
     expect(doc.get(id)).toBeUndefined();
     const g = doc.get(out);
     expect(g).toMatchObject({ type: 'group', clip: true });

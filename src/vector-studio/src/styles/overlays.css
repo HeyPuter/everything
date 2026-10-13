@@ -202,6 +202,53 @@
   font-variant-numeric: tabular-nums;
 }
 
+.slider-field input[type='text'] {
+  flex: 0 0 84px;
+  width: 84px;
+}
+
+.form-row.disabled > label,
+.form-row.disabled .form-label {
+  opacity: 0.5;
+}
+
+.form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 8px;
+}
+
+.refpoint {
+  display: grid;
+  grid-template-columns: repeat(3, 14px);
+  gap: 4px;
+  padding: 4px;
+  width: max-content;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.refpoint-cell {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1.5px solid var(--text-3);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.refpoint-cell[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.refpoint-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .shortcuts {
   display: flex;
   flex-direction: column;

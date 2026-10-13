@@ -193,6 +193,7 @@ function transformDialog(app, opts) {
       const ry = checkField({ label: 'Reflect Y', value: s.reflectY, onChange: ctx.changed });
       let seed = s.seed;
       const random = checkField({ label: 'Random', value: s.random, onChange: ctx.changed });
+      const strokes = checkField({ label: 'Scale Strokes & Effects', value: s.scaleStrokes, onChange: ctx.changed });
       const origin = originPicker({ value: s.origin, onChange: ctx.changed });
       const copies = numberRow({ label: 'Copies', value: s.copies, min: 0, max: 1000, integer: true, onInput: ctx.changed });
       const reseed = seedButton(() => {
@@ -204,11 +205,11 @@ function transformDialog(app, opts) {
         group('Scale', h('div.fx-linked', h('div', sh.el, sv.el), link)),
         group('Move', mh.el, mv.el),
         group('Rotate', angle.el),
-        group('Options', h('div.fx-options', h('div.fx-checks', rx.el, ry.el, random.el), h('div.fx-origin-wrap', h('span.fx-label', 'Reference point'), origin.el)), copies.el, h('div.fx-actions', reseed)),
+        group('Options', h('div.fx-options', h('div.fx-checks', rx.el, ry.el, random.el, strokes.el), h('div.fx-origin-wrap', h('span.fx-label', 'Reference point'), origin.el)), copies.el, h('div.fx-actions', reseed)),
       );
       return {
         body,
-        read: () => ({ scaleH: frac(sh.get()), scaleV: frac(sv.get()), moveH: mh.get(), moveV: mv.get(), angle: angle.get(), reflectX: rx.get(), reflectY: ry.get(), random: random.get(), origin: origin.get(), copies: copies.get(), seed }),
+        read: () => ({ scaleH: frac(sh.get()), scaleV: frac(sv.get()), moveH: mh.get(), moveV: mv.get(), angle: angle.get(), reflectX: rx.get(), reflectY: ry.get(), random: random.get(), origin: origin.get(), copies: copies.get(), seed, scaleStrokes: strokes.get() }),
       };
     },
   });

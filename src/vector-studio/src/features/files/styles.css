@@ -579,3 +579,34 @@
   justify-self: start;
   margin: 0;
 }
+
+.prefs-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.prefs-search {
+  width: 100%;
+}
+
+.prefs-tab[hidden],
+.prefs-main [hidden] {
+  display: none;
+}
+
+.newdoc-layout-box[hidden] {
+  display: none;
+}
+
+.newdoc-layouts {
+  display: flex;
+  gap: 2px;
+}
+
+.newdoc-layout[aria-checked='true'],
+.newdoc-layout[aria-pressed='true'] {
+  background: var(--bg-selected);
+  color: var(--accent);
+}

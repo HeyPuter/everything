@@ -66,7 +66,7 @@ export function installTooltips(root = document) {
   let owner = null;
   const show = (target) => {
     const text = target.getAttribute('data-tip');
-    if (!text) return;
+    if (!text || document.documentElement.dataset.tooltips === 'off') return;
     tipEl.textContent = text;
     tipEl.classList.add('show');
     tipEl.removeAttribute('aria-hidden');

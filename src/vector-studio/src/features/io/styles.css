@@ -483,3 +483,25 @@ body.io-busy .canvas-host {
     gap: 4px;
   }
 }
+
+.io-select-row .io-range {
+  flex: 1;
+  min-width: 80px;
+}
+
+.io-screens-options {
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.io-assets.io-disabled {
+  opacity: 0.5;
+}
+
+.io-format-presets {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  color: var(--text-2);
+}

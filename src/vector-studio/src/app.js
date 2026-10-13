@@ -336,7 +336,7 @@ export class App extends Emitter {
       view.invalidate();
       editor.tool = this.tool;
       this.home.hidden = true;
-    } else this.showHome();
+    } else if (this.prefs.get('showStartScreen') !== false) this.showHome();
     this.root.classList.toggle('no-doc', !editor);
     if (editor) this.#scheduleDescribe(editor);
     this.refreshChrome();

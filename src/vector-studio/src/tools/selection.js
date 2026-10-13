@@ -74,7 +74,7 @@ export class SelectionTool extends Tool {
     const iso = editor.isolation;
     // In isolation mode only the isolated group's contents are selectable.
     const filter = iso ? (n) => editor.doc.isAncestor(iso, n.id) : null;
-    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline', filter });
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), filter });
   }
 
   /**

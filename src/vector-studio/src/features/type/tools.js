@@ -391,7 +391,7 @@ export class TypeTool extends Tool {
       align: (align) => applyParaStyle(app, { align }, { label: 'Paragraph Alignment' }),
       size: (dir, mult) => {
         const cur = currentCharStyle(app);
-        const size = Math.max(0.1, Math.min(1296, num(cur?.fontSize, 12) + dir * 2 * mult));
+        const size = Math.max(0.1, Math.min(1296, num(cur?.fontSize, 12) + dir * (app.prefs.get('typeSizeIncrement') || 2) * mult));
         applyCharStyle(app, { fontSize: size }, { label: 'Font Size', coalesce: 'type-size' });
       },
       clearTracking: () => applyCharStyle(app, { tracking: 0 }, { label: 'Tracking' }),
@@ -422,12 +422,12 @@ export class TypeTool extends Tool {
           const cur = styleAt(n, a);
           s.anchor = a;
           s.caret = a + 1;
-          applyCharStyle(app, { kerning: num(cur.kerning, 0) + dir * 20 * mult }, { label: 'Kerning', coalesce: `kern-${n.id}-${a}` });
+          applyCharStyle(app, { kerning: num(cur.kerning, 0) + dir * (app.prefs.get('typeTrackingIncrement') || 20) * mult }, { label: 'Kerning', coalesce: `kern-${n.id}-${a}` });
           s.anchor = s.caret = a;
           s.changed();
         } else {
           const cur = currentCharStyle(app);
-          applyCharStyle(app, { tracking: num(cur?.tracking, 0) + dir * 20 * mult }, { label: 'Tracking', coalesce: 'type-tracking' });
+          applyCharStyle(app, { tracking: num(cur?.tracking, 0) + dir * (app.prefs.get('typeTrackingIncrement') || 20) * mult }, { label: 'Tracking', coalesce: 'type-tracking' });
         }
       },
       leading: (dir, mult) => {
@@ -438,7 +438,7 @@ export class TypeTool extends Tool {
       },
       baseline: (dir, mult) => {
         const cur = currentCharStyle(app);
-        applyCharStyle(app, { baselineShift: num(cur?.baselineShift, 0) + dir * 2 * mult }, { label: 'Baseline Shift', coalesce: 'type-baseline' });
+        applyCharStyle(app, { baselineShift: num(cur?.baselineShift, 0) + dir * (app.prefs.get('typeBaselineIncrement') || 2) * mult }, { label: 'Baseline Shift', coalesce: 'type-baseline' });
       },
       exit: () => this.exitToSelection(),
     };

@@ -480,6 +480,21 @@ function drawGrid(ctx, editor, colors) {
   ctx.lineWidth = 1 / view.zoom;
   const x0 = Math.floor(r.x / step) * step;
   const y0 = Math.floor(r.y / step) * step;
+  if (editor.prefs?.get('gridStyle') === 'dots') {
+    // Dots at the gridline crossings (larger on major lines).
+    const px = 1 / view.zoom;
+    ctx.fillStyle = colors.grid;
+    for (let x = x0; x <= r.x + r.w; x += step) {
+      const mx = Math.abs(x / major - Math.round(x / major)) < 1e-6;
+      for (let y = y0; y <= r.y + r.h; y += step) {
+        const big = mx && Math.abs(y / major - Math.round(y / major)) < 1e-6;
+        const d = (big ? 3 : 1.5) * px;
+        ctx.fillRect(x - d / 2, y - d / 2, d, d);
+      }
+    }
+    ctx.restore();
+    return;
+  }
   for (const pass of ['minor', 'major']) {
     ctx.beginPath();
     for (let x = x0; x <= r.x + r.w; x += step) {
