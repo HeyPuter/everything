@@ -43,7 +43,7 @@ function tileGrid(label, tiles, { columns = 3, className = '' } = {}) {
 /** One Insert ▸ Charts button: its gallery of subtypes, then its More … chart types item. */
 function gallery(g) {
   return {
-    label: g.label, glyph: g.icon, ariaLabel: g.id === 'other' ? 'Insert waterfall, funnel, stock, surface or radar chart' : `Insert ${g.label.toLowerCase()} chart`,
+    label: g.label, glyph: g.icon, ariaLabel: g.id === 'other' ? 'Other Charts: waterfall, funnel, stock, surface or radar' : `Insert ${g.label.toLowerCase()} chart`,
     resolve: (menus, ctx) => lazySubmenu({ label: g.label, disabled: cannotInsert(ctx) }, () => [
       ...g.groups.flatMap(group => [{ header: group.header }, { custom: tileGrid(group.header, group.items.map(item => ({
         label: item.label, html: icon(item.icon, 32), onPick: () => run(ctx, { action: 'insert', subtype: item.id }) })), { columns: Math.min(4, Math.max(3, group.items.length)) }) }]),
