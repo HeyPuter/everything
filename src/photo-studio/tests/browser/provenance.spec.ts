@@ -60,6 +60,16 @@ test.describe('Provenance', () => {
     await expect(body.locator('.prov-entry.prov-edits')).toHaveCount(2);
     await expect(body.locator('.prov-entry.prov-edits').last()).toContainText('×2');
     await expect(body.locator('.prov-summary')).toContainText('3 edit steps');
+    // The filters are one tab stop; arrow keys move between them.
+    const filters = body.getByRole('radiogroup', { name: 'Show' });
+    await filters.getByRole('radio', { name: 'All' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(filters.getByRole('radio', { name: 'Edits' })).toBeFocused();
+    await expect(filters.getByRole('radio', { name: 'Edits' })).toHaveAttribute('aria-checked', 'true');
+    await expect(body.locator('.prov-entry.prov-sources')).toHaveCount(0);
+    await page.keyboard.press('ArrowLeft');
+    await expect(filters.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
+    await expect(body.locator('.prov-entry.prov-sources')).toHaveCount(1);
 
     // Undo, then a different edit: the undone step stays, marked as undone.
     await page.evaluate(() => window.photoStudio.runCommand('edit.undo'));

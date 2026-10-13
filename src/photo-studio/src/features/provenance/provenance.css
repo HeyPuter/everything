@@ -3,9 +3,12 @@
 .provenance-panel .prov-head { padding: 6px 8px 2px; }
 .prov-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prov-summary { color: var(--muted); font-size: 11px; display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
-.provenance-panel .prov-filters { display: flex; flex-wrap: wrap; gap: 3px; padding: 2px 8px 6px; }
-.provenance-panel .prov-filters button { padding: 1px 7px; min-height: 20px; border-radius: 10px; font-size: 11px; }
-.provenance-panel .prov-filters button[aria-checked='true'] { background: var(--accent-fill); color: var(--accent-text); border-color: transparent; }
+/* Counts wrap between items, never inside one ("0 / exports"). */
+.prov-counts > span { white-space: nowrap; }
+/* The same segmented control as the Comments panel's filter. */
+.provenance-panel .prov-filters { display: flex; margin: 2px 8px 6px; border: 1px solid var(--input-line); border-radius: 3px; overflow: hidden; flex: none; }
+.provenance-panel .prov-filters button { flex: 1; border-radius: 0; padding: 2px 4px; font-size: 11px; min-width: 0; }
+.provenance-panel .prov-filters button[aria-checked='true'] { background: var(--selected); }
 .provenance-panel .prov-body { flex: 1; overflow: auto; padding: 0 8px 6px; min-height: 60px; }
 .provenance-panel .prov-foot { padding: 4px 8px; border-top: 1px solid var(--line-soft); font-size: 11px; }
 .prov-timeline { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--line-soft); }

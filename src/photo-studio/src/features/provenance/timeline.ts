@@ -27,7 +27,7 @@ export function summaryHtml(r: ProvenanceRecord) {
     ai ? `AI used ${ai} time${ai === 1 ? '' : 's'}` : 'no AI use recorded',
     `${r.exports.length} export${r.exports.length === 1 ? '' : 's'}`,
   ];
-  return `<div class="prov-summary"><div class="prov-origin">${escapeXML(ORIGIN[r.origin])} · ${escapeXML(formatTime(r.created))}</div><div class="prov-counts">${parts.map(escapeXML).join(' · ')}</div></div>`;
+  return `<div class="prov-summary"><div class="prov-origin">${escapeXML(ORIGIN[r.origin])} · ${escapeXML(formatTime(r.created))}</div><div class="prov-counts">${parts.map((x) => `<span>${escapeXML(x)}</span>`).join(' · ')}</div></div>`;
 }
 
 function entries(r: ProvenanceRecord): Entry[] {
