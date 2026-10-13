@@ -324,7 +324,7 @@ function scatter(scatterStyle, { line, markers: withMarkers, smooth = false }) {
           ...(withMarkers
             ? markerSymbol && markerSymbol !== "none"
               ? { markerSymbol }
-              : {}
+              : { markerSymbol: "circle", markerSizePt: rest.markerSizePt ?? 7 }
             : { markerSymbol: "none" }),
           ...(smooth ? { smooth: true } : {}),
         };
