@@ -49,22 +49,52 @@ function auxAt(name: string, k: number): RGBA8 | undefined {
   return out;
 }
 
-// Results cache: least recently used entries go first. Rejected promises
-// (cancelled stages) are removed so they are computed again.
-const cache = new Map<string, unknown>();
-const LIMIT = 28;
-function memo<T>(key: string, make: () => T): T {
-  if (cache.has(key)) {
-    const v = cache.get(key) as T;
-    cache.delete(key);
-    cache.set(key, v);
-    return v;
+// Results cache, bounded by memory: least recently used entries go first.
+// Rejected promises (cancelled stages) are removed so they are computed again.
+type Entry = { value: unknown; bytes: number };
+const cache = new Map<string, Entry>();
+const BUDGET = 320 * 1024 * 1024;
+let total = 0;
+function sizeOf(v: unknown, depth = 0): number {
+  if (!v || typeof v !== 'object' || depth > 3) return 0;
+  if (ArrayBuffer.isView(v)) return v.byteLength;
+  let s = 0;
+  for (const x of Object.values(v)) s += sizeOf(x, depth + 1);
+  return s;
+}
+function evict() {
+  while (total > BUDGET && cache.size > 1) {
+    const [k, e] = cache.entries().next().value!;
+    cache.delete(k);
+    total -= e.bytes;
   }
-  const v = make();
-  cache.set(key, v);
-  if (v instanceof Promise) v.catch(() => cache.get(key) === v && cache.delete(key));
-  while (cache.size > LIMIT) cache.delete(cache.keys().next().value!);
-  return v;
+}
+function memo<T>(key: string, make: () => T): T {
+  const hit = cache.get(key);
+  if (hit) {
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit.value as T;
+  }
+  const value = make();
+  const entry: Entry = { value, bytes: 0 };
+  cache.set(key, entry);
+  const account = (v: unknown) => {
+    if (cache.get(key) !== entry) return;
+    entry.bytes = sizeOf(v);
+    total += entry.bytes;
+    evict();
+  };
+  if (value instanceof Promise)
+    value.then(account, () => {
+      if (cache.get(key) === entry) cache.delete(key);
+    });
+  else account(value);
+  return value;
+}
+function clearCache() {
+  cache.clear();
+  total = 0;
 }
 
 scope.onmessage = async (ev: MessageEvent<ToRestoreWorker>) => {
@@ -73,7 +103,7 @@ scope.onmessage = async (ev: MessageEvent<ToRestoreWorker>) => {
     levels = [m.image];
     sel0 = m.selection;
     selLevels.clear();
-    cache.clear();
+    clearCache();
     auxLevels.clear();
     return;
   }
