@@ -51,6 +51,6 @@ export function createHistoryPanel(ctx) {
     render();
   }
 
-  const off = store.on('change', render);
-  return { el, toggle, render, dispose: off };
+  const offs = [store.on('change', render), store.on('history', render)];
+  return { el, toggle, render, dispose: () => offs.forEach((f) => f?.()) };
 }

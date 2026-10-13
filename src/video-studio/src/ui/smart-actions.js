@@ -100,6 +100,18 @@ export function applyReframePlan(c, plan) {
   else delete c.keyframes.y;
 }
 
+/**
+ * Silent stretches of the project's sound as timeline ranges (µs):
+ * o = { scope: 'main' | 'all', thresholdDb, minSilence, pad } (seconds).
+ */
+export async function findSilences(ctx, o, { signal, onProgress } = {}) {
+  const rate = 8000;
+  const mix = await mixdown(structuredClone(ctx.store.project), ctx.library, { scope: o.scope, sampleRate: rate, signal, onProgress });
+  // The mix is peak-normalized, which is fine for a relative threshold.
+  const hop = 0.02;
+  return silentRanges(levelEnvelope(mix, rate, hop), hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
+}
+
 export function createSmartActions(ctx) {
   const { store } = ctx;
 
@@ -184,11 +196,7 @@ export function createSmartActions(ctx) {
         cut.disabled = true;
         status.textContent = 'Listening...';
         try {
-          const rate = 8000;
-          const mix = await mixdown(structuredClone(store.project), ctx.library, { scope: o.scope, sampleRate: rate, signal: ac.signal, onProgress: (x) => (status.textContent = `Listening... ${Math.round(x * 100)}%`) });
-          // The mix is peak-normalized, which is fine for a relative threshold.
-          const hop = 0.02;
-          const ranges = silentRanges(levelEnvelope(mix, rate, hop), hop, o).map((r) => ({ start: Math.round(r.start * US), end: Math.round(r.end * US) }));
+          const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => (status.textContent = `Listening... ${Math.round(x * 100)}%`) });
           found = ranges;
           const total = ranges.reduce((s, r) => s + r.end - r.start, 0);
           status.textContent = ranges.length ? `${ranges.length} silent part${ranges.length === 1 ? '' : 's'}, ${(total / US).toFixed(1)} s in all.` : 'No silences that long were found.';

@@ -85,6 +85,33 @@ function applyCaptions(ctx, cues, { mode, preset, position, wrap = true, label =
   return clips.length;
 }
 
+/**
+ * Captions from the project's speech: mix the sound (opts.scope), turn it
+ * into timed words with Puter speech to text, group them into lines and put
+ * them on a new text track (mode 'replace' drops existing captions first).
+ * onStep(index, fraction) follows the three stages. Returns how many
+ * captions were added (0 when no speech was found).
+ */
+export async function generateCaptions(ctx, opts, { mode = 'keep', signal, onStep } = {}) {
+  const o = { ...DEFAULT_OPTS, ...opts };
+  onStep?.(0, 0);
+  // Work on a copy so edits made meanwhile do not shift what is being mixed.
+  const project = structuredClone(ctx.store.project);
+  const mix = await mixdown(project, ctx.library, { scope: o.scope, signal, onProgress: (f) => onStep?.(0, f) });
+  onStep?.(1, 0);
+  const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
+  const words = fake
+    ? await fake(mix, STT_RATE)
+    : await transcribeMix(mix, STT_RATE, { language: o.language, signal, testMode: Boolean(import.meta.env.DEV && globalThis.__vsSpeechTestMode), onProgress: (f) => onStep?.(1, f) });
+  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  onStep?.(2, 0);
+  const preset = TEXT_PRESETS.find((p) => p.id === o.preset);
+  const lineChars = lineCharsFor(preset, project.settings.width);
+  const cues = groupWords(words, { maxWords: o.maxWords, maxChars: Math.min(lineChars * 2, 84), maxGap: 0.8 });
+  if (!cues.length) return 0;
+  return applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null });
+}
+
 function fieldRow(label, control, id) {
   return h('div.field', h('span.field-label', { id }, label), control);
 }
@@ -167,29 +194,14 @@ function autoPanel(ctx, opts, save) {
     const { signal } = abort;
     generate.disabled = true;
     progress.hidden = false;
-    setStep(0);
-    announce('Preparing audio');
-    // Work on a copy so edits made meanwhile do not shift what is being mixed.
-    const project = structuredClone(store.project);
+    let said = -1;
     try {
-      const mix = await mixdown(project, ctx.library, { scope: opts.scope, signal, onProgress: (f) => setStep(0, f) });
-      setStep(1);
-      announce('Transcribing');
-      const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
-      const words = fake
-        ? await fake(mix, STT_RATE)
-        : await transcribeMix(mix, STT_RATE, { language: opts.language, signal, testMode: Boolean(import.meta.env.DEV && globalThis.__vsSpeechTestMode), onProgress: (f) => setStep(1, f) });
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-      setStep(2);
-      const preset = TEXT_PRESETS.find((p) => p.id === opts.preset);
-      const lineChars = lineCharsFor(preset, project.settings.width);
-      const cues = groupWords(words, { maxWords: opts.maxWords, maxChars: Math.min(lineChars * 2, 84), maxGap: 0.8 });
-      if (!cues.length) {
-        toast('No speech was found in the audio.', { kind: 'info' });
-      } else {
-        const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position });
-        toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
-      }
+      const n = await generateCaptions(ctx, opts, { mode, signal, onStep: (i, f) => {
+        setStep(i, f);
+        if (i !== said) announce(STEPS[(said = i)]);
+      } });
+      if (!n) toast('No speech was found in the audio.', { kind: 'info' });
+      else toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
       if (err?.name === 'AbortError') announce('Captions cancelled');
       else {
