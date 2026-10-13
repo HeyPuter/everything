@@ -26,7 +26,9 @@ export function formDialog(
 ): Promise<Record<string, string> | null> {
   const dialog = document.querySelector<HTMLDialogElement>('#dialog')!;
   return new Promise((resolve) => {
-    dialog.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2>${message ? `<p>${escapeXML(message)}</p>` : ''}${fields.map((f) => `<label class="dialog-field ${f.type === 'checkbox' ? 'checkbox-field' : ''}">${escapeXML(f.label)}${field(f)}</label>`).join('')}<div class="dialog-actions"><button type="button" id="cancel-dialog">Cancel</button><button type="submit" class="primary">${escapeXML(submit)}</button></div></form>`;
+    // A blank line in the message starts a new paragraph.
+    const paragraphs = message ? message.split(/\n\s*\n/).map((m) => `<p>${escapeXML(m.trim())}</p>`).join('') : '';
+    dialog.innerHTML = `<form method="dialog"><h2>${escapeXML(title)}</h2>${paragraphs}${fields.map((f) => `<label class="dialog-field ${f.type === 'checkbox' ? 'checkbox-field' : ''}">${escapeXML(f.label)}${field(f)}</label>`).join('')}<div class="dialog-actions"><button type="button" id="cancel-dialog">Cancel</button><button type="submit" class="primary">${escapeXML(submit)}</button></div></form>`;
     const close = () => {
       dialog.close();
       resolve(null);

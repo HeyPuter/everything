@@ -397,7 +397,9 @@ svg.icon { flex: none; display: block; }
 .vt-audio-props[hidden] { display: none; }
 .vt-audio-props .icon-button { width: 26px; height: 22px; min-height: 0; }
 .vt-audio-props .icon-button[aria-pressed='true'] { background: var(--selected); }
-.vt-ap-name { display: flex; align-items: center; gap: 4px; max-width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.vt-ap-name { display: flex; align-items: center; gap: 4px; max-width: 180px; min-width: 0; white-space: nowrap; font-weight: 600; }
+.vt-ap-name > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vt-ap-name > .icon { flex: none; }
 .vt-ap-field { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .vt-ap-field input[type='range'] { width: 90px; }
 .vt-ap-field input[type='number'] { width: 58px; height: 22px; font-size: 11px; }
@@ -1009,6 +1011,8 @@ dialog p {
   line-height: 1.7;
   margin-bottom: 16px;
 }
+/* Consecutive paragraphs (a message in several parts) sit closer together. */
+dialog form > p:has(+ p) { margin-bottom: 8px; }
 .dialog-field {
   display: flex;
   flex-direction: column;

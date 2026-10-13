@@ -335,7 +335,12 @@ function install(e: Editor) {
     for (const cs of all()) void cs.client.leave();
   });
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !document.querySelector('.collab-popover')?.hasAttribute('hidden')) closePopover();
+    const pop = document.querySelector<HTMLElement>('.collab-popover');
+    if (ev.key !== 'Escape' || !pop || pop.hidden) return;
+    const inside = pop.contains(document.activeElement);
+    closePopover();
+    // Keyboard users return to the button that opened it.
+    if (inside) document.querySelector<HTMLElement>('.collab-bar .collab-people')?.focus();
   });
   document.addEventListener('pointerdown', (ev) => {
     const t = ev.target as HTMLElement;
@@ -403,10 +408,17 @@ export function renderBar(e: Editor) {
   }
   const pop = document.querySelector<HTMLElement>('.collab-popover');
   if (pop && !pop.hidden) fillPopover(cs, pop);
+  syncExpanded();
+}
+/** aria-expanded of the buttons that open the people popover. */
+function syncExpanded() {
+  const open = !!document.querySelector('.collab-popover:not([hidden])');
+  for (const b of document.querySelectorAll('.collab-bar [data-collab-people]')) b.setAttribute('aria-expanded', String(open));
 }
 function closePopover() {
   const pop = document.querySelector<HTMLElement>('.collab-popover');
   if (pop) pop.hidden = true;
+  syncExpanded();
 }
 function togglePopover(e: Editor) {
   const cs = active(e);
@@ -451,6 +463,7 @@ function togglePopover(e: Editor) {
   const r = e.root.querySelector('.collab-bar')!.getBoundingClientRect();
   pop.style.top = `${r.bottom + 6}px`;
   pop.style.left = `${Math.max(8, Math.min(window.innerWidth - 308, r.right - 300))}px`;
+  syncExpanded();
   pop.querySelector<HTMLElement>('button')?.focus();
 }
 function fillPopover(cs: CollabSession, pop: HTMLElement) {
@@ -470,7 +483,7 @@ function fillPopover(cs: CollabSession, pop: HTMLElement) {
     .concat(away.map((m) => row(m.uuid, m.username, m.role, 'not here')))
     .join('');
   const owner = cs.role === 'owner';
-  const actions = `<div class="collab-popover-actions">${owner ? `<button data-popover-command="file.invite-to-edit">${svg('invite-edit', 14)}Invite to Edit…</button><button data-popover-command="file.share-for-review">${svg('share-review', 14)}Share for Review…</button>` : ''}<button data-copy-link>${svg('link', 14)}Copy Link</button>${owner ? `<button data-popover-command="file.stop-sharing">Stop Sharing…</button>` : ''}</div>`;
+  const actions = `<div class="collab-popover-actions">${owner ? `<button data-popover-command="file.invite-to-edit">${svg('invite-edit', 14)}Invite to Edit…</button><button data-popover-command="file.share-for-review">${svg('share-review', 14)}Share for Review…</button>` : ''}<button data-copy-link>${svg('link', 14)}Copy Link</button>${owner ? `<button data-popover-command="file.stop-sharing">${svg('unlink', 14)}Stop Sharing…</button>` : ''}</div>`;
   const html = `<div class="collab-popover-status ${st.cls}">${svg(st.icon, 14)}<span>${escapeXML(st.long)}</span></div><ul class="collab-people-list">${rows}</ul>${actions}`;
   if (pop.dataset.html !== html) {
     pop.dataset.html = html;
