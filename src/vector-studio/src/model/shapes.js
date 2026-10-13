@@ -269,3 +269,16 @@ export function shapeAnchors(shape) {
   }
   return shape.angle ? transformAnchors(pts, rotate(shape.angle, shape.cx, shape.cy)) : pts;
 }
+
+/**
+ * Anchors for edited shape params that keep the live corners the old
+ * anchors carried when every corner had the same rounding (a polygon whose
+ * sides change stays rounded).
+ */
+export function regenerateShape(shape, oldAnchors = []) {
+  const anchors = shapeAnchors(shape);
+  if (!anchors || shape.kind === 'rect') return anchors;
+  const c = oldAnchors[0]?.corner;
+  const same = c && oldAnchors.every((a) => a.corner && a.corner.r === c.r && a.corner.type === c.type);
+  return same ? anchors.map((a) => ({ ...a, corner: { ...c } })) : anchors;
+}

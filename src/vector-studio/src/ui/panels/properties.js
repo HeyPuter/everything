@@ -12,7 +12,7 @@ import { numberField, paintSwatch, updatePaintSwatch, iconButton, selectField } 
 import { icon } from '../icons.js';
 import { commonStyle, applyStyle } from '../../ops/paint-ops.js';
 import { openPaintPopover } from '../popover.js';
-import { shapeAnchors, isPie } from '../../model/shapes.js';
+import { regenerateShape, isPie } from '../../model/shapes.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { UNITS } from '../../lib/units.js';
 import { BLEND_MODES } from '../../render/draw.js';
@@ -312,7 +312,7 @@ function buildShapeFields(panel, ed, id, shape) {
     const cur = doc.get(id);
     if (!cur?.shape) return;
     const next = { ...cur.shape, ...patchFn(cur.shape) };
-    const anchors = shapeAnchors(next);
+    const anchors = regenerateShape(next, cur.anchors);
     if (!anchors) return;
     doc.transact('Change Shape', () => doc.update(id, { shape: next, anchors }), { coalesce: live ? `shape-${id}` : null });
   };

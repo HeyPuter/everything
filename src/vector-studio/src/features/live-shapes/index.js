@@ -6,7 +6,7 @@
  */
 import { canvasWidgets } from '../../tools/widgets.js';
 import { overlayHooks } from '../../render/overlay.js';
-import { shapeAnchors, isPie } from '../../model/shapes.js';
+import { regenerateShape, isPie } from '../../model/shapes.js';
 import { apply, rotate } from '../../lib/matrix.js';
 
 const R = 4.5; // handle radius, px
@@ -33,7 +33,7 @@ export function setShape(doc, id, patch) {
   const n = doc.get(id);
   if (!n?.shape) return;
   const shape = { ...n.shape, ...patch };
-  const anchors = shapeAnchors(shape);
+  const anchors = regenerateShape(shape, n.anchors);
   if (anchors) doc.update(id, { shape, anchors });
 }
 

@@ -197,3 +197,22 @@ describe('Properties panel shape fields', () => {
     expect(s.y2).toBeCloseTo(-100);
   });
 });
+
+describe('regenerated live shapes', () => {
+  it('keep a uniform live corner when the sides change', () => {
+    const id = addShape({ kind: 'polygon', cx: 300, cy: 300, r: 100, sides: 5, angle: 0 });
+    const doc = app.editor.doc;
+    doc.transact('Corners', () => doc.update(id, { anchors: doc.get(id).anchors.map((a) => ({ ...a, corner: { r: 8, type: 'round' } })) }));
+    app.openPanel('properties');
+    const props = app.dock.panels.get('properties');
+    props.update();
+    const input = [...props.el.querySelectorAll('.shape-props input')].find((i) => i.getAttribute('aria-label') === 'Sides');
+    input.focus();
+    input.value = '7';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const n = doc.get(id);
+    expect(n.anchors).toHaveLength(7);
+    expect(n.anchors.every((a) => a.corner?.r === 8)).toBe(true);
+  });
+});
+
