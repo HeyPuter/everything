@@ -181,8 +181,60 @@
   gap: 8px;
 }
 
-.toolbar.two-col .toolbar-misc {
+.toolbar.two-col .toolbar-misc,
+.toolbar.three-col .toolbar-misc {
   flex-direction: row;
+}
+
+.toolbar.two-col .toolbar-misc .tool-btn {
+  width: 26px;
+}
+
+/* Three columns for short windows. */
+.tools-three-col {
+  --toolbar-w: 108px;
+}
+
+.toolbar.three-col .tool-section {
+  display: grid;
+  grid-template-columns: repeat(3, 32px);
+  justify-content: center;
+  column-gap: 2px;
+}
+
+.toolbar.three-col .tool-btn {
+  width: 32px;
+}
+
+.toolbar.three-col .toolbar-bottom {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Compact: no section labels; a hairline separates the sections instead. */
+.toolbar.compact .tool-section-label {
+  display: none;
+}
+
+.toolbar.compact .tool-section {
+  padding: 3px 0;
+}
+
+.toolbar.compact .tool-section + .tool-section {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.toolbar.compact .tool-btn {
+  height: 30px;
+}
+
+/* Still too short: the tools scroll, with a fade showing there is more. */
+.toolbar.overflowing .toolbar-scroll {
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
 }
 
 .toolbar-scroll {

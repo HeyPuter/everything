@@ -546,7 +546,7 @@ export const MENUS = [
       { label: 'Swatch Libraries', source: 'swatchLibraries' },
       { label: 'Symbol Libraries', source: 'symbolLibraries' },
       '-',
-      { label: 'Theme', submenu: ['theme.system', 'theme.light', 'theme.dark'] },
+      { label: 'Interface Brightness', submenu: ['theme.system', '-', 'theme.dark', 'theme.medium-dark', 'theme.medium-light', 'theme.light'] },
       '-',
       'window.nextDocument',
       'window.previousDocument',

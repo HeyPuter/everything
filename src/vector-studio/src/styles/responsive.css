@@ -90,8 +90,20 @@
     display: none;
   }
 
-  .toolbar.two-col .tool-section {
+  .toolbar.two-col .tool-section,
+  .toolbar.three-col .tool-section {
     display: flex;
+  }
+
+  .toolbar.compact .tool-section + .tool-section {
+    margin: 0;
+    padding: 0 6px;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .toolbar.overflowing .toolbar-scroll {
+    mask-image: none;
   }
 
   /* Touch-sized fill and stroke controls in the bottom bar: swap and default
@@ -199,6 +211,17 @@
     border-top: 1px solid var(--border);
     overflow-x: auto;
     overflow-y: hidden;
+  }
+
+  .strip-group {
+    flex-direction: row;
+  }
+
+  .strip-group + .strip-group {
+    margin: 0 0 0 4px;
+    padding: 0 0 0 4px;
+    border-top: 0;
+    border-left: 1px solid var(--border);
   }
 
   .panel-flyout {

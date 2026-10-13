@@ -1,8 +1,9 @@
 /*
- * Design tokens. Two themes share one set of names; <html data-theme-resolved>
- * picks light or dark (system by default). Flat surfaces: no gradients and
- * no shadows except on floating layers (menus, popovers, dialogs) where
- * elevation is needed to separate them from the canvas.
+ * Design tokens. Every theme shares one set of names. <html data-theme-resolved>
+ * picks the light or dark family (system by default) and <html data-brightness>
+ * the interface brightness level within it: dark, medium-dark, medium-light or
+ * light. Flat surfaces: no gradients and no shadows except on floating layers
+ * (menus, popovers, dialogs) where elevation separates them from the canvas.
  */
 :root {
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -99,4 +100,55 @@
   --shadow-float: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --tooltip-bg: #f0f0f0;
   --tooltip-fg: #1a1a1a;
+}
+
+/* Medium Dark: lighter gray surfaces, still a dark theme. */
+:root[data-brightness='medium-dark'] {
+  --bg-app: #3b3b3b;
+  --bg-topbar: #444444;
+  --bg-panel: #4a4a4a;
+  --bg-panel-2: #525252;
+  --bg-elev: #575757;
+  --bg-input: #3a3a3a;
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(255, 255, 255, 0.15);
+  --bg-selected: rgba(110, 160, 255, 0.3);
+  --border: #5e5e5e;
+  --border-strong: #737373;
+  --text: #f4f4f4;
+  --text-2: #dadada;
+  --text-3: #d2d2d2;
+  --focus: #9dbdff;
+  --link: #bcd3ff;
+  --pasteboard: #5c5c5c;
+  --artboard-border: #1c1c1c;
+  --artboard-label: #e0e0e0;
+  --ruler-bg: #4a4a4a;
+  --ruler-fg: #d2d2d2;
+}
+
+/* Medium Light: mid-gray surfaces, a light theme. */
+:root[data-brightness='medium-light'] {
+  --bg-app: #a8a8a8;
+  --bg-topbar: #c4c4c4;
+  --bg-panel: #bebebe;
+  --bg-panel-2: #b4b4b4;
+  --bg-elev: #d2d2d2;
+  --bg-input: #e8e8e8;
+  --bg-hover: rgba(0, 0, 0, 0.07);
+  --bg-active: rgba(0, 0, 0, 0.13);
+  --bg-selected: rgba(37, 99, 235, 0.2);
+  --border: #a2a2a2;
+  --border-strong: #868686;
+  --text: #111111;
+  --text-2: #222222;
+  --text-3: #2e2e2e;
+  --focus: #1a46c4;
+  --link: #0a2f8a;
+  --pasteboard: #a6a6a6;
+  --artboard-border: #2b2b2b;
+  --artboard-label: #1f1f1f;
+  --grid-color: rgba(0, 0, 0, 0.2);
+  --ruler-bg: #bebebe;
+  --ruler-fg: #2e2e2e;
 }

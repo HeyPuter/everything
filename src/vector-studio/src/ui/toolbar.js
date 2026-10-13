@@ -62,6 +62,9 @@ export const TOOL_LAYOUT = [
   { label: 'Navigate', groups: [['artboard', 'slice', 'slice-select'], ['hand', 'rotate-view', 'print-tiling'], ['zoom']] },
 ];
 
+/** Toolbar arrangements for 'auto' columns, roomiest first: [columns, 'compact' hides section labels]. */
+export const TOOLBAR_FITS = [[1], [2], [2, 'compact'], [3, 'compact']];
+
 export function createToolbar(app) {
   const el = h('nav.toolbar', { 'aria-label': 'Tools' });
   const list = h('div.toolbar-tools', { role: 'toolbar', 'aria-orientation': 'vertical', 'aria-label': 'Tools' });
@@ -281,29 +284,46 @@ export function createToolbar(app) {
     flyout?.classList.add('all-tools');
   };
 
-  // Single or double column, toggled from the header chevrons.
+  // Single or double column, toggled from the header chevrons. 'auto' takes
+  // the roomiest arrangement that shows every tool without scrolling.
   const colsBtn = h('button.toolbar-cols', { type: 'button', 'aria-label': 'Toggle single or double column tools', 'data-tip': 'Single or double column' });
   const scroller = h('div.toolbar-scroll', list);
   const applyColumns = () => {
     const pref = app.prefs.get('toolbarColumns');
-    let two = pref === 2;
-    if (pref === 'auto' || pref == null) {
-      el.classList.remove('two-col');
-      two = scroller.scrollHeight > scroller.clientHeight + 2;
-    }
-    el.classList.toggle('two-col', two);
-    app.root.classList.toggle('tools-two-col', two);
-    colsBtn.replaceChildren(icon(two ? 'chevrons-left' : 'chevrons-right', 12));
-    colsBtn.setAttribute('aria-pressed', String(two));
+    const fits = pref === 1 ? [[1], [1, 'compact']] : pref === 2 ? [[2], [2, 'compact']] : TOOLBAR_FITS;
+    const set = ([cols, compact]) => {
+      el.classList.toggle('two-col', cols === 2);
+      el.classList.toggle('three-col', cols === 3);
+      el.classList.toggle('compact', compact === 'compact');
+      app.root.classList.toggle('tools-two-col', cols === 2);
+      app.root.classList.toggle('tools-three-col', cols === 3);
+    };
+    const fit = fits.find((f) => {
+      set(f);
+      return scroller.scrollHeight <= scroller.clientHeight + 2;
+    });
+    if (!fit) set(fits[fits.length - 1]);
+    const multi = el.classList.contains('two-col') || el.classList.contains('three-col');
+    el.classList.toggle('overflowing', scroller.scrollHeight > scroller.clientHeight + 2);
+    colsBtn.replaceChildren(icon(multi ? 'chevrons-left' : 'chevrons-right', 12));
+    colsBtn.setAttribute('aria-pressed', String(multi));
   };
   colsBtn.addEventListener('click', () => {
-    const two = el.classList.contains('two-col');
-    app.prefs.set('toolbarColumns', two ? 1 : 2);
+    const multi = el.classList.contains('two-col') || el.classList.contains('three-col');
+    app.prefs.set('toolbarColumns', multi ? 1 : 2);
     applyColumns();
   });
+  // Refit on the next frame (never inside the observer callback, which would loop) and right away on window resizes.
+  let fitQueued = false;
   new ResizeObserver(() => {
-    if (app.prefs.get('toolbarColumns') === 'auto') applyColumns();
-  }).observe(el);
+    if (fitQueued) return;
+    fitQueued = true;
+    requestAnimationFrame(() => {
+      fitQueued = false;
+      applyColumns();
+    });
+  }).observe(scroller);
+  window.addEventListener('resize', applyColumns);
   requestAnimationFrame(applyColumns);
   el.append(h('div.toolbar-head', colsBtn), scroller, h('div.toolbar-bottom', fs, modes, h('div.toolbar-misc', moreBtn, screenBtn)));
 
@@ -355,5 +375,5 @@ export function createToolbar(app) {
     }
   };
 
-  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff };
+  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff, refit: applyColumns };
 }
