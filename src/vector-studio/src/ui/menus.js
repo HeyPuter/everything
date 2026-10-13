@@ -200,6 +200,7 @@ export const MENUS = [
         submenu: ['artboards.convert', 'artboards.rearrange', 'artboards.fitArtwork', 'artboards.switchOrientation', 'artboards.fitSelection'],
       },
       { label: 'Graph', submenu: ['graph.type', 'graph.data', 'graph.design', 'graph.column', 'graph.marker'] },
+      { label: 'Dimension', submenu: ['dimension.options', 'dimension.flipLabel', 'dimension.detach'] },
       { label: 'Collect For Export', submenu: ['assetExport.single', 'assetExport.multiple'] },
       '-',
       'object.isolate',

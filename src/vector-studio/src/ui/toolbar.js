@@ -46,7 +46,7 @@ export const TOOL_LAYOUT = [
     groups: [
       ['gradient'],
       ['mesh'],
-      ['eyedropper', 'measure'],
+      ['eyedropper', 'measure', 'dimension'],
       ['blend'],
     ],
   },
