@@ -16,6 +16,15 @@ import { mask8, type Mask8 } from '../../imaging/types';
 import { cropMask, cropRGBA } from './logic';
 import { mergedImage, selectionMask } from './source';
 import { field, openWorkspace, options } from './workspace';
+import { recordGeneration } from '../generations/record';
+
+/** Settings to open AI Fill or AI Expand with (`{ prefill }` command argument). */
+type AIPrefill = { prompt?: string; method?: 'edit' | 'inpaint'; blend?: 'normal' | 'seamless'; left?: number; top?: number; right?: number; bottom?: number; via?: 'assistant' };
+function prefillOf(arg: unknown): AIPrefill {
+  const p = arg && typeof arg === 'object' ? (arg as { prefill?: unknown }).prefill : undefined;
+  return p && typeof p === 'object' ? (p as AIPrefill) : {};
+}
+const attr = (v: unknown) => escapeXML(String(v ?? ''));
 
 type PuterAuth = { auth?: { isSignedIn?: () => boolean; signIn?: () => Promise<unknown> } };
 /** Make sure a Puter session exists; must run inside the click that asked for it. */
@@ -77,10 +86,11 @@ async function aiDialog<T>(title: string, body: string, generate: (ws: ReturnTyp
   await ws.closed;
   return result;
 }
-const methodField = () =>
-  field('Method', options('ai-method', 'edit', [['edit', 'Instruction edit'], ['inpaint', 'Mask inpainting']]), 'Mask inpainting follows the selection exactly but works at lower resolution.');
+const methodField = (value = 'edit') =>
+  field('Method', options('ai-method', value === 'inpaint' ? 'inpaint' : 'edit', [['edit', 'Instruction edit'], ['inpaint', 'Mask inpainting']]), 'Mask inpainting follows the selection exactly but works at lower resolution.');
 
-export async function openAIFill(e: Editor) {
+export async function openAIFill(e: Editor, arg?: unknown) {
+  const pre = prefillOf(arg);
   const sel = selectionMask(e);
   const box = sel && boundingBox(sel);
   if (!sel || !box) {
@@ -91,38 +101,44 @@ export async function openAIFill(e: Editor) {
   const out = await aiDialog(
     'AI Fill',
     `${notice('The selected area, with some surrounding image for context,')}
-${field('Prompt', `<textarea id="ai-prompt" rows="3" placeholder="Describe what to put in the selection, e.g. “a wooden bench”" required></textarea>`)}
-${methodField()}
-${field('Edge', options('ai-blend', 'normal', [['normal', 'Soft edge'], ['seamless', 'Seamless blend']]))}`,
+${field('Prompt', `<textarea id="ai-prompt" rows="3" placeholder="Describe what to put in the selection, e.g. “a wooden bench”" required>${attr(pre.prompt)}</textarea>`)}
+${methodField(pre.method)}
+${field('Edge', options('ai-blend', pre.blend === 'seamless' ? 'seamless' : 'normal', [['normal', 'Soft edge'], ['seamless', 'Seamless blend']]))}`,
     async (ws, signal) => {
       const prompt = ws.q<HTMLTextAreaElement>('#ai-prompt').value.trim();
       if (!prompt) throw new AIError('bad-request', 'Enter a prompt first.');
       const opts: AIImageOptions = { mode: ws.q<HTMLSelectElement>('#ai-method').value as 'edit' | 'inpaint', blend: ws.q<HTMLSelectElement>('#ai-blend').value as 'normal' | 'seamless', signal };
-      return { prompt, image: await aiFill(img, sel, prompt, opts) };
+      return { prompt, image: await aiFill(img, sel, prompt, opts), settings: { method: opts.mode, blend: opts.blend } };
     },
   );
   if (!out) return;
   // A new layer with the generated pixels around the selection, masked to it.
   const pixels = cropRGBA(out.image, box);
+  // History keeps the generated pixels cut to the selection's shape.
+  const cut = cropMask(sel, box), kept = { ...pixels, data: new Uint8ClampedArray(pixels.data) };
+  for (let i = 0; i < cut.data.length; i++) kept.data[i * 4 + 3] = Math.round((kept.data[i * 4 + 3] * cut.data[i]) / 255);
+  void recordGeneration(e, { kind: pre.via === 'assistant' ? 'assistant' : 'fill', prompt: out.prompt, settings: { ...out.settings, dialog: 'fill' }, placement: { ...box } }, kept);
   const l = newPixelLayer(`AI Fill: ${out.prompt.slice(0, 40)}`, e.doc, gridFromImage(e.assets.tiles, pixels, box.x, box.y));
   l.maskGrid = writeRect(e.assets.tiles, emptyGrid(1), box.x, box.y, cropMask(sel, box));
   insertLayer(e, l, 'AI Fill', true);
   e.message('AI Fill added as a new masked layer.');
 }
 
-export async function openAIExpand(e: Editor) {
+export async function openAIExpand(e: Editor, arg?: unknown) {
+  const pre = prefillOf(arg);
   const img = await mergedImage(e);
   const W = img.width,
     H = img.height;
+  const side = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(4096, Math.round(v))) : d);
   const dx = Math.round(W * 0.125),
     dy = Math.round(H * 0.125);
   const num = (id: string, label: string, v: number) => field(label, `<input id="${id}" type="number" min="0" max="4096" value="${v}">`);
   const out = await aiDialog(
     'AI Expand',
     `${notice('The whole visible image (reduced to about one megapixel)')}
-<div class="ai-sides">${num('ai-left', 'Left (px)', dx)}${num('ai-right', 'Right (px)', dx)}${num('ai-top', 'Top (px)', dy)}${num('ai-bottom', 'Bottom (px)', dy)}</div>
-${field('Prompt (optional)', `<textarea id="ai-prompt" rows="2" placeholder="Leave empty to continue the scene naturally"></textarea>`)}
-${methodField()}`,
+<div class="ai-sides">${num('ai-left', 'Left (px)', side(pre.left, dx))}${num('ai-right', 'Right (px)', side(pre.right, dx))}${num('ai-top', 'Top (px)', side(pre.top, dy))}${num('ai-bottom', 'Bottom (px)', side(pre.bottom, dy))}</div>
+${field('Prompt (optional)', `<textarea id="ai-prompt" rows="2" placeholder="Leave empty to continue the scene naturally">${attr(pre.prompt)}</textarea>`)}
+${methodField(pre.method)}`,
     async (ws, signal) => {
       const v = (id: string) => Math.max(0, Math.round(Number(ws.q<HTMLInputElement>(id).value) || 0));
       const by = { left: v('#ai-left'), top: v('#ai-top'), right: v('#ai-right'), bottom: v('#ai-bottom') };
@@ -131,11 +147,13 @@ ${methodField()}`,
       if (nw === W && nh === H) throw new AIError('bad-request', 'Enter how many pixels to add on at least one side.');
       if (nw > 8192 || nh > 8192 || nw * nh > 24_000_000) throw new AIError('bad-request', 'The expanded image would exceed 8192 pixels or 24 megapixels.');
       const prompt = ws.q<HTMLTextAreaElement>('#ai-prompt').value;
-      return { by, image: await aiExpand(img, by, prompt, { mode: ws.q<HTMLSelectElement>('#ai-method').value as 'edit' | 'inpaint', signal }) };
+      const method = ws.q<HTMLSelectElement>('#ai-method').value as 'edit' | 'inpaint';
+      return { by, prompt, method, image: await aiExpand(img, by, prompt, { mode: method, signal }) };
     },
   );
   if (!out) return;
   const { by, image } = out;
+  void recordGeneration(e, { kind: pre.via === 'assistant' ? 'assistant' : 'expand', prompt: out.prompt.trim(), settings: { ...by, method: out.method, dialog: 'expand' }, placement: { x: 0, y: 0, width: image.width, height: image.height } }, image);
   const nw = image.width,
     nh = image.height;
   // The generated layer covers the new area and fades into the old edge, so the

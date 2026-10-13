@@ -24,6 +24,7 @@ const storageKey = 'photo-studio-dock';
 // Icon strip sections, in order: panels of one kind sit together (until the
 // user drags them elsewhere) and each section is a labelled group.
 const stripSections: [string, string[]][] = [
+  ['Assist', ['assistant', 'generations']],
   ['History', ['history', 'actions', 'versions']],
   ['Inspect', ['navigator', 'info', 'histogram', 'measurement-log', 'notes']],
   ['Painting', ['brushes', 'brush-settings', 'tool-presets', 'clone-source']],

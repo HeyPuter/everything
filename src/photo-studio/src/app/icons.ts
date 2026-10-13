@@ -376,6 +376,10 @@ const custom: Record<string, Node[]> = {
   'straighten-horizontal': [['path', { d: 'M3 15l18-3', 'stroke-dasharray': '2 2.4' }], p('M3 7h18'), p('M12 14.5V10M10 11.5l2-1.8 2 1.8')],
   'straighten-both': [['path', { d: 'M6 4l14 2-2 14-14-2Z', 'stroke-dasharray': '2 2.4' }], ['rect', { x: 6, y: 6, width: 12, height: 12 }]],
   'protect-skin': [['circle', { cx: 12, cy: 7.5, r: 3.2 }], p('M5.5 20.5c0-4.2 2.9-6.5 6.5-6.5s6.5 2.3 6.5 6.5'), p('M3 3.5v4M21 3.5v4')],
+  // Assistant (original glyph): a speech bubble holding a four-point spark.
+  'assistant': [p('M5 3.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6.5L7 20.5v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z'), p('M12 6.5c.35 1.9 1.1 2.65 3 3-1.9.35-2.65 1.1-3 3-.35-1.9-1.1-2.65-3-3 1.9-.35 2.65-1.1 3-3Z')],
+  // Generation History (original glyph): stacked pictures, the front one with a spark.
+  'generation-history': [['rect', { x: 3, y: 7, width: 14, height: 14, rx: 2 }], p('M7 3.5h12a2 2 0 0 1 2 2v12'), p('m3.5 18.5 4-4 3 3 2-2 4 4'), p('M12.5 9c.2 1.05.65 1.5 1.7 1.7-1.05.2-1.5.65-1.7 1.7-.2-1.05-.65-1.5-1.7-1.7 1.05-.2 1.5-.65 1.7-1.7Z')],
 };
 const attrs = (a: Record<string, string | number>) =>
   Object.entries(a)

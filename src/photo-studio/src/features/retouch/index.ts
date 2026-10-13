@@ -69,8 +69,8 @@ export function installRetouch(e: Editor) {
     },
     { id: 'edit.context-fill', label: 'Context Fill…', description: 'Fill the selection with texture and structure from elsewhere in the image.', enabled: sel, ...lazyRun(contextFill, (m, e) => m.openContextFill(e)) },
     { id: 'edit.context-fill-apply', label: 'Context Fill', hidden: true, enabled: sel, ...lazyRun(contextFill, (m, e) => m.quickContextFill(e)) },
-    { id: 'edit.ai-fill', label: 'AI Fill…', description: 'Generate new content in the selection with Puter AI (needs a Puter account).', enabled: sel, ...lazyRun(ai, (m, e) => m.openAIFill(e)), recordable: false },
-    { id: 'edit.ai-expand', label: 'AI Expand…', description: 'Extend the canvas and generate the new area with Puter AI (needs a Puter account).', enabled: doc, ...lazyRun(ai, (m, e) => m.openAIExpand(e)), recordable: false },
+    { id: 'edit.ai-fill', label: 'AI Fill…', description: 'Generate new content in the selection with Puter AI (needs a Puter account).', enabled: sel, ...lazyRun(ai, (m, e, arg) => m.openAIFill(e, arg)), recordable: false },
+    { id: 'edit.ai-expand', label: 'AI Expand…', description: 'Extend the canvas and generate the new area with Puter AI (needs a Puter account).', enabled: doc, ...lazyRun(ai, (m, e, arg) => m.openAIExpand(e, arg)), recordable: false },
   );
   // Live previews of the Color Range and Focus Area dialogs.
   registerOverlay('color-range-preview', () => colorRange.loaded?.previewOverlay() ?? '');

@@ -23,6 +23,7 @@ import { withProgress } from '../retouch/client';
 import { givenParams, runJob, withTask } from './client';
 import { recordStep } from '../filters/record';
 import { maxPercent, upscaleSize } from './place';
+import { recordGeneration } from '../generations/record';
 import './assist.css';
 
 // The most detailed block of the image (sum of luma gradients on a coarse
@@ -69,7 +70,14 @@ export async function upscaleDialog(e: Editor, arg?: unknown) {
     if (!upscaleSize(W, H, percent).fits) return e.message(`Upscaling to ${percent}% would exceed 8192 pixels per side or 24 megapixels.`);
     return runUpscale(e, { percent, detail: num(given.detail, 0, 100, 50), ai: false });
   }
+  // Generation History's Reuse Settings opens the dialog with `{ prefill }`.
+  const pre = arg && typeof arg === 'object' ? (arg as { prefill?: Partial<Settings> }).prefill : undefined;
   const s: Settings = { ...remembered, percent: Math.min(remembered.percent, limit) };
+  if (pre && typeof pre === 'object') {
+    if (typeof pre.percent === 'number') s.percent = Math.round(num(pre.percent, 101, limit, s.percent));
+    if (typeof pre.detail === 'number') s.detail = num(pre.detail, 0, 100, s.detail);
+    if (typeof pre.ai === 'boolean') s.ai = pre.ai;
+  }
   const shell = openShell(e, 'Upscale');
   shell.dialog.classList.add('assist-wide');
   shell.preview.closest('label')!.hidden = true;
@@ -252,6 +260,7 @@ async function runUpscale(e: Editor, s: Settings, aiSource?: RGBA8) {
   if (ai instanceof Error) return e.message(`Upscaled to ${nw} × ${nh} px. The AI detail layer failed: ${ai.message}`);
   const l: Layer = newPixelLayer('AI Upscale (generative)', e.doc, gridFromImage(e.assets.tiles, ai.image));
   l.generated = { kind: 'upscale', prompt: 'Re-render at higher resolution', model: UPSCALE_MODEL };
+  void recordGeneration(e, { kind: 'upscale', prompt: 'Re-render at higher resolution', model: UPSCALE_MODEL, settings: { percent: s.percent, detail: s.detail, ai: true, dialog: 'upscale' }, placement: { x: 0, y: 0, width: nw, height: nh } }, ai.image);
   e.command('AI Upscale Layer', (d) => d.layers.push(l));
   e.selectLayers([l.id]);
   e.update();
