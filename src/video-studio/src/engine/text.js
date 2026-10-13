@@ -12,6 +12,8 @@
  */
 import { FONTS } from '../model/catalog.js';
 import { drawSticker, STICKER_SIZE, isAnimatedSticker, stickerColor } from './stickers.js';
+import { drawAvatar } from './avatars.js';
+import { poseKey } from './avatar-motion.js';
 import { caseOf, applyCase } from '../model/text-style.js';
 import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds } from './text-layout.js';
 import { glyphState, animKey, animMargin } from './text-anim.js';
@@ -415,6 +417,30 @@ export function rasterizeSticker(clip, scale, t = 0, reuse = null) {
   return { canvas, width: px, height: px, projW: STICKER_SIZE, projH: STICKER_SIZE };
 }
 
+/** Corner radius (project pixels) of an avatar shown smaller than the frame: a picture in picture. */
+export function avatarRadius(layer) {
+  return layer.scale < 0.95 ? Math.round(Math.min(layer.frameW, layer.frameH) * 0.05) : 0;
+}
+
+/**
+ * Draw an avatar layer (scene.js gives it frameW/H and a pose) at scale
+ * pixels per project pixel, reusing a canvas of the same size.
+ */
+export function rasterizeAvatar(layer, scale, reuse = null) {
+  const w = Math.max(2, Math.round(layer.frameW * scale));
+  const h = Math.max(2, Math.round(layer.frameH * scale));
+  const canvas = reuse && reuse.width === w && reuse.height === h ? reuse : makeCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, w, h);
+    drawAvatar(ctx, w, h, layer.clip.avatar, layer.pose, { radius: avatarRadius(layer) * scale });
+  }
+  return { canvas, width: w, height: h, projW: layer.frameW, projH: layer.frameH };
+}
+
+/** What an avatar raster depends on besides its pose. */
+const avatarLookKey = (a) => `${a.character}|${a.framing}|${a.background}|${a.bgColor}|${a.seed}`;
+
 /**
  * Cache of rasterized text/sticker layers keyed by clip id; redraws when the
  * content, reveal step, animation frame or resolution bucket changes, or
@@ -445,6 +471,7 @@ export class TextCache {
   /** Resolved texture info for a text or sticker layer. */
   get(layer, renderScale) {
     const clip = layer.clip;
+    if (clip.type === 'avatar') return this._avatar(layer, renderScale);
     // Render at the size it is shown, in steps so small scale changes reuse the raster.
     const shown = renderScale * Math.max(0.25, layer.scale);
     const bucket = Math.min(4, Math.max(0.25, 2 ** (Math.ceil(Math.log2(shown) * 2) / 2)));
@@ -467,6 +494,22 @@ export class TextCache {
         ? rasterizeText(clip, layer.reveal, bucket, false, { anim: layer.textAnim, color: layer.textColor })
         : rasterizeSticker(clip, bucket, frame / STICKER_ANIM_FPS, frame ? e?.canvas : null);
       e = { sig, base, version: (e?.version || 0) + 1, ...r };
+      this.entries.set(clip.id, e);
+    }
+    return { key: `txt:${clip.id}`, source: e.canvas, width: e.width, height: e.height, projW: e.projW, projH: e.projH, version: e.version };
+  }
+
+  _avatar(layer, renderScale) {
+    const clip = layer.clip;
+    const shown = renderScale * Math.max(0.1, layer.scale);
+    let k = Math.min(4, Math.max(0.1, 2 ** (Math.ceil(Math.log2(shown) * 2) / 2)));
+    k = Math.min(k, 4096 / Math.max(layer.frameW, layer.frameH));
+    const sig = `${avatarLookKey(clip.avatar)}|${poseKey(layer.pose)}|${k}|${avatarRadius(layer)}|${layer.frameW}x${layer.frameH}`;
+    let e = this.entries.get(clip.id);
+    if (!e || e.sig !== sig) {
+      // Poses change every frame while it talks: draw into the same canvas.
+      const r = rasterizeAvatar(layer, k, e?.canvas || null);
+      e = { sig, version: (e?.version || 0) + 1, ...r };
       this.entries.set(clip.id, e);
     }
     return { key: `txt:${clip.id}`, source: e.canvas, width: e.width, height: e.height, projW: e.projW, projH: e.projH, version: e.version };

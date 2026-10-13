@@ -465,6 +465,73 @@ void main() {
   vec3 col = mix(vec3(0.97, 0.955, 0.92), vec3(0.16, 0.16, 0.2), clamp(max(ink * 0.8, e), 0.0, 1.0));
   outColor = repre(mix(rgb, col, u_strength), c.a);
 }`,
+  'ink-sketch': `uniform float u_lines;
+float inkL(vec2 uv) { return luma(unpre(src(uv))); }
+void main() {
+  vec4 c = src(v_uv); vec3 rgb = unpre(c);
+  vec2 px = vec2(1.0 / aspect(), 1.0) * (0.0007 + u_lines * 0.0022);
+  // A fine and a wide blur of the light; where the fine one is darker there is a line.
+  float a = 0.0; float b = 0.0; float wa = 0.0; float wb = 0.0;
+  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+    vec2 o = vec2(float(i), float(j));
+    float l = inkL(v_uv + o * px);
+    float d = dot(o, o);
+    float ka = exp(-d / 1.1); float kb = exp(-d / 4.5);
+    a += l * ka; wa += ka; b += l * kb; wb += kb;
+  }
+  float dog = a / wa - b / wb;
+  float ink = smoothstep(0.004, 0.04, -dog);
+  float l = luma(rgb);
+  float wash = (1.0 - smoothstep(0.12, 0.5, l)) * 0.3 + (1.0 - smoothstep(0.02, 0.18, l)) * 0.3;
+  float grain = vnoise(v_uv * u_res * 0.4) * 0.05;
+  vec3 paper = vec3(0.97, 0.955, 0.92) - grain;
+  vec3 col = mix(paper, vec3(0.1, 0.1, 0.14), clamp(ink + wash, 0.0, 1.0));
+  outColor = repre(mix(rgb, col, u_strength), c.a);
+}`,
+  watercolor: `uniform float u_bleed;
+float wl(vec2 uv) { return luma(unpre(src(uv))); }
+void main() {
+  vec4 c = src(v_uv);
+  vec2 asp = vec2(1.0 / aspect(), 1.0);
+  // Water pushes the pigment around a little.
+  vec2 n = vec2(fbm(v_uv * 5.0), fbm(v_uv * 5.0 + 7.3)) - 0.5;
+  vec2 uv = v_uv + n * asp * 0.014 * (0.4 + u_bleed);
+  vec4 b = discBlur(uv, asp * (0.003 + u_bleed * 0.012));
+  vec3 rgb = unpre(b);
+  vec3 hsv = rgb2hsv(rgb);
+  // Soft steps of tone, like layered washes (hard steps would band smooth skies).
+  float q = hsv.z * 5.0; float qf = fract(q);
+  hsv.z = mix(hsv.z, (floor(q) + smoothstep(0.3, 0.7, qf)) / 5.0, 0.45);
+  hsv.y *= 0.88;
+  vec3 wash = hsv2rgb(hsv);
+  // Pigment gathers at the edges of each color area.
+  vec2 o = asp * 0.003;
+  float g = length(vec2(wl(uv + vec2(o.x, 0.0)) - wl(uv - vec2(o.x, 0.0)), wl(uv + vec2(0.0, o.y)) - wl(uv - vec2(0.0, o.y))));
+  wash *= 1.0 - smoothstep(0.03, 0.25, g) * 0.3;
+  // Blooms, paper tooth and a lighter, airy whole.
+  wash *= 1.0 - smoothstep(0.55, 0.85, fbm(v_uv * 3.0 + 2.0)) * 0.12;
+  float tooth = fbm(v_uv * u_res / 14.0);
+  wash = mix(wash, vec3(1.0), 0.14) * (0.93 + 0.07 * tooth);
+  outColor = repre(mix(unpre(c), wash, u_strength), c.a);
+}`,
+  'neon-edges': `uniform float u_hue;
+float nl(vec2 uv) { return luma(unpre(src(uv))); }
+float sob(vec2 o) {
+  float tl = nl(v_uv + o * vec2(-1.0, 1.0)), tc = nl(v_uv + o * vec2(0.0, 1.0)), tr = nl(v_uv + o * vec2(1.0, 1.0));
+  float ml = nl(v_uv - vec2(o.x, 0.0)), mr = nl(v_uv + vec2(o.x, 0.0));
+  float bl = nl(v_uv - o), bc = nl(v_uv - vec2(0.0, o.y)), br = nl(v_uv + o * vec2(1.0, -1.0));
+  return length(vec2(tr + 2.0 * mr + br - tl - 2.0 * ml - bl, tl + 2.0 * tc + tr - bl - 2.0 * bc - br));
+}
+void main() {
+  vec4 c = src(v_uv); vec3 rgb = unpre(c);
+  vec2 o = vec2(1.0 / aspect(), 1.0) * 0.0016;
+  float e1 = sob(o);
+  float e2 = sob(o * 3.5);
+  vec3 tint = hue2rgb(fract(u_hue / 360.0 + v_uv.x * 0.22 + v_uv.y * 0.12));
+  vec3 col = rgb * 0.1 + tint * (smoothstep(0.12, 0.5, e1) * 1.2 + smoothstep(0.08, 0.7, e2) * 0.45);
+  col += smoothstep(0.55, 1.0, e1) * 0.35;
+  outColor = repre(mix(rgb, col, u_strength), c.a);
+}`,
   thermal: `uniform float u_shift;
 vec3 heat(float x) {
   x = clamp(x, 0.0, 1.0);

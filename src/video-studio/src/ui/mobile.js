@@ -38,6 +38,7 @@ export const CATEGORIES = [
   { id: 'audio', label: 'Audio', icon: 'music' },
   { id: 'text', label: 'Text', icon: 'text' },
   { id: 'captions', label: 'Captions', icon: 'captions' },
+  { id: 'avatars', label: 'Avatars', icon: 'avatar' },
   { id: 'stickers', label: 'Graphics', icon: 'sticker' },
   { id: 'transitions', label: 'Transitions', icon: 'transition' },
   { id: 'effects', label: 'Effects', icon: 'effects' },

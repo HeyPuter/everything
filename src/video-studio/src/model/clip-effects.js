@@ -1,5 +1,5 @@
 /**
- * Per-clip effect stacks. Video, image, text and graphic clips may carry
+ * Per-clip effect stacks. Video, image, text, graphic and avatar clips may carry
  * clip.effects = [{ id, params, off? }] (at most MAX_CLIP_EFFECTS), applied in
  * order to that clip alone before it is placed on the canvas. Effects on an
  * effect track still work as before, on everything below them.
@@ -11,7 +11,7 @@ import { EFFECT_PARAMS, effectDefaults, normalizeEffectParams, clampEffectParam,
 
 export const MAX_CLIP_EFFECTS = 5;
 
-const FX_TYPES = new Set(['video', 'image', 'text', 'sticker']);
+const FX_TYPES = new Set(['video', 'image', 'text', 'sticker', 'avatar']);
 const ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
 /** Clip types that can carry their own effects. */

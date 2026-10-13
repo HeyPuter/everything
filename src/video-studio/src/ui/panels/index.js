@@ -1,6 +1,6 @@
 /**
  * Assets panel (top left): a row of category tabs (Media, Audio, Text,
- * Captions, Graphics, Transitions, Effects, Filters, Color, Templates)
+ * Captions, Avatars, Graphics, Transitions, Effects, Filters, Color, Templates)
  * over a sidebar of sub-categories and a grid of items. The tabs are
  * compact (icon over a short label) so they all fit a default-width panel;
  * when the panel is narrower the ones that don't fit go into a More menu.
@@ -20,12 +20,14 @@ import { filtersTab } from './filters.js';
 import { adjustTab } from './adjust.js';
 import { captionsTab } from './captions.js';
 import { templatesTab } from './templates.js';
+import { avatarsTab } from './avatars.js';
 
 export const ASSET_TABS = [
   { id: 'media', label: 'Media', icon: 'film', make: mediaTab },
   { id: 'audio', label: 'Audio', icon: 'music', make: audioTab },
   { id: 'text', label: 'Text', icon: 'text', make: textTab },
   { id: 'captions', label: 'Captions', icon: 'captions', make: captionsTab },
+  { id: 'avatars', label: 'Avatars', icon: 'avatar', make: avatarsTab },
   { id: 'stickers', label: 'Graphics', icon: 'sticker', make: stickersTab },
   { id: 'transitions', label: 'Transitions', icon: 'transition', make: transitionsTab },
   { id: 'effects', label: 'Effects', icon: 'effects', make: effectsTab },

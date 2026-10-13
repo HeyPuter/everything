@@ -1,6 +1,7 @@
 /**
  * Details panel (right): properties of the selection, with top tabs per
- * clip type (Video, Audio, Speed, Animation, Color; Text, Speech; ...), the
+ * clip type (Video, Audio, Speed, Animation, Effects, Style, Color; Text,
+ * Speech; Avatar; ...), the
  * selected transition, several clips, or the project when nothing is
  * selected.
  *
@@ -30,6 +31,8 @@ import { projectView } from './project.js';
 import { multiView } from './multi.js';
 import { compoundTab } from './compound.js';
 import { multicamTab } from './multicam.js';
+import { avatarTab } from './avatar.js';
+import { stylizeTab } from './stylize.js';
 import { angleTracks } from '../../model/multicam.js';
 import { maskEdit } from '../mask-edit-state.js';
 
@@ -48,6 +51,8 @@ const TABS = {
   filter: { label: 'Filter', make: filterClipTab },
   compound: { label: 'Compound', make: compoundTab },
   multicam: { label: 'Angles', make: multicamTab },
+  avatar: { label: 'Avatar', make: avatarTab },
+  stylize: { label: 'Style', make: stylizeTab },
 };
 
 /** Tab label; the audio clip's own tab reads Basic next to Voice and Speed. */
@@ -57,23 +62,25 @@ function tabLabel(id, type) {
   return TABS[id].label;
 }
 
-const TYPE_ICONS = { video: 'film', image: 'image', audio: 'music', text: 'text', sticker: 'sticker', effect: 'effects', filter: 'filters', adjust: 'adjust' };
+const TYPE_ICONS = { video: 'film', image: 'image', audio: 'music', text: 'text', sticker: 'sticker', avatar: 'avatar', effect: 'effects', filter: 'filters', adjust: 'adjust' };
 
 /** Top tabs for a clip: its own properties first, then timing, motion and color. */
 export function tabsFor(project, clip) {
   switch (clip.type) {
     case 'video': {
       const a = project.assets[clip.assetId];
-      return ['video', ...(a?.hasAudio ? ['audio'] : []), ...(clip.freeze ? [] : ['speed']), 'animation', 'clipfx', 'adjust'];
+      return ['video', ...(a?.hasAudio ? ['audio'] : []), ...(clip.freeze ? [] : ['speed']), 'animation', 'clipfx', 'stylize', 'adjust'];
     }
     case 'image':
-      return ['video', 'animation', 'clipfx', 'adjust'];
+      return ['video', 'animation', 'clipfx', 'stylize', 'adjust'];
     case 'audio':
       return ['audio', 'voice', 'speed'];
     case 'text':
       return ['text', 'animation', 'clipfx', 'speech'];
     case 'sticker':
       return ['sticker', 'animation', 'clipfx'];
+    case 'avatar':
+      return ['avatar', 'animation', 'clipfx'];
     case 'effect':
       return ['effect'];
     case 'filter':

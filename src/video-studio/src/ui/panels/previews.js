@@ -35,6 +35,7 @@ const W = 192;
 const H = 108;
 let shared = null;
 const cache = new Map();
+const stacks = new Map(); // key -> effect list, for 'stack' previews
 
 function sampleScene(warm) {
   const c = document.createElement('canvas');
@@ -154,6 +155,7 @@ function drawLook(ctx2d, kind, id, progress, time) {
   if (kind === 'transition') layers = [{ kind: 'transition', id, progress, from: mediaLayer('a'), to: mediaLayer('b') }];
   else if (kind === 'filter') layers = [mediaLayer('a', { filter: id ? { id, intensity: 100 } : null })];
   else if (kind === 'effect') layers = effectLayers(id, time);
+  else if (kind === 'stack') layers = [mediaLayer('p', { effects: stacks.get(id) || [], fxTime: time * 1e6, fxDur: 2e6 })];
   else layers = [mediaLayer('a')];
   e.comp.render(layers, { settings: { background: { type: 'color', color: '#000000' } }, time });
   ctx2d.drawImage(e.canvas, 0, 0);
@@ -222,6 +224,15 @@ export function lookPreview(kind, id, { progress = 0.5, time = 0.6, lazy = true 
   if (!lazy || cache.has(key)) drawLook(ctx2d, kind, id, progress, time);
   else deferDraw(out, () => drawLook(ctx2d, kind, id, progress, time));
   return out;
+}
+
+/**
+ * Preview of an effect list on the sample scene with a person, as a clip's
+ * own stack (style looks). key names the list for the cache.
+ */
+export function stackPreview(effects, key, opts) {
+  stacks.set(key, effects);
+  return lookPreview('stack', key, opts);
 }
 
 /**

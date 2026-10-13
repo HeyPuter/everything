@@ -95,6 +95,9 @@ export const EFFECT_PARAMS = {
   crosshatch: [strength(100, 'Amount'), pct('density', 'Density', 50)],
   thermal: [strength(100, 'Amount'), { key: 'shift', label: 'Palette shift', min: -50, max: 50, step: 1, unit: '', def: 0 }],
   'night-scope': [strength(100, 'Amount'), pct('noise', 'Noise', 40)],
+  'ink-sketch': [strength(100, 'Amount'), pct('lines', 'Line weight', 45)],
+  watercolor: [strength(100, 'Amount'), pct('bleed', 'Bleed', 50)],
+  'neon-edges': [strength(100, 'Glow'), degrees('hue', 'Hue', 290)],
   // Party
   disco: [strength(65), speed(50)],
   confetti: [strength(60, 'Amount'), speed(45)],

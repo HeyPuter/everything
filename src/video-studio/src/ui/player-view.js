@@ -530,7 +530,7 @@ export function createPlayerView(ctx) {
         for (const v of guides().h) y.push(v * s.height);
       }
       for (const l of evaluate(store.project, player.time).flatMap((q) => (q.kind === 'transition' ? [q.from, q.to] : [q]))) {
-        if (!['media', 'text', 'sticker'].includes(l.kind) || l.clip.id === movingId) continue;
+        if (!['media', 'text', 'sticker', 'avatar'].includes(l.kind) || l.clip.id === movingId) continue;
         const b = player.boxFor(l);
         if (!b) continue;
         const a = (l.rotation * Math.PI) / 180;
@@ -556,7 +556,7 @@ export function createPlayerView(ctx) {
     const layers = evaluate(store.project, player.time).flatMap((l) => (l.kind === 'transition' ? [l.from, l.to] : [l]));
     for (let i = layers.length - 1; i >= 0; i--) {
       const l = layers[i];
-      if (!['media', 'text', 'sticker'].includes(l.kind) || l.opacity <= 0.01) continue;
+      if (!['media', 'text', 'sticker', 'avatar'].includes(l.kind) || l.opacity <= 0.01) continue;
       const b = player.boxFor(l);
       if (!b) continue;
       const a = (-l.rotation * Math.PI) / 180;

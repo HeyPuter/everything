@@ -225,6 +225,10 @@
   background: var(--clip-sticker);
 }
 
+.tl-clip.type-avatar {
+  background: var(--clip-avatar);
+}
+
 .tl-clip.type-effect {
   background: var(--clip-effect);
 }
