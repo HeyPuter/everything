@@ -2,7 +2,7 @@
 
 .ix-pdf {
   display: grid;
-  grid-template-columns: 260px minmax(260px, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -95,4 +95,35 @@
     width: 100%;
     box-sizing: border-box;
   }
+}
+
+.dialog.ix-dialog {
+  width: 640px;
+  max-width: min(640px, calc(100vw - 24px));
+}
+
+.ix-dialog .form {
+  min-width: 0;
+}
+
+.ix-dialog select {
+  max-width: 100%;
+}
+
+.ix-dialog .form-row {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.ix-dialog .form-row select {
+  min-width: 0;
+  width: 100%;
+}
+
+.ix-dialog .radio-group {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.ix-dialog .radio {
+  white-space: nowrap;
 }
