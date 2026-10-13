@@ -27,8 +27,10 @@ const SETTLE_MS = 140;
  *   afterArt     [(ctx, editor, view, opts)] draw above the artwork in document space on full renders
  *                                           (previews such as pattern tile copies)
  *   dimIsolation [(editor) -> bool]         false skips fading the artwork outside isolation mode
+ *   postArt      [(ctx, editor, view) -> void] rework the finished art canvas in device pixels
+ *                                           (separation and proof previews)
  */
-export const viewHooks = { artOptions: [], clipArt: [], afterArt: [], dimIsolation: [] };
+export const viewHooks = { artOptions: [], clipArt: [], afterArt: [], dimIsolation: [], postArt: [] };
 
 /** The bleed area around an artboard (bleed: number or { top, bottom, left, right }), or null without bleed. */
 export function bleedRect(a, bleed) {
@@ -186,11 +188,13 @@ export class CanvasView {
     // unchanged artwork below and above them as bitmaps and redraw only the
     // objects in between: dragging stays cheap in very large documents.
     if (editor.dragPreview && !opts.pixelPreview && this.#drawDragPreview(editor.dragPreview)) {
+      this.#postArt();
       this.lastRenderMs = performance.now() - t0;
       return;
     }
     this.previewCache = null;
     if (doc.tx && this.slowScene && !opts.pixelPreview && this.#drawInteraction(doc.tx)) {
+      this.#postArt();
       this.lastRenderMs = performance.now() - t0;
       return;
     }
@@ -198,9 +202,18 @@ export class CanvasView {
     this.#paint(this.actx, { background: true, borders: true });
     if (editor.isolation && doc.has(editor.isolation) && viewHooks.dimIsolation.every((f) => f(editor) !== false)) this.#dimOutsideIsolation();
     if (opts.pixelPreview) drawPixelPreview(this.actx, this.art, view);
+    this.#postArt();
     this.lastRenderMs = performance.now() - t0;
     this.slowScene = this.lastRenderMs > 8;
     this.#captureSnapshot();
+  }
+
+  #postArt() {
+    for (const f of viewHooks.postArt) {
+      this.actx.save();
+      f(this.actx, this.editor, this.editor.view);
+      this.actx.restore();
+    }
   }
 
   /** Isolation mode: fade everything, then redraw the isolated group at full strength. */

@@ -38,6 +38,7 @@ import { install as installPatterns } from './features/patterns/index.js';
 import { install as installSlices } from './features/slices/index.js';
 import { install as installWorkspace } from './features/workspace/index.js';
 import { install as installLayers } from './features/layers/index.js';
+import { install as installPrepress } from './features/prepress/index.js';
 
 export function installFeatures(app) {
   installHome(app);
@@ -59,6 +60,8 @@ export function installFeatures(app) {
   installPatterns(app);
   installSlices(app);
   installWorkspace(app);
+  // After workspace: color-managed proofs extend its Proof Setup.
+  installPrepress(app);
   installType(app);
   // After type: paint regions chain onto the paint hooks type sets.
   installRegions(app);

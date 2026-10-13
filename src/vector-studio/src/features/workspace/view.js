@@ -15,15 +15,31 @@ import { startPresentation } from './presentation.js';
 
 // ---- proofing ----
 
-/** Color transforms for proofing, as SVG color matrices (rows of 5). */
+/**
+ * Proof setups. Each becomes a View > Proof Setup entry; its filter is an
+ * SVG color matrix (rows of 5) unless a feature module supplies the filter
+ * primitives with proofHooks.body (color-managed proofs built from the
+ * color settings). `label` may be a function of the app.
+ */
 export const PROOFS = {
   cmyk: { label: 'Working CMYK (approximate press)', space: 'sRGB' },
+  mac18: { label: 'Legacy Mac RGB (Gamma 1.8)', space: 'sRGB', needsHook: true },
+  srgb: { label: 'Internet Standard RGB (sRGB)', space: 'sRGB', needsHook: true },
+  monitor: { label: 'Monitor RGB', space: 'sRGB', needsHook: true },
   grayscale: { label: 'Grayscale', space: 'sRGB' },
   // Simulations of dichromacy at full severity (Machado, Oliveira and Fernandes, 2009), in linear RGB.
   protanopia: { label: 'Color Blindness: Protanopia', space: 'linearRGB', m: [0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216, -0.003882, -0.048116, 1.051998] },
   deuteranopia: { label: 'Color Blindness: Deuteranopia', space: 'linearRGB', m: [0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413, -0.01182, 0.04294, 0.968881] },
   tritanopia: { label: 'Color Blindness: Tritanopia', space: 'linearRGB', m: [1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602, 0.004733, 0.691367, 0.3039] },
+  // Set up with View > Proof Setup > Customize (no menu entry of its own).
+  custom: { label: 'Custom', space: 'sRGB', needsHook: true, menu: false },
 };
+
+/**
+ * proofHooks.body(kind) -> filter primitives markup (or null for the built-in filter)
+ * proofHooks.canvas(editor) -> true when the canvas proof is drawn by a canvas post-process instead
+ */
+export const proofHooks = { body: null, canvas: null };
 
 const matrixValues = (m) => [m[0], m[1], m[2], 0, 0, m[3], m[4], m[5], 0, 0, m[6], m[7], m[8], 0, 0, 0, 0, 0, 1, 0].map((v) => Number(v.toFixed(6))).join(' ');
 
@@ -31,37 +47,41 @@ const matrixValues = (m) => [m[0], m[1], m[2], 0, 0, m[3], m[4], m[5], 0, 0, m[6
 export function proofFilterMarkup(id, kind) {
   const p = PROOFS[kind];
   if (!p) return '';
-  let body;
+  let body = proofHooks.body?.(kind) || null;
+  if (body) return `<filter id="${id}" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">${body}</filter>`;
   if (kind === 'grayscale') body = '<feColorMatrix type="saturate" values="0"/>';
   else if (kind === 'cmyk') {
     // Press gamut: saturated colors pull in, paper white and solid black do not reach the screen's extremes.
     body = '<feColorMatrix type="saturate" values="0.8"/><feComponentTransfer><feFuncR type="linear" slope="0.9" intercept="0.045"/><feFuncG type="linear" slope="0.9" intercept="0.04"/><feFuncB type="linear" slope="0.88" intercept="0.035"/></feComponentTransfer>';
-  } else body = `<feColorMatrix type="matrix" values="${matrixValues(p.m)}"/>`;
+  } else if (p.m) body = `<feColorMatrix type="matrix" values="${matrixValues(p.m)}"/>`;
+  else body = '<feColorMatrix type="identity"/>';
   return `<filter id="${id}" color-interpolation-filters="${p.space}" x="0" y="0" width="100%" height="100%">${body}</filter>`;
 }
 
 let filtersHost = null;
 
-/** Install the proof filters once (an invisible SVG in the page). */
-export function ensureProofFilters() {
-  if (filtersHost?.isConnected) return;
-  filtersHost = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  filtersHost.setAttribute('aria-hidden', 'true');
-  filtersHost.setAttribute('width', '0');
-  filtersHost.setAttribute('height', '0');
-  filtersHost.style.position = 'absolute';
+/** Install the proof filters (an invisible SVG in the page); `refresh` rebuilds them after settings change. */
+export function ensureProofFilters(refresh = false) {
+  if (filtersHost?.isConnected && !refresh) return;
+  if (!filtersHost?.isConnected) {
+    filtersHost = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    filtersHost.setAttribute('aria-hidden', 'true');
+    filtersHost.setAttribute('width', '0');
+    filtersHost.setAttribute('height', '0');
+    filtersHost.style.position = 'absolute';
+    document.body.append(filtersHost);
+  }
   filtersHost.innerHTML = `<defs>${Object.keys(PROOFS).map((k) => proofFilterMarkup(`vs-proof-${k}`, k)).join('')}</defs>`;
-  document.body.append(filtersHost);
 }
 
 /** Apply the active editor's proof to its canvas and to the paint swatches in the panels. */
-export function applyProof(app) {
+export function applyProof(app, { refresh = false } = {}) {
   const ed = app.editor;
   const on = Boolean(ed?.viewOptions.proofColors);
   const kind = ed?.viewOptions.proof || 'cmyk';
-  if (on) ensureProofFilters();
+  if (on || refresh) ensureProofFilters(refresh);
   for (const [editor, view] of app.views) {
-    const vOn = editor.viewOptions.proofColors;
+    const vOn = editor.viewOptions.proofColors && !proofHooks.canvas?.(editor);
     view.art.style.filter = vOn ? `url(#vs-proof-${editor.viewOptions.proof || 'cmyk'})` : '';
   }
   app.root.classList.toggle('proof-colors', on);
@@ -375,10 +395,11 @@ export function installView(app) {
     toggle('view.trim', 'trim', 'Trim View'),
     toggle('view.overprint', 'overprint', 'Overprint Preview', 'Alt+Shift+Mod+Y'),
     { id: 'view.presentation', label: 'Presentation Mode', enabled: (a) => Boolean(a.editor?.doc.artboards.length), run: () => startPresentation(app, ed()) },
-    ...Object.entries(PROOFS).map(([k, p]) => ({
+    ...Object.entries(PROOFS).filter(([, p]) => p.menu !== false).map(([k, p]) => ({
       id: `view.proof.${k}`,
-      label: p.label,
-      enabled: hasDoc,
+      label: (a) => (typeof p.label === 'function' ? p.label(a) : p.label),
+      // RGB device proofs need the color management module.
+      enabled: (a) => hasDoc(a) && (!p.needsHook || Boolean(proofHooks.body)),
       checked: (a) => (a.editor?.viewOptions.proof || 'cmyk') === k,
       run: () => {
         // Choosing a proof turns proofing on, so the choice shows right away.

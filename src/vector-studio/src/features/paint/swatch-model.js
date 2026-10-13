@@ -1,8 +1,9 @@
 /**
  * Swatch storage and global swatches.
  *
- * doc.root.swatches is a flat list of { id, name, paint, global?, mode?,
- * group? } (group = id of a color group). Color groups live in
+ * doc.root.swatches is a flat list of { id, name, paint, global?, spot?,
+ * mode?, group? } (group = id of a color group; spot = a spot ink, which
+ * is global too). Color groups live in
  * doc.root.swatchGroups as [{ id, name }]; the Swatches panel lists
  * ungrouped swatches first, then each group as a folder row followed by its
  * swatches. Keeping swatches flat means simple consumers (the fill/stroke
