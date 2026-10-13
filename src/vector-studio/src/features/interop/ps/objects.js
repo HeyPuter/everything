@@ -116,12 +116,22 @@ export class PSOp {
 
 export const MARK = { mark: true };
 
-/** A readable file: the program itself (currentfile) or decoded filter data. */
+/**
+ * A readable file: the program itself (currentfile) or decoded filter
+ * data. Filter data is produced on first read (`source` may be a function
+ * returning { bytes, pos, end }), since a filter is usually created before
+ * the data it reads appears in the program.
+ */
 export class PSFile {
   constructor(source) {
-    // source: a Scanner (currentfile) or { bytes, pos } (filter output).
-    this.source = source;
+    this.lazy = typeof source === 'function' ? source : null;
+    this.src = this.lazy ? null : source;
     this.exec = false;
+  }
+
+  get source() {
+    if (!this.src) this.src = this.lazy();
+    return this.src;
   }
 
   /** Read one byte (-1 at the end). */

@@ -1529,6 +1529,18 @@ export class PSInterpreter {
 
   paint(fill, stroke, evenOdd) {
     const subs = this.gs.path.filter((s) => s.anchors.length >= 2);
+    const key = subs.length ? JSON.stringify(subs) : '';
+    // "gsave fill grestore stroke": stroking the path just filled gives that object a stroke.
+    const last = this.lastFill;
+    this.lastFill = null;
+    if (stroke && !fill && last && last.key === key && last.wraps === this.gs.wraps && this.out.nodes.has(last.id)) {
+      const n = this.out.nodes.get(last.id);
+      const st = this.paintOf(this.gs.color);
+      if (st) this.out.nodes.set(last.id, { ...n, stroke: st, ...this.strokeStyle() });
+      this.gs.path = [];
+      this.gs.cur = null;
+      return;
+    }
     if (subs.length) {
       const style = { fill: fill ? this.paintOf(this.gs.color) : null, stroke: stroke ? this.paintOf(this.gs.color) : null, ...this.strokeStyle() };
       if (!stroke) style.strokeWidth = 1;
@@ -1541,6 +1553,7 @@ export class PSInterpreter {
         }
         this.out.add(node);
         this.out.push(node.id, this.gs.wraps);
+        if (fill && !stroke) this.lastFill = { id: node.id, key, wraps: this.gs.wraps };
       }
     }
     this.gs.path = [];
@@ -1554,6 +1567,7 @@ export class PSInterpreter {
   }
 
   shfill(sh) {
+    this.lastFill = null;
     const paint = shadingToPaint(null, toPDF(sh), this.gs.ctm, 1, (m) => this.warn(m));
     if (!paint) return;
     const clip = this.gs.clipPath || this.pageRect();
@@ -1569,6 +1583,7 @@ export class PSInterpreter {
   // ---- text ----
 
   show(str, { ax = 0, ay = 0, cx = 0, cy = 0, ch = -1, widths = null, mode = null } = {}) {
+    this.lastFill = null;
     if (!(str instanceof PSString)) throw new PSError('typecheck', 'show');
     if (!this.gs.cur) throw new PSError('nocurrentpoint', 'show');
     const font = this.gs.font || this.defaultFont();
@@ -1668,6 +1683,7 @@ export class PSInterpreter {
   }
 
   image(kind) {
+    this.lastFill = null;
     let width;
     let height;
     let bpc;
@@ -1715,6 +1731,18 @@ export class PSInterpreter {
       colorSpace = { space: 'gray', comps: [] };
     }
     if (!(width > 0) || !(height > 0) || width * height > 5e7) throw new PSError('rangecheck', 'image');
+    if (sources.length === 1 && sources[0] instanceof PSFile && sources[0].jpeg && kind !== 'imagemask') {
+      // JPEG data: keep it as a JPEG image.
+      const src = sources[0].source;
+      const bytes = src.bytes.subarray(src.pos, src.end);
+      src.pos = src.end;
+      const id = uid('img');
+      this.images.push({ id, img: { kind: 'jpeg', width, height, bytes: bytes.slice() } });
+      const node = createImage(id, width, height, multiply(this.gs.ctm, invert(matrix)));
+      this.out.add(node);
+      this.out.push(node.id, this.gs.wraps);
+      return;
+    }
     const rowBytes = Math.ceil((width * (multi ? 1 : ncomp) * bpc) / 8);
     const planes = sources.map((s) => this.readAll(this.dataSource(s), rowBytes * height));
     const data = new Uint8ClampedArray(width * height * 4);
@@ -1758,7 +1786,7 @@ export class PSInterpreter {
     this.out.push(node.id, this.gs.wraps);
   }
 
-  /** The `filter` operator: decode data from a file or string source into a new file. */
+  /** The `filter` operator: a file that decodes data from a file, string or procedure source when first read. */
   filter() {
     const name = this.pop();
     const fname = name instanceof PSName ? name.name : '';
@@ -1769,21 +1797,30 @@ export class PSInterpreter {
       src = this.pop();
     }
     if (fname === 'SubFileDecode') {
-      // EODCount EODString
+      // source EODCount EODString /SubFileDecode
       const eodString = src instanceof PSString ? src.text() : '';
-      const eodCount = typeof params === 'number' ? params : this.pop();
-      src = this.pop();
-      void eodCount;
-      const raw = this.rawFrom(src, eodString);
-      this.push(new PSFile({ bytes: raw, pos: 0, end: raw.length }));
+      this.pop();
+      const from = this.pop();
+      this.push(new PSFile(() => {
+        const raw = this.rawFrom(from, eodString || null);
+        return { bytes: raw, pos: 0, end: raw.length };
+      }));
       return;
     }
-    const raw = this.rawFrom(src, fname === 'ASCII85Decode' ? '~>' : fname === 'ASCIIHexDecode' ? '>' : null);
-    let out;
+    void params;
+    const file = new PSFile(() => {
+      const raw = this.rawFrom(src, fname === 'ASCII85Decode' ? '~>' : fname === 'ASCIIHexDecode' ? '>' : null);
+      const out = this.decodeFilter(fname, raw);
+      return { bytes: out, pos: 0, end: out.length };
+    });
+    if (fname === 'DCTDecode') file.jpeg = true;
+    this.push(file);
+  }
+
+  decodeFilter(fname, raw) {
     switch (fname) {
       case 'ASCII85Decode':
-        out = decodeA85(raw);
-        break;
+        return decodeA85(raw);
       case 'ASCIIHexDecode': {
         const tmp = [];
         let hi = -1;
@@ -1796,8 +1833,8 @@ export class PSInterpreter {
             hi = -1;
           }
         }
-        out = Uint8Array.from(tmp);
-        break;
+        if (hi >= 0) tmp.push(hi << 4);
+        return Uint8Array.from(tmp);
       }
       case 'RunLengthDecode': {
         const tmp = [];
@@ -1810,24 +1847,16 @@ export class PSInterpreter {
             for (let k = 0; k < 257 - n; k++) tmp.push(v);
           }
         }
-        out = Uint8Array.from(tmp);
-        break;
+        return Uint8Array.from(tmp);
       }
       case 'FlateDecode':
-        out = inflate(raw);
-        break;
+        return inflate(raw);
       case 'LZWDecode':
-        out = lzwDecode(raw, 1);
-        break;
-      case 'DCTDecode':
-        this.warn('JPEG-compressed images in PostScript were skipped.');
-        out = new Uint8Array(0);
-        break;
-      case 'NullEncode':
+        return lzwDecode(raw, 1);
       default:
-        out = raw;
+        // DCTDecode data stays JPEG (images pass it to the browser); NullEncode and others pass through.
+        return raw;
     }
-    this.push(new PSFile({ bytes: out, pos: 0, end: out.length }));
   }
 
   /** All bytes a source can deliver (up to an end-of-data marker for currentfile). */

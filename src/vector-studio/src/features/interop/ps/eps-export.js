@@ -537,15 +537,22 @@ function isGray(rgba) {
  */
 export async function writeEPS(doc, opts = {}) {
   const rect = opts.rect;
-  const { bytes, warnings: pdfWarnings } = await writePDF(doc, [rect], { ids: opts.ids || null, outlines: opts.outlines, outlinesWanted: Boolean(opts.outlines), title: opts.title, compress: false });
+  const { bytes, warnings } = await writePDF(doc, [rect], { ids: opts.ids || null, outlines: opts.outlines, outlinesWanted: Boolean(opts.outlines), title: opts.title, compress: false });
+  const out = pdfToPostScript(bytes, { ...opts, title: opts.title || doc.name });
+  return { ...out, warnings: [...warnings, ...out.warnings] };
+}
+
+/** EPS text for the first page of a PDF file (see writeEPS for options). */
+export function pdfToPostScript(bytes, opts = {}) {
   const pdf = new PDFDocument(bytes);
   const page = pdf.pages[0];
   const t = new Translator(pdf, opts);
   t.run(page.contents(), page.resources);
-  const W = page.mediaBox.w;
-  const H = page.mediaBox.h;
+  const box = page.mediaBox;
+  const W = box.w;
+  const H = box.h;
   const date = new Date().toISOString();
-  const title = String(opts.title || doc.name || 'Untitled').replace(/[\r\n()]/g, ' ');
+  const title = String(opts.title || 'Untitled').replace(/[\r\n()]/g, ' ');
   const level = t.level;
   const header = [
     '%!PS-Adobe-3.0 EPSF-3.0',
@@ -565,10 +572,11 @@ export async function writeEPS(doc, opts = {}) {
     '%%EndSetup',
     '%%Page: 1 1',
     'save VSdict begin /VSpage matrix currentmatrix def',
+    ...(box.x || box.y ? [`${num(-box.x)} ${num(-box.y)} translate`] : []),
   ];
   const text = `${header.join('\n')}\n${t.out.join('\n')}\nend restore\nshowpage\n%%Trailer\n%%EOF\n`;
   // Keep the file 7-bit clean.
-  return { text: text.replace(/[^\x09\x0a\x0d\x20-\x7e]/g, '?'), warnings: [...pdfWarnings, ...t.warnings], width: W, height: H };
+  return { text: text.replace(/[^\x09\x0a\x0d\x20-\x7e]/g, '?'), warnings: [...t.warnings], width: W, height: H };
 }
 
 /** Wrap PostScript and a TIFF preview in a binary (DOS) EPS header. */
