@@ -51,8 +51,9 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function rowHeightsOf(engine, table) {
     const heights = table.rows.map(() => 0), byRow = new Map(table.rows.map((row, i) => [row.id, i]));
     const perPage = new Map();
+    const owners = verticalMerges(table);
     for (const cell of engine.selectionLayout?.cells || []) {
-      if (cell.tableId !== table.id || (cell.rowSpan ?? 1) !== 1) continue;
+      if (cell.tableId !== table.id || (owners.get(cell.id)?.cells.length ?? 2) !== 1) continue;
       const key = `${cell.rowId}:${cell.page}`;
       perPage.set(key, Math.max(perPage.get(key) || 0, cell.height));
     }

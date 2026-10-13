@@ -9,6 +9,7 @@ import * as T from '../engine/table-editing.js';
 import { locate as locateParagraph } from '../engine/model.js';
 import { wholeRows, wholeColumns } from '../engine/table-selection.js';
 import { caretRect } from '../engine/layout.js';
+import { rowGrid, verticalMerges, cellContext } from '../engine/tables.js';
 
 const NEAR = 4, HANDLE = 11, GUTTER = 20;
 const inches = twips => `${(twips / 1440).toFixed(2)} in`;
@@ -26,21 +27,39 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     return { page: Number(canvas.dataset.page), x: (e.clientX - r.left) / engine.zoom, y: (e.clientY - r.top) / engine.zoom };
   }
   /** Each table's frame on a page: edges, grid lines and row lines (page units). */
+  // Grid positions of each table's cells, from the model (laid-out cells carry geometry only).
+  // Every edit lays the document out again, so a layout's cells and the model's grid agree.
+  let gridCache = { layout: null, map: new Map() };
+  function gridOf(table) {
+    if (gridCache.layout !== engine.selectionLayout) gridCache = { layout: engine.selectionLayout, map: new Map() };
+    let map = gridCache.map.get(table);
+    if (!map) {
+      map = new Map();
+      const owners = verticalMerges(table);
+      table.rows.forEach((row, rowIndex) => { for (const { cell, column, span } of rowGrid(row)) { const owner = owners.get(cell.id); map.set(cell.id, { column, span, rowIndex, rowSpan: owner.cell === cell ? owner.endRow - owner.rowIndex + 1 : 0 }); } });
+      gridCache.map.set(table, map);
+    }
+    return map;
+  }
+  const depthOf = table => { let depth = 1; for (let t = table; t.parentCellId; depth++) { try { t = cellContext(engine.model.tables, t.parentCellId).table; } catch { break; } } return depth; };
   function frames(page) {
     const byTable = new Map();
-    for (const cell of engine.selectionLayout?.cells || []) {
-      if (cell.page !== page || cell.floatingTable) continue;
-      const table = engine.model.tables.find(t => t.id === cell.tableId);
-      if (!table) continue;
+    for (const box of engine.selectionLayout?.cells || []) {
+      if (box.page !== page) continue;
+      const table = engine.model.tables.find(t => t.id === box.tableId);
+      if (!table || table.floating) continue;
+      const place = gridOf(table).get(box.id);
+      if (!place) continue;
+      const cell = { ...box, column: place.column, span: place.span, rowSpan: place.rowSpan };
       let f = byTable.get(table.id);
-      if (!f) byTable.set(table.id, f = { table, page, depth: cell.depth || 1, left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity, columns: new Map(), rows: new Map(), cells: [] });
+      if (!f) byTable.set(table.id, f = { table, page, depth: depthOf(table), left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity, columns: new Map(), rows: new Map(), cells: [] });
       f.cells.push(cell);
       f.left = Math.min(f.left, cell.x); f.right = Math.max(f.right, cell.x + cell.width);
       f.top = Math.min(f.top, cell.y); f.bottom = Math.max(f.bottom, cell.y + cell.height);
       const span = cell.span ?? 1;
       if (!f.columns.has(cell.column)) f.columns.set(cell.column, cell.x);
       if (!f.columns.has(cell.column + span)) f.columns.set(cell.column + span, cell.x + cell.width);
-      const index = table.rows.findIndex(row => row.id === cell.rowId);
+      const index = place.rowIndex;
       const row = f.rows.get(index) || { index, top: Infinity, bottom: -Infinity };
       row.top = Math.min(row.top, cell.y);
       if ((cell.rowSpan ?? 1) === 1) row.bottom = Math.max(row.bottom, cell.y + cell.height);
@@ -169,7 +188,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     const d = drag; drag = null;
     if (!d) return;
     const at = point(e) || d.last;
-    const table = d.frame.table;
+    const table = d.frame?.table;
     if (d.kind === 'column' && d.moved) commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' }));
     else if (d.kind === 'row' && d.moved) commit(m => T.setRowsHeight(m, [table.rows[d.row]], d.height, 'atLeast'));
     else if (d.kind === 'resize' && d.moved) commit(m => {

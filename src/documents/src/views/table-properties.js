@@ -33,7 +33,7 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
   const wrap = select('Text wrapping', [['none', 'None'], ['around', 'Around']], context.wrap || (table.floating ? 'around' : 'none'));
   if (table.parentCellId || context.wrap === undefined) wrap.disabled = true;
   const margins = context.margins || table.margins || {};
-  const margin = side => el('input.input', { type: 'number', step: 0.01, min: 0, max: 22, required: true, value: decimal((margins[side] || 0) / 1440), 'aria-label': `Default ${side} cell margin (in)` });
+  const margin = side => el('input.input', { type: 'number', step: 'any', min: 0, max: 22, required: true, value: decimal((margins[side] || 0) / 1440), 'aria-label': `Default ${side} cell margin (in)` });
   const marginInputs = Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side => [side, margin(side)]));
   const marginOriginal = JSON.stringify(Object.values(marginInputs).map(i => i.value));
 
