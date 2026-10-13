@@ -110,7 +110,9 @@ export function openExportDialog(ctx) {
   const selection = store.selectedIds || [];
   const saved = prefs().exportSettings || {};
   let caps = null;
-  let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, name: full.name };
+  // With several timelines the file is named after the project and the timeline.
+  const multi = (ctx.timelines?.list().length || 0) > 1;
+  let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, name: multi ? `${full.name} - ${ctx.timelines.active().name}` : full.name };
   // The in/out range is the natural default whenever one is set.
   if (full.range) s.scope = 'range';
   else if (s.scope === 'range' || (s.scope === 'selection' && !selection.length)) s.scope = 'all';
@@ -198,6 +200,15 @@ export function openExportDialog(ctx) {
   });
   scope.row.hidden = scopeOptions.length < 2;
 
+  // Projects with several timelines export the open one; picking another opens it.
+  const timelines = ctx.timelines?.list() || [];
+  const timelineSel = select('Timeline', timelines.map((t) => ({ value: t.id, label: t.name })), timelines.find((t) => t.active)?.id, (id) => {
+    dlg.close();
+    ctx.timelines.open(id);
+    ctx.openExport();
+  });
+  timelineSel.row.hidden = timelines.length < 2;
+
   const res = select('Resolution', RESOLUTIONS, s.resolution, (v) => {
     s.resolution = Number(v);
     refreshCaps();
@@ -277,7 +288,7 @@ export function openExportDialog(ctx) {
   }, [h('p.export-hint', 'Saves the captions as a subtitle file next to the video.')]);
   capSection.el.hidden = !hasCaptions;
 
-  const form = h('form.export-form', { novalidate: true }, nameRow, destRow, scope.row, videoSection.el, audioSection.el, gifSection.el, capSection.el);
+  const form = h('form.export-form', { novalidate: true }, nameRow, destRow, timelineSel.row, scope.row, videoSection.el, audioSection.el, gifSection.el, capSection.el);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     start();

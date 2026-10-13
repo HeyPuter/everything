@@ -66,4 +66,31 @@ describe('export dialog', () => {
     expect(btn2.disabled).toBe(true);
     d2.close();
   });
+
+  it('picks which timeline to export when the project has several', async () => {
+    const { ensureTimelines, addTimeline } = await import('../src/model/timelines.js');
+    const p = createProject({ name: 'Trip' });
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 2 * US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    ensureTimelines(p);
+    const short = addTimeline(p, { name: 'Short' });
+    const opened = [];
+    const ctx = ctxWith(p);
+    ctx.timelines = {
+      list: () => p.timelines.map((t) => ({ id: t.id, name: t.name, active: t.id === p.timelineId })),
+      active: () => ({ id: p.timelineId, name: 'Timeline 1' }),
+      open: (id) => opened.push(id),
+    };
+    ctx.openExport = vi.fn();
+    const d = openExportDialog(ctx);
+    await flush();
+    expect(d.el.querySelector('input[type=text]').value).toBe('Trip - Timeline 1');
+    const sel = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.textContent === 'Short'));
+    expect(sel.closest('.export-row').hidden).toBe(false);
+    sel.value = short;
+    sel.dispatchEvent(new Event('change'));
+    expect(opened).toEqual([short]);
+    expect(ctx.openExport).toHaveBeenCalled();
+    expect(d.el.isConnected).toBe(false);
+  });
 });

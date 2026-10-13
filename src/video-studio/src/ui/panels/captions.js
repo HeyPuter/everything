@@ -249,7 +249,9 @@ function listPanel(ctx, opts) {
     aiAvailable(ctx) ? { label: 'Highlight key words with AI', icon: 'magic', onSelect: () => highlightKeywords(ctx, { ai: true }) } : null,
     { label: 'Clear highlights', icon: 'close', onSelect: () => clearHighlights(ctx) },
   ].filter(Boolean), { label: 'Highlight words' }));
-  const el = h('div.cap-list-panel', h('div.cap-list-tools', addBtn, markBtn, readBtn, aiBtn), body);
+  const findBtn = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Find and replace', 'data-tip': 'Find and replace' }, icon('search', 14));
+  findBtn.addEventListener('click', () => import('../find-replace.js').then((m) => m.openFindReplace(ctx)));
+  const el = h('div.cap-list-panel', h('div.cap-list-tools', addBtn, markBtn, readBtn, aiBtn, findBtn), body);
   let sig = '';
   let rows = new Map(); // clip id -> { row, text, time }
 

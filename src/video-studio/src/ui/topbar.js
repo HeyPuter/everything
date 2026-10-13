@@ -112,6 +112,7 @@ export function createTopbar(ctx) {
       cmd('undo', { icon: 'undo', label: store.history.canUndo() ? `Undo ${store.history.undoLabel}` : 'Undo' }),
       cmd('redo', { icon: 'redo', label: store.history.canRedo() ? `Redo ${store.history.redoLabel}` : 'Redo' }),
       cmd('history', { icon: 'clock', label: 'History' }),
+      cmd('findReplace', { icon: 'search', label: 'Find and replace...' }),
       'separator',
       cmd('cut', { icon: 'scissors' }),
       cmd('copy', { icon: 'copy' }),

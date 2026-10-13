@@ -58,6 +58,7 @@ export function createCommands(ctx) {
     { id: 'paste', label: 'Paste', group: 'Editing', keys: ['Mod+V'], run: () => actions.paste(), enabled: () => actions.hasClipboard() },
     { id: 'duplicate', label: 'Duplicate', group: 'Editing', keys: ['Mod+D'], run: () => actions.duplicate(), enabled: hasSel },
     { id: 'selectAll', label: 'Select all', group: 'Editing', keys: ['Mod+A'], run: () => actions.selectAll() },
+    { id: 'findReplace', label: 'Find and replace text', group: 'Editing', keys: ['Mod+F'], run: () => import('./find-replace.js').then((m) => m.openFindReplace(ctx)) },
     { id: 'deselect', label: 'Deselect', group: 'Editing', keys: ['Escape'], run: () => store.clearSelection() },
     { id: 'freeze', label: 'Freeze frame', group: 'Editing', keys: ['Alt+F'], run: () => actions.freeze() },
     { id: 'detachAudio', label: 'Detach audio', group: 'Editing', keys: ['Alt+D'], run: () => actions.detachAudio() },
