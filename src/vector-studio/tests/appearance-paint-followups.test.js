@@ -120,8 +120,9 @@ describe('PDF export of freeform fills and opacity masks', () => {
     const s = latin1(bytes);
     expect(s).toMatch(/\/Subtype \/Image \/Width 256 \/Height \d+/);
     expect(s).toMatch(/W n\n[-\d. ]+ cm\n\/Im\d+ Do/);
-    // The stroke falls back to the average color.
-    expect(s).toMatch(/ RG\n/);
+    // The stroke paints with a tiling pattern holding the blend.
+    expect(s).toMatch(/\/Pattern CS \/P\d+ SCN\n/);
+    expect(s).toMatch(/\/PatternType 1 \/PaintType 1 \/TilingType 1/);
   });
 
   it('writes opacity masks as luminosity soft masks', async () => {

@@ -13,7 +13,8 @@
  *   the shading inside a clip; strokes use a shading pattern). Stop opacity
  *   is approximated by the average stop opacity.
  * - Freeform gradients: fills draw the blend as an image inside the shape
- *   (turned with the object); strokes and type use the average color.
+ *   (turned with the object); strokes and type paint with a tiling pattern
+ *   holding the same image.
  * - Opacity masks: a luminosity soft mask (SMask) made from the mask art,
  *   applied to the object drawn as a transparency group.
  * - Clip groups: the clipping path as a clip (W / W*).
@@ -410,6 +411,42 @@ class PDFRenderer {
     return { id, m: multiply(frameFractionMatrix(f), [1, 0, 0, -1, 0, 1]) };
   }
 
+  /**
+   * A freeform gradient as a colored tiling pattern (one tile holding the
+   * blend over the node's frame, grown by `pad` for strokes), for paint that
+   * cannot clip an image: strokes and type. Returns the pattern's object id,
+   * or null without a frame.
+   */
+  freeformPattern(ctx, paint, node, pad = 0) {
+    const f = freeformFrame(this.doc, node);
+    if (!f) return null;
+    const pu = Math.max(0, pad) / f.w;
+    const pv = Math.max(0, pad) / f.h;
+    const aspect = (f.w * (1 + 2 * pu)) / (f.h * (1 + 2 * pv));
+    // Image space (unit square, first row at the top) -> padded frame fractions -> document -> pattern space.
+    const m = multiply(ctx.patternBase, multiply(frameFractionMatrix(f), multiply([1 + 2 * pu, 0, 0, 1 + 2 * pv, -pu, -pv], [1, 0, 0, -1, 0, 1])));
+    const key = `${(f.w / f.h).toFixed(4)}|${pu.toFixed(4)}|${pv.toFixed(4)}|${m.map((v) => this.f(v)).join(' ')}`;
+    this.freeformPatterns ||= new WeakMap();
+    const cache = this.freeformPatterns.get(paint) || new Map();
+    this.freeformPatterns.set(paint, cache);
+    if (cache.has(key)) return cache.get(key);
+    const k = Math.sqrt(aspect);
+    const w = Math.max(8, Math.round(256 * Math.min(1, k)));
+    const h = Math.max(8, Math.round(256 * Math.min(1, 1 / k)));
+    const img = this.pixelsXObject({ width: w, height: h, data: freeformPixels(paint, w, h, f.w / f.h, [-pu, -pv, 1 + pu, 1 + pv]) });
+    // Tiles far apart: the one tile covers everything the paint reaches.
+    const id = this.w.addStream(`/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] /XStep 8 /YStep 8 /Matrix [${m.map((v) => this.f(v)).join(' ')}] /Resources << /XObject << /Im1 ${img} 0 R >> >>`, '/Im1 Do\n');
+    cache.set(key, id);
+    return id;
+  }
+
+  /** Color operators for a freeform paint on strokes and type: its pattern, else its average color. */
+  freeformOps(ctx, paint, node, stroke = false, pad = 0) {
+    const pat = this.freeformPattern(ctx, paint, node, pad);
+    if (!pat) return this.colorOps(ctx.res, averageColor(paint), stroke);
+    return `/Pattern ${stroke ? 'CS' : 'cs'} /${ctx.res.name(ctx.res.pattern, 'P', pat)} ${stroke ? 'SCN' : 'scn'}`;
+  }
+
   helvetica(char) {
     const bold = (char.fontWeight || 400) >= 600;
     const italic = char.fontStyle === 'italic';
@@ -532,8 +569,6 @@ class PDFRenderer {
     const res = ctx.res;
     const path = this.pathOps(subpaths);
     if (!path) return;
-    // A stroke cannot clip an image: freeform strokes take their average color.
-    if (stroke?.type === 'freeform') stroke = { type: 'solid', color: averageColor(stroke) };
     const op = node.opacity ?? 1;
     const fa = op * this.paintAlpha(fill);
     const sa = op * this.paintAlpha(stroke);
@@ -553,6 +588,8 @@ class PDFRenderer {
     };
     const strokeColor = () => {
       if (stroke.type === 'solid') return `${this.colorOps(res, stroke, true)}\n`;
+      // A stroke cannot clip an image: freeform strokes paint with a pattern of the blend.
+      if (stroke.type === 'freeform') return `${this.freeformOps(ctx, stroke, node, true, node.strokeWidth || 0)}\n`;
       const sh = this.shadingFor(stroke, node);
       const m = sh.frame ? multiply(ctx.patternBase, sh.frame) : ctx.patternBase;
       const pat = this.w.add(`<< /Type /Pattern /PatternType 2 /Shading ${sh.id} 0 R /Matrix [${m.map((v) => this.f(v)).join(' ')}] >>`);
@@ -577,6 +614,7 @@ class PDFRenderer {
     if (arrows.length && stroke) {
       const ap = this.pathOps(arrows);
       if (stroke.type === 'solid') out += `${this.colorOps(res, stroke)}\n${ap}f\n`;
+      else if (stroke.type === 'freeform') out += `${this.freeformOps(ctx, stroke, node, false, node.strokeWidth || 0)}\n${ap}f\n`;
       else out += `q\n${ap}W n\n${this.shadeOps(res, stroke, node)}Q\n`;
     }
     out += 'Q\n';
@@ -646,7 +684,9 @@ class PDFRenderer {
     const res = ctx.res;
     const { mode, items } = textPieces(node);
     if (!items.length) return;
-    const solid = (p) => (p ? (p.type === 'solid' ? p : p.type === 'freeform' ? averageColor(p) : [...(p.stops || [])].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
+    const solid = (p) => (p ? (p.type === 'solid' ? p : [...(p.stops || [])].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
+    // Freeform paints fill and stroke the glyphs with a pattern of the blend over the type's frame.
+    const ops = (p, stroke, pad = 0) => (p.type === 'freeform' ? this.freeformOps(ctx, p, node, stroke, pad) : this.colorOps(res, solid(p), stroke));
     const op = node.opacity ?? 1;
     const m = node.transform;
     let out = `q\n${m.map((v) => this.f(v)).join(' ')} cm\n`;
@@ -659,8 +699,8 @@ class PDFRenderer {
       const gs = this.extGState(op * this.paintAlpha(fill), op * this.paintAlpha(stroke), node.blendMode, node);
       out += 'q\n';
       if (gs) out += `/${res.name(res.ext, 'GS', gs)} gs\n`;
-      if (fill) out += `${this.colorOps(res, solid(fill))}\n`;
-      if (stroke) out += `${this.colorOps(res, solid(stroke), true)}\n${this.f(sw)} w\n`;
+      if (fill) out += `${ops(fill, false)}\n`;
+      if (stroke) out += `${ops(stroke, true, sw)}\n${this.f(sw)} w\n`;
       // Glyph pieces carry their own matrix; segments are placed with the text matrix.
       if (mode === 'glyphs') out += `${it.m.map((v) => this.f(v)).join(' ')} cm\n`;
       const hs = mode === 'segments' ? it.hs : 1;
