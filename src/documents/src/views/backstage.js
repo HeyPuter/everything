@@ -110,6 +110,7 @@ export function createBackstage(api) {
     return [...heading('Open'),
       el('section.bs-section', {}, el('div.bs-tiles', {},
         tile('Browse this device…', 'folderOpen', act(() => api.openDocument()), { hint: '.docx, .hwp, Markdown, HTML or text', primary: true }),
+        api.openFromCloud ? tile('Browse Puter…', 'folderOpen', act(() => api.openFromCloud()), { hint: 'Any document in your Puter files' }) : null,
         api.goHome ? tile('All documents', 'home', act(() => api.goHome()), { hint: local ? 'The documents screen' : 'Your documents on Puter' }) : null)),
       api.recentDocuments ? el('section.bs-section', {}, el('h2', {}, 'Recent'), list) : null];
   }

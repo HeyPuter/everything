@@ -891,6 +891,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   backstage = createBackstage({ local, title: () => title.value, focusEditor: () => engine?.focus(),
     newDocument: () => newDoc?.(), newFromTemplate: newFromTemplate ? id => newFromTemplate(id) : null, customTemplates: cloud ? () => listCustomTemplates() : null,
     openDocument: () => openInput.click(), openPath: path => openPath?.(path), goHome: () => goHome?.(), recentDocuments: editorCommands.recentDocuments,
+    openFromCloud: cloud && P.canPickFiles() ? async () => { if (session.signedOut && !await session.signIn()) return; const picked = await P.pickFile(); if (picked && !destroyed) openPath?.(picked.path); } : null,
     readOnly: () => !engine || failed || !!pkg?.readOnly,
     properties: () => (pkg ? pkg.coreProperties : {}),
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
