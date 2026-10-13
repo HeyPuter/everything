@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { boot, downloadFrom, idle, openImage, run } from './helpers';
+import { boot, downloadFrom, historyLabels, idle, openImage, run } from './helpers';
 import { decodeWav, encodeWav } from '../../src/imaging/codecs/wav';
 import { ebmlIds, readEbml, type EbmlNode } from '../../src/imaging/codecs/webm';
 import { demuxWebm } from '../../src/imaging/codecs/webm-demux';
@@ -447,6 +447,53 @@ test.describe('audio edge cases', () => {
       const { scrubAudio } = await import('/src/features/animation/audio-playback.ts');
       for (const t of [0, 0.05, 0.1, 0.2]) scrubAudio(window.photoStudio.session, window.photoStudio.doc, t);
     });
+    expect(errors).toEqual([]);
+  });
+
+  test('splitting and trimming plain and linked clips together is one step', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    await openImage(page, 32, 32, '#ffffff', 'steps.png');
+    await addFootage(page);
+    await page.evaluate(async (b64) => {
+      const e = window.photoStudio;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await e.runCommand('timeline.audio-add', new File([bytes], 'music.wav', { type: 'audio/wav' }));
+      const view = (await import('/src/features/animation/video-state.ts')).videoView(e);
+      view.audioClips = e.doc.timeline!.audio![0].clips.map((c) => c.id);
+      await e.runCommand('timeline.go-to', Math.round(e.doc.timeline!.fps / 2));
+    }, toneWav(1));
+    await idle(page);
+    const state = () =>
+      page.evaluate(async () => {
+        const { clipSpan } = await import('/src/model/audio-timeline.ts');
+        const d = window.photoStudio.doc;
+        return { layers: d.layers.length, clips: d.timeline!.audio![0].clips.map((c) => [c.link ? 'linked' : 'plain', Math.round(clipSpan(d, c)!.length * 1000)]) };
+      });
+    const before = await state();
+    expect(before.clips.map((c) => c[0])).toEqual(['linked', 'plain']);
+    const steps = (await historyLabels(page)).length;
+    await run(page, 'timeline.split');
+    const split = await state();
+    expect(split.layers).toBe(before.layers + 1);
+    expect(split.clips.map((c) => c[0]).sort()).toEqual(['linked', 'linked', 'plain', 'plain']);
+    expect(await historyLabels(page)).toHaveLength(steps + 1);
+    expect((await historyLabels(page)).at(-1)).toBe('Split at Playhead');
+    // The second parts are selected.
+    expect(await page.evaluate(async () => (await import('/src/features/animation/video-state.ts')).selectedAudioClips(window.photoStudio).length)).toBe(2);
+    await run(page, 'edit.undo');
+    expect(await state()).toEqual(before);
+
+    await page.evaluate(async () => {
+      const e = window.photoStudio;
+      (await import('/src/features/animation/video-state.ts')).videoView(e).audioClips = e.doc.timeline!.audio![0].clips.map((c) => c.id);
+    });
+    await run(page, 'timeline.trim-end');
+    const trimmed = await state();
+    expect(trimmed.clips.every((c, i) => (c[1] as number) < (before.clips[i][1] as number))).toBe(true);
+    expect(await historyLabels(page)).toHaveLength(steps + 1);
+    await run(page, 'edit.undo');
+    expect(await state()).toEqual(before);
     expect(errors).toEqual([]);
   });
 });

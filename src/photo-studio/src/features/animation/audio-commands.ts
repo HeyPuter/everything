@@ -8,8 +8,9 @@ import { findLayer, type Layer, type PhotoDocument } from '../../model/document'
 import { hasArtboards } from '../../model/artboard';
 import { formDialog } from '../../ui/dialog';
 import { artboardConflict, maxTimelineFrames, ownClip, type Clip, type VideoTimeline } from '../../model/video-timeline';
-import { contentLength, moveClip, trimClipEnd, trimClipStart } from '../../model/video-timeline-ops';
+import { contentLength, moveClip, splitClip, splitLayers, trimClipEnd, trimClipStart, trimLayers } from '../../model/video-timeline-ops';
 import {
+  allAudioClips,
   clamp,
   clipSpan,
   findAudioClip,
@@ -27,7 +28,7 @@ import {
 } from '../../model/audio-timeline';
 import { addAudioFile, purgeAudioCache } from './audio-media';
 import { editTimeline } from './video-frames';
-import { prepareTimeline, splitAtPlayhead, trimToPlayhead } from './video-commands';
+import { prepareTimeline } from './video-commands';
 import { selectedAudioClips, selectedAudioTrack, timelineOf, videoLayerOf, videoView } from './video-state';
 
 const tlOf = (e: Editor) => timelineOf(e)!;
@@ -253,30 +254,38 @@ export function unlinkClips(e: Editor) {
 /** The video layers whose clips the selected linked clips follow. */
 const linkedLayers = (e: Editor, ids: string[]) => [...new Set(ids.flatMap((id) => findAudioClip(tlOf(e), id)?.clip.link ?? []))].filter((id) => findLayer(e.doc.layers, id));
 
+/** Split the selected clips at the playhead in one step: plain clips split
+ * on their own, linked sound with its video clip (the video layer splits). */
 export async function splitAudio(e: Editor) {
   const tl = tlOf(e);
   const t = tl.current / tl.fps;
   const ids = selectedAudioClips(e);
   const plain = ids.filter((id) => !findAudioClip(tl, id)?.clip.link && splitAudioClip(findAudioClip(tl, id)!.clip, t, frame(tl) / 2));
-  const layers = linkedLayers(e, ids);
+  const layers = linkedLayers(e, ids).filter((id) => splitClip(tl.clips[id] ?? { start: 0, in: 0, length: tl.duration }, tl.current));
   if (!plain.length && !layers.length) return e.message('Move the playhead inside a selected clip to split it.');
   const made: string[] = [];
-  if (plain.length)
-    await editTimeline(e, 'Split Audio at Playhead', (d) => {
-      made.length = 0;
-      for (const id of plain) {
-        const hit = findAudioClip(d.timeline!, id);
-        const parts = hit && splitAudioClip(hit.clip, t, frame(tl) / 2);
-        if (!hit || !parts) continue;
-        hit.track.clips.splice(hit.index, 1, ...parts);
-        made.push(parts[1].id);
-      }
-    });
-  // Linked sound splits with its video clip.
-  if (layers.length) await splitAtPlayhead(e, layers);
+  let parts: string[] = [];
+  await editTimeline(e, layers.length ? 'Split at Playhead' : 'Split Audio at Playhead', (d) => {
+    made.length = 0;
+    for (const id of plain) {
+      const hit = findAudioClip(d.timeline!, id);
+      const split = hit && splitAudioClip(hit.clip, t, frame(tl) / 2);
+      if (!hit || !split) continue;
+      hit.track.clips.splice(hit.index, 1, ...split);
+      made.push(split[1].id);
+    }
+    // Linked sound splits with its video clip.
+    parts = splitLayers(d, layers, tl.current);
+  });
+  if (parts.length) e.selectLayers(parts);
+  // The second parts stay selected (for linked sound, the new layers' clips).
+  const now = tlOf(e);
+  made.push(...parts.flatMap((id) => allAudioClips(now).flatMap((c) => (c.link === id ? [c.id] : []))));
   videoView(e).audioClips = made.length ? made : ids;
   e.update();
 }
+/** Trim the selected clips to the playhead in one step (linked sound trims
+ * with its video clip). */
 export async function trimAudio(e: Editor, edge: 'start' | 'end') {
   const tl = tlOf(e);
   const t = tl.current / tl.fps;
@@ -284,21 +293,19 @@ export async function trimAudio(e: Editor, edge: 'start' | 'end') {
   const plain = ids.filter((id) => findAudioClip(tl, id)?.clip.source);
   const layers = linkedLayers(e, ids);
   const label = edge === 'start' ? 'Trim Start to Playhead' : 'Trim End to Playhead';
-  if (plain.length)
-    await editTimeline(e, label, (d) => {
-      const t2 = d.timeline!;
-      let changed = false;
-      for (const id of plain) {
-        const hit = findAudioClip(t2, id)!;
-        const c = hit.clip;
-        const next = edge === 'start' ? trimSpanStart(c, t - c.start, frame(t2)) : trimSpanEnd(c, t + frame(t2) - (c.start + c.length), frame(t2), c.source!.seconds);
-        if (next.start !== c.start || next.length !== c.length) changed = true;
-        hit.track.clips[hit.index] = next;
-      }
-      if (!changed) return false;
-    });
-  // Linked sound trims with its video clip.
-  if (layers.length) await trimToPlayhead(e, edge, layers);
+  await editTimeline(e, label, (d) => {
+    const t2 = d.timeline!;
+    let changed = false;
+    for (const id of plain) {
+      const hit = findAudioClip(t2, id)!;
+      const c = hit.clip;
+      const next = edge === 'start' ? trimSpanStart(c, t - c.start, frame(t2)) : trimSpanEnd(c, t + frame(t2) - (c.start + c.length), frame(t2), c.source!.seconds);
+      if (next.start !== c.start || next.length !== c.length) changed = true;
+      hit.track.clips[hit.index] = next;
+    }
+    if (layers.length && trimLayers(d, layers, edge, tl.current)) changed = true;
+    if (!changed) return false;
+  });
 }
 
 export function toggleVideoMute(e: Editor) {
