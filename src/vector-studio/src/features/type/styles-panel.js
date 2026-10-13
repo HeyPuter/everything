@@ -399,6 +399,46 @@ export function sortStyles(app, kind) {
   doc.transact('Sort by Name', () => setLists(doc, { ...lists, [kind]: [normal, ...rest] }));
 }
 
+/**
+ * Load styles from other lists (another document's): styles whose names
+ * match take the loaded definitions (text using them follows), the others
+ * are added. "Based on" links follow the names. Returns { added, replaced }.
+ */
+export function loadStyles(app, kind, source) {
+  const doc = app.editor?.doc;
+  if (!doc) return null;
+  const lists = styleLists(doc);
+  const incoming = source[kind].filter((s) => s.id !== NORMAL);
+  if (!incoming.length) return { added: 0, replaced: 0 };
+  const byName = new Map(lists[kind].map((s) => [s.name.toLowerCase(), s]));
+  const ids = new Map(incoming.map((s) => [s.id, byName.get(s.name.toLowerCase())?.id || newStyleId(kind)]));
+  const mapped = incoming.map((s) => ({ id: ids.get(s.id), name: byName.get(s.name.toLowerCase())?.name || s.name, basedOn: s.basedOn ? (s.basedOn === NORMAL ? NORMAL : ids.get(s.basedOn) || null) : null, attrs: { ...s.attrs } }));
+  const replacing = new Map(mapped.filter((s) => lists[kind].some((x) => x.id === s.id)).map((s) => [s.id, s]));
+  let list = [...lists[kind].map((s) => replacing.get(s.id) || s), ...mapped.filter((s) => !replacing.has(s.id))];
+  // Links that would loop through the document's own styles are dropped.
+  list = list.map((s) => (s.basedOn && wouldCycle(list, s.id, s.basedOn, kind === 'para') ? { ...s, basedOn: null } : s));
+  const next = { ...lists, [kind]: list };
+  doc.transact(`Load ${KINDS[kind].title}`, () => {
+    setLists(doc, next);
+    restyleDocument(doc, lists, next);
+  });
+  return { added: mapped.length - replacing.size, replaced: replacing.size };
+}
+
+/** CSS for previewing a style's type in a list row (sizes kept to the row). */
+function previewCss(a) {
+  const css = [];
+  if (a.fontFamily) css.push(`font-family: ${JSON.stringify(a.fontFamily)}, var(--font-ui)`);
+  if (a.fontWeight) css.push(`font-weight: ${a.fontWeight}`);
+  if (a.fontStyle === 'italic') css.push('font-style: italic');
+  if (a.fontSize) css.push(`font-size: ${Math.max(11, Math.min(20, a.fontSize))}px`);
+  if (a.caps === 'all') css.push('text-transform: uppercase');
+  else if (a.caps === 'small') css.push('font-variant: small-caps');
+  const deco = [a.underline && 'underline', a.strike && 'line-through'].filter(Boolean);
+  if (deco.length) css.push(`text-decoration: ${deco.join(' ')}`);
+  return css.join('; ');
+}
+
 export function unusedStyles(doc, kind) {
   const used = usedStyles(doc)[kind];
   return styleLists(doc)[kind].filter((s) => s.id !== NORMAL && !used.has(s.id)).map((s) => s.id);
@@ -422,6 +462,7 @@ const SECTIONS = [
       { key: 'face', label: 'Font Style', type: 'face' },
       { key: 'fontSize', label: 'Size', type: 'pt', min: 0.1, max: 1296 },
       { key: 'leading', label: 'Leading', type: 'pt', auto: true, min: 0, max: 5000 },
+      { key: 'kernMode', label: 'Automatic Kerning', type: 'select', options: [{ value: 'metrics', label: 'Auto' }, { value: 'optical', label: 'Optical' }, { value: 'none', label: 'None' }] },
       { key: 'kerning', label: 'Kerning', type: 'number', min: -1000, max: 10000 },
       { key: 'tracking', label: 'Tracking', type: 'number', min: -1000, max: 10000 },
       { key: 'caps', label: 'Case', type: 'select', options: [{ value: 'normal', label: 'Normal' }, { value: 'all', label: 'All Caps' }, { value: 'small', label: 'Small Caps' }] },
@@ -438,6 +479,8 @@ const SECTIONS = [
       { key: 'verticalScale', label: 'Vertical Scale', type: 'percent', min: 1, max: 10000 },
       { key: 'baselineShift', label: 'Baseline Shift', type: 'pt', min: -5000, max: 5000 },
       { key: 'rotation', label: 'Character Rotation', type: 'angle', min: -360, max: 360 },
+      { key: 'noBreak', label: 'No Break', type: 'select', options: ONOFF },
+      { key: 'fractionalWidths', label: 'Fractional Widths', type: 'select', options: ONOFF },
     ],
   },
   {
@@ -512,6 +555,16 @@ const SECTIONS = [
       { key: 'spaceBefore', label: 'Space Before', type: 'pt', min: 0, max: 5000 },
       { key: 'spaceAfter', label: 'Space After', type: 'pt', min: 0, max: 5000 },
       { key: 'opticalMargin', label: 'Optical Margin Alignment', type: 'select', options: ONOFF },
+    ],
+  },
+  {
+    id: 'composition',
+    label: 'Composition and Hyphenation',
+    para: true,
+    fields: [
+      { key: 'composer', label: 'Composer', type: 'select', options: [{ value: 'single', label: 'Single-line' }, { value: 'every', label: 'Every-line' }] },
+      { key: 'hyphenate', label: 'Hyphenate', type: 'select', options: ONOFF },
+      { key: 'hangingPunctuation', label: 'Hanging Punctuation', type: 'select', options: ONOFF },
     ],
   },
   { id: 'tabs', label: 'Tabs', para: true, fields: [{ key: 'tabs', label: 'Tab Stops', type: 'tabs' }] },
@@ -968,13 +1021,12 @@ class StylesPanel extends Panel {
     this.list = h('div.st-list', { role: 'listbox', 'aria-label': k.title, 'aria-multiselectable': 'true', tabindex: '-1' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
     this.note = h('p.panel-note.st-note', { 'aria-live': 'polite' });
-    this.menuBtn = iconButton('ellipsis', `${k.title} Menu`, (e) => this.openMenu(e.currentTarget), { className: 'small' });
-    this.menuBtn.setAttribute('aria-haspopup', 'menu');
     this.clearBtn = iconButton('clear-overrides', 'Clear Overrides', () => clearOverrides(this.app, this.kind), { className: 'small' });
     this.redefineBtn = iconButton('refresh-cw', `Redefine ${k.one}`, () => this.redefine(), { className: 'small' });
     this.newBtn = iconButton('plus', `Create New Style (Alt-click for options)`, (e) => (e.altKey ? newStyleWithOptions(this.app, this.kind) : newStyle(this.app, this.kind)), { className: 'small' });
     this.delBtn = iconButton('trash', `Delete ${k.one}`, () => this.deleteSelected(), { className: 'small' });
-    this.el.append(this.list, this.note, h('div.st-footer', this.menuBtn, h('span.st-spacer'), this.clearBtn, this.redefineBtn, this.newBtn, this.delBtn));
+    this.el.append(this.list, this.note, h('div.st-footer', h('span.st-spacer'), this.clearBtn, this.redefineBtn, this.newBtn, this.delBtn));
+    this.syncRows();
   }
 
   update() {
@@ -996,6 +1048,7 @@ class StylesPanel extends Panel {
   }
 
   render(list, state) {
+    const large = this.largeRows();
     const valid = new Set(list.map((s) => s.id));
     for (const id of [...this.selected]) if (!valid.has(id)) this.selected.delete(id);
     if (!valid.has(this.focusId)) this.focusId = state.id && state.id !== MIXED ? state.id : NORMAL;
@@ -1011,7 +1064,7 @@ class StylesPanel extends Panel {
           'aria-label': label,
           'data-id': s.id,
         },
-        h('span.st-name', s.id === NORMAL ? `[${s.name}]` : s.name),
+        h('span.st-name', { style: large ? previewCss(this.kind === 'char' ? resolveChar(list, s.id) : resolvePara(list, s.id)) : null }, s.id === NORMAL ? `[${s.name}]` : s.name),
         active && state.override ? h('span.st-plus', { 'aria-hidden': 'true', 'data-tip': 'The text differs from the style' }, '+') : null,
       );
       el.classList.toggle('active', active);
@@ -1131,39 +1184,97 @@ class StylesPanel extends Panel {
     session(app)?.changed();
   }
 
-  openMenu(anchor) {
+  menu() {
     const app = this.app;
     const k = KINDS[this.kind];
+    const doc = app.editor?.doc;
+    if (!this.built) this.ensureBuilt();
     const focus = this.focusId || NORMAL;
-    const state = currentStyleState(app, this.kind);
+    const state = doc ? currentStyleState(app, this.kind) : { mode: 'none' };
     const editing = state.mode === 'session' || state.mode === 'objects';
-    app.showMenuAt(
-      anchor,
-      [
-        { label: `New ${k.one}...`, run: () => newStyleWithOptions(app, this.kind) },
-        { label: `Duplicate ${k.one}`, enabled: Boolean(focus), run: () => duplicateStyle(app, this.kind, focus) },
-        { label: `Delete ${k.one}`, enabled: this.deletable().length > 0, run: () => this.deleteSelected() },
-        '-',
-        { label: 'Redefine Style', enabled: editing && state.override && state.id !== MIXED, run: () => this.redefine() },
-        { label: 'Clear Overrides', enabled: editing && state.override, run: () => clearOverrides(app, this.kind) },
-        { label: `${k.one} Options...`, enabled: Boolean(focus), run: () => openStyleOptions(app, this.kind, focus) },
-        '-',
-        {
-          label: 'Select All Unused',
-          run: () => {
-            const ids = unusedStyles(app.editor.doc, this.kind);
-            this.selected = new Set(ids);
-            this.renderKey = null;
-            this.update();
-            app.notify(ids.length ? `${ids.length} unused ${ids.length === 1 ? 'style' : 'styles'} selected.` : 'Every style is in use.', { polite: true });
-          },
+    const others = app.editors.filter((ed) => ed.doc !== doc);
+    const large = this.largeRows();
+    return [
+      { label: `New ${k.one}...`, enabled: Boolean(doc), run: () => newStyleWithOptions(app, this.kind) },
+      { label: `Duplicate ${k.one}`, enabled: Boolean(doc && focus), run: () => duplicateStyle(app, this.kind, focus) },
+      { label: `Delete ${k.one}`, enabled: Boolean(doc) && this.deletable().length > 0, run: () => this.deleteSelected() },
+      '-',
+      { label: 'Redefine Style', enabled: editing && state.override && state.id !== MIXED, run: () => this.redefine() },
+      { label: 'Clear Overrides', enabled: editing && state.override, run: () => clearOverrides(app, this.kind) },
+      { label: `Apply ${k.one} Clearing Overrides`, enabled: editing && Boolean(focus), run: () => applyStyle(app, this.kind, focus, { clear: true }) },
+      { label: `${k.one} Options...`, enabled: Boolean(doc && focus), run: () => openStyleOptions(app, this.kind, focus) },
+      '-',
+      {
+        label: 'Select All Unused',
+        enabled: Boolean(doc),
+        run: () => {
+          const ids = unusedStyles(app.editor.doc, this.kind);
+          this.selected = new Set(ids);
+          this.renderKey = null;
+          this.update();
+          app.notify(ids.length ? `${ids.length} unused ${ids.length === 1 ? 'style' : 'styles'} selected.` : 'Every style is in use.', { polite: true });
         },
-        { label: 'Sort by Name', run: () => sortStyles(app, this.kind) },
-        '-',
-        { label: `Apply ${k.one} Clearing Overrides`, enabled: editing && Boolean(focus), run: () => applyStyle(app, this.kind, focus, { clear: true }) },
-      ],
-      `${k.title} menu`,
-    );
+      },
+      { label: 'Sort by Name', enabled: Boolean(doc), run: () => sortStyles(app, this.kind) },
+      '-',
+      {
+        label: `Load ${k.title}`,
+        submenu: [
+          ...others.map((ed) => ({ label: ed.name || ed.doc.root.name || 'Untitled', enabled: Boolean(doc), run: () => this.loadFrom(styleLists(ed.doc), ed.name || 'the document') })),
+          ...(others.length ? ['-'] : []),
+          { label: 'From a File...', enabled: Boolean(doc), run: () => this.loadFromFile() },
+        ],
+      },
+      '-',
+      { label: 'Small List Rows', checked: !large, run: () => this.setLargeRows(false) },
+      { label: 'Large List Rows', checked: large, run: () => this.setLargeRows(true) },
+    ];
+  }
+
+  largeRows() {
+    return this.app.prefs.get('stylesRows') === 'large';
+  }
+
+  setLargeRows(on) {
+    this.app.prefs.set('stylesRows', on ? 'large' : 'small');
+    this.syncRows();
+  }
+
+  /** Large rows preview each style in its own font. */
+  syncRows() {
+    this.el.classList.toggle('st-large', this.largeRows());
+    this.renderKey = null;
+    if (this.visible) this.update();
+  }
+
+  /** Bring in the styles of another document; same-named styles take the loaded definitions. */
+  loadFrom(lists, from) {
+    const r = loadStyles(this.app, this.kind, lists);
+    const k = KINDS[this.kind];
+    if (!r) return;
+    const parts = [];
+    if (r.added) parts.push(`${r.added} added`);
+    if (r.replaced) parts.push(`${r.replaced} redefined`);
+    this.app.notify(parts.length ? `${k.title} from ${from}: ${parts.join(', ')}.` : `${from} has no ${k.title.toLowerCase()} to load.`, { polite: true });
+    session(this.app)?.changed();
+  }
+
+  loadFromFile() {
+    const input = h('input', { type: 'file', accept: '.vstudio,application/octet-stream,application/json', hidden: true });
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      try {
+        const { parseDocument } = await import('../files/format.js');
+        const { doc } = await parseDocument(new Uint8Array(await file.arrayBuffer()));
+        this.loadFrom(styleLists(doc), file.name);
+      } catch (err) {
+        this.app.notify(err?.message || 'The file could not be read.');
+      }
+    });
+    document.body.append(input);
+    input.click();
   }
 }
 

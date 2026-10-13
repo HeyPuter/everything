@@ -124,6 +124,60 @@ input.ty-input:focus {
   margin-top: 8px;
 }
 
+/* Hide Options in the panel menu collapses the optional rows. */
+.ty-options-hidden .ty-opt {
+  display: none;
+}
+
+.ty-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+
+/* ---- Justification dialog ---- */
+.just-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.just-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.3fr) repeat(3, minmax(56px, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.just-head span {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+input.just-input {
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .just-row {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .just-label {
+    grid-column: 1 / -1;
+  }
+
+  .just-head span:first-child {
+    display: none;
+  }
+}
+
 .panel-note {
   margin: 8px 0 0;
   color: var(--text-3);
@@ -548,6 +602,10 @@ input.ty-input:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.st-large .st-item {
+  min-height: 34px;
 }
 
 .st-item.normal .st-name {
