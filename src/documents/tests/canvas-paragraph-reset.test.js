@@ -91,7 +91,7 @@ it('keeps empty paragraph marks and future text formatting intact when clearing 
 it('preserves redo and document bytes for style-only paragraphs but clears opaque direct paragraph declarations', async () => {
   const [pkg, doc] = await fixture(); select(doc, 1); doc.clearDirectParagraphFormatting(); doc.undo(); select(doc, 5); const before = doc.snapshot();
   expect(doc.clearDirectParagraphFormatting()).toBe(false); expect(doc.snapshot()).toEqual(before); expect(doc.future).toHaveLength(1); sameParts(unzipSync(await save(pkg, doc)), pkg.parts);
-  select(doc, 9); expect(doc.clearDirectParagraphFormatting()).toBe(false); select(doc, 4); const visible = format(doc, 4); expect(doc.clearDirectParagraphFormatting()).toBe(true); expect(format(doc, 4)).toEqual(visible);
+  select(doc, 9); expect(doc.clearDirectParagraphFormatting()).toBe(false); select(doc, 4); const visible = format(doc, 4); expect(doc.clearDirectParagraphFormatting()).toBe(true); expect(format(doc, 4)).toEqual({ ...visible, suppressLineNumbers: false });
   expect(nodes(nodes(xml(await save(pkg, doc)), 'p')[4], 'suppressLineNumbers')).toHaveLength(0); expect(doc.clearDirectParagraphFormatting()).toBe(false);
 });
 

@@ -51,7 +51,7 @@ import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers,
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
 let nextId = 0;
 export { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, RUN_FORMAT, runFormat } from './formatting.js';
-import { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, RUN_FORMAT, runFormat, clearAutomaticSpacing } from './formatting.js';
+import { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, PARAGRAPH_FLAGS, RUN_FORMAT, runFormat, clearAutomaticSpacing } from './formatting.js';
 
 function commandRunFormat(run) {
   const format = runFormat(run);
@@ -366,7 +366,7 @@ export class TextDocument {
         patch.tabs = normalizeTabStops(value);
       } else if (INDENT_KEYS.includes(key)) {
         validateIndent(value);
-      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing') {
+      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || Object.hasOwn(PARAGRAPH_FLAGS, key) || key === 'contextualSpacing') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
         if (!['left', 'center', 'right', 'both'].includes(value)) throw new Error('Choose left, center, right or justified alignment.');

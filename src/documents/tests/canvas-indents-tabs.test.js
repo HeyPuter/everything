@@ -238,7 +238,7 @@ describe('DOCX indent and tab conformance', () => {
     expect(strFromU8(parts['word/document.xml'])).toContain('w:val="clear" w:pos="720"');
     expect((await DocxPackage.open(zipSync(parts))).paragraphs[0].format.tabs).toEqual([]);
   });
-  it.each(['<w:ind w:leftChars="100"/>', '<w:mirrorIndents/>', '<w:tabs><w:tab w:val="bar" w:pos="720"/></w:tabs>', '<w:tabs><w:tab w:val="left" w:pos="720" w:leader="invalid"/></w:tabs>', '<w:tabs><w:tab w:val="left"/></w:tabs>', '<w:ind w:hanging="-20"/>'])('rejects unsupported or invalid geometry instead of flattening it: %s', async pPr => {
+  it.each(['<w:ind w:leftChars="100"/>', '<w:tabs><w:tab w:val="bar" w:pos="720"/></w:tabs>', '<w:tabs><w:tab w:val="left" w:pos="720" w:leader="invalid"/></w:tabs>', '<w:tabs><w:tab w:val="left"/></w:tabs>', '<w:ind w:hanging="-20"/>'])('rejects unsupported or invalid geometry instead of flattening it: %s', async pPr => {
     await expect(DocxPackage.open(await fixture({ pPr }))).rejects.toThrow();
   });
   it('preserves legacy list tabs without using them as ordinary text tabs', async () => {
