@@ -30,7 +30,7 @@ export function textPieces(node) {
         }
         const str = text[i] === '\t' ? '' : chars.disp.slice(i, j).join('');
         const x = line.xs[i - line.start];
-        const base = line.y - riseOf(st);
+        const base = line.y - riseOf(st, chars.tm);
         let deco = null;
         if (st.underline || st.strike) {
           const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];

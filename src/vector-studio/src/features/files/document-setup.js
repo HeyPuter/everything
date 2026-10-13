@@ -8,9 +8,10 @@ import { h } from '../../lib/dom.js';
 import { formatLength, parseLength } from '../../lib/units.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { clearGeometryCache } from '../../model/geometry.js';
 import { UNIT_OPTIONS, LIMITS } from './presets.js';
 import { normalizeBleed } from './format.js';
-import { LANGUAGES, DOUBLE_QUOTES, SINGLE_QUOTES, typeOptionsOf } from './type-setup.js';
+import { LANGUAGES, DOUBLE_QUOTES, SINGLE_QUOTES, SCRIPT_LIMITS, typeOptionsOf } from './type-setup.js';
 
 export const GRID_SIZES = [
   { value: 4, label: 'Small' },
@@ -123,6 +124,17 @@ export async function documentSetupDialog(app, editor = app.editor) {
   const doubleSel = h('select.select', { id: id('dq') }, quoteOptions(DOUBLE_QUOTES, to.double));
   const singleSel = h('select.select', { id: id('sq') }, quoteOptions(SINGLE_QUOTES, to.single));
   const smartQuotes = h('input', { type: 'checkbox', id: id('smartq'), checked: to.quotes });
+  // Superscript, subscript and small caps sizes and positions (% of the type size).
+  const pct = (key, label) => h('input.ds-pct', { type: 'text', id: id(key), value: `${to[key]}%`, inputmode: 'decimal', autocomplete: 'off', spellcheck: false, 'aria-label': label });
+  const script = {
+    superSize: pct('superSize', 'Superscript size'),
+    superPos: pct('superPos', 'Superscript position'),
+    subSize: pct('subSize', 'Subscript size'),
+    subPos: pct('subPos', 'Subscript position'),
+    smallCaps: pct('smallCaps', 'Small caps size'),
+  };
+  const scriptLabels = { superSize: 'Superscript size', superPos: 'Superscript position', subSize: 'Subscript size', subPos: 'Subscript position', smallCaps: 'Small caps size' };
+  const readPct = (el) => parseFloat(String(el.value).replace(/%/g, '').replace(',', '.'));
   // A language brings its usual quote marks.
   langSel.addEventListener('change', () => {
     const l = LANGUAGES.find((x) => x.value === langSel.value);
@@ -162,6 +174,22 @@ export async function documentSetupDialog(app, editor = app.editor) {
     row('Double Quotes', id('dq'), doubleSel),
     row('Single Quotes', id('sq'), singleSel),
     h('div.form-row.check', smartQuotes, h('label', { for: id('smartq') }, "Use Typographer's Quotes")),
+    h(
+      'div.ds-script',
+      { role: 'group', 'aria-label': 'Superscript, subscript and small caps' },
+      h('span'),
+      h('span.ds-script-head', 'Size'),
+      h('span.ds-script-head', 'Position'),
+      h('span.ds-script-label', 'Superscript'),
+      script.superSize,
+      script.superPos,
+      h('span.ds-script-label', 'Subscript'),
+      script.subSize,
+      script.subPos,
+      h('span.ds-script-label', 'Small Caps'),
+      script.smallCaps,
+      h('span'),
+    ),
     error,
   );
 
@@ -176,7 +204,7 @@ export async function documentSetupDialog(app, editor = app.editor) {
       height: parseLength(hIn.value, units),
       showImagesInOutline: imagesOutline.checked,
       transparencyGrid: { size: Number(sizeSel.value), preset: colorSel.value, color1: c1.value, color2: c2.value, simulatePaper: paper.checked },
-      typeOptions: { language: langSel.value, double: doubleSel.value, single: singleSel.value, quotes: smartQuotes.checked },
+      typeOptions: { language: langSel.value, double: doubleSel.value, single: singleSel.value, quotes: smartQuotes.checked, ...Object.fromEntries(Object.entries(script).map(([k, el]) => [k, readPct(el)])) },
     };
   };
   const validate = () => {
@@ -189,6 +217,10 @@ export async function documentSetupDialog(app, editor = app.editor) {
     for (const [s, el] of Object.entries(bleedIn)) if (!Number.isFinite(v.bleed[s]) || v.bleed[s] < 0 || v.bleed[s] > LIMITS.maxBleed) return bad(el, `Bleed must be between 0 and ${LIMITS.maxBleed} pt.`);
     if (!Number.isFinite(v.width) || v.width < LIMITS.minSize || v.width > LIMITS.maxSize) return bad(wIn, `Width must be between ${LIMITS.minSize} and ${LIMITS.maxSize} pt.`);
     if (!Number.isFinite(v.height) || v.height < LIMITS.minSize || v.height > LIMITS.maxSize) return bad(hIn, `Height must be between ${LIMITS.minSize} and ${LIMITS.maxSize} pt.`);
+    for (const [k, [lo, hi]] of Object.entries(SCRIPT_LIMITS)) {
+      const x = v.typeOptions[k];
+      if (!Number.isFinite(x) || x < lo || x > hi) return bad(script[k], `${scriptLabels[k]} must be between ${lo}% and ${hi}%.`);
+    }
     error.textContent = '';
     return true;
   };
@@ -209,6 +241,7 @@ export async function documentSetupDialog(app, editor = app.editor) {
   const patch = documentSetupPatch(doc.root, v);
   if (!Object.keys(patch).length) return true;
   doc.transact('Document Setup', () => doc.updateRoot(patch));
+  if (patch.typeOptions) clearGeometryCache();
   for (const view of app.views.values()) view.invalidate();
   return true;
 }

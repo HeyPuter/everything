@@ -43,8 +43,23 @@ import { hyphenationOf, hyphenPoints } from './hyphenate.js';
  *   opticalKern(style, a, b)
  *                      kerning between characters a and b judged from their
  *                      outlines, in px at 100px (null while the font loads).
+ *   typeMetrics(node)  the document's superscript, subscript and small caps
+ *                      sizes (see TYPE_METRICS), or null for the defaults.
+ *                      Return the same object while the settings are the
+ *                      same: layouts are cached against it.
  */
-export const textHooks = { ensureFont: null, shape: null, glyphPath: null, story: null, wraps: null, opticalKern: null };
+export const textHooks = { ensureFont: null, shape: null, glyphPath: null, story: null, wraps: null, opticalKern: null, typeMetrics: null };
+
+/**
+ * Superscript, subscript and small caps (fractions of the type size):
+ * size, and position as a baseline offset. A document can set its own
+ * (Document Setup > Type).
+ */
+export const TYPE_METRICS = Object.freeze({ superSize: 0.583, superPos: 0.333, subSize: 0.583, subPos: 0.333, smallCaps: 0.7 });
+
+function typeMetricsOf(node) {
+  return textHooks.typeMetrics?.(node) || TYPE_METRICS;
+}
 
 let generation = 0;
 let layoutCache = new WeakMap();
@@ -263,9 +278,6 @@ function zeros(n) {
   return new Array(n).fill(0);
 }
 
-const SMALL_CAPS = 0.7;
-const SCRIPT_SIZE = 0.583;
-const SCRIPT_SHIFT = 0.333;
 export const TAB_WIDTH = 36;
 /** Forced line break inside a paragraph (Type > Insert Break Character). */
 export const LINE_SEP = '\u2028';
@@ -283,7 +295,7 @@ function isCJK(c) {
 }
 
 /** Display character and size factor for a character in a style (caps, small caps, super/subscript). */
-export function displayOf(ch, style) {
+export function displayOf(ch, style, tm = TYPE_METRICS) {
   let c = ch;
   let scale = 1;
   if (style.caps === 'all') c = ch.toUpperCase();
@@ -291,19 +303,20 @@ export function displayOf(ch, style) {
     const up = ch.toUpperCase();
     if (up !== ch && up.length === 1) {
       c = up;
-      scale = SMALL_CAPS;
+      scale = tm.smallCaps;
     }
   }
   if (c.length !== 1) c = ch;
-  if (style.position === 'super' || style.position === 'sub') scale *= SCRIPT_SIZE;
+  if (style.position === 'super') scale *= tm.superSize;
+  else if (style.position === 'sub') scale *= tm.subSize;
   return { c, scale };
 }
 
-/** Baseline offset (positive = up) for a style: baseline shift plus super/subscript position. */
-export function riseOf(style) {
+/** Baseline offset (positive = up) for a style: baseline shift plus super/subscript position (`tm`: a layout's chars.tm). */
+export function riseOf(style, tm = TYPE_METRICS) {
   let r = style.baselineShift || 0;
-  if (style.position === 'super') r += style.fontSize * SCRIPT_SHIFT;
-  else if (style.position === 'sub') r -= style.fontSize * SCRIPT_SHIFT;
+  if (style.position === 'super') r += style.fontSize * tm.superPos;
+  else if (style.position === 'sub') r -= style.fontSize * tm.subPos;
   return r;
 }
 
@@ -312,9 +325,10 @@ export function riseOf(style) {
  * glyph width, natural kerning and manual kerning before the character, and
  * vertical metrics.
  */
-function measureChars(node, text, vertical) {
+function measureChars(node, text, vertical, tm = TYPE_METRICS) {
   const n = text.length;
   const out = {
+    tm, // superscript, subscript and small caps metrics (riseOf)
     disp: new Array(n),
     sty: new Array(n),
     size: zeros(n),
@@ -347,7 +361,7 @@ function measureChars(node, text, vertical) {
     let prevScale = 0;
     for (let i = run.start; i < run.end && i < n; i++) {
       const ch = text[i];
-      const d = displayOf(ch, st);
+      const d = displayOf(ch, st, tm);
       const size = st.fontSize * d.scale;
       out.disp[i] = d.c;
       out.sty[i] = st;
@@ -1603,11 +1617,11 @@ function areaMapping(node, vertical) {
   return { toLocal: (u, v) => ({ x: u, y: v }), fromLocal: (x, y) => ({ u: x, v: y }) };
 }
 
-function buildLayout(node, wraps) {
+function buildLayout(node, wraps, tm) {
   const text = String(node.text ?? '');
   const kind = node.kind === 'path' && node.pathAnchors?.length ? 'path' : node.kind === 'area' ? 'area' : 'point';
   const vertical = Boolean(node.vertical);
-  const ch = measureChars(node, text, vertical);
+  const ch = measureChars(node, text, vertical, tm);
   const markers = kind === 'path' ? null : listMarkers(node, text, ch);
   let flow;
   let toLocal;
@@ -1654,10 +1668,11 @@ function storyLayouts(frames) {
   const vertical = Boolean(head.vertical);
   const wraps = frames.map((f) => wrapsOf(f, vertical));
   const deps = wraps.map((w) => w?.deps || null);
+  const tm = typeMetricsOf(head);
   const c = storyCache.get(head);
-  if (c && sameList(c.frameList, frames) && c.deps.every((d, i) => sameList(d, deps[i]))) return c;
+  if (c && c.tm === tm && sameList(c.frameList, frames) && c.deps.every((d, i) => sameList(d, deps[i]))) return c;
   const text = String(head.text ?? '');
-  const ch = measureChars(head, text, vertical);
+  const ch = measureChars(head, text, vertical, tm);
   const markers = listMarkers(head, text, ch);
   const flow = flowArea(head, text, ch, vertical, frames, wraps, markers);
   let end = 0;
@@ -1671,7 +1686,7 @@ function storyLayouts(frames) {
     lay.story = { head, frames, index: fi, overflow: flow.overflow, visibleEnd: flow.visibleEnd, start: lines.length ? lines[0].start : end };
     return lay;
   });
-  const entry = { frameList: frames, deps, frames: layouts, flow, edit: null };
+  const entry = { frameList: frames, deps, tm, frames: layouts, flow, edit: null };
   storyCache.set(head, entry);
   return entry;
 }
@@ -1697,9 +1712,10 @@ export function layoutText(node) {
     if (idx >= 0) return storyLayouts(frames).frames[idx];
   }
   const wraps = wrapsOf(node, Boolean(node.vertical));
+  const tm = typeMetricsOf(node);
   const hit = layoutCache.get(node);
-  if (hit && sameList(hit.wrapDeps, wraps?.deps || null)) return hit;
-  const lay = buildLayout(node, wraps);
+  if (hit && hit.chars.tm === tm && sameList(hit.wrapDeps, wraps?.deps || null)) return hit;
+  const lay = buildLayout(node, wraps, tm);
   lay.wrapDeps = wraps?.deps || null;
   layoutCache.set(node, lay);
   return lay;
@@ -1815,7 +1831,7 @@ export function extraPlacements(lay) {
         if (lay.vertical) {
           const p = lay.toLocal(0, line.y);
           m = [hs, 0, 0, vs, p.x - (x.w || 0) / 2, lay.toLocal(x.u + st.fontSize * vs * 0.82, line.y).y];
-        } else m = [hs, 0, 0, vs, x.u, line.y - riseOf(st)];
+        } else m = [hs, 0, 0, vs, x.u, line.y - riseOf(st, lay.chars.tm)];
         out.push({ i: line.start, ch: x.str, style: st, size: x.size, adv: 0, w: (x.w || 0) / hs, m, glyph: null, extra: true });
       }
     }
@@ -1847,7 +1863,7 @@ export function glyphPlacements(lay) {
       const hs = (st.horizontalScale ?? 100) / 100;
       const vs = (st.verticalScale ?? 100) / 100;
       const x = line.xs[i - line.start];
-      const rise = riseOf(st);
+      const rise = riseOf(st, ch.tm);
       const adv = ch.adv[i] - ((st.tracking || 0) / 1000) * st.fontSize;
       let m;
       if (lay.kind === 'path' && lay.vertical) {

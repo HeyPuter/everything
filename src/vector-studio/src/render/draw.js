@@ -398,7 +398,7 @@ function drawText(ctx, doc, node, opts) {
           const vs = (st.verticalScale ?? 100) / 100;
           const track = ((st.tracking || 0) / 1000) * st.fontSize;
           const x = line.xs[i - line.start];
-          const y = line.y - riseOf(st);
+          const y = line.y - riseOf(st, lay.chars.tm);
           ctx.save();
           ctx.translate(x, y);
           if (hs !== 1 || vs !== 1) ctx.scale(hs, vs);
@@ -412,7 +412,7 @@ function drawText(ctx, doc, node, opts) {
           if (f) {
             ctx.fillStyle = f;
             const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
-            decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st));
+            decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm));
           }
         }
         i = j;

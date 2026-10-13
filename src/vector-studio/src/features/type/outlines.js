@@ -170,7 +170,7 @@ function glyphOutlines(node, lay, fonts) {
         if (st.underline || st.strike) {
           const x0 = line.xs[i - line.start];
           const x1 = j >= line.contentEnd ? line.xs[line.contentEnd - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
-          const b = line.y - riseOf(st);
+          const b = line.y - riseOf(st, lay.chars.tm);
           const t = Math.max(st.fontSize / 18, 0.25);
           const size = lay.chars.size[i];
           const contours = [];

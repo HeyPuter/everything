@@ -380,6 +380,25 @@
   margin: 4px 0;
 }
 
+/* Superscript, subscript and small caps: a size and a position column. */
+.files-setup .ds-script {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) minmax(0, 90px) minmax(0, 90px);
+  gap: 6px 10px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.files-setup .ds-script-head {
+  color: var(--text-2);
+  font-size: var(--fs-sm, 12px);
+}
+
+.files-setup .ds-pct {
+  width: 100%;
+  min-width: 0;
+}
+
 /* ---- Document Info ---- */
 .files-info {
   display: flex;
