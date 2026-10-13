@@ -120,6 +120,7 @@ ${field('Edge', options('ai-blend', pre.blend === 'seamless' ? 'seamless' : 'nor
   void recordGeneration(e, { kind: pre.via === 'assistant' ? 'assistant' : 'fill', prompt: out.prompt, settings: { ...out.settings, dialog: 'fill' }, placement: { ...box } }, kept);
   const l = newPixelLayer(`AI Fill: ${out.prompt.slice(0, 40)}`, e.doc, gridFromImage(e.assets.tiles, pixels, box.x, box.y));
   l.maskGrid = writeRect(e.assets.tiles, emptyGrid(1), box.x, box.y, cropMask(sel, box));
+  l.generated = { kind: 'fill', prompt: out.prompt.slice(0, 4000) };
   insertLayer(e, l, 'AI Fill', true);
   e.message('AI Fill added as a new masked layer.');
 }
@@ -161,6 +162,7 @@ ${methodField(pre.method)}`,
   const mask = expandMask(nw, nh, by.left, by.top, W, H, Math.max(2, Math.round(Math.min(W, H) * 0.01)));
   const l = newPixelLayer('AI Expand', { width: nw, height: nh }, gridFromImage(e.assets.tiles, image));
   l.maskGrid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, mask);
+  l.generated = { kind: 'expand', prompt: out.prompt.trim().slice(0, 4000) };
   e.command('AI Expand', (d) => {
     enlargeCanvas(d, by.left, by.top, nw, nh);
     applySelection(d, null);

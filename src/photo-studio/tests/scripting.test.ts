@@ -174,11 +174,15 @@ describe('scripting API host', () => {
   it('runs registered commands with the arguments actions record, and refuses scripting commands', async () => {
     const e = mockEditor();
     const run = vi.fn();
-    registerCommand({ id: 'test.script-arg', label: 'Arg Test', run: (_e, arg) => run(arg) });
+    // Provenance attributes the command's steps through the editor's current and last command.
+    let named: unknown[] = [];
+    registerCommand({ id: 'test.script-arg', label: 'Arg Test', run: (ed, arg) => ((named = [ed.currentCommand, ed.lastCommand]), run(arg)) });
     registerCommand({ id: 'test.disabled', label: 'Disabled Test', enabled: () => false, run: () => {} });
     const host = new ScriptHost(e as unknown as Editor, ui(), 'Cmd');
     await host.call('commands.run', ['test.script-arg', { params: { amount: 3 } }]);
     expect(run).toHaveBeenCalledWith({ params: { amount: 3 } });
+    expect(named).toEqual(['test.script-arg', 'test.script-arg']);
+    expect([(e as unknown as Editor).currentCommand, (e as unknown as Editor).lastCommand]).toEqual([undefined, 'test.script-arg']);
     await expect(host.call('commands.run', ['test.disabled'])).rejects.toThrow('not available');
     await expect(host.call('commands.run', ['script.run.anything'])).rejects.toThrow('cannot run');
     await expect(host.call('commands.run', ['no.such.command'])).rejects.toThrow('Unknown command');

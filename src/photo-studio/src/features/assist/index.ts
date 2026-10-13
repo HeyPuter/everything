@@ -29,6 +29,6 @@ export function installAssist(e: Editor) {
   propertySections.push((_e, l) => {
     const g = l.generated;
     if (!g) return '';
-    return `<div class="assist-generated"><small>${KIND_LABEL[g.kind]}${g.model ? ` · ${escapeXML(g.model)}` : ''}${g.style ? ` · ${escapeXML(g.style)} style` : ''}</small>${g.kind === 'upscale' ? '' : `<q>${escapeXML(g.prompt)}</q>`}</div>`;
+    return `<div class="assist-generated"><small>${KIND_LABEL[g.kind]}${g.model ? ` · ${escapeXML(g.model)}` : ''}${g.style ? ` · ${escapeXML(g.style)} style` : ''}</small>${g.kind === 'upscale' || !g.prompt ? '' : `<q>${escapeXML(g.prompt)}</q>`}</div>`;
   });
 }

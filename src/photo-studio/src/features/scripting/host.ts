@@ -571,9 +571,17 @@ export class ScriptHost {
     if (blockedCommand(id)) fail(`Scripts cannot run “${id}”.`);
     const c = findCommand(id) ?? fail(`Unknown command “${id}”.`);
     if (c.enabled && !c.enabled(this.e)) fail(`“${c.label}” is not available in the current state.`);
-    // Commands are called directly, as recorded actions replay them.
-    await c.run(this.e, arg);
-    this.e.update();
+    // Commands are called directly, as recorded actions replay them, but
+    // named as the running command like Editor.runCommand does, so provenance
+    // attributes their steps (and AI results) to them.
+    const e = this.e, outer = e.currentCommand;
+    e.currentCommand = e.lastCommand = c.id;
+    try {
+      await c.run(e, arg);
+      e.update();
+    } finally {
+      e.currentCommand = outer;
+    }
   }
   private async setSelection(id: unknown, grid: Parameters<typeof applySelection>[1], op: 'replace' | 'add' | 'subtract' | 'intersect', label: string) {
     const s = this.session(id);

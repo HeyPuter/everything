@@ -271,3 +271,28 @@ test('AI results are recorded in Generation History and placed again', async ({ 
   await panel.getByRole('button', { name: 'Delete: a red kite' }).click();
   await expect(panel.locator('.gen-row')).toHaveCount(0);
 });
+
+test('AI Fill run by a plan is recorded as an AI result in provenance', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await openImage(page, 160, 120, '#808080', 'photo.png');
+  await page.evaluate(() => {
+    window.photoStudio.preferences.provenancePrompts = true;
+  });
+  await openAssistant(page);
+  await script(page, { calls: [{ name: 'propose_plan', args: { title: 'Bench', steps: [{ action: 'op.select', args: { x: 20, y: 20, width: 60, height: 40 } }, { action: 'edit.ai-fill', args: { prompt: 'a wooden bench' } }] } }] });
+  await send(page, 'put a bench here');
+  const plan = page.locator('.ast-plan');
+  await plan.getByRole('button', { name: 'Run All' }).click();
+  const dialog = page.locator('dialog[open]');
+  await expect(dialog.locator('#ai-prompt')).toHaveValue('a wooden bench');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(plan.locator('.ast-outcome')).toContainText('Done');
+  const layer = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!);
+  expect(layer.generated).toEqual({ kind: 'fill', prompt: 'a wooden bench' });
+  const ai = await page.evaluate(async () => {
+    const { recordOf } = await import('/src/features/provenance/recorder.ts');
+    return recordOf(window.photoStudio.session).ai;
+  });
+  expect(ai).toHaveLength(1);
+  expect(ai[0]).toMatchObject({ command: 'edit.ai-fill', kind: 'fill', prompt: 'a wooden bench' });
+});
