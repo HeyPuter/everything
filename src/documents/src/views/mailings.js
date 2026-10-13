@@ -391,7 +391,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
     const check = command('Check for Errors', 'checkErrors', () => mm.checkErrors(), { text: 'Check for Errors' });
     const finishButton = menuButton('Finish & Merge', 'finishMerge', finishItems, { text: 'Finish & Merge' });
     // Longer labels take two lines on a wider button.
-    for (const b of [edit, highlight, insert, finishButton]) b.classList.add('ribbon-wide');
+    for (const b of [edit, highlight, insert]) b.classList.add('ribbon-wide');
     noSteal(envelopesButton, labelsButton, edit, highlight, address, greeting, match, update, preview, first, previous, next, last, find, check);
     for (const b of [envelopesButton, labelsButton, start, select, address, greeting, insert, rules]) when(b, has);
     when(edit, hasList); when(match, hasList); when(find, hasRecords); when(check, has);
