@@ -56,6 +56,7 @@ import { layoutTemplate } from '../lib/template-layout.js';
 import { createWordCommands } from './editor-commands.js';
 import { createReview } from './review.js';
 import { createReferences } from './references.js';
+import { createMailings } from './mailings.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -699,6 +700,13 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+  const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile,
+    print: capture => printPages({ host, signal: printAbort.signal, capture }), documentTitle: () => title?.value?.trim(), layoutChanged: () => { fitWidth(); rulers?.update(); } });
+  Object.assign(editorCommands, mailings.commands);
+  const baseExtraTabs = editorCommands.extraTabs;
+  editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
+  const baseExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -718,7 +726,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const printLayoutButton = el('button.icon-btn.ed-status-view', { type: 'button', 'aria-label': 'Print Layout', title: 'Print Layout', 'aria-pressed': 'true', onclick: () => engine?.focus() }, commandIconEl('printLayoutSolid', 16));
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, chrome.inspector)),
     el('footer.canvas-statusbar.ed-statusbar', {}, el('div.ed-status-left', {}, stats, wordCountButton, proofingButton, languageLabel, editingAreaLabel),
       el('div.ed-status-right', {},
         el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),
@@ -812,6 +820,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    mailings.refresh();
     if (pkg.readOnly) {
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) control.disabled = true;
       find.disabled = false; finder.refresh();

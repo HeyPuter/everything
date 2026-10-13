@@ -34,6 +34,9 @@ export function fieldUpdatePlan(model, { onIssue = () => {} } = {}) {
   const ranges = bodyFieldRanges(model.paragraphs), text = model.text, changes = [];
   const counters = new Map();
   const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
+  // ASK and SET assign a value to a name during a mail merge without creating a bookmark;
+  // a REF to such a name keeps its cached result (the merge evaluates it).
+  const mergeNames = new Set(ranges.filter(r => ['ASK', 'SET'].includes(r.field.type)).map(r => /^\s*\w+\s+("?)([^\s"]+)\1/.exec(r.field.instruction)?.[2]).filter(Boolean));
   for (const range of ranges) {
     const type = range.field.type;
     if (range.field.locked || ranges.some(r => r.parentId === range.field.id)) continue;
@@ -57,6 +60,7 @@ export function fieldUpdatePlan(model, { onIssue = () => {} } = {}) {
       const retain = reason => onIssue({ id: range.field.id, message: `${reason}; its cached result is retained.` });
       if (!supported) { retain('This REF uses switches that cannot be refreshed yet'); continue; }
       const bookmark = bookmarks.get(tokens[0]);
+      if (!bookmark && mergeNames.has(tokens[0])) continue;
       if (!bookmark) value = 'Error! Reference source not found.';
       else if (bookmark.start <= range.start && range.start < bookmark.end || range.start < bookmark.start && bookmark.start < range.end) {
         retain('A REF within its source bookmark cannot be refreshed yet'); continue;

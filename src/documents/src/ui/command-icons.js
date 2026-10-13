@@ -402,6 +402,35 @@ export const COMMAND_ICONS = {
   insertTab: p('M3.5 10h11M11.5 7l3 3-3 3', 'b thick') + p('M16.5 5v10', 'o'),
 };
 
+/* ---- Mailings: envelopes, labels and mail merge ---- */
+const envelopeShape = (x, y, w, h, c = 'of') => r(x, y, w, h, c, 1.4) + p(`M${x + 0.4} ${y + 0.6}l${n(w / 2 - 0.4)} ${n(h * 0.5)} ${n(w / 2 - 0.4)}-${n(h * 0.5)}`, 'o');
+const person = (cx, cy, c = 'bf') => ci(cx, cy - 3.2, 2.3, c) + p(`M${cx - 4.2} ${cy + 4.5}c0-2.6 1.9-4.4 4.2-4.4s4.2 1.8 4.2 4.4z`, c);
+const chevrons = (x, y, c = 'b thick') => p(`M${x + 2} ${y - 2}l-2 2 2 2M${x + 4.5} ${y - 2}l-2 2 2 2M${x + 8} ${y - 2}l2 2-2 2M${x + 10.5} ${y - 2}l2 2-2 2`, c);
+const recordArrow = (dir, bar) => (dir < 0 ? p('M14.5 5 7.5 10l7 5z', 'bs') : p('M5.5 5l7 5-7 5z', 'bs')) + (bar ? p(dir < 0 ? 'M5 5v10' : 'M15 5v10', 'o thick') : '');
+Object.assign(COMMAND_ICONS, {
+  envelope: envelopeShape(2.5, 4.5, 15, 11) + r(13, 6, 3, 3.6, 'rs', 0.5),
+  labels: r(3.5, 2.5, 13, 15, 'of') + [0, 1, 2].map(i => r(5, 4 + i * 4.5, 4.4, 3.4, 'bf', 1) + r(10.6, 4 + i * 4.5, 4.4, 3.4, 'bf', 1)).join(''),
+  startMerge: page(2.5, 2.5, 10, 13) + lines(4.5, 8, 6, 2, 2.5) + envelopeShape(9, 10.5, 8.5, 6.5, 'bf'),
+  selectRecipients: person(13, 9.5, 'o') + person(8, 10.5, 'bf'),
+  editRecipients: cells(2.5, 3.5, 12, 13, 2, 4) + pencil(3, 2),
+  highlightFields: r(2.5, 6, 15, 8, 'yf', 2) + chevrons(3.7, 10, 'o thick'),
+  addressBlock: r(2.5, 4, 15, 12, 'of', 1.6) + p('M5 7.5h7', 'b thick') + lines(5, 10.5, 9, 2, 2.5),
+  greetingLine: bubble(2.5, 3, 15, 11) + p('M5.5 7.5h6', 'b thick') + p('M5.5 10.3h9', 'o'),
+  mergeField: r(2.5, 6, 15, 8, 'bf', 2) + chevrons(3.7, 10),
+  rules: p('M3 10h4.5l4-5h3M7.5 10l4 5h3', 'o') + p('M13.5 3l2.5 2-2.5 2M13.5 13l2.5 2-2.5 2', 'b thick') + ci(4, 10, 1.4, 'bs'),
+  matchFields: r(2.5, 3.5, 5, 13, 'of', 1) + r(12.5, 3.5, 5, 13, 'of', 1) + p('M7.5 6.5l5 7M7.5 10h5M7.5 13.5l5-7', 'b'),
+  updateLabels: r(2.5, 2.5, 11, 13, 'of') + r(4, 4, 3.5, 2.8, 'bf', 0.8) + r(8.5, 4, 3.5, 2.8, 'bf', 0.8) + r(4, 8, 3.5, 2.8, 'bf', 0.8) + refresh,
+  previewResults: page(2.5, 2.5, 11, 15) + chevrons(3.6, 8, 'b') + magnifier(13, 13, 3),
+  firstRecord: recordArrow(-1, true),
+  previousRecord: recordArrow(-1, false),
+  nextRecord: recordArrow(1, false),
+  lastRecord: recordArrow(1, true),
+  findRecipient: person(8, 10.5, 'bf') + magnifier(13.5, 12.5, 2.8),
+  checkErrors: page(3.5, 2.5, 11, 15) + lines(5.5, 7.5, 7, 3, 2.5) + badge(14.5, 14.5, 'check', 'g'),
+  finishMerge: page(6.5, 2.5, 10, 12, 2.5) + page(3.5, 5.5, 10, 12, 2.5) + arrowRight(9, 12, 9, 'g thick'),
+  mergeWizard: page(3.5, 2.5, 13, 15) + numberedLines(6.3, 6, ['1', '2', '3'], 4) + lines(8.5, 6, 5, 3, 4),
+});
+
 /** Aliases: the editor's existing control icon names that map onto a drawing above. */
 const ALIASES = {
   outline: 'navigationPane', search: 'find', image: 'pictures', clearFormat: 'clearFormat', paint: 'shading',

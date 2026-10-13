@@ -36,7 +36,9 @@ export function fieldInstructionTokens(instruction, positions = false) {
 export const RETAINED_FIELDS = new Set(['SEQ', 'REF', 'NOTEREF', 'STYLEREF', 'DATE', 'TIME', 'CREATEDATE', 'SAVEDATE', 'PRINTDATE', 'EDITTIME',
   'AUTHOR', 'LASTSAVEDBY', 'TITLE', 'SUBJECT', 'KEYWORDS', 'COMMENTS', 'FILENAME', 'FILESIZE', 'DOCPROPERTY', 'DOCVARIABLE', 'INFO', 'NUMWORDS', 'NUMCHARS',
   'REVNUM', 'SECTION', 'TEMPLATE', 'USERNAME', 'USERINITIALS', 'USERADDRESS', 'QUOTE', 'LISTNUM', 'AUTONUM', 'AUTONUMLGL', 'AUTONUMOUT', 'MERGEFIELD',
-  'MERGEREC', 'MERGESEQ', 'ADDIN', 'CITATION', 'BIBLIOGRAPHY', 'GREETINGLINE', 'ADDRESSBLOCK', 'FILLIN', 'GOTOBUTTON', 'SYMBOL', 'TA', 'TOA', 'TC', 'RD', 'SET', 'ASK', 'PRIVATE', 'BARCODE', 'DISPLAYBARCODE', 'ADVANCE', 'EQ']);
+  'MERGEREC', 'MERGESEQ', 'ADDIN', 'CITATION', 'BIBLIOGRAPHY', 'GREETINGLINE', 'ADDRESSBLOCK', 'FILLIN', 'GOTOBUTTON', 'SYMBOL', 'TA', 'TOA', 'TC', 'RD', 'SET', 'ASK', 'PRIVATE', 'BARCODE', 'DISPLAYBARCODE', 'ADVANCE', 'EQ',
+  // Mail merge rules (§17.16.5.26 IF, .38 NEXT, .39 NEXTIF, .58 SKIPIF), evaluated by merge-fields.js.
+  'IF', 'NEXT', 'NEXTIF', 'SKIPIF']);
 
 export function pageFieldInstruction(instruction) {
   // Retained instructions can carry arbitrary data (citation add-ins embed JSON), so they are not tokenized.
@@ -95,20 +97,30 @@ export function pageFieldSegments(paragraph, readInstruction = pageFieldInstruct
         const kind = content.getAttributeNS(W, 'fldCharType');
         if (content.children.length) fail('field delimiter child content');
         if (kind === 'begin') {
+          // A field nested in another field's instruction (IF "{ MERGEFIELD City }" = …) is part of that
+          // instruction: it is kept in the envelope and shown in braces in the instruction text.
+          if (active?.phase === 'code') { active.nested.push('code'); active.instruction += '{'; active.source.push(run); continue; }
           if (active) fail('nested page fields');
-          active = { instruction: '', locked: boolean(content, 'fldLock'), dirty: boolean(content, 'dirty'), phase: 'code', source: [run], result: [] };
+          active = { instruction: '', locked: boolean(content, 'fldLock'), dirty: boolean(content, 'dirty'), phase: 'code', source: [run], result: [], nested: [] };
         } else {
           if (!active) fail('an unmatched page field delimiter');
           active.source.push(run);
-          if (kind === 'separate' && active.phase === 'code') active.phase = 'result';
+          if (active.nested.length) {
+            if (kind === 'separate' && active.nested.at(-1) === 'code') active.nested[active.nested.length - 1] = 'result';
+            else if (kind === 'end') { active.nested.pop(); active.instruction += '}'; }
+            else fail('an invalid page field delimiter sequence');
+          }
+          else if (kind === 'separate' && active.phase === 'code') active.phase = 'result';
           else if (kind === 'end') finish();
           else fail('an invalid page field delimiter sequence');
         }
       } else if (is(content, 'instrText')) {
-        if (!active || active.phase !== 'code') fail('a page instruction outside its field code');
+        if (!active || active.phase !== 'code' || active.nested.at(-1) === 'result') fail('a page instruction outside its field code');
         if (!active.instruction.trim() && content.textContent.trim()) active.instructionProperties = properties;
         active.source.push(run); active.instruction += content.textContent;
       } else if (active) {
+        // A nested field's cached result inside an instruction stays in the envelope only.
+        if (active.phase === 'code' && active.nested.at(-1) === 'result') { active.source.push(run); continue; }
         if (active.phase !== 'result') fail('visible content inside a page field instruction');
         active.source.push(run); active.result.push(run);
       } else segments.push({ node: run });
@@ -151,9 +163,17 @@ export function writePageFieldResult(field, resultNodes, doc, readInstruction = 
   }
   // The parser stores each delimiter in its own run, even if the producer originally
   // shared that run with instruction/result text or outside paragraph text.
-  const delimiter = (n, kind) => [...n.children].some(c => is(c, 'fldChar') && c.getAttributeNS(W, 'fldCharType') === kind);
-  const separate = source.findIndex(n => delimiter(n, 'separate'));
-  const end = source.findIndex(n => delimiter(n, 'end'));
+  // Delimiters of fields nested in the instruction are skipped by depth.
+  let depth = 0, separate = -1, end = -1;
+  source.forEach((n, i) => {
+    for (const c of n.children) {
+      if (!is(c, 'fldChar')) continue;
+      const kind = c.getAttributeNS(W, 'fldCharType');
+      if (kind === 'begin') depth++;
+      else if (kind === 'separate' && depth === 1 && separate < 0) separate = i;
+      else if (kind === 'end' && --depth === 0 && end < 0) end = i;
+    }
+  });
   if (end !== source.length - 1 || end < 0) throw new Error('Invalid retained page field end.');
   const opening = source.slice(0, separate < 0 ? end : separate + 1).map(n => doc.importNode(n, true));
   if (separate < 0 && field.type !== 'XE') {
