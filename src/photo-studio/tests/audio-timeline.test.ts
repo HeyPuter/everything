@@ -9,12 +9,16 @@ import { createTimeline, syncTimeline } from '../src/model/video-timeline';
 import { footageVideo } from '../src/model/video-layer';
 import { contentLength, splitLayers, trimClipStart } from '../src/model/video-timeline-ops';
 import {
+  allAudioClips,
+  audioClipLimit,
   audioPlan,
   audioTracks,
   clipSpan,
   dbToGain,
   envelopeAt,
   envelopePoints,
+  maxAudioClips,
+  maxAudioSeconds,
   moveSpan,
   ownTracks,
   snapTime,
@@ -242,6 +246,36 @@ describe('audio clips', () => {
     expect(splitAudioClip(c, 1)).toBeNull();
     expect(snapTime(1.02, [0, 1, 2], 0.05)).toBe(1);
     expect(snapTime(1.2, [0, 1, 2], 0.05)).toBe(1.2);
+  });
+
+  it('keeps edits within what projects hold, and opens projects past the limits', async () => {
+    // Moving or trimming stops at four hours.
+    expect(moveSpan(clip('a', 14_000, 1), 5000).start).toBe(maxAudioSeconds);
+    expect(trimSpanStart({ ...clip('a', 14_000, 3000), source: src('a', 4000) }, 2000, 0.1).start).toBe(maxAudioSeconds);
+    const doc = docWith([{ clips: [] }]);
+    const h = new History(doc);
+    h.normalize = (d, before) => syncTimeline(d, before);
+    const many = (n: number) => Array.from({ length: n }, (_, i) => clip('a', i, 1));
+    h.execute('Add', (d) => d.timeline!.audio![0].clips.push(...many(maxAudioClips)));
+    // One more clip is refused with a message; the state is unchanged.
+    expect(() => h.execute('One more', (d) => d.timeline!.audio![0].clips.push(clip('b', 0, 1)))).toThrow(audioClipLimit);
+    expect(allAudioClips(h.document.timeline!)).toHaveLength(maxAudioClips);
+    // Starts past four hours are clamped by the history hook.
+    h.execute('Far', (d) => (d.timeline!.audio![0].clips[0].start = 5 * 3600));
+    expect(h.document.timeline!.audio![0].clips[0].start).toBe(maxAudioSeconds);
+    expect(() => validateDocument(structuredClone(h.document))).not.toThrow();
+
+    // A project saved past the limits still opens (starts clamped) and stays editable.
+    const old = docWith([{ clips: [...many(maxAudioClips + 5), clip('c', 5 * 3600, 1)] }]);
+    expect(() => validateDocument(old)).not.toThrow();
+    expect(old.timeline!.audio![0].clips.at(-1)!.start).toBe(maxAudioSeconds);
+    const h2 = new History(old);
+    h2.normalize = (d, before) => syncTimeline(d, before);
+    h2.execute('Gain', (d) => (d.timeline!.audio![0].clips[0].gain = -3));
+    expect(h2.document.timeline!.audio![0].clips[0].gain).toBe(-3);
+    expect(() => h2.execute('One more', (d) => d.timeline!.audio![0].clips.push(clip('b', 0, 1)))).toThrow(audioClipLimit);
+    // Hostile sizes are still refused.
+    expect(() => validateDocument(docWith([{ clips: many(maxAudioClips * 10 + 1) }]))).toThrow(/audio/);
   });
 
   it('shows one default track until tracks are added', () => {

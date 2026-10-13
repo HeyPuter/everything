@@ -597,4 +597,26 @@ test.describe('audio edge cases', () => {
     await run(page, 'timeline.split');
     expect(await page.evaluate(() => window.photoStudio.doc.timeline!.audio![0].clips.filter((c) => c.source).length)).toBe(2);
   });
+
+  test('duplicating past four hours is refused with a message and the project still opens', async ({ page }) => {
+    await openImage(page, 32, 32, '#ffffff', 'limits.png');
+    await run(page, 'timeline.create');
+    await page.evaluate(async (b64) => {
+      const e = window.photoStudio;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await e.runCommand('timeline.audio-add', new File([bytes], 'late.wav', { type: 'audio/wav' }));
+      // Placed just before four hours (as a long timeline at a low frame rate allows).
+      e.command('Late', (d) => (d.timeline!.audio![0].clips[0].start = 4 * 3600 - 1));
+    }, toneWav(2));
+    await idle(page);
+    await run(page, 'timeline.audio-duplicate');
+    await expect(page.locator('#status')).toContainText('four hours');
+    expect((await timeline(page)).audio![0].clips).toHaveLength(1);
+    const reopened = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { deserialize, serialize } = await import('/src/model/serialization.ts');
+      return (await deserialize(await serialize(e.doc, e.assets))).document.timeline!.audio![0].clips.map((c) => c.start);
+    });
+    expect(reopened).toEqual([4 * 3600 - 1]);
+  });
 });

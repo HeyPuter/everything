@@ -53,7 +53,11 @@ export type AudioTrack = {
 export const defaultTrackId = 'audio-1';
 export const maxAudioTracks = 32;
 export const maxAudioClips = 2000;
+// Projects saved before edits kept to the limit open with up to this many.
+const maxLoadedClips = maxAudioClips * 10;
 export const maxAudioSeconds = 4 * 3600;
+export const audioClipLimit = `A video timeline holds at most ${maxAudioClips} audio clips.`;
+export const audioStartLimit = 'Audio clips start within the first four hours of the timeline.';
 export const gainRange: [number, number] = [-60, 24];
 export const volumeRange: [number, number] = [-60, 12];
 export const audioFileLimit = 256 * 1024 * 1024;
@@ -162,10 +166,18 @@ export function syncAudio(after: PhotoDocument, before?: PhotoDocument) {
   if (!tl) return;
   const soundless = new Set(tl.soundless);
   delete tl.soundless;
+  // Keep within what projects can hold: starts are clamped; an edit that
+  // adds clips beyond the limit is refused.
+  for (const c of allAudioClips(tl)) if (c.start > maxAudioSeconds) c.start = maxAudioSeconds;
+  const count = () => allAudioClips(tl).length;
+  const allowed = Math.max(maxAudioClips, before?.timeline ? allAudioClips(before.timeline).length : 0);
   const layers = allLayers(after.layers);
   const sounding = new Map(layers.filter((l) => l.kind === 'pixel' && l.video?.audio).map((l) => [l.id, l]));
   if (tl.audio) for (const t of tl.audio) t.clips = t.clips.filter((c) => !c.link || sounding.has(c.link));
-  if (!sounding.size) return;
+  if (!sounding.size) {
+    if (count() > allowed) throw new Error(audioClipLimit);
+    return;
+  }
   const linked = new Set(allAudioClips(tl).flatMap((c) => (c.link ? [c.link] : [])));
   const old = before?.timeline ? new Set(allLayers(before.layers).map((l) => l.id)) : new Set<string>();
   for (const [id, l] of sounding) {
@@ -176,6 +188,7 @@ export function syncAudio(after: PhotoDocument, before?: PhotoDocument) {
     linkFootageAudio(tl, id, where);
     linked.add(id);
   }
+  if (count() > allowed) throw new Error(audioClipLimit);
 }
 
 // ----- Mix plan -----
@@ -232,12 +245,12 @@ export function envelopePoints(p: Pick<PlanItem, 'gain' | 'fadeIn' | 'fadeOut' |
 // ----- Clip edits (seconds) -----
 
 export type Span = { start: number; in: number; length: number };
-/** Move a clip by `d` seconds (it cannot start before the timeline). */
-export const moveSpan = <T extends Span>(c: T, d: number): T => ({ ...c, start: Math.max(0, c.start + d) });
+/** Move a clip by `d` seconds (it starts within the timeline's first four hours). */
+export const moveSpan = <T extends Span>(c: T, d: number): T => ({ ...c, start: clamp(c.start + d, 0, Math.max(c.start, maxAudioSeconds)) });
 /** Move the clip's start by `d` (positive trims, negative extends up to the
  * start of the source and of the timeline); `min` is the shortest length. */
 export function trimSpanStart<T extends Span>(c: T, d: number, min: number): T {
-  let start = Math.min(c.start + d, c.start + c.length - min);
+  let start = Math.min(c.start + d, c.start + c.length - min, Math.max(c.start, maxAudioSeconds));
   start = Math.max(start, 0, c.start - c.in);
   const by = start - c.start;
   return { ...c, start, in: c.in + by, length: c.length - by };
@@ -296,6 +309,8 @@ export function validAudioSource(s: AudioSource | undefined) {
     s.sampleRate <= 768000
   );
 }
+/** Check the audio tracks of a project (throws when they are not valid).
+ * Clip starts past the limit (from earlier versions) are clamped. */
 export function validateAudio(tracks: unknown) {
   const bad = () => new Error('Invalid audio tracks.');
   if (tracks === undefined) return;
@@ -308,10 +323,11 @@ export function validateAudio(tracks: unknown) {
     if (t.volume !== undefined && !(finite(t.volume) && t.volume >= volumeRange[0] && t.volume <= volumeRange[1])) throw bad();
     if ((t.muted !== undefined && t.muted !== true) || (t.solo !== undefined && t.solo !== true)) throw bad();
     clips += t.clips.length;
-    if (clips > maxAudioClips) throw bad();
+    if (clips > maxLoadedClips) throw bad();
     for (const c of t.clips) {
       if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !c.id || ids.has(c.id)) throw bad();
       ids.add(c.id);
+      if (finite(c.start) && c.start > maxAudioSeconds) c.start = maxAudioSeconds;
       if (![c.start, c.in, c.length].every(seconds)) throw bad();
       if (c.link !== undefined ? typeof c.link !== 'string' || c.source !== undefined : !validAudioSource(c.source) || c.length <= 0) throw bad();
       if (c.gain !== undefined && !(finite(c.gain) && c.gain >= gainRange[0] && c.gain <= gainRange[1])) throw bad();

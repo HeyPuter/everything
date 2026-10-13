@@ -11,10 +11,14 @@ import { artboardConflict, maxTimelineFrames, ownClip, type Clip, type VideoTime
 import { contentLength, moveClip, splitClip, splitLayers, trimClipEnd, trimClipStart, trimLayers } from '../../model/video-timeline-ops';
 import {
   allAudioClips,
+  audioClipLimit,
+  audioStartLimit,
   clamp,
   clipSpan,
   findAudioClip,
   gainRange,
+  maxAudioClips,
+  maxAudioSeconds,
   maxAudioTracks,
   moveSpan,
   nextTrackName,
@@ -217,6 +221,13 @@ function standalone(doc: PhotoDocument, c: AudioClip, id = c.id): AudioClip | un
 /** Copies right after each selected clip, on the same track. */
 export function duplicateClips(e: Editor) {
   const ids = selectedAudioClips(e);
+  const ends = ids.map((id) => {
+    const hit = findAudioClip(tlOf(e), id);
+    const s = hit && clipSpan(e.doc, hit.clip);
+    return s ? s.start + s.length : 0;
+  });
+  if (ends.some((t) => t > maxAudioSeconds)) return e.message(audioStartLimit);
+  if (allAudioClips(tlOf(e)).length + ids.length > maxAudioClips) return e.message(audioClipLimit);
   const made = ids.map(() => crypto.randomUUID());
   return editTimeline(e, ids.length > 1 ? 'Duplicate Audio Clips' : 'Duplicate Audio Clip', (d) => {
     const tl = d.timeline!;
