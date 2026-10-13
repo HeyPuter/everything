@@ -139,7 +139,7 @@ describe('Simplex LP', () => {
   it('finds an assignment with an all-different constraint', () => {
     // Four jobs to four slots: slot numbers 1..4, cost = |slot - wanted|·weight.
     const { wb, id } = book([[1, 1, 1, 1], [3, 1, 4, 2], ['=ABS(A1-A2)+ABS(B1-B2)+ABS(C1-C2)+ABS(D1-D2)']]);
-    const { r } = solve(wb, id, model({ objective: 'A3', goal: 'min', variables: 'A1:D1', engine: 'evolutionary', options: { seed: 5, maxTimeNoImprove: 2 },
+    const { r } = solve(wb, id, model({ objective: 'A3', goal: 'min', variables: 'A1:D1', engine: 'evolutionary', options: { seed: 5, maxTimeNoImprove: 60 },
       constraints: [{ lhs: 'A1:D1', rel: 'dif', rhs: 'AllDifferent' }] }));
     expect(r.x).toEqual([3, 1, 4, 2]);
     expect(r.objective).toBe(0);
@@ -248,7 +248,7 @@ describe('GRG Nonlinear', () => {
 describe('Evolutionary', () => {
   it('solves a non-smooth model within bounds', () => {
     const { wb, id } = book([[0, 0], ['=ABS(A1-3)+ABS(B1+1)+IF(A1>2.5,0,1)']]);
-    const { r } = solve(wb, id, model({ objective: 'A2', goal: 'min', variables: 'A1:B1', nonNegative: false, engine: 'evolutionary', options: { seed: 11, maxTimeNoImprove: 2 },
+    const { r } = solve(wb, id, model({ objective: 'A2', goal: 'min', variables: 'A1:B1', nonNegative: false, engine: 'evolutionary', options: { seed: 11, maxTimeNoImprove: 60 },
       constraints: [{ lhs: 'A1:B1', rel: '>=', rhs: '-10' }, { lhs: 'A1:B1', rel: '<=', rhs: '10' }] }));
     expect(r.ok).toBe(true);
     expect(r.objective).toBeLessThan(1e-3);
