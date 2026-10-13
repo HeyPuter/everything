@@ -17,7 +17,7 @@ afterEach(() => { document.body.replaceChildren(); });
 const flush = () => new Promise((r) => setTimeout(r, 5));
 
 describe('overlapping charts', () => {
-  it('bring the selected one to the front while it is selected, without moving its node', async () => {
+  it('are drawn in the sheet\'s stacking order whatever is selected, and Bring to Front changes it without moving nodes', async () => {
     const wb = new Workbook();
     const id = wb.sheets[0].id;
     const under = wb.addChart(id, { type: 'column', range: { r1: 0, c1: 0, r2: 1, c2: 1 }, anchor: { r: 1, c: 2 }, w: 300, h: 200 });
@@ -28,17 +28,20 @@ describe('overlapping charts', () => {
     const boxes = () => [...grid.el.querySelectorAll('.chart-box')];
     const [first, second] = boxes();
     expect(first.dataset.chart).toBe(under);
+    expect(Number(second.style.zIndex)).toBeGreaterThan(Number(first.style.zIndex));
+    // Selecting the one beneath shows its frame but leaves the order the sheet keeps (Arrange decides it).
     grid.selectChart(under);
     await flush();
-    expect(Number(first.style.zIndex || 0)).toBeGreaterThan(Number(second.style.zIndex || 0));
+    expect(Number(second.style.zIndex)).toBeGreaterThan(Number(first.style.zIndex));
+    expect(first.classList.contains('selected')).toBe(true);
+    wb.orderObjects(id, [under], 'front');
+    await flush();
+    expect(Number(first.style.zIndex)).toBeGreaterThan(Number(second.style.zIndex));
     // The node stays where it was in the DOM, so the press that selected it can still become a double-click.
     expect(boxes()).toEqual([first, second]);
-    grid.selectChart(over);
+    wb.undo();
     await flush();
-    expect(Number(second.style.zIndex || 0)).toBeGreaterThan(Number(first.style.zIndex || 0));
-    grid.selectChart(null);
-    await flush();
-    expect(first.style.zIndex).toBe(second.style.zIndex);
+    expect(Number(second.style.zIndex)).toBeGreaterThan(Number(first.style.zIndex));
     grid.destroy();
   });
 });

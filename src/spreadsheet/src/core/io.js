@@ -2373,7 +2373,9 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   }
   // Two-cell drawing anchors need the imported row heights and column widths.
   const drawingInventory = new Map();
-  const nativeCharts = await readXlsxCharts(book, sheets, drawingInventory);
+  const nativeCharts = await readXlsxCharts(book, sheets, drawingInventory, {
+    // The groups this app wrote of its own objects, which come apart into those objects again.
+    splitGroups: (name) => { const keys = meta?.sheets?.[name]?.nativeGroups; return Array.isArray(keys) ? new Set(keys.filter((k) => typeof k === 'string')) : null; } });
   for (const sheet of sheets) if (book.files?.['xl/workbook.xml']) sheet.charts = await reconcileDrawings(meta?.sheets?.[sheet.name], nativeCharts.get(sheet.name) || [], drawingInventory.get(sheet.name));
   // A timeline has no Excel drawing of ours: it comes back from the app's own data (see timeline.js).
   for (const sheet of sheets) {

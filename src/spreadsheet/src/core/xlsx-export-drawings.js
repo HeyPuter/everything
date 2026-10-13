@@ -411,7 +411,7 @@ async function pictureBytes(src, width, height) {
   return { type, extension: type === 'svg+xml' ? 'svg' : type === 'jpeg' ? 'jpg' : type === 'x-emf' ? 'emf' : type, bytes: Uint8Array.from(atob(data), c => c.charCodeAt(0)) };
 }
 
-export async function exportDrawings(X, wb, sheet, index, { set, binary, contentType, recordDrawing, slicers }) {
+export async function exportDrawings(X, wb, sheet, index, { set, binary, contentType, recordDrawing, recordGroup, slicers }) {
   // A chartsheet requires a drawing relationship even after its last object
   // has been removed. An empty drawing is still a valid drawing part.
   // Form controls and timelines are written elsewhere (a timeline travels in the app's own data).
@@ -436,6 +436,13 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
     objectIds.set(obj.id, ids);
     if (obj.drawingKey && !drawingIds.has(obj.drawingKey)) drawingIds.set(obj.drawingKey, i + 1);
   }
+  // Arrange ▸ Group: a group of objects written whole becomes one grpSp in one anchor. Only groups of plain
+  // one-cell objects qualify; any other group's members are written one by one (the app's record keeps the group).
+  const members = new Map();
+  for (const obj of sheet.charts) if (obj.group) members.set(obj.group, [...(members.get(obj.group) || []), obj]);
+  const nativeGroups = new Set([...members].filter(([, list]) => list.length > 1 && sheet.kind !== 'chart' && list.every(o => !appOnly(o)
+    && o.type !== 'slicer' && !o.cellAnchor && o.anchorMode !== 'absolute' && !o.equation && !(o.type === 'image' && o.nativeDrawing))).map(([group]) => group));
+  const pending = new Map();
   for (const [i, obj] of sheet.charts.entries()) {
     if (appOnly(obj)) continue;
     const id = i + 1, key = `${index}_${id}`, relId = `rId${id}`;
@@ -461,7 +468,7 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
           + tag('a:t', {}, xmlText(text.slice((obj.textPrefix || '').length, obj.textSuffix ? -obj.textSuffix.length : undefined)))) + run(obj.textSuffix || ''))
         : text.split('\n').map(line => tag('a:p', {}, tag('a:pPr', { algn: { left: 'l', center: 'ctr', right: 'r' }[s.align] || 'l' }, textStyle(s)) + run(line))).join('');
       shape = tag('xdr:sp', { textlink: obj.textRef || null }, tag('xdr:nvSpPr', {}, tag('xdr:cNvPr', { id, name: `Text ${id}`, descr: obj.decorative ? null : obj.description || null }, decorativeXml(obj.decorative) || undefined) + tag('xdr:cNvSpPr', { txBox: 1 }))
-        + tag('xdr:spPr', {}, tag('a:xfrm', {}, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: emu(obj.w), cy: emu(obj.h) }))
+        + tag('xdr:spPr', {}, tag('a:xfrm', { rot: obj.rotation ? Math.round(obj.rotation * 60000) : null, flipH: obj.flipH ? 1 : null, flipV: obj.flipV ? 1 : null }, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: emu(obj.w), cy: emu(obj.h) }))
           + tag('a:prstGeom', { prst: 'rect' }, tag('a:avLst')) + paint(s.bg) + tag('a:ln', {}, paint(s.border ? '#cccccc' : null)))
         + effectRefStyleXml(s.effectRef)
         + tag('xdr:txBody', {}, tag('a:bodyPr', { anchor: { top: 't', middle: 'ctr', bottom: 'b' }[s.valign] || 'ctr', ...(equation ? { wrap: 'none' } : {}),
@@ -517,6 +524,9 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
         + tag('xdr:spPr', {}, tag('a:xfrm', { rot: Math.round((obj.rotation || 0) * 60000), flipH: Number(!!obj.flipH), flipV: Number(!!obj.flipV) }, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: emu(placement.w), cy: emu(placement.h) }))
           + tag('a:prstGeom', { prst: 'rect' }, tag('a:avLst'))));
     }
+    // The Selection Pane's name and eye: cNvPr@name and cNvPr@hidden of the object's own drawing.
+    if (obj.name || obj.hidden) shape = shape.replace(/<xdr:cNvPr\b([^>]*?)(\/?)>/, (_, attrs, closed) =>
+      `<xdr:cNvPr${obj.name ? attrs.replace(/\sname="[^"]*"/, ` name="${xmlText(obj.name)}"`) : attrs}${obj.hidden && !/\shidden=/.test(attrs) ? ' hidden="1"' : ''}${closed}>`);
     if (link) shape = shape.replace(/<xdr:cNvPr\b([^>]*?)(\/?)>/, (_, attrs, closed) =>
       `<xdr:cNvPr${attrs}>${tag('a:hlinkClick', { 'r:id': `${relId}Link`, tooltip: obj.hyperlinkTooltip || null })}${closed ? '</xdr:cNvPr>' : ''}`);
     let identified;
@@ -544,6 +554,12 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
     }
     if (!identified) { identified = identifyDrawing(shape); shape = identified.xml; }
     if (obj.type !== 'slicer') recordDrawing?.(sheet.name, obj.id, identified.key);
+    if (obj.group && nativeGroups.has(obj.group)) {
+      pending.set(obj.group, [...(pending.get(obj.group) || []), { obj, shape, placement }]);
+      // The group's last member writes the group: one anchor at the box around them, each member placed in it.
+      if (pending.get(obj.group).length === members.get(obj.group).length) anchors.push(groupAnchorXml(sheet, obj.group, pending.get(obj.group), nextDrawingId++, recordGroup));
+      continue;
+    }
     const from = tag('xdr:from', {}, tag('xdr:col', {}, obj.anchor.c) + tag('xdr:colOff', {}, emu(placement.dx)) + tag('xdr:row', {}, obj.anchor.r) + tag('xdr:rowOff', {}, emu(placement.dy)));
     const absolute = sheet.kind === 'chart' || obj.anchorMode === 'absolute';
     if (cellAnchor && sheet.kind !== 'chart') {
@@ -562,14 +578,46 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
   return `../drawings/drawing${index}.xml`;
 }
 
+/** Pixels before line `count` along an axis, hidden lines counting nothing. */
+function lineOffset(sheet, axis, count) {
+  const row = axis === 'row', sizes = row ? sheet.rowHeights : sheet.colWidths, fallback = row ? sheet.defaultRowHeight : sheet.defaultColWidth;
+  let pixels = count * fallback;
+  for (const [i, size] of sizes) if (i < count) pixels += size - fallback;
+  for (const i of row ? new Set([...sheet.hiddenRows, ...sheet.filterHidden]) : sheet.hiddenCols) if (i < count) pixels -= sizes.get(i) ?? fallback;
+  return pixels;
+}
+
+/**
+ * One grpSp holding a group's members, in a one-cell anchor at the box around them: the group's frame and its
+ * child coordinate space are both that box in EMUs, and each member's own transform places it inside.
+ */
+function groupAnchorXml(sheet, group, items, id, recordGroup) {
+  const at = items.map(({ obj, placement }) => ({ x: lineOffset(sheet, 'col', obj.anchor.c) + placement.dx, y: lineOffset(sheet, 'row', obj.anchor.r) + placement.dy, w: placement.w, h: placement.h }));
+  const gx = Math.min(...at.map(r => r.x)), gy = Math.min(...at.map(r => r.y));
+  const gw = Math.max(...at.map(r => r.x + r.w)) - gx, gh = Math.max(...at.map(r => r.y + r.h)) - gy;
+  const left = items[at.findIndex(r => r.x === gx)], top = items[at.findIndex(r => r.y === gy)];
+  const body = items.map(({ shape }, i) => shape.replace(/<(a|xdr):xfrm([^>]*)>[\s\S]*?<\/\1:xfrm>/, (whole, prefix, attrs) =>
+    `<${prefix}:xfrm${attrs}>${tag('a:off', { x: emu(at[i].x - gx), y: emu(at[i].y - gy) })}${tag('a:ext', { cx: emu(at[i].w), cy: emu(at[i].h) })}</${prefix}:xfrm>`)).join('');
+  const hidden = items.every(({ obj }) => obj.hidden);
+  const identified = identifyDrawing(tag('xdr:grpSp', {}, tag('xdr:nvGrpSpPr', {}, tag('xdr:cNvPr', { id, name: `Group ${id}`, hidden: hidden ? 1 : null }) + tag('xdr:cNvGrpSpPr'))
+    + tag('xdr:grpSpPr', {}, tag('a:xfrm', {}, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: emu(gw), cy: emu(gh) })
+      + tag('a:chOff', { x: 0, y: 0 }) + tag('a:chExt', { cx: emu(gw), cy: emu(gh) }))) + body));
+  recordGroup?.(sheet.name, identified.key);
+  const from = tag('xdr:from', {}, tag('xdr:col', {}, left.obj.anchor.c) + tag('xdr:colOff', {}, emu(left.placement.dx)) + tag('xdr:row', {}, top.obj.anchor.r) + tag('xdr:rowOff', {}, emu(top.placement.dy)));
+  return tag('xdr:oneCellAnchor', {}, from + tag('xdr:ext', { cx: emu(gw), cy: emu(gh) }) + identified.xml + tag('xdr:clientData'));
+}
+
 /** Save projections of the emitted drawings, without another ZIP/cell parse. */
-export async function updateDrawingMetadata(X, zip, book, wb, records, { get, set }) {
+export async function updateDrawingMetadata(X, zip, book, wb, records, { get, set, groups = new Map() }) {
   const meta = book.PuterExportMeta;
   if (!meta) return;
   const files = Object.create(null), root = zip.FullPaths[0];
   zip.FullPaths.forEach((path, i) => { files[path.slice(root.length)] = zip.FileIndex[i]; });
   const sheets = [...get('/xl/workbook.xml').matchAll(/<sheet\b[^>]*\/>/g)].map(m => ({ name: xlsxAttr(m[0], 'name'), id: xlsxAttr(m[0], 'r:id') }));
-  const native = await readXlsxCharts({ files, Workbook: { Sheets: sheets }, Styles: { Fonts: [wb.normalFont || { sz: 12 }] } });
+  const native = await readXlsxCharts({ files, Workbook: { Sheets: sheets }, Styles: { Fonts: [wb.normalFont || { sz: 12 }] } }, [], new Map(),
+    { splitGroups: (name) => (groups.has(name) ? new Set(groups.get(name)) : null) });
+  // The groups written whole are named in the record, so reading the file again takes them apart into their objects.
+  for (const [name, keys] of groups) if (meta.data.sheets[name]) meta.data.sheets[name].nativeGroups = keys;
   for (const [name, entries] of records) {
     const byKey = new Map((native.get(name) || []).map(c => [c.xlsxDrawingIdentity?.key, c]));
     const baseline = [];

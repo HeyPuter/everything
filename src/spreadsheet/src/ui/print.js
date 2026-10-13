@@ -550,7 +550,7 @@ function printRange(wb, sheetId, opts) {
   else {
     range = printBounds(wb, sheetId, sheet);
     for (const obj of sheet.charts || []) {
-      if (!obj.anchor || obj.print === false) continue;
+      if (!obj.anchor || obj.print === false || obj.hidden) continue;
       const box = objectExtent(wb, sheetId, sheet, obj);
       range = range ? { r1: Math.min(range.r1, box.r1), c1: Math.min(range.c1, box.c1), r2: Math.max(range.r2, box.r2), c2: Math.max(range.c2, box.c2) } : box;
     }
@@ -1078,7 +1078,8 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
  * positions are the row heights in pixels.
  */
 function printObjectContent(node, wb, sheetId, obj, w, h) {
-  if (obj.print === false || obj.type === 'slicer' && obj.hidden) return false;
+  // A hidden object (the Selection Pane's eye) prints no more than it shows.
+  if (obj.print === false || obj.hidden) return false;
   if (obj.type === 'slicer') {
     const control = createSlicerControl(document);
     control.update(obj, slicerItems(wb, obj), obj.paint);
@@ -1110,6 +1111,8 @@ function printObjectContent(node, wb, sheetId, obj, w, h) {
     const effect = textBoxEffectCss(wb, obj);
     if (effect.filter) node.style.overflow = 'visible';
     node.append(obj.equation ? equationBody(obj, 1, effect) : el('div.text-body', { style: { ...textBoxStyle(obj), ...effect } }, el('span', {}, textBoxText(wb, sheetId, obj))));
+    // A turned or flipped text box (Arrange ▸ Rotate) prints as it shows.
+    if (obj.rotation || obj.flipH || obj.flipV) node.style.transform = `rotate(${obj.rotation || 0}deg) scale(${obj.flipH ? -1 : 1}, ${obj.flipV ? -1 : 1})`;
   } else {
     if (chartCornerRadius(obj)) node.style.backgroundColor = 'transparent';
     try { node.innerHTML = renderChartSvg(chartData(wb, sheetId, obj), obj, w, h); } catch { return false; }

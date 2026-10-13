@@ -177,6 +177,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     if (!drawingRecords.has(name)) drawingRecords.set(name, []);
     drawingRecords.get(name).push({ id, key });
   };
+  const groupRecords = new Map();
+  const recordGroup = (name, key) => { if (!groupRecords.has(name)) groupRecords.set(name, []); groupRecords.get(name).push(key); };
   let types = get('/[Content_Types].xml'), tableId = 0;
   const contentType = (path, type) => { types = types.replace('</Types>', xmlTag('Override', { PartName: path, ContentType: type }) + '</Types>'); };
   const richValues = richValueWriter({ get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
@@ -185,7 +187,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
     if (sheet.kind === 'chart') {
       const chartPath = `/xl/chartsheets/sheet${i + 1}.xml`;
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
       const views = xmlTag('sheetViews', {}, xmlTag('sheetView', {
         workbookViewId: 0, tabSelected: Number(wb.activeSheetId === sheet.id), zoomToFit: Number(!!sheet.zoomToFit),
         zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
@@ -284,7 +286,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
       let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
       const parts = [];
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
       if (drawing) {
         rels = rels.replace('</Relationships>', xmlTag('Relationship', { Id: 'puterDrawing', Type: `${REL}drawing`, Target: drawing }) + '</Relationships>');
         // A DrawingML drawing precedes the VML drawing used by cell comments.
@@ -406,7 +408,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   writeXlsxSlicers(wb, slicers, { get, set, contentType });
   richValues.finish();
   set('/[Content_Types].xml', types);
-  if (drawingRecords.size) await updateDrawingMetadata(X, zip, book, wb, drawingRecords, { get, set });
+  if (drawingRecords.size) await updateDrawingMetadata(X, zip, book, wb, drawingRecords, { get, set, groups: groupRecords });
   if (book.PuterExportMeta) {
     book.PuterExportMeta.data.nativeFillBaseline = styles.fillBaseline();
     writeExportMetadata(X, book, { get, set });
