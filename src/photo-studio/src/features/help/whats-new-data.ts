@@ -36,7 +36,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     title: 'Block text',
     text: 'A new arc-text shape that stacks lines and scales each one to the same width, for bold headline blocks that stay editable.',
     release: 'October 2026',
-    action: { commands: ['type.arc-block', 'type.block'], needs: 'document', hint: 'Select a text layer, then choose Type → Convert to Arc Text → Block.' },
+    action: { commands: ['type.arc-block'], needs: 'document', hint: 'Select a text layer, then choose Type → Convert to Arc Text → Block.' },
   },
   {
     id: 'actual-size',
@@ -50,7 +50,21 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     title: 'Artboard guides',
     text: 'Guides dropped on an artboard belong to it and move with it; canvas and artboard guides can be shown and cleared separately.',
     release: 'October 2026',
-    action: { commands: ['view.show-artboard-guides'] },
+    action: { commands: ['view.guides-new'], needs: 'document', hint: 'Drag a guide from a ruler onto an artboard, or choose View → Guides → New Guide.' },
+  },
+  {
+    id: 'vertical-forms',
+    title: 'Latin in vertical text',
+    text: 'In vertical text, turn Latin words sideways or set short runs such as dates and numbers side by side in one cell.',
+    release: 'October 2026',
+    action: { commands: ['type.vertical-combine'], needs: 'document', hint: 'Select a vertical text layer, then choose Type → Language Options.' },
+  },
+  {
+    id: 'rgb-proofs',
+    title: 'Web and legacy display proofs',
+    text: 'Preview how the image looks where embedded profiles are ignored, or on an older gamma 1.8 display, without changing its pixels.',
+    release: 'October 2026',
+    action: { commands: ['view.proof-legacy-rgb'], needs: 'document' },
   },
   {
     id: 'convert-linked',

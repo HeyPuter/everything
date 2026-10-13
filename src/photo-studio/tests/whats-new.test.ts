@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WHATS_NEW } from '../src/features/help/whats-new-data';
 import { tutorialInfo } from '../src/features/help/tutorial-list';
 import { hasIcon } from '../src/app/icons';
+import { loadRegistry } from './registry-fixture';
 
 describe("What's New data", () => {
   it('has unique entries with written descriptions', () => {
@@ -27,6 +28,12 @@ describe("What's New data", () => {
       else expect(a.panel).toMatch(/^[a-z][a-z0-9-]*$/);
     }
   });
+
+  it('runs commands that are registered', async () => {
+    const r = await loadRegistry();
+    const missing = WHATS_NEW.flatMap((w) => (w.action && 'commands' in w.action ? w.action.commands.filter((c) => !r.commands.has(c)) : []));
+    expect(missing).toEqual([]);
+  }, 60_000);
 
   it('lists the newest release first', () => {
     expect(WHATS_NEW[0].release).toBe('October 2026');
