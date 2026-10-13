@@ -65,7 +65,12 @@ export function appearanceTargetIndex(editor) {
   const t = editor?.appearanceTarget;
   if (!t) return null;
   const st = sharedStack(editor);
-  if (!st || !st.same || st.owners.map((n) => n.id).join(',') !== t.ids) return null;
+  if (!st || st.owners.map((n) => n.id).join(',') !== t.ids) {
+    // Another selection: the pick is over (and costs nothing from now on).
+    editor.appearanceTarget = null;
+    return null;
+  }
+  if (!st.same) return null;
   return t.index < st.items.length ? t.index : null;
 }
 
