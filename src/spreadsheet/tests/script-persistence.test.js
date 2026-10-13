@@ -4,6 +4,7 @@ import { Workbook } from '../src/core/workbook.js';
 import { workbookToXlsx, workbookToOds, workbookFromFile } from '../src/core/io.js';
 import { addScript, updateScript, deleteScript, duplicateScript, normalizeScripts, scriptNameProblem, uniqueScriptName, scriptFingerprint } from '../src/core/scripts.js';
 import { SCRIPTS_PART, SCRIPTS_RELATIONSHIP } from '../src/core/xlsx-scripts.js';
+import { addScriptButton, scriptOfLink } from '../src/ui/automate.js';
 
 const CODE = 'async function main(workbook) {\n  console.log("héllo \\u2028 ✓");\n}\n';
 const bytes = async (blob) => new Uint8Array(await blob.arrayBuffer());
@@ -87,5 +88,15 @@ describe('workbook scripts', () => {
     addScript(wb, { name: 'One', code: CODE });
     const reopened = await workbookFromFile(await bytes(await workbookToOds(wb)), 'book.ods');
     expect(reopened.scripts.map((s) => [s.name, s.code])).toEqual([['One', CODE]]);
+  });
+
+  it('keeps a script button and its link through an .xlsx', async () => {
+    const wb = new Workbook();
+    addScript(wb, { name: 'Tidy up', code: '// x' });
+    addScriptButton(wb, wb.activeSheetId, { r: 1, c: 1 }, 'Tidy up');
+    const back = await workbookFromFile(await bytes(await workbookToXlsx(wb)), 'b.xlsx');
+    const drawn = back.sheets[0].charts.find((c) => c.type === 'text');
+    expect(drawn.text).toBe('Tidy up');
+    expect(scriptOfLink(drawn.hyperlink)).toBe('Tidy up');
   });
 });

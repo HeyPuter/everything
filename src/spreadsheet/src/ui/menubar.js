@@ -465,6 +465,7 @@ export function menubarMenus(f = {}) {
     sub('Automate', 'codeEditor', [
       i('Code Editor', 'codeEditor', 'scriptsPane', null, { checked: !!f.scriptsPane }),
       i('New script', 'newScript', 'newScript'),
+      i('Run script', 'runScript', 'runScript', null, { disabled: !!f.scriptRunning }),
       i(f.recording ? 'Stop recording' : 'Record actions', 'recordActions', 'recordActions', null, { checked: !!f.recording }),
       i('All scripts…', 'allScripts', 'scriptGallery'),
       i('Script reference', 'scriptReference', 'scriptReference'),

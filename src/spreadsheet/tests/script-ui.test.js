@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { addScript } from '../src/core/scripts.js';
 import { closeAllModals } from '../src/ui/modal.js';
-import { createAutomate } from '../src/ui/automate.js';
+import { createAutomate, addScriptButton, scriptLink, scriptOfLink } from '../src/ui/automate.js';
 import { createCodeEditor, tokenizeScript, matchingBracket, completionsAt, receiverType } from '../src/ui/code-editor.js';
 import { SANDBOX_HTML, SANDBOX_FLAGS, SANDBOX_CSP, sandboxTransport } from '../src/lib/script-sandbox.js';
 import { nodeTransport } from './helpers/script-transport.js';
@@ -30,7 +30,7 @@ function memoryLibrary() {
 function setup(wb = new Workbook()) {
   const library = memoryLibrary();
   const grid = { el: document.createElement('div'), focus() {}, editing: false };
-  const automate = createAutomate({ wb, grid, sheetId: () => wb.activeSheetId }, { transport: nodeTransport(), library });
+  const automate = createAutomate({ wb, grid, sheetId: () => wb.activeSheetId, active: () => ({ r: 0, c: 0 }) }, { transport: nodeTransport(), library });
   document.body.append(automate.pane, automate.notice, grid.el);
   return { wb, automate, library, grid };
 }
@@ -116,6 +116,23 @@ describe('Code Editor pane', () => {
     [...document.querySelectorAll('.menu [role="menuitem"]')].find((n) => n.textContent.includes('Duplicate')).click();
     expect(wb.scripts.map((s) => s.name)).toEqual(['Script', 'Script copy']);
     expect(automate.pane.querySelector('.sp-picker-name').textContent).toBe('Script copy');
+  });
+});
+
+describe('script buttons', () => {
+  it('adds a button on the sheet that runs its script by name', async () => {
+    const { wb, automate } = setup();
+    await automate.run('newScript');
+    const textarea = automate.pane.querySelector('.ce-input');
+    textarea.value = 'async function main(workbook) { workbook.getActiveWorksheet().getRange("C3").setValue("pressed"); }';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await until(() => wb.scripts[0].code.includes('pressed'));
+    await automate.run('insertScriptButton', { id: wb.scripts[0].id });
+    const button = wb.sheets[0].charts[0];
+    expect(button).toMatchObject({ type: 'text', text: 'Script', hyperlink: scriptLink('Script') });
+    expect(scriptOfLink(button.hyperlink)).toBe('Script');
+    await automate.run('runScript', { name: scriptOfLink(button.hyperlink) });
+    expect(wb.getValue(wb.activeSheetId, 2, 2)).toBe('pressed');
   });
 });
 

@@ -95,7 +95,7 @@ import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
 import { createQueriesPane } from '../ui/queries-pane.js';
-import { createAutomate, AUTOMATE_COMMANDS } from '../ui/automate.js';
+import { createAutomate, AUTOMATE_COMMANDS, scriptOfLink } from '../ui/automate.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
 import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.js';
 import { toggleDetail } from '../core/outline-detail.js';
@@ -1233,15 +1233,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     return ok;
   }
   async function run(cmd, arg) {
-    if (AUTOMATE_COMMANDS.has(cmd)) return automate?.run(cmd, arg);
     // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
-    if (automate?.running) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
+    if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
     // F4 (and Ctrl+Y with nothing to redo) repeats the last formatting or structural command on the selection now.
     if (cmd === 'repeat') { if (lastRepeatable && !grid.editing) return run(lastRepeatable.cmd, lastRepeatable.arg); return; }
     if (cmd === 'redo' && !grid.editing && !wb.canRedo() && lastRepeatable) return run('repeat');
     if (REPEATABLE.has(cmd) && !(arg instanceof Event) && !(arg instanceof HTMLElement)) lastRepeatable = { cmd, arg };
     const chartSheet = wb.sheet(grid.sheetId)?.kind === 'chart';
-    if (chartSheet && !chartSheetCommand(cmd)) return;
+    if (chartSheet && !chartSheetCommand(cmd) && !AUTOMATE_COMMANDS.has(cmd)) return;
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
@@ -3281,9 +3280,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         wb.removeLink(sheetId, grid.active.r, grid.active.c);
         keepFocus();
         return;
+      // Automate (ui/automate.js): scripts, the Code Editor, Record Actions and script buttons.
+      case 'scriptsPane': case 'newScript': case 'openScript': case 'recordActions': case 'stopRecording': case 'scriptGallery':
+      case 'runScript': case 'stopScript': case 'scriptReference': case 'insertScriptButton':
+        return automate?.run(cmd, arg);
       case 'openDrawingLink': {
         const url = safeLinkUrl(wb.chartById(sheetId, arg)?.hyperlink);
         if (!url) return;
+        // A script button (Automate ▸ Script Button) runs its script.
+        if (scriptOfLink(url) != null) { automate?.run('runScript', { name: scriptOfLink(url) }); return; }
         if (url.startsWith('#')) { followInternalLink(url); return; }
         window.open(url, '_blank', 'noopener');
         return;

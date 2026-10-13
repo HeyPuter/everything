@@ -41,7 +41,8 @@ it('switches tabs without changing the workbook or committing a pending entry', 
 it('supports arrow tab navigation, Home/End and entry into controls', () => {
   setup(); tab('Home').focus(); key(tab('Home'), 'ArrowRight');
   expect(document.activeElement).toBe(tab('Insert'));
-  key(tab('Insert'), 'End'); expect(document.activeElement).toBe(tab('View'));
+  key(tab('Insert'), 'End'); expect(document.activeElement).toBe(tab('Automate'));
+  key(tab('Automate'), 'ArrowLeft'); expect(document.activeElement).toBe(tab('View'));
   key(tab('View'), 'ArrowDown'); expect(document.activeElement).toBe(enabled()[0]);
   key(document.activeElement, 'End'); expect(document.activeElement).toBe(enabled().at(-1));
   key(document.activeElement, 'Escape'); expect(document.activeElement).toBe(tab('View'));
@@ -112,12 +113,12 @@ it('moves along the tabs of a collapsed ribbon without expanding it or changing 
   expect(tab('Insert').getAttribute('aria-selected')).toBe('true');
   expect(ribbon.el.classList.contains('ribbon-collapsed')).toBe(true);
   expect(localStorage.getItem('spreadsheet:ribbon')).toBe('collapsed');
-  key(tab('Insert'), 'End'); expect(document.activeElement).toBe(tab('View'));
+  key(tab('Insert'), 'End'); expect(document.activeElement).toBe(tab('Automate'));
   expect(ribbon.el.classList.contains('ribbon-collapsed')).toBe(true);
   // ArrowDown, as a click, opens the chosen tab's commands.
-  key(tab('View'), 'ArrowDown');
+  key(tab('Automate'), 'ArrowDown');
   expect(ribbon.el.classList.contains('ribbon-collapsed')).toBe(false);
-  expect(panel().getAttribute('aria-labelledby')).toBe(tab('View').id);
+  expect(panel().getAttribute('aria-labelledby')).toBe(tab('Automate').id);
 });
 
 it('collapses and expands on a double-click of a tab, as the collapse button says', () => {

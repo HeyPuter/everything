@@ -326,6 +326,7 @@ const groupsFor = name => ({
       large(direct('All Scripts', 'allScripts', 'scriptGallery', null)),
       large(direct('Code Editor', 'codeEditor', 'scriptsPane', null, { isChecked: ctx => !!ctx.flags?.()?.scriptsPane })),
       large(dyn('Run Script', 'runScript', (menus, ctx) => ctx.automate?.menuItems?.() || [], { ariaLabel: 'Run a script' }))],
+    ['Controls', large(dyn('Script Button', 'scriptButton', (menus, ctx) => ctx.automate?.buttonItems?.() || [], { ariaLabel: 'Insert a button that runs a script' }))],
     ['Sample Scripts', ...SAMPLE_BUTTONS.map(([id, label, glyph]) => direct(label, glyph, 'runScript', { sample: id }, { ariaLabel: `Run the ${label} sample script` }))],
     ['Help', large(direct('Script Reference', 'scriptReference', 'scriptReference', null))],
   ],
@@ -334,7 +335,7 @@ const groupsFor = name => ({
 const SAMPLE_BUTTONS = [
   ['highlight-duplicates', 'Highlight Duplicates', 'highlightDuplicates'], ['unhide-everything', 'Unhide Everything', 'unhideAll'],
   ['sum-each-column', 'Sum Each Column', 'sumColumns'], ['table-of-contents', 'Table of Contents', 'tableOfContents'],
-  ['header-row', 'Style Header Row', 'headerRow'], ['remove-blank-rows', 'Remove Blank Rows', 'removeBlankRows'],
+  ['header-row', 'Style Header Row', 'styleHeaderRow'], ['remove-blank-rows', 'Remove Blank Rows', 'removeBlankRows'],
 ];
 
 /** A large button's name on two lines ("Sort &" over "Filter"), split where the longer line is shortest. */

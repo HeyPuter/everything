@@ -13,7 +13,7 @@ import { openModal, confirmDialog, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import { createCodeEditor } from './code-editor.js';
 import { openScriptGallery, openScriptReference } from './script-gallery.js';
-import { addScript, updateScript, deleteScript, duplicateScript, scriptById, scriptNameProblem, uniqueScriptName, scriptFingerprint, sampleById, NEW_SCRIPT_CODE } from '../core/scripts.js';
+import { addScript, updateScript, deleteScript, duplicateScript, scriptById, scriptByName, scriptNameProblem, uniqueScriptName, scriptFingerprint, sampleById, NEW_SCRIPT_CODE } from '../core/scripts.js';
 import { runScript } from '../core/script-run.js';
 import { startRecorder } from '../core/script-recorder.js';
 import { sandboxTransport } from '../lib/script-sandbox.js';
@@ -25,7 +25,25 @@ const SAVE_DELAY = 500;
 const MAX_LOG_ENTRIES = 2000;
 
 /** The commands this module answers. */
-export const AUTOMATE_COMMANDS = new Set(['scriptsPane', 'newScript', 'recordActions', 'stopRecording', 'scriptGallery', 'runScript', 'stopScript', 'scriptReference', 'openScript']);
+export const AUTOMATE_COMMANDS = new Set(['scriptsPane', 'newScript', 'recordActions', 'stopRecording', 'scriptGallery', 'runScript', 'stopScript', 'scriptReference', 'openScript', 'insertScriptButton']);
+
+/** The link a script button carries: a place in the workbook that names the script it runs. */
+export const SCRIPT_LINK = '#script:';
+export const scriptLink = (name) => `${SCRIPT_LINK}${encodeURIComponent(name)}`;
+export const scriptOfLink = (url) => (typeof url === 'string' && url.startsWith(SCRIPT_LINK) ? decodeURIComponent(url.slice(SCRIPT_LINK.length)) : null);
+
+/**
+ * A button on the sheet that runs a script: a text box styled as a button, linked to the script by name, so a click
+ * runs it (Shift+click selects it to move, resize or delete) and it travels in any file a text box and its link do.
+ */
+export function addScriptButton(wb, sheetId, anchor, name) {
+  const w = Math.min(260, Math.max(120, Math.round(name.length * 8.5) + 40));
+  return wb.addChart(sheetId, {
+    type: 'text', text: name, anchor: { r: anchor.r, c: anchor.c }, dx: 4, dy: 4, w, h: 40,
+    style: { size: 13, bold: true, color: '#ffffff', bg: '#356d49', align: 'center', valign: 'middle', border: false },
+    hyperlink: scriptLink(name), hyperlinkTooltip: `Run the script “${name}”`, description: `Button that runs the script ${name}`,
+  });
+}
 
 /**
  * ctx: the editor context (wb, grid, subscribe, run). options: { env() → ScriptHost env, notify(), transport,
@@ -46,7 +64,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     label: 'Script code',
     onChange: (text) => { scheduleSave(text); },
     onRun: () => runOpen(),
-    onSave: () => flushSave(),
+    // Ctrl/Cmd+S in the code saves the workbook, the script with it.
+    onSave: () => { flushSave(); ctx.run?.('save'); },
   });
   const pickerLabel = el('span.sp-picker-name');
   const picker = el('button.sp-picker', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Choose a script', onclick: () => openPicker() },
@@ -404,9 +423,26 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
       case 'scriptGallery': gallery(); return;
       case 'scriptReference': openScriptReference(); return;
       case 'stopScript': stopRun(); return;
+      case 'insertScriptButton': {
+        const s = scriptById(wb, arg?.id);
+        const sheetId = ctx.sheetId?.() ?? wb.activeSheetId;
+        if (!s || wb.sheet(sheetId)?.kind === 'chart') return;
+        if (ctx.grid?.editing && !ctx.grid.commitEdit?.()) return;
+        const id = addScriptButton(wb, sheetId, ctx.active?.() || { r: 0, c: 0 }, s.name);
+        if (id) { ctx.grid?.selectChart?.(id); toast(`Added a button for “${s.name}”. Click it to run the script; Shift+click selects it`); }
+        else toast('A button cannot be added here: the sheet is protected', { icon: 'alert' });
+        return;
+      }
       case 'runScript': {
         if (arg?.sample) { const s = sampleById(arg.sample); if (s) await runCode({ name: s.name, code: s.code, source: 'sample' }); return; }
         if (arg?.path && library) { const code = await library.readLibraryScript(arg.path); await runCode({ name: arg.name || 'Script', code, source: 'library' }); return; }
+        if (arg?.name != null) {
+          // A script button names its script; a renamed or deleted script leaves the button with nothing to run.
+          const named = scriptByName(wb, arg.name);
+          if (named) await runCode({ name: named.name, code: named.code, source: 'workbook', id: named.id });
+          else toast(`This button runs “${arg.name}”, which is not in this workbook any more`, { icon: 'alert' });
+          return;
+        }
         const s = scriptById(wb, arg?.id ?? openId) || (wb.scripts?.length === 1 ? wb.scripts[0] : null);
         if (s) await runCode({ name: s.name, code: s.code, source: 'workbook', id: s.id });
         else gallery();
@@ -416,7 +452,11 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     }
   }
 
-  const onChange = (e) => { if (e.detail?.type === 'scripts' && !pane.hidden) renderPane(); };
+  // A script edited elsewhere (the gallery, a restored draft that replaced the whole book) shows here as it now is.
+  const onChange = (e) => {
+    if (pane.hidden) return;
+    if (e.detail?.type === 'load') { clearTimeout(saveTimer); saveTimer = null; renderPane(true); } else if (e.detail?.type === 'scripts') renderPane();
+  };
   wb.addEventListener('change', onChange);
 
   return {
@@ -430,6 +470,11 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     menuItems() {
       const list = (wb.scripts || []).map((s) => ({ label: s.name, icon: 'scriptFile', cmd: 'runScript', arg: { id: s.id } }));
       return list.length ? list : [{ label: 'No scripts in this workbook', disabled: true }];
+    },
+    /** The scripts a button can be added for, for the ribbon's Script Button menu. */
+    buttonItems() {
+      const list = (wb.scripts || []).map((s) => ({ label: s.name, icon: 'scriptButton', cmd: 'insertScriptButton', arg: { id: s.id } }));
+      return list.length ? [{ header: 'Add a button that runs' }, ...list] : [{ label: 'No scripts in this workbook to run', disabled: true }];
     },
     destroy() {
       flushSave();

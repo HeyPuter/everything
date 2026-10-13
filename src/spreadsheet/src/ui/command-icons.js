@@ -462,8 +462,10 @@ Object.assign(COMMAND_ICONS, {
   unhideAll: p('M1.8 10S4.8 4.6 10 4.6 18.2 10 18.2 10 15.2 15.4 10 15.4 1.8 10 1.8 10z', 'of') + ci(10, 10, 3, 'bs') + ci(9, 9, 0.9, 'glint'),
   sumColumns: cells(2.5, 2.5, 15, 10, 3, 3) + r(2.5, 13.5, 15, 4, 'gf', 1) + p('M5 14.6h3.4L6.6 15.5l1.8.9H5', 'g'),
   tableOfContents: page(3.5, 2.5, 13, 15, 3.5) + ci(6.6, 7.6, 0.9, 'bs') + ci(6.6, 10.6, 0.9, 'bs') + ci(6.6, 13.6, 0.9, 'bs') + lines(8.6, 7.6, 5, 3, 3, 'b'),
-  headerRow: cells(2.5, 3.5, 15, 13, 3, 4, { head: 'bs' }) + p('M2.5 6.75h15', 'b thick'),
+  styleHeaderRow: cells(2.5, 3.5, 15, 13, 3, 4, { head: 'bs' }) + p('M2.5 6.75h15', 'b thick') + p('M14.5 1.8v4.4M12.6 2.9l3.8 2.2M12.6 5.1l3.8-2.2', 'b'),
   removeBlankRows: cells(2.5, 3.5, 13, 13, 2, 4) + r(2.5, 9.9, 13, 3.2, 'rw') + badge(15.5, 15, 'minus', 'r'),
+  // A button drawn on the sheet, with the pointer that presses it.
+  scriptButton: r(2, 4.5, 15, 9, 'gs', 2.4) + p('M7.4 6.9v4.2l3.6-2.1z', 'glint') + p('M12.5 10.5l5 5-2 .3 1.2 2.4-1.2.6-1.2-2.4-1.6 1.4z', 'of'),
 });
 
 /** The icons drawn here with a larger canvas in mind are the same drawings; the ribbon shows them at 32px. */
