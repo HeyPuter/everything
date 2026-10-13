@@ -131,12 +131,12 @@ function renderTreemap(data, chart, width, height) {
   const mode = chart.treemapLabels || 'overlapping', labelStyle = st.label;
   const layout = treemapLayout(root, plot, { labels: mode, bannerHeight: labelStyle.size * 1.6, gap: 2 });
   const stroke = a ? (a.background === 'none' ? '#ffffff' : a.background) : 'var(--surface)';
-  const marks = [], names = [];
+  const marks = [], names = [], leafColors = new Map((a?.pointColors?.[0] || []).map(p => [p.index, p.color]));
   layout.forEach(item => {
     const { node } = item, leaf = !node.children.length;
-    const color = branchColor(chart, root, node), paint = branchPaint(chart, root, node);
+    const row = node.rows[0] ?? 0, own = leaf ? leafColors.get(row) : null;
+    const color = own && own !== 'none' ? own : branchColor(chart, root, node), paint = own || branchPaint(chart, root, node);
     if (leaf) {
-      const row = node.rows[0] ?? 0;
       marks.push(`<rect class="chart-treemap-leaf" x="${f(item.x)}" y="${f(item.y)}" width="${f(item.w)}" height="${f(item.h)}" fill="${esc(paint)}" stroke="${esc(stroke)}" stroke-width=".5" data-el="series" data-series="0" data-point="${row}"${a ? effectAttr(a, 'series:0') : ''}><title>${esc(pathTip(node, style))}</title></rect>`);
       if (!labelsOn(chart) || item.w < 14 || item.h < labelStyle.size + 4) return;
       const ink = { ...labelStyle, color: inkFor(color, labelStyle) };
@@ -269,10 +269,12 @@ function renderBoxWhisker(data, chart, width, height) {
   parts.push(`<clipPath id="${clip}"><rect x="${f(plot.x)}" y="${f(plot.y - 2)}" width="${f(plot.w)}" height="${f(plot.h + 4)}"/></clipPath><g clip-path="url(#${clip})">`);
   const labels = [];
   grouped.series.forEach((series, j) => {
-    const color = seriesColor(chart, j), paint = seriesPaint(chart, j), dark = shadeColor(color, -.35), style = series.style ?? data.valueStyle;
+    const style = series.style ?? data.valueStyle, pointColors = new Map((a?.pointColors?.[j] || []).map(p => [p.index, p.color]));
     const means = [];
     stats[j].forEach((s, i) => {
       if (!s) return;
+      // A box coloured on its own (Format Data Point) keeps that colour; the rest take the series'.
+      const own = pointColors.get(i), color = own && own !== 'none' ? own : seriesColor(chart, j), paint = own || seriesPaint(chart, j), dark = shadeColor(color, -.35);
       const x0 = plot.x + slot * i + boxW * gap / 2 + boxW * j, cxm = x0 + boxW / 2, w = boxW * .8, left = cxm - w / 2;
       const tip = `${series.name}${grouped.categories[i] ? ` · ${grouped.categories[i]}` : ''}: median ${valueText(s.median, style)}, quartiles ${valueText(s.q1, style)}–${valueText(s.q3, style)}, mean ${valueText(s.mean, style)}, ${s.n} ${s.n === 1 ? 'value' : 'values'}`;
       parts.push(`<g class="chart-box" data-el="series" data-series="${j}" data-point="${i}"><title>${esc(tip)}</title>`,
@@ -289,7 +291,7 @@ function renderBoxWhisker(data, chart, width, height) {
         for (const v of [s.q3, s.median, s.q1, ...(opts.meanMarkers ? [s.mean] : [])]) labels.push(text(valueText(v, style), left + w + 3, y(v) + ls.size * .35, ls, 'start', `class="chart-data-label" data-el="dataLabels" data-series="${j}"`));
       }
     });
-    if (opts.meanLine && means.length > 1) parts.push(`<polyline class="chart-box-mean-line" points="${means.map(p => p.map(f).join(',')).join(' ')}" fill="none" stroke="${esc(dark)}" stroke-width="1.5"/>`);
+    if (opts.meanLine && means.length > 1) parts.push(`<polyline class="chart-box-mean-line" points="${means.map(p => p.map(f).join(',')).join(' ')}" fill="none" stroke="${esc(shadeColor(seriesColor(chart, j), -.35))}" stroke-width="1.5"/>`);
   });
   parts.push('</g>', ...labels);
   if (named) parts.push(categoryAxis(fr, grouped.categories, plot, slot));
