@@ -571,11 +571,10 @@ export class TextDocument {
     if (scope === 'selection' && !this.startsSection(end)) this.insertSectionBreakAt(end, breakType);
     if (!this.startsSection(start)) { this.insertSectionBreakAt(start, breakType); caret = start + 1; }
     const first = this.sectionIndexAt(caret);
-    apply(plan(first, scope === 'selection' ? first : this.sectionCount - 1));
-    if (scope === 'selection') {
-      const range = this.sectionRange(first);
-      this.select(range.start, Math.max(range.start, range.end - 1));
-    }
+    // A selection that already crossed section breaks gives its settings to every section it covers.
+    const last = scope === 'selection' ? this.sectionIndexAt(Math.max(caret, end - 1 + (caret - start))) : this.sectionCount - 1;
+    apply(plan(first, last));
+    if (scope === 'selection') this.select(this.sectionRange(first).start, Math.max(this.sectionRange(first).start, this.sectionRange(last).end - 1));
     this.didChange(); return true;
   }
   /** Whether a position is the first in its section (the document start or just after a section break). */

@@ -179,3 +179,17 @@ describe('section layout fixture', () => {
     expect([...edited.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd.left), edited.pageSettings.left]).toEqual([1800, 1800, 2160]);
   });
 });
+
+describe('selections across sections', () => {
+  it('give their settings to every section they cover', () => {
+    const { doc } = fresh('One', 'Two', 'Three', 'Four');
+    doc.select(8); doc.insertSectionBreak('continuous');
+    // "Two" to "Four" spans the break after "Two\nThree"? Select from Two to the end of Three.
+    const text = doc.text, start = text.indexOf('Two'), end = text.indexOf('Three') + 5;
+    doc.select(start, end);
+    doc.setPageSettings({ columns: { count: 2, space: 720, equalWidth: true, separator: false } }, { scope: 'selection', breakType: 'continuous' });
+    expect(doc.sectionSettings.map(s => s.columns?.count ?? 1)).toEqual([1, 2, 2, 1]);
+    expect(doc.text.slice(...doc.range)).toContain('Two');
+    expect(doc.text.slice(...doc.range)).toContain('Three');
+  });
+});
