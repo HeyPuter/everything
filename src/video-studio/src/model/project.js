@@ -36,7 +36,7 @@ import { normalizeCurve, meanSpeed } from './speed-curve.js';
 import { normalizeMasks } from './masks.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
-import { normalizeRetouch, normalizeFaceShape, normalizeHairColor } from './retouch.js';
+import { normalizeRetouch, normalizeFaceShape, normalizeHairColor, normalizeBodyShape, normalizeMakeup } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
@@ -375,6 +375,8 @@ export function normalizeClip(c) {
     if (c.retouch && typeof c.retouch === 'object') out.retouch = normalizeRetouch(c.retouch);
     if (c.faceShape && typeof c.faceShape === 'object') out.faceShape = normalizeFaceShape(c.faceShape);
     if (c.hairColor && typeof c.hairColor === 'object') out.hairColor = normalizeHairColor(c.hairColor);
+    if (c.bodyShape && typeof c.bodyShape === 'object') out.bodyShape = normalizeBodyShape(c.bodyShape);
+    if (c.makeup && typeof c.makeup === 'object') out.makeup = normalizeMakeup(c.makeup);
     if (c.colorTarget === 'person' || c.colorTarget === 'background') out.colorTarget = c.colorTarget;
     if (c.maskUse === 'color') out.maskUse = 'color';
   }

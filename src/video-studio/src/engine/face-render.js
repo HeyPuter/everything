@@ -6,18 +6,23 @@
  *  - face shape: warp handles in a small float texture (WARP_UNIT)
  *  - skin fixes: region masks around the faces (FACE_MASK_UNIT)
  *  - hair color: the hair matte of a square around the heads (HAIR_UNIT)
- * Landmarks and masks live in source pixels with y down; the shader maps
+ *  - makeup: color and sculpt region masks (MAKEUP_UNIT, SCULPT_UNIT)
+ * Body shape has its own landmarks (engine/body-render.js). Landmarks and masks live in source pixels with y down; the shader maps
  * its source uv (y up) to them.
  */
 import { detectFaces, faceModelReady, faceModelState, onFaceModelChange } from '../media/face-landmarks.js';
 import { HAIR_SIZE, segmentHair, hairModelReady, hairModelState, onHairModelChange } from '../media/hair-segmenter.js';
 import { trackFaces, warpPlan, packHandles, faceMasks, faceWidth, spotRadius, hairRegion } from './face-geometry.js';
 import { steadyMatte } from '../model/cutout.js';
-import { faceShapeAmounts, skinFixAmounts, hairColorOn, faceModelsFor } from '../model/retouch.js';
+import { makeupMasks } from './makeup-geometry.js';
+import { poseModelReady, onPoseModelChange } from '../media/pose-landmarks.js';
+import { faceShapeAmounts, skinFixAmounts, hairColorOn, faceModelsFor, makeupAmounts } from '../model/retouch.js';
 
 export const FACE_MASK_UNIT = 8;
 export const HAIR_UNIT = 9;
 export const WARP_UNIT = 10;
+export const MAKEUP_UNIT = 12;
+export const SCULPT_UNIT = 13;
 
 /** Longest side of the picture the face model is given. */
 const DETECT_SIDE = 640;
@@ -56,40 +61,37 @@ export function drawUpright(g, src, w, h, crop = null, srcH = 0) {
   }
 }
 
-/** Whether a project uses the face or the hair model, by model. */
+/** Whether a project uses the face, hair or pose model, by model. */
 export function faceModelsIn(project) {
-  const out = { face: false, hair: false };
+  const out = { face: false, hair: false, pose: false };
   for (const t of project?.tracks || []) {
     for (const c of t.clips) {
       const n = faceModelsFor(c);
       out.face ||= n.face;
       out.hair ||= n.hair;
+      out.pose ||= n.pose;
     }
   }
   return out;
 }
 
-/** Load the face and hair models a project needs. Resolves to whether they can render. */
+/** Load the face, hair and pose models a project needs. Resolves to whether they can render. */
 export async function ensureFaceModels(project) {
   const n = faceModelsIn(project);
-  const ok = await Promise.all([n.face ? faceModelReady() : true, n.hair ? hairModelReady() : true]);
+  const ok = await Promise.all([n.face ? faceModelReady() : true, n.hair ? hairModelReady() : true, n.pose ? poseModelReady() : true]);
   return ok.every(Boolean);
 }
 
-/** Call fn whenever the face or hair model finishes loading. */
+/** Call fn whenever the face, hair or pose model finishes loading. */
 export function onFaceModelsReady(fn) {
-  const a = onFaceModelChange((s) => s === 'ready' && fn());
-  const b = onHairModelChange((s) => s === 'ready' && fn());
-  return () => {
-    a();
-    b();
-  };
+  const offs = [onFaceModelChange, onHairModelChange, onPoseModelChange].map((on) => on((s) => s === 'ready' && fn()));
+  return () => offs.forEach((off) => off());
 }
 
 /** Landmarks per clip: the frame they were found on and the faces, steadied. */
 export class FaceCache {
   constructor() {
-    this.entries = new Map(); // clipId -> { frameKey, sec, W, H, tracks, faces, version, masks, plan... }
+    this.entries = new Map(); // clipId -> { frameKey, sec, W, H, tracks, faces, version, masks, makeup, plan... }
     this.input = null;
     this.ctx = null;
   }
@@ -110,7 +112,7 @@ export class FaceCache {
     const near = e && e.W === W && e.H === H && Math.abs(e.sec - sec) < 0.25;
     const tracks = trackFaces(near ? e.tracks : null, found, sec, near ? Math.abs(sec - e.sec) : 0);
     if (!e) {
-      e = { version: 0, masks: null, masksFor: -1, plan: null, planFor: '', planVersion: 0 };
+      e = { version: 0, masks: null, masksFor: -1, makeup: null, makeupFor: -1, plan: null, planFor: '', planVersion: 0 };
       this.entries.set(layer.clip.id, e);
     }
     Object.assign(e, { frameKey: key, sec, W, H, tracks, faces: tracks.map((t) => t.pts) });
@@ -152,6 +154,15 @@ export class FaceCache {
       e.masksFor = e.version;
     }
     return e.masks;
+  }
+
+  /** Makeup region masks for an entry (made once per frame). */
+  makeup(e) {
+    if (e.makeupFor !== e.version) {
+      e.makeup = makeupMasks(e.faces, e.W, e.H);
+      e.makeupFor = e.version;
+    }
+    return e.makeup;
   }
 
   /** Warp plan of an entry for the clip's face shape. */
@@ -248,7 +259,7 @@ export function meanLuma(rgba, matte, w, h, mw, mh) {
 }
 
 /** Upload (or reuse) a texture from raw data, kept with the compositor's textures. */
-function rawTexture(comp, unit, key, version, w, h, internal, format, type, data, filter) {
+export function rawTexture(comp, unit, key, version, w, h, internal, format, type, data, filter) {
   const gl = comp.gl;
   gl.activeTexture(gl.TEXTURE0 + unit);
   let t = comp.textures.get(key);
@@ -274,17 +285,19 @@ function rawTexture(comp, unit, key, version, w, h, internal, format, type, data
 
 const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 
-/** Set the face shape, skin fix and hair color uniforms of the layer program. */
+/** Set the face shape, skin fix, makeup and hair color uniforms of the layer program. */
 export function bindFaceLayer(comp, p, layer, info) {
   const gl = comp.gl;
   const media = layer.kind === 'media' && layer.clip && info?.source;
   const shape = media ? faceShapeAmounts(layer.faceShape) : null;
   const fixes = media ? skinFixAmounts(layer.retouch) : null;
+  const paint = media ? makeupAmounts(layer.makeup) : null;
   const hair = media && hairColorOn(layer.hairColor);
   let faces = 0;
   let fixOn = 0;
+  let makeupOn = 0;
   let hairOn = 0;
-  if (shape || fixes || hair) {
+  if (shape || fixes || paint || hair) {
     comp._faceCache ||= new FaceCache();
     const cache = comp._faceCache;
     const e = cache.get(layer, info);
@@ -331,11 +344,32 @@ export function bindFaceLayer(comp, p, layer, info) {
           fixOn = 1;
         }
       }
+      if (paint) {
+        const m = cache.makeup(e);
+        if (m) {
+          rawTexture(comp, MAKEUP_UNIT, `makeup:${id}`, e.makeupFor, m.width, m.height, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, m.color, gl.LINEAR);
+          rawTexture(comp, SCULPT_UNIT, `sculpt:${id}`, e.makeupFor, m.width, m.height, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, m.sculpt, gl.LINEAR);
+          const [blush, shadow, liner, brows, contour, glow] = paint.colors.map(hexRgb);
+          comp._set(p, 'u_makeupRect', m.rect);
+          comp._set(p, 'u_makeup', paint.amounts.slice(0, 4));
+          comp._set(p, 'u_sculpt', paint.amounts[4], paint.amounts[5]);
+          comp._set(p, 'u_blushColor', blush);
+          comp._set(p, 'u_shadowColor', shadow);
+          comp._set(p, 'u_linerColor', liner);
+          comp._set(p, 'u_browColor', brows);
+          comp._set(p, 'u_contourColor', contour);
+          comp._set(p, 'u_glowColor', glow);
+          makeupOn = 1;
+        }
+      }
     }
   }
   comp._seti(p, 'u_warpTex', WARP_UNIT);
   comp._seti(p, 'u_faceMask', FACE_MASK_UNIT);
   comp._seti(p, 'u_hairTex', HAIR_UNIT);
+  comp._seti(p, 'u_makeupMask', MAKEUP_UNIT);
+  comp._seti(p, 'u_sculptMask', SCULPT_UNIT);
+  comp._seti(p, 'u_makeupOn', makeupOn);
   comp._seti(p, 'u_warpFaces', faces);
   comp._seti(p, 'u_faceFixOn', fixOn);
   comp._seti(p, 'u_hairOn', hairOn);

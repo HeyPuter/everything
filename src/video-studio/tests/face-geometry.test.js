@@ -4,6 +4,7 @@ import {
   packHandles, fillPolygon, blurMask, faceMasks, spotStrength, spotRadius, hairRegion,
 } from '../src/engine/face-geometry.js';
 import { meanLuma } from '../src/engine/face-render.js';
+import { makeupRegions, makeupMasks } from '../src/engine/makeup-geometry.js';
 
 /** Points on an ellipse for a list of landmark ids, starting at angle a0 (degrees) and stepping by da. */
 function ring(pts, ids, cx, cy, rx, ry, a0, da) {
@@ -354,5 +355,71 @@ describe('hair', () => {
     }
     expect(meanLuma(rgba, matte, w, w, w, w)).toBeCloseTo(0.2, 2);
     expect(meanLuma(rgba, new Uint8ClampedArray(w * w), w, w, w, w)).toBeNull();
+  });
+});
+
+describe('makeup regions', () => {
+  const face = syntheticFace();
+  const center = (poly) => {
+    let x = 0;
+    let y = 0;
+    for (let i = 0; i < poly.length; i += 2) {
+      x += poly[i];
+      y += poly[i + 1];
+    }
+    return [(x * 2) / poly.length, (y * 2) / poly.length];
+  };
+
+  it('places each product where it goes on the face', () => {
+    const r = makeupRegions(face);
+    const [blushA, blushB] = r.blush.map(center);
+    // Blush on the cheeks: below the eyes, beside the nose, above the mouth.
+    expect(blushA[0]).toBeLessThan(440);
+    expect(blushB[0]).toBeGreaterThan(560);
+    for (const b of [blushA, blushB]) {
+      expect(b[1]).toBeGreaterThan(470);
+      expect(b[1]).toBeLessThan(590);
+    }
+    // Eyeshadow above the lids and below the brows; eyeliner hugs the lash line.
+    for (const poly of r.shadow) {
+      for (let i = 1; i < poly.length; i += 2) {
+        expect(poly[i]).toBeLessThanOrEqual(441);
+        expect(poly[i]).toBeGreaterThan(408);
+      }
+    }
+    for (const poly of r.liner) for (let i = 1; i < poly.length; i += 2) expect(Math.abs(poly[i] - 430)).toBeLessThan(15);
+    expect(r.brows).toHaveLength(2);
+    expect(r.contour.length).toBeGreaterThanOrEqual(8);
+    expect(r.highlight.length).toBeGreaterThanOrEqual(6);
+    // Everything stays on the face.
+    for (const key of ['blush', 'shadow', 'liner', 'brows', 'contour', 'highlight']) {
+      for (const poly of r[key]) {
+        for (let i = 0; i < poly.length; i += 2) {
+          expect(Math.abs(poly[i] - 500)).toBeLessThan(175);
+          expect(Math.abs(poly[i + 1] - 500)).toBeLessThan(225);
+        }
+      }
+    }
+  });
+
+  it('draws soft masks, keeping shadow and liner off the eyes', () => {
+    const m = makeupMasks([face], 1000, 1000);
+    expect(m.color).toHaveLength(m.width * m.height * 4);
+    expect(m.sculpt).toHaveLength(m.width * m.height * 4);
+    const at = (buf, x, y, c) => {
+      const mx = Math.floor(((x - m.rect[0]) * m.width) / m.rect[2]);
+      const my = Math.floor(((y - m.rect[1]) * m.height) / m.rect[3]);
+      return buf[(my * m.width + mx) * 4 + c];
+    };
+    expect(at(m.color, 421, 528, 0)).toBeGreaterThan(150); // blush on the apple of the cheek
+    expect(at(m.color, 440, 422, 1)).toBeGreaterThan(60); // shadow on the lid
+    expect(at(m.color, 440, 440, 1)).toBe(0); // not on the eye
+    expect(at(m.color, 440, 440, 2)).toBe(0);
+    expect(at(m.color, 440, 405, 3)).toBeGreaterThan(150); // brow
+    expect(at(m.sculpt, 500, 352, 1)).toBeGreaterThan(150); // highlight mid-forehead
+    expect(at(m.sculpt, 375, 521, 0)).toBeGreaterThan(60); // contour under the cheekbone
+    expect(at(m.sculpt, 500, 352, 0)).toBe(0);
+    expect(at(m.color, m.rect[0] + 1, m.rect[1] + 1, 0)).toBe(0);
+    expect(makeupMasks([], 100, 100)).toBeNull();
   });
 });

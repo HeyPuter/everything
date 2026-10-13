@@ -78,18 +78,19 @@ export function faceFrame(pts) {
 /* Steadying ------------------------------------------------------------------ */
 
 /**
- * For each detected face, the index of the previous face it continues, or
- * -1. Nearest centers first, and only within half a face width.
+ * For each item of next, the index of the item of prev it continues, or -1.
+ * Nearest centers first, and only within reach(item of next).
  */
-export function matchFaces(prev, next) {
+export function matchNearest(prev, next, center, reach) {
   const out = new Array(next.length).fill(-1);
   const pairs = [];
+  const prevCenters = prev.map(center);
   next.forEach((n, i) => {
-    const cn = faceCenter(n);
-    const reach = faceWidth(n) * 0.5;
-    prev.forEach((p, j) => {
-      const d = dist(cn, faceCenter(p));
-      if (d < reach) pairs.push([d, i, j]);
+    const cn = center(n);
+    const r = reach(n);
+    prevCenters.forEach((cp, j) => {
+      const d = dist(cn, cp);
+      if (d < r) pairs.push([d, i, j]);
     });
   });
   pairs.sort((x, y) => x[0] - y[0]);
@@ -103,20 +104,27 @@ export function matchFaces(prev, next) {
 }
 
 /**
- * Landmarks of the new frame, steadied against the last one. Every point
- * moves part of the way to where the model now puts it; the step grows with
- * how fast the face as a whole moves (face widths per second), so a turning
- * head is followed at once while the model's frame-to-frame jitter on a
- * still face is averaged away. A jump (no previous points, a different
- * point count, or no time between) takes the new points as they are.
+ * For each detected face, the index of the previous face it continues, or
+ * -1. Nearest centers first, and only within half a face width.
  */
-export function smoothLandmarks(prev, next, dt, { minHz = 1.2, gain = 9, still = 0.1 } = {}) {
+export const matchFaces = (prev, next) => matchNearest(prev, next, faceCenter, (f) => faceWidth(f) * 0.5);
+
+/**
+ * Points of the new frame, steadied against the last one. Every point
+ * moves part of the way to where the model now puts it; the step grows with
+ * how fast the points as a whole move (in sizes per second, size being the
+ * width of the face or body), so a turning head is followed at once while
+ * the model's frame-to-frame jitter on a still subject is averaged away. A
+ * jump (no previous points, a different point count, or no time between)
+ * takes the new points as they are.
+ */
+export function smoothPoints(prev, next, dt, size, { minHz = 1.2, gain = 9, still = 0.1 } = {}) {
   if (!prev || prev.length !== next.length || !(dt > 0) || dt > 0.25) return Float32Array.from(next);
   const n = next.length / 2;
   let moved = 0;
   for (let i = 0; i < next.length; i += 2) moved += Math.hypot(next[i] - prev[i], next[i + 1] - prev[i + 1]);
-  // The model's own jitter reads as a little motion; below `still` the face counts as still.
-  const speed = Math.max(0, moved / n / faceWidth(next) / dt - still);
+  // The model's own jitter reads as a little motion; below `still` the subject counts as still.
+  const speed = Math.max(0, moved / n / (size || 1) / dt - still);
   const hz = minHz + gain * speed;
   const tau = 1 / (2 * Math.PI * hz);
   const k = 1 / (1 + tau / dt);
@@ -124,6 +132,9 @@ export function smoothLandmarks(prev, next, dt, { minHz = 1.2, gain = 9, still =
   for (let i = 0; i < next.length; i++) out[i] = prev[i] + (next[i] - prev[i]) * k;
   return out;
 }
+
+/** Face landmarks of the new frame, steadied against the last one (see smoothPoints). */
+export const smoothLandmarks = (prev, next, dt, opts) => smoothPoints(prev, next, dt, faceWidth(next), opts);
 
 /** How long (seconds) a face the model briefly lost is kept in place. */
 export const FACE_HOLD = 0.3;
@@ -362,7 +373,7 @@ export function blurMask(buf, w, h, r, box = null) {
 }
 
 /** Bounds [x0, y0, x1, y1] of flat x, y polygons. */
-function bounds(polys) {
+export function bounds(polys) {
   const b = [Infinity, Infinity, -Infinity, -Infinity];
   for (const p of polys) {
     for (let i = 0; i < p.length; i += 2) {
@@ -376,7 +387,7 @@ function bounds(polys) {
 }
 
 /** Points of a polygon scaled by k around their mean. */
-function scaled(pts, ids, k) {
+export function scaled(pts, ids, k) {
   let cx = 0;
   let cy = 0;
   for (const i of ids) {
@@ -404,7 +415,7 @@ function underEye(pts, lid, uy, eyeW) {
 }
 
 /** Ellipse polygon (16 points) with semi-axes ra along ax and rb along ay. */
-function ellipsePoly(c, ax, ra, ay, rb) {
+export function ellipsePoly(c, ax, ra, ay, rb) {
   const out = [];
   for (let k = 0; k < 16; k++) {
     const a = (k / 16) * Math.PI * 2;
@@ -442,41 +453,50 @@ export function faceRegions(pts) {
 }
 
 /**
+ * Where region masks for the faces of a frame sit: rect = [x, y, w, h] of
+ * the source around the face ovals (padded), drawn at width x height with
+ * to(poly) mapping source polygons into it and k its scale. null without
+ * faces or when they are off the picture.
+ */
+export function maskFrame(faces, srcW, srcH, maxSide = 384) {
+  if (!faces?.length) return null;
+  const b = bounds(faces.map((pts) => LM.oval.flatMap((i) => P(pts, i))));
+  const pad = (b[2] - b[0]) * 0.08 + 4;
+  const x0 = clamp(Math.floor(b[0] - pad), 0, srcW);
+  const y0 = clamp(Math.floor(b[1] - pad), 0, srcH);
+  const x1 = clamp(Math.ceil(b[2] + pad), 0, srcW);
+  const y1 = clamp(Math.ceil(b[3] + pad), 0, srcH);
+  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
+  const k = Math.min(1, maxSide / Math.max(x1 - x0, y1 - y0));
+  const width = Math.max(2, Math.ceil((x1 - x0) * k));
+  const height = Math.max(2, Math.ceil((y1 - y0) * k));
+  const to = (poly) => poly.map((v, i) => (i % 2 ? (v - y0) * k : (v - x0) * k));
+  return { rect: [x0, y0, x1 - x0, y1 - y0], width, height, k, to };
+}
+
+/** Four 0..1 channels (w x h) as RGBA bytes. */
+export function packChannels(ch, w, h) {
+  const data = new Uint8Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    for (let c = 0; c < 4; c++) data[i * 4 + c] = ch[c] ? Math.round(clamp(ch[c][i], 0, 1) * 255) : 0;
+  }
+  return data;
+}
+
+/**
  * Region masks of the skin fixes for the faces of a frame, as RGBA bytes
  * (rows top first) over rect = [x, y, w, h] of the source: R skin where
  * spots are cleared (the face without eyes, brows, lips and nostrils), G
  * under the eyes, B the lips, A inside the mouth. null without faces.
  */
 export function faceMasks(faces, srcW, srcH, { maxSide = 384 } = {}) {
-  if (!faces?.length) return null;
-  const regions = faces.map(faceRegions);
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const r of regions) {
-    const poly = r.skin[0];
-    for (let i = 0; i < poly.length; i += 2) {
-      x0 = Math.min(x0, poly[i]);
-      x1 = Math.max(x1, poly[i]);
-      y0 = Math.min(y0, poly[i + 1]);
-      y1 = Math.max(y1, poly[i + 1]);
-    }
-  }
-  const pad = (x1 - x0) * 0.08 + 4;
-  x0 = clamp(Math.floor(x0 - pad), 0, srcW);
-  y0 = clamp(Math.floor(y0 - pad), 0, srcH);
-  x1 = clamp(Math.ceil(x1 + pad), 0, srcW);
-  y1 = clamp(Math.ceil(y1 + pad), 0, srcH);
-  if (x1 - x0 < 2 || y1 - y0 < 2) return null;
-  const k = Math.min(1, maxSide / Math.max(x1 - x0, y1 - y0));
-  const w = Math.max(2, Math.ceil((x1 - x0) * k));
-  const h = Math.max(2, Math.ceil((y1 - y0) * k));
-  const to = (poly) => poly.map((v, i) => (i % 2 ? (v - y0) * k : (v - x0) * k));
+  const frame = maskFrame(faces, srcW, srcH, maxSide);
+  if (!frame) return null;
+  const { width: w, height: h, k, to } = frame;
   const ch = [0, 1, 2, 3].map(() => new Float32Array(w * h));
   const drawn = [[], [], [], []];
   let fw = 0;
-  for (const r of regions) {
+  for (const r of faces.map(faceRegions)) {
     const skin = r.skin.map(to);
     const under = r.underEye.map(to);
     const lips = to(r.lips);
@@ -494,11 +514,7 @@ export function faceMasks(faces, srcW, srcH, { maxSide = 384 } = {}) {
     fw = Math.max(fw, r.width * k);
   }
   [0.02, 0.035, 0.006, 0.004].forEach((f, c) => blurMask(ch[c], w, h, fw * f, bounds(drawn[c])));
-  const data = new Uint8Array(w * h * 4);
-  for (let i = 0; i < w * h; i++) {
-    for (let c = 0; c < 4; c++) data[i * 4 + c] = Math.round(clamp(ch[c][i], 0, 1) * 255);
-  }
-  return { rect: [x0, y0, x1 - x0, y1 - y0], width: w, height: h, data };
+  return { rect: frame.rect, width: w, height: h, data: packChannels(ch, w, h) };
 }
 
 /* Hair ----------------------------------------------------------------------- */

@@ -33,7 +33,7 @@ export const ATTRIBUTE_GROUPS = [
   { id: 'picture', label: 'Motion blur, noise, relight and canvas', keys: ['motionBlur', 'denoise', 'relight', 'canvas'], kfPrefix: 'relight.', types: ['video', 'image'] },
   { id: 'chroma', label: 'Chroma key', keys: ['chroma'], types: ['video', 'image'] },
   { id: 'cutout', label: 'Background removal', keys: ['cutout'], types: ['video', 'image'] },
-  { id: 'retouch', label: 'Retouch (skin, face and hair)', keys: ['retouch', 'faceShape', 'hairColor'], types: ['video', 'image'] },
+  { id: 'retouch', label: 'Retouch (skin, face, body, makeup and hair)', keys: ['retouch', 'faceShape', 'bodyShape', 'makeup', 'hairColor'], types: ['video', 'image'] },
   { id: 'color', label: 'Color adjustments', keys: ['adjust', 'grade', 'colorTarget'], kfPrefix: 'adjust.', types: ['video', 'image', 'adjust'] },
   { id: 'filter', label: 'Filter', keys: ['filter'], types: ['video', 'image'] },
   { id: 'animation', label: 'Animations', keys: ['animIn', 'animOut', 'animLoop'], types: ['video', 'image', 'text', 'sticker'] },
@@ -46,7 +46,7 @@ export const ATTRIBUTE_GROUPS = [
 ];
 
 /** Optional clip fields an attribute paste may create on a clip that lacks them. */
-const OPTIONAL_KEYS = ['mask', 'masks', 'motionBlur', 'denoise', 'relight', 'canvas', 'chroma', 'cutout', 'retouch', 'faceShape', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow'];
+const OPTIONAL_KEYS = ['mask', 'masks', 'motionBlur', 'denoise', 'relight', 'canvas', 'chroma', 'cutout', 'retouch', 'faceShape', 'bodyShape', 'makeup', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow'];
 /** Optional fields only video clips carry (their group also covers audio clips). */
 const VIDEO_ONLY_KEYS = ['smoothSlow'];
 
