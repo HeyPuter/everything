@@ -7,7 +7,7 @@
 import { h } from '../../lib/dom.js';
 import { formatLength, parseLength, parseNumber, unitOptions } from '../../lib/units.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { applyTheme } from '../../theme.js';
+import { applyTheme, brightness, BRIGHTNESS_LEVELS } from '../../theme.js';
 import { UNIT_OPTIONS } from './presets.js';
 
 export const PREF_DEFAULTS = {
@@ -110,7 +110,8 @@ export function applyEditorPrefs(app, editor) {
 
 /**
  * Section definitions. Field types: checkbox, select, length, number,
- * angle, color-select (named colors plus custom), button.
+ * angle, color-select (named colors plus custom), brightness (interface
+ * brightness swatches plus Use System Setting), button.
  */
 export function sections(app) {
   const unitOpts = UNIT_OPTIONS;
@@ -226,22 +227,13 @@ export function sections(app) {
       id: 'ui',
       label: 'User Interface',
       fields: [
-        {
-          key: 'theme',
-          label: 'Theme',
-          type: 'select',
-          options: [
-            { value: 'system', label: 'Use System Setting' },
-            { value: 'light', label: 'Light' },
-            { value: 'dark', label: 'Dark' },
-          ],
-        },
+        { key: 'theme', label: 'Brightness', type: 'brightness' },
         {
           key: 'canvasColor',
           label: 'Canvas Color',
           type: 'select',
           options: [
-            { value: 'match', label: 'Match Theme' },
+            { value: 'match', label: 'Match User Interface Brightness' },
             { value: 'white', label: 'White' },
           ],
         },
@@ -320,6 +312,35 @@ export async function preferencesDialog(app, { section: startSection = null } = 
       el = h('input', { type: 'checkbox', id, checked: f.invert ? !value : Boolean(value) });
       inputs.set(f.key, { f, el });
       return h('div.form-row.check', el, h('label', { for: id }, f.label), f.help ? h('p.form-help', f.help) : null);
+    }
+    if (f.type === 'brightness') {
+      // Four level swatches (a radio group) and Use System Setting; choices preview right away.
+      const sys = h('input', { type: 'checkbox', id: `${id}-sys`, checked: value === 'system' });
+      const shown = value === 'system' ? brightness() : value;
+      const radios = BRIGHTNESS_LEVELS.map((l) => h('input.brightness-radio', { type: 'radio', name: `${id}-level`, value: l.value, checked: l.value === shown, 'aria-label': l.label }));
+      const picked = () => (sys.checked ? 'system' : radios.find((r) => r.checked)?.value || 'system');
+      const preview = () => applyThemeLive(app, picked());
+      for (const r of radios)
+        r.addEventListener('change', () => {
+          sys.checked = false;
+          preview();
+        });
+      sys.addEventListener('change', () => {
+        if (!sys.checked) return preview();
+        preview();
+        const now = brightness();
+        for (const r of radios) r.checked = r.value === now;
+      });
+      inputs.set(f.key, { f, el: { picked, focus: () => radios.find((r) => r.checked)?.focus() } });
+      return h(
+        'div.prefs-brightness',
+        h(
+          'div.form-row',
+          h('span.form-label', { id: `${id}-label` }, f.label),
+          h('div.brightness-swatches', { role: 'radiogroup', 'aria-labelledby': `${id}-label` }, BRIGHTNESS_LEVELS.map((l, i) => h(`label.brightness-swatch.level-${l.value}`, { 'data-tip': l.label }, radios[i]))),
+        ),
+        h('div.form-row.check', sys, h('label', { for: sys.id }, 'Use System Setting')),
+      );
     }
     if (f.type === 'select' || f.type === 'color-select') {
       const opts = [...f.options];
@@ -416,6 +437,7 @@ export async function preferencesDialog(app, { section: startSection = null } = 
     for (const [key, { f, el }] of inputs) {
       let v;
       if (f.type === 'checkbox') v = f.invert ? !el.checked : el.checked;
+      else if (f.type === 'brightness') v = el.picked();
       else if (f.type === 'color-select') v = el.value === 'custom' ? el._swatch.value : el.value;
       else if (f.type === 'select') v = typeof f.options[0]?.value === 'number' ? Number(el.value) : el.value;
       else v = parseField(f, el.value, units);
@@ -459,6 +481,7 @@ export async function preferencesDialog(app, { section: startSection = null } = 
     ],
   });
   if (result === 'reset') {
+    applyThemeLive(app, prefs.get('theme'));
     const ok = await app.dialogs.confirm({ title: 'Reset Preferences', message: 'Restore all preferences on this page to their defaults?', okLabel: 'Reset', danger: true });
     if (!ok) return preferencesDialog(app);
     for (const s of all) for (const f of s.fields) if (f.key && PREF_DEFAULTS[f.key] !== undefined) prefs.set(f.key, PREF_DEFAULTS[f.key]);
@@ -466,9 +489,20 @@ export async function preferencesDialog(app, { section: startSection = null } = 
     applyAll(app, {});
     return true;
   }
-  if (!result) return false;
+  if (!result) {
+    // Cancel: undo the brightness preview.
+    applyThemeLive(app, prefs.get('theme'));
+    return false;
+  }
   applyAll(app, result);
   return true;
+}
+
+/** Apply a theme without saving it (live preview) and recolor canvases and rulers. */
+function applyThemeLive(app, theme) {
+  applyTheme(theme);
+  for (const v of app.views.values()) (v.refreshColors ? v.refreshColors() : v.invalidate());
+  app.rulers?.refresh?.();
 }
 
 /** Write staged values and apply the ones that touch the document or the UI. */

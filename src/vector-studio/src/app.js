@@ -29,7 +29,7 @@ import { nudge } from './ops/object-ops.js';
 import { swapFillStroke, defaultFillStroke, setFocusedPaint } from './ops/paint-ops.js';
 import { closePopover } from './ui/popover.js';
 import { CORE_TOOLS } from './tools/index.js';
-import { applyTheme } from './theme.js';
+import { applyTheme, THEME_OPTIONS } from './theme.js';
 import { defaultLabel } from './model/nodes.js';
 import { formatLength } from './lib/units.js';
 
@@ -168,7 +168,7 @@ export class App extends Emitter {
 
   #themeButton() {
     const btn = iconButton('monitor', 'Theme', (e) => {
-      const items = resolveItems(this, ['theme.system', 'theme.light', 'theme.dark']);
+      const items = resolveItems(this, THEME_OPTIONS.map((t) => `theme.${t.value}`));
       const r = e.currentTarget.getBoundingClientRect();
       openMenu(this, items, { x: r.left - 120, y: r.bottom + 4, anchor: e.currentTarget, label: 'Theme' });
     });
@@ -685,9 +685,9 @@ export class App extends Emitter {
           else document.exitFullscreen?.();
         },
       },
-      ...['system', 'light', 'dark'].map((t) => ({
+      ...THEME_OPTIONS.map(({ value: t, label }) => ({
         id: `theme.${t}`,
-        label: { system: 'Use System Setting', light: 'Light', dark: 'Dark' }[t],
+        label,
         checked: (a) => a.prefs.get('theme') === t,
         run: (a) => {
           a.prefs.set('theme', t);

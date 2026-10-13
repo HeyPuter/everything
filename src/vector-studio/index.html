@@ -17,10 +17,13 @@
     (() => {
       let t = 'system';
       try { t = localStorage.getItem('vector-studio:theme') || 'system'; } catch {}
-      const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+      const levels = ['dark', 'medium-dark', 'medium-light', 'light'];
+      if (!levels.includes(t)) t = 'system';
+      const dark = t === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : t.endsWith('dark');
       const root = document.documentElement;
       root.dataset.theme = t;
       root.dataset.themeResolved = dark ? 'dark' : 'light';
+      root.dataset.brightness = t === 'system' ? (dark ? 'dark' : 'light') : t;
     })();
   </script>
   <script src="https://js.puter.com/v2/" defer></script>

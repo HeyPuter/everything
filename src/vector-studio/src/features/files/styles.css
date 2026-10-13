@@ -619,3 +619,70 @@
   flex-basis: 100%;
   margin-left: 24px;
 }
+
+/* Interface brightness: four level swatches (a radio group) and Use System Setting. */
+.prefs-brightness {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prefs-brightness .form-row.check {
+  margin-left: 160px;
+}
+
+.brightness-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.brightness-swatch {
+  position: relative;
+  width: 32px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.brightness-swatch.level-dark {
+  background: #2c2c2c;
+}
+
+.brightness-swatch.level-medium-dark {
+  background: #4a4a4a;
+}
+
+.brightness-swatch.level-medium-light {
+  background: #bebebe;
+}
+
+.brightness-swatch.level-light {
+  background: #f3f3f3;
+}
+
+.brightness-swatch:has(:checked) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.brightness-swatch:has(:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.brightness-radio {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .prefs-brightness .form-row.check {
+    margin-left: 0;
+  }
+}
