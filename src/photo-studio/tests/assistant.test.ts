@@ -2,7 +2,7 @@
 // over the real registry, argument coercion, plan validation, the
 // tool-calling loop with a scripted model, and running a plan as one undo
 // step through the scripting host. Plus Generation History storage.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { History } from '../src/history/history';
 import { DocumentSession } from '../src/app/session';
 import { newDocument, type PhotoDocument } from '../src/model/document';
@@ -17,6 +17,7 @@ import { parseAspect, stepRect, adjustmentParams } from '../src/features/assista
 import { buildPlan, commandArg, setArgs, stepDetail, validatePlan, type PlanEnv } from '../src/features/assistant/plan';
 import { converse, systemPrompt, TOOLS, type ChatFn } from '../src/features/assistant/model';
 import { PlanRun, runLabel } from '../src/features/assistant/runner';
+import { ask, conversation, forgetSession, setChat, type PlanMessage } from '../src/features/assistant/controller';
 import { Catalog, commandInput, commandParams, words } from '../src/features/assistant/catalog';
 import { assistantSettings, sentNote } from '../src/features/assistant/settings';
 import { filterGenerations, GenerationStore } from '../src/persistence/generations';
@@ -478,6 +479,77 @@ describe('Assistant runs', () => {
   it('names the undo step after the plan', () => {
     expect(runLabel({ title: 'Sky', request: 'make the sky more dramatic and then crop the image to sixteen by nine' })).toBe('Assistant: make the sky more dramatic and then crop the im…');
     expect(runLabel({ title: 'Sky', request: '' })).toBe('Assistant: Sky');
+  });
+});
+
+describe('Assistant requests', () => {
+  /** Two open documents; the first has a selection. */
+  function twoDocuments() {
+    const make = (name: string) => {
+      const s = new DocumentSession(newDocument(40, 30, name));
+      s.hasDocument = true;
+      return s;
+    };
+    const a = make('First'), b = make('Second');
+    a.history.execute('Select', (d) => void (d.selection = { x: 0, y: 0, width: 10, height: 10 }));
+    const e = {
+      sessions: [a, b],
+      session: a,
+      tool: 'move',
+      color: '#000000',
+      background: '#ffffff',
+      get hasDocument() {
+        return this.session.hasDocument;
+      },
+      get doc() {
+        return this.session.doc;
+      },
+      get assets() {
+        return this.session.assets;
+      },
+      get selectedIds() {
+        return this.session.selectedIds;
+      },
+      message() {},
+    };
+    return { e, a, b };
+  }
+  const proposal = (steps: unknown[]): ChatReply => ({ text: '', calls: [{ id: 'c0', name: 'propose_plan', args: { title: 'T', steps } }] });
+  it('describe and check the document they were made in, whichever is shown when the reply arrives', async () => {
+    const { e, a, b } = twoDocuments();
+    registerCommand({ id: 'test.needs-selection', label: 'Needs Selection', enabled: (ed) => !!ed.doc.selection, run: () => {} });
+    // Signing in takes a while; meanwhile the other document is shown.
+    let signedIn = false;
+    (globalThis as { puter?: unknown }).puter = { auth: { isSignedIn: () => signedIn, signIn: async () => ((e.session = b), (signedIn = true)) } };
+    const seen: string[] = [];
+    setChat(async (messages) => (seen.push(JSON.stringify(messages)), proposal([{ action: 'test.needs-selection' }])));
+    await ask(e as unknown as Editor, 'do it');
+    expect(e.session).toBe(b);
+    expect(seen[0]).toContain('Document “First”');
+    expect(seen[0]).not.toContain('Second');
+    e.session = a;
+    const plan = conversation(e as unknown as Editor).messages.at(-1) as PlanMessage;
+    expect(plan.kind).toBe('plan');
+    // Checked against the first document, which has a selection.
+    expect(plan.plan.steps[0].problems).toEqual([]);
+    commands.delete('test.needs-selection');
+  });
+  it('stop when their document is closed', async () => {
+    const { e, a } = twoDocuments();
+    (globalThis as { puter?: unknown }).puter = { auth: { isSignedIn: () => true } };
+    let signal: AbortSignal | undefined;
+    let release!: () => void;
+    setChat(async (_m, opts) => {
+      signal = opts.signal;
+      await new Promise<void>((r) => (release = r));
+      return { text: 'late', calls: [] };
+    });
+    const pending = ask(e as unknown as Editor, 'hello');
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    forgetSession(a.id);
+    expect(signal!.aborted).toBe(true);
+    release();
+    await pending;
   });
 });
 

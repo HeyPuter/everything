@@ -2,6 +2,7 @@
 // conversation per open document, asking the model, turning replies into
 // checked plans, editing and running plans, and "Show me".
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import { commands, findCommand, menuContributions, panels, tools } from '../../app/registry';
 import { menuSkeleton } from '../../app/menus';
 import { chatWithTools, toAIError } from '../../imaging/ai/puter-ai';
@@ -49,9 +50,16 @@ export function clearConversation(e: Editor) {
   c.pending = undefined;
   changed();
 }
-/** Conversations of closed documents are dropped. */
+/** Conversations of closed documents are dropped (a pending request is stopped). */
 export function forgetSession(id: string) {
+  conversations.get(id)?.pending?.abort.abort();
   conversations.delete(id);
+}
+/** The editor as seen from one open document, whichever document is active
+ * later: a request describes, previews and checks the document it was made
+ * for even when another one is shown by the time the reply arrives. */
+export function documentView(e: Editor, s: DocumentSession = e.session): Editor {
+  return new Proxy(e, { get: (t, k, view) => (k === 'session' ? s : Reflect.get(t, k, view)) });
 }
 
 let catalog: { size: number; value: Catalog } | undefined;
@@ -116,10 +124,12 @@ export function setChat(fn: ChatFn) {
 }
 
 /** Ask the model about a request; adds the user's message and the reply. */
-export async function ask(e: Editor, request: string) {
+export async function ask(active: Editor, request: string) {
   const text = request.trim();
   if (!text) return;
-  const c = conversation(e);
+  const c = conversation(active);
+  // Everything below reads the document the request was made in.
+  const e = documentView(active);
   if (c.pending) return e.message('The Assistant is still answering. Stop it first.');
   const seeImage = assistantSettings.seeImage && e.hasDocument;
   const prior = history(c);
