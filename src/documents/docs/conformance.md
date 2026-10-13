@@ -22882,3 +22882,55 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+### Section line numbering and paragraph suppression (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.6.8 `lnNumType` (section line numbering) and
+§17.3.1.34 `suppressLineNumbers` (paragraph property, `ST_OnOff`), with the
+section-property order of §17.6.17 and the `pPr` order of §17.3.1.26.
+
+Supported subset:
+
+- `lnNumType` is read per section into the `lineNumbers` page setting
+  `{ countBy, start, distance, restart }`. `countBy` 1–100, `start` 0–32766,
+  `distance` as `ST_TwipsMeasure` (absent = automatic), `restart`
+  `newPage` (default), `newSection` or `continuous`. A declaration without a
+  positive `countBy` shows no numbers and stays in the retained section XML; an
+  out-of-range declaration does the same in previews and is recorded as an issue.
+- Editing writes `w:lnNumType` after `pgBorders`/before `pgNumType` with
+  `countBy`, `restart` and only non-default `start`/`distance`; choosing None
+  removes the element. Untouched sections keep their source bytes.
+- `start` is treated as the offset stored by common desktop producers: the first
+  number after a restart is `start + 1` (the dialog's "Start at" shows that
+  number). The clause names it the starting value; this compatibility reading is
+  a declared discrepancy.
+- Body text lines of numbered sections are counted in reading order (page,
+  section region, column, then top to bottom). Every `countBy`-th count is
+  labeled. `newPage` resets on each page, `newSection` at each section start,
+  `continuous` carries the count across pages and into following continuous
+  sections; sections without numbering are skipped without resetting it.
+- Empty paragraphs count as one line. Lines in table cells (including repeated
+  header rows), framed paragraphs, headers, footers, footnotes, text boxes and
+  virtual section-boundary lines are neither labeled nor counted — the usual
+  convention for numbered drafts and a declared choice where the clause is silent.
+- Labels are right-aligned at `distance` left of the line's column (automatic:
+  0.25 in; in multi-column sections at most half the column gap, minimum
+  0.0625 in), on the line's baseline, in the "line number" character style over
+  the default paragraph style (else the document defaults). They paint on screen,
+  in print and in the rasterized PDF pages.
+- `suppressLineNumbers` is resolved through paragraph styles and direct
+  formatting (an explicit off restores numbering), exposed as a paragraph format
+  key, written in `pPr` order, and cleared by Clear direct paragraph formatting.
+
+Fixture: `public/fixtures/line-numbers.docx`, written from scratch by
+`tools/line_numbers_fixture.py` (standard library only) with two sections
+(restart per page; two columns counting by five restarting at 10), direct and
+style suppression, an explicit unsuppression and a table. Tests:
+`tests/line-numbers.test.js`, `tests/browser/line-numbers.spec.js`; exports pass
+`tools/check-docx-schema.py`.
+
+Gaps: the label style's font metrics do not affect line height; right-to-left
+sections place numbers on the left; the PDF text layer omits line numbers; bidi
+and vertical sections, `docGrid` interactions and native label placement within
+column gaps are not verified against a native reference. The HWP converter still
+writes its own margin text boxes instead of `lnNumType`.
