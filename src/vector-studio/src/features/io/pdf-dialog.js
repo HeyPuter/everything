@@ -5,10 +5,12 @@
  */
 import { h } from '../../lib/dom.js';
 import { formatLength, parseLength } from '../../lib/units.js';
-import { normalizePdf, presetPdf, pdfSummary, pdfWarnings, JPEG_QUALITIES } from './pdf-settings.js';
+import { normalizePdf, presetPdf, pdfSummary, pdfWarnings, JPEG_QUALITIES, PDF_STANDARDS, isPdfx } from './pdf-settings.js';
 import { presetPicker, savePreset, listPresets, uniqueName } from '../prepress/presets.js';
-import { CMYK_PROFILES, RGB_SPACES, documentCmykProfile } from '../prepress/color-management.js';
 import { spotInks } from '../prepress/separations.js';
+import { docCmykProfile, profileDisplayName, profileOptions } from '../icc/cms.js';
+import { profileEntry } from '../icc/profiles.js';
+import { pdfOutputProfile, pdfIntentProfile } from './jobs.js';
 import '../prepress/pdf-presets.js';
 
 let uidc = 0;
@@ -133,14 +135,14 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     const compat = Number(v.compat);
     top.replaceChildren(
       ...[nameInput ? h('label.pd-inline', 'Name', nameInput) : null, h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el, saveBtn)].filter(Boolean),
-      h('label.pd-inline', 'Standard', sel([['none', 'None'], ['press', 'Print production (output intent)']], v.standard, (x) => (st.standard = x), 'Standard')),
-      h('label.pd-inline', 'Compatibility', sel([['1.4', 'PDF 1.4'], ['1.5', 'PDF 1.5'], ['1.6', 'PDF 1.6'], ['1.7', 'PDF 1.7']], v.compat, (x) => (st.compat = x), 'Compatibility')),
+      h('label.pd-inline', 'Standard', sel(Object.entries(PDF_STANDARDS), v.standard, (x) => (st = normalizePdf({ ...st, standard: x })), 'Standard')),
+      h('label.pd-inline', 'Compatibility', sel(v.standard === 'x1a' ? [['1.3', 'PDF 1.3']] : [['1.4', 'PDF 1.4'], ['1.5', 'PDF 1.5'], ['1.6', 'PDF 1.6'], ['1.7', 'PDF 1.7']].filter(([c]) => v.standard !== 'x4' || Number(c) >= 1.6), v.standard === 'x1a' ? '1.3' : v.compat, (x) => (st.compat = x), 'Compatibility', { disabled: v.standard === 'x1a' })),
     );
 
     fillPane(pane('General'), 
       h('h3.pd-heading', 'Options'),
-      check('Create layers from top-level layers', v.layers && compat >= 1.5, (x) => (st.layers = x), { disabled: compat < 1.5 }),
-      check('Embed page thumbnails', v.thumbnails, (x) => (st.thumbnails = x)),
+      check('Create layers from top-level layers', v.layers && compat >= 1.5, (x) => (st.layers = x), { disabled: compat < 1.5 || v.standard === 'x1a' }),
+      check('Embed page thumbnails', v.thumbnails, (x) => (st.thumbnails = x), { disabled: isPdfx(v) }),
       check('View PDF after saving', v.viewAfter, (x) => (st.viewAfter = x)),
       compat < 1.5 ? h('p.form-help', 'Layers need PDF 1.5 or later.') : null,
     );
@@ -172,17 +174,20 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
     );
 
     const convert = v.colorConversion === 'convert';
-    const docProfile = doc ? `Document press (${CMYK_PROFILES[documentCmykProfile(app, doc)].label})` : 'Document press model';
-    const destinations = [['cmyk:document', docProfile], ...Object.entries(CMYK_PROFILES).map(([k, p]) => [`cmyk:${k}`, p.label]), ['rgb:srgb', RGB_SPACES.srgb.label]];
+    const docProfile = doc ? `Document CMYK (${profileDisplayName(docCmykProfile(app, doc))})` : 'Document CMYK profile';
+    const cmykList = profileOptions('CMYK', { outputOnly: true });
+    const destinations = [['cmyk:document', docProfile], ...cmykList.map(([k, l]) => [`cmyk:${k}`, `CMYK: ${l}`]), ...(v.standard === 'x1a' ? [] : profileOptions('RGB').map(([k, l]) => [`rgb:${k}`, `RGB: ${l}`]))];
+    const out = doc ? pdfOutputProfile(app, doc, v) : null;
     fillPane(pane('Output'), 
       h('h3.pd-heading', 'Color'),
-      field('Color conversion', sel([['none', 'No Conversion'], ['convert', 'Convert to Destination']], v.colorConversion, (x) => (st.colorConversion = x), 'Color conversion')),
+      field('Color conversion', sel([['none', 'No Conversion'], ['convert', 'Convert to Destination']], v.colorConversion, (x) => (st.colorConversion = x), 'Color conversion', { disabled: v.standard === 'x1a' })),
       field('Destination', sel(destinations, v.destination, (x) => (st.destination = x), 'Destination', { disabled: !convert })),
+      field('Profile inclusion', sel([['include', 'Include profiles (ICC-based colors)'], ['none', 'Don’t include profiles']], v.profileInclusion, (x) => (st.profileInclusion = x), 'Profile inclusion', { disabled: isPdfx(v) })),
       check('Convert spot colors to process', v.spotsToProcess, (x) => (st.spotsToProcess = x)),
-      h('p.form-help', convert && v.destination.startsWith('cmyk:') ? 'Colors are written as CMYK through the press model; colors converted to CMYK keep their numbers.' : 'Colors are written as RGB.'),
+      h('p.form-help', out?.kind === 'cmyk' || (convert && v.destination.startsWith('cmyk:')) ? `Colors are written as CMYK${out ? ` for ${profileDisplayName(out.id)}` : ''}; CMYK numbers of the document’s own profile are kept.` : `Colors are written as RGB${out ? ` in ${profileDisplayName(out.id)}` : ''}.`),
       h('h3.pd-heading', 'Output Intent'),
-      field('Printing condition', sel([['document', 'Document press model'], ...Object.entries(CMYK_PROFILES).map(([k, p]) => [k, p.label])], v.outputIntent, (x) => (st.outputIntent = x), 'Output intent', { disabled: v.standard !== 'press' })),
-      v.standard !== 'press' ? h('p.form-help', 'Choose the print production standard to name the printing condition in the file.') : null,
+      field('Printing condition', sel([['document', 'Same as the destination (or document CMYK)'], ...cmykList], v.outputIntent, (x) => (st.outputIntent = x), 'Output intent', { disabled: v.standard === 'none' })),
+      v.standard === 'none' ? h('p.form-help', 'Choose a print production or PDF/X standard to describe the printing condition in the file.') : h('p.form-help', 'The printing condition’s profile is embedded in the file.'),
     );
 
     const flat = listPresets(app, 'flattener');
@@ -191,12 +196,12 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
       check('Convert text to outlines', v.textOutlines && Boolean(app.textOutlines), (x) => (st.textOutlines = x), { disabled: !app.textOutlines }),
       h('h3.pd-heading', 'Overprint and Transparency Flattener Options'),
       field('Overprints', sel([['preserve', 'Preserve'], ['simulate', 'Simulate'], ['discard', 'Discard']], v.overprint, (x) => (st.overprint = x), 'Overprints')),
-      check('Flatten transparency', v.flatten, (x) => (st.flatten = x)),
+      check('Flatten transparency', v.flatten, (x) => (st.flatten = x), { disabled: v.standard === 'x1a' }),
       field('Preset', sel(flat.map((p) => [p.name, p.name]), v.flattener, (x) => (st.flattener = x), 'Flattener preset', { disabled: !v.flatten })),
       h('p.form-help', 'Flattening turns transparent artwork into images for printers and older workflows without transparency.'),
     );
 
-    const noSecurity = v.standard === 'press';
+    const noSecurity = v.standard !== 'none';
     fillPane(pane('Security'), 
       h('h3.pd-heading', 'Document Open Password'),
       check('Require a password to open the document', v.requireOpen, (x) => (st.requireOpen = x), { disabled: noSecurity }),
@@ -215,10 +220,23 @@ export async function pdfOptionsDialog(app, { values = {}, presetEdit = null } =
 
   function refresh() {
     const v = normalizePdf(st);
-    const warnings = pdfWarnings(v, { hasSpots: doc ? spotInks(doc).length > 0 : false, hasTextOutlines: Boolean(app.textOutlines) });
+    const intent = doc ? pdfIntentProfile(app, doc, v) : null;
+    const ie = intent ? profileEntry(intent) : null;
+    const out = doc ? pdfOutputProfile(app, doc, v) : null;
+    const bleed = doc && (v.useDocBleed ? doc.root.bleed : v.bleed);
+    const anyBleed = typeof bleed === 'number' ? bleed > 0 : Boolean(bleed && Object.values(bleed).some((x) => x > 0));
+    const warnings = pdfWarnings(v, {
+      hasSpots: doc ? spotInks(doc).length > 0 : false,
+      hasTextOutlines: Boolean(app.textOutlines) && v.textOutlines,
+      hasText: doc ? [...doc.nodes.values()].some((n) => n.type === 'text') : true,
+      hasRgb: doc ? doc.root.colorMode !== 'CMYK' || [...doc.nodes.values()].some((n) => n.type === 'image') : true,
+      outputProfile: ie ? { kind: ie.kind, deviceClass: ie.deviceClass, version: ie.version || '2' } : null,
+      bleed: !doc || anyBleed,
+    });
+    const names = out ? { destination: profileDisplayName(out.id), outputIntent: intent ? profileDisplayName(intent) : null } : {};
     fillPane(pane('Summary'), 
       h('h3.pd-heading', 'Options'),
-      h('dl.pd-summary-list', pdfSummary(v).flatMap(([k, x]) => [h('dt', k), h('dd', x)])),
+      h('dl.pd-summary-list', pdfSummary(v, names).flatMap(([k, x]) => [h('dt', k), h('dd', x)])),
       h('h3.pd-heading', 'Warnings'),
       warnings.length ? h('ul.pd-warnings', warnings.map((w) => h('li', w))) : h('p.form-help', 'None.'),
     );

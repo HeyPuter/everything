@@ -206,7 +206,9 @@ describe('Color Settings', () => {
     ed.select([id]);
     await app.commands.run('color.toCMYK');
     const fill = doc.get(id).fill;
-    expect(fill.cmyk.k).toBe(90);
+    // Black separates to the press's rich black (black ink near its 90% limit).
+    expect(fill.cmyk.k).toBeGreaterThanOrEqual(84);
+    expect(fill.cmyk.k).toBeLessThanOrEqual(90);
     expect(fill.cmyk.c + fill.cmyk.m + fill.cmyk.y + fill.cmyk.k).toBeLessThanOrEqual(241);
     expect(quantizeCmyk('#000000').cmyk).toEqual(fill.cmyk);
   });

@@ -15,6 +15,7 @@ import { decodeDIB } from '../codec/bmp.js';
 import { uid } from '../../../lib/ids.js';
 import { createImage } from '../../../model/nodes.js';
 import { nodeBounds, unionRect } from '../../../model/geometry.js';
+import { dscIccProfile, iccImportSpace } from '../../icc/import.js';
 
 const latin = (b, s = 0, e = b.length) => {
   let out = '';
@@ -134,8 +135,12 @@ export function interpretEPS(bytes, { families } = {}) {
   const base = [1, 0, 0, -1, -bbox.x, bbox.y + bbox.h];
   let interp = null;
   let error = null;
+  // A profile declared in the DSC comments describes the file's device colors of its kind.
+  const head = latin(ps, 0, Math.min(ps.length, 4 << 20));
+  const icc = dscIccProfile(head);
+  const profileSpace = icc ? [1, 3, 4].map((n) => iccImportSpace(icc, n)).find(Boolean) || null : null;
   try {
-    interp = new PSInterpreter(ps, { families, base, bbox }).run();
+    interp = new PSInterpreter(ps, { families, base, bbox, profileSpace }).run();
     error = interp.error || null;
   } catch (err) {
     error = err;

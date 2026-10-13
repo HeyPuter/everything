@@ -44,6 +44,7 @@ import { install as installSlices } from './features/slices/index.js';
 import { install as installWorkspace } from './features/workspace/index.js';
 import { install as installLayers } from './features/layers/index.js';
 import { install as installPrepress } from './features/prepress/index.js';
+import { install as installIcc } from './features/icc/index.js';
 import { install as installGenerative } from './features/generative/index.js';
 import { install as installInterop } from './features/interop/index.js';
 import { install as installMockup } from './features/mockup/index.js';
@@ -72,6 +73,8 @@ export function installFeatures(app) {
   installWorkspace(app);
   // After workspace: color-managed proofs extend its Proof Setup.
   installPrepress(app);
+  // After prepress: ICC profiles, document profiles and the paste policy.
+  installIcc(app);
   installType(app);
   // After type: paint regions chain onto the paint hooks type sets.
   installRegions(app);

@@ -1310,6 +1310,8 @@ export class PSInterpreter {
 
   colorRGB(c) {
     const comps = c.comps || [];
+    const prof = this.opts.profileSpace;
+    if (prof && prof.kind === c.space && comps.length >= prof.n) return prof.toRGB(comps.slice(0, prof.n));
     if (c.space === 'gray') return [comps[0] ?? 0, comps[0] ?? 0, comps[0] ?? 0];
     if (c.space === 'rgb') return [comps[0] ?? 0, comps[1] ?? 0, comps[2] ?? 0];
     if (c.space === 'cmyk') {

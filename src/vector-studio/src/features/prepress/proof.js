@@ -2,13 +2,18 @@
  * Proof Colors filters from the color settings.
  *
  * The canvas shows a proof through an SVG filter (see workspace/view.js),
- * which can only apply per-channel curves and a color matrix. RGB device
- * proofs are exactly that (decode the device curve, convert primaries,
- * encode for the display). Press proofs are not, so a filter of the form
- * matrix -> per-channel curves is fitted to the press simulation by least
- * squares over a grid of colors.
+ * which can only apply per-channel curves and a color matrix. Proofs of
+ * matrix/curve RGB profiles are exactly that (decode the device curve,
+ * convert primaries, encode for the display). Other proofs (presses, LUT
+ * profiles) are not, so a filter of the form matrix -> per-channel curves
+ * is fitted to the ICC proof transform by least squares over a grid of
+ * colors. With WebGL2 the canvas runs through the exact transform instead
+ * (gpu-proof.js).
  */
-import { RGB_SPACES, rgbToXyzMatrix, convertRgb, proofCmyk, documentCmykProfile, documentRgbSpace, colorSettings, cmykProfile } from './color-management.js';
+import { RGB_SPACES, rgbToXyzMatrix, colorSettings } from './color-management.js';
+import { profileModel } from '../icc/profiles.js';
+import { deviceProofTransform, proofTransform, docCmykProfile, docRgbProfile, profileDisplayName, usableProfile } from '../icc/cms.js';
+import { srgbEncode } from '../icc/math.js';
 
 const num = (v) => String(Number(v.toFixed(5)));
 
@@ -48,14 +53,25 @@ function matrixMarkup(m, offset = [0, 0, 0]) {
   return `<feColorMatrix type="matrix" values="${v.map(num).join(' ')}"/>`;
 }
 
-/** Exact filter showing numbers of RGB space `from` on an sRGB display. */
+/** Filter showing numbers of RGB profile `from` on an sRGB display: exact for matrix/curve profiles, fitted otherwise. */
 export function rgbProofBody(from) {
-  if (!RGB_SPACES[from] || from === 'srgb' || from === 'monitor') return '<feColorMatrix type="identity"/>';
-  const src = RGB_SPACES[from];
-  const m = mul3x3(inv3(rgbToXyzMatrix('srgb')), rgbToXyzMatrix(from));
-  const dec = table((v) => src.trc.decode(v));
-  const enc = table((v) => RGB_SPACES.srgb.trc.encode(v), 65);
-  return `${transferMarkup([dec, dec, dec])}${matrixMarkup(m)}${transferMarkup([enc, enc, enc])}`;
+  if (from === 'srgb' || from === 'monitor') return '<feColorMatrix type="identity"/>';
+  if (RGB_SPACES[from]) {
+    const src = RGB_SPACES[from];
+    const m = mul3x3(inv3(rgbToXyzMatrix('srgb')), rgbToXyzMatrix(from));
+    const dec = table((v) => src.trc.decode(v));
+    const enc = table((v) => RGB_SPACES.srgb.trc.encode(v), 65);
+    return `${transferMarkup([dec, dec, dec])}${matrixMarkup(m)}${transferMarkup([enc, enc, enc])}`;
+  }
+  const model = profileModel(usableProfile(from, 'RGB'));
+  if (model?.matrixShaper && model.matrix && !model.lutBased) {
+    // Curves to linear light, the profile's matrix into the display's linear RGB, then the display curve.
+    const curves = ['rTRC', 'gTRC', 'bTRC'].map((t) => table((v) => model.profile.tags.get(t).curve.eval(v)));
+    const m = mul3x3(inv3(profileModel('srgb').matrix), model.matrix);
+    const enc = table((v) => srgbEncode(v), 65);
+    return `${transferMarkup(curves)}${matrixMarkup(m)}${transferMarkup([enc, enc, enc])}`;
+  }
+  return fittedBody(`rgb:${from}`, deviceProofTransform('srgb', { kind: 'rgb', id: from }, { preserve: true }));
 }
 
 /** Solve A x = b (n x n, Gaussian elimination with partial pivoting). */
@@ -147,46 +163,69 @@ export function fitColorTransform(fn, steps = 9, tableSize = 17) {
 
 const fitCache = new Map();
 
-/** Filter primitives proofing a press: separate with the profile, simulate with the options. */
-export function cmykProofBody(profile, opts = {}) {
-  const key = `${profile}|${opts.intent}|${opts.bpc}|${opts.paper}|${opts.black}`;
+/** Fitted filter primitives for a transform (RGB -> RGB), cached by `key`. */
+function fittedBody(key, t) {
+  if (!t) return '<feColorMatrix type="identity"/>';
   let fit = fitCache.get(key);
   if (!fit) {
-    fit = fitColorTransform((rgb) => proofCmyk(rgb, profile, opts));
+    fit = fitColorTransform((rgb) => t.convert(rgb));
+    if (fitCache.size > 24) fitCache.delete(fitCache.keys().next().value);
     fitCache.set(key, fit);
   }
   return `${matrixMarkup(fit.matrix, fit.offset)}${transferMarkup(fit.tables)}`;
 }
 
+/** Filter primitives proofing a CMYK profile for sRGB colors: separate with the intent, show with the display options. */
+export function cmykProofBody(profile, opts = {}) {
+  const t = deviceProofTransform(opts.src || 'srgb', { kind: 'cmyk', id: profile }, opts);
+  return fittedBody(`${t?.key}|${opts.paper}|${opts.black}`, t);
+}
+
 /** Resolve a proof device ('cmyk:<id>' | 'rgb:<id>', 'document' for the document's own) for a document. */
 export function proofDevice(app, doc, device) {
-  const [kind, id] = String(device || 'cmyk:document').split(':');
-  if (kind === 'rgb') return { kind: 'rgb', id: id === 'document' ? documentRgbSpace(app, doc) : id };
-  return { kind: 'cmyk', id: id === 'document' || !id ? documentCmykProfile(app, doc) : id };
+  const s = String(device || 'cmyk:document');
+  const i = s.indexOf(':');
+  const kind = i < 0 ? 'cmyk' : s.slice(0, i);
+  const id = i < 0 ? '' : s.slice(i + 1);
+  if (kind === 'rgb') return { kind: 'rgb', id: id === 'document' ? docRgbProfile(app, doc) : usableProfile(id, 'RGB') };
+  return { kind: 'cmyk', id: id === 'document' || !id ? docCmykProfile(app, doc) : usableProfile(id, 'CMYK') };
+}
+
+/**
+ * The proof of a proof kind of view.js's PROOFS as one ICC transform from
+ * document RGB to the display, with a cache key; null for kinds that are
+ * not device proofs (grayscale, color blindness).
+ */
+export function proofSpec(app, doc, kind) {
+  const cs = colorSettings(app);
+  if (kind === 'cmyk') {
+    const dev = { kind: 'cmyk', id: docCmykProfile(app, doc) };
+    const opts = { device: dev, intent: cs.intent, bpc: cs.bpc };
+    return { key: `proof:cmyk:${docRgbProfile(app, doc)}:${dev.id}:${cs.intent}:${cs.bpc}`, transform: proofTransform(app, doc, opts) };
+  }
+  if (kind === 'mac18' || kind === 'srgb' || kind === 'monitor') {
+    return { key: `proof:rgb:${kind}`, transform: proofTransform(app, doc, { device: { kind: 'rgb', id: kind }, preserve: true }), rgb: kind };
+  }
+  if (kind === 'custom') {
+    const p = proofSettings(app);
+    const dev = proofDevice(app, doc, p.device);
+    const opts = { device: dev, intent: p.intent, bpc: cs.bpc, paper: p.paper, black: p.black, preserve: p.preserve };
+    const key = `proof:custom:${docRgbProfile(app, doc)}:${dev.kind}:${dev.id}:${p.intent}:${cs.bpc}:${dev.kind === 'cmyk' ? `${p.paper}:${p.black}` : p.preserve}`;
+    return { key, transform: proofTransform(app, doc, opts), rgb: dev.kind === 'rgb' && p.preserve ? dev.id : null };
+  }
+  return null;
 }
 
 /** Filter body for a proof kind of view.js's PROOFS, or null to keep the built-in filter. */
 export function proofBody(app, kind) {
   const doc = app.editor?.doc;
-  const cs = colorSettings(app);
-  if (kind === 'cmyk') return cmykProofBody(documentCmykProfile(app, doc), { intent: cs.intent, bpc: cs.bpc });
-  if (kind === 'mac18' || kind === 'srgb' || kind === 'monitor') return rgbProofBody(kind);
-  if (kind === 'custom') {
-    const p = proofSettings(app);
-    const dev = proofDevice(app, doc, p.device);
-    if (dev.kind === 'rgb') {
-      if (p.preserve) return rgbProofBody(dev.id);
-      // Converted colors keep their look; only colors outside the device gamut change.
-      const from = documentRgbSpace(app, doc);
-      const fit = fitColorTransform((rgb) => convertRgb(convertRgb(rgb, 'srgb', dev.id), dev.id, 'srgb'), 7);
-      return from === dev.id ? '<feColorMatrix type="identity"/>' : `${matrixMarkup(fit.matrix, fit.offset)}${transferMarkup(fit.tables)}`;
-    }
-    return cmykProofBody(dev.id, { intent: p.intent, bpc: cs.bpc, paper: p.paper, black: p.black });
-  }
-  return null;
+  const spec = proofSpec(app, doc, kind);
+  if (!spec) return null;
+  if (spec.rgb) return rgbProofBody(spec.rgb);
+  return fittedBody(spec.key, spec.transform);
 }
 
 /** Menu label of the document CMYK proof. */
 export function documentCmykLabel(app) {
-  return `Document CMYK: ${cmykProfile(documentCmykProfile(app, app.editor?.doc)).label}`;
+  return `Document CMYK: ${profileDisplayName(docCmykProfile(app, app.editor?.doc))}`;
 }

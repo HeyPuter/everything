@@ -16,7 +16,7 @@
  *   skipPlates     plate ids not to print ('c', 'm', 'y', 'k' or spot ids)
  *   textMode       'text' | 'outlines'
  *   colorHandling  'browser' | 'proof' (simulate the printer profile)
- *   printerProfile 'document' | a CMYK press id; intent
+ *   printerProfile 'document' | a CMYK profile id (press model or ICC); intent
  *   bitmap, bitmapPpi   print as bitmap
  *   overprints     'discard' | 'simulate'
  *   flattener      transparency flattener preset name (resolution of simulated output)
@@ -25,9 +25,11 @@ import { PRINT_DEFAULTS, normalizePrint } from './print-settings.js';
 import { exportSVG } from './svg-export.js';
 import { printView } from './print.js';
 import { renderRegion } from './raster.js';
-import { separatePixel, documentCmykProfile, cmykProfile, colorSettings, INK_NAMES, PROCESS_INKS } from '../prepress/color-management.js';
+import { colorSettings, INK_NAMES, PROCESS_INKS } from '../prepress/color-management.js';
 import { spotInks, inkUsage, plateView } from '../prepress/separations.js';
 import { cmykProofBody } from '../prepress/proof.js';
+import { docCmykProfile, docRgbProfile, usableProfile, profileDisplayName } from '../icc/cms.js';
+import { transformBetween } from '../icc/profiles.js';
 import { getPreset } from '../prepress/presets.js';
 
 export { PRINT_DEFAULTS, normalizePrint };
@@ -37,15 +39,20 @@ export function rasterOutput(st) {
   return st.mode === 'separations' || st.bitmap || st.overprints === 'simulate';
 }
 
-/** The press profile output uses. */
+/** The CMYK profile output uses. */
 export function outputProfile(app, doc, st) {
-  return st.printerProfile && st.printerProfile !== 'document' ? st.printerProfile : documentCmykProfile(app, doc);
+  return st.printerProfile && st.printerProfile !== 'document' ? usableProfile(st.printerProfile, 'CMYK') : docCmykProfile(app, doc);
+}
+
+/** The ICC transform separating the document's RGB for the printer profile. */
+export function outputTransform(app, doc, st) {
+  return transformBetween(docRgbProfile(app, doc), outputProfile(app, doc, st), { intent: st.intent || colorSettings(app).intent, bpc: colorSettings(app).bpc });
 }
 
 /** Every plate the document can print: [{ id, name, spot }]. */
 export function documentPlates(app, doc, st) {
   const profile = outputProfile(app, doc, st);
-  const used = inkUsage(doc, profile);
+  const used = inkUsage(doc, profile, docRgbProfile(app, doc));
   const process = PROCESS_INKS.map((k) => ({ id: k, name: INK_NAMES[k], spot: false, used: used.process.has(k) }));
   const spots = st.spotToProcess ? [] : spotInks(doc).map((s) => ({ id: s.id, name: s.name, spot: true, used: used.spots.has(s.id) }));
   return [...process, ...spots];
@@ -115,11 +122,16 @@ export function overprintBlackView(doc) {
   return view;
 }
 
-/** Plate densities as gray (white = no ink) for a process plate, in place. */
-export function processPlatePixels(data, profile, index) {
+/** Plate densities as gray (white = no ink) for a process plate, in place. `transform` separates RGB (or a CMYK profile id, from sRGB). */
+export function processPlatePixels(data, transform, index) {
+  const t = typeof transform === 'string' ? transformBetween('srgb', transform, { intent: 'relative', bpc: true }) : transform;
   const out = new Float32Array(4);
+  const px = [0, 0, 0];
   for (let i = 0; i < data.length; i += 4) {
-    separatePixel(profile, data[i], data[i + 1], data[i + 2], out);
+    px[0] = data[i] / 255;
+    px[1] = data[i + 1] / 255;
+    px[2] = data[i + 2] / 255;
+    t.fast(px, out);
     const v = Math.round((1 - out[index]) * 255);
     data[i] = data[i + 1] = data[i + 2] = v;
     data[i + 3] = 255;
@@ -138,7 +150,7 @@ export async function renderPlateTile(app, doc, rect, plate, st, ppi) {
     try {
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       if (img?.data?.length === canvas.width * canvas.height * 4) {
-        processPlatePixels(img.data, outputProfile(app, doc, st), PROCESS_INKS.indexOf(plate.id));
+        processPlatePixels(img.data, outputTransform(app, doc, st), PROCESS_INKS.indexOf(plate.id));
         ctx.putImageData(img, 0, 0);
       }
     } catch {
@@ -172,7 +184,7 @@ function marksMarkup(marks, label) {
 /** Filter primitives simulating the printer profile, or '' for none. */
 export function outputProofFilter(app, doc, st) {
   if (st.colorHandling !== 'proof' || st.mode === 'separations') return '';
-  return cmykProofBody(outputProfile(app, doc, st), { intent: st.intent, bpc: colorSettings(app).bpc });
+  return cmykProofBody(outputProfile(app, doc, st), { src: docRgbProfile(app, doc), intent: st.intent, bpc: colorSettings(app).bpc });
 }
 
 /**
@@ -249,7 +261,7 @@ export function printSummary(app, editor, pages, st) {
     ['Emulsion', st.emulsion === 'down' ? 'Down (mirrored)' : 'Up (right reading)'],
     ['Image', st.image === 'negative' ? 'Negative' : 'Positive'],
     ['Text', st.textMode === 'outlines' ? 'Converted to outlines' : 'Printed as text'],
-    ['Color handling', st.colorHandling === 'proof' && st.mode !== 'separations' ? `Simulate ${cmykProfile(outputProfile(app, doc, st)).label}` : 'Browser and printer'],
+    ['Color handling', st.colorHandling === 'proof' && st.mode !== 'separations' ? `Simulate ${profileDisplayName(outputProfile(app, doc, st))}` : 'Browser and printer'],
     ['Print as bitmap', st.bitmap ? `${st.bitmapPpi} ppi` : 'Off'],
     ['Overprints', st.overprints === 'simulate' ? 'Simulate' : 'Discard'],
     ['Overprint black', yes(st.overprintBlack)],

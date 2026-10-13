@@ -118,6 +118,8 @@ describe('Info panel colors', () => {
   it('shows CMYK percentages in CMYK documents', async () => {
     const { paintInfo } = await import('../src/features/artboards/info-panel.js');
     expect(paintInfo({ type: 'solid', color: '#ff0000' })).toBe('R 255  G 0  B 0  #FF0000');
-    expect(paintInfo({ type: 'solid', color: '#ff0000' }, 'CMYK')).toBe('C 0%  M 100%  Y 100%  K 0%');
+    // Converted colors show their CMYK numbers; others their separation in the document's CMYK profile.
+    expect(paintInfo({ type: 'solid', color: '#ff0000', cmyk: { c: 0, m: 100, y: 100, k: 0 } }, 'CMYK')).toBe('C 0%  M 100%  Y 100%  K 0%');
+    expect(paintInfo({ type: 'solid', color: '#ff0000' }, 'CMYK')).toMatch(/^C 0% {2}M (9\d|100)% {2}Y (8\d|9\d|100)% {2}K 0%$/);
   });
 });

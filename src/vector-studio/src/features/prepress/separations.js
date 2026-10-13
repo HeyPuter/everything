@@ -3,7 +3,8 @@
  * carries.
  *
  * Process plates (C, M, Y, K) come from the rendered artwork, separated
- * pixel by pixel with the document's press model (color-management.js).
+ * pixel by pixel through the ICC transform from the document's RGB
+ * profile to its CMYK profile (icc/cms.js).
  * Spot inks are swatches marked as spot colors ({ spot: true }); objects
  * painted with them print on a plate of their own instead of the process
  * plates. A spot plate is rendered from a view of the document whose paints
@@ -26,9 +27,10 @@ import { exportView } from '../io/export-view.js';
 import { RASTER_EFFECTS } from '../../render/effects.js';
 import { drawArtwork } from '../../render/draw.js';
 import { multiply, apply } from '../../lib/matrix.js';
-import { platesFor, profileColors, blackPoint, buildLut, documentCmykProfile, cmykProfile, PROCESS_INKS } from './color-management.js';
+import { buildLut, PROCESS_INKS } from './color-management.js';
 import { runInkPass, inkPixels, gpuAvailable } from './ink-gl.js';
-import { separatePixel } from './color-management.js';
+import { docCmykProfile, docRgbProfile, inkView, rgbToCmykTransform } from '../icc/cms.js';
+import { transformBetween } from '../icc/profiles.js';
 
 const hex3 = (hex) => {
   const n = parseInt(String(hex || '#000000').slice(1), 16) || 0;
@@ -102,10 +104,10 @@ function forEachPaint(n, fn) {
 const usageCache = new WeakMap();
 /**
  * Inks the document's visible artwork uses: { process: Set of 'c'|'m'|'y'|'k', spots: Set of swatch ids }.
- * Images count as using every process ink.
+ * Images count as using every process ink. Colors are separated from RGB profile `src` into CMYK profile `profile`.
  */
-export function inkUsage(doc, profile) {
-  const key = `${doc.nodes?.version}|${profile}`;
+export function inkUsage(doc, profile, src = 'srgb') {
+  const key = `${doc.nodes?.version}|${profile}|${src}`;
   const hit = usageCache.get(doc);
   if (hit?.key === key) return hit.value;
   const process = new Set();
@@ -132,8 +134,9 @@ export function inkUsage(doc, profile) {
     if (n.children) for (const c of n.children) visit(view.get(c));
   };
   for (const id of doc.root.children) visit(view.get(id));
+  const t = transformBetween(src, profile, { intent: 'relative', bpc: true }) || transformBetween('srgb', 'coatedWeb', { intent: 'relative', bpc: true });
   for (const c of colors) {
-    const pl = platesFor(hex3(c), profile);
+    const pl = t.convert(hex3(c));
     PROCESS_INKS.forEach((k, i) => {
       if (pl[i] > 0.005) process.add(k);
     });
@@ -241,10 +244,10 @@ export function setSeparationState(editor, patch) {
 /** Plates listed in the panel: [{ id: 'c'|'m'|'y'|'k'|spot id, name, color, spot }]. */
 export function listedPlates(app, editor) {
   const doc = editor.doc;
-  const profile = documentCmykProfile(app, doc);
+  const profile = docCmykProfile(app, doc);
   const st = separationState(editor);
-  const used = st.usedOnly ? inkUsage(doc, profile) : null;
-  const { inks } = profileColors(profile);
+  const used = st.usedOnly ? inkUsage(doc, profile, docRgbProfile(app, doc)) : null;
+  const { inks } = inkView(profile);
   const toHex = (c) => `#${c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`;
   const process = PROCESS_INKS.map((k, i) => ({ id: k, name: { c: 'Cyan', m: 'Magenta', y: 'Yellow', k: 'Black' }[k], color: toHex(inks[i]), spot: false }));
   const spots = spotInks(doc).filter((s) => !used || used.spots.has(s.id)).map((s) => ({ ...s, spot: true }));
@@ -282,11 +285,12 @@ function passCanvas(key, w, h) {
 /** Separation preview parameters for the GPU/CPU pass. */
 export function inkParams(app, editor) {
   const doc = editor.doc;
-  const profileId = documentCmykProfile(app, doc);
-  const profile = cmykProfile(profileId);
+  const profileId = docCmykProfile(app, doc);
+  const view = inkView(profileId);
+  const transform = rgbToCmykTransform(app, doc);
   const st = separationState(editor);
   const hidden = new Set(st.hidden);
-  const { inks } = profileColors(profileId);
+  const { inks } = view;
   const plates = listedPlates(app, editor);
   const spots = plates.filter((p) => p.spot);
   const visible = plates.filter((p) => !hidden.has(p.id));
@@ -298,11 +302,12 @@ export function inkParams(app, editor) {
   return {
     mode: 'separations',
     profileId,
-    lut: buildLut(`sep:${profileId}`, 17, (rgb) => platesFor(rgb, profileId)),
+    transform,
+    lut: buildLut(`sep:${transform.key}`, 17, (rgb) => Array.from(transform.fast(rgb))),
     show: PROCESS_INKS.map((k) => !hidden.has(k)),
     absorb: inks.map((c) => c.map((v) => 1 - v)),
-    gain: profile.gain,
-    blackRel: blackPoint(profileId),
+    gain: view.gain,
+    blackRel: view.blackRel,
     single,
     spots: spots.map((s) => ({ id: s.id, absorb: hex3(s.color).map((v) => 1 - v), show: !hidden.has(s.id) })),
   };
@@ -373,7 +378,13 @@ function cpuPass(source, params, spotCanvases) {
   const main = read(source, 'cpu-main');
   if (!main?.img?.data || main.img.data.length !== w * hgt * 4) return null;
   const spots = params.spots.map((s, i) => ({ ...s, data: read(spotCanvases[i], `cpu-spot${i}`)?.img?.data || new Uint8ClampedArray(w * hgt * 4).fill(255) }));
-  inkPixels(main.img.data, { ...params, spots }, (r, g, b, out) => separatePixel(params.profileId, r, g, b, out));
+  const px = [0, 0, 0];
+  inkPixels(main.img.data, { ...params, spots }, (r, g, b, out) => {
+    px[0] = r / 255;
+    px[1] = g / 255;
+    px[2] = b / 255;
+    return params.transform.fast(px, out);
+  });
   main.canvas.getContext('2d').putImageData(main.img, 0, 0);
   return main.canvas;
 }
@@ -384,7 +395,7 @@ function cpuPass(source, params, spotCanvases) {
  */
 export function inkAt(app, editor, x, y) {
   const doc = editor.doc;
-  const profile = documentCmykProfile(app, doc);
+  const transform = rgbToCmykTransform(app, doc);
   const { view } = editor;
   const k = view.zoom * view.dpr;
   const sample = (docView) => {
@@ -404,7 +415,7 @@ export function inkAt(app, editor, x, y) {
   };
   const inks = spotInks(doc);
   const rgb = sample(inks.length ? cachedPlateView(doc, 'process') : doc);
-  const plates = platesFor(rgb, profile);
+  const plates = transform.convert(rgb);
   const pct = (v) => Math.round(v * 1000) / 10;
   return {
     c: pct(plates[0]),

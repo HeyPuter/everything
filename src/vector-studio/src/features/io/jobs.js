@@ -9,8 +9,10 @@ import { rasterExport, exportRegion } from './raster.js';
 import { collectTextOutlines } from './outlines.js';
 import { selectionBounds } from '../../model/geometry.js';
 import { applySvgOptions } from './svg-styling.js';
-import { normalizePdf, pdfVersion, pdfEncrypted } from './pdf-settings.js';
-import { documentCmykProfile, cmykProfile } from '../prepress/color-management.js';
+import { normalizePdf, pdfVersion, pdfEncrypted, isPdfx } from './pdf-settings.js';
+import { docRgbProfile, docCmykProfile, usableProfile, conversionOptions, profileDisplayName } from '../icc/cms.js';
+import { transformBetween, profileBytes } from '../icc/profiles.js';
+import { checkPdfx } from '../icc/pdfx.js';
 import { spotInks, spotEquivalents } from '../prepress/separations.js';
 import { getPreset } from '../prepress/presets.js';
 import { normalizeFlattener } from '../prepress/flattener-presets.js';
@@ -91,17 +93,10 @@ export function pdfWriterOptions(app, doc, raw = {}) {
     pageInfo: () => `${raw.title || doc.name || ''}  ${date}`,
     overprint: o.overprint,
   };
-  if (o.colorConversion === 'convert') {
-    const [kind, id] = o.destination.split(':');
-    if (kind === 'cmyk') {
-      out.colorSpace = 'cmyk';
-      out.profile = id === 'document' ? documentCmykProfile(app, doc) : id;
-    }
-  }
+  Object.assign(out, pdfColorOptions(app, doc, o));
   if (!o.spotsToProcess) out.spots = new Map(spotInks(doc).map((s) => [s.id, s]));
   // Spot inks printed as process use their CMYK equivalents when the document says so.
   out.spotEquivalents = spotEquivalents(doc);
-  if (o.standard === 'press') out.outputIntent = cmykProfile(o.outputIntent === 'document' ? documentCmykProfile(app, doc) : o.outputIntent).label;
   if (o.flatten) {
     const p = getPreset(app, 'flattener', o.flattener)?.values || normalizeFlattener({});
     out.flatten = { balance: p.balance, ppi: p.lineArtPpi };
@@ -113,6 +108,58 @@ export function pdfWriterOptions(app, doc, raw = {}) {
       permissions: o.restrict ? { printing: o.printing, changes: o.changes, copy: o.copy, accessibility: o.accessibility } : {},
     };
   }
+  return out;
+}
+
+/** The output profile of PDF settings: { kind: 'rgb' | 'cmyk', id }. CMYK documents keep CMYK without conversion. */
+export function pdfOutputProfile(app, doc, o) {
+  const docCmyk = docCmykProfile(app, doc);
+  if (o.colorConversion === 'convert') {
+    const i = o.destination.indexOf(':');
+    const kind = o.destination.slice(0, i);
+    const id = o.destination.slice(i + 1);
+    if (kind === 'cmyk') return { kind, id: id === 'document' ? docCmyk : usableProfile(id, 'CMYK') };
+    return { kind: 'rgb', id: id === 'document' ? docRgbProfile(app, doc) : usableProfile(id, 'RGB') };
+  }
+  if (doc.root.colorMode === 'CMYK') return { kind: 'cmyk', id: docCmyk };
+  return { kind: 'rgb', id: docRgbProfile(app, doc) };
+}
+
+/** The output intent's profile id of PDF settings (null without a standard). */
+export function pdfIntentProfile(app, doc, o) {
+  if (o.standard === 'none') return null;
+  if (o.outputIntent !== 'document') return usableProfile(o.outputIntent, 'CMYK');
+  const out = pdfOutputProfile(app, doc, o);
+  return out.kind === 'cmyk' ? out.id : docCmykProfile(app, doc);
+}
+
+/**
+ * Color options of the PDF writer: ICC transforms from the document's
+ * profiles to the output profile, the profiles that tag output colors,
+ * the output intent with its profile, and the PDF/X standard.
+ */
+export function pdfColorOptions(app, doc, o) {
+  const out = {};
+  const conv = conversionOptions(app);
+  const docRgb = docRgbProfile(app, doc);
+  const docCmyk = docCmykProfile(app, doc);
+  const dest = pdfOutputProfile(app, doc, o);
+  const tag = o.profileInclusion === 'include' && o.standard !== 'x1a';
+  if (dest.kind === 'cmyk') {
+    out.colorSpace = 'cmyk';
+    out.profile = dest.id;
+    out.cmykTransform = transformBetween(docRgb, dest.id, conv);
+    // CMYK numbers stay unless they belong to another CMYK profile.
+    if (docCmyk !== dest.id) out.cmykNumbers = transformBetween(docCmyk, dest.id, conv);
+  } else if (dest.id !== docRgb) out.rgbTransform = transformBetween(docRgb, dest.id, conv);
+  const intent = pdfIntentProfile(app, doc, o);
+  if (intent) out.outputIntent = { name: profileDisplayName(intent), bytes: profileBytes(intent), n: 4 };
+  if (tag) {
+    out.iccRGB = { bytes: profileBytes(dest.kind === 'rgb' ? dest.id : docRgb) };
+    // An output intent already describes DeviceCMYK.
+    if (dest.kind === 'cmyk' && !intent) out.iccCMYK = { bytes: profileBytes(dest.id) };
+  }
+  if (isPdfx(o)) out.pdfx = o.standard;
   return out;
 }
 
@@ -135,7 +182,10 @@ export async function renderFile(app, editor, format, region, options = {}) {
     const rects = region.rects || [exportRegion(editor, region).rect];
     const ids = region.ids || (region.selection ? exportRegion(editor, region).ids : null);
     const outlines = await outlinesFor(app, editor, ids, options.textOutlines !== false);
-    const { bytes, warnings } = await writePDF(doc, rects, { ...pdfWriterOptions(app, doc, options), bleed: pdfBleed(doc, options), ids, outlines, outlinesWanted: options.textOutlines !== false && Boolean(app.textOutlines), title: options.title || doc.name });
+    const wo = pdfWriterOptions(app, doc, options);
+    const { bytes, warnings } = await writePDF(doc, rects, { ...wo, bleed: pdfBleed(doc, options), ids, outlines, outlinesWanted: options.textOutlines !== false && Boolean(app.textOutlines), title: options.title || doc.name });
+    // PDF/X files are checked after writing; problems are reported with the other warnings.
+    if (wo.pdfx) for (const p of await checkPdfx(bytes, wo.pdfx)) warnings.push(`Not ${wo.pdfx === 'x1a' ? 'PDF/X-1a' : 'PDF/X-4'} compliant: ${p}`);
     if (warnings.length) app.notify?.(warnings.join(' '), { timeout: 6000 });
     return new Blob([bytes], { type: 'application/pdf' });
   }

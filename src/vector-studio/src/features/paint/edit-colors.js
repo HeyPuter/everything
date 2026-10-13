@@ -6,7 +6,7 @@
  * matches the swatch).
  */
 import { stackPaints, mapStackPaints } from '../../model/appearance.js';
-import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, rgbToCmyk, cmykToRgb, invert as invertHex, clamp } from '../../lib/color.js';
+import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb, cmykEngine, invert as invertHex, clamp } from '../../lib/color.js';
 import { nodeBounds } from '../../model/geometry.js';
 import { styledRuns } from '../../model/text-runs.js';
 
@@ -149,9 +149,9 @@ export function adjustColor(hex, mode, d) {
     return rgbToHex({ r: v, g: v, b: v });
   }
   if (mode === 'cmyk') {
-    const c = rgbToCmyk(hexToRgb(hex));
+    const c = cmykEngine.toCmyk(hexToRgb(hex));
     return rgbToHex(
-      cmykToRgb({
+      cmykEngine.toRgb({
         c: clamp(c.c + (d.c || 0), 0, 100),
         m: clamp(c.m + (d.m || 0), 0, 100),
         y: clamp(c.y + (d.y || 0), 0, 100),

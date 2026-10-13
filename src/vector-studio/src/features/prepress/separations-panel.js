@@ -12,7 +12,8 @@
 import { h } from '../../lib/dom.js';
 import { Panel, emptyState } from '../../ui/panels/panel.js';
 import { icon } from '../../ui/icons.js';
-import { cmykProfile, documentCmykProfile, PROCESS_INKS } from './color-management.js';
+import { PROCESS_INKS } from './color-management.js';
+import { docCmykProfile, inkView } from '../icc/cms.js';
 import { separationState, setSeparationState, listedPlates, inkAt } from './separations.js';
 
 export class SeparationsPanel extends Panel {
@@ -144,7 +145,7 @@ export class SeparationsPanel extends Panel {
       const sum = r.c + r.m + r.y + r.k + r.spots.reduce((s, x) => s + x.value, 0);
       this.total.textContent = `${Math.round(sum)}%`;
     } else this.total.textContent = '';
-    const prof = cmykProfile(documentCmykProfile(this.app, ed.doc));
-    this.profile.textContent = `Press: ${prof.label}. Ink limit ${prof.til}%.`;
+    const prof = inkView(docCmykProfile(this.app, ed.doc));
+    this.profile.textContent = `Profile: ${prof.label}. Ink limit ${prof.til}%.`;
   }
 }
