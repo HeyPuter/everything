@@ -19,6 +19,7 @@ import { icon } from '../../lib/icons.js';
 import {
   CURVE_PRESETS, CURVE_MIN, CURVE_MAX, POINT_GAP, MAX_POINTS, curveTable, presetOf, presetPoints, hasCurve, sourceSpan,
 } from '../../model/speed-curve.js';
+import { activeRamp } from '../../model/speed-ramps.js';
 import { choiceGrid, propSection, uidFor, secs } from './common.js';
 
 const LMIN = Math.log(CURVE_MIN);
@@ -99,7 +100,7 @@ export function speedCurvePanel(view) {
         if (!current()) actions.setSpeedCurve(view.id, customStart(view.clip), { label: 'Custom speed curve' });
         announce('Custom curve. Drag the points to shape it.');
       } else {
-        actions.setSpeedCurve(view.id, presetPoints(id), { label: 'Speed curve' });
+        actions.setSpeedCurve(view.id, presetPoints(id), { label: 'Speed curve', dropRamp: true });
         announce(`${CURVE_PRESETS.find((p) => p.id === id).label} curve, ${secs(view.clip?.duration || 0)}`);
       }
       store.seal();
@@ -111,6 +112,8 @@ export function speedCurvePanel(view) {
   const canvas = h('canvas.speed-curve-canvas', { tabindex: '0', role: 'application', 'aria-roledescription': 'speed curve editor', 'aria-label': 'Speed curve', 'aria-describedby': helpId });
   const readout = h('div.speed-curve-readout', { 'aria-live': 'polite' });
   const help = h('p.speed-curve-help', { id: helpId }, 'Click to add a point and drag to shape the curve. Drag a point off the editor or double-click it to remove it. Up is faster.');
+  // Which velocity ramp the curve came from, if any (see speed-ramps.js).
+  const origin = h('p.speed-ramp-origin', icon('speed', 14), h('span'));
   const durNow = h('output.speed-curve-dur');
   const durSrc = h('span');
   const g = canvas.getContext('2d');
@@ -423,6 +426,9 @@ export function speedCurvePanel(view) {
     if (!pts) custom = false;
     if (sel >= (pts?.length || 0)) sel = -1;
     grid.set(presetValue());
+    const ramp = activeRamp(view.clip);
+    origin.hidden = !ramp;
+    if (ramp) origin.lastChild.textContent = ramp.tweaked ? `${ramp.ramp.label} ramp, edited` : `${ramp.ramp.label} ramp`;
     canvas.setAttribute('aria-label', pts ? `Speed curve, ${pts.length} points` : 'Speed curve, constant speed');
     draw();
     updateReadout();
@@ -439,7 +445,7 @@ export function speedCurvePanel(view) {
   const info = h('dl.insp-kv', h('dt', 'Duration'), h('dd', durNow), h('dt', 'Footage'), h('dd', durSrc));
   return h('div.speed-curve-panel',
     propSection('Curve presets', [grid.el]),
-    propSection('Speed curve', [h('div.speed-curve-box', canvas), readout, info, help], {
+    propSection('Speed curve', [origin, h('div.speed-curve-box', canvas), readout, info, help], {
       onReset: () => {
         sel = -1;
         custom = false;

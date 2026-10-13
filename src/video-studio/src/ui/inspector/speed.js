@@ -1,9 +1,11 @@
 /**
- * Speed tab with Constant and Curve sub-tabs (state.speedSub remembers the
- * choice; a clip with a speed curve opens on Curve). Constant: 0.1x to
+ * Speed tab with Constant, Curve and Ramps sub-tabs (state.speedSub
+ * remembers the choice; a clip with a speed curve opens on Curve, or on
+ * Ramps when the curve came from a velocity ramp). Constant: 0.1x to
  * 100x on a log scale, presets and the resulting duration; changes go
  * through actions.setSpeed, which coalesces a drag into one undo step and
- * replaces a speed curve. Curve: see speed-curve.js. The smooth slow
+ * replaces a speed curve. Curve: see speed-curve.js. Ramps: see
+ * speed-ramps.js. The smooth slow
  * motion and pitch options below apply to both.
  */
 import { h, announce } from '../../lib/dom.js';
@@ -12,6 +14,7 @@ import { switchField, segmented } from '../controls.js';
 import { hasCurve } from '../../model/speed-curve.js';
 import { SMOOTH_SLOW_MODES, normalizeSmoothSlow, slowsDown } from '../../model/slow-motion.js';
 import { speedCurvePanel } from './speed-curve.js';
+import { speedRampsPanel } from './speed-ramps.js';
 
 export const SPEED_MIN = 0.1;
 export const SPEED_MAX = 100;
@@ -31,14 +34,22 @@ const PRESETS = [0.5, 1, 1.5, 2, 5, 10];
 const SUBS = [
   { id: 'constant', label: 'Constant' },
   { id: 'curve', label: 'Curve' },
+  { id: 'ramps', label: 'Ramps' },
 ];
+
+/** Sub-tab to open on: a curved clip opens on Curve, or on Ramps when it has a ramp and Constant was last. */
+function startSub(clip, last) {
+  if (!hasCurve(clip)) return last || 'constant';
+  if (last === 'curve' || last === 'ramps') return last;
+  return clip.speedRamp ? 'ramps' : 'curve';
+}
 
 export function speedTab(view, state = {}) {
   const subs = tabSet({
     label: 'Speed mode',
     className: 'subtabs',
     items: SUBS,
-    value: hasCurve(view.clip) ? 'curve' : state.speedSub || 'constant',
+    value: startSub(view.clip, state.speedSub),
     onChange: (id) => {
       state.speedSub = id;
       show(id);
@@ -46,9 +57,15 @@ export function speedTab(view, state = {}) {
   });
   const smooth = smoothSlowField(view);
   const pitch = pitchToggle(view);
+  const onTweak = () => {
+    state.speedSub = 'curve';
+    subs.select('curve');
+    show('curve');
+    subs.panel.querySelector('.speed-curve-canvas')?.focus();
+  };
   const show = (id) => {
     view.resetScope();
-    subs.panel.replaceChildren(id === 'curve' ? speedCurvePanel(view) : constantPanel(view));
+    subs.panel.replaceChildren(id === 'curve' ? speedCurvePanel(view) : id === 'ramps' ? speedRampsPanel(view, { onTweak }) : constantPanel(view));
     if (smooth) view.bind(smooth.update);
     if (pitch) view.bind(pitch.update);
   };
