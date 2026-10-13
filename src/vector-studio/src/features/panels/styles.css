@@ -346,6 +346,12 @@
   padding: 10px 12px;
 }
 
+.attr-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .attr-op {
   display: flex;
   flex-wrap: wrap;

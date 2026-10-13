@@ -46,7 +46,14 @@ function duplicate(editor, ids) {
 /** Apply a matrix to the selection (optionally to a copy) and remember it for Transform Again. */
 export function applyTransform(editor, label, m, { copy = false, opts } = {}) {
   const prefs = editor.prefs;
-  const o = opts || { scaleStrokes: prefs?.get('scaleStrokes'), scaleCorners: prefs?.get('scaleCorners'), transformPatterns: prefs?.get('transformPatterns') ?? true };
+  // Transform panel menu: Transform Object Only / Pattern Only / Both.
+  const mode = prefs?.get('transformMode') || 'both';
+  const o = opts || {
+    scaleStrokes: prefs?.get('scaleStrokes'),
+    scaleCorners: prefs?.get('scaleCorners'),
+    transformPatterns: mode === 'pattern' || (mode === 'both' && (prefs?.get('transformPatterns') ?? true)),
+    ...(mode === 'pattern' ? { transformObjects: false } : {}),
+  };
   editor.doc.transact(label, () => {
     let ids = editor.topSelection();
     if (copy) ids = duplicate(editor, ids);

@@ -33,6 +33,32 @@ export class TransformPanel extends Panel {
   static placement = 'strip';
   static shortcut = 'Shift+F8';
 
+  menu() {
+    const app = this.app;
+    const p = app.prefs;
+    const mode = p.get('transformMode') || 'both';
+    const toggle = (key, label) => ({ label, checked: Boolean(p.get(key)), run: () => (p.set(key, !p.get(key)), this.update()) });
+    const modeItem = (value, label) => ({ label, checked: mode === value, run: () => (p.set('transformMode', value), this.update()) });
+    return [
+      { label: this.showOptions ? 'Hide Options' : 'Show Options', run: () => (p.set('transformShowOptions', !this.showOptions), this.update()) },
+      '-',
+      'object.flipH',
+      'object.flipV',
+      '-',
+      toggle('scaleStrokes', 'Scale Strokes & Effects'),
+      toggle('scaleCorners', 'Scale Corners'),
+      toggle('previewBounds', 'Use Preview Bounds'),
+      '-',
+      modeItem('object', 'Transform Object Only'),
+      modeItem('pattern', 'Transform Pattern Only'),
+      modeItem('both', 'Transform Both'),
+    ];
+  }
+
+  get showOptions() {
+    return this.app.prefs.get('transformShowOptions') !== false;
+  }
+
   build() {
     const app = this.app;
     this.section = createTransformSection(app);
@@ -62,7 +88,9 @@ export class TransformPanel extends Panel {
     this.shapeBody = h('div.shape-props');
     this.shapeSection = h('section.panel-section', this.shapeTitle, this.shapeBody);
     this.empty = emptyState('Open or create a document to transform objects.');
-    this.el.append(this.empty, h('section.panel-section', this.section.el, h('div.tf-row', this.shear.el)), h('section.panel-section', this.checks), this.shapeSection);
+    this.modeNote = h('p.tp-mode', { 'aria-live': 'polite' });
+    this.checksSection = h('section.panel-section', this.checks, this.modeNote);
+    this.el.append(this.empty, h('section.panel-section', this.section.el, h('div.tf-row', this.shear.el)), this.checksSection, this.shapeSection);
   }
 
   update() {
@@ -75,6 +103,11 @@ export class TransformPanel extends Panel {
     this.shear.input.disabled = !has;
     this.shear.set(has ? selectionShear(ed) : null);
     for (const input of this.checks.querySelectorAll('input')) input.checked = Boolean(this.app.prefs.get(input.dataset.pref));
+    // Hide Options hides the checkboxes and the shape properties.
+    this.checksSection.hidden = !this.showOptions;
+    const mode = this.app.prefs.get('transformMode') || 'both';
+    this.modeNote.textContent = mode === 'object' ? 'Transforms objects only (patterns stay put).' : mode === 'pattern' ? 'Transforms patterns only.' : '';
+    this.modeNote.hidden = mode === 'both';
     this.updateShape(ed);
   }
 
@@ -82,7 +115,7 @@ export class TransformPanel extends Panel {
     const nodes = ed.selectedNodes();
     const n = nodes.length === 1 ? nodes[0] : null;
     const shape = n?.type === 'path' ? n.shape : null;
-    this.shapeSection.hidden = !shape || shape.kind === 'line';
+    this.shapeSection.hidden = !shape || shape.kind === 'line' || !this.showOptions;
     if (this.shapeSection.hidden) {
       this.shapeKey = null;
       return;

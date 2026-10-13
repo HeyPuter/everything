@@ -123,6 +123,15 @@ export class AttributesPanel extends Panel {
   static placement = 'strip';
   static shortcut = 'Mod+F11';
 
+  menu() {
+    const on = this.showOptions;
+    return [{ label: on ? 'Hide Options' : 'Show Options', run: () => (this.app.prefs.set('attributesShowOptions', !on), this.update()) }, '-', 'color.overprintBlack'];
+  }
+
+  get showOptions() {
+    return this.app.prefs.get('attributesShowOptions') !== false;
+  }
+
   build() {
     const check = (key, label) => {
       const id = `attr-${key}`;
@@ -168,9 +177,12 @@ export class AttributesPanel extends Panel {
         h('div.segmented.attr-seg', { role: 'group', 'aria-label': 'Path direction' }, this.dirCw, this.dirCcw),
         h('div.segmented.attr-seg', { role: 'group', 'aria-label': 'Fill rule' }, this.ruleNz, this.ruleEo),
       ),
-      h('div.form-row.attr-row', h('label', { for: 'attr-map' }, 'Image Map'), this.imageMap),
-      h('div.form-row.attr-row', h('label', { for: 'attr-url' }, 'URL'), h('div.attr-url', this.url, this.openUrl)),
-      h('div.form-row.attr-row.attr-notes', h('label', { for: 'attr-notes' }, 'Notes'), this.notes),
+      (this.options = h(
+        'div.attr-options',
+        h('div.form-row.attr-row', h('label', { for: 'attr-map' }, 'Image Map'), this.imageMap),
+        h('div.form-row.attr-row', h('label', { for: 'attr-url' }, 'URL'), h('div.attr-url', this.url, this.openUrl)),
+        h('div.form-row.attr-row.attr-notes', h('label', { for: 'attr-notes' }, 'Notes'), this.notes),
+      )),
     );
     this.el.append(this.empty, this.body);
   }
@@ -196,6 +208,7 @@ export class AttributesPanel extends Panel {
     this.empty.hidden = top.length > 0;
     this.body.hidden = !top.length;
     if (!top.length) return;
+    this.options.hidden = !this.showOptions;
     const paints = paintTargets(ed);
     const shp = shapes(ed);
     const setCheck = (c, v, disabled) => {

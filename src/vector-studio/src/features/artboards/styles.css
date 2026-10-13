@@ -443,3 +443,9 @@
   justify-self: start;
   width: max-content;
 }
+
+.tp-mode {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
