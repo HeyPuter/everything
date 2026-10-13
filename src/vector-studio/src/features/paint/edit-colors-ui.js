@@ -98,23 +98,31 @@ function checkbox(label, checked = true) {
 }
 
 async function adjustBalance(app) {
-  const modeSel = h('select', { id: 'ec-mode' }, h('option', { value: 'rgb' }, 'RGB'), h('option', { value: 'cmyk' }, 'CMYK'));
+  const modeSel = h('select', { id: 'ec-mode' }, h('option', { value: 'rgb' }, 'RGB'), h('option', { value: 'cmyk' }, 'CMYK'), h('option', { value: 'grayscale' }, 'Grayscale'));
   const rgb = [slider('Red', -100, 100, 0), slider('Green', -100, 100, 0), slider('Blue', -100, 100, 0)];
   const cmyk = [slider('Cyan', -100, 100, 0), slider('Magenta', -100, 100, 0), slider('Yellow', -100, 100, 0), slider('Black', -100, 100, 0)];
   const rgbBox = h('div.ec-group', rgb.map((s) => s.el));
   const cmykBox = h('div.ec-group', { hidden: true }, cmyk.map((s) => s.el));
+  const gray = slider('Black', -100, 100, 0);
+  const grayBox = h('div.ec-group', { hidden: true }, gray.el);
+  // Grayscale adjusts gray colors only, unless Convert makes every color gray first.
+  const convert = checkbox('Convert', false);
+  convert.input.disabled = true;
   modeSel.addEventListener('change', () => {
     rgbBox.hidden = modeSel.value !== 'rgb';
     cmykBox.hidden = modeSel.value !== 'cmyk';
+    grayBox.hidden = modeSel.value !== 'grayscale';
+    convert.input.disabled = modeSel.value !== 'grayscale';
   });
   const fill = checkbox('Fill');
   const stroke = checkbox('Stroke');
   const prev = checkbox('Preview');
-  const body = h('div.form.ec', h('div.form-row', h('label', { for: 'ec-mode' }, 'Color Mode'), modeSel), rgbBox, cmykBox, h('div.ec-checks', h('span.form-label', 'Adjust Options'), fill.el, stroke.el), prev.el);
+  const body = h('div.form.ec', h('div.form-row', h('label', { for: 'ec-mode' }, 'Color Mode'), modeSel), convert.el, rgbBox, cmykBox, grayBox, h('div.ec-checks', h('span.form-label', 'Adjust Options'), fill.el, stroke.el), prev.el);
   const read = () => ({
     mode: modeSel.value,
     r: rgb[0].value, g: rgb[1].value, b: rgb[2].value,
     c: cmyk[0].value, m: cmyk[1].value, y: cmyk[2].value, k: cmyk[3].value,
+    gray: gray.value, convert: convert.input.checked,
     fill: fill.input.checked, stroke: stroke.input.checked,
   });
   return previewDialog(app, {

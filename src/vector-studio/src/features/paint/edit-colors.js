@@ -129,8 +129,17 @@ export function grayscaleColor(hex) {
  * Adjust Color Balance: deltas in percent (-100..100) per channel.
  * mode 'rgb': { r, g, b } shift each channel by delta% of 255.
  * mode 'cmyk': { c, m, y, k } shift each ink by delta percentage points.
+ * mode 'grayscale': { gray } shifts the black of gray colors; with
+ * `convert` every color is made gray first.
  */
 export function adjustColor(hex, mode, d) {
+  if (mode === 'grayscale') {
+    const { r, g, b } = hexToRgb(hex);
+    if (!d.convert && (Math.abs(r - g) > 1 || Math.abs(g - b) > 1)) return hex;
+    const k = clamp(100 - ((0.299 * r + 0.587 * g + 0.114 * b) / 255) * 100 + (d.gray || 0), 0, 100);
+    const v = 255 * (1 - k / 100);
+    return rgbToHex({ r: v, g: v, b: v });
+  }
   if (mode === 'cmyk') {
     const c = rgbToCmyk(hexToRgb(hex));
     return rgbToHex(
