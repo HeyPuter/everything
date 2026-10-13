@@ -410,7 +410,7 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   beside the cells they total), Clear Outline removes them, and Outline
   Settings puts summary rows above or below their detail and summary columns
   left or right of it (saved in .xlsx files) and can set summary lines in bold
-  automatically (Data ▸ Outline), column and row resizing (drag, double-click to fit,
+  automatically (Data → Outline), column and row resizing (drag, double-click to fit,
   or an exact size), zoom from 50% to 200% (presets from the status bar),
   optional gridlines, zero values
   that can be hidden per sheet, notes on cells, and colored sheet tabs. The
@@ -441,17 +441,17 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   that setting and not the edit before it.
 - **Grouped sheets**: Shift-click a sheet tab to group every sheet from the
   one in view to it, Ctrl-click (⌘-click on a Mac) to add or drop one sheet,
-  or right-click a tab ▸ Select All Sheets. The title shows **[Group]**, and
+  or right-click a tab → Select All Sheets. The title shows **[Group]**, and
   what you type, format, clear, fill or paste, the rows and columns you insert
   or delete, and the column widths and row heights you set land on the same
   cells of every grouped sheet, as one undo step (each sheet keeps its own
-  formatting when only values are typed). Edit ▸ Fill ▸ Across Worksheets
+  formatting when only values are typed). Edit → Fill → Across Worksheets
   copies the selection to the other grouped sheets (all, contents only, or
   formats only); Hide and Delete act on the whole group. Commands that belong
   to one sheet (tables, charts, sorting, filters, conditional formatting,
   validation, notes, freezing) are greyed out and say why until the sheets are
   ungrouped, by clicking a tab outside the group or with Ungroup Sheets.
-- **AutoCorrect** (Tools ▸ AutoCorrect Options, or Review ▸ Proofing): as a
+- **AutoCorrect** (Tools → AutoCorrect Options, or Review → Proofing): as a
   word ends in a cell or the formula bar (never in a formula), listed text is
   replaced — (c) → ©, (tm) → ™, -- → –, -> → →, and common typos such as
   teh → the, keeping the case it was typed in — TWo INitial CApitals and
@@ -462,7 +462,7 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   corrected as the entry is committed is an undo step of its own. The list,
   the exceptions and an optional `\alpha` → α math-symbols rule are kept for
   your account.
-- **Spelling, thesaurus and translation** (Review ▸ Proofing and Language, or
+- **Spelling, thesaurus and translation** (Review → Proofing and Language, or
   the Tools menu): F7 checks the text cells of the selection, or of the whole
   sheet from the active cell round to it, against English word lists from
   SCOWL (American or British, loaded the first time they are needed). Each

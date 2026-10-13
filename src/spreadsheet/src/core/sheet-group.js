@@ -51,7 +51,7 @@ export const GROUP_BLOCKED_COMMANDS = new Set([
   'shapesMenu', 'insertShape', 'iconsDialog', 'insertIcons', 'wordArtMenu', 'insertEquation', 'drawTool',
   'note', 'link', 'newComment', 'replyComment',
   'protectSheet', 'protectRanges', 'freeze', 'split', 'renameSheet', 'moveOrCopySheet', 'copySheetTo', 'duplicateSheet',
-  'dataForm',
+  'dataForm', 'autoOutline', 'clearOutline', 'outlineSettings',
 ]);
 
 export const GROUP_BLOCKED_REASON = 'Not available while sheets are grouped. Ungroup the sheets first (right-click a sheet tab)';
