@@ -192,7 +192,8 @@ function gradientEditor(initial) {
   const el = h(
     'div.swo-gradient',
     h('div.swo-grad', swatch),
-    h('div.form-row', h('label', { for: 'swo-gtype' }, 'Type'), typeSel, reverse),
+    h('div.form-row', h('label', { for: 'swo-gtype' }, 'Type'), typeSel),
+    h('div.swo-actions', reverse),
     h('div.swo-slider', slider.el),
     h('div.swo-stop', h('div.form-row', h('label', { for: 'swo-stop-color' }, 'Stop Color'), stopColor), opacity.row, location.row),
     angle.row,

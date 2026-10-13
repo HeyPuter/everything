@@ -735,6 +735,15 @@
   min-width: min(320px, calc(100vw - 64px));
 }
 
+.swo-gradient [hidden] {
+  display: none;
+}
+
+.swo-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .swo-slider {
   padding: 0 var(--space-4);
 }
