@@ -141,8 +141,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     const image=engine.model.selectedImage,editable=!pkg.readOnly;
     const arrange=direction=>{engine.execute(()=>engine.model.arrangeImage(direction));engine.focus();};
     const clipboard=clipboardState();
-    const items=[{label:'Undo',shortcut:`${MOD_KEY}+Z`,disabled:!editable || !engine.session.history.length,onSelect:()=>engine.undo()},
-      {label:'Redo',shortcut:`${MOD_KEY}+Shift+Z`,disabled:!editable || !engine.session.future.length,onSelect:()=>engine.redo()},
+    const items=[{label:'Undo',shortcut:`${MOD_KEY}+Z`,disabled:!editable || !engine.session.history.length && !designVersions.undo.length,onSelect:()=>engine.undo()},
+      {label:'Redo',shortcut:`${MOD_KEY}+Shift+Z`,disabled:!editable || !engine.session.future.length && !designVersions.redo.length,onSelect:()=>engine.redo()},
       {separator:true},
       {label:'Cut',shortcut:`${MOD_KEY}+X`,disabled:!clipboard.cut,onSelect:()=>copyText(true)},
       {label:'Copy',shortcut:`${MOD_KEY}+C`,disabled:!clipboard.copy,onSelect:()=>copyText(false)},
@@ -833,8 +833,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       chrome.refresh(); review.refresh();
       return;
     }
-    undo.disabled = !engine.session.history.length;
-    redo.disabled = !engine.session.future.length;
+    undo.disabled = !engine.session.history.length && !designVersions.undo.length;
+    redo.disabled = !engine.session.future.length && !designVersions.redo.length;
     find.disabled = false; finder.refresh();
     hyperlink.disabled = false; hyperlink.setAttribute('aria-pressed', String(!!engine.model.hyperlink));
     bookmarks.disabled = engine.session.path !== null;
@@ -999,6 +999,87 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
 
+  /** The editor for the open package, with the view's handlers. */
+  function createEngine(CanvasEditor, images) {
+    const created = new CanvasEditor(host, {
+      onContextMenu: openDocumentContextMenu,
+      onUpdateFields: () => references.updateAllFields(),
+      paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, readOnly: !!pkg.readOnly,
+      onChange: () => { if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } doc.changed(); update(); updateStatus(); proofing.changed(true); },
+      onSelection: () => { update(); proofing.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
+      onOpenLink: target => window.open(checkedHyperlinkTarget(target), '_blank', 'noopener,noreferrer'),
+      // The account menu's typing settings, read at each keystroke so a change applies at once.
+      correctTyping: (before, typed, { list }) => (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed)) || null,
+      linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
+    });
+    // Undo past the editor's own history steps back through design-wide changes.
+    created.onHistoryEnd = direction => {
+      const list = direction === 'undo' ? designVersions.undo : designVersions.redo;
+      if (!list.length || reopening) return false;
+      stepDesignVersion(direction);
+      return true;
+    };
+    return created;
+  }
+  /*
+   * Design-wide changes (themes, style sets, watermarks, page fills) rewrite parts of the saved package
+   * and reopen the result in place. Each keeps the bytes before and after it, so Undo past the editor's
+   * own history returns to the earlier package and Redo applies the change again.
+   */
+  const designVersions = { undo: [], redo: [] };
+  let reopening = false;
+  async function reopenPackage(blob) {
+    const { CanvasEditor, openCanvasDocument } = engineApi();
+    const opened = await openCanvasDocument(blob);
+    if (opened.pkg.readOnly || destroyed) {
+      for (const image of opened.images.values()) image.close();
+      if (destroyed) return false;
+      throw new Error('This change would leave the document in a form this editor can only preview, so it was not applied.');
+    }
+    const previous = engine, range = [...previous.model.range], scrollTop = host.scrollTop, scrollLeft = host.scrollLeft, scale = previous.zoom;
+    previous.destroy(); releasePictures();
+    pkg = opened.pkg; decodedPictures = opened.images;
+    engine = createEngine(CanvasEditor, opened.images);
+    engine.setZoom(scale);
+    const length = engine.model.text.length;
+    engine.model.select(Math.min(range[0], length), Math.min(range[1], length));
+    editorCommands.restoreMarks(engine);
+    proofing.attach(engine);
+    engineApi().attachShapeEditing(engine, error, () => pkg);
+    engine.relayout();
+    host.scrollTop = scrollTop; host.scrollLeft = scrollLeft;
+    doc.changed(); update(); updateStatus();
+    // A menu or dialog opened while the package reopened keeps the keyboard.
+    if (!document.activeElement?.closest?.('.menu, .modal-root')) engine.focus();
+    return true;
+  }
+  /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
+  async function changePackage(transform) {
+    if (!engine || pkg?.readOnly || reopening) return false;
+    engine.finishComposition();
+    reopening = true;
+    try {
+      const before = engine.export(pkg);
+      const after = await transform(before);
+      if (!after || destroyed) return false;
+      if (!await reopenPackage(after)) return false;
+      designVersions.undo.push({ before, after }); designVersions.redo = [];
+      if (designVersions.undo.length > 30) designVersions.undo.shift();
+      return true;
+    } catch (e) { if (!destroyed) error(e); return false; }
+    finally { reopening = false; if (!destroyed) update(); }
+  }
+  async function stepDesignVersion(direction) {
+    const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
+    const entry = from.pop(); if (!entry) return;
+    reopening = true;
+    try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after)) to.push(entry); else from.push(entry); }
+    catch (e) { from.push(entry); if (!destroyed) error(e); }
+    finally { reopening = false; if (!destroyed) update(); }
+  }
+  editorCommands.changePackage = changePackage;
+  editorCommands.exportPackage = () => engine && !pkg?.readOnly ? engine.export(pkg) : null;
+
   const ready = (async () => {
     const engineModules = await loadEngine();
     provideEngineApi(engineModules);
@@ -1009,22 +1090,14 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     const importedHtml = imported?.type === 'markdown' ? (await import('../lib/markdown-html.js')).markdownHtml(imported.value) : imported?.type === 'html' ? imported.value : null;
     if (imported && importedText === null && importedHtml === null) throw new Error('This file type cannot be opened here. Open a .docx, Markdown, HTML or plain-text file.');
     const template = !doc.blob && doc.template ? templateById(doc.template) : null;
-    const opened = doc.blob ? await openCanvasDocument(doc.blob) : { pkg: createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES), images: new Map() };
+    const blank = () => createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    // A new document starts from the defaults the user set on the Design tab, if any.
+    const opened = doc.blob ? await openCanvasDocument(doc.blob) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() };
     pkg = opened.pkg;
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();
     if (destroyed) { releasePictures(); return; }
-    engine = new CanvasEditor(host, {
-      onContextMenu: openDocumentContextMenu,
-      onUpdateFields: () => references.updateAllFields(),
-      paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, readOnly: !!pkg.readOnly,
-      onChange: () => { doc.changed(); update(); updateStatus(); proofing.changed(true); },
-      onSelection: () => { update(); proofing.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
-      onOpenLink: target => window.open(checkedHyperlinkTarget(target), '_blank', 'noopener,noreferrer'),
-      // The account menu's typing settings, read at each keystroke so a change applies at once.
-      correctTyping: (before, typed, { list }) => (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed)) || null,
-      linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
-    });
+    engine = createEngine(CanvasEditor, images);
     if (importedText) {
       // The imported text is the starting point, not an edit: it adds no undo step.
       engine.session.run(() => { engine.model.replace(importedText); engine.model.select(0); }, () => engine.validateStory(), { record: false });
