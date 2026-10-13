@@ -332,3 +332,23 @@ test('Generation History places a Generate Image result as the dialog fitted it'
   await idle(page);
   expect(await alpha(-1)).toEqual([0, 255, 0]);
 });
+
+test('Generation History shows a result as soon as it is stored', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await openImage(page, 120, 90, '#808080', 'photo.png');
+  await page.evaluate(async () => {
+    const { generationStore } = await import('/src/features/generations/record.ts');
+    await generationStore().clear();
+  });
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  await page.locator('.menubar-entry.open .menu-item[data-command="window.panel.generations"]').click();
+  const panel = page.locator('.generations-panel');
+  await expect(panel.locator('.gen-empty')).toContainText('No AI results yet');
+  // Stored without any other change to the workspace (as when a dialog records after closing).
+  await page.evaluate(async () => {
+    const { recordGeneration } = await import('/src/features/generations/record.ts');
+    await recordGeneration(window.photoStudio, { kind: 'generate', prompt: 'stored later' }, { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) });
+  });
+  await expect(panel.locator('.gen-row')).toHaveCount(1);
+  await expect(panel.locator('.gen-row')).toContainText('stored later');
+});

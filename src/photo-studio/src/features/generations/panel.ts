@@ -179,6 +179,11 @@ export function mountGenerations(e: Editor, el: HTMLElement) {
   const kind = el.querySelector<HTMLSelectElement>('.gen-kind')!;
   search.value = view.query;
   kind.value = view.kind;
+  // Results stored while the panel is shown (they arrive after the dialog
+  // that made them closed) appear at once.
+  onGenerationsChange(() => {
+    if (el.isConnected) draw(e, el, false);
+  });
   search.addEventListener('input', () => {
     view.query = search.value;
     draw(e, el, true);
