@@ -7231,7 +7231,7 @@ function renderSlideArea(refreshNavigator = true) {
   if (list.dataset.activePart !== part) {
     list.dataset.activePart = part;
     list
-      .querySelector(".slide-item.active")
+      .querySelector(".slide-item.active, .master-pane-item.active")
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   updateSlideCount();

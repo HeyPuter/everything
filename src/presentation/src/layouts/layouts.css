@@ -225,3 +225,26 @@
   border: 1px dashed #9aa0a6;
   background: color-mix(in srgb, #9aa0a6 8%, transparent);
 }
+
+/* On a phone the slides run along a strip, and so do the master and its
+   layouts. */
+@media (max-width: 760px) {
+  .master-pane {
+    display: flex;
+    gap: 8px;
+    padding: 0;
+  }
+  .master-pane-item,
+  .master-pane-item.layout {
+    width: 133px;
+    min-width: 133px;
+    padding: 0;
+    gap: 3px;
+  }
+  .master-pane-item.layout::before {
+    display: none;
+  }
+  .master-pane-item.layout .master-pane-thumb {
+    margin-top: 10px;
+  }
+}
