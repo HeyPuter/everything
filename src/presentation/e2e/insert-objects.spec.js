@@ -352,7 +352,7 @@ test("a summary zoom jumps to its slide and returns", async ({ page }) => {
   await start(page);
   await command(page, "insert-new-slide");
   await command(page, "insert-new-slide");
-  await commandMenu(page, "insert-zoom", "Zoom");
+  await command(page, "insert-zoom");
   await page.getByRole("menuitem", { name: "Summary Zoom…" }).click();
   await page
     .getByRole("dialog", { name: "Insert Summary Zoom" })
@@ -380,7 +380,10 @@ test("action buttons get a default action and action settings", async ({
   await command(page, "insert-new-slide");
   await page.locator(".slide-item").first().locator(".slide-thumb").click();
   await command(page, "insert-shapes");
-  await page.getByRole("menuitem", { name: "Action Button: End" }).click();
+  // On a phone the gallery's sticky headings can cover the row as it scrolls.
+  await page
+    .getByRole("menuitem", { name: "Action Button: End" })
+    .dispatchEvent("click");
   const canvas = await page.locator("#slide-canvas").boundingBox();
   await page.mouse.click(
     canvas.x + canvas.width / 3,
