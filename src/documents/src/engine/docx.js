@@ -79,6 +79,7 @@ import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
 import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
+import { checkedLineNumbers } from './line-number-settings.js';
 import { unzipSync, zipSync, strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
@@ -154,6 +155,8 @@ function paragraphProperties(pPr, inherited = {}, readColor) {
   }
   const contextual = readContextualFlag(pPr);
   if (contextual !== undefined) result.contextualSpacing = contextual;
+  const suppressedNumbers = readContextualFlag(pPr, 'suppressLineNumbers');
+  if (suppressedNumbers !== undefined) result.suppressLineNumbers = suppressedNumbers;
   result.spacing = mergeSpacing(result.spacing, readParagraphSpacing(pPr));
   return result;
 }
@@ -199,7 +202,7 @@ function writeParagraphFormat(node, p, make, numbering) {
     if (p.list) { const level = make('ilvl'); level.setAttributeNS(W, 'w:val', String(p.list.level)); numPr.append(level); }
     const id = make('numId'); id.setAttributeNS(W, 'w:val', p.list?.numId || '0'); numPr.append(id);
   }
-  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing']) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
+  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing', 'suppressLineNumbers']) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
   if ('paragraphBorders' in patch) writeParagraphBorders(ensure('pBdr'), patch.paragraphBorders, make);
   if ('paragraphShading' in patch) writeParagraphShading(ensure('shd'), patch.paragraphShading);
   if ('alignment' in patch) ensure('jc').setAttributeNS(W, 'w:val', patch.alignment);
@@ -401,6 +404,9 @@ function readPageSettings(section, settings, readColor, attempt = read => read()
   const alignment = children(section).filter(n => n.namespaceURI === W && n.localName === 'vAlign');
   if (alignment.length > 1 || alignment[0] && (alignment[0].textContent.trim() || children(alignment[0]).length || [...alignment[0].attributes].some(a => a.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(a.namespaceURI === W && a.localName === 'val')))) throw new UnsupportedDocumentError('invalid vertical page alignment');
   result.verticalAlignment = alignment.length ? value(alignment[0]) : 'top';
+  // Line numbering (§17.6.8). A declaration this editor cannot use stays in the
+  // retained section XML and shows no numbers rather than rejecting the page.
+  result.lineNumbers = attempt(() => readLineNumbers(child(section, 'lnNumType')), null);
   const cols = child(section, 'cols');
   try {
     const columns = readSectionColumns(cols);
@@ -408,6 +414,29 @@ function readPageSettings(section, settings, readColor, attempt = read => read()
   } catch (error) { throw new UnsupportedDocumentError(`unsupported section columns (${error.message})`); }
   try { return validatePageSettings(result); }
   catch (e) { throw new UnsupportedDocumentError(`unsupported page settings (${e.message})`); }
+}
+function readLineNumbers(node) {
+  if (!node) return null;
+  const number = (name, fallback) => {
+    const raw = node.getAttributeNS(W, name);
+    if (raw === null) return fallback;
+    if (!/^\+?\d+$/.test(raw)) throw new UnsupportedDocumentError('invalid line numbering');
+    return Number(raw);
+  };
+  // countBy is what makes numbers visible; without it the declaration is retained only.
+  const countBy = number('countBy', 0);
+  if (countBy < 1) return null;
+  const restart = node.getAttributeNS(W, 'restart') || 'newPage';
+  try {
+    return checkedLineNumbers({ countBy: Math.min(countBy, 100), start: number('start', 0), distance: node.hasAttributeNS(W, 'distance') ? twips(node, 'distance', null) : null, restart });
+  } catch (e) { throw new UnsupportedDocumentError(`unsupported line numbering (${e.message})`); }
+}
+function writeLineNumbers(node, settings) {
+  for (const name of ['countBy', 'start', 'distance', 'restart']) node.removeAttributeNS(W, name);
+  node.setAttributeNS(W, 'w:countBy', String(settings.countBy));
+  if (settings.start) node.setAttributeNS(W, 'w:start', String(settings.start));
+  if (settings.distance !== null) node.setAttributeNS(W, 'w:distance', String(settings.distance));
+  node.setAttributeNS(W, 'w:restart', settings.restart);
 }
 const sectionOrder = ['headerReference', 'footerReference', 'footnotePr', 'endnotePr', 'type', 'pgSz', 'pgMar', 'paperSrc', 'pgBorders', 'lnNumType', 'pgNumType', 'cols', 'formProt', 'vAlign', 'noEndnote', 'titlePg', 'textDirection', 'bidi', 'rtlGutter', 'docGrid', 'printerSettings', 'sectPrChange'];
 function writePageSettings(section, settings, initial, make, fresh) {
@@ -423,6 +452,10 @@ function writePageSettings(section, settings, initial, make, fresh) {
   if (fresh && settings.pageBorders || JSON.stringify(settings.pageBorders) !== JSON.stringify(initial.pageBorders)) {
     if (settings.pageBorders) writePageBorders(ensure('pgBorders'), settings.pageBorders, make);
     else child(section, 'pgBorders')?.remove();
+  }
+  if (fresh && settings.lineNumbers || JSON.stringify(settings.lineNumbers) !== JSON.stringify(initial.lineNumbers)) {
+    if (settings.lineNumbers) writeLineNumbers(ensure('lnNumType'), settings.lineNumbers);
+    else child(section, 'lnNumType')?.remove();
   }
   if (settings.verticalAlignment !== initial.verticalAlignment || fresh && settings.verticalAlignment !== 'top') ensure('vAlign').setAttributeNS(W, 'w:val', settings.verticalAlignment);
   // How the section starts (§17.6.22); next page is the default when the element is absent.

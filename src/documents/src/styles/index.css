@@ -9,4 +9,5 @@
 @import './editor-chrome.css';
 @import './review.css';
 @import './page-layout.css';
+@import './line-numbers.css';
 @import './print.css';

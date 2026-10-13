@@ -40,6 +40,7 @@ import { cellContext } from './tables.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
+import { lineNumberLabels } from './line-numbers.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
@@ -469,6 +470,8 @@ export class CanvasEditor {
       if (this.storyPage === undefined) this.session.activate(null);
       else this.session.page = this.storyPage;
     }
+    // Section line numbers are labels beside the finished body lines (§17.6.8).
+    this.lineNumbers = lineNumberLabels(this.layout, body.paragraphs, body.numbering, body.styles, this.measure);
     this.selectionLayout = this.session.path === null ? this.layout : pageStorySelectionLayout(this.layout, this.storyLayout, this.session.path, this.storyPage);
     this.input.setAttribute('aria-label', this.inputLabel || (this.session.path === null ? 'Document text' : ({ header: 'Header text', footer: 'Footer text', footnote: 'Footnote text' }[this.pageStories.stories[this.session.path].kind] || 'Story text')));
     this.drawingPageContexts = drawingPageContexts(this.layout, this.pageStories);
@@ -732,6 +735,10 @@ export class CanvasEditor {
           });
         }
         paintFloating(false);
+      }
+      for (const label of this.lineNumbers || []) if (label.page === index) {
+        ctx.save(); ctx.fillStyle = paintColor(label.style.color, geometry.background || '#FFFFFF'); setCanvasTextStyle(ctx, label.style);
+        paintText(ctx, { ...label.style, text: label.text, x: label.x, width: label.width }, label.baseline); ctx.restore();
       }
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
       if (!printing && this.pageStories) {

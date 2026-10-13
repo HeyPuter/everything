@@ -1,0 +1,10 @@
+/* Line Numbers options dialog. */
+.ed-line-numbers { display: grid; gap: 12px; }
+.ed-line-number-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
+.ed-line-number-fields:disabled { opacity: .55; }
+.ed-line-number-fields .field { margin: 0; min-width: 0; }
+.ed-line-number-fields .input { width: 100%; min-width: 0; box-sizing: border-box; }
+.ed-line-number-distance { display: flex; align-items: center; gap: 10px; }
+.ed-line-number-distance .input { flex: 1; }
+.ed-line-number-restart { grid-column: 1 / -1; border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.ed-line-number-restart legend { padding: 0; margin-bottom: 6px; }

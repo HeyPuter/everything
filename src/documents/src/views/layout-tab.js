@@ -85,6 +85,8 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
   const writingWidth = s => readingPageSize(s)[0] - s.left - s.right - (s.gutterAtTop ? 0 : s.gutter);
 
   const commands = {
+    /** Section-aware page settings for other modules (line numbers): 'section' | 'document' | 'forward'. */
+    applySectionSettings(patch, { scope } = {}) { return setPage(patch, { scope }); },
     /** The Page Setup dialog for the caret's section. */
     openPageSetup(tab = 'page') {
       const engine = body(); if (!engine) return;

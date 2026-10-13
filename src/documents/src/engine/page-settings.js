@@ -1,6 +1,7 @@
 import { normalizeColor } from './colors.js';
 import { sectionColumnIntervals } from './section-columns.js';
 import { checkedPageBorders } from './page-borders.js';
+import { checkedLineNumbers } from './line-number-settings.js';
 /** Page settings use integer twips; the document-wide background is resolved sRGB. */
 export const DEFAULT_PAGE_SETTINGS = Object.freeze({
   width: 12240, height: 15840, orientation: 'portrait',
@@ -16,6 +17,8 @@ export const DEFAULT_PAGE_SETTINGS = Object.freeze({
   mirrorMargins: false, printTwoOnOne: false,
   compatibilityMode: 12,
   splitPgBreakAndParaMark: false, suppressSpBfAfterPgBrk: false,
+  // Section line numbering (w:lnNumType): null or { countBy, start, distance, restart }.
+  lineNumbers: null,
   defaultTabStop: 720, noTabHangInd: false, forgetLastTabAlignment: false, allowSpaceOfSameStyleInTable: false, wrapTrailSpaces: false, ulTrailSpace: false, doNotExpandShiftReturn: false, doNotUseHTMLParagraphAutoSpacing: false,
 });
 export const PAPER_SIZES = Object.freeze({ Letter: [12240, 15840], A4: [11906, 16838], Legal: [12240, 20160] });
@@ -34,6 +37,8 @@ export function validatePageSettings(input = {}) {
     if (key === 'backgroundPicture') {
       if (value !== null && (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !['assetId','width','height'].includes(k)) || typeof value.assetId !== 'string' || !value.assetId || ![value.width,value.height].every(n => Number.isFinite(n) && n > 0 && n <= 1e9))) throw new Error('Invalid page picture background.');
       result.backgroundPicture = value;
+    } else if (key === 'lineNumbers') {
+      try { result.lineNumbers = checkedLineNumbers(value); } catch (e) { throw new Error(`Invalid line numbering: ${e.message}`); }
     } else if (key === 'pageBorders') {
       result.pageBorders = checkedPageBorders(value);
     } else if (key === 'verticalAlignment') {
@@ -89,6 +94,7 @@ export function pageGeometry(settings = DEFAULT_PAGE_SETTINGS) {
     fixedTop: p.top < 0, fixedBottom: p.bottom < 0,
     compatibilityMode: p.compatibilityMode,
     columns: p.columns, sectionType: p.sectionType, verticalAlignment: p.verticalAlignment,
+    lineNumbers: p.lineNumbers,
     allowSpaceOfSameStyleInTable: p.allowSpaceOfSameStyleInTable, wrapTrailSpaces: p.wrapTrailSpaces, ulTrailSpace: p.ulTrailSpace, doNotExpandShiftReturn: p.doNotExpandShiftReturn, doNotUseHTMLParagraphAutoSpacing: p.doNotUseHTMLParagraphAutoSpacing,
     defaultTabStop: p.defaultTabStop, noTabHangInd: p.noTabHangInd, forgetLastTabAlignment: p.forgetLastTabAlignment,
     splitPgBreakAndParaMark: p.splitPgBreakAndParaMark, suppressSpBfAfterPgBrk: p.suppressSpBfAfterPgBrk,
