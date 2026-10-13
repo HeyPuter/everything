@@ -184,3 +184,70 @@ describe('paste policy', () => {
     expect(app.prefs.get('colorSettings').askPaste).toBe(true);
   });
 });
+
+describe('proofs and the Color panel', () => {
+  it('proofs on ICC devices through exact transforms', async () => {
+    const { app, ed } = await setup();
+    const cmyk = await app.iccProfiles.add(simpleCmykProfile());
+    const { proofSpec, proofBody } = await import('../src/features/prepress/proof.js');
+    app.prefs.set('proofCustom', { device: `cmyk:${cmyk.id}`, intent: 'relative', paper: false, black: false });
+    const spec = proofSpec(app, ed.doc, 'custom');
+    expect(spec.key).toContain(cmyk.id);
+    // The test press reproduces sRGB, so its proof is (nearly) the identity.
+    const out = spec.transform.convert([0.3, 0.6, 0.2]);
+    expect(Math.max(...out.map((v, i) => Math.abs(v - [0.3, 0.6, 0.2][i])))).toBeLessThan(0.03);
+    expect(proofBody(app, 'custom')).toContain('feComponentTransfer');
+    // RGB device proofs that keep the numbers show them as the device would.
+    const rgb = await app.iccProfiles.add(linearRgbProfile('Linear Proof RGB'));
+    app.prefs.set('proofCustom', { device: `rgb:${rgb.id}`, preserve: true });
+    const lin = proofSpec(app, ed.doc, 'custom').transform.convert([0.5, 0.5, 0.5]);
+    expect(lin[0]).toBeCloseTo(0.735, 2);
+    // The matrix/curve device proof is an exact filter.
+    expect(proofBody(app, 'custom')).toContain('feColorMatrix');
+  });
+
+  it('warns about colors the CMYK profile cannot print', async () => {
+    const { app, ed, add } = await setup();
+    const id = add('#00ff00');
+    ed.select([id]);
+    await app.commands.run('panel.color');
+    const panel = app.dock.panels.get('color');
+    panel.setMode('cmyk');
+    panel.update();
+    expect(panel.gamutWarn.hidden).toBe(false);
+    panel.gamutWarn.click();
+    const fixed = ed.doc.get(id).fill.color;
+    expect(fixed).not.toBe('#00ff00');
+    panel.update();
+    expect(panel.gamutWarn.hidden).toBe(true);
+    // RGB work does not show it.
+    panel.setMode('rgb');
+    ed.doc.transact('c', () => ed.doc.update(id, { fill: { type: 'solid', color: '#00ff00' } }));
+    panel.update();
+    expect(panel.gamutWarn.hidden).toBe(true);
+  });
+
+  it('lists, keeps and removes profiles in the Color Profiles manager', async () => {
+    const { app, doc } = await setup();
+    const { profilesDialog } = await import('../src/features/icc/dialogs.js');
+    const user = await app.iccProfiles.add(linearRgbProfile('Linear Manager RGB'));
+    const run = profilesDialog(app);
+    await tick();
+    const list = dlg().querySelector('[role="listbox"]');
+    const option = [...list.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes('Linear Manager RGB'));
+    expect(option).toBeTruthy();
+    option.click();
+    expect(dlg().querySelector('.pp-summary').textContent).toMatch(/Matrix and curves/);
+    const remove = [...dlg().querySelectorAll('button')].find((b) => b.textContent === 'Remove');
+    expect(remove.disabled).toBe(false);
+    remove.click();
+    await tick();
+    expect(profileEntry(user.id)).toBeNull();
+    // Built-in profiles cannot be removed.
+    [...list.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes('sRGB')).click();
+    expect([...dlg().querySelectorAll('button')].find((b) => b.textContent === 'Remove').disabled).toBe(true);
+    [...dlg().querySelectorAll('.dialog-footer button')].find((b) => b.textContent === 'Done').click();
+    await run;
+    expect(doc).toBeTruthy();
+  });
+});
