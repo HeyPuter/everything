@@ -741,7 +741,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
       if (p.sectionEnd) {
         let properties = child(node, 'pPr'); if (!properties) { properties = make('pPr'); node.prepend(properties); }
         // The section's source properties, with this section's page settings written over them.
-        const source = sectionSource(p), sectPr = doc.importNode(xml(source.xml || `<w:sectPr xmlns:w="${W}"/>`).documentElement, true);
+        const source = sectionSource(p), sectPr = source.xml ? doc.importNode(xml(source.xml).documentElement, true) : make('sectPr');
         writePageSettings(sectPr, p.sectionEnd, source.settings || DEFAULT_PAGE_SETTINGS, make, !source.xml);
         properties.append(sectPr);
       }

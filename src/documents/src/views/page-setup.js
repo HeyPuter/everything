@@ -159,15 +159,18 @@ export function openPageSetup(settings, apply, options = {}) {
     const g = next.gutter, atTop = next.gutterAtTop && !mirrored;
     const l = next.left + (atTop ? 0 : g), t = Math.abs(next.top) + (atTop ? g : 0);
     const spread = mirrored || pages.value === 'twoOnOne';
+    // A short passage of text, placed as the vertical alignment puts it.
+    const textHeight = h - t - Math.abs(next.bottom), passage = vertical.value === 'both' ? textHeight : textHeight * 0.45;
+    const offset = { top: 0, center: (textHeight - passage) / 2, bottom: textHeight - passage, both: 0 }[vertical.value] || 0;
     const one = (dx, swap) => {
-      const page = el('span.ps-page', { style: { left: `${dx}px`, width: `${w * scale}px`, height: `${h * scale}px` } },
-        box(swap ? next.right : l, t, w - next.left - next.right - (atTop ? 0 : g), h - t - Math.abs(next.bottom), 'ps-text'));
+      const area = box(swap ? next.right : l, t, w - next.left - next.right - (atTop ? 0 : g), textHeight, 'ps-text');
+      area.append(box(0, offset, w - next.left - next.right - (atTop ? 0 : g), passage, 'ps-lines'));
+      const page = el('span.ps-page', { style: { left: `${dx}px`, width: `${w * scale}px`, height: `${h * scale}px` } }, area);
       if (g && !atTop) page.append(box(swap ? w - g : 0, 0, g, h, 'ps-gutter'));
       if (g && atTop) page.append(box(0, 0, w, g, 'ps-gutter'));
       return page;
     };
     sheet.style.width = `${(spread ? 2 : 1) * w * scale + (spread ? 4 : 0)}px`; sheet.style.height = `${h * scale}px`;
-    sheet.style.alignItems = { top: 'flex-start', center: 'center', both: 'stretch', bottom: 'flex-end' }[vertical.value] || '';
     sheet.replaceChildren(...(spread ? [one(0, mirrored), one(w * scale + 4, false)] : [one(0, false)]));
   }
 
@@ -191,7 +194,7 @@ export function openPageSetup(settings, apply, options = {}) {
     el('div.ps-side', {}, el('span.field-label', {}, 'Preview'), previewBox,
       el('label.field', {}, el('span.field-label', {}, 'Apply to'), scope))),
   ...((settings.bookFoldPrinting || settings.bookFoldRevPrinting) ? [el('p.field-hint', {}, 'In a booklet, width and height describe each reading page. Without a top gutter, landscape booklets alternate margins and add the gutter to the saved right margin.')] : []),
-  el('p.field-hint', {}, 'Negative top and bottom margins keep their saved sign and the same distance from the page edge.'),
+  ...(settings.top < 0 || settings.bottom < 0 ? [el('p.field-hint', {}, 'Negative top and bottom margins keep their saved sign and the same distance from the page edge.')] : []),
   error,
   el('div.row.ps-actions', {}, setDefault || el('span'),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),

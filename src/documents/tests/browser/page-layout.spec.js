@@ -39,10 +39,15 @@ test('section breaks from the Breaks menu start pages by kind, undo in one step 
   await expect(canvases(page)).toHaveCount(3);
   await page.keyboard.type('Second section');
   await expect(input).toHaveValue('First section\nSecond section');
-  await input.press('ControlOrMeta+z'); await input.press('ControlOrMeta+z');
+  // Undo the typing, then the break in one step; redo brings the break back.
+  for (let i = 0; i < 4 && await input.inputValue() !== 'First section\n'; i++) await input.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('First section\n');
+  await input.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('First section');
   await expect(canvases(page)).toHaveCount(1);
   await input.press('ControlOrMeta+Shift+z');
   await expect(canvases(page)).toHaveCount(3);
+  await input.press('ControlOrMeta+End'); await page.keyboard.type('Second section');
   await choose(page, 'Breaks', /^Continuous/);
   await page.keyboard.type('Third section');
   await expect(canvases(page)).toHaveCount(3);
@@ -53,7 +58,7 @@ test('section breaks from the Breaks menu start pages by kind, undo in one step 
   await page.keyboard.press('Escape');
   const path = await save(page, info, 'section-breaks.docx');
   const xml = xmlOf(path);
-  expect(xml.match(/<w:sectPr/g)).toHaveLength(3);
+  expect(xml.match(/<w:sectPr\b/g)).toHaveLength(3);
   expect(xml).toContain('<w:type w:val="oddPage"/>');
   expect(xml).toMatch(/<w:type w:val="continuous"\/>.*<\/w:body>/s);
   await reopenDocx(page, input, path, 'First section\nSecond section\nThird section');
@@ -84,7 +89,7 @@ test('Page Setup changes one section, mirrors margins, aligns the page and reope
   await expect(canvases(page)).toHaveCount(3);
   const path = await save(page, info, 'page-setup-sections.docx');
   const xml = xmlOf(path);
-  const [first, last] = xml.match(/<w:sectPr>.*?<\/w:sectPr>/gs);
+  const [first, last] = xml.match(/<w:sectPr\b[^>]*>.*?<\/w:sectPr>/gs);
   expect(first).toMatch(/w:top="1440"/); expect(first).not.toContain('vAlign');
   expect(last).toMatch(/w:top="2880"/); expect(last).toContain('<w:vAlign w:val="center"/>'); expect(last).toContain('<w:type w:val="oddPage"/>');
   expect(xmlOf(path, 'word/settings.xml')).toContain('<w:mirrorMargins/>');
@@ -94,6 +99,9 @@ test('Page Setup changes one section, mirrors margins, aligns the page and reope
   await input.press('ControlOrMeta+Shift+z');
   await reopenDocx(page, input, path, 'Cover\nBody');
   await expect(canvases(page)).toHaveCount(3);
+  // The dialog shows the caret's section: the second one.
+  await input.press('ControlOrMeta+End');
+  await onTab(page, 'layout');
   await ribbon(page).getByRole('button', { name: 'Page setup', exact: true }).click();
   await expect(dialog.getByRole('combobox', { name: 'Multiple pages' })).toHaveValue('mirror');
   await expect(dialog.getByRole('spinbutton', { name: 'Top margin (in)' })).toHaveValue('2');
@@ -134,7 +142,7 @@ test('columns from a preset on selected text and from the Columns dialog', async
   await choose(page, 'Columns', 'Two', 'menuitemradio');
   let path = await save(page, info, 'columns-selection.docx');
   let xml = xmlOf(path);
-  expect(xml.match(/<w:sectPr/g)).toHaveLength(3);
+  expect(xml.match(/<w:sectPr\b/g)).toHaveLength(3);
   expect(xml.match(/<w:type w:val="continuous"\/>/g)).toHaveLength(2);
   expect(xml).toContain('w:num="2"');
   await input.press('ControlOrMeta+z');

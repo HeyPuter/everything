@@ -13,7 +13,8 @@
 .ps-preview { display: grid; place-items: center; min-height: 150px; background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 12px; overflow: hidden; }
 .ps-preview-sheet { position: relative; max-width: 100%; }
 .ps-page { position: absolute; top: 0; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .22), 0 1px 3px rgba(0, 0, 0, .18); }
-.ps-text { position: absolute; background: repeating-linear-gradient(to bottom, #9aa4b2 0 1px, transparent 1px 4px); opacity: .8; outline: 1px dashed var(--accent); outline-offset: 1px; }
+.ps-text { position: absolute; outline: 1px dashed var(--accent); outline-offset: 1px; }
+.ps-lines { position: absolute; background: repeating-linear-gradient(to bottom, #9aa4b2 0 1px, transparent 1px 4px); opacity: .8; }
 .ps-gutter { position: absolute; background: repeating-linear-gradient(45deg, rgba(0, 0, 0, .12) 0 2px, transparent 2px 5px); }
 .ps-presets { display: flex; gap: 6px; flex-wrap: wrap; }
 .ps-preset { display: grid; justify-items: center; gap: 2px; padding: 6px 8px 4px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: transparent; color: var(--ink); min-width: 58px; font-size: 12px; }
@@ -34,3 +35,7 @@
   .ps-side { position: static; }
   .ps-preview { min-height: 120px; }
 }
+
+/* Gallery menus (Margins, Orientation, Size, Columns, Breaks): a large picture beside each choice. */
+.menu-picture { display: inline-flex; flex: none; width: 32px; height: 32px; margin-right: 8px; align-self: center; }
+.menu-picture > svg { width: 32px; height: 32px; }

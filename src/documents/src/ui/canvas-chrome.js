@@ -279,7 +279,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   // Indents follow the measurement unit chosen on the View tab.
   const indentInput = (key, label) => {
     const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.1, min: -56, max: 56, disabled: true, 'aria-label': `${label} (${recallUnit()})`, placeholder: 'Mixed',
-      onchange: () => { if (input.value === '' || !input.checkValidity()) { input.reportValidity(); refresh(); return; } w.setIndent?.(key, Number(input.value), recallUnit()); },
+      // The arrows step by tenths; any typed value in range is kept (2.54 cm is an inch).
+      onchange: () => { const v = input.validity; if (input.value === '' || v.badInput || v.rangeOverflow || v.rangeUnderflow) { input.reportValidity(); refresh(); return; } w.setIndent?.(key, Number(input.value), recallUnit()); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); focusEditor(); } } });
     states.push({ control: input, enabled: () => engineReady() && !!w.setIndent, value: () => w.indentValue?.(key, recallUnit()), unit: label });
     return input;

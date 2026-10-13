@@ -130,17 +130,17 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
     },
     sectionBreakItems() {
       const disabled = !ready() || inTable() || inStory();
-      return [{ header: 'Section Breaks' }, ...SECTION_BREAKS.map(([type, label, icon, hint]) => ({ label, icon, hint, disabled, onSelect: () => commands.insertSectionBreak(type) }))];
+      return [{ header: 'Section Breaks' }, ...SECTION_BREAKS.map(([type, label, icon, hint]) => ({ label, picture: icon, hint, disabled, onSelect: () => commands.insertSectionBreak(type) }))];
     },
     marginItems() {
       const s = settings(), custom = lastCustomMargins();
       const customItem = custom && !MARGIN_PRESETS.some(preset => marginMatch(custom, preset)) ? [{
-        label: 'Last Custom Setting', icon: 'marginsCustom', radio: true, checked: !!s && MARGIN_KEYS.every(key => key === 'gutter' ? true : near(Number(s[key]), Number(custom[key])) || s[key] === custom[key]),
+        label: 'Last Custom Setting', picture: 'marginsCustom', radio: true, checked: !!s && MARGIN_KEYS.every(key => key === 'gutter' ? true : near(Number(s[key]), Number(custom[key])) || s[key] === custom[key]),
         hint: `Top ${describe(custom.top)} · Bottom ${describe(custom.bottom)} · ${custom.mirrorMargins ? 'Inside' : 'Left'} ${describe(custom.left)} · ${custom.mirrorMargins ? 'Outside' : 'Right'} ${describe(custom.right)}`,
         onSelect: () => setPage({ ...custom, mirrorMargins: !!custom.mirrorMargins }) }] : [];
       return [...customItem, ...MARGIN_PRESETS.map(preset => {
         const [id, label, top, bottom, left, right, mirrored] = preset;
-        return { label, icon: `margins${id[0].toUpperCase()}${id.slice(1)}`, radio: true, checked: !!s && marginMatch(s, preset),
+        return { label, picture: `margins${id[0].toUpperCase()}${id.slice(1)}`, radio: true, checked: !!s && marginMatch(s, preset),
           hint: `Top ${describe(top * IN)} · Bottom ${describe(bottom * IN)} · ${mirrored ? 'Inside' : 'Left'} ${describe(left * IN)} · ${mirrored ? 'Outside' : 'Right'} ${describe(right * IN)}`,
           onSelect: () => setPage({ top: top * IN, bottom: bottom * IN, left: Math.round(left * IN), right: Math.round(right * IN), mirrorMargins: mirrored }) };
       }), { separator: true }, { label: 'Custom Margins…', icon: 'pageSetup', disabled: !ready(), onSelect: () => commands.openPageSetup('page') }];
@@ -148,7 +148,7 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
     orientationItems() {
       const s = settings();
       return [['Portrait', 'portrait'], ['Landscape', 'landscape']].map(([label, value]) => ({
-        label, icon: value, radio: true, checked: s?.orientation === value,
+        label, picture: value, radio: true, checked: s?.orientation === value,
         onSelect: () => {
           const current = settings(); if (!current || current.orientation === value) return;
           // Turning the page swaps its sides and rotates the margins with it.
@@ -162,7 +162,7 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
       const s = settings();
       return [...PAPER_PRESETS.map(([label, hint, width, height]) => {
         const [w, h] = s?.orientation === 'landscape' ? [height, width] : [width, height];
-        return { label, hint, icon: 'paperSize', radio: true, checked: !!s && near(s.width, w) && near(s.height, h), onSelect: () => setPage({ width: w, height: h }) };
+        return { label, hint, radio: true, checked: !!s && near(s.width, w) && near(s.height, h), onSelect: () => setPage({ width: w, height: h }) };
       }), { separator: true }, { label: 'More Paper Sizes…', icon: 'pageSetup', disabled: !ready(), onSelect: () => commands.openPageSetup('page') }];
     },
     columnItems() {
@@ -170,7 +170,7 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
       const preset = s ? columnPreset(s.columns) : null;
       const selected = !!doc && doc.range[0] !== doc.range[1] && !inTable();
       return [...COLUMN_PRESETS.map(([id, label, icon]) => ({
-        label, icon, radio: true, checked: preset === id, disabled: !ready(),
+        label, picture: icon, radio: true, checked: preset === id, disabled: !ready(),
         // With text selected, the columns go to that text alone, between two continuous section breaks.
         onSelect: () => { const current = settings(); setPage({ columns: presetColumns(id, writingWidth(current), current.columns?.space || 720) }, selected ? { scope: 'selection', breakType: 'continuous' } : undefined); },
       })), { separator: true },
@@ -180,9 +180,9 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
     breakItems() {
       const engine = ready(), disabled = !engine;
       return [{ header: 'Page Breaks' },
-        { label: 'Page', icon: 'breakPage', shortcut: `${MOD_KEY}+Enter`, hint: 'Continue on the next page.', disabled: disabled || inTable(), onSelect: () => { const e = ready(); if (e) { e.finishComposition(); e.insertPageBreak(); } } },
-        { label: 'Column', icon: 'breakColumn', shortcut: `${MOD_KEY}+Shift+Enter`, hint: 'Continue in the next column.', disabled: disabled || !base.insertColumnBreak, onSelect: () => base.insertColumnBreak?.() },
-        { label: 'Text Wrapping', icon: 'breakTextWrapping', hint: 'Start a new line in the same paragraph, below any pictures beside it.', disabled, onSelect: () => commands.insertTextWrappingBreak() },
+        { label: 'Page', picture: 'breakPage', shortcut: `${MOD_KEY}+Enter`, hint: 'Continue on the next page.', disabled: disabled || inTable(), onSelect: () => { const e = ready(); if (e) { e.finishComposition(); e.insertPageBreak(); } } },
+        { label: 'Column', picture: 'breakColumn', shortcut: `${MOD_KEY}+Shift+Enter`, hint: 'Continue in the next column.', disabled: disabled || !base.insertColumnBreak, onSelect: () => base.insertColumnBreak?.() },
+        { label: 'Text Wrapping', picture: 'breakTextWrapping', hint: 'Start a new line in the same paragraph, below any pictures beside it.', disabled, onSelect: () => commands.insertTextWrappingBreak() },
         ...commands.sectionBreakItems()];
     },
     /** Indents in the measurement unit the View tab chooses. */

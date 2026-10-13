@@ -4,7 +4,8 @@
  * one chain: Escape or Left closes the innermost, an outside click or a chosen
  * item closes them all, and focus returns to whatever opened the outermost.
  *
- * items: [{ label, icon?, shortcut?, hint?, onSelect, disabled?, checked?, radio?, danger? },
+ * items: [{ label, icon?, picture?, shortcut?, hint?, onSelect, disabled?, checked?, radio?, danger? },
+ *         // picture: a command icon drawn large beside the label, as a gallery shows its choices
  *         // checked: a toggle; with radio, one choice of an exclusive group
  *         { note: 'Text' },                    // a line of prose, read as a note, not a dimmed item
  *         { label, icon?, items: [...] },      // a submenu written out here
@@ -212,6 +213,8 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
       },
     },
       el('span.menu-icon', { html: isCheck ? (item.checked ? icon('check', 16, 2.2) : '') : (item.icon ? menuIcon(item.icon, commandIcons) : '') }),
+      // A gallery choice shows a large picture of itself beside its name.
+      item.picture && el('span.menu-picture', { 'aria-hidden': 'true', html: commandIcon(item.picture, 32) || '' }),
       // A color choice shows its color beside its name.
       item.swatch && el(item.swatch === 'none' ? 'span.menu-swatch.is-none' : 'span.menu-swatch', { 'aria-hidden': 'true', style: item.swatch === 'none' ? null : { background: item.swatch } }),
       // A command that opens a dialog ends in an ellipsis; only a submenu shows an arrow.
