@@ -158,12 +158,13 @@ export class RotateViewTool extends Tool {
 }
 
 /** Fields the Eyedropper picks up and applies, like its default options. */
-const EYEDROPPER_KEYS = STYLE_KEYS.filter((k) => k !== 'effects');
+// Extra fills and strokes (the appearance stack) come along with the fill and stroke.
+const EYEDROPPER_KEYS = [...STYLE_KEYS.filter((k) => k !== 'effects'), 'appearance'];
 
 /** Attribute groups the Eyedropper picks up and applies (Eyedropper Options). */
 const EYEDROPPER_GROUPS = {
-  fill: ['fill'],
-  stroke: ['stroke', 'strokeWidth', 'strokeCap', 'strokeJoin', 'miterLimit', 'strokeAlign', 'dash', 'dashOffset', 'arrowStart', 'arrowEnd'],
+  fill: ['fill', 'appearance'],
+  stroke: ['stroke', 'strokeWidth', 'strokeCap', 'strokeJoin', 'miterLimit', 'strokeAlign', 'dash', 'dashOffset', 'arrowStart', 'arrowEnd', 'appearance'],
   transparency: ['opacity', 'blendMode'],
 };
 const EYEDROPPER_LABELS = { fill: 'Fill', stroke: 'Stroke', transparency: 'Transparency', character: 'Character' };
@@ -198,13 +199,14 @@ export class EyedropperTool extends Tool {
     if (e.alt) {
       // Apply the current appearance to the clicked object.
       const patch = {};
-      for (const k of eyedropperKeys(this.app)) if (editor.style[k] !== undefined) patch[k] = editor.style[k];
+      for (const k of eyedropperKeys(this.app)) if (editor.style[k] !== undefined || k === 'appearance') patch[k] = editor.style[k];
       doc.transact('Eyedropper', () => applyStyleDeep(doc, hit, patch));
       return;
     }
     const groups = eyedropperGroups(this.app);
     const patch = {};
-    for (const k of eyedropperKeys(this.app)) if (hit[k] !== undefined) patch[k] = hit[k];
+    // A picked object without extra fills and strokes clears the targets' (appearance: undefined).
+    for (const k of eyedropperKeys(this.app)) if (hit[k] !== undefined || k === 'appearance') patch[k] = hit[k];
     if (hit.type === 'text') {
       // Type samples the character under the pointer (its runs may override the object's paint).
       const st = styleAt(hit, textIndexAt(hit, e.x, e.y));

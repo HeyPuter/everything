@@ -1,6 +1,7 @@
 /**
  * Graphic styles: named appearances (fill, stroke and stroke options,
- * opacity, blending and effects) stored in doc.root.graphicStyles. New
+ * extra fills and strokes, opacity, blending and effects) stored in
+ * doc.root.graphicStyles. New
  * documents show the built-in defaults until the list is edited.
  *
  * Applying a style links the object to it (node.graphicStyle = id). The
@@ -54,7 +55,9 @@ export function styleOfNode(doc, node) {
     };
     find(node);
     const base = leaf ? styleOfNode(doc, leaf) : {};
-    return { ...base, opacity: node.opacity ?? 1, blendMode: node.blendMode || 'normal', effects: structuredClone(node.effects || []) };
+    const out = { ...base, opacity: node.opacity ?? 1, blendMode: node.blendMode || 'normal', effects: structuredClone(node.effects || []) };
+    if (node.appearance?.length) out.groupAppearance = structuredClone(node.appearance);
+    return out;
   }
   const s = structuredClone(pickStyle(node));
   if (node.dashAlign) s.dashAlign = node.dashAlign;
@@ -66,7 +69,7 @@ export function styleOfNode(doc, node) {
  * style's appearance replaces the object's whole appearance (no leftover
  * dashes or arrowheads from before).
  */
-const STROKE_RESET = { strokeCap: 'butt', strokeJoin: 'miter', miterLimit: 10, strokeAlign: 'center', dash: [], dashOffset: 0, dashAlign: undefined, arrowStart: null, arrowEnd: null };
+const STROKE_RESET = { strokeCap: 'butt', strokeJoin: 'miter', miterLimit: 10, strokeAlign: 'center', dash: [], dashOffset: 0, dashAlign: undefined, arrowStart: null, arrowEnd: null, appearance: undefined };
 
 /** Apply a graphic style to the top-level selection, linking it when `id` is given. */
 export function applyGraphicStyle(editor, style, id = null) {
@@ -83,9 +86,12 @@ export function applyStyleTo(doc, nodes, style, id = null) {
   delete paintPatch.effects;
   delete paintPatch.opacity;
   delete paintPatch.blendMode;
+  delete paintPatch.groupAppearance;
   for (const n of nodes) {
     const own = { effects: structuredClone(style.effects || []), opacity: style.opacity ?? 1, blendMode: style.blendMode || 'normal', graphicStyle: id || undefined };
     if (n.type === 'group') {
+      // A group's own fills and strokes (around its contents) come from a group's style.
+      own.appearance = style.groupAppearance ? structuredClone(style.groupAppearance) : undefined;
       for (const c of n.children) applyStyleDeep(doc, doc.get(c), structuredClone(paintPatch));
       doc.update(n.id, own);
     } else if (n.type === 'image') doc.update(n.id, own);

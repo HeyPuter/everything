@@ -38,7 +38,7 @@
  * Basic stacks (one base fill under one base stroke, no item attributes)
  * are stored without `appearance` at all: see normalizeAppearance().
  */
-import { registerLive, virtualId, virtualView } from './live.js';
+import { registerLive, virtualId, virtualView, liveExpansion } from './live.js';
 import { isGeomEffectType, baseSubpaths, subpathsBounds } from './geom-effects.js';
 import { transformHooks, transformPaint, nodeBounds } from './geometry.js';
 
@@ -167,8 +167,15 @@ function cleanItem(item) {
 
 /** Patch storing `items` as the node's stack: { appearance } or { appearance: undefined } when basic. */
 export function normalizeAppearance(node, items) {
-  const list = items.map(cleanItem);
+  // Base items the list leaves out are where stackItems() would put them.
+  const list = stackItems({ ...node, appearance: items.length ? items : [{ type: 'contents' }] }).map(cleanItem);
   return { appearance: isBasicStack(node, list) ? undefined : list };
+}
+
+/** Whether a node's stack has a visible stroke besides (or instead of) its own. */
+export function hasStackStroke(node) {
+  if (!hasAppearanceStack(node)) return false;
+  return stackItems(node).some((it) => it.type === 'stroke' && !it.hidden && itemPaint(node, it) && itemStrokeAttrs(node, it).strokeWidth > 0);
 }
 
 // ---- paints (swatches, recoloring) ----
@@ -221,9 +228,11 @@ function itemNode(node, item, objFx, frame) {
     ...rest,
     id: virtualId(node.id),
     source: node.source || node.id,
+    name: '',
     opacity: item.opacity ?? 1,
     blendMode: item.blendMode || 'normal',
     effects: [...own, ...objFx.map((e) => (e.frame || !frame ? e : { ...e, frame }))],
+    appearanceItem: item.base ? `${item.type} base` : item.type,
   };
   if (item.type === 'fill') {
     v.fill = itemPaint(node, item);
@@ -284,7 +293,7 @@ function containerItem(doc, g, item, extra) {
     return null;
   };
   const kids = g.children.map((c, i) => copy(doc.get(c), g.type === 'group' && g.clip && i === g.children.length - 1)).filter(Boolean);
-  const root = { id: virtualId(g.id), type: 'group', name: '', children: kids, clip: g.type === 'group' && Boolean(g.clip), hidden: false, locked: false, opacity: item.opacity ?? 1, blendMode: item.blendMode || 'normal', effects: raster, source: g.id };
+  const root = { id: virtualId(g.id), type: 'group', name: '', children: kids, clip: g.type === 'group' && Boolean(g.clip), hidden: false, locked: false, opacity: item.opacity ?? 1, blendMode: item.blendMode || 'normal', effects: raster, source: g.id, appearanceItem: item.type };
   extra.set(root.id, root);
   return root.id;
 }
@@ -334,11 +343,29 @@ export function generateAppearance(doc, node) {
   return { items, extra };
 }
 
+/**
+ * Expand (Appearance): a group of one object per fill and stroke (and the
+ * contents) keeping the object's name, opacity, blending, opacity mask and
+ * raster effects.
+ */
+function expandStack(doc, node) {
+  const sub = liveExpansion(doc, node);
+  for (const n of sub.nodes) {
+    delete n.appearanceItem;
+    if (n.id === sub.root && node.opacityMask) n.opacityMask = node.opacityMask;
+  }
+  const parent = doc.get(node.parent);
+  const index = parent ? parent.children.indexOf(node.id) : Infinity;
+  doc.remove(node.id);
+  return doc.importSubtree(sub, node.parent, index);
+}
+
 registerLive('appearance', {
   // The selection box stays on the object's own geometry.
   bounds: 'source',
   test: (n) => n.type !== 'layer' && hasAppearanceStack(n),
   generate: generateAppearance,
+  expand: expandStack,
 });
 
 const layerCache = new WeakMap();

@@ -59,10 +59,15 @@ export const DEFAULT_STYLE = Object.freeze({
 
 export const STYLE_KEYS = Object.keys(DEFAULT_STYLE);
 
-/** Copy just the style fields of a node (for the eyedropper, paste style, graphic styles). */
+/**
+ * Copy just the style fields of a node (for the eyedropper, paste style,
+ * graphic styles), with its appearance stack (model/appearance.js) when it
+ * has one.
+ */
 export function pickStyle(node) {
   const out = {};
   for (const k of STYLE_KEYS) if (node[k] !== undefined) out[k] = node[k];
+  if (node.appearance?.length) out.appearance = node.appearance;
   return out;
 }
 

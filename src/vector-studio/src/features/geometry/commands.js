@@ -18,6 +18,7 @@ import {
 import { isLive, expandLive } from '../../model/live.js';
 import { isGradient } from '../../model/gradients.js';
 import { expandAppearance, hasExpandableAppearance } from '../../ops/expand-appearance.js';
+import { hasStackStroke } from '../../model/appearance.js';
 
 const PATHFINDER_DEFAULTS = Object.freeze({ ...pathfinderOptions });
 const leaves = (app) => (app.editor ? operands(app.editor) : []);
@@ -90,7 +91,7 @@ export function registerGeometryCommands(app) {
       enabled: (a) => selectedCompoundShapes(a.editor).length > 0,
       run: (a) => expandCompoundShapes(a.editor),
     },
-    { id: 'path.outlineStroke', label: 'Outline Stroke', enabled: (a) => leaves(a).some((n) => n.stroke && n.strokeWidth > 0), run: (a) => outlineStroke(a) },
+    { id: 'path.outlineStroke', label: 'Outline Stroke', enabled: (a) => leaves(a).some((n) => (n.stroke && n.strokeWidth > 0) || hasStackStroke(n)) || Boolean(a.editor?.selectedNodes().some(hasStackStroke)), run: (a) => outlineStroke(a) },
     { id: 'path.offset', label: 'Offset Path...', enabled: hasPaths, run: (a) => offsetPathDialog(a) },
     { id: 'path.simplify', label: 'Simplify...', enabled: (a) => leaves(a).some((n) => n.type === 'compound' || n.anchors.length > 2), run: (a) => simplifyDialog(a) },
     { id: 'path.addAnchors', label: 'Add Anchor Points', enabled: hasPaths, run: (a) => addAnchorPoints(a.editor) },

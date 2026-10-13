@@ -30,6 +30,8 @@ import { convertToMesh } from '../mesh/mesh-ops.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { tracePath } from '../../render/draw.js';
 import { formatLength } from '../../lib/units.js';
+import { hasAppearanceStack } from '../../model/appearance.js';
+import { expandNodeAppearance } from '../../ops/expand-appearance.js';
 
 const JOIN = { miter: 0, round: 1, bevel: 2 };
 const CAP = { butt: 0, round: 1, square: 2 };
@@ -137,6 +139,7 @@ function expandedStrokeItems(doc, node, rec, arrows = []) {
 export async function outlineStroke(app, { label = 'Outline Stroke', expandFill = true } = {}) {
   const editor = app.editor;
   const doc = editor.doc;
+  expandStacks(editor, label);
   const nodes = targets(editor).filter((n) => n.stroke && n.strokeWidth > 0);
   if (!nodes.length) {
     app.notify('Select a path with a stroke.');
@@ -159,6 +162,23 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
   });
   editor.select(ids);
   return true;
+}
+
+/**
+ * Objects with several fills and strokes (appearance stacks) expand into
+ * one path per fill and stroke first, so that every stroke gets outlined.
+ */
+function expandStacks(editor, label) {
+  const doc = editor.doc;
+  const top = editor.topSelection();
+  const stacked = [...new Set([...top.map((id) => doc.get(id)), ...targets(editor)])].filter((n) => n && hasAppearanceStack(n));
+  if (!stacked.length) return;
+  const keep = top.filter((id) => !stacked.some((n) => n.id === id));
+  const out = [];
+  doc.transact(label, () => {
+    for (const n of stacked) if (doc.get(n.id)) out.push(expandNodeAppearance(doc, n.id));
+  });
+  editor.select([...keep, ...out].filter((id) => doc.get(id)));
 }
 
 /**
