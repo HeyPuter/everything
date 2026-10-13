@@ -75,7 +75,8 @@ export function createStatusBar({ w, a, parts, help }) {
     try { localStore()?.setItem(STORE, JSON.stringify([...hidden])); } catch { /* storage unavailable */ }
     apply();
   }
-  function apply() { for (const [id, node] of Object.entries(items)) if (node) node.classList.toggle('is-user-hidden', hidden.has(id)); }
+  // Track Changes shows itself while tracking is on; choosing it in the menu keeps it shown when off too.
+  function apply() { for (const [id, node] of Object.entries(items)) if (node) node.classList.toggle('is-user-hidden', hidden.has(id) && !(id === 'track' && w.isTracking?.())); }
   apply();
 
   /** The proofing language for the selection (w:lang); with the engine's support it is written to the document. */
@@ -108,7 +109,7 @@ export function createStatusBar({ w, a, parts, help }) {
     const tag = w.currentLanguage?.();
     const name = tag === null ? 'Mixed languages' : languageName(tag || 'en-US');
     if (languageLabel.textContent !== name) { languageLabel.textContent = name; language.title = `Language: ${name}`; }
-    if (track) { const on = !!w.isTracking?.(); trackLabel.textContent = `Track Changes: ${on ? 'On' : 'Off'}`; track.setAttribute('aria-pressed', String(on)); track.disabled = !w.canTrack?.(); }
+    if (track) { const on = !!w.isTracking?.(); trackLabel.textContent = `Track Changes: ${on ? 'On' : 'Off'}`; track.setAttribute('aria-pressed', String(on)); track.disabled = !w.canTrack?.(); apply(); }
     pageButton.disabled = wordsButton.disabled = !a.hasDocument?.();
     renderViews();
   }

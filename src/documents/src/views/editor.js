@@ -287,7 +287,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (!destroyed) engine?.focus();
   };
   const undo = tool('Undo', 'undo', () => engine?.undo(), { disabled: true, shortcut: `${MOD_KEY}+Z` });
-  const redo = tool('Redo', 'redo', () => engine?.redo(), { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
+  // With nothing to redo, Redo becomes Repeat: it runs the last command again, as F4 does.
+  const redo = tool('Redo', 'redo', () => { if (!engine) return; if (engine.session.future.length || !editCommands.canRepeat()) engine.redo(); else editCommands.repeat(); }, { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
   const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [], range: () => engine?.model.range || [0, 0], select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
   const openFind = () => {
     if (!engine) return;
@@ -895,11 +896,20 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
     statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.layout.pageCount, ...stats }; },
     location: () => editorCommands.documentLocation().location, size: () => doc.size,
-    versions: cloud && versioning.enabled && doc.path ? () => listVersions(doc.path) : null,
+    versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path) : Promise.resolve([])) : null,
+    versionsAvailable: () => !!doc.path,
     saveVersionNow: () => doc.saveVersionNow(),
     restoreVersion: async version => {
       if (!await confirmDialog({ title: 'Restore this version?', message: `The document goes back to how it was on ${new Date(version.time).toLocaleString()}. The current version is kept in the history.`, confirmLabel: 'Restore', danger: false })) return;
-      try { await doc.restoreVersion(version.path, { stillWanted: () => !destroyed }); backstage.close({ focus: false }); openPath?.(doc.path); } catch (e) { error(e); }
+      try {
+        await doc.restoreVersion(version.path, { stillWanted: () => !destroyed });
+        backstage.close({ focus: false });
+        // Reopen the restored file: leave this editor, then open the path again once it has closed.
+        const path = doc.path, started = Date.now();
+        goHome?.();
+        const reopen = () => { if (destroyed) openPath?.(path); else if (Date.now() - started < 10000) setTimeout(reopen, 50); };
+        reopen();
+      } catch (e) { error(e); }
     },
     exportAs: kind => editorCommands.exportAs(kind),
     save: () => save(), download, saveTemplate: cloud ? saveTemplate : null, savePdf: () => savePdf(), rename: cloud ? () => { title.focus(); title.select(); } : null,
@@ -1083,7 +1093,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       return;
     }
     undo.disabled = !engine.session.history.length;
-    redo.disabled = !engine.session.future.length;
+    const repeating = !engine.session.future.length && editCommands.canRepeat();
+    redo.disabled = !engine.session.future.length && !repeating;
+    const redoLabel = repeating ? `Repeat ${editCommands.repeatLabel()}` : 'Redo';
+    if (redo.getAttribute('aria-label') !== redoLabel) { redo.setAttribute('aria-label', redoLabel); redo.title = repeating ? `${redoLabel} (F4)` : `Redo (${MOD_KEY}+Shift+Z)`; }
     find.disabled = false; finder.refresh();
     hyperlink.disabled = false; hyperlink.setAttribute('aria-pressed', String(!!engine.model.hyperlink));
     bookmarks.disabled = engine.session.path !== null;

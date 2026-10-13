@@ -39,9 +39,16 @@ export function createBackstage(api) {
     el('aside.bs-side', {}, back, nav, footer), el('main.bs-main', {}, panel));
   let current = 'info', opener = null, token = 0;
 
+  // Escape closes the File view wherever the keyboard is (a button that disabled itself while working
+  // leaves focus on the page body), unless a dialog or menu above it takes the key.
+  const onEscape = e => {
+    if (root.hidden || e.key !== 'Escape' || e.defaultPrevented || isComposing(e)) return;
+    if (document.querySelector('.modal-root:not(.closing), .menu')) return;
+    if (document.activeElement && document.activeElement !== document.body && !root.contains(document.activeElement)) return;
+    e.preventDefault(); e.stopPropagation(); close();
+  };
   root.addEventListener('keydown', e => {
     if (isComposing(e)) return;
-    if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.modal-root:not(.closing), .menu')) { e.preventDefault(); e.stopPropagation(); close(); return; }
     if (!e.target.matches?.('.bs-tab[role="tab"]')) return;
     const list = [...tabs.values()], at = list.indexOf(e.target);
     const next = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
@@ -136,7 +143,7 @@ export function createBackstage(api) {
     const statsList = stats ? el('dl.bs-facts', {}, ...fact('Pages', stats.pages), ...fact('Words', stats.words), ...fact('Characters (no spaces)', stats.noSpaces),
       ...fact('Characters (with spaces)', stats.characters), ...fact('Paragraphs', stats.paragraphs)) : null;
     const versions = el('div.bs-list', { role: 'list' });
-    const versionsSection = api.versions ? el('section.bs-section.bs-card', { id: 'bs-versions' }, el('h2', {}, 'Version history'),
+    const versionsSection = api.versions && api.versionsAvailable?.() !== false ? el('section.bs-section.bs-card', { id: 'bs-versions' }, el('h2', {}, 'Version history'),
       el('p.bs-muted', {}, 'Earlier versions are kept as you work. Restoring one keeps the current version too.'),
       el('div.bs-actions', {}, el('button.btn.btn-outline', { type: 'button', onclick: async e => {
         e.target.disabled = true;
@@ -262,7 +269,7 @@ export function createBackstage(api) {
   const builders = { new: newPage, open: openPage, info: infoPage, save: savePage, print: printPage, share: sharePage, export: exportPage };
 
   function open(id = 'info', { scrollTo } = {}) {
-    if (root.hidden) opener = document.activeElement;
+    if (root.hidden) { opener = document.activeElement; window.addEventListener('keydown', onEscape, true); }
     root.hidden = false;
     document.body.classList.add('has-backstage');
     api.onOpen?.();
@@ -272,6 +279,7 @@ export function createBackstage(api) {
   function close({ focus = true } = {}) {
     if (root.hidden) return;
     root.hidden = true; token++;
+    window.removeEventListener('keydown', onEscape, true);
     panel.replaceChildren();
     document.body.classList.remove('has-backstage');
     api.onClose?.();

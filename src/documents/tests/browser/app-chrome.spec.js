@@ -284,3 +284,31 @@ test('copy and paste formatting, Repeat, and Customize Keyboard bindings', async
   await text(page).press('ControlOrMeta+/');
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Underline');
 });
+
+test('a saved document keeps versions to restore and publishes a web page from the File view', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Version one');
+  await text(page).press('ControlOrMeta+s');
+  await expect(page.locator('.canvas-save-status')).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  const versions = view.locator('#bs-versions');
+  await versions.getByRole('button', { name: 'Save a Version Now' }).click();
+  await expect(versions.getByRole('button', { name: 'Restore' }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await text(page).press('ControlOrMeta+End');
+  await page.keyboard.type(' and two');
+  await text(page).press('ControlOrMeta+s');
+  await expect(page.locator('.canvas-save-status')).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  // The newest entry is the snapshot just before this save's: restore the one holding "Version one".
+  await versions.getByRole('button', { name: 'Restore' }).last().click();
+  await page.getByRole('dialog', { name: 'Restore this version?' }).getByRole('button', { name: 'Restore' }).click();
+  await expect(text(page)).toHaveValue('Version one');
+  // Share: publish a read-only page and get its link.
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await view.getByRole('tab', { name: 'Share' }).click();
+  await view.getByRole('button', { name: 'Publish to the Web' }).click();
+  await expect(view.locator('.bs-share-status a')).toHaveAttribute('href', /^https:\/\/.+\.puter\.site/);
+  await expect(view.getByRole('button', { name: 'Stop Publishing' })).toBeVisible();
+});

@@ -144,7 +144,11 @@ input:disabled + .ed-switch { opacity: .5; }
   background: var(--ed-card); color: var(--ed-ink);
 }
 .backstage[hidden] { display: none; }
-.bs-side { display: flex; flex-direction: column; gap: 2px; padding: calc(14px + var(--safe-t)) 10px calc(14px + var(--safe-b)) calc(10px + var(--safe-l)); background: var(--ed-accent); color: #fff; overflow: auto; }
+/* The File view's column: the accent in light themes, a deep blue in dark ones so white text keeps its contrast. */
+:root { --bs-side: var(--ed-accent); }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --bs-side: #22395a; } }
+:root[data-theme="dark"] { --bs-side: #22395a; }
+.bs-side { display: flex; flex-direction: column; gap: 2px; padding: calc(14px + var(--safe-t)) 10px calc(14px + var(--safe-b)) calc(10px + var(--safe-l)); background: var(--bs-side); color: #fff; overflow: auto; }
 .bs-back, .bs-tab {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 12px; border: 0; border-radius: 7px;
   background: transparent; color: inherit; font: 400 14px/1.2 var(--font); text-align: start;
