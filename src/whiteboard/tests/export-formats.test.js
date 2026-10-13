@@ -2726,3 +2726,36 @@ test("spreadsheet exports list the addresses of linked words", async () => {
     /,"https:\/\/example\.com\/read\nhttps:\/\/example\.com\/spec",/,
   );
 });
+
+test("long slide picture descriptions end at a word and say they go on", async () => {
+  const b = board("Many notes");
+  const frame = item("frame", 0, 0, { w: 1600, h: 900, text: "Wall" });
+  b.items = [
+    frame,
+    ...Array.from({ length: 150 }, (_, n) =>
+      item("note", 20 + (n % 15) * 100, 60 + Math.floor(n / 15) * 80, {
+        w: 90,
+        h: 70,
+        text: `Note ${n} 😀`,
+        parentId: frame.id,
+      }),
+    ),
+  ];
+  const entries = readZip(
+    await blobBytes(
+      await exportPPTX(b, exportRegions(b, { scope: "frames" }), {
+        rasterizer,
+      }),
+    ),
+  );
+  const slide = parseXML(checkPackage(entries)("ppt/slides/slide1.xml")),
+    descr = [...slide.getElementsByTagNameNS("*", "cNvPr")]
+      .find((c) => c.parentNode.parentNode.localName === "pic")
+      .getAttribute("descr");
+  assert.ok(descr.length <= 1000, descr.length);
+  assert.ok(descr.endsWith("…"));
+  assert.ok(descr.isWellFormed());
+  // The last word before the ellipsis is whole.
+  assert.match(descr, /(😀|Note|\d+)…$/);
+  assert.doesNotMatch(descr, /Not…$|No…$/);
+});

@@ -1,5 +1,5 @@
 import { rasterRegion } from "./render.js";
-import { bounds } from "./model.js";
+import { bounds, truncate } from "./model.js";
 import { createZip, xml } from "./zip.js";
 import { textOf, breathe, measureContext } from "./export-layout.js";
 import { exportLinks } from "./export-links.js";
@@ -39,6 +39,14 @@ const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const REL =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const TYPE = "application/vnd.openxmlformats-officedocument";
+// A picture's description, up to 1,000 characters: a longer one ends at
+// a word, never inside a character, and says it goes on.
+function shortDescription(text, limit = 1000) {
+  if (text.length <= limit) return text;
+  const cut = truncate(text, limit - 1),
+    space = cut.search(/\s\S*$/);
+  return `${(space > limit * 0.8 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
 const rels = (list) =>
   `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list
     .map(
@@ -417,8 +425,9 @@ export async function exportPPTX(
         top = fills ? 0 : PICTURE_Y + (areaH - h) / 2;
       const frame = b.items.find((i) => i.id === region.frameId);
       const titleContent = frame?.text === title ? frame : { text: title };
-      const descr =
-        `${title}. ${notes.map((line) => line.text).join(" ")}`.slice(0, 1000);
+      const descr = shortDescription(
+        `${title}. ${notes.map((line) => line.text).join(" ")}`,
+      );
       // An overview outlines each part shown on a slide of its own, with
       // that slide's number, which leads to it.
       const parts = (tiles || [])
