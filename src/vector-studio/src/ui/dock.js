@@ -27,15 +27,46 @@ export function createDock(app) {
   const dockBody = h('div.dock-body');
   // On phones the dock is a bottom sheet covering the status bar's toggle: it needs its own close button.
   const sheetClose = h('button.icon-btn.sheet-close', { type: 'button', 'aria-label': 'Close panels', 'data-tip': 'Close panels', onclick: () => app.setDockOpen(false) }, icon('chevron-down', 18));
-  const dock = h('div.dock', h('div.dock-head', tabs, sheetClose), dockBody);
+  // Panel options menus: one button for the active dock tab, one in the flyout header.
+  const menuButton = (panelId) =>
+    h('button.icon-btn.panel-menu-btn', { type: 'button', 'aria-haspopup': 'menu', hidden: true, onclick: (e) => openPanelMenu(panelId(), e.currentTarget) }, icon('menu', 14));
+  const dockMenuBtn = menuButton(() => activeTab);
+  const flyoutMenuBtn = menuButton(() => flyoutId);
+  const dock = h('div.dock', h('div.dock-head', tabs, dockMenuBtn, sheetClose), dockBody);
   const strip = h('div.panel-strip', { role: 'toolbar', 'aria-orientation': 'vertical', 'aria-label': 'Collapsed panels' });
   const flyout = h('div.panel-flyout', { role: 'dialog', 'aria-modal': 'false', hidden: true });
   const flyoutTitle = h('h2.flyout-title');
   const flyoutBody = h('div.flyout-body');
   flyout.append(
-    h('div.flyout-header', flyoutTitle, h('button.icon-btn', { type: 'button', 'aria-label': 'Close panel', onclick: () => closeFlyout(true) }, icon('x', 14))),
+    h(
+      'div.flyout-header',
+      flyoutTitle,
+      h('div.flyout-actions', flyoutMenuBtn, h('button.icon-btn', { type: 'button', 'aria-label': 'Close panel', onclick: () => closeFlyout(true) }, icon('x', 14))),
+    ),
     flyoutBody,
   );
+
+  function panelMenu(id) {
+    const p = panels.get(id);
+    if (!p) return [];
+    p.ensureBuilt();
+    return p.menu() || [];
+  }
+
+  function openPanelMenu(id, anchor) {
+    const spec = panelMenu(id);
+    if (spec.length) app.showMenuAt(anchor, spec, `${panels.get(id).constructor.title} panel menu`);
+  }
+
+  function syncMenuButton(btn, id) {
+    const has = !!id && panelMenu(id).length > 0;
+    btn.hidden = !has;
+    if (has) {
+      const title = panels.get(id).constructor.title;
+      btn.setAttribute('aria-label', `${title} panel menu`);
+      btn.dataset.tip = `${title} panel menu`;
+    }
+  }
   // One complementary landmark holds the strip, the flyout and the dock.
   // The hidden heading keeps the outline h1 (app) > h2 (panels) > h3 (panel sections).
   const el = h('aside.panels-area', { 'aria-label': 'Panels' }, h('h2.sr-only', 'Panels'), strip, flyout, dock);
@@ -181,6 +212,7 @@ export function createDock(app) {
       if (on) p.shown();
       else p.hidden();
     }
+    syncMenuButton(dockMenuBtn, id);
   }
 
   function toggleFlyout(id) {
@@ -205,6 +237,7 @@ export function createDock(app) {
     strip.querySelector(`[data-panel="${id}"]`)?.setAttribute('aria-expanded', 'true');
     strip.querySelector(`[data-panel="${id}"]`)?.classList.add('active');
     p.shown();
+    syncMenuButton(flyoutMenuBtn, id);
     if (focus) (p.el.querySelector('button, input, select, [tabindex="0"]') || flyout).focus?.();
   }
 
@@ -237,6 +270,7 @@ export function createDock(app) {
     start,
     showTab,
     openPanel: openFlyout,
+    openPanelMenu,
     closeFlyout,
     getLayout,
     setLayout,

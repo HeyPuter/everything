@@ -40,6 +40,15 @@ export class Panel {
 
   update() {}
 
+  /**
+   * The panel's options menu: a menu spec (command ids, '-', submenus and
+   * `{ label, run, checked, enabled }` items, see resolveItems) shown from
+   * the menu button in the panel header. Empty means no button.
+   */
+  menu() {
+    return [];
+  }
+
   /** Called when the panel becomes visible. */
   shown() {
     this.visible = true;

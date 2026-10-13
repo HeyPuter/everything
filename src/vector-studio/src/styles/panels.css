@@ -79,6 +79,20 @@
   border-bottom: 1px solid var(--border);
 }
 
+.flyout-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.panel-menu-btn[hidden] {
+  display: none;
+}
+
+.dock-head .panel-menu-btn {
+  margin-right: 6px;
+}
+
 .flyout-title {
   margin: 0;
   font-size: var(--fs);
