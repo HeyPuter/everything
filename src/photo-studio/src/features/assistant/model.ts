@@ -9,7 +9,10 @@ import { describeParams } from './params';
 import type { RawPlan } from './plan';
 
 export type Turn = { role: 'user' | 'assistant'; text: string };
-export type Reply = { kind: 'plan'; plan: RawPlan; text: string } | { kind: 'answer'; text: string; pointers: string[] } | { kind: 'text'; text: string };
+export type Reply = ({ kind: 'plan'; plan: RawPlan; text: string } | { kind: 'answer'; text: string; pointers: string[] } | { kind: 'text'; text: string }) & {
+  // The preview image was refused by the model or route and left out.
+  imageDropped?: boolean;
+};
 export type ChatFn = (messages: ChatMessage[], opts: { model?: string; tools?: ChatTool[]; signal?: AbortSignal }) => Promise<ChatReply>;
 export type ConverseInput = {
   request: string;
@@ -143,6 +146,11 @@ function userContent(input: ConverseInput, withImage: boolean): string | ChatPar
 /** Run the conversation for one request until the model proposes a plan,
  * answers, or replies in text. */
 export async function converse(input: ConverseInput): Promise<Reply> {
+  const dropped = { value: false };
+  const r = await conversation(input, dropped);
+  return dropped.value ? { ...r, imageDropped: true } : r;
+}
+async function conversation(input: ConverseInput, dropped: { value: boolean }): Promise<Reply> {
   const base: ChatMessage[] = [{ role: 'system', content: systemPrompt(input.catalog) }];
   for (const t of input.history.slice(-HISTORY_TURNS)) base.push({ role: t.role, content: t.text });
   let withImage = !!input.image;
@@ -154,8 +162,9 @@ export async function converse(input: ConverseInput): Promise<Reply> {
     } catch (error) {
       // A model or route that does not take images: try once more without.
       const code = (error as { code?: string })?.code;
-      if (withImage && round === 0 && code === 'bad-request') {
+      if (withImage && round === 0 && (code === 'bad-request' || code === 'upstream' || code === 'unknown')) {
         withImage = false;
+        dropped.value = true;
         messages[base.length] = { role: 'user', content: userContent(input, false) };
         round--;
         continue;

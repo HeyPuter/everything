@@ -273,7 +273,8 @@ describe('Assistant conversation (scripted model)', () => {
   it('sends the preview image and retries without it when the route refuses images', async () => {
     const err = Object.assign(new Error('images not supported'), { code: 'bad-request' });
     const { chat, seen } = scripted(err, reply([], 'ok'));
-    await converse({ ...base(), image: 'data:image/jpeg;base64,AAAA', chat });
+    const r = await converse({ ...base(), image: 'data:image/jpeg;base64,AAAA', chat });
+    expect(r.imageDropped).toBe(true);
     expect(JSON.stringify(seen[0].at(-1))).toContain('image_url');
     expect(JSON.stringify(seen[1].at(-1))).not.toContain('image_url');
   });

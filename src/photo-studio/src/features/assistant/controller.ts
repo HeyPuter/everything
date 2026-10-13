@@ -151,6 +151,11 @@ export async function ask(e: Editor, request: string) {
       progress: status,
     });
     if (abort.signal.aborted) return;
+    if (reply.imageDropped) {
+      const u = [...c.messages].reverse().find((m) => m.role === 'user');
+      if (u?.role === 'user') u.image = false;
+      c.messages.push({ id: newId(), role: 'assistant', kind: 'text', text: 'The model did not accept the image preview, so it worked from the document description only.' });
+    }
     if (reply.kind === 'plan') {
       const ids = (Array.isArray(reply.plan.steps) ? reply.plan.steps : []).map((s) => String((s as { action?: unknown })?.action ?? ''));
       await preload(ids.filter((id) => findCommand(id)).map((id) => findCommand(id)!.id));
