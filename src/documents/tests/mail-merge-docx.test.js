@@ -195,3 +195,16 @@ it.runIf(!!process.env.MAIL_MERGE_EXPORTS)('writes outputs for schema validation
   const d = model(pkg); d.select(0); insertMergeField(d, ' IF "{ MERGEFIELD City }" <> "" "{ MERGEFIELD City }" "none" ');
   await write('main-document.docx', await save(pkg, d));
 });
+
+describe('field updates beside merge rules', () => {
+  it('leaves a REF to an Ask bookmark for the merge to fill', async () => {
+    const { fieldUpdatePlan } = await import('../src/engine/field-update.js');
+    const blank = createDocx([paragraph('Due: ')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    const pkg = await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer()));
+    const d = model(pkg);
+    d.select(0); insertMergeField(d, ' ASK due "When?" \\d "Friday" ');
+    d.select(d.text.length); insertMergeField(d, ' REF due ', 'Friday');
+    insertMergeField(d, ' REF missing ', 'x');
+    expect(fieldUpdatePlan(d).map(c => c.text)).toEqual(['Error! Reference source not found.']);
+  });
+});

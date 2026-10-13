@@ -116,22 +116,22 @@ export function openInsertField(mm) {
   }
   const custom = input('', { 'aria-label': 'Or type a field name', placeholder: 'Field name' });
   fill();
-  const insert = () => {
+  const insert = async () => {
     let column = custom.value.trim() || list.value;
     if (kind.value === 'address' && !custom.value.trim()) {
       column = mm.mapping()[list.value];
       if (!column) throw new Error(`Match “${ADDRESS_FIELDS.find(f => f.id === list.value)?.label}” to a column first (Match Fields).`);
     }
     if (!column) throw new Error('Choose a field to insert.');
-    mm.insertField(mergeFieldInstruction(column, { before: before.value, after: after.value, format: format.value }));
+    await mm.insertField(mergeFieldInstruction(column, { before: before.value, after: after.value, format: format.value }));
     custom.value = '';
   };
-  list.addEventListener('dblclick', () => { try { insert(); } catch (e) { modal.error(e.message); } });
+  list.addEventListener('dblclick', () => insert().catch(e => modal.error(e.message)));
   const modal = dialog({ title: 'Insert Merge Field', size: 'wide', submit: 'Insert', cancel: 'Close', body: [
     kind, el('div.mm-two', {}, el('div', {}, list, note, field('Or type a field name', custom)),
       el('div', {}, field('Text before (only when the field has a value)', before), field('Text after (only when the field has a value)', after), field('Capitalization', format),
         button('Match Fields…', () => openMatchFields(mm, fill)))),
-  ], onSubmit: () => { insert(); return false; } });
+  ], onSubmit: async () => { await insert(); return false; } });
   return modal;
 }
 
@@ -152,7 +152,7 @@ const BOOKMARK = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
 
 export function openRule(kind, mm) {
   const simple = { mergerec: ' MERGEREC ', mergeseq: ' MERGESEQ ', next: ' NEXT ' }[kind];
-  if (simple) { mm.insertField(simple); return null; }
+  if (simple) return mm.insertField(simple);
   const columns = mm.state().list?.columns || [];
   const columnSelect = () => columns.length ? select(columns.map(c => [c, c]), columns[0], { 'aria-label': 'Field name' }) : input('', { 'aria-label': 'Field name', placeholder: 'Column name' });
   const condition = () => {
@@ -196,7 +196,7 @@ export function openRule(kind, mm) {
     build = () => [` ${kind === 'nextif' ? 'NEXTIF' : 'SKIPIF'} ${c.code()} `];
   }
   if (!columns.length && ['if', 'nextif', 'skipif'].includes(kind)) body.unshift(el('p.field-hint', {}, 'Select recipients first to choose from their columns.'));
-  return dialog({ title, size: 'wide', submit: 'Insert', body, onSubmit: () => { for (const code of build()) mm.insertField(code); } });
+  return dialog({ title, size: 'wide', submit: 'Insert', body, onSubmit: async () => { for (const code of build()) await mm.insertField(code); } });
 }
 
 /* ---- Match Fields ---- */
