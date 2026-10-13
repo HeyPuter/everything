@@ -23,7 +23,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       { label: 'Automate', id: 'file.automate', items: ['file.batch', 'file.pdf-presentation', 'file.batch-link', 'file.image-processor', '-', 'file.crop-straighten', '-', 'file.contact-sheet', '-', 'file.conditional-mode', 'file.fit-image', 'file.lens-correction-batch', 'file.merge-hdr', 'file.panorama'] },
       // Installed scripts follow the last separator (commands with menu "file.scripts").
       { label: 'Scripts', id: 'file.scripts', items: ['file.delete-empty-layers', '-', 'file.flatten-all-effects', 'file.flatten-all-masks', '-', 'file.script-events', '-', 'file.load-files-into-stack', 'file.statistics', '-', 'file.scripts-browse', 'file.scripts-browse-cloud', '-'] },
-      '-', 'file.package', '-', 'file.info', 'file.print', 'file.print-one-copy',
+      '-', 'file.invite-to-edit', 'file.share-for-review', 'file.stop-sharing', '-', 'file.package', '-', 'file.info', 'file.print', 'file.print-one-copy',
     ],
   },
   {
@@ -177,7 +177,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       'view.zoom-in', 'view.zoom-out', 'view.fit', 'view.fit-layers', 'view.fill', 'view.actual-pixels', 'view.zoom-200', 'view.print-size', '-',
       'view.flip-horizontal', 'view.reset-rotation', 'view.pattern-preview', '-',
       { label: 'Screen Mode', id: 'view.screen-mode', items: ['view.screen-standard', 'view.screen-full-menus', 'view.screen-full'] },
-      '-', 'view.extras', { label: 'Show', id: 'view.show', items: ['view.show-layer-edges', 'view.show-selection-edges', 'view.show-target-path', 'view.show-grid', 'view.show-guides', 'view.show-alignment-guides', 'view.show-pixel-grid', 'view.show-slices', 'view.show-count', 'view.show-notes', 'view.show-samplers', 'view.show-brush-preview', '-', 'view.show-all', 'view.show-none', '-', 'view.show-extras-options'] },
+      '-', 'view.extras', { label: 'Show', id: 'view.show', items: ['view.show-layer-edges', 'view.show-selection-edges', 'view.show-target-path', 'view.show-grid', 'view.show-guides', 'view.show-alignment-guides', 'view.show-pixel-grid', 'view.show-slices', 'view.show-count', 'view.show-notes', 'view.show-comments', 'view.show-samplers', 'view.show-brush-preview', '-', 'view.show-all', 'view.show-none', '-', 'view.show-extras-options'] },
       '-', 'view.rulers', '-', 'view.snap', { label: 'Snap To', id: 'view.snap-to', items: ['view.snap-guides', 'view.snap-grid', 'view.snap-layers', 'view.snap-document', '-', 'view.snap-all', 'view.snap-none'] },
       '-', { label: 'Guides', id: 'view.guides', items: ['view.guides-edit-selected', 'view.guides-lock', '-', 'view.guides-clear', 'view.guides-clear-selected', 'view.guides-clear-canvas', '-', 'view.guides-new', 'view.guides-layout', 'view.guides-from-shape'] }, '-',
       'view.lock-slices', 'view.clear-slices',

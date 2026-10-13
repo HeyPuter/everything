@@ -19,6 +19,8 @@ export class DocumentSession {
   collapsedGroups = new Set<string>();
   selectionAnchor = '';
   selections = new WeakMap<PhotoDocument, string[]>();
+  // Changes kept outside history (review comments) since the last save.
+  unsavedExtras = false;
   // A transparent, zero-layer document is still an open editing workspace.
   hasDocument = false;
   saved?: PhotoDocument;
@@ -40,7 +42,7 @@ export class DocumentSession {
     return this.history.document;
   }
   get dirty() {
-    return this.hasDocument && this.doc !== this.saved;
+    return this.hasDocument && (this.doc !== this.saved || this.unsavedExtras);
   }
   /** Free tiles no reachable history state refers to. */
   collectTiles(extra: Iterable<string> = []) {

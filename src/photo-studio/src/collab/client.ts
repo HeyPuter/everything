@@ -226,7 +226,16 @@ export class RoomClient {
     if (!events || !this.o.puter.events?.onLocal || this.closed) return;
     const subject = events.handle ? `kv:${events.handle}:${events.key}` : `kv:${events.app}:${events.key}`;
     try {
-      this.subscription = await this.o.puter.events.onLocal(subject, () => this.scheduleSync(150), { includeValue: false });
+      // A notice carries no data: it prompts a synchronization (and, as
+      // people joining also signal, a check-in for the roster).
+      this.subscription = await this.o.puter.events.onLocal(
+        subject,
+        () => {
+          this.scheduleSync(150);
+          this.soonCheckIn();
+        },
+        { includeValue: false },
+      );
       if (this.closed) this.subscription.off();
     } catch {
       /* Polling and peer notices still deliver changes. */
@@ -450,6 +459,16 @@ export class RoomClient {
 
   // ----- People -----
 
+  private checkInTimer?: ReturnType<typeof setTimeout>;
+  private lastCheckIn = 0;
+  /** Check in shortly (at most every two seconds). */
+  soonCheckIn() {
+    if (this.closed || this.checkInTimer || !this.peers) return;
+    this.checkInTimer = setTimeout(() => {
+      this.checkInTimer = undefined;
+      void this.checkIn().catch(() => {});
+    }, Math.max(100, 2000 - (Date.now() - this.lastCheckIn)));
+  }
   private checkingIn?: Promise<void>;
   /** Renew this session's peer ticket and learn who is here. */
   async checkIn() {
@@ -465,12 +484,14 @@ export class RoomClient {
         room: this.o.room,
         receive: (kind, data, ticket) => this.receive(kind, data, ticket),
         changed: () => void this.checkIn().catch(() => {}),
+        stranger: () => this.soonCheckIn(),
         linked: () => {
           this.o.onPeople?.();
           if (this.lastPresence) this.sendPresence(true);
         },
       });
       await this.peers.serve().catch(() => {});
+      this.lastCheckIn = Date.now();
       const res = await this.request<{ ticket: Ticket; signature: string; roster: Ticket[]; role: Role }>({ op: 'presence', session: this.session, publicKey: this.keys.publicKey, invite: this.peers.invite });
       if (this.closed) return;
       this.roster = res.roster;
@@ -570,6 +591,7 @@ export class RoomClient {
     clearTimeout(this.syncTimer);
     clearTimeout(this.retryTimer);
     clearTimeout(this.presenceTimer);
+    clearTimeout(this.checkInTimer);
     this.subscription?.off();
     this.peers?.close();
     this.status = { state: 'closed', pending: this.status.pending };

@@ -96,7 +96,7 @@ describe('registered shortcuts', () => {
   it('gives every toolbar slot its conventional tool key', () => {
     const expected: Record<string, string[]> = {
       V: ['move', 'artboard'], M: ['rect-marquee', 'ellipse-marquee'], L: ['lasso', 'polygonal-lasso', 'magnetic-lasso'], W: ['object-selection', 'quick-selection', 'magic-wand'],
-      C: ['crop', 'perspective-crop', 'slice', 'slice-select'], K: ['frame'], I: ['eyedropper', 'color-sampler', 'ruler', 'count', 'note'],
+      C: ['crop', 'perspective-crop', 'slice', 'slice-select'], K: ['frame'], I: ['eyedropper', 'color-sampler', 'ruler', 'count', 'note', 'comment'],
       J: ['spot-healing', 'healing-brush', 'patch', 'context-move', 'remove-tool', 'red-eye'], B: ['brush', 'pencil', 'color-replacement', 'mixer-brush'],
       S: ['clone-stamp', 'pattern-stamp'], Y: ['history-brush', 'art-history'], E: ['eraser', 'background-eraser', 'magic-eraser'], G: ['gradient', 'bucket'],
       O: ['dodge', 'burn', 'sponge'], P: ['pen', 'freeform-pen', 'curvature-pen'], T: ['type', 'type-vertical', 'type-mask', 'type-mask-vertical'],

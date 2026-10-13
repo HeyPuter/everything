@@ -73,6 +73,8 @@ export class PeerNetwork {
       changed?: () => void;
       // Links came or went.
       linked?: () => void;
+      // A verified member not in our roster tried to link.
+      stranger?: () => void;
       now?: () => number;
     },
   ) {
@@ -229,10 +231,16 @@ export class PeerNetwork {
             packet.challenge !== challenge ||
             !(await this.validTicket(packet)) ||
             !(await verify(packet.ticket.publicKey, { challenge, session: packet.ticket.session, local: remote, remote: local }, packet.proof)) ||
-            (expected && packet.ticket.session !== expected) ||
-            !this.wanted.has(packet.ticket.session)
+            (expected && packet.ticket.session !== expected)
           ) {
             conn.close();
+            return;
+          }
+          if (!this.wanted.has(packet.ticket.session)) {
+            // A member who joined after our last check-in: refuse for now and
+            // learn the roster, so the link forms when they dial again.
+            conn.close();
+            this.o.stranger?.();
             return;
           }
           if (ended || this.closed) return;

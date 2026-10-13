@@ -25,7 +25,7 @@ const storageKey = 'photo-studio-dock';
 // user drags them elsewhere) and each section is a labelled group.
 const stripSections: [string, string[]][] = [
   ['History', ['history', 'actions', 'versions']],
-  ['Inspect', ['navigator', 'info', 'histogram', 'measurement-log', 'notes']],
+  ['Inspect', ['navigator', 'info', 'histogram', 'measurement-log', 'notes', 'comments']],
   ['Painting', ['brushes', 'brush-settings', 'tool-presets', 'clone-source']],
   ['Type', ['character', 'paragraph', 'glyphs', 'character-styles', 'paragraph-styles']],
   ['Layers', ['styles', 'shapes', 'layer-comps']],
