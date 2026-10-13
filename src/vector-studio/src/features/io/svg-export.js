@@ -201,7 +201,7 @@ class SVGWriter {
     if (css) out += ` style="${css}"`;
     const fx = this.filterDef(node, filterUnits);
     if (fx) out += ` filter="url(#${fx})"`;
-    for (const hook of svgExportHooks.attrs) out += hook(node) || '';
+    for (const hook of svgExportHooks.attrs) out += hook(node, this) || '';
     return out;
   }
 
