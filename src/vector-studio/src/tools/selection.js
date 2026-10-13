@@ -77,6 +77,29 @@ export class SelectionTool extends Tool {
     return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline', filter });
   }
 
+  /**
+   * The object below the selected one under the pointer (cycling back to the
+   * top), as a hit; null when nothing is stacked there.
+   */
+  behindAt(e) {
+    const editor = this.editor;
+    const iso = editor.isolation;
+    const filter = iso ? (n) => editor.doc.isAncestor(iso, n.id) : null;
+    const skip = new Set();
+    const stack = [];
+    for (let i = 0; i < 64; i++) {
+      const h = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline', filter, skip });
+      if (!h) break;
+      const t = editor.selectionTarget(h.id);
+      // Skipping the target passes over everything in it (a whole group counts once).
+      skip.add(h.id).add(t.id);
+      if (!stack.some((x) => x.target === t.id)) stack.push({ hit: h, target: t.id });
+    }
+    if (stack.length < 2) return null;
+    const at = stack.findIndex((x) => editor.selection.has(x.target));
+    return stack[(at + 1) % stack.length].hit;
+  }
+
   /** Resize cursor for a handle, following the box's angle on screen. */
   resizeCursor(part) {
     return resizeCursorFor(this.editor, this.editor.selectionFrame(), part);
@@ -139,7 +162,9 @@ export class SelectionTool extends Tool {
       else this.startScale(e, b, part);
       return;
     }
-    const hit = this.hitAt(e);
+    let hit = this.hitAt(e);
+    // Command-click selects the next object behind the selected one under the pointer.
+    if (hit && e.mod && !e.alt && this.app.prefs.get('selectBehind') !== false) hit = this.behindAt(e) || hit;
     if (hit) {
       const target = editor.selectionTarget(hit.id);
       if (e.shift) {

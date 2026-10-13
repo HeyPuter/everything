@@ -241,3 +241,24 @@ describe('Pen auto add and delete', () => {
     expect(app.editor.doc.get(id).anchors).toHaveLength(5);
   });
 });
+
+describe('select behind', () => {
+  it('Command-click cycles down through stacked objects', () => {
+    const a = addRect(100, 100, 100, 100);
+    const b = addRect(120, 120, 100, 100);
+    const c = addRect(140, 140, 100, 100);
+    app.setTool('selection');
+    const t = app.tool;
+    const click = (mods) => {
+      t.onPointerDown(ev(app, 170, 170, mods));
+      t.onPointerUp(ev(app, 170, 170, mods));
+      return [...app.editor.selection];
+    };
+    expect(click()).toEqual([c]);
+    expect(click({ mod: true })).toEqual([b]);
+    expect(click({ mod: true })).toEqual([a]);
+    expect(click({ mod: true })).toEqual([c]);
+    app.prefs.set('selectBehind', false);
+    expect(click({ mod: true })).toEqual([c]);
+  });
+});
