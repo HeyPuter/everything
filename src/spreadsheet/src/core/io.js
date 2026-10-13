@@ -80,6 +80,7 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
+import { readXlsxBackground } from './xlsx-background.js';
 import { serializeQueries } from './queries.js';
 
 export const META_SHEET = '_puter_meta';
@@ -2327,6 +2328,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       if (!meta?.sheets?.[n]) {
         if (chartSheet) sheet.gridlines = false;
       }
+      if (!chartSheet && partOf(n)) sheet.background = readXlsxBackground(book, n, partOf(n));
       return { ...sheet, hidden: hidden.has(n) || isVeryHidden || visibility === 'hidden', veryHidden: isVeryHidden };
     });
   const pivotRulePriorities = new Map();

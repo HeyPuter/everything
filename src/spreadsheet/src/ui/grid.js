@@ -1746,6 +1746,38 @@ export function createGrid(opts) {
     try { if (wb.ensureSize(sheetId, rows, cols)) rebuildOffsets(); } finally { growingByScroll = false; }
   }
 
+  /**
+   * The sheet's background picture (Page Layout ▸ Background), tiled from A1 behind the cells at its own
+   * size times the zoom; a cell's fill covers it. The frozen panes' tracks share the canvas coordinates,
+   * so they tile it the same way. The picture's size is read once it has loaded.
+   */
+  const backgroundSizes = new Map();
+  let backgroundShown = null;
+  function paintBackground(s) {
+    const bg = s.kind === 'chart' ? null : s.background || null;
+    let size = bg && backgroundSizes.get(bg.src);
+    if (bg && !size) {
+      if (backgroundSizes.size > 8) backgroundSizes.clear();
+      backgroundSizes.set(bg.src, size = { w: 0, h: 0 });
+      const img = new Image();
+      img.onload = () => { size.w = img.naturalWidth; size.h = img.naturalHeight; backgroundShown = null; schedule(); };
+      img.src = bg.src;
+    }
+    const on = !!bg && size.w > 0 && size.h > 0;
+    const tracks = [frzRows.track, frzCols.track, frzCorner.track];
+    if (on) for (const track of tracks) { track.style.width = canvas.style.width; track.style.height = canvas.style.height; }
+    if (backgroundShown && backgroundShown.bg === bg && backgroundShown.zoom === zoom && on) return;
+    if (!on && !backgroundShown) return;
+    backgroundShown = on ? { bg, zoom } : null;
+    for (const node of [canvas, ...tracks]) {
+      node.style.backgroundImage = on ? `url("${bg.src}")` : '';
+      node.style.backgroundSize = on ? `${size.w * zoom}px ${size.h * zoom}px` : '';
+      node.style.backgroundRepeat = on ? 'repeat' : '';
+      if (!on && node !== canvas) { node.style.width = ''; node.style.height = ''; }
+    }
+    root.classList.toggle('has-background', on);
+  }
+
   let shownChart = null;
   function render() {
     if (destroyed) return;
@@ -1757,6 +1789,7 @@ export function createGrid(opts) {
     const defaultBg = wb.nativeDefaultCellFormat?.style.bg;
     root.style.setProperty('--cell-default-bg', fillColorCss(defaultBg) || 'var(--surface)');
     for (const layer of [viewport, frzRows.el, frzCols.el, frzCorner.el]) layer.style.backgroundColor = chartSheet ? '' : fillColorCss(defaultBg);
+    paintBackground(s);
     root.classList.toggle('chart-sheet', chartSheet);
     if (chartSheet) {
       chartView = chartSheetLayout(s, viewport.clientWidth, viewport.clientHeight, zoom);

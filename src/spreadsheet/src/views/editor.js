@@ -3280,6 +3280,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertImage': if (!committed()) return; replaceImageId = null; imageInput.click(); return;
+      case 'sheetBackground': {
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        if (arg === 'delete') {
+          if (wb.setSheetBackground(sheetId, null)) statusBar?.announce('Sheet background deleted');
+          else toast('This sheet has no background', { icon: 'info' });
+          keepFocus();
+          return;
+        }
+        if (refusedByProtection('change the background')) return;
+        backgroundSheet = sheetId;
+        backgroundInput.click();
+        return;
+      }
       case 'replaceImage': replaceImageId = arg || grid.selectedChart || null; if (replaceImageId) imageInput.click(); return;
       case 'insertImagePuter': {
         if (!P.canPickFiles() || !committed()) return;
@@ -4889,6 +4904,38 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (f) await insertImageFile(f, { replaceId });
     },
   });
+  // Page Layout ▸ Background: a picture tiled behind the cells of the sheet in view.
+  let backgroundSheet = null;
+  const backgroundInput = el('input', {
+    type: 'file', accept: 'image/png,image/jpeg,image/gif,image/bmp,image/webp,image/svg+xml', hidden: true, 'aria-hidden': 'true', tabindex: -1,
+    onchange: async () => {
+      const f = backgroundInput.files?.[0], sheetId = backgroundSheet;
+      backgroundInput.value = '';
+      backgroundSheet = null;
+      if (!f || destroyed || !wb.sheet(sheetId)) return;
+      try {
+        let { src, width, height } = await readImageFile(f);
+        // The file keeps a background as a PNG, JPEG, GIF or BMP picture: others are drawn into a PNG.
+        if (!/^data:image\/(png|jpeg|gif|bmp);/i.test(src)) {
+          const img = await new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = src; });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(width)); canvas.height = Math.max(1, Math.round(height));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          src = canvas.toDataURL('image/png');
+        }
+        if (destroyed) return;
+        if (wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it before changing its background', { icon: 'lock', duration: 3500 }); return; }
+        if (wb.setSheetBackground(sheetId, src)) {
+          toast('Background set. It shows behind the cells on screen and is not printed', { icon: 'image', duration: 3000 });
+          statusBar?.announce('Sheet background set');
+        } else toast('That picture is too large for a background', { icon: 'info', duration: 3000 });
+      } catch (e) {
+        if (destroyed) return;
+        toast(e?.code === 'too-large' ? `${f.name} is too large (over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB)` : 'Could not read that image', { icon: 'alert', duration: 3500 });
+      }
+      keepFocus();
+    },
+  });
   /** Put an image file on the sheet at the active cell, or into the image being replaced. */
   async function insertImageFile(f, { sheetId = grid.sheetId, anchor = { ...grid.active }, replaceId = null } = {}) {
     if (destroyed) return;
@@ -5140,6 +5187,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     fileInput,
     sheetsInput,
     imageInput,
+    backgroundInput,
     header,
     // The sheet's column, and the assistant beside it from under the title row down (a thin strip when collapsed).
     el('div.editor-body', {},

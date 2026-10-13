@@ -19,6 +19,7 @@ import { tableStyleParts, parseTableSpec } from './tables.js';
 import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
+import { writeXlsxBackground } from './xlsx-background.js';
 import { richValueWriter } from './xlsx-rich-values.js';
 import { scenariosXml } from './scenarios.js';
 import { parseKey } from './cell.js';
@@ -315,6 +316,13 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       ({ xml, rels } = exportXlsxScrollControls(wb, sheet, i + 1, xml, rels, { get, set, contentType }));
       set(relPath, rels);
       if (parts.length) xml = xml.replace('</worksheet>', xmlTag('tableParts', { count: parts.length }, parts.join('')) + '</worksheet>');
+    }
+    if (sheet.background) {
+      // Page Layout ▸ Background: the tiled picture, kept as the worksheet's <picture>.
+      const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
+      let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+      ({ xml, rels } = writeXlsxBackground(xml, rels, sheet.background, i + 1, { binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType }));
+      set(relPath, rels);
     }
     const imageValues = new Map();
     for (const [key, cell] of sheet.cells) {

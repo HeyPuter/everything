@@ -73,6 +73,7 @@ import { transferNativePivots } from './native-pivot-transfer.js';
 import { prepareDataModelImport } from './data-model-import.js';
 import { nativePivotSheetCopy } from './native-pivot-sheet-copy.js';
 import { normalizePrintSettings, mapPrintAreas } from './print-settings.js';
+import { normalizeBackground } from './sheet-background.js';
 import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText } from './formula/functions.js';
@@ -590,7 +591,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, showPageBreaks, freshIds = false }) {
+function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, showPageBreaks, background, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -636,6 +637,7 @@ function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeigh
     ...(Number.isFinite(viewZoom) && viewZoom >= .1 && viewZoom <= 4 ? { viewZoom } : {}),
     ...(kind !== 'chart' && SHEET_VIEW_MODES.includes(viewMode) && viewMode !== 'normal' ? { viewMode } : {}),
     ...(kind !== 'chart' && showPageBreaks === true ? { showPageBreaks: true } : {}),
+    ...(kind !== 'chart' && normalizeBackground(background) ? { background: normalizeBackground(background) } : {}),
     printSettings: normalizePrintSettings(printSettings),
     filter: normalizeFilter(filter),
     otherFilters: arrayOrEmpty(otherFilters).map(normalizeFilter).filter(Boolean),
@@ -807,6 +809,7 @@ function sheetShapeJSON(s) {
     ...(s.viewZoom != null ? { viewZoom: s.viewZoom } : {}),
     ...(s.viewMode ? { viewMode: s.viewMode } : {}),
     ...(s.showPageBreaks ? { showPageBreaks: true } : {}),
+    ...(s.background ? { background: { ...s.background } } : {}),
     ...(s.viewSelection ? { viewSelection: normalizeSheetSelection(s.viewSelection) } : {}),
     ...(s.viewOrigin ? { viewOrigin: normalizeSheetOrigin(s.viewOrigin) } : {}),
     ...(s.frozenOrigin ? { frozenOrigin: normalizeSheetOrigin(s.frozenOrigin) } : {}),
@@ -6946,6 +6949,28 @@ export class Workbook extends EventTarget {
     if ((sheet.viewMode || 'normal') === mode) return;
     if (mode === 'normal') delete sheet.viewMode; else sheet.viewMode = mode;
     this._changed('view', sheetId);
+  }
+
+  /**
+   * Page Layout ▸ Background: a picture tiled behind the sheet's cells on screen (never printed), or null to
+   * delete it. One undo step.
+   */
+  setSheetBackground(sheetId, src) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart' || this._locked(sheet)) return false;
+    const next = src == null ? null : normalizeBackground(src);
+    if (src != null && !next) return false;
+    const prev = sheet.background || null;
+    if ((prev?.src || null) === (next?.src || null)) return false;
+    const apply = (value) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      if (value) live.background = { ...value }; else delete live.background;
+      this._changed('layout', sheetId);
+    };
+    apply(next);
+    this._push({ label: next ? 'Background' : 'Delete background', undo: () => apply(prev), redo: () => apply(next) });
+    return true;
   }
 
   /** Normal view's page-break lines (View ▸ Page Breaks): a view setting saved with the sheet, not an undo step. */
