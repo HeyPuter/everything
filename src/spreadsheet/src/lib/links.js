@@ -8,8 +8,9 @@
 
 import { quoteSheet } from '../core/refs.js';
 import { rangeName } from '../core/cell.js';
+import { parseLiveHash } from '../collab/protocol.js';
 
-/** The route a location hash names: { route: 'home' | 'new' | 'sample' | 'template' | 'edit' | 'file', path?, id?, range? }. */
+/** The route a location hash names: { route: 'home' | 'new' | 'sample' | 'template' | 'edit' | 'file' | 'live', path?, id?, range?, server?, room?, token? }. */
 export function parseAppHash(hash) {
   const h = String(hash || '').replace(/^#\/?/, '');
   const q = h.indexOf('?');
@@ -26,6 +27,11 @@ export function parseAppHash(hash) {
     }
     if (base === 'sample') return { route: 'sample' };
     if (base.startsWith('template/')) return { route: 'template', id: decodeURIComponent(base.slice(9)) };
+    // A shared workbook: #/live/<room>?server=…&invite=… (see collab/protocol.js).
+    if (base.startsWith('live/')) {
+      const live = parseLiveHash(h.startsWith('#') ? h : `#/${h}`);
+      if (live) return { route: 'live', ...live };
+    }
     if (base.startsWith('file/')) {
       const id = decodeURIComponent(base.slice(5));
       if (id) return { route: 'file', id };

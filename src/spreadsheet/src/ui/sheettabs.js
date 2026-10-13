@@ -190,6 +190,22 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   observer?.observe(list);
   observer?.observe(strip);
 
+  // In a shared workbook, a dot in each person's colour on the tab of the sheet they are on.
+  let peers = new Map(); // sheetId → [{ name, color }]
+  function peerMarks(sheetId) {
+    const here = peers.get(sheetId);
+    if (!here?.length) return null;
+    const names = here.map((p) => p.name).join(', ');
+    return el('span.tab-peers', { role: 'img', 'aria-label': `Here: ${names}`, title: `Here: ${names}` },
+      ...here.slice(0, 3).map((p) => el('span.tab-peer', { style: { '--peer': p.color } })),
+      here.length > 3 && el('span.tab-peer-more', {}, `+${here.length - 3}`));
+  }
+  function setPeers(next) {
+    const before = JSON.stringify([...peers]);
+    peers = next instanceof Map ? next : new Map();
+    if (JSON.stringify([...peers]) !== before) refresh();
+  }
+
   function refresh() {
     const active = ctx.wb.activeSheetId;
     allBtn.setAttribute('aria-haspopup', ctx.wb.sheets.length >= 8 ? 'dialog' : 'menu');
@@ -229,7 +245,8 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
       },
         s.protected && el('span.tab-lock', { role: 'img', html: icon('lock', 12, 2.2), 'aria-label': 'Protected', title: 'Protected sheet' }),
         // A name in a right-to-left script is laid out that way, its number and full stop at its own end, as a cell is.
-        el('span.tab-name', { dir: 'auto' }, s.name));
+        el('span.tab-name', { dir: 'auto' }, s.name),
+        peerMarks(s.id));
       if (!isActive) return tab;
       // The active tab's chip: the surface fill and accent line, with room at its end for the options button.
       return el('div.tab-item', {
@@ -316,5 +333,5 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   ctx.wb.addEventListener('change', onChange);
   refresh();
   // The editor's Sheet commands (menu bar, palette) ask and pick through the same dialogs and swatches as the tab menu.
-  return { el: root, refresh, rename, confirmDelete, colorMenu, destroy: () => { observer?.disconnect(); ctx.wb.removeEventListener('change', onChange); } };
+  return { el: root, refresh, rename, confirmDelete, colorMenu, setPeers, destroy: () => { observer?.disconnect(); ctx.wb.removeEventListener('change', onChange); } };
 }
