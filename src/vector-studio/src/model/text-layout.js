@@ -1243,10 +1243,21 @@ function wrapSlots(slots, w, y0, y1) {
   return out;
 }
 
-/** Whether an area frame sizes its height to its text (one row and column, a box, horizontal, not threaded). */
+/**
+ * Whether an area frame sizes its height to its text: a horizontal box,
+ * alone or the last frame of a threaded story; a frame of several rows or
+ * columns only when it is not threaded.
+ */
 export function autoSized(node) {
   const o = node.areaOptions;
-  return Boolean(o?.autoSize) && node.kind === 'area' && !node.vertical && !(node.areaPath && node.areaPath.length > 2) && !(node.threadNext || node.threadPrev) && (o.rows || 1) <= 1 && (o.columns || 1) <= 1;
+  if (!o?.autoSize || node.kind !== 'area' || node.vertical || (node.areaPath && node.areaPath.length > 2) || node.threadNext) return false;
+  return !(node.threadPrev && ((o.rows || 1) > 1 || (o.columns || 1) > 1));
+}
+
+/** An auto-sized frame of one cell lays out without a bottom (a grid keeps its height: see autoHeight in the type feature). */
+export function autoGrows(node) {
+  const o = node.areaOptions;
+  return autoSized(node) && (o.rows || 1) <= 1 && (o.columns || 1) <= 1;
 }
 
 /** Area frame cells: rows and columns of the box, or the container shape. */
@@ -1261,7 +1272,7 @@ function areaCells(node, vertical) {
   // Flow space for vertical type: u down the column, v from the right edge leftward.
   const W = vertical ? node.height : node.width;
   // Auto-sized frames grow with their text: lay out without a bottom.
-  const H = vertical ? node.width : autoSized(node) ? 1e7 : node.height;
+  const H = vertical ? node.width : autoGrows(node) ? 1e7 : node.height;
   const X = vertical ? 0 : node.x;
   const Y = vertical ? 0 : node.y;
   const rows = Math.max(1, Math.round(o.rows || 1));
@@ -1324,6 +1335,46 @@ function firstOffset(node, m) {
  * Lines carry `frame` (index) and `cell`.
  */
 function flowArea(node, text, ch, vertical, frames = [node], wraps = null, markers = null) {
+  const first = flowAreaPass(node, text, ch, vertical, frames, wraps, markers, null);
+  if (vertical) return first;
+  // Cells with text wrap align vertically by flowing again lower down (lines change width as they move past the obstacles).
+  const wrapped = first.cells.map((c, ci) => ({ c, ci })).filter(({ c }) => c.wraps && !c.poly && !autoSized(c.node) && (c.node.areaOptions?.verticalAlign === 'center' || c.node.areaOptions?.verticalAlign === 'bottom'));
+  if (!wrapped.length) return first;
+  const endOf = (r, ci) => {
+    const ls = r.lines.filter((l) => l.cell === ci);
+    return ls.length ? ls[ls.length - 1].end : -1;
+  };
+  const slackOf = (r, ci) => {
+    const c = r.cells[ci];
+    const ls = r.lines.filter((l) => l.cell === ci);
+    if (!ls.length) return 0;
+    const last = ls[ls.length - 1];
+    return c.y + c.h - c.inset - (last.y + last.desc);
+  };
+  const ends = new Map(wrapped.map(({ ci }) => [ci, endOf(first, ci)]));
+  const shifts = new Array(first.cells.length).fill(0);
+  let best = first;
+  for (const { c, ci } of wrapped) {
+    // Bottom: move down by the space left below. Center: until the space above equals the space below.
+    const center = c.node.areaOptions.verticalAlign === 'center';
+    const want = (r) => (center ? (slackOf(r, ci) - shifts[ci]) / 2 : slackOf(r, ci));
+    let step = want(best);
+    for (let k = 0; k < 10 && step > 0.25; k++) {
+      const trial = shifts.slice();
+      trial[ci] += step;
+      const r = flowAreaPass(node, text, ch, vertical, frames, wraps, markers, trial);
+      const ok = r.visibleEnd === first.visibleEnd && endOf(r, ci) === ends.get(ci) && slackOf(r, ci) >= -0.01;
+      if (ok) {
+        shifts[ci] = trial[ci];
+        best = r;
+        step = Math.min(step, want(r));
+      } else step /= 2;
+    }
+  }
+  return best;
+}
+
+function flowAreaPass(node, text, ch, vertical, frames, wraps, markers, shifts) {
   const cells = [];
   frames.forEach((f, fi) => {
     const ac = areaCells(f, vertical);
@@ -1358,7 +1409,7 @@ function flowArea(node, text, ch, vertical, frames = [node], wraps = null, marke
       }
       const cell = cells[ci];
       const inset = cell.inset;
-      const top = cell.y + inset;
+      const top = cell.y + inset + (shifts?.[ci] || 0);
       const bottom = cell.y + cell.h - inset;
       const cellLeft = cell.x + inset;
       let m = lineMetrics(text, ch, pos, Math.min(pr.end, pos + 1)) || empty;
