@@ -7244,7 +7244,7 @@ test("PNG export contains actual raster bytes and board rendering uses Canvas", 
     }
     assert.deepEqual(app.names.slice(1), [
       "नमस्ते दुनिया.png",
-      "Réunion déquipe.png",
+      "Réunion d’équipe.png",
     ]);
   } finally {
     await app.close();

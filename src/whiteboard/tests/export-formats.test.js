@@ -2274,3 +2274,20 @@ test("SVG and vector PDF draw a shape's set border inside its outline, as the bo
   for (const dash of ["[16 12] 0 d", "[0.1 15] 0 d", "[8 6] 0 d", "[12 9] 0 d"])
     assert.ok(content.includes(dash), dash);
 });
+
+test("download names keep a title's dots and words and never split a character", async () => {
+  const { fileName } = await import("../src/file-name.js");
+  assert.equal(
+    fileName('Q3 Plan v1.2 / Café & "Co" <test>', "Whiteboard"),
+    "Q3 Plan v1.2 Café & Co test",
+  );
+  assert.equal(fileName("版本 1.0 — 計画", "Whiteboard"), "版本 1.0 計画");
+  assert.equal(fileName("...hidden.", "Whiteboard"), "hidden");
+  assert.equal(fileName("Réunion d’équipe", "Whiteboard"), "Réunion d’équipe");
+  assert.equal(fileName("???", "Whiteboard"), "Whiteboard");
+  assert.equal(fileName("", "Frame"), "Frame");
+  const long = fileName("a" + "\u{20000}".repeat(120), "Whiteboard");
+  assert.equal(Array.from(long).length, 100);
+  assert.ok(!long.includes("\ufffd") && long.isWellFormed());
+  assert.equal(fileName("a\u0000b\tc:d*e|f", "x"), "a b c d e f");
+});

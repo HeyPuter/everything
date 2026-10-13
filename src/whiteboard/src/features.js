@@ -1,5 +1,6 @@
 import { openClusters } from "./clusters-ui.js";
 import { busy } from "./accessibility/busy.js";
+import { fileName } from "./file-name.js";
 import { createTextEditor } from "./text-editor.js";
 import { equalTextRuns, textDifference } from "./rich-text.js";
 import { spliceTextBlocks } from "./text-blocks.js";
@@ -172,14 +173,6 @@ function taskSheets(snapshot, regions) {
   const rows = collectTasks(snapshot).filter((r) => ids.has(r.id));
   return rows.length ? [taskSheet(rows)] : [];
 }
-// A file name from a title, keeping letters, numbers, spaces, dashes and
-// underscores; a title of only symbols takes the fallback instead.
-const fileName = (title, fallback) =>
-  (title || "")
-    .normalize("NFC")
-    .replace(/[^\p{L}\p{M}\p{N} _-]/gu, "")
-    .trim()
-    .slice(0, 100) || fallback;
 const EXPORT_TYPES = {
   pdf: "application/pdf",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
