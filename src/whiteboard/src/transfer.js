@@ -164,7 +164,11 @@ export function textObject(text, point, ctx) {
   if (!text.trim()) return null;
   if (text.length > 20000)
     throw Error("Paste up to 20,000 characters at a time.");
-  const url = safeURL(text.trim());
+  // An address starting www. is a web link without its scheme.
+  const url =
+    safeURL(text.trim()) ||
+    (/^www\.[\w-]+(\.[\w-]+)+([/?#]\S*)?$/i.test(text.trim()) &&
+      safeURL(`https://${text.trim()}`));
   if (url && !/\s/.test(text.trim()))
     return keepOnBoard([
       item("link", point.x, point.y, {

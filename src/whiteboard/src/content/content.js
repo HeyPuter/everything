@@ -988,8 +988,13 @@ export function createContentTools(api) {
     },
     // Returns true when a pasted or dropped link was handled here.
     receiveText(text, point, target) {
-      const value = text.trim();
+      let value = text.trim();
       if (!value || /\s/.test(value)) return false;
+      // A known service's link copied without its scheme, or over plain
+      // HTTP, is still that service's: they all serve HTTPS.
+      if (/^http:\/\//i.test(value)) value = `https://${value.slice(7)}`;
+      else if (/^[\w-]+(\.[\w-]+)+(?=[/?#]|$)/.test(value))
+        value = `https://${value}`;
       const result = normalizeEmbed(value, { generic: false });
       if (
         !result ||

@@ -2253,6 +2253,48 @@ test("built app: embeds, link cards, and imports added from a menu go beside the
   }
 });
 
+test("built app: links pasted without their scheme or over plain HTTP are still links", async () => {
+  const { w, doc, click, tick, until, transfer, outline } = await app();
+  try {
+    await click('[data-action="new"]');
+    await until(() => doc.querySelector("#canvas"), "Board opened");
+    await tick();
+    for (const text of [
+      "youtube.com/watch?v=dQw4w9WgXcQ",
+      "http://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ]) {
+      transfer("paste", { "text/plain": text });
+      await tick();
+      const choice = doc.querySelector("dialog[open]");
+      assert.equal(choice?.getAttribute("aria-label"), "Add link", text);
+      choice.querySelector('[data-choice="link"]').click();
+      await tick();
+    }
+    // A www. address is a link card; a file name or version stays text.
+    for (const text of ["www.example.com/path?q=1", "notes.txt", "v1.2"]) {
+      transfer("paste", { "text/plain": text });
+      await tick();
+      assert.ok(!doc.querySelector("dialog[open]"), text);
+    }
+    await until(() => outline().length === 5, "Everything pasted");
+    const labels = outline();
+    assert.equal(labels.filter((l) => /youtube\.com/.test(l)).length, 2);
+    assert.ok(
+      labels.some((l) => /example\.com/.test(l)),
+      labels.join(" | "),
+    );
+    assert.ok(labels.some((l) => /notes\.txt/.test(l)));
+    assert.ok(labels.some((l) => /v1\.2/.test(l)));
+    assert.equal(
+      labels.filter((l) => /^Link/.test(l)).length,
+      3,
+      labels.join(" | "),
+    );
+  } finally {
+    w.close();
+  }
+});
+
 test("built app: embeds, paste choice, live overlay, and document import are accessible", async () => {
   const { w, doc, click, tick, until, transfer, choose, audit, outline } =
     await app();
