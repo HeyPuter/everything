@@ -2776,3 +2776,56 @@ test("long slide picture descriptions end at a word and say they go on", async (
   assert.match(descr, /(😀|Note|\d+)…$/);
   assert.doesNotMatch(descr, /Not…$|No…$/);
 });
+
+test("PDF text in any script can be found, copied and read aloud", async () => {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const b = board("Scripts");
+  const frame = item("frame", 0, 0, {
+    w: 900,
+    h: 600,
+    text: "日本語のフレーム",
+  });
+  b.items = [
+    frame,
+    item("note", 60, 80, {
+      text: "Привет мир и ελληνικά, café 👩‍💻",
+      parentId: frame.id,
+    }),
+    item("note", 360, 80, { text: "Plain note", parentId: frame.id }),
+    // More different characters than one of the text fonts holds.
+    item("text", 0, 700, {
+      w: 2000,
+      text: Array.from({ length: 300 }, (_, n) =>
+        String.fromCodePoint(0x4e00 + n),
+      ).join(""),
+    }),
+  ];
+  for (const mode of ["raster", "vector"]) {
+    const doc = await pdfjs.getDocument({
+      data: await blobBytes(
+        await exportPDF(b, exportRegions(b), "en", rasterizer, {
+          mode,
+          scale: "fit",
+          measure,
+        }),
+      ),
+      disableFontFace: true,
+      verbosity: 0,
+    }).promise;
+    const text = (await (await doc.getPage(1)).getTextContent()).items
+      .map((t) => t.str)
+      .join("");
+    for (const part of [
+      "日本語のフレーム",
+      "Привет",
+      "ελληνικά",
+      "café",
+      "👩‍💻",
+      "Plain note",
+      String.fromCodePoint(0x4e00),
+      String.fromCodePoint(0x4e00 + 299),
+    ])
+      assert.ok(text.includes(part), `${mode}: ${part}`);
+    assert.doesNotMatch(text, /\ufffd/);
+  }
+});

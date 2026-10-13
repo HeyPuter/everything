@@ -1,3 +1,4 @@
+import { createUnicodeText } from "./pdf-unicode-text.js";
 import {
   StandardFonts,
   rgb,
@@ -90,6 +91,7 @@ export function createVectorContext(pdf, b, { ctx, rasterFallback }) {
     rasters = new Map();
   return {
     pdf,
+    unicode: createUnicodeText(pdf),
     b,
     ctx,
     rasterFallback,
@@ -260,15 +262,15 @@ function painter(page, context, invisible = false) {
       .replace(/[\r\n\u00ad]/g, "");
     if (!value || !value.trim()) return;
     const { font, chars } = await context.font(style);
-    // Hidden text keeps what the standard fonts can encode; the picture
-    // beneath shows the rest.
-    if (hidden) {
-      value = Array.from(value)
-        .filter((c) => chars.has(c.codePointAt(0)))
-        .join("");
-      if (!/[\p{L}\p{N}]/u.test(value)) return;
-    }
     const y = -(top + baselineOffset(context.ctx, style.font));
+    // Hidden text the standard fonts cannot encode, such as Cyrillic or
+    // Japanese, is written in fonts that can, for search, copying and
+    // screen readers; the picture beneath shows it.
+    if (hidden && Array.from(value).some((c) => !chars.has(c.codePointAt(0)))) {
+      if (/[\p{L}\p{N}]/u.test(value))
+        context.unicode.draw(page, value, x, y, style.size, width);
+      return;
+    }
     const natural = font.widthOfTextAtSize(value, style.size);
     const squeeze =
       width && natural > 0

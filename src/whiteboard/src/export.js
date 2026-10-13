@@ -997,5 +997,6 @@ export async function exportPDF(
     pdf.catalog.set(PDFName.of("Outlines"), outline);
     pdf.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
   }
+  vector.unicode.finish();
   return new Blob([await pdf.save()], { type: "application/pdf" });
 }
