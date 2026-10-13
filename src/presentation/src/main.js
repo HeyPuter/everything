@@ -2930,6 +2930,7 @@ function renderEditor() {
       "div",
       {
         class: `editor ${chrome.formatPane ? "" : "hide-inspector"} ${chrome.thumbnails ? "" : "hide-slides"} ${chrome.notes ? "" : "hide-notes"}`,
+        "data-view": editorView,
       },
       editorTopbar(),
       fontLoadNotice(),

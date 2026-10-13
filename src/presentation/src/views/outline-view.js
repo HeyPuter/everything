@@ -24,6 +24,8 @@ export function createOutlineView(ctx) {
   let rows = [];
   let collapsed = new Set();
   let dirty = false;
+  let typing = false;
+  let inflight = 0;
   let timer = null;
   let committing = Promise.resolve();
   const pres = () => ctx.doc().pres;
@@ -219,6 +221,7 @@ export function createOutlineView(ctx) {
     rows[i].text = textOf(box);
     dirty = true;
     clearTimeout(timer);
+    typing = true;
     timer = setTimeout(commitNow, TYPING_PAUSE);
   }
   function paste(e) {
@@ -368,17 +371,24 @@ export function createOutlineView(ctx) {
   // A change to the outline's structure: shown at once, and written to the
   // slides as its own step.
   function structural(next, focus) {
+    // Typing not yet saved goes first, as its own step.
+    if (dirty && typing) commitNow();
     clearTimeout(timer);
     rows = next;
     dirty = true;
     render(focus);
     commitNow();
   }
+  // Typing that follows typing joins its undo step; a change to the
+  // outline's structure is a step of its own.
   function commitNow() {
     clearTimeout(timer);
     if (!dirty || !pane) return committing;
     dirty = false;
+    const coalesce = typing ? "outline-typing" : null;
+    typing = false;
     const structure = structureFromRows(rows);
+    inflight++;
     committing = ctx
       .mutate(
         () => {
@@ -390,8 +400,9 @@ export function createOutlineView(ctx) {
           const n = rows.slice(0, t + 1).filter((r) => r.level === 0).length;
           ctx.settleIndex(Math.max(0, n - 1));
         },
-        { coalesce: "outline-typing" },
+        { coalesce },
       )
+      .finally(() => inflight--)
       .then(() => undefined);
     return committing;
   }
@@ -400,16 +411,38 @@ export function createOutlineView(ctx) {
   // reads it again unless typing here is still to be saved.
   function refresh() {
     if (!pane) return;
-    if (dirty) return;
+    // Typing still to be saved, or a later save of the outline already on
+    // its way, is newer than the deck shown.
+    if (dirty || inflight > 1) return;
     const next = rowsFromOutline(readOutline(pres()));
+    // The deck reads a body holding one empty paragraph as no body; the
+    // empty line just started here is kept.
+    const local = rows.filter(
+      (r, i) =>
+        !(
+          r.level > 0 &&
+          !r.text &&
+          rows[i - 1]?.level === 0 &&
+          (!rows[i + 1] || rows[i + 1].level === 0)
+        ),
+    );
     const same =
-      next.length === rows.length &&
+      next.length === local.length &&
       next.every(
         (r, i) =>
-          r.level === rows[i].level &&
-          r.text === rows[i].text &&
-          (r.level !== 0 || r.part === rows[i].part),
+          r.level === local[i].level &&
+          r.text === local[i].text &&
+          (r.level !== 0 || !local[i].part || r.part === local[i].part),
       );
+    // Slides just made take their part names.
+    if (same) {
+      const titles = next.filter((r) => r.level === 0);
+      rows
+        .filter((r) => r.level === 0)
+        .forEach((r, i) => {
+          if (!r.part && titles[i]) r.part = titles[i].part;
+        });
+    }
     const at = caret();
     if (!same) {
       rows = next;
@@ -420,7 +453,13 @@ export function createOutlineView(ctx) {
       );
     } else {
       const current = P.getSlidePartName(ctx.currentSlide());
-      for (const node of pane.querySelectorAll(".outline-slide"))
+      const nodes = pane.querySelectorAll(".outline-slide");
+      rows
+        .filter((r) => r.level === 0)
+        .forEach((r, i) => {
+          if (nodes[i] && r.part) nodes[i].dataset.part = r.part;
+        });
+      for (const node of nodes)
         node.classList.toggle("current", node.dataset.part === current);
     }
     pane
