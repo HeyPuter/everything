@@ -1452,6 +1452,18 @@ export function buildTabs(api) {
             pressed: () => api.showing("notes"),
             run: () => api.show("notes", !api.showing("notes")),
           },
+          {
+            type: "small",
+            id: "grid-settings",
+            label: "Grid Settings",
+            icon: "gridlines",
+            showLabel: true,
+            title: "Grid and Guides",
+            description:
+              "Set the grid spacing, snapping, and which guides show.",
+            visible: () => !!api.gridDialog,
+            run: () => api.gridDialog(),
+          },
         ],
       },
       {

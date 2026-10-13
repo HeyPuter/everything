@@ -1253,6 +1253,21 @@ export const COMMAND_ICONS = {
     r(3.5, 5, 6, 10, "bw", 0.6) +
     p("M10 4v12", "o"),
   slideShowSmall: monitor(2.5, 3, 15, 10.5) + r(5, 5.5, 10, 5.5, "ks", 0.6),
+  // A page with an arrow leaving it.
+  exportFile:
+    r(3, 2.5, 10, 15, "of") +
+    p("M6 7h4M6 10h2.5M6 13h4", "o ln") +
+    p("M9.5 10h8M15 7.2l2.8 2.8-2.8 2.8", "b thick"),
+  // A picture with its corners drawn in.
+  compressPictures:
+    r(4.5, 5, 11, 10, "gf") +
+    p("M6.5 13l2.6-3 2 2 1.6-1.6 1.8 2.6", "g") +
+    p("M1.8 2l3 3M4.8 2.6V5H2.4M18.2 18l-3-3M15.2 17.4V15h2.4", "b thick"),
+  // A drive with a level of how full it is.
+  fileSize:
+    r(2.5, 6, 15, 9, "of", 2) +
+    r(4.5, 8.5, 7, 4, "bs", 0.8) +
+    ci(14.5, 10.5, 1, "gs"),
   info:
     ci(10, 10, 7.5, "bs") + p("M10 9v5", "wh grip") + ci(10, 6.1, 1.1, "txw"),
   help:
