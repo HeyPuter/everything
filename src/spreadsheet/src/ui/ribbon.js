@@ -198,7 +198,7 @@ const refreshMenu = (menus, ctx) => {
   ];
 };
 
-export const RIBBON_TABS = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View'];
+export const RIBBON_TABS = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Automate'];
 
 /** References are resolved again on every refresh AND when a menu is opened. */
 const groupsFor = name => ({
@@ -319,7 +319,24 @@ const groupsFor = name => ({
       m('Hide & Unhide', 'hideEye', 'view', 'Hide and unhide'), c('Focus Mode', 'focus', 'focusMode'), c('Full Screen', 'fullscreen', 'fullscreen')],
     ['Assistant', c('AI Assistant', 'sparkle', 'aiPanel')],
   ],
+  // Scripts (ui/automate.js): record, write, browse and run them; the samples run in one click, undone in one.
+  Automate: [
+    ['Scripting Tools', large(direct('Record Actions', 'recordActions', 'recordActions', null, { isChecked: ctx => !!ctx.flags?.()?.recording })),
+      large(direct('New Script', 'newScript', 'newScript', null)),
+      large(direct('All Scripts', 'allScripts', 'scriptGallery', null)),
+      large(direct('Code Editor', 'codeEditor', 'scriptsPane', null, { isChecked: ctx => !!ctx.flags?.()?.scriptsPane })),
+      large(dyn('Run Script', 'runScript', (menus, ctx) => ctx.automate?.menuItems?.() || [], { ariaLabel: 'Run a script' }))],
+    ['Controls', large(dyn('Script Button', 'scriptButton', (menus, ctx) => ctx.automate?.buttonItems?.() || [], { ariaLabel: 'Insert a button that runs a script' }))],
+    ['Sample Scripts', ...SAMPLE_BUTTONS.map(([id, label, glyph]) => direct(label, glyph, 'runScript', { sample: id }, { ariaLabel: `Run the ${label} sample script` }))],
+    ['Help', large(direct('Script Reference', 'scriptReference', 'scriptReference', null))],
+  ],
 }[name] || []);
+/** The sample scripts on the Automate tab, each run by its button. */
+const SAMPLE_BUTTONS = [
+  ['highlight-duplicates', 'Highlight Duplicates', 'highlightDuplicates'], ['unhide-everything', 'Unhide Everything', 'unhideAll'],
+  ['sum-each-column', 'Sum Each Column', 'sumColumns'], ['table-of-contents', 'Table of Contents', 'tableOfContents'],
+  ['header-row', 'Style Header Row', 'styleHeaderRow'], ['remove-blank-rows', 'Remove Blank Rows', 'removeBlankRows'],
+];
 
 /** A large button's name on two lines ("Sort &" over "Filter"), split where the longer line is shortest. */
 function twoLineLabel(span, text) {

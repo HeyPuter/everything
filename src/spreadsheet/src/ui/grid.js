@@ -1915,7 +1915,16 @@ export function createGrid(opts) {
         chartBoxes.set(ch.id, box);
         objectsLayer.append(node);
       }
-      box.el.querySelector('.chart-open-link').hidden = !safeLinkUrl(ch.hyperlink);
+      const linkTool = box.el.querySelector('.chart-open-link');
+      linkTool.hidden = !safeLinkUrl(ch.hyperlink);
+      // A script button's link runs its script (Automate ▸ Script Button).
+      const runs = String(ch.hyperlink || '').startsWith('#script:');
+      if (linkTool.dataset.runs !== String(runs)) {
+        linkTool.dataset.runs = String(runs);
+        linkTool.textContent = runs ? 'Run script' : 'Open link';
+        linkTool.title = linkTool.textContent;
+        linkTool.setAttribute('aria-label', linkTool.textContent);
+      }
       box.el.style.cursor = safeLinkUrl(ch.hyperlink) ? 'pointer' : '';
       box.el.title = safeLinkUrl(ch.hyperlink) ? `${ch.hyperlinkTooltip || ch.hyperlink} (Shift-click to select)` : '';
       // Decorative content stays visible and editable without being read as document content.

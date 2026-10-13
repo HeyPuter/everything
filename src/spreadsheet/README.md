@@ -207,6 +207,29 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   contents are treated as data, never as instructions, a formula it writes
   that fetches from the web waits for the file's Allow, and pictures in
   replies are never loaded. On a phone the panel is a sheet over the grid.
+- **Automate (scripts)**: an Automate ribbon tab for JavaScript scripts with
+  an `async function main(workbook)` that work on the workbook through a
+  documented object model (worksheets, ranges, values and formulas, fills,
+  fonts, alignment, borders, sizes, insert and delete, sort, fill, merge,
+  hide, notes, links, tables and charts; Script Reference lists it all).
+  The Code Editor pane beside the sheet has syntax colouring, line numbers,
+  indentation that follows the code, closing brackets and quotes, bracket
+  matching, Find and Replace, line comments, completions for the API, Run
+  (Ctrl/Cmd+Enter) and Stop, and output whose errors link to their lines.
+  Record Actions writes what you do (typing, formatting, borders, inserting
+  and deleting, sorting, fill, sizes, sheets, tables) as a new script. All
+  Scripts gathers the workbook's scripts, My Scripts (`.js` files kept on
+  your drive, for any workbook) and samples, which also run straight from the
+  ribbon: highlight duplicates, unhide everything, sum each column, a table of
+  contents sheet, style the header row, remove blank rows. Script Button puts
+  a button on the sheet that runs a script when clicked (Shift+click selects
+  it). Everything a run changes is one undo step. Scripts run in a worker inside a sandboxed frame
+  with an origin of its own and no network, so they reach the workbook and
+  nothing else (not the page, your account or your files), and they are
+  stopped after two minutes or when you press Stop; a script that came inside
+  someone else's file runs only once you agree. Scripts are saved with the
+  workbook, in `.xlsx` as a package part of their own that other programs
+  leave alone.
 - **AI help with formulas**: describe what a cell should calculate and Puter's
   AI writes the formula (the sheet's headers, a few sample rows, tables, and
   named ranges are explained to it, and the dialog says which cells were
@@ -487,8 +510,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   opens in Excel the way it reads here.
   Formulas whose results are written in the regional format (`TEXT`, `DOLLAR`,
   `FIXED`) are recalculated when it changes, as F9 recalculates them.
-- **Design**: grouped Home, Insert, Page Layout, Formulas, Data, Review and View
-  ribbon tabs reuse the existing commands and formatting controls. Arrow keys
+- **Design**: grouped Home, Insert, Page Layout, Formulas, Data, Review, View and
+  Automate ribbon tabs reuse the existing commands and formatting controls. Arrow keys
   navigate tabs; Down enters a group, and double-clicking a tab collapses the
   ribbon. Overflow controls keep commands reachable in narrow windows.
   Unsupported ribbon features are disabled. The original menus remain available.
@@ -665,6 +688,8 @@ covers them.
 | FS `Spreadsheets/<name>.xlsx` | each document, whole | a real file the user owns; opens anywhere |
 | `Spreadsheets/.versions/<name> ~<file id>/*.xlsx` | version history snapshots | one per ~10 minutes of saving, 30 unlabeled kept; the id keeps the history with the file through any rename |
 | KV `spreadsheet:settings:v1` | theme and regional format (this browser's storage without a session) | tiny, hot, one read at boot |
+| FS `Spreadsheets/Scripts/<name>.js` | My Scripts, the user's own scripts | plain files the user can see; usable in any workbook |
+| KV `spreadsheet:script-trust:v1:<sha256>` | scripts from files the user has agreed to run | asked once per script, on every device |
 
 Files are never stored in KV. The XLSX exporter supplements SheetJS Community
 Edition with native cell styles (fonts, colors, borders and alignment), blank

@@ -75,7 +75,7 @@ it('works every tip out from the labels: a lone first letter is one key, a share
 it('drives the ribbon from key tips: Alt, a tab letter, then a command letter', async () => {
   await mount(); await select('A1:D4'); grid().focus();
   altTap(); await flush();
-  expect(tips()).toEqual(['FI', 'H', 'I', 'DR', 'P', 'FO', 'DA', 'R', 'V']);
+  expect(tips()).toEqual(['FI', 'H', 'I', 'DR', 'P', 'FO', 'DA', 'R', 'V', 'A']);
   press('f'); await flush();
   expect(tips()).toEqual(['FI', 'FO']); // a shared first letter narrows to its tabs
   press('o'); await flush(); await flush();

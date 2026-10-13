@@ -95,6 +95,7 @@ import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
 import { createQueriesPane } from '../ui/queries-pane.js';
+import { createAutomate, AUTOMATE_COMMANDS, scriptOfLink } from '../ui/automate.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
 import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.js';
 import { toggleDetail } from '../core/outline-detail.js';
@@ -1111,6 +1112,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
       hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, hasQueries: !!wb.queries?.length,
+      // Automate: the Code Editor is open, actions are being recorded, a script is running.
+      scriptsPane: !!automate?.paneOpen, recording: !!automate?.recording, scriptRunning: !!automate?.running,
       chartSheet: sheet?.kind === 'chart',
       // The sheet holds native sparklines, so the commands that edit, regroup or clear them have something to act on.
       sparklines: !!sheet?.sparklineGroups?.length,
@@ -1230,12 +1233,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     return ok;
   }
   async function run(cmd, arg) {
+    // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
+    if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
     // F4 (and Ctrl+Y with nothing to redo) repeats the last formatting or structural command on the selection now.
     if (cmd === 'repeat') { if (lastRepeatable && !grid.editing) return run(lastRepeatable.cmd, lastRepeatable.arg); return; }
     if (cmd === 'redo' && !grid.editing && !wb.canRedo() && lastRepeatable) return run('repeat');
     if (REPEATABLE.has(cmd) && !(arg instanceof Event) && !(arg instanceof HTMLElement)) lastRepeatable = { cmd, arg };
     const chartSheet = wb.sheet(grid.sheetId)?.kind === 'chart';
-    if (chartSheet && !chartSheetCommand(cmd)) return;
+    if (chartSheet && !chartSheetCommand(cmd) && !AUTOMATE_COMMANDS.has(cmd)) return;
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
@@ -3275,9 +3280,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         wb.removeLink(sheetId, grid.active.r, grid.active.c);
         keepFocus();
         return;
+      // Automate (ui/automate.js): scripts, the Code Editor, Record Actions and script buttons.
+      case 'scriptsPane': case 'newScript': case 'openScript': case 'recordActions': case 'stopRecording': case 'scriptGallery':
+      case 'runScript': case 'stopScript': case 'scriptReference': case 'insertScriptButton':
+        return automate?.run(cmd, arg);
       case 'openDrawingLink': {
         const url = safeLinkUrl(wb.chartById(sheetId, arg)?.hyperlink);
         if (!url) return;
+        // A script button (Automate ▸ Script Button) runs its script.
+        if (scriptOfLink(url) != null) { automate?.run('runScript', { name: scriptOfLink(url) }); return; }
         if (url.startsWith('#')) { followInternalLink(url); return; }
         window.open(url, '_blank', 'noopener');
         return;
@@ -5000,6 +5011,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   let aiPanel = null;
   let queriesPane = null; // Data ▸ Queries & Connections, made below
+  let automate = null; // Automate: scripts, the Code Editor and Record Actions, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;
   const formulaBar = createFormulaBar(ctx, { fixedActions: true });
@@ -5016,6 +5028,24 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // Data ▸ Queries & Connections: the queries of the workbook, beside the sheet.
   ctx.autofitColumns = (sid, c1, c2) => autofitColumns(c1, c2, sid);
   queriesPane = createQueriesPane({ ...ctx, run, edit: (id) => editQuery(ctx, { queryId: id }), allowQuerySources });
+  // Automate: scripts run apart from the app (lib/script-sandbox.js); what they ask of the editor comes through here.
+  automate = ctx.automate = createAutomate(ctx, {
+    notify,
+    keepFocus: () => keepFocus(),
+    // While a script runs, the sheet, the formula bar and the sheet tabs take no input of their own.
+    busy: (on) => { for (const node of [grid.el, formulaBar.el, sheetTabs.el]) node.inert = on; },
+    env: () => ({
+      name: doc.name,
+      selection: () => ({ sheetId: grid.sheetId, range: { ...grid.range } }),
+      select: (sheetId, range) => selectLocation(sheetId, range),
+      autofit: (sheetId, axis, from, to) => {
+        if (axis === 'col') autofitColumns(from, to, sheetId);
+        else if (sheetId === grid.sheetId) grid.autoFitRows(from, Math.min(to, from + 2000), { force: true });
+      },
+      // A formula a script writes that reaches outside the file waits for the user's Allow, as one in a shared file does.
+      distrust: () => doc.distrustExternal(),
+    }),
+  });
   ctx.onQueriesChanged = () => { queriesPane.render(true); notify(); };
   const findBar = createFindBar(ctx);
   // Background error checking's smart tag beside the active cell (Convert to Number, Ignore Error…).
@@ -5079,6 +5109,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         toolbar.el,
         formulaBar.el,
         externalNotice,
+        automate.notice,
         pivotNotice,
         // The page's main landmark: the grid (the panel the sheet tabs control) and the find bar over it.
         el('main.editor-grid', {}, grid.el, findBar.el),
@@ -5091,6 +5122,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         queriesPane.el),
       chartUi.pane,
       comments.el,
+      automate.pane,
       aiPanel?.el,
       aiPanel?.rail));
   // Alt (or F10) shows key tips on the ribbon; they wait while an entry, a menu or a dialog has the keyboard.
@@ -5357,7 +5389,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         }
         return true;
       };
-      const regions = [menubar.el, toolbar.el, formulaBar.el, grid.el, sheetTabs.el, statusBar.el, aiPanel && (aiPanel.isOpen ? aiPanel.el : aiPanel.rail)].filter(Boolean).filter(visible);
+      const regions = [menubar.el, toolbar.el, formulaBar.el, grid.el, sheetTabs.el, statusBar.el, automate?.paneOpen && automate.pane, aiPanel && (aiPanel.isOpen ? aiPanel.el : aiPanel.rail)].filter(Boolean).filter(visible);
       const at = regions.findIndex((region) => region.contains(e.target));
       if (grid.editing && !grid.commitEdit()) return;
       for (let step = 1; step <= regions.length; step++) {
@@ -5509,6 +5541,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();
+      automate?.destroy();
       chartUi.destroy();
       comments.destroy();
       findBar.destroy();
