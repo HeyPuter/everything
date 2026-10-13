@@ -21,6 +21,7 @@ import { cmykEngine } from '../../../lib/color.js';
 import { rgbHex, parseColorSpace } from '../pdf/colors.js';
 import { PDFDict, PDFStream, Name } from '../pdf/primitives.js';
 import { shadingToPaint, familyMatcher } from '../pdf/interpret.js';
+import { meshShadingNodes } from '../pdf/shading-mesh.js';
 import { parseFontName } from '../pdf/fonts.js';
 import { inflate } from '../codec/zlib.js';
 import { lzw as lzwDecode } from '../pdf/filters.js';
@@ -1571,6 +1572,19 @@ export class PSInterpreter {
 
   shfill(sh) {
     this.lastFill = null;
+    let meshes = null;
+    try {
+      meshes = meshShadingNodes(null, toPDF(sh), this.gs.ctm, 1);
+    } catch {
+      meshes = null;
+    }
+    if (meshes) {
+      for (const node of meshes) {
+        this.out.add(node);
+        this.out.push(node.id, this.gs.wraps);
+      }
+      return;
+    }
     const paint = shadingToPaint(null, toPDF(sh), this.gs.ctm, 1, (m) => this.warn(m));
     if (!paint) return;
     const clip = this.gs.clipPath || this.pageRect();
