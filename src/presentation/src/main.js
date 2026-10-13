@@ -85,6 +85,7 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createFileTools } from "./export/file-tools.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -2898,7 +2899,12 @@ function renderReadOnly() {
             run(downloadDeck),
             "secondary",
           ),
-          button("Print", "Printer", run(printDeck), "secondary"),
+          button(
+            "Print",
+            "Printer",
+            run(() => fileTools.openPrintDialog()),
+            "secondary",
+          ),
           button("Present", "Play", run(present)),
         ),
       ),
@@ -3253,6 +3259,37 @@ function commandSearch() {
   );
   return wrap;
 }
+// Export, print, properties and pictures (src/export): they read the open
+// presentation through these and edit it through mutate.
+const fileTools = createFileTools({
+  P,
+  doc: () => doc,
+  settled,
+  mutate,
+  SKIP: SKIP_MUTATION,
+  previewSrc: (target, s) => cachedPreview(target.previews, target.pres, s),
+  slideDescription,
+  displayShapeText,
+  visibleSlideShapes,
+  slideBounds: (pres, shape) => slideBounds(pres, shape),
+  currentIndex: () => index,
+  selectedSlides: () => selectedSlides(),
+  selectedShapes: () => (view === "editor" && doc ? selectedShapes() : []),
+  readOnly: () => readOnlyDocument(),
+  pruneUnusedMedia,
+  cleanName,
+  toast,
+  fail,
+  refreshFields() {
+    if (P.getSlides(doc.pres).some((s) => slideHasDateFields(doc.pres, s))) {
+      P.refreshPresentationFields(doc.pres);
+      renderSlideArea();
+    }
+  },
+  async download(blob, filename, message) {
+    reportExport(await cloud.downloadBlob(blob, filename), message);
+  },
+});
 // The ribbon, built once per editor from the tab definitions, and refreshed
 // whenever the selection or the presentation changes.
 let ribbon = null;
@@ -6344,6 +6381,34 @@ const menuFor = (label, items) => (anchor) =>
     align: "auto",
     minWidth: 240,
   });
+// Presentations to reopen from the File menu: the newest in the library and
+// those opened from elsewhere on the drive, without the one already open.
+function recentMenuItems() {
+  const open = doc?.path;
+  const seen = new Set();
+  const list = [
+    ...files.map((f) => ({
+      ...f,
+      at: Number(f.modified || f.created || 0) * 1000,
+    })),
+    ...recentFiles.map((r) => ({ ...r, at: cloud.modifiedMs(r) ?? r.at ?? 0 })),
+  ]
+    .filter(
+      (f) => f.path && f.path !== open && !seen.has(f.path) && seen.add(f.path),
+    )
+    .sort((a, b) => (b.at || 0) - (a.at || 0))
+    .slice(0, 8);
+  if (!list.length)
+    return [{ label: "No recent presentations", disabled: true }];
+  return list.map((f) => ({
+    label: cleanName(f.name || cloud.displayName(f.path), {
+      maxLength: Infinity,
+    }),
+    icon: "Presentation",
+    hint: cloud.folderName(f.path) || null,
+    onSelect: run(() => openCloud(f)),
+  }));
+}
 // The File menu. The phone's File options button, the only menu button its
 // layout keeps, carries the other menus too.
 function fileMenu(anchor) {
@@ -6365,6 +6430,11 @@ function fileMenu(anchor) {
         shortcut: `${M}+O`,
         onSelect: run(openPicker),
       },
+      {
+        label: "Open recent",
+        icon: "Clock",
+        items: recentMenuItems(),
+      },
       { label: "Import PPTX", icon: "Upload", onSelect: pickLocal },
       { separator: true },
       {
@@ -6379,8 +6449,36 @@ function fileMenu(anchor) {
         shortcut: `${M}+Shift+S`,
         onSelect: run(saveCopy),
       },
+      {
+        label: "Save as template…",
+        icon: "LayoutTemplate",
+        onSelect: run(() => fileTools.saveAsTemplate()),
+      },
+      {
+        label: "Export…",
+        icon: "o:exportFile",
+        onSelect: run(() => fileTools.openExportDialog()),
+      },
       { label: "Rename", icon: "Pencil", onSelect: run(renameDoc) },
-      { label: "Slide size", icon: "Maximize", onSelect: run(slideSizeDialog) },
+      {
+        label: "Close",
+        icon: "X",
+        onSelect: run(async () => {
+          if (await leaveEditor()) await home();
+        }),
+      },
+      { separator: true },
+      {
+        label: "Compress pictures…",
+        icon: "o:compressPictures",
+        disabled: readOnlyDocument(),
+        onSelect: run(() => fileTools.openCompressDialog()),
+      },
+      {
+        label: "File size…",
+        icon: "o:fileSize",
+        onSelect: run(() => fileTools.openFileSizeDialog()),
+      },
       {
         label: "Embed font",
         icon: "Type",
@@ -6389,15 +6487,26 @@ function fileMenu(anchor) {
       },
       { separator: true },
       {
+        label: "Page setup (slide size)…",
+        icon: "Maximize",
+        onSelect: run(slideSizeDialog),
+      },
+      {
+        label: "Print…",
+        icon: "Printer",
+        shortcut: `${M}+P`,
+        onSelect: run(() => fileTools.openPrintDialog()),
+      },
+      {
+        label: "Properties",
+        icon: "Info",
+        onSelect: run(() => fileTools.openPropertiesDialog()),
+      },
+      { separator: true },
+      {
         label: "Download PowerPoint (.pptx)",
         icon: "Download",
         onSelect: run(downloadDeck),
-      },
-      {
-        label: "Print / Save as PDF",
-        icon: "Printer",
-        shortcut: `${M}+P`,
-        onSelect: run(printDeck),
       },
       {
         label: "Download as images",
@@ -13746,7 +13855,10 @@ async function present() {
     // own print would only produce a blank page behind the slideshow.
     if ((e.ctrlKey || e.metaKey) && ["p", "s"].includes(e.key.toLowerCase())) {
       e.preventDefault();
-      (e.key.toLowerCase() === "p" ? printDeck() : saveCloud()).catch(fail);
+      (e.key.toLowerCase() === "p"
+        ? fileTools.openPrintDialog()
+        : saveCloud()
+      ).catch(fail);
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -13894,55 +14006,6 @@ async function present() {
     throw error;
   }
 }
-async function printDeck() {
-  const target = doc;
-  if (!target) return;
-  await settled();
-  if (doc !== target) return;
-  const slides = P.getSlides(doc.pres).filter((s) => !P.isSlideHidden(s));
-  if (!slides.length) {
-    toast("There are no visible slides to print.");
-    return;
-  }
-  if (slides.some((s) => slideHasDateFields(doc.pres, s))) {
-    P.refreshPresentationFields(doc.pres);
-    renderSlideArea();
-  }
-  const size = currentSize();
-  const width = size.cx / 914400;
-  const height = size.cy / 914400;
-  const print = el(
-    "div",
-    { id: "print-slides", style: `--print-slide-height: ${height}in` },
-    el("style", { media: "print" }, `@page { size: ${width}in ${height}in; }`),
-    // The navigator already rendered nearby slides from this same state.
-    ...slides.map((s) =>
-      el(
-        "div",
-        { class: "print-page" },
-        el("img", {
-          src: cachedPreview(doc.previews, doc.pres, s),
-          alt: slideDescription(s, doc?.pres),
-        }),
-      ),
-    ),
-  );
-  document.querySelector("#print-slides")?.remove();
-  document.body.append(print);
-  await Promise.all(
-    [...print.querySelectorAll("img")].map((img) =>
-      img.decode().catch(() => {}),
-    ),
-  );
-  if (doc !== target) {
-    print.remove();
-    return;
-  }
-  if (!print.isConnected) return;
-  window.print();
-  setTimeout(() => print.remove(), 1000);
-}
-
 document.addEventListener("keydown", (e) => {
   if (
     e.defaultPrevented ||
@@ -13980,7 +14043,7 @@ document.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "p") {
     e.preventDefault();
     if (editing) e.target.blur();
-    printDeck().catch(fail);
+    fileTools.openPrintDialog().catch(fail);
     return;
   }
   // F5 presents from the first slide, Shift+F5 from the current one.
