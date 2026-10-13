@@ -231,11 +231,7 @@ export class SharedBinding {
     if (!entry) return;
     this.redoEntries.push(entry);
     this.run(() => {
-      if (entry.shared) {
-        this.undoManager.stopCapturing();
-        this.undoManager.undo();
-        this.undoManager.stopCapturing();
-      }
+      if (entry.shared && !this.step('undo')) this.usedUp(entry, this.redoEntries, 'undo');
       this.project(true, entry.before);
     });
   }
@@ -244,13 +240,34 @@ export class SharedBinding {
     if (!entry) return;
     this.entries.push(entry);
     this.run(() => {
-      if (entry.shared) {
-        this.undoManager.stopCapturing();
-        this.undoManager.redo();
-        this.undoManager.stopCapturing();
-      }
+      if (entry.shared && !this.step('redo')) this.usedUp(entry, this.entries, 'redo');
       this.project(true, entry.after);
     });
+  }
+  /** Undo or redo exactly the top Yjs stack item. A Yjs UndoManager skips
+   * items that no longer change anything (others changed the same
+   * properties since) and goes on to earlier ones; history entries and
+   * stack items must stay one for one, so the rest of the stack is set
+   * aside meanwhile. Returns whether the item changed the document. */
+  private step(kind: 'undo' | 'redo') {
+    const um = this.undoManager;
+    const stack = kind === 'undo' ? um.undoStack : um.redoStack;
+    if (!stack.length) return false;
+    const rest = stack.splice(0, stack.length - 1);
+    um.stopCapturing();
+    try {
+      return (kind === 'undo' ? um.undo() : um.redo()) !== null;
+    } finally {
+      stack.unshift(...rest);
+      um.stopCapturing();
+    }
+  }
+  /** A step whose changes others have all replaced: Yjs dropped its stack
+   * item, so its history entry goes too. */
+  private usedUp(entry: Entry, list: Entry[], kind: 'undo' | 'redo') {
+    const at = list.lastIndexOf(entry);
+    if (at >= 0) list.splice(at, 1);
+    this.o.onMessage?.(`Nothing to ${kind} in “${entry.label}”: other people have changed it since.`);
   }
   // Undo and Redo apply at once unless steps are still being written.
   private run(fn: () => void) {

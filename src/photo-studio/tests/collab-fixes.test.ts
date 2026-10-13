@@ -199,3 +199,37 @@ describe('the outbox', () => {
     expect(pixel(a, idOf(a, 'Top'), 5, 5)).toBe(0);
   });
 });
+
+describe('Undo in a shared document', () => {
+  it('undoes one step at a time even when someone else has since changed a step', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    edit(a, 'Rename', (d) => (d.layers[0].name = 'Renamed'));
+    edit(a, 'Opacity', (d) => (d.layers[1].opacity = 0.5));
+    await settle(a, b);
+    edit(b, 'Opacity', (d) => (d.layers[1].opacity = 0.25));
+    await settle(a, b);
+    expect(a.binding.history.labels).toEqual(['Rename', 'Opacity']);
+    a.binding.history.undo();
+    await settle(a, b);
+    // Only the opacity step is used up (Bob's value stays); the rename stays.
+    for (const p of [a, b]) {
+      expect(p.binding.history.document.layers[0].name).toBe('Renamed');
+      expect(p.binding.history.document.layers[1].opacity).toBe(0.25);
+    }
+    expect(a.binding.history.labels).toEqual(['Rename']);
+    expect(a.binding.undoManager.undoStack.length).toBe(1);
+    // The next Undo is the rename, and Redo brings it back.
+    a.binding.history.undo();
+    await settle(a, b);
+    expect(b.binding.history.document.layers[0].name).toBe('Background');
+    expect(a.binding.history.redoLabels).toEqual(['Rename']);
+    a.binding.history.redo();
+    await settle(a, b);
+    expect(b.binding.history.document.layers[0].name).toBe('Renamed');
+    expect(a.binding.history.labels).toEqual(['Rename']);
+    expect(a.binding.undoManager.undoStack.length).toBe(1);
+    expect(a.binding.undoManager.redoStack.length).toBe(0);
+  });
+});
