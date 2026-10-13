@@ -26178,7 +26178,7 @@ test("an exact export region can be chosen without dragging, cancelled, and expo
     doc.querySelector("#region-x").value = "500";
     doc.querySelector("dialog").close();
     await click('[data-action="export"]');
-    doc.querySelector("#export-scope").value = "selection";
+    doc.querySelector("#export-scope").value = "region";
     doc.querySelector("#export-scope").dispatchEvent(new w.Event("change"));
     doc.querySelector("#export-format").value = "svg";
     doc.querySelector("#export-format").dispatchEvent(new w.Event("change"));
@@ -26207,7 +26207,7 @@ test("a region tool tap keeps the previous region without a false confirmation",
       await app.click('[data-action="export"]');
       const dialog = doc.querySelector("dialog[open]");
       const available = [...dialog.querySelectorAll("option")].some(
-        (o) => o.value === "selection" && !o.disabled,
+        (o) => o.value === "region" && !o.disabled,
       );
       dialog.close();
       return available;
@@ -26274,8 +26274,8 @@ test("joining a shared board from the editor starts without the previous export 
     assert.equal(doc.querySelector("#board-title").value, "Joined");
     await app.click('[data-action="export"]');
     assert.equal(
-      doc.querySelector('#export-scope option[value="selection"]').disabled,
-      true,
+      doc.querySelector('#export-scope option[value="region"]'),
+      null,
     );
   } finally {
     await app.close();
@@ -45206,6 +45206,26 @@ test("the export dialog offers a drawn region as its own scope", async () => {
     assert.ok(option, "a drawn region can be chosen on its own");
     assert.equal(option.disabled, false);
     assert.equal(option.textContent, "Export region");
+    // Drawn to be exported, it is what the dialog starts with; selected
+    // objects are a choice of their own.
+    assert.equal(doc.querySelector("#export-scope").value, "region");
+    const selection = doc.querySelector(
+      '#export-scope option[value="selection"]',
+    );
+    assert.equal(selection.textContent, "Selected objects");
+    assert.equal(selection.disabled, true);
+    // Objects selected after the region was drawn are what is chosen now.
+    doc.querySelector("dialog[open]").close();
+    const paste = new w.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: transferData(
+        clipboardFormats([item("note", 0, 0, { text: "Later" })]),
+      ),
+    });
+    doc.querySelector("#canvas").dispatchEvent(paste);
+    await a.tick();
+    await a.click('[data-action="export"]');
+    assert.equal(doc.querySelector("#export-scope").value, "selection");
   } finally {
     await a.close();
   }
