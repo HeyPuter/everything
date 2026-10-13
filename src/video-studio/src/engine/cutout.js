@@ -11,6 +11,7 @@ import { matteWindow, steadyMatte, strokeOverride, applyOverride, CUTOUT_DEFAULT
 import { retouchAmounts } from '../model/retouch.js';
 import { clipUsesBodyEffect } from '../model/body-effects.js';
 import { frameOf, drawUpright, faceModelsIn, ensureFaceModels, onFaceModelsReady, bindFaceLayer } from './face-render.js';
+import { bindBodyLayer } from './body-render.js';
 
 /** Texture unit of the matte (masks use 6). */
 export const MATTE_UNIT = 7;
@@ -22,11 +23,11 @@ export function usesPersonMatte(project) {
   return (project?.tracks || []).some((t) => t.clips.some((c) => (c.cutout || retouchAmounts(c.retouch) || clipUsesBodyEffect(c) || c.colorTarget) && !c.disabled));
 }
 
-/** Whether a project needs any of the people models (person matte, face landmarks or hair matte). */
+/** Whether a project needs any of the people models (person matte, face or pose landmarks, hair matte). */
 export function usesCutout(project) {
   if (usesPersonMatte(project)) return true;
   const n = faceModelsIn(project);
-  return n.face || n.hair;
+  return n.face || n.hair || n.pose;
 }
 
 /** Load the models a project needs. Resolves to whether its people tools can render. */
@@ -179,6 +180,7 @@ export function bindLayerMatte(comp, p, layer, info) {
   if (touch) comp._set(p, 'u_retouch', touch);
   comp._seti(p, 'u_colorTarget', target);
   comp._seti(p, 'u_maskColor', media && layer.maskUse === 'color' && layer.masks?.length ? 1 : 0);
+  bindBodyLayer(comp, p, layer, info);
   bindFaceLayer(comp, p, layer, info);
 }
 

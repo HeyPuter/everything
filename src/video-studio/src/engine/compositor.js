@@ -694,6 +694,7 @@ export class Compositor {
     this.srcFxCache = null;
     this._faceCache?.dispose();
     this._hairCache?.dispose();
+    this._poseCache?.dispose();
     for (const e of [...this.curveTextures.values(), ...this.lutTextures.values()]) gl.deleteTexture(e.tex);
     this.curveTextures.clear();
     this.lutTextures.clear();

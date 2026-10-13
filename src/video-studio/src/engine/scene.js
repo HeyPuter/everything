@@ -183,6 +183,8 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.retouch = clip.retouch || null;
     layer.faceShape = clip.faceShape || null;
     layer.hairColor = clip.hairColor || null;
+    layer.bodyShape = clip.bodyShape || null;
+    layer.makeup = clip.makeup || null;
     layer.colorTarget = clip.colorTarget || null;
     layer.maskUse = clip.maskUse || null;
     layer.masks = evaluateMasks(clip, local);

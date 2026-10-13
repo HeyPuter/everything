@@ -13,6 +13,9 @@ import {
   ChartSpline, Highlighter, ScanFace,
 } from 'lucide';
 import {
+  PersonStanding,
+} from 'lucide';
+import {
   ScrollText, SwitchCamera, Grid2x2, MessageSquare, MessageSquareShare, Reply, CircleCheck, SendHorizontal, Users, UserMinus,
 } from 'lucide';
 import {
@@ -120,6 +123,7 @@ const ICONS = {
   cutout: Cutout,
   highlighter: Highlighter,
   retouch: ScanFace,
+  body: PersonStanding,
   select: MousePointer2, hand: Hand, undo: Undo2, redo: Redo2, trash: Trash2, ripple: RippleGap,
   link: Link, unlink: Unlink, freeze: Snowflake, timelines: Timelines, timelinePlus: TimelinePlus,
   // In this Lucide release the "horizontal" glyph shows a horizontal mirror axis (a vertical flip), so the names are swapped.

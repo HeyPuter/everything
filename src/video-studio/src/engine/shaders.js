@@ -213,6 +213,15 @@ uniform vec4 u_hairRect;
 uniform vec2 u_hairTexel;
 uniform vec3 u_hairColor;
 uniform float u_hairAmount, u_hairLuma;
+uniform int u_bodyOn;        // body shape (engine/body-render.js)
+uniform highp sampler2D u_bodyTex; // offset field on a grid over the source (source px, RG float, rows top first)
+uniform int u_makeupOn;      // makeup placed by face landmarks
+uniform sampler2D u_makeupMask; // R blush, G eyeshadow, B eyeliner, A brows
+uniform sampler2D u_sculptMask; // R contour, G highlight
+uniform vec4 u_makeupRect;   // where the makeup masks sit in source pixels
+uniform vec4 u_makeup;       // blush, eyeshadow, eyeliner, brows (0..1)
+uniform vec2 u_sculpt;       // contour, highlight (0..1)
+uniform vec3 u_blushColor, u_shadowColor, u_linerColor, u_browColor, u_contourColor, u_glowColor;
 out vec4 outColor;
 ${COLOR_FN}
 vec4 tap(vec2 uv) {
@@ -340,6 +349,24 @@ vec2 warpUv(vec2 uv) {
   }
   return pxUv(p - off);
 }
+// Body shape: the offset field of engine/body-geometry.js, read with
+// bilinear filtering between its grid points (sampleGrid there).
+vec2 bodyWarpPx(vec2 p) {
+  ivec2 n = textureSize(u_bodyTex, 0);
+  vec2 g = clamp(p / u_srcSize * vec2(n - 1), vec2(0.0), vec2(n - 1));
+  ivec2 i = min(ivec2(g), n - 2);
+  vec2 f = g - vec2(i);
+  vec2 a = texelFetch(u_bodyTex, i, 0).xy;
+  vec2 b = texelFetch(u_bodyTex, i + ivec2(1, 0), 0).xy;
+  vec2 c = texelFetch(u_bodyTex, i + ivec2(0, 1), 0).xy;
+  vec2 d = texelFetch(u_bodyTex, i + ivec2(1, 1), 0).xy;
+  return p + mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+// Body first (its field was made on the source as found), then the faces.
+vec2 warped(vec2 uv) {
+  if (u_bodyOn == 1) uv = pxUv(bodyWarpPx(srcPx(uv)));
+  return u_warpFaces > 0 ? warpUv(uv) : uv;
+}
 vec4 faceMaskAt(vec2 uv) {
   vec2 m = (srcPx(uv) - u_faceMaskRect.xy) / u_faceMaskRect.zw;
   if (m.x <= 0.0 || m.y <= 0.0 || m.x >= 1.0 || m.y >= 1.0) return vec4(0.0);
@@ -402,6 +429,37 @@ vec3 faceFix(vec2 uv, vec3 c) {
   }
   return clamp(c, 0.0, 1.0);
 }
+vec3 softLight(vec3 b, vec3 s) {
+  vec3 d = mix(((16.0 * b - 12.0) * b + 4.0) * b, sqrt(b), step(0.25, b));
+  return mix(b - (1.0 - 2.0 * s) * b * (1.0 - b), b + (2.0 * s - 1.0) * (d - b), step(0.5, s));
+}
+// A color's hue at about full light, so tints keep the skin's own light.
+vec3 hueOf(vec3 col) { return min(col / max(luma(col), 0.05), vec3(1.8)); }
+// Makeup in the regions drawn from the face landmarks, each laid down the
+// way the real thing sits on skin: contour shades, highlight lifts like a
+// sheen, blush flushes, eyeshadow deepens the lid, liner is nearly opaque
+// and brow tint only darkens. Cheek products stay mostly off hair over the face.
+vec3 makeup(vec2 uv, vec3 c) {
+  vec2 m = (srcPx(uv) - u_makeupRect.xy) / u_makeupRect.zw;
+  if (m.x <= 0.0 || m.y <= 0.0 || m.x >= 1.0 || m.y >= 1.0) return c;
+  vec4 k = texture(u_makeupMask, m) * u_makeup;
+  vec2 s = texture(u_sculptMask, m).rg * u_sculpt;
+  if (k.r + k.g + k.b + k.a + s.x + s.y <= 0.0) return c;
+  float skin = mix(0.35, 1.0, skinW(c));
+  if (s.x > 0.0) {
+    vec3 shade = u_contourColor / max(max(u_contourColor.r, max(u_contourColor.g, u_contourColor.b)), 0.05);
+    c = mix(c, c * mix(vec3(1.0), shade, 0.55) * 0.82, s.x * skin * 0.7);
+  }
+  if (s.y > 0.0) c = mix(c, 1.0 - (1.0 - c) * (1.0 - u_glowColor * 0.5), s.y * skin * 0.75);
+  if (k.r > 0.0) c = mix(c, mix(softLight(c, u_blushColor), min(c * hueOf(u_blushColor), vec3(1.0)), 0.2), k.r * skin * 0.85);
+  if (k.g > 0.0) c = mix(c, c * u_shadowColor * 1.35, k.g * 0.8);
+  if (k.a > 0.0) {
+    vec3 pigment = u_browColor * (0.75 + 0.5 * luma(c));
+    c = mix(c, min(c, mix(c * hueOf(u_browColor) * 0.75, pigment, 0.5)), k.a * 0.75);
+  }
+  if (k.b > 0.0) c = mix(c, u_linerColor * (0.8 + 0.4 * luma(c)), k.b * 0.92);
+  return clamp(c, 0.0, 1.0);
+}
 // Hair matte refined against the full picture, like matteRefined. h is the
 // position in the matte's square; one matte texel is st in source uv.
 float hairAt(vec2 uv, vec2 h, vec3 rgb) {
@@ -436,7 +494,7 @@ vec3 hairRecolor(vec2 uv, vec3 c) {
   return mix(c, tgt, u_hairAmount * h);
 }
 void main() {
-  vec2 uv = u_warpFaces > 0 ? warpUv(v_uv) : v_uv;
+  vec2 uv = warped(v_uv);
   vec4 c;
   if (u_blur > 0.0) {
     c = vec4(0.0);
@@ -463,6 +521,7 @@ void main() {
   }
   if (u_retouchOn == 1) c.rgb = retouch(uv, c.rgb);
   if (u_faceFixOn == 1) c.rgb = faceFix(uv, c.rgb);
+  if (u_makeupOn == 1) c.rgb = makeup(uv, c.rgb);
   if (u_hairOn == 1) c.rgb = hairRecolor(uv, c.rgb);
   float cut = matteAlpha(uv, c.rgb);
   float mk = maskAlpha(v_uv);

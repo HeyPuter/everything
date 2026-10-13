@@ -143,7 +143,7 @@ function drawClipCanvas(comp, layer, cv, time, dst) {
     const ih = info.height || layer.height;
     const cover = Math.max(W / iw, H / ih);
     const fit = Math.min(W / iw, H / ih);
-    const fake = { ...layer, inner: true, extras: null, enhance: null, masks: null, cutout: null, retouch: null, faceShape: null, hairColor: null, effects: null, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, sx: 1, sy: 1, scale: cover / fit, crop: ZERO_CROP, flipH: false, flipV: false };
+    const fake = { ...layer, inner: true, extras: null, enhance: null, masks: null, cutout: null, retouch: null, faceShape: null, hairColor: null, bodyShape: null, makeup: null, effects: null, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, sx: 1, sy: 1, scale: cover / fit, crop: ZERO_CROP, flipH: false, flipV: false };
     // A small buffer and a modest radius per pass keep the blur smooth (large taps alias into blocks).
     const small = comp._target('clipBgS', 0.125);
     comp._into(small);

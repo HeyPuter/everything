@@ -134,6 +134,12 @@ describe('editor shell', () => {
       await settle();
       expect(await violations(document.body), sub).toEqual([]);
     }
+    // Every retouch segment: sliders, shade swatches with a custom color well, look tiles.
+    for (const seg of ['Body', 'Makeup', 'Hair', 'Looks']) {
+      [...document.querySelectorAll('.retouch-segs [role=tab]')].find((t) => t.textContent.startsWith(seg)).click();
+      await settle();
+      expect(await violations(document.querySelector('.retouch-tab')), `retouch ${seg}`).toEqual([]);
+    }
     ctx.inspector.showTab('adjust');
     await settle();
     expect(await violations(document.body), 'color').toEqual([]);
