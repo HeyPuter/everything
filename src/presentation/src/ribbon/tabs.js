@@ -701,6 +701,20 @@ export function buildTabs(api) {
           },
           {
             type: "large",
+            id: "screenshot",
+            label: "Screenshot",
+            icon: "screenshot",
+            title: "Screenshot",
+            description:
+              "Insert a picture of a window or screen, or of a part of it.",
+            visible: () => !!api.screenshot,
+            split: true,
+            run: () => api.screenshot?.(),
+            menu: () => api.screenshotMenu?.() ?? [],
+            menuLabel: "Screenshot options",
+          },
+          {
+            type: "large",
             id: "photo-album",
             label: "Photo\nAlbum",
             icon: "photoAlbum",
@@ -766,6 +780,17 @@ export function buildTabs(api) {
         items: [
           {
             type: "large",
+            id: "zoom",
+            label: "Zoom",
+            icon: "zoomSlide",
+            title: "Zoom",
+            description:
+              "Jump to a slide or section in a slide show, and back.",
+            visible: () => !!api.zoomMenu,
+            menu: () => api.zoomMenu?.() ?? [],
+          },
+          {
+            type: "large",
             id: "link",
             label: "Link",
             icon: "link",
@@ -783,7 +808,17 @@ export function buildTabs(api) {
             description:
               "Make the selected object go to a slide or web page when clicked in a slide show.",
             enabled: () => api.canLink(),
-            menu: () => api.actionMenu(),
+            split: !!api.actionSettings,
+            run: () => api.actionSettings?.(),
+            menu: () => [
+              ...api.actionMenu(),
+              ...(api.actionButtonsMenu
+                ? [
+                    { separator: true },
+                    { label: "Action Buttons", items: api.actionButtonsMenu() },
+                  ]
+                : []),
+            ],
           },
         ],
       },
@@ -863,6 +898,16 @@ export function buildTabs(api) {
               },
             ],
           },
+          {
+            type: "large",
+            id: "object",
+            label: "Object",
+            icon: "object",
+            title: "Object",
+            description: "Embed a file in the presentation, shown as an icon.",
+            visible: () => !!api.insertObject,
+            run: () => api.insertObject?.(),
+          },
         ],
       },
       {
@@ -876,8 +921,12 @@ export function buildTabs(api) {
             label: "Equation",
             icon: "equation",
             title: "Equation",
+            description: "Write a math equation, or insert a common one.",
             visible: () => !!api.insertEquation,
+            split: true,
             run: () => api.insertEquation?.(),
+            menu: () => api.equationMenu?.() ?? [],
+            menuLabel: "Equations",
           },
           {
             type: "large",
@@ -903,7 +952,11 @@ export function buildTabs(api) {
             label: "Video",
             icon: "video",
             title: "Video",
+            description: "Insert a video from your device.",
+            split: true,
             run: () => api.insertVideo?.(),
+            menu: () => api.videoMenu?.() ?? [],
+            menuLabel: "Video sources",
           },
           {
             type: "large",
@@ -911,7 +964,11 @@ export function buildTabs(api) {
             label: "Audio",
             icon: "audio",
             title: "Audio",
+            description: "Insert sound from your device, or record it.",
+            split: true,
             run: () => api.insertAudio?.(),
+            menu: () => api.audioMenu?.() ?? [],
+            menuLabel: "Audio sources",
           },
         ],
       },

@@ -10,6 +10,8 @@ import { buildPicture } from "../../internal/presentationml/index.ts";
 import { REL_TYPES } from "../../internal/presentationml/index.ts";
 import {
   NS,
+  attr,
+  elem,
   firstChildElement,
   qname,
   type XmlElement,
@@ -145,4 +147,34 @@ export const getShapeRasterSource = (
     children: [],
   });
   return found?.part.data ?? null;
+};
+
+/**
+ * Gives a shape or picture a preset outline (`rect`, `roundRect`, `ellipse`,
+ * …), replacing its preset or custom geometry. A picture is clipped to it.
+ */
+export const setShapePresetGeometry = (
+  shape: SlideShapeData,
+  preset: string,
+): void => {
+  const spPr = firstChildElement(shape[SHAPE_ELEMENT], qname("p", "spPr", NS.pml));
+  if (!spPr) throw new Error("setShapePresetGeometry: shape has no spPr");
+  const geometry = elem(qname("a", "prstGeom", NS.dml), {
+    attrs: [attr(qname("", "prst", ""), preset)],
+    children: [elem(qname("a", "avLst", NS.dml))],
+  });
+  const at = spPr.children.findIndex(
+    (c) =>
+      c.kind === "element" &&
+      (c.name.localName === "prstGeom" || c.name.localName === "custGeom"),
+  );
+  if (at >= 0) spPr.children[at] = geometry;
+  else {
+    // After the transform, before fills and lines.
+    const xfrm = spPr.children.findIndex(
+      (c) => c.kind === "element" && c.name.localName === "xfrm",
+    );
+    spPr.children.splice(xfrm + 1, 0, geometry);
+  }
+  commitAndRefresh(shape);
 };
