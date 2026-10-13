@@ -116,7 +116,7 @@ export class PropertiesPanel extends Panel {
       section('Document', row('Units', unitSel.el), row('Artboard', boardSel), h('button.btn.block', { type: 'button', onclick: () => app.setTool('artboard') }, 'Edit Artboards')),
       section('Rulers & Grids', this.docToggles[0]),
       section('Guides', this.docToggles[1]),
-      section('Snap Options', this.docToggles[2]),
+      section('Snap Options', this.docToggles[2], h('button.btn.block', { type: 'button', onclick: () => app.commands.run('edit.preferences', { section: 'alignment' }) }, 'Snapping Preferences...')),
       section('Preferences', h('div.pref-incr', h('span', 'Keyboard Increment'), incr.el), check('previewBounds', 'Use Preview Bounds'), check('scaleCorners', 'Scale Corners'), check('scaleStrokes', 'Scale Strokes & Effects')),
       section(
         'Quick Actions',
@@ -262,21 +262,38 @@ export class PropertiesPanel extends Panel {
   #updateQuick(ed) {
     const app = this.app;
     const nodes = ed.selectedNodes();
+    const top = ed.topSelection();
     const actions = [];
-    const add = (cmd, label) => {
-      if (app.commands.get(cmd) && app.commands.isEnabled(cmd)) actions.push(h('button.btn', { type: 'button', onclick: () => app.commands.run(cmd) }, label || app.commands.label(cmd)));
+    const add = (cmd, label, args) => {
+      if (app.commands.get(cmd) && app.commands.isEnabled(cmd, args)) actions.push(h('button.btn', { type: 'button', 'data-cmd': cmd, onclick: () => app.commands.run(cmd, args) }, label || app.commands.label(cmd)));
     };
-    if (nodes.some((n) => n.type === 'group')) add('object.ungroup', 'Ungroup');
-    if (ed.topSelection().length > 1) add('object.group', 'Group');
-    if (nodes.some((n) => n.type === 'group')) add('object.isolate', 'Isolate Group');
-    if (nodes.some((n) => n.type === 'text')) add('type.createOutlines', 'Create Outlines');
-    if (nodes.some((n) => n.type === 'path' || n.type === 'compound')) add('path.offset', 'Offset Path');
-    if (ed.topSelection().length > 1) add('object.clipMake', 'Make Clipping Mask');
+    const only = (type) => nodes.length > 0 && nodes.every((n) => n.type === type);
+    if (top.length > 1) {
+      add('object.group', 'Group');
+      add('object.clipMake', 'Make Clipping Mask');
+    }
+    if (nodes.some((n) => n.type === 'group' && !n.clip && !n.live && !n.blend)) {
+      add('object.ungroup', 'Ungroup');
+      add('object.isolate', 'Isolate Group');
+    }
     if (nodes.some((n) => n.type === 'group' && n.clip)) add('object.clipRelease', 'Release Clipping Mask');
-    add('color.recolor', 'Recolor');
+    if (only('text')) add('type.createOutlines', 'Create Outlines');
+    if (only('image')) {
+      add('object.cropImage', 'Crop Image');
+      add('trace.make', 'Trace Image');
+      add('image.embed', 'Embed');
+    }
+    if (only('instance')) {
+      add('symbol.edit', 'Edit Symbol');
+      add('symbol.breakLink', 'Break Link');
+    }
+    if (nodes.some((n) => n.type === 'path' || n.type === 'compound')) add('path.offset', 'Offset Path');
+    if (nodes.length === 1 && nodes[0].type === 'path' && nodes[0].shape) add('shape.expand', 'Expand Shape');
+    if (!only('image')) add('color.recolor', 'Recolor');
     add('object.lock', 'Lock');
     const arrange = h('button.btn', { type: 'button', 'aria-haspopup': 'menu', onclick: (e) => app.showMenuAt(e.currentTarget, ['object.bringToFront', 'object.bringForward', 'object.sendBackward', 'object.sendToBack', '-', 'object.sendToLayer'], 'Arrange') }, 'Arrange');
     actions.push(arrange);
+    if (top.length === 1 && (only('path') || only('compound') || only('text'))) add('select.globalEdit');
     this.quick.replaceChildren(...actions);
   }
 }
