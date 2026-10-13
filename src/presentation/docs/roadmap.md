@@ -57,9 +57,28 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 6. Insert
 
-- [ ] Icons, Video, Audio (from file and recorded), Screenshot, Photo Album,
-      Equation, Header & Footer dialog, Slide Zoom / Section Zoom / Summary
-      Zoom, Action Buttons, Object, Comment.
+- [x] Icons (searchable categories; SVG pictures with a PNG stand-in;
+      Graphics Format tab with fill, outline, styles, Change Graphic and
+      Convert to Shape).
+- [x] Video and Audio from a file, Record Audio (saved as WAV): real media
+      parts with `p14:media` trim, fades and bookmarks, poster frames, canvas
+      controls, a Playback tab, and playback in the slide show (start mode,
+      volume, loop, rewind, hide while not playing, full screen, play across
+      slides).
+- [x] Screenshot (window or screen capture, and screen clipping).
+- [x] Photo Album (order, layouts with titles, captions, frames, black and
+      white).
+- [x] Equation: TeX-style input with structure and symbol palettes, drawn by
+      our own layout engine into an SVG picture that keeps its source and
+      reopens for editing. (Native OMML `a14:m` output is not written yet.)
+- [x] Header & Footer dialog (slides; notes and handouts).
+- [x] Slide Zoom, Section Zoom and Summary Zoom (pictures with slide jumps and
+      zoom settings; zoom transition and return in the slide show; Zoom tab).
+- [x] Action Buttons and the Action Settings dialog (mouse click and mouse
+      over: jumps, end show, sounds, highlight).
+- [x] Object: files embedded as OLE Packages, shown as icons, downloaded when
+      opened.
+- [ ] Comment (area 9).
 
 ### 7. Charts and SmartArt
 

@@ -35,6 +35,8 @@ The `fflate` 0.8.3 patch makes synchronous ZIP extraction reject DEFLATE output 
 
 Lucide uses ISC, with some Feather-derived icons under MIT. The complete Lucide notice is retained, including the Feather attribution. The favicon uses the same Lucide Presentation geometry.
 
+The Insert Icons dialog draws from the same Lucide package, loaded on demand when the dialog opens; inserted icons are Lucide drawings (ISC) and the notice above covers them. Equations are laid out and drawn by the app's own code (`src/insert/math`), with no math-typesetting dependency. Embedded objects are written as OLE Packages by the library's own compound-file writer (`lib/pptx/src/internal/opc/cfb.ts`).
+
 Third-party notices are shipped as `dist/THIRD_PARTY_NOTICES.txt` by Vite's public-directory handling.
 
 The local preview renderer exposes an optional font-family resolver for SVG text,
