@@ -10,6 +10,7 @@ import { documentThumbnail } from '../versions/thumbs';
 import { onRecentChange, onRecentNoted, openRecent, recentEntries, thumbKey, type RecentEntry } from './recent';
 import { PRESETS, defaultSpec, specFromPreset } from '../../model/document-presets';
 import { createDocument } from './new-document';
+import { sentNote } from '../assistant/settings';
 
 // A few common starting points; File → New lists every preset.
 const QUICK_PRESETS = ['web-large', 'web-post', 'print-a4', 'photo-4x6', 'mobile-standard'];
@@ -87,8 +88,14 @@ function renderDescribe(e: Editor) {
 <textarea name="prompt" rows="2" aria-label="Describe an edit" placeholder="For example: brighten this photo, crop it to a square and add a soft vignette"></textarea>
 <div class="start-describe-bar"><button type="button" class="secondary" data-describe-pick>${svg('image-plus', 15)}Choose image…</button><span class="start-describe-file" aria-live="polite">Without an image, a new document is created</span><button type="button" class="icon-button" data-describe-clear aria-label="Remove the chosen image" title="Remove the image" hidden>${svg('x', 14)}</button><span class="start-describe-spacer"></span><button type="submit" class="primary">${svg('assistant', 15)}Start</button></div>
 <input type="file" accept="image/*,.psd,.psb,.photo,.tif,.tiff,.tga,.bmp,.ico" hidden>
-<p class="start-describe-note">The Assistant plans the edit with Photo Studio’s own commands for you to review before anything changes. Your request and a description of the image go to Puter’s AI service (needs a Puter account).</p></form>`;
+<p class="start-describe-note">The Assistant plans the edit with Photo Studio’s own commands for you to review before anything changes. <span class="start-describe-sent"></span></p></form>`;
   const form = section.querySelector('form')!;
+  // The request runs with a document, so it says what the Assistant panel
+  // says then (the preview follows the Share Image Preview setting).
+  const sent = form.querySelector<HTMLElement>('.start-describe-sent')!;
+  const note = () => (sent.textContent = sentNote(true));
+  note();
+  for (const type of ['focusin', 'pointerenter']) form.addEventListener(type, note);
   const text = form.querySelector('textarea')!;
   const input = form.querySelector<HTMLInputElement>('input[type=file]')!;
   const label = form.querySelector<HTMLElement>('.start-describe-file')!;

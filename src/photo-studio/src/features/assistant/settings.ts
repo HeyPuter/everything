@@ -25,3 +25,6 @@ export function saveAssistantSettings() {
   }
 }
 export const modelLabel = (id: string) => ASSISTANT_MODELS.find((m) => m.id === id)?.label ?? id;
+/** What a request sends, as the panel and the start screen say it. */
+export const sentNote = (hasDocument: boolean) =>
+  `Sends your request${hasDocument ? `, the document’s size and layer list${assistantSettings.seeImage ? ' and a small preview' : ''}` : ''} to Puter’s AI service (Puter account; may use credits).`;

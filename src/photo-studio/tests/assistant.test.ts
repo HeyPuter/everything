@@ -18,6 +18,7 @@ import { buildPlan, commandArg, setArgs, stepDetail, validatePlan, type PlanEnv 
 import { converse, systemPrompt, TOOLS, type ChatFn } from '../src/features/assistant/model';
 import { PlanRun, runLabel } from '../src/features/assistant/runner';
 import { Catalog, commandInput, commandParams, words } from '../src/features/assistant/catalog';
+import { assistantSettings, sentNote } from '../src/features/assistant/settings';
 import { filterGenerations, GenerationStore } from '../src/persistence/generations';
 import { placementOf } from '../src/features/generations/panel';
 import { MemoryStore } from '../src/persistence/local-store';
@@ -345,6 +346,18 @@ function mockEditor() {
   };
   return e;
 }
+
+describe('Assistant consent text', () => {
+  it('says the image preview is sent whenever it is', () => {
+    const was = assistantSettings.seeImage;
+    assistantSettings.seeImage = true;
+    expect(sentNote(true)).toBe('Sends your request, the document’s size and layer list and a small preview to Puter’s AI service (Puter account; may use credits).');
+    assistantSettings.seeImage = false;
+    expect(sentNote(true)).not.toContain('preview');
+    expect(sentNote(false)).toBe('Sends your request to Puter’s AI service (Puter account; may use credits).');
+    assistantSettings.seeImage = was;
+  });
+});
 
 describe('Assistant runs', () => {
   const planEnv = () => env({ command: (id) => (commands.has(id) ? { id, label: commands.get(id)!.label } : env().command(id)) });

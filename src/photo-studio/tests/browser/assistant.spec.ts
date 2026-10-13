@@ -196,6 +196,8 @@ test('the start screen hands a described edit to the Assistant', async ({ page }
   await script(page, { calls: [{ name: 'propose_plan', args: { title: 'Square', steps: [{ action: 'op.crop', args: { aspect: '1:1' } }] } }] });
   const box = page.getByRole('region', { name: 'Describe an edit' });
   await expect(box).toBeVisible();
+  // It says what is sent, image preview included, as the panel does.
+  await expect(box.locator('.start-describe-note')).toContainText('Sends your request, the document’s size and layer list and a small preview to Puter’s AI service');
   await box.getByRole('button', { name: 'Start' }).click();
   await expect(page.locator('#status')).toHaveText('Describe the edit first.');
   await box.getByRole('textbox', { name: 'Describe an edit' }).fill('crop it to a square');
