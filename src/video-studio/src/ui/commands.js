@@ -82,6 +82,7 @@ export function createCommands(ctx) {
     { id: 'splitScenes', label: 'Split at scene changes', group: 'Editing', keys: [], run: () => actions.splitScenes(), enabled: () => store.selected?.clip.type === 'video' },
     { id: 'removeSilences', label: 'Remove silences', group: 'Editing', keys: [], run: () => actions.removeSilences() },
     { id: 'dub', label: 'Dub into another language', group: 'Editing', keys: [], run: () => import('./dub-dialog.js').then((m) => m.openDubDialog(ctx)) },
+    { id: 'assistant', label: 'Edit assistant', group: 'Editing', keys: ['Mod+K'], run: () => ctx.assistant?.toggle() },
     { id: 'trackMotion', label: 'Track motion', group: 'Editing', keys: [], run: () => ctx.openTracking?.(), enabled: () => Boolean(store.selected && 'transform' in store.selected.clip) },
     { id: 'savePreset', label: 'Save clip as preset', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.saveClipPreset(ctx)), enabled: () => Boolean(store.selected) },
     { id: 'managePresets', label: 'Manage clip presets', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.managePresets(ctx)) },

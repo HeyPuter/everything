@@ -16,6 +16,26 @@ export class History {
     this.redoStack.length = 0;
   }
 
+  /** A bookmark of the current top step, for fold(). */
+  mark() {
+    return { top: this.undoStack.at(-1) || null };
+  }
+
+  /**
+   * Fold every step recorded since mark into one step labeled label, which
+   * restores the state before the first of them. Returns that step, or null
+   * when nothing was recorded.
+   */
+  fold(mark, label) {
+    // Find the bookmark by identity: the stack may have dropped old steps at its limit since.
+    const at = mark?.top ? this.undoStack.lastIndexOf(mark.top) : -1;
+    const steps = this.undoStack.splice(at + 1);
+    if (!steps.length) return null;
+    const entry = { snapshot: steps[0].snapshot, label: label || steps[0].label };
+    this.undoStack.push(entry);
+    return entry;
+  }
+
   canUndo() {
     return this.undoStack.length > 0;
   }

@@ -10,6 +10,7 @@
  *   toggles {}                      ripple/snap/linkOverlays/hover preview changed
  *   nest    { depth }               a compound clip was opened or closed
  *   timeline { id }                 another of the project's timelines was opened
+ *   history { label }               undo steps were regrouped (endBatch)
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
@@ -179,6 +180,23 @@ export class EditorStore extends Emitter {
   /** End a coalescing run so the next edit starts a new undo step. */
   seal() {
     this._coalesce = null;
+  }
+
+  /**
+   * Start grouping edits: everything recorded until endBatch(mark, label)
+   * becomes one undo step. Returns the mark to pass to endBatch.
+   */
+  beginBatch() {
+    this.seal();
+    return this.history.mark();
+  }
+
+  /** Fold the edits since beginBatch() into one undo step; returns that step or null. */
+  endBatch(mark, label) {
+    this.seal();
+    const entry = this.history.fold(mark, label);
+    if (entry) this.emit('history', { label: entry.label });
+    return entry;
   }
 
   undo() {
