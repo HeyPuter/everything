@@ -7,6 +7,9 @@ import { layoutDocument, caretRect } from '../src/engine/layout.js';
 import { hyphenate, hyphenationPoints, hyphenatedLanguage } from '../src/engine/hyphenation.js';
 import { setHyphenationSettings } from '../src/engine/hyphenation-settings.js';
 import { readHyphenationSettings, writeHyphenationSettings } from '../src/engine/docx-hyphenation.js';
+import { nextHyphenationCandidate, wordAround } from '../src/engine/manual-hyphenation.js';
+import { pageGeometry } from '../src/engine/page-settings.js';
+import { readFileSync } from 'node:fs';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -146,5 +149,65 @@ describe('hyphenation settings', () => {
     expect(paragraphFormat(reopened.paragraphs[0], reopened.numbering).suppressAutoHyphens).toBe(true);
     model.undo(); model.undo();
     expect(model.pageSettings.autoHyphenation).toBe(false);
+  });
+});
+
+describe('the hyphenation fixture', () => {
+  const open = async () => {
+    const pkg = await DocxPackage.open(readFileSync('public/fixtures/hyphenation.docx'));
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    const save = async () => unzipSync(new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer()));
+    return { pkg, model, save };
+  };
+  it('reads its settings and hyphenates only the eligible paragraphs', async () => {
+    const { pkg, model } = await open();
+    expect(pkg.readOnly).toBeFalsy();
+    expect(pkg.pageSettings).toMatchObject({ autoHyphenation: true, consecutiveHyphenLimit: 2, hyphenationZone: 284, doNotHyphenateCaps: true });
+    const layout = layoutDocument(model.paragraphs, measure, pageGeometry(model.pageSettings), model.numbering, model.tables);
+    const hyphenated = index => layout.lines.filter(l => l.paragraphId === model.paragraphs[index].id && l.autoHyphen).length;
+    expect(hyphenated(1)).toBeGreaterThan(0); // ordinary English text
+    expect(hyphenated(3)).toBe(0); // suppressAutoHyphens
+    expect(hyphenated(5)).toBe(0); // capitals, with doNotHyphenateCaps
+    expect(hyphenated(7)).toBe(0); // German-tagged text
+    let run = 0;
+    for (const line of layout.lines) { run = line.autoHyphen ? run + 1 : 0; expect(run).toBeLessThanOrEqual(2); }
+  });
+  it('round-trips a settings change without touching other parts, and undo restores the original bytes', async () => {
+    const { pkg, model, save } = await open();
+    const original = unzipSync(readFileSync('public/fixtures/hyphenation.docx'));
+    setHyphenationSettings(model, { autoHyphenation: false, hyphenationZone: 360 });
+    const parts = await save();
+    for (const name in original) if (name !== 'word/settings.xml') expect(parts[name], name).toEqual(original[name]);
+    const settings = strFromU8(parts['word/settings.xml']);
+    expect(settings).not.toContain('autoHyphenation');
+    expect(settings).toMatch(/<w:zoom w:percent="100"\/><w:defaultTabStop w:val="720"\/><w:consecutiveHyphenLimit w:val="2"\/><w:hyphenationZone w:val="360"\/><w:doNotHyphenateCaps\/><w:characterSpacingControl/);
+    expect((await DocxPackage.open(zipSync(parts))).pageSettings).toMatchObject({ autoHyphenation: false, hyphenationZone: 360, doNotHyphenateCaps: true });
+    model.undo();
+    const undone = await save();
+    for (const name in original) expect(undone[name], name).toEqual(original[name]);
+    expect(pkg.pageSettings.autoHyphenation).toBe(true);
+  });
+  it('finds manual hyphenation candidates and stores accepted breaks as soft hyphens', async () => {
+    const { model, save } = await open();
+    setHyphenationSettings(model, { autoHyphenation: false });
+    const editor = { session: { body: model }, measure, pageStories: undefined, drawingLayouts: undefined };
+    const candidate = nextHyphenationCandidate(editor, 0);
+    expect(candidate).not.toBeNull();
+    expect(candidate.points).toContain(candidate.proposed);
+    expect(model.text.slice(candidate.start, candidate.end)).toBe(candidate.text);
+    const at = candidate.start + candidate.proposed;
+    model.select(at, at); model.replace('­');
+    // The next candidate comes after the hyphenated word.
+    const next = nextHyphenationCandidate(editor, candidate.end + 1);
+    if (next) expect(next.start).toBeGreaterThan(candidate.end);
+    const parts = await save();
+    expect(strFromU8(parts['word/document.xml'])).toContain('<w:softHyphen/>');
+    const reopened = await DocxPackage.open(zipSync(parts));
+    expect(reopened.paragraphs.map(p => p.runs.map(r => r.text).join('')).join('\n')).toContain(candidate.text.slice(0, candidate.proposed) + '­' + candidate.text.slice(candidate.proposed));
+  });
+  it('finds the word around a position', () => {
+    expect(wordAround('say “hello,” now', 7)).toEqual({ start: 5, end: 10, text: 'hello' });
+    expect(wordAround('a b', 1)).toEqual({ start: 0, end: 1, text: 'a' });
+    expect(wordAround('  ', 1)).toBeNull();
   });
 });
