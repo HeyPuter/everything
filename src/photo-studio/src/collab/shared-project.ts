@@ -18,15 +18,16 @@
 // patterns, altered video frames) are atomic with their register. Selections
 // are each person's own and never shared.
 import * as Y from 'yjs';
-import { allLayers, type Layer, type PhotoDocument } from '../model/document';
+import type { Layer, PhotoDocument } from '../model/document';
 import { computeBounds, type TileGrid } from '../model/tiles';
 import { syncPixelTransform } from '../model/pixel-layer';
-import { embedAssetIds } from '../model/embedded';
-import { isVectorPattern } from '../model/vector-pattern';
 import type { Assets } from '../model/assets';
 import type { TileIndex } from './tile-index';
 import { orderKeys } from './order';
 import { hash } from './protocol';
+import { documentAssetIds } from '../model/serialization';
+
+export { documentAssetIds };
 
 /** Transaction origins. Only `local` edits enter this person's Undo. */
 export const ORIGIN = {
@@ -54,20 +55,6 @@ const isGrid = (v: unknown): v is TileGrid => {
 };
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-/** Asset IDs a document refers to (as a saved project lists them). */
-export function documentAssetIds(doc: PhotoDocument): string[] {
-  return [
-    ...new Set(
-      [
-        doc.psdMetadataAsset,
-        doc.psdResourcesAsset,
-        doc.psdOriginal?.asset,
-        ...allLayers(doc.layers).flatMap((l) => [l.asset, l.pinWarp?.source, l.maskAsset, l.pixelMask?.asset, l.video?.footage?.asset, isVectorPattern(l.vector?.fill) ? l.vector!.fill.asset : undefined]),
-        ...Object.values(doc.embeds ?? {}).flatMap(embedAssetIds),
-      ].filter((id): id is string => !!id),
-    ),
-  ];
-}
 /** Tile IDs a document refers to, wherever they are. */
 export function documentTiles(doc: PhotoDocument, into = new Set<string>()) {
   const walk = (v: unknown, depth = 0) => {

@@ -168,9 +168,9 @@ Status: `[ ]` planned, `[x]` done.
 
 ## Collaboration and review
 
-- [ ] Invite to Edit: live co-editing of a document through Puter, with presence (cursors, selected layers) and an access list
-- [ ] Share for Review: a read-only review link that shows the flattened image and takes comments
-- [ ] Comments panel: comments pinned to points or regions of the canvas, threads, replies, resolve, mentions; kept in `.photo` projects
+- [x] Invite to Edit: live co-editing of a document through Puter, with presence (cursors, selected layers) and an access list
+- [x] Share for Review: a read-only review link that shows the flattened image and takes comments
+- [x] Comments panel: comments pinned to points or regions of the canvas, threads, replies, resolve, mentions; kept in `.photo` projects
 
 ## Assistant and generation
 

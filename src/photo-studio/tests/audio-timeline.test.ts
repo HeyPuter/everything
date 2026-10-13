@@ -4,7 +4,7 @@ import { History } from '../src/history/history';
 import { newPixelLayer } from '../src/model/pixel-layer';
 import { Assets } from '../src/model/assets';
 import { sourceMimeType } from '../src/model/embedded';
-import { deserialize, serialize, validateDocument } from '../src/model/serialization';
+import { deserialize, documentAssetIds, serialize, validateDocument } from '../src/model/serialization';
 import { createTimeline, syncTimeline } from '../src/model/video-timeline';
 import { footageVideo } from '../src/model/video-layer';
 import {
@@ -216,6 +216,8 @@ describe('footage sound', () => {
       { id: 'a1', name: 'Music', volume: -3, solo: true, clips: [{ ...clip(wav, 0.5, 1.5, { gain: 2, fadeIn: 0.25 }), id: 'c1' }, { id: 'c2', start: 0, in: 0, length: 0, link: l.id }] },
       { id: 'a2', name: 'Voice', muted: true, clips: [] },
     ];
+    // Shared documents upload the same files a project carries.
+    expect(documentAssetIds(doc)).toEqual(expect.arrayContaining([footage, wav]));
     const loaded = await deserialize(await serialize(doc, assets));
     expect(loaded.document.timeline!.audio).toEqual(doc.timeline!.audio);
     expect(loaded.document.layers[0].video!.audio).toEqual(l.video!.audio);

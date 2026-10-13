@@ -69,23 +69,7 @@ export async function serialize(
   for (const l of allLayers(doc.layers)) if (l.embed && !doc.embeds?.[l.embed.contents]) delete l.embed;
   const blobOf = (id: string) => packs.get(id) ?? assets.blob(id);
   const ids = [
-    ...new Set(
-      [
-        doc.psdMetadataAsset,
-        doc.psdResourcesAsset,
-        doc.psdOriginal?.asset,
-        ...allLayers(doc.layers).flatMap((l) => [
-          l.asset,
-          l.pinWarp?.source,
-          l.maskAsset,
-          l.pixelMask?.asset,
-          l.video?.footage?.asset,
-          isVectorPattern(l.vector?.fill) ? l.vector!.fill.asset : undefined,
-        ]),
-        ...Object.values(doc.embeds ?? {}).flatMap(embedAssetIds),
-        ...audioAssetIds(doc),
-      ].filter((id): id is string => !!id),
-    ),
+    ...documentAssetIds(doc),
     ...packs.keys(),
   ];
   const records = ids.map((id) => ({
@@ -107,6 +91,28 @@ export async function serialize(
   return new Blob([header, json, ...ids.map(blobOf)], {
     type: "application/x-photo-editor",
   });
+}
+/** Asset IDs a document refers to (the files a saved project carries). */
+export function documentAssetIds(doc: PhotoDocument): string[] {
+  return [
+    ...new Set(
+      [
+        doc.psdMetadataAsset,
+        doc.psdResourcesAsset,
+        doc.psdOriginal?.asset,
+        ...allLayers(doc.layers).flatMap((l) => [
+          l.asset,
+          l.pinWarp?.source,
+          l.maskAsset,
+          l.pixelMask?.asset,
+          l.video?.footage?.asset,
+          isVectorPattern(l.vector?.fill) ? l.vector!.fill.asset : undefined,
+        ]),
+        ...Object.values(doc.embeds ?? {}).flatMap(embedAssetIds),
+        ...audioAssetIds(doc),
+      ].filter((id): id is string => !!id),
+    ),
+  ];
 }
 /** Audio files of the timeline's clips (footage sound is the footage asset). */
 const audioAssetIds = (doc: PhotoDocument) => (doc.timeline ? allAudioClips(doc.timeline).flatMap((c) => (c.source ? [c.source.asset] : [])) : []);
