@@ -17,7 +17,7 @@ const swatch = color => !color || color === 'auto' ? '#000' : `#${color}`;
  *
  * format: the selection's run formatting (null where mixed). apply(patch) returns false on failure.
  */
-export function openFontDialog({ format: f, sample = '', apply, onClose }) {
+export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font' }) {
   const patch = {};
   const set = values => { Object.assign(patch, values); preview(); };
   const current = key => key in patch ? patch[key] : f[key];
@@ -57,7 +57,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
     const box = el('input', { type: 'checkbox', onchange: () => {
       box.indeterminate = false;
       if (box.checked && partner) { const other = effects.find(e => e.label === partner); other.box.checked = false; other.box.indeterminate = false; }
-      set({ [key]: box.checked ? on : key === 'verticalAlign' ? 'baseline' : key === 'capitalization' ? 'normal' : 'none' });
+      set({ [key]: box.checked ? on : key === 'verticalAlign' ? 'baseline' : key === 'capitalization' ? 'normal' : key === 'vanish' ? false : 'none' });
     } });
     if (f[key] === null) box.indeterminate = true; else box.checked = f[key] === on;
     effects.push({ label, box });
@@ -66,7 +66,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
   const effectGrid = el('fieldset.ed-font-effects', {}, el('legend', {}, 'Effects'),
     effect('Strikethrough', 'strikethrough', 'single', 'Double strikethrough'), effect('Small caps', 'capitalization', 'smallCaps', 'All caps'),
     effect('Double strikethrough', 'strikethrough', 'double', 'Strikethrough'), effect('All caps', 'capitalization', 'caps', 'Small caps'),
-    effect('Superscript', 'verticalAlign', 'superscript', 'Subscript'), el('span'),
+    effect('Superscript', 'verticalAlign', 'superscript', 'Subscript'), effect('Hidden', 'vanish', true),
     effect('Subscript', 'verticalAlign', 'subscript', 'Superscript'));
 
   /* ---- Advanced tab ---- */
@@ -115,6 +115,12 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
   };
   kern.addEventListener('change', applyKerning); kernFrom.addEventListener('input', applyKerning);
 
+  // Ligatures only where this document renders OpenType features (its compatibility settings allow them).
+  const LIGATURES = [['none', 'None'], ['standard', 'Standard only'], ['standardContextual', 'Standard and contextual'], ['historicalDiscretional', 'Historical and discretionary'], ['all', 'All']];
+  const ligatureSelect = el('select.input', { 'aria-label': 'Ligatures', onchange: () => set({ ligatures: ligatureSelect.value }) },
+    ...(f.ligatures == null || !LIGATURES.some(([v]) => v === f.ligatures) ? [el('option', { value: '', disabled: true }, f.ligatures == null ? 'Mixed' : 'Custom')] : []), ...LIGATURES.map(([v, label]) => el('option', { value: v }, label)));
+  ligatureSelect.value = LIGATURES.some(([v]) => v === f.ligatures) ? f.ligatures : '';
+
   /* ---- Preview ---- */
   const previewText = el('span', {}, (sample.replace(/\s+/g, ' ').trim().slice(0, 48)) || fontName || 'Aa Bb Cc');
   const previewBox = el('div.ed-font-preview', { 'aria-hidden': 'true' }, previewText);
@@ -137,6 +143,9 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
     s.letterSpacing = current('characterSpacing') ? `${current('characterSpacing') * 4 / 3}px` : '';
     s.display = 'inline-block';
     s.transform = current('textScale') && current('textScale') !== 100 ? `scaleX(${current('textScale') / 100})` : '';
+    // Hidden text previews as it shows with formatting marks: dotted underline, dimmed.
+    s.opacity = current('vanish') ? '0.55' : '';
+    if (current('vanish') && s.textDecorationLine === 'none') { s.textDecorationLine = 'underline'; s.textDecorationStyle = 'dotted'; }
   }
   preview();
 
@@ -152,6 +161,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
       el('div.ed-font-pair', {}, row('Spacing', spacing), row('By (pt)', spacingBy)),
       el('div.ed-font-pair', {}, row('Position', position), row('By (pt)', positionBy)),
       el('div.ed-font-pair', {}, el('label.ed-check', {}, kern, 'Kerning for fonts:'), row('Points and above', kernFrom))),
+    ligatures && el('fieldset.ed-font-advanced', {}, el('legend', {}, 'OpenType Features'), row('Ligatures', ligatureSelect)),
     scales);
   const tabs = [['font', 'Font', fontPanel], ['advanced', 'Advanced', advancedPanel]];
   const tabButtons = tabs.map(([id, label, panel], i) => el('button.ed-font-tab', { type: 'button', role: 'tab', id: `ed-font-tab-${id}-button`, 'aria-controls': panel.id, 'aria-selected': String(!i), tabindex: i ? -1 : 0,
@@ -175,8 +185,18 @@ export function openFontDialog({ format: f, sample = '', apply, onClose }) {
   fontPanel, advancedPanel,
   el('div.ed-font-preview-frame', {}, el('span.field-label', {}, 'Preview'), previewBox),
   message,
-  el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK')));
-  modal = openModal({ title: 'Font', content: form, wide: true, onClose });
+  el('div.fmt-footer', {},
+    el('div.fmt-footer-start', {},
+      setDefault && el('button.btn.btn-ghost', { type: 'button', onclick: async () => {
+        if (!form.reportValidity()) return;
+        let failure = null;
+        const ok = await setDefault({ ...patch }, error => { failure = error; });
+        if (ok === false) { if (failure) { message.textContent = failure.message; message.hidden = false; } return; }
+        modal.close();
+      } }, 'Set As Default'),
+      textEffects && el('button.btn.btn-outline', { type: 'button', onclick: () => { modal.close(); textEffects(); } }, 'Text Effects…')),
+    el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))));
+  modal = openModal({ title, content: form, wide: true, onClose });
   font.focus(); font.select();
   return modal;
 }

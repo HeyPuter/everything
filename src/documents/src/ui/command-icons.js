@@ -214,6 +214,10 @@ export const COMMAND_ICONS = {
 
   /* Styles and editing */
   stylesPane: r(3, 3, 12, 14, 'of') + lines(5, 6, 7, 2, 2.5) + brush(1, 0),
+  // A microphone: soft capsule, the cradle arc and its stand.
+  dictate: r(7.5, 2.5, 5, 9.5, 'bf', 2.5) + p('M8.5 5.5h1.5M8.5 7.5h1.5', 'o ln') + p('M4.8 9.5a5.2 5.2 0 0 0 10.4 0', 'o') + p('M10 14.7v2.8M7 17.5h6', 'o'),
+  // Formatting revealed: a letter under a magnifier.
+  revealFormatting: t(7.5, 14, 'A', 12, { weight: 600 }) + magnifier(13.2, 11.8, 3.4),
   styleGallery: r(2.5, 2.5, 15, 4.2, 'bs', 1.4) + p('M4.7 4.6h5', 'wh') + r(2.5, 7.9, 15, 4.2, 'gf', 1.4) + p('M4.7 10h5', 'g') + r(2.5, 13.3, 15, 4.2, 'of', 1.4) + p('M4.7 15.4h5', 'o ln'),
   newStyle: t(7, 14, 'A', 12) + badge(14.5, 14.5, 'plus'),
   editStyle: t(7, 14, 'A', 12) + pencil(2, 2),
