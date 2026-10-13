@@ -909,3 +909,22 @@
     max-height: none;
   }
 }
+
+.lk-list[data-thumbs='none'] .lk-row {
+  grid-template-columns: 1fr auto;
+}
+
+.lk-list[data-thumbs='large'] .lk-row {
+  grid-template-columns: 56px 1fr auto;
+  min-height: 52px;
+}
+
+.lk-list[data-thumbs='large'] .lk-thumb {
+  width: 56px;
+  height: 46px;
+}
+
+.lk-status[data-status='missing'],
+.lk-status[data-status='modified'] {
+  color: var(--danger, #d93f3f);
+}
