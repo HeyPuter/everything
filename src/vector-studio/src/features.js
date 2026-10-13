@@ -40,6 +40,7 @@ import { install as installSlices } from './features/slices/index.js';
 import { install as installWorkspace } from './features/workspace/index.js';
 import { install as installLayers } from './features/layers/index.js';
 import { install as installPrepress } from './features/prepress/index.js';
+import { install as installGenerative } from './features/generative/index.js';
 
 export function installFeatures(app) {
   installHome(app);
@@ -80,6 +81,7 @@ export function installFeatures(app) {
   installFlare(app);
   installDimension(app);
   installCorners(app);
+  installGenerative(app);
   // After the document features: sharing wraps Save and gates editing commands.
   installCollab(app);
   // Last: shortcut sets apply to every command and tool registered above.

@@ -171,6 +171,8 @@ export function installTaskbar(app) {
         items.push(cmdButton('object.lock', 'Lock', 'lock'), cmdButton('object.transform.move', 'Move', 'move'));
       }
     }
+    // Feature modules add quick actions: app.taskbarExtras.push((ctx, { button, cmdButton, menuButton }) => [elements]).
+    for (const extra of app.taskbarExtras || []) items.push(...[].concat(extra(ctx, { button, cmdButton, menuButton }) || []));
     items.push(more);
     bar.replaceChildren(grip, ...items.filter(Boolean));
     const focusables = controls();
@@ -279,7 +281,8 @@ export function installTaskbar(app) {
       return;
     }
     const ctx = taskbarContext(app.editor);
-    const liveKind = ctx === 'live' ? app.editor.doc.get(app.editor.topSelection()[0])?.live?.kind : '';
+    const top = ctx === 'live' || ctx === 'other' ? app.editor.doc.get(app.editor.topSelection()[0]) : null;
+    const liveKind = ctx === 'live' ? top?.live?.kind : ctx === 'other' ? top?.type : '';
     const key = `${ctx}:${liveKind}:${Boolean(app.commands.get('pathfinder.unite'))}:${Boolean(app.commands.get('type.createOutlines'))}`;
     if (key !== contextKey) {
       const hadFocus = bar.contains(document.activeElement);

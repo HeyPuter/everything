@@ -1,0 +1,513 @@
+/* ---- Generate panel, Generation History, generative dialogs ---- */
+.panel-generate [hidden],
+.panel-generationHistory [hidden],
+.gen-dialog [hidden] {
+  display: none !important;
+}
+
+.gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.gen-label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.gen-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gen-prompt,
+.gen-result {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.gen-result {
+  min-height: 110px;
+}
+
+.gen-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.gen-row > .gen-field {
+  flex: 1 1 140px;
+  margin-bottom: 0;
+}
+
+.gen-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--bg-panel-2);
+}
+
+.gen-seg-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gen-seg-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.gen-seg-btn[aria-checked='true'] {
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.gen-modes {
+  margin-bottom: 2px;
+}
+
+.gen-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gen-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-detail-out {
+  min-width: 6ch;
+  color: var(--text-2);
+}
+
+.gen-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.gen-check.disabled label {
+  opacity: 0.55;
+}
+
+.gen-target {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.gen-target.warn {
+  color: var(--text);
+}
+
+.gen-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.gen-status {
+  margin: 8px 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.gen-status:empty {
+  display: none;
+}
+
+.gen-notice {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-2);
+  color: var(--text-2);
+}
+
+.gen-notice .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.gen-notice-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.gen-notice-text {
+  margin: 0;
+}
+
+/* Inline progress with Cancel. */
+.gen-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.gen-progress-label {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.gen-progress-track {
+  position: relative;
+  flex: 1;
+  min-width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.gen-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--accent);
+  transition: width var(--t-fast) linear;
+}
+
+.gen-progress.indeterminate .gen-progress-bar {
+  width: 35%;
+  animation: gen-slide 1.2s var(--ease) infinite;
+}
+
+@keyframes gen-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gen-progress.indeterminate .gen-progress-bar {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.gen-progress-pct {
+  min-width: 4ch;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+}
+
+/* Variations. */
+.gen-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.gen-tile {
+  display: block;
+  aspect-ratio: 1;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.gen-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.gen-tile:hover {
+  border-color: var(--border-strong);
+}
+
+.gen-tile[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.gen-tile.small {
+  width: 56px;
+  height: 56px;
+}
+
+.gen-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.gen-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Palettes. */
+.gen-chips {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.gen-chip {
+  flex: 1;
+  min-width: 6px;
+}
+
+.gen-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.gen-current-label {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.gen-palettes,
+.gen-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gen-palette,
+.gen-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.gen-option {
+  display: block;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.gen-palette-name {
+  flex: 0 0 34%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gen-palette:hover,
+.gen-option:hover {
+  border-color: var(--border-strong);
+}
+
+.gen-palette[aria-checked='true'],
+.gen-option[aria-checked='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--bg-selected);
+}
+
+.gen-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+
+.gen-idea {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.gen-idea:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Dialogs. */
+.dialog.gen-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.gen-dialog .dialog-body {
+  max-height: min(70vh, 640px);
+  overflow: auto;
+}
+
+.gen-original {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.gen-diff {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.gen-diff del {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+.gen-diff ins {
+  color: var(--success);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.gen-proof {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.gen-proof-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.gen-why {
+  color: var(--text-3);
+}
+
+/* Generation History. */
+.gen-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gen-hist-entry {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gen-hist-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--text-2);
+}
+
+.gen-hist-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gen-hist-time {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.gen-hist-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gen-hist-items.kind-recolor,
+.gen-hist-items.kind-text {
+  flex-direction: column;
+}
+
+.gen-hist-palette {
+  display: flex;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.gen-hist-palette:hover,
+.gen-hist-text:hover {
+  border-color: var(--border-strong);
+}
+
+.gen-hist-text {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .gen-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
