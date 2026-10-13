@@ -245,6 +245,28 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - `commitResampled` (`features/transform/image-size.ts`) stores resampled
   layer, mask, live-filter, channel and selection grids as one history step.
 
+## Portrait & Restore (`src/imaging/restore/`, `src/features/restore/`)
+
+- One pseudo-operation (`RESTORE_ID`, like the Filter Gallery) whose settings
+  list the eight filters (`defs.ts`: groups, `ParamSpec`s, `normalizeRestore`).
+  `pipeline.ts` runs the enabled ones in `RUN_ORDER` and limits the result by
+  the selection; the filter worker runs it for Live Filters and actions
+  (`runOperation` loads it on first use).
+- Pixels that settings cannot carry (AI results, a depth layer) are named
+  extras (`entry.aux`) that only the workspace's own worker has; `replayable()`
+  turns them off for Live Filters and recorded steps, and `isDeterministic()`
+  decides whether Live Filter output is offered.
+- The workspace worker (`features/restore/worker.ts`) keeps a source pyramid and
+  a cache of stage results keyed by everything a stage depends on, so moving a
+  slider of a later filter reuses earlier stages. A newer run supersedes an
+  older one between stages. Previews render a coarse level, then a level
+  matching the zoom; zooming past it renders full size on a second worker,
+  which Stop terminates.
+- Global estimates (skin regions, depth, colorization) run at a working size
+  relative to the image so previews match the full-size result; JPEG cleanup
+  as the first filter cleans the full-resolution source even for previews,
+  because block edges exist only on the original pixel grid.
+
 ## Type on paths and variables
 
 - Path and area text keep their path in `textData.path` (`TypePath`, local text space).
