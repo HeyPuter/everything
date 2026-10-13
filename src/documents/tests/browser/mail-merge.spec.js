@@ -24,6 +24,8 @@ test('types a list, inserts fields, previews, saves and merges to a new document
   await page.goto('/playground.html');
   const input = page.getByRole('textbox', { name: 'Document text' });
   await expect(input).toHaveValue(/^A small beginning/);
+  const tabs = await page.getByRole('tab').allTextContents();
+  expect(tabs.slice(tabs.indexOf('References'), tabs.indexOf('References') + 3)).toEqual(['References', 'Mailings', 'Review']);
   await page.getByRole('tab', { name: 'Mailings' }).click();
 
   // Type a new list of two recipients.
@@ -263,5 +265,38 @@ test('prints one copy per recipient and saves email messages when sending is una
   const saved = await download(page, info, 'email-main');
   expect(strFromU8(unzipSync(readFileSync(saved))['word/settings.xml'])).toContain('<w:mainDocumentType w:val="email"/>');
   expect(strFromU8(unzipSync(readFileSync(saved))['word/settings.xml'])).toContain('<w:mailSubject w:val="Your order"/>');
+  expect(errors).toEqual([]);
+});
+
+test('previews an imported main document with nested rules and keeps its data source link', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/^A small beginning/);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/mail-merge/letter.docx');
+  await expect(input).toHaveValue(/^Account review\n«AddressBlock»\n«GreetingLine»\nYour order ships to «City» on «Ship Date»\.\nSee you soon\./);
+  await expect(input).toHaveJSProperty('readOnly', false);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await expect(ribbon(page).getByRole('button', { name: 'Preview Results' })).toBeDisabled();
+  await page.locator('input[type=file][accept*=".xlsx"]').setInputFiles('tests/fixtures/mail-merge/recipients.csv');
+  await page.getByRole('dialog', { name: 'Mail Merge Recipients' }).getByRole('button', { name: 'OK' }).click();
+  // The document was saved while previewing; choosing a list shows its first recipient.
+  await expect(ribbon(page).getByRole('button', { name: 'Preview Results' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(input).toHaveValue(/^Account review\nMs\. Rosa Vidal\nTide Works, Ltd\.\n1 Pier Rd\nOslo 0150\nNorway\nDear Ms\. Vidal,\nYour order ships to Oslo on «Ship Date»\.\nSee you at the fjord\./);
+  await ribbon(page).getByRole('button', { name: 'Next Record' }).click();
+  await expect(input).toHaveValue(/\nYour order ships to Austin on «Ship Date»\.\nSee you soon\./);
+  await ribbon(page).getByRole('button', { name: 'Check for Errors' }).click();
+  const check = page.getByRole('dialog', { name: 'Check for Errors' });
+  await expect(check).toContainText('Fields with no matching column: Status, Ship Date, Balance');
+  await check.getByRole('button', { name: 'Close' }).first().click();
+  const saved = await download(page, info, 'imported-main');
+  const parts = unzipSync(readFileSync(saved)), settings = strFromU8(parts['word/settings.xml']);
+  expect(settings).toContain('<w:dataSource r:id="rMergeSource"/>');
+  expect(settings).toContain('<w:mappedName w:val="First Name"/>');
+  expect(strFromU8(parts['word/_rels/settings.xml.rels'])).toContain('file:///C:/Data/contacts.csv');
+  expect(strFromU8(parts['word/document.xml'])).toContain('<w:instrText xml:space="preserve"> IF "</w:instrText>');
   expect(errors).toEqual([]);
 });

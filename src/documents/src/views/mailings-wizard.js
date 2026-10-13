@@ -84,7 +84,7 @@ export function createWizard(mm) {
     if (to >= STEPS.length) { hide(); return; }
     step = Math.max(0, to);
     if (step === 0 && !mm.state().type) mm.startMerge('formLetters', { quiet: true });
-    if (step === 4) mm.setPreview(true);
+    if (step === 4 && mm.records().length && !mm.state().preview) mm.setPreview(true);
     render();
     content.querySelector('button, input')?.focus({ preventScroll: true });
   }

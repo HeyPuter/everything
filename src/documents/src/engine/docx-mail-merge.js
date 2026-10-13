@@ -245,9 +245,11 @@ export function writeMailMerge(parts, state) {
 /* ---- Merged output ---- */
 
 const isW = (n, name) => n?.nodeType === 1 && n.namespaceURI === W && n.localName === name;
+const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+/** Descendants in document order. Markup-compatibility fallbacks repeat their choice's content and are skipped. */
 function documentOrder(root) {
   const out = [];
-  const walk = node => { for (const c of node.children) { out.push(c); walk(c); } };
+  const walk = node => { for (const c of node.children) { if (c.namespaceURI === MC && c.localName === 'Fallback') continue; out.push(c); walk(c); } };
   walk(root); return out;
 }
 
