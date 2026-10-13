@@ -2701,3 +2701,28 @@ test("PowerPoint slides keep web links clickable", async () => {
   const ids = all(slide, "cNvPr").map((c) => c.getAttribute("id"));
   assert.equal(new Set(ids).size, ids.length);
 });
+
+test("spreadsheet exports list the addresses of linked words", async () => {
+  const b = linkedBoard();
+  b.items[2].textRuns.push({
+    start: 0,
+    end: 4,
+    style: { link: "https://example.com/read" },
+  });
+  const rows = spreadsheetModel(b, exportRegions(b))[0].rows,
+    url = rows[0].indexOf("URL");
+  const byText = new Map(rows.slice(1).map((row) => [row[1], row[url]]));
+  assert.equal(byText.get("Example"), "https://example.com/a?b=1&c=(2");
+  assert.equal(
+    byText.get("Read the spec today"),
+    "https://example.com/read\nhttps://example.com/spec",
+  );
+  // CSV quotes the line break inside the cell.
+  const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+    await blobBytes(exportCSV(b, exportRegions(b))),
+  );
+  assert.match(
+    text,
+    /,"https:\/\/example\.com\/read\nhttps:\/\/example\.com\/spec",/,
+  );
+});

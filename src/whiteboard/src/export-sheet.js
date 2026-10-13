@@ -4,6 +4,7 @@ import { createZip, xml } from "./zip.js";
 import { textOf } from "./export-layout.js";
 import { addTranslations, objectKind, t } from "./i18n.js";
 import { STATUS_LABELS, PRIORITY_LABELS } from "./planning/task.js";
+import { textLinks } from "./text-link-data.js";
 
 addTranslations({
   Type: "Type",
@@ -69,6 +70,16 @@ function taskValue(i, key) {
       : undefined;
 }
 const round = (n) => Math.round(n * 100) / 100;
+// An object's own address, then those of its linked words, one a line.
+const urlsOf = (i) =>
+  [
+    ...new Set([
+      ...(i.url ? [i.url] : []),
+      ...textLinks(i.text, i.textRuns || [])
+        .sort((a, c) => a.start - c.start)
+        .map((link) => link.url),
+    ]),
+  ].join("\n");
 function typeName(i) {
   if (i.type === "rect")
     return t(SHAPES.find((s) => s.key === (i.shape || "rectangle")).name);
@@ -168,7 +179,7 @@ export function spreadsheetModel(b, regions, added = []) {
         round(i.y),
         round(Math.abs(i.w)),
         round(Math.abs(i.h)),
-        i.url || "",
+        urlsOf(i),
         ...fields.map(([key]) => taskValue(i, key) ?? ""),
         i.id,
       ]),
