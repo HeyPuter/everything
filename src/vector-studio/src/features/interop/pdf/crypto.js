@@ -1,11 +1,11 @@
 /**
- * The PDF standard security handler for files that open without a
- * password (an empty user password: the usual case for files that only
- * restrict printing or editing). RC4 (40-128 bit) and AES-128 are
- * supported, and AES-256 (revision 5 and 6).
+ * The PDF standard security handler: RC4 (40-128 bit), AES-128 and
+ * AES-256 (revisions 5 and 6), opened with the user or the owner password.
+ * Files that only restrict printing or editing have an empty user password
+ * and open without asking.
  *
- * createDecryptor returns null when the file needs a password or uses a
- * handler this module does not implement.
+ * createDecryptor returns null when the password does not open the file or
+ * the file uses a handler this module does not implement.
  */
 import { PDFDict, PDFStream, Name, strBytes, bytesStr } from './primitives.js';
 
@@ -380,7 +380,7 @@ const cat = (...parts) => {
   return out;
 };
 
-/** Revision 6 hash (ISO 32000-2, 7.6.4.3.4) for an empty password. */
+/** Revision 6 hash (ISO 32000-2, 7.6.4.3.4). `udata` is the 48-byte U string for owner checks, else empty. */
 function hash2B(password, salt, udata) {
   let k = sha256(cat(password, salt, udata));
   let e = new Uint8Array(0);
@@ -397,9 +397,53 @@ function hash2B(password, salt, udata) {
   return k.subarray(0, 32);
 }
 
-/** A decryptor for the trailer's /Encrypt dictionary, or null when a password is needed. */
-export function createDecryptor(enc, id0 = '') {
-  if (!(enc instanceof PDFDict) || enc.name('Filter') !== 'Standard') return null;
+const equal = (a, b, n) => {
+  if (a.length < n || b.length < n) return false;
+  let d = 0;
+  for (let i = 0; i < n; i++) d |= a[i] ^ b[i];
+  return d === 0;
+};
+
+/** Password bytes for revisions 2-4: Latin-1 (PDFDocEncoding for the common characters), at most 32 bytes. */
+function legacyPassword(pw) {
+  const out = [];
+  for (const ch of String(pw || '')) {
+    const c = ch.codePointAt(0);
+    out.push(c < 256 ? c : 63);
+    if (out.length === 32) break;
+  }
+  return Uint8Array.from(out);
+}
+
+/** Password bytes for revisions 5 and 6: normalized UTF-8, at most 127 bytes. */
+function unicodePassword(pw) {
+  const bytes = new TextEncoder().encode(String(pw || '').normalize('NFKC'));
+  return bytes.subarray(0, 127);
+}
+
+const padded = (pw) => {
+  const out = new Uint8Array(32);
+  out.set(pw.subarray(0, 32));
+  out.set(PAD.slice(0, 32 - Math.min(32, pw.length)), Math.min(32, pw.length));
+  return out;
+};
+
+/** True for encryption this module can open with the right password (the standard handler, revisions 2-6). */
+export function isStandardEncryption(enc) {
+  if (!(enc instanceof PDFDict) || enc.name('Filter') !== 'Standard') return false;
+  const v = enc.num('V', 0);
+  const r = enc.num('R', 2);
+  return [1, 2, 4, 5].includes(v) && r >= 2 && r <= 6;
+}
+
+/**
+ * A decryptor for the trailer's /Encrypt dictionary, or null when the
+ * password (default: empty) opens neither as the user nor the owner
+ * password, or the handler is not supported. The password is used only to
+ * derive the file key and is not kept.
+ */
+export function createDecryptor(enc, id0 = '', password = '') {
+  if (!isStandardEncryption(enc)) return null;
   const v = enc.num('V', 0);
   const r = enc.num('R', 2);
   const O = strBytes(enc.get('O') || '');
@@ -426,35 +470,50 @@ export function createDecryptor(enc, id0 = '') {
     if (v === 4) keyLen = 16;
   }
   const encryptMetadata = enc.get('EncryptMetadata') !== false;
-  let key;
+  let key = null;
   if (r >= 5) {
-    // AES-256: the file key is wrapped with a key from the empty user password.
-    const ue = strBytes(enc.get('UE') || '');
-    const validation = U.subarray(32, 40);
-    const keySalt = U.subarray(40, 48);
-    const empty = new Uint8Array(0);
-    const check = r === 5 ? sha256(cat(empty, validation)) : hash2B(empty, validation, empty);
-    for (let i = 0; i < 32; i++) if (check[i] !== U[i]) return null;
-    const ik = r === 5 ? sha256(cat(empty, keySalt)) : hash2B(empty, keySalt, empty);
-    key = aesCbcDecrypt(ik, ue.subarray(0, 32), { iv: new Uint8Array(16), unpad: false });
+    // AES-256: the file key is wrapped with a key derived from the user or the owner password.
+    const pw = unicodePassword(password);
+    const hash = (salt, udata) => (r === 5 ? sha256(cat(pw, salt, udata)) : hash2B(pw, salt, udata));
+    const none = new Uint8Array(0);
+    const u48 = U.subarray(0, 48);
+    const unwrap = (ik, wrapped) => aesCbcDecrypt(ik, wrapped.subarray(0, 32), { iv: new Uint8Array(16), unpad: false });
+    if (equal(hash(U.subarray(32, 40), none), U, 32)) key = unwrap(hash(U.subarray(40, 48), none), strBytes(enc.get('UE') || ''));
+    else if (O.length >= 48 && equal(hash(O.subarray(32, 40), u48), O, 32)) key = unwrap(hash(O.subarray(40, 48), u48), strBytes(enc.get('OE') || ''));
+    if (!key || key.length < 32) return null;
   } else {
-    // Algorithm 2 with an empty password.
     P >>>= 0;
-    const parts = [Uint8Array.from(PAD), O.subarray(0, 32), new Uint8Array([P & 255, (P >>> 8) & 255, (P >>> 16) & 255, (P >>> 24) & 255]), strBytes(id0 || '')];
-    if (r >= 4 && !encryptMetadata) parts.push(new Uint8Array([255, 255, 255, 255]));
-    let h = md5(cat(...parts));
-    if (r >= 3) for (let i = 0; i < 50; i++) h = md5(h.subarray(0, keyLen));
-    key = h.subarray(0, keyLen);
-    // Check the user password (empty).
-    if (r === 2) {
-      const u = rc4(key, Uint8Array.from(PAD));
-      for (let i = 0; i < 32; i++) if (u[i] !== U[i]) return null;
-    } else {
-      let u = md5(cat(Uint8Array.from(PAD), strBytes(id0 || '')));
-      u = rc4(key, u);
-      for (let i = 1; i <= 19; i++) u = rc4(key.map((b) => b ^ i), u);
-      for (let i = 0; i < 16; i++) if (u[i] !== U[i]) return null;
+    const id = strBytes(id0 || '');
+    // Algorithm 2: the file key from a padded user password.
+    const fileKey = (upw) => {
+      const parts = [padded(upw), O.subarray(0, 32), new Uint8Array([P & 255, (P >>> 8) & 255, (P >>> 16) & 255, (P >>> 24) & 255]), id];
+      if (r >= 4 && !encryptMetadata) parts.push(new Uint8Array([255, 255, 255, 255]));
+      let h = md5(cat(...parts));
+      if (r >= 3) for (let i = 0; i < 50; i++) h = md5(h.subarray(0, keyLen));
+      return h.subarray(0, keyLen);
+    };
+    // Algorithms 4 and 5: the U string the key would produce.
+    const userOk = (k) => {
+      if (r === 2) return equal(rc4(k, Uint8Array.from(PAD)), U, 32);
+      let u = rc4(k, md5(cat(Uint8Array.from(PAD), id)));
+      for (let i = 1; i <= 19; i++) u = rc4(k.map((b) => b ^ i), u);
+      return equal(u, U, 16);
+    };
+    const pw = legacyPassword(password);
+    const asUser = fileKey(pw);
+    if (userOk(asUser)) key = asUser;
+    else {
+      // Algorithm 7: the owner password decrypts O to the user password.
+      let h = md5(padded(pw));
+      if (r >= 3) for (let i = 0; i < 50; i++) h = md5(h);
+      const ok = h.subarray(0, r === 2 ? 5 : keyLen);
+      let upw = O.subarray(0, 32);
+      if (r === 2) upw = rc4(ok, upw);
+      else for (let i = 19; i >= 0; i--) upw = rc4(ok.map((b) => b ^ i), upw);
+      const asOwner = fileKey(upw);
+      if (userOk(asOwner)) key = asOwner;
     }
+    if (!key) return null;
   }
   const objectKey = (num, gen, aes) => {
     if (r >= 5) return key;

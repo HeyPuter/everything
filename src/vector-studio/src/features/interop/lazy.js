@@ -26,7 +26,7 @@ import { UNIT_CHOICES } from './dxf/common.js';
 import { encodeTIFF } from './codec/tiff.js';
 import { encodePNG } from './codec/png.js';
 import { rasterToPNG as toPNG } from './codec/raster.js';
-import { pdfPlaceDialog, pdfOpenDialog, dxfImportDialog, TEXT_MODES } from './dialogs.js';
+import { pdfPlaceDialog, pdfOpenDialog, pdfPasswordDialog, dxfImportDialog, TEXT_MODES } from './dialogs.js';
 
 export { reportWarnings };
 
@@ -161,6 +161,27 @@ function relinkSpots(r, remap) {
   return { ...r, subtree: { ...r.subtree, nodes } };
 }
 
+/**
+ * The page list of a PDF, asking for the password of an encrypted file
+ * (again after a wrong one). Null when the user cancels.
+ */
+export async function openPDFInfo(app, bytes, name) {
+  try {
+    return pdfPages(bytes);
+  } catch (err) {
+    if (!(err instanceof PDFError) || err.code !== 'password') throw err;
+  }
+  const attempt = (password) => {
+    try {
+      return pdfPages(bytes, { password });
+    } catch (err) {
+      if (err instanceof PDFError && err.code === 'password') return null;
+      throw err;
+    }
+  };
+  return pdfPasswordDialog(app, { name, attempt });
+}
+
 // ---------------------------------------------------------------- place
 
 export async function placeForeign(app, editor, file, kind, opts = {}) {
@@ -172,7 +193,8 @@ export async function placeForeign(app, editor, file, kind, opts = {}) {
   try {
     if (kind === 'pdf') {
       if (!isPDF(bytes)) throw new UserError(`${file.name || 'The file'} is not a PDF file. Files from vector editors open here only when they were saved with PDF compatibility.`);
-      const info = pdfPages(bytes);
+      const info = await openPDFInfo(app, bytes, file.name || name);
+      if (!info) return null;
       const fams = families();
       const choice = await pdfPlaceDialog(app, info, { name: file.name || name, families: fams });
       if (!choice) return null;
@@ -223,7 +245,8 @@ export async function openForeign(app, bytes, { name, format }) {
   try {
     if (format === 'pdf') {
       if (!isPDF(bytes)) throw new UserError(`"${name}" is not a PDF file. Files from vector editors open here only when they were saved with PDF compatibility.`);
-      const info = pdfPages(bytes);
+      const info = await openPDFInfo(app, bytes, name);
+      if (!info) return null;
       const fams = families();
       let pages = null;
       let textMode = app.prefs?.get('interop.pdfOpen')?.textMode || 'auto';

@@ -2,7 +2,7 @@
  * PDF import: pages to a new document (one artboard per page) or one page
  * as a group to place, with a choice of the page box to crop to.
  *
- *   pdfPages(bytes)                      -> { doc, pages: [{ index, size, boxes }], title }
+ *   pdfPages(bytes, { password })        -> { doc, pages: [{ index, size, boxes }], title }
  *   pdfToDocument(bytes, opts)           -> VDocument (with importWarnings)
  *   pdfToNodes(bytes, opts)              -> { subtree, root, assets, bounds, warnings, swatches, patterns }
  *
@@ -33,13 +33,13 @@ export const CROP_BOXES = [
 
 const nextTask = () => new Promise((r) => setTimeout(r, 0));
 
-export function openPDF(bytes) {
-  return bytes instanceof PDFDocument ? bytes : new PDFDocument(bytes);
+export function openPDF(bytes, opts) {
+  return bytes instanceof PDFDocument ? bytes : new PDFDocument(bytes, opts);
 }
 
-/** Page list for the import dialogs. */
-export function pdfPages(bytes) {
-  const doc = openPDF(bytes);
+/** Page list for the import dialogs. opts: { password } for encrypted files. */
+export function pdfPages(bytes, opts) {
+  const doc = openPDF(bytes, opts);
   return {
     doc,
     title: doc.title,
