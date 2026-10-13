@@ -30,6 +30,10 @@ export const commands = new Map<string, Command>();
 // shortcuts from earlier versions keep working.
 export const renamedCommands = new Map<string, string>();
 export const findCommand = (id: string) => commands.get(renamedCommands.get(id) ?? id);
+/** Commands that only run from a person's own click or key press, never from
+ * a script or a replayed action: the Assistant (asking sends a request that
+ * may use the person's AI credits at once) and Generation History. */
+export const interactiveOnly = (id: string) => /^(assistant|generations)\./.test(id);
 export function registerCommand(...list: Command[]) {
   for (const c of list) commands.set(c.id, c);
 }

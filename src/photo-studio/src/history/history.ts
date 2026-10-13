@@ -83,6 +83,15 @@ export class History {
     this.holds++;
     return { state: this.states[this.index], existing: new Set(this.states), open: true };
   }
+  /** Like `mark`, but when the latest step is labelled `label` (and nothing
+   * after it was undone), later edits join that step when squashed: a run
+   * paused between its steps continues the undo step it left. */
+  resume(label: string): HistoryMark {
+    const top = this.states[this.index];
+    if (this.index === 0 || this.index !== this.states.length - 1 || top.label !== label) return this.mark();
+    this.holds++;
+    return { state: this.states[this.index - 1], existing: new Set(this.states.filter((s) => s !== top)), open: true };
+  }
   /** Replace the states recorded since `mark` with one step showing the
    * current document. Returns whether the edits left a step behind. */
   squash(mark: HistoryMark, label: string) {

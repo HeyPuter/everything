@@ -196,6 +196,8 @@ test('the start screen hands a described edit to the Assistant', async ({ page }
   await script(page, { calls: [{ name: 'propose_plan', args: { title: 'Square', steps: [{ action: 'op.crop', args: { aspect: '1:1' } }] } }] });
   const box = page.getByRole('region', { name: 'Describe an edit' });
   await expect(box).toBeVisible();
+  // It says what is sent, image preview included, as the panel does.
+  await expect(box.locator('.start-describe-note')).toContainText('Sends your request, the document’s size and layer list and a small preview to Puter’s AI service');
   await box.getByRole('button', { name: 'Start' }).click();
   await expect(page.locator('#status')).toHaveText('Describe the edit first.');
   await box.getByRole('textbox', { name: 'Describe an edit' }).fill('crop it to a square');
@@ -270,4 +272,83 @@ test('AI results are recorded in Generation History and placed again', async ({ 
   // Delete removes the entry.
   await panel.getByRole('button', { name: 'Delete: a red kite' }).click();
   await expect(panel.locator('.gen-row')).toHaveCount(0);
+});
+
+test('AI Fill run by a plan is recorded as an AI result in provenance', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await openImage(page, 160, 120, '#808080', 'photo.png');
+  await page.evaluate(() => {
+    window.photoStudio.preferences.provenancePrompts = true;
+  });
+  await openAssistant(page);
+  await script(page, { calls: [{ name: 'propose_plan', args: { title: 'Bench', steps: [{ action: 'op.select', args: { x: 20, y: 20, width: 60, height: 40 } }, { action: 'edit.ai-fill', args: { prompt: 'a wooden bench' } }] } }] });
+  await send(page, 'put a bench here');
+  const plan = page.locator('.ast-plan');
+  await plan.getByRole('button', { name: 'Run All' }).click();
+  const dialog = page.locator('dialog[open]');
+  await expect(dialog.locator('#ai-prompt')).toHaveValue('a wooden bench');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(plan.locator('.ast-outcome')).toContainText('Done');
+  const layer = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!);
+  expect(layer.generated).toEqual({ kind: 'fill', prompt: 'a wooden bench' });
+  const ai = await page.evaluate(async () => {
+    const { recordOf } = await import('/src/features/provenance/recorder.ts');
+    return recordOf(window.photoStudio.session).ai;
+  });
+  expect(ai).toHaveLength(1);
+  expect(ai[0]).toMatchObject({ command: 'edit.ai-fill', kind: 'fill', prompt: 'a wooden bench' });
+});
+
+test('Generation History places a Generate Image result as the dialog fitted it', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  // The stub returns 128 × 96 images; this canvas is wider, so fitting leaves margins.
+  await openImage(page, 200, 100, '#808080', 'wide.png');
+  await page.evaluate(async () => {
+    const { generationStore } = await import('/src/features/generations/record.ts');
+    await generationStore().clear();
+  });
+  await start(page, 'edit.generate-image');
+  const dialog = page.locator('dialog[open]');
+  await dialog.locator('#as-prompt').fill('a lighthouse');
+  await dialog.locator('#as-count').selectOption('1');
+  await dialog.locator('#as-fit').selectOption('fit');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await dialog.getByRole('button', { name: 'Add Layer' }).click();
+  await idle(page);
+  const alpha = (index: number) =>
+    page.evaluate(async (index) => {
+      const { readRGBA } = await import('/src/model/tiles.ts');
+      const e = window.photoStudio;
+      const l = e.doc.layers.at(index)!;
+      const at = (x: number, y: number) => readRGBA(e.assets.tiles, l.pixels!, { x, y, width: 1, height: 1 }).data[3];
+      return [at(4, 50), at(100, 50), at(195, 50)];
+    }, index);
+  expect(await alpha(-1)).toEqual([0, 255, 0]);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  await page.locator('.menubar-entry.open .menu-item[data-command="window.panel.generations"]').click();
+  const panel = page.locator('.generations-panel');
+  await panel.getByRole('button', { name: 'Place as a new layer: a lighthouse' }).first().click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(3);
+  await idle(page);
+  expect(await alpha(-1)).toEqual([0, 255, 0]);
+});
+
+test('Generation History shows a result as soon as it is stored', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await openImage(page, 120, 90, '#808080', 'photo.png');
+  await page.evaluate(async () => {
+    const { generationStore } = await import('/src/features/generations/record.ts');
+    await generationStore().clear();
+  });
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  await page.locator('.menubar-entry.open .menu-item[data-command="window.panel.generations"]').click();
+  const panel = page.locator('.generations-panel');
+  await expect(panel.locator('.gen-empty')).toContainText('No AI results yet');
+  // Stored without any other change to the workspace (as when a dialog records after closing).
+  await page.evaluate(async () => {
+    const { recordGeneration } = await import('/src/features/generations/record.ts');
+    await recordGeneration(window.photoStudio, { kind: 'generate', prompt: 'stored later' }, { width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) });
+  });
+  await expect(panel.locator('.gen-row')).toHaveCount(1);
+  await expect(panel.locator('.gen-row')).toContainText('stored later');
 });

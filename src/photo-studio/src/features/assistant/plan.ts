@@ -155,25 +155,30 @@ export function validatePlan(plan: Plan, env: PlanEnv) {
     if (!env.hasDocument && !NO_DOCUMENT(step.action)) step.problems.push('Open or create a document first.');
     const effect = selectionEffect(step, env);
     if (effect === 'needs' && !hasSelection) step.problems.push(`“${step.label}” needs a selection, and there is none at this point. Add a step that selects an area first.`);
+    // A command can need a selection and then clear it (AI Fill, masking from
+    // the selection): the steps after it have none.
     if (effect === 'creates') hasSelection = true;
-    else if (effect === 'clears' || (step.action === 'op.add_adjustment_layer' && hasSelection)) hasSelection = false;
+    else if (effect === 'clears' || clearsSelection(step) || (step.action === 'op.add_adjustment_layer' && hasSelection)) hasSelection = false;
   }
 }
+const clearsSelection = (step: Pick<Step, 'kind' | 'action'>) => step.kind === 'command' && CLEARS_SELECTION.has(step.action);
+/** A step's main selection effect ('needs' wins; see `validatePlan` for commands that also clear it). */
 export function selectionEffect(step: Pick<Step, 'kind' | 'action'>, env: Pick<PlanEnv, 'needsSelection'>): SelectionEffect | undefined {
   if (step.kind === 'op') return opById.get(step.action)?.selection === 'needs' ? 'needs' : opById.get(step.action)?.selection;
   if (step.kind !== 'command') return undefined;
   if (env.needsSelection(step.action)) return 'needs';
   if (CREATES_SELECTION.has(step.action)) return 'creates';
-  if (CLEARS_SELECTION.has(step.action)) return 'clears';
+  if (clearsSelection(step)) return 'clears';
   return undefined;
 }
 
 export const planProblems = (plan: Plan) => plan.steps.reduce((n, s) => n + s.problems.length, 0);
 export const usesAI = (plan: Plan) => plan.steps.some((s) => AI_COMMANDS.has(s.action));
 
-/** The argument a command step runs with: recorded settings or a dialog prefill. */
+/** The argument a command step runs with: recorded settings (defaults for
+ * those not given, never the dialog) or a dialog prefill. */
 export function commandArg(step: Step): unknown {
-  if (step.input === 'settings') return Object.keys(step.args).length ? { params: { ...step.args } } : undefined;
+  if (step.input === 'settings') return { params: { ...step.args } };
   if (step.input === 'ai') return { prefill: { ...step.args, via: 'assistant' } };
   return undefined;
 }

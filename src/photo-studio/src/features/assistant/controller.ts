@@ -2,6 +2,7 @@
 // conversation per open document, asking the model, turning replies into
 // checked plans, editing and running plans, and "Show me".
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import { commands, findCommand, menuContributions, panels, tools } from '../../app/registry';
 import { menuSkeleton } from '../../app/menus';
 import { chatWithTools, toAIError } from '../../imaging/ai/puter-ai';
@@ -19,7 +20,7 @@ export type Message =
   | { id: string; role: 'assistant'; kind: 'text' | 'answer' | 'error'; text: string; pointers?: Pointer[] }
   | { id: string; role: 'assistant'; kind: 'plan'; text: string; plan: Plan; state: 'ready' | 'running' | 'stepping' | 'done' | 'stopped' | 'failed' | 'discarded'; outcome?: string };
 export type PlanMessage = Extract<Message, { kind: 'plan' }>;
-export type Conversation = { key: string; messages: Message[]; pending?: { abort: AbortController; status: string }; run?: { run: PlanRun; message: PlanMessage; lastDoc?: unknown } };
+export type Conversation = { key: string; messages: Message[]; pending?: { abort: AbortController; status: string }; run?: { run: PlanRun; message: PlanMessage } };
 
 const conversations = new Map<string, Conversation>();
 const listeners = new Set<() => void>();
@@ -49,9 +50,16 @@ export function clearConversation(e: Editor) {
   c.pending = undefined;
   changed();
 }
-/** Conversations of closed documents are dropped. */
+/** Conversations of closed documents are dropped (a pending request is stopped). */
 export function forgetSession(id: string) {
+  conversations.get(id)?.pending?.abort.abort();
   conversations.delete(id);
+}
+/** The editor as seen from one open document, whichever document is active
+ * later: a request describes, previews and checks the document it was made
+ * for even when another one is shown by the time the reply arrives. */
+export function documentView(e: Editor, s: DocumentSession = e.session): Editor {
+  return new Proxy(e, { get: (t, k, view) => (k === 'session' ? s : Reflect.get(t, k, view)) });
 }
 
 let catalog: { size: number; value: Catalog } | undefined;
@@ -116,10 +124,12 @@ export function setChat(fn: ChatFn) {
 }
 
 /** Ask the model about a request; adds the user's message and the reply. */
-export async function ask(e: Editor, request: string) {
+export async function ask(active: Editor, request: string) {
   const text = request.trim();
   if (!text) return;
-  const c = conversation(e);
+  const c = conversation(active);
+  // Everything below reads the document the request was made in.
+  const e = documentView(active);
   if (c.pending) return e.message('The Assistant is still answering. Stop it first.');
   const seeImage = assistantSettings.seeImage && e.hasDocument;
   const prior = history(c);
@@ -282,19 +292,15 @@ export async function runPlan(e: Editor, m: PlanMessage, mode: 'all' | 'step') {
     e.transform.apply();
     e.modal?.apply();
     c.run = { run: new PlanRun(e, m.plan), message: m };
-  } else if (c.run.lastDoc !== undefined && c.run.lastDoc !== e.doc) {
-    // The document was edited between steps: keep those edits a separate
-    // undo step and continue the plan in a new one.
-    c.run.run.finish();
-    for (const s of m.plan.steps) if (s.status === 'skipped') s.status = 'pending';
-    c.run.run = new PlanRun(e, m.plan);
   }
+  // Between steps the run's undo step is closed (PlanRun.pause): edits made
+  // meanwhile stay their own steps, and the plan continues in a new undo step
+  // after them (or in the same one when the document did not change).
   const r = c.run;
   m.state = 'running';
   changed();
   try {
     await r.run.run(mode === 'step' ? 1 : Infinity);
-    r.lastDoc = e.doc;
     if (r.run.done) end(e, c, m, r.run.stopped ? 'stopped' : 'done');
     else m.state = 'stepping';
   } catch {
@@ -320,14 +326,15 @@ export function stopPlan(e: Editor, m: PlanMessage) {
   }
 }
 function end(e: Editor, c: Conversation, m: PlanMessage, state: 'done' | 'stopped' | 'failed') {
+  const steps = c.run?.run.undoSteps ?? 1;
   c.run = undefined;
   m.state = state;
   const ran = m.plan.steps.filter((s) => s.status === 'done').length, all = m.plan.steps.length;
   const failed = m.plan.steps.find((s) => s.status === 'failed');
-  const undo = ran ? ' Undo removes the changes in one step.' : '';
+  const undo = !ran ? '' : steps > 1 ? ` Undo removes the changes in ${steps} steps, around the edits made in between.` : ' Undo removes the changes in one step.';
   m.outcome =
     state === 'done'
-      ? `Done: ${all} step${all === 1 ? '' : 's'} applied as one undo step.`
+      ? `Done: ${all} step${all === 1 ? '' : 's'} applied as ${steps > 1 ? `${steps} undo steps (the document was edited between steps)` : 'one undo step'}.`
       : state === 'stopped'
         ? `Stopped after ${ran} of ${all} steps.${undo}`
         : `Step ${m.plan.steps.indexOf(failed!) + 1} failed: ${failed?.error ?? 'unknown error'}${ran ? ` The ${ran} step${ran === 1 ? '' : 's'} before it were applied.` : ''}${undo}`;

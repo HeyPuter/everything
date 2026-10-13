@@ -24,7 +24,7 @@ import {
 } from './controller';
 import { stepDetail, usesAI, type Step } from './plan';
 import type { Param } from './params';
-import { assistantSettings, modelLabel, saveAssistantSettings } from './settings';
+import { assistantSettings, modelLabel, saveAssistantSettings, sentNote } from './settings';
 import { AI_COMMANDS } from './catalog';
 
 // The step whose settings are being edited.
@@ -150,10 +150,8 @@ function renderLog(e: Editor, el: HTMLElement) {
   el.querySelector<HTMLButtonElement>('.ast-send')!.disabled = busy;
   el.querySelector<HTMLElement>('.ast-model')!.textContent = modelLabel(assistantSettings.model);
   el.querySelector<HTMLInputElement>('.ast-see input')!.checked = assistantSettings.seeImage;
-  el.querySelector<HTMLElement>('.ast-sent')!.textContent = sentNote(e);
+  el.querySelector<HTMLElement>('.ast-sent')!.textContent = sentNote(e.hasDocument);
 }
-const sentNote = (e: Editor) =>
-  `Sends your request${e.hasDocument ? `, the document’s size and layer list${assistantSettings.seeImage ? ' and a small preview' : ''}` : ''} to Puter’s AI service (Puter account; may use credits).`;
 
 function readForm(form: HTMLFormElement, params: Param[]): Record<string, unknown> | string {
   const out: Record<string, unknown> = {};
@@ -220,7 +218,7 @@ export function mountAssistant(e: Editor, el: HTMLElement) {
   el.querySelector<HTMLInputElement>('.ast-see input')!.addEventListener('change', (ev) => {
     assistantSettings.seeImage = (ev.target as HTMLInputElement).checked;
     saveAssistantSettings();
-    el.querySelector<HTMLElement>('.ast-sent')!.textContent = sentNote(e);
+    el.querySelector<HTMLElement>('.ast-sent')!.textContent = sentNote(e.hasDocument);
   });
   const log = el.querySelector<HTMLElement>('.ast-log')!;
   log.addEventListener('click', (ev) => {

@@ -148,7 +148,7 @@ function noteAI(e: Editor, t: Tracking, before: PhotoDocument, doc: PhotoDocumen
     const g = l?.generated;
     addAI(t.record, {
       command: command ?? 'unknown',
-      kind: kind ?? (g?.kind === 'generate' || g?.kind === 'edit' || g?.kind === 'upscale' ? g.kind : 'other'),
+      kind: kind ?? g?.kind ?? 'other',
       when,
       ...(prompts && g?.prompt ? { prompt: g.prompt.slice(0, 10_000) } : {}),
       ...(g?.model ? { model: g.model.slice(0, 256) } : {}),

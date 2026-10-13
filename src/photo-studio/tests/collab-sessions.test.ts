@@ -17,6 +17,10 @@ import { ORIGIN } from '../src/collab/shared-project';
 import { writeThread } from '../src/collab/ycomments';
 import { newThread } from '../src/collab/comments';
 import { commenter, editor, environment, owner, until, viewer, wait, type User } from './collab-helpers';
+import { DocumentSession } from '../src/app/session';
+import type { Editor } from '../src/editor';
+import { buildPlan } from '../src/features/assistant/plan';
+import { PlanRun } from '../src/features/assistant/runner';
 
 const SERVER = 'https://photo-test.puter.work';
 type Env = ReturnType<typeof environment>;
@@ -258,6 +262,43 @@ describe('shared documents with several people', () => {
     await a.binding.idle();
     expect(a.binding.history.document.selection).toBeNull();
     expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
+  });
+
+  it('keeps this person’s edits made while an Assistant plan is paused as their own steps', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    // The parts of the editor a plan run uses, over this person's shared history.
+    const s = new DocumentSession(a.binding.history.document);
+    s.history = a.binding.history;
+    s.assets = a.assets;
+    s.hasDocument = true;
+    const e = { sessions: [s], session: s, hasDocument: true, doc: undefined as unknown, async switchSession() {}, command: (label: string, fn: (d: PhotoDocument) => void) => s.history.execute(label, fn), update() {}, message() {} };
+    Object.defineProperty(e, 'doc', { get: () => s.doc });
+    const none = () => undefined;
+    const steps = [{ action: 'op.set_layer', args: { layer: 'Top', opacity: 40 } }, { action: 'op.set_layer', args: { layer: 'Top', name: 'Renamed' } }, { action: 'op.set_layer', args: { layer: 'Fill', visible: false } }];
+    const plan = buildPlan({ steps }, 'tweak', { entry: none, command: none, commands: () => [], params: none, needsSelection: () => false, hasDocument: true, hasSelection: false });
+    const run = new PlanRun(e as unknown as Editor, plan);
+    await run.run(1);
+    edit(a, 'Manual', (d) => (d.layers[0].name = 'By hand'));
+    await run.run(1);
+    await run.run(1);
+    expect(run.done).toBe(true);
+    await settle(a, b);
+    expect(a.binding.history.labels).toEqual(['Assistant: tweak', 'Manual', 'Assistant: tweak']);
+    const state = (p: Person) => p.binding.history.document.layers.map((l) => [l.name, l.visible, l.opacity]);
+    expect(state(b)).toEqual([['By hand', true, 1], ['Renamed', true, 0.4], ['Fill', false, 1]]);
+    // The continued step (two runs) undoes at once; the edit by hand stays.
+    a.binding.history.undo();
+    await settle(a, b);
+    expect(state(b)).toEqual([['By hand', true, 1], ['Top', true, 0.4], ['Fill', true, 1]]);
+    a.binding.history.undo();
+    await settle(a, b);
+    expect(state(b)).toEqual([['Background', true, 1], ['Top', true, 0.4], ['Fill', true, 1]]);
+    a.binding.history.redo();
+    a.binding.history.redo();
+    await settle(a, b);
+    expect(state(b)).toEqual([['By hand', true, 1], ['Renamed', true, 0.4], ['Fill', false, 1]]);
   });
 
   it('prompts synchronization with change notices (owner directly, others through event handles)', async () => {

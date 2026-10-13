@@ -2,7 +2,7 @@
 // over the real registry, argument coercion, plan validation, the
 // tool-calling loop with a scripted model, and running a plan as one undo
 // step through the scripting host. Plus Generation History storage.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { History } from '../src/history/history';
 import { DocumentSession } from '../src/app/session';
 import { newDocument, type PhotoDocument } from '../src/model/document';
@@ -17,8 +17,11 @@ import { parseAspect, stepRect, adjustmentParams } from '../src/features/assista
 import { buildPlan, commandArg, setArgs, stepDetail, validatePlan, type PlanEnv } from '../src/features/assistant/plan';
 import { converse, systemPrompt, TOOLS, type ChatFn } from '../src/features/assistant/model';
 import { PlanRun, runLabel } from '../src/features/assistant/runner';
+import { ask, conversation, forgetSession, setChat, type PlanMessage } from '../src/features/assistant/controller';
 import { Catalog, commandInput, commandParams, words } from '../src/features/assistant/catalog';
+import { assistantSettings, sentNote } from '../src/features/assistant/settings';
 import { filterGenerations, GenerationStore } from '../src/persistence/generations';
+import { placementOf } from '../src/features/generations/panel';
 import { MemoryStore } from '../src/persistence/local-store';
 import { loadRegistry } from './registry-fixture';
 
@@ -209,6 +212,25 @@ describe('Assistant plan validation', () => {
     setArgs(plan.steps[1], { kind: 'nonsense' }, e);
     expect(plan.steps[1].problems[0]).toContain('Kind must be one of');
   });
+  it('knows commands that need a selection and then clear it', () => {
+    const extra: Record<string, string> = { 'select.subject': 'Subject', 'edit.ai-fill': 'AI Fill…', 'layer.mask-hide-selection': 'Hide Selection' };
+    const base = env();
+    const e = env({
+      command: (id) => (extra[id] ? { id, label: extra[id] } : base.command(id)),
+      entry: (id) => (extra[id] ? ({ id, kind: 'command', label: extra[id], path: [], input: id === 'edit.ai-fill' ? 'ai' : 'none', words: [], descWords: [] } as never) : base.entry(id)),
+      needsSelection: (id) => id === 'edit.ai-fill' || id === 'layer.mask-hide-selection' || id === 'image.crop',
+    });
+    const plan = buildPlan({ steps: [{ action: 'select.subject' }, { action: 'edit.ai-fill', args: { prompt: 'a bench' } }, { action: 'layer.mask-hide-selection' }] }, 'r', e);
+    expect(plan.steps[1].problems).toEqual([]);
+    // AI Fill leaves no selection, so the mask step would fail after a paid fill.
+    expect(plan.steps[2].problems).toEqual(['“Hide Selection” needs a selection, and there is none at this point. Add a step that selects an area first.']);
+  });
+  it('runs a settings step without settings at its defaults, not in its dialog', () => {
+    const plan = buildPlan({ steps: [{ action: 'filter.apply.gaussian-blur' }] }, 'r', env());
+    expect(plan.steps[0].input).toBe('settings');
+    expect(commandArg(plan.steps[0])).toEqual({ params: {} });
+    expect(stepDetail(plan.steps[0])).toBe('Default settings');
+  });
   it('requires a document for most steps', () => {
     const plan = buildPlan({ steps: [{ action: 'select.all' }, { action: 'op.set_colors', args: { foreground: 'red' } }] }, 'r', env({ hasDocument: false }));
     expect(plan.steps[0].problems).toEqual(['Open or create a document first.']);
@@ -345,6 +367,18 @@ function mockEditor() {
   return e;
 }
 
+describe('Assistant consent text', () => {
+  it('says the image preview is sent whenever it is', () => {
+    const was = assistantSettings.seeImage;
+    assistantSettings.seeImage = true;
+    expect(sentNote(true)).toBe('Sends your request, the document’s size and layer list and a small preview to Puter’s AI service (Puter account; may use credits).');
+    assistantSettings.seeImage = false;
+    expect(sentNote(true)).not.toContain('preview');
+    expect(sentNote(false)).toBe('Sends your request to Puter’s AI service (Puter account; may use credits).');
+    assistantSettings.seeImage = was;
+  });
+});
+
 describe('Assistant runs', () => {
   const planEnv = () => env({ command: (id) => (commands.has(id) ? { id, label: commands.get(id)!.label } : env().command(id)) });
   it('runs every step as one undo step named after the request', async () => {
@@ -400,6 +434,43 @@ describe('Assistant runs', () => {
     expect(e.history.position).toBe(start + 1);
     expect(e.doc.layers[0].visible).toBe(true);
   });
+  it('keeps edits made while a plan is paused as their own undo steps', async () => {
+    const e = mockEditor();
+    const plan = buildPlan({ title: 'Steps', steps: [{ action: 'op.set_layer', args: { opacity: 40 } }, { action: 'op.set_layer', args: { name: 'Photo' } }, { action: 'op.set_layer', args: { visible: false } }] }, 'r', planEnv());
+    const run = new PlanRun(e as unknown as Editor, plan);
+    await run.run(1);
+    // Paused: the first step is already an undo step of its own.
+    expect(e.history.labels).toEqual(['Assistant: r']);
+    e.command('Manual', (d) => void (d.layers[0].blend = 'multiply'));
+    await run.run(1);
+    // Nothing changed since that step: the next one continues its undo step.
+    await run.run(1);
+    expect(run.done).toBe(true);
+    expect(e.history.labels).toEqual(['Assistant: r', 'Manual', 'Assistant: r']);
+    expect(run.undoSteps).toBe(2);
+    const top = () => e.doc.layers[0];
+    expect([top().name, top().visible, top().blend, top().opacity]).toEqual(['Photo', false, 'multiply', 0.4]);
+    e.history.undo();
+    expect([top().name, top().visible, top().blend, top().opacity]).toEqual(['Background', true, 'multiply', 0.4]);
+    e.history.undo();
+    expect([top().name, top().blend, top().opacity]).toEqual(['Background', 'normal', 0.4]);
+    e.history.undo();
+    expect(top().opacity).toBe(1);
+  });
+  it('does not hold history open while a plan is paused', async () => {
+    const e = mockEditor();
+    e.history.limit = 3;
+    const plan = buildPlan({ title: 'Steps', steps: [{ action: 'op.set_layer', args: { opacity: 40 } }, { action: 'op.set_layer', args: { opacity: 60 } }] }, 'r', planEnv());
+    const run = new PlanRun(e as unknown as Editor, plan);
+    await run.run(1);
+    for (let i = 0; i < 6; i++) e.command(`Manual ${i}`, (d) => void (d.layers[0].name = `L${i}`));
+    // The limit applies while the plan waits.
+    expect(e.history.labels).toEqual(['Manual 3', 'Manual 4', 'Manual 5']);
+    run.stop();
+    await run.run();
+    expect(run.done).toBe(true);
+    expect(e.history.labels).toEqual(['Manual 3', 'Manual 4', 'Manual 5']);
+  });
   it('refuses a step with unresolved problems', async () => {
     const e = mockEditor();
     const plan = buildPlan({ steps: [{ action: 'nope' }] }, 'r', planEnv());
@@ -408,6 +479,77 @@ describe('Assistant runs', () => {
   it('names the undo step after the plan', () => {
     expect(runLabel({ title: 'Sky', request: 'make the sky more dramatic and then crop the image to sixteen by nine' })).toBe('Assistant: make the sky more dramatic and then crop the im…');
     expect(runLabel({ title: 'Sky', request: '' })).toBe('Assistant: Sky');
+  });
+});
+
+describe('Assistant requests', () => {
+  /** Two open documents; the first has a selection. */
+  function twoDocuments() {
+    const make = (name: string) => {
+      const s = new DocumentSession(newDocument(40, 30, name));
+      s.hasDocument = true;
+      return s;
+    };
+    const a = make('First'), b = make('Second');
+    a.history.execute('Select', (d) => void (d.selection = { x: 0, y: 0, width: 10, height: 10 }));
+    const e = {
+      sessions: [a, b],
+      session: a,
+      tool: 'move',
+      color: '#000000',
+      background: '#ffffff',
+      get hasDocument() {
+        return this.session.hasDocument;
+      },
+      get doc() {
+        return this.session.doc;
+      },
+      get assets() {
+        return this.session.assets;
+      },
+      get selectedIds() {
+        return this.session.selectedIds;
+      },
+      message() {},
+    };
+    return { e, a, b };
+  }
+  const proposal = (steps: unknown[]): ChatReply => ({ text: '', calls: [{ id: 'c0', name: 'propose_plan', args: { title: 'T', steps } }] });
+  it('describe and check the document they were made in, whichever is shown when the reply arrives', async () => {
+    const { e, a, b } = twoDocuments();
+    registerCommand({ id: 'test.needs-selection', label: 'Needs Selection', enabled: (ed) => !!ed.doc.selection, run: () => {} });
+    // Signing in takes a while; meanwhile the other document is shown.
+    let signedIn = false;
+    (globalThis as { puter?: unknown }).puter = { auth: { isSignedIn: () => signedIn, signIn: async () => ((e.session = b), (signedIn = true)) } };
+    const seen: string[] = [];
+    setChat(async (messages) => (seen.push(JSON.stringify(messages)), proposal([{ action: 'test.needs-selection' }])));
+    await ask(e as unknown as Editor, 'do it');
+    expect(e.session).toBe(b);
+    expect(seen[0]).toContain('Document “First”');
+    expect(seen[0]).not.toContain('Second');
+    e.session = a;
+    const plan = conversation(e as unknown as Editor).messages.at(-1) as PlanMessage;
+    expect(plan.kind).toBe('plan');
+    // Checked against the first document, which has a selection.
+    expect(plan.plan.steps[0].problems).toEqual([]);
+    commands.delete('test.needs-selection');
+  });
+  it('stop when their document is closed', async () => {
+    const { e, a } = twoDocuments();
+    (globalThis as { puter?: unknown }).puter = { auth: { isSignedIn: () => true } };
+    let signal: AbortSignal | undefined;
+    let release!: () => void;
+    setChat(async (_m, opts) => {
+      signal = opts.signal;
+      await new Promise<void>((r) => (release = r));
+      return { text: 'late', calls: [] };
+    });
+    const pending = ask(e as unknown as Editor, 'hello');
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    forgetSession(a.id);
+    expect(signal!.aborted).toBe(true);
+    release();
+    await pending;
   });
 });
 
@@ -424,6 +566,49 @@ describe('Generation History storage', () => {
     expect((await store.image(x.id))?.size).toBe(1000);
     await store.remove(x.id);
     expect(await store.list()).toEqual([]);
+  });
+  it('places Generate Image results as the dialog did (fill or fit, never stretched)', () => {
+    const doc = { id: 'd1', width: 400, height: 300 };
+    const area = { x: 10, y: 20, width: 200, height: 100 };
+    const generated = (settings: Record<string, unknown>, kind: 'generate' | 'assistant' | 'fill' = 'generate') => ({ kind, settings, placement: area, docId: 'd1' });
+    const img = { width: 128, height: 96 };
+    expect(placementOf(generated({ fit: 'fill', dialog: 'generate' }), doc, img)).toEqual({ ...area, mode: 'fill' });
+    expect(placementOf(generated({ fit: 'fit', dialog: 'generate' }), doc, img)).toEqual({ ...area, mode: 'fit' });
+    // The Assistant opened Generate Image: same dialog, same placement.
+    expect(placementOf(generated({ fit: 'fit', dialog: 'generate' }, 'assistant'), doc, img).mode).toBe('fit');
+    // Entries made before the setting was stored fill, as the dialog does by default.
+    expect(placementOf(generated({}), doc, img).mode).toBe('fill');
+    // Results cut to their area (AI Fill) go back at that size.
+    expect(placementOf(generated({ dialog: 'fill' }, 'fill'), doc, img)).toEqual({ ...area, mode: 'scale' });
+    // Another document: centered at its own proportions.
+    expect(placementOf(generated({ fit: 'fill' }), { id: 'other', width: 64, height: 64 }, img)).toEqual({ x: 0, y: 8, width: 64, height: 48, mode: 'scale' });
+  });
+  it('never keeps an image without its entry', async () => {
+    type S = 'entries' | 'images';
+    const quota = () => new Error('Quota exceeded');
+    // One write of both records: a failure stores neither.
+    const atomic = new MemoryStore<S>();
+    atomic.putAll = async () => {
+      throw quota();
+    };
+    await expect(new GenerationStore(atomic).add(entry('p'), blob(10))).rejects.toThrow('Quota');
+    expect(await atomic.keys('images')).toEqual([]);
+    // A store without combined writes removes the image again.
+    const plain = new MemoryStore<S>();
+    const put = plain.put.bind(plain);
+    Object.assign(plain, { putAll: undefined, put: async (store: S, key: string, value: unknown) => (store === 'entries' ? Promise.reject(quota()) : put(store, key, value)) });
+    await expect(new GenerationStore(plain).add(entry('p'), blob(10))).rejects.toThrow('Quota');
+    expect(await plain.keys('images')).toEqual([]);
+    // Images left behind earlier (an interrupted removal) go with the next prune and with Clear.
+    const mem = new MemoryStore<S>();
+    const store = new GenerationStore(mem);
+    await mem.put('images', 'orphan', blob(5));
+    await store.add(entry('kept'), blob(10));
+    expect(await mem.keys('images')).toEqual([(await store.list())[0].id]);
+    await mem.put('images', 'orphan-2', blob(5));
+    await store.clear();
+    expect(await mem.keys('images')).toEqual([]);
+    expect(await mem.keys('entries')).toEqual([]);
   });
   it('filters by kind and searches prompts', async () => {
     const store = new GenerationStore(new MemoryStore());

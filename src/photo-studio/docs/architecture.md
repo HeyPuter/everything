@@ -291,6 +291,9 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - `runner.ts` runs steps through a `ScriptHost` (commands with their recorded
   `{ params }`, AI commands with `{ prefill }` so only their dialog opens), and
   `host.finish` squashes the run into one undo step named after the request.
+  A step-by-step run closes its undo step at each pause (`PlanRun.pause`), so
+  edits made while it waits stay their own steps; going on from an unchanged
+  document continues the same step (`History.resume`).
   Commands that apply settings directly without a dialog can declare them in
   `catalog.ts` (`SETTINGS_PARAMS`).
 - Generation History stores results in its own IndexedDB database
