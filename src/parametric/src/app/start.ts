@@ -62,7 +62,7 @@ export class StartScreen {
       h('div', { class: 'start-actions' },
         action('new', 'New part', 'Start from a blank part', () => { this.hide(); app.settings.defaultUnits = units; app.newDocument('Part1'); }),
         action('open', 'Open', cloudAvailable() ? 'Open a part from your Puter cloud or this browser' : 'Open a part saved in this browser', () => { this.hide(); void this.files.open(); }),
-        action('upload', 'Open from device', 'Open a part file, or import a STEP file', () => { this.hide(); void this.files.openFromDevice(); }),
+        action('upload', 'Open from device', 'Open a part file, or a STEP or SolidWorks file', () => { this.hide(); void this.files.openFromDevice(); }),
       ),
       h('div', { class: 'row' }, h('label', { class: 'field-label' }, 'Units for new parts'), unitSel),
       recents.length ? h('div', { class: 'start-section' }, h('h2', {}, 'Recent'), h('div', { class: 'file-list' }, recents.map((r) => {

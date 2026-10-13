@@ -2,11 +2,11 @@
 // plus crash recovery of unsaved work in browser storage.
 
 import { defaultName } from '../model/features';
-import { parseDocument, serializeDocument } from '../model/document';
+import { newDocument, parseDocument, serializeDocument } from '../model/document';
 import type { ImportFeature, PartDocument } from '../model/types';
 import {
-  type Location, EXT, clearRecovery, download, listParts, loadText, locationLabel, newLocation, pickCloudFile, pickCloudSave,
-  pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud,
+  type Location, EXT, IMPORT_EXTS, clearRecovery, download, isSolidWorksFile, isStepFile, listParts, loadText, locationLabel, newLocation,
+  pickCloudFile, pickCloudSave, pickDeviceFile, readRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud,
 } from '../platform/files';
 import { cloudAvailable, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
@@ -178,8 +178,9 @@ export class FileOps {
     else if (v === 'browse') {
       const r = await pickCloudFile().catch((e) => { toast({ kind: 'error', message: storageError(e) }); return null; });
       if (r) {
-        if (/\.(step|stp)$/i.test(r.location.type === 'cloud' ? r.location.path : '')) await this.importStepText(r.text, r.name);
-        else if (await this.confirmDiscard('open another part')) this.openText(r.text, r.location, r.name);
+        if (isStepFile(r.fileName)) await this.importStepText(await r.blob.text(), r.fileName);
+        else if (isSolidWorksFile(r.fileName)) await this.openSolidWorks(new Uint8Array(await r.blob.arrayBuffer()), r.fileName);
+        else if (await this.confirmDiscard('open another part')) this.openText(await r.blob.text(), r.location, r.name);
       }
     }
     void app;
@@ -197,20 +198,61 @@ export class FileOps {
   }
 
   async openFromDevice() {
-    const file = await pickDeviceFile(`${EXT},.json,.step,.stp`);
+    const file = await pickDeviceFile(`${EXT},.json,${IMPORT_EXTS.join(',')}`);
     if (!file) return;
+    if (isStepFile(file.name)) { await this.importStepText(await file.text(), file.name); return; }
+    if (isSolidWorksFile(file.name)) { await this.openSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name); return; }
     const text = await file.text();
-    if (/\.(step|stp)$/i.test(file.name)) { await this.importStepText(text, file.name); return; }
     if (!(await this.confirmDiscard('open another part'))) return;
     this.openText(text, null, file.name.replace(/\.[^.]+$/, ''));
     this.app.store.dirty = true;
   }
 
-  /** Imports a STEP file as a solid feature in the current part. */
+  /** Imports a STEP or SolidWorks file as a solid feature in the current part. */
   async importStep() {
-    const file = await pickDeviceFile('.step,.stp');
+    const file = await pickDeviceFile(IMPORT_EXTS.join(','));
     if (!file) return;
+    if (isSolidWorksFile(file.name)) {
+      const step = await this.convertSolidWorks(new Uint8Array(await file.arrayBuffer()), file.name);
+      if (step) await this.importStepText(step, file.name);
+      return;
+    }
     await this.importStepText(await file.text(), file.name);
+  }
+
+  /** Opens a SolidWorks part as a new part whose first feature is its solid. */
+  async openSolidWorks(data: Uint8Array, fileName: string) {
+    const app = this.app;
+    if (!(await this.confirmDiscard('open another part'))) return;
+    const step = await this.convertSolidWorks(data, fileName);
+    if (!step) return;
+    const err = await app.kernel.checkImport(step).catch((e) => (e as Error).message);
+    if (err) { toast({ kind: 'error', title: 'Could not open the SolidWorks part', message: err }); return; }
+    const doc = newDocument(safeName(fileName.replace(/\.[^.]+$/, '')) || 'Part1', app.settings.defaultUnits);
+    const blobId = `b${Date.now().toString(36)}`;
+    doc.blobs[blobId] = step;
+    doc.features.push({ id: `f${doc.nextId++}`, name: defaultName(doc, 'import'), type: 'import', format: 'step', blob: blobId, fileName });
+    app.loadDocument(doc, null);
+    app.store.dirty = true;
+    toast({ kind: 'success', message: `Opened ${fileName}. SolidWorks feature history is not included: the part is one solid body to build on.`, timeout: 7000 });
+  }
+
+  /** Converts a SolidWorks part to STEP in the geometry worker; null after reporting a failure. */
+  private async convertSolidWorks(data: Uint8Array, fileName: string): Promise<string | null> {
+    if (data.length > 200_000_000) { toast({ kind: 'error', message: 'This SolidWorks file is too large to open (200 MB limit).' }); return null; }
+    const done = toast({ message: `Reading ${fileName}...`, timeout: 0 });
+    try {
+      const r = await this.app.kernel.convertSolidWorks(data, fileName);
+      if (r.skipped) {
+        toast({ kind: 'warning', message: `${r.skipped} ${r.skipped === 1 ? 'face' : 'faces'} of ${fileName} could not be converted, so the body may not be a closed solid.`, timeout: 9000 });
+      }
+      return r.step;
+    } catch (e) {
+      toast({ kind: 'error', title: 'Could not open the SolidWorks file', message: (e as Error).message });
+      return null;
+    } finally {
+      done();
+    }
   }
 
   async importStepText(text: string, fileName: string) {
@@ -314,9 +356,9 @@ export class FileOps {
       if (!it) return;
       try {
         const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
-        const text = await blob.text();
-        if (/\.(step|stp)$/i.test(it.name)) await this.importStepText(text, it.name);
-        else this.openText(text, { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
+        if (isSolidWorksFile(it.name)) await this.openSolidWorks(new Uint8Array(await blob.arrayBuffer()), it.name);
+        else if (isStepFile(it.name)) await this.importStepText(await blob.text(), it.name);
+        else this.openText(await blob.text(), { type: 'cloud', path: it.path }, it.name.replace(/\.[^.]+$/, ''));
       } catch (e) {
         toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
       }

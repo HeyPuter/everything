@@ -2,6 +2,7 @@
 // runs, only the most recent pending request is kept, so fast edits (dragging
 // a value) never queue stale work.
 
+import type { SolidWorksImport } from '../formats/sldprt';
 import type { BuildRequest, BuildResult, MassProperties, MeasureResult, MeasureTarget, ProjectionRequest, ProjectionResult, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
@@ -96,6 +97,11 @@ export class KernelClient {
 
   exportBrep(): Promise<string> {
     return this.call({ type: 'export', format: 'brep', quality: 1 });
+  }
+
+  /** Converts a SolidWorks part file to STEP text. Rejects with a readable message. */
+  convertSolidWorks(data: Uint8Array, name: string): Promise<SolidWorksImport> {
+    return this.call({ type: 'convertSolidWorks', data, name });
   }
 
   /** Returns null when the STEP text imports cleanly, else an error message. */

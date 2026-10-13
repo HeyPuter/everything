@@ -4,6 +4,7 @@
 
 import init from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
+import { solidWorksToStep } from '../formats/sldprt';
 import { ModelBuilder, errorText } from './build';
 import { setOc } from './occ';
 import type { BuildResult, MeshData, WorkerRequest, WorkerResponse } from './protocol';
@@ -81,6 +82,9 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
         reply({ id: msg.id, ok: true, result: st.ok ? null : st.error });
         return;
       }
+      case 'convertSolidWorks':
+        reply({ id: msg.id, ok: true, result: await solidWorksToStep(msg.data, msg.name) });
+        return;
     }
   } catch (e) {
     reply({ id: msg.id, ok: false, error: errorText(e) });

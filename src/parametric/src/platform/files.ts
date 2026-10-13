@@ -8,6 +8,10 @@
 import { cloudAvailable, isMissing, puter, toMs } from './puter';
 
 export const EXT = '.parametric';
+/** Files that open as an imported body rather than as a part document. */
+export const IMPORT_EXTS = ['.step', '.stp', '.sldprt'];
+export const isStepFile = (name: string) => /\.(step|stp)$/i.test(name);
+export const isSolidWorksFile = (name: string) => /\.(sldprt|sldasm|slddrw)$/i.test(name);
 export const CLOUD_DIR = 'Parts';
 const LOCAL_DIR = 'parametric-parts';
 const LOCAL_INDEX = 'parametric:local-parts';
@@ -207,16 +211,16 @@ export function forgetRecent(location: Location) {
 export const locationLabel = (loc?: Location | null) =>
   !loc ? 'Not saved' : loc.type === 'cloud' ? loc.path.replace(/^.*\/AppData\/[^/]+\//, '') : 'This browser';
 
-/** Opens a part chosen from Puter storage. */
-export async function pickCloudFile(): Promise<{ text: string; location: Location; name: string } | null> {
+/** Opens a file chosen from Puter storage: a part, or a STEP or SolidWorks file to import. */
+export async function pickCloudFile(): Promise<{ blob: Blob; fileName: string; location: Location; name: string } | null> {
   const p = puter();
   if (!p?.ui?.showOpenFilePicker) return null;
-  const pick = p.ui.showOpenFilePicker({ accept: [EXT, '.json', '.step', '.stp'], path: `%appdata%/${CLOUD_DIR}` });
+  const pick = p.ui.showOpenFilePicker({ accept: [EXT, '.json', ...IMPORT_EXTS], path: `%appdata%/${CLOUD_DIR}` });
   const item = await (pick?.undefinedOnCancel ?? pick);
   if (!item) return null;
   const file = Array.isArray(item) ? item[0] : item;
-  const text = await (await file.read!()).text();
-  return { text, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, '') };
+  const blob = await file.read!();
+  return { blob, fileName: file.name, location: { type: 'cloud', path: file.path }, name: file.name.replace(/\.(parametric|json)$/i, '') };
 }
 
 /** Save As into a user-chosen Puter folder. */

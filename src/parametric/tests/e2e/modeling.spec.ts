@@ -66,4 +66,16 @@ test.describe('part modeling', () => {
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme-resolved', 'dark');
   });
+
+  test('opens a SolidWorks part as an imported solid', async ({ page }) => {
+    const errors = await openApp(page);
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: /Open from device/ }).click();
+    await (await chooser).setFiles(decodeURIComponent(new URL('../fixtures/sldprt/cube-hole-sw2022.sldprt', import.meta.url).pathname));
+    await waitForFeature(page, 'Imported1');
+    await expect(page.locator('.doc-title')).toHaveText('cube-hole-sw2022');
+    await expect(page.locator('.ti.error')).toHaveCount(0);
+    await expect(page.locator('.toast.success')).toContainText('Opened cube-hole-sw2022.sldprt');
+    expect(errors).toEqual([]);
+  });
 });

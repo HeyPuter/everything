@@ -28,6 +28,7 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Holes: simple, counterbored and countersunk, placed by clicking faces.
 - Linear patterns (one or two directions), circular patterns and mirroring.
 - Reference planes, STEP import.
+- Open SolidWorks parts (.sldprt, SolidWorks 2003 and later) without SolidWorks: the exact solid is read from the file and becomes an imported body you can keep modeling on. The SolidWorks feature tree is not carried over.
 - References to faces and edges are stored by name, so fillets and sketches on faces survive dimension changes.
 
 **Drawings**
@@ -74,6 +75,7 @@ npm run build      # type check, license check, production build in dist/
 | Geometry kernel | `src/kernel` | OpenCascade (WebAssembly) in a Web Worker. Each feature is cached under a hash of everything before it, so edits rebuild only what changed. Faces are named after the feature and sketch entity that created them. |
 | Renderer | `src/render` | WebGL2: shaded meshes with per-face state in a data texture, screen-space thick edges, GPU picking with depth (asynchronous readback for hover), section clipping, render on demand. |
 | Interface | `src/app`, `src/ui` | No framework. CommandManager, design tree, PropertyManager panels, sketch editor, dialogs. |
+| SolidWorks import | `src/formats/sldprt` | Reads the SolidWorks container (2015+ chunk format and the older OLE2), decodes the embedded Parasolid transmit and writes it as exact STEP for the kernel. Runs in the geometry worker. |
 | Platform | `src/platform` | Puter.js access, files (Puter or browser storage), theme. |
 
 Settings are kept in a single key-value entry; part files are stored as files, never in the key-value store.
