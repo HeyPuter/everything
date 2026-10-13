@@ -113,7 +113,7 @@ describe('DOCX line numbering', () => {
     const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
     const firstSection = doc.paragraphs.find(p => p.sectionEnd).sectionEnd;
     expect(firstSection.lineNumbers).toEqual({ countBy: 1, start: 0, distance: null, restart: 'newPage' });
-    expect(doc.pageSettings.lineNumbers).toEqual({ countBy: 5, start: 9, distance: 288, restart: 'continuous' });
+    expect(doc.pageSettings.lineNumbers).toEqual({ countBy: 5, start: 9, distance: 288, restart: 'newSection' });
     const direct = doc.paragraphs.find(p => p.runs[0]?.text.startsWith('This paragraph is not numbered'));
     const styled = doc.paragraphs.find(p => p.runs[0]?.text.startsWith('This one uses'));
     const reset = doc.paragraphs.find(p => p.runs[0]?.text.startsWith('This paragraph turns'));
@@ -122,7 +122,9 @@ describe('DOCX line numbering', () => {
     expect(unzipSync(await bytesOf(save(pkg, doc)))).toEqual(unzipSync(bytes));
     const result = lineNumberLabels(layoutOf(doc), doc.paragraphs, doc.numbering, doc.styles, measure);
     expect(result.length).toBeGreaterThan(10);
-    expect(result.some(l => l.text === '10')).toBe(true);
+    // The second section restarts: its first label is 10 (the tenth line from start 9 + 1, counting by five).
+    const second = result.filter(l => l.page >= result.find(x => x.text === '10' && x.page > 0).page);
+    expect(second[0].text).toBe('10');
   });
 
   it('writes, changes and removes lnNumType and suppressLineNumbers', async () => {

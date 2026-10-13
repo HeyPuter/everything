@@ -5,7 +5,7 @@ WordprocessingML) so it does not depend on the editor's own DOCX writer.
 Two sections: the first numbers every line and restarts on each page, with a
 "Line Number" character style and one paragraph that suppresses numbering
 directly and one through its paragraph style; the second section uses two
-columns, counts by five, starts at 10 and continues across its pages. A table
+columns, counts by five, restarts at 10 and continues across its pages. A table
 in the first section is not numbered (tables are outside the numbered flow).
 
 Run: python3 tools/line_numbers_fixture.py
@@ -51,7 +51,7 @@ def section(line_numbers, columns='', break_type=None):
 
 def build():
     first = section('<w:lnNumType w:countBy="1" w:restart="newPage"/>')
-    second = section('<w:lnNumType w:countBy="5" w:start="9" w:distance="288" w:restart="continuous"/>',
+    second = section('<w:lnNumType w:countBy="5" w:start="9" w:distance="288" w:restart="newSection"/>',
                      '<w:cols w:num="2" w:space="720"/>', 'nextPage')
     body = ''.join([
         para('Line numbering sample', 'Title'),
@@ -62,7 +62,7 @@ def build():
         para('This paragraph turns numbering back on over its style. ' * 2, 'Unnumbered', suppress=False),
         table(),
         para(LOREM * 12, section=first),
-        para('Second section: two columns, every fifth line, starting at 10. ' + LOREM * 14),
+        para('Second section: two columns, every fifth line, restarting at 10. ' + LOREM * 14),
         para(LOREM * 10),
     ])
     document = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
