@@ -35,6 +35,7 @@ describe('Page Setup dialog', () => {
     expect(field('Inside margin (in)')).not.toBeNull();
     expect(field('Gutter position').disabled).toBe(true);
     set('Multiple pages', 'bookFold');
+    expect(field('Left margin (in)')).not.toBeNull();
     expect(field('Page orientation').value).toBe('landscape');
     submit();
     expect(apply.mock.calls[0][0]).toMatchObject({ orientation: 'landscape', width: 15840, height: 12240, bookFoldPrinting: true });

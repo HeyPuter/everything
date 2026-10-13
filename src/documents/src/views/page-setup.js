@@ -32,13 +32,14 @@ export function openPageSetup(settings, apply, options = {}) {
   const inputs = {}, originals = {};
   const error = el('p.field-error', { role: 'alert', hidden: true });
   const write = (key, twips) => {
+    // An untouched field keeps its exact stored value, however it displays.
     const text = String(Number((twips / per).toFixed(unit === 'cm' ? 3 : 5)));
     inputs[key].value = text;
     originals[key] = { text, twips };
   };
   const read = key => inputs[key].value === originals[key].text ? originals[key].twips : Math.round(Number(inputs[key].value) * per);
   const measure = (key, label, { min = 0, max = 22 } = {}) => {
-    inputs[key] = el('input.input', { type: 'number', required: true, step: unit === 'cm' ? 0.01 : 0.01, min: min * (unit === 'cm' ? 2.54 : 1), max: max * (unit === 'cm' ? 2.54 : 1), 'aria-label': `${label} (${unit})`,
+    inputs[key] = el('input.input', { type: 'number', required: true, step: 0.01, min: min * (unit === 'cm' ? 2.54 : 1), max: max * (unit === 'cm' ? 2.54 : 1), 'aria-label': `${label} (${unit})`,
       oninput: () => { if (['width', 'height'].includes(key)) paper.value = matchPaper(); preview(); } });
     write(key, settings[key]);
     const caption = el('span.field-label', {}, `${label} (${unit})`);
@@ -148,17 +149,17 @@ export function openPageSetup(settings, apply, options = {}) {
   }
   function preview() {
     // Mirrored and booklet pages put the gutter inside; their side margins read as inside and outside.
-    const mirrored = ['mirror', 'bookFold', 'reverseBookFold'].includes(pages.value);
+    const mirrored = pages.value === 'mirror', folded = ['bookFold', 'reverseBookFold'].includes(pages.value);
     left.caption.textContent = `${mirrored ? 'Inside' : 'Left'} margin (${unit})`; inputs.left.setAttribute('aria-label', left.caption.textContent);
     right.caption.textContent = `${mirrored ? 'Outside' : 'Right'} margin (${unit})`; inputs.right.setAttribute('aria-label', right.caption.textContent);
-    gutterPosition.disabled = mirrored;
+    gutterPosition.disabled = mirrored || folded;
     let next;
     try { next = validatePageSettings({ ...settings, ...changes() }); } catch { sheet.replaceChildren(); return; }
     const [w, h] = readingPageSize(next), scale = 96 / Math.max(w, h);
     const box = (x, y, bw, bh, cls) => el(`span.${cls}`, { style: { left: `${x * scale}px`, top: `${y * scale}px`, width: `${Math.max(0, bw) * scale}px`, height: `${Math.max(0, bh) * scale}px` } });
-    const g = next.gutter, atTop = next.gutterAtTop && !mirrored;
+    const g = next.gutter, atTop = next.gutterAtTop && !mirrored && !folded;
     const l = next.left + (atTop ? 0 : g), t = Math.abs(next.top) + (atTop ? g : 0);
-    const spread = mirrored || pages.value === 'twoOnOne';
+    const spread = mirrored || folded || pages.value === 'twoOnOne';
     // A short passage of text, placed as the vertical alignment puts it.
     const textHeight = h - t - Math.abs(next.bottom), passage = vertical.value === 'both' ? textHeight : textHeight * 0.45;
     const offset = { top: 0, center: (textHeight - passage) / 2, bottom: textHeight - passage, both: 0 }[vertical.value] || 0;
@@ -178,9 +179,12 @@ export function openPageSetup(settings, apply, options = {}) {
     try { options.setDefault(validatePageSettings({ ...settings, ...changes() })); error.hidden = true; }
     catch (e) { error.textContent = e.message; error.hidden = false; }
   } }, 'Set As Default');
-  const content = el('form.ed-dialog-body.ps-dialog', { onsubmit: e => {
+  // The arrows step by hundredths, but any value in range is accepted: imported measurements need not
+  // fall on the step.
+  const content = el('form.ed-dialog-body.ps-dialog', { noValidate: true, onsubmit: e => {
     e.preventDefault();
-    if (!content.reportValidity()) return;
+    const invalid = Object.values(inputs).find(input => input.value === '' || input.validity.badInput || input.validity.rangeUnderflow || input.validity.rangeOverflow);
+    if (invalid) { error.textContent = `Enter a measurement from ${invalid.min} to ${invalid.max} ${unit}.`; error.hidden = false; invalid.focus(); return; }
     try {
       const patch = changes(), storyPatch = storyChanges();
       validatePageSettings({ ...settings, ...patch });
@@ -193,7 +197,7 @@ export function openPageSetup(settings, apply, options = {}) {
   el('div.ps-body', {}, el('div.ps-panels', {}, pagePanel, layoutPanel),
     el('div.ps-side', {}, el('span.field-label', {}, 'Preview'), previewBox,
       el('label.field', {}, el('span.field-label', {}, 'Apply to'), scope))),
-  ...((settings.bookFoldPrinting || settings.bookFoldRevPrinting) ? [el('p.field-hint', {}, 'In a booklet, width and height describe each reading page. Without a top gutter, landscape booklets alternate margins and add the gutter to the saved right margin.')] : []),
+  ...((settings.bookFoldPrinting || settings.bookFoldRevPrinting) ? [el('p.field-hint', {}, 'Booklet printing is preserved. Width and height describe each reading page. Without a top gutter, landscape booklets alternate margins and add the gutter to the saved right margin.')] : []),
   ...(settings.top < 0 || settings.bottom < 0 ? [el('p.field-hint', {}, 'Negative top and bottom margins keep their saved sign and the same distance from the page edge.')] : []),
   error,
   el('div.row.ps-actions', {}, setDefault || el('span'),
