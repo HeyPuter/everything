@@ -366,7 +366,7 @@ export class TextDocument {
         patch.tabs = normalizeTabStops(value);
       } else if (INDENT_KEYS.includes(key)) {
         validateIndent(value);
-      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing') {
+      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing' || key === 'suppressLineNumbers') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
         if (!['left', 'center', 'right', 'both'].includes(value)) throw new Error('Choose left, center, right or justified alignment.');
