@@ -144,10 +144,16 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const okBtn = q<HTMLButtonElement>('.pr-ok');
   const view = new CompareView(q('.pr-view'), W, H);
   view.mode = 'split';
+  let zoomTimer = 0;
   view.onZoom = (z) => {
     zoomEl.textContent = `${Math.round(z * 1000) / 10}%`;
-    maybeFull();
     updateBefore();
+    // Zooming in asks for a sharper preview level (or the full size).
+    clearTimeout(zoomTimer);
+    zoomTimer = window.setTimeout(() => {
+      if (current && current.sig === sigOf() && current.level > fineLevel() && fullDone?.sig !== sigOf()) void refresh();
+      else maybeFull();
+    }, 250);
   };
   zoomEl.textContent = `${Math.round(view.zoom * 1000) / 10}%`;
   const preview = new RestoreClient('preview'), full = new RestoreClient('full');
@@ -886,6 +892,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
       done = true;
       for (const ac of aiRuns.values()) ac.abort();
       clearTimeout(fullTimer);
+      clearTimeout(zoomTimer);
       view.dispose();
       preview.dispose();
       full.dispose();
