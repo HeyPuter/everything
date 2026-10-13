@@ -410,7 +410,7 @@ export function gradientEnds(paint, b) {
 
 /** Rotational symmetry of each live shape kind, in degrees. */
 const SHAPE_PERIOD = {
-  rect: (s) => (s.radii && new Set(s.radii).size > 1 ? 360 : 180),
+  rect: (s) => ((s.radii && new Set(s.radii).size > 1) || (s.cornerTypes && new Set(s.cornerTypes).size > 1) ? 360 : 180),
   ellipse: () => 180,
   polygon: (s) => 360 / Math.max(3, Math.round(s.sides || 3)),
   star: (s) => 360 / Math.max(3, Math.round(s.points || 3)),
@@ -477,8 +477,10 @@ function transformShapeParams(shape, m, opts) {
       out.w = shape.w * k;
       out.h = shape.h * k;
       // Mirroring swaps the top and bottom corners (in the shape's own frame).
-      const radii = shape.radii && d.sy < 0 ? [shape.radii[3], shape.radii[2], shape.radii[1], shape.radii[0]] : shape.radii;
+      const flipTB = (c) => (c && d.sy < 0 ? [c[3], c[2], c[1], c[0]] : c);
+      const radii = flipTB(shape.radii);
       if (radii) out.radii = radii.map((r) => r * (opts.scaleCorners ? k : 1));
+      if (shape.cornerTypes) out.cornerTypes = flipTB(shape.cornerTypes);
     } else if (shape.kind === 'polygon') out.r = shape.r * k;
     else {
       out.r1 = shape.r1 * k;
@@ -495,12 +497,16 @@ function transformShapeParams(shape, m, opts) {
     const sy = Math.abs(L[3]);
     if (shape.kind === 'rect' || shape.kind === 'ellipse') {
       const scaleR = opts.scaleCorners ? Math.min(sx, sy) : 1;
-      let radii = shape.radii;
-      // Mirroring along the shape's axes swaps its corners: radii are [tl, tr, br, bl].
-      if (radii && L[0] < 0) radii = [radii[1], radii[0], radii[3], radii[2]];
-      if (radii && L[3] < 0) radii = [radii[3], radii[2], radii[1], radii[0]];
+      // Mirroring along the shape's axes swaps its corners: radii (and corner types) are [tl, tr, br, bl].
+      const mirror = (c) => {
+        if (c && L[0] < 0) c = [c[1], c[0], c[3], c[2]];
+        if (c && L[3] < 0) c = [c[3], c[2], c[1], c[0]];
+        return c;
+      };
+      const radii = mirror(shape.radii);
       return {
         ...shape,
+        ...(shape.cornerTypes ? { cornerTypes: mirror(shape.cornerTypes) } : {}),
         cx: c.x,
         cy: c.y,
         w: shape.w * sx,

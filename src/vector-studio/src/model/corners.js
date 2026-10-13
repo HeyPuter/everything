@@ -1,6 +1,8 @@
 /**
- * Live corners: an anchor can carry `corner: { r, type }` (type 'round',
- * 'inverted' or 'chamfer'). The path keeps its sharp anchor for editing and
+ * Live corners: an anchor can carry `corner: { r, type, rounding? }` (type
+ * 'round', 'inverted' or 'chamfer'; rounding 'absolute' (default: r is the
+ * arc's radius) or 'relative' (r is how far the corner reaches along each
+ * segment, so the curve follows the corner's angle)). The path keeps its sharp anchor for editing and
  * draws (and hit tests, measures and exports) with the corner cut: the two
  * neighboring segments are trimmed by the distance a circle of radius r
  * tangent to both would touch them, and the gap is joined by an arc, an
@@ -135,7 +137,8 @@ export function cornerLimits(anchors, closed) {
     if (!(r > 0)) return { d: 0, limited: false, geom: null };
     const geom = cornerGeometry(anchors, closed, i);
     if (!geom) return { d: 0, limited: false, geom: null };
-    const want = trimFor(r, geom.theta);
+    // Absolute rounding is a true radius; relative rounding measures r along the segments.
+    const want = a.corner.rounding === 'relative' ? r : trimFor(r, geom.theta);
     const prev = lens[(i - 1 + n) % n] ?? 0;
     const next = lens[i] ?? 0;
     const max = Math.min(prev, next) / 2;

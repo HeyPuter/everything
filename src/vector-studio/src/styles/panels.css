@@ -478,9 +478,29 @@
 }
 
 .shape-corners-link,
-.shape-actions {
+.shape-actions,
+.shape-corner-row {
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+.shape-corner-row .prop-label {
+  min-width: 64px;
+}
+
+.shape-corner-row .corner-type {
+  flex: 1;
+  min-width: 0;
+}
+
+.shape-corner-row .num-field {
+  width: 108px;
+  flex: none;
+}
+
+.shape-corners {
+  display: grid;
   gap: 6px;
 }
 
