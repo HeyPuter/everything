@@ -205,8 +205,9 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   Scripts gathers the workbook's scripts, My Scripts (`.js` files kept on
   your drive, for any workbook) and samples, which also run straight from the
   ribbon: highlight duplicates, unhide everything, sum each column, a table of
-  contents sheet, style the header row, remove blank rows. Everything a run
-  changes is one undo step. Scripts run in a worker inside a sandboxed frame
+  contents sheet, style the header row, remove blank rows. Script Button puts
+  a button on the sheet that runs a script when clicked (Shift+click selects
+  it). Everything a run changes is one undo step. Scripts run in a worker inside a sandboxed frame
   with an origin of its own and no network, so they reach the workbook and
   nothing else (not the page, your account or your files), and they are
   stopped after two minutes or when you press Stop; a script that came inside

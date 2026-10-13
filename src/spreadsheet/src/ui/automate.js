@@ -429,7 +429,8 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
         if (!s || wb.sheet(sheetId)?.kind === 'chart') return;
         if (ctx.grid?.editing && !ctx.grid.commitEdit?.()) return;
         const id = addScriptButton(wb, sheetId, ctx.active?.() || { r: 0, c: 0 }, s.name);
-        if (id) { ctx.grid?.selectChart?.(id); toast(`Added a button for “${s.name}”. Click it to run the script; Shift+click selects it`); }
+        // Left unselected, so it reads as the button it is; Shift+click selects it to move or resize.
+        if (id) toast(`Added a button for “${s.name}”. Click it to run the script; Shift+click selects it`);
         else toast('A button cannot be added here: the sheet is protected', { icon: 'alert' });
         return;
       }
