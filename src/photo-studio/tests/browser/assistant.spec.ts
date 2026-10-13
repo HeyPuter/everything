@@ -296,3 +296,37 @@ test('AI Fill run by a plan is recorded as an AI result in provenance', async ({
   expect(ai).toHaveLength(1);
   expect(ai[0]).toMatchObject({ command: 'edit.ai-fill', kind: 'fill', prompt: 'a wooden bench' });
 });
+
+test('Generation History places a Generate Image result as the dialog fitted it', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  // The stub returns 128 × 96 images; this canvas is wider, so fitting leaves margins.
+  await openImage(page, 200, 100, '#808080', 'wide.png');
+  await page.evaluate(async () => {
+    const { generationStore } = await import('/src/features/generations/record.ts');
+    await generationStore().clear();
+  });
+  await start(page, 'edit.generate-image');
+  const dialog = page.locator('dialog[open]');
+  await dialog.locator('#as-prompt').fill('a lighthouse');
+  await dialog.locator('#as-count').selectOption('1');
+  await dialog.locator('#as-fit').selectOption('fit');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await dialog.getByRole('button', { name: 'Add Layer' }).click();
+  await idle(page);
+  const alpha = (index: number) =>
+    page.evaluate(async (index) => {
+      const { readRGBA } = await import('/src/model/tiles.ts');
+      const e = window.photoStudio;
+      const l = e.doc.layers.at(index)!;
+      const at = (x: number, y: number) => readRGBA(e.assets.tiles, l.pixels!, { x, y, width: 1, height: 1 }).data[3];
+      return [at(4, 50), at(100, 50), at(195, 50)];
+    }, index);
+  expect(await alpha(-1)).toEqual([0, 255, 0]);
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  await page.locator('.menubar-entry.open .menu-item[data-command="window.panel.generations"]').click();
+  const panel = page.locator('.generations-panel');
+  await panel.getByRole('button', { name: 'Place as a new layer: a lighthouse' }).first().click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(3);
+  await idle(page);
+  expect(await alpha(-1)).toEqual([0, 255, 0]);
+});

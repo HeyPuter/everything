@@ -19,6 +19,7 @@ import { converse, systemPrompt, TOOLS, type ChatFn } from '../src/features/assi
 import { PlanRun, runLabel } from '../src/features/assistant/runner';
 import { Catalog, commandInput, commandParams, words } from '../src/features/assistant/catalog';
 import { filterGenerations, GenerationStore } from '../src/persistence/generations';
+import { placementOf } from '../src/features/generations/panel';
 import { MemoryStore } from '../src/persistence/local-store';
 import { loadRegistry } from './registry-fixture';
 
@@ -461,6 +462,22 @@ describe('Generation History storage', () => {
     expect((await store.image(x.id))?.size).toBe(1000);
     await store.remove(x.id);
     expect(await store.list()).toEqual([]);
+  });
+  it('places Generate Image results as the dialog did (fill or fit, never stretched)', () => {
+    const doc = { id: 'd1', width: 400, height: 300 };
+    const area = { x: 10, y: 20, width: 200, height: 100 };
+    const generated = (settings: Record<string, unknown>, kind: 'generate' | 'assistant' | 'fill' = 'generate') => ({ kind, settings, placement: area, docId: 'd1' });
+    const img = { width: 128, height: 96 };
+    expect(placementOf(generated({ fit: 'fill', dialog: 'generate' }), doc, img)).toEqual({ ...area, mode: 'fill' });
+    expect(placementOf(generated({ fit: 'fit', dialog: 'generate' }), doc, img)).toEqual({ ...area, mode: 'fit' });
+    // The Assistant opened Generate Image: same dialog, same placement.
+    expect(placementOf(generated({ fit: 'fit', dialog: 'generate' }, 'assistant'), doc, img).mode).toBe('fit');
+    // Entries made before the setting was stored fill, as the dialog does by default.
+    expect(placementOf(generated({}), doc, img).mode).toBe('fill');
+    // Results cut to their area (AI Fill) go back at that size.
+    expect(placementOf(generated({ dialog: 'fill' }, 'fill'), doc, img)).toEqual({ ...area, mode: 'scale' });
+    // Another document: centered at its own proportions.
+    expect(placementOf(generated({ fit: 'fill' }), { id: 'other', width: 64, height: 64 }, img)).toEqual({ x: 0, y: 8, width: 64, height: 48, mode: 'scale' });
   });
   it('filters by kind and searches prompts', async () => {
     const store = new GenerationStore(new MemoryStore());

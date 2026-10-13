@@ -11,7 +11,8 @@ import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { relativeTime } from '../../persistence/versions';
 import { filterGenerations, GENERATION_KINDS, GENERATION_LABELS, type GenerationEntry, type GenerationKind } from '../../persistence/generations';
-import type { RGBA8 } from '../../imaging/types';
+import type { IRect, RGBA8 } from '../../imaging/types';
+import type { FitMode } from '../assist/place';
 import { warnOnce } from '../preferences/warnings';
 import { generationStore, generationsChanged, onGenerationsChange } from './record';
 
@@ -54,26 +55,41 @@ const shortPrompt = (x: GenerationEntry) => {
   const p = x.prompt.replace(/\s+/g, ' ').trim() || GENERATION_LABELS[x.kind];
   return p.length > 40 ? `${p.slice(0, 39)}…` : p;
 };
-const layerKind = (k: GenerationKind): GeneratedInfo['kind'] => (k === 'assistant' ? 'generate' : k === 'restore' ? 'edit' : k);
+// What a placed layer says it is: the dialog that made it (the Assistant
+// opens the same dialogs).
+function layerKind(x: GenerationEntry): GeneratedInfo['kind'] {
+  const d = dialogOf(x);
+  return d === 'generate' || d === 'edit' || d === 'fill' || d === 'expand' || d === 'upscale' ? d : x.kind === 'restore' ? 'edit' : 'generate';
+}
 
-/** Place a stored result as a new pixel layer: where it was made when it came
- * from this document, otherwise centered (and scaled down to fit). */
+/** Where a stored result goes in a document and how it fills that area: the
+ * area it was made for in its own document (Generate Image results are
+ * scaled to fill or fit it as the dialog placed them; other results were made
+ * at that size), otherwise centered and scaled down to fit. */
+export function placementOf(x: Pick<GenerationEntry, 'placement' | 'docId' | 'settings' | 'kind'>, doc: { id: string; width: number; height: number }, img: { width: number; height: number }): IRect & { mode: FitMode | 'scale' } {
+  const p = x.placement;
+  if (p && x.docId === doc.id && p.width && p.height) {
+    const mode = dialogOf(x) === 'generate' ? (x.settings.fit === 'fit' ? 'fit' : 'fill') : 'scale';
+    return { x: p.x, y: p.y, width: p.width, height: p.height, mode };
+  }
+  const s = Math.min(1, doc.width / img.width, doc.height / img.height);
+  const width = Math.max(1, Math.round(img.width * s)), height = Math.max(1, Math.round(img.height * s));
+  return { x: Math.round((doc.width - width) / 2), y: Math.round((doc.height - height) / 2), width, height, mode: 'scale' };
+}
+
+/** Place a stored result as a new pixel layer (see `placementOf`). */
 export async function placeGeneration(e: Editor, x: GenerationEntry) {
   if (!e.hasDocument) return openGeneration(e, x);
   let img = await decode(await imageOf(x));
   const doc = e.doc;
-  const p = x.placement;
-  let at: { x: number; y: number };
-  if (p && x.docId === doc.id && p.width && p.height) {
-    if (p.width !== img.width || p.height !== img.height) img = await fit(img, p.width, p.height);
-    at = { x: p.x, y: p.y };
-  } else {
-    const s = Math.min(1, doc.width / img.width, doc.height / img.height);
-    if (s < 1) img = await fit(img, Math.max(1, Math.round(img.width * s)), Math.max(1, Math.round(img.height * s)));
-    at = { x: Math.round((doc.width - img.width) / 2), y: Math.round((doc.height - img.height) / 2) };
-  }
+  const at = placementOf(x, doc, img);
+  if (at.mode !== 'scale') {
+    // The same fitting Generate Image used when it added the layer.
+    const { runJob } = await import('../assist/client');
+    img = await runJob<RGBA8>(undefined, 'fit', { img, width: at.width, height: at.height, mode: at.mode });
+  } else if (at.width !== img.width || at.height !== img.height) img = await fit(img, at.width, at.height);
   const l = newPixelLayer(`${GENERATION_LABELS[x.kind]}: ${shortPrompt(x)}`, doc, gridFromImage(e.assets.tiles, img, at.x, at.y));
-  l.generated = { kind: layerKind(x.kind), prompt: x.prompt, model: x.model, style: typeof x.settings.style === 'string' && x.settings.style !== 'none' ? x.settings.style : undefined };
+  l.generated = { kind: layerKind(x), prompt: x.prompt, model: x.model, style: typeof x.settings.style === 'string' && x.settings.style !== 'none' ? x.settings.style : undefined };
   const anchor = e.selected;
   e.command('Place Generated Image', (d) => {
     const insert = (layers: typeof d.layers): boolean => {
@@ -113,7 +129,7 @@ async function copyPrompt(e: Editor, x: GenerationEntry) {
 }
 // The dialog each kind came from and the command that opens it.
 const dialogCommand: Record<string, string> = { generate: 'edit.generate-image', edit: 'edit.edit-with-prompt', fill: 'edit.ai-fill', expand: 'edit.ai-expand', upscale: 'image.upscale' };
-const dialogOf = (x: GenerationEntry) => (typeof x.settings.dialog === 'string' ? x.settings.dialog : x.kind);
+const dialogOf = (x: Pick<GenerationEntry, 'settings' | 'kind'>) => (typeof x.settings.dialog === 'string' ? x.settings.dialog : x.kind);
 /** Whether the dialog that made a result can be opened again with its settings. */
 const canReuse = (x: GenerationEntry) => !!dialogCommand[dialogOf(x)];
 /** Open the dialog that made a result, with the same prompt and settings. */
