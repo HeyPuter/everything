@@ -5,7 +5,7 @@ import { guideLines, mergeGuides, migrateGuides, parseGuideKey, placedGuides, re
 import { deserialize, serialize } from '../src/model/serialization';
 import { Assets } from '../src/model/assets';
 import { lineTargets } from '../src/model/transform';
-import { layoutGuides } from '../src/features/guides';
+import { layoutGuides, setGuidesShown, toggleGuideKind } from '../src/features/guides';
 import { actualSizeZoom } from '../src/app/view-transform';
 
 function withArtboard(): PhotoDocument {
@@ -124,5 +124,39 @@ describe('actual size zoom', () => {
     // Unknown ratios fall back to CSS pixels.
     expect(actualSizeZoom(0)).toBe(1);
     expect(actualSizeZoom(Number.NaN)).toBe(1);
+  });
+});
+
+describe('guide visibility', () => {
+  it('shows both kinds when guides are shown with both hidden (after Show → None)', () => {
+    const p = { showGuides: false, showCanvasGuides: false, showArtboardGuides: false };
+    setGuidesShown(p, true);
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: true });
+    // A kind hidden on purpose stays hidden.
+    const q = { showGuides: false, showCanvasGuides: true, showArtboardGuides: false };
+    setGuidesShown(q, true);
+    expect(q).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: false });
+    setGuidesShown(q, false);
+    expect(q.showGuides).toBe(false);
+  });
+
+  it('a kind chosen while guides are hidden shows guides with that kind', () => {
+    // The menu shows both kinds unchecked while guides are off.
+    const p = { showGuides: false, showCanvasGuides: true, showArtboardGuides: false };
+    toggleGuideKind(p, 'showCanvasGuides');
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: false });
+    const q = { showGuides: false, showCanvasGuides: false, showArtboardGuides: false };
+    toggleGuideKind(q, 'showArtboardGuides');
+    expect(q).toEqual({ showGuides: true, showCanvasGuides: false, showArtboardGuides: true });
+  });
+
+  it('toggles a kind while guides are shown and hides guides with the last kind', () => {
+    const p: { showGuides: boolean; showCanvasGuides?: boolean; showArtboardGuides?: boolean } = { showGuides: true };
+    toggleGuideKind(p, 'showArtboardGuides');
+    expect(p).toEqual({ showGuides: true, showArtboardGuides: false });
+    toggleGuideKind(p, 'showCanvasGuides');
+    expect(p).toEqual({ showGuides: false, showCanvasGuides: false, showArtboardGuides: false });
+    setGuidesShown(p, true);
+    expect(p).toEqual({ showGuides: true, showCanvasGuides: true, showArtboardGuides: true });
   });
 });

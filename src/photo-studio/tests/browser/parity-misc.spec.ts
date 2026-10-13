@@ -68,6 +68,29 @@ test('guides dropped on an artboard belong to it and move with it', async ({ pag
   await run(page, 'view.show-canvas-guides');
   await expect(page.locator('#overlay line.guide')).toHaveCount(2);
 
+  // Show → None hides every kind; Guides (Mod+;) brings both kinds back.
+  await run(page, 'view.show-none');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(0);
+  await run(page, 'view.show-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(2);
+  // While guides are hidden both kinds show unchecked; choosing one shows
+  // guides with that kind on rather than turning it off.
+  await run(page, 'view.show-artboard-guides');
+  await run(page, 'view.show-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(0);
+  const checked = () => page.evaluate(async () => {
+    const { commands } = await import('/src/app/registry.ts');
+    const e = window.photoStudio;
+    return ['view.show-guides', 'view.show-canvas-guides', 'view.show-artboard-guides'].map((id) => commands.get(id)!.checked!(e));
+  });
+  expect(await checked()).toEqual([false, false, false]);
+  await run(page, 'view.show-canvas-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(1);
+  await expect(page.locator('#overlay line.guide.artboard-guide')).toHaveCount(0);
+  expect(await checked()).toEqual([true, true, false]);
+  await run(page, 'view.show-artboard-guides');
+  await expect(page.locator('#overlay line.guide')).toHaveCount(2);
+
   // Clear Selected Artboard Guides keeps canvas guides.
   await run(page, 'view.guides-clear-artboard');
   const after = await page.evaluate(() => ({ canvas: window.photoStudio.doc.guides, board: window.photoStudio.doc.layers.at(-1)!.artboard!.guides }));

@@ -19,6 +19,7 @@ import {
   toArtboard,
   type GuideOwner,
 } from '../model/guides';
+import type { Preferences } from '../model/preferences';
 import { formDialog } from '../ui/dialog';
 import { extraHidden } from './view-extras';
 
@@ -29,6 +30,25 @@ const sameOwner = (a: GuideOwner, b: GuideOwner) => (a === 'canvas' ? b === 'can
 // ----- Visibility -----
 export const canvasGuidesShown = (e: Editor) => e.preferences.showCanvasGuides !== false;
 export const artboardGuidesShown = (e: Editor) => e.preferences.showArtboardGuides !== false;
+type GuidePrefs = Pick<Preferences, 'showGuides' | 'showCanvasGuides' | 'showArtboardGuides'>;
+/** View → Show → Guides. Guides are never shown with both kinds hidden:
+ * showing them then shows both kinds. */
+export function setGuidesShown(p: GuidePrefs, on: boolean) {
+  p.showGuides = on;
+  if (on && p.showCanvasGuides === false && p.showArtboardGuides === false) p.showCanvasGuides = p.showArtboardGuides = true;
+}
+/** View → Show → Canvas Guides / Artboard Guides, as the menu shows them:
+ * while guides are hidden both appear unchecked, so choosing one shows guides
+ * with that kind. Hiding the last shown kind hides guides. */
+export function toggleGuideKind(p: GuidePrefs, key: 'showCanvasGuides' | 'showArtboardGuides') {
+  if (!p.showGuides) {
+    p.showGuides = true;
+    p[key] = true;
+    return;
+  }
+  p[key] = p[key] === false;
+  if (p.showCanvasGuides === false && p.showArtboardGuides === false) p.showGuides = false;
+}
 function guidesVisible(e: Editor) {
   return e.hasDocument && e.preferences.showGuides && !extraHidden(e, 'guides');
 }
@@ -377,9 +397,7 @@ export function installGuides(e: Editor) {
   registerOverlay('guides', guidesOverlay);
   const hasDoc = (e: Editor) => e.hasDocument;
   const flag = (key: 'showCanvasGuides' | 'showArtboardGuides') => (e: Editor) => {
-    e.preferences[key] = e.preferences[key] === false;
-    // Showing either kind shows guides again.
-    if (e.preferences[key]) e.preferences.showGuides = true;
+    toggleGuideKind(e.preferences, key);
     e.savePreferences();
     e.overlay();
   };

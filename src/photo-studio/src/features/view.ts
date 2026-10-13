@@ -10,7 +10,7 @@ import { svg } from '../app/icons';
 import { gridThumbnail } from './panels/thumbnails';
 import { findLayer } from '../model/document';
 import { extraHidden, gridSpacing } from './view-extras';
-import { installGuides } from './guides';
+import { installGuides, setGuidesShown } from './guides';
 import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
@@ -199,14 +199,25 @@ export function installView(e: Editor) {
     const ids = gridTileIds(e.settings.quickMask as TileGrid | undefined);
     return gridTileIds(e.settings.quickMaskPreview as TileGrid | undefined, ids);
   });
-  const toggle = (key: 'showGrid' | 'showGuides' | 'snap' | 'guidesLocked' | 'showPixelGrid') => () => {
+  const toggle = (key: 'showGrid' | 'snap' | 'guidesLocked' | 'showPixelGrid') => () => {
     e.preferences[key] = !(e.preferences[key] ?? (key === 'showPixelGrid'));
     e.savePreferences();
     e.update();
   };
   registerCommand(
     { id: 'view.show-grid', label: 'Grid', shortcut: "Mod+'", checked: (e) => e.preferences.showGrid, run: toggle('showGrid'), recordable: false },
-    { id: 'view.show-guides', label: 'Guides', shortcut: 'Mod+;', checked: (e) => e.preferences.showGuides, run: toggle('showGuides'), recordable: false },
+    {
+      id: 'view.show-guides',
+      label: 'Guides',
+      shortcut: 'Mod+;',
+      checked: (e) => e.preferences.showGuides,
+      run: (e) => {
+        setGuidesShown(e.preferences, !e.preferences.showGuides);
+        e.savePreferences();
+        e.update();
+      },
+      recordable: false,
+    },
     { id: 'view.show-pixel-grid', label: 'Pixel Grid', checked: (e) => e.preferences.showPixelGrid !== false, run: toggle('showPixelGrid'), recordable: false },
     {
       id: 'view.show-selection-edges',
