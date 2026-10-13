@@ -625,7 +625,11 @@ export function createChartTools(h) {
     return [{ custom: grid }];
   }
   const thumb = (spec, alt) => {
-    const url = chartImage(spec, { theme: h.theme(), aspect: 4 / 3 });
+    const url = chartImage(spec, {
+      theme: h.theme(),
+      aspect: 4 / 3,
+      width: 3200400,
+    });
     return url
       ? el("img", {
           src: url,

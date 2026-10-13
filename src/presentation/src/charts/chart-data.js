@@ -644,15 +644,46 @@ export function convertChart(spec, typeId) {
 export function comboSpec(spec, choices) {
   return cleanSpec(withKinds(spec, choices));
 }
+// Data label positions a kind of chart allows; area, doughnut and radar
+// charts take none. A position the chart can no longer have is dropped.
+function allowedPositions(kind, grouping) {
+  if (kind === "area" || kind === "doughnut" || kind === "radar") return [];
+  if (kind === "bar" || kind === "column")
+    return grouping === "stacked" || grouping === "percentStacked"
+      ? ["inBase", "inEnd", "ctr"]
+      : ["inBase", "inEnd", "outEnd", "ctr"];
+  if (kind === "pie") return ["bestFit", "outEnd", "inEnd", "ctr"];
+  return ["l", "r", "b", "t", "ctr"];
+}
+function fixLabels(labels, kinds, grouping) {
+  if (!labels || labels.position === undefined) return labels;
+  if (
+    kinds.every((k) => allowedPositions(k, grouping).includes(labels.position))
+  )
+    return labels;
+  const { position, ...rest } = labels;
+  return rest;
+}
 // No undefined members: the engine's validation reads presence, not value.
 export function cleanSpec(spec) {
   const out = {};
   for (const [key, value] of Object.entries(spec))
     if (value !== undefined) out[key] = value;
+  const kinds = spec.series.length
+    ? [...new Set(spec.series.map((s) => s.chartKind || spec.kind))]
+    : [spec.kind];
+  if (out.dataLabels)
+    out.dataLabels = fixLabels(out.dataLabels, kinds, spec.grouping);
   out.series = spec.series.map((s) => {
     const series = {};
     for (const [key, value] of Object.entries(s))
       if (value !== undefined) series[key] = value;
+    if (series.dataLabels)
+      series.dataLabels = fixLabels(
+        series.dataLabels,
+        [s.chartKind || spec.kind],
+        spec.grouping,
+      );
     return series;
   });
   return out;

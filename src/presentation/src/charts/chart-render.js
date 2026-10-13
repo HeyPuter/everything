@@ -21,14 +21,16 @@ const MAX_CACHE = 60;
 // `theme` is the deck's (P.getPresentationTheme), `aspect` the width over
 // the height of the image. Returns an image URL, or null when the chart can
 // not be drawn.
-export function chartImage(spec, { theme = null, aspect = 16 / 9 } = {}) {
-  const key = JSON.stringify([spec, theme, aspect]);
+export function chartImage(
+  spec,
+  { theme = null, aspect = 16 / 9, width = 9144000 } = {},
+) {
+  const key = JSON.stringify([spec, theme, aspect, width]);
   if (cache.has(key)) return cache.get(key);
   let url = null;
   try {
     const pres = createDeck("blank");
-    const width = 9144000,
-      height = Math.round(width / aspect);
+    const height = Math.round(width / aspect);
     P.setSlideSize(pres, { width, height });
     const slide = P.getSlides(pres)[0];
     for (const shape of [...P.getSlideShapes(slide)]) P.removeShape(shape);

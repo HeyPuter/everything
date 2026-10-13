@@ -133,7 +133,7 @@ export function chartFormatSection({ spec, element, choose, update, h, ctx }) {
           "button",
           {
             type: "button",
-            class: "text-button",
+            class: "btn text-button",
             "aria-label": `${label}: automatic`,
             onclick: () => update(apply(undefined)),
           },
@@ -146,7 +146,7 @@ export function chartFormatSection({ spec, element, choose, update, h, ctx }) {
           "button",
           {
             type: "button",
-            class: "text-button",
+            class: "btn text-button",
             "aria-label": `${label}: none`,
             onclick: () => update(apply(null)),
           },
