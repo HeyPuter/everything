@@ -189,7 +189,7 @@ describe('depth blur', () => {
     expect(farAfter).toBeLessThan(farBefore * 0.35);
   });
   it('estimates a depth map with the ground near and the top far', () => {
-    const scene = image(80, 60, (x, y) => (y < 30 ? [170 + y, 190 + y, 215] : [90 - (y - 30), 110 - (y - 30), 70]));
+    const scene = image(80, 60, (_x, y) => (y < 30 ? [170 + y, 190 + y, 215] : [90 - (y - 30), 110 - (y - 30), 70]));
     const d = estimateDepth(scene, { subject: false });
     expect(d.length).toBe(80 * 60);
     expect(d[5 * 80 + 40]).toBeGreaterThan(d[55 * 80 + 40]);

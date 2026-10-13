@@ -3,7 +3,7 @@
 // them unchanged.
 import { compositeRGBA8, isBlendMode, type BlendMode } from '../../imaging/blend';
 import { checkCancelled, cloneRGBA8, type Mask8, type OperationContext, type ParamValues, type Progress, type RGBA8 } from '../../imaging/types';
-import { GALLERY_ID, filterOp, galleryEffects, normalizeFor } from './catalog';
+import { GALLERY_ID, RESTORE_ID, filterOp, galleryEffects, normalizeFor } from './catalog';
 
 export type StackEntry = {
   id: string;
@@ -33,6 +33,11 @@ export async function runOperation(id: string, src: RGBA8, params: ParamValues, 
       cur = await runOperation(effects[i].id, cur, effects[i].params, { ...ctx, selection: undefined }, sub(progress, i / effects.length, (i + 1) / effects.length));
     }
     return ctx.selection ? mixByMask(src, cur === src ? cloneRGBA8(src) : cur, ctx.selection) : cur === src ? cloneRGBA8(src) : cur;
+  }
+  if (id === RESTORE_ID) {
+    // Portrait & Restore loads its algorithms on first use (Live Filters, actions).
+    const { applyRestore } = await import('../../imaging/restore/pipeline');
+    return applyRestore(src, params, ctx, progress);
   }
   const op = filterOp(id);
   if (!op) throw new Error(`Unknown filter: ${id}`);

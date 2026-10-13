@@ -238,6 +238,9 @@ const custom: Record<string, Node[]> = {
   'red-eye': [p('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z'), ['circle', { cx: 12, cy: 12, r: 3.4 }], p('M12 10.6v2.8M10.6 12h2.8')],
   'remove-tool': [['circle', { cx: 9.5, cy: 14.5, r: 5.5, 'stroke-dasharray': '2.2 2' }], p('M4 21 17 8'), p('m15.5 6.5 2-2a1.4 1.4 0 0 1 2 2l-2 2'), p('M19.5 13v4M17.5 15h4')],
   'context-move': [p('M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3'), ['rect', { x: 8, y: 8, width: 8, height: 8, rx: 1, 'stroke-dasharray': '2 2' }]],
+  // Before/after compare modes: a frame split by a movable divider, and two frames side by side.
+  'compare-split': [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], p('M12 2v20'), p('m8 10-2 2 2 2'), p('m16 10 2 2-2 2')],
+  'compare-side': [['rect', { x: 2, y: 5, width: 9, height: 14, rx: 1.5 }], ['rect', { x: 13, y: 5, width: 9, height: 14, rx: 1.5 }], p('M5 15l2-3 2 3M16 15l2-3 2 3')],
   'color-replace': [p('m14.6 5.6 3.8 3.8'), p('M18 2.5a2.1 2.1 0 0 1 3 3L9.5 17l-4-4Z'), p('M5.5 13 3 21l8-2.5'), ['circle', { cx: 18.5, cy: 18.5, r: 3 }]],
   'mixer-brush': [p('M9 11 3 21'), p('M13.5 6.5a3 3 0 1 1 4 4l-6 6-4-4Z'), p('M18 2c2 1 3 3 3 5'), p('M15 2c1 .5 1.5 1.5 1.5 2.5')],
   'brush-load': [p('M8 13 3 21'), p('M12 8.5a3 3 0 1 1 4 4l-5.5 5.5-4-4Z'), p('M19 2c1.4 1.8 2.4 3 2.4 4.3a2.4 2.4 0 0 1-4.8 0C16.6 5 17.6 3.8 19 2Z')],

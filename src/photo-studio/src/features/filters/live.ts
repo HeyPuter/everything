@@ -8,7 +8,7 @@ import { syncPixelTransform } from '../../model/pixel-layer';
 import { canvasRect, selectionBounds, selectionGrid } from '../../model/selection';
 import type { TileGrid } from '../../model/tiles';
 import { rasterizeLayer, hexRgb } from '../pixels';
-import { GALLERY_ID, filterOp, normalizeFor } from './catalog';
+import { filterOp, isStackOp, normalizeFor } from './catalog';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
 import { isLiveLayer, toMode } from './apply';
 import { gridPayload, mergeTiles } from './tilepack';
@@ -60,7 +60,7 @@ export async function updateLive(e: Editor, layerId: string, label: string, chan
   const nextMask = mask === null ? undefined : (mask ?? l.liveMask);
   const disabled = !!nextMask && (maskDisabled ?? !!l.liveMaskDisabled);
   for (const f of filters)
-    if (f.id !== GALLERY_ID && !filterOp(f.id)) {
+    if (!isStackOp(f.id) && !filterOp(f.id)) {
       e.message(`The filter “${f.id}” is not available in this version.`);
       return;
     }

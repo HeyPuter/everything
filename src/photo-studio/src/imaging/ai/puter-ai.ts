@@ -438,3 +438,35 @@ export async function aiUpscale(img: RGBA8, targetW: number, targetH: number, op
   checkAbort(opts.signal);
   return fromResult(res);
 }
+
+export type TransformOptions = { model?: string; quality?: string; reference?: RGBA8; testMode?: boolean; signal?: AbortSignal };
+
+/** One image-to-image result for a complete instruction (the caller writes
+ * the whole prompt), returned at the input's size. An optional reference
+ * image (a style or color example) is sent as a second input image. Used by
+ * Portrait & Restore (AI colors, AI style, Scene Changer). */
+export async function transformImage(img: RGBA8, instruction: string, opts: TransformOptions = {}): Promise<RGBA8> {
+  if (!instruction.trim()) throw new AIError('bad-request', 'Describe the change first.');
+  const p = api();
+  checkAbort(opts.signal);
+  const s = Math.min(1, EDIT_MAX_SIDE / Math.max(img.width, img.height));
+  const sw = Math.max(1, Math.round(img.width * s)), sh = Math.max(1, Math.round(img.height * s));
+  const uri = await toDataUri(resample(img, sw, sh));
+  let refUri: string | undefined;
+  if (opts.reference) {
+    const r = opts.reference, rs = Math.min(1, EDIT_MAX_SIDE / Math.max(r.width, r.height));
+    refUri = await toDataUri(resample(r, Math.max(1, Math.round(r.width * rs)), Math.max(1, Math.round(r.height * rs))));
+  }
+  checkAbort(opts.signal);
+  const options = baseOptions(opts, sw, sh);
+  if (refUri) options.input_images = [uri, refUri];
+  else options.input_image = uri;
+  let res: PuterImage;
+  try {
+    res = await p.ai.txt2img(instruction.trim(), options);
+  } catch (e) {
+    throw toAIError(e);
+  }
+  checkAbort(opts.signal);
+  return fromResult(res, img.width, img.height);
+}

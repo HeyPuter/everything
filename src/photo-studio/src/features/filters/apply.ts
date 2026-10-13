@@ -10,6 +10,7 @@ import type { BlendMode } from '../../imaging/blend';
 import type { IRect, ParamValues } from '../../imaging/types';
 import { hexRgb, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
 import { GALLERY_ID, filterOp, normalizeFor, stackMargin } from './catalog';
+import { filterLabel } from './menu';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
 import type { StackContext, StackEntry } from './stack';
 import { gridPayload, mergeTiles, type TileResult } from './tilepack';
@@ -35,7 +36,7 @@ export const randomSeed = () => (Math.random() * 0xffffffff) >>> 0;
 export const toMode = (b: Blend) => (b === 'pass through' ? 'normal' : b.replace(/ /g, '-')) as BlendMode;
 export const fromMode = (m: BlendMode) => m.replace(/-/g, ' ') as Blend;
 export function opLabel(opId: string) {
-  return opId === GALLERY_ID ? 'Filter Gallery' : (filterOp(opId)?.label ?? opId);
+  return opId === GALLERY_ID ? 'Filter Gallery' : (filterOp(opId)?.label ?? filterLabel(opId));
 }
 export function filterContext(e: Editor, s: Session): StackContext {
   return { foreground: hexRgb(e.color), background: hexRgb(e.background), seed: s.seed };
