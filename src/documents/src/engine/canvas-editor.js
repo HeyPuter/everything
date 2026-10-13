@@ -435,7 +435,8 @@ export class CanvasEditor {
   restartNumbering() { this.execute(() => this.model.restartNumbering()); this.focus(); }
   adjustIndent(delta) { this.execute(() => this.model.adjustIndent(delta)); this.focus(); }
   insertTab() { this.execute(() => this.model.replace('\t')); this.focus(); }
-  setPageSettings(patch) { return this.execute(() => this.model.setPageSettings(patch)); }
+  setPageSettings(patch, options) { return this.execute(() => this.model.setPageSettings(patch, options)); }
+  insertSectionBreak(type) { const ok = this.execute(() => this.model.insertSectionBreak(type)); this.focus(); return ok; }
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
     if (this.readOnly || this.composition) return;

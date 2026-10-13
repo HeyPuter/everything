@@ -10,6 +10,7 @@ import { recoverStyleIdentities, recoverStyleInheritance } from './docx-style-id
 import { inlineDrawingPlaceholder } from './docx-drawing-preview.js';
 import { readPageBorders, writePageBorders } from './docx-page-borders.js';
 import { readPageBackground } from './docx-page-background.js';
+import { writeSettingsFlag } from './docx-settings-flags.js';
 import { readTextFill, writeTextFill } from './text-fill.js';
 import { readText3d, writeText3d } from './text-3d.js';
 import { readTextShadow, writeTextShadow } from './text-shadow.js';
@@ -375,7 +376,7 @@ function readPageSettings(section, settings, readColor, attempt = read => read()
     pageBorders: attempt(() => readPageBorders(section, readColor, attempt), null),
     bordersDoNotSurroundHeader: readContextualFlag(settings, 'bordersDoNotSurroundHeader') ?? false,
     bordersDoNotSurroundFooter: readContextualFlag(settings, 'bordersDoNotSurroundFooter') ?? false,
-    sectionType: value(child(section, 'type')) === 'continuous' ? 'continuous' : 'nextPage',
+    sectionType: ['continuous', 'evenPage', 'oddPage'].includes(value(child(section, 'type'))) ? value(child(section, 'type')) : 'nextPage',
     width: twips(size, 'w', DEFAULT_PAGE_SETTINGS.width), height: twips(size, 'h', DEFAULT_PAGE_SETTINGS.height),
     orientation: size?.getAttributeNS(W, 'orient') || 'portrait',
     defaultTabStop: child(settings, 'defaultTabStop') ? twips(child(settings, 'defaultTabStop'), 'val', NaN) : 720,
@@ -395,8 +396,7 @@ function readPageSettings(section, settings, readColor, attempt = read => read()
   for (const tag of ['suppressTopSpacing', 'suppressBottomSpacing', 'suppressSpacingAtTopOfPage']) attempt(() => { if (readContextualFlag(child(settings, 'compat'), tag)) throw new UnsupportedDocumentError(`${tag} line-spacing compatibility`); }, null);
   for (const key of ['allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) result[key] = readContextualFlag(child(settings, 'compat'), key) ?? false;
   for (const name of ['top', 'right', 'bottom', 'left', 'header', 'footer', 'gutter']) result[name] = twips(margins, name, result[name]);
-  attempt(() => { if (enabled(child(settings, 'mirrorMargins'))) throw new UnsupportedDocumentError('mirrorMargins'); }, null);
-  for (const name of ['bookFoldPrinting', 'bookFoldRevPrinting']) result[name] = readContextualFlag(settings, name) ?? false;
+  for (const name of ['bookFoldPrinting', 'bookFoldRevPrinting', 'mirrorMargins', 'printTwoOnOne']) result[name] = readContextualFlag(settings, name) ?? false;
   attempt(() => { if (enabled(child(section, 'rtlGutter')) || value(child(section, 'textDirection')) && value(child(section, 'textDirection')) !== 'lrTb') throw new UnsupportedDocumentError('right-to-left gutters or vertical page text'); }, null);
   const alignment = children(section).filter(n => n.namespaceURI === W && n.localName === 'vAlign');
   if (alignment.length > 1 || alignment[0] && (alignment[0].textContent.trim() || children(alignment[0]).length || [...alignment[0].attributes].some(a => a.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(a.namespaceURI === W && a.localName === 'val')))) throw new UnsupportedDocumentError('invalid vertical page alignment');
@@ -425,6 +425,11 @@ function writePageSettings(section, settings, initial, make, fresh) {
     else child(section, 'pgBorders')?.remove();
   }
   if (settings.verticalAlignment !== initial.verticalAlignment || fresh && settings.verticalAlignment !== 'top') ensure('vAlign').setAttributeNS(W, 'w:val', settings.verticalAlignment);
+  // How the section starts (§17.6.22); next page is the default when the element is absent.
+  if (settings.sectionType !== initial.sectionType || fresh && settings.sectionType !== 'nextPage') {
+    if (settings.sectionType === 'nextPage') child(section, 'type')?.remove();
+    else ensure('type').setAttributeNS(W, 'w:val', settings.sectionType);
+  }
   if (fresh && settings.columns || JSON.stringify(settings.columns) !== JSON.stringify(initial.columns)) {
     const cols = ensure('cols');
     for (const name of ['equalWidth', 'num', 'space', 'sep']) cols.removeAttributeNS(W, name);
@@ -721,7 +726,7 @@ function writeMarkRevision(node, revision, make) {
   rPr.prepend(revisionElement(node.ownerDocument, own));
   if (inserted) rPr.prepend(revisionElement(node.ownerDocument, { type: 'ins', ...inserted }));
 }
-function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink) {
+function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
   return p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
@@ -735,7 +740,10 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
       child(child(node, 'pPr'), 'sectPr')?.remove();
       if (p.sectionEnd) {
         let properties = child(node, 'pPr'); if (!properties) { properties = make('pPr'); node.prepend(properties); }
-        properties.append(doc.importNode(xml(p.sectionProperties).documentElement, true));
+        // The section's source properties, with this section's page settings written over them.
+        const source = sectionSource(p), sectPr = doc.importNode(xml(source.xml || `<w:sectPr xmlns:w="${W}"/>`).documentElement, true);
+        writePageSettings(sectPr, p.sectionEnd, source.settings || DEFAULT_PAGE_SETTINGS, make, !source.xml);
+        properties.append(sectPr);
       }
       writeParagraphFormat(node, p, make, numbering);
       if (p.markOverrides || p.markStyleChanged || p.markPropertiesChanged || !p.shell && p.markFormat && !p.styleContext) {
@@ -1045,7 +1053,7 @@ export class DocxPackage {
       if (types.length > 1 || !['nextPage', 'continuous', 'nextColumn', 'oddPage', 'evenPage'].includes(type)) unsupported('an invalid section type');
       // Â§17.6.22 describes placement relative to the preceding section. The
       // first section has no preceding section, regardless of its stored type.
-      if (index > 0 && !['nextPage', 'continuous'].includes(type)) unsupported('section breaks other than nextPage or continuous');
+      if (index > 0 && type === 'nextColumn') unsupported('next-column section breaks');
       if (!preview) readPageSettings(section, settings?.documentElement, readColor);
     }
     const stylePart = stylesPath(parts), excludedStyleIds = new Set();
@@ -1882,13 +1890,18 @@ export class DocxPackage {
         listMarkers(resolved, numbering);
       }
     }
-    if (paragraphs.some(p => p.sectionEnd) && JSON.stringify(pageSettings) !== JSON.stringify(this.initialPageSettings)) throw new Error('Page settings for multiple sections are retained from the source.');
-    for (const key of ['bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'compatibilityMode', 'gutterAtTop', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (pageSettings[key] !== this.initialPageSettings[key]) throw new Error('Page compatibility settings are retained from the source document.');
+    for (const key of ['bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'compatibilityMode', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (pageSettings[key] !== this.initialPageSettings[key]) throw new Error('Page compatibility settings are retained from the source document.');
     const parts = { ...this.parts };
     if (comments) writeComments(parts, comments, this.initialComments ?? '[]');
     if (!!trackRevisions !== !!this.trackRevisions) writeTrackRevisions(parts, trackRevisions);
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
+    // Document-wide page layout settings (§17.15.1): gutter position, mirrored margins, booklets, two pages per sheet.
+    const pageFlags = ['gutterAtTop', 'mirrorMargins', 'bookFoldPrinting', 'bookFoldRevPrinting', 'printTwoOnOne'].filter(key => pageSettings[key] !== this.initialPageSettings[key]);
+    if (pageFlags.length) {
+      const { settings, related, path } = openSettings(parts);
+      if (pageFlags.map(key => writeSettingsFlag(settings, key, pageSettings[key])).some(Boolean)) saveSettings(parts, settings, related, path);
+    }
     if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
     let blocks = documentBlocks(paragraphs, tables);
     listMarkers(paragraphs, numbering);
@@ -1934,8 +1947,12 @@ export class DocxPackage {
     }
     if (this.hasPlainTextControls) blocks = documentBlocks(paragraphs, tables);
     if (!section && (!this.originals.size || JSON.stringify(pageSettings) !== JSON.stringify(this.initialPageSettings))) { section = make('sectPr'); body.append(section); }
+    // Sections keep their source properties; a new section break copies those of the section it splits.
+    const sourceSections = new Map(this.paragraphs.filter(p => p.sectionEnd).map(p => [p.sectionProperties, p.sectionEnd]));
+    const finalSource = { xml: section && this.originals.size ? serializeFragment(section) : null, settings: this.initialPageSettings };
+    const sectionSource = p => p.sectionProperties ? { xml: p.sectionProperties, settings: sourceSections.get(p.sectionProperties) || p.sectionEnd } : finalSource;
     if (section) writePageSettings(section, pageSettings, this.initialPageSettings, make, !this.originals.size);
-    const writeParagraph = paragraphWriter(doc, styles, numbering, this.originals, writeImage, writeLink);
+    const writeParagraph = paragraphWriter(doc, styles, numbering, this.originals, writeImage, writeLink, sectionSource);
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);
     const sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;

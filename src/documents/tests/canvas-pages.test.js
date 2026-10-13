@@ -219,7 +219,7 @@ describe('page and break DOCX preservation', () => {
   it.each([
     { section: '<w:rtlGutter/>' }, { section: '<w:textDirection w:val="tbRl"/>' }, { section: '<w:vAlign w:val="invalid"/>' },
     { section: '<w:pgSz w:w="0"/>' }, { section: '<w:pgMar w:left="-20"/>' },
-    { settings: '<w:mirrorMargins/>' }, { settings: '<w:bookFoldPrinting w:val="invalid"/>' },
+    { settings: '<w:bookFoldPrinting w:val="invalid"/>' },
     { body: '<w:p/><w:sectPr/>' },
   ])('rejects unsupported page structure before edit: %j', async input => {
     await expect(DocxPackage.open(await fixture(input))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });

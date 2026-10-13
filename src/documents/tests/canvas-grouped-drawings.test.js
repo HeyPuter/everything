@@ -116,13 +116,15 @@ it('keeps grouped drawings atomic through deletion and undo and rejects property
   retained(await save(pkg, doc), pkg.parts); doc.redo(); expect(drawings(await DocxPackage.open(await save(pkg, doc)))).toHaveLength(2);
 });
 
-it('preserves section boundaries during body edits, undoes edits crossing them exactly and rejects paper settings changes', async () => {
+it('preserves section boundaries during body edits, undoes edits crossing them exactly and applies paper settings to one section', async () => {
   const doc = model(await DocxPackage.open(source)), index = doc.paragraphs.findIndex(p => p.sectionEnd);
   // Edits across a section mark follow native ownership (section-editing.test.js); here they must undo exactly.
   doc.select(doc.paragraphOffset(index), doc.paragraphOffset(index + 1)); const crossing = doc.snapshot();
   expect(doc.replace('x')).toBe(true); doc.undo(); expect(doc.snapshot()).toEqual(crossing);
   expect(() => doc.editParagraphStyle('Normal', { run: { bold: true } })).toThrow(/Named styles are retained/);
-  expect(() => doc.setPageSettings({ top: 720 })).toThrow(/multiple sections/); expect(doc.history).toHaveLength(0); expect(doc.future).toHaveLength(1);
+  const sectioned = doc.snapshot();
+  expect(doc.setPageSettings({ top: 720 })).toBe(true); expect(doc.sectionSettings.filter(s => s.top === 720)).toHaveLength(1);
+  doc.undo(); expect(doc.snapshot()).toEqual(sectioned);
   const result = layout(doc), next = result.lines.find(l => l.paragraphId === doc.paragraphs[index + 1].id);
   expect(next.page).toBe(1); expect(next.y).toBe(96); expect(result.pages.map(p => p.top)).toEqual([24, 96]);
 });

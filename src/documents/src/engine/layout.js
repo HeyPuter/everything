@@ -542,6 +542,13 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     if (sectionIndex && pageStories?.evenAndOdd && start !== undefined && start % 2 !== nextPageNumber % 2) {
       placed.pages.push(placed.pages.at(-1)); placed.pageSections.push(null); placed.pageCount++;
     }
+    // An odd- or even-page section starts on the next page of that parity (§17.18.77); an empty page
+    // between them takes the number in between unless the section restarts its numbering.
+    const parity = { oddPage: 1, evenPage: 0 }[section.sourcePage.sectionType];
+    if (sectionIndex && parity !== undefined && placed.pageCount && (start ?? nextPageNumber) % 2 !== parity) {
+      placed.pages.push(placed.pages.at(-1)); placed.pageSections.push(null); placed.pageCount++;
+      if (start === undefined) nextPageNumber++;
+    }
     if (placed.pageCount >= MAX_PAGES) throw new Error(`This preview supports up to ${MAX_PAGES} pages.`);
     section.firstNumber = start ?? nextPageNumber;
     const balance = continues(section, sections[sectionIndex + 1]);
@@ -610,7 +617,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     for (const key of ['lines', 'cells', 'repeatedLines']) placed[key].push(...result[key].map(item => {
       const base = section.sourcePage || section.page;
       const dx = readingPageGeometry(base, section.firstNumber + item.page - 1).left - base.left;
-      return { ...shiftTableItem(item, dx, 0), ...(base.bookFold ? { pageMarginShift: dx } : {}), page: offset + item.page, region: regionIds[item.page] };
+      return { ...shiftTableItem(item, dx, 0), ...(base.bookFold || base.mirror ? { pageMarginShift: dx } : {}), page: offset + item.page, region: regionIds[item.page] };
     }));
     placed.endY = result.endY;
     for (const frame of result.floatingTables || []) placed.floatingTables.push({ ...frame, page: offset + frame.page });
@@ -625,7 +632,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     const y = floatingTableY(floating.table.floating, geometry, natural.endY, anchor);
     let result = floating.probe?.y === y ? floating.probe.result : paginateParagraphs(floating.blocks, { ...floating.page, pageBounds: undefined, top: Math.min(0,y), bottom: 0 }, MAX_PAGES, y);
     if (result.pageCount !== 1) throw new Error('Multi-page floating tables are not supported yet.');
-    if (floating.page.bookFold) {
+    if (floating.page.bookFold || floating.page.mirror) {
       const width = floating.alignmentWidth;
       const measuredPage = floating.measuredPageIndex;
       const dx = floatingTableX(floating.table.floating, geometry, width, anchor.page + firstPageSideOffset) - floatingTableX(floating.table.floating, floating.page, width, measuredPage);
