@@ -1,7 +1,7 @@
 import { rasterRegion } from "./render.js";
 import { bounds } from "./model.js";
 import { createZip, xml } from "./zip.js";
-import { textOf } from "./export-layout.js";
+import { textOf, breathe } from "./export-layout.js";
 import { canonicalLanguage } from "./accessibility/language-tag.js";
 import { appendRun, sliceTextRuns, textSegments } from "./rich-text.js";
 import { tableCellContent } from "./table-language.js";
@@ -217,7 +217,7 @@ function slideSize(regions) {
 export async function exportPPTX(
   b,
   regions,
-  { lang = "en", rasterizer = rasterRegion, signal } = {},
+  { lang = "en", rasterizer = rasterRegion, signal, progress } = {},
 ) {
   const plan = regions.flatMap(slidePlan);
   if (plan.length > 200)
@@ -227,8 +227,10 @@ export async function exportPPTX(
   const slides = [],
     scenes = new WeakMap();
   for (const [n, slide] of plan.entries()) {
+    await breathe();
     // A cancelled export stops before its next slide.
     if (signal?.aborted) throw Error("Export cancelled.");
+    progress?.(n + 1, plan.length);
     const { region, tile } = slide,
       rect = tile || slide.rect;
     // A slide made on the board fills the slide, without the frame's own

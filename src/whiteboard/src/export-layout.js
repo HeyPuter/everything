@@ -121,6 +121,19 @@ export class PathBuilder {
   }
 }
 
+// A long export gives the page a turn every so often, between pages or
+// slides, so its progress shows and closing the dialog can cancel it.
+let turn = 0;
+export async function breathe() {
+  const now = globalThis.performance?.now() ?? Date.now();
+  if (now - turn < 50) return;
+  // scheduler.yield resumes ahead of other tasks, without the 4 ms that
+  // repeated timers take.
+  await (globalThis.scheduler?.yield
+    ? globalThis.scheduler.yield()
+    : new Promise((resolve) => setTimeout(resolve, 0)));
+  turn = globalThis.performance?.now() ?? Date.now();
+}
 // A fresh measuring context per export; text layout caches are keyed by it.
 export function measureContext() {
   const ctx = globalThis.document?.createElement("canvas").getContext?.("2d");

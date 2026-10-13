@@ -3,7 +3,7 @@ import { mindVisibility } from "./mind-visibility.js";
 import { mindLines } from "./mind-map.js";
 import { orderedFrames, framesItems, isConnector } from "./scene.js";
 import { rasterRegion } from "./render.js";
-import { measureContext } from "./export-layout.js";
+import { measureContext, breathe } from "./export-layout.js";
 import { addTranslations, t } from "./i18n.js";
 
 export function exportRegions(b, options = {}) {
@@ -655,6 +655,7 @@ export async function exportPDF(
     });
   };
   for (const [n, entry] of plan.entries()) {
+    await breathe();
     // A cancelled export stops before its next page, and says how far it is.
     if (o.signal?.aborted) throw Error("Export cancelled.");
     o.progress?.(n + 1, plan.length);
@@ -724,6 +725,9 @@ export async function exportPDF(
           const png = await pdf.embedPng(canvas.toDataURL("image/png"));
           // The canvas memory goes before the next part is drawn.
           canvas.width = canvas.height = 0;
+          // Compressed now, between pages, rather than all at once when
+          // the file is written, which would hold up the page for seconds.
+          await png.embed();
           page.drawImage(png, {
             x: drawn.x + (part.x - rect.x) * scale,
             y: placement.y - (part.y - rect.y + part.h) * scale,

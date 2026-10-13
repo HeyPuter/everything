@@ -263,6 +263,8 @@ addTranslations({
     "Exportez au plus 50 cadres en images à la fois, ou utilisez le PDF.",
   "Preparing export…": "Préparation de l’exportation…",
   "Exporting page {n} of {total}…": "Exportation de la page {n} sur {total}…",
+  "Exporting slide {n} of {total}…":
+    "Exportation de la diapositive {n} sur {total}…",
   "Export ready.": "Exportation prête.",
 });
 // Feature modules add More tools entries ([action, label, run]) and shape
@@ -2919,7 +2921,14 @@ export function createFeatures(api) {
             else if (format === "pptx")
               blob = await (
                 await loadWriter(import("./export-pptx.js"))
-              ).exportPPTX(snapshot, regions, { lang: language, signal });
+              ).exportPPTX(snapshot, regions, {
+                lang: language,
+                signal,
+                progress: (n, total) =>
+                  (status.textContent = t("Exporting slide {n} of {total}…")
+                    .replace("{n}", n)
+                    .replace("{total}", total)),
+              });
             else if (format === "svg")
               blob = (await loadWriter(import("./export-svg.js"))).exportSVG(
                 snapshot,

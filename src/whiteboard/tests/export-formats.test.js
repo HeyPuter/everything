@@ -53,7 +53,7 @@ test("SVG documents are in the interface language, like PDFs", () => {
   assert.equal(root({ lang: "fr" }).getAttribute("xml:lang"), "fr-CA");
   assert.equal(root({ lang: "en" }).getAttribute("xml:lang"), "en-CA");
 });
-import { drawOrder, PathBuilder } from "../src/export-layout.js";
+import { drawOrder, PathBuilder, breathe } from "../src/export-layout.js";
 import {
   toCSV,
   exportCSV,
@@ -2320,4 +2320,27 @@ test("download names keep a title's dots and words and never split a character",
   assert.equal(Array.from(long).length, 100);
   assert.ok(!long.includes("\ufffd") && long.isWellFormed());
   assert.equal(fileName("a\u0000b\tc:d*e|f", "x"), "a b c d e f");
+});
+
+test("long exports report each slide and give the page its turn", async () => {
+  const b = fromTemplate("journey", "en"),
+    regions = exportRegions(b, { scope: "frames" }),
+    steps = [];
+  await exportPPTX(b, regions, {
+    rasterizer,
+    progress: (n, total) => steps.push(`${n}/${total}`),
+  });
+  assert.ok(steps.length > 1);
+  assert.deepEqual(
+    steps,
+    steps.map((_, n) => `${n + 1}/${steps.length}`),
+  );
+  // A task queued before a turn runs before the export goes on.
+  let ran = false;
+  setTimeout(() => (ran = true), 0);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  ran = false;
+  setTimeout(() => (ran = true), 0);
+  await breathe();
+  assert.ok(ran);
 });
