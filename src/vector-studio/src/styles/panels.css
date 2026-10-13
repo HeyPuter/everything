@@ -323,6 +323,10 @@
   min-width: 0;
 }
 
+.num-label:empty {
+  display: none;
+}
+
 .num-label {
   min-width: 14px;
   color: var(--text-2);
@@ -414,14 +418,11 @@
   min-height: 30px;
 }
 
-.app-row .num-field {
-  margin-left: auto;
-  width: 86px;
-}
-
+/* Values and the blending menu line up on the right at one width. */
+.app-row .num-field,
 .app-row .select {
   margin-left: auto;
-  width: 130px;
+  width: 120px;
 }
 
 .app-label.indent {

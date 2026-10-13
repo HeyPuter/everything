@@ -141,9 +141,9 @@ export class PropertiesPanel extends Panel {
     this.strokeSw = paintSwatch(null, { className: 'stroke-swatch' });
     const fillBtn = h('button.swatch-btn', { type: 'button', 'aria-label': 'Fill color', 'aria-haspopup': 'dialog', onclick: (e) => openPaintPopover(app, e.currentTarget, 'fill') }, this.fillSw);
     const strokeBtn = h('button.swatch-btn', { type: 'button', 'aria-label': 'Stroke color', 'aria-haspopup': 'dialog', onclick: (e) => openPaintPopover(app, e.currentTarget, 'stroke') }, this.strokeSw);
-    this.strokeW = numberField({ label: 'Stroke weight', ariaLabel: 'Stroke weight', value: 1, unit: 'pt', min: 0, width: '72px', onCommit: (v, o) => applyStyle(app.editor, { strokeWidth: v }, 'Stroke Weight', o?.live ? 'stroke-weight' : null) });
+    this.strokeW = numberField({ label: 'Stroke weight', ariaLabel: 'Stroke weight', value: 1, unit: 'pt', min: 0, onCommit: (v, o) => applyStyle(app.editor, { strokeWidth: v }, 'Stroke Weight', o?.live ? 'stroke-weight' : null) });
     this.strokeW.el.querySelector('label').textContent = '';
-    this.opacity = numberField({ label: 'Opacity', kind: 'percent', value: 100, min: 0, max: 100, width: '64px', onCommit: (v, o) => applyStyle(app.editor, { opacity: v / 100 }, 'Opacity', o?.live ? 'opacity' : null) });
+    this.opacity = numberField({ label: 'Opacity', kind: 'percent', value: 100, min: 0, max: 100, onCommit: (v, o) => applyStyle(app.editor, { opacity: v / 100 }, 'Opacity', o?.live ? 'opacity' : null) });
     this.opacity.el.querySelector('label').textContent = '';
     this.blend = selectField('Blending mode', BLEND_MODES.map((m) => ({ value: m, label: BLEND_LABELS[m] || m })), 'normal', (v) => applyStyle(app.editor, { blendMode: v }, 'Blending Mode'));
     this.appearance = section(
