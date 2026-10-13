@@ -22,7 +22,8 @@ export function baseValue(clip, prop) {
 
 /**
  * Object and key behind a dotted prop other than adjust.*: mask<i>.<key>
- * reads clip.masks[i], <field>.<key> reads clip[field] (relight.angle, ...).
+ * reads clip.masks[i], remove<i>.<key> the object removal region i,
+ * <field>.<key> reads clip[field] (relight.angle, ...).
  */
 function dottedField(clip, prop) {
   const dot = prop.indexOf('.');
@@ -31,6 +32,8 @@ function dottedField(clip, prop) {
   const key = prop.slice(dot + 1);
   const m = /^mask(\d+)$/.exec(head);
   if (m) return { obj: clip.masks?.[Number(m[1])], key };
+  const r = /^remove(\d+)$/.exec(head);
+  if (r) return { obj: clip.removal?.regions?.[Number(r[1])], key };
   const obj = clip[head];
   return { obj: obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : null, key };
 }

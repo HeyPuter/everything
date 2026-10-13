@@ -21,8 +21,9 @@
  *   video, image and adjust clips may also carry grade (see model/color.js)
  *   video and audio clips may carry speedCurve (see model/speed-curve.js)
  *   video clips may carry smoothSlow: 'blend'|'flow' (see model/slow-motion.js)
- *   video and image clips may carry masks (model/masks.js) and motionBlur,
- *   denoise, relight, canvas (model/clip-extras.js); transform may carry
+ *   video and image clips may carry masks (model/masks.js), removal
+ *   (model/removal.js) and motionBlur, denoise, relight, enhance, canvas
+ *   (model/clip-extras.js); transform may carry
  *   sx, sy (non-uniform scale) and uniform: false
  *   video, image, text and sticker clips may carry effects (see model/clip-effects.js)
  */
@@ -36,6 +37,7 @@ import { normalizeCurve, meanSpeed } from './speed-curve.js';
 import { normalizeMasks } from './masks.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
+import { normalizeRemoval } from './removal.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { isEase } from './keyframes.js';
@@ -372,6 +374,8 @@ export function normalizeClip(c) {
     normalizeClipExtras(c, out);
     if (c.chroma && typeof c.chroma === 'object') out.chroma = { color: color(c.chroma.color, '#00ff00'), strength: clampN(c.chroma.strength, 0, 100, 40), spill: clampN(c.chroma.spill ?? c.chroma.shadow, 0, 100, 0) };
     if (c.cutout && typeof c.cutout === 'object') out.cutout = normalizeCutout(c.cutout);
+    const removal = normalizeRemoval(c.removal);
+    if (removal) out.removal = removal;
     if (c.retouch && typeof c.retouch === 'object') out.retouch = normalizeRetouch(c.retouch);
     if (c.faceShape && typeof c.faceShape === 'object') out.faceShape = normalizeFaceShape(c.faceShape);
     if (c.hairColor && typeof c.hairColor === 'object') out.hairColor = normalizeHairColor(c.hairColor);
