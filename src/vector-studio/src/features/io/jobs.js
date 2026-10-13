@@ -9,6 +9,11 @@ import { rasterExport, exportRegion } from './raster.js';
 import { collectTextOutlines } from './outlines.js';
 import { selectionBounds } from '../../model/geometry.js';
 import { applySvgOptions } from './svg-styling.js';
+import { normalizePdf, pdfVersion, pdfEncrypted } from './pdf-settings.js';
+import { documentCmykProfile, cmykProfile } from '../prepress/color-management.js';
+import { spotInks } from '../prepress/separations.js';
+import { getPreset } from '../prepress/presets.js';
+import { normalizeFlattener } from '../prepress/flattener-presets.js';
 
 export const FORMATS = {
   svg: { label: 'SVG (svg)', ext: 'svg', mime: 'image/svg+xml' },
@@ -58,6 +63,49 @@ export function pdfBleed(doc, options = {}) {
   return options.bleed || 0;
 }
 
+/** A password nobody knows, so restrictions cannot be lifted without one. */
+const randomPassword = () => Array.from(globalThis.crypto?.getRandomValues?.(new Uint8Array(16)) || Array.from({ length: 16 }, () => Math.random() * 256), (b) => (b & 63).toString(36)).join('');
+
+/** PDF writer options from PDF export settings (see pdf-settings.js). */
+export function pdfWriterOptions(app, doc, raw = {}) {
+  const o = normalizePdf(raw);
+  const date = new Date().toLocaleString();
+  const out = {
+    version: pdfVersion(o),
+    compress: o.compressArt,
+    layers: o.layers && Number(o.compat) >= 1.5,
+    thumbnails: o.thumbnails,
+    images: { downsample: o.downsample, ppi: o.downsamplePpi, above: o.downsampleAbove, compression: o.imageCompression, quality: o.jpegQuality },
+    marks: o.marks,
+    markType: o.markType,
+    markWeight: o.markWeight,
+    markOffset: o.markOffset,
+    pageInfo: () => `${raw.title || doc.name || ''}  ${date}`,
+    overprint: o.overprint,
+  };
+  if (o.colorConversion === 'convert') {
+    const [kind, id] = o.destination.split(':');
+    if (kind === 'cmyk') {
+      out.colorSpace = 'cmyk';
+      out.profile = id === 'document' ? documentCmykProfile(app, doc) : id;
+    }
+  }
+  if (!o.spotsToProcess) out.spots = new Map(spotInks(doc).map((s) => [s.id, s]));
+  if (o.standard === 'press') out.outputIntent = cmykProfile(o.outputIntent === 'document' ? documentCmykProfile(app, doc) : o.outputIntent).label;
+  if (o.flatten) {
+    const p = getPreset(app, 'flattener', o.flattener)?.values || normalizeFlattener({});
+    out.flatten = { balance: p.balance, ppi: p.lineArtPpi };
+  }
+  if (pdfEncrypted(o)) {
+    out.security = {
+      userPassword: o.requireOpen ? o.openPassword : '',
+      ownerPassword: (o.restrict && o.permissionsPassword) || randomPassword(),
+      permissions: o.restrict ? { printing: o.printing, changes: o.changes, copy: o.copy, accessibility: o.accessibility } : {},
+    };
+  }
+  return out;
+}
+
 /**
  * Render one file.
  *   format   key of FORMATS
@@ -77,7 +125,7 @@ export async function renderFile(app, editor, format, region, options = {}) {
     const rects = region.rects || [exportRegion(editor, region).rect];
     const ids = region.ids || (region.selection ? exportRegion(editor, region).ids : null);
     const outlines = await outlinesFor(app, editor, ids, options.textOutlines !== false);
-    const { bytes, warnings } = await writePDF(doc, rects, { bleed: pdfBleed(doc, options), ids, outlines, outlinesWanted: options.textOutlines !== false && Boolean(app.textOutlines), title: options.title || doc.name });
+    const { bytes, warnings } = await writePDF(doc, rects, { ...pdfWriterOptions(app, doc, options), bleed: pdfBleed(doc, options), ids, outlines, outlinesWanted: options.textOutlines !== false && Boolean(app.textOutlines), title: options.title || doc.name });
     if (warnings.length) app.notify?.(warnings.join(' '), { timeout: 6000 });
     return new Blob([bytes], { type: 'application/pdf' });
   }

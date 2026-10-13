@@ -18,6 +18,13 @@
  * - Text: outlines from the type module when available, otherwise the
  *   standard Helvetica family (WinAnsi) as a fallback.
  * - Streams are FlateDecode-compressed with CompressionStream when present.
+ * - Print production options: CMYK output through the press model (paints
+ *   converted to CMYK keep their numbers), spot inks as Separation color
+ *   spaces, printer's marks in the registration color with trim and bleed
+ *   boxes, layers as optional content, page thumbnails, image downsampling
+ *   and JPEG compression, overprint preserved, simulated or discarded,
+ *   transparency flattened into images, an output intent, and AES password
+ *   protection (pdf-crypto.js).
  * Live effects (shadows, blurs) are not representable as vectors: objects
  * with them are rasterized at the raster effects resolution (shadows and
  * glows go under the vector object), and failures are reported in `warnings`.
@@ -35,6 +42,10 @@ import { multiply } from '../../lib/matrix.js';
 import { renderSubpaths, isElliptical, radialFrame } from './geometry-helpers.js';
 import { exportView } from './export-view.js';
 import { exportWriters } from './hooks.js';
+import { layoutContent } from './print-layout.js';
+import { securityHandler, encryptStream, newDocumentId } from './pdf-crypto.js';
+import { separate, separatePixel } from '../prepress/color-management.js';
+import { spotTint } from '../prepress/separations.js';
 
 
 
@@ -107,9 +118,13 @@ export async function deflate(bytes, format = 'deflate') {
 
 /** Low-level object writer with a cross-reference table. */
 export class PDFWriter {
-  constructor({ compress = true } = {}) {
+  constructor({ compress = true, version = '1.7' } = {}) {
     this.objects = [null]; // 1-based
     this.compress = compress;
+    this.version = version;
+    // { key } when streams are encrypted; the document id goes in the trailer.
+    this.security = null;
+    this.id = null;
   }
 
   alloc() {
@@ -137,7 +152,7 @@ export class PDFWriter {
     return this.setStream(this.alloc(), dict, data, opts);
   }
 
-  async build({ root, info }) {
+  async build({ root, info, encrypt = null }) {
     const chunks = [];
     let offset = 0;
     const push = (b) => {
@@ -145,7 +160,7 @@ export class PDFWriter {
       chunks.push(bytes);
       offset += bytes.length;
     };
-    push('%PDF-1.7\n%\xe2\xe3\xcf\xd3\n');
+    push(`%PDF-${this.version}\n%\xe2\xe3\xcf\xd3\n`);
     const offsets = [0];
     for (let id = 1; id < this.objects.length; id++) {
       const o = this.objects[id] || { body: 'null' };
@@ -160,6 +175,7 @@ export class PDFWriter {
             filter = '/FlateDecode';
           }
         }
+        if (this.security) data = await encryptStream(this.security.key, id, 0, data);
         push(`${id} 0 obj\n<<${o.dict ? ` ${o.dict}` : ''}${filter ? ` /Filter ${filter}` : ''} /Length ${data.length} >>\nstream\n`);
         push(data);
         push('\nendstream\nendobj\n');
@@ -169,7 +185,8 @@ export class PDFWriter {
     let table = `xref\n0 ${this.objects.length}\n0000000000 65535 f \n`;
     for (let id = 1; id < this.objects.length; id++) table += `${String(offsets[id]).padStart(10, '0')} 00000 n \n`;
     push(table);
-    push(`trailer\n<< /Size ${this.objects.length} /Root ${root} 0 R${info ? ` /Info ${info} 0 R` : ''} >>\nstartxref\n${xref}\n%%EOF\n`);
+    const idHex = this.id ? [...this.id].map((b) => b.toString(16).padStart(2, '0')).join('') : null;
+    push(`trailer\n<< /Size ${this.objects.length} /Root ${root} 0 R${info ? ` /Info ${info} 0 R` : ''}${encrypt ? ` /Encrypt ${encrypt} 0 R` : ''}${idHex ? ` /ID [<${idHex}> <${idHex}>]` : ''} >>\nstartxref\n${xref}\n%%EOF\n`);
     return concat(chunks);
   }
 }
@@ -183,10 +200,6 @@ const BLEND_PDF = {
 const CAP = { butt: 0, round: 1, square: 2 };
 const JOIN = { miter: 0, round: 1, bevel: 2 };
 
-function rgbOps(hex, op) {
-  const { r, g, b } = hexToRgb(hex);
-  return `${pdfNum(r / 255, 4)} ${pdfNum(g / 255, 4)} ${pdfNum(b / 255, 4)} ${op}`;
-}
 
 /** Resources of one content stream (page or form). */
 class Resources {
@@ -196,6 +209,8 @@ class Resources {
     this.shading = new Map();
     this.xobject = new Map();
     this.font = new Map();
+    this.colorspace = new Map();
+    this.properties = new Map();
   }
 
   name(map, prefix, objId) {
@@ -207,7 +222,7 @@ class Resources {
 
   dict() {
     const part = (key, map) => (map.size ? ` /${key} << ${[...map].map(([n, id]) => `/${n} ${id} 0 R`).join(' ')} >>` : '');
-    return `<< /ProcSet [/PDF /Text /ImageB /ImageC /ImageI]${part('ExtGState', this.ext)}${part('Pattern', this.pattern)}${part('Shading', this.shading)}${part('XObject', this.xobject)}${part('Font', this.font)} >>`;
+    return `<< /ProcSet [/PDF /Text /ImageB /ImageC /ImageI]${part('ExtGState', this.ext)}${part('Pattern', this.pattern)}${part('Shading', this.shading)}${part('XObject', this.xobject)}${part('Font', this.font)}${part('ColorSpace', this.colorspace)}${part('Properties', this.properties)} >>`;
   }
 }
 
@@ -221,10 +236,66 @@ class PDFRenderer {
     this.shadingCache = new Map();
     this.imageCache = new Map();
     this.fontCache = new Map();
+    this.csCache = new Map();
+    // Device color output: 'rgb' or 'cmyk' (through the press model `profile`).
+    this.cmyk = opts.colorSpace === 'cmyk';
+    this.profile = opts.profile || 'basic';
+    // Spot inks written as Separation color spaces: swatch id -> { name, color }.
+    this.spots = opts.spots || new Map();
+    // Streams finishing asynchronously (JPEG encoding) before the file is built.
+    this.pending = [];
+    this.ocgs = new Map();
   }
 
   f(v) {
     return pdfNum(v);
+  }
+
+  get deviceSpace() {
+    return this.cmyk ? 'DeviceCMYK' : 'DeviceRGB';
+  }
+
+  /** Color components of a color (hex, or a solid paint that may carry CMYK numbers). */
+  colorValues(color) {
+    const hex = typeof color === 'string' ? color : color?.color || '#000000';
+    if (this.cmyk) {
+      const c = (typeof color === 'object' && color?.cmyk) || separate(Object.values(hexToRgb(hex)).map((v) => v / 255), this.profile);
+      return [c.c, c.m, c.y, c.k].map((v) => Math.max(0, Math.min(1, v / 100)));
+    }
+    const { r, g, b } = hexToRgb(hex);
+    return [r / 255, g / 255, b / 255];
+  }
+
+  /** A Separation color space for a spot ink (or 'All' for registration marks). */
+  separationSpace(name, alt) {
+    const key = `${name}|${alt.join(',')}`;
+    let id = this.csCache.get(key);
+    if (!id) {
+      const esc = String(name).replace(/[^A-Za-z0-9._-]/g, (ch) => `#${ch.charCodeAt(0).toString(16).padStart(2, '0')}`) || 'Spot';
+      const zero = alt.map(() => 0).join(' ');
+      id = this.w.add(`[/Separation /${esc} /${this.deviceSpace} << /FunctionType 2 /Domain [0 1] /C0 [${zero}] /C1 [${alt.map((v) => pdfNum(v)).join(' ')}] /N 1 >>]`);
+      this.csCache.set(key, id);
+    }
+    return id;
+  }
+
+  /** Operators setting the fill (or stroke) color for a color or solid paint. */
+  colorOps(res, color, stroke = false) {
+    const spot = typeof color === 'object' && color?.swatchId ? this.spots.get(color.swatchId) : null;
+    if (spot) {
+      const cs = this.separationSpace(spot.name, this.colorValues(spot.color));
+      const tint = spotTint(color.color, spot.color, color.tint);
+      return `/${res.name(res.colorspace, 'CS', cs)} ${stroke ? 'CS' : 'cs'} ${pdfNum(tint)} ${stroke ? 'SCN' : 'scn'}`;
+    }
+    const v = this.colorValues(color).map((x) => pdfNum(x)).join(' ');
+    if (this.cmyk) return `${v} ${stroke ? 'K' : 'k'}`;
+    return `${v} ${stroke ? 'RG' : 'rg'}`;
+  }
+
+  /** The registration color: every plate at 100%. */
+  registrationOps(res, stroke = false) {
+    const cs = this.separationSpace('All', this.cmyk ? [1, 1, 1, 1] : [0, 0, 0]);
+    return `/${res.name(res.colorspace, 'CS', cs)} ${stroke ? 'CS' : 'cs'} 1 ${stroke ? 'SCN' : 'scn'}`;
   }
 
   // ---- shared objects ----
@@ -233,9 +304,13 @@ class PDFRenderer {
   extGState(fillAlpha, strokeAlpha, blend, node = null) {
     const ca = Math.max(0, Math.min(1, fillAlpha));
     const CA = Math.max(0, Math.min(1, strokeAlpha));
-    const bm = BLEND_PDF[blend] || null;
-    const op = Boolean(node?.overprintFill);
-    const OP = Boolean(node?.overprintStroke);
+    let bm = BLEND_PDF[blend] || null;
+    let op = Boolean(node?.overprintFill);
+    let OP = Boolean(node?.overprintStroke);
+    const mode = this.opts.overprint || 'preserve';
+    // Simulated overprint mixes the object's inks into what is below, as Multiply does.
+    if (mode === 'simulate' && (op || OP) && !bm) bm = 'Multiply';
+    if (mode !== 'preserve') op = OP = false;
     if (ca >= 1 && CA >= 1 && !bm && !op && !OP) return null;
     const key = `${pdfNum(ca, 3)}|${pdfNum(CA, 3)}|${bm}|${op}|${OP}`;
     let id = this.gsCache.get(key);
@@ -253,10 +328,7 @@ class PDFRenderer {
     if (s[0].offset > 0) s.unshift({ ...s[0], offset: 0 });
     if (s[s.length - 1].offset < 1) s.push({ ...s[s.length - 1], offset: 1 });
     for (let i = 1; i < s.length; i++) if (s[i].offset <= s[i - 1].offset) s[i].offset = Math.min(1, s[i - 1].offset + 1e-4);
-    const col = (hex) => {
-      const { r, g, b } = hexToRgb(hex);
-      return `[${pdfNum(r / 255)} ${pdfNum(g / 255)} ${pdfNum(b / 255)}]`;
-    };
+    const col = (hex) => `[${this.colorValues(hex).map((v) => pdfNum(v)).join(' ')}]`;
     const fns = [];
     for (let i = 0; i + 1 < s.length; i++) fns.push(`<< /FunctionType 2 /Domain [0 1] /C0 ${col(s[i].color)} /C1 ${col(s[i + 1].color)} /N 1 >>`);
     if (fns.length === 1) return fns[0];
@@ -288,7 +360,7 @@ class PDFRenderer {
       const fo = focalPoint(paint, g, 1);
       coords = `[${this.f(g.x1 + fo.x)} ${this.f(g.y1 + fo.y)} ${this.f(fo.r)} ${this.f(g.x1)} ${this.f(g.y1)} ${this.f(Math.max(g.r, 1e-4))}]`;
     } else coords = `[${this.f(g.x1)} ${this.f(g.y1)} ${this.f(g.x2)} ${this.f(g.y2)}]`;
-    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace /DeviceRGB /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
+    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace /${this.deviceSpace} /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
     let id = this.shadingCache.get(body);
     if (!id) {
       id = this.w.add(body);
@@ -326,54 +398,76 @@ class PDFRenderer {
     return id;
   }
 
-  /** Image XObject for an asset (cached per asset). */
-  imageXObject(assetId) {
-    let p = this.imageCache.get(assetId);
+  /** Image XObject for an asset (cached per asset and output size). */
+  imageXObject(assetId, size = null) {
+    const key = size ? `${assetId}@${size.w}x${size.h}` : assetId;
+    let p = this.imageCache.get(key);
     if (!p) {
-      p = this.encodeImage(assetId).catch(() => null);
-      this.imageCache.set(assetId, p);
+      p = this.encodeImage(assetId, size).catch(() => null);
+      this.imageCache.set(key, p);
     }
     return p;
   }
 
-  async encodeImage(assetId) {
+  async encodeImage(assetId, size = null) {
     const asset = this.doc.assets.get(assetId);
     if (!asset?.data) return null;
     const info = asset.data.startsWith('data:') ? dataUrlToBytes(asset.data) : null;
-    if (info && sniffMime(info.bytes) === 'image/jpeg') {
+    // JPEG data passes through unless it has to change (CMYK output, downsampling, recompression).
+    const keepJpeg = !this.cmyk && !size && this.opts.images?.compression !== 'zip';
+    if (keepJpeg && info && sniffMime(info.bytes) === 'image/jpeg') {
       const j = jpegInfo(info.bytes);
       if (j && (j.components === 1 || j.components === 3)) {
         return this.w.addStream(`/Type /XObject /Subtype /Image /Width ${j.width} /Height ${j.height} /ColorSpace /${j.components === 1 ? 'DeviceGray' : 'DeviceRGB'} /BitsPerComponent 8`, info.bytes, { filter: '/DCTDecode' });
       }
     }
-    const px = await decodePixels(asset);
+    let px = await decodePixels(asset);
     if (!px) {
       this.warnings.add('Some images could not be decoded and were left out.');
       return null;
     }
+    if (size) px = resamplePixels(px, size.w, size.h, this.opts.images?.downsample) || px;
     return this.pixelsXObject(px);
   }
 
-  /** Image XObject (with a soft mask when needed) from RGBA pixels. */
+  /**
+   * Image XObject (with a soft mask when needed) from RGBA pixels: CMYK
+   * through the press model for CMYK output, JPEG-compressed when chosen.
+   * Returns the object id at once; JPEG data arrives before the file is built.
+   */
   pixelsXObject({ width, height, data }) {
-    const rgb = new Uint8Array(width * height * 3);
+    const n = this.cmyk ? 4 : 3;
+    const color = new Uint8Array(width * height * n);
     const alpha = new Uint8Array(width * height);
+    const plates = new Float32Array(4);
     let hasAlpha = false;
-    for (let i = 0, j = 0, k = 0; i < data.length; i += 4, j += 3, k++) {
+    for (let i = 0, j = 0, k = 0; i < data.length; i += 4, j += n, k++) {
       const a = data[i + 3];
       // Canvas pixels are unpremultiplied already; keep color as is.
-      rgb[j] = data[i];
-      rgb[j + 1] = data[i + 1];
-      rgb[j + 2] = data[i + 2];
+      if (this.cmyk) {
+        separatePixel(this.profile, data[i], data[i + 1], data[i + 2], plates);
+        for (let c = 0; c < 4; c++) color[j + c] = Math.round(plates[c] * 255);
+      } else {
+        color[j] = data[i];
+        color[j + 1] = data[i + 1];
+        color[j + 2] = data[i + 2];
+      }
       alpha[k] = a;
       if (a < 255) hasAlpha = true;
     }
     let smask = '';
     if (hasAlpha) {
-      const sid = this.w.addStream(`/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8`, alpha);
+      const sid = this.w.addStream(`/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8`, alpha, { compress: true });
       smask = ` /SMask ${sid} 0 R`;
     }
-    return this.w.addStream(`/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8${smask}`, rgb);
+    const dict = `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /${this.deviceSpace} /BitsPerComponent 8${smask}`;
+    const id = this.w.addStream(dict, color, { compress: true });
+    if (this.opts.images?.compression === 'jpeg' && !this.cmyk) {
+      this.pending.push(encodeJpeg({ width, height, data }, this.opts.images.quality ?? 0.85).then((bytes) => {
+        if (bytes && bytes.length < color.length) this.w.setStream(id, dict, bytes, { filter: '/DCTDecode' });
+      }).catch(() => {}));
+    }
+    return id;
   }
 
   // ---- geometry ----
@@ -423,11 +517,11 @@ class PDFRenderer {
     const W = evenOdd ? 'W*' : 'W';
     const doFill = () => {
       if (!fill) return '';
-      if (fill.type === 'solid') return `${rgbOps(fill.color, 'rg')}\n${path}${evenOdd ? 'f*' : 'f'}\n`;
+      if (fill.type === 'solid') return `${this.colorOps(res, fill)}\n${path}${evenOdd ? 'f*' : 'f'}\n`;
       return `q\n${path}${W} n\n${this.shadeOps(res, fill, node)}Q\n`;
     };
     const strokeColor = () => {
-      if (stroke.type === 'solid') return `${rgbOps(stroke.color, 'RG')}\n`;
+      if (stroke.type === 'solid') return `${this.colorOps(res, stroke, true)}\n`;
       const sh = this.shadingFor(stroke, node);
       const m = sh.frame ? multiply(ctx.patternBase, sh.frame) : ctx.patternBase;
       const pat = this.w.add(`<< /Type /Pattern /PatternType 2 /Shading ${sh.id} 0 R /Matrix [${m.map((v) => this.f(v)).join(' ')}] >>`);
@@ -444,14 +538,14 @@ class PDFRenderer {
         out += `q\n${this.f(vb.x)} ${this.f(vb.y)} ${this.f(vb.w)} ${this.f(vb.h)} re\n${path}W* n\n${doStroke(2)}Q\n`;
       }
     } else if (fill?.type === 'solid' && stroke?.type === 'solid' && !strokeSubpaths) {
-      out += `${rgbOps(fill.color, 'rg')}\n${this.strokeState(node)}${rgbOps(stroke.color, 'RG')}\n${path}${evenOdd ? 'B*' : 'B'}\n`;
+      out += `${this.colorOps(res, fill)}\n${this.strokeState(node)}${this.colorOps(res, stroke, true)}\n${path}${evenOdd ? 'B*' : 'B'}\n`;
     } else {
       out += doFill();
       out += doStroke();
     }
     if (arrows.length && stroke) {
       const ap = this.pathOps(arrows);
-      if (stroke.type === 'solid') out += `${rgbOps(stroke.color, 'rg')}\n${ap}f\n`;
+      if (stroke.type === 'solid') out += `${this.colorOps(res, stroke)}\n${ap}f\n`;
       else out += `q\n${ap}W n\n${this.shadeOps(res, stroke, node)}Q\n`;
     }
     out += 'Q\n';
@@ -468,6 +562,8 @@ class PDFRenderer {
 
   async node(ctx, node) {
     if (!this.visible(node, ctx)) return;
+    // Flattening: transparent objects become images of themselves over what is below.
+    if (this.opts.flatten && node.type !== 'layer' && this.isTransparent(node) && (await this.flattened(ctx, node))) return;
     if (node.url && /^(https?:|mailto:)/i.test(node.url)) {
       const b = nodeBounds(this.doc, node);
       if (b) ctx.links.push({ b, url: node.url });
@@ -515,7 +611,7 @@ class PDFRenderer {
     const res = ctx.res;
     const { mode, items } = textPieces(node);
     if (!items.length) return;
-    const solid = (p) => (p ? (p.type === 'solid' ? p.color : [...p.stops].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
+    const solid = (p) => (p ? (p.type === 'solid' ? p : [...p.stops].sort((a, b) => a.offset - b.offset)[0]?.color || '#000000') : null);
     const op = node.opacity ?? 1;
     const m = node.transform;
     let out = `q\n${m.map((v) => this.f(v)).join(' ')} cm\n`;
@@ -528,8 +624,8 @@ class PDFRenderer {
       const gs = this.extGState(op * this.paintAlpha(fill), op * this.paintAlpha(stroke), node.blendMode, node);
       out += 'q\n';
       if (gs) out += `/${res.name(res.ext, 'GS', gs)} gs\n`;
-      if (fill) out += `${rgbOps(solid(fill), 'rg')}\n`;
-      if (stroke) out += `${rgbOps(solid(stroke), 'RG')}\n${this.f(sw)} w\n`;
+      if (fill) out += `${this.colorOps(res, solid(fill))}\n`;
+      if (stroke) out += `${this.colorOps(res, solid(stroke), true)}\n${this.f(sw)} w\n`;
       // Glyph pieces carry their own matrix; segments are placed with the text matrix.
       if (mode === 'glyphs') out += `${it.m.map((v) => this.f(v)).join(' ')} cm\n`;
       const hs = mode === 'segments' ? it.hs : 1;
@@ -590,7 +686,7 @@ class PDFRenderer {
   }
 
   async image(ctx, node) {
-    const id = await this.imageXObject(node.asset);
+    const id = await this.imageXObject(node.asset, downsampleSize(node, this.opts.images));
     if (!id) return;
     const res = ctx.res;
     const m = node.transform;
@@ -653,7 +749,7 @@ class PDFRenderer {
     if (!inner.ops.length) return;
     const b = inflate(visualBounds(this.doc, node) || ctx.cull, 2);
     const resId = this.w.add(inner.res.dict());
-    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS /DeviceRGB /I true >> /Resources ${resId} 0 R`, inner.ops.join(''));
+    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS /${this.deviceSpace} /I true >> /Resources ${resId} 0 R`, inner.ops.join(''));
     const res = ctx.res;
     const gs = this.extGState(op, op, node.blendMode);
     ctx.ops.push(`q\n${gs ? `/${res.name(res.ext, 'GS', gs)} gs\n` : ''}/${res.name(res.xobject, 'Fm', form)} Do\nQ\n`);
@@ -663,35 +759,245 @@ class PDFRenderer {
     // Bleed: one value for every side or { top, bottom, left, right } (a document's bleed).
     const b = this.opts.bleed;
     const side = (k) => Math.max(0, (typeof b === 'number' ? b : b?.[k]) || 0);
-    const [bt, bb, bl, br] = [side('top'), side('bottom'), side('left'), side('right')];
-    const bleed = bt || bb || bl || br;
-    const W = rect.w + bl + br;
-    const H = rect.h + bt + bb;
-    const base = [1, 0, 0, -1, bl - rect.x, rect.y + rect.h + bb];
-    const cull = inflate({ x: rect.x - bl, y: rect.y - bt, w: W, h: H }, 1);
+    const bleed = { top: side('top'), bottom: side('bottom'), left: side('left'), right: side('right') };
+    const hasBleed = bleed.top || bleed.bottom || bleed.left || bleed.right;
+    // The page holds the bleed area plus room for printer's marks (see print-layout.js).
+    const lay = layoutContent(rect, { media: 'artboard', bleed, marks: this.opts.marks || {}, markWeight: this.opts.markWeight, markOffset: this.opts.markOffset, markType: this.opts.markType }, this.opts.pageInfo ? this.opts.pageInfo(rect) : '')[0];
+    const t = lay.tiles[0];
+    const area = t.rect;
+    const W = lay.w;
+    const H = lay.h;
+    const base = [1, 0, 0, -1, t.x - area.x, H - t.y + area.y];
+    const marks = lay.marks || [];
+    const cull = inflate(area, 1);
     const ctx = { ops: [], res: new Resources(), patternBase: base, cull, links: [] };
-    ctx.ops.push(`${base.map((v) => this.f(v)).join(' ')} cm\n`);
-    if (this.opts.background) ctx.ops.push(`${rgbOps(this.opts.background, 'rg')}\n${this.f(rect.x - bl)} ${this.f(rect.y - bt)} ${this.f(W)} ${this.f(H)} re f\n`);
-    if (this.opts.ids) for (const id of this.opts.ids) await this.node(ctx, this.doc.get(id));
+    ctx.ops.push(`q\n${base.map((v) => this.f(v)).join(' ')} cm\n`);
+    // With marks around it, artwork stops at the bleed.
+    if (marks.length) ctx.ops.push(`${this.f(area.x)} ${this.f(area.y)} ${this.f(area.w)} ${this.f(area.h)} re W n\n`);
+    if (this.opts.background) ctx.ops.push(`${this.colorOps(ctx.res, this.opts.background)}\n${this.f(area.x)} ${this.f(area.y)} ${this.f(area.w)} ${this.f(area.h)} re f\n`);
+    if (this.opts.flatten && this.opts.flatten.balance <= 0) {
+      // Everything rasterized: one image of the page.
+      if (!(await this.rasterArea(ctx, area, () => true))) this.warnings.add('The page could not be rasterized for flattening.');
+    } else if (this.opts.ids) for (const id of this.opts.ids) await this.node(ctx, this.doc.get(id));
     else {
       for (const id of this.doc.root.children) {
         const layer = this.doc.get(id);
         if (!layer || layer.hidden || layer.template || layer.print === false) continue;
+        const oc = this.opts.layers ? this.ocg(layer) : null;
+        if (oc) ctx.ops.push(`/OC /${ctx.res.name(ctx.res.properties, 'OC', oc)} BDC\n`);
         await this.node(ctx, layer);
+        if (oc) ctx.ops.push('EMC\n');
       }
     }
+    ctx.ops.push('Q\n');
+    if (marks.length) ctx.ops.push(this.marksOps(ctx.res, marks, H));
     const content = this.w.addStream('', ctx.ops.join(''));
     const resId = this.w.add(ctx.res.dict());
-    const boxes = bleed ? ` /TrimBox [${this.f(bl)} ${this.f(bb)} ${this.f(bl + rect.w)} ${this.f(bb + rect.h)}] /BleedBox [0 0 ${this.f(W)} ${this.f(H)}]` : '';
+    const box = (r) => {
+      const x = t.x + (r.x - area.x);
+      const y = H - (t.y + (r.y - area.y) + r.h);
+      return `[${this.f(x)} ${this.f(y)} ${this.f(x + r.w)} ${this.f(y + r.h)}]`;
+    };
+    const boxes = hasBleed || marks.length ? ` /TrimBox ${box(rect)} /BleedBox ${box(area)}` : '';
     // Objects with a URL become link annotations over their bounds (page space is y-up).
-    const annots = ctx.links.map(({ b, url }) => {
-      const x1 = b.x + base[4];
-      const y1 = base[5] - (b.y + b.h);
-      return this.w.add(`<< /Type /Annot /Subtype /Link /Rect [${this.f(x1)} ${this.f(y1)} ${this.f(x1 + b.w)} ${this.f(y1 + b.h)}] /Border [0 0 0] /A << /S /URI /URI ${pdfText(url)} >> >>`);
+    const annots = ctx.links.map(({ b: lb, url }) => {
+      const x1 = lb.x + base[4];
+      const y1 = base[5] - (lb.y + lb.h);
+      return this.w.add(`<< /Type /Annot /Subtype /Link /Rect [${this.f(x1)} ${this.f(y1)} ${this.f(x1 + lb.w)} ${this.f(y1 + lb.h)}] /Border [0 0 0] /A << /S /URI /URI ${pdfText(url)} >> >>`);
     });
-    const annotRef = annots.length ? ` /Annots [${annots.map((a) => `${a} 0 R`).join(' ')}]` : '';
-    return this.w.add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${this.f(W)} ${this.f(H)}]${boxes} /Resources ${resId} 0 R /Contents ${content} 0 R${annotRef} >>`);
+    const annotRef = annots.length ? ` /Annots [${annots.map((x) => `${x} 0 R`).join(' ')}]` : '';
+    const thumb = this.opts.thumbnails ? await this.thumbnail(area) : null;
+    return this.w.add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${this.f(W)} ${this.f(H)}]${boxes} /Resources ${resId} 0 R /Contents ${content} 0 R${annotRef}${thumb ? ` /Thumb ${thumb} 0 R` : ''} >>`);
   }
+
+  /** Optional content group of a top-level layer (one per layer for the whole file). */
+  ocg(layer) {
+    let id = this.ocgs.get(layer.id);
+    if (!id) {
+      id = this.w.add(`<< /Type /OCG /Name ${pdfText(layer.name || 'Layer')} >>`);
+      this.ocgs.set(layer.id, id);
+    }
+    return id;
+  }
+
+  /** Printer's marks in page space (y down from the top, page height H), in the registration color. */
+  marksOps(res, marks, H) {
+    const f = (v) => this.f(v);
+    const Y = (y) => f(H - y);
+    let out = 'q\n';
+    const reg = this.registrationOps(res, true);
+    for (const m of marks) {
+      if (m.kind === 'line') out += `${reg}\n${f(m.w)} w\n${f(m.x1)} ${Y(m.y1)} m ${f(m.x2)} ${Y(m.y2)} l S\n`;
+      else if (m.kind === 'registration') {
+        out += `${reg}\n${f(m.w)} w\n`;
+        for (const r of [m.r, m.r / 2]) {
+          const k = r * 0.5523;
+          const cx = m.x;
+          const cy = H - m.y;
+          out += `${f(cx + r)} ${f(cy)} m ${f(cx + r)} ${f(cy + k)} ${f(cx + k)} ${f(cy + r)} ${f(cx)} ${f(cy + r)} c ${f(cx - k)} ${f(cy + r)} ${f(cx - r)} ${f(cy + k)} ${f(cx - r)} ${f(cy)} c ${f(cx - r)} ${f(cy - k)} ${f(cx - k)} ${f(cy - r)} ${f(cx)} ${f(cy - r)} c ${f(cx + k)} ${f(cy - r)} ${f(cx + r)} ${f(cy - k)} ${f(cx + r)} ${f(cy)} c S\n`;
+        }
+        out += `${f(m.x - m.r * 1.5)} ${Y(m.y)} m ${f(m.x + m.r * 1.5)} ${Y(m.y)} l S\n${f(m.x)} ${Y(m.y - m.r * 1.5)} m ${f(m.x)} ${Y(m.y + m.r * 1.5)} l S\n`;
+      } else if (m.kind === 'swatch') {
+        const solid = this.cmyk ? PROCESS_BARS[m.color] : null;
+        const color = solid ? `${solid.join(' ')} k` : this.colorOps(res, m.color);
+        out += `${color}\n${f(m.x)} ${f(H - m.y - m.h)} ${f(m.w)} ${f(m.h)} re f\n`;
+      } else if (m.kind === 'text') {
+        const font = res.name(res.font, 'F', this.helvetica({}));
+        out += `${this.registrationOps(res)}\nBT\n/${font} ${f(m.size)} Tf\n${f(m.x)} ${Y(m.y)} Td\n${winAnsiString(m.text)} Tj\nET\n`;
+      }
+    }
+    return `${out}Q\n`;
+  }
+
+  /** A small RGB preview of the page (/Thumb). */
+  async thumbnail(area) {
+    try {
+      const scale = Math.min(1, 106 / Math.max(area.w, area.h));
+      const canvas = await renderRegion(this.doc, area, { scale, background: '#ffffff' });
+      const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      if (!d || d.length !== canvas.width * canvas.height * 4) return null;
+      const rgb = new Uint8Array(canvas.width * canvas.height * 3);
+      for (let i = 0, j = 0; i < d.length; i += 4, j += 3) {
+        rgb[j] = d[i];
+        rgb[j + 1] = d[i + 1];
+        rgb[j + 2] = d[i + 2];
+      }
+      return this.w.addStream(`/Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8`, rgb, { compress: true });
+    } catch {
+      return null;
+    }
+  }
+
+  // ---- flattening ----
+
+  /** Paint order of every node (pre-order) and the last index inside each subtree. */
+  paintIndex() {
+    if (this.order) return this.order;
+    const index = new Map();
+    const last = new Map();
+    let i = 0;
+    const visit = (id) => {
+      const n = this.doc.get(id);
+      if (!n) return i;
+      index.set(id, i++);
+      let end = index.get(id);
+      for (const c of n.children || []) end = Math.max(end, visit(c));
+      last.set(id, end);
+      return end;
+    };
+    for (const id of this.doc.root.children) {
+      const l = this.doc.get(id);
+      if (l && !l.hidden && !l.template && l.print !== false) visit(id);
+    }
+    this.order = { index, last };
+    return this.order;
+  }
+
+  /** Whether an object needs flattening: opacity, blending or see-through paint. */
+  isTransparent(node) {
+    if ((node.opacity ?? 1) < 1 || (node.blendMode && node.blendMode !== 'normal')) return true;
+    if (this.opts.overprint === 'simulate' && (node.overprintFill || node.overprintStroke)) return true;
+    const see = (p) => p && ((p.opacity ?? 1) < 1 || (p.stops || []).some((s) => (s.opacity ?? 1) < 1));
+    return see(node.fill) || see(node.stroke);
+  }
+
+  /** Rasterize a document area with the leaves `keep` admits, over white, and place it. */
+  async rasterArea(ctx, rect, keep) {
+    const ppi = this.opts.flatten?.ppi || 300;
+    const scale = Math.min(ppi / 72, 6000 / Math.max(rect.w, rect.h, 1));
+    try {
+      const canvas = await renderRegion(this.doc, rect, { scale, background: '#ffffff', leafFilter: keep, overprint: this.opts.overprint === 'simulate' });
+      const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      if (!data || data.length !== canvas.width * canvas.height * 4) return false;
+      const id = this.pixelsXObject({ width: canvas.width, height: canvas.height, data });
+      ctx.ops.push(`q\n${this.f(rect.w)} 0 0 ${this.f(-rect.h)} ${this.f(rect.x)} ${this.f(rect.y + rect.h)} cm\n/${ctx.res.name(ctx.res.xobject, 'Im', id)} Do\nQ\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Flatten a transparent object: an image of it over everything painted before it. */
+  async flattened(ctx, node) {
+    const vb = visualBounds(this.doc, node);
+    if (!vb) return true;
+    const x0 = Math.max(vb.x, ctx.cull.x);
+    const y0 = Math.max(vb.y, ctx.cull.y);
+    const x1 = Math.min(vb.x + vb.w, ctx.cull.x + ctx.cull.w);
+    const y1 = Math.min(vb.y + vb.h, ctx.cull.y + ctx.cull.h);
+    if (!(x1 > x0 && y1 > y0)) return true;
+    const { index, last } = this.paintIndex();
+    const end = last.get(node.id) ?? index.get(node.id);
+    if (end == null) return false;
+    return this.rasterArea(ctx, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, (id) => (index.get(id) ?? Infinity) <= end);
+  }
+}
+
+/** Solid process colors for the color bars in CMYK output. */
+const PROCESS_BARS = {
+  '#00ffff': [1, 0, 0, 0],
+  '#ff00ff': [0, 1, 0, 0],
+  '#ffff00': [0, 0, 1, 0],
+  '#000000': [0, 0, 0, 1],
+  '#ff0000': [0, 1, 1, 0],
+  '#00ff00': [1, 0, 1, 0],
+  '#0000ff': [1, 1, 0, 0],
+  '#808080': [0, 0, 0, 0.5],
+  '#c0c0c0': [0, 0, 0, 0.25],
+  '#404040': [0, 0, 0, 0.75],
+};
+
+function makeCanvas(w, h) {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  return Object.assign(document.createElement('canvas'), { width: w, height: h });
+}
+
+/**
+ * The pixel size to downsample a placed image to, or null to keep it:
+ * images above `above` ppi (at their placed size) go to `ppi`.
+ */
+export function downsampleSize(node, images) {
+  if (!images || images.downsample === 'none' || !(node.width > 0) || !(node.height > 0)) return null;
+  const m = node.transform || [1, 0, 0, 1, 0, 0];
+  const sx = Math.hypot(m[0], m[1]) || 1;
+  const sy = Math.hypot(m[2], m[3]) || 1;
+  const ppi = Math.min(72 / sx, 72 / sy);
+  if (ppi <= images.above) return null;
+  const f = images.ppi / ppi;
+  return { w: Math.max(1, Math.round(node.width * f)), h: Math.max(1, Math.round(node.height * f)) };
+}
+
+/** Resample RGBA pixels to w x h (average or bicubic-quality smoothing). */
+function resamplePixels(px, w, h, mode) {
+  try {
+    const src = makeCanvas(px.width, px.height);
+    const sctx = src.getContext('2d');
+    const img = sctx.createImageData(px.width, px.height);
+    img.data.set(px.data);
+    sctx.putImageData(img, 0, 0);
+    const dst = makeCanvas(w, h);
+    const d = dst.getContext('2d');
+    d.imageSmoothingEnabled = true;
+    d.imageSmoothingQuality = mode === 'bicubic' ? 'high' : 'medium';
+    d.drawImage(src, 0, 0, w, h);
+    const out = d.getImageData(0, 0, w, h).data;
+    return out && out.length === w * h * 4 ? { width: w, height: h, data: out } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** JPEG bytes of RGBA pixels (alpha ignored: it goes in the soft mask). */
+async function encodeJpeg(px, quality) {
+  const canvas = makeCanvas(px.width, px.height);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(px.width, px.height);
+  img.data.set(px.data);
+  for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+  ctx.putImageData(img, 0, 0);
+  const blob = canvas.convertToBlob ? await canvas.convertToBlob({ type: 'image/jpeg', quality }) : await new Promise((r) => (canvas.toBlob ? canvas.toBlob(r, 'image/jpeg', quality) : r(null)));
+  if (!blob || blob.type !== 'image/jpeg') return null;
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 /**
@@ -753,19 +1059,35 @@ async function decodePixels(asset) {
 /**
  * Write a PDF. `pages` is a list of document rects (artboards). Options:
  * bleed, ids (only these roots), outlines (Map text id -> subpaths),
- * outlinesWanted, background, title, compress.
+ * outlinesWanted, background, title, compress, and for print production
+ * (see pdf-settings.js): version, colorSpace 'rgb'|'cmyk', profile, spots
+ * (Map swatch id -> { name, color }), marks, markType, markWeight,
+ * markOffset, pageInfo(rect), layers, thumbnails, images { downsample, ppi,
+ * above, compression, quality }, overprint, flatten { balance, ppi },
+ * outputIntent (a name), security { userPassword, ownerPassword, permissions }.
  * Returns { bytes: Uint8Array, warnings: string[] }.
  */
 export async function writePDF(source, pages, opts = {}) {
   const doc = exportView(source);
-  const w = new PDFWriter({ compress: opts.compress !== false });
+  const w = new PDFWriter({ compress: opts.compress !== false, version: opts.version || '1.7' });
+  w.id = newDocumentId();
+  let encrypt = null;
+  if (opts.security) {
+    const sh = securityHandler({ ...opts.security, id: w.id });
+    encrypt = w.add(sh.dict);
+    w.security = { key: sh.key };
+  }
   const r = new PDFRenderer(doc, w, opts);
   const catalog = w.alloc();
   const pagesId = w.alloc();
   const kids = [];
   for (const rect of pages) kids.push(await r.page(rect, pagesId));
+  await Promise.all(r.pending);
   w.set(pagesId, `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`);
-  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  const ocgs = [...r.ocgs.values()].map((id) => `${id} 0 R`).join(' ');
+  const ocProps = ocgs ? ` /OCProperties << /OCGs [${ocgs}] /D << /Order [${ocgs}] /ON [${ocgs}] /OFF [] >> >>` : '';
+  const intent = opts.outputIntent ? ` /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier ${pdfText(opts.outputIntent)} /Info ${pdfText(opts.outputIntent)} >>]` : '';
+  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent} >>`);
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   const date = `D:${d.getUTCFullYear()}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}Z`;
@@ -774,8 +1096,7 @@ export async function writePDF(source, pages, opts = {}) {
   const list = (v) => (Array.isArray(v) ? v.join('; ') : v);
   const title = meta.title || opts.title;
   const extra = [['Author', list(meta.author)], ['Subject', meta.description], ['Keywords', list(meta.keywords)]].filter(([, v]) => v).map(([k, v]) => `/${k} ${pdfText(v)} `).join('');
-  const info = w.add(`<< ${title ? `/Title ${pdfText(title)} ` : ''}${extra}/Producer (Vector Studio) /Creator (Vector Studio) /CreationDate (${date}) /ModDate (${date}) >>`);
-  const bytes = await w.build({ root: catalog, info });
+  const info = w.add(`<< ${title ? `/Title ${pdfText(title)} ` : ''}${extra}/Producer (Vector Studio) /Creator (Vector Studio) /CreationDate (${date}) /ModDate (${date})${opts.outputIntent ? ' /Trapped /False' : ''} >>`);
+  const bytes = await w.build({ root: catalog, info, encrypt });
   return { bytes, warnings: [...r.warnings] };
 }
-

@@ -145,7 +145,7 @@ export function printPages(app, editor, pages, opts = {}) {
   return printRoot(buildLayoutRoot(editor.doc, pages, opts), layoutPageRules(pages));
 }
 
-async function printRoot(root, css) {
+export async function printRoot(root, css) {
   document.querySelectorAll('.io-print-root, #io-print-page-style').forEach((el) => el.remove());
   const style = document.createElement('style');
   style.id = 'io-print-page-style';
