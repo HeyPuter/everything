@@ -9,7 +9,7 @@ import { contentsOf, type EmbeddedContents, type EmbedLink } from '../../model/e
 import { cloudRead, pickCloudFiles } from '../files/cloud';
 import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, setContents } from './contents';
 import { fileAccept, pickLocalFiles, selectedObject } from './convert';
-import { handles, linkedIn, statuses, type FileHandle } from './link-state';
+import { handles, linkedIn, linkReaders, statuses, type FileHandle } from './link-state';
 
 export { hasLinked, linkStatus, linkStatusText, watchLinks, type LinkStatus } from './link-state';
 type Picker = (options?: { multiple?: boolean }) => Promise<FileHandle[]>;
@@ -24,6 +24,7 @@ export async function readLinkedFile(c: EmbeddedContents): Promise<Blob | undefi
   if (!c.link) return undefined;
   try {
     if (c.link.kind === 'puter' && c.link.path) return await cloudRead(c.link.path);
+    if (c.link.kind === 'library') return await linkReaders.library?.(c);
     const h = handles.get(c.id);
     return h ? await h.getFile() : undefined;
   } catch {
@@ -81,6 +82,7 @@ async function readLinked(c: EmbeddedContents): Promise<Blob | undefined> {
   const link = c.link!;
   try {
     if (link.kind === 'puter' && link.path) return await cloudRead(link.path);
+    if (link.kind === 'library') return await linkReaders.library?.(c);
     return await handles.get(c.id)?.getFile();
   } catch {
     return undefined;

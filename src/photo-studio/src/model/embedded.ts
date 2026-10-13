@@ -30,9 +30,10 @@ export const stackModes: [StackMode, string][] = [
 ];
 
 /** Where linked content comes from. Local files can be re-read only while the
- * page keeps the file handle; Puter files are re-read from their path. */
+ * page keeps the file handle; Puter files are re-read from their path;
+ * library graphics from the library item named by `path`. */
 export type EmbedLink = {
-  kind: 'local' | 'puter';
+  kind: 'local' | 'puter' | 'library';
   name: string;
   path?: string;
   size: number;
@@ -119,7 +120,7 @@ export function validateEmbeds(doc: PhotoDocument) {
         (c.stack !== undefined && !stackModes.some(([m]) => m === c.stack)))
         throw new Error('Invalid embedded object contents.');
       const link = c.link;
-      if (link !== undefined && (!link || typeof link !== 'object' || !['local', 'puter'].includes(link.kind) ||
+      if (link !== undefined && (!link || typeof link !== 'object' || !['local', 'puter', 'library'].includes(link.kind) ||
         typeof link.name !== 'string' || link.name.length > 512 || (link.path !== undefined && (typeof link.path !== 'string' || link.path.length > 4096)) ||
         !finite(link.size, link.modified) || typeof link.hash !== 'string' || !/^[0-9a-f]{64}$/.test(link.hash)))
         throw new Error('Invalid linked object.');

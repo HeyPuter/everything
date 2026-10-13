@@ -48,7 +48,7 @@ export function section(e: Editor, l: Layer) {
   if (l.embed?.frame) rows.push(['Placement', l.embed.frame.pins ? `Pin warped, ${l.embed.frame.pins.pins.length} ${l.embed.frame.pins.pins.length === 1 ? 'pin' : 'pins'} (kept editable)` : l.embed.frame.mesh ? 'Warped (kept editable)' : 'Distorted (kept editable)']);
   const link = c?.link;
   const status = c && link ? linkStatus(c) : undefined;
-  if (c && link) rows.push(['Linked file', `${link.kind === 'puter' ? (link.path ?? link.name) : link.name}`], ['Status', linkStatusText(status, c)]);
+  if (c && link) rows.push([link.kind === 'library' ? 'Library item' : 'Linked file', `${link.kind === 'puter' ? (link.path ?? link.name) : link.name}`], ['Status', linkStatusText(status, c)]);
   const open = e.sessions.some((s) => ownerOf(s)?.parent === e.session && ownerOf(s)?.contents === c?.id);
   const stack = c?.project
     ? `<label class="embed-stack">Stack mode<select data-embed-stack aria-label="Stack mode">${stackModes.map(([m, label]) => `<option value="${m}" ${(c.stack ?? 'none') === m ? 'selected' : ''}>${escapeXML(label)}</option>`).join('')}</select></label>`

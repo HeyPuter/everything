@@ -11,6 +11,9 @@ export type LinkStatus = 'current' | 'modified' | 'unavailable';
 // File handles and status are page state: never saved, keyed by contents ID.
 export const handles = new Map<string, FileHandle>();
 export const statuses = new Map<string, LinkStatus>();
+// Readers for link kinds other features provide (library graphics), so this
+// feature does not load theirs.
+export const linkReaders: { library?: (c: EmbeddedContents) => Promise<Blob | undefined> } = {};
 
 /** Status shown on badges: unknown links of local files cannot be checked. */
 export function linkStatus(c: EmbeddedContents): LinkStatus | undefined {
@@ -18,7 +21,7 @@ export function linkStatus(c: EmbeddedContents): LinkStatus | undefined {
   return statuses.get(c.id) ?? (c.link.kind === 'local' && !handles.has(c.id) ? 'unavailable' : undefined);
 }
 export const linkStatusText = (s: LinkStatus | undefined, c: EmbeddedContents) =>
-  s === 'modified' ? 'File changed: update to use it' : s === 'unavailable' ? (c.link?.kind === 'local' ? 'Relink to re-read the file' : 'File not found') : 'Up to date';
+  s === 'modified' ? (c.link?.kind === 'library' ? 'Library item changed: update to use it' : 'File changed: update to use it') : s === 'unavailable' ? (c.link?.kind === 'local' ? 'Relink to re-read the file' : c.link?.kind === 'library' ? 'Library item not found' : 'File not found') : 'Up to date';
 
 export const linkedIn = (e: Editor, layers: Layer[]) => {
   const seen = new Map<string, EmbeddedContents>();

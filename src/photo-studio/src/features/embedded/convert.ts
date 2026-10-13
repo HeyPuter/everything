@@ -61,20 +61,11 @@ function intersect(a: Rect, b: Rect): Rect | null {
 }
 const fits = (r: Rect) => r.width <= 8192 && r.height <= 8192 && r.width * r.height <= 24_000_000;
 
-/** Layer → Embedded Objects → Convert to Embedded Object. */
-export async function convertToEmbedded(e: Editor) {
-  const doc = e.doc;
-  const roots = e.selectedLayers;
-  if (!roots.length) {
-    e.message('Select the layers to convert.');
-    return;
-  }
-  assertEditable(doc, roots);
-  const list = containerOf(doc.layers, roots[0].id)!;
-  if (roots.some((l) => containerOf(doc.layers, l.id) !== list)) {
-    e.message('Move the selected layers into the same group before converting them.');
-    return;
-  }
+/** A nested document holding copies of `roots` (layers of one container),
+ * cropped to what they draw, with its composite. `undefined` after a message
+ * when the layers are empty or too large. Used by Convert to Embedded Object
+ * and by library graphics. */
+export async function nestedFromLayers(e: Editor, roots: Layer[], doc: PhotoDocument = e.doc) {
   let area = roots.reduce<Rect | null>((r, l) => unionRect(r, contentBounds(doc, l)), null);
   if (!area) {
     e.message('The selected layers are empty.');
@@ -120,6 +111,26 @@ export async function convertToEmbedded(e: Editor) {
     samples = cropSamples(samples, tight);
     area = { x: area.x + tight.x, y: area.y + tight.y, width: tight.width, height: tight.height };
   }
+  return { nested, area, name, samples, lifted, top };
+}
+
+/** Layer → Embedded Objects → Convert to Embedded Object. */
+export async function convertToEmbedded(e: Editor) {
+  const doc = e.doc;
+  const roots = e.selectedLayers;
+  if (!roots.length) {
+    e.message('Select the layers to convert.');
+    return;
+  }
+  assertEditable(doc, roots);
+  const list = containerOf(doc.layers, roots[0].id)!;
+  if (roots.some((l) => containerOf(doc.layers, l.id) !== list)) {
+    e.message('Move the selected layers into the same group before converting them.');
+    return;
+  }
+  const built = await nestedFromLayers(e, roots, doc);
+  if (!built) return;
+  const { nested, area, name, samples, lifted, top } = built;
   const c = await contentsFromDocument(e, doc, e.assets, nested, e.assets, { name, samples });
   const inst = instanceLayer(c, name, { ...area, rotation: 0 });
   if (lifted) Object.assign(inst, lifted);

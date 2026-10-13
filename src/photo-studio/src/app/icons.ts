@@ -3,6 +3,7 @@ import {
   ChevronFirst, ChevronLast, StepBack, StepForward,
   AppWindow, PanelsTopLeft, Wrench, FileCog, ImageDown, Gauge, MousePointerClick, Package, FileClock, ArchiveRestore, Smartphone, Monitor, Clapperboard, Globe, Clock, RotateCcwSquare, Star, Scaling,
   SquareCode, Braces,
+  CloudOff,
 } from 'lucide';
 
 // Interface icons are inline SVG strings: Lucide (ISC) plus original glyphs
@@ -11,6 +12,7 @@ import {
 type Node = readonly [string, Record<string, string | number>];
 type IconNode = readonly [string, Record<string, string | number>, Node[]?];
 const lucide: Record<string, IconNode> = {
+  'cloud-off': CloudOff as unknown as IconNode,
   'move': Move as unknown as IconNode,
   'square-dashed': SquareDashed as unknown as IconNode,
   'circle-dashed': CircleDashed as unknown as IconNode,
@@ -376,6 +378,14 @@ const custom: Record<string, Node[]> = {
   'straighten-horizontal': [['path', { d: 'M3 15l18-3', 'stroke-dasharray': '2 2.4' }], p('M3 7h18'), p('M12 14.5V10M10 11.5l2-1.8 2 1.8')],
   'straighten-both': [['path', { d: 'M6 4l14 2-2 14-14-2Z', 'stroke-dasharray': '2 2.4' }], ['rect', { x: 6, y: 6, width: 12, height: 12 }]],
   'protect-skin': [['circle', { cx: 12, cy: 7.5, r: 3.2 }], p('M5.5 20.5c0-4.2 2.9-6.5 6.5-6.5s6.5 2.3 6.5 6.5'), p('M3 3.5v4M21 3.5v4')],
+  // Libraries (original glyph): three item cards standing on a shelf.
+  'libraries': [['rect', { x: 3, y: 4, width: 5, height: 14, rx: 1 }], ['rect', { x: 9.5, y: 6, width: 5, height: 12, rx: 1 }], p('M15.2 8.8l4.4-1.2 2.6 9.6-4.4 1.2Z'), p('M2 21h20')],
+  // Provenance (original glyph): a page whose history runs down a timeline.
+  'provenance': [p('M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z'), p('M14 3v6h6'), p('M9 11v6'), ['circle', { cx: 9, cy: 11, r: 1.3, fill: 'currentColor' }], ['circle', { cx: 9, cy: 17, r: 1.3, fill: 'currentColor' }], p('M12 11h3M12 17h4')],
+  // Inspect provenance: the provenance page under a magnifier.
+  'provenance-inspect': [p('M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5'), p('M12 3l6 6v2'), p('M8 9v5'), ['circle', { cx: 8, cy: 9, r: 1.2, fill: 'currentColor' }], ['circle', { cx: 16.5, cy: 16.5, r: 3.5 }], p('m19 19 2.5 2.5')],
+  // Image Assets (original glyph): a layer sheet exported down into a file.
+  'image-assets': [p('M3 7l6-3 6 3-6 3Z'), p('M9 10v6M6.5 13.5 9 16l2.5-2.5'), p('M13 12h5l3 3v6h-8Z'), p('M18 12v3h3')],
 };
 const attrs = (a: Record<string, string | number>) =>
   Object.entries(a)

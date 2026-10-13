@@ -29,6 +29,7 @@ const stripSections: [string, string[]][] = [
   ['Painting', ['brushes', 'brush-settings', 'tool-presets', 'clone-source']],
   ['Type', ['character', 'paragraph', 'glyphs', 'character-styles', 'paragraph-styles']],
   ['Layers', ['styles', 'shapes', 'layer-comps']],
+  ['Assets', ['libraries', 'provenance']],
 ];
 const stripSection = (id: string) => {
   const i = stripSections.findIndex(([, ids]) => ids.includes(id));

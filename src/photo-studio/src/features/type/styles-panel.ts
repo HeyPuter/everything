@@ -78,10 +78,29 @@ async function applyStyle(e: Editor, kind: Kind, id: string | null) {
 }
 
 /** Attributes of the current selection, for a new or redefined style. */
-function captureAttributes(e: Editor, kind: Kind) {
+export function captureAttributes(e: Editor, kind: Kind) {
   const c = styleContext(e);
   const char = styleAttributes<CharStyle>(c.char);
   return kind === 'character' ? { style: char } : { paragraph: styleAttributes<ParagraphStyle>(c.paragraph), char };
+}
+
+/** Add a style from elsewhere (a library) to the document, replacing a
+ * same-named one (which keeps its ID so linked text follows), then apply it
+ * like a click in the panel. Returns the document's style ID. */
+export async function applyExternalTextStyle(e: Editor, kind: Kind, def: CharacterStyleDef | ParagraphStyleDef): Promise<string> {
+  const existing = listOf(e.doc, kind).find((d) => d.name === def.name);
+  const id = existing?.id ?? crypto.randomUUID();
+  const next = { ...structuredClone(def), id };
+  if (JSON.stringify(existing) !== JSON.stringify(next))
+    e.command(`Add ${label(kind)}`, (d) => {
+      const ts = (d.textStyles ??= { character: [], paragraph: [] });
+      const list = (kind === 'character' ? ts.character : ts.paragraph) as (CharacterStyleDef | ParagraphStyleDef)[];
+      const i = list.findIndex((x) => x.id === id);
+      if (i >= 0) list[i] = next;
+      else list.push(next);
+    });
+  await applyStyle(e, kind, id);
+  return id;
 }
 
 // Text layers whose content links to a style.
