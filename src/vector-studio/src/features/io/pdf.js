@@ -22,8 +22,12 @@
  * - Text: outlines from the type module when available, otherwise the
  *   standard Helvetica family (WinAnsi) as a fallback.
  * - Streams are FlateDecode-compressed with CompressionStream when present.
- * - Print production options: CMYK output through the press model (paints
- *   converted to CMYK keep their numbers), spot inks as Separation color
+ * - Color management: CMYK output through an ICC transform (paints
+ *   converted to CMYK keep their numbers, or are converted between CMYK
+ *   profiles), device colors tagged with ICC profiles (ICCBased spaces and
+ *   Default color spaces), an output intent carrying its profile, and the
+ *   PDF/X-1a and PDF/X-4 conventions (pdfx.js checks the result).
+ * - Print production options: spot inks as Separation color
  *   spaces, printer's marks in the registration color with trim and bleed
  *   boxes, layers as optional content, page thumbnails, image downsampling
  *   and JPEG compression, overprint preserved, simulated or discarded,
@@ -48,7 +52,7 @@ import { exportView } from './export-view.js';
 import { exportWriters } from './hooks.js';
 import { layoutContent } from './print-layout.js';
 import { securityHandler, encryptStream, newDocumentId } from './pdf-crypto.js';
-import { separate, separatePixel } from '../prepress/color-management.js';
+import { transformBetween } from '../icc/profiles.js';
 import { spotTint } from '../prepress/separations.js';
 import { averageColor, freeformFrame, frameFractionMatrix, freeformPixels } from '../paint/freeform.js';
 
@@ -206,9 +210,10 @@ const CAP = { butt: 0, round: 1, square: 2 };
 const JOIN = { miter: 0, round: 1, bevel: 2 };
 
 
-/** Resources of one content stream (page or form). */
+/** Resources of one content stream (page or form). `defaults` are Default color spaces ({ DefaultRGB: objId }). */
 class Resources {
-  constructor() {
+  constructor(defaults = null) {
+    this.defaults = defaults;
     this.ext = new Map();
     this.pattern = new Map();
     this.shading = new Map();
@@ -227,7 +232,8 @@ class Resources {
 
   dict() {
     const part = (key, map) => (map.size ? ` /${key} << ${[...map].map(([n, id]) => `/${n} ${id} 0 R`).join(' ')} >>` : '');
-    return `<< /ProcSet [/PDF /Text /ImageB /ImageC /ImageI]${part('ExtGState', this.ext)}${part('Pattern', this.pattern)}${part('Shading', this.shading)}${part('XObject', this.xobject)}${part('Font', this.font)}${part('ColorSpace', this.colorspace)}${part('Properties', this.properties)} >>`;
+    const cs = new Map([...Object.entries(this.defaults || {}), ...this.colorspace]);
+    return `<< /ProcSet [/PDF /Text /ImageB /ImageC /ImageI]${part('ExtGState', this.ext)}${part('Pattern', this.pattern)}${part('Shading', this.shading)}${part('XObject', this.xobject)}${part('Font', this.font)}${part('ColorSpace', cs)}${part('Properties', this.properties)} >>`;
   }
 }
 
@@ -242,9 +248,23 @@ class PDFRenderer {
     this.imageCache = new Map();
     this.fontCache = new Map();
     this.csCache = new Map();
-    // Device color output: 'rgb' or 'cmyk' (through the press model `profile`).
+    // Device color output: 'rgb' or 'cmyk' (through the ICC transform `cmykTransform`, else into the press model `profile`).
     this.cmyk = opts.colorSpace === 'cmyk';
     this.profile = opts.profile || 'basic';
+    this.toCmyk = this.cmyk ? opts.cmykTransform || transformBetween('srgb', this.profile, { intent: 'relative', bpc: true }) : null;
+    // CMYK numbers of converted paints: kept, or converted between CMYK profiles.
+    this.cmykNumbers = opts.cmykNumbers || null;
+    // RGB output converted between RGB profiles (absent: document RGB numbers are written as they are).
+    this.rgbTransform = this.cmyk ? null : opts.rgbTransform || null;
+    // ICC profile tagging the device space (Default color spaces in every resource dictionary).
+    this.icc = null;
+    const tag = this.cmyk ? opts.iccCMYK : opts.iccRGB;
+    if (tag?.bytes) {
+      const n = this.cmyk ? 4 : 3;
+      this.icc = this.w.add(`[/ICCBased ${this.iccStream(tag.bytes, n)} 0 R]`);
+    }
+    // In CMYK output, RGB that remains (gradient mesh shadings) is described by the RGB profile.
+    this.iccStray = this.cmyk && opts.iccRGB?.bytes ? this.w.add(`[/ICCBased ${this.iccStream(opts.iccRGB.bytes, 3)} 0 R]`) : null;
     // Spot inks written as Separation color spaces: swatch id -> { name, color }.
     this.spots = opts.spots || new Map();
     // Streams finishing asynchronously (JPEG encoding) before the file is built.
@@ -260,12 +280,45 @@ class PDFRenderer {
     return this.cmyk ? 'DeviceCMYK' : 'DeviceRGB';
   }
 
+  /** The output color space as written in dictionaries: the ICC-based space when tagged, else the device space. */
+  get spaceRef() {
+    return this.icc ? `${this.icc} 0 R` : `/${this.deviceSpace}`;
+  }
+
+  /** A new resource dictionary for a content stream (carrying the Default color space when tagged). */
+  newResources() {
+    const d = {};
+    if (this.icc) d[this.cmyk ? 'DefaultCMYK' : 'DefaultRGB'] = this.icc;
+    if (this.iccStray) d.DefaultRGB = this.iccStray;
+    return new Resources(Object.keys(d).length ? d : null);
+  }
+
+  /** An ICC profile stream (one per profile data for the whole file). */
+  iccStream(bytes, n) {
+    this.iccCache ||= new Map();
+    let id = this.iccCache.get(bytes);
+    if (!id) {
+      id = this.w.addStream(`/N ${n}`, bytes, { compress: true });
+      this.iccCache.set(bytes, id);
+    }
+    return id;
+  }
+
   /** Color components of a color (hex, or a solid paint that may carry CMYK numbers). */
   colorValues(color) {
     const hex = typeof color === 'string' ? color : color?.color || '#000000';
     if (this.cmyk) {
-      const c = (typeof color === 'object' && color?.cmyk) || separate(Object.values(hexToRgb(hex)).map((v) => v / 255), this.profile);
-      return [c.c, c.m, c.y, c.k].map((v) => Math.max(0, Math.min(1, v / 100)));
+      const own = typeof color === 'object' && color?.cmyk;
+      if (own) {
+        const v = [own.c, own.m, own.y, own.k].map((x) => Math.max(0, Math.min(1, x / 100)));
+        return this.cmykNumbers ? this.cmykNumbers.convert(v) : v;
+      }
+      const { r, g, b } = hexToRgb(hex);
+      return this.toCmyk.convert([r / 255, g / 255, b / 255]);
+    }
+    if (this.rgbTransform) {
+      const { r, g, b } = hexToRgb(hex);
+      return this.rgbTransform.convert([r / 255, g / 255, b / 255]);
     }
     const { r, g, b } = hexToRgb(hex);
     return [r / 255, g / 255, b / 255];
@@ -278,7 +331,7 @@ class PDFRenderer {
     if (!id) {
       const esc = String(name).replace(/[^A-Za-z0-9._-]/g, (ch) => `#${ch.charCodeAt(0).toString(16).padStart(2, '0')}`) || 'Spot';
       const zero = alt.map(() => 0).join(' ');
-      id = this.w.add(`[/Separation /${esc} /${this.deviceSpace} << /FunctionType 2 /Domain [0 1] /C0 [${zero}] /C1 [${alt.map((v) => pdfNum(v)).join(' ')}] /N 1 >>]`);
+      id = this.w.add(`[/Separation /${esc} ${this.spaceRef} << /FunctionType 2 /Domain [0 1] /C0 [${zero}] /C1 [${alt.map((v) => pdfNum(v)).join(' ')}] /N 1 >>]`);
       this.csCache.set(key, id);
     }
     return id;
@@ -307,9 +360,15 @@ class PDFRenderer {
 
   /** `node` sets overprint (Attributes panel): op for its fill, OP for its stroke. */
   extGState(fillAlpha, strokeAlpha, blend, node = null) {
-    const ca = Math.max(0, Math.min(1, fillAlpha));
-    const CA = Math.max(0, Math.min(1, strokeAlpha));
+    let ca = Math.max(0, Math.min(1, fillAlpha));
+    let CA = Math.max(0, Math.min(1, strokeAlpha));
     let bm = BLEND_PDF[blend] || null;
+    // PDF/X-1a has no transparency: what flattening could not rasterize is painted opaque.
+    if (this.opts.pdfx === 'x1a' && (ca < 1 || CA < 1 || bm)) {
+      this.warnings.add('Some transparency could not be flattened and prints opaque.');
+      ca = CA = 1;
+      bm = null;
+    }
     let op = Boolean(node?.overprintFill);
     let OP = Boolean(node?.overprintStroke);
     const mode = this.opts.overprint || 'preserve';
@@ -365,7 +424,7 @@ class PDFRenderer {
       const fo = focalPoint(paint, g, 1);
       coords = `[${this.f(g.x1 + fo.x)} ${this.f(g.y1 + fo.y)} ${this.f(fo.r)} ${this.f(g.x1)} ${this.f(g.y1)} ${this.f(Math.max(g.r, 1e-4))}]`;
     } else coords = `[${this.f(g.x1)} ${this.f(g.y1)} ${this.f(g.x2)} ${this.f(g.y2)}]`;
-    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace /${this.deviceSpace} /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
+    const body = `<< /ShadingType ${paint.type === 'radial' ? 3 : 2} /ColorSpace ${this.spaceRef} /Coords ${coords} /Function ${fn} /Extend [true true] >>`;
     let id = this.shadingCache.get(body);
     if (!id) {
       id = this.w.add(body);
@@ -438,11 +497,11 @@ class PDFRenderer {
     if (!asset?.data) return null;
     const info = asset.data.startsWith('data:') ? dataUrlToBytes(asset.data) : null;
     // JPEG data passes through unless it has to change (CMYK output, downsampling, recompression).
-    const keepJpeg = !this.cmyk && !size && this.opts.images?.compression !== 'zip';
+    const keepJpeg = !this.cmyk && !this.rgbTransform && !size && this.opts.images?.compression !== 'zip';
     if (keepJpeg && info && sniffMime(info.bytes) === 'image/jpeg') {
       const j = jpegInfo(info.bytes);
       if (j && (j.components === 1 || j.components === 3)) {
-        return this.w.addStream(`/Type /XObject /Subtype /Image /Width ${j.width} /Height ${j.height} /ColorSpace /${j.components === 1 ? 'DeviceGray' : 'DeviceRGB'} /BitsPerComponent 8`, info.bytes, { filter: '/DCTDecode' });
+        return this.w.addStream(`/Type /XObject /Subtype /Image /Width ${j.width} /Height ${j.height} /ColorSpace ${j.components === 1 ? '/DeviceGray' : this.spaceRef} /BitsPerComponent 8`, info.bytes, { filter: '/DCTDecode' });
       }
     }
     let px = await decodePixels(asset);
@@ -464,13 +523,23 @@ class PDFRenderer {
     const color = new Uint8Array(width * height * n);
     const alpha = new Uint8Array(width * height);
     const plates = new Float32Array(4);
+    const px = [0, 0, 0];
     let hasAlpha = false;
     for (let i = 0, j = 0, k = 0; i < data.length; i += 4, j += n, k++) {
       const a = data[i + 3];
       // Canvas pixels are unpremultiplied already; keep color as is.
       if (this.cmyk) {
-        separatePixel(this.profile, data[i], data[i + 1], data[i + 2], plates);
+        px[0] = data[i] / 255;
+        px[1] = data[i + 1] / 255;
+        px[2] = data[i + 2] / 255;
+        this.toCmyk.fast(px, plates);
         for (let c = 0; c < 4; c++) color[j + c] = Math.round(plates[c] * 255);
+      } else if (this.rgbTransform) {
+        px[0] = data[i] / 255;
+        px[1] = data[i + 1] / 255;
+        px[2] = data[i + 2] / 255;
+        this.rgbTransform.fast(px, plates);
+        for (let c = 0; c < 3; c++) color[j + c] = Math.round(plates[c] * 255);
       } else {
         color[j] = data[i];
         color[j + 1] = data[i + 1];
@@ -484,7 +553,7 @@ class PDFRenderer {
       const sid = this.w.addStream(`/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8`, alpha, { compress: true });
       smask = ` /SMask ${sid} 0 R`;
     }
-    const dict = `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /${this.deviceSpace} /BitsPerComponent 8${smask}`;
+    const dict = `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace ${this.spaceRef} /BitsPerComponent 8${smask}`;
     const id = this.w.addStream(dict, color, { compress: true });
     if (this.opts.images?.compression === 'jpeg' && !this.cmyk) {
       this.pending.push(encodeJpeg({ width, height, data }, this.opts.images.quality ?? 0.85).then((bytes) => {
@@ -778,13 +847,18 @@ class PDFRenderer {
    * function). Blending applies to the masked result.
    */
   async masked(ctx, node) {
+    if (this.opts.pdfx === 'x1a') {
+      this.warnings.add('Some transparency could not be flattened and prints opaque.');
+      await this.node(ctx, { ...node, opacityMask: undefined });
+      return;
+    }
     const om = node.opacityMask;
-    const inner = { ops: [], res: new Resources(), patternBase: [1, 0, 0, 1, 0, 0], cull: ctx.cull, links: ctx.links };
+    const inner = { ops: [], res: this.newResources(), patternBase: [1, 0, 0, 1, 0, 0], cull: ctx.cull, links: ctx.links };
     await this.node(inner, { ...node, opacityMask: undefined, blendMode: 'normal' });
     if (!inner.ops.length) return;
     const b = inflate(visualBounds(this.doc, node) || ctx.cull, 2);
     const bbox = `[${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}]`;
-    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS /DeviceRGB /I true >> /Resources ${this.w.add(inner.res.dict())} 0 R`, inner.ops.join(''));
+    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS ${this.spaceRef} /I true >> /Resources ${this.w.add(inner.res.dict())} 0 R`, inner.ops.join(''));
     // The mask art lives outside the document tree: render it from a view of its own nodes.
     const art = new Map(om.art.nodes.map((n) => [n.id, n]));
     const base = this.doc;
@@ -802,8 +876,8 @@ class PDFRenderer {
       },
     };
     const view = exportView(raw, { native: ['freeform'] });
-    const mctx = { ops: [], res: new Resources(), patternBase: [1, 0, 0, 1, 0, 0], cull: inflate(b, 1e5), links: [] };
-    mctx.ops.push(`${om.clip ? '0 0 0' : '1 1 1'} rg\n${this.f(b.x)} ${this.f(b.y)} ${this.f(b.w)} ${this.f(b.h)} re f\n`);
+    const mctx = { ops: [], res: this.newResources(), patternBase: [1, 0, 0, 1, 0, 0], cull: inflate(b, 1e5), links: [] };
+    mctx.ops.push(`${this.colorOps(mctx.res, om.clip ? '#000000' : '#ffffff')}\n${this.f(b.x)} ${this.f(b.y)} ${this.f(b.w)} ${this.f(b.h)} re f\n`);
     const t = om.transform || [1, 0, 0, 1, 0, 0];
     mctx.ops.push(`q\n${t.map((v) => this.f(v)).join(' ')} cm\n`);
     this.doc = view;
@@ -814,10 +888,11 @@ class PDFRenderer {
       this.doc = base;
     }
     mctx.ops.push('Q\n');
-    const group = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS /DeviceRGB >> /Resources ${this.w.add(mctx.res.dict())} 0 R`, mctx.ops.join(''));
+    const group = this.w.addStream(`/Type /XObject /Subtype /Form /BBox ${bbox} /Group << /S /Transparency /CS ${this.spaceRef} >> /Resources ${this.w.add(mctx.res.dict())} 0 R`, mctx.ops.join(''));
     const tr = om.invert ? ' /TR << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>' : '';
     const bm = BLEND_PDF[node.blendMode];
-    const gs = this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R /BC [${om.clip ? '0 0 0' : '1 1 1'}]${tr} >>${bm ? ` /BM /${bm}` : ''} >>`);
+    const bc = this.colorValues(om.clip ? '#000000' : '#ffffff').map((v) => pdfNum(v)).join(' ');
+    const gs = this.w.add(`<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G ${group} 0 R /BC [${bc}]${tr} >>${bm ? ` /BM /${bm}` : ''} >>`);
     const res = ctx.res;
     ctx.ops.push(`q\n/${res.name(res.ext, 'GS', gs)} gs\n/${res.name(res.xobject, 'Fm', form)} Do\nQ\n`);
   }
@@ -825,17 +900,18 @@ class PDFRenderer {
   async group(ctx, node) {
     const op = node.opacity ?? 1;
     const blend = BLEND_PDF[node.blendMode];
-    if (op >= 1 && !blend) {
+    if ((op >= 1 && !blend) || this.opts.pdfx === 'x1a') {
+      if (op < 1 || blend) this.warnings.add('Some transparency could not be flattened and prints opaque.');
       await this.children(ctx, node);
       return;
     }
     // Transparency group: children render into a form, which is composited once.
-    const inner = { ops: [], res: new Resources(), patternBase: [1, 0, 0, 1, 0, 0], cull: ctx.cull };
+    const inner = { ops: [], res: this.newResources(), patternBase: [1, 0, 0, 1, 0, 0], cull: ctx.cull };
     await this.children(inner, node);
     if (!inner.ops.length) return;
     const b = inflate(visualBounds(this.doc, node) || ctx.cull, 2);
     const resId = this.w.add(inner.res.dict());
-    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS /${this.deviceSpace} /I true >> /Resources ${resId} 0 R`, inner.ops.join(''));
+    const form = this.w.addStream(`/Type /XObject /Subtype /Form /BBox [${this.f(b.x)} ${this.f(b.y)} ${this.f(b.x + b.w)} ${this.f(b.y + b.h)}] /Group << /S /Transparency /CS ${this.spaceRef} /I true >> /Resources ${resId} 0 R`, inner.ops.join(''));
     const res = ctx.res;
     const gs = this.extGState(op, op, node.blendMode);
     ctx.ops.push(`q\n${gs ? `/${res.name(res.ext, 'GS', gs)} gs\n` : ''}/${res.name(res.xobject, 'Fm', form)} Do\nQ\n`);
@@ -856,7 +932,7 @@ class PDFRenderer {
     const base = [1, 0, 0, -1, t.x - area.x, H - t.y + area.y];
     const marks = lay.marks || [];
     const cull = inflate(area, 1);
-    const ctx = { ops: [], res: new Resources(), patternBase: base, cull, links: [] };
+    const ctx = { ops: [], res: this.newResources(), patternBase: base, cull, links: [] };
     ctx.ops.push(`q\n${base.map((v) => this.f(v)).join(' ')} cm\n`);
     // With marks around it, artwork stops at the bleed.
     if (marks.length) ctx.ops.push(`${this.f(area.x)} ${this.f(area.y)} ${this.f(area.w)} ${this.f(area.h)} re W n\n`);
@@ -869,7 +945,7 @@ class PDFRenderer {
       for (const id of this.doc.root.children) {
         const layer = this.doc.get(id);
         if (!layer || layer.hidden || layer.template || layer.print === false) continue;
-        const oc = this.opts.layers ? this.ocg(layer) : null;
+        const oc = this.opts.layers && this.opts.pdfx !== 'x1a' ? this.ocg(layer) : null;
         if (oc) ctx.ops.push(`/OC /${ctx.res.name(ctx.res.properties, 'OC', oc)} BDC\n`);
         await this.node(ctx, layer);
         if (oc) ctx.ops.push('EMC\n');
@@ -884,15 +960,16 @@ class PDFRenderer {
       const y = H - (t.y + (r.y - area.y) + r.h);
       return `[${this.f(x)} ${this.f(y)} ${this.f(x + r.w)} ${this.f(y + r.h)}]`;
     };
-    const boxes = hasBleed || marks.length ? ` /TrimBox ${box(rect)} /BleedBox ${box(area)}` : '';
-    // Objects with a URL become link annotations over their bounds (page space is y-up).
-    const annots = ctx.links.map(({ b: lb, url }) => {
+    // PDF/X files name the trimmed page on every page.
+    const boxes = hasBleed || marks.length || this.opts.pdfx ? ` /TrimBox ${box(rect)} /BleedBox ${box(area)}` : '';
+    // Objects with a URL become link annotations over their bounds (page space is y-up); PDF/X allows none on the page.
+    const annots = (this.opts.pdfx ? [] : ctx.links).map(({ b: lb, url }) => {
       const x1 = lb.x + base[4];
       const y1 = base[5] - (lb.y + lb.h);
       return this.w.add(`<< /Type /Annot /Subtype /Link /Rect [${this.f(x1)} ${this.f(y1)} ${this.f(x1 + lb.w)} ${this.f(y1 + lb.h)}] /Border [0 0 0] /A << /S /URI /URI ${pdfText(url)} >> >>`);
     });
     const annotRef = annots.length ? ` /Annots [${annots.map((x) => `${x} 0 R`).join(' ')}]` : '';
-    const thumb = this.opts.thumbnails ? await this.thumbnail(area) : null;
+    const thumb = this.opts.thumbnails && !this.opts.pdfx ? await this.thumbnail(area) : null;
     return this.w.add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${this.f(W)} ${this.f(H)}]${boxes} /Resources ${resId} 0 R /Contents ${content} 0 R${annotRef}${thumb ? ` /Thumb ${thumb} 0 R` : ''} >>`);
   }
 
@@ -979,9 +1056,21 @@ class PDFRenderer {
     return this.order;
   }
 
-  /** Whether an object needs flattening: opacity, blending or see-through paint. */
+  /**
+   * Whether an object needs flattening: opacity, blending or see-through
+   * paint. PDF/X-1a allows no soft masks either: opacity masks, raster
+   * effects, images that may carry alpha and gradient meshes (written as
+   * RGB shadings) are flattened too.
+   */
   isTransparent(node) {
     if ((node.opacity ?? 1) < 1 || (node.blendMode && node.blendMode !== 'normal')) return true;
+    if (this.opts.pdfx === 'x1a') {
+      if (node.opacityMask || node.type === 'mesh' || rasterEffects(node)?.length) return true;
+      if (node.type === 'image') {
+        const mime = String(this.doc.assets?.get(node.asset)?.mime || this.doc.assets?.get(node.asset)?.data?.slice(5, 20) || '');
+        if (!/jpe?g/.test(mime)) return true;
+      }
+    }
     if (this.opts.overprint === 'simulate' && (node.overprintFill || node.overprintStroke)) return true;
     const see = (p) => p && ((p.opacity ?? 1) < 1 || (p.stops || []).some((s) => (s.opacity ?? 1) < 1));
     return see(node.fill) || see(node.stroke);
@@ -1017,6 +1106,21 @@ class PDFRenderer {
     if (end == null) return false;
     return this.rasterArea(ctx, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, (id) => (index.get(id) ?? Infinity) <= end);
   }
+}
+
+const xmlText = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]);
+
+/** XMP metadata naming the title and the PDF/X version. */
+function xmpPacket({ title, version }) {
+  const text = `<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:pdfxid="http://www.npes.org/pdfx/ns/id/">
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">${xmlText(title)}</rdf:li></rdf:Alt></dc:title>
+<pdfxid:GTS_PDFXVersion>${version}</pdfxid:GTS_PDFXVersion>
+</rdf:Description>
+</rdf:RDF>
+<?xpacket end="w"?>`;
+  return new TextEncoder().encode(text);
 }
 
 /** Solid process colors for the color bars in CMYK output. */
@@ -1150,7 +1254,14 @@ async function decodePixels(asset) {
  * (Map swatch id -> { name, color }), marks, markType, markWeight,
  * markOffset, pageInfo(rect), layers, thumbnails, images { downsample, ppi,
  * above, compression, quality }, overprint, flatten { balance, ppi },
- * outputIntent (a name), security { userPassword, ownerPassword, permissions }.
+ * security { userPassword, ownerPassword, permissions }, and for color
+ * management:
+ *   cmykTransform   ICC transform from document RGB to the output CMYK
+ *   cmykNumbers     ICC transform for CMYK numbers paints carry (kept when absent)
+ *   iccRGB/iccCMYK  { bytes } of the profile tagging RGB or CMYK output
+ *   outputIntent    { name, bytes, n } (or just a name): the printing condition
+ *   pdfx            'x1a' | 'x4': PDF/X identification, trim boxes, no
+ *                   annotations or thumbnails, strict flattening (X-1a)
  * Returns { bytes: Uint8Array, warnings: string[] }.
  */
 export async function writePDF(source, pages, opts = {}) {
@@ -1172,18 +1283,26 @@ export async function writePDF(source, pages, opts = {}) {
   await Promise.all(r.pending);
   w.set(pagesId, `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`);
   const ocgs = [...r.ocgs.values()].map((id) => `${id} 0 R`).join(' ');
-  const ocProps = ocgs ? ` /OCProperties << /OCGs [${ocgs}] /D << /Order [${ocgs}] /ON [${ocgs}] /OFF [] >> >>` : '';
-  const intent = opts.outputIntent ? ` /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier ${pdfText(opts.outputIntent)} /Info ${pdfText(opts.outputIntent)} >>]` : '';
-  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent} >>`);
+  const ocProps = ocgs ? ` /OCProperties << /OCGs [${ocgs}] /D << /Name (Layers) /Order [${ocgs}] /ON [${ocgs}] /OFF [] >> >>` : '';
+  const oi = typeof opts.outputIntent === 'string' ? { name: opts.outputIntent } : opts.outputIntent;
+  let intent = '';
+  if (oi?.name) {
+    // A condition described by its own profile is a custom one; the profile travels in the file.
+    const dest = oi.bytes ? ` /OutputConditionIdentifier (Custom) /OutputCondition ${pdfText(oi.name)} /RegistryName (http://www.color.org) /DestOutputProfile ${r.iccStream(oi.bytes, oi.n || 4)} 0 R` : ` /OutputConditionIdentifier ${pdfText(oi.name)}`;
+    intent = ` /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX${dest} /Info ${pdfText(oi.name)} >>]`;
+  }
+  const meta = doc.root?.info || {};
+  const title = meta.title || opts.title || (opts.pdfx ? 'Untitled' : '');
+  const pdfxInfo = { x1a: ' /GTS_PDFXVersion (PDF/X-1:2001) /GTS_PDFXConformance (PDF/X-1a:2001)', x4: ' /GTS_PDFXVersion (PDF/X-4)' }[opts.pdfx] || '';
+  const metadata = opts.pdfx === 'x4' ? ` /Metadata ${w.addStream('/Type /Metadata /Subtype /XML', xmpPacket({ title, version: 'PDF/X-4' }), { compress: false })} 0 R` : '';
+  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent}${metadata} >>`);
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   const date = `D:${d.getUTCFullYear()}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}Z`;
   // File Info metadata (doc.root.info) fills the document information dictionary.
-  const meta = doc.root?.info || {};
   const list = (v) => (Array.isArray(v) ? v.join('; ') : v);
-  const title = meta.title || opts.title;
   const extra = [['Author', list(meta.author)], ['Subject', meta.description], ['Keywords', list(meta.keywords)]].filter(([, v]) => v).map(([k, v]) => `/${k} ${pdfText(v)} `).join('');
-  const info = w.add(`<< ${title ? `/Title ${pdfText(title)} ` : ''}${extra}/Producer (Vector Studio) /Creator (Vector Studio) /CreationDate (${date}) /ModDate (${date})${opts.outputIntent ? ' /Trapped /False' : ''} >>`);
+  const info = w.add(`<< ${title ? `/Title ${pdfText(title)} ` : ''}${extra}/Producer (Vector Studio) /Creator (Vector Studio) /CreationDate (${date}) /ModDate (${date})${opts.outputIntent || opts.pdfx ? ' /Trapped /False' : ''}${pdfxInfo} >>`);
   const bytes = await w.build({ root: catalog, info, encrypt });
   return { bytes, warnings: [...r.warnings] };
 }

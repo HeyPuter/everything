@@ -186,7 +186,9 @@ describe('PDF export options', () => {
     const app = await bootAppWithFeatures();
     const ed = app.newDocument();
     const o = pdfWriterOptions(app, ed.doc, { colorConversion: 'convert', destination: 'cmyk:newsprint', standard: 'press', restrict: true, flatten: true, flattener: 'Low Resolution' });
-    expect(o).toMatchObject({ colorSpace: 'cmyk', profile: 'newsprint', outputIntent: expect.stringMatching(/Coated Web/), flatten: { balance: 75, ppi: 150 } });
+    // The output intent is the destination's printing condition and carries its ICC profile.
+    expect(o).toMatchObject({ colorSpace: 'cmyk', profile: 'newsprint', outputIntent: { name: expect.stringMatching(/Newsprint/), n: 4 }, flatten: { balance: 75, ppi: 150 } });
+    expect(o.outputIntent.bytes.length).toBeGreaterThan(1000);
     // Print production files are not encrypted.
     expect(o.security).toBeUndefined();
     const sec = pdfWriterOptions(app, ed.doc, { restrict: true, printing: 'none' });
@@ -204,7 +206,7 @@ describe('PDF export options', () => {
     const d = document.querySelector('dialog[open].pdf-dialog');
     expect([...d.querySelectorAll('.pd-tab')].map((t) => t.textContent)).toEqual(['General', 'Compression', 'Marks and Bleeds', 'Output', 'Advanced', 'Security', 'Summary']);
     const preset = d.querySelector('.pp-preset-select');
-    expect([...preset.options].map((o) => o.value)).toEqual(['Print Quality', 'Press Ready', 'Small File', 'Editable Archive', '']);
+    expect([...preset.options].map((o) => o.value)).toEqual(['Print Quality', 'Press Ready', 'Small File', 'Editable Archive', 'PDF/X-1a:2001', 'PDF/X-4', '']);
     expect(preset.value).toBe('Print Quality');
     preset.value = 'Small File';
     preset.dispatchEvent(new Event('change'));

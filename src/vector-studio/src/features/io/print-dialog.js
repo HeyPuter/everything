@@ -23,11 +23,12 @@ import { parseRange, outlinesFor } from './jobs.js';
 import { MEDIA, DEFAULT_PRINT, layoutContent } from './print-layout.js';
 import { printView, layoutPageRules, printRoot } from './print.js';
 import { PRINT_DEFAULTS, normalizePrint } from './print-settings.js';
-import { documentPlates, printPlates, pageSequence, rasterOutput, buildPrintOutput, printSummary, processPlatePixels, outputProfile } from './print-output.js';
+import { documentPlates, printPlates, pageSequence, rasterOutput, buildPrintOutput, printSummary, processPlatePixels, outputTransform } from './print-output.js';
 import '../prepress/print-presets.js';
 import { keepFocus } from './pdf-dialog.js';
 import { presetPicker, savePreset, listPresets, uniqueName } from '../prepress/presets.js';
-import { CMYK_PROFILES, INTENTS, PROCESS_INKS } from '../prepress/color-management.js';
+import { INTENTS, PROCESS_INKS } from '../prepress/color-management.js';
+import { profileOptions } from '../icc/cms.js';
 import { plateView } from '../prepress/separations.js';
 
 const LAST_KEY = 'printSettings';
@@ -325,9 +326,9 @@ export async function printDialog(app, presetEdit = null) {
         st.colorHandling = v;
         rebuild();
       }, 'Color handling')),
-      field('Printer profile', sel([['document', 'Document press model'], ...Object.entries(CMYK_PROFILES).map(([k, p]) => [k, p.label])], st.printerProfile, (v) => (st.printerProfile = v), 'Printer profile')),
+      field('Printer profile', sel([['document', 'Document CMYK profile'], ...profileOptions('CMYK', { outputOnly: true })], st.printerProfile, (v) => (st.printerProfile = v), 'Printer profile')),
       field('Rendering intent', sel(Object.entries(INTENTS), st.intent, (v) => (st.intent = v), 'Rendering intent')),
-      h('p.form-help', proof ? 'Colors print as the chosen press would reproduce them.' : 'Separations always use the printer profile’s press model.'),
+      h('p.form-help', proof ? 'Colors print as the chosen press would reproduce them.' : 'Separations always use the printer profile.'),
     );
 
     // Advanced
@@ -411,7 +412,7 @@ export async function printDialog(app, presetEdit = null) {
       try {
         const img = ctx.getImageData(Math.round(ox * dpr), Math.round(oy * dpr), Math.max(1, Math.round(p.w * s * dpr)), Math.max(1, Math.round(p.h * s * dpr)));
         if (img?.data?.length === img.width * img.height * 4) {
-          processPlatePixels(img.data, outputProfile(app, doc, st), PROCESS_INKS.indexOf(plate.id));
+          processPlatePixels(img.data, outputTransform(app, doc, st), PROCESS_INKS.indexOf(plate.id));
           ctx.putImageData(img, Math.round(ox * dpr), Math.round(oy * dpr));
         }
       } catch {

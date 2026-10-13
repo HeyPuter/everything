@@ -12,6 +12,8 @@ export const PDF_BUILTINS = {
   'Press Ready': { ...PDF_DEFAULTS, standard: 'press', compat: '1.6', colorConversion: 'convert', destination: 'cmyk:document', marks: marksAll, useDocBleed: true, downsampleAbove: 450, downsamplePpi: 300 },
   'Small File': { ...PDF_DEFAULTS, compat: '1.5', downsample: 'bicubic', downsamplePpi: 100, downsampleAbove: 150, imageCompression: 'jpeg', jpegQuality: 0.5, colorConversion: 'convert', destination: 'rgb:srgb' },
   'Editable Archive': { ...PDF_DEFAULTS, layers: true, thumbnails: true, downsample: 'none', imageCompression: 'zip', textOutlines: false },
+  'PDF/X-1a:2001': { ...PDF_DEFAULTS, standard: 'x1a', colorConversion: 'convert', destination: 'cmyk:document', flatten: true, flattener: 'Medium Resolution', marks: marksAll, useDocBleed: true, downsampleAbove: 450, downsamplePpi: 300, profileInclusion: 'none' },
+  'PDF/X-4': { ...PDF_DEFAULTS, standard: 'x4', compat: '1.6', colorConversion: 'none', marks: marksAll, useDocBleed: true, downsampleAbove: 450, downsamplePpi: 300 },
 };
 
 registerPresetKind('pdf', {
