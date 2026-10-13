@@ -383,7 +383,8 @@ export function pdfPlan(regions, options = {}) {
     let scale = fixed
         ? (0.75 * percent) / 100
         : Math.min(786 / 1040, 509 / 680),
-      tiles;
+      tiles,
+      reduce = 1;
     if (fixed) tiles = tileRegion(rect, box.w / scale, box.h / scale, boxes);
     else {
       const detail = readableTiles(
@@ -393,7 +394,8 @@ export function pdfPlan(regions, options = {}) {
         boxes,
       );
       tiles = detail.tiles;
-      scale *= detail.reduce;
+      reduce = detail.reduce;
+      scale *= reduce;
     }
     // Tiles widened by a small remainder still print inside the page.
     const inside = Math.min(
@@ -415,6 +417,8 @@ export function pdfPlan(regions, options = {}) {
       tiles,
       rows: tiles[0].rows,
       columns: tiles[0].columns,
+      // Readable detail shown smaller, to stay within the page limit.
+      reduce,
     };
     pages.push(overview);
     for (const tile of tiles)

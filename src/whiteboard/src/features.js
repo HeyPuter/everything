@@ -258,6 +258,8 @@ addTranslations({
   "Text objects and tasks": "Objets texte et tâches",
   "Estimated length: 1 page.": "Longueur estimée : 1 page.",
   "Estimated length: {count} pages.": "Longueur estimée : {count} pages.",
+  "Detail is shown at {percent}% to keep the export to a reasonable length. Export frames or a selected region for more detail.":
+    "Le détail est affiché à {percent} % pour que l’exportation garde une longueur raisonnable. Exportez des cadres ou une région sélectionnée pour plus de détail.",
   "Exporting image {n} of {total}…": "Exportation de l’image {n} sur {total}…",
   "Export up to 50 frames as images at a time, or use PDF.":
     "Exportez au plus 50 cadres en images à la fois, ou utilisez le PDF.",
@@ -2834,7 +2836,7 @@ export function createFeatures(api) {
           }
           // Page count preview for the current scope and page settings.
           try {
-            const pages = pdfPlan(
+            const plan = pdfPlan(
               exportRegions(api.visualBoard?.() || board, {
                 scope,
                 selection: chosen,
@@ -2842,14 +2844,28 @@ export function createFeatures(api) {
                 frameIds: frameIds(),
               }),
               pdfOptions(),
-            ).length;
+            );
+            // Readable detail is shown smaller where the area needs more
+            // pages than an export holds; that is said, with what helps.
+            const reduce = Math.min(
+              1,
+              ...plan.map((p) => (p.kind === "overview" ? p.reduce : 1)),
+            );
             $("#pdf-estimate").textContent =
-              pages === 1
+              (plan.length === 1
                 ? t("Estimated length: 1 page.")
                 : t("Estimated length: {count} pages.").replace(
                     "{count}",
-                    pages,
-                  );
+                    plan.length,
+                  )) +
+              (reduce < 1
+                ? ` ${t(
+                    "Detail is shown at {percent}% to keep the export to a reasonable length. Export frames or a selected region for more detail.",
+                  ).replace(
+                    "{percent}",
+                    Math.max(1, Math.round(reduce * 100)),
+                  )}`
+                : "");
           } catch (error) {
             $("#pdf-estimate").textContent = t(error.message);
           }

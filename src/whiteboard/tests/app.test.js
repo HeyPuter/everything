@@ -28114,6 +28114,35 @@ test("the export dialog counts no pages without a frame", async () => {
   }
 });
 
+test("the export dialog says when readable detail is shown smaller", async () => {
+  const app = await setup();
+  const { click, doc, w } = app;
+  try {
+    // Notes far apart need more pages at a readable scale than a PDF holds.
+    await rotationFixture(
+      app,
+      Array.from({ length: 200 }, (_, n) =>
+        item("note", (n % 20) * 15000, Math.floor(n / 20) * 15000, {
+          text: `Note ${n}`,
+        }),
+      ),
+    );
+    await click('[data-action="export"]');
+    const estimate = () => doc.querySelector("#pdf-estimate").textContent;
+    assert.match(
+      estimate(),
+      /^Estimated length: \d+ pages\. Detail is shown at \d+% to keep the export to a reasonable length\. Export frames or a selected region for more detail\.$/,
+    );
+    // A fixed scale or one page says nothing of it.
+    const scale = doc.querySelector("#pdf-scale");
+    scale.value = "fit";
+    scale.dispatchEvent(new w.Event("change", { bubbles: true }));
+    assert.equal(estimate(), "Estimated length: 1 page.");
+  } finally {
+    await app.close();
+  }
+});
+
 test("selected frames export as those frames by default", async () => {
   for (const outside of [false, true]) {
     const app = await setup();
