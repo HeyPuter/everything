@@ -12,8 +12,10 @@ import { ADD_SOURCES, canAdd } from './context';
 import { hasLibraryLinks, ITEM_MIME, libState, loadViewState, saveViewState } from './state';
 import { TYPE_SINGULAR } from './model';
 
-const panel = lazy(() => import('./panel'));
 const service = lazy(() => import('./service'));
+// Loading the panel loads the service through this loader too, so commands
+// see it (`service.loaded`) once the panel is shown.
+const panel = lazy(async () => (await service(), import('./panel')));
 const apply = lazy(() => import('./apply'));
 const lib = () => service.loaded?.libraries();
 const shownLibrary = () => lib()?.library(libState.libraryId);
@@ -134,7 +136,7 @@ export function installLibraries(e: Editor) {
     label: 'Import Library…',
     description: 'Add a library from a library file',
     run: async (e) => {
-      const { LIBRARY_FILE_EXTENSION, importLibraryFile } = await import('./model');
+      const { LIBRARY_FILE_EXTENSION, importLibraryFile, uniqueName } = await import('./model');
       const file = await new Promise<File | null>((resolve) => {
         const input = document.createElement('input');
         input.type = 'file';
@@ -148,8 +150,8 @@ export function installLibraries(e: Editor) {
       const { sha256Hex } = await import('../../model/provenance');
       const got = await importLibraryFile(await file.text(), sha256Hex);
       const l = await loaded();
-      for (const [h, blob] of got.assets) await l.addAsset(blob).then((x) => x === h || console.warn('asset hash mismatch'));
-      const { uniqueName } = await import('./model');
+      // Assets were checked against their hashes when the file was read.
+      for (const blob of got.assets.values()) await l.addAsset(blob);
       got.library.name = uniqueName(got.library.name, l.index.libraries.map((x) => x.name));
       await l.apply({ op: 'create-library', library: got.library });
       libState.libraryId = got.library.id;

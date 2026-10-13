@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { layer, newDocument } from '../../src/model/document';
-import { boot, client, compositePixel, historyLabels, idle, openImage, openProject, run } from './helpers';
+import { boot, client, compositePixel, downloadFrom, historyLabels, idle, openImage, openProject, run, start } from './helpers';
 
 // A Puter stand-in with an in-memory file system shared through `window.__fs`.
 const cloudStub = `window.__fs=new Map();window.puter={env:"app",auth:{isSignedIn:()=>true,getUser:async()=>({username:"lib"})},
@@ -82,8 +82,21 @@ test.describe('Libraries', () => {
     // Libraries persist in this browser.
     await page.reload();
     await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
-    await panel(page, 'Libraries');
+    const shown = await panel(page, 'Libraries');
     await expect(items(page)).toHaveCount(2);
+
+    // Export as one file, delete, import again.
+    await shown.locator('.lib-select').selectOption({ label: 'My Library' });
+    const file = await downloadFrom(page, () => page.evaluate(() => window.photoStudio.runCommand('libraries.export')));
+    expect(file.name).toBe('My Library.pslib');
+    await start(page, 'libraries.delete');
+    await page.locator('#dialog').getByRole('button', { name: 'Delete' }).click();
+    await expect(items(page)).toHaveCount(0);
+    const chooser = page.waitForEvent('filechooser');
+    await start(page, 'libraries.import');
+    await (await chooser).setFiles({ name: file.name, mimeType: 'application/json', buffer: file.bytes });
+    await expect(items(page)).toHaveCount(2);
+    await expect(shown.locator('.lib-select')).toContainText('My Library');
   });
 
   test('places a library graphic by click, by drop and linked, and linked placements follow changes', async ({ page }) => {
