@@ -10,12 +10,12 @@
 import { h } from '../../lib/dom.js';
 import { setListItems } from '../../ui/panels/panel.js';
 import { layoutText, selectionPolygons } from '../../model/text-layout.js';
-import { replaceRange, styleAt } from '../../model/text-runs.js';
+import { replaceRange, styleAt, styledRuns } from '../../model/text-runs.js';
 import { canSpellCheck } from '../../model/languages.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
-import { loadSpeller } from './spell-dict.js';
+import { loadSpeller, loadedSpeller, dictionaryKey } from './spell-dict.js';
 import { selectedTextNodes } from './outlines.js';
 
 export const DEFAULT_SPELL_OPTIONS = Object.freeze({
@@ -86,6 +86,37 @@ export function nodeIssues(node, issues) {
   return issues.filter((is) => canSpellCheck(styleAt(node, is.start).language));
 }
 
+/** Stretches of a text node by spelling dictionary: [{ start, end, dict }] (dict null: not checked). */
+export function dictionarySegments(node) {
+  const out = [];
+  for (const r of styledRuns(node)) {
+    const dict = dictionaryKey(r.style.language);
+    const last = out[out.length - 1];
+    if (last && last.dict === dict && last.end === r.start) last.end = r.end;
+    else out.push({ start: r.start, end: r.end, dict });
+  }
+  return out;
+}
+
+/**
+ * Spelling issues in a text node, each stretch checked with the dictionary
+ * of its language (`spellerFor(dict)`, null while it loads: that stretch
+ * is skipped). Issues carry `dict`.
+ */
+export function spellIssues(node, spellerFor, opts = DEFAULT_SPELL_OPTIONS, accept = () => false) {
+  const text = String(node.text ?? '');
+  const out = [];
+  for (const seg of dictionarySegments(node)) {
+    if (!seg.dict || seg.end <= seg.start) continue;
+    const sp = spellerFor(seg.dict);
+    if (!sp) continue;
+    for (const is of findIssues(text.slice(seg.start, seg.end), sp, opts, accept)) {
+      out.push({ ...is, start: is.start + seg.start, end: is.end + seg.start, ...(is.from != null ? { from: is.from + seg.start } : {}), dict: seg.dict });
+    }
+  }
+  return out;
+}
+
 /** accept() for findIssues from the custom dictionary and Ignore All. */
 export function acceptor(prefs) {
   const custom = new Set(customWords(prefs).map((w) => w.toLowerCase()));
@@ -94,20 +125,19 @@ export function acceptor(prefs) {
 
 // ---- auto spell check (overlay) ----
 
-const issueCache = new Map(); // text -> issues (small LRU)
+let issueCache = new WeakMap(); // text node -> issues
 let cacheKey = '';
 
-function cachedIssues(text, speller, prefs) {
-  const key = `${customVersion}|${ignoredAll.size}|${JSON.stringify(spellOptions(prefs))}`;
+function cachedIssues(node, spellerFor, prefs, loadedKey) {
+  const key = `${customVersion}|${ignoredAll.size}|${JSON.stringify(spellOptions(prefs))}|${loadedKey}`;
   if (key !== cacheKey) {
-    issueCache.clear();
+    issueCache = new WeakMap();
     cacheKey = key;
   }
-  let v = issueCache.get(text);
+  let v = issueCache.get(node);
   if (!v) {
-    v = findIssues(text, speller, spellOptions(prefs), acceptor(prefs));
-    if (issueCache.size > 400) issueCache.delete(issueCache.keys().next().value);
-    issueCache.set(text, v);
+    v = spellIssues(node, spellerFor, spellOptions(prefs), acceptor(prefs));
+    issueCache.set(node, v);
   }
   return v;
 }
@@ -132,24 +162,24 @@ function wave(ctx, a, b, amp = 1.4, period = 4) {
 
 /** Overlay hook: underline unknown words in visible type objects. */
 export function spellOverlay(app) {
-  let speller = null;
-  let requested = false;
+  const requested = new Set();
   return (ctx, editor) => {
     if (!app.prefs.get('autoSpellCheck')) return;
-    if (!speller) {
-      if (!requested) {
-        requested = true;
-        loadSpeller()
-          .then((sp) => {
-            speller = sp;
-            editor.emit('overlay');
-          })
-          .catch(() => {
-            requested = false;
-          });
+    // Dictionaries load the first time text in their language shows.
+    const loaded = [];
+    const spellerFor = (dict) => {
+      const sp = loadedSpeller(dict);
+      if (sp) return sp;
+      if (!requested.has(dict)) {
+        requested.add(dict);
+        loadSpeller(dict).then(
+          () => editor.emit('overlay'),
+          () => requested.delete(dict),
+        );
       }
-      return;
-    }
+      return null;
+    };
+    for (const k of ['en-US', 'en-GB']) if (loadedSpeller(k)) loaded.push(k);
     const { doc, view } = editor;
     const visible = view.visibleRect(20 / view.zoom);
     const edit = editor.textEdit;
@@ -165,7 +195,7 @@ export function spellOverlay(app) {
       if (!b || !rectsIntersect(b, visible)) continue;
       const lay = layoutText(n);
       if (!lay.text) continue;
-      const issues = nodeIssues(lay.source || n, cachedIssues(lay.text, speller, app.prefs));
+      const issues = cachedIssues(lay.source || n, spellerFor, app.prefs, loaded.join());
       if (!issues.length) continue;
       const m = multiply(view.matrix, n.transform);
       const toScreen = (p) => ({ x: m[0] * p.x + m[2] * p.y + m[4], y: m[1] * p.x + m[3] * p.y + m[5] });
@@ -277,7 +307,7 @@ export async function openCheckSpelling(app) {
       bChangeAll.disabled = true;
     } else {
       status.textContent = `Not in the dictionary: \u201c${issue.word}\u201d`;
-      const sug = speller.suggest(issue.word);
+      const sug = (loadedSpeller(issue.dict) || speller).suggest(issue.word);
       list.replaceChildren(...(sug.length ? sug.map((w, i) => h('div.sp-item', { role: 'option', 'aria-selected': String(i === 0), 'data-value': w }, w)) : [h('div.sp-empty', 'No suggestions')]));
       changeTo.value = sug[0] || issue.word;
     }
@@ -304,7 +334,7 @@ export async function openCheckSpelling(app) {
     for (; at.k < ids.length; at.k++, at.pos = 0) {
       const n = ed.doc.get(ids[at.k]);
       if (!n) continue;
-      const found = nodeIssues(n, findIssues(n.text, speller, o, accept)).find((is) => is.start >= at.pos);
+      const found = spellIssues(n, loadedSpeller, o, accept).find((is) => is.start >= at.pos);
       if (found) {
         show({ id: n.id, ...found });
         return;
@@ -422,7 +452,11 @@ export async function openCheckSpelling(app) {
 
   const done = app.dialogs.open({ title: 'Check Spelling', body, className: 'spell-dialog', buttons: [{ label: 'Done', value: true, primary: true }] });
   try {
-    speller = await loadSpeller();
+    // The dictionaries of every language the document's text is in.
+    const dicts = new Set(['en-US']);
+    for (const n of ed.doc.leaves()) if (n.type === 'text') for (const seg of dictionarySegments(n)) if (seg.dict) dicts.add(seg.dict);
+    const all = await Promise.all([...dicts].map((d) => loadSpeller(d)));
+    speller = all[0];
     restart();
   } catch (err) {
     status.textContent = err.message || 'The spelling dictionary could not be loaded.';

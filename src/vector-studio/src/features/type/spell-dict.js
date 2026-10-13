@@ -1,6 +1,7 @@
 /**
- * A small affix-aware spelling checker for the bundled en_US word list
- * (public/dictionaries, SCOWL; see en-US-LICENSE.txt there).
+ * A small affix-aware spelling checker for the bundled English word lists
+ * (public/dictionaries, SCOWL: en_US and en_GB; see the LICENSE files
+ * there).
  *
  * The word list stores stems with affix flags; the affix file holds the
  * prefix and suffix rules. A word is correct when it is a stem, or when
@@ -213,28 +214,62 @@ export function createSpeller({ aff, dic }) {
   return { correct, suggest, size: words.size };
 }
 
-let loading = null;
+/**
+ * Bundled dictionaries by key: files under public/dictionaries. en-GB
+ * shares the en-US affix file (they are the same file).
+ */
+export const DICTIONARIES = {
+  'en-US': { label: 'English: USA', aff: 'en-US.aff', dic: 'en-US.dic' },
+  'en-GB': { label: 'English: UK', aff: 'en-US.aff', dic: 'en-GB.dic' },
+};
 
-/** Load the bundled dictionary (once). Resolves to a speller. */
-export function loadSpeller() {
-  if (!loading) {
+/** The dictionary for a language tag (null when there is none). British spelling for the UK and the Commonwealth. */
+export function dictionaryKey(code) {
+  const tag = String(code || 'en-US').toLowerCase();
+  const [base, region] = tag.split(/[-_]/);
+  if (base !== 'en') return null;
+  return ['gb', 'au', 'nz', 'ie', 'za', 'in'].includes(region) ? 'en-GB' : 'en-US';
+}
+
+const spellers = new Map(); // key -> Promise<speller>
+const ready = new Map(); // key -> speller
+
+/** Load a bundled dictionary (once). Resolves to a speller. */
+export function loadSpeller(key = 'en-US') {
+  const def = DICTIONARIES[key] || DICTIONARIES['en-US'];
+  const k = DICTIONARIES[key] ? key : 'en-US';
+  let p = spellers.get(k);
+  if (!p) {
     const base = typeof document !== 'undefined' ? document.baseURI : 'http://localhost/';
     const get = (f) =>
       fetch(new URL(`dictionaries/${f}`, base)).then((r) => {
         if (!r.ok) throw new Error('The spelling dictionary could not be loaded.');
         return r.text();
       });
-    loading = Promise.all([get('en-US.aff'), get('en-US.dic')])
-      .then(([aff, dic]) => createSpeller({ aff, dic }))
+    p = Promise.all([get(def.aff), get(def.dic)])
+      .then(([aff, dic]) => {
+        const sp = createSpeller({ aff, dic });
+        ready.set(k, sp);
+        return sp;
+      })
       .catch((err) => {
-        loading = null;
+        spellers.delete(k);
         throw err;
       });
+    spellers.set(k, p);
   }
-  return loading;
+  return p;
 }
 
-/** Use a ready speller (tests, or a speller built elsewhere). */
-export function setSpeller(speller) {
-  loading = Promise.resolve(speller);
+/** A dictionary's speller when it has loaded (null otherwise). */
+export function loadedSpeller(key = 'en-US') {
+  return ready.get(key) || null;
+}
+
+/** Use a ready speller (tests, or a speller built elsewhere); without a key it serves every dictionary. */
+export function setSpeller(speller, key = null) {
+  for (const k of key ? [key] : Object.keys(DICTIONARIES)) {
+    spellers.set(k, Promise.resolve(speller));
+    ready.set(k, speller);
+  }
 }
