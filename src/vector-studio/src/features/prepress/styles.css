@@ -119,3 +119,92 @@
   color: var(--text-3);
   font-size: var(--fs-sm);
 }
+
+/* ---- Presets manager ---- */
+.pp-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: min(440px, calc(100vw - 60px));
+}
+
+.pp-label {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.pp-preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  min-height: 120px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.pp-preset-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.pp-preset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  cursor: default;
+}
+
+.pp-preset:hover {
+  background: var(--bg-hover);
+}
+
+.pp-preset[aria-selected='true'] {
+  background: var(--bg-selected);
+}
+
+.pp-badge {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.pp-preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pp-spacer {
+  flex: 1;
+}
+
+.pp-summary {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 8px;
+  min-height: 80px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+}
+
+.pp-summary dt {
+  color: var(--text-2);
+}
+
+.pp-summary dd {
+  margin: 0;
+}
+
+.pp-preset-select {
+  min-width: 0;
+  flex: 1;
+}

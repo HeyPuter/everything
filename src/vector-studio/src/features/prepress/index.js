@@ -16,6 +16,8 @@ import { drawSeparations, separationState } from './separations.js';
 import { drawGpuProof, gpuHandlesProof } from './gpu-proof.js';
 import { SeparationsPanel } from './separations-panel.js';
 import { videoEffectCommands } from './video-effects.js';
+import { presetsManagerDialog } from './presets.js';
+import { flattenTransparencyDialog } from './flattener-presets.js';
 
 const P = (d, extra = {}) => ['path', { d, ...extra }];
 
@@ -62,6 +64,8 @@ export function install(app) {
       },
     },
     ...videoEffectCommands(),
+    { id: 'edit.flattenerPresets', label: 'Transparency Flattener Presets...', run: (a) => presetsManagerDialog(a, 'flattener') },
+    { id: 'object.flatten', label: 'Flatten Transparency...', enabled: (a) => Boolean(a.editor?.selection.size), run: (a) => flattenTransparencyDialog(a) },
   ]);
   app.registerPanel(SeparationsPanel);
 
