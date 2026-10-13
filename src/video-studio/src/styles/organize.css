@@ -1021,11 +1021,145 @@
   display: none;
 }
 
-/* Video > Retouch */
-.retouch-actions {
+/* Video > Retouch: Face / Body / Makeup / Hair / Looks segments, icon over label. */
+.insp-tabs.retouch-segs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.retouch-segs .insp-tab {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
-  margin: 2px 0 6px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 2px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.retouch-segs .insp-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.retouch-segs .insp-tab[aria-selected='true'] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.retouch-seg-dot {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 14px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.retouch-seg-dot[hidden] {
+  display: none;
+}
+
+/* Shade swatches with a custom color well at the end. */
+.retouch-swatches {
+  align-items: center;
+  margin: 2px 0 10px calc(var(--insp-label-w) + 8px);
+}
+.retouch-swatch-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.retouch-swatches .marker-swatch {
+  width: 20px;
+  height: 20px;
+  /* A light ring so the darkest shades still read on the dark theme. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.swatch-custom {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.swatch-custom::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.swatch-custom::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+.swatch-custom::-moz-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+.makeup-item + .makeup-item {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* Looks: an original little face in each look's accent color. */
+.look-grid {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+}
+.look-preview {
+  position: relative;
+  width: 62%;
+  aspect-ratio: 0.82;
+  border-radius: 50% 50% 46% 46%;
+  background:
+    radial-gradient(circle at 28% 60%, var(--look) 0 9%, transparent 21%),
+    radial-gradient(circle at 72% 60%, var(--look) 0 9%, transparent 21%),
+    linear-gradient(165deg, #f2d6c3, #d6a184);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.08);
+}
+.look-preview::after {
+  content: '';
+  position: absolute;
+  left: 38%;
+  right: 38%;
+  bottom: 18%;
+  height: 7%;
+  border-radius: 999px;
+  background: var(--look);
+  filter: saturate(1.3) brightness(0.85);
+}
+.look-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.look-list[hidden] {
+  display: none;
+}
+.look-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.look-apply {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+.look-apply[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.look-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .retouch-rule {
   border: 0;
