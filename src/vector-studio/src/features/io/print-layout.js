@@ -15,6 +15,8 @@
  *   marks        { trim, registration, colorBars, pageInfo }
  *   markWeight   trim mark line weight
  *   markOffset   gap between the trim and the marks
+ *   markType     'roman' (one line per edge) | 'japanese' (double corner marks
+ *                at the trim and the bleed, and center marks)
  *
  * A page is { w, h, tiles: [{ rect (document rect to draw), clip (document
  * rect to clip to), x, y, s (page = (doc - rect.x) * s + x) }], marks:
@@ -49,6 +51,7 @@ export const DEFAULT_PRINT = Object.freeze({
   marks: Object.freeze({ trim: false, registration: false, colorBars: false, pageInfo: false }),
   markWeight: 0.25,
   markOffset: 6,
+  markType: 'roman',
 });
 
 const anyMarks = (m) => Boolean(m && (m.trim || m.registration || m.colorBars || m.pageInfo));
@@ -89,7 +92,30 @@ function marksFor(settings, trim, bleedBox, info) {
   const o = settings.markOffset || 0;
   const L = MARK_LENGTH;
   const wgt = settings.markWeight || 0.25;
-  if (m.trim) {
+  if (m.trim && settings.markType === 'japanese') {
+    // Each corner: lines at the trim and at the bleed (3 pt out when there is none), outside the bleed.
+    const bl = { x: Math.min(bleedBox.x, trim.x - 3), y: Math.min(bleedBox.y, trim.y - 3) };
+    const br = { x: Math.max(bleedBox.x + bleedBox.w, trim.x + trim.w + 3), y: Math.max(bleedBox.y + bleedBox.h, trim.y + trim.h + 3) };
+    for (const [tx, bx, sx] of [[trim.x, bl.x, -1], [trim.x + trim.w, br.x, 1]]) {
+      for (const [ty, by, sy] of [[trim.y, bl.y, -1], [trim.y + trim.h, br.y, 1]]) {
+        const ex = bx + sx * o;
+        const ey = by + sy * o;
+        for (const x of [tx, bx]) out.push({ kind: 'line', x1: x, y1: ey, x2: x, y2: ey + sy * L, w: wgt });
+        for (const y of [ty, by]) out.push({ kind: 'line', x1: ex, y1: y, x2: ex + sx * L, y2: y, w: wgt });
+      }
+    }
+    // Center marks: a line at the middle of each side with a crossbar.
+    const cx = trim.x + trim.w / 2;
+    const cy = trim.y + trim.h / 2;
+    for (const [y0, sy] of [[bl.y - o, -1], [br.y + o, 1]]) {
+      out.push({ kind: 'line', x1: cx, y1: y0, x2: cx, y2: y0 + sy * L, w: wgt });
+      out.push({ kind: 'line', x1: cx - L / 2, y1: y0 + (sy * L) / 2, x2: cx + L / 2, y2: y0 + (sy * L) / 2, w: wgt });
+    }
+    for (const [x0, sx] of [[bl.x - o, -1], [br.x + o, 1]]) {
+      out.push({ kind: 'line', x1: x0, y1: cy, x2: x0 + sx * L, y2: cy, w: wgt });
+      out.push({ kind: 'line', x1: x0 + (sx * L) / 2, y1: cy - L / 2, x2: x0 + (sx * L) / 2, y2: cy + L / 2, w: wgt });
+    }
+  } else if (m.trim) {
     // Each corner: one horizontal and one vertical line outside the bleed.
     for (const [cx, sx] of [[trim.x, -1], [trim.x + trim.w, 1]]) {
       for (const [cy, sy] of [[trim.y, -1], [trim.y + trim.h, 1]]) {
