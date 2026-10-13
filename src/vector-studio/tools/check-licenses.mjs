@@ -27,8 +27,27 @@ for (const [file, hash] of [
 ]) {
   if (createHash('sha256').update(fs.readFileSync(path.join(dictDir, file))).digest('hex') !== hash) failures.push(`${file} differs from its reviewed provenance`);
 }
+// Hyphenation patterns (model/hyphenation): TeX pattern files kept byte for byte, each under a permissive license whose notice is in its header.
+const { PATTERN_FILES, PATTERN_LICENSES } = await import('../src/model/hyphenation/patterns.js');
+const patternDir = path.join(root, 'src/model/hyphenation');
+let patternCount = 0;
+for (const [key, p] of Object.entries(PATTERN_FILES)) {
+  const file = path.join(patternDir, p.file);
+  if (!fs.existsSync(file)) {
+    failures.push(`Hyphenation patterns ${key}: missing ${p.file}`);
+    continue;
+  }
+  const data = fs.readFileSync(file);
+  if (!PATTERN_LICENSES.includes(p.license)) failures.push(`Hyphenation patterns ${p.file}: unapproved license ${JSON.stringify(p.license)}`);
+  if (!p.notice || !data.toString('utf8').includes(p.notice)) failures.push(`Hyphenation patterns ${p.file}: license notice missing`);
+  if (createHash('sha256').update(data).digest('hex') !== p.sha256) failures.push(`${p.file} differs from its reviewed provenance`);
+  patternCount++;
+}
+for (const f of fs.readdirSync(patternDir)) {
+  if (f.endsWith('.tex') && !Object.values(PATTERN_FILES).some((p) => p.file === f)) failures.push(`Hyphenation patterns ${f}: not reviewed (add it to PATTERN_FILES)`);
+}
 if (failures.length) {
   console.error(`Unapproved licenses:\n${failures.join('\n')}`);
   process.exit(1);
 }
-console.log(`Licenses OK (${count} packages; en_US dictionary (SCOWL) notices verified).`);
+console.log(`Licenses OK (${count} packages; en_US dictionary (SCOWL) notices verified; ${patternCount} hyphenation pattern files verified).`);

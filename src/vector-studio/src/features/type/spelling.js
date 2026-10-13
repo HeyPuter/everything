@@ -503,6 +503,7 @@ export function openCustomDictionary(app) {
     h('div.form-row', h('label', { for: 'cd-entry' }, 'Word'), entry),
     h('div.sp-main', list, h('div.sp-actions', bAdd, bDelete, bChange)),
     status,
+    app.commands.get('type.hyphenationExceptions') ? h('div.form-row', h('span'), h('button.btn', { type: 'button', onclick: () => app.commands.run('type.hyphenationExceptions') }, 'Hyphenation Exceptions...')) : null,
   );
   render();
   return app.dialogs.open({ title: 'Custom Dictionary', body, className: 'spell-dialog', buttons: [{ label: 'Done', value: true, primary: true }] });

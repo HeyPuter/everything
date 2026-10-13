@@ -1,10 +1,10 @@
 /**
  * Text languages: a character attribute (`char.language`, a BCP 47 tag)
- * that hyphenation and spell checking follow. Hyphenation rules and the
- * spelling dictionary exist for English; text in other languages is neither
- * hyphenated nor spell checked (rather than broken with the wrong rules),
- * and 'none' turns both off. More languages plug in through
- * `hyphenationRules` (model/hyphenate.js) and SPELLING_LANGUAGES.
+ * that hyphenation and spell checking follow. Hyphenation uses the pattern
+ * file of the language (model/hyphenation/patterns.js); spell checking the
+ * dictionaries in SPELLING_LANGUAGES. Text in a language without them is
+ * left whole and unchecked (rather than broken with the wrong rules), and
+ * 'none' turns both off.
  */
 export const DEFAULT_LANGUAGE = 'en-US';
 

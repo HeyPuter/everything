@@ -109,11 +109,28 @@ export function applyEditorPrefs(app, editor) {
 }
 
 /**
+ * Sections other features add: functions app -> section, with `after` (the
+ * id of the section it follows).
+ */
+export const extraPrefSections = [];
+
+/**
  * Section definitions. Field types: checkbox, select, length, number,
  * angle, color-select (named colors plus custom), brightness (interface
- * brightness swatches plus Use System Setting), button.
+ * brightness swatches plus Use System Setting), button, custom
+ * (`build(value)` -> { el, value() } for a control of its own).
  */
 export function sections(app) {
+  const out = builtinSections(app);
+  for (const make of extraPrefSections) {
+    const s = make(app);
+    const at = out.findIndex((x) => x.id === s.after);
+    out.splice(at < 0 ? out.length : at + 1, 0, s);
+  }
+  return out;
+}
+
+function builtinSections(app) {
   const unitOpts = UNIT_OPTIONS;
   return [
     {
@@ -307,6 +324,11 @@ export async function preferencesDialog(app, { section: startSection = null } = 
     if (f.type === 'heading') return h('h4.prefs-subhead', f.label);
     if (f.type === 'button') return h('div.form-row', h('span'), h('button.btn', { type: 'button', onclick: () => f.run() }, f.label));
     const value = initial(f.key);
+    if (f.type === 'custom') {
+      const c = f.build(value);
+      inputs.set(f.key, { f, el: c });
+      return c.el;
+    }
     let el;
     if (f.type === 'checkbox') {
       el = h('input', { type: 'checkbox', id, checked: f.invert ? !value : Boolean(value) });
@@ -438,6 +460,7 @@ export async function preferencesDialog(app, { section: startSection = null } = 
       let v;
       if (f.type === 'checkbox') v = f.invert ? !el.checked : el.checked;
       else if (f.type === 'brightness') v = el.picked();
+      else if (f.type === 'custom') v = el.value();
       else if (f.type === 'color-select') v = el.value === 'custom' ? el._swatch.value : el.value;
       else if (f.type === 'select') v = typeof f.options[0]?.value === 'number' ? Number(el.value) : el.value;
       else v = parseField(f, el.value, units);

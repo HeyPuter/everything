@@ -1323,7 +1323,7 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
       while (j < pe && isLetter(text[j])) j++;
       let ok = true;
       for (let k = i; k < j; k++) if (ch.sty[k]?.noBreak || ch.glyph?.[k] === -1) ok = false;
-      if (ok) for (const k of hyphenPoints(text.slice(i, j), hyS, ch.sty[i]?.language)) if (ch.glyph?.[i + k] !== -1) cands.push({ b: i + k, hyph: true });
+      if (ok) for (const k of hyphenPoints(text.slice(i, j), hyS, ch.sty[i]?.language)) if (ch.glyph?.[i + k] !== -1) cands.push({ b: i + k, hyph: true, ws: i });
       i = j;
     }
   }
@@ -1353,6 +1353,12 @@ function composeParagraph(text, ch, from, pe, availFirst, availRest, para, hyS, 
       if (w - shrink > avail + 1e-6) continue;
       if (C.hyph && hyS?.limit > 0 && A.count >= hyS.limit) continue;
       const slack = avail - w;
+      // Unjustified text hyphenates only when the line would otherwise end farther than the zone from the margin.
+      if (C.hyph && !just && hyS.zone > 0 && C.ws > a) {
+        let we = C.ws;
+        while (we > a && isSpace(text[we - 1])) we--;
+        if (avail - (P[we - from] - P[a - from] - ka) < hyS.zone) continue;
+      }
       let bad;
       if (justLine) {
         const gaps = Math.max(0, ce - a - 1);
