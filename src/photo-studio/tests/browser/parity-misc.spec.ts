@@ -122,6 +122,48 @@ test('an artboard guide is selected and moved with the Move tool and survives a 
   expect(restored).toEqual([{ orientation: 'vertical', position: 120 }]);
 });
 
+test('resizing an artboard from its left and top edges keeps its guides on the content', async ({ page }) => {
+  await addArtboard(page); // (300, 50), 250 × 300
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Guides', (d) => {
+      d.layers.at(-1)!.artboard!.guides = [{ orientation: 'vertical', position: 100 }, { orientation: 'horizontal', position: 70 }, { orientation: 'vertical', position: 10 }];
+    });
+    e.transform.snapping = false;
+    e.setTool('artboard');
+    e.update();
+  });
+  await idle(page);
+  const dragHandle = async (handle: string, from: [number, number], to: [number, number]) => {
+    const box = (await page.locator(`#overlay [data-artboard-handle="${handle}"] .handle-hit`).boundingBox())!;
+    const [fx, fy] = await client(page, ...from),
+      [tx, ty] = await client(page, ...to);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + tx - fx, box.y + box.height / 2 + ty - fy, { steps: 6 });
+    await page.mouse.up();
+    await idle(page);
+  };
+  // Grow from the top-left corner: the guides stay where they were in the document.
+  await dragHandle('nw', [300, 50], [250, 20]);
+  const state = () =>
+    page.evaluate(() => {
+      const a = window.photoStudio.doc.layers.find((l) => l.artboard)!.artboard!;
+      return { rect: a.rect, guides: a.guides };
+    });
+  expect(await state()).toEqual({
+    rect: { x: 250, y: 20, width: 300, height: 330 },
+    guides: [{ orientation: 'vertical', position: 150 }, { orientation: 'horizontal', position: 100 }, { orientation: 'vertical', position: 60 }],
+  });
+  await expect(page.locator('#overlay line.guide.artboard-guide')).toHaveCount(3);
+  // Shrink from the left edge past the guide at x = 310: it is dropped, the others stay put.
+  await dragHandle('w', [250, 185], [330, 185]);
+  expect(await state()).toEqual({
+    rect: { x: 330, y: 20, width: 220, height: 330 },
+    guides: [{ orientation: 'vertical', position: 70 }, { orientation: 'horizontal', position: 100 }],
+  });
+});
+
 test('New Guides From Shape uses the outline of a shape layer', async ({ page }) => {
   await page.evaluate(async () => {
     const e = window.photoStudio;

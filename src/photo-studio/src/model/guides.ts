@@ -125,6 +125,27 @@ export function mapArtboardGuides(guides: Guide[], before: Rect, after: Rect, f:
   return out;
 }
 
+/** An artboard's guides after its rectangle changes from `before` to
+ * `after` without scaling (a resize from any edge): each guide keeps its
+ * place on the content, so offsets shift by the moved corner, and guides now
+ * outside the artboard are dropped, as a crop drops canvas guides. */
+export function resizedArtboardGuides(guides: Guide[], before: Rect, after: Rect): Guide[] {
+  const out: Guide[] = [];
+  for (const g of guides) {
+    const v = g.orientation === 'vertical';
+    const position = g.position + (v ? before.x - after.x : before.y - after.y);
+    if (position >= 0 && position <= (v ? after.width : after.height)) out.push({ orientation: g.orientation, position });
+  }
+  return out;
+}
+/** Give an artboard (in a draft) a new rectangle, keeping its guides on the content. */
+export function setArtboardRect(a: Pick<ArtboardLike, 'artboard'>, rect: Rect) {
+  const guides = a.artboard.guides && resizedArtboardGuides(a.artboard.guides, a.artboard.rect, rect);
+  a.artboard.rect = rect;
+  if (guides?.length) a.artboard.guides = guides;
+  else delete a.artboard.guides;
+}
+
 const validGuide = (g: unknown): g is Guide =>
   !!g && typeof g === 'object' && ((g as Guide).orientation === 'vertical' || (g as Guide).orientation === 'horizontal') && Number.isFinite((g as Guide).position) && Math.abs((g as Guide).position) < 1e7;
 /** Guides of a project as read from a file: entries that are not guides are
