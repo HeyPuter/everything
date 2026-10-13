@@ -14,6 +14,8 @@ export type ArtboardData = {
   clip?: boolean;
   // Preset the size came from, shown in Properties until the size changes.
   preset?: string;
+  // Artboard guides: offsets from the rectangle's top-left corner (model/guides.ts).
+  guides?: import('./document').Guide[];
 };
 export type ArtboardLayer = Layer & { artboard: ArtboardData };
 

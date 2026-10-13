@@ -106,10 +106,20 @@ export function installColor(e: Editor) {
     run: async (e) => (await import('./hdr-preview')).hdrPreviewDialog(e),
   });
   cmd('view.proof-monitor-rgb', 'Monitor RGB', (m, e) => m.setProof(e, { ...m.workingCmykSetup(), kind: 'monitor', ref: 'builtin:srgb' }), { enabled: hasDoc, checked: setupIs('monitor'), recordable: false });
+  for (const [id, ref, label, description] of [
+    ['view.proof-srgb', 'builtin:srgb', 'Standard Web RGB (sRGB)', 'Preview the document numbers as an sRGB display shows them, as in browsers that ignore embedded profiles.'],
+    ['view.proof-legacy-rgb', 'builtin:legacy-rgb-18', 'Legacy RGB (Gamma 1.8)', 'Preview the document numbers as an older gamma 1.8 display showed them: lighter midtones and softer colors.'],
+  ] as const)
+    cmd(id, label, (m, e) => m.setProof(e, m.rgbSetup(ref)), {
+      enabled: hasDoc,
+      checked: (e) => !!mod && mod.proofState(e.session).setup.kind === 'rgb' && mod.proofState(e.session).setup.ref === ref,
+      recordable: false,
+      description,
+    });
   cmd('view.proof-colors', 'Proof Colors', (m, e) => m.toggleProof(e), { shortcut: 'Mod+Y', enabled: hasDoc, checked: proofOn, recordable: false });
   cmd('view.gamut-warning', 'Gamut Warning', (m, e) => m.toggleGamut(e), {
     shortcut: 'Mod+Shift+Y',
-    enabled: (e) => e.hasDocument && !setupIs('monitor')(e) && !setupIs('vision')(e),
+    enabled: (e) => e.hasDocument && !setupIs('monitor')(e) && !setupIs('vision')(e) && !setupIs('rgb')(e),
     checked: (e) => !!mod && mod.proofState(e.session).gamut,
     recordable: false,
   });

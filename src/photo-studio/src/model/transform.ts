@@ -1,6 +1,7 @@
 import { allLayers, type Layer, type PhotoDocument, type Transform } from './document';
 import { layerLock } from './locks';
 import { multiplyMaskMatrix } from './pixel-mask';
+import { guideLines } from './guides';
 
 export type Point = [number, number];
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -47,7 +48,7 @@ export function layerLocked(layers: Layer[], id: string, inherited = false): boo
 // takes the grid spacing; its subdivisions are targets too.
 export type SnapOptions = { guides?: boolean; layers?: boolean; document?: boolean; grid?: number; gridDivisions?: number };
 /** Canvas and grid lines plus guides, without layer edges. */
-export function lineTargets(doc: Pick<PhotoDocument, 'width' | 'height' | 'guides'>, opts: SnapOptions = {}): SnapTargets {
+export function lineTargets(doc: Pick<PhotoDocument, 'width' | 'height' | 'guides'> & Partial<Pick<PhotoDocument, 'layers'>>, opts: SnapOptions = {}): SnapTargets {
   const targets: SnapTargets = { x: [], y: [] };
   if (opts.document !== false) {
     targets.x.push(0, doc.width / 2, doc.width);
@@ -60,7 +61,11 @@ export function lineTargets(doc: Pick<PhotoDocument, 'width' | 'height' | 'guide
     for (let x = s; x < doc.width; x += s) targets.x.push(x);
     for (let y = s; y < doc.height; y += s) targets.y.push(y);
   }
-  if (opts.guides !== false) for (const g of doc.guides ?? []) (g.orientation === 'vertical' ? targets.x : targets.y).push(g.position);
+  if (opts.guides !== false) {
+    const g = guideLines(doc);
+    targets.x.push(...g.x);
+    targets.y.push(...g.y);
+  }
   return targets;
 }
 /** Bounds of visible, unselected leaf layers (snap and alignment targets). */
@@ -87,7 +92,11 @@ export function snapTargets(doc: PhotoDocument, selected: Layer | Layer[], opts:
       targets.x.push(b.x, b.x + b.width / 2, b.x + b.width);
       targets.y.push(b.y, b.y + b.height / 2, b.y + b.height);
     }
-  if (opts.guides !== false) for (const g of doc.guides ?? []) (g.orientation === 'vertical' ? targets.x : targets.y).push(g.position);
+  if (opts.guides !== false) {
+    const g = guideLines(doc);
+    targets.x.push(...g.x);
+    targets.y.push(...g.y);
+  }
   for (const extra of snapProviders) {
     const t = extra(doc);
     targets.x.push(...t.x);

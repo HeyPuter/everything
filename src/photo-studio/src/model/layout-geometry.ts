@@ -1,4 +1,5 @@
 import type { Layer, PhotoDocument, Rect } from './document';
+import { mapArtboardGuides } from './guides';
 
 // Document-space layout geometry (artboard and frame rectangles, user slices,
 // the positions stored in layer comps and the placement bounds of pixel
@@ -30,7 +31,16 @@ function walk(layers: Layer[], visit: (l: Layer) => void) {
 /** Map every piece of layout geometry in place. */
 export function mapLayoutGeometry(doc: PhotoDocument, f: PointMap) {
   walk(doc.layers, (l) => {
-    if (l.artboard) l.artboard.rect = mapRect(l.artboard.rect, f);
+    if (l.artboard) {
+      const before = l.artboard.rect;
+      l.artboard.rect = mapRect(before, f);
+      // Artboard guides are offsets from the rectangle; keep them on the same image lines.
+      if (l.artboard.guides) {
+        const guides = mapArtboardGuides(l.artboard.guides, before, l.artboard.rect, f);
+        if (guides.length) l.artboard.guides = guides;
+        else delete l.artboard.guides;
+      }
+    }
     if (l.frame) l.frame.rect = mapRect(l.frame.rect, f);
   });
   for (const s of doc.slices ?? []) s.rect = mapRect(s.rect, f);

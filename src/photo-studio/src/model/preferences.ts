@@ -55,6 +55,11 @@ export type Preferences = {
   lockSlices?: boolean;
   snapSlices?: boolean;
   showArtboardNames?: boolean;
+  showCanvasGuides?: boolean;
+  showArtboardGuides?: boolean;
+  showMesh?: boolean;
+  showEditPins?: boolean;
+  showPatternTileBounds?: boolean;
   windowLayout?: LayoutKind;
   rotateAllWindows?: boolean;
   aspectCorrection?: boolean;
@@ -325,7 +330,7 @@ export const STORED: Extract<SettingDef, { key: Key }>[] = (() => {
 export const settingFor = (key: string) => STORED.find((s) => s.key === (key as Key));
 
 // Menu state that has no row in the window: type checks only.
-const STATE_BOOLEANS = ['showRulers', 'showGuides', 'showGrid', 'snap', 'guidesLocked', 'showPixelGrid', 'showLayerEdges', 'showAlignmentGuides', 'showBrushPreview', 'showSlices', 'lockSlices', 'snapSlices', 'showArtboardNames', 'rotateAllWindows', 'aspectCorrection'] as const;
+const STATE_BOOLEANS = ['showRulers', 'showGuides', 'showGrid', 'snap', 'guidesLocked', 'showPixelGrid', 'showLayerEdges', 'showAlignmentGuides', 'showBrushPreview', 'showSlices', 'lockSlices', 'snapSlices', 'showArtboardNames', 'showCanvasGuides', 'showArtboardGuides', 'showMesh', 'showEditPins', 'showPatternTileBounds', 'rotateAllWindows', 'aspectCorrection'] as const;
 const STATE_DEFAULTS = { showRulers: true, showGuides: true, showGrid: false, snap: true };
 const LAYOUTS = ['tabs', 'tile-grid', 'tile-vertical', 'tile-horizontal', '2-up-vertical', '2-up-horizontal', '3-up-vertical', '3-up-horizontal', '3-up-stacked', '4-up', '6-up'];
 

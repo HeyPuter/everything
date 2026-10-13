@@ -1,6 +1,5 @@
 import type { Editor } from '../editor';
 import { registerCommand, registerOverlay, registerPanel, type Panel } from '../app/registry';
-import type { Guide } from '../model/document';
 import { formDialog } from '../ui/dialog';
 import { readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
 import { tileHolders } from '../app/session';
@@ -10,103 +9,12 @@ import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { gridThumbnail } from './panels/thumbnails';
 import { findLayer } from '../model/document';
-import { extraHidden, gridSpacing, selectGuides, selectedGuides } from './view-extras';
+import { extraHidden, gridSpacing } from './view-extras';
+import { installGuides } from './guides';
 import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 
-// Guides, grid, extras, Quick Mask and the Channels panel.
-let guideDrag: { index: number; orientation: Guide['orientation']; pointer: number; fresh: boolean; x: number; y: number; moved: boolean; shift: boolean; existing: boolean } | undefined;
+// Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
 let lastQuickMaskUrl: { grid: TileGrid; url: string; time: number } | undefined;
-
-function setGuides(e: Editor, guides: Guide[], label: string) {
-  e.command(label, (d) => {
-    d.guides = guides.length ? guides : undefined;
-  });
-}
-function guidePosition(e: Editor, orientation: Guide['orientation'], clientX: number, clientY: number) {
-  const [x, y] = e.docPoint(clientX, clientY);
-  return Math.round(orientation === 'vertical' ? x : y);
-}
-function bindGuides(e: Editor) {
-  const viewport = e.el('#viewport');
-  const start = (orientation: Guide['orientation'], ev: PointerEvent, index = -1) => {
-    if (!e.hasDocument || e.preferences.guidesLocked) return;
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-    const guides = [...(e.doc.guides ?? [])];
-    const existing = index >= 0;
-    if (index < 0) {
-      guides.push({ orientation, position: guidePosition(e, orientation, ev.clientX, ev.clientY) });
-      index = guides.length - 1;
-    }
-    e.settings.draftGuides = guides;
-    guideDrag = { index, orientation, pointer: ev.pointerId, fresh: true, x: ev.clientX, y: ev.clientY, moved: !existing, shift: ev.shiftKey, existing };
-    (ev.target as Element).setPointerCapture?.(ev.pointerId);
-    document.body.classList.add(orientation === 'vertical' ? 'dragging-vguide' : 'dragging-hguide');
-  };
-  e.el('#ruler-x').addEventListener('pointerdown', (ev) => start('horizontal', ev));
-  e.el('#ruler-y').addEventListener('pointerdown', (ev) => start('vertical', ev));
-  // Existing guides are dragged with the Move tool (capture phase, before the tool sees the event).
-  viewport.addEventListener(
-    'pointerdown',
-    (ev) => {
-      const hit = (ev.target as Element).closest?.('[data-guide]');
-      if (e.tool !== 'move' || ev.button !== 0) return;
-      // Clicking anything else with the Move tool deselects guides.
-      if (!hit) {
-        if (selectedGuides(e).size && !ev.shiftKey) selectGuides(e, []);
-        return;
-      }
-      const index = Number(hit.getAttribute('data-guide'));
-      const g = e.doc.guides?.[index];
-      if (g) start(g.orientation, ev, index);
-    },
-    true,
-  );
-  const move = (ev: PointerEvent) => {
-    if (!guideDrag || ev.pointerId !== guideDrag.pointer) return;
-    if (!guideDrag.moved && Math.hypot(ev.clientX - guideDrag.x, ev.clientY - guideDrag.y) < 3) return;
-    guideDrag.moved = true;
-    const guides = e.settings.draftGuides as Guide[];
-    guides[guideDrag.index] = { orientation: guideDrag.orientation, position: guidePosition(e, guideDrag.orientation, ev.clientX, ev.clientY) };
-    e.overlay();
-  };
-  const end = (ev: PointerEvent) => {
-    if (!guideDrag || ev.pointerId !== guideDrag.pointer) return;
-    const guides = (e.settings.draftGuides as Guide[]).slice();
-    const g = guides[guideDrag.index];
-    if (!guideDrag.moved) {
-      // A click selects the guide (Shift adds or removes it).
-      const index = guideDrag.index,
-        shift = guideDrag.shift;
-      guideDrag = undefined;
-      delete e.settings.draftGuides;
-      document.body.classList.remove('dragging-vguide', 'dragging-hguide');
-      const current = selectedGuides(e);
-      if (shift) {
-        if (current.has(index)) current.delete(index);
-        else current.add(index);
-        selectGuides(e, current);
-      } else selectGuides(e, [index]);
-      return;
-    }
-    const max = g.orientation === 'vertical' ? e.doc.width : e.doc.height;
-    // Dragging a guide back onto the ruler (outside the canvas) removes it.
-    const inside = viewport.getBoundingClientRect();
-    const overViewport = ev.clientX >= inside.left && ev.clientY >= inside.top && ev.clientX <= inside.right && ev.clientY <= inside.bottom;
-    const removed = !overViewport || g.position < -max || g.position > max * 2;
-    if (removed) guides.splice(guideDrag.index, 1);
-    const { index, existing } = guideDrag;
-    guideDrag = undefined;
-    delete e.settings.draftGuides;
-    document.body.classList.remove('dragging-vguide', 'dragging-hguide');
-    setGuides(e, guides, existing ? 'Move Guide' : 'New Guide');
-    // The moved or new guide becomes the selection.
-    selectGuides(e, removed ? [] : [index]);
-  };
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', end);
-  window.addEventListener('pointercancel', end);
-}
 
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
@@ -233,7 +141,7 @@ async function loadChannel(e: Editor, id: string, op: ReturnType<typeof selectio
 }
 
 export function installView(e: Editor) {
-  bindGuides(e);
+  installGuides(e);
   registerPanel(channelsPanel);
   registerOverlay('grid', (e) => {
     if (!e.preferences.showGrid || extraHidden(e, 'grid') || !e.hasDocument) return '';
@@ -285,20 +193,6 @@ export function installView(e: Editor) {
     for (let y = ay; y <= by; y++) d += `M${ax} ${y}H${bx}`;
     return `<path d="${d}" class="pixel-grid" stroke-width="${1 / e.zoom}"/>`;
   });
-  registerOverlay('guides', (e) => {
-    const guides = (e.settings.draftGuides as Guide[] | undefined) ?? e.doc.guides;
-    if (!guides?.length || !e.preferences.showGuides || extraHidden(e, 'guides')) return '';
-    const z = e.zoom,
-      pad = Math.max(e.doc.width, e.doc.height) * 4;
-    const selected = e.settings.draftGuides ? new Set<number>() : selectedGuides(e);
-    return guides
-      .map((g, i) =>
-        g.orientation === 'vertical'
-          ? `<line x1="${g.position}" x2="${g.position}" y1="${-pad}" y2="${e.doc.height + pad}" class="guide${selected.has(i) ? ' selected' : ''}" stroke-width="${(selected.has(i) ? 2 : 1) / z}"/><line data-guide="${i}" x1="${g.position}" x2="${g.position}" y1="${-pad}" y2="${e.doc.height + pad}" class="guide-hit vertical" stroke-width="${7 / z}"/>`
-          : `<line x1="${-pad}" x2="${e.doc.width + pad}" y1="${g.position}" y2="${g.position}" class="guide${selected.has(i) ? ' selected' : ''}" stroke-width="${(selected.has(i) ? 2 : 1) / z}"/><line data-guide="${i}" x1="${-pad}" x2="${e.doc.width + pad}" y1="${g.position}" y2="${g.position}" class="guide-hit horizontal" stroke-width="${7 / z}"/>`,
-      )
-      .join('');
-  });
   registerOverlay('quick-mask', quickMaskOverlay);
   // Painting in Quick Mask makes tiles no document refers to until it ends.
   tileHolders.push(() => {
@@ -326,59 +220,6 @@ export function installView(e: Editor) {
     },
     { id: 'view.snap', label: 'Snap', shortcut: 'Mod+Shift+;', checked: (e) => e.transform.snapping, run: (e) => { e.transform.snapping = !e.transform.snapping; e.options(); }, recordable: false },
     { id: 'view.guides-lock', label: 'Lock Guides', shortcut: 'Mod+Alt+;', checked: (e) => !!e.preferences.guidesLocked, run: toggle('guidesLocked'), recordable: false },
-    { id: 'view.guides-clear', label: 'Clear Guides', enabled: (e) => !!e.doc.guides?.length, run: (e) => setGuides(e, [], 'Clear Guides') },
-    {
-      id: 'view.guides-new',
-      label: 'New Guide…',
-      enabled: (e) => e.hasDocument,
-      run: async (e) => {
-        const v = await formDialog('New Guide', [
-          { name: 'orientation', label: 'Orientation', value: 'horizontal', type: 'select', options: [['horizontal', 'Horizontal'], ['vertical', 'Vertical']] },
-          { name: 'position', label: 'Position (px)', value: 0, type: 'number' },
-        ], 'OK');
-        if (v) setGuides(e, [...(e.doc.guides ?? []), { orientation: v.orientation as Guide['orientation'], position: Number(v.position) }], 'New Guide');
-      },
-    },
-    {
-      id: 'view.guides-layout',
-      label: 'New Guide Layout…',
-      enabled: (e) => e.hasDocument,
-      run: async (e) => {
-        const v = await formDialog('New Guide Layout', [
-          { name: 'columns', label: 'Columns', value: 4, type: 'number', min: 0, max: 100 },
-          { name: 'rows', label: 'Rows', value: 0, type: 'number', min: 0, max: 100 },
-          { name: 'gutter', label: 'Gutter (px)', value: 20, type: 'number', min: 0 },
-          { name: 'margin', label: 'Margin (px)', value: 0, type: 'number', min: 0 },
-          { name: 'clear', label: 'Clear existing guides', value: 'yes', type: 'checkbox' },
-        ], 'OK');
-        if (!v) return;
-        const guides: Guide[] = v.clear === 'yes' ? [] : [...(e.doc.guides ?? [])];
-        const m = Number(v.margin),
-          gutter = Number(v.gutter);
-        const lay = (n: number, size: number, orientation: Guide['orientation']) => {
-          if (n <= 0) return;
-          if (m) guides.push({ orientation, position: m }, { orientation, position: size - m });
-          const cell = (size - 2 * m - gutter * (n - 1)) / n;
-          for (let i = 1; i < n; i++) {
-            const at = m + i * cell + (i - 1) * gutter;
-            guides.push({ orientation, position: Math.round(at) });
-            if (gutter) guides.push({ orientation, position: Math.round(at + gutter) });
-          }
-        };
-        lay(Number(v.columns), e.doc.width, 'vertical');
-        lay(Number(v.rows), e.doc.height, 'horizontal');
-        setGuides(e, guides, 'New Guide Layout');
-      },
-    },
-    {
-      id: 'view.guides-from-shape',
-      label: 'New Guides From Layer',
-      enabled: (e) => !!e.layer,
-      run: (e) => {
-        const t = e.layer!.transform;
-        setGuides(e, [...(e.doc.guides ?? []), { orientation: 'vertical', position: t.x }, { orientation: 'vertical', position: t.x + t.width }, { orientation: 'horizontal', position: t.y }, { orientation: 'horizontal', position: t.y + t.height }], 'New Guides From Layer');
-      },
-    },
     {
       id: 'select.quick-mask',
       label: 'Edit in Quick Mask Mode',

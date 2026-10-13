@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { commands, registerCommand, registerOverlay } from '../app/registry';
 import type { DocumentView } from '../app/views';
 import type { DocumentSession } from '../app/session';
-import { centerPoint, fitZoom, panToCenter, pixelsPerInch, printSizeZoom, rotateAround, type Size } from '../app/view-transform';
+import { actualSizeZoom, centerPoint, fitZoom, panToCenter, pixelsPerInch, printSizeZoom, rotateAround, type Size } from '../app/view-transform';
 import { selectedRoots } from '../model/layers';
 import { allLayers } from '../model/document';
 import { transformBounds } from '../model/transform';
@@ -147,6 +147,10 @@ export function installViewModes(e: Editor) {
   cmd('view.print-size', 'Print Size', (e) => {
     e.zoomAt(printSizeZoom(pixelsPerInch(e.doc.resolution), e.preferences.screenPpi ?? 96));
   }, { enabled: (e) => e.hasDocument, description: 'Show the image at its printed size, using the screen resolution set in Preferences' });
+  cmd('view.actual-size', 'Actual Size', (e) => e.zoomBy(actualSizeZoom(globalThis.devicePixelRatio ?? 1)), {
+    enabled: (e) => e.hasDocument,
+    description: 'Show one image pixel per physical screen pixel (differs from 100% on high-density screens and when the browser is zoomed)',
+  });
   cmd('view.fit-layers', 'Fit Layer(s) on Screen', (e) => {
     const leaves = allLayers(selectedRoots(e.doc.layers, e.selectedIds)).filter((l) => l.kind !== 'group' && l.kind !== 'adjustment');
     if (!leaves.length) return e.fit();
