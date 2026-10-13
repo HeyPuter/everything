@@ -60,7 +60,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (sig === paneSignature) return;
     paneSignature = sig;
     const count = type => changes.filter(c => c.type === type).length;
-    paneSummary.textContent = `${changes.length + notes.length} revisions: ${count('ins')} insertions, ${count('del')} deletions, ${count('format')} formatting, ${notes.length} comments`;
+    const n = (value, one, many) => `${value} ${value === 1 ? one : many}`;
+    paneSummary.textContent = `${n(changes.length + notes.length, 'revision', 'revisions')}: ${n(count('ins'), 'insertion', 'insertions')}, ${n(count('del'), 'deletion', 'deletions')}, ${count('format')} formatting, ${n(notes.length, 'comment', 'comments')}`;
     const items = [
       ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(body, c) : (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); engine.focus(); engine.revealCaret?.(); onChange(); } })),
       ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),

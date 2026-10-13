@@ -99,7 +99,13 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
     engine.finishComposition();
     const { start, end } = result;
     if (engine.session.path !== result.path || engine.model.text.slice(start, end) !== result.original) { error(new Error('The selected text changed. Translate it again.')); return; }
-    engine.execute(() => { engine.model.select(start, end); engine.model.replace(result.text); engine.model.setRunFormat?.({ fontLanguage: target.value }); });
+    // The translation is marked in its language (§17.3.2.20), so proofing treats it as such.
+    engine.execute(() => {
+      engine.model.select(start, end); engine.model.replace(result.text);
+      const after = engine.model.range[1];
+      engine.model.select(after - result.text.length, after); engine.model.setRunFormat({ fontLanguage: target.value });
+      engine.model.select(after);
+    });
     engine.focus();
   }
   async function translateDocument() {

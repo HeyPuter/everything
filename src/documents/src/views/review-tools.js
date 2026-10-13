@@ -155,10 +155,10 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     const protect = quiet(command('Restrict Editing', 'protect', () => restrict.open(), { size: 'large', text: 'Restrict Editing' }));
     when(protect, () => !!editor() && !pkg()?.readOnly, () => String(restrict.enforced));
     const groups = [
-      { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', priority: 3, after: 'speech', items: [accessibilityButton] },
+      { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', priority: 2, after: 'speech', items: [accessibilityButton] },
       { id: 'language', label: 'Language', icon: 'language', priority: 3, after: 'speech', items: [translate, language] },
-      { id: 'compare', label: 'Compare', icon: 'compare', priority: 4, after: 'changes', items: [compare] },
-      { id: 'protect', label: 'Protect', icon: 'protect', priority: 4, after: 'changes', items: [protect] },
+      { id: 'compare', label: 'Compare', icon: 'compare', priority: 2, after: 'changes', items: [compare] },
+      { id: 'protect', label: 'Protect', icon: 'protect', priority: 3, after: 'changes', items: [protect] },
     ];
     if (w.toggleInk) {
       const ink = quiet(command('Hide Ink', 'hideInk', () => w.toggleInk(), { size: 'large', text: 'Hide Ink' }));
@@ -193,11 +193,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
       { separator: true },
       { label: 'Protect Document…', icon: 'protect', disabled: !has || !!pkg()?.readOnly, onSelect: commands.restrictEditing },
     ];
-    if (menuId === 'file') return [
-      { separator: true },
-      { label: 'Always Open Read-Only', checked: restrict.alwaysReadOnly, disabled: !has || !!pkg()?.readOnly, onSelect: commands.alwaysOpenReadOnly },
-      { label: 'Protect Document…', icon: 'protect', disabled: !has || !!pkg()?.readOnly, onSelect: commands.restrictEditing },
-    ];
+    if (menuId === 'file') return fileItems();
     if (menuId === 'view') return [
       { separator: true },
       { label: 'Markup', icon: 'markup', disabled: !has, items: [
@@ -237,8 +233,15 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === 'KeyG') { e.preventDefault(); commands.wordCount(); }
   }, { signal: keyAbort.signal });
 
+  /** Items for the File menu: the read-only recommendation and protection. */
+  const fileItems = () => [
+    { separator: true },
+    { label: 'Always Open Read-Only', icon: 'readOnly', checked: restrict.alwaysReadOnly, disabled: !editor() || !!pkg()?.readOnly, onSelect: commands.alwaysOpenReadOnly },
+    { label: 'Protect Document…', icon: 'protect', disabled: !editor() || !!pkg()?.readOnly, onSelect: commands.restrictEditing },
+  ];
+
   return {
-    commands, extendTab, extendMenu, contextMenuItems, people,
+    commands, extendTab, extendMenu, contextMenuItems, people, fileItems,
     panes: [editorPane.pane.node, thesaurus.pane.node, accessibility.pane.node, translator.pane.node, commentsPane.pane.node, restrict.pane.node],
     /** Tints the comment layer adds to its own: editable regions under protection. */
     tints: () => restrict.tints(),

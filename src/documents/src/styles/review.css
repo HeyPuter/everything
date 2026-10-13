@@ -67,6 +67,7 @@
 .rv-pane-body { display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--ed-ink); }
 .rv-section { display: flex; flex-direction: column; gap: 6px; }
 .rv-section + .rv-section { padding-top: 12px; border-top: 1px solid var(--ed-line); }
+.rv-section > .btn, .rv-pane-body > div > .rv-actions > .btn { align-self: flex-start; }
 .rv-section-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--ed-ink-2); letter-spacing: .01em; }
 .rv-hint { margin: 0; }
 .rv-status { margin: 0; color: var(--ed-ink-2); font-size: 12.5px; }

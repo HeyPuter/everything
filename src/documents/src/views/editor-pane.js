@@ -32,7 +32,8 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
     spellingList.replaceChildren(...[...groups].map(([word, list]) => el('button.rv-item', { type: 'button', role: 'listitem', 'aria-current': String(current?.word === word), onclick: () => pick(list[0]) },
       el('span.rv-item-word.rv-misspelled', {}, word), el('span.rv-item-count', {}, list.length > 1 ? `×${list.length}` : ''))));
     if (!groups.size) spellingList.append(el('p.rv-empty', {}, 'No spelling issues found.'));
-    if (current && !spellingIssues.some(m => m.start === current.start && m.word === current.word)) { current = null; detail.hidden = true; }
+    if (current && !spellingIssues.some(m => m.start === current.start && m.word === current.word)) current = null;
+    if (!current) detail.hidden = true;
   }
   function pick(m) {
     current = m;

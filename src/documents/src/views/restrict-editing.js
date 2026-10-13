@@ -78,7 +78,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
   }
 
   /* ---- The pane ---- */
-  const pane = sidePane({ title: 'Restrict Editing', label: 'Restrict Editing pane', className: 'rv-restrict-pane', onOpen: () => render(), onClose: () => { onChange(); editor()?.focus(); } });
+  const pane = sidePane({ title: 'Restrict Editing', label: 'Restrict Editing pane', className: 'rv-restrict-pane', onOpen: () => { render(); queueMicrotask(onChange); }, onClose: () => { onChange(); editor()?.focus(); } });
   let draft = { formatting: false, edit: 'readOnly', editing: false };
   function syncDraft() {
     const p = protection();
@@ -88,11 +88,18 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
   const myRegions = () => regions().filter(r => api().permissionApplies(r, user()));
   const editorsList = () => [...new Set([...EXTRA_EDITORS.get(), ...regions().map(r => r.ed).filter(Boolean)])];
 
-  function render() {
+  let renderedSignature = '';
+  /** Rebuild the pane when what it shows changed (or when forced). */
+  function render(force = true) {
     if (!pane.isOpen) return;
     const engine = editor();
+    const signature = JSON.stringify([enforced(), protection(), settings().lockedStyles, regions(), engine?.model.range, engine?.session.path, editorsList(), !!pkg()?.readOnly, HIGHLIGHT.get()]);
+    if (!force && signature === renderedSignature) return;
+    renderedSignature = signature;
+    const focused = pane.body.contains(document.activeElement) ? document.activeElement.getAttribute('aria-label') || document.activeElement.textContent : null;
     pane.body.replaceChildren(enforced() ? enforcedView() : setupView(engine));
-    onChange();
+    // Keep keyboard focus on the control that was focused before the rebuild.
+    if (focused) [...pane.body.querySelectorAll('button, input, select')].find(n => (n.getAttribute('aria-label') || n.textContent) === focused || n.closest('label')?.textContent === focused)?.focus({ preventScroll: true });
   }
 
   function setupView(engine) {
@@ -219,7 +226,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
   return {
     pane, applyGuard, startEnforcing, stopEnforcing, nextRegion,
     open() { pane.open(); render(); },
-    refresh() { if (pane.isOpen) render(); },
+    refresh() { if (pane.isOpen) render(false); },
     get enforced() { return enforced(); },
     get protection() { return readOnlyView ? { edit: 'readOnly', enforcement: true } : protection(); },
     get trackingLocked() { const p = protection(); return !!p?.enforcement && p.edit === 'trackedChanges'; },

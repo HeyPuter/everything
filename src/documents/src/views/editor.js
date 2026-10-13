@@ -703,6 +703,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     currentBytes: async () => new Uint8Array(await (pkg.readOnly ? doc.blob : engine.export(pkg)).arrayBuffer()), onChange: () => update() });
   Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
   Object.assign(editorCommands, reviewTools.commands);
+  const baseReviewFileItems = editorCommands.fileItems;
+  editorCommands.fileItems = () => [...(baseReviewFileItems?.() || []), ...reviewTools.fileItems()];
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit), ...reviewTools.extendTab(id, kit)];
   const baseExtendMenu = editorCommands.extendMenu;
