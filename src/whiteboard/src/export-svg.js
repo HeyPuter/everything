@@ -1,3 +1,4 @@
+import { exportLinks } from "./export-links.js";
 import { shapePath, shapeDetail } from "./shapes.js";
 import { SHAPE_SPECS, SHAPE_COLORS, shapeBorder } from "./shape-specs.js";
 import { shapeSvg } from "./shape-art.js";
@@ -56,7 +57,9 @@ export function exportSVG(b, regions, options = {}) {
       content = drawOrder(region.items)
         .map((i) => svgObject(i, state))
         .join("");
-    const counts = region.mindCounts ? badges(region, state) : "";
+    const counts =
+      (region.mindCounts ? badges(region, state) : "") +
+      svgLinks(region, state);
     if (regions.length === 1)
       body.push(
         `<rect x="${num(r.x)}" y="${num(r.y)}" width="${num(r.w)}" height="${num(r.h)}" fill="#ffffff"/>${content}${counts}`,
@@ -403,6 +406,16 @@ export function svgObject(i, state) {
   return `<g transform="${transform}"${i.lang ? ` xml:lang="${xml(i.lang)}"` : ""}${description ? ` role="img" aria-label="${xml(description)}"` : ""}>${description ? `<title>${xml(description)}</title>` : ""}${out}</g>`;
 }
 
+// Web links stay clickable: an invisible area over each link card, embed
+// card and linked word, named by its text.
+function svgLinks(region, state) {
+  return exportLinks(region.items, state.ctx)
+    .map(
+      (link) =>
+        `<a href="${xml(link.url)}" xlink:href="${xml(link.url)}" target="_blank"><title>${xml(link.text)}</title><rect x="${num(link.x)}" y="${num(link.y)}" width="${num(link.w)}" height="${num(link.h)}" fill="#ffffff" fill-opacity="0"${link.rotation ? ` transform="rotate(${num(link.rotation)} ${num(link.center.x)} ${num(link.center.y)})"` : ""}/></a>`,
+    )
+    .join("");
+}
 function badges(region, state) {
   let out = "";
   for (const i of region.items) {

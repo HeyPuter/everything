@@ -2579,3 +2579,46 @@ test("PDF overviews, page labels and bookmarks go to their pages", async () => {
     "/UseOutlines",
   );
 });
+
+test("SVG exports keep web links clickable", () => {
+  const b = linkedBoard(),
+    svg = exportSVG(b, exportRegions(b)),
+    doc = new JSDOM(svg, { contentType: "image/svg+xml" }).window.document;
+  assert.equal(doc.querySelector("parsererror"), null);
+  const links = [...doc.getElementsByTagName("a")].map((a) => ({
+    href: a.getAttribute("href"),
+    legacy: a.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+    title: a.querySelector("title").textContent,
+    turned: a.querySelector("rect").hasAttribute("transform"),
+  }));
+  assert.deepEqual(links, [
+    {
+      href: "https://example.com/a?b=1&c=(2",
+      legacy: "https://example.com/a?b=1&c=(2",
+      title: "Example",
+      turned: true,
+    },
+    {
+      href: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      legacy: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "Video",
+      turned: false,
+    },
+    {
+      href: "https://example.com/spec",
+      legacy: "https://example.com/spec",
+      title: "spec",
+      turned: false,
+    },
+  ]);
+  // Several frames keep each frame's links.
+  const framed = board("Framed");
+  const frame = item("frame", -50, -50, { w: 1000, h: 700, text: "All" });
+  framed.items = [
+    frame,
+    ...linkedBoard().items.map((i) => ({ ...i, parentId: frame.id })),
+    item("frame", 1200, 0, { w: 400, h: 300, text: "None" }),
+  ];
+  const many = exportSVG(framed, exportRegions(framed, { scope: "frames" }));
+  assert.equal(many.match(/<a /g).length, 3);
+});

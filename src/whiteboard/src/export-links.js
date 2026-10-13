@@ -10,13 +10,14 @@ export function exportLinks(items, ctx) {
   for (const i of items) {
     const rotation = rotationOf(i),
       center = rotation ? centerOf(i) : null;
-    const add = (box, url) =>
+    const add = (box, url, text) =>
       links.push({
         x: box.x,
         y: box.y,
         w: box.w,
         h: box.h,
         url,
+        text: text || url,
         rotation,
         center,
       });
@@ -31,9 +32,10 @@ export function exportLinks(items, ctx) {
             h: Math.abs(i.h),
           },
           url,
+          i.text,
         );
     } else if (i.textRuns?.some((r) => r.style?.link))
-      for (const r of textLinkRects(i, ctx)) add(r, r.url);
+      for (const r of textLinkRects(i, ctx)) add(r, r.url, r.text);
   }
   return links;
 }
