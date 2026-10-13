@@ -21,6 +21,9 @@ export const EXTRAS: [string, string][] = [
   ['alignment-guides', 'Alignment guides'],
   ['pixel-grid', 'Pixel grid'],
   ['brush-preview', 'Brush preview'],
+  ['pattern-bounds', 'Pattern preview tile bounds'],
+  ['mesh', 'Pin Warp mesh'],
+  ['edit-pins', 'Pin Warp pins'],
 ];
 const defaultExtras = EXTRAS.map(([k]) => k).filter((k) => k !== 'brush-preview');
 export const extrasIncluded = (e: Editor) => e.preferences.extras ?? defaultExtras;
@@ -138,14 +141,16 @@ function layerEdgesOverlay(e: Editor) {
 }
 
 // ----- Commands -----
-type Flag = 'showLayerEdges' | 'showAlignmentGuides' | 'showBrushPreview';
+type Flag = 'showLayerEdges' | 'showAlignmentGuides' | 'showBrushPreview' | 'showPatternTileBounds' | 'showMesh' | 'showEditPins';
 const flag = (e: Editor, key: Flag) => e.preferences[key] ?? key !== 'showLayerEdges';
 function toggle(e: Editor, key: Flag) {
   e.preferences[key] = !flag(e, key);
   refresh(e);
+  // The Pin Warp options bar shows the mesh setting too.
+  if (key === 'showMesh') e.options();
 }
 function showEverything(e: Editor, on: boolean) {
-  Object.assign(e.preferences, { showGrid: on, showGuides: on, showCanvasGuides: on, showArtboardGuides: on, showPixelGrid: on, showLayerEdges: on, showAlignmentGuides: on, showBrushPreview: on, showSlices: on });
+  Object.assign(e.preferences, { showGrid: on, showGuides: on, showCanvasGuides: on, showArtboardGuides: on, showPatternTileBounds: on, showMesh: on, showEditPins: on, showPixelGrid: on, showLayerEdges: on, showAlignmentGuides: on, showBrushPreview: on, showSlices: on });
   e.settings.hideSelectionEdges = !on;
   e.settings.hideTargetPath = !on;
   e.settings.hideNotes = !on;
@@ -202,6 +207,9 @@ export function installViewExtras(_e: Editor) {
     { id: 'view.show-layer-edges', label: 'Layer Edges', checked: (e) => flag(e, 'showLayerEdges'), run: (e) => toggle(e, 'showLayerEdges'), recordable: false, description: 'Outline the bounds of the selected layers.' },
     { id: 'view.show-alignment-guides', label: 'Alignment Guides', checked: (e) => flag(e, 'showAlignmentGuides'), run: (e) => toggle(e, 'showAlignmentGuides'), recordable: false, description: 'While moving layers, show alignment with other layers and equal spacing.' },
     { id: 'view.show-brush-preview', label: 'Brush Preview', checked: (e) => flag(e, 'showBrushPreview'), run: (e) => toggle(e, 'showBrushPreview'), recordable: false, description: 'Show the brush outline at the pointer; off shows a precise crosshair.' },
+    { id: 'view.show-pattern-bounds', label: 'Pattern Preview Tile Bounds', checked: (e) => flag(e, 'showPatternTileBounds'), run: (e) => toggle(e, 'showPatternTileBounds'), recordable: false, description: 'Outline the original tile while Pattern Preview repeats the image.' },
+    { id: 'view.show-mesh', label: 'Mesh', checked: (e) => flag(e, 'showMesh'), run: (e) => toggle(e, 'showMesh'), recordable: false, description: 'Show the triangle mesh while bending a layer with Pin Warp.' },
+    { id: 'view.show-edit-pins', label: 'Edit Pins', checked: (e) => flag(e, 'showEditPins'), run: (e) => toggle(e, 'showEditPins'), recordable: false, description: 'Show the pins of Pin Warp; hide them to judge the result. Clicking the mesh shows them again.' },
     { id: 'view.show-all', label: 'All', run: (e) => showEverything(e, true), recordable: false },
     { id: 'view.show-none', label: 'None', run: (e) => showEverything(e, false), recordable: false },
     { id: 'view.show-extras-options', label: 'Show Extras Options…', run: extrasOptions, recordable: false },

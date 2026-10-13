@@ -7,6 +7,7 @@ import { selectedRoots } from '../model/layers';
 import { allLayers } from '../model/document';
 import { transformBounds } from '../model/transform';
 import { formDialog } from '../ui/dialog';
+import { extraHidden } from './view-extras';
 
 // View modes that change how a document is shown, never its pixels: view
 // rotation and mirroring, zoom presets, pixel aspect ratio correction and
@@ -206,8 +207,9 @@ export function installViewModes(e: Editor) {
     e.update();
   }, { enabled: (e) => e.hasDocument, checked: (e) => patternPreviewOn(e), description: 'Repeat the image around itself to design seamless patterns' });
   e.onUpdate(syncPattern);
+  // View > Show > Pattern Preview Tile Bounds (on by default).
   registerOverlay('pattern-bounds', (e) =>
-    patternPreviewOn(e) ? `<rect class="pattern-bounds" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" fill="none" stroke-width="${1 / e.zoom}" stroke-dasharray="${4 / e.zoom} ${4 / e.zoom}"/>` : '',
+    patternPreviewOn(e) && e.preferences.showPatternTileBounds !== false && !extraHidden(e, 'pattern-bounds') ? `<rect class="pattern-bounds" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" fill="none" stroke-width="${1 / e.zoom}" stroke-dasharray="${4 / e.zoom} ${4 / e.zoom}"/>` : '',
   );
   e.whenReady(() =>
     e.renderer.frameListeners.add((canvas, doc) => {
