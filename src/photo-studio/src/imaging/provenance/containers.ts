@@ -1,6 +1,7 @@
 // Where provenance lives inside image files.
-// - XMP packet: PNG iTXt chunk with the keyword "Provenance"; JPEG APP1
-//   segment whose identifier is our own "Photo Studio provenance\0"; WebP
+// - XMP packet, where the XMP specification (Part 3, ISO 16684) places it so
+//   other XMP readers find it: PNG iTXt chunk with the standard XMP keyword;
+//   JPEG APP1 segment with the standard XMP namespace identifier; WebP
 //   'XMP ' chunk in the extended (VP8X) layout (WebP container spec); TIFF
 //   tag 700 (TIFF 6.0 / XMP), written by appending a rewritten IFD0.
 // - C2PA manifest store (C2PA technical specification, "Embedding manifests"):
@@ -21,8 +22,9 @@ export function provenanceFormat(b: Uint8Array): ProvenanceFormat | undefined {
   return undefined;
 }
 
-export const PNG_XMP_KEYWORD = 'Provenance';
-export const JPEG_XMP_ID = 'Photo Studio provenance\0';
+// Storage identifiers fixed by the XMP specification, Part 3.
+export const PNG_XMP_KEYWORD = 'XML:com.adobe.xmp';
+export const JPEG_XMP_ID = 'http://ns.adobe.com/xap/1.0/\0';
 const enc = new TextEncoder(),
   dec = new TextDecoder();
 

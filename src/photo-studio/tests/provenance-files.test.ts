@@ -2,11 +2,11 @@
 // to PNG, JPEG, WebP and TIFF exports, read back and checked for changes.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { attachProvenance, createSigner, inspectProvenance, provenanceFormat, type ProvenanceSigner } from '../src/imaging/provenance';
-import { readStore, readXmpPacket } from '../src/imaging/provenance/containers';
+import { readStore, readXmpPacket, writeXmpPacket } from '../src/imaging/provenance/containers';
 import { pixelHash } from '../src/imaging/provenance/hash';
 import { buildXmpPacket, parseXmpPacket } from '../src/imaging/provenance/xmp';
 import { encodePng } from '../src/features/files/png';
-import { buildPng, insertPngChunks, makeTextChunk, readPngChunks } from '../src/imaging/codecs/png-chunks';
+import { buildPng, insertPngChunks, makeTextChunk, readPngChunks, readPngText } from '../src/imaging/codecs/png-chunks';
 import { readJpegSegments } from '../src/imaging/codecs/jpeg-markers';
 import { readWebpChunks } from '../src/imaging/codecs/webp-anim';
 import { decodeTiff, encodeTiff } from '../src/imaging/codecs/tiff';
@@ -82,6 +82,20 @@ describe('XMP packet', () => {
     const x = parseXmpPacket(packet);
     expect(x).toMatchObject({ format: 'image/png', title: 'Fish & <Chips>', pixelHash: 'sha256:00', pixelHashMethod: 'png-samples-v1', manifest: { a: '</pstudio:manifest>' }, errors: [] });
     expect(x.record).toEqual(record);
+  });
+  it('sits where the XMP specification puts it, so other XMP readers find it', async () => {
+    const packet = buildXmpPacket({ format: 'png', title: 'Kite', pixelHash: 'sha256:00', pixelHashMethod: 'png-samples-v1', record: sampleRecord() });
+    // PNG: an uncompressed iTXt chunk with the standard XMP keyword.
+    const p = writeXmpPacket(await png(), 'png', packet);
+    expect(readPngText(p)['XML:com.adobe.xmp']).toBe(packet);
+    // JPEG: an APP1 segment starting with the standard XMP namespace identifier.
+    const j = writeXmpPacket(jpeg(), 'jpeg', packet);
+    const id = new TextEncoder().encode('http://ns.adobe.com/xap/1.0/\0');
+    const app1 = readJpegSegments(j).segments.filter((x) => x.marker === 0xe1 && id.every((v, i) => x.data[i] === v));
+    expect(app1).toHaveLength(1);
+    expect(new TextDecoder().decode(app1[0].data.subarray(id.length))).toBe(packet);
+    // Writing again replaces the packet rather than adding a second one.
+    expect(readJpegSegments(writeXmpPacket(j, 'jpeg', packet)).segments.filter((x) => x.marker === 0xe1)).toHaveLength(1);
   });
 });
 
