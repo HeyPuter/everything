@@ -82,6 +82,7 @@ import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
 import { readXlsxOutlineSettings } from './xlsx-outline.js';
 import { serializeQueries } from './queries.js';
+import { serializeChangeHistory } from './change-history.js';
 
 export const META_SHEET = '_puter_meta';
 const META_CHUNK = 30000;
@@ -542,6 +543,8 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
   if (wb.themeInfo) { meta.themeInfo = wb.themeInfo; any = true; }
   if (wb.queries?.length) { meta.queries = serializeQueries(wb); any = true; }
   if (wb.cellStyles?.length) { meta.cellStyles = wb.cellStyles; any = true; }
+  // Show Changes: the record of recent edits, which no file format has a place for.
+  if (wb.changeHistory?.length) { meta.changeHistory = serializeChangeHistory(wb); any = true; }
   const pivotSlicers = !ods && pivotSlicerSidecar(wb);
   if (pivotSlicers?.length) { meta.pivotSlicers = pivotSlicers; any = true; }
   if (structuredNames.length) meta.structuredNames = structuredNames;
@@ -2427,7 +2430,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     nativeNormalStyle: book.bookType === 'xlsx' ? nativeStyles.nativeNormalStyle : normalizeNativeNormalStyle(meta?.nativeNormalStyle),
     nativeNormalFill: book.bookType === 'xlsx' ? nativeStyles.nativeNormalFill : meta?.nativeNormalFill,
     nativeDefaultCellFormat: book.bookType === 'xlsx' ? nativeStyles.nativeDefaultCellFormat : meta?.nativeDefaultCellFormat,
-    dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries,
+    dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries, changeHistory: meta?.changeHistory,
     // The app's own record of its named styles, else the file's (another program's custom styles).
     cellStyles: Array.isArray(meta?.cellStyles) ? meta.cellStyles : nativeStyles?.namedStyles,
     fontTheme: themePart ? readFontTheme(new TextDecoder().decode(themePart)) : normalizeFontTheme(meta?.fontTheme),

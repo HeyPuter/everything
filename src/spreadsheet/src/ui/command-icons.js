@@ -350,6 +350,8 @@ export const COMMAND_ICONS = {
   protectRanges: cells(2.5, 3.5, 13, 11, 2, 3, { frame: 'of' }) + r(2.5, 7.17, 13, 3.67, 'bw') + lock(10, 12.5),
   share: p('M3.5 9.5v7h13v-7', 'o') + p('M10 12.5v-10M7 5.5l3-3 3 3', 'b thick'),
   versions: p('M3.5 10a6.5 6.5 0 1 0 2-4.7', 'o') + p('M3 3v3h3', 'o') + p('M10 6v4l3 2', 'b'),
+  // A sheet with one changed cell picked out, and a clock over its corner: the edits made over time.
+  showChanges: cells(2.5, 2.5, 13, 12, 2, 3, { frame: 'of' }) + r(9, 6.5, 6.5, 4, 'yf', 0.6) + ci(14.5, 14.5, 4.9, 'knock') + ci(14.5, 14.5, 4, 'bw') + ci(14.5, 14.5, 4, 'o') + p('M14.5 12.3v2.4l1.6 1', 'b thick'),
   unprotect: page(2.5, 2.5, 10, 14) + p('M11 11.5v-2a2.5 2.5 0 0 1 5 0', 'o') + r(9.5, 11.5, 8, 6, 'nf', 1),
 
   /* View */

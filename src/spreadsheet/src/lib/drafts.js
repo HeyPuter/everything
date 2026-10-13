@@ -18,6 +18,7 @@ import { normalizeRichText, richFontStyle } from '../core/rich-text.js';
 import { styleResetAt } from '../core/style-resets.js';
 import { numFmtToStyle, styleToNumFmt } from '../core/format.js';
 import { DRAFT_ENCODING, packDraftWorkbook, unpackDraftWorkbook } from './draft-codec.js';
+import { serializeChangeHistory } from '../core/change-history.js';
 
 const PREFIX = 'spreadsheet:draft';
 // localStorage gives an origin about 5 MB, counted in UTF-16 units, so one item can hold some
@@ -86,6 +87,8 @@ export function saveDraft(key, wb, name = '', revision = null, { fileModified, f
   // Whether the book may load outside content travels with the draft: an import from elsewhere stays blocked when recovered.
   try {
     const workbook = wb.toJSON(), packed = packDraftWorkbook(workbook);
+    // Show Changes' record of edits rides beside the book (it is no part of toJSON, which undo restores exactly).
+    if (wb.changeHistory?.length) (packed || workbook).changeHistory = serializeChangeHistory(wb);
     text = JSON.stringify({ savedAt: Date.now(), name, version: wb.version, ...(revision ? { revision } : {}), ...(fileModified !== undefined ? { fileModified } : {}), ...(fileUid ? { fileUid } : {}), external: wb.externalAllowed !== false,
       // Older tabs must not mistake encoded metadata for an ordinary workbook
       // and offer an incomplete recovery. The reader returns the usual shape.
@@ -194,7 +197,8 @@ export function sameBook(a, b) {
 
 function canonicalBook(json) {
   json = unpackNativeFillState(json || {});
-  const { colorPalette, fontTheme, calculationCompatibility, nativeFillRecords, nativeNormalFill, ...content } = json;
+  // The record of edits (Show Changes) is a log beside the book, not its contents.
+  const { colorPalette, fontTheme, calculationCompatibility, nativeFillRecords, nativeNormalFill, changeHistory, ...content } = json;
   const sheets = Array.isArray(json?.sheets) ? json.sheets : [];
   const ids = new Map(sheets.map((s, i) => [s.id, i]));
   const sorted = (o, each = (x) => x) => (o && typeof o === 'object' ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, each(o[k], k)])) : o);

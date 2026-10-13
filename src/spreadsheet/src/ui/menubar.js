@@ -82,6 +82,7 @@ export function menubarMenus(f = {}) {
     i('Rename…', 'pencil', 'rename'),
     f.share && i('Share…', 'share', 'share'),
     i('Version history…', 'clock', 'versions'),
+    i('Show changes', 'showChanges', 'showChanges', null, { checked: !!f.changesPane }),
     i('Document details…', 'info', 'docInfo'),
     sep,
     sub(saving ? 'Export' : 'Download', 'fileDown', [

@@ -189,6 +189,7 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
         : [!note && { label: 'New Comment', icon: 'comment', shortcut: `${MOD_KEY}+Shift+F2`, onSelect: () => ctx.run('newComment') },
           note ? { label: 'Edit Note', icon: 'note', shortcut: 'Shift+F2', onSelect: () => ctx.run('note') } : { label: 'New Note', icon: 'note', shortcut: 'Shift+F2', onSelect: () => ctx.run('note') },
           note && { label: 'Delete Note', icon: 'deleteNote', onSelect: () => ctx.run('deleteNote') }]),
+      { label: 'Show Changes', icon: 'showChanges', onSelect: () => ctx.run('showChanges', 'selection') },
       { separator: true },
       { label: 'Format Cells…', icon: 'formatCells', shortcut: `${MOD_KEY}+1`, onSelect: () => ctx.run('formatCells') },
       nr * nc === 1 && { label: 'Pick From Drop-down List…', icon: 'dropdown', shortcut: 'Alt+↓', onSelect: () => ctx.run('pickFromList') },
