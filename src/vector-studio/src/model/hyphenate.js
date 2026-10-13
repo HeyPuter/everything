@@ -97,7 +97,8 @@ function rawPoints(w) {
   }
   // Prefixes and suffixes are syllables of their own.
   for (const p of PREFIXES) {
-    if (w.startsWith(p) && n - p.length >= 3 && nuclei.some(([s]) => s >= p.length)) {
+    // Short prefixes only before a consonant: "re-view", but not "re-adable"; "over-all" is fine.
+    if (w.startsWith(p) && n - p.length >= 3 && (p.length >= 4 || !vowelAt(w, p.length)) && nuclei.some(([s]) => s >= p.length)) {
       for (const q of [...points]) if (q > 0 && q < p.length + 1 && q !== p.length) points.delete(q);
       points.add(p.length);
       break;

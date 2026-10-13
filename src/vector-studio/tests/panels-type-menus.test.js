@@ -177,6 +177,8 @@ describe('Paragraph panel menu and dialogs', () => {
     setField('Hyphenate', true);
     setField('Letters After a Hyphen', '5');
     button('OK').click();
+    // The dialog changes the paragraphs it opened on, whatever happens to the selection meanwhile.
+    app.editor.select([]);
     await done;
     const p = doc.get(id).para;
     expect(p.hyphenate).toBe(true);

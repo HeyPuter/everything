@@ -13,6 +13,7 @@ import { HYPHENATION_DEFAULTS, hyphenationOf } from '../../model/hyphenate.js';
 import { session, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, MIXED } from './type-ops.js';
 import { selectedTextNodes } from './outlines.js';
 import { headOf } from './thread-model.js';
+import { paraStylePatch, paragraphIndexAt, paragraphRanges } from '../../model/text-runs.js';
 
 const hasText = (app) => Boolean(session(app)) || (app.editor ? selectedTextNodes(app.editor).length > 0 : false);
 const hasDoc = (app) => Boolean(app.editor);
@@ -66,24 +67,36 @@ export function resetParagraph(app) {
 function paraPreview(app, label) {
   const ed = app.editor;
   const doc = ed?.doc;
-  const nodes = doc ? [...new Map(currentTextNodes(app).map((n) => [headOf(doc, n).id, headOf(doc, n)])).values()] : [];
-  if (!nodes.length || doc.tx) {
+  const s = session(app);
+  // The paragraphs to change, fixed when the dialog opens: the selected paragraphs while editing, else whole stories.
+  let targets = [];
+  if (doc && s?.node()) {
+    const n = s.node();
+    const [a, b] = s.range();
+    targets = [{ id: n.id, p0: paragraphIndexAt(n.text, a), p1: paragraphIndexAt(n.text, b) }];
+  } else if (doc) {
+    targets = [...new Map(currentTextNodes(app).map((n) => [headOf(doc, n).id, headOf(doc, n)])).values()].map((n) => ({ id: n.id, p0: 0, p1: Infinity }));
+  }
+  if (!targets.length || doc.tx) {
     return { preview() {}, commit: (patch) => applyParaStyle(app, patch, { label }), cancel() {} };
   }
-  const originals = new Map(nodes.map((n) => [n.id, doc.get(n.id)]));
+  const originals = new Map(targets.map((t) => [t.id, doc.get(t.id)]));
   const tx = doc.begin(label);
-  const restore = () => {
-    for (const [id, n] of originals) doc.update(id, { para: n.para, paras: n.paras, height: n.height });
+  const apply = (patch) => {
+    for (const t of targets) {
+      const orig = originals.get(t.id);
+      doc.update(t.id, { para: orig.para, paras: orig.paras });
+      if (patch) {
+        const cur = doc.get(t.id);
+        doc.update(t.id, paraStylePatch(cur, t.p0, Math.min(t.p1, paragraphRanges(cur.text).length - 1), patch));
+      }
+    }
+    session(app)?.changed();
   };
   return {
-    preview(patch) {
-      restore();
-      if (patch) applyParaStyle(app, patch, { label });
-      else session(app)?.changed();
-    },
+    preview: apply,
     commit(patch) {
-      restore();
-      applyParaStyle(app, patch, { label });
+      apply(patch);
       tx.commit();
     },
     cancel() {

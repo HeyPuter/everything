@@ -19,6 +19,8 @@ describe('hyphenation rules', () => {
     expect(hyphenateWord('letter')).toBe('let-ter');
     expect(hyphenateWord('remarkable')).toBe('re-mark-a-ble');
     expect(hyphenateWord('athlete')).toBe('ath-lete');
+    expect(hyphenateWord('readable')).toBe('read-a-ble');
+    expect(hyphenateWord('overall')).toBe('over-all');
   });
 
   it('respects word length, fragment lengths, capitals and acronyms', () => {
