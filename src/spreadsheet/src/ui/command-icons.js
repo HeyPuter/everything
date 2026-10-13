@@ -365,8 +365,15 @@ export const COMMAND_ICONS = {
   alignObjects: p('M3.5 2.5v15', 'b thick') + r(5, 4.5, 11, 4, 'bf', 1) + r(5, 11.5, 7, 4, 'gf', 1),
   // Group: two shapes inside one dashed frame with handles at its corners.
   groupObjects: r(2.5, 2.5, 15, 15, 'o dash ln', 0) + r(4.5, 4.5, 6.5, 5.5, 'bf', 1) + ci(12.5, 12.5, 3.3, 'gf') + r(1.5, 1.5, 2, 2, 'bs', 0) + r(16.5, 1.5, 2, 2, 'bs', 0) + r(1.5, 16.5, 2, 2, 'bs', 0) + r(16.5, 16.5, 2, 2, 'bs', 0),
-  // Rotate: a shape and the turning arrow around it.
+  // Rotate: a shape and the turning arrow around it (Rotate Left turns the other way).
   rotateObjects: p('M7 6.5 13.5 13l-6.5 3.5z', 'bf') + p('M4 10a6 6 0 0 1 10.5-4M14.5 3v3h-3', 'b thick'),
+  rotateLeft: p('M13 6.5 6.5 13l6.5 3.5z', 'bf') + p('M16 10a6 6 0 0 0-10.5-4M5.5 3v3h3', 'b thick'),
+  // Flips: a shape and its mirror image across a dashed axis.
+  flipH: p('M10 2.5v15', 'o dash') + p('M8.5 5 2.5 15h6z', 'bf') + p('M11.5 5l6 10h-6z', 'o'),
+  flipV: p('M2.5 10h15', 'o dash') + p('M5 8.5 15 2.5v6z', 'bf') + p('M5 11.5l10 6v-6z', 'o'),
+  // Distribute: three objects with equal gaps along the axis.
+  distributeH: p('M2.5 3v14M17.5 3v14', 'o ln') + r(4, 6, 3, 8, 'bf', 0.8) + r(8.5, 4, 3, 12, 'bf', 0.8) + r(13, 7, 3, 6, 'bf', 0.8),
+  distributeV: p('M3 2.5h14M3 17.5h14', 'o ln') + r(6, 4, 8, 3, 'bf', 0.8) + r(4, 8.5, 12, 3, 'bf', 0.8) + r(7, 13, 6, 3, 'bf', 0.8),
   hideEye: p('M1.5 10s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S1.5 10 1.5 10z', 'of') + ci(10, 10, 3, 'bs') + p('M3 17 17 3', 'r thick'),
   focus: p('M2.5 7V3.5a1 1 0 0 1 1-1H7M13 2.5h3.5a1 1 0 0 1 1 1V7M17.5 13v3.5a1 1 0 0 1-1 1H13M7 17.5H3.5a1 1 0 0 1-1-1V13', 'o') + r(6.5, 6.5, 7, 7, 'bf'),
   fullscreen: r(2.5, 3.5, 15, 10, 'of', 1.6) + r(3.8, 4.8, 12.4, 7.4, 'bs', 0.8) + p('M7 17.5h6M10 13.5v4', 'o'),

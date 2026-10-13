@@ -90,7 +90,7 @@ import { freeNameTokens } from './formula/names.js';
 import { matchesRule, scaleColor, scaleMidpoint, valueIdentity, bandColor, dataBar, iconFor, barColorOf, DEFAULT_BAR_COLOR } from './condformat.js';
 import { checkValue, listOptions, listOptionIndex, chipFor, isRangeSource, ruleFormulaBody } from './validation.js';
 import { normalizeChart, placeAlong, mapChartReferences, snapshotChartData, preserveCopiedChartFormats, OBJECT_NAME_MAX } from './charts.js';
-import { orderObjects, moveObjectTo, groupObjects, ungroupObjects, alignRects, distributeRects, canRotate, rotatePatch } from './arrange.js';
+import { orderObjects, moveObjectTo, groupObjects, ungroupObjects, alignRects, distributeRects, boundsOf, withGroups, canRotate, rotatePatch } from './arrange.js';
 import { explainError } from './errhelp.js';
 import { impliedFormulaStyle } from './implied-format.js';
 import { formulaReachesOut } from './reaches-out.js';
@@ -7739,8 +7739,20 @@ export class Workbook extends EventTarget {
 
   /** Align the objects named (left, center, right, top, middle, bottom) or distribute them ('horizontal', 'vertical'). One undo step. */
   alignObjects(sheetId, ids, how) {
-    const rects = ids.map((id) => this.objectRect(sheetId, id)).filter(Boolean);
-    const places = ['horizontal', 'vertical'].includes(how) ? distributeRects(rects, how) : alignRects(rects, how);
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    // A group aligns as one unit, the box around its members, which keep their places within it.
+    const units = new Map();
+    for (const id of withGroups(sheet.charts, ids)) {
+      const ch = sheet.charts.find((o) => o.id === id), rect = this.objectRect(sheetId, id);
+      if (!rect) continue;
+      const key = ch.group || id;
+      if (!units.has(key)) units.set(key, []);
+      units.get(key).push(rect);
+    }
+    const boxes = [...units].map(([id, rects]) => ({ id, ...boundsOf(rects) }));
+    const moved = new Map((['horizontal', 'vertical'].includes(how) ? distributeRects(boxes, how) : alignRects(boxes, how)).map((p) => [p.id, p]));
+    const places = boxes.flatMap((box) => units.get(box.id).map((r) => ({ id: r.id, x: r.x + moved.get(box.id).x - box.x, y: r.y + moved.get(box.id).y - box.y })));
     const labels = { left: 'Align left', center: 'Align center', right: 'Align right', top: 'Align top', middle: 'Align middle', bottom: 'Align bottom', horizontal: 'Distribute horizontally', vertical: 'Distribute vertically' };
     return this.placeObjects(sheetId, places, labels[how] || 'Align');
   }

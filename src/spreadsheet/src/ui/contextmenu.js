@@ -38,6 +38,18 @@ function pageBreakItems(ctx, kind) {
   ];
 }
 
+/** Group, Regroup and Ungroup for the objects selected, each offered when it can act. */
+function groupItems(ctx) {
+  const sheet = ctx.wb.sheet(ctx.sheetId()), ids = ctx.grid?.selectedCharts || [];
+  const objects = ids.map((id) => sheet?.charts.find((o) => o.id === id)).filter(Boolean);
+  const units = new Set(objects.map((o) => o.group || o.id)).size;
+  return [
+    { label: 'Group', icon: 'groupObjects', disabled: units < 2, onSelect: () => ctx.run('groupObjects', 'group') },
+    { label: 'Regroup', icon: 'groupObjects', disabled: !ctx.wb.canRegroup?.(ctx.sheetId()), onSelect: () => ctx.run('groupObjects', 'regroup') },
+    { label: 'Ungroup', icon: 'ungroup', disabled: !objects.some((o) => o.group), onSelect: () => ctx.run('groupObjects', 'ungroup') },
+  ];
+}
+
 export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
   if (kind === 'chart') {
     const slicer = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'slicer';
@@ -56,8 +68,19 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
         !image && !textBox && !scroll && !slicer && { label: 'Download as SVG', icon: 'download', onSelect: () => ctx.run('downloadChart', { id: chartId, format: 'svg' }) },
         image && { label: 'Download image', icon: 'download', onSelect: () => ctx.run('downloadChart', { id: chartId }) },
         { separator: true },
-        { label: 'Bring to Front', icon: 'bringForward', onSelect: () => ctx.run('orderObject', { id: chartId, where: 'front' }) },
-        { label: 'Send to Back', icon: 'sendBackward', onSelect: () => ctx.run('orderObject', { id: chartId, where: 'back' }) },
+        { label: 'Bring to Front', icon: 'bringForward', submenu: [
+          { label: 'Bring to Front', icon: 'bringForward', onSelect: () => ctx.run('orderObject', { where: 'front' }) },
+          { label: 'Bring Forward', icon: 'bringForward', onSelect: () => ctx.run('orderObject', { where: 'forward' }) }] },
+        { label: 'Send to Back', icon: 'sendBackward', submenu: [
+          { label: 'Send to Back', icon: 'sendBackward', onSelect: () => ctx.run('orderObject', { where: 'back' }) },
+          { label: 'Send Backward', icon: 'sendBackward', onSelect: () => ctx.run('orderObject', { where: 'backward' }) }] },
+        { label: 'Group', icon: 'groupObjects', submenu: groupItems(ctx) },
+        (image || textBox) && { label: 'Rotate', icon: 'rotateObjects', submenu: [
+          { label: 'Rotate Right 90°', icon: 'rotateObjects', onSelect: () => ctx.run('rotateObjects', 'right') },
+          { label: 'Rotate Left 90°', icon: 'rotateLeft', onSelect: () => ctx.run('rotateObjects', 'left') },
+          { label: 'Flip Vertical', icon: 'flipV', onSelect: () => ctx.run('rotateObjects', 'flipV') },
+          { label: 'Flip Horizontal', icon: 'flipH', onSelect: () => ctx.run('rotateObjects', 'flipH') }] },
+        { label: 'Selection Pane…', icon: 'selectionPane', onSelect: () => ctx.run('selectionPane') },
         !scroll && !slicer && { label: 'Edit Alt Text…', icon: 'altText', onSelect: () => ctx.run('altText', chartId) },
         { separator: true },
         { label: scroll ? 'Delete scroll bar' : image ? 'Delete image' : textBox ? 'Delete text box' : 'Delete chart', icon: 'trash', shortcut: 'Delete', danger: true, onSelect: () => ctx.run('deleteChart', chartId) },

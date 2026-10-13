@@ -81,7 +81,6 @@ import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
 import { readXlsxBackground } from './xlsx-background.js';
-import { readXlsxCustomViews } from './xlsx-custom-views.js';
 import { remapCustomViews } from './custom-views.js';
 import { serializeQueries } from './queries.js';
 
@@ -2495,8 +2494,9 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   // the sidecar remembers which sheet was open. Treat this optional hint as
   // a name only; coercing malformed objects can abort an otherwise valid import.
   // Custom Views: the native ones, made whole from the app's record of them where it has one.
-  const views = book.bookType === 'xlsx' && workbookPart
-    ? readXlsxCustomViews(new TextDecoder().decode(workbookPart), book.SheetNames.filter((n) => n !== sidecar?.name), partOf, meta?.customViews)
+  const workbookText = book.bookType === 'xlsx' && workbookPart ? new TextDecoder().decode(workbookPart) : null;
+  const views = workbookText != null
+    ? /customWorkbookView\b/.test(workbookText) ? (await import('./xlsx-custom-views.js')).readXlsxCustomViews(workbookText, book.SheetNames.filter((n) => n !== sidecar?.name), partOf, meta?.customViews) : []
     : Array.isArray(meta?.customViews) ? meta.customViews.map((v) => ({ ...v, activeSheet: v.activeSheetId })) : [];
   if (views.length) {
     const idOf = (name) => wb.sheetByName(renamed.get(name) || name)?.id ?? null;

@@ -150,3 +150,22 @@ export function snapRect(rect, xs, ys, within) {
   };
   return { x: best(rect.x, rect.w, xs), y: best(rect.y, rect.h, ys) };
 }
+
+/**
+ * The names the Selection Pane shows: an object's own name, or one by its kind and its place among the
+ * objects of that kind (Chart 2, Picture 1, Text Box 3…). Groups are numbered the same way. Returns a Map
+ * of object id → name and of group id → name.
+ */
+export function objectNames(list) {
+  const counts = new Map(), names = new Map();
+  const next = (kind) => { const n = (counts.get(kind) || 0) + 1; counts.set(kind, n); return `${kind} ${n}`; };
+  for (const o of list) {
+    if (o.group && !names.has(o.group)) names.set(o.group, next('Group'));
+    const kind = o.type === 'image' ? (o.drawingShape || o.nativeDrawing ? 'Shape' : 'Picture')
+      : o.type === 'text' ? (o.equation ? 'Equation' : o.style?.effects ? 'WordArt' : 'Text Box')
+        : o.type === 'slicer' ? 'Slicer' : o.type === 'timeline' ? 'Timeline' : o.type === 'scroll' ? 'Scroll Bar' : 'Chart';
+    const fallback = next(kind);
+    names.set(o.id, o.name || ((o.type === 'slicer' || o.type === 'timeline') && o.title ? o.title : fallback));
+  }
+  return names;
+}

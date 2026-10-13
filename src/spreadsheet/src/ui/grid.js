@@ -39,6 +39,7 @@ import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS,
 import { pictureNode } from './picture.js';
 import { AxisOffsets, MAX_CANVAS_EXTENT } from './axis-offsets.js';
 import { chartSheetLayout } from '../core/chartsheet.js';
+import { withGroups, snapRect } from '../core/arrange.js';
 
 import { isComposing, el, clamp, isMod, IS_MAC } from './dom.js';
 import { cellName, cellKey, rangeName, normalizeRange, parseRange, parseCellRef, colIndex } from '../core/cell.js';
@@ -271,6 +272,11 @@ export function createGrid(opts) {
   objectsLayer.addEventListener('focusout', schedule);
   const chartBoxes = new Map(); // chart id → { el, sig }
   let selectedChart = null;
+  // Every object selected with it (Shift- or Cmd-click adds one; a group's members come together); the set
+  // only counts while selectedChart is set, and always holds it.
+  let selectedSet = new Set();
+  const objectSelected = (id) => !!selectedChart && (id === selectedChart || selectedSet.has(id));
+  const selectedObjects = () => (selectedChart ? [selectedChart, ...[...selectedSet].filter((id) => id !== selectedChart)] : []);
   let chartView = null;
   const selRange = el('div.sel-range', { 'aria-hidden': 'true' });
   const extraLayer = el('div.sel-extras', { 'aria-hidden': 'true' });
@@ -1779,11 +1785,14 @@ export function createGrid(opts) {
   }
 
   let shownChart = null;
+  let shownChartSet = '';
   function render() {
     if (destroyed) return;
     const s = sheet();
     if (!s) return;
-    if (selectedChart !== shownChart) { shownChart = selectedChart; opts.onChartSelection?.(selectedChart); }
+    if (selectedChart && !selectedSet.has(selectedChart)) selectedSet = new Set([selectedChart]);
+    const shownKey = selectedObjects().join('|');
+    if (selectedChart !== shownChart || shownKey !== shownChartSet) { shownChart = selectedChart; shownChartSet = shownKey; opts.onChartSelection?.(selectedChart); }
     fillViewport(s);
     const chartSheet = s.kind === 'chart';
     const defaultBg = wb.nativeDefaultCellFormat?.style.bg;
@@ -1921,6 +1930,7 @@ export function createGrid(opts) {
 
   function renderObjects() {
     const s = sheet();
+    root.classList.toggle('multi-objects', !!selectedChart && selectedSet.size > 1);
     const objectScale = chartView?.scale ?? zoom;
     const seen = new Set();
     for (const ch of s.charts) {
@@ -1945,7 +1955,7 @@ export function createGrid(opts) {
         // A double-click opens what the object has to edit: the chart or text dialog, or the picker for a
         // picture to put in the image's place; it never reaches the cell under the object.
         node.addEventListener('dblclick', (e) => { if (underFrozenPane(node, e.clientX, e.clientY)) return; e.stopPropagation(); opts.onCommand?.(image ? 'replaceImage' : 'editChart', ch.id); });
-        node.addEventListener('contextmenu', (e) => { if (underFrozenPane(node, e.clientX, e.clientY)) return; e.preventDefault(); e.stopPropagation(); selectChart(ch.id); opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind: 'chart', chartId: ch.id }); });
+        node.addEventListener('contextmenu', (e) => { if (underFrozenPane(node, e.clientX, e.clientY)) return; e.preventDefault(); e.stopPropagation(); if (!objectSelected(ch.id)) selectChart(ch.id); opts.onContextMenu?.({ x: e.clientX, y: e.clientY, kind: 'chart', chartId: ch.id }); });
         box = { el: node, body, sig: null };
         chartBoxes.set(ch.id, box);
         objectsLayer.append(node);
@@ -1969,12 +1979,20 @@ export function createGrid(opts) {
       const inCols = frozen.cols > 0 && rect.left + rect.width <= frozen.w;
       const layer = inRows && inCols ? frzCorner.track : inRows ? frzRows.track : inCols ? frzCols.track : objectsLayer;
       if (box.el.parentNode !== layer) layer.append(box.el);
-      const live = drag?.kind === 'chartmove' && drag.id === ch.id ? drag.rect : drag?.kind === 'chartresize' && drag.id === ch.id ? drag.rect : rect;
+      const companion = drag?.kind === 'chartmove' && drag.shift ? drag.others?.find((m) => m.id === ch.id) : null;
+      const live = drag?.kind === 'chartmove' && drag.id === ch.id ? drag.rect : drag?.kind === 'chartresize' && drag.id === ch.id ? drag.rect
+        : companion ? { ...companion.from, left: companion.from.left + drag.shift.x, top: companion.from.top + drag.shift.y } : rect;
       box.el.style.transform = `translate(${live.left}px, ${live.top}px)`;
       box.el.style.width = `${live.width}px`;
       box.el.style.height = `${live.height}px`;
-      box.el.classList.toggle('selected', selectedChart === ch.id);
-      box.el.style.zIndex = selectedChart === ch.id ? '1' : ''; // the selected one lies over any it overlaps
+      box.el.classList.toggle('selected', objectSelected(ch.id));
+      box.el.classList.toggle('primary', selectedChart === ch.id);
+      // The sheet's own stacking order (Page Layout ▸ Arrange): later objects lie over earlier ones.
+      box.el.style.zIndex = String(s.charts.indexOf(ch) + 1);
+      // A hidden object (the Selection Pane's eye) is not drawn and takes no presses.
+      box.el.style.display = ch.hidden ? 'none' : '';
+      // A text box turns and flips about its centre (Arrange ▸ Rotate); a picture turns its own content.
+      if (ch.type === 'text' && (ch.rotation || ch.flipH || ch.flipV)) box.el.style.transform += ` rotate(${ch.rotation || 0}deg) scale(${ch.flipH ? -1 : 1}, ${ch.flipV ? -1 : 1})`;
       // A chart in Excel's style draws its own outline (or none); the frame's border would double it.
       if (ch.type !== 'text') box.el.classList.toggle('borderless', ch.border === false || ch.appearance?.border === false || !!ch.appearance?.borderColor);
       box.el.classList.toggle('chart-shadow', !!ch.appearance?.effects?.chartArea?.shadow);
@@ -1982,7 +2000,6 @@ export function createGrid(opts) {
       const cornerRadius = chartCornerRadius(ch);
       box.el.style.borderRadius = box.body.style.borderRadius = cornerRadius == null ? '' : `${cornerRadius * objectScale}px`;
       if (ch.type === 'slicer') {
-        box.el.style.display = ch.hidden ? 'none' : '';
         box.el.classList.add('borderless');
         if (!box.slicer) {
           box.slicer = createSlicerControl(document, values => setSlicerSelection(wb, sheetId, ch.id, values));
@@ -2127,7 +2144,10 @@ export function createGrid(opts) {
       }
     }
     for (const [id, box] of chartBoxes) {
-      if (!seen.has(id)) { box.el.remove(); chartBoxes.delete(id); staleCharts.delete(id); if (selectedChart === id) selectedChart = null; }
+      if (!seen.has(id)) {
+        box.el.remove(); chartBoxes.delete(id); staleCharts.delete(id); selectedSet.delete(id);
+        if (selectedChart === id) selectedChart = selectedSet.size ? [...selectedSet][0] : null;
+      }
     }
   }
 
@@ -2244,10 +2264,24 @@ export function createGrid(opts) {
     return { sig: `${sum1 >>> 0}:${sum2 >>> 0}`, formulas };
   }
 
-  function selectChart(id) {
+  /**
+   * Select an object (its whole group with it), or with `add` add it to the objects selected — or take it,
+   * and its group, out again when it is one of them already (Shift- or Cmd-click).
+   */
+  function selectChart(id, { add = false, focus = true } = {}) {
     if (edit && !commitEdit()) return;
+    const members = id ? withGroups(sheet()?.charts || [], [id]) : [];
+    if (add && selectedChart) {
+      if (selectedSet.has(id) && selectedSet.size > members.length) {
+        for (const m of members) selectedSet.delete(m);
+        selectedChart = selectedSet.has(selectedChart) ? selectedChart : [...selectedSet][0];
+        schedule();
+        return;
+      }
+      for (const m of members) selectedSet.add(m);
+    } else selectedSet = new Set(members);
     selectedChart = id;
-    viewport.focus({ preventScroll: true });
+    if (focus) viewport.focus({ preventScroll: true });
     schedule();
     if (id) {
       const ch = wb.chartById(sheetId, id);
@@ -2262,13 +2296,22 @@ export function createGrid(opts) {
     e.stopPropagation();
     const ch = wb.chartById(sheetId, id);
     if (!ch) return;
-    selectChart(id);
+    // Shift- or Cmd/Ctrl-click adds the object to those selected (or takes it out); a press on one of several
+    // selected keeps them all, so they move together.
+    const adding = !onHandle && (e.shiftKey || e.metaKey || e.ctrlKey);
+    if (adding) selectChart(id, { add: true });
+    else if (!(objectSelected(id) && selectedSet.size > 1)) selectChart(id);
+    else { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
+    if (!objectSelected(id)) return;
     if ((ch.type === 'slicer' || ch.type === 'timeline') && ch.lockedPosition) return;
     if (sheet().kind === 'chart' && !['image', 'text'].includes(ch.type)) return;
     const objectScale = chartView?.scale ?? zoom;
     const node = e.currentTarget;
     const rect = chartBoxRect(ch);
-    drag = { kind: onHandle ? 'chartresize' : 'chartmove', id, startX: e.clientX, startY: e.clientY, from: rect, rect, moved: false };
+    // The others selected move with the one pressed.
+    const others = onHandle ? [] : selectedObjects().filter((other) => other !== id).map((other) => wb.chartById(sheetId, other))
+      .filter((o) => o && !o.lockedPosition).map((o) => ({ id: o.id, from: chartBoxRect(o) }));
+    drag = { kind: onHandle ? 'chartresize' : 'chartmove', id, startX: e.clientX, startY: e.clientY, from: rect, rect, moved: false, others };
     try { node.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     const move = (ev) => {
       if (!drag || drag.id !== id) return;
@@ -2278,8 +2321,26 @@ export function createGrid(opts) {
       if (drag.kind === 'chartmove') {
         // The box stays within the sheet, so it cannot be dragged out of reach past its edge.
         ensureOffsets();
-        const s = sheet();
-        drag.rect = { ...drag.from, left: clamp(drag.from.left + dx, 0, Math.max(0, (chartView?.width ?? colOffsets.total()) - drag.from.width)), top: clamp(drag.from.top + dy, 0, Math.max(0, (chartView?.height ?? rowOffsets.total()) - drag.from.height)) };
+        let left = clamp(drag.from.left + dx, 0, Math.max(0, (chartView?.width ?? colOffsets.total()) - drag.from.width));
+        let top = clamp(drag.from.top + dy, 0, Math.max(0, (chartView?.height ?? rowOffsets.total()) - drag.from.height));
+        // Snap to Grid and Snap to Shape (Arrange ▸ Align); Alt held while dragging lets the box go free.
+        const snap = sheet().kind === 'chart' || ev.altKey ? null : opts.snap?.();
+        if (snap?.grid || snap?.shape) {
+          const box = { x: left, y: top, w: drag.from.width, h: drag.from.height }, xs = [], ys = [];
+          if (snap.grid) {
+            for (const x of [left, left + box.w]) { const c = colOffsets.indexAt(x); xs.push(colX(c), colEnd(c)); }
+            for (const y of [top, top + box.h]) { const r = rowOffsets.indexAt(y); ys.push(rowY(r), rowEnd(r)); }
+          }
+          if (snap.shape) for (const o of sheet().charts) {
+            if (o.hidden || o.id === id || drag.others.some((m) => m.id === o.id)) continue;
+            const r = chartBoxRect(o);
+            xs.push(r.left, r.left + r.width); ys.push(r.top, r.top + r.height);
+          }
+          const at = snapRect(box, xs, ys, 8);
+          left = at.x; top = at.y;
+        }
+        drag.rect = { ...drag.from, left, top };
+        drag.shift = { x: left - drag.from.left, y: top - drag.from.top };
       } else {
         const minW = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : CHART_MIN_W) * objectScale;
         const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : CHART_MIN_H) * objectScale;
@@ -2308,7 +2369,12 @@ export function createGrid(opts) {
         if (d && !onHandle && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && safeLinkUrl(ch.hyperlink)) opts.onCommand?.('openDrawingLink', id);
         schedule(); return;
       }
-      if (d.kind === 'chartmove') placeChart(id, d.rect.left, d.rect.top);
+      if (d.kind === 'chartmove' && d.others.length) {
+        // Several objects dragged together: one step moves them all by the same distance.
+        const scale = chartView?.scale ?? zoom, shift = { x: (d.rect.left - d.from.left) / scale, y: (d.rect.top - d.from.top) / scale };
+        wb.placeObjects(sheetId, [id, ...d.others.map((m) => m.id)].map((m) => wb.objectRect(sheetId, m)).filter(Boolean)
+          .map((r) => ({ id: r.id, x: r.x + shift.x, y: r.y + shift.y })), 'Move objects');
+      } else if (d.kind === 'chartmove') placeChart(id, d.rect.left, d.rect.top);
       else wb.updateChart(sheetId, id, { w: Math.round(d.rect.width / objectScale), h: Math.round(d.rect.height / objectScale) }, 'Resize chart');
     };
     // A drag the browser gives up (a touch it decided to scroll with, a lost capture) acts on
@@ -2346,6 +2412,12 @@ export function createGrid(opts) {
     const left = clamp(rect.left + dc * stepX, 0, Math.max(0, colOffsets.total() - rect.width));
     const top = clamp(rect.top + dr * stepY, 0, Math.max(0, rowOffsets.total() - rect.height));
     placeChart(id, left, top);
+  }
+
+  /** Arrow keys with several objects selected: all of them move a few pixels together. */
+  function nudgeObjects(dr, dc) {
+    wb.placeObjects(sheetId, selectedObjects().map((id) => wb.objectRect(sheetId, id)).filter(Boolean)
+      .map((r) => ({ id: r.id, x: Math.max(0, r.x + dc * 8), y: Math.max(0, r.y + dr * 8) })), 'Move objects');
   }
 
   /** Ctrl+Alt+O: select the next floating object (Shift: the previous) in the sheet's order, bringing its anchor into view. */
@@ -4468,11 +4540,17 @@ export function createGrid(opts) {
       if (key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('copyChart', { id: selectedChart }); return; }
     } else if (selectedChart) {
       // A selected chart takes the editing keys; the arrows nudge it (a whole cell with Shift).
-      if (key === 'Delete' || key === 'Backspace') { e.preventDefault(); const id = selectedChart; selectedChart = null; opts.onCommand?.('deleteChart', id); return; }
+      if (key === 'Delete' || key === 'Backspace') {
+        e.preventDefault();
+        const ids = selectedObjects();
+        selectedChart = null; selectedSet = new Set();
+        if (ids.length > 1) opts.onCommand?.('deleteObjects', ids); else opts.onCommand?.('deleteChart', ids[0]);
+        return;
+      }
       // Enter follows a drawing's link; otherwise it opens the object's editor.
       if (key === 'Enter') { e.preventDefault(); opts.onCommand?.(safeLinkUrl(wb.chartById(sheetId, selectedChart)?.hyperlink) ? 'openDrawingLink' : wb.chartById(sheetId, selectedChart)?.type === 'image' ? 'replaceImage' : 'editChart', selectedChart); return; }
       if (key === 'Escape') { e.preventDefault(); selectedChart = null; schedule(); return; }
-      if (dir && !e.altKey) { e.preventDefault(); nudgeChart(selectedChart, dir[0], dir[1], e.shiftKey); return; }
+      if (dir && !e.altKey) { e.preventDefault(); if (selectedSet.size > 1) nudgeObjects(dir[0], dir[1]); else nudgeChart(selectedChart, dir[0], dir[1], e.shiftKey); return; }
       // Moving on or starting to type leaves the chart; Delete afterwards then clears cells, not the chart.
       if (key === 'Tab' || key === 'F2' || (key.length === 1 && !e.altKey)) { selectedChart = null; schedule(); }
     }
@@ -5667,6 +5745,16 @@ export function createGrid(opts) {
     get zoom() { return userZoom; },
     setZoom,
     get selectedChart() { return selectedChart; },
+    /** Every object selected, the one last pressed first. */
+    get selectedCharts() { return selectedObjects(); },
+    /** Select these objects (the first is the one the Format tabs act on), or none with an empty list. */
+    selectCharts(ids, { focus = true } = {}) {
+      const live = ids.filter((id) => wb.chartById(sheetId, id));
+      if (!live.length) { selectedChart = null; selectedSet = new Set(); schedule(); return; }
+      selectChart(live[0], { focus });
+      for (const id of live.slice(1)) for (const m of withGroups(sheet().charts, [id])) selectedSet.add(m);
+      schedule();
+    },
     selectChart,
     /** Ink: the canvas point (zoomed pixels, as objects are laid out) under a client point; a frozen pane has not scrolled. */
     canvasPoint(clientX, clientY) {

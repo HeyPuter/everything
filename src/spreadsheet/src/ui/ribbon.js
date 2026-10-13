@@ -17,6 +17,7 @@ import { queryForTable } from '../core/queries.js';
 import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { activeChart } from './chart-actions.js';
+import { arrangeGroup } from './arrange-ribbon.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -273,6 +274,7 @@ const groupsFor = name => ({
       a('Print Titles', 'printTitles', 'print', null, { ariaLabel: 'Print Titles' }), c('Page Setup', 'pageSetup', 'print'), c('Export PDF', 'fileDown', 'exportPdf')],
     ['Scale to Fit', fitChoices('fitWidth', 'Width'), fitChoices('fitHeight', 'Height'), scaleChoices],
     ['Sheet Options', c('Gridlines', 'gridlines', 'gridlines'), printOption('Print Gridlines', 'gridlines', 'printGridlines'), c('Headings', 'headings', 'toggleHeaders'), printOption('Print Headings', 'headings', 'printHeadings')],
+    arrangeGroup(),
   ],
   Formulas: [
     ['Function Library', large({ ...c('Insert Function', 'fx', 'functionMenu'), ariaLabel: 'Insert function' }),

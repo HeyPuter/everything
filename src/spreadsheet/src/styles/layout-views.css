@@ -18,3 +18,41 @@
   .cv-top { flex-direction: column; }
   .cv-buttons { flex-direction: row; padding-top: 0; }
 }
+
+/* ---------- Arrange: several drawing objects selected ---------- */
+
+/* The per-object tools and the resize corner act on one object; with several selected they step aside. */
+.grid.multi-objects .chart-box.selected .chart-tools,
+.grid.multi-objects .chart-box.selected .chart-resize { display: none; }
+.grid.multi-objects .chart-box.selected:not(.primary) { box-shadow: 0 0 0 1px var(--accent); border-style: dashed; }
+
+/* ---------- Page Layout ▸ Arrange ▸ Selection Pane ---------- */
+
+.selpane { position: fixed; right: 12px; top: 200px; bottom: 64px; z-index: 40; width: min(280px, calc(100vw - 24px)); display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 13px; }
+.selpane[hidden] { display: none; }
+.selpane-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--hairline); }
+.selpane-title { font-weight: 600; font-size: 14px; }
+.selpane-tools { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--hairline); }
+.selpane-tools .btn { min-height: 28px; padding: 2px 8px; font-size: 12.5px; }
+.selpane-tools .selpane-gap { flex: 1; }
+.selpane-tools .selpane-tool span { display: inline-flex; }
+.selpane-body { flex: 1; overflow: auto; padding: 6px; }
+.selpane-list { display: flex; flex-direction: column; gap: 1px; outline: none; border-radius: 6px; }
+.selpane-list:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.selpane-row { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 4px 0 8px; border-radius: 5px; cursor: default; user-select: none; position: relative; }
+.selpane-row:hover { background: var(--surface-2); }
+.selpane-row[aria-selected="true"] { background: var(--accent-wash); }
+.selpane-row.is-hidden .selpane-name { color: var(--ink-3); font-style: italic; }
+.selpane-row.member { padding-left: 4px; }
+.selpane-indent { width: 18px; flex: none; }
+.selpane-group { display: inline-flex; color: var(--ink-2); }
+.selpane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selpane-rename { flex: 1; min-width: 0; height: 26px; padding: 2px 6px; font-size: 13px; }
+.selpane-eye { flex: none; display: inline-grid; place-items: center; width: 28px; height: 26px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.selpane-eye:hover { background: var(--surface-3); color: var(--ink); }
+.selpane-row.is-hidden .selpane-eye { color: var(--ink-3); }
+.selpane-row.drop-before::before, .selpane-row.drop-after::after { content: ''; position: absolute; left: 4px; right: 4px; height: 2px; background: var(--accent); border-radius: 1px; }
+.selpane-row.drop-before::before { top: -1px; }
+.selpane-row.drop-after::after { bottom: -1px; }
+.selpane-empty { color: var(--ink-3); margin: 8px 6px; line-height: 1.45; }

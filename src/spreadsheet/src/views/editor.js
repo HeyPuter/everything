@@ -92,6 +92,8 @@ import { openDataTable } from '../ui/datatable.js';
 import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
 import { openCustomViews } from '../ui/customviews.js';
+import { createSelectionPane } from '../ui/selection-pane.js';
+import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
@@ -313,6 +315,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // Page Break Preview: a page break or the print area's edge dragged to another line.
     onPageBreakMove: (info) => run('movePageBreak', info),
     onPrintAreaEdge: (info) => run('printAreaEdge', info),
+    // Arrange ▸ Align ▸ Snap to Grid and Snap to Shape, for objects dragged on the sheet.
+    snap: () => ({ grid: !!view.snapGrid, shape: !!view.snapShape }),
     // A header drag reordered rows or columns: the selection the user had before it joins the step, so
     // undoing the move puts it back, as undoing Insert or Delete rows does.
     rememberSelection: ({ sel, extras }) => rememberStepSelection({
@@ -340,6 +344,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // View ▸ Page Breaks turns them off; the sheet's own setting (showPageBreaks) is the one saved.
   const previewedSheets = new Set();
   const pageBreakLinesOn = (id) => !!wb.sheet(id)?.showPageBreaks || previewedSheets.has(id);
+  let selectionPane = null; // made once the editor's commands exist (see below)
 
   const view = { focus: false, spell: true };
   try { Object.assign(view, JSON.parse(localStorage.getItem('spreadsheet:view') || '{}') || {}); } catch { /* no storage */ }
@@ -1126,6 +1131,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       chart: grid.selectedChart || (sheet?.kind === 'chart' ? sheet.charts[0]?.id : null), chartIsImage: wb.chartById(sheetId, grid.selectedChart)?.type === 'image',
       showFormulas: !!grid.showFormulas, gridlines: sheet?.gridlines !== false, zeros: sheet?.zeros !== false, viewMode: sheet?.viewMode || 'normal',
       showPageBreaks: pageBreakLinesOn(sheetId), background: !!sheet?.background,
+      // Arrange: the Selection Pane, and snapping for objects dragged on the sheet.
+      selectionPane: !!selectionPane?.open, snapGrid: !!view.snapGrid, snapShape: !!view.snapShape,
       headers: sheet?.headers !== false, focus: !!view.focus, spell: view.spell !== false,
       split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: view.formulaBar !== false,
       // While a cell is being edited the sheet behind it is off limits: undo, paste, fill and the like wait.
@@ -2760,11 +2767,65 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'orderObject': {
-        // Bring to Front / Send to Back: the object's place in the sheet's drawing order.
-        wb.orderChart(sheetId, arg?.id || grid.selectedChart, arg?.where);
-        keepFocus();
+        // Bring to Front, Bring Forward, Send Backward, Send to Back: the place in the sheet's drawing order of the
+        // object named, or of every object selected (whole groups).
+        const ids = arrangeTargets(ctx, arg?.id ? [arg.id] : null);
+        if (!ids.length) { toast('Select a chart, picture, shape or text box first', { icon: 'info', duration: 2500 }); return; }
+        if (wb.orderObjects(sheetId, ids, arg?.where)) statusBar?.announce({ front: 'Brought to front', forward: 'Brought forward', backward: 'Sent backward', back: 'Sent to back' }[arg?.where] || 'Order changed');
+        notify(); keepFocus();
         return;
       }
+      case 'alignObjects': {
+        const ids = arrangeTargets(ctx);
+        if (wb.alignObjects(sheetId, ids, arg)) statusBar?.announce(['horizontal', 'vertical'].includes(arg) ? `Distributed ${arg}ly` : `Aligned ${arg}`);
+        else if (ids.length < 2) toast('Select two or more objects to align (three to distribute)', { icon: 'info', duration: 2800 });
+        notify(); keepFocus();
+        return;
+      }
+      case 'groupObjects': {
+        // Arrange ▸ Group: Group, Regroup (the group last ungrouped) and Ungroup.
+        if (arg === 'regroup') {
+          const group = wb.regroupObjects(sheetId);
+          if (group) grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id));
+        } else if (arg === 'ungroup') {
+          if (wb.ungroupObjects(sheetId, arrangeTargets(ctx))) statusBar?.announce('Ungrouped');
+        } else {
+          const group = wb.groupObjects(sheetId, arrangeTargets(ctx));
+          if (group) { grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id)); statusBar?.announce('Grouped'); }
+          else toast('Select two or more objects to group', { icon: 'info', duration: 2500 });
+        }
+        notify(); keepFocus();
+        return;
+      }
+      case 'rotateObjects':
+        if (!wb.rotateObjects(sheetId, arrangeTargets(ctx), arg)) toast('Pictures, shapes and text boxes can be rotated; charts and controls cannot', { icon: 'info', duration: 3000 });
+        notify(); keepFocus();
+        return;
+      case 'snapObjects': {
+        const key = arg === 'shape' ? 'snapShape' : 'snapGrid';
+        view[key] = !view[key];
+        applyView();
+        statusBar?.announce(`${arg === 'shape' ? 'Snap to shape' : 'Snap to grid'} ${view[key] ? 'on' : 'off'}`);
+        notify(); keepFocus();
+        return;
+      }
+      case 'selectionPane': selectionPane?.toggle(); notify(); return;
+      case 'objectsVisible':
+        if (arg?.ids?.length) wb.setObjectsHidden(sheetId, arg.ids, !!arg.hidden);
+        notify();
+        return;
+      case 'renameObject':
+        if (arg?.id) wb.renameObject(sheetId, arg.id, arg.name);
+        notify();
+        return;
+      case 'moveObjectInOrder':
+        if (arg?.id) wb.moveObjectInOrder(sheetId, arg.id, arg.to);
+        notify();
+        return;
+      case 'deleteObjects':
+        if (Array.isArray(arg) && wb.deleteObjects(sheetId, arg)) statusBar?.announce(`${arg.length} objects deleted`);
+        keepFocus();
+        return;
       case 'addWatch': {
         // Add Watch: the selected cells, as many as the Watch Window lists for a selection (the first 100).
         const cells = [];
@@ -5153,6 +5214,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const statusBar = createStatusBar(ctx);
   const watchWindow = createWatchWindow({ ...ctx, run, docName: () => doc.name, goTo: (sid, r, c) => selectLocation(sid, { r1: r, c1: c, r2: r, c2: c }) });
   // Review ▸ Check Accessibility: a finding goes to its cells, or selects its object.
+  // Page Layout ▸ Arrange ▸ Selection Pane: the sheet's drawing objects, front first.
+  selectionPane = createSelectionPane({ ...ctx, run, notify });
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
@@ -5233,6 +5296,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         statusBar.el,
         watchWindow.el,
         accessibilityPane.el,
+        selectionPane.el,
         errorTag.el,
         quickAnalysis.el,
         queriesPane.el),
@@ -5657,6 +5721,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       statusBar.destroy();
       watchWindow.destroy();
       accessibilityPane.destroy();
+      selectionPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();
