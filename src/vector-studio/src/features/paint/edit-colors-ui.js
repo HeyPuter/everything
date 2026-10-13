@@ -10,7 +10,7 @@ import { icon } from '../../ui/icons.js';
 import { colorTargets, colorPatches, collectColors, invertColor, grayscaleColor, adjustColor, saturateColor, blendFills, recolorFn } from './edit-colors.js';
 import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { reduceColorsMap, harmonyMap, paletteMap, HARMONY_RULES } from '../panels/color-harmony.js';
-import { swatchesOf } from './swatch-model.js';
+import { swatchesOf, groupsOf, updateSwatch, addGroup, colorName } from './swatch-model.js';
 import { SWATCH_LIBRARIES } from './swatch-libraries.js';
 
 /** Colors kept as they are by the Preserve options. */
@@ -173,16 +173,101 @@ async function saturateDialog(app) {
   });
 }
 
+/** The solid colors of a color group's swatches: [{ color, count }] (count: swatches with that color). */
+export function groupColors(doc, groupId) {
+  const counts = new Map();
+  for (const s of swatchesOf(doc)) {
+    if (s.group !== groupId || s.paint?.type !== 'solid') continue;
+    const c = s.paint.color.toLowerCase();
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  return [...counts].map(([color, count]) => ({ color, count }));
+}
+
+/**
+ * Recolor a color group with `fn` (inside a transaction): its swatches
+ * change color (objects linked to global ones follow), or with `asNew` a
+ * recolored copy of the group is added. Returns the group id written.
+ */
+export function recolorGroup(doc, groupId, fn, { asNew = false, name = null } = {}) {
+  const g = groupsOf(doc).find((x) => x.id === groupId);
+  if (!g) return null;
+  const members = swatchesOf(doc).filter((s) => s.group === groupId && s.paint?.type === 'solid');
+  if (asNew) {
+    return addGroup(doc, name || `${g.name} copy`, { paints: members.map((s) => {
+      const color = fn(s.paint.color);
+      return { name: color.toLowerCase() === s.paint.color.toLowerCase() ? s.name : colorName(color), paint: { type: 'solid', color } };
+    }) });
+  }
+  for (const s of members) {
+    const color = fn(s.paint.color);
+    if (color.toLowerCase() !== s.paint.color.toLowerCase()) updateSwatch(doc, s.id, { paint: { ...s.paint, color } });
+  }
+  return groupId;
+}
+
+/**
+ * Edit Color Group: Recolor's controls over a color group's colors. The
+ * changes update the group (or save a recolored copy), and with Recolor Art
+ * the selected artwork too, previewed live inside one transaction.
+ */
+async function groupPreviewDialog(app, { title, body, read, compute, previewBox, group, artBox, saveNew }) {
+  const ed = app.editor;
+  const doc = ed.doc;
+  const ids = ed.topSelection();
+  let tx = doc.begin(title);
+  const apply = (v) => {
+    const fn = compute(v);
+    if (!fn) return;
+    recolorGroup(doc, group.id, fn, { asNew: saveNew.checked });
+    if (artBox.checked) {
+      const nodes = colorTargets(doc, ids);
+      for (const [id, p] of colorPatches(nodes, fn)) doc.update(id, p);
+    }
+  };
+  const preview = () => {
+    // Start over from the document as it was, then show the current settings.
+    tx.cancel();
+    tx = doc.begin(title);
+    if (previewBox.checked) apply(read());
+  };
+  body.addEventListener('input', preview);
+  body.addEventListener('change', preview);
+  let ok = null;
+  try {
+    ok = await openDialog({
+      title,
+      body,
+      className: 'recolor-dialog',
+      onOpen: () => preview(),
+      buttons: [
+        { label: 'Cancel', value: null },
+        { label: 'OK', primary: true, value: () => read() },
+      ],
+    });
+  } catch (err) {
+    tx.cancel();
+    throw err;
+  }
+  tx.cancel();
+  if (!ok) return false;
+  doc.transact(title, () => apply(ok));
+  return true;
+}
+
 /**
  * Recolor: the selection's colors with editable new colors and
  * global adjustments. `preset.map` ({ oldHex: newHex }) preassigns new
- * colors (Recolor with Preset); `preset.title` names the dialog.
+ * colors (Recolor with Preset); `preset.title` names the dialog;
+ * `preset.group` (a color group id) edits that group's colors instead
+ * (Edit Color Group).
  */
 export async function recolorDialog(app, preset = {}) {
   const ed = app.editor;
-  const colors = collectColors(selectedColorNodes(ed));
+  const group = preset.group ? groupsOf(ed.doc).find((g) => g.id === preset.group) : null;
+  const colors = group ? groupColors(ed.doc, group.id) : collectColors(selectedColorNodes(ed));
   if (!colors.length) {
-    app.notify('The selection has no colors to recolor.');
+    app.notify(group ? 'The color group has no colors to edit.' : 'The selection has no colors to recolor.');
     return false;
   }
   const map = {};
@@ -268,8 +353,13 @@ export async function recolorDialog(app, preset = {}) {
   };
   for (const c of [keepWhite, keepBlack, keepGrays]) c.input.addEventListener('change', syncPreserved);
   const prev = checkbox('Preview');
+  // Edit Color Group: where the changes go.
+  const artBox = checkbox('Recolor Art', false);
+  const saveNew = checkbox('Save as a New Color Group', false);
+  if (group) artBox.input.disabled = !collectColors(selectedColorNodes(ed)).length;
   const body = h(
     'div.form.ec.recolor',
+    group ? h('p.rc-group', h('span.form-label', 'Color Group'), h('strong', group.name)) : null,
     h('div.rc-head', h('span', 'Current Colors'), h('span', 'New')),
     h('div.rc-list', { role: 'list' }, rows.map((r) => r.el)),
     h('div.form-row', h('label', { for: 'rc-rule' }, 'Set new colors from'), ruleSel),
@@ -279,8 +369,24 @@ export async function recolorDialog(app, preset = {}) {
     sat.el,
     bri.el,
     h('div.rc-actions', shuffle, randomize),
+    group ? h('div.rc-group-options', artBox.el, saveNew.el) : null,
     prev.el,
   );
+  if (group) {
+    return groupPreviewDialog(app, {
+      title: preset.title || 'Edit Color Group',
+      body,
+      group,
+      artBox: artBox.input,
+      saveNew: saveNew.input,
+      read: () => ({ map: { ...map }, h: hue.value, s: sat.value, b: bri.value, preserve: preserveOpts() }),
+      previewBox: prev.input,
+      compute: (v) => {
+        const fn = recolorFn(v.map, { h: v.h, s: v.s, b: v.b });
+        return (hex) => (preservedColor(hex, v.preserve) ? hex : fn(hex));
+      },
+    });
+  }
   return previewDialog(app, {
     title: preset.title || 'Recolor',
     body,

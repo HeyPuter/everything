@@ -6,12 +6,14 @@
  * to reorder (or into a group) and keyboard navigation. Clicking a swatch
  * applies it to the focused fill or stroke; global and spot swatches stay
  * linked to the objects using them (see swatch-model.js). The panel menu
- * adds duplicate, merge, ungroup, select unused, add used colors, sorting,
- * and opening, saving, importing and exporting swatch libraries.
+ * adds duplicate, merge, ungroup, select unused, add used or selected
+ * colors, Edit Color Group (Recolor over a group's colors), Spot Colors,
+ * sorting, and opening, saving, importing and exporting swatch libraries
+ * (JSON, a binary swatch exchange format, CSS, text palettes).
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
-import { iconButton, paintSwatch } from '../../ui/widgets.js';
+import { iconButton, paintSwatch, updatePaintSwatch } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
@@ -23,12 +25,26 @@ import { swatchRows, swatchesOf, groupsOf, findSwatch, addSwatch, removeSwatches
 import { swatchLibraryMenu, saveSwatchLibrary, exportSwatchLibrary, importSwatchLibrary } from './swatch-libraries.js';
 import { recentColorsRow } from './recent-colors.js';
 import { collectColors, colorTargets } from './edit-colors.js';
+import { recolorDialog } from './edit-colors-ui.js';
+import { spotColorsDialog } from './spot-colors.js';
+import { stackPaints, mapStackPaints } from '../../model/appearance.js';
 import { isGradient } from '../../model/gradients.js';
+import { createGradientSlider } from './gradient-slider.js';
+import { setStop, moveStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle } from './gradient-model.js';
 
-/** Swatch Options dialog. Resolves to { name, global, mode, paint } or null. */
+/**
+ * Swatch Options dialog. Resolves to { name, global, spot, mode, paint },
+ * { ..., action: 'editPattern' } for a pattern swatch whose Edit Pattern
+ * button was used, or null. Color swatches edit their color type, mode and
+ * color; gradient swatches their type, stops (slider, stop color, opacity
+ * and location), angle and aspect ratio; pattern swatches show their tile
+ * and open pattern editing.
+ */
 export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview }) {
   const paint = swatch.paint;
   const isSolid = paint?.type === 'solid';
+  const isGrad = isGradient(paint);
+  const isPattern = paint?.type === 'pattern';
   const name = h('input', { type: 'text', id: 'swo-name', value: swatch.name || '', spellcheck: false, autocomplete: 'off' });
   const type = h(
     'select',
@@ -59,19 +75,30 @@ export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onP
     if (isHex(s)) setColor(normalizeHex(s));
   });
   preview.addEventListener('change', () => onPreview?.(preview.checked ? result() : null));
-  const result = () => ({
-    name: name.value.trim() || (isSolid ? colorName(color) : swatch.name || 'Gradient'),
-    global: type.value !== 'process',
-    spot: type.value === 'spot',
+  const grad = isGrad ? gradientEditor(paint) : null;
+  const result = (action) => ({
+    name: name.value.trim() || (isSolid ? colorName(color) : swatch.name || (isPattern ? 'Pattern' : 'Gradient')),
+    global: isSolid && type.value !== 'process',
+    spot: isSolid && type.value === 'spot',
     mode,
-    paint: isSolid ? { type: 'solid', color } : paint,
+    paint: isSolid ? { type: 'solid', color } : grad ? grad.paint() : paint,
+    ...(action ? { action } : {}),
   });
+  let close = null;
+  const patternPart = isPattern
+    ? h(
+        'div.swo-pattern',
+        h('div.swo-grad', paintSwatch(paint)),
+        h('p.muted', 'The tile, its layout and its artwork are edited in pattern editing mode.'),
+        app.commands?.get?.('pattern.edit') ? h('button.btn.small', { type: 'button', onclick: () => close?.('editPattern') }, 'Edit Pattern...') : null,
+      )
+    : null;
   const body = h(
     'div.form.swo',
     h('div.form-row', h('label', { for: 'swo-name' }, 'Swatch Name'), name),
     isSolid ? h('div.form-row', h('label', { for: 'swo-type' }, 'Color Type'), type) : null,
     isSolid ? h('div.form-row', h('label', { for: 'swo-mode' }, 'Color Mode'), modeSel) : null,
-    isSolid ? h('div.swo-color', chip, sliders.el) : h('div.swo-grad', paintSwatch(paint)),
+    isSolid ? h('div.swo-color', chip, sliders.el) : grad ? grad.el : patternPart || h('div.swo-grad', paintSwatch(paint)),
     isSolid ? h('div.form-row', h('label', '#'), hex) : null,
     isSolid && onPreview ? h('div.check-row', preview, h('label', { for: 'swo-preview' }, 'Preview')) : null,
   );
@@ -81,11 +108,99 @@ export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onP
     body,
     className: 'swatch-options',
     initialFocus: () => name,
+    // The Edit Pattern button closes the dialog with that action.
+    onOpen: ({ close: done }) => (close = (action) => done(result(action))),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', primary: true, value: () => result() },
     ],
   });
+}
+
+/** Gradient swatch editing: type, slider with stops, stop color / opacity / location, angle, aspect. */
+function gradientEditor(initial) {
+  let paint = structuredClone(initial);
+  let sel = 0;
+  const swatch = paintSwatch(paint);
+  const slider = createGradientSlider({
+    label: 'Swatch gradient',
+    onSelect: (i) => {
+      sel = i;
+      syncStop();
+    },
+    onChange: (p) => {
+      paint = p;
+      sel = slider.selected;
+      sync();
+    },
+    onEditStop: () => stopColor.click(),
+  });
+  const typeSel = h('select', { id: 'swo-gtype' }, h('option', { value: 'linear', selected: paint.type === 'linear' }, 'Linear'), h('option', { value: 'radial', selected: paint.type === 'radial' }, 'Radial'));
+  typeSel.addEventListener('change', () => {
+    paint = setGradientType(paint, typeSel.value);
+    sync();
+  });
+  const num = (id, label, value, min, max, onChange) => {
+    const input = h('input.swo-num', { type: 'number', id, min, max, step: 1, value: String(value) });
+    input.addEventListener('change', () => {
+      const v = Number(input.value);
+      if (Number.isFinite(v)) onChange(Math.max(min, Math.min(max, v)));
+    });
+    return { input, row: h('div.form-row', h('label', { for: id }, label), input) };
+  };
+  const angle = num('swo-angle', 'Angle (°)', Math.round(gradientAngle(paint) * 100) / 100, -360, 360, (v) => {
+    paint = setGradientAngle(paint, v);
+    sync();
+  });
+  const aspect = num('swo-aspect', 'Aspect Ratio (%)', Math.round((paint.aspect ?? 1) * 100), 1, 32767, (v) => {
+    paint = { ...paint, aspect: v / 100 };
+    sync();
+  });
+  const stopColor = h('input.swo-stop-color', { type: 'color', id: 'swo-stop-color' });
+  stopColor.addEventListener('input', () => {
+    paint = setStop(paint, sel, { color: stopColor.value });
+    sync(false);
+  });
+  const opacity = num('swo-stop-opacity', 'Opacity (%)', 100, 0, 100, (v) => {
+    paint = setStop(paint, sel, { opacity: v / 100 });
+    sync();
+  });
+  const location = num('swo-stop-location', 'Location (%)', 0, 0, 100, (v) => {
+    const r = moveStop(paint, sel, v / 100);
+    paint = r.paint;
+    sel = r.index;
+    sync();
+  });
+  const reverse = h('button.btn.small', { type: 'button', onclick: () => {
+    paint = reverseGradient(paint);
+    sync();
+  } }, 'Reverse');
+  const syncStop = () => {
+    const s = paint.stops[sel];
+    if (!s) return;
+    stopColor.value = s.color;
+    opacity.input.value = String(Math.round((s.opacity ?? 1) * 100));
+    location.input.value = String(Math.round(s.offset * 1000) / 10);
+  };
+  const sync = (setSlider = true) => {
+    updatePaintSwatch(swatch, paint);
+    if (setSlider) slider.set(paint, sel);
+    aspect.row.hidden = paint.type !== 'radial';
+    angle.input.value = String(Math.round(gradientAngle(paint) * 100) / 100);
+    syncStop();
+  };
+  const el = h(
+    'div.swo-gradient',
+    h('div.swo-grad', swatch),
+    h('div.form-row', h('label', { for: 'swo-gtype' }, 'Type'), typeSel, reverse),
+    h('div.swo-slider', slider.el),
+    h('div.swo-stop', h('div.form-row', h('label', { for: 'swo-stop-color' }, 'Stop Color'), stopColor), opacity.row, location.row),
+    angle.row,
+    aspect.row,
+  );
+  slider.set(paint, 0);
+  sync();
+  return { el, paint: () => paint };
 }
 
 export const SWATCH_VIEWS = [
@@ -156,6 +271,7 @@ export class SwatchesPanel extends Panel {
       iconButton('library', 'Swatch Libraries Menu', (e) => this.openLibraries(e.currentTarget), { className: 'small' }),
       iconButton('filter', 'Show Swatch Kinds Menu', (e) => this.openKinds(e.currentTarget), { className: 'small' }),
       h('span.sw-spacer'),
+      (this.groupBtn = iconButton('palette', 'Edit Color Group', () => this.editColorGroup(), { className: 'small' })),
       (this.optBtn = iconButton('sliders-horizontal', 'Swatch Options', () => this.editSelected(), { className: 'small' })),
       iconButton('folder-plus', 'New Color Group', () => this.newGroup(), { className: 'small' }),
       iconButton('plus', 'New Swatch', (e) => this.newSwatch(e.altKey), { className: 'small' }),
@@ -203,6 +319,7 @@ export class SwatchesPanel extends Panel {
     const sw = this.selectedSwatchIds();
     const groups = this.selectedGroupIds();
     const has = Boolean(ed);
+    const hasArtColors = has && ed.selection.size > 0;
     return [
       { label: 'New Swatch...', enabled: has, run: () => this.newSwatch() },
       { label: 'New Color Group...', enabled: has, run: () => this.newGroup() },
@@ -213,6 +330,12 @@ export class SwatchesPanel extends Panel {
       '-',
       { label: 'Select All Unused', enabled: has, run: () => this.selectUnused() },
       { label: 'Add Used Colors', enabled: has, run: () => this.addUsedColors() },
+      { label: 'Add Selected Colors', enabled: hasArtColors, run: () => this.addSelectedColors() },
+      { label: 'Add Selected Colors as Global Swatches', enabled: hasArtColors, run: () => this.addSelectedColors({ global: true }) },
+      { label: 'Add Selected Colors as Color Group', enabled: hasArtColors, run: () => this.addSelectedColors({ group: true }) },
+      '-',
+      { label: 'Edit Color Group...', enabled: Boolean(this.editableGroup()), run: () => this.editColorGroup() },
+      { label: 'Spot Colors...', enabled: has, run: () => spotColorsDialog(app) },
       '-',
       { label: 'Sort by Name', enabled: has, run: () => this.sortBy('name') },
       { label: 'Sort by Kind', enabled: has, run: () => this.sortBy('kind') },
@@ -235,6 +358,7 @@ export class SwatchesPanel extends Panel {
       { label: 'Open Swatch Library', submenu: swatchLibraryMenu(app, (lib) => this.openLibraryFromMenu(lib)) },
       { label: 'Save Swatch Library...', enabled: has && swatchesOf(ed.doc).length > 0, run: () => saveSwatchLibrary(app, this.librarySwatches()) },
       { label: 'Export Swatch Library...', enabled: has && swatchesOf(ed.doc).length > 0, run: () => exportSwatchLibrary(app, this.librarySwatches()) },
+      { label: 'Export as Swatch Exchange File...', enabled: has && swatchesOf(ed.doc).length > 0, run: () => exportSwatchLibrary(app, this.librarySwatches(), { format: 'vswx' }) },
       { label: 'Import Swatch Library...', enabled: has, run: () => importSwatchLibrary(app).then((lib) => lib && this.openLibraryFromMenu(lib)) },
     ];
   }
@@ -245,7 +369,16 @@ export class SwatchesPanel extends Panel {
     const ids = this.selectedSwatchIds();
     const gids = new Set(this.selectedGroupIds());
     const picked = swatchesOf(doc).filter((s) => ids.includes(s.id) || gids.has(s.group));
-    return (picked.length ? picked : swatchesOf(doc)).map((s) => ({ name: s.name, paint: structuredClone(s.paint), ...(s.global ? { global: true } : {}), ...(s.spot ? { spot: true } : {}) }));
+    const groupName = new Map(groupsOf(doc).map((g) => [g.id, g.name]));
+    return (picked.length ? picked : swatchesOf(doc)).map((s) => ({
+      name: s.name,
+      paint: structuredClone(s.paint),
+      ...(s.global ? { global: true } : {}),
+      ...(s.spot ? { spot: true } : {}),
+      ...(s.mode && s.mode !== 'rgb' ? { mode: s.mode } : {}),
+      ...(s.spotCmyk ? { spotCmyk: { ...s.spotCmyk } } : {}),
+      ...(groupName.has(s.group) ? { group: groupName.get(s.group) } : {}),
+    }));
   }
 
   setShow(v) {
@@ -312,6 +445,62 @@ export class SwatchesPanel extends Panel {
     this.app.notify(`Added ${ids.length} ${ids.length === 1 ? 'color' : 'colors'} to Swatches.`, { polite: true });
   }
 
+  /**
+   * Add the colors of the selected artwork as swatches (those not already
+   * swatches): process swatches, global swatches the artwork then links
+   * to, or a new color group.
+   */
+  addSelectedColors({ global = false, group = false } = {}) {
+    const ed = this.app.editor;
+    if (!ed) return;
+    const doc = ed.doc;
+    const colors = collectColors(colorTargets(doc, ed.topSelection())).map((c) => c.color.toLowerCase());
+    if (!colors.length) {
+      this.app.notify('The selection has no colors to add.', { polite: true });
+      return;
+    }
+    const have = new Map();
+    for (const s of swatchesOf(doc)) if (s.paint?.type === 'solid' && !s.group && (!global || s.global)) have.set(s.paint.color.toLowerCase(), s.id);
+    const ids = [];
+    doc.transact(group ? 'Add Selected Colors as Color Group' : 'Add Selected Colors', () => {
+      if (group) {
+        const gid = addGroup(doc, `Color Group ${groupsOf(doc).length + 1}`, { paints: colors.map((c) => ({ name: colorName(c), paint: { type: 'solid', color: c } })) });
+        ids.push(gid);
+        return;
+      }
+      for (const c of colors) {
+        if (have.has(c)) continue;
+        const id = addSwatch(doc, { name: colorName(c), paint: { type: 'solid', color: c }, global });
+        have.set(c, id);
+        ids.push(id);
+      }
+      // Global swatches: the artwork the colors came from now uses them.
+      if (global) linkColorsToSwatches(doc, ed.topSelection(), have);
+    });
+    this.selected = new Set(ids);
+    this.focusId = ids[0] || null;
+    if (!ids.length) this.app.notify('Every selected color is already a swatch.', { polite: true });
+    else this.app.notify(group ? `Added a color group of ${colors.length} ${colors.length === 1 ? 'color' : 'colors'}.` : `Added ${ids.length} ${ids.length === 1 ? 'swatch' : 'swatches'}.`, { polite: true });
+  }
+
+  /** The color group Edit Color Group works on: the selected group, or the group of the selected swatch. */
+  editableGroup() {
+    const doc = this.app.editor?.doc;
+    if (!doc) return null;
+    const groups = this.selectedGroupIds();
+    if (groups.length === 1) return groups[0];
+    if (groups.length) return null;
+    const owners = new Set(this.selectedSwatchIds().map((id) => findSwatch(doc, id)?.group).filter(Boolean));
+    return owners.size === 1 ? [...owners][0] : null;
+  }
+
+  /** Edit Color Group: recolor the group's colors (and optionally the selected artwork). */
+  editColorGroup() {
+    const gid = this.editableGroup();
+    if (gid) return recolorDialog(this.app, { group: gid });
+    return null;
+  }
+
   sortBy(by) {
     const doc = this.app.editor?.doc;
     if (!doc) return;
@@ -357,6 +546,7 @@ export class SwatchesPanel extends Panel {
     if (focusEl) focusEl.tabIndex = 0;
     this.delBtn.disabled = !this.selected.size;
     this.optBtn.disabled = this.selected.size !== 1;
+    this.groupBtn.disabled = !this.editableGroup();
     this.recent.refresh();
   }
 
@@ -402,7 +592,8 @@ export class SwatchesPanel extends Panel {
       this.toggleSelect(g.id, e);
       this.render();
     });
-    el.addEventListener('dblclick', () => this.renameGroup(g));
+    // Double-clicking a color group edits its colors (Swatch Options renames it).
+    el.addEventListener('dblclick', () => recolorDialog(this.app, { group: g.id }));
     return el;
   }
 
@@ -564,9 +755,10 @@ export class SwatchesPanel extends Panel {
       if (!res) tx.cancel();
     }
     if (!res) return;
-    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.mode });
+    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.paint?.type === 'solid' ? res.mode : undefined });
     tx.commit();
     if (sw.global && swatchUsage(doc, id)) this.app.notify(`Updated objects using "${res.name}".`, { polite: true });
+    if (res.action === 'editPattern' && sw.paint?.type === 'pattern') this.app.commands.run('pattern.edit', { patternId: sw.paint.id });
   }
 
   async renameGroup(g) {
@@ -666,7 +858,16 @@ export class SwatchesPanel extends Panel {
       if (!ed) return;
       ed.doc.transact('Add Swatches', () => {
         for (const s of lib.swatches) if (s.pattern) app.patterns?.ensureDef(ed.doc, s.pattern);
-        addGroup(ed.doc, lib.name, { paints: lib.swatches.map((s) => ({ name: s.name, paint: structuredClone(s.paint) })) });
+        // A library's own color groups stay groups; the rest go into one group named after the library.
+        const groups = new Map();
+        const groupFor = (name) => {
+          if (!groups.has(name)) groups.set(name, addGroup(ed.doc, name));
+          return groups.get(name);
+        };
+        for (const s of lib.swatches) {
+          const { group, pattern, ...rest } = structuredClone(s);
+          addSwatch(ed.doc, { ...rest, group: groupFor(group || lib.name) });
+        }
       });
       closePopover();
       app.notify(`Added ${lib.name} to Swatches.`, { polite: true });
@@ -707,4 +908,29 @@ function paintKey(p) {
     keyCache.set(p, k);
   }
   return k;
+}
+
+/** Link the solid paints of the artwork under `ids` to swatches by color (Map color -> swatch id). */
+export function linkColorsToSwatches(doc, ids, byColor) {
+  const link = (p) => {
+    if (p?.type !== 'solid' || p.swatchId) return p;
+    const id = byColor.get(p.color.toLowerCase());
+    return id ? { ...p, swatchId: id } : p;
+  };
+  for (const n of colorTargets(doc, ids)) {
+    const patch = {};
+    for (const key of ['fill', 'stroke']) {
+      const next = link(n[key]);
+      if (next !== n[key]) patch[key] = next;
+    }
+    if (n.type === 'text' && n.runs?.some((r) => r.fill || r.stroke)) {
+      const runs = n.runs.map((r) => ({ ...r, ...(r.fill ? { fill: link(r.fill) } : {}), ...(r.stroke ? { stroke: link(r.stroke) } : {}) }));
+      patch.runs = runs;
+    }
+    if (stackPaints(n).length) {
+      const stack = mapStackPaints(n, (p) => link(p));
+      if (stack) patch.appearance = stack;
+    }
+    if (Object.keys(patch).length) doc.update(n.id, patch);
+  }
 }

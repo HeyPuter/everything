@@ -727,6 +727,143 @@
   text-transform: uppercase;
 }
 
+/* Gradient and pattern swatch options */
+.swo-gradient,
+.swo-pattern {
+  display: grid;
+  gap: var(--space-4);
+  min-width: min(320px, calc(100vw - 64px));
+}
+
+.swo-slider {
+  padding: 0 var(--space-4);
+}
+
+.swo-stop {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.swo-num {
+  width: 76px;
+}
+
+.swo-stop-color {
+  width: 44px;
+  height: var(--control-h);
+  padding: 0 2px;
+}
+
+.rc-group {
+  display: flex;
+  gap: var(--space-4);
+  align-items: baseline;
+  margin: 0 0 var(--space-3);
+}
+
+.rc-group-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+/* ---- Spot Colors dialog ---- */
+.spot-colors {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.spc-defs {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
+  margin: 0 0 var(--space-5);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.spc-defs legend {
+  padding: 0 var(--space-2);
+  font-weight: 600;
+}
+
+.spc-choice {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.spc-choice label {
+  display: grid;
+  gap: 1px;
+}
+
+.spc-list {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.spc-row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.spc-chip {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+}
+
+.spc-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.spc-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.spc-name {
+  flex: 1;
+  min-width: 120px;
+}
+
+.spc-cmyk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.spc-ink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+}
+
+.spc-num {
+  width: 58px;
+}
+
+.spc-unused {
+  font-size: var(--fs-sm);
+}
+
 /* ---- Gradient panel ---- */
 .gp-top {
   display: flex;
