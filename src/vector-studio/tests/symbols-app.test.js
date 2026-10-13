@@ -126,7 +126,8 @@ describe('making and placing symbols', () => {
     const win = resolveItems(app, MENUS.find((m) => m.label === 'Window').submenu);
     expect(win.some((i) => i.label === 'Symbols')).toBe(true);
     const libs = win.find((i) => i.label === 'Symbol Libraries');
-    expect(libs.items.map((i) => i.label)).toEqual(SYMBOL_LIBRARIES.map((l) => l.name));
+    expect(libs.items.filter((i) => i.type === 'cmd').map((i) => i.label)).toEqual(SYMBOL_LIBRARIES.map((l) => l.name));
+    expect(libs.items.at(-1).label).toBe('User Defined');
     expect(app.commands.get('panel.symbols').shortcut).toBe('Shift+Mod+F11');
   });
 });

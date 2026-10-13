@@ -3,6 +3,8 @@
  * pattern being edited. Every change is a document edit on the editing
  * layer (undoable), so the copies around the tile update as you type. Out
  * of pattern editing mode the panel offers Make Pattern and Edit Pattern.
+ * The panel menu makes, edits, saves, finishes or cancels patterns and
+ * toggles the tile and preview options.
  */
 import { h } from '../../lib/dom.js';
 import { Panel, emptyState } from '../../ui/panels/panel.js';
@@ -109,6 +111,31 @@ export class PatternOptionsPanel extends Panel {
       ),
     );
     this.el.append(this.empty, this.form);
+  }
+
+  menu() {
+    const app = this.app;
+    const ed = app.editor;
+    const layer = ed ? editLayer(ed.doc) : null;
+    const p = layer?.pattern || {};
+    const toggle = (key, label, extra = {}) => ({ label, checked: Boolean(p[key]), enabled: Boolean(layer) && extra.enabled !== false, run: () => setOptions(ed, { [key]: !p[key] }, extra.undo || label) });
+    return [
+      { id: 'pattern.make', label: 'Make Pattern' },
+      'pattern.edit',
+      '-',
+      { id: 'pattern.saveCopy', label: 'Save a Copy...' },
+      { id: 'pattern.done', label: 'Exit Pattern Editing' },
+      'pattern.cancel',
+      '-',
+      toggle('sizeToArt', 'Size Tile to Art'),
+      toggle('moveWithArt', 'Move Tile with Art', { enabled: !p.sizeToArt }),
+      '-',
+      toggle('dimCopies', 'Dim Copies', { undo: 'Pattern Preview' }),
+      toggle('showTileEdge', 'Show Tile Edge', { undo: 'Pattern Preview' }),
+      toggle('showSwatchBounds', 'Show Swatch Bounds', { undo: 'Pattern Preview' }),
+      '-',
+      'pattern.tileEdgeColor',
+    ];
   }
 
   setSize(key, v) {

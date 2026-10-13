@@ -85,7 +85,9 @@ describe('Brushes panel', () => {
     // Window > Brush Libraries lists the libraries.
     const win = resolveItems(app, MENUS).find((m) => m.label === 'Window');
     const libs = win.items.find((m) => m.label === 'Brush Libraries');
-    expect(libs.items.map((i) => i.label)).toEqual(BRUSH_LIBRARIES.map((l) => l.name));
+    // The built-in libraries, then the user's saved ones.
+    expect(libs.items.filter((i) => i.type === 'cmd').map((i) => i.label)).toEqual(BRUSH_LIBRARIES.map((l) => l.name));
+    expect(libs.items.at(-1).label).toBe('User Defined');
     libs.items.find((i) => i.label === 'Borders').run(app);
     const panel = app.dock.panels.get('brushes');
     expect(panel.source).toBe('borders');

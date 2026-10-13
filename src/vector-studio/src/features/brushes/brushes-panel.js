@@ -4,8 +4,9 @@
  * brush paints the selected paths with it (and makes it the Paintbrush's
  * brush); double-clicking opens its options. The footer holds the library
  * menu, Remove Brush Stroke, Options of Selected Object, New Brush and
- * Delete Brush; the panel menu adds duplicate, select unused, type filters
- * and views.
+ * Delete Brush; the panel menu adds duplicate, select unused, sorting,
+ * type filters, views, and opening or saving brush libraries (the user's
+ * saved libraries appear under User Defined).
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
@@ -14,19 +15,37 @@ import { BRUSH_TYPES, docBrushes, brushLibraries, brushById } from './brush-mode
 import { selectionBrush, brushTargets, applyBrush, removeBrush, duplicateBrushes, unusedBrushIds, moveBrush } from './brush-ops.js';
 import { brushState, newBrush, editBrush, editSelectedStrokeOptions, confirmDeleteBrushes, useLibraryBrush } from './brush-actions.js';
 import { brushThumb, inkColor } from './thumbs.js';
+import { setDocBrushes } from './brush-model.js';
+import { userLibraries, userLibraryMenu, saveLibraryDialog } from '../paint/user-libraries.js';
 
 const TYPE_ORDER = ['calligraphic', 'scatter', 'art', 'bristle', 'pattern'];
 
+const showIn = (a, id) => {
+  a.openPanel('brushes');
+  a.dock.panels.get('brushes')?.showSource(id);
+};
+
 /** Menu entries for opening brush libraries (Window > Brush Libraries and the panel's library menu). */
 export function libraryMenuItems(app) {
-  return brushLibraries().map((lib) => ({
-    label: lib.name,
-    run: (a) => {
-      a.brushState = { ...brushState(a), source: lib.id };
-      a.openPanel('brushes');
-      a.dock.panels.get('brushes')?.showSource(lib.id);
-    },
-  }));
+  return [
+    ...brushLibraries().map((lib) => ({
+      label: lib.name,
+      run: (a) => {
+        a.brushState = { ...brushState(a), source: lib.id };
+        showIn(a, lib.id);
+      },
+    })),
+    '-',
+    { label: 'User Defined', submenu: userLibraryMenu(app, 'brushes', (l) => showIn(app, `user:${l.id}`)) },
+  ];
+}
+
+/** A user-defined brush library by source id ('user:<id>'), or null. */
+function userLibrary(app, source) {
+  if (!String(source).startsWith('user:')) return null;
+  const id = source.slice(5);
+  const lib = userLibraries(app, 'brushes').find((l) => l.id === id);
+  return lib ? { id: source, name: lib.name, brushes: lib.items } : null;
 }
 
 export class BrushesPanel extends Panel {
@@ -51,8 +70,6 @@ export class BrushesPanel extends Panel {
     );
     this.thumbBtn = iconButton('grid-view', 'Thumbnail View', () => this.setView('thumbnail'), { className: 'small', pressed: this.view === 'thumbnail' });
     this.listBtn = iconButton('list-view', 'List View', () => this.setView('list'), { className: 'small', pressed: this.view === 'list' });
-    this.menuBtn = iconButton('ellipsis', 'Brushes Panel Menu', (e) => this.openMenu(e.currentTarget), { className: 'small' });
-    this.menuBtn.setAttribute('aria-haspopup', 'menu');
     this.list = h('div.br-list', { role: 'listbox', 'aria-label': 'Brushes', 'aria-multiselectable': 'true', tabindex: '-1' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
     this.libBtn = iconButton('library', 'Brush Libraries Menu', (e) => app.showMenuAt(e.currentTarget, libraryMenuItems(app), 'Brush libraries'), { className: 'small' });
@@ -63,7 +80,7 @@ export class BrushesPanel extends Panel {
     this.delBtn = iconButton('trash', 'Delete Brush', () => this.deleteSelected(), { className: 'small' });
     this.status = h('p.br-status', { 'aria-live': 'polite' });
     this.footer = h('div.br-footer', this.libBtn, h('span.br-spacer'), this.removeBtn, this.strokeOptBtn, this.newBtn, this.delBtn);
-    this.el.append(h('div.br-top', this.sourceSel, this.thumbBtn, this.listBtn, this.menuBtn), this.list, this.status, this.footer);
+    this.el.append(h('div.br-top', this.sourceSel, this.thumbBtn, this.listBtn), this.list, this.status, this.footer);
   }
 
   edit(fn) {
@@ -72,9 +89,24 @@ export class BrushesPanel extends Panel {
     return r;
   }
 
+  /** Source choices: the document, the built-in libraries and the user's saved ones. */
+  fillSources() {
+    const user = userLibraries(this.app, 'brushes');
+    const key = user.map((l) => `${l.id}:${l.name}`).join('|');
+    if (key === this.sourcesKey) return;
+    this.sourcesKey = key;
+    this.sourceSel.replaceChildren(
+      h('option', { value: 'document' }, 'Document Brushes'),
+      h('optgroup', { label: 'Libraries' }, brushLibraries().map((l) => h('option', { value: l.id }, l.name))),
+      user.length ? h('optgroup', { label: 'User Defined' }, user.map((l) => h('option', { value: `user:${l.id}` }, l.name))) : null,
+    );
+    this.sourceSel.value = this.source;
+  }
+
   showSource(id) {
     this.ensureBuilt();
-    this.source = brushLibraries().some((l) => l.id === id) ? id : 'document';
+    this.fillSources();
+    this.source = brushLibraries().some((l) => l.id === id) || userLibrary(this.app, id) ? id : 'document';
     this.sourceSel.value = this.source;
     this.selected.clear();
     this.renderKey = null;
@@ -100,6 +132,8 @@ export class BrushesPanel extends Panel {
 
   brushes() {
     const ed = this.app.editor;
+    const user = userLibrary(this.app, this.source);
+    if (user) return user.brushes;
     if (this.source !== 'document') return brushLibraries().find((l) => l.id === this.source)?.brushes || [];
     return ed ? docBrushes(ed.doc) : [];
   }
@@ -107,6 +141,7 @@ export class BrushesPanel extends Panel {
   update() {
     const ed = this.app.editor;
     this.el.classList.toggle('disabled', !ed);
+    this.fillSources();
     const active = ed ? selectionBrush(ed) : undefined;
     // The ink color is part of the key so a theme change redraws the previews.
     const key = [ed?.doc, ed ? docBrushes(ed.doc) : null, active, this.source, this.view, brushState(this.app).currentId, [...this.hiddenTypes].join(), inkColor(this.list)];
@@ -199,8 +234,11 @@ export class BrushesPanel extends Panel {
     const app = this.app;
     const ed = app.editor;
     if (!ed) return;
-    if (this.source !== 'document') useLibraryBrush(app, b);
-    else {
+    if (this.source !== 'document') {
+      // Saved (user) brushes are not built in: they join the document first.
+      if (userLibrary(app, this.source) && !docBrushes(ed.doc).some((x) => x.id === b.id)) ed.doc.transact('Add Brush', () => setDocBrushes(ed.doc, [...docBrushes(ed.doc), structuredClone(b)]));
+      useLibraryBrush(app, b);
+    } else {
       brushState(app).currentId = b.id;
       if (brushTargets(ed).length) applyBrush(ed, b.id, `Apply ${b.name}`);
     }
@@ -298,13 +336,34 @@ export class BrushesPanel extends Panel {
     el.addEventListener('dragend', () => (this.dragId = null));
   }
 
-  openMenu(anchor) {
+  sortByName() {
+    const doc = this.app.editor?.doc;
+    if (!doc) return;
+    const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    // Sorted within each type (the panel groups brushes by type).
+    const list = docBrushes(doc).slice().sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type) || coll.compare(a.name, b.name));
+    doc.transact('Sort Brushes', () => setDocBrushes(doc, list));
+  }
+
+  saveLibrary() {
+    const ed = this.app.editor;
+    if (!ed) return null;
+    const ids = this.selected;
+    const all = this.brushes();
+    const picked = all.filter((b) => ids.has(b.id));
+    return saveLibraryDialog(this.app, 'brushes', { title: 'Save Brush Library', items: structuredClone(picked.length ? picked : all), defaultName: 'My Brushes' }).then((name) => {
+      this.fillSources();
+      return name;
+    });
+  }
+
+  menu() {
     const app = this.app;
     const ed = app.editor;
     const doc = ed?.doc;
     const isDoc = this.source === 'document';
     const one = this.selected.size === 1 ? [...this.selected][0] : null;
-    const spec = [
+    return [
       { label: 'New Brush...', enabled: Boolean(ed) && isDoc, run: () => newBrush(app) },
       { label: 'Duplicate Brush', enabled: Boolean(ed) && isDoc && this.selected.size > 0, run: () => {
         const ids = duplicateBrushes(doc, [...this.selected]);
@@ -315,6 +374,7 @@ export class BrushesPanel extends Panel {
       '-',
       { label: 'Remove Brush Stroke', enabled: Boolean(ed && brushTargets(ed).some((n) => n.brush)), run: () => this.edit(() => removeBrush(ed)) },
       '-',
+      { label: 'Sort by Name', enabled: Boolean(ed) && isDoc, run: () => this.sortByName() },
       { label: 'Select All Unused', enabled: Boolean(ed) && isDoc, run: () => {
         this.selected = new Set(unusedBrushIds(doc));
         this.renderKey = null;
@@ -331,8 +391,8 @@ export class BrushesPanel extends Panel {
       { label: 'Brush Options...', enabled: Boolean(one) && isDoc, run: () => editBrush(app, one) },
       '-',
       { label: 'Open Brush Library', submenu: libraryMenuItems(app) },
+      { label: 'Save Brush Library...', enabled: Boolean(ed) && this.brushes().length > 0, run: () => this.saveLibrary() },
       { label: 'Show Document Brushes', enabled: !isDoc, run: () => this.showSource('document') },
     ];
-    app.showMenuAt(anchor, spec, 'Brushes panel menu');
   }
 }

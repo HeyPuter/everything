@@ -18,6 +18,7 @@ import { installParts } from './parts.js';
 import { symbolSection } from './props-section.js';
 import { SYMBOL_LIBRARIES } from './libraries.js';
 import { openSymbolLibrary } from './library-window.js';
+import { userLibraryMenu } from '../paint/user-libraries.js';
 import { exportSymbolsFor, importSymbols, remapInstances, indexSymbolNames, getDef, masterBounds, updateDefinition } from './model.js';
 import { syncSymbolEditing, editingSymbol } from './editing.js';
 import { importedSymbolGroups, convertImportedSymbols } from './svg-symbols.js';
@@ -29,7 +30,17 @@ export function install(app) {
   registerSymbolCommands(app);
   installParts(app);
   if (!PropertiesPanel.extraSections.some((s) => s.id === 'symbol')) PropertiesPanel.extraSections.push(symbolSection(app));
-  app.menuSources.set('symbolLibraries', (a) => SYMBOL_LIBRARIES.map((lib) => ({ label: lib.name, run: () => openSymbolLibrary(a, lib.id) })));
+  app.menuSources.set('symbolLibraries', (a) => [
+    ...SYMBOL_LIBRARIES.map((lib) => ({ label: lib.name, run: () => openSymbolLibrary(a, lib.id) })),
+    '-',
+    {
+      label: 'User Defined',
+      submenu: userLibraryMenu(a, 'symbols', (l) => {
+        a.openPanel('symbols');
+        a.dock.panels.get('symbols')?.openUserLibrary(l);
+      }),
+    },
+  ]);
 
   installClipboardHooks();
 

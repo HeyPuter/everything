@@ -6,7 +6,9 @@
  * kind of variation (tints and shades, warm and cool, vivid and muted) and
  * an optional swatch library to limit colors to. Save Group adds the
  * harmony to Swatches as a color group; Edit Colors recolors the selection
- * with the harmony.
+ * with the harmony. The panel menu holds the variation kinds, harmony
+ * rules, library limit, base color, saving and Color Guide Options (steps
+ * and variation amount, previewed live).
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
@@ -47,10 +49,7 @@ export class ColorGuidePanel extends Panel {
     this.strip = h('div.cg-strip', { role: 'group', 'aria-label': 'Harmony colors' });
     this.rule = h(
       'select.select.cg-rule',
-      { 'aria-label': 'Harmony rule', onchange: () => {
-        app.prefs.set('colorGuideRule', this.rule.value);
-        this.render();
-      } },
+      { 'aria-label': 'Harmony rule', onchange: () => this.setRule(this.rule.value) },
       HARMONY_RULES.map((r) => h('option', { value: r.id }, r.label)),
     );
     this.variation = h(
@@ -86,6 +85,49 @@ export class ColorGuidePanel extends Panel {
       ),
     );
     this.focus = { r: 0, c: 0 };
+  }
+
+  menu() {
+    const app = this.app;
+    const g = this.settings;
+    const ed = app.editor;
+    const choices = ed ? paletteChoices(ed.doc) : [];
+    return [
+      ...VARIATIONS.map((v) => ({ label: `Show ${v.label}`, checked: g.variation === v.id, run: () => this.set({ variation: v.id }) })),
+      '-',
+      { label: 'Harmony Rules', submenu: HARMONY_RULES.map((r) => ({ label: r.label, checked: g.rule === r.id, run: () => this.setRule(r.id) })) },
+      {
+        label: 'Limit Colors to Swatch Library',
+        submenu: [{ label: 'None', checked: g.limit === 'none', run: () => this.set({ limit: 'none' }) }, ...choices.map((c) => ({ label: c.name, checked: g.limit === c.id, run: () => this.set({ limit: c.id }) }))],
+      },
+      '-',
+      { label: 'Set Base Color to Current Color', enabled: Boolean(ed), run: () => this.takeCurrent() },
+      { label: 'Save Colors as Swatches', enabled: Boolean(ed), run: () => this.saveGroup() },
+      { label: 'Edit or Apply Colors...', enabled: app.commands.isEnabled('color.preset.harmony'), run: () => app.commands.run('color.preset.harmony') },
+      '-',
+      { label: 'Color Guide Options...', run: () => this.optionsDialog() },
+    ];
+  }
+
+  setRule(id) {
+    this.app.prefs.set('colorGuideRule', id);
+    this.render();
+  }
+
+  /** Steps and variation amount, previewed in the panel while the dialog is open. */
+  async optionsDialog() {
+    const before = { steps: this.settings.steps, amount: this.settings.amount };
+    const clampSteps = (v) => Math.max(1, Math.min(7, Math.round(Number(v) || before.steps)));
+    const res = await this.app.dialogs.form({
+      title: 'Color Guide Options',
+      fields: [
+        { key: 'steps', label: 'Steps (each side)', type: 'number', value: before.steps, min: 1, max: 7 },
+        { key: 'amount', label: 'Variation', type: 'range', value: before.amount, min: 10, max: 100, step: 5 },
+      ],
+      onChange: (v) => this.set({ steps: clampSteps(v.steps), amount: Number(v.amount) || before.amount }),
+    });
+    if (!res) this.set(before);
+    else this.set({ steps: clampSteps(res.steps), amount: Number(res.amount) || before.amount });
   }
 
   get settings() {
