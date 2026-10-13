@@ -24,7 +24,9 @@
  *   video and image clips may carry masks (model/masks.js) and motionBlur,
  *   denoise, relight, canvas (model/clip-extras.js); transform may carry
  *   sx, sy (non-uniform scale) and uniform: false
- *   video, image, text and sticker clips may carry effects (see model/clip-effects.js)
+ *   video, image, text, sticker and avatar clips may carry effects (see model/clip-effects.js)
+ *   video and image clips may carry stylize: { id, amount } (see model/stylize.js)
+ *   avatar clips hold a talking presenter (see model/avatar.js)
  */
 import { uid } from '../lib/ids.js';
 import { US } from '../lib/time.js';
@@ -43,6 +45,8 @@ import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
 import { normalizeClipEffects, canHaveEffects } from './clip-effects.js';
 import { fitMulticam, normalizeMulticam, MAX_ANGLES } from './multicam.js';
+import { normalizeAvatar, DEFAULT_AVATAR } from './avatar.js';
+import { normalizeStylize } from './stylize.js';
 
 export const FORMAT = 'video-studio-project';
 export const VERSION = 1;
@@ -79,6 +83,7 @@ export const TRACK_KIND_FOR = {
   audio: 'audio',
   text: 'text',
   sticker: 'text',
+  avatar: 'video',
   effect: 'effect',
   filter: 'filter',
   adjust: 'adjust',
@@ -238,6 +243,20 @@ export function makeClip(type, fields = {}) {
         keyframes: {},
         ...fields,
       };
+    case 'avatar':
+      // A talking presenter (model/avatar.js) drawn over the frame like a picture.
+      return {
+        ...base,
+        transform: { ...DEFAULT_TRANSFORM },
+        opacity: 1,
+        blend: 'normal',
+        animIn: null,
+        animOut: null,
+        animLoop: null,
+        keyframes: {},
+        ...fields,
+        avatar: { ...DEFAULT_AVATAR, ...fields.avatar },
+      };
     case 'effect':
       return { ...base, duration: 3 * US, effect: 'blur', params: effectDefaults(fields.effect || 'blur'), ...fields };
     case 'filter':
@@ -377,6 +396,8 @@ export function normalizeClip(c) {
     if (c.hairColor && typeof c.hairColor === 'object') out.hairColor = normalizeHairColor(c.hairColor);
     if (c.colorTarget === 'person' || c.colorTarget === 'background') out.colorTarget = c.colorTarget;
     if (c.maskUse === 'color') out.maskUse = 'color';
+    const look = normalizeStylize(c.stylize);
+    if (look) out.stylize = look;
   }
   if ((c.type === 'video' || c.type === 'audio') && !out.freeze) {
     // Variable speed: clip.speed mirrors the curve's mean speed (source span / duration).
@@ -404,6 +425,7 @@ export function normalizeClip(c) {
     // Multi-color graphics keep their own palette unless set to the custom color.
     if (c.colorMode === 'original') out.colorMode = 'original';
   }
+  if (c.type === 'avatar') out.avatar = normalizeAvatar(c.avatar);
   if (c.type === 'effect') {
     out.effect = str(c.effect, 'blur');
     out.params = normalizeEffectParams(out.effect, c.params);

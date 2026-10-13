@@ -588,7 +588,7 @@ export class Compositor {
       alt = t;
     };
     for (const layer of layers) {
-      if (layer.kind === 'media' || layer.kind === 'text' || layer.kind === 'sticker') {
+      if (layer.kind === 'media' || layer.kind === 'text' || layer.kind === 'sticker' || layer.kind === 'avatar') {
         const mode = BLEND_MODE_INDEX[layer.blend] || 0;
         if (mode === 0) {
           this._into(acc);

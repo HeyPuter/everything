@@ -468,7 +468,7 @@ class FrameRenderer {
   }
 
   _resolve(layer) {
-    if (layer.kind === 'text' || layer.kind === 'sticker') return this.text.get(layer, this.scale);
+    if (layer.kind === 'text' || layer.kind === 'sticker' || layer.kind === 'avatar') return this.text.get(layer, this.scale);
     if (layer.kind === 'media') return this.media.resolved.get(layer.clip.id) || null;
     return null;
   }

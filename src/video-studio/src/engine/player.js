@@ -160,7 +160,7 @@ export class Player extends Emitter {
   }
 
   _resolve(layer) {
-    if (layer.kind === 'text' || layer.kind === 'sticker') return this.text.get(layer, this.renderScale);
+    if (layer.kind === 'text' || layer.kind === 'sticker' || layer.kind === 'avatar') return this.text.get(layer, this.renderScale);
     if (layer.kind !== 'media' || !layer.asset) return null;
     if (layer.clip.type === 'image') {
       const bmp = this.pool.image(layer.asset);
@@ -380,7 +380,8 @@ export class Player extends Emitter {
   boxFor(layer) {
     if (!this.compositor) return null;
     let info = null;
-    if (layer.kind === 'text' || layer.kind === 'sticker') info = this.text.measure(layer.clip);
+    if (layer.kind === 'avatar') info = { projW: layer.frameW, projH: layer.frameH };
+    else if (layer.kind === 'text' || layer.kind === 'sticker') info = this.text.measure(layer.clip);
     else if (layer.kind === 'media') {
       const a = layer.asset;
       info = { width: a?.width || layer.width, height: a?.height || layer.height };
