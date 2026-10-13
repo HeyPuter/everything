@@ -33,6 +33,7 @@ function readHidden() {
  */
 export function createStatusBar({ w, a, parts, help }) {
   const { stats, words, proofingButton, editingArea, textMode, focusButton, zoomOut, zoomSlider, zoomIn, zoomLabel } = parts;
+  stats.className = ''; // its button carries the status-item look
   const pageButton = el('button.ed-status-item.ed-page-count', { type: 'button', title: `Go To (${MOD_KEY}+G)`, onclick: () => (w.goTo ? w.goTo() : a.toggleNavigation?.()) }, stats);
   const wordsButton = el('button.ed-status-item.ed-word-count', { type: 'button', title: 'Word Count', onclick: () => w.wordCount?.() }, words);
   const languageLabel = el('span', {}, languageName('en-US'));

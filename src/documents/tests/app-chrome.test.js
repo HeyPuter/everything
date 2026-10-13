@@ -146,3 +146,22 @@ describe('classic menus', () => {
   });
 });
 
+
+describe('document context menu shell', () => {
+  it('detects the context and appends each context\'s module items', async () => {
+    const { openDocumentMenu } = await import('../src/views/document-context-menu.js');
+    const { closeMenu } = await import('../src/ui/menu.js');
+    const input = document.createElement('textarea'); document.body.append(input);
+    const engine = { input, viewOnly: false, session: { history: [], future: [], path: null }, focus() {}, undo() {}, redo() {},
+      model: { selectedImage: null, hyperlink: null, hasBodyFields: false, listFormatting: 'bullet', tableContext: { table: {} }, selection: { focus: 0 }, range: [0, 0] } };
+    const seen = [];
+    const w = { contextMenuItems: context => { seen.push(context); return context === 'table' ? [{ label: 'Sort Table…', onSelect() {} }] : []; } };
+    const x = { clipboardState: () => ({ cut: false, copy: false, paste: true }), spellingItems: () => [], cut() {}, copy() {}, paste() {}, pastePlain() {}, paragraphDialog() {}, editLink() {},
+      imageItems: () => [], tableItems: () => [{ label: 'Insert row below', onSelect() {} }], commentItems: () => [], print() {} };
+    openDocumentMenu({ event: { clientX: 10, clientY: 10, button: 2 }, engine, pkg: {}, w, kit: {}, actions: x });
+    expect(seen).toEqual(['list', 'table', 'text']);
+    const labels = [...document.querySelectorAll('.menu .menu-label')].map(n => n.firstChild.textContent);
+    expect(labels).toEqual(expect.arrayContaining(['Paste', 'Font…', 'Paragraph…', 'Restart Numbering at 1', 'Insert link…', 'Insert row below', 'Sort Table…', 'Print / Save as PDF']));
+    closeMenu();
+  });
+});

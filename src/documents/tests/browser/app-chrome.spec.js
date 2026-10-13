@@ -312,3 +312,26 @@ test('a saved document keeps versions to restore and publishes a web page from t
   await expect(view.locator('.bs-share-status a')).toHaveAttribute('href', /^https:\/\/.+\.puter\.site/);
   await expect(view.getByRole('button', { name: 'Stop Publishing' })).toBeVisible();
 });
+
+test('AutoSave off waits for Save; Comments opens the review pane; the page count opens Go To', async ({ page }) => {
+  await openEditor(page);
+  const status = page.locator('.canvas-save-status');
+  await text(page).fill('Autosaved');
+  await expect(status).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.locator('label.ed-autosave').click();
+  await expect(page.getByRole('switch', { name: 'AutoSave' })).not.toBeChecked();
+  await text(page).press('End'); await page.keyboard.type(' later');
+  await page.waitForTimeout(2500);
+  await expect(status).toHaveAttribute('aria-label', 'Unsaved changes');
+  await page.locator('label.ed-autosave').click();
+  await expect(status).toHaveAttribute('aria-label', 'Saved to Puter');
+  // Comments
+  await page.getByRole('button', { name: 'Comments', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Reviewing Pane' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Comments', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Comments', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Reviewing Pane' })).toBeHidden();
+  // Status bar: Page 1 of 1 opens Go To.
+  await page.locator('.ed-page-count').click();
+  await expect(page.getByRole('dialog', { name: /Go To/i })).toBeVisible();
+});
