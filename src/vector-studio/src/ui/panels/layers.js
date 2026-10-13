@@ -636,6 +636,8 @@ export class LayersPanel extends Panel {
       // Selecting a layer's target selects everything on it.
       const ids = n.children.filter((c) => !doc.get(c)?.locked && !doc.get(c)?.hidden);
       ed.select(ids, { add });
+      // The layer itself is the appearance target until the selection changes.
+      ed.layerTarget = add ? null : { id: n.id, version: ed.selection.version };
       ed.activeLayerId = n.id;
       ed.emit('active-layer');
       return;

@@ -1,13 +1,17 @@
 /**
  * Appearance panel (Shift+F6) and Graphic Styles panel.
  *
- * Appearance lists the selected object's attributes like a stack: Stroke
- * (swatch and weight), Fill, effects (eye toggle, click to edit, delete,
- * drag or Alt+Up/Down to reorder) and Opacity, under a header with the
- * object kind and its linked graphic style. Objects have a single fill and
- * stroke, so Add New Stroke / Add New Fill turn them on (and bring them to
- * the front) rather than stacking extra ones. The panel menu adds New Art
- * Has Basic Appearance, Show/Hide Thumbnail and Redefine Graphic Style.
+ * Appearance lists the selected object's appearance stack top first (see
+ * model/appearance.js): every fill and stroke with its swatch (click to
+ * edit the paint in place), stroke weight, eye and a disclosure showing its
+ * own effects and opacity, the Contents (groups, layers) or Characters
+ * (type) entry, the object's effects and its Opacity, under a header with
+ * the object kind and its linked graphic style. Picking a fill or stroke
+ * makes it the one the Color, Swatches, Gradient and Stroke panels and new
+ * effects edit. Items reorder by dragging or Alt+Up/Down; Add New Fill /
+ * Add New Stroke place the new item above the picked one. The panel menu
+ * adds New Art Has Basic Appearance, Show All Hidden Attributes, Show/Hide
+ * Thumbnail and Redefine Graphic Style.
  *
  * Graphic Styles shows the document's styles in thumbnail or list views;
  * clicking applies and links a style (Alt+click adds it to the current
@@ -16,10 +20,10 @@
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
-import { iconButton, paintSwatch, numberField } from '../../ui/widgets.js';
+import { iconButton, paintSwatch, numberField, selectField } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
 import { openPaintPopover, openPopover, closePopover } from '../../ui/popover.js';
-import { applyStyle, commonStyle, paintTargets } from '../../ops/paint-ops.js';
+import { applyStyle, commonStyle } from '../../ops/paint-ops.js';
 import { selectionKind, BLEND_LABELS } from '../../ui/panels/properties.js';
 import { EFFECTS, effectLabel } from './effects-model.js';
 import { effectDialog, effectTargets } from './effects-ui.js';
@@ -31,6 +35,9 @@ import { MENUS } from '../../ui/menus.js';
 import { createPath } from '../../model/nodes.js';
 import { rectangle } from '../../model/shapes.js';
 import { gestureKey } from './ui-common.js';
+import { BLEND_MODES } from '../../render/draw.js';
+import { stackItems, itemPaint, itemStrokeAttrs } from '../../model/appearance.js';
+import { appearanceOwners, stackOwners, sharedStack, setAppearanceTarget, addItem, duplicateItem, removeItem, moveItem, setItemAttrs, toggleItem, clearStacks, reduceStacks, showAllHidden } from './appearance-ops.js';
 
 export class AppearancePanel extends Panel {
   static id = 'appearance';
@@ -41,22 +48,13 @@ export class AppearancePanel extends Panel {
 
   build() {
     const app = this.app;
+    /** The picked row: an object effect index, 'item:i', 'item:i:fx:j', 'item:i:opacity', 'opacity' or null. */
     this.selectedRow = null;
+    /** Stack items (indices) whose effects and opacity are shown. */
+    this.expanded = new Set();
     this.thumb = h('canvas.ap-thumb', { width: 32, height: 32, 'aria-hidden': 'true' });
     this.kind = h('span.ap-kind');
     this.list = h('div.ap-list', { role: 'list', 'aria-label': 'Appearance attributes' });
-    this.strokeW = numberField({
-      label: 'Stroke weight',
-      ariaLabel: 'Stroke weight',
-      value: 1,
-      min: 0,
-      width: '64px',
-      onCommit: (v, o) => {
-        if (!o?.live) this.wkey = gestureKey('ap-weight');
-        applyStyle(app.editor, { strokeWidth: v }, 'Stroke Weight', this.wkey);
-      },
-    });
-    this.strokeW.el.querySelector('label').textContent = '';
     const btn = (ic, label, fn) => iconButton(ic, label, fn, { className: 'small' });
     this.footer = h(
       'div.ap-footer',
@@ -79,7 +77,6 @@ export class AppearancePanel extends Panel {
   menu() {
     const app = this.app;
     const ed = app.editor;
-    const r = this.selectedRow;
     const has = Boolean(ed);
     const linked = ed ? this.linkedStyle() : null;
     const gsPanel = app.dock?.panels?.get('graphicStyles');
@@ -90,12 +87,13 @@ export class AppearancePanel extends Panel {
       { label: 'Add New Stroke', enabled: has, run: () => this.addPaint('stroke') },
       { label: 'Add New Effect', submenu: this.effectItems() },
       '-',
-      { label: 'Duplicate Item', enabled: typeof r === 'number', run: () => this.duplicateItem() },
-      { label: 'Remove Item', enabled: r != null && r !== 'opacity' && r !== 'contents', run: () => this.deleteItem() },
+      { label: 'Duplicate Item', enabled: this.canDuplicate(), run: () => this.duplicateItem() },
+      { label: 'Remove Item', enabled: this.canRemove(), run: () => this.deleteItem() },
       { label: 'Clear Appearance', enabled: has, run: () => this.clearAppearance() },
       { label: 'Reduce to Basic Appearance', enabled: has, run: () => this.reduceBasic() },
       '-',
       { label: 'New Art Has Basic Appearance', checked: app.prefs.get('newArtBasic') !== false, run: () => app.prefs.set('newArtBasic', app.prefs.get('newArtBasic') === false) },
+      { label: 'Show All Hidden Attributes', enabled: has && this.hasHidden(), run: () => showAllHidden(ed) },
       { label: this.thumbShown ? 'Hide Thumbnail' : 'Show Thumbnail', run: () => this.setThumbShown(!this.thumbShown) },
       '-',
       { label: gsName ? `Redefine Graphic Style "${gsName}"` : 'Redefine Graphic Style', enabled: Boolean(gsId) && Boolean(ed?.topSelection().length), run: () => redefineGraphicStyle(app, gsId) },
@@ -129,6 +127,69 @@ export class AppearancePanel extends Panel {
     return this.app.editor ? effectTargets(this.app.editor) : [];
   }
 
+  /** The stack item a row belongs to ('item:2', 'item:2:fx:0', ...), or null. */
+  rowItem(r = this.selectedRow) {
+    const m = typeof r === 'string' ? /^item:(\d+)/.exec(r) : null;
+    return m ? Number(m[1]) : null;
+  }
+
+  /** The item effect a row names: [item, effect index], or null. */
+  rowItemEffect(r = this.selectedRow) {
+    const m = typeof r === 'string' ? /^item:(\d+):fx:(\d+)$/.exec(r) : null;
+    return m ? [Number(m[1]), Number(m[2])] : null;
+  }
+
+  /** The shown stack: { owners, items, same } (a stand-in for the new-art style without a selection). */
+  stack() {
+    const ed = this.app.editor;
+    if (!ed) return null;
+    const st = sharedStack(ed);
+    if (st) return st;
+    if (appearanceOwners(ed).length) return null;
+    const pseudo = { type: 'path', ...ed.style };
+    return { owners: [], items: stackItems(pseudo), same: true, pseudo };
+  }
+
+  /** Pick a row: the fill or stroke it belongs to becomes the target of the paint panels and effects. */
+  pick(id) {
+    const ed = this.app.editor;
+    this.selectedRow = id;
+    if (ed) {
+      const i = this.rowItem(id);
+      const st = this.stack();
+      const it = i != null ? st?.items[i] : null;
+      if (st?.owners.length) setAppearanceTarget(ed, it && it.type !== 'contents' ? i : null);
+      if (it && (it.type === 'fill' || it.type === 'stroke') && ed.focusPaint !== it.type) {
+        ed.focusPaint = it.type;
+        ed.emit('style');
+      }
+    }
+    this.update(true);
+  }
+
+  canDuplicate() {
+    const r = this.selectedRow;
+    if (typeof r === 'number') return true;
+    const i = this.rowItem(r);
+    if (i == null || r.endsWith(':opacity')) return false;
+    const it = this.stack()?.items[i];
+    return Boolean(it && it.type !== 'contents' && this.stack().owners.length);
+  }
+
+  canRemove() {
+    const r = this.selectedRow;
+    if (r == null || r === 'opacity' || r === 'contents') return false;
+    if (typeof r === 'number') return true;
+    if (r.endsWith(':opacity')) return false;
+    const it = this.stack()?.items[this.rowItem(r)];
+    return Boolean(it && it.type !== 'contents');
+  }
+
+  hasHidden() {
+    const ed = this.app.editor;
+    return stackOwners(ed).some((n) => n.effects?.some((e) => e.hidden) || stackItems(n).some((it) => it.hidden || it.effects?.some((e) => e.hidden)));
+  }
+
   /** Effects shown in the list: the single object's, or the shared list when all match. */
   sharedEffects() {
     const t = this.targets();
@@ -151,9 +212,26 @@ export class AppearancePanel extends Panel {
     });
   }
 
+  /** Change one stack item's effects on every owner. */
+  setItemEffects(i, fn, label) {
+    setItemAttrs(this.app.editor, i, { effects: (list) => fn(list || []) }, label);
+  }
+
   addPaint(key) {
     const ed = this.app.editor;
     if (!ed) return;
+    const st = this.stack();
+    if (st?.owners.length) {
+      const i = addItem(ed, key, this.rowItem());
+      if (i != null) {
+        this.selectedRow = `item:${i}`;
+        ed.focusPaint = key;
+        ed.emit('style');
+      }
+      this.update(true);
+      return;
+    }
+    // New-art style (no selection), or objects without stacks: the single fill or stroke turns on.
     const cur = commonStyle(ed, key);
     if (!cur) {
       const patch = { [key]: { type: 'solid', color: key === 'fill' ? '#ffffff' : '#000000' } };
@@ -162,7 +240,7 @@ export class AppearancePanel extends Panel {
     }
     ed.focusPaint = key;
     ed.emit('style');
-    this.selectedRow = key;
+    this.selectedRow = st ? `item:${st.items.findIndex((it) => it.type === key)}` : null;
   }
 
   effectMenu(anchor) {
@@ -180,23 +258,42 @@ export class AppearancePanel extends Panel {
     const ed = this.app.editor;
     if (!ed) return;
     const t = this.targets();
-    applyStyle(ed, { fill: null, stroke: null }, 'Clear Appearance');
-    if (t.length) {
-      ed.doc.transact('Clear Appearance', () => {
-        for (const n of t) ed.doc.update(n.id, { effects: [], opacity: 1, blendMode: 'normal' });
-      });
-    } else ed.setStyle({ effects: [], opacity: 1, blendMode: 'normal' });
+    if (stackOwners(ed).length) clearStacks(ed);
+    else {
+      applyStyle(ed, { fill: null, stroke: null }, 'Clear Appearance');
+      if (t.length) {
+        ed.doc.transact('Clear Appearance', () => {
+          for (const n of t) ed.doc.update(n.id, { effects: [], opacity: 1, blendMode: 'normal' });
+        });
+      } else ed.setStyle({ effects: [], opacity: 1, blendMode: 'normal', appearance: undefined });
+    }
+    this.selectedRow = null;
   }
 
   reduceBasic() {
-    this.setEffects(() => [], 'Reduce to Basic Appearance');
+    const ed = this.app.editor;
+    if (ed && stackOwners(ed).length) reduceStacks(ed);
+    else this.setEffects(() => [], 'Reduce to Basic Appearance');
+    this.selectedRow = null;
   }
 
   duplicateItem() {
     const r = this.selectedRow;
-    if (typeof r !== 'number') return;
-    this.setEffects((list) => (list[r] ? [...list.slice(0, r + 1), { ...list[r] }, ...list.slice(r + 1)] : list), 'Duplicate Effect');
-    this.selectedRow = r + 1;
+    const ed = this.app.editor;
+    if (typeof r === 'number') {
+      this.setEffects((list) => (list[r] ? [...list.slice(0, r + 1), { ...list[r] }, ...list.slice(r + 1)] : list), 'Duplicate Effect');
+      this.selectedRow = r + 1;
+      return;
+    }
+    const fx = this.rowItemEffect(r);
+    if (fx) {
+      const [i, j] = fx;
+      this.setItemEffects(i, (list) => (list[j] ? [...list.slice(0, j + 1), { ...list[j] }, ...list.slice(j + 1)] : list), 'Duplicate Effect');
+      this.selectedRow = `item:${i}:fx:${j + 1}`;
+      return;
+    }
+    const i = this.rowItem(r);
+    if (i != null && ed && duplicateItem(ed, i)) this.selectedRow = `item:${i + 1}`;
   }
 
   deleteItem() {
@@ -206,9 +303,22 @@ export class AppearancePanel extends Panel {
     if (typeof r === 'number') {
       this.setEffects((list) => list.filter((_, i) => i !== r), 'Delete Effect');
       this.selectedRow = null;
-    } else if (r === 'fill' || r === 'stroke') {
-      applyStyle(ed, { [r]: null }, r === 'fill' ? 'Delete Fill' : 'Delete Stroke');
+      return;
     }
+    const fx = this.rowItemEffect(r);
+    if (fx) {
+      this.setItemEffects(fx[0], (list) => list.filter((_, j) => j !== fx[1]), 'Delete Effect');
+      this.selectedRow = `item:${fx[0]}`;
+      return;
+    }
+    const i = this.rowItem(r);
+    if (i == null) return;
+    const st = this.stack();
+    const it = st?.items[i];
+    if (!it || it.type === 'contents') return;
+    if (st.owners.length) removeItem(ed, i);
+    else applyStyle(ed, { [it.type]: null }, it.type === 'fill' ? 'Delete Fill' : 'Delete Stroke');
+    this.selectedRow = null;
   }
 
   editEffect(i) {
@@ -221,22 +331,49 @@ export class AppearancePanel extends Panel {
     else effectDialog(this.app, fx.type, { params: fx });
   }
 
-  /** Effect rows reorder by dragging (Alt+Up/Down from the keyboard). */
+  editItemEffect(i, j) {
+    const st = this.stack();
+    const fx = st?.items[i]?.effects?.[j];
+    if (!fx || !st.owners.length) return;
+    if (st.owners.length === 1) effectDialog(this.app, fx.type, { edit: { id: st.owners[0].id, index: j, item: i } });
+    else effectDialog(this.app, fx.type, { params: fx });
+  }
+
+  /** Object effect rows reorder by dragging (Alt+Up/Down from the keyboard). */
   draggable(r, i, count) {
     if (count < 2) return;
+    this.dragRow(r, `fx:${i}`, (from, after) => {
+      if (!from.startsWith('fx:')) return;
+      const f = Number(from.slice(3));
+      let to = i + (after ? 1 : 0);
+      if (f < to) to--;
+      if (to === f) return;
+      this.setEffects((list) => {
+        const out = list.slice();
+        const [fx] = out.splice(f, 1);
+        out.splice(to, 0, fx);
+        return out;
+      }, 'Reorder Effects');
+      this.selectedRow = to;
+    });
+  }
+
+  /** Drag-and-drop between rows of one kind: drop(fromKey, droppedBelowTheRow). */
+  dragRow(r, key, drop) {
     r.draggable = true;
+    const kind = key.split(':')[0];
     const clear = () => this.list.querySelectorAll('.fx-drop-before, .fx-drop-after').forEach((el) => el.classList.remove('fx-drop-before', 'fx-drop-after'));
     r.addEventListener('dragstart', (e) => {
-      this.dragFrom = i;
-      e.dataTransfer?.setData('text/plain', String(i));
+      this.dragFrom = key;
+      e.dataTransfer?.setData('text/plain', key);
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      e.stopPropagation();
     });
     r.addEventListener('dragover', (e) => {
-      if (this.dragFrom == null) return;
+      if (!this.dragFrom || this.dragFrom.split(':')[0] !== kind) return;
       e.preventDefault();
-      const after = e.offsetY > r.offsetHeight / 2;
       clear();
-      r.classList.add(after ? 'fx-drop-after' : 'fx-drop-before');
+      r.classList.add(e.offsetY > r.offsetHeight / 2 ? 'fx-drop-after' : 'fx-drop-before');
     });
     r.addEventListener('dragleave', clear);
     r.addEventListener('dragend', () => {
@@ -247,64 +384,73 @@ export class AppearancePanel extends Panel {
       const from = this.dragFrom;
       this.dragFrom = null;
       clear();
-      if (from == null) return;
+      if (!from || from.split(':')[0] !== kind) return;
       e.preventDefault();
-      let to = i + (e.offsetY > r.offsetHeight / 2 ? 1 : 0);
-      if (from < to) to--;
-      if (to === from) return;
-      this.setEffects((list) => {
-        const out = list.slice();
-        const [fx] = out.splice(from, 1);
-        out.splice(to, 0, fx);
-        return out;
-      }, 'Reorder Effects');
-      this.selectedRow = to;
+      drop(from, e.offsetY > r.offsetHeight / 2);
     });
   }
 
-  row({ id, label, swatch, extra, eye, onEye, onActivate, onDelete, hiddenFx = false }) {
+  /** Move stack item i up (+1) or down (-1) in paint order. */
+  moveStackItem(i, dir) {
+    const st = this.stack();
+    const j = i + dir;
+    if (!st?.owners.length || j < 0 || j >= st.items.length) return;
+    moveItem(this.app.editor, i, j);
+    this.expanded = new Set([...this.expanded].map((k) => (k === i ? j : k === j ? i : k)));
+    this.selectedRow = `item:${j}`;
+    this.update(true);
+    this.list.querySelector(`[data-row="item:${j}"]`)?.focus();
+  }
+
+  row({ id, label, swatch, extra, eye, eyeLabel, onEye, onActivate, onDelete, hiddenFx = false, level = 1, disclosure = null, onMove = null, onToggle = null }) {
     const selected = this.selectedRow === id;
-    const r = h('div.ap-row', { role: 'listitem', tabindex: '0', 'aria-label': label.textContent || label, 'aria-current': selected ? 'true' : null });
+    const text = typeof label === 'string' ? label : label.textContent;
+    const r = h('div.ap-row', { role: 'listitem', tabindex: '0', 'aria-label': text, 'aria-current': selected ? 'true' : null, 'data-row': String(id) });
     r.classList.toggle('selected', selected);
     r.classList.toggle('fx-hidden', hiddenFx);
-    const eyeBtn = eye != null ? iconButton(eye ? 'eye' : 'eye-off', eye ? 'Hide effect' : 'Show effect', (e) => {
+    r.classList.toggle('ap-sub', level > 1);
+    const tw = disclosure == null ? h('span.ap-tw-pad') : iconButton(disclosure ? 'chevron-down' : 'chevron-right', disclosure ? `Collapse ${text}` : `Expand ${text}`, (e) => {
+      e.stopPropagation();
+      onToggle?.();
+    }, { className: 'small ap-tw' });
+    if (disclosure != null) tw.setAttribute('aria-expanded', String(disclosure));
+    const eyeBtn = eye != null ? iconButton(eye ? 'eye' : 'eye-off', eyeLabel || (eye ? 'Hide' : 'Show'), (e) => {
       e.stopPropagation();
       onEye();
     }, { className: 'small ap-eye' }) : h('span.ap-eye-pad');
-    r.append(eyeBtn, swatch || h('span.ap-sw-pad'), h('span.ap-label', label));
-    if (extra) r.append(extra);
-    if (onDelete) r.append(iconButton('x', `Delete ${label.textContent || label}`, (e) => {
+    r.append(tw, eyeBtn, swatch || h('span.ap-sw-pad'), h('span.ap-label', label));
+    if (extra) r.append(...[].concat(extra).filter(Boolean));
+    if (onDelete) r.append(iconButton('x', `Delete ${text}`, (e) => {
       e.stopPropagation();
       onDelete();
     }, { className: 'small ap-del' }));
-    r.addEventListener('click', () => {
-      this.selectedRow = id;
-      this.update(true);
-    });
+    r.addEventListener('click', () => this.pick(id));
     r.addEventListener('keydown', (e) => {
+      if (e.target !== r) return;
       const rows = [...this.list.querySelectorAll('.ap-row')];
       const i = rows.indexOf(r);
-      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.altKey && typeof id === 'number') {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.altKey && onMove) {
         e.preventDefault();
         e.stopPropagation();
-        const j = id + (e.key === 'ArrowDown' ? 1 : -1);
-        this.setEffects((list) => {
-          if (j < 0 || j >= list.length) return list;
-          const out = list.slice();
-          [out[id], out[j]] = [out[j], out[id]];
-          return out;
-        }, 'Reorder Effects');
-        this.selectedRow = j;
+        onMove(e.key === 'ArrowUp' ? 1 : -1);
         return;
       }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         e.stopPropagation();
         rows[(i + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length]?.focus();
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && disclosure != null) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (disclosure !== (e.key === 'ArrowRight')) onToggle?.();
       } else if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
         onActivate?.(r);
+      } else if (e.key === ' ' && onEye) {
+        e.preventDefault();
+        e.stopPropagation();
+        onEye();
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && onDelete) {
         e.preventDefault();
         e.stopPropagation();
@@ -312,6 +458,180 @@ export class AppearancePanel extends Panel {
       }
     });
     return r;
+  }
+
+  /** An item value across the owners: the value, or 'mixed'. */
+  itemValue(st, i, fn) {
+    if (!st.owners.length) return fn(st.pseudo, st.items[i]);
+    const vals = st.owners.map((n) => fn(n, stackItems(n)[i]));
+    const first = JSON.stringify(vals[0] ?? null);
+    return vals.every((v) => JSON.stringify(v ?? null) === first) ? vals[0] ?? null : 'mixed';
+  }
+
+  /** Opacity and blending of one item in a popover. */
+  openItemOpacity(anchor, i) {
+    const ed = this.app.editor;
+    const st = this.stack();
+    if (!ed || !st?.owners.length) return;
+    const it = st.items[i];
+    const key = gestureKey('ap-item-opacity');
+    const op = numberField({ label: 'Opacity', kind: 'percent', value: (it.opacity ?? 1) * 100, min: 0, max: 100, width: '72px', onCommit: (v) => setItemAttrs(ed, i, { opacity: v / 100 }, 'Item Opacity', key) });
+    const mode = selectField('Blending mode', BLEND_MODES.map((m) => ({ value: m, label: BLEND_LABELS[m] || m })), it.blendMode || 'normal', (v) => setItemAttrs(ed, i, { blendMode: v }, 'Item Blending Mode'));
+    openPopover(anchor, h('div.ap-item-opacity', h('h3.popover-title', `${it.type === 'fill' ? 'Fill' : 'Stroke'} Opacity`), op.el, mode.el), { label: 'Item opacity' });
+  }
+
+  /** Rows of one fill or stroke item (and, when expanded, its effects and opacity). */
+  paintRows(st, i, rows) {
+    const app = this.app;
+    const ed = app.editor;
+    const it = st.items[i];
+    const type = it.type;
+    const name = type === 'fill' ? 'Fill' : 'Stroke';
+    const paint = this.itemValue(st, i, (n, x) => itemPaint(n, x));
+    const owned = st.owners.length > 0;
+    const id = `item:${i}`;
+    const target = () => {
+      if (this.selectedRow !== id && this.rowItem() !== i) this.pick(id);
+      else if (owned) setAppearanceTarget(ed, i);
+      ed.focusPaint = type;
+      ed.emit('style');
+    };
+    const sw = paintSwatch(paint === 'mixed' ? null : paint, { mixed: paint === 'mixed' });
+    const swBtn = h('button.swatch-btn.small', { type: 'button', 'aria-label': `${name} color`, 'aria-haspopup': 'dialog', onclick: (e) => {
+      e.stopPropagation();
+      const anchor = e.currentTarget;
+      target();
+      openPaintPopover(app, anchor.isConnected ? anchor : this.el, type);
+    } }, sw);
+    const extra = [];
+    if (type === 'stroke' && paint) {
+      const w = this.itemValue(st, i, (n, x) => itemStrokeAttrs(n, x).strokeWidth ?? 0);
+      const field = numberField({
+        label: 'Stroke weight',
+        ariaLabel: `${name} weight`,
+        value: w === 'mixed' ? 'mixed' : w,
+        min: 0,
+        width: '64px',
+        unit: ed.doc.root.units,
+        onCommit: (v, o) => {
+          if (!o?.live) this.wkey = gestureKey('ap-weight');
+          if (owned) setItemAttrs(ed, i, { strokeWidth: v }, 'Stroke Weight', this.wkey);
+          else applyStyle(ed, { strokeWidth: v }, 'Stroke Weight', this.wkey);
+        },
+      });
+      field.el.querySelector('label').textContent = '';
+      extra.push(field.el);
+    }
+    const fxCount = it.effects?.length || 0;
+    const op = it.opacity ?? 1;
+    const open = this.expanded.has(i);
+    if (!open && (fxCount || op !== 1 || (it.blendMode && it.blendMode !== 'normal'))) extra.push(h('span.ap-badge', { 'aria-hidden': 'true', 'data-tip': 'Has its own effects or opacity' }, icon('fx', 12)));
+    const label = h('button.link-label', { type: 'button', onclick: (e) => {
+      e.stopPropagation();
+      target();
+      if (type === 'stroke') app.openPanel('stroke');
+      else app.openPanel('color');
+    } }, `${name}:`);
+    const remove = owned ? () => this.removeRow(i) : paint ? () => applyStyle(ed, { [type]: null }, `Delete ${name}`) : null;
+    rows.push(
+      this.row({
+        id,
+        label,
+        swatch: swBtn,
+        extra,
+        eye: owned ? !it.hidden : null,
+        eyeLabel: it.hidden ? `Show ${name}` : `Hide ${name}`,
+        hiddenFx: Boolean(it.hidden),
+        onEye: owned ? () => toggleItem(ed, i) : null,
+        onActivate: () => swBtn.click(),
+        onDelete: remove,
+        disclosure: owned ? open : null,
+        onToggle: () => this.toggleOpen(i),
+        onMove: owned ? (dir) => this.moveStackItem(i, dir) : null,
+      }),
+    );
+    if (owned) this.dragRow(rows[rows.length - 1], `item:${i}`, (from, after) => this.dropItem(from, i, after));
+    if (!open || !owned) return;
+    (it.effects || []).forEach((fx, j) => {
+      const fid = `item:${i}:fx:${j}`;
+      const lbl = h('button.link-label', { type: 'button', onclick: (e) => {
+        e.stopPropagation();
+        this.selectedRow = fid;
+        this.editItemEffect(i, j);
+      } }, effectLabel(fx));
+      rows.push(
+        this.row({
+          id: fid,
+          level: 2,
+          label: lbl,
+          swatch: h('span.ap-fx', { 'aria-hidden': 'true' }, icon('fx', 14)),
+          eye: !fx.hidden,
+          eyeLabel: fx.hidden ? 'Show effect' : 'Hide effect',
+          hiddenFx: Boolean(fx.hidden),
+          onEye: () => this.setItemEffects(i, (list) => list.map((e, k) => (k === j ? toggleHidden(e) : e)), fx.hidden ? 'Show Effect' : 'Hide Effect'),
+          onActivate: () => this.editItemEffect(i, j),
+          onDelete: () => this.setItemEffects(i, (list) => list.filter((_, k) => k !== j), 'Delete Effect'),
+        }),
+      );
+    });
+    const bm = it.blendMode || 'normal';
+    const opText = `Opacity: ${op === 1 ? 'Default' : `${Math.round(op * 100)}%`}${bm !== 'normal' ? ` ${BLEND_LABELS[bm] || bm}` : ''}`;
+    const oid = `item:${i}:opacity`;
+    const olbl = h('button.link-label', { type: 'button', onclick: (e) => {
+      e.stopPropagation();
+      this.selectedRow = oid;
+      this.openItemOpacity(e.currentTarget, i);
+    } }, opText);
+    rows.push(this.row({ id: oid, level: 2, label: olbl, onActivate: (r) => this.openItemOpacity(r, i) }));
+  }
+
+  toggleOpen(i) {
+    if (this.expanded.has(i)) this.expanded.delete(i);
+    else this.expanded.add(i);
+    this.update(true);
+    this.list.querySelector(`[data-row="item:${i}"]`)?.focus();
+  }
+
+  removeRow(i) {
+    removeItem(this.app.editor, i);
+    this.expanded = new Set([...this.expanded].filter((k) => k !== i).map((k) => (k > i ? k - 1 : k)));
+    this.selectedRow = null;
+  }
+
+  /** A stack item row dropped on item `to`'s row (above it, or below with `after`). */
+  dropItem(from, to, after) {
+    const f = this.rowItem(from);
+    if (f == null) return;
+    // Rows list the top of the stack first: above a row is later in paint order.
+    let at = after ? to : to + 1;
+    if (f < at) at--;
+    if (at === f) return;
+    moveItem(this.app.editor, f, at);
+    this.expanded.clear();
+    this.selectedRow = `item:${at}`;
+  }
+
+  contentsRow(st, i, rows) {
+    const ed = this.app.editor;
+    const it = st.items[i];
+    const owner = st.owners[0];
+    const label = owner?.type === 'text' ? 'Characters' : 'Contents';
+    rows.push(
+      this.row({
+        id: `item:${i}`,
+        label,
+        eye: st.owners.length ? !it.hidden : null,
+        eyeLabel: it.hidden ? `Show ${label}` : `Hide ${label}`,
+        hiddenFx: Boolean(it.hidden),
+        onEye: () => toggleItem(ed, i),
+        // Contents: the group's (or layer's) objects become the selection.
+        onActivate: () => {
+          if (owner && (owner.type === 'group' || owner.type === 'layer') && st.owners.length === 1) ed.select(owner.children.filter((c) => !ed.doc.get(c)?.hidden && !ed.doc.get(c)?.locked));
+        },
+        onMove: st.owners.length ? (dir) => this.moveStackItem(i, dir) : null,
+      }),
+    );
+    if (st.owners.length) this.dragRow(rows[rows.length - 1], `item:${i}`, (from, after) => this.dropItem(from, i, after));
   }
 
   update(force = false) {
@@ -323,17 +643,24 @@ export class AppearancePanel extends Panel {
     }
     const app = this.app;
     const t = this.targets();
-    const leaves = paintTargets(ed);
-    const fill = commonStyle(ed, 'fill');
-    const stroke = commonStyle(ed, 'stroke');
-    const sw = commonStyle(ed, 'strokeWidth');
+    const owners = appearanceOwners(ed);
+    const st = this.stack();
+    const ownerKey = owners.map((n) => n.id).join(',');
+    if (ownerKey !== this.ownerKey) {
+      // Another selection: start from its own target (none picked, nothing expanded).
+      this.ownerKey = ownerKey;
+      this.expanded.clear();
+      if (this.selectedRow != null && typeof this.selectedRow !== 'number') this.selectedRow = null;
+    }
     const { effects, mixed } = this.sharedEffects();
     const op = t.length ? (t.every((n) => (n.opacity ?? 1) === (t[0].opacity ?? 1)) ? t[0].opacity ?? 1 : 'mixed') : ed.style.opacity ?? 1;
     const bm = t.length ? (t.every((n) => (n.blendMode || 'normal') === (t[0].blendMode || 'normal')) ? t[0].blendMode || 'normal' : 'mixed') : ed.style.blendMode || 'normal';
-    const key = JSON.stringify([t.map((n) => n.id), fill, stroke, sw, effects, mixed, op, bm, this.selectedRow, ed.focusPaint, leaves.length, t.map((n) => n.graphicStyle), ed.doc.root.graphicStyles?.length]);
+    const stackKey = st ? (st.owners.length ? st.owners.map((n) => [n.id, n.appearance, n.fill, n.stroke, pickStroke(n)]) : [st.pseudo.fill, st.pseudo.stroke, st.pseudo.strokeWidth, st.same]) : null;
+    const key = JSON.stringify([ownerKey, stackKey, st?.same, effects, mixed, op, bm, this.selectedRow, [...this.expanded], ed.focusPaint, ed.doc.root.units, t.map((n) => n.graphicStyle), ed.doc.root.graphicStyles?.length]);
     if (!force && key === this.renderKey) return;
     this.renderKey = key;
-    this.kind.textContent = t.length ? selectionKind(ed) : 'No Selection';
+    const layerTarget = owners.length === 1 && owners[0].type === 'layer';
+    this.kind.textContent = layerTarget ? 'Layer' : t.length ? selectionKind(ed) : 'No Selection';
     const gs = this.linkedStyle();
     this.styleName.textContent = gs ? gs.name : '';
     this.styleName.hidden = !gs;
@@ -343,30 +670,14 @@ export class AppearancePanel extends Panel {
       if (t.length === 1) drawThumbnail(tctx, ed.doc, t[0], 32, 2);
     }
     const rows = [];
-    const hasGroup = t.some((n) => n.type === 'group');
-    if (hasGroup) rows.push(this.row({ id: 'contents', label: 'Contents', onActivate: () => {} }));
-    const paintRows = leaves.length > 0 || !t.length;
-    if (paintRows && !hasGroup) {
-      const strokeSw = paintSwatch(stroke === 'mixed' ? null : stroke, { mixed: stroke === 'mixed' });
-      const strokeBtn = h('button.swatch-btn.small', { type: 'button', 'aria-label': 'Stroke color', 'aria-haspopup': 'dialog', onclick: (e) => {
-        e.stopPropagation();
-        openPaintPopover(app, e.currentTarget, 'stroke');
-      } }, strokeSw);
-      this.strokeW.setUnit(ed.doc.root.units);
-      this.strokeW.set(sw === 'mixed' ? 'mixed' : sw ?? 0);
-      const sLabel = h('button.link-label', { type: 'button', onclick: (e) => {
-        e.stopPropagation();
-        app.openPanel('stroke');
-      } }, 'Stroke');
-      rows.push(this.row({ id: 'stroke', label: sLabel, swatch: strokeBtn, extra: stroke ? this.strokeW.el : null, onActivate: () => strokeBtn.click(), onDelete: stroke ? () => applyStyle(ed, { stroke: null }, 'Delete Stroke') : null }));
-      const fillSw = paintSwatch(fill === 'mixed' ? null : fill, { mixed: fill === 'mixed' });
-      const fillBtn = h('button.swatch-btn.small', { type: 'button', 'aria-label': 'Fill color', 'aria-haspopup': 'dialog', onclick: (e) => {
-        e.stopPropagation();
-        openPaintPopover(app, e.currentTarget, 'fill');
-      } }, fillSw);
-      rows.push(this.row({ id: 'fill', label: 'Fill', swatch: fillBtn, onActivate: () => fillBtn.click(), onDelete: fill ? () => applyStyle(ed, { fill: null }, 'Delete Fill') : null }));
-    }
-    if (mixed) rows.push(h('p.ap-mixed.muted', 'Mixed Appearances'));
+    if (st && st.same) {
+      for (let i = st.items.length - 1; i >= 0; i--) {
+        const it = st.items[i];
+        if (it.type === 'contents') this.contentsRow(st, i, rows);
+        else if (it.type === 'fill' || it.type === 'stroke') this.paintRows(st, i, rows);
+      }
+    } else if (st) rows.push(h('p.ap-mixed.muted', 'Mixed Appearances'));
+    if (mixed) rows.push(h('p.ap-mixed.muted', 'Mixed Effects'));
     effects.forEach((fx, i) => {
       const lbl = h('button.link-label', { type: 'button', onclick: (e) => {
         e.stopPropagation();
@@ -379,10 +690,12 @@ export class AppearancePanel extends Panel {
           label: lbl,
           swatch: h('span.ap-fx', { 'aria-hidden': 'true' }, icon('fx', 14)),
           eye: !fx.hidden,
+          eyeLabel: fx.hidden ? 'Show effect' : 'Hide effect',
           hiddenFx: Boolean(fx.hidden),
           onEye: () => this.setEffects((list) => list.map((e, j) => (j === i ? toggleHidden(e) : e)), fx.hidden ? 'Show Effect' : 'Hide Effect'),
           onActivate: () => this.editEffect(i),
           onDelete: () => this.setEffects((list) => list.filter((_, j) => j !== i), 'Delete Effect'),
+          onMove: effects.length > 1 ? (dir) => this.moveEffect(i, -dir) : null,
         }),
       );
       this.draggable(rows[rows.length - 1], i, effects.length);
@@ -392,10 +705,29 @@ export class AppearancePanel extends Panel {
       e.stopPropagation();
       app.openPanel('transparency');
     } }, opText), onActivate: () => app.openPanel('transparency') }));
+    const focused = this.list.contains(document.activeElement) ? document.activeElement.closest?.('.ap-row')?.dataset.row : null;
     this.list.replaceChildren(...rows);
-    this.dupBtn.disabled = typeof this.selectedRow !== 'number';
-    this.delBtn.disabled = this.selectedRow == null || this.selectedRow === 'opacity' || this.selectedRow === 'contents';
+    if (focused) this.list.querySelector(`[data-row="${CSS.escape(focused)}"]`)?.focus();
+    this.dupBtn.disabled = !this.canDuplicate();
+    this.delBtn.disabled = !this.canRemove();
   }
+
+  /** Object effect i one place later (+1) or earlier (-1) in the effect order. */
+  moveEffect(i, dir) {
+    const j = i + dir;
+    this.setEffects((list) => {
+      if (j < 0 || j >= list.length) return list;
+      const out = list.slice();
+      [out[i], out[j]] = [out[j], out[i]];
+      return out;
+    }, 'Reorder Effects');
+    this.selectedRow = Math.max(0, j);
+  }
+}
+
+/** A node's own stroke options (for change detection). */
+function pickStroke(n) {
+  return [n.strokeWidth, n.strokeCap, n.strokeJoin, n.dash, n.strokeAlign, n.hidden];
 }
 
 function toggleHidden(e) {

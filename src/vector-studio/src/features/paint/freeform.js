@@ -4,19 +4,26 @@
  *
  *   { type: 'freeform', points: [{ x, y, color, opacity?, spread? }] }
  *
- * Point positions are fractions of the object's bounds (0..1), so the
- * gradient follows the object as it moves and resizes. Each pixel takes an
- * inverse-distance-weighted mix of the point colors; `spread` (0..1) is a
- * radius, as a fraction of the bounds' diagonal, inside which a point's
- * color stays solid.
+ *   { type: 'freeform', mode: 'lines', points, lines: [[i, j, ...]] }
+ *
+ * Point positions are fractions of the object's bounding box frame
+ * (freeformFrame: 0..1, turned with the object), so the gradient follows
+ * the object as it moves, resizes and rotates. Each pixel takes an
+ * inverse-distance-weighted mix of the colors; `spread` (0..1) is a
+ * radius, as a fraction of the frame's diagonal, inside which a point's
+ * color stays solid. In lines mode, points joined by lines (polylines of
+ * point indices) spread their colors along the lines: every point of a
+ * segment carries the color between its ends.
  *
  * Rendering: drawHooks.paintStyle gets a canvas pattern of the blended
- * colors over the object's bounds; SVG export writes it as an image
- * pattern; other exporters get the average color (exportBakers).
+ * colors over the object's frame; SVG export writes it as an image
+ * pattern; PDF fills draw it as an image inside the shape; other
+ * exporters get the average color (exportBakers).
  */
 import { hexToRgb, rgbToHex } from '../../lib/color.js';
 import { drawHooks } from '../../render/draw.js';
-import { nodeBounds } from '../../model/geometry.js';
+import { frameBounds, nodeFrameAngle } from '../../model/geometry.js';
+import { multiply, rotate, apply, invert } from '../../lib/matrix.js';
 import { paintCssHooks } from '../../ui/widgets.js';
 import { svgPaintHooks, exportBakers } from '../io/hooks.js';
 
@@ -37,80 +44,125 @@ export function defaultFreeform(from = null) {
 }
 
 /**
- * Blend weights at (u, v) in bounds-fraction space for an object `aspect`
- * = width / height: distances are measured in the object's proportions.
+ * Color sources of a paint: free points, and in lines mode the segments of
+ * its lines (each point of a segment takes the color between its ends).
  */
-function weights(points, u, v, aspect) {
+function prepare(paint) {
+  const pts = paint.points || [];
+  const col = pts.map((p) => ({ ...hexToRgb(p.color), a: p.opacity ?? 1 }));
+  const lines = paint.mode === 'lines' ? (paint.lines || []).filter((l) => Array.isArray(l) && l.length > 1) : [];
+  const segs = [];
+  for (const l of lines) for (let k = 0; k + 1 < l.length; k++) if (pts[l[k]] && pts[l[k + 1]] && l[k] !== l[k + 1]) segs.push([l[k], l[k + 1]]);
+  const onLine = new Set(segs.flat());
+  const free = pts.map((_, i) => i).filter((i) => !onLine.has(i));
+  return { pts, col, segs, free };
+}
+
+/**
+ * The blended color { r, g, b, a } at (u, v) in frame-fraction space for an
+ * object `aspect` = width / height (distances are measured in the
+ * object's proportions): an inverse-distance-weighted mix of the sources,
+ * solid within a point's spread.
+ */
+function blendAt(prep, u, v, aspect) {
+  const { pts, col, segs, free } = prep;
   const sx = Math.sqrt(aspect);
   const sy = 1 / sx;
   const diag = Math.hypot(sx, sy);
-  const out = new Float64Array(points.length);
-  let total = 0;
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    const d = Math.hypot((u - p.x) * sx, (v - p.y) * sy) / diag;
-    const r = Math.max(0, d - clamp01(p.spread || 0));
-    if (r < 1e-6) {
-      out.fill(0);
-      out[i] = 1;
-      return out;
-    }
-    const w = 1 / (r * r);
-    out[i] = w;
-    total += w;
-  }
-  for (let i = 0; i < out.length; i++) out[i] /= total;
-  return out;
-}
-
-/** Color { r, g, b, a } (0..255, a 0..1) at (u, v). */
-export function sampleFreeform(paint, u, v, aspect = 1) {
-  const pts = paint.points || [];
-  if (!pts.length) return { r: 0, g: 0, b: 0, a: 0 };
-  const rgb = pts.map((p) => hexToRgb(p.color));
-  const w = weights(pts, u, v, aspect);
   let r = 0;
   let g = 0;
   let b = 0;
   let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    r += rgb[i].r * w[i];
-    g += rgb[i].g * w[i];
-    b += rgb[i].b * w[i];
-    a += (pts[i].opacity ?? 1) * w[i];
+  let total = 0;
+  const add = (d, c) => {
+    const w = 1 / (d * d);
+    r += c.r * w;
+    g += c.g * w;
+    b += c.b * w;
+    a += c.a * w;
+    total += w;
+  };
+  for (const i of free) {
+    const p = pts[i];
+    const d = Math.max(0, Math.hypot((u - p.x) * sx, (v - p.y) * sy) / diag - clamp01(p.spread || 0));
+    if (d < 1e-6) return { ...col[i] };
+    add(d, col[i]);
   }
-  return { r, g, b, a };
+  for (const [i, j] of segs) {
+    const p = pts[i];
+    const q = pts[j];
+    const ax = p.x * sx;
+    const ay = p.y * sy;
+    const dx = q.x * sx - ax;
+    const dy = q.y * sy - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? clamp01(((u * sx - ax) * dx + (v * sy - ay) * dy) / len2) : 0;
+    const spread = clamp01(p.spread || 0) + (clamp01(q.spread || 0) - clamp01(p.spread || 0)) * t;
+    const d = Math.max(0, Math.hypot(u * sx - ax - dx * t, v * sy - ay - dy * t) / diag - spread);
+    const c0 = col[i];
+    const c1 = col[j];
+    const c = { r: c0.r + (c1.r - c0.r) * t, g: c0.g + (c1.g - c0.g) * t, b: c0.b + (c1.b - c0.b) * t, a: c0.a + (c1.a - c0.a) * t };
+    if (d < 1e-6) return c;
+    add(d, c);
+  }
+  if (!total) return { r: 0, g: 0, b: 0, a: 0 };
+  return { r: r / total, g: g / total, b: b / total, a: a / total };
 }
 
-/** RGBA pixels for a w x h raster covering bounds-fraction rect [u0,u1] x [v0,v1]. */
+/** Color { r, g, b, a } (0..255, a 0..1) at (u, v). */
+export function sampleFreeform(paint, u, v, aspect = 1) {
+  if (!paint.points?.length) return { r: 0, g: 0, b: 0, a: 0 };
+  return blendAt(prepare(paint), u, v, aspect);
+}
+
+/** RGBA pixels for a w x h raster covering frame-fraction rect [u0,u1] x [v0,v1]. */
 export function freeformPixels(paint, w, h, aspect = 1, [u0, v0, u1, v1] = [0, 0, 1, 1]) {
   const data = new Uint8ClampedArray(w * h * 4);
-  const pts = paint.points || [];
-  if (!pts.length) return data;
-  const rgb = pts.map((p) => hexToRgb(p.color));
+  if (!paint.points?.length) return data;
+  const prep = prepare(paint);
   for (let y = 0; y < h; y++) {
     const v = v0 + ((y + 0.5) / h) * (v1 - v0);
     for (let x = 0; x < w; x++) {
       const u = u0 + ((x + 0.5) / w) * (u1 - u0);
-      const wt = weights(pts, u, v, aspect);
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let i = 0; i < pts.length; i++) {
-        r += rgb[i].r * wt[i];
-        g += rgb[i].g * wt[i];
-        b += rgb[i].b * wt[i];
-        a += (pts[i].opacity ?? 1) * wt[i];
-      }
+      const c = blendAt(prep, u, v, aspect);
       const k = (y * w + x) * 4;
-      data[k] = r;
-      data[k + 1] = g;
-      data[k + 2] = b;
-      data[k + 3] = a * 255;
+      data[k] = c.r;
+      data[k + 1] = c.g;
+      data[k + 2] = c.b;
+      data[k + 3] = c.a * 255;
     }
   }
   return data;
+}
+
+// ---- frame ----
+
+/**
+ * Where a freeform gradient lies on an object: its bounding box frame
+ * { x, y, w, h, angle } (frame space, turned by `angle` degrees with the
+ * object, see geometry.js frameBounds). Point positions are fractions of
+ * this box, so rotating the object turns the gradient with it.
+ */
+export function freeformFrame(doc, node) {
+  const angle = nodeFrameAngle(node);
+  const b = frameBounds(doc, node, angle);
+  return b && b.w > 0 && b.h > 0 ? { ...b, angle } : null;
+}
+
+/** Matrix from frame fractions (u, v) to the document. */
+export function frameFractionMatrix(f) {
+  return multiply(rotate(f.angle || 0), [f.w, 0, 0, f.h, f.x, f.y]);
+}
+
+/** Document position of the frame fraction (u, v). */
+export function framePoint(f, u, v) {
+  return apply(frameFractionMatrix(f), u, v);
+}
+
+/** Frame fraction { u, v } of a document point. */
+export function frameFraction(f, x, y) {
+  const p = apply(invert(frameFractionMatrix(f)), x, y);
+  return { u: p.x, v: p.y };
 }
 
 /** The average color of the points (for exporters that cannot draw the blend). */
@@ -130,13 +182,51 @@ export function setPoint(paint, i, patch) {
   return { ...paint, points: paint.points.map((p, j) => (j === i ? { ...p, ...patch } : p)) };
 }
 
-export function addPoint(paint, x, y, color) {
-  return { paint: { ...paint, points: [...paint.points, { x: clamp01(x), y: clamp01(y), color, spread: 0 }] }, index: paint.points.length };
+/**
+ * Add a color point. In lines mode it continues the line through point
+ * `after` (or starts one from it); without `after` it stands alone.
+ */
+export function addPoint(paint, x, y, color, { after = null } = {}) {
+  const index = paint.points.length;
+  const out = { ...paint, points: [...paint.points, { x: clamp01(x), y: clamp01(y), color, spread: 0 }] };
+  if (paint.mode === 'lines' && after != null && paint.points[after]) {
+    const lines = (paint.lines || []).map((l) => l.slice());
+    const end = lines.find((l) => l[l.length - 1] === after);
+    const start = end ? null : lines.find((l) => l[0] === after);
+    if (end) end.push(index);
+    else if (start) start.unshift(index);
+    else lines.push([after, index]);
+    out.lines = lines;
+  }
+  return { paint: out, index };
+}
+
+/** Insert a point on segment k of line `li` at t (0..1), with the color there. */
+export function insertLinePoint(paint, li, k, t) {
+  const line = paint.lines?.[li];
+  if (!line || k + 1 >= line.length) return null;
+  const a = paint.points[line[k]];
+  const b = paint.points[line[k + 1]];
+  const ca = hexToRgb(a.color);
+  const cb = hexToRgb(b.color);
+  const color = rgbToHex({ r: ca.r + (cb.r - ca.r) * t, g: ca.g + (cb.g - ca.g) * t, b: ca.b + (cb.b - ca.b) * t });
+  const index = paint.points.length;
+  const pt = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, color, spread: 0 };
+  if (a.opacity != null || b.opacity != null) pt.opacity = (a.opacity ?? 1) + ((b.opacity ?? 1) - (a.opacity ?? 1)) * t;
+  const lines = paint.lines.map((l, i) => (i === li ? [...l.slice(0, k + 1), index, ...l.slice(k + 1)] : l));
+  return { paint: { ...paint, points: [...paint.points, pt], lines }, index };
 }
 
 export function removePoint(paint, i) {
   if (paint.points.length <= 1) return paint;
-  return { ...paint, points: paint.points.filter((_, j) => j !== i) };
+  const out = { ...paint, points: paint.points.filter((_, j) => j !== i) };
+  if (paint.lines) out.lines = paint.lines.map((l) => l.filter((j) => j !== i).map((j) => (j > i ? j - 1 : j))).filter((l) => l.length > 1);
+  return out;
+}
+
+/** Switch between points and lines (lines keep their connections for switching back). */
+export function setFreeformMode(paint, mode) {
+  return { ...paint, mode: mode === 'lines' ? 'lines' : 'points' };
 }
 
 // ---- rendering ----
@@ -170,19 +260,20 @@ export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
   return canvas;
 }
 
-/** Canvas style for a freeform paint on a node: a pattern of the blend over its bounds. */
+/** Canvas style for a freeform paint on a node: a pattern of the blend over its frame. */
 export function freeformStyle(ctx, doc, node, paint) {
-  const b = nodeBounds(doc, node);
-  if (!b || !(b.w > 0) || !(b.h > 0)) return averageColor(paint);
-  // Strokes reach past the bounds: cover them too.
+  const f = freeformFrame(doc, node);
+  if (!f) return averageColor(paint);
+  // Strokes reach past the frame: cover them too.
   const pad = Math.max(0, node.strokeWidth || 0) + 1;
-  const rect = [-pad / b.w, -pad / b.h, 1 + pad / b.w, 1 + pad / b.h];
-  const canvas = freeformRaster(paint, b.w / b.h, rect);
+  const pu = pad / f.w;
+  const pv = pad / f.h;
+  const canvas = freeformRaster(paint, f.w / f.h, [-pu, -pv, 1 + pu, 1 + pv]);
   const pattern = canvas && ctx.createPattern?.(canvas, 'no-repeat');
   if (!pattern || typeof DOMMatrix === 'undefined' || !pattern.setTransform) return averageColor(paint);
-  const x0 = b.x - pad;
-  const y0 = b.y - pad;
-  pattern.setTransform(new DOMMatrix([(b.w + pad * 2) / canvas.width, 0, 0, (b.h + pad * 2) / canvas.height, x0, y0]));
+  // Canvas pixels -> frame fractions -> document.
+  const m = multiply(frameFractionMatrix(f), [(1 + 2 * pu) / canvas.width, 0, 0, (1 + 2 * pv) / canvas.height, -pu, -pv]);
+  pattern.setTransform(new DOMMatrix(m));
   return pattern;
 }
 
@@ -198,11 +289,11 @@ export function freeformCss(paint) {
   return `${layers.join(', ')}, ${averageColor(paint)}`;
 }
 
-/** SVG paint server: an image pattern of the blend over the object's bounds. */
+/** SVG paint server: an image pattern of the blend over the object's frame. */
 function svgFreeform(writer, paint, node, mapped) {
-  const b = nodeBounds(writer.doc, node);
-  if (!b || !(b.w > 0) || !(b.h > 0)) return null;
-  const canvas = freeformRaster(paint, b.w / b.h);
+  const f = freeformFrame(writer.doc, node);
+  if (!f) return null;
+  const canvas = freeformRaster(paint, f.w / f.h);
   let href = null;
   try {
     href = canvas?.toDataURL?.('image/png');
@@ -210,10 +301,15 @@ function svgFreeform(writer, paint, node, mapped) {
     href = null;
   }
   if (!href || href.length < 30) return null;
-  const x = mapped ? b.x - writer.ox : b.x;
-  const y = mapped ? b.y - writer.oy : b.y;
+  const m = frameFractionMatrix(f);
+  if (mapped) {
+    m[4] -= writer.ox;
+    m[5] -= writer.oy;
+  }
   const n = (v) => writer.n(v);
-  return writer.def('ff', (id) => `${writer.nl(2)}<pattern id="${id}" patternUnits="userSpaceOnUse" x="${n(x)}" y="${n(y)}" width="${n(b.w)}" height="${n(b.h)}"><image width="${n(b.w)}" height="${n(b.h)}" preserveAspectRatio="none" href="${href}"/></pattern>`);
+  const k = (v) => Number(v.toFixed(6));
+  // One pattern unit is the whole frame; the matrix places (and turns) it.
+  return writer.def('ff', (id) => `${writer.nl(2)}<pattern id="${id}" patternUnits="userSpaceOnUse" width="1" height="1" patternTransform="matrix(${[k(m[0]), k(m[1]), k(m[2]), k(m[3]), n(m[4]), n(m[5])].join(' ')})"><image width="1" height="1" preserveAspectRatio="none" href="${href}"/></pattern>`);
 }
 
 const hasFreeform = (n) => isFreeform(n.fill) || isFreeform(n.stroke);

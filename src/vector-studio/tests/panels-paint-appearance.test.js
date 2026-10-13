@@ -16,7 +16,7 @@ describe('Appearance panel menu', () => {
     ed.select([id]);
     const p = panel('appearance');
     const labels = p.menu().filter((x) => typeof x === 'object').map((x) => x.label);
-    expect(labels).toEqual(['Add New Fill', 'Add New Stroke', 'Add New Effect', 'Duplicate Item', 'Remove Item', 'Clear Appearance', 'Reduce to Basic Appearance', 'New Art Has Basic Appearance', 'Hide Thumbnail', 'Redefine Graphic Style']);
+    expect(labels).toEqual(['Add New Fill', 'Add New Stroke', 'Add New Effect', 'Duplicate Item', 'Remove Item', 'Clear Appearance', 'Reduce to Basic Appearance', 'New Art Has Basic Appearance', 'Show All Hidden Attributes', 'Hide Thumbnail', 'Redefine Graphic Style']);
     expect(menuItem(p, 'Add New Effect').submenu.length).toBeGreaterThan(3);
     menuItem(p, 'Add New Stroke').run();
     expect(ed.doc.get(id).stroke).toEqual(solid('#000000'));

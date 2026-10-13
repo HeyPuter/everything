@@ -67,9 +67,11 @@ export function selectSameShapesText(editor) {
 
 // ---- Same Appearance Attribute ----
 
-/** The appearance attributes of an object: its visible effects, by kind. */
+/** The appearance attributes of an object: its visible effects (its own and its fills' and strokes'), by kind. */
 export function appearanceAttributes(node) {
-  return (node.effects || []).filter((e) => e && !e.hidden).map((e) => e.type);
+  const out = (node.effects || []).filter((e) => e && !e.hidden).map((e) => e.type);
+  for (const it of node.appearance || []) if (it && !it.hidden) for (const e of it.effects || []) if (e && !e.hidden) out.push(e.type);
+  return out;
 }
 
 /** Objects sharing at least one appearance attribute (effect kind) with the reference. */
@@ -110,7 +112,7 @@ function normPaint(p) {
 export function matchesStyle(doc, node, style) {
   const s = styleOfNode(doc, node);
   for (const [k, v] of Object.entries(style)) {
-    if (v === undefined) continue;
+    if (v === undefined || k === 'appearance' || k === 'groupAppearance') continue;
     let a = s[k] ?? DEFAULTS[k] ?? null;
     let b = v;
     if (k === 'effects') {
@@ -123,7 +125,20 @@ export function matchesStyle(doc, node, style) {
     if (k === 'strokeWidth' && !s.stroke && !style.stroke) continue;
     if (JSON.stringify(a) !== JSON.stringify(b)) return false;
   }
+  // Extra fills and strokes must match too (a style without them matches only objects without them).
+  for (const k of ['appearance', 'groupAppearance']) if (JSON.stringify(normStack(s[k])) !== JSON.stringify(normStack(style[k]))) return false;
   return true;
+}
+
+function normStack(items) {
+  if (!items?.length) return null;
+  return items.map((it) => {
+    const out = { ...it };
+    if (out.effects) out.effects = stripIds(out.effects);
+    if (out.fill) out.fill = normPaint(out.fill);
+    if (out.stroke) out.stroke = normPaint(out.stroke);
+    return out;
+  });
 }
 
 /** Objects with the same graphic style as the reference (the first style its appearance matches). */

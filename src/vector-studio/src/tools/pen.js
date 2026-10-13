@@ -24,11 +24,12 @@ import { removeEmptyContainers } from '../ops/object-ops.js';
 /**
  * Style for new paths drawn with the current paint settings. With
  * `editor.basicNewArt` (New Art Has Basic Appearance) they leave out the
- * current effects.
+ * current effects and extra fills and strokes.
  */
 export function newPathStyle(editor) {
   const style = pickStyle(editor.style);
   if (editor.basicNewArt && style.effects?.length) style.effects = [];
+  if (editor.basicNewArt) delete style.appearance;
   return style;
 }
 

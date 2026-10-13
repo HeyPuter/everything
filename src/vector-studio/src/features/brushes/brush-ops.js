@@ -5,6 +5,8 @@
 import { UserError } from '../../lib/errors.js';
 import { docBrushes, setDocBrushes, brushById, brushUsers, copyBrush, uniqueBrushName } from './brush-model.js';
 import { expandLive } from '../../model/live.js';
+import { targetedItem, setItemAttrs } from '../paint/appearance-ops.js';
+import { stackItems } from '../../model/appearance.js';
 
 /** Paths and compound paths under the selection (groups contribute their leaves). */
 export function brushTargets(editor) {
@@ -28,6 +30,12 @@ export function brushTargets(editor) {
 
 /** The brush id shared by the selection's paths: an id, null (no brush), 'mixed', or undefined (nothing selected). */
 export function selectionBrush(editor) {
+  // A stroke picked in the Appearance panel shows its own brush.
+  const item = pickedStroke(editor);
+  if (item) {
+    const ids = new Set(item.owners.map((n) => stackItems(n)[item.index]?.brush?.id || null));
+    return ids.size === 1 ? [...ids][0] : 'mixed';
+  }
   const t = brushTargets(editor);
   if (!t.length) return undefined;
   const ids = new Set(t.map((n) => n.brush?.id || null));
@@ -35,6 +43,12 @@ export function selectionBrush(editor) {
 }
 
 const newSeed = () => Math.floor(Math.random() * 0x7fffffff);
+
+/** The extra stroke picked in the Appearance panel (brushes and profiles go to it), or null. */
+export function pickedStroke(editor) {
+  const t = targetedItem(editor);
+  return t?.item.type === 'stroke' ? t : null;
+}
 
 /**
  * Paint the selected paths with a brush (keeping their overrides when the
@@ -44,11 +58,16 @@ export function applyBrush(editor, brushId, label = 'Apply Brush') {
   const doc = editor.doc;
   const def = brushById(doc, brushId);
   if (!def) return false;
+  const item = pickedStroke(editor);
   const targets = brushTargets(editor);
-  if (!targets.length) return false;
+  if (!targets.length && !item) return false;
   doc.transact(label, () => {
     // A library brush the document does not hold yet joins its brushes.
     if (!docBrushes(doc).some((b) => b.id === def.id)) setDocBrushes(doc, [...docBrushes(doc), def]);
+    if (item) {
+      setItemAttrs(editor, item.index, { brush: (cur) => (cur?.id === brushId ? cur : { id: brushId, seed: newSeed() }) }, label);
+      return;
+    }
     for (const n of targets) {
       const patch = { brush: n.brush?.id === brushId ? n.brush : { id: brushId, seed: newSeed() } };
       if (!n.stroke) patch.stroke = editor.style.stroke || { type: 'solid', color: '#000000' };
@@ -62,6 +81,8 @@ export function applyBrush(editor, brushId, label = 'Apply Brush') {
 /** Remove Brush Stroke: back to a plain stroke. */
 export function removeBrush(editor) {
   const doc = editor.doc;
+  const item = pickedStroke(editor);
+  if (item) return setItemAttrs(editor, item.index, { brush: undefined, brushPressure: undefined }, 'Remove Brush Stroke');
   const targets = brushTargets(editor).filter((n) => n.brush);
   if (!targets.length) return false;
   doc.transact('Remove Brush Stroke', () => {

@@ -20,6 +20,7 @@ import { multiply } from '../lib/matrix.js';
 import { geomEffectsOf, effectiveSubpaths, paintParts } from '../model/geom-effects.js';
 import { liveDef, liveArtwork } from '../model/live.js';
 import '../model/live-effects.js';
+import { hasAppearanceStack, layerAppearanceArtwork } from '../model/appearance.js';
 import { rasterEffects, compositeWithEffects, regionPool, deviceRegion, effectsMargin } from './effects.js';
 
 const pathCache = new WeakMap();
@@ -544,7 +545,7 @@ export function drawNode(ctx, doc, node, opts) {
     lctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
     if (container) {
       if (node.knockout && !opts.outline) drawKnockout(lctx, doc, node, opts, pool);
-      else drawChildren(lctx, doc, node, opts);
+      else drawContent(lctx, doc, node, opts);
     } else drawContent(lctx, doc, node, opts);
     if (om) drawHooks.opacityMask(layer, region, m, doc, node, opts);
     ctx.save();
@@ -583,8 +584,14 @@ function drawContent(ctx, doc, node, opts) {
       drawImage(ctx, doc, node, opts);
       break;
     case 'group':
-    case 'layer':
       drawChildren(ctx, doc, node, opts);
+      break;
+    case 'layer':
+      // A layer's own fills and strokes (layers are not live artwork) draw around its contents.
+      if (!opts.outline && hasAppearanceStack(node)) {
+        const { items, vdoc } = layerAppearanceArtwork(doc, node);
+        for (const n of items) drawNode(ctx, vdoc, n, opts);
+      } else drawChildren(ctx, doc, node, opts);
       break;
     default:
       // A leaf live object passed the leaf filter as a whole; its generated parts are not filtered again.

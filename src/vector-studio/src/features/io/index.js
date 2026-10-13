@@ -18,7 +18,8 @@
  *   app.exporters.thumbnail(editor, { size, artboard }) -> Promise<Blob> (PNG)
  */
 import './styles.css';
-import { paintHooks } from './hooks.js';
+import { paintHooks, svgExportHooks, exportBakers } from './hooks.js';
+import { appearanceAttrs, layerAppearanceBaker } from './svg-appearance.js';
 import { installSystemIO } from './system.js';
 import { pickDeviceFiles } from './kinds.js';
 
@@ -36,6 +37,9 @@ export function loadIO() {
 
 export function install(app) {
   paintHooks.app = app;
+  // Appearance stacks: marked for SVG import, and layer stacks baked for every exporter.
+  if (!svgExportHooks.attrs.includes(appearanceAttrs)) svgExportHooks.attrs.push(appearanceAttrs);
+  if (!exportBakers.includes(layerAppearanceBaker)) exportBakers.push(layerAppearanceBaker);
   app.importers = {
     ...(app.importers || {}),
     svg: async (text, opts) => (await loadIO()).importSvgDocument(app, text, opts),

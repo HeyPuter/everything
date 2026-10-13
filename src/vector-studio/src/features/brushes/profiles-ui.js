@@ -12,7 +12,9 @@ import { iconButton } from '../../ui/widgets.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
 import { WIDTH_PROFILES, flipAlong, flipAcross, sameProfile, isUniformProfile, normalizeProfile } from './width-profile.js';
 import { profilePreview } from './thumbs.js';
-import { brushTargets, selectionBrush, applyBrush, removeBrush } from './brush-ops.js';
+import { brushTargets, selectionBrush, applyBrush, removeBrush, pickedStroke } from './brush-ops.js';
+import { setItemAttrs } from '../paint/appearance-ops.js';
+import { stackItems } from '../../model/appearance.js';
 import { docBrushes, BRUSH_TYPES } from './brush-model.js';
 import { brushState, editSelectedStrokeOptions } from './brush-actions.js';
 
@@ -23,6 +25,15 @@ export function profileTargets(editor) {
 
 /** The selection's common profile: points, null (uniform), 'mixed', or undefined (no stroked path). */
 export function selectionProfile(editor) {
+  // A stroke picked in the Appearance panel shows its own profile.
+  const item = pickedStroke(editor);
+  if (item) {
+    const ps = item.owners.map((n) => {
+      const p = stackItems(n)[item.index]?.widthProfile;
+      return isUniformProfile(p) ? null : p;
+    });
+    return ps.every((p) => sameProfile(p, ps[0])) ? ps[0] : 'mixed';
+  }
   const t = profileTargets(editor);
   if (!t.length) return undefined;
   const first = isUniformProfile(t[0].widthProfile) ? null : t[0].widthProfile;
@@ -35,6 +46,16 @@ export function selectionProfile(editor) {
 
 /** Set (or with a function, transform) the width profile of the selected strokes. */
 export function applyProfile(editor, pointsOrFn, label = 'Stroke Profile') {
+  const item = pickedStroke(editor);
+  if (item) {
+    return setItemAttrs(editor, item.index, {
+      widthProfile: (curRaw) => {
+        const cur = isUniformProfile(curRaw) ? null : curRaw;
+        const next = typeof pointsOrFn === 'function' ? (cur ? pointsOrFn(cur) : null) : pointsOrFn ? normalizeProfile(pointsOrFn) : null;
+        return next && !isUniformProfile(next) ? next : undefined;
+      },
+    }, label);
+  }
   const t = profileTargets(editor);
   if (!t.length) return false;
   const doc = editor.doc;

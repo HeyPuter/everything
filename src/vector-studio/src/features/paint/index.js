@@ -30,6 +30,7 @@ import { nodeArrowheads, arrowTrim, trimAnchors, alignedDash } from './stroke-ge
 import { setFocusedColor, displayColor } from './ui-common.js';
 import { isGradient } from '../../model/gradients.js';
 import { installRecentColors } from './recent-colors.js';
+import { installAppearanceHooks } from './appearance-ops.js';
 import { swatchLibraryMenu } from './swatch-libraries.js';
 
 const arrowCache = new WeakMap();
@@ -88,6 +89,7 @@ export function install(app) {
   registerEffectCommands(app);
   registerEditColorCommands(app);
   installRecentColors(app);
+  installAppearanceHooks();
   installOpacityMasks();
   installFreeform();
   registerTransparencyCommands(app);

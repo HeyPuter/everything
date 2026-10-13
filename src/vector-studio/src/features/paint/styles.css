@@ -1037,6 +1037,17 @@
   border-radius: 2px;
 }
 
+/* The thumbnail being edited (artwork or mask) is outlined. */
+.tp-mask-thumb.editing .tp-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tp-obj-thumb:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .tp-mask-thumb.empty .tp-thumb {
   border-style: dashed;
   opacity: 0.6;
@@ -1126,6 +1137,7 @@
 
 .ap-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1px;
 }
 
@@ -1167,10 +1179,20 @@
 .ap-label {
   flex: 1;
   min-width: 0;
+  text-align: start;
 }
 
 .ap-row .num-field {
-  width: 80px;
+  width: 72px;
+  flex: none;
+}
+
+.ap-row {
+  min-width: 0;
+}
+
+.ap-row .icon-btn.small {
+  flex: none;
 }
 
 .ap-del {
@@ -1185,6 +1207,37 @@
 
 .ap-mixed {
   margin: 4px 0;
+}
+
+.ap-tw,
+.ap-tw-pad {
+  width: 18px;
+  flex: none;
+}
+
+.ap-tw.icon-btn {
+  padding: 0;
+  min-width: 18px;
+  width: 18px;
+}
+
+/* An item's own effects and opacity, under its row. */
+.ap-row.ap-sub {
+  padding-left: 22px;
+  min-height: 26px;
+  font-size: var(--fs-sm);
+}
+
+.ap-badge {
+  display: inline-flex;
+  color: var(--text-2);
+  flex: none;
+}
+
+.ap-item-opacity {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
 }
 
 /* ---- Graphic styles ---- */

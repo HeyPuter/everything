@@ -13,6 +13,7 @@
  * `swatchId` (solid paints, and gradient stops via stop.swatchId). Editing
  * the swatch rewrites every paint that references it, in the same undo step.
  */
+import { stackPaints, mapStackPaints } from '../../model/appearance.js';
 import { uid } from '../../lib/ids.js';
 
 export function swatchesOf(doc) {
@@ -87,8 +88,13 @@ export function updateSwatch(doc, id, patch) {
  */
 export function rewriteSwatchRefs(doc, test, paintFor, relinkTo) {
   for (const node of doc.nodes.values()) {
-    if (node.type !== 'path' && node.type !== 'compound' && node.type !== 'text') continue;
-    const patch = {};
+    // Extra fills and strokes (appearance stacks, also on groups and layers) link to swatches too.
+    const stack = mapStackPaints(node, (p) => rewritePaint(p, test, paintFor, relinkTo));
+    if (node.type !== 'path' && node.type !== 'compound' && node.type !== 'text') {
+      if (stack) doc.update(node.id, { appearance: stack });
+      continue;
+    }
+    const patch = stack ? { appearance: stack } : {};
     for (const key of ['fill', 'stroke']) {
       const p = node[key];
       if (!p) continue;
@@ -159,7 +165,7 @@ export function swatchUsage(doc, id) {
   let n = 0;
   const uses = (p) => p && (p.swatchId === id || ((p.type === 'linear' || p.type === 'radial') && p.stops.some((s) => s.swatchId === id)));
   for (const node of doc.nodes.values()) {
-    if (uses(node.fill) || uses(node.stroke) || (node.type === 'text' && node.runs?.some((r) => uses(r.fill) || uses(r.stroke)))) n++;
+    if (uses(node.fill) || uses(node.stroke) || (node.type === 'text' && node.runs?.some((r) => uses(r.fill) || uses(r.stroke))) || stackPaints(node).some(uses)) n++;
   }
   return n;
 }
@@ -325,6 +331,7 @@ function usedPaints(doc) {
   for (const node of doc.nodes.values()) {
     for (const key of ['fill', 'stroke']) if (node[key]) out.push(node[key]);
     if (node.type === 'text' && node.runs) for (const r of node.runs) for (const key of ['fill', 'stroke']) if (r[key]) out.push(r[key]);
+    out.push(...stackPaints(node));
   }
   return out;
 }
