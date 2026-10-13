@@ -112,8 +112,10 @@ describe('VDocument bulk edits', () => {
       return { ms: performance.now() - t0, d, l };
     };
     timeInsert(2000); // warm up
-    const small = timeInsert(4000);
-    const { ms, d: doc, l: layer } = timeInsert(16000);
+    // The fastest of a few runs, so a GC pause or a busy machine doesn't skew the ratio.
+    const fastest = (count, runs) => Array.from({ length: runs }, () => timeInsert(count)).reduce((a, b) => (b.ms < a.ms ? b : a));
+    const small = fastest(4000, 3);
+    const { ms, d: doc, l: layer } = fastest(16000, 2);
     // 4x the nodes: linear is ~4x the time, quadratic would be ~16x.
     expect(ms / Math.max(small.ms, 1)).toBeLessThan(10);
     expect(doc.get(layer.id).children).toHaveLength(16000);
