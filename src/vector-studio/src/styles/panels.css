@@ -414,6 +414,28 @@
   gap: 6px;
 }
 
+.shape-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 6px;
+}
+
+.shape-fields .num-label {
+  white-space: nowrap;
+}
+
+.shape-fields .num-input {
+  flex: 1;
+  min-width: 48px;
+}
+
+.shape-corners-link,
+.shape-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ---- Segmented ---- */
 .segmented {
   display: inline-flex;

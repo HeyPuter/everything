@@ -1,8 +1,8 @@
 /**
  * Rotate (R), Reflect (O), Scale (S) and Shear tools.
  *
- * Click to set the reference point (default: the selection's center), then
- * drag to transform around it. Shift constrains, Alt while dragging leaves
+ * Click to set the reference point (default: the selection's center), or
+ * drag its marker to move it, then drag to transform around it. Shift constrains, Alt while dragging leaves
  * the original and transforms a copy. Alt-click sets the reference point and
  * opens the tool's dialog; Enter or double-clicking the tool opens the dialog
  * around the center.
@@ -56,6 +56,12 @@ class OriginTool extends Tool {
     return this.origin && this.origin.key === this.selectionKey() ? this.origin : this.center();
   }
 
+  onHover(e) {
+    const o = this.editor.selection.size ? this.currentOrigin() : null;
+    const so = o && this.editor.view.toScreen(o.x, o.y);
+    this.setCursor(so && Math.hypot(so.x - e.sx, so.y - e.sy) <= 7 ? 'move' : 'crosshair');
+  }
+
   onPointerDown(e) {
     const editor = this.editor;
     if (!editor.selection.size) {
@@ -69,12 +75,24 @@ class OriginTool extends Tool {
       return;
     }
     const o = this.currentOrigin();
+    // Pressing on the reference point marker drags the point itself.
+    const so = o && editor.view.toScreen(o.x, o.y);
+    if (so && Math.hypot(so.x - e.sx, so.y - e.sy) <= 7) {
+      this.drag = { kind: 'origin', o };
+      return;
+    }
     this.drag = { o, x0: e.x, y0: e.y, moved: false, clickOnly: true, session: null };
   }
 
   onPointerMove(e) {
     const d = this.drag;
     if (!d) return;
+    if (d.kind === 'origin') {
+      this.setOrigin(e.x, e.y);
+      d.o = this.origin;
+      this.overlay();
+      return;
+    }
     if (!d.moved && Math.hypot(e.x - d.x0, e.y - d.y0) * this.editor.view.zoom < 3) return;
     if (!d.moved) {
       d.moved = true;
@@ -90,6 +108,10 @@ class OriginTool extends Tool {
     this.drag = null;
     this.editor.feedback = null;
     if (!d) return;
+    if (d.kind === 'origin') {
+      this.overlay();
+      return;
+    }
     if (!d.moved) {
       this.setOrigin(e.x, e.y);
       this.overlay();

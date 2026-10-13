@@ -9,7 +9,7 @@
 import { pathBounds, transformAnchors } from './bezier.js';
 import { apply, applyVector, multiply, decompose, isIdentity, invert, rotate } from '../lib/matrix.js';
 import { layoutText } from './text-layout.js';
-import { shapeAnchors } from './shapes.js';
+import { shapeAnchors, isPie } from './shapes.js';
 import { liveDef, liveArtwork } from './live.js';
 import { geomEffectsOf, effectiveSubpaths, subpathsBounds, geomEffectsOutset } from './geom-effects.js';
 
@@ -423,6 +423,30 @@ const SHAPE_PERIOD = {
  * plain path (like expanding a live shape).
  */
 function transformShape(shape, m, opts) {
+  const out = transformShapeParams(shape, m, opts);
+  return out && isPie(shape) ? retargetPie(shape, out, m) : out;
+}
+
+/** Pie angles of a transformed live ellipse: its rim end points mapped into the new ellipse's frame. */
+function retargetPie(shape, out, m) {
+  const rim = (s, deg) => {
+    const t = (deg * Math.PI) / 180;
+    return apply(rotate(s.angle || 0, s.cx, s.cy), s.cx + (s.w / 2) * Math.cos(t), s.cy - (s.h / 2) * Math.sin(t));
+  };
+  const back = rotate(-(out.angle || 0), out.cx, out.cy);
+  const angleOf = (p) => {
+    const q = apply(back, p.x, p.y);
+    const deg = (Math.atan2(-(q.y - out.cy) / (out.h / 2 || 1), (q.x - out.cx) / (out.w / 2 || 1)) * 180) / Math.PI;
+    return Math.round(((deg % 360) + 360) % 360 * 1e6) / 1e6;
+  };
+  const a = angleOf(apply(m, rim(shape, shape.pieStart).x, rim(shape, shape.pieStart).y));
+  const b = angleOf(apply(m, rim(shape, shape.pieEnd).x, rim(shape, shape.pieEnd).y));
+  // A reflection reverses the arc's direction.
+  const flipped = m[0] * m[3] - m[1] * m[2] < 0;
+  return { ...out, pieStart: flipped ? b : a, pieEnd: flipped ? a : b };
+}
+
+function transformShapeParams(shape, m, opts) {
   if (!shape) return undefined;
   const d = decompose(m);
   const pureMove = Math.abs(m[0] - 1) < 1e-9 && Math.abs(m[3] - 1) < 1e-9 && Math.abs(m[1]) < 1e-9 && Math.abs(m[2]) < 1e-9;

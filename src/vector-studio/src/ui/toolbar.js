@@ -8,15 +8,17 @@ import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 import { formatShortcut } from '../commands/registry.js';
 import { paintSwatch, updatePaintSwatch } from './widgets.js';
+import { createToolStrip } from './tool-strip.js';
 import { commonStyle, swapFillStroke, defaultFillStroke, setFocusedPaint } from '../ops/paint-ops.js';
 
 /** Toolbar layout: sections of groups of tool ids (first is the default). */
 export const TOOL_LAYOUT = [
-  { label: 'Select', groups: [['selection'], ['direct-selection', 'group-selection'], ['magic-wand', 'lasso']] },
+  { label: 'Select', groups: [['selection'], ['direct-selection', 'group-selection'], ['magic-wand'], ['lasso']] },
   {
     label: 'Draw',
     groups: [
-      ['pen', 'add-anchor', 'delete-anchor', 'anchor-point', 'curvature'],
+      ['pen', 'add-anchor', 'delete-anchor', 'anchor-point'],
+      ['curvature'],
       ['sketch-shape', 'pencil', 'smooth', 'path-eraser', 'join'],
       ['paintbrush', 'blob-brush'],
     ],
@@ -80,9 +82,25 @@ export function createToolbar(app) {
     if (flyout && !flyout.contains(e.target)) closeFlyout();
   };
 
+  /** A floating strip of the tools `ids`, at (x, y) in the viewport. */
+  const tearOff = (ids, x = 80, y = 80) => {
+    closeFlyout();
+    const strip = createToolStrip(app, {
+      ids,
+      label: `${app.toolClasses.get(ids[0]).label.replace(' Tool', '')} tools`,
+      x,
+      y,
+      onClose: () => {
+        strip.remove();
+        groupButtons.find((b) => b._ids.includes(ids[0]))?.focus();
+      },
+    });
+    return strip.el;
+  };
+
   const tipFor = (cls) => (cls.shortcut ? `${cls.label} (${formatShortcut(cls.shortcut)})` : cls.label);
 
-  const openFlyout = (btn, ids, focusFirst = true) => {
+  const openFlyout = (btn, ids, focusFirst = true, allTools = false) => {
     closeFlyout();
     const r = btn.getBoundingClientRect();
     flyout = h('div.tool-flyout', { role: 'menu', 'aria-label': `${app.toolClasses.get(ids[0]).label.replace(' Tool', '')} tools` });
@@ -122,6 +140,28 @@ export function createToolbar(app) {
         h('span.flyout-shortcut', cls.shortcut ? formatShortcut(cls.shortcut) : ''),
       );
       flyout.append(item);
+    }
+    if (ids.length > 1 && !allTools) {
+      flyout.append(
+        h('button.flyout-item.flyout-tearoff', {
+          type: 'button',
+          role: 'menuitem',
+          tabindex: '-1',
+          onclick: () => tearOff(ids, r.right + 4, r.top),
+          onkeydown: (e) => {
+            if (e.key === 'Escape' || e.key === 'ArrowLeft') {
+              e.preventDefault();
+              closeFlyout();
+              btn.focus();
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              const items = [...flyout.querySelectorAll('.flyout-item')];
+              items[e.key === 'ArrowDown' ? 0 : items.length - 2].focus();
+            }
+            e.stopPropagation();
+          },
+        }, icon('app-window', 16), h('span.flyout-label', 'Tear Off as Floating Tools'), h('span.flyout-shortcut', '')),
+      );
     }
     document.body.append(flyout);
     const fw = flyout.offsetWidth;
@@ -237,7 +277,7 @@ export function createToolbar(app) {
 
   const openAllTools = (btn) => {
     const ids = [...app.toolClasses.keys()];
-    openFlyout(btn, ids);
+    openFlyout(btn, ids, true, true);
     flyout?.classList.add('all-tools');
   };
 
@@ -315,5 +355,5 @@ export function createToolbar(app) {
     }
   };
 
-  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list };
+  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff };
 }

@@ -10,7 +10,7 @@
  * and Right Arrow give square or fully rounded corners).
  */
 import { Tool, fmt, constrain45, constrainAngle } from './tool.js';
-import { createPath, createGroup } from '../model/nodes.js';
+import { createPath, createGroup, createCompound } from '../model/nodes.js';
 import * as S from '../model/shapes.js';
 import { buildSnapIndex, snapPoint } from './snap.js';
 import { newPathStyle } from './pen.js';
@@ -32,6 +32,28 @@ function drawingPlane(editor, tool) {
     if (plane) return plane;
   }
   return null;
+}
+
+/**
+ * A group of paths (and compound paths, `{ compound: [anchors...] }`) built
+ * by a grid tool: { group, descendants } ready for doc.insert.
+ */
+function buildGroup(items, base) {
+  const descendants = [];
+  const kids = items.map((n) => {
+    if (n.compound) {
+      const parts = n.compound.map((anchors) => createPath(anchors, true, {}));
+      const c = createCompound(parts.map((p) => p.id), { ...base, ...n.style }, { fillRule: 'evenodd' });
+      for (const p of parts) p.parent = c.id;
+      descendants.push(...parts);
+      return c;
+    }
+    return createPath(n.anchors, n.closed, { ...base, ...n.style });
+  });
+  const group = createGroup(kids.map((k) => k.id));
+  for (const k of kids) k.parent = group.id;
+  descendants.push(...kids);
+  return { group, descendants };
 }
 
 class DragShapeTool extends Tool {
@@ -107,6 +129,7 @@ class DragShapeTool extends Tool {
     d.y = p.y;
     d.shift = e.shift;
     d.alt = e.alt;
+    d.mod = e.mod;
     this.update(e);
   }
 
@@ -132,39 +155,32 @@ class DragShapeTool extends Tool {
     if (!d.tx) {
       d.tx = doc.begin(this.constructor.label.replace(' Tool', ''));
       const nodes = Array.isArray(built) ? built : [built];
-      if (nodes.length === 1) {
+      if (nodes.length === 1 && !nodes[0].compound) {
         const node = createPath(nodes[0].anchors, nodes[0].closed, newPathStyle(editor), { shape: nodes[0].shape });
         if (nodes[0].style) Object.assign(node, nodes[0].style);
         d.select = this.place(doc, node, [], d.plane);
         d.id = node.id;
       } else {
-        const kids = nodes.map((n) => {
-          const node = createPath(n.anchors, n.closed, newPathStyle(editor));
-          if (n.style) Object.assign(node, n.style);
-          return node;
-        });
-        const g = createGroup(kids.map((k) => k.id));
-        for (const k of kids) k.parent = g.id;
-        d.select = this.place(doc, g, kids, d.plane);
-        d.id = g.id;
-        d.kids = kids.map((k) => k.id);
+        const { group, descendants } = buildGroup(nodes, newPathStyle(editor));
+        d.select = this.place(doc, group, descendants, d.plane);
+        d.id = group.id;
       }
       editor.select([d.select]);
     } else if (!Array.isArray(built)) {
-      doc.update(d.id, { anchors: built.anchors, shape: built.shape });
+      doc.update(d.id, { anchors: built.anchors, shape: built.shape, closed: built.closed, ...(built.style || {}) });
     } else {
-      // Grids: rebuild children in place (the count can change with arrow keys).
+      // Grids: rebuild children in place (counts and options can change with keys).
       const g = doc.get(d.id);
-      if (g.children.length !== built.length) {
+      const same = g.children.length === built.length && built.every((n, i) => !n.compound && doc.get(g.children[i])?.type === 'path');
+      if (!same) {
         for (const c of g.children) doc.remove(c);
-        const kids = built.map((n) => {
-          const node = createPath(n.anchors, n.closed, newPathStyle(editor));
-          if (n.style) Object.assign(node, n.style);
-          return node;
-        });
-        for (const k of kids) doc.insert(k, d.id);
+        const { group, descendants } = buildGroup(built, newPathStyle(editor));
+        for (const c of group.children) {
+          const node = descendants.find((n) => n.id === c);
+          doc.insert(node, d.id, Infinity, descendants.filter((n) => n.parent === node.id));
+        }
       } else {
-        g.children.forEach((c, i) => doc.update(c, { anchors: built[i].anchors }));
+        g.children.forEach((c, i) => doc.update(c, { anchors: built[i].anchors, closed: built[i].closed, ...(built[i].style || {}) }));
       }
     }
     const b = this.box(d);
@@ -225,14 +241,12 @@ class DragShapeTool extends Tool {
     let id;
     doc.transact(this.constructor.label.replace(' Tool', ''), () => {
       const nodes = Array.isArray(built) ? built : [built];
-      if (nodes.length === 1) {
+      if (nodes.length === 1 && !nodes[0].compound) {
         const node = createPath(nodes[0].anchors, nodes[0].closed, { ...newPathStyle(editor), ...nodes[0].style }, { shape: nodes[0].shape });
         id = this.place(doc, node, [], plane);
       } else {
-        const kids = nodes.map((n) => createPath(n.anchors, n.closed, { ...newPathStyle(editor), ...n.style }));
-        const g = createGroup(kids.map((k) => k.id));
-        for (const k of kids) k.parent = g.id;
-        id = this.place(doc, g, kids, plane);
+        const { group, descendants } = buildGroup(nodes, newPathStyle(editor));
+        id = this.place(doc, group, descendants, plane);
       }
     });
     editor.select([id]);
@@ -390,7 +404,7 @@ export class StarTool extends DragShapeTool {
   static label = 'Star Tool';
   static shortcut = '';
   static icon = 'tool-star';
-  static hint = 'Drag from the center to draw a star | Up/Down Arrow changes the number of points | Shift keeps it upright';
+  static hint = 'Drag from the center to draw a star | Up/Down Arrow changes the number of points | Shift keeps it upright | Command keeps the inner radius | Option straightens the sides';
   points = 5;
   ratio = 0.5;
 
@@ -398,7 +412,19 @@ export class StarTool extends DragShapeTool {
     const r1 = Math.hypot(d.x - d.x0, d.y - d.y0);
     if (r1 <= 0) return null;
     const angle = dragAngle(d);
-    const shape = { kind: 'star', cx: d.x0, cy: d.y0, r1, r2: r1 * this.ratio, points: this.points, angle };
+    let r2 = r1 * this.ratio;
+    if (d.mod) {
+      // Command holds the inner radius while the outer one follows the pointer.
+      d.innerR ??= d.lastR2 ?? r2;
+      r2 = d.innerR;
+    } else {
+      if (d.innerR != null) this.ratio = Math.min(1, d.innerR / r1);
+      d.innerR = null;
+      // Option lines up opposite sides of the points (a regular star).
+      if (d.alt) r2 = S.regularStarInner(r1, this.points);
+    }
+    d.lastR2 = r2;
+    const shape = { kind: 'star', cx: d.x0, cy: d.y0, r1, r2, points: this.points, angle };
     return { anchors: S.shapeAnchors(shape), closed: true, shape };
   }
 
@@ -423,12 +449,77 @@ export class StarTool extends DragShapeTool {
   }
 }
 
-export class LineTool extends DragShapeTool {
+/**
+ * Shape tools with an options dialog (double-click the tool, or click the
+ * canvas to draw from exact values): the options live in preferences under
+ * `toolOptions.<id>` so they persist between sessions.
+ */
+class OptionsShapeTool extends DragShapeTool {
+  static defaults = {};
+
+  get options() {
+    return { ...this.constructor.defaults, ...(this.app.prefs.get(`toolOptions.${this.constructor.id}`) || {}) };
+  }
+
+  setOptions(patch) {
+    this.app.prefs.set(`toolOptions.${this.constructor.id}`, { ...this.options, ...patch });
+  }
+
+  /** Dialog fields: [field] built from the current options. */
+  optionFields() {
+    return [];
+  }
+
+  /** Options from dialog values. */
+  readOptions(v) {
+    return v;
+  }
+
+  get optionsTitle() {
+    return `${this.constructor.label.replace(' Tool', '')} Tool Options`;
+  }
+
+  async openOptions() {
+    const v = await this.app.dialogs.form({ title: this.optionsTitle, fields: this.optionFields() });
+    if (v) this.setOptions(this.readOptions(v));
+    return v;
+  }
+
+  async clickDialog(x, y, e) {
+    const v = await this.openOptions();
+    if (v) this.insertExact(this.exact(x, y, this.options, e));
+  }
+
+  /** Paint for the new artwork: a Fill option keeps the current fill, else none. */
+  fillStyle(fill) {
+    return fill ? {} : { fill: null };
+  }
+}
+
+export class LineTool extends OptionsShapeTool {
   static id = 'line';
   static label = 'Line Segment Tool';
   static shortcut = '\\';
   static icon = 'tool-line';
-  static hint = 'Drag to draw a line | Shift constrains to 45 degrees | Option draws from the center';
+  static hint = 'Drag to draw a line | Shift constrains to 45 degrees | Option draws from the center | Click to enter a length';
+  static defaults = { len: 100, angle: 0, fill: false };
+
+  get optionsTitle() {
+    return 'Line Segment Tool Options';
+  }
+
+  optionFields() {
+    const o = this.options;
+    return [
+      { key: 'len', label: 'Length', type: 'length', value: o.len, min: 0 },
+      { key: 'angle', label: 'Angle', type: 'angle', value: o.angle },
+      { key: 'fill', label: 'Fill Line', type: 'checkbox', value: o.fill },
+    ];
+  }
+
+  readOptions(v) {
+    return { len: v.len, angle: v.angle, fill: Boolean(v.fill) };
+  }
 
   build(d) {
     let { x, y } = d;
@@ -439,7 +530,7 @@ export class LineTool extends DragShapeTool {
       x1 = 2 * d.x0 - x;
       y1 = 2 * d.y0 - y;
     }
-    return { anchors: S.line(x1, y1, x, y), closed: false, shape: { kind: 'line', x1, y1, x2: x, y2: y }, style: { fill: null } };
+    return { anchors: S.line(x1, y1, x, y), closed: false, shape: { kind: 'line', x1, y1, x2: x, y2: y }, style: this.fillStyle(this.options.fill) };
   }
 
   update(e) {
@@ -453,28 +544,55 @@ export class LineTool extends DragShapeTool {
   }
 
   async clickDialog(x, y) {
-    const v = await this.app.dialogs.form({
-      title: 'Line Segment Tool Options',
-      fields: [
-        { key: 'len', label: 'Length', type: 'length', value: 100 },
-        { key: 'angle', label: 'Angle', type: 'angle', value: 0 },
-      ],
-    });
+    const v = await this.openOptions();
     if (!v || !(v.len > 0)) return;
     const a = (-v.angle * Math.PI) / 180;
     const x2 = x + Math.cos(a) * v.len;
     const y2 = y + Math.sin(a) * v.len;
-    this.insertExact({ anchors: S.line(x, y, x2, y2), closed: false, shape: { kind: 'line', x1: x, y1: y, x2, y2 }, style: { fill: null } });
+    this.insertExact({ anchors: S.line(x, y, x2, y2), closed: false, shape: { kind: 'line', x1: x, y1: y, x2, y2 }, style: this.fillStyle(v.fill) });
   }
 }
 
-export class ArcTool extends DragShapeTool {
+/**
+ * Arc tool: while dragging, Up/Down Arrow change the slope, X flips it
+ * between convex and concave, C toggles an open or closed arc and F swaps
+ * the base axis.
+ */
+export class ArcTool extends OptionsShapeTool {
   static id = 'arc';
   static label = 'Arc Tool';
   static shortcut = '';
   static icon = 'tool-arc';
-  static hint = 'Drag to draw an arc | Shift for equal sides | Press F to flip the arc';
-  concave = false;
+  static hint = 'Drag to draw an arc | Shift for equal sides | Up/Down Arrow change the slope | X flips the slope, C closes the arc, F swaps the base axis';
+  static defaults = { lx: 100, ly: 100, closed: false, base: 'x', slope: 50, fill: false };
+
+  get optionsTitle() {
+    return 'Arc Segment Tool Options';
+  }
+
+  optionFields() {
+    const o = this.options;
+    return [
+      { key: 'lx', label: 'Length X-Axis', type: 'length', value: o.lx, min: 0 },
+      { key: 'ly', label: 'Length Y-Axis', type: 'length', value: o.ly, min: 0 },
+      { key: 'closed', label: 'Type', type: 'radio', value: o.closed ? 'closed' : 'open', options: [{ value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }] },
+      { key: 'base', label: 'Base Along', type: 'radio', value: o.base, options: [{ value: 'x', label: 'X Axis' }, { value: 'y', label: 'Y Axis' }] },
+      { key: 'slope', label: 'Slope (concave -100 to convex 100)', type: 'range', value: o.slope, min: -100, max: 100 },
+      { key: 'fill', label: 'Fill Arc', type: 'checkbox', value: o.fill },
+    ];
+  }
+
+  readOptions(v) {
+    // `concave` is accepted for scripts and older callers.
+    const slope = v.concave != null && v.slope == null ? (v.concave ? -50 : 50) : Number(v.slope ?? this.options.slope);
+    return { lx: v.lx, ly: v.ly, closed: v.closed === 'closed' || v.closed === true, base: v.base === 'y' ? 'y' : 'x', slope: Math.max(-100, Math.min(100, slope)), fill: Boolean(v.fill) };
+  }
+
+  /** The arc's shape options while drawing (keys change them for this drag and the next ones). */
+  arcOpts() {
+    const o = this.options;
+    return { slope: o.slope, base: o.base, closed: o.closed };
+  }
 
   build(d) {
     let { x, y } = d;
@@ -483,115 +601,136 @@ export class ArcTool extends DragShapeTool {
       x = d.x0 + Math.sign(x - d.x0 || 1) * s;
       y = d.y0 + Math.sign(y - d.y0 || 1) * s;
     }
-    return { anchors: S.arc(d.x0, d.y0, x, y, this.concave), closed: false, style: { fill: null } };
+    let x0 = d.x0;
+    let y0 = d.y0;
+    if (d.alt) {
+      // Option draws from the center of the arc's box.
+      x0 = 2 * d.x0 - x;
+      y0 = 2 * d.y0 - y;
+    }
+    const o = this.arcOpts();
+    return { anchors: S.arc(x0, y0, x, y, o), closed: o.closed, style: this.fillStyle(this.options.fill || o.closed) };
+  }
+
+  update(e) {
+    const d = this.drag;
+    // Changing between open and closed while dragging needs a fresh path.
+    if (d?.id && this.editor.doc.get(d.id)?.closed !== this.arcOpts().closed) {
+      this.editor.doc.update(d.id, { closed: this.arcOpts().closed });
+    }
+    super.update(e);
+  }
+
+  exact(x, y, o) {
+    return { anchors: S.arc(x, y, x + o.lx, y + o.ly, o), closed: o.closed, style: this.fillStyle(o.fill || o.closed) };
   }
 
   async clickDialog(x, y) {
-    const v = await this.app.dialogs.form({
-      title: 'Arc Segment Tool Options',
-      fields: [
-        { key: 'lx', label: 'Length X-Axis', type: 'length', value: this.lastX ?? 100 },
-        { key: 'ly', label: 'Length Y-Axis', type: 'length', value: this.lastY ?? 100 },
-        { key: 'concave', label: 'Concave', type: 'checkbox', value: this.concave },
-      ],
-    });
-    if (!v || !(v.lx > 0) || !(v.ly > 0)) return;
-    this.lastX = v.lx;
-    this.lastY = v.ly;
-    this.concave = Boolean(v.concave);
-    this.insertExact({ anchors: S.arc(x, y, x + v.lx, y + v.ly, this.concave), closed: false, style: { fill: null } });
+    const v = await this.openOptions();
+    const o = this.options;
+    if (!v || !(o.lx > 0) || !(o.ly > 0)) return;
+    this.insertExact(this.exact(x, y, o));
   }
 
   onKeyDown(ev) {
-    if (this.drag && (ev.key === 'f' || ev.key === 'F')) {
-      this.concave = !this.concave;
-      this.update(null);
-      return true;
+    if (this.drag?.moved) {
+      const o = this.options;
+      const k = ev.key?.toLowerCase();
+      let patch = null;
+      if (k === 'x') patch = { slope: -o.slope };
+      else if (k === 'c') patch = { closed: !o.closed };
+      else if (k === 'f') patch = { base: o.base === 'y' ? 'x' : 'y' };
+      else if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') patch = { slope: Math.max(-100, Math.min(100, o.slope + (ev.key === 'ArrowUp' ? 10 : -10))) };
+      if (patch) {
+        this.setOptions(patch);
+        this.update(null);
+        return true;
+      }
     }
     return super.onKeyDown(ev);
   }
 }
 
-export class SpiralTool extends DragShapeTool {
+/**
+ * Spiral tool: drag from the center; Up/Down Arrow add or remove segments,
+ * R reverses the winding and Command while dragging changes the decay.
+ */
+export class SpiralTool extends OptionsShapeTool {
   static id = 'spiral';
   static label = 'Spiral Tool';
   static shortcut = '';
   static icon = 'tool-spiral';
-  static hint = 'Drag from the center to draw a spiral | Up/Down Arrow adds or removes segments';
-  segments = 10;
-  decay = 0.8;
+  static hint = 'Drag from the center to draw a spiral | Up/Down Arrow adds or removes segments | R reverses the winding | Command+Drag changes the decay';
+  static defaults = { r: 50, decay: 80, segments: 10, clockwise: true };
+
+  get optionsTitle() {
+    return 'Spiral';
+  }
+
+  get segments() {
+    return this.options.segments;
+  }
+
+  get decay() {
+    return this.options.decay / 100;
+  }
+
+  optionFields() {
+    const o = this.options;
+    return [
+      { key: 'r', label: 'Radius', type: 'length', value: o.r, min: 0 },
+      { key: 'decay', label: 'Decay', type: 'percent', value: o.decay, min: 5, max: 150 },
+      { key: 'segments', label: 'Segments', type: 'number', value: o.segments, min: 2, max: 1000, step: 1 },
+      { key: 'style', label: 'Style', type: 'radio', value: o.clockwise ? 'cw' : 'ccw', options: [{ value: 'cw', label: 'Clockwise' }, { value: 'ccw', label: 'Counterclockwise' }] },
+    ];
+  }
+
+  readOptions(v) {
+    return { r: v.r, decay: Math.max(5, Math.min(99, v.decay)), segments: Math.max(2, Math.min(1000, Math.round(v.segments))), clockwise: v.style ? v.style !== 'ccw' : this.options.clockwise };
+  }
+
+  onPointerMove(e) {
+    const d = this.drag;
+    if (d?.moved && e.mod && !this.app.input?.spaceDown) {
+      // Command drags change the decay instead of the size and angle.
+      d.decayFrom ??= { sy: e.sy, decay: this.options.decay };
+      const decay = Math.max(5, Math.min(99, d.decayFrom.decay + (d.decayFrom.sy - e.sy) / 4));
+      this.setOptions({ decay: Math.round(decay * 10) / 10 });
+      this.update(e);
+      this.editor.feedback = { sx: e.sx, sy: e.sy, text: `Decay: ${this.options.decay}%` };
+      return;
+    }
+    if (d) d.decayFrom = null;
+    super.onPointerMove(e);
+  }
 
   build(d) {
     const r = Math.hypot(d.x - d.x0, d.y - d.y0);
     if (r <= 0) return null;
+    const o = this.options;
     const ang = Math.atan2(d.y - d.y0, d.x - d.x0) + Math.PI / 2;
-    const pts = S.spiral(d.x0, d.y0, r, this.decay, this.segments, true);
+    const pts = S.spiral(d.x0, d.y0, r, o.decay / 100, o.segments, o.clockwise);
     return { anchors: transformAnchors(pts, rotate((ang * 180) / Math.PI, d.x0, d.y0)), closed: false, style: { fill: null } };
   }
 
   arrow(dir) {
-    this.segments = Math.max(2, Math.min(1000, this.segments + dir));
+    this.setOptions({ segments: Math.max(2, Math.min(1000, this.options.segments + dir)) });
     return true;
   }
 
-  async clickDialog(x, y) {
-    const v = await this.app.dialogs.form({
-      title: 'Spiral',
-      fields: [
-        { key: 'r', label: 'Radius', type: 'length', value: this.lastRadius ?? 50 },
-        { key: 'decay', label: 'Decay', type: 'percent', value: this.decay * 100 },
-        { key: 'segments', label: 'Segments', type: 'number', value: this.segments, min: 2, max: 1000, step: 1 },
-      ],
-    });
-    if (!v || !(v.r > 0)) return;
-    this.lastRadius = v.r;
-    this.decay = Math.max(0.05, Math.min(0.99, v.decay / 100));
-    this.segments = Math.max(2, Math.round(v.segments));
-    this.insertExact({ anchors: S.spiral(x, y, v.r, this.decay, this.segments, true), closed: false, style: { fill: null } });
-  }
-}
-
-export class RectGridTool extends DragShapeTool {
-  static id = 'rect-grid';
-  static label = 'Rectangular Grid Tool';
-  static shortcut = '';
-  static icon = 'tool-rect-grid';
-  static hint = 'Drag to draw a grid | Up/Down Arrow changes rows | Left/Right Arrow changes columns';
-  rows = 5;
-  cols = 5;
-
-  build(d) {
-    const b = this.box(d);
-    const g = S.rectGrid(b.x, b.y, b.w, b.h, this.rows, this.cols);
-    return [{ anchors: g.frame, closed: true, style: { fill: null } }, ...g.lines.map((l) => ({ anchors: l, closed: false, style: { fill: null } }))];
-  }
-
-  arrow(dir) {
-    this.rows = Math.max(1, this.rows + dir);
-    return true;
+  exact(x, y, o) {
+    return { anchors: S.spiral(x, y, o.r, o.decay / 100, o.segments, o.clockwise), closed: false, style: { fill: null } };
   }
 
   async clickDialog(x, y) {
-    const v = await this.app.dialogs.form({
-      title: 'Rectangular Grid Tool Options',
-      fields: [
-        { key: 'w', label: 'Width', type: 'length', value: this.lastW ?? 100 },
-        { key: 'h', label: 'Height', type: 'length', value: this.lastH ?? 100 },
-        { key: 'rows', label: 'Horizontal Dividers', type: 'number', value: this.rows - 1, min: 0, max: 999, step: 1 },
-        { key: 'cols', label: 'Vertical Dividers', type: 'number', value: this.cols - 1, min: 0, max: 999, step: 1 },
-      ],
-    });
-    if (!v || !(v.w > 0) || !(v.h > 0)) return;
-    this.lastW = v.w;
-    this.lastH = v.h;
-    this.rows = Math.max(1, Math.round(v.rows) + 1);
-    this.cols = Math.max(1, Math.round(v.cols) + 1);
-    this.insertExact(this.build({ x0: x, y0: y, x: x + v.w, y: y + v.h }));
+    const v = await this.openOptions();
+    if (!v || !(this.options.r > 0)) return;
+    this.insertExact(this.exact(x, y, this.options));
   }
 
   onKeyDown(ev) {
-    if (this.drag?.moved && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
-      this.cols = Math.max(1, this.cols + (ev.key === 'ArrowRight' ? 1 : -1));
+    if (this.drag?.moved && ev.key?.toLowerCase() === 'r') {
+      this.setOptions({ clockwise: !this.options.clockwise });
       this.update(null);
       return true;
     }
@@ -599,47 +738,156 @@ export class RectGridTool extends DragShapeTool {
   }
 }
 
-export class PolarGridTool extends DragShapeTool {
-  static id = 'polar-grid';
-  static label = 'Polar Grid Tool';
-  static shortcut = '';
-  static icon = 'tool-polar-grid';
-  static hint = 'Drag to draw a polar grid | Up/Down Arrow changes rings | Left/Right Arrow changes dividers';
-  rings = 5;
-  dividers = 5;
+/** Grid tools: skew keys while dragging (`skewKeys`: key -> [option, step]). */
+class GridTool extends OptionsShapeTool {
+  static skewKeys = {};
 
-  build(d) {
-    const b = this.box(d);
-    const g = S.polarGrid(b.x, b.y, b.w, b.h, this.rings, this.dividers);
-    return [...g.circles.map((c) => ({ anchors: c, closed: true, style: { fill: null } })), ...g.lines.map((l) => ({ anchors: l, closed: false, style: { fill: null } }))];
-  }
-
-  arrow(dir) {
-    this.rings = Math.max(0, this.rings + dir);
-    return true;
+  onKeyDown(ev) {
+    const sk = this.drag?.moved && this.constructor.skewKeys[ev.key?.toLowerCase()];
+    if (sk) {
+      const [key, step] = sk;
+      this.setOptions({ [key]: Math.max(-100, Math.min(100, (this.options[key] || 0) + step)) });
+      this.update(null);
+      return true;
+    }
+    return super.onKeyDown(ev);
   }
 
   async clickDialog(x, y) {
-    const v = await this.app.dialogs.form({
-      title: 'Polar Grid Tool Options',
-      fields: [
-        { key: 'w', label: 'Width', type: 'length', value: this.lastW ?? 100 },
-        { key: 'h', label: 'Height', type: 'length', value: this.lastH ?? 100 },
-        { key: 'rings', label: 'Concentric Dividers', type: 'number', value: this.rings, min: 0, max: 999, step: 1 },
-        { key: 'dividers', label: 'Radial Dividers', type: 'number', value: this.dividers, min: 0, max: 999, step: 1 },
-      ],
-    });
-    if (!v || !(v.w > 0) || !(v.h > 0)) return;
-    this.lastW = v.w;
-    this.lastH = v.h;
-    this.rings = Math.max(0, Math.round(v.rings));
-    this.dividers = Math.max(0, Math.round(v.dividers));
-    this.insertExact(this.build({ x0: x, y0: y, x: x + v.w, y: y + v.h }));
+    const v = await this.openOptions();
+    const o = this.options;
+    if (!v || !(o.w > 0) || !(o.h > 0)) return;
+    this.insertExact(this.build({ x0: x, y0: y, x: x + o.w, y: y + o.h }));
+  }
+}
+
+/**
+ * Rectangular Grid: Up/Down Arrow change the rows, Left/Right the columns;
+ * F and V skew the rows, X and C the columns.
+ */
+export class RectGridTool extends GridTool {
+  static id = 'rect-grid';
+  static label = 'Rectangular Grid Tool';
+  static shortcut = '';
+  static icon = 'tool-rect-grid';
+  static hint = 'Drag to draw a grid | Up/Down Arrow changes rows, Left/Right columns | F/V skew the rows, X/C the columns';
+  static defaults = { w: 100, h: 100, rows: 4, cols: 4, rowSkew: 0, colSkew: 0, frame: true, fill: false };
+  static skewKeys = { f: ['rowSkew', -10], v: ['rowSkew', 10], x: ['colSkew', -10], c: ['colSkew', 10] };
+
+  optionFields() {
+    const o = this.options;
+    return [
+      { key: 'w', label: 'Width', type: 'length', value: o.w, min: 0 },
+      { key: 'h', label: 'Height', type: 'length', value: o.h, min: 0 },
+      { key: 'rows', label: 'Horizontal Dividers', type: 'number', value: o.rows, min: 0, max: 999, step: 1 },
+      { key: 'rowSkew', label: 'Horizontal Skew (top -100 to bottom 100)', type: 'range', value: o.rowSkew, min: -100, max: 100 },
+      { key: 'cols', label: 'Vertical Dividers', type: 'number', value: o.cols, min: 0, max: 999, step: 1 },
+      { key: 'colSkew', label: 'Vertical Skew (left -100 to right 100)', type: 'range', value: o.colSkew, min: -100, max: 100 },
+      { key: 'frame', label: 'Use Outside Rectangle as Frame', type: 'checkbox', value: o.frame },
+      { key: 'fill', label: 'Fill Grid', type: 'checkbox', value: o.fill },
+    ];
+  }
+
+  readOptions(v) {
+    const o = this.options;
+    return {
+      w: v.w,
+      h: v.h,
+      rows: Math.max(0, Math.round(v.rows)),
+      cols: Math.max(0, Math.round(v.cols)),
+      rowSkew: Number(v.rowSkew ?? o.rowSkew),
+      colSkew: Number(v.colSkew ?? o.colSkew),
+      frame: v.frame ?? o.frame,
+      fill: v.fill ?? o.fill,
+    };
+  }
+
+  build(d) {
+    const b = this.box(d);
+    const o = this.options;
+    const g = S.rectGrid(b.x, b.y, b.w, b.h, o.rows + 1, o.cols + 1, { rowSkew: o.rowSkew, colSkew: o.colSkew });
+    const line = { fill: null };
+    // Without the frame option the outside is four separate lines.
+    const frame = o.frame
+      ? [{ anchors: g.frame, closed: true, style: this.fillStyle(o.fill) }]
+      : [[0, 1], [1, 2], [2, 3], [3, 0]].map(([i, j]) => ({ anchors: S.line(g.frame[i].x, g.frame[i].y, g.frame[j].x, g.frame[j].y), closed: false, style: line }));
+    return [...frame, ...g.lines.map((l) => ({ anchors: l, closed: false, style: line }))];
+  }
+
+  arrow(dir) {
+    this.setOptions({ rows: Math.max(0, this.options.rows + dir) });
+    return true;
   }
 
   onKeyDown(ev) {
     if (this.drag?.moved && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
-      this.dividers = Math.max(0, this.dividers + (ev.key === 'ArrowRight' ? 1 : -1));
+      this.setOptions({ cols: Math.max(0, this.options.cols + (ev.key === 'ArrowRight' ? 1 : -1)) });
+      this.update(null);
+      return true;
+    }
+    return super.onKeyDown(ev);
+  }
+}
+
+/**
+ * Polar Grid: Up/Down Arrow change the concentric dividers, Left/Right the
+ * radial ones; X and C skew the rings, F and V the radial dividers.
+ */
+export class PolarGridTool extends GridTool {
+  static id = 'polar-grid';
+  static label = 'Polar Grid Tool';
+  static shortcut = '';
+  static icon = 'tool-polar-grid';
+  static hint = 'Drag to draw a polar grid | Up/Down Arrow changes rings, Left/Right dividers | X/C skew the rings, F/V the dividers';
+  static defaults = { w: 100, h: 100, rings: 5, dividers: 5, ringSkew: 0, radialSkew: 0, compound: false, fill: false };
+  static skewKeys = { x: ['ringSkew', -10], c: ['ringSkew', 10], f: ['radialSkew', -10], v: ['radialSkew', 10] };
+
+  optionFields() {
+    const o = this.options;
+    return [
+      { key: 'w', label: 'Width', type: 'length', value: o.w, min: 0 },
+      { key: 'h', label: 'Height', type: 'length', value: o.h, min: 0 },
+      { key: 'rings', label: 'Concentric Dividers', type: 'number', value: o.rings, min: 0, max: 999, step: 1 },
+      { key: 'ringSkew', label: 'Concentric Skew (in -100 to out 100)', type: 'range', value: o.ringSkew, min: -100, max: 100 },
+      { key: 'dividers', label: 'Radial Dividers', type: 'number', value: o.dividers, min: 0, max: 999, step: 1 },
+      { key: 'radialSkew', label: 'Radial Skew (bottom -100 to top 100)', type: 'range', value: o.radialSkew, min: -100, max: 100 },
+      { key: 'compound', label: 'Create Compound Path from Ellipses', type: 'checkbox', value: o.compound },
+      { key: 'fill', label: 'Fill Grid', type: 'checkbox', value: o.fill },
+    ];
+  }
+
+  readOptions(v) {
+    const o = this.options;
+    return {
+      w: v.w,
+      h: v.h,
+      rings: Math.max(0, Math.round(v.rings)),
+      dividers: Math.max(0, Math.round(v.dividers)),
+      ringSkew: Number(v.ringSkew ?? o.ringSkew),
+      radialSkew: Number(v.radialSkew ?? o.radialSkew),
+      compound: v.compound ?? o.compound,
+      fill: v.fill ?? o.fill,
+    };
+  }
+
+  build(d) {
+    const b = this.box(d);
+    const o = this.options;
+    const g = S.polarGrid(b.x, b.y, b.w, b.h, o.rings, o.dividers, { ringSkew: o.ringSkew, radialSkew: o.radialSkew });
+    const rings = g.circles.map((c) => ({ anchors: c, closed: true, style: this.fillStyle(o.fill) }));
+    const lines = g.lines.map((l) => ({ anchors: l, closed: false, style: { fill: null } }));
+    if (o.compound && rings.length > 1) return [...lines, { compound: rings.map((r) => r.anchors), style: this.fillStyle(o.fill) }];
+    return [...rings, ...lines];
+  }
+
+  arrow(dir) {
+    this.setOptions({ rings: Math.max(0, this.options.rings + dir) });
+    return true;
+  }
+
+  onKeyDown(ev) {
+    if (this.drag?.moved && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
+      this.setOptions({ dividers: Math.max(0, this.options.dividers + (ev.key === 'ArrowRight' ? 1 : -1)) });
       this.update(null);
       return true;
     }

@@ -79,7 +79,7 @@ function registerCommands(app, { service }) {
     { id: 'file.revert', label: 'Revert', shortcut: 'F12', enabled: (a, args) => service.canRevert(ed(a, args)), run: (a, args) => service.revert(ed(a, args)) },
     { id: 'file.documentSetup', label: 'Document Setup...', shortcut: 'Alt+Mod+P', enabled: (a) => Boolean(a.editor), run: async (a) => (await documentSetup()).documentSetupDialog(a) },
     { id: 'file.documentInfo', label: 'Document Info', enabled: (a) => Boolean(a.editor), run: async (a) => (await documentInfo()).documentInfoDialog(a) },
-    { id: 'edit.preferences', label: 'Preferences...', shortcut: 'Mod+K', run: (a) => preferencesDialog(a) },
+    { id: 'edit.preferences', label: 'Preferences...', shortcut: 'Mod+K', run: (a, args) => preferencesDialog(a, args?.section ? { section: args.section } : {}) },
   ]);
 }
 

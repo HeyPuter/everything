@@ -393,6 +393,88 @@
   font-size: var(--fs-sm);
 }
 
+.flyout-tearoff {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* Floating tool strip torn off a flyout. */
+.tool-tearoff {
+  position: fixed;
+  z-index: 850;
+  display: flex;
+  align-items: stretch;
+  padding: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+}
+
+.tool-tearoff.vertical {
+  flex-direction: column;
+}
+
+.tearoff-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  cursor: move;
+  color: var(--text-3);
+  touch-action: none;
+}
+
+.tearoff-ctrls {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.tool-tearoff.vertical .tearoff-ctrls {
+  flex-direction: row;
+}
+
+.tearoff-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+}
+
+.tearoff-mini:hover {
+  background: var(--bg-hover);
+}
+
+.tearoff-tools {
+  display: flex;
+  gap: 1px;
+}
+
+.tool-tearoff.vertical .tearoff-tools {
+  flex-direction: column;
+}
+
+/* Floating strips belong to the editing view: none on the start screen or with panels hidden. */
+body:has(.app.no-doc) .tool-tearoff,
+body:has(.app.hide-panels) .tool-tearoff {
+  display: none;
+}
+
+.tool-tearoff .tool-btn[aria-pressed='true'] {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
 /* ---- Document area ---- */
 .doc-area {
   display: flex;

@@ -15,6 +15,7 @@ export const PREF_DEFAULTS = {
   cornerRadius: 12,
   doubleClickToIsolate: true,
   selectionTolerance: 3,
+  selectBehind: true,
   anchorSize: 6,
   strokeUnits: 'pt',
   typeUnits: 'pt',
@@ -106,6 +107,7 @@ export function sections(app) {
       label: 'Selection & Anchor Display',
       fields: [
         { key: 'selectionTolerance', label: 'Tolerance (px)', type: 'number', min: 1, max: 8, step: 1, integer: true },
+        { key: 'selectBehind', label: 'Command-click to select objects behind', type: 'checkbox' },
         {
           key: 'anchorSize',
           label: 'Anchor Point Size',

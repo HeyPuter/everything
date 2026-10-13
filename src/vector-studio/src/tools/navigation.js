@@ -42,6 +42,11 @@ export class HandTool extends Tool {
   onDoubleClick() {
     this.editor.fitArtboard();
   }
+
+  /** Double-clicking the tool fits the artboard in the window. */
+  openOptions() {
+    this.app.commands.run('view.fitArtboard');
+  }
 }
 
 export class ZoomTool extends Tool {
@@ -101,6 +106,11 @@ export class ZoomTool extends Tool {
     ctx.strokeRect(Math.min(d.sx0, d.sx) + 0.5, Math.min(d.sy0, d.sy) + 0.5, Math.abs(d.sx - d.sx0), Math.abs(d.sy - d.sy0));
     ctx.restore();
   }
+
+  /** Double-clicking the tool shows the document at 100%. */
+  openOptions() {
+    this.app.commands.run('view.actualSize');
+  }
 }
 
 export class RotateViewTool extends Tool {
@@ -140,10 +150,33 @@ export class RotateViewTool extends Tool {
     this.editor.view.rotateView(0);
     this.editor.viewChanged();
   }
+
+  /** Double-clicking the tool turns the view back upright. */
+  openOptions() {
+    this.app.commands.run('view.resetRotation');
+  }
 }
 
 /** Fields the Eyedropper picks up and applies, like its default options. */
 const EYEDROPPER_KEYS = STYLE_KEYS.filter((k) => k !== 'effects');
+
+/** Attribute groups the Eyedropper picks up and applies (Eyedropper Options). */
+const EYEDROPPER_GROUPS = {
+  fill: ['fill'],
+  stroke: ['stroke', 'strokeWidth', 'strokeCap', 'strokeJoin', 'miterLimit', 'strokeAlign', 'dash', 'dashOffset', 'arrowStart', 'arrowEnd'],
+  transparency: ['opacity', 'blendMode'],
+};
+const EYEDROPPER_LABELS = { fill: 'Fill', stroke: 'Stroke', transparency: 'Transparency', character: 'Character' };
+
+/** The Eyedropper's groups: { fill, stroke, transparency, character } -> bool (all on by default). */
+export function eyedropperGroups(app) {
+  return { fill: true, stroke: true, transparency: true, character: true, ...(app.prefs.get('eyedropperGroups') || {}) };
+}
+
+function eyedropperKeys(app) {
+  const g = eyedropperGroups(app);
+  return EYEDROPPER_KEYS.filter((k) => Object.entries(EYEDROPPER_GROUPS).every(([name, keys]) => g[name] || !keys.includes(k)));
+}
 
 export class EyedropperTool extends Tool {
   static id = 'eyedropper';
@@ -165,20 +198,23 @@ export class EyedropperTool extends Tool {
     if (e.alt) {
       // Apply the current appearance to the clicked object.
       const patch = {};
-      for (const k of EYEDROPPER_KEYS) if (editor.style[k] !== undefined) patch[k] = editor.style[k];
+      for (const k of eyedropperKeys(this.app)) if (editor.style[k] !== undefined) patch[k] = editor.style[k];
       doc.transact('Eyedropper', () => applyStyleDeep(doc, hit, patch));
       return;
     }
+    const groups = eyedropperGroups(this.app);
     const patch = {};
-    for (const k of EYEDROPPER_KEYS) if (hit[k] !== undefined) patch[k] = hit[k];
+    for (const k of eyedropperKeys(this.app)) if (hit[k] !== undefined) patch[k] = hit[k];
     if (hit.type === 'text') {
       // Type samples the character under the pointer (its runs may override the object's paint).
       const st = styleAt(hit, textIndexAt(hit, e.x, e.y));
-      patch.fill = st.fill;
-      patch.stroke = st.stroke;
-      patch.strokeWidth = st.strokeWidth;
+      if (groups.fill) patch.fill = st.fill;
+      if (groups.stroke) {
+        patch.stroke = st.stroke;
+        patch.strokeWidth = st.strokeWidth;
+      }
       // A chosen glyph alternate belongs to its character, not to the picked style.
-      patch.char = Object.fromEntries(CHAR_KEYS.filter((k) => k !== 'altGlyph').map((k) => [k, st[k]]));
+      if (groups.character) patch.char = Object.fromEntries(CHAR_KEYS.filter((k) => k !== 'altGlyph').map((k) => [k, st[k]]));
     }
     editor.setStyle(patch);
     const targets = editor.selectedNodes().filter((n) => n.id !== hit.id);
@@ -186,6 +222,16 @@ export class EyedropperTool extends Tool {
     doc.transact('Eyedropper', () => {
       for (const t of targets) applyStyleDeep(doc, t, patch);
     });
+  }
+
+  async openOptions() {
+    const g = eyedropperGroups(this.app);
+    const v = await this.app.dialogs.form({
+      title: 'Eyedropper Options',
+      description: 'Attributes the Eyedropper picks up and applies.',
+      fields: Object.keys(EYEDROPPER_LABELS).map((k) => ({ key: k, label: EYEDROPPER_LABELS[k], type: 'checkbox', value: g[k] })),
+    });
+    if (v) this.app.prefs.set('eyedropperGroups', Object.fromEntries(Object.keys(EYEDROPPER_LABELS).map((k) => [k, Boolean(v[k])])));
   }
 }
 

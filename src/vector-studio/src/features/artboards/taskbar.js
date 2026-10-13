@@ -20,7 +20,7 @@ const ALIGN_MENU = ['align.left', 'align.hcenter', 'align.right', '-', 'align.to
 /** Release command per live group kind (repeats, traced images, envelopes, ...). */
 const LIVE_RELEASE = { repeat: 'repeat.release', trace: 'trace.release', envelope: 'envelope.release', paintRegions: 'paintRegions.release', interlace: 'interlace.release', onPath: 'objectsOnPath.release', graph: 'graph.release' };
 
-/** Which quick-action set applies: 'none' | 'path' | 'multiple' | 'group' | 'live' | 'text' | 'blend' | 'other'. */
+/** Which quick-action set applies: 'none' | 'path' | 'shape' | 'multiple' | 'group' | 'clip' | 'live' | 'text' | 'blend' | 'image' | 'symbol' | 'other'. */
 export function taskbarContext(editor) {
   if (!editor || !editor.selection.size) return 'none';
   const top = editor.topSelection();
@@ -30,9 +30,13 @@ export function taskbarContext(editor) {
   if (!n) return 'none';
   if (n.type === 'group' && n.blend) return 'blend';
   if (n.type === 'group' && n.live) return 'live';
+  if (n.type === 'group' && n.clip) return 'clip';
   if (n.type === 'group') return 'group';
   if (n.type === 'text') return 'text';
+  if (n.type === 'path' && n.shape) return 'shape';
   if (n.type === 'path' || n.type === 'compound') return 'path';
+  if (n.type === 'image') return 'image';
+  if (n.type === 'instance') return 'symbol';
   return 'other';
 }
 
@@ -87,6 +91,7 @@ export function installTaskbar(app) {
     return [
       ...items,
       '-',
+      { label: 'Show Properties Panel', run: () => app.openPanel('properties') },
       { label: 'Hide Bar', run: () => app.commands.run('window.contextualTaskbar') },
       { label: 'Pin Bar Position', checked: Boolean(pinned()), run: () => app.prefs.set('taskbarPos', pinned() ? null : { x: bar.offsetLeft, y: bar.offsetTop }) },
       { label: 'Reset Bar Position', enabled: Boolean(pinned()), run: () => (app.prefs.set('taskbarPos', null), position()) },
@@ -126,6 +131,7 @@ export function installTaskbar(app) {
           }, { menu: true }),
         );
       }
+      items.push(cmdButton('file.place', 'Place Image', 'image-plus', { text: false }));
       items.push(cmdButton('select.all', 'Select All', 'square-mouse-pointer'));
     } else {
       const fill = fillSwatchBtn();
@@ -135,6 +141,18 @@ export function installTaskbar(app) {
         items.push(button('Edit Path', 'pen-line', () => app.setTool('direct-selection')));
         items.push(cmdButton('path.offset', 'Offset Path', null));
         items.push(fill.b, stroke.b, cmdButton('object.lock', 'Lock', 'lock', { text: false }));
+      } else if (ctx === 'shape') {
+        // Live shapes: their params in the Properties panel, or plain paths.
+        items.push(button('Edit Path', 'pen-line', () => app.setTool('direct-selection')));
+        items.push(button('Shape Properties', 'sliders-horizontal', () => app.openPanel('properties'), { text: false }));
+        items.push(cmdButton('shape.expand', 'Expand Shape', null));
+        items.push(fill.b, stroke.b, cmdButton('object.lock', 'Lock', 'lock', { text: false }));
+      } else if (ctx === 'clip') {
+        items.push(cmdButton('object.clipRelease', 'Release Mask', null), cmdButton('object.isolate', 'Edit Contents', 'isolation'), cmdButton('object.lock', 'Lock', 'lock', { text: false }));
+      } else if (ctx === 'image') {
+        items.push(cmdButton('trace.make', 'Trace Image', 'wand'), cmdButton('object.cropImage', 'Crop Image', 'crop'), cmdButton('image.embed', 'Embed', null), cmdButton('object.lock', 'Lock', 'lock', { text: false }));
+      } else if (ctx === 'symbol') {
+        items.push(cmdButton('symbol.edit', 'Edit Symbol', 'component'), cmdButton('symbol.breakLink', 'Break Link', 'unlink'), cmdButton('symbol.reset', 'Reset', null), fill.b, stroke.b, cmdButton('object.lock', 'Lock', 'lock', { text: false }));
       } else if (ctx === 'multiple') {
         items.push(cmdButton('object.group', 'Group', 'group'));
         items.push(menuButton('Align', 'align-hcenter', ALIGN_MENU));

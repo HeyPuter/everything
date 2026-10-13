@@ -75,6 +75,42 @@ export function ellipse(x, y, w, h) {
   ];
 }
 
+/** Is a live ellipse cut into a pie (its start and end angles differ)? */
+export function isPie(shape) {
+  if (shape?.kind !== 'ellipse' || shape.pieStart == null || shape.pieEnd == null) return false;
+  const sweep = (((shape.pieEnd - shape.pieStart) % 360) + 360) % 360;
+  return sweep > 1e-6 && sweep < 360 - 1e-6;
+}
+
+/**
+ * Pie of the ellipse centered at (cx, cy): the arc from `start` to `end`
+ * degrees, counterclockwise on screen from 3 o'clock, closed through the
+ * center. Arc pieces span at most 90 degrees each.
+ */
+export function pie(cx, cy, rx, ry, start, end) {
+  let sweep = (((end - start) % 360) + 360) % 360;
+  if (sweep < 1e-6) sweep = 360;
+  const n = Math.max(1, Math.ceil(sweep / 90 - 1e-9));
+  const step = ((sweep / n) * Math.PI) / 180;
+  const k = (4 / 3) * Math.tan(step / 4);
+  const a0 = (start * Math.PI) / 180;
+  const pt = (t) => ({ x: cx + rx * Math.cos(t), y: cy - ry * Math.sin(t), dx: -rx * Math.sin(t), dy: -ry * Math.cos(t) });
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const p = pt(a0 + i * step);
+    out.push({
+      x: p.x,
+      y: p.y,
+      ix: i > 0 ? p.x - k * p.dx : p.x,
+      iy: i > 0 ? p.y - k * p.dy : p.y,
+      ox: i < n ? p.x + k * p.dx : p.x,
+      oy: i < n ? p.y + k * p.dy : p.y,
+    });
+  }
+  out.push(anchor(cx, cy));
+  return out;
+}
+
 /** Regular polygon with `sides` corners, radius to the corners, first corner at the top. */
 export function polygon(cx, cy, radius, sides = 6) {
   const n = Math.max(3, Math.round(sides));
@@ -111,28 +147,37 @@ export function line(x1, y1, x2, y2) {
 }
 
 /**
- * Quarter-ellipse arc from (x1, y1) to (x2, y2), bulging outward with the
- * Arc tool's default slope. `concave` flips the bulge.
+ * Arc segment from (x1, y1) to (x2, y2) for the Arc tool. `slope` runs from
+ * -100 (concave) through 0 (straight) to 100 (convex); 50 is a quarter
+ * ellipse. `base` is the axis the arc leaves its start along ('x' or 'y').
+ * A closed arc returns through the corner of its box. A boolean in place of
+ * the options means concave at the default slope.
  */
-export function arc(x1, y1, x2, y2, concave = false) {
-  const k = KAPPA;
-  // The arc's center is the corner of the box opposite the bulge.
-  const cx = concave ? x2 : x1;
-  const cy = concave ? y1 : y2;
+export function arc(x1, y1, x2, y2, opts = {}) {
+  const o = typeof opts === 'boolean' ? { slope: opts ? -50 : 50 } : opts;
+  const slope = Math.max(-100, Math.min(100, o.slope ?? 50));
+  const t = (Math.abs(slope) / 50) * KAPPA;
+  // Leaving along x and bulging out, or along y and caving in, is the same curve.
+  const alongX = (o.base !== 'y') === slope >= 0;
   const a = anchor(x1, y1);
   const b = anchor(x2, y2);
-  if (!concave) {
-    a.ox = x1 + (x2 - cx) * k;
-    a.oy = y1;
-    b.ix = x2;
-    b.iy = y2 + (y1 - cy) * k;
+  if (alongX) {
+    a.ox = x1 + (x2 - x1) * t;
+    b.iy = y2 + (y1 - y2) * t;
   } else {
-    a.ox = x1;
-    a.oy = y1 + (y2 - cy) * k;
-    b.ix = x2 + (x1 - cx) * k;
-    b.iy = y2;
+    a.oy = y1 + (y2 - y1) * t;
+    b.ix = x2 + (x1 - x2) * t;
   }
-  return [a, b];
+  if (!o.closed) return [a, b];
+  return [a, b, alongX ? anchor(x1, y2) : anchor(x2, y1)];
+}
+
+/** Divider positions 1..n-1 of n cells across [0, 1], bunched toward one end by `skew` (-100..100). */
+export function skewedSteps(n, skew = 0) {
+  const e = 2 ** (-(Math.max(-100, Math.min(100, skew)) / 50));
+  const out = [];
+  for (let i = 1; i < n; i++) out.push((i / n) ** e);
+  return out;
 }
 
 /**
@@ -171,31 +216,30 @@ export function spiral(cx, cy, radius, decay = 0.8, segments = 10, clockwise = t
 }
 
 /** Rectangular grid: returns a list of open line anchor lists plus the frame rectangle. */
-export function rectGrid(x, y, w, h, rows = 5, cols = 5) {
+export function rectGrid(x, y, w, h, rows = 5, cols = 5, { rowSkew = 0, colSkew = 0 } = {}) {
   const lines = [];
-  for (let i = 1; i < cols; i++) {
-    const gx = x + (w * i) / cols;
+  for (const f of skewedSteps(cols, colSkew)) {
+    const gx = x + w * f;
     lines.push(line(gx, y, gx, y + h));
   }
-  for (let j = 1; j < rows; j++) {
-    const gy = y + (h * j) / rows;
+  for (const f of skewedSteps(rows, rowSkew)) {
+    const gy = y + h * f;
     lines.push(line(x, gy, x + w, gy));
   }
   return { frame: rectangle(x, y, w, h), lines };
 }
 
 /** Polar grid: concentric ellipses and radial dividers. */
-export function polarGrid(x, y, w, h, rings = 5, dividers = 5) {
+export function polarGrid(x, y, w, h, rings = 5, dividers = 5, { ringSkew = 0, radialSkew = 0 } = {}) {
   const cx = x + w / 2;
   const cy = y + h / 2;
   const circles = [];
-  for (let i = rings + 1; i >= 1; i--) {
-    const f = i / (rings + 1);
+  for (const f of [1, ...skewedSteps(rings + 1, ringSkew).reverse()]) {
     circles.push(ellipse(cx - (w / 2) * f, cy - (h / 2) * f, w * f, h * f));
   }
   const lines = [];
-  for (let i = 0; i < dividers; i++) {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / dividers;
+  for (const f of [0, ...skewedSteps(dividers, radialSkew)].slice(0, Math.max(0, dividers))) {
+    const a = -Math.PI / 2 + f * 2 * Math.PI;
     lines.push(line(cx, cy, cx + (w / 2) * Math.cos(a), cy + (h / 2) * Math.sin(a)));
   }
   return { circles, lines };
@@ -209,7 +253,7 @@ export function shapeAnchors(shape) {
       pts = rectangle(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h, shape.radii || 0);
       break;
     case 'ellipse':
-      pts = ellipse(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h);
+      pts = isPie(shape) ? pie(shape.cx, shape.cy, shape.w / 2, shape.h / 2, shape.pieStart, shape.pieEnd) : ellipse(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h);
       break;
     case 'polygon':
       pts = polygon(shape.cx, shape.cy, shape.r, shape.sides);
@@ -224,4 +268,17 @@ export function shapeAnchors(shape) {
       return null;
   }
   return shape.angle ? transformAnchors(pts, rotate(shape.angle, shape.cx, shape.cy)) : pts;
+}
+
+/**
+ * Anchors for edited shape params that keep the live corners the old
+ * anchors carried when every corner had the same rounding (a polygon whose
+ * sides change stays rounded).
+ */
+export function regenerateShape(shape, oldAnchors = []) {
+  const anchors = shapeAnchors(shape);
+  if (!anchors || shape.kind === 'rect') return anchors;
+  const c = oldAnchors[0]?.corner;
+  const same = c && oldAnchors.every((a) => a.corner && a.corner.r === c.r && a.corner.type === c.type);
+  return same ? anchors.map((a) => ({ ...a, corner: { ...c } })) : anchors;
 }

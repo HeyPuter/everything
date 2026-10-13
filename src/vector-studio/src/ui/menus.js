@@ -488,7 +488,7 @@ export const MENUS = [
         ],
       },
       '-',
-      { label: 'Toolbars', submenu: ['window.toolbar.basic', 'window.toolbar.advanced', '-', 'window.toolbar.edit'] },
+      { label: 'Toolbars', source: 'toolbars' },
       'window.toolbar',
       'window.contextualTaskbar',
       'window.controlBar',
