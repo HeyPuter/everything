@@ -254,6 +254,8 @@ export const INFO_FIELDS = [
   { key: 'author', label: 'Author', type: 'text', help: 'Separate several authors with semicolons.' },
   { key: 'authorTitle', label: 'Author Title', type: 'text' },
   { key: 'description', label: 'Description', type: 'textarea' },
+  { key: 'rating', label: 'Rating', type: 'select', options: [{ value: '', label: 'None' }, ...[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${'\u2605'.repeat(n)}${'\u2606'.repeat(5 - n)} (${n})` }))] },
+  { key: 'descriptionWriter', label: 'Description Writer', type: 'text' },
   { key: 'keywords', label: 'Keywords', type: 'textarea', help: 'Separate keywords with commas or semicolons.' },
   { key: 'copyrightStatus', label: 'Copyright Status', type: 'select', options: [{ value: 'unknown', label: 'Unknown' }, { value: 'copyrighted', label: 'Copyrighted' }, { value: 'public', label: 'Public Domain' }] },
   { key: 'copyright', label: 'Copyright Notice', type: 'textarea' },
@@ -317,12 +319,13 @@ export function fontsUsed(doc) {
 }
 
 /** Files for a package: the document, its images and a report. */
-export async function packageEntries(app, editor, { includeFonts = true } = {}) {
+export async function packageEntries(app, editor, { includeFonts = true, copyLinks = true, linksFolder = true, report: withReport = true, folder = null } = {}) {
   const doc = editor.doc;
   const { dataUrlToBytes, sniffMime } = await import('../io/image-info.js');
-  const base = (editor.name || 'Untitled').replace(/\.[^.]+$/, '') || 'Untitled';
+  const name = (editor.name || 'Untitled').replace(/\.[^.]+$/, '') || 'Untitled';
+  const base = String(folder || '').replace(/[\\/:*?"<>|]+/g, '-').trim() || name;
   const { bytes } = await encodeDoc(doc);
-  const entries = [{ name: `${base}/${base}.vstudio`, data: bytes }];
+  const entries = [{ name: `${base}/${name}.vstudio`, data: bytes }];
   const used = new Set();
   doc.walk((n) => {
     if (n.type === 'image' && n.asset) used.add(n.asset);
@@ -338,7 +341,7 @@ export async function packageEntries(app, editor, { includeFonts = true } = {}) 
     let name = `${stem}.${EXT[mime] || 'bin'}`;
     for (let i = 2; names.has(name); i++) name = `${stem}-${i}.${EXT[mime] || 'bin'}`;
     names.add(name);
-    entries.push({ name: `${base}/Links/${name}`, data });
+    if (copyLinks) entries.push({ name: `${base}/${linksFolder ? 'Links/' : ''}${name}`, data });
     imageLines.push(`  ${name}  (${formatBytes(data.length)}${a.link ? `, linked from ${a.link.path || a.link.name}` : ', embedded'})`);
   }
   const fonts = fontsUsed(doc);
@@ -375,7 +378,7 @@ export async function packageEntries(app, editor, { includeFonts = true } = {}) 
     ...(fontLines.length ? fontLines : ['  None']),
     '',
   ].join('\n');
-  entries.push({ name: `${base}/Report.txt`, data: report });
+  if (withReport) entries.push({ name: `${base}/Report.txt`, data: report });
   return { entries, base, report };
 }
 
@@ -384,14 +387,21 @@ async function packageDocument(app) {
   const v = await app.dialogs.form({
     title: 'Package',
     description: 'Collects the document, its images, the fonts it uses (where their license allows) and a report into one zip file.',
-    fields: [{ key: 'fonts', label: 'Copy Fonts', type: 'checkbox', value: true }],
+    fields: [
+      { key: 'folder', label: 'Folder Name', type: 'text', value: `${(ed.name || 'Untitled').replace(/\.[^.]+$/, '')} Folder` },
+      { type: 'heading', label: 'Options' },
+      { key: 'links', label: 'Copy Images', type: 'checkbox', value: true },
+      { key: 'linksFolder', label: 'Collect Images in a Separate Folder', type: 'checkbox', value: true, disabled: (x) => !x.links },
+      { key: 'fonts', label: 'Copy Fonts Used in Document', type: 'checkbox', value: true },
+      { key: 'report', label: 'Create Report', type: 'checkbox', value: true },
+    ],
     okLabel: 'Package',
   });
   if (!v) return null;
-  const { entries, base } = await packageEntries(app, ed, { includeFonts: v.fonts });
+  const { entries, base } = await packageEntries(app, ed, { includeFonts: v.fonts, copyLinks: v.links, linksFolder: v.linksFolder, report: v.report, folder: v.folder });
   const [{ createZip }, { deliverFiles }] = await Promise.all([import('../io/zip.js'), import('../io/deliver.js')]);
   const blob = await createZip(entries);
-  const msg = await deliverFiles(app, [{ name: `${base} Folder.zip`, blob }], { dest: app.user && app.puter?.ui ? 'puter' : 'device' });
+  const msg = await deliverFiles(app, [{ name: `${base}.zip`, blob }], { dest: app.user && app.puter?.ui ? 'puter' : 'device' });
   if (msg) app.notify(msg, { polite: true });
   return blob;
 }

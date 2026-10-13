@@ -280,7 +280,7 @@ describe('effects', () => {
   it('normalizes effect records', () => {
     expect(normalizeEffect({ type: 'nope' })).toBeNull();
     const e = normalizeEffect({ type: 'dropShadow', opacity: 3, blur: -4, color: 'red', mode: 'bogus', extra: 1, hidden: true });
-    expect(e).toEqual({ type: 'dropShadow', mode: 'multiply', opacity: 1, x: 7, y: 7, blur: 0, color: '#000000', hidden: true });
+    expect(e).toEqual({ type: 'dropShadow', mode: 'multiply', opacity: 1, x: 7, y: 7, blur: 0, color: '#000000', shadowFrom: 'color', darkness: 1, hidden: true });
     expect(createEffect('innerGlow', { source: 'center' }).source).toBe('center');
   });
 

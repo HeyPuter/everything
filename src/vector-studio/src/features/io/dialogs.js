@@ -102,8 +102,11 @@ export async function formatOptionsDialog(app, format) {
     const minify = checkbox('Minify', o.minify);
     const responsive = checkbox('Responsive (no fixed width and height)', o.responsive);
     const symbols = checkbox('Write symbols as <symbol> and <use>', o.symbols);
+    const styling = select([{ value: 'attributes', label: 'Presentation Attributes' }, { value: 'inline', label: 'Inline Style' }, { value: 'css', label: 'Internal CSS' }], o.styling || 'attributes');
+    const ids = select([{ value: 'names', label: 'Layer and Object Names' }, { value: 'minimal', label: 'Minimal' }, { value: 'unique', label: 'Unique' }], o.objectIds || 'names');
+    fields.push(row('Styling', styling), row('Object IDs', ids));
     fields.push(row('Font', font, { help: app.textOutlines ? null : 'Converting text to outlines needs the type features.' }), h('div.form-row', h('span.form-label', 'Images'), h('span.io-static', 'Embed')), row('Decimal places', prec), minify.el, responsive.el, symbols.el);
-    readers.push(() => ({ precision: Number(prec.value), textMode: font.value, minify: minify.input.checked, responsive: responsive.input.checked, symbols: symbols.input.checked }));
+    readers.push(() => ({ precision: Number(prec.value), textMode: font.value, minify: minify.input.checked, responsive: responsive.input.checked, symbols: symbols.input.checked, styling: styling.value, objectIds: ids.value }));
   } else if (format === 'pdf') {
     const docBleed = app.editor?.doc.root.bleed;
     const docSides = typeof docBleed === 'number' ? [docBleed] : ['top', 'bottom', 'left', 'right'].map((k) => docBleed?.[k] || 0);
@@ -141,10 +144,17 @@ export async function formatOptionsDialog(app, format) {
       if (res.value !== 'other') ppi.value = res.value;
     });
     fields.push(row('Resolution', res), ppiRow);
+    const model = select([{ value: 'rgb', label: 'RGB' }, { value: 'grayscale', label: 'Grayscale' }], o.colorModel || 'rgb');
+    fields.push(row('Color Model', model));
     let bg = null;
+    let bgOther = null;
     if (format !== 'jpeg') {
-      bg = select([{ value: 'transparent', label: 'Transparent' }, { value: '#ffffff', label: 'White' }, { value: '#000000', label: 'Black' }], o.background);
-      fields.push(row('Background', bg));
+      const known = ['transparent', '#ffffff', '#000000'];
+      bg = select([{ value: 'transparent', label: 'Transparent' }, { value: '#ffffff', label: 'White' }, { value: '#000000', label: 'Black' }, { value: 'other', label: 'Other...' }], known.includes(o.background) ? o.background : 'other');
+      bgOther = h('input', { type: 'color', 'aria-label': 'Background color', value: known.includes(o.background) ? '#808080' : o.background || '#808080' });
+      bgOther.hidden = bg.value !== 'other';
+      bg.addEventListener('change', () => (bgOther.hidden = bg.value !== 'other'));
+      fields.push(row('Background', h('div.io-inline', bg, bgOther)));
     } else fields.push(h('div.form-row', h('span.form-label', 'Background'), h('span.io-static', 'White')));
     const aa = select([{ value: 'art', label: 'Art Optimized (Supersampling)' }, { value: 'none', label: 'None' }], o.antialias === false ? 'none' : 'art');
     fields.push(row('Anti-aliasing', aa));
@@ -159,7 +169,7 @@ export async function formatOptionsDialog(app, format) {
     readers.push(() => {
       const p = res.value === 'other' ? Number(ppi.value) : Number(res.value);
       if (!Number.isFinite(p) || p < 10 || p > 2400) throw Object.assign(new Error('Enter a resolution between 10 and 2400 ppi.'), { field: ppi });
-      return { ppi: p, scale: p / 72, background: bg ? bg.value : '#ffffff', antialias: aa.value !== 'none', quality: quality ? Math.max(0.05, Number(quality.value) / 10) : undefined };
+      return { ppi: p, scale: p / 72, background: bg ? (bg.value === 'other' ? bgOther.value : bg.value) : '#ffffff', antialias: aa.value !== 'none', quality: quality ? Math.max(0.05, Number(quality.value) / 10) : undefined, colorModel: model.value };
     });
   }
   const error = h('p.form-error', { role: 'alert' });

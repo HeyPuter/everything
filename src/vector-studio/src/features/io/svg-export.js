@@ -265,8 +265,22 @@ class SVGWriter {
       behind.push(r);
       reach = Math.max(reach, Math.hypot(dx, dy) + sd * 3);
     };
+    // A Darkness shadow: the artwork's own colors scaled toward black.
+    const darkShadow = (darkness, opacity, sd, dx, dy) => {
+      const d = res();
+      const o = res();
+      const r = res();
+      const k = this.n(1 - Math.max(0, Math.min(1, darkness)));
+      prims.push(`<feComponentTransfer in="${src}" result="${d}"><feFuncR type="linear" slope="${k}"/><feFuncG type="linear" slope="${k}"/><feFuncB type="linear" slope="${k}"/></feComponentTransfer>`);
+      prims.push(`<feGaussianBlur in="${d}" stdDeviation="${this.n(sd)}"/>`);
+      prims.push(dx || dy ? `<feOffset dx="${this.n(dx)}" dy="${this.n(dy)}" result="${o}"/>` : `<feOffset result="${o}"/>`);
+      prims.push(`<feComponentTransfer in="${o}" result="${r}"><feFuncA type="linear" slope="${this.n(opacity)}"/></feComponentTransfer>`);
+      behind.push(r);
+      reach = Math.max(reach, Math.hypot(dx, dy) + sd * 3);
+    };
     for (const e of effects) {
-      if (e.type === 'dropShadow') shadow(e.color || '#000000', e.opacity ?? 0.75, (e.blur || 0) / 2, e.x || 0, e.y || 0);
+      if (e.type === 'dropShadow' && e.shadowFrom === 'darkness') darkShadow(e.darkness ?? 1, e.opacity ?? 0.75, (e.blur || 0) / 2, e.x || 0, e.y || 0);
+      else if (e.type === 'dropShadow') shadow(e.color || '#000000', e.opacity ?? 0.75, (e.blur || 0) / 2, e.x || 0, e.y || 0);
       else if (e.type === 'outerGlow') {
         const b = e.blur ?? 5;
         // Two passes, like the canvas renderer, for a denser core.

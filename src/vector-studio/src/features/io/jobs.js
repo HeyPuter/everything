@@ -8,6 +8,7 @@ import { writePDF } from './pdf.js';
 import { rasterExport, exportRegion } from './raster.js';
 import { collectTextOutlines } from './outlines.js';
 import { selectionBounds } from '../../model/geometry.js';
+import { applySvgOptions } from './svg-styling.js';
 
 export const FORMATS = {
   svg: { label: 'SVG (svg)', ext: 'svg', mime: 'image/svg+xml' },
@@ -68,7 +69,8 @@ export async function renderFile(app, editor, format, region, options = {}) {
   if (format === 'svg') {
     const { rect, ids } = exportRegion(editor, region);
     const outlines = await outlinesFor(app, editor, ids, options.textMode === 'outlines');
-    const text = editorSVG(editor, { rect, ids, precision: options.precision ?? 3, minify: options.minify, responsive: options.responsive, symbols: options.symbols, textMode: outlines ? 'outlines' : 'text', outlines, title: options.title });
+    const raw = editorSVG(editor, { rect, ids, precision: options.precision ?? 3, minify: options.minify, responsive: options.responsive, symbols: options.symbols, textMode: outlines ? 'outlines' : 'text', outlines, title: options.title, writeIds: options.objectIds !== 'minimal' });
+    const text = applySvgOptions(raw, { styling: options.styling, objectIds: options.objectIds, minify: options.minify });
     return new Blob([text], { type: 'image/svg+xml' });
   }
   if (format === 'pdf') {
@@ -80,7 +82,7 @@ export async function renderFile(app, editor, format, region, options = {}) {
     return new Blob([bytes], { type: 'application/pdf' });
   }
   if (FORMATS[format]) {
-    return rasterExport(editor, { ...region, format, scale: options.scale || (options.ppi ? options.ppi / 72 : 1), background: options.background, antialias: options.antialias !== false, quality: options.quality });
+    return rasterExport(editor, { ...region, format, scale: options.scale || (options.ppi ? options.ppi / 72 : 1), background: options.background, antialias: options.antialias !== false, quality: options.quality, colorModel: options.colorModel });
   }
   throw new Error(`Unknown format ${format}`);
 }

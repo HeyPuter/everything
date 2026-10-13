@@ -71,3 +71,41 @@ describe('Adjust Colors', () => {
     expect(adjustColor('#ffffff', 'grayscale', { gray: 100 })).toBe('#000000');
   });
 });
+
+describe('Recolor Artwork', () => {
+  it('sets new colors from a rule and keeps preserved colors', async () => {
+    const { createPath } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const { preservedColor, randomSatBright } = await import('../src/features/paint/edit-colors-ui.js');
+    expect(preservedColor('#ffffff', { white: true })).toBe(true);
+    expect(preservedColor('#808080', { grays: true })).toBe(true);
+    expect(preservedColor('#808080', { white: true, black: true })).toBe(false);
+    expect(randomSatBright('#ff0000', () => 0.5)).not.toBe('#ff0000');
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const ids = [];
+    doc.transact('r', () => {
+      for (const [i, c] of ['#ff0000', '#ee1111', '#0000ff', '#ffffff'].entries()) {
+        const n = createPath(rectangle(i * 20, 0, 10, 10), true, { fill: { type: 'solid', color: c }, stroke: null });
+        doc.insert(n, app.editor.targetLayer().id);
+        ids.push(n.id);
+      }
+    });
+    app.editor.select(ids);
+    const done = app.commands.run('color.recolor');
+    await tick();
+    const dlg = document.querySelector('dialog[open]');
+    const white = [...dlg.querySelectorAll('.rc-preserve .check-row')].find((r) => r.textContent === 'White').querySelector('input');
+    white.checked = true;
+    white.dispatchEvent(new Event('change', { bubbles: true }));
+    const rule = dlg.querySelector('#rc-rule');
+    rule.value = 'reduce:1';
+    rule.dispatchEvent(new Event('change'));
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await done;
+    const fills = ids.map((id) => doc.get(id).fill.color);
+    expect(fills[3]).toBe('#ffffff');
+    expect(fills[2]).not.toBe('#0000ff');
+  });
+});

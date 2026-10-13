@@ -62,6 +62,60 @@ export function setToolShown(app, id, shown) {
 }
 
 /**
+ * A list of named items to rename, duplicate and delete (Manage
+ * Workspaces). Resolves to the edited list, each item
+ * with `orig` (its name before), or null when cancelled.
+ */
+async function manageNamedDialog(app, { title, items, label, empty, fallback }) {
+  let list = items.map((w) => ({ ...w, orig: w.name }));
+  const ul = h('ul.ev-list', { role: 'listbox', 'aria-label': label });
+  const name = h('input#mw-name', { type: 'text', autocomplete: 'off', spellcheck: false });
+  let sel = list[0]?.orig || null;
+  const render = () => {
+    ul.replaceChildren(...list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))));
+    if (!list.length) ul.append(h('li.panel-empty', empty));
+    const cur = list.find((w) => w.orig === sel);
+    name.value = cur?.name || '';
+    name.disabled = del.disabled = dup.disabled = !cur;
+  };
+  name.addEventListener('input', () => {
+    const cur = list.find((w) => w.orig === sel);
+    if (cur) cur.name = name.value;
+    const el = ul.querySelector('[aria-selected="true"] .ev-name');
+    if (el) el.textContent = name.value;
+  });
+  const del = h('button.btn.small', { type: 'button', onclick: () => ((list = list.filter((w) => w.orig !== sel)), (sel = list[0]?.orig || null), render()) }, 'Delete');
+  const dup = h('button.btn.small', {
+    type: 'button',
+    onclick: () => {
+      const cur = list.find((w) => w.orig === sel);
+      if (!cur) return;
+      const copy = { ...cur, name: `${cur.name} copy`, orig: `${cur.orig}\u0000${Date.now()}` };
+      list.push(copy);
+      sel = copy.orig;
+      render();
+    },
+  }, 'Duplicate');
+  render();
+  const ok = await openDialog({
+    title,
+    body: h('div.form.edit-views', ul, h('div.form-row', h('label', { for: 'mw-name' }, 'Name'), name), h('div.ev-actions', dup, del)),
+    buttons: [
+      { label: 'Cancel', value: false },
+      { label: 'OK', value: true, primary: true },
+    ],
+  });
+  if (!ok) return null;
+  const seen = new Set();
+  return list.map((w) => {
+    let n = w.name.trim() || fallback;
+    while (seen.has(n)) n = `${n} 2`;
+    seen.add(n);
+    return { ...w, name: n };
+  });
+}
+
+/**
  * Edit Toolbar: the All Tools drawer. Tools not in the toolbar are listed
  * by section; drag one onto the Tools panel (or press its Add button) to
  * show it, drag a tool from the panel onto the drawer (or press Remove) to
@@ -226,55 +280,10 @@ async function newWorkspaceDialog(app) {
 }
 
 async function manageWorkspacesDialog(app) {
-  let list = savedWorkspaces(app).map((w) => ({ ...w, orig: w.name }));
-  const ul = h('ul.ev-list', { role: 'listbox', 'aria-label': 'Saved workspaces' });
-  const name = h('input#mw-name', { type: 'text', autocomplete: 'off', spellcheck: false });
-  let sel = list[0]?.orig || null;
-  const render = () => {
-    ul.replaceChildren(...list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))));
-    if (!list.length) ul.append(h('li.panel-empty', 'No saved workspaces. Use New Workspace to save one.'));
-    const cur = list.find((w) => w.orig === sel);
-    name.value = cur?.name || '';
-    name.disabled = del.disabled = dup.disabled = !cur;
-  };
-  name.addEventListener('input', () => {
-    const cur = list.find((w) => w.orig === sel);
-    if (cur) cur.name = name.value;
-    ul.querySelector('[aria-selected="true"] .ev-name') && (ul.querySelector('[aria-selected="true"] .ev-name').textContent = name.value);
-  });
-  const del = h('button.btn.small', { type: 'button', onclick: () => ((list = list.filter((w) => w.orig !== sel)), (sel = list[0]?.orig || null), render()) }, 'Delete');
-  const dup = h('button.btn.small', {
-    type: 'button',
-    onclick: () => {
-      const cur = list.find((w) => w.orig === sel);
-      if (!cur) return;
-      const copy = { ...cur, name: `${cur.name} copy`, orig: `${cur.orig}\u0000${Date.now()}` };
-      list.push(copy);
-      sel = copy.orig;
-      render();
-    },
-  }, 'Duplicate');
-  render();
-  const ok = await openDialog({
-    title: 'Manage Workspaces',
-    body: h('div.form.edit-views', ul, h('div.form-row', h('label', { for: 'mw-name' }, 'Name'), name), h('div.ev-actions', dup, del)),
-    buttons: [
-      { label: 'Cancel', value: false },
-      { label: 'OK', value: true, primary: true },
-    ],
-  });
-  if (!ok) return;
-  const seen = new Set();
-  const out = [];
-  for (const w of list) {
-    let n = w.name.trim() || 'Workspace';
-    while (seen.has(n)) n = `${n} 2`;
-    seen.add(n);
-    const { orig, ...rest } = w;
-    out.push({ ...rest, name: n });
-    if (currentKey(app) === `saved:${orig}`) app.prefs.set('workspace', `saved:${n}`);
-  }
-  app.prefs.set('workspaces', out);
+  const out = await manageNamedDialog(app, { title: 'Manage Workspaces', items: savedWorkspaces(app), label: 'Saved workspaces', empty: 'No saved workspaces. Use New Workspace to save one.', fallback: 'Workspace' });
+  if (!out) return;
+  for (const w of out) if (currentKey(app) === `saved:${w.orig}`) app.prefs.set('workspace', `saved:${w.name}`);
+  app.prefs.set('workspaces', out.map(({ orig, ...rest }) => rest));
 }
 
 // ---- bars ----

@@ -118,3 +118,82 @@ describe('Export for Screens', () => {
     await done;
   });
 });
+
+describe('Document Setup type options', () => {
+  it('turns typed straight quotes into the document quotes', async () => {
+    const { typedQuote } = await import('../src/features/files/type-setup.js');
+    expect(typedQuote({}, 'say ', 4, '"')).toBe('“');
+    expect(typedQuote({}, 'say “hi', 7, '"')).toBe('”');
+    expect(typedQuote({}, 'it', 2, "'")).toBe('’');
+    const de = { typeOptions: { language: 'de', double: '„“', single: '‚‘', quotes: true } };
+    expect(typedQuote(de, '', 0, '"')).toBe('„');
+    expect(typedQuote({ typeOptions: { quotes: false } }, '', 0, '"')).toBe('"');
+  });
+
+  it('sets the language and quotes in Document Setup', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const done = app.commands.run('file.documentSetup');
+    const d = await waitDialog();
+    const lang = d.querySelector('#ds-lang');
+    lang.value = 'fr';
+    lang.dispatchEvent(new Event('change'));
+    expect(d.querySelector('#ds-dq').value).toBe('«»');
+    button('OK').click();
+    await done;
+    expect(app.editor.doc.root.typeOptions).toMatchObject({ language: 'fr', double: '«»', quotes: true });
+  });
+});
+
+describe('SVG export styling and ids', () => {
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g1"><stop offset="0"/></linearGradient></defs><g id="Layer_1"><path id="Star" d="M0 0h1" fill="#f00" stroke="#000" stroke-width="2"/><path d="M0 0h2" fill="url(#g1)"/><rect width="1" height="1" fill="#f00" stroke="#000" stroke-width="2"/></g></svg>';
+
+  it('leaves the default output alone', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    expect(applySvgOptions(SVG)).toBe(SVG);
+  });
+
+  it('writes inline styles and internal CSS classes', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    const inline = applySvgOptions(SVG, { styling: 'inline' });
+    expect(inline).toContain('style="fill:#f00;stroke:#000;stroke-width:2"');
+    expect(inline).not.toContain(' fill="#f00"');
+    const css = applySvgOptions(SVG, { styling: 'css' });
+    expect(css).toContain('.st0{fill:#f00;stroke:#000;stroke-width:2}');
+    expect(css.match(/class="st0"/g)).toHaveLength(2);
+    expect(css).toContain('<style>');
+  });
+
+  it('keeps only referenced ids, or gives every object one', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    const minimal = applySvgOptions(SVG, { objectIds: 'minimal' });
+    expect(minimal).toContain('id="g1"');
+    expect(minimal).not.toContain('id="Star"');
+    expect(minimal).not.toContain('id="Layer_1"');
+    const unique = applySvgOptions(SVG, { objectIds: 'unique' });
+    expect(unique).toContain('id="Star"');
+    expect(unique).toMatch(/<rect[^>]*id="rect-\d+"/);
+  });
+});
+
+describe('Image export options', () => {
+  it('offers a color model and a custom background', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const { formatOptionsDialog } = await import('../src/features/io/dialogs.js');
+    const done = formatOptionsDialog(app, 'png');
+    const d = await waitDialog();
+    const selects = [...d.querySelectorAll('select')];
+    const model = selects.find((s) => [...s.options].some((o) => o.value === 'grayscale'));
+    model.value = 'grayscale';
+    const bg = selects.find((s) => [...s.options].some((o) => o.value === 'transparent'));
+    bg.value = 'other';
+    bg.dispatchEvent(new Event('change'));
+    const color = d.querySelector('.io-inline input[type=color]');
+    expect(color.hidden).toBe(false);
+    color.value = '#123456';
+    button('OK').click();
+    const v = await done;
+    expect(v).toMatchObject({ colorModel: 'grayscale', background: '#123456' });
+  });
+});

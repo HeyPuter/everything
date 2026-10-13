@@ -54,6 +54,8 @@ export async function gapOptionsDialog(app) {
   const prev = h('input', { type: 'checkbox', id: `rg-prev-${uid}`, checked: true, onchange: () => run() });
 
   const sync = () => {
+    on.checked = state.on;
+    color.value = state.color;
     sizeSel.value = state.size;
     custom.set(state.size === 'custom' ? state.custom : GAP_SIZES[state.size]);
     sizeSel.disabled = !state.on;
@@ -102,6 +104,13 @@ export async function gapOptionsDialog(app) {
     title: 'Gap Options',
     body,
     buttons: [
+      // Reset goes back to the defaults; Set Default makes these settings the defaults for new groups.
+      ...(ids.length
+        ? [
+            { label: 'Reset', left: true, validate: () => (update({ ...gapDefaults(app) }), false) },
+            { label: 'Set Default', left: true, validate: () => (custom.input.dispatchEvent(new Event('blur')), app.prefs.set('regionGaps', { ...state }), app.notify('These gap options are now the defaults for new Paint Regions groups.', { polite: true }), false) },
+          ]
+        : []),
       { label: 'Cancel', value: null },
       { label: 'OK', primary: true, value: () => (custom.input.dispatchEvent(new Event('blur')), true) },
     ],
@@ -109,7 +118,8 @@ export async function gapOptionsDialog(app) {
   if (tx) tx.cancel();
   tx = null;
   if (!ok) return false;
-  app.prefs.set('regionGaps', { ...state });
+  // Without a selected group the dialog edits the defaults.
+  if (!ids.length) app.prefs.set('regionGaps', { ...state });
   if (ids.length) doc.transact('Gap Options', apply);
   return true;
 }

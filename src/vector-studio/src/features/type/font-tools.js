@@ -343,22 +343,26 @@ export async function openResolveFonts(app) {
 
 // ---- recent fonts ----
 
-const RECENT_MAX = 10;
+const RECENT_MAX = 30;
 
+/** Recently used fonts, as many as Preferences > Type > Number of Recent Fonts (10 by default). */
 export function recentFonts(app) {
   const r = app.prefs.get('recentFonts');
-  return Array.isArray(r) ? r.filter(isFontAvailable) : [];
+  const n = Number(app.prefs.get('recentFontsCount'));
+  return Array.isArray(r) ? r.filter(isFontAvailable).slice(0, Number.isFinite(n) && n >= 1 ? n : 10) : [];
 }
 
 export function addRecentFont(app, family) {
   if (!family) return;
-  const list = [family, ...recentFonts(app).filter((f) => f !== family)].slice(0, RECENT_MAX);
+  const r = app.prefs.get('recentFonts');
+  const list = [family, ...(Array.isArray(r) ? r : []).filter((f) => f !== family)].slice(0, RECENT_MAX);
   app.prefs.set('recentFonts', list);
 }
 
 export function installFontTools(app) {
   app.on('font-applied', (family) => addRecentFont(app, family));
   app.menuSources.set('recentFonts', (a) => {
+    if (a.prefs.get('showRecentFonts') === false) return [];
     const cur = currentCharStyle(a)?.fontFamily;
     return recentFonts(a).map((f) => ({ type: 'cmd', label: f, enabled: Boolean(a.editor), checked: cur === f, run: (x) => setFontFamily(x, f) }));
   });

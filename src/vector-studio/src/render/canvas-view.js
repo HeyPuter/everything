@@ -201,7 +201,7 @@ export class CanvasView {
     this.interaction = null;
     this.#paint(this.actx, { background: true, borders: true });
     if (editor.isolation && doc.has(editor.isolation) && viewHooks.dimIsolation.every((f) => f(editor) !== false)) this.#dimOutsideIsolation();
-    if (opts.pixelPreview) drawPixelPreview(this.actx, this.art, view);
+    if (opts.pixelPreview) drawPixelPreview(this.actx, this.art, view, editor.prefs?.get('showPixelGrid') !== false);
     this.#postArt();
     this.lastRenderMs = performance.now() - t0;
     this.slowScene = this.lastRenderMs > 8;
@@ -517,7 +517,7 @@ function drawGrid(ctx, editor, colors) {
 }
 
 /** Pixel Preview: re-render the canvas through a 72-ppi pixel grid at the current zoom. */
-function drawPixelPreview(ctx, canvas, view) {
+function drawPixelPreview(ctx, canvas, view, grid = true) {
   if (view.zoom <= 1) return;
   const w = Math.ceil(canvas.width / (view.zoom * view.dpr));
   const h = Math.ceil(canvas.height / (view.zoom * view.dpr));
@@ -529,6 +529,22 @@ function drawPixelPreview(ctx, canvas, view) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(tmp, 0, 0, w, h, 0, 0, w * view.zoom * view.dpr, h * view.zoom * view.dpr);
+  // The pixel grid shows above 600% zoom.
+  if (grid && view.zoom >= 6) {
+    const s = view.zoom * view.dpr;
+    ctx.beginPath();
+    for (let i = 1; i < w; i++) {
+      ctx.moveTo(Math.round(i * s) + 0.5, 0);
+      ctx.lineTo(Math.round(i * s) + 0.5, canvas.height);
+    }
+    for (let j = 1; j < h; j++) {
+      ctx.moveTo(0, Math.round(j * s) + 0.5);
+      ctx.lineTo(canvas.width, Math.round(j * s) + 0.5);
+    }
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

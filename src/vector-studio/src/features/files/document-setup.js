@@ -10,6 +10,7 @@ import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { UNIT_OPTIONS, LIMITS } from './presets.js';
 import { normalizeBleed } from './format.js';
+import { LANGUAGES, DOUBLE_QUOTES, SINGLE_QUOTES, typeOptionsOf } from './type-setup.js';
 
 export const GRID_SIZES = [
   { value: 4, label: 'Small' },
@@ -44,6 +45,11 @@ export function documentSetupPatch(root, v) {
     }
   }
   if (Boolean(v.showImagesInOutline) !== Boolean(root.showImagesInOutline)) patch.showImagesInOutline = Boolean(v.showImagesInOutline);
+  if (v.typeOptions) {
+    const cur = typeOptionsOf(root);
+    const next = { ...cur, ...v.typeOptions };
+    if (Object.keys(next).some((k) => next[k] !== cur[k])) patch.typeOptions = next;
+  }
   if (v.transparencyGrid) {
     const next = { ...transparencyGridOf(root), ...v.transparencyGrid };
     const cur = transparencyGridOf(root);
@@ -111,6 +117,20 @@ export async function documentSetupDialog(app, editor = app.editor) {
   });
   for (const c of [c1, c2]) c.addEventListener('input', () => (colorSel.value = 'custom'));
   const paper = h('input', { type: 'checkbox', id: id('paper'), checked: Boolean(tg.simulatePaper) });
+  const to = typeOptionsOf(root);
+  const quoteOptions = (list, value) => (list.includes(value) ? list : [value, ...list]).map((q) => h('option', { value: q, selected: q === value }, `${q[0]}abc${q[1]}`));
+  const langSel = h('select.select', { id: id('lang') }, LANGUAGES.map((l) => h('option', { value: l.value, selected: l.value === to.language }, l.label)));
+  const doubleSel = h('select.select', { id: id('dq') }, quoteOptions(DOUBLE_QUOTES, to.double));
+  const singleSel = h('select.select', { id: id('sq') }, quoteOptions(SINGLE_QUOTES, to.single));
+  const smartQuotes = h('input', { type: 'checkbox', id: id('smartq'), checked: to.quotes });
+  // A language brings its usual quote marks.
+  langSel.addEventListener('change', () => {
+    const l = LANGUAGES.find((x) => x.value === langSel.value);
+    if (l) {
+      doubleSel.value = l.double;
+      singleSel.value = l.single;
+    }
+  });
   const error = h('p.form-error', { role: 'alert' });
 
   const canEditArtboards = app.toolClasses.has('artboard');
@@ -137,6 +157,11 @@ export async function documentSetupDialog(app, editor = app.editor) {
     row('Grid Size', id('grid-size'), sizeSel),
     row('Grid Colors', id('grid-colors'), colorSel, c1, c2),
     h('div.form-row.check', paper, h('label', { for: id('paper') }, 'Simulate Colored Paper')),
+    h('h3.form-heading', 'Type'),
+    row('Language', id('lang'), langSel),
+    row('Double Quotes', id('dq'), doubleSel),
+    row('Single Quotes', id('sq'), singleSel),
+    h('div.form-row.check', smartQuotes, h('label', { for: id('smartq') }, "Use Typographer's Quotes")),
     error,
   );
 
@@ -151,6 +176,7 @@ export async function documentSetupDialog(app, editor = app.editor) {
       height: parseLength(hIn.value, units),
       showImagesInOutline: imagesOutline.checked,
       transparencyGrid: { size: Number(sizeSel.value), preset: colorSel.value, color1: c1.value, color2: c2.value, simulatePaper: paper.checked },
+      typeOptions: { language: langSel.value, double: doubleSel.value, single: singleSel.value, quotes: smartQuotes.checked },
     };
   };
   const validate = () => {

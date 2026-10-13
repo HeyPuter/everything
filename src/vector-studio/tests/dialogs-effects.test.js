@@ -50,3 +50,35 @@ describe('Transform effect', () => {
     expect(copies.map((s) => s.paint?.strokeWidth ?? 4)).toEqual([4, 2, 1]);
   });
 });
+
+describe('Drop Shadow darkness', () => {
+  it('chooses a darkness shadow in the dialog and exports it to SVG', async () => {
+    const { createPath } = await import('../src/model/nodes.js');
+    const { rectangle } = await import('../src/model/shapes.js');
+    const { exportSVG } = await import('../src/features/io/svg-export.js');
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const n = createPath(rectangle(0, 0, 50, 50), true, { fill: { type: 'solid', color: '#3366ff' }, stroke: null });
+    doc.transact('r', () => doc.insert(n, app.editor.targetLayer().id));
+    app.editor.select([n.id]);
+    const done = app.commands.run('effect.dropShadow');
+    await new Promise((r) => setTimeout(r, 0));
+    const dlg = document.querySelector('dialog[open]');
+    const label = (t) => [...dlg.querySelectorAll('label[for]')].find((l) => l.textContent === t);
+    const darkInput = document.getElementById(label('Darkness').htmlFor);
+    expect(darkInput.disabled).toBe(true);
+    const radio = [...dlg.querySelectorAll('label.radio')].find((l) => l.textContent === 'Darkness').querySelector('input');
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(darkInput.disabled).toBe(false);
+    darkInput.value = '40%';
+    darkInput.dispatchEvent(new Event('input', { bubbles: true }));
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await done;
+    const fx = doc.get(n.id).effects[0];
+    expect(fx).toMatchObject({ type: 'dropShadow', shadowFrom: 'darkness', darkness: 0.4 });
+    const svg = exportSVG(doc, { rect: { x: -50, y: -50, w: 200, h: 200 } });
+    expect(svg).toContain('slope="0.6"');
+  });
+});
