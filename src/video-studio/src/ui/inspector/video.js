@@ -1,6 +1,6 @@
 /**
- * Video tab for video and image clips, with Basic, Mask, Cutout, Retouch
- * and Chroma key sub-tabs.
+ * Video tab for video and image clips, with Basic, Mask, Cutout, Remove,
+ * Retouch and Chroma key sub-tabs.
  */
 import { h, announce } from '../../lib/dom.js';
 import { slider, propSection, tabSet } from './common.js';
@@ -12,6 +12,8 @@ import { maskEdit } from '../mask-edit-state.js';
 import { chromaTab } from './chroma.js';
 import { cutoutTab } from './cutout.js';
 import { retouchTab } from './retouch.js';
+import { removeTab } from './removal.js';
+import { removeEdit } from '../remove-edit-state.js';
 
 /** Each side stops so at least 5% of the picture stays visible. */
 const KEEP = 0.05;
@@ -53,6 +55,7 @@ const SUBS = [
   { id: 'basic', label: 'Basic', make: basicTab },
   { id: 'mask', label: 'Mask', make: maskTab },
   { id: 'cutout', label: 'Cutout', make: cutoutTab },
+  { id: 'remove', label: 'Remove', make: removeTab },
   { id: 'retouch', label: 'Retouch', make: retouchTab },
   { id: 'chroma', label: 'Chroma key', make: chromaTab },
 ];
@@ -73,6 +76,7 @@ export function videoTab(view, state) {
     view.resetScope();
     subs.panel.replaceChildren(SUBS.find((s) => s.id === id).make(view));
     maskEdit.refresh();
+    removeEdit.refresh();
   };
   show(subs.current);
   return h('div.video-tab', subs.list, subs.panel);

@@ -280,3 +280,28 @@
     stroke-width: 24;
   }
 }
+
+/* On-canvas object removal regions */
+.removal-svg .removal-tint {
+  fill: rgba(229, 72, 77, 0.38);
+  pointer-events: none;
+}
+
+.removal-svg .removal-tint.selected {
+  fill: rgba(229, 72, 77, 0.5);
+}
+
+.removal-svg .removal-tint.off {
+  fill: rgba(255, 255, 255, 0.22);
+}
+
+.removal-svg .removal-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: fill;
+  cursor: move;
+}
+
+.removal-svg .mask-handle.corner.nesw {
+  cursor: nesw-resize;
+}

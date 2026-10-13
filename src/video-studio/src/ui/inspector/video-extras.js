@@ -1,14 +1,14 @@
 /**
  * Extra controls of the Video > Basic tab: uniform scale (separate Scale X /
  * Scale Y when off), the align-to-frame buttons, and the per-clip picture
- * sections (motion blur, noise reduction, relight, canvas), each with an on
+ * sections (motion blur, noise reduction, enhance quality, relight, canvas), each with an on
  * checkbox in its header. Values live in model/clip-extras.js.
  */
 import '../../styles/masks.css';
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { evaluate } from '../../engine/scene.js';
-import { EXTRA_DEFAULTS, CANVAS_TYPES, ALIGN_EDGES, alignPosition, fitBox } from '../../model/clip-extras.js';
+import { EXTRA_DEFAULTS, CANVAS_TYPES, ALIGN_EDGES, alignPosition, fitBox, upscaleFactor } from '../../model/clip-extras.js';
 import { segmented } from '../controls.js';
 import { slider, propSection, toggle, color, uidFor, row, note } from './common.js';
 
@@ -116,6 +116,7 @@ function extraSection(view, { key, title, children, hint, actions = null }) {
           delete c.keyframes?.['relight.angle'];
           delete c.keyframes?.['relight.intensity'];
         }
+        if (key === 'enhance') delete c.keyframes?.['enhance.strength'];
       });
       announce(`${title} reset`);
     },
@@ -169,6 +170,39 @@ export function denoiseSection(view) {
     set: (v, final) => setExtra(view, 'denoise', 'Reduce noise', 'strength', v, final),
   });
   return extraSection(view, { key: 'denoise', title: 'Reduce image noise', children: [strength.el] });
+}
+
+/**
+ * Enhance quality: crisper soft or small footage (sharpening that adapts to
+ * the picture, a little local detail, better upscaling). Strength is
+ * keyframable. Notes when the source is smaller than the project frame.
+ */
+export function enhanceSection(view) {
+  const strength = slider(view, {
+    label: 'Strength', min: 0, max: 100, prop: 'enhance.strength',
+    get: () => Math.round(view.clip?.enhance ? view.valueOf('enhance.strength') : EXTRA_DEFAULTS.enhance.strength),
+    set: (v, final) => {
+      if (!view.clip?.enhance) setExtra(view, 'enhance', 'Enhance quality', 'strength', v, final);
+      else view.animate('enhance.strength', v, { label: 'Enhance quality', final });
+    },
+  });
+  const small = h('p.insp-note.enhance-small', { hidden: true }, icon('info', 14), h('span'));
+  const sync = () => {
+    const c = view.clip;
+    const a = c && view.project.assets[c.assetId];
+    const { width: W, height: H } = view.project.settings;
+    const up = a ? upscaleFactor(a.width, a.height, W, H) : 0;
+    small.hidden = !(up > 1.05);
+    if (!small.hidden) small.lastChild.textContent = `This ${c.type === 'image' ? 'picture' : 'video'} is ${a.width} × ${a.height}, smaller than the ${W} × ${H} frame. Enhance helps it stay sharp when it is enlarged.`;
+  };
+  sync();
+  view.bind(sync);
+  return extraSection(view, {
+    key: 'enhance',
+    title: 'Enhance quality',
+    children: [strength.el, small],
+    hint: 'Makes soft or low resolution footage look crisper: sharpens detail without halos and enlarges small sources more cleanly.',
+  });
 }
 
 /** Keyframable relight value: a key at the playhead when keyed, else the setting. */
@@ -254,6 +288,6 @@ export function canvasSection(view) {
 
 /** All per-clip picture sections of Video > Basic. */
 export function pictureSections(view) {
-  return [motionBlurSection(view), denoiseSection(view), relightSection(view), canvasSection(view)];
+  return [motionBlurSection(view), denoiseSection(view), enhanceSection(view), relightSection(view), canvasSection(view)];
 }
 

@@ -1473,6 +1473,7 @@ export function createTimeline(ctx) {
       c.type === 'video' && store.project.assets[c.assetId]?.hasAudio ? { label: 'Extract audio', icon: 'fileAudio', onSelect: () => actions.extractAudio(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Split at scene changes', icon: 'scissors', onSelect: () => actions.splitScenes(id) } : null,
       c.type === 'video' || c.type === 'image' ? { label: c.cutout ? 'Keep background' : 'Remove background', icon: 'cutout', onSelect: () => actions.removeBackground(id) } : null,
+      c.type === 'video' || c.type === 'image' ? { label: 'Remove object...', icon: 'eraser', onSelect: () => ctx.inspector?.showVideoSub?.('remove') } : null,
       c.type === 'video' && !c.freeze ? { label: 'Stabilize...', icon: 'focus', onSelect: () => actions.stabilize(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Remove flicker...', icon: 'brightness', onSelect: () => actions.removeFlicker(id) } : null,
       visual && !f.track.main ? { label: 'Track motion...', icon: 'crosshair', onSelect: () => ctx.openTracking?.(id) } : null,
