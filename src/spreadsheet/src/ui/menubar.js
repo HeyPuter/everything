@@ -98,6 +98,11 @@ export function menubarMenus(f = {}) {
       i('Add to print area', 'plus', 'printArea', 'add'),
       i('Clear print area', 'eraser', 'printArea', 'clear'),
     ].map(waits)),
+    sub('Page breaks', 'breaks', [
+      i('Insert page break', 'breaks', 'pageBreak', 'insert'),
+      i('Remove page break', 'eraser', 'pageBreak', 'remove'),
+      i('Reset all page breaks', 'reset', 'pageBreak', 'reset'),
+    ].map(waits)),
     sep,
     i('Back to all spreadsheets', 'back', 'home'),
   ];
@@ -177,6 +182,7 @@ export function menubarMenus(f = {}) {
     i('Show zeros', 'eye', 'zeros', null, { checked: f.zeros !== false }),
     i('Row and column headers', 'borders', 'toggleHeaders', null, { checked: f.headers !== false }),
     i('Formula bar', 'fx', 'formulaBar', null, { checked: f.formulaBar !== false }),
+    i('Page breaks', 'pageBreak', 'showPageBreaks', null, { checked: !!f.showPageBreaks, disabled: f.chartSheet || (f.viewMode && f.viewMode !== 'normal') }),
     sep,
     sub('Freeze', 'pin', [
       i('First row', 'pin', 'freeze', { rows: 1 }),

@@ -34,7 +34,27 @@ export function normalizePrintSettings(raw) {
     ...Object.fromEntries(['header', 'footer', 'evenHeader', 'evenFooter', 'firstHeader', 'firstFooter']
       .filter(key => typeof raw[key] === 'string').map(key => [key, nativeText(raw[key])])),
     ...(typeof raw.title === 'boolean' ? { title: raw.title } : {}),
-    ...(typeof raw.repeatFrozen === 'boolean' ? { repeatFrozen: raw.repeatFrozen } : {}) };
+    ...(typeof raw.repeatFrozen === 'boolean' ? { repeatFrozen: raw.repeatFrozen } : {}),
+    ...pageBreakFields(raw) };
+}
+
+/** The most manual breaks a worksheet keeps on each axis (CT_PageBreak allows 1026). */
+export const MAX_PAGE_BREAKS = 1026;
+
+/**
+ * Manual page breaks, each the index of the first row (or column) of a new page, ascending and without
+ * repeats. Row 0 and column 0 start the first page already, so a break there means nothing.
+ */
+export function normalizePageBreaks(list, max) {
+  if (!Array.isArray(list)) return [];
+  const out = [...new Set(list.filter(n => Number.isInteger(n) && n > 0 && n <= max))].sort((a, b) => a - b);
+  return out.slice(0, MAX_PAGE_BREAKS);
+}
+
+// Only a sheet with breaks carries the fields, so settings without any compare and save as before.
+function pageBreakFields(raw) {
+  const rows = normalizePageBreaks(raw.rowBreaks, MAX_ROW), cols = normalizePageBreaks(raw.colBreaks, MAX_COL);
+  return { ...(rows.length ? { rowBreaks: rows } : {}), ...(cols.length ? { colBreaks: cols } : {}) };
 }
 
 /** Structural edits keep the saved print areas attached to their cells. */
@@ -47,6 +67,13 @@ export function mapPrintAreas(sheet, map, axis) {
     const moved = map(axis === 'row' ? { r1: range[0], r2: range[1], c1: 0, c2: MAX_COL }
       : { c1: range[0], c2: range[1], r1: 0, r2: MAX_ROW });
     p[key] = moved ? axis === 'row' ? [moved.r1, moved.r2] : [moved.c1, moved.c2] : null;
+  }
+  // A manual break stays above (or left of) the line it was above as lines are inserted, deleted or
+  // moved; a break whose line is deleted moves to the next line kept.
+  const breaks = axis === 'row' ? 'rowBreaks' : 'colBreaks';
+  if (p[breaks]?.length) {
+    const lo = axis === 'row' ? 'r1' : 'c1';
+    p[breaks] = p[breaks].map(at => map(axis === 'row' ? { r1: at, r2: at, c1: 0, c2: 0 } : { c1: at, c2: at, r1: 0, r2: 0 })?.[lo]).filter(Number.isInteger);
   }
   sheet.printSettings = normalizePrintSettings(p);
 }

@@ -318,7 +318,9 @@ export function createGrid(opts) {
   const tableLayer = el('div.grid-tables', { 'aria-hidden': 'true' });
   // Page Break Preview: each printed page outlined in blue with its number, the rest of the sheet greyed.
   const pageLayer = el('div.grid-pages', { 'aria-hidden': 'true', hidden: true });
-  let pageView = null; // { pages: [{ r1, c1, r2, c2, n }], area }
+  // { pages: [{ r1, c1, r2, c2, n }], area, rowBreaks: [{ at, manual }], colBreaks } in Page Break Preview, or
+  // { lines: true, area, rowBreaks, colBreaks } for the dashed page-break lines Normal view can show.
+  let pageView = null;
   const tablePreviewEl = el('div.sel-range.table-preview', { hidden: true, 'aria-hidden': 'true' });
   // Page Layout view: the sheets of paper beneath the cells, with their headers and footers.
   const paperLayer = el('div.grid-paper');
@@ -2395,20 +2397,71 @@ export function createGrid(opts) {
     if (pageGeo || colRuler.childElementCount) { colRuler.replaceChildren(...rulerNodes('col', view)); rowRuler.replaceChildren(...rulerNodes('row', view)); }
   }
 
-  /** One drag corner per table (tables with a totals row are resized from their dialog). */
-  function renderPages() {
-    pageLayer.hidden = !pageView;
-    root.classList.toggle('page-break-preview', !!pageView);
-    if (!pageView) { if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
-    const area = el('div.page-area');
-    place(area, rangeBox(pageView.area));
-    pageLayer.replaceChildren(area, ...pageView.pages.map((p) => {
-      const box = el('div.page-box', {}, el('span.page-label', {}, `Page ${p.n}`));
-      place(box, rangeBox(p));
-      return box;
-    }));
+  // Half the thickness a page-break line or print-area edge can be pressed across.
+  const BREAK_GRIP = 4;
+  /** Where a page break before line `at` is drawn across the print area: a strip centred on the line between pages. */
+  function breakBox(axis, at, area) {
+    const box = rangeBox(area), s = sheet();
+    if (axis === 'row') { const y = at > s.rows - 1 ? rowEnd(s.rows - 1) : rowY(at); return { left: box.left, top: y - BREAK_GRIP, width: box.width, height: BREAK_GRIP * 2 }; }
+    const x = at > s.cols - 1 ? colEnd(s.cols - 1) : colX(at);
+    return { left: x - BREAK_GRIP, top: box.top, width: BREAK_GRIP * 2, height: box.height };
   }
 
+  /**
+   * Page Break Preview: the print area outlined and the sheet outside it greyed, each page's number, and
+   * the lines between pages (solid where the sheet keeps a manual break, dashed where the paper ran out),
+   * which a press drags; the print area's edges drag too. Normal view's page-break lines are the same
+   * lines, dashed and out of the way of the pointer.
+   */
+  function renderPages() {
+    // A line being dragged keeps its node (and its place under the pointer) until it is dropped.
+    if (drag?.kind === 'pageBreak' && drag.node.isConnected) return;
+    pageLayer.hidden = !pageView;
+    const preview = !!pageView && !pageView.lines;
+    root.classList.toggle('page-break-preview', preview);
+    pageLayer.classList.toggle('lines-only', !!pageView?.lines);
+    if (!pageView) { if (pageLayer.childElementCount) pageLayer.replaceChildren(); return; }
+    const lines = (axis, list) => (list || []).map(({ at, manual }) => {
+      const line = el(`div.page-break-line.${axis}${manual ? '.manual' : ''}`, {
+        dataset: { axis, at: String(at), manual: manual ? '1' : '' },
+        title: preview ? `${manual ? 'Manual' : 'Automatic'} page break: drag to move it${manual ? ', or off the print area to remove it' : ''}` : null,
+      });
+      place(line, breakBox(axis, at, pageView.area));
+      return line;
+    });
+    if (!preview) {
+      pageLayer.replaceChildren(...lines('row', pageView.rowBreaks), ...lines('col', pageView.colBreaks));
+      return;
+    }
+    const area = el('div.page-area');
+    const box = rangeBox(pageView.area);
+    place(area, box);
+    // The print area's own edges, pressed to make the area larger or smaller.
+    const edges = [['top', 'row', pageView.area.r1], ['bottom', 'row', pageView.area.r2 + 1], ['left', 'col', pageView.area.c1], ['right', 'col', pageView.area.c2 + 1]].map(([edge, axis, at]) => {
+      const node = el(`div.page-area-edge.${axis}`, { dataset: { edge, axis, at: String(at) }, title: 'Drag to change the print area' });
+      place(node, breakBox(axis, at, pageView.area));
+      return node;
+    });
+    pageLayer.replaceChildren(area, ...pageView.pages.map((p) => {
+      const page = el('div.page-box', {}, el('span.page-label', {}, `Page ${p.n}`));
+      place(page, rangeBox(p));
+      return page;
+    }), ...lines('row', pageView.rowBreaks), ...lines('col', pageView.colBreaks), ...edges);
+  }
+
+  /** The line boundary nearest the pointer along an axis: the index of the line that would follow a break there. */
+  function boundaryAt(axis, clientX, clientY) {
+    ensureOffsets();
+    const vp = viewport.getBoundingClientRect(), s = sheet();
+    if (axis === 'row') {
+      const y = contentY(clientY - vp.top), r = clamp(rowOffsets.indexAt(y), 0, s.rows - 1);
+      return y > rowY(r) + rowH(r) / 2 ? r + 1 : r;
+    }
+    const x = contentX(clientX - vp.left), c = clamp(colOffsets.indexAt(x), 0, s.cols - 1);
+    return x > colX(c) + colW(c) / 2 ? c + 1 : c;
+  }
+
+  /** One drag corner per table (tables with a totals row are resized from their dialog). */
   function renderTables() {
     renderPages();
     const s = sheet();
@@ -3525,6 +3578,17 @@ export function createGrid(opts) {
     if (e.target === editor || editor.contains(e.target)) return;
     ensureOffsets(); // the frozen pane's extent, read below, comes from the layout
     notePane(e.clientX, e.clientY);
+    // Page Break Preview: a page break or an edge of the print area, dragged to a new line.
+    const pageGrip = pageView && !pageView.lines ? e.target.closest?.('.page-break-line, .page-area-edge') : null;
+    if (pageGrip && e.button === 0) {
+      e.preventDefault();
+      if (edit && !commitEdit()) return;
+      const at = Number(pageGrip.dataset.at);
+      drag = { kind: 'pageBreak', axis: pageGrip.dataset.axis, from: at, to: at, manual: pageGrip.dataset.manual === '1', edge: pageGrip.dataset.edge || null, node: pageGrip };
+      pageGrip.classList.add('dragging');
+      grab(viewport, e);
+      return;
+    }
     const tableHandle = e.target.closest?.('.table-handle');
     if (tableHandle && !underFrozenPane(tableHandle, e.clientX, e.clientY)) {
       e.preventDefault();
@@ -3723,6 +3787,11 @@ export function createGrid(opts) {
       if (rangeName(next) !== rangeName(movePreview || src)) { movePreview = next; schedule(); }
       return;
     }
+    if (drag.kind === 'pageBreak') {
+      const to = boundaryAt(drag.axis, e.clientX, e.clientY);
+      if (to !== drag.to) { drag.to = to; place(drag.node, breakBox(drag.axis, to, pageView?.area || { r1: 0, c1: 0, r2: 0, c2: 0 })); }
+      return;
+    }
     if (drag.kind === 'tableResize') {
       const t = wb.tableById(sheetId, drag.id);
       if (!t) return;
@@ -3832,6 +3901,15 @@ export function createGrid(opts) {
         setSelection(S.fromRange(target, { r: target.r1 + (sel.active.r - d.source.r1), c: target.c1 + (sel.active.c - d.source.c1) }));
         opts.announce?.(`${d.copy ? 'Copied' : 'Moved'} to ${rangeName(target)}`);
       } else schedule();
+      return;
+    }
+    if (d.kind === 'pageBreak') {
+      d.node.classList.remove('dragging');
+      if (d.to === d.from) { renderPages(); return; }
+      // An edge's line is the last one inside the area at its bottom and right.
+      if (d.edge) opts.onPrintAreaEdge?.({ edge: d.edge, to: d.edge === 'bottom' || d.edge === 'right' ? d.to - 1 : d.to });
+      else opts.onPageBreakMove?.({ axis: d.axis, from: d.from, to: d.to, manual: d.manual });
+      renderPages();
       return;
     }
     if (d.kind === 'tableResize') {

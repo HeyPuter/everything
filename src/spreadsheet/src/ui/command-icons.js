@@ -246,6 +246,11 @@ export const COMMAND_ICONS = {
   printArea: page(4.5, 2.5, 11, 15) + r(6.5, 6.5, 6, 7, 'b dash') + r(6.5, 6.5, 6, 7, 'bw'),
   printer: r(5.5, 2.5, 9, 5, 'of') + r(2.5, 7, 15, 7.5, 'bs', 2) + r(5.5, 11.5, 9, 6, 'of', 0.8) + lines(7, 14, 6, 2, 2) + ci(15, 9.3, 0.7, 'glint'),
   printTitles: page(4.5, 2.5, 11, 15) + r(4.5, 5.5, 8, 3, 'bw') + lines(6.5, 11, 7, 3, 2),
+  // Breaks: the foot of one page and the head of the next, a solid line drawn between them.
+  breaks: p('M4.5 8.5V3.7a1.2 1.2 0 0 1 1.2-1.2h8.6a1.2 1.2 0 0 1 1.2 1.2v4.8', 'of') + p('M4.5 11.5v4.8a1.2 1.2 0 0 0 1.2 1.2h8.6a1.2 1.2 0 0 0 1.2-1.2v-4.8', 'of')
+    + lines(6.5, 5, 7, 2, 2) + lines(6.5, 13.5, 7, 2, 2) + p('M1.5 10h17', 'b thick'),
+  // Background: a picture tiled under the sheet's cells.
+  background: r(2.5, 3.5, 15, 13, 'bw') + p('M2.5 16.5l4.5-6 3.5 4 2.5-2.5 4.5 4.5z', 'gf') + ci(13.5, 7, 1.6, 'ys') + cells(2.5, 3.5, 15, 13, 3, 3, { frame: 'o' }),
   sliders: r(2.5, 3.5, 15, 13, 'of', 2) + p('M5 7.5h10M5 12.5h10', 'o ln') + ci(8, 7.5, 1.7, 'bs') + ci(12.5, 12.5, 1.7, 'bs'),
   pageSetup: page(4.5, 2.5, 11, 15) + lines(6.5, 6.5, 5, 3, 2) + ci(14, 14, 3.9, 'knock') + ci(14, 14, 3, 'ns') + ci(14, 14, 1, 'knock'),
   fileDown: page(4.5, 2.5, 11, 15) + r(2.5, 10.5, 10, 5, 'rs', 1) + t(7.5, 14.5, 'PDF', 4.6, { weight: 700, c: 'txw' }),
@@ -350,6 +355,18 @@ export const COMMAND_ICONS = {
   freeze: cells(2.5, 3.5, 15, 13, 3, 3, { frame: 'of' }) + r(2.5, 3.5, 15, 4.33, 'bw') + r(2.5, 3.5, 5, 13, 'bw') + cells(2.5, 3.5, 15, 13, 3, 3, { frame: 'o' }) + p('M2.5 7.83h15M7.5 3.5v13', 'b thick'),
   split: r(2.5, 3.5, 15, 13, 'of', 2) + r(2.5, 3.5, 7.5, 6.5, 'bw') + p('M10 3.5v13M2.5 10h15', 'b thick'),
   showHide: p('M1.5 10s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S1.5 10 1.5 10z', 'of') + ci(10, 10, 3, 'bs') + ci(11, 9, 0.9, 'glint'),
+  // Custom Views: a saved arrangement of the window, two views stacked with an eye on the front one.
+  customViews: r(2.5, 3, 11, 9, 'of', 1.6) + r(6.5, 7.5, 11, 9.5, 'bf', 1.6) + p('M8.5 12.25s1.6-2.6 3.5-2.6 3.5 2.6 3.5 2.6-1.6 2.6-3.5 2.6-3.5-2.6-3.5-2.6z', 'of') + ci(12, 12.25, 1.2, 'bs'),
+  // Sheet View: a sheet seen through one person's own eye.
+  sheetView: cells(2.5, 2.5, 13, 11, 3, 3, { frame: 'of' }) + ci(14, 14.5, 4.3, 'knock') + p('M9.5 14.5s2-3 4.5-3 4.5 3 4.5 3-2 3-4.5 3-4.5-3-4.5-3z', 'pf') + ci(14, 14.5, 1.3, 'ps'),
+  // Selection Pane: the objects on the sheet, listed in a panel beside them.
+  selectionPane: r(2.5, 4.5, 6, 5, 'bf', 1) + ci(6.5, 13, 2.5, 'gf') + r(10.5, 2.5, 7, 15, 'of', 1.4) + p('M12 6h4M12 9.5h4M12 13h4', 'o') + ci(12, 6, .6, 'bs') + ci(12, 9.5, .6, 'bs'),
+  // Arrange: objects lined up along a common edge.
+  alignObjects: p('M3.5 2.5v15', 'b thick') + r(5, 4.5, 11, 4, 'bf', 1) + r(5, 11.5, 7, 4, 'gf', 1),
+  // Group: two shapes inside one dashed frame with handles at its corners.
+  groupObjects: r(2.5, 2.5, 15, 15, 'o dash ln', 0) + r(4.5, 4.5, 6.5, 5.5, 'bf', 1) + ci(12.5, 12.5, 3.3, 'gf') + r(1.5, 1.5, 2, 2, 'bs', 0) + r(16.5, 1.5, 2, 2, 'bs', 0) + r(1.5, 16.5, 2, 2, 'bs', 0) + r(16.5, 16.5, 2, 2, 'bs', 0),
+  // Rotate: a shape and the turning arrow around it.
+  rotateObjects: p('M7 6.5 13.5 13l-6.5 3.5z', 'bf') + p('M4 10a6 6 0 0 1 10.5-4M14.5 3v3h-3', 'b thick'),
   hideEye: p('M1.5 10s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S1.5 10 1.5 10z', 'of') + ci(10, 10, 3, 'bs') + p('M3 17 17 3', 'r thick'),
   focus: p('M2.5 7V3.5a1 1 0 0 1 1-1H7M13 2.5h3.5a1 1 0 0 1 1 1V7M17.5 13v3.5a1 1 0 0 1-1 1H13M7 17.5H3.5a1 1 0 0 1-1-1V13', 'o') + r(6.5, 6.5, 7, 7, 'bf'),
   fullscreen: r(2.5, 3.5, 15, 10, 'of', 1.6) + r(3.8, 4.8, 12.4, 7.4, 'bs', 0.8) + p('M7 17.5h6M10 13.5v4', 'o'),

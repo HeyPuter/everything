@@ -27,7 +27,14 @@ export function readXlsxPrint(xml, names, sheetName, sheetIndex) {
   const setup = tag('pageSetup'), margins = tag('pageMargins'), options = tag('printOptions'), page = tag('pageSetUpPr'), headerFooter = tag('headerFooter');
   const printArea = names?.find(n => /^_xlnm\.Print_Area$/i.test(n.Name) && n.Sheet === sheetIndex)?.Ref;
   const printTitles = names?.find(n => /^_xlnm\.Print_Titles$/i.test(n.Name) && n.Sheet === sheetIndex)?.Ref;
-  if (!setup && !margins && !options && !page && !headerFooter && !printArea && !printTitles) return null;
+  const breaks = name => {
+    const body = settingsXml.match(new RegExp(`<(?:\\w+:)?${name}\\b[^>]*>([^]*?)<\\/(?:\\w+:)?${name}>`))?.[1] || '';
+    // Only manual breaks belong to the sheet; automatic ones are where the writer's paper ran out.
+    return [...body.matchAll(/<(?:\w+:)?brk\b[^>]*>/g)].map(m => m[0]).filter(brk => ['1', 'true'].includes(xlsxAttr(brk, 'man')?.trim()))
+      .map(brk => Number(xlsxAttr(brk, 'id') ?? 0));
+  };
+  const rowBreaks = breaks('rowBreaks'), colBreaks = breaks('colBreaks');
+  if (!setup && !margins && !options && !page && !headerFooter && !printArea && !printTitles && !rowBreaks.length && !colBreaks.length) return null;
   const numeric = (node, attr) => { const value = xlsxAttr(node, attr); return value == null || value === '' ? undefined : Number(value); };
   const bool = (node, attr) => ['1', 'true'].includes(xlsxAttr(node, attr));
   const areas = [];
@@ -75,6 +82,7 @@ export function readXlsxPrint(xml, names, sheetName, sheetIndex) {
     // CT_HeaderFooter defaults to true; only an explicit false disables it.
     alignWithMargins: !['0', 'false'].includes(xlsxAttr(headerFooter, 'alignWithMargins')?.trim()),
     scaleWithDoc: !['0', 'false'].includes(xlsxAttr(headerFooter, 'scaleWithDoc')?.trim()),
+    ...(!chart ? { rowBreaks, colBreaks } : {}),
     header: text('oddHeader'), footer: text('oddFooter'), evenHeader: text('evenHeader'), evenFooter: text('evenFooter'),
     firstHeader: text('firstHeader'), firstFooter: text('firstFooter') });
 }

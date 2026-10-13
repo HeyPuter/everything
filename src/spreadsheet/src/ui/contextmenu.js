@@ -19,6 +19,25 @@ function linkItems(ctx) {
   ];
 }
 
+/**
+ * In Page Break Preview the menus offer the page breaks at the selection and the print area, as the
+ * Page Layout tab does; elsewhere they are left out.
+ */
+function pageBreakItems(ctx, kind) {
+  const sheet = ctx.wb.sheet(ctx.sheetId());
+  if (sheet?.viewMode !== 'pageBreak') return [];
+  const p = sheet.printSettings || {}, at = ctx.active();
+  const there = kind === 'row' ? p.rowBreaks?.includes(at.r) : kind === 'col' ? p.colBreaks?.includes(at.c) : p.rowBreaks?.includes(at.r) || p.colBreaks?.includes(at.c);
+  return [
+    { separator: true },
+    { label: 'Insert Page Break', icon: 'breaks', onSelect: () => ctx.run('pageBreak', 'insert') },
+    there && { label: 'Remove Page Break', onSelect: () => ctx.run('pageBreak', 'remove') },
+    (p.rowBreaks?.length || p.colBreaks?.length) && { label: 'Reset All Page Breaks', onSelect: () => ctx.run('pageBreak', 'reset') },
+    kind === 'cell' && { label: 'Set Print Area', icon: 'printArea', onSelect: () => ctx.run('printArea', 'set') },
+    kind === 'cell' && p.areas?.length && { label: 'Reset Print Area', onSelect: () => ctx.run('printArea', 'clear') },
+  ];
+}
+
 export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
   if (kind === 'chart') {
     const slicer = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'slicer';
@@ -84,7 +103,8 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
       ctx.wb.outlineGroups(ctx.sheetId(), 'row').some((g) => g.collapsed) && { label: 'Expand all row groups', icon: 'chevD', onSelect: () => ctx.run('expandAll', 'row') },
       sheet.frozenRows === r2 + 1
         ? { label: 'Unfreeze rows', icon: 'freeze', onSelect: () => ctx.run('freeze', 'rows-none') }
-        : { label: `Freeze rows up to ${r2 + 1}`, icon: 'freeze', onSelect: () => ctx.run('freeze', 'rows') }];
+        : { label: `Freeze rows up to ${r2 + 1}`, icon: 'freeze', onSelect: () => ctx.run('freeze', 'rows') },
+      ...pageBreakItems(ctx, 'row')];
   } else if (kind === 'col') {
     const { c1, c2 } = ctx.range();
     const hiddenCols = ctx.wb.hiddenWithin(ctx.sheetId(), 'col', c1, c2);
@@ -111,7 +131,8 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
       ctx.wb.outlineGroups(ctx.sheetId(), 'col').some((g) => g.collapsed) && { label: 'Expand all column groups', icon: 'chevR', onSelect: () => ctx.run('expandAll', 'col') },
       sheet.frozenCols === c2 + 1
         ? { label: 'Unfreeze columns', icon: 'freeze', onSelect: () => ctx.run('freeze', 'cols-none') }
-        : { label: `Freeze columns up to ${colName(c2)}`, icon: 'freeze', onSelect: () => ctx.run('freeze', 'cols') }];
+        : { label: `Freeze columns up to ${colName(c2)}`, icon: 'freeze', onSelect: () => ctx.run('freeze', 'cols') },
+      ...pageBreakItems(ctx, 'col')];
   } else {
     const range = ctx.range();
     const nr = range.r2 - range.r1 + 1;
@@ -165,6 +186,7 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
         { label: 'Remove empty rows', icon: 'rows', onSelect: () => ctx.run('removeEmptyRows') },
       ] },
       { label: 'Clear Contents', icon: 'eraser', shortcut: 'Delete', onSelect: () => ctx.run('clear') },
+      ...pageBreakItems(ctx, 'cell'),
       { separator: true },
       { label: 'Filter', icon: 'filter', submenu: [
         { label: filtered ? 'Remove Filter' : 'Filter', icon: filtered ? 'filterClear' : 'filter', shortcut: `${MOD_KEY}+Shift+L`, onSelect: () => ctx.run('filter') },

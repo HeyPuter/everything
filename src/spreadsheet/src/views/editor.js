@@ -44,7 +44,7 @@ import { createQuickAnalysis } from '../ui/quick-analysis.js';
 import { quickTotalEntries } from '../core/quick-totals.js';
 import { createComments, COMMENT_COMMANDS } from '../ui/comments.js';
 import { copyThreads, pasteThreads } from '../core/comments.js';
-import { pageBreaks, pagesOf } from '../ui/pagebreaks.js';
+import { pageBreaks, pagesOf, insertBreaks, removeBreaks, hasBreakAt, moveBreak, moveAreaEdge } from '../ui/pagebreaks.js';
 import { createPageLayout } from '../ui/page-layout.js';
 import { consolidate } from '../core/consolidate.js';
 import { openConsolidateDialog } from '../ui/consolidatedialog.js';
@@ -309,6 +309,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onListOpen: ({ r, c, rule }) => openListPicker(r, c, rule),
     onDateOpen: ({ r, c }) => openDatePicker(ctx, r, c),
     onFilterOpen: ({ r, c }) => openFilterMenu(c, r),
+    // Page Break Preview: a page break or the print area's edge dragged to another line.
+    onPageBreakMove: (info) => run('movePageBreak', info),
+    onPrintAreaEdge: (info) => run('printAreaEdge', info),
     // A header drag reordered rows or columns: the selection the user had before it joins the step, so
     // undoing the move puts it back, as undoing Insert or Delete rows does.
     rememberSelection: ({ sel, extras }) => rememberStepSelection({
@@ -331,6 +334,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   if (wb.sheet(wb.activeSheetId)?.viewZoom != null) grid.setZoom(wb.sheet(wb.activeSheetId).viewZoom, true);
 
   /* ---------- View options (remembered on this device) ---------- */
+
+  // Sheets shown in print preview this session draw their page breaks in Normal view afterwards, until
+  // View ▸ Page Breaks turns them off; the sheet's own setting (showPageBreaks) is the one saved.
+  const previewedSheets = new Set();
+  const pageBreakLinesOn = (id) => !!wb.sheet(id)?.showPageBreaks || previewedSheets.has(id);
 
   const view = { focus: false, spell: true };
   try { Object.assign(view, JSON.parse(localStorage.getItem('spreadsheet:view') || '{}') || {}); } catch { /* no storage */ }
@@ -1116,6 +1124,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       sparklines: !!sheet?.sparklineGroups?.length,
       chart: grid.selectedChart || (sheet?.kind === 'chart' ? sheet.charts[0]?.id : null), chartIsImage: wb.chartById(sheetId, grid.selectedChart)?.type === 'image',
       showFormulas: !!grid.showFormulas, gridlines: sheet?.gridlines !== false, zeros: sheet?.zeros !== false, viewMode: sheet?.viewMode || 'normal',
+      showPageBreaks: pageBreakLinesOn(sheetId), background: !!sheet?.background,
       headers: sheet?.headers !== false, focus: !!view.focus, spell: view.spell !== false,
       split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: view.formulaBar !== false,
       // While a cell is being edited the sheet behind it is off limits: undo, paste, fill and the like wait.
@@ -2891,6 +2900,64 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
+      case 'pageBreak': {
+        // Page Layout ▸ Breaks: insert or remove a manual page break at the selection, or reset them all.
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (sheet.kind === 'chart') return;
+        const settings = sheet.printSettings || {};
+        const at = { active: grid.active, wholeRows: grid.range.c1 === 0 && grid.range.c2 >= MAX_COL, wholeCols: grid.range.r1 === 0 && grid.range.r2 >= MAX_ROW };
+        if (arg === 'reset') {
+          if (!settings.rowBreaks?.length && !settings.colBreaks?.length) { toast('This sheet has no manual page breaks', { icon: 'info' }); keepFocus(); return; }
+          wb.setPageBreaks(sheetId, { rows: [], cols: [] }, 'Reset all page breaks');
+          statusBar?.announce('All manual page breaks removed');
+        } else if (arg === 'remove') {
+          if (!hasBreakAt(settings, at)) { toast('There is no manual page break beside the selected cell', { icon: 'info' }); keepFocus(); return; }
+          wb.setPageBreaks(sheetId, removeBreaks(settings, at), 'Remove page break');
+          statusBar?.announce('Page break removed');
+        } else {
+          const next = insertBreaks(settings, at);
+          if (!wb.setPageBreaks(sheetId, next, 'Insert page break')) { toast('A page already starts at the selected cell', { icon: 'info' }); keepFocus(); return; }
+          statusBar?.announce('Page break inserted');
+        }
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'movePageBreak': {
+        if (!arg) return;
+        const sheet = wb.sheet(grid.sheetId), area = pageBreaks(wb, grid.sheetId)?.area;
+        if (!sheet || !area) return;
+        const list = moveBreak(sheet.printSettings, area, arg);
+        wb.setPageBreaks(grid.sheetId, arg.axis === 'row' ? { rows: list } : { cols: list }, 'Move page break');
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'printAreaEdge': {
+        // The print area's edge dragged in Page Break Preview: the area grows or shrinks to that line.
+        if (!arg) return;
+        const sheet = wb.sheet(grid.sheetId), area = pageBreaks(wb, grid.sheetId)?.area;
+        if (!sheet || !area) return;
+        const current = sheet.printSettings || normalizePrintSettings({});
+        const next = moveAreaEdge(area, arg.edge, arg.to);
+        wb.setPrintSettings(grid.sheetId, { ...current, areas: [next, ...current.areas.slice(1)] }, 'Print area');
+        statusBar?.announce(`Print area set to ${rangeName(next)}`);
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'showPageBreaks': {
+        // View ▸ Page Breaks: Normal view's dashed lines where the pages break, kept with the sheet.
+        const sheet = wb.sheet(grid.sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        const on = arg == null ? !pageBreakLinesOn(grid.sheetId) : !!arg;
+        if (!on) previewedSheets.delete(grid.sheetId);
+        wb.setShowPageBreaks(grid.sheetId, on);
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
       case 'printArea': {
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
@@ -3362,6 +3429,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'print':
         openPrintDialog(ctx);
+        if (wb.sheet(sheetId)?.kind !== 'chart') { previewedSheets.add(sheetId); refreshPageView(true); }
         return;
       case 'find': if (!committed()) return; findBar.open({ replace: arg === 'replace' }); return;
       case 'findNext': if (!committed()) return; findBar.findNext(); return;
@@ -5129,6 +5197,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   });
   let pageViewKey = null;
   let pageLayoutKey = null;
+
   function refreshPageView(force = false) {
     const mode = sheetViewMode();
     const on = mode === 'pageBreak';
@@ -5142,11 +5211,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (!fresh && key !== pageLayoutKey) grid.refresh();
       pageLayoutKey = key;
     } else { grid.setPageLayout(null); pageLayoutKey = null; }
-    const key = on ? `${grid.sheetId}|${wb.version}` : null;
+    // Normal view can show where the pages break (View ▸ Page Breaks, or after a print preview), as dashed lines.
+    const lines = mode === 'normal' && pageBreakLinesOn(grid.sheetId);
+    const key = on || lines ? `${grid.sheetId}|${wb.version}|${on}` : null;
     if (!force && key === pageViewKey) return;
     pageViewKey = key;
-    const breaks = on ? pageBreaks(wb, grid.sheetId) : null;
-    grid.setPageView(on ? { area: breaks?.area || { r1: 0, c1: 0, r2: 0, c2: 0 }, pages: pagesOf(breaks) } : null);
+    const breaks = on || lines ? pageBreaks(wb, grid.sheetId) : null;
+    if (on) grid.setPageView({ area: breaks?.area || { r1: 0, c1: 0, r2: 0, c2: 0 }, pages: pagesOf(breaks), rowBreaks: breaks?.rowBreaks || [], colBreaks: breaks?.colBreaks || [] });
+    else grid.setPageView(lines && breaks ? { lines: true, area: breaks.area, rowBreaks: breaks.rowBreaks, colBreaks: breaks.colBreaks } : null);
   }
   ctx.viewMode = sheetViewMode;
   const unsubscribePageView = ctx.subscribe(() => refreshPageView());

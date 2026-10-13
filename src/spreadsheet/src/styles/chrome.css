@@ -238,8 +238,26 @@
 .grid-pages { position: absolute; inset: 0 auto auto 0; pointer-events: none; z-index: 1; }
 .grid-pages[hidden] { display: none; }
 .page-area { position: absolute; top: 0; left: 0; box-sizing: border-box; border: 2px solid #2e6fd6; box-shadow: 0 0 0 100000px rgba(110, 110, 110, 0.22); }
-.page-box { position: absolute; top: 0; left: 0; box-sizing: border-box; border: 1.5px dashed #2e6fd6; display: grid; place-items: center; overflow: hidden; }
+.page-box { position: absolute; top: 0; left: 0; box-sizing: border-box; display: grid; place-items: center; overflow: hidden; }
 .page-label { font-size: 44px; font-weight: 600; color: rgba(120, 120, 120, 0.35); white-space: nowrap; user-select: none; }
+/* The lines between pages: a strip that can be pressed, its visible line drawn down the middle. Manual breaks are
+   solid, automatic ones dashed; Normal view's lines (View ▸ Page Breaks) are thinner and ignore the pointer. */
+.page-break-line, .page-area-edge { position: absolute; top: 0; left: 0; pointer-events: auto; touch-action: none; }
+.page-break-line.row, .page-area-edge.row { cursor: ns-resize; }
+.page-break-line.col, .page-area-edge.col { cursor: ew-resize; }
+.page-break-line::after { content: ''; position: absolute; border: 0 dashed #2e6fd6; }
+.page-break-line.row::after { left: 0; right: 0; top: calc(50% - 1px); border-top-width: 2px; }
+.page-break-line.col::after { top: 0; bottom: 0; left: calc(50% - 1px); border-left-width: 2px; }
+.page-break-line.manual::after { border-style: solid; }
+.page-break-line.dragging::after, .page-area-edge.dragging { border-color: #1b4fa8; }
+.page-area-edge.dragging.row { border-top: 2px solid #1b4fa8; margin-top: 3px; height: 2px !important; }
+.page-area-edge.dragging.col { border-left: 2px solid #1b4fa8; margin-left: 3px; width: 2px !important; }
+.page-break-line:hover::after { border-color: #1b4fa8; }
+.grid-pages.lines-only .page-break-line { pointer-events: none; }
+.grid-pages.lines-only .page-break-line::after { border-color: color-mix(in srgb, var(--ink, #333) 55%, transparent); border-top-width: 0; border-left-width: 0; }
+.grid-pages.lines-only .page-break-line.row::after { border-top-width: 1px; top: 50%; }
+.grid-pages.lines-only .page-break-line.col::after { border-left-width: 1px; left: 50%; }
+.grid-pages.lines-only .page-break-line.manual::after { border-style: dashed; border-color: color-mix(in srgb, var(--ink, #333) 80%, transparent); }
 .consolidate-dialog .row { gap: 8px; align-items: flex-start; }
 .consolidate-dialog .consolidate-refs { flex: 1; min-height: 96px; }
 .consolidate-dialog .input { flex: 1; }

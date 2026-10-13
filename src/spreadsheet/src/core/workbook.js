@@ -590,7 +590,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
+function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, showPageBreaks, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -635,6 +635,7 @@ function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeigh
     zeros: zeros !== false,
     ...(Number.isFinite(viewZoom) && viewZoom >= .1 && viewZoom <= 4 ? { viewZoom } : {}),
     ...(kind !== 'chart' && SHEET_VIEW_MODES.includes(viewMode) && viewMode !== 'normal' ? { viewMode } : {}),
+    ...(kind !== 'chart' && showPageBreaks === true ? { showPageBreaks: true } : {}),
     printSettings: normalizePrintSettings(printSettings),
     filter: normalizeFilter(filter),
     otherFilters: arrayOrEmpty(otherFilters).map(normalizeFilter).filter(Boolean),
@@ -805,6 +806,7 @@ function sheetShapeJSON(s) {
     zeros: s.zeros === false ? false : undefined,
     ...(s.viewZoom != null ? { viewZoom: s.viewZoom } : {}),
     ...(s.viewMode ? { viewMode: s.viewMode } : {}),
+    ...(s.showPageBreaks ? { showPageBreaks: true } : {}),
     ...(s.viewSelection ? { viewSelection: normalizeSheetSelection(s.viewSelection) } : {}),
     ...(s.viewOrigin ? { viewOrigin: normalizeSheetOrigin(s.viewOrigin) } : {}),
     ...(s.frozenOrigin ? { frozenOrigin: normalizeSheetOrigin(s.frozenOrigin) } : {}),
@@ -6882,11 +6884,11 @@ export class Workbook extends EventTarget {
     this._setSheetSwitch(sheetId, 'zeros', on, 'Show zeros');
   }
 
-  setPrintSettings(sheetId, settings) {
+  setPrintSettings(sheetId, settings, label = 'Page setup') {
     const sheet = this.sheet(sheetId);
-    if (!sheet) return;
+    if (!sheet) return false;
     const prev = sheet.printSettings, next = normalizePrintSettings(settings);
-    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return false;
     const apply = value => {
       const live = this.sheet(sheetId);
       if (!live) return;
@@ -6894,7 +6896,19 @@ export class Workbook extends EventTarget {
       this._changed('layout', sheetId);
     };
     apply(next);
-    this._push({ label: 'Page setup', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label, undo: () => apply(prev), redo: () => apply(next) });
+    return true;
+  }
+
+  /**
+   * Replace the sheet's manual page breaks (see page-breaks.js): `rows` and `cols` list the first line of
+   * each new page. One undo step; a sheet without page setup of its own gets the default one.
+   */
+  setPageBreaks(sheetId, { rows, cols }, label = 'Page breaks') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart') return false;
+    const current = sheet.printSettings || normalizePrintSettings({});
+    return this.setPrintSettings(sheetId, { ...current, rowBreaks: rows ?? current.rowBreaks, colBreaks: cols ?? current.colBreaks }, label);
   }
 
   /** Navigation is included in the next save, but is not a document edit. */
@@ -6931,6 +6945,14 @@ export class Workbook extends EventTarget {
     if (!sheet || sheet.kind === 'chart' || !SHEET_VIEW_MODES.includes(mode)) return;
     if ((sheet.viewMode || 'normal') === mode) return;
     if (mode === 'normal') delete sheet.viewMode; else sheet.viewMode = mode;
+    this._changed('view', sheetId);
+  }
+
+  /** Normal view's page-break lines (View ▸ Page Breaks): a view setting saved with the sheet, not an undo step. */
+  setShowPageBreaks(sheetId, on) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart' || !!sheet.showPageBreaks === !!on) return;
+    if (on) sheet.showPageBreaks = true; else delete sheet.showPageBreaks;
     this._changed('view', sheetId);
   }
 

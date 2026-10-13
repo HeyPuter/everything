@@ -713,6 +713,7 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
     if (sheet.split) { meta.sheets[sheet.name].split = sheet.split; any = true; }
     if (sheet.viewZoom != null) { meta.sheets[sheet.name].viewZoom = sheet.viewZoom; any = true; }
     if (sheet.viewMode) { meta.sheets[sheet.name].viewMode = sheet.viewMode; any = true; }
+    if (sheet.showPageBreaks) { meta.sheets[sheet.name].showPageBreaks = true; any = true; }
     if (sheet.printSettings) { meta.sheets[sheet.name].printSettings = sheet.printSettings; any = true; }
     if (sheet.tables.length) {
       meta.sheets[sheet.name].tables = sheet.tables;
@@ -1952,6 +1953,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     defaultVAlign,
     viewZoom: own?.viewZoom ?? part?.viewZoom,
     viewMode: partXml ? nativePart?.viewMode : own?.viewMode,
+    showPageBreaks: own?.showPageBreaks === true,
     viewSelection: partXml ? nativePart?.viewSelection : own?.viewSelection,
     viewOrigin: partXml ? nativePart?.viewOrigin : own?.viewOrigin,
     frozenOrigin: partXml ? nativePart?.frozenOrigin : own?.frozenOrigin,
@@ -2319,7 +2321,9 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       // A native editor can delete the built-in title name. Absence in the
       // native package must override the app's older private metadata too.
       if (sheet.printSettings && partOf(n)) sheet.printSettings = { ...sheet.printSettings,
-        titleRows: printSettings?.titleRows, titleCols: printSettings?.titleCols };
+        titleRows: printSettings?.titleRows, titleCols: printSettings?.titleCols,
+        // Page breaks, likewise: the native part's list is the one in force.
+        rowBreaks: printSettings?.rowBreaks, colBreaks: printSettings?.colBreaks };
       if (!meta?.sheets?.[n]) {
         if (chartSheet) sheet.gridlines = false;
       }

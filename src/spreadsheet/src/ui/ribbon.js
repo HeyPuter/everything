@@ -252,6 +252,24 @@ const groupsFor = name => ({
         { label: 'Set Print Area', cmd: 'printArea', arg: 'set' },
         { label: 'Add to Print Area', cmd: 'printArea', arg: 'add' },
         { label: 'Clear Print Area', cmd: 'printArea', arg: 'clear' }])),
+      large(pageMenu('Breaks', 'breaks', ctx => {
+        const p = printSettingsOf(ctx) || {};
+        const any = !!(p.rowBreaks?.length || p.colBreaks?.length);
+        return [
+          { label: 'Insert Page Break', icon: 'breaks', cmd: 'pageBreak', arg: 'insert', hint: 'Above and left of the selected cell' },
+          { label: 'Remove Page Break', cmd: 'pageBreak', arg: 'remove' },
+          { label: 'Reset All Page Breaks', cmd: 'pageBreak', arg: 'reset', disabled: !any },
+          { separator: true },
+          { label: 'Page Break Preview', icon: 'pageBreak', cmd: 'viewMode', arg: 'pageBreak' },
+        ];
+      })),
+      large(dyn('Background', 'background', (menus, ctx) => {
+        const has = !!ctx.wb.sheet(ctx.sheetId())?.background, editing = !!ctx.flags?.()?.editing;
+        return [
+          { label: has ? 'Replace Background…' : 'Background Picture…', icon: 'background', cmd: 'sheetBackground', arg: 'pick', disabled: editing },
+          { label: 'Delete Background', icon: 'deleteItem', cmd: 'sheetBackground', arg: 'delete', disabled: editing || !has },
+        ];
+      }, { ariaLabel: 'Sheet Background' })),
       a('Print Titles', 'printTitles', 'print', null, { ariaLabel: 'Print Titles' }), c('Page Setup', 'pageSetup', 'print'), c('Export PDF', 'fileDown', 'exportPdf')],
     ['Scale to Fit', fitChoices('fitWidth', 'Width'), fitChoices('fitHeight', 'Height'), scaleChoices],
     ['Sheet Options', c('Gridlines', 'gridlines', 'gridlines'), printOption('Print Gridlines', 'gridlines', 'printGridlines'), c('Headings', 'headings', 'toggleHeaders'), printOption('Print Headings', 'headings', 'printHeadings')],
@@ -313,7 +331,8 @@ const groupsFor = name => ({
     ['Workbook Views', large(direct('Normal', 'normalView', 'viewMode', 'normal', { ariaLabel: 'Normal view', isChecked: ctx => (ctx.viewMode?.() || 'normal') === 'normal' })),
       large(direct('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { isChecked: ctx => ctx.viewMode?.() === 'pageBreak' })),
       large(direct('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'Page Layout view', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' }))],
-    ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas')],
+    ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas'),
+      c('Page Breaks', 'pageBreak', 'showPageBreaks')],
     ['Zoom', large(c('Zoom', 'zoomIn', 'zoomCustom')), large(c('100%', 'zoom100', 'zoom', 'reset')), large(direct('Zoom to Selection', 'zoomSelection', 'zoomSelection', null))],
     ['Window', large(m('Freeze Panes', 'freeze', 'view', 'Freeze')), c('Split', 'split', 'split'),
       m('Hide & Unhide', 'hideEye', 'view', 'Hide and unhide'), c('Focus Mode', 'focus', 'focusMode'), c('Full Screen', 'fullscreen', 'fullscreen')],

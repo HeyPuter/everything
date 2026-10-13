@@ -7,6 +7,9 @@ import { cellPrintBorders, clipPrintBorderEdges, printBorderInkBounds, copyMerge
 // when the print area starts below/right of them or hidden lines are omitted.
 const titleAxes = new WeakMap();
 export function setPrintTitleAxes(table, axes) { titleAxes.set(table, axes); }
+// Manual page breaks, as the table's own line indices (heading lines counted) that start a new page.
+const breakAxes = new WeakMap();
+export function setPrintBreakAxes(table, axes) { breakAxes.set(table, axes); }
 
 /** Worksheets fit at whole percentages, with a 10% minimum. Keep an
  * exact percentage stable when binary arithmetic puts it just below its
@@ -16,7 +19,7 @@ export function quantizePrintScale(scale) {
   return Math.max(10, Math.floor(percent + Number.EPSILON * Math.abs(percent) * 2)) / 100;
 }
 
-export function printTitleBands(sizes, capacity, { bodyStart = 0, repeat = null, heading = 0 } = {}) {
+export function printTitleBands(sizes, capacity, { bodyStart = 0, repeat = null, heading = 0 } = {}, forced = null) {
   if (!(capacity > 0) || !Number.isFinite(capacity)) return null;
   const offsets = prefix(sizes), bands = [];
   let start = Math.max(heading, bodyStart);
@@ -34,6 +37,7 @@ export function printTitleBands(sizes, capacity, { bodyStart = 0, repeat = null,
     const repeated = segments.reduce((n, s) => n + s.size, 0), room = Math.max(0, capacity - repeated);
     let end = start, extent = 0;
     while (end < sizes.length) {
+      if (end > start && forced?.has(end)) break;
       const next = extent + sizes[end], tolerance = Number.EPSILON * Math.max(room, next) * (end - start + 2);
       if (end > start && next > room + tolerance) break;
       extent = next; end++;
@@ -52,7 +56,7 @@ export function printTitleBands(sizes, capacity, { bodyStart = 0, repeat = null,
 /** Pages break between columns/rows. An oversized line occupies one page.
  * Keep its full extent apart from its reserved content size so the renderer
  * can clip paint at the physical edge. Sizes are unscaled. */
-export function printBands(sizes, capacity, repeat = 0) {
+export function printBands(sizes, capacity, repeat = 0, forced = null) {
   if (!(capacity > 0) || !Number.isFinite(capacity)) return null;
   // Overfull repeat ranges can occlude the body entirely. Keep the
   // largest repeating prefix that leaves page space; the remaining rows print
@@ -68,7 +72,9 @@ export function printBands(sizes, capacity, repeat = 0) {
   for (let i = repeat; i < sizes.length; i++) {
     // Bound accumulated floating-point error, not physical pixel rounding.
     const tolerance = Number.EPSILON * Math.max(room, extent + sizes[i]) * (i - start + 2);
-    if (extent && extent + sizes[i] > room + tolerance) push(i);
+    // A manual break starts a page whatever room is left on the one before it.
+    if (i > start && forced?.has(i)) push(i);
+    else if (extent && extent + sizes[i] > room + tolerance) push(i);
     extent += sizes[i];
     if (extent >= room - tolerance) push(i + 1);
   }
@@ -240,7 +246,7 @@ function cropSheet(source, g, rect, cells, objects, scale) {
 }
 
 /** Calculate complete page ink bounds without allocating DOM fragments. */
-function printPageGeometry(g, { width, height, overflowRight = 0, overflowBottom = 0, headers = false, pageOrder, scale, titles }) {
+function printPageGeometry(g, { width, height, overflowRight = 0, overflowBottom = 0, headers = false, pageOrder, scale, titles, breaks }) {
   // Include collapsed outer borders in the first/last line, so exact page
   // fits neither discard the frame nor cause a spurious trailing page.
   const framed = (sizes, inset, extent) => {
@@ -249,9 +255,9 @@ function printPageGeometry(g, { width, height, overflowRight = 0, overflowBottom
     out[out.length - 1] += Math.max(0, extent - sum(sizes) - inset);
     return out;
   };
-  const bands = (sizes, capacity, repeat, titles) => {
-    if (titles) return printTitleBands(sizes, capacity, titles);
-    const result = printBands(sizes, capacity, repeat);
+  const bands = (sizes, capacity, repeat, titles, forced) => {
+    if (titles) return printTitleBands(sizes, capacity, titles, forced);
+    const result = printBands(sizes, capacity, repeat, forced);
     return result?.bands.map(b => {
       // Keep accumulated binary rounding at an exact boundary from turning
       // an ordinary page into an oversized paint region.
@@ -264,8 +270,8 @@ function printPageGeometry(g, { width, height, overflowRight = 0, overflowBottom
   };
   const bordered = g.cells.some(cell => cell.borders);
   const fragments = (capacityWidth, capacityHeight) => {
-    const x = bands(framed(g.widths, g.insetX, g.width), capacityWidth / scale, headers ? 1 : 0, titles?.cols);
-    const y = bands(framed(g.heights, g.insetY, g.height), capacityHeight / scale, g.headRows, titles?.rows);
+    const x = bands(framed(g.widths, g.insetX, g.width), capacityWidth / scale, headers ? 1 : 0, titles?.cols, breaks?.cols);
+    const y = bands(framed(g.heights, g.insetY, g.height), capacityHeight / scale, g.headRows, titles?.rows, breaks?.rows);
     if (!x?.length || !y?.length) return null;
     const pages = [];
     for (let col = 0; col < x.length; col++) for (let row = 0; row < y.length; row++) {
@@ -364,12 +370,12 @@ export function paginatePrintColumns(sheet, { width, height, overflowRight = 0, 
   // Ordinary narrow sheets still use the browser's table pagination. A single
   // oversized row needs explicit fragments so its paint can enter the margin
   // without introducing a second page for the remainder of that row.
-  const titles = titleAxes.get(table);
-  if (!force && !(frame.width > width) && !titles && !(frame.height > height
+  const titles = titleAxes.get(table), breaks = breakAxes.get(table);
+  if (!force && !(frame.width > width) && !titles && !breaks && !(frame.height > height
     && Array.from(table.rows).some(row => row.getBoundingClientRect().height > height))) return null;
   const scale = Number(sheet.style.zoom) || 1, g = sheetGeometry(sheet, scale, table, frame);
   if (!g) return null;
-  const pages = printPageGeometry(g, { width, height, overflowRight, overflowBottom, headers, pageOrder, scale, titles });
+  const pages = printPageGeometry(g, { width, height, overflowRight, overflowBottom, headers, pageOrder, scale, titles, breaks });
   if (!pages) return null;
   return pages.map(page => {
     const node = el('div.print-page', { style: { width: `${page.width}px`, height: `${page.height}px` } });

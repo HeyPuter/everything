@@ -18,7 +18,7 @@ import { normalIndentUnit, normalFontCss } from '../core/normal-font.js';
 import { numberFormatParts, layoutFormatParts, rotatedFormatWidth } from '../core/format-layout.js';
 import { formatLayoutNode } from './format-layout.js';
 import { richTextMeasure, largestRichTextSize } from '../core/rich-text-font.js';
-import { paginatePrintColumns, fitPrintTableScale, setPrintTitleAxes, quantizePrintScale } from './print-pagination.js';
+import { paginatePrintColumns, fitPrintTableScale, setPrintTitleAxes, setPrintBreakAxes, quantizePrintScale } from './print-pagination.js';
 import { fontColorCss } from '../core/font-color.js';
 import { normalizePrintSettings } from '../core/print-settings.js';
 import { paintPrintBorders, setMergedPrintBorders } from './print-borders.js';
@@ -74,7 +74,8 @@ export function sheetPrintPrefs(sheet) {
   // A chart sheet is one page, with no cell scale, titles or headings.
   const chart = sheet?.kind === 'chart' ? { area: 'sheet', fit: 'pages', fitWidth: 1, fitHeight: 1,
     title: false, gridlines: false, headers: false, repeatFrozen: false, horizontalCentered: false, verticalCentered: false, titleRows: null, titleCols: null, native: true } : {};
-  if (!p) return { alignWithMargins: true, firstPageNumber: 1, useFirstPageNumber: false, differentFirst: false, differentOddEven: false, firstHeader: '', firstFooter: '', evenHeader: '', evenFooter: '',
+  // Breaks belong to a sheet: preferences saved from another one never bring theirs along.
+  if (!p) return { rowBreaks: [], colBreaks: [], alignWithMargins: true, firstPageNumber: 1, useFirstPageNumber: false, differentFirst: false, differentOddEven: false, firstHeader: '', firstFooter: '', evenHeader: '', evenFooter: '',
     ...(sheet?.kind === 'chart' ? { orientation: 'landscape', ...chart } : { titleRows: null, titleCols: null }) };
   return { area: p.areas.length ? 'printArea' : 'sheet', orientation: p.orientation,
     paper: ({ 1: 'letter', 2: 'letter', 3: 'tabloid', 5: 'legal', 8: 'a3', 9: 'a4', 10: 'a4' })[p.paperSize] || 'letter',
@@ -83,6 +84,7 @@ export function sheetPrintPrefs(sheet) {
     titleRows: p.titleRows || null, titleCols: p.titleCols || null,
     firstPageNumber: p.firstPageNumber, useFirstPageNumber: p.useFirstPageNumber, alignWithMargins: p.alignWithMargins !== false,
     gridlines: p.gridlines, headers: p.headings, title: p.title ?? false, repeatFrozen: p.repeatFrozen ?? false, header: p.header || '', footer: p.footer || '',
+    rowBreaks: p.rowBreaks || [], colBreaks: p.colBreaks || [],
     ...Object.fromEntries(HEADER_VARIANTS.map(key => [key, p[key]])), native: true, ...chart };
 }
 
@@ -651,6 +653,36 @@ function printLayout(wb, sheetId, sheet, used, opts) {
   return { cols, totalW, pixel: true, zoom: quantizePrintScale(page / totalW) };
 }
 
+/**
+ * Which manual page breaks a print honours on each axis: all of them, except on an axis the page setup
+ * fits to a number of pages, where the fit decides the pages (and Fit to page width fits the columns).
+ */
+export function manualBreaksApply(opts) {
+  const fitted = opts.fit === 'pages';
+  return { rows: !(fitted && Number(opts.fitHeight) > 0), cols: opts.fit !== 'width' && !(fitted && Number(opts.fitWidth) > 0) };
+}
+
+/**
+ * The manual breaks as the print table's own line indices: a break before a hidden line starts its page
+ * at the next line printed, one before the printed block (or at its first line) starts nothing, and
+ * `heading` counts the row-number column or column-letter row the table puts first.
+ */
+export function printBreakAxes(rows, cols, used, opts, heading) {
+  const apply = manualBreaksApply(opts);
+  const axis = (lines, breaks, first) => {
+    const set = new Set();
+    if (!breaks?.length) return set;
+    const body = lines.findIndex(n => n >= first);
+    for (const at of breaks) {
+      const i = lines.findIndex(n => n >= at);
+      if (i > body && body >= 0) set.add(i + heading);
+    }
+    return set;
+  };
+  const r = apply.rows ? axis(rows, opts.rowBreaks, used.r1) : new Set(), c = apply.cols ? axis(cols, opts.colBreaks, used.c1 ?? 0) : new Set();
+  return r.size || c.size ? { rows: r, cols: c } : null;
+}
+
 function constrainPrintCell(cell) {
   cell.classList.add('constrained');
   if (!cell.firstChild) return cell;
@@ -737,6 +769,8 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
     rows: opts.titleRows ? titleAxis(rows, used.r1, opts.titleRows, headers ? 1 : 0) : null,
     cols: opts.titleCols ? titleAxis(cols, used.c1, opts.titleCols, headers ? 1 : 0) : null,
   });
+  const breakAxes = printBreakAxes(rows, cols, used, opts, headers ? 1 : 0);
+  if (breakAxes) setPrintBreakAxes(table, breakAxes);
   const inHead = (r) => r < repeat;
   // Disjoint titles and the print area are separate printed blocks. A merge
   // must not acquire an anchor from the omitted gap or collapse across it.
