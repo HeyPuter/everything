@@ -481,7 +481,10 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   // Feature modules add their own groups: w.extendTab(tabId, kit) returns groups, each optionally
   // placed `after` an existing group id (otherwise appended).
   const kit = { command, menuButton, split, rows, divider, large, small, when, check, inDocument, engineReady, focusEditor, separator, commandIconEl };
-  for (const tab of [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat]) {
+  // Standard tabs from feature modules ({ id, label, groups, after }), placed after the tab named by `after`.
+  const standardTabs = [home, insert, design, layout, references, review, view];
+  for (const tab of w.extraTabs?.(kit) || []) { const at = standardTabs.findIndex(t => t.id === tab.after); standardTabs.splice(at < 0 ? standardTabs.length : at + 1, 0, tab); }
+  for (const tab of [...standardTabs, tableDesign, tableLayout, picture, shapeFormat]) {
     const placed = new Map();
     for (const group of w.extendTab?.(tab.id, kit) || []) {
       const at = group.after ? tab.groups.findIndex(g => g.id === (placed.get(group.after) ?? group.after)) : -1;
@@ -490,7 +493,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   }
   // Contextual tabs from feature modules: [{ id, label, contextual, groups }], shown by setContext's extra contexts.
   const moduleTabs = w.contextTabs?.(kit) || [];
-  const ribbon = createRibbon({ tabs: [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs], fileButton, focusEditor,
+  const ribbon = createRibbon({ tabs: [...standardTabs, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs], fileButton, focusEditor,
     onSelect: id => { if (!['tableDesign', 'tableLayout', 'picture', 'shapeFormat', ...moduleTabs.map(t => t.id)].includes(id)) rememberedTab = id; } });
   if (rememberedTab !== 'home') ribbon.select(rememberedTab);
 

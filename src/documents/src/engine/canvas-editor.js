@@ -239,7 +239,10 @@ export class CanvasEditor {
     this.findHighlights = matches; this.findRects = null; this.paint();
   }
   /** Tinted document ranges beneath the text, such as commented text: [{ start, end, fill }] in document order. */
-  setRangeTints(tints = []) {
+  setRangeTints(tints = [], layer = 'default') {
+    // Separate layers (comments, highlighted merge fields) combine without replacing each other.
+    this.tintLayers = { ...this.tintLayers, [layer]: tints };
+    tints = Object.values(this.tintLayers).flat().sort((a, b) => a.start - b.start || a.end - b.end);
     const current = this.rangeTints || [];
     if (tints.length === current.length && tints.every((t, i) => t.start === current[i].start && t.end === current[i].end && t.fill === current[i].fill)) return;
     this.rangeTints = tints; this.tintRects = null; this.paint();
