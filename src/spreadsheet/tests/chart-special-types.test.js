@@ -203,3 +203,49 @@ describe('rendering', () => {
     }
   });
 });
+
+describe('chart workflow', async () => {
+  const { newExcelChart, changeSubtypePatch, subtypeOf } = await import('../src/core/chart-subtypes.js');
+  const { recommendedSubtypes, quickLayoutsFor, quickLayoutPatch, hasAxes, chartElementPatch } = await import('../src/core/chart-design.js');
+  it('recommends the new types for data of their shape', () => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    const prices = book({ A1: 'Date', B1: 'Open', C1: 'High', D1: 'Low', E1: 'Close',
+      ...Object.fromEntries(days.flatMap((d, i) => [[`A${i + 2}`, d], [`B${i + 2}`, String(i + 1)], [`C${i + 2}`, String(i + 3)], [`D${i + 2}`, String(i)], [`E${i + 2}`, String(i + 2)]])) });
+    expect(recommendedSubtypes(chartData(prices.wb, prices.id, chartOf('column', 'A1:E6')))[0]).toBe('stockOhlc');
+    const tree = book(TREE);
+    expect(recommendedSubtypes(chartData(tree.wb, tree.id, chartOf('column', 'C1:D7')), { levels: 3 })).toContain('treemap');
+    const stages = book({ A1: 'Stage', B1: 'n', A2: 'a', B2: '9', A3: 'b', B3: '5', A4: 'c', B4: '2' });
+    expect(recommendedSubtypes(chartData(stages.wb, stages.id, chartOf('column', 'A1:B4')))).toContain('funnel');
+    const scores = book(Object.fromEntries(Array.from({ length: 14 }, (_, i) => [`A${i + 1}`, i ? String(i * 3 % 11) : 'Score'])));
+    expect(recommendedSubtypes(chartData(scores.wb, scores.id, chartOf('column', 'A1:A14')))).toEqual(expect.arrayContaining(['histogram', 'boxWhisker']));
+  });
+  it('inserts, lays out and changes the new types, dropping options that belong to the old one', () => {
+    const { wb, id } = book(TREE);
+    const chartId = wb.addChart(id, newExcelChart(wb, id, parseRange('A1:D7'), 'treemap'));
+    let chart = wb.chartById(id, chartId);
+    expect(chart).toMatchObject({ type: 'treemap', title: 'Sales', legend: true, legendPos: 'top', labels: true, treemapLabels: 'overlapping' });
+    expect(hasAxes(chart)).toBe(false);
+    expect(quickLayoutsFor(chart).map(l => l.id)).toEqual([1, 2, 3, 4]);
+    wb.updateChart(id, chartId, quickLayoutPatch(chart, 4, { seriesCount: 1 }));
+    expect(wb.chartById(id, chartId)).toMatchObject({ labels: false, legendPos: 'bottom' });
+    expect(chartElementPatch(chart, 'trendline', 'linear')).toBeNull();
+    wb.updateChart(id, chartId, changeSubtypePatch(wb.chartById(id, chartId), 'barOfPie'));
+    chart = wb.chartById(id, chartId);
+    expect(chart).toMatchObject({ type: 'pie', ofPie: { kind: 'bar', split: 3 } });
+    expect(chart.treemapLabels).toBeUndefined();
+    expect(subtypeOf(chart)).toBe('barOfPie');
+    wb.updateChart(id, chartId, changeSubtypePatch(chart, 'pie'));
+    expect(wb.chartById(id, chartId).ofPie).toBeUndefined();
+    wb.undo();
+    expect(subtypeOf(wb.chartById(id, chartId))).toBe('barOfPie');
+  });
+  it('keeps the new options through the document format', () => {
+    const raw = { ...chartOf('boxWhisker', 'A1:B5'), box: { quartiles: 'inclusive', meanLine: true, gapWidth: 9999 } };
+    const again = normalizeChart(JSON.parse(JSON.stringify(normalizeChart(raw))));
+    expect(again.box).toEqual({ quartiles: 'inclusive', meanMarkers: true, meanLine: true, innerPoints: false, outliers: true, gapWidth: 100 });
+    expect(normalizeChart({ ...chartOf('stock', 'A1:B5'), stock: 'nope' }).stock).toBe('hlc');
+    expect(normalizeChart({ ...chartOf('column', 'A1:B5'), stock: 'ohlc', explosion: 20 })).not.toHaveProperty('stock');
+    expect(normalizeChart({ ...chartOf('donut', 'A1:B5'), explosion: 20, ofPie: { kind: 'bar' } })).toMatchObject({ explosion: 20 });
+    expect(normalizeChart({ ...chartOf('donut', 'A1:B5'), ofPie: { kind: 'bar' } })).not.toHaveProperty('ofPie');
+  });
+});

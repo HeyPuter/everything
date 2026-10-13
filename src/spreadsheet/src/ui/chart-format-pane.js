@@ -366,6 +366,36 @@ export function createChartUi(ctx) {
         fields.push(number('Angle of first slice (°)', a.pie.firstSliceAngle, v => { if (v != null && v >= 0 && v <= 360) apply({ appearance: { ...a, pie: { ...a.pie, firstSliceAngle: v } } }); }, { min: 0, max: 360, step: 1 }));
         if (chart.type === 'donut') fields.push(number('Doughnut Hole Size (%)', a.pie.holeSize, v => { if (v != null && v >= 10 && v <= 90) apply({ appearance: { ...a, pie: { ...a.pie, holeSize: v } } }); }, { min: 10, max: 90, step: 1 }));
       }
+      if (chart.type === 'pie' || chart.type === 'donut') {
+        fields.push(number('Pie Explosion (%)', chart.explosion || 0, v => { if (v != null && v >= 0 && v <= 400) apply({ explosion: v || null }); }, { min: 0, max: 400, step: 1 }));
+      }
+      if (chart.type === 'pie' && chart.ofPie) {
+        const setOf = patch => apply({ ofPie: { ...chart.ofPie, ...patch } });
+        fields.push(el('h3.chart-pane-sub', {}, 'Second Plot'),
+          choice('Second plot', chart.ofPie.kind, [['pie', 'Pie'], ['bar', 'Stacked bar']], v => setOf({ kind: v })),
+          number('Values in second plot', chart.ofPie.split, v => { if (Number.isInteger(v) && v >= 1 && v <= 1000) setOf({ split: v }); }, { min: 1, max: 1000, step: 1 }),
+          number('Second Plot Size (%)', chart.ofPie.secondSize, v => { if (v != null && v >= 5 && v <= 200) setOf({ secondSize: v }); }, { min: 5, max: 200, step: 1 }),
+          number('Gap Width (%)', chart.ofPie.gap, v => { if (v != null && v >= 0 && v <= 500) setOf({ gap: v }); }, { min: 0, max: 500, step: 1 }));
+      }
+      if (chart.type === 'treemap') {
+        fields.push(choice('Parent labels', chart.treemapLabels || 'overlapping', [['overlapping', 'Overlapping'], ['banner', 'Banner'], ['none', 'None']], v => apply({ treemapLabels: v })));
+      }
+      if (chart.type === 'boxWhisker' && chart.box) {
+        const setBox = patch => apply({ box: { ...chart.box, ...patch } });
+        fields.push(number('Gap Width (%)', chart.box.gapWidth, v => { if (v != null && v >= 0 && v <= 500) setBox({ gapWidth: v }); }, { min: 0, max: 500, step: 1 }),
+          checkbox('Show inner points', chart.box.innerPoints, on => setBox({ innerPoints: on })),
+          checkbox('Show outlier points', chart.box.outliers, on => setBox({ outliers: on })),
+          checkbox('Show mean markers', chart.box.meanMarkers, on => setBox({ meanMarkers: on })),
+          checkbox('Show mean line', chart.box.meanLine, on => setBox({ meanLine: on })),
+          choice('Quartile calculation', chart.box.quartiles, [['exclusive', 'Exclusive median'], ['inclusive', 'Inclusive median']], v => setBox({ quartiles: v })));
+      }
+      if (chart.type === 'funnel' && a) {
+        fields.push(number('Gap Width (%)', a.gapWidth ?? 6, v => { if (v != null && v >= 0 && v <= 500) apply({ appearance: { ...a, gapWidth: v } }); }, { min: 0, max: 500, step: 1 }));
+      }
+      if (chart.type === 'stock') {
+        fields.push(el('p.chart-pane-note', {}, { hlc: 'Reads the columns after the dates as High, Low and Close.', ohlc: 'Reads the columns after the dates as Open, High, Low and Close.',
+          vhlc: 'Reads the columns after the dates as Volume, High, Low and Close.', vohlc: 'Reads the columns after the dates as Volume, Open, High, Low and Close.' }[chart.stock || 'hlc']));
+      }
       if (lineLike && line) {
         fields.push(checkbox('Smoothed line', line.smooth ?? chart.smooth, on => setLine({ smooth: on })),
           choice('Dash type', line.dash || 'solid', [['solid', 'Solid'], ['sysDot', 'Round Dot'], ['sysDash', 'Square Dot'], ['dash', 'Dash'], ['dashDot', 'Dash Dot'], ['lgDash', 'Long Dash']],

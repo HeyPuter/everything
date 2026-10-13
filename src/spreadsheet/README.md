@@ -165,6 +165,22 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   way for titles, notes, and captions, with a font size, bold and italic,
   text and fill colors, alignment, and an optional border; double-click to
   edit, and they print where they sit.
+- **Hierarchy, statistical, stock and surface charts**: Insert ▸ Charts also offers
+  treemaps and sunbursts (each leading label column is a level of the hierarchy, blank
+  parent cells repeat the label above; parents are named overlapping their boxes, in a
+  banner, or not at all, and each top-level branch keeps one colour), box and whisker
+  charts (exclusive or inclusive median quartiles, whiskers to 1.5 interquartile ranges,
+  outlier and inner points, mean markers and a mean line, rows pooled by category),
+  funnels, stock charts (High-Low-Close, Open-High-Low-Close with up/down bars, and both
+  with volume columns on their own axis), 3-D surface, wireframe, contour and wireframe
+  contour charts coloured in value bands set by the value axis's major unit, and exploded
+  pie and doughnut, pie of pie and bar of pie charts. Each has its gallery tile and
+  Change Chart Type page, Recommended Charts suggests them for data of their shape
+  (price columns, nested labels, long columns of numbers, stage counts), and the Format
+  pane sets their options. They round-trip through `.xlsx`: treemaps, sunbursts, box and
+  whisker and funnel charts as extended chart parts (with a fallback note for older
+  readers, and named sources read as other apps write them), stock and surface charts as
+  classic chart parts.
 - **Hyperlinks**: `HYPERLINK(url, label)` cells and typed web or email
   addresses are clickable (Ctrl/Cmd+click opens them, a popover shows where
   they go). Ctrl/Cmd+K inserts or edits a link to a web address, to a sheet
@@ -598,6 +614,7 @@ src/
                       validations, charts and images, links, groups, protection,
                       moving and reordering
     charts.js         chart model and the data read from a range
+    chart-special.js  hierarchies, box statistics, stock columns and surface bands for charts
     tables.js         tables and structured references (Table1[Column])
     subtotal.js       subtotal rows and their outline groups
     importrange.js    IMPORTRANGE, IMPORTDATA, IMPORTHTML, IMPORTXML helpers
