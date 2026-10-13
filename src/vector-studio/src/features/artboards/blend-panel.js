@@ -145,7 +145,9 @@ export class BlendPanel extends Panel {
       this.status,
       h(
         'section.panel-section.bp-main',
-        row('Spacing', this.spacing.el, this.steps.el, this.distance.el),
+        row('Spacing', this.spacing.el),
+        (this.stepsRow = row('', this.steps.el)),
+        (this.distanceRow = row('', this.distance.el)),
         row('Orientation', h('div.segmented', { role: 'group', 'aria-label': 'Orientation' }, ...this.orient)),
         row('Direction', this.reverseStack),
       ),
@@ -173,10 +175,11 @@ export class BlendPanel extends Panel {
     this.status.textContent = !ed ? 'No document open.' : ids.length ? `${ids.length === 1 ? 'Blend' : `${ids.length} blends`} selected: changes apply right away.` : n >= 2 ? 'Choose Make to blend the selected objects. These options apply to new blends.' : 'Select a blend, or two or more objects to blend. These options apply to new blends.';
     this.spacing.set(o.spacing);
     this.steps.set(o.steps);
-    this.steps.el.hidden = o.spacing !== 'steps';
+    // Rows toggle with display: the field styles would override the hidden attribute.
+    this.stepsRow.style.display = o.spacing === 'steps' ? '' : 'none';
     this.distance.setUnit?.(ed?.doc.root.units || 'pt');
     this.distance.set(o.distance);
-    this.distance.el.hidden = o.spacing !== 'distance';
+    this.distanceRow.style.display = o.spacing === 'distance' ? '' : 'none';
     for (const b of this.orient) b.setAttribute('aria-pressed', String(b.dataset.value === o.orientation));
     this.reverseStack.disabled = !ids.length;
     this.easing.set(o.easing);
