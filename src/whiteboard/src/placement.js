@@ -9,6 +9,8 @@
 const UNDERNEATH = new Set(["frame", "arrow"]);
 // Up to this many steps out from the spot asked for, in each direction.
 const RINGS = 6;
+// Then beside up to this many of the nearest objects.
+const NEIGHBOURS = 40;
 // `turn`, a fraction of a full turn, starts the search in another
 // direction, so people adding notes at the same moment, before each sees the
 // others', mostly take different spots around the same middle.
@@ -74,6 +76,64 @@ export function freeSpot(
     };
     if (inside(c) && free(c)) return { x: c.x, y: c.y };
   }
+  // Steps of a large object's own size soon leave the view; the nearest
+  // spot just beside one of the objects nearby may still be free.
+  const near = (s) =>
+    Math.hypot(
+      (s.x + s.r) / 2 - (box.x + box.w / 2),
+      (s.y + s.b) / 2 - (box.y + box.h / 2),
+    );
+  const beside = solid
+    .map((s) => ({ s, d: near(s) }))
+    .sort((p, q) => p.d - q.d)
+    .slice(0, NEIGHBOURS)
+    .flatMap(({ s }) => [
+      { x: s.r + gap, y: box.y },
+      { x: box.x, y: s.b + gap },
+      { x: s.x - gap - box.w, y: box.y },
+      { x: box.x, y: s.y - gap - box.h },
+    ])
+    .map((c) => ({ ...c, w: box.w, h: box.h }))
+    .filter((c) => inside(c) && free(c))
+    .sort(
+      (p, q) =>
+        Math.hypot(p.x - box.x, p.y - box.y) -
+        Math.hypot(q.x - box.x, q.y - box.y),
+    );
+  if (beside.length) return { x: beside[0].x, y: beside[0].y };
   // A view with no room left keeps the spot asked for.
   return { x: box.x, y: box.y };
+}
+
+// Where a block of new frames, as an imported document, goes when asked to
+// start at `box`: there, or else just right of what it would overlap, so it
+// neither covers the board's content nor hides under it. Frames count here,
+// as frames laid over others would seem to belong to them.
+export function clearSpot(items, box, { gap = 80 } = {}) {
+  const solid = [];
+  for (const i of items) {
+    if (i.type === "arrow") continue;
+    solid.push({
+      x: Math.min(i.x, i.x + i.w),
+      y: Math.min(i.y, i.y + i.h),
+      r: Math.max(i.x, i.x + i.w),
+      b: Math.max(i.y, i.y + i.h),
+    });
+  }
+  let x = box.x;
+  // Each step moves past at least one object, so this ends.
+  for (let n = 0; n <= solid.length; n++) {
+    let right = -Infinity;
+    for (const s of solid)
+      if (
+        x < s.r + gap &&
+        x + box.w > s.x - gap &&
+        box.y < s.b + gap &&
+        box.y + box.h > s.y - gap
+      )
+        right = Math.max(right, s.r);
+    if (right === -Infinity) break;
+    x = right + gap;
+  }
+  return { x, y: box.y };
 }

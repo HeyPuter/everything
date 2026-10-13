@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { freeSpot } from "../src/placement.js";
+import { freeSpot, clearSpot } from "../src/placement.js";
 
 const view = { x: 0, y: 0, w: 1000, h: 800 };
 const box = { x: 400, y: 300, w: 200, h: 200 };
@@ -53,4 +53,45 @@ test("people adding at once start looking in different directions", () => {
     JSON.stringify(freeSpot(taken, box, view, { turn })),
   );
   assert.equal(new Set(spots).size, 4);
+});
+
+test("a large object goes beside a small one when steps of its own size leave the view", () => {
+  // A 480 by 300 embed centred in a 1440 by 900 view, over a note.
+  const wide = { x: 480, y: 300, w: 480, h: 300 },
+    screen = { x: 0, y: 0, w: 1440, h: 900 },
+    note = { type: "note", x: 625, y: 370, w: 190, h: 160 };
+  const spot = freeSpot([note], wide, screen);
+  assert.notDeepEqual(spot, { x: 480, y: 300 });
+  const placed = { ...wide, ...spot };
+  assert.ok(
+    placed.x >= note.x + note.w ||
+      placed.x + placed.w <= note.x ||
+      placed.y >= note.y + note.h ||
+      placed.y + placed.h <= note.y,
+  );
+  assert.ok(placed.x >= 0 && placed.x + placed.w <= 1440);
+  assert.ok(placed.y >= 0 && placed.y + placed.h <= 900);
+});
+
+test("a block of frames goes right of what it would cover, frames included", () => {
+  const block = { x: 0, y: 0, w: 500, h: 300 };
+  assert.deepEqual(clearSpot([], block), { x: 0, y: 0 });
+  // Connectors may cross it; frames and notes may not.
+  assert.deepEqual(
+    clearSpot([{ type: "arrow", x: 0, y: 0, w: 400, h: 200 }], block),
+    { x: 0, y: 0 },
+  );
+  assert.deepEqual(
+    clearSpot(
+      [
+        { type: "frame", x: 100, y: 100, w: 400, h: 400 },
+        // Reached only once the block has moved past the frame.
+        { type: "note", x: 600, y: 0, w: 200, h: 200 },
+        // Below the block: never in the way.
+        { type: "note", x: 0, y: 900, w: 200, h: 200 },
+      ],
+      block,
+    ),
+    { x: 880, y: 0 },
+  );
 });

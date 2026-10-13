@@ -3,7 +3,16 @@ import { toUnicode } from "../idn.js";
 // extract"). Everything the editor provides arrives through `api`, so this
 // module never reaches into main.js state.
 import { createElement, FileUp } from "lucide";
-import { item, clone, escape, truncate, MAX_OBJECTS } from "../model.js";
+import {
+  item,
+  clone,
+  escape,
+  truncate,
+  bounds,
+  keepOnBoard,
+  MAX_OBJECTS,
+} from "../model.js";
+import { clearSpot } from "../placement.js";
 import { t, labelled } from "../i18n.js";
 import { nextFrameOrder } from "../scene.js";
 import { createTextEditor } from "../text-editor.js";
@@ -85,20 +94,31 @@ export function createContentTools(api) {
     if (target.items.length + count > MAX_OBJECTS)
       throw Error("A board can contain up to 5,000 objects.");
   }
+  // Where an object of this size goes: at the point chosen, as by a drop,
+  // or else in the middle of the view, beside what is already there.
+  function spot(point, w, h) {
+    if (point) return point;
+    const c = api.viewCenter(),
+      p = { x: c.x - w / 2, y: c.y - h / 2 };
+    return api.openSpot ? api.openSpot(p, { w, h }) : p;
+  }
   function embedItem(result, title, point) {
-    const video = EMBED_PROVIDERS[result.provider]?.video;
-    return item("embed", point.x, point.y, {
+    const video = EMBED_PROVIDERS[result.provider]?.video,
+      [w, h] = [480, video ? 300 : 340],
+      at = spot(point, w, h);
+    return item("embed", at.x, at.y, {
       url: result.url,
       provider: result.provider,
       text:
         truncate((title || "").trim(), 500) || t(providerName(result.provider)),
-      w: 480,
-      h: video ? 300 : 340,
+      w,
+      h,
       color: "#ffffff",
     });
   }
   function linkItem(url, point) {
-    return item("link", point.x, point.y, {
+    const at = spot(point, 320, 115);
+    return item("link", at.x, at.y, {
       w: 320,
       h: 115,
       url,
@@ -115,7 +135,7 @@ export function createContentTools(api) {
   // Embed content dialog, also used to edit an existing embed.
   function embedDialog({
     url = "",
-    point = api.center(),
+    point,
     target = api.board(),
     existing,
   } = {}) {
@@ -416,6 +436,23 @@ export function createContentTools(api) {
       throw new DOMException("Cancelled", "AbortError");
     if (!result.items.length) return result;
     roomFor(target, result.items.length);
+    // Without a point chosen, the new frames go in the middle of the view,
+    // or beside the board's content rather than over it.
+    if (!point) {
+      const box = bounds(result.items),
+        c = api.viewCenter(),
+        at = clearSpot(target.items, {
+          x: c.x - box.w / 2,
+          y: c.y - box.h / 2,
+          w: box.w,
+          h: box.h,
+        });
+      for (const i of result.items) {
+        i.x += at.x - box.x;
+        i.y += at.y - box.y;
+      }
+      keepOnBoard(result.items);
+    }
     // Refused, as on a board the facilitator locked, it reports so rather
     // than a completed import.
     if (!api.insert(result.items, target)) throw Error("Nothing was imported.");
@@ -433,11 +470,7 @@ export function createContentTools(api) {
     ...extra,
   });
 
-  function importDialog(
-    initial = [],
-    point = api.center(),
-    { attach = true } = {},
-  ) {
+  function importDialog(initial = [], point, { attach = true } = {}) {
     const target = api.board();
     if (!canCreate(target)) return;
     if (running) return api.toast("An import is already in progress.");
@@ -483,7 +516,8 @@ export function createContentTools(api) {
               throw Error("Choose a file smaller than 10 MB.");
             const bytes = await fileBytes(pending);
             const name = truncate(pending.name, 255);
-            const object = item("file", point.x, point.y, {
+            const at = spot(point, 280, 110);
+            const object = item("file", at.x, at.y, {
               w: 280,
               h: 110,
               text: name,
@@ -633,7 +667,7 @@ export function createContentTools(api) {
               layoutOptions(target, {
                 file: current,
                 bytes,
-                point,
+                point: point || api.viewCenter(),
                 signal,
                 attach,
                 tableMode,
@@ -651,7 +685,7 @@ export function createContentTools(api) {
   }
 
   // Google Workspace: embed, Sheets as tables, Docs outline, Slides frames.
-  function googleDialog({ url = "", mode, point = api.center() } = {}) {
+  function googleDialog({ url = "", mode, point } = {}) {
     const target = api.board();
     if (!canCreate(target)) return;
     if (!allows("google")) return api.toast(offReason("google"));
@@ -773,7 +807,7 @@ export function createContentTools(api) {
             const result = await layoutDocument(
               model,
               layoutOptions(target, {
-                point,
+                point: point || api.viewCenter(),
                 signal,
                 lead,
                 tableMode,

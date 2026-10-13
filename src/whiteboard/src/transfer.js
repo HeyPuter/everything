@@ -586,11 +586,14 @@ export function createTransfer(api) {
       api.pasteCells(cells, point, target, content.cellLanguages);
       return;
     }
-    const dropped = transferFiles(data);
+    const dropped = transferFiles(data),
+      // A drop or the board menu's Paste chose where content goes; a
+      // keyboard paste leaves an import or embed to find its own spot.
+      chosen = pasted && !pasted.at ? undefined : point;
     // Documents such as PDFs can be imported instead of attached.
     const files =
       dropped.length && api.receiveFiles
-        ? api.receiveFiles(dropped, point)
+        ? api.receiveFiles(dropped, chosen)
         : dropped;
     if (files.length) {
       addFiles(files, point, undefined, pasted);
@@ -605,7 +608,7 @@ export function createTransfer(api) {
         .filter((line) => line && !line.startsWith("#"))
         .join("\n");
     // Links to embeddable services offer an embed or a link card.
-    if (text && api.receiveText?.(text, point, target)) return;
+    if (text && api.receiveText?.(text, chosen, target)) return;
     if (text) {
       const object = textObject(
         text,

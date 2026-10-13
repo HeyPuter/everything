@@ -1068,7 +1068,8 @@ const contentTools = createContentTools({
   mutate,
   toast,
   modal,
-  center,
+  viewCenter,
+  openSpot: (p, size) => openSpot("object", p, size),
   fileInput,
 });
 Object.assign(features.actions, contentTools.actions);

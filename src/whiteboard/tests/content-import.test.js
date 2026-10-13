@@ -2159,6 +2159,100 @@ test("built app: imported frames come after the board's last frame, whatever ord
   }
 });
 
+test("built app: embeds, link cards, and imports added from a menu go beside the board's content", async () => {
+  const { w, doc, click, tick, until, transfer, choose } = await app();
+  const stored = async () => {
+    const database = await new Promise((resolve, reject) => {
+      const request = w.indexedDB.open("whiteboard-v1", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = database.transaction("boards", "readonly");
+        const request = transaction.objectStore("boards").getAll();
+        transaction.oncomplete = () => resolve(request.result[0]?.items || []);
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } finally {
+      database.close();
+    }
+  };
+  const overlap = (a, b) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  try {
+    await click('[data-action="new"]');
+    await until(() => doc.querySelector("#canvas"), "Board opened");
+    doc.querySelector("#canvas").getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1400,
+      height: 900,
+    });
+    await tick();
+    // A note in the middle of the view.
+    transfer(
+      "paste",
+      clipboardFormats([item("note", 0, 0, { text: "Here first" })]),
+    );
+    await tick();
+    const waitFor = async (count, message) => {
+      const deadline = Date.now() + 5000;
+      let items = await stored();
+      while (items.length < count) {
+        assert.ok(Date.now() < deadline, message);
+        await tick();
+        items = await stored();
+      }
+      return items;
+    };
+    await waitFor(1, "Note saved");
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="embed"]');
+    let dialog = doc.querySelector("dialog[open]");
+    const url = dialog.querySelector("#embed-url");
+    url.value = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    url.dispatchEvent(new w.Event("input"));
+    dialog.querySelector("form").requestSubmit();
+    await tick();
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="embed"]');
+    dialog = doc.querySelector("dialog[open]");
+    dialog.querySelector("#embed-url").value = "https://example.com/page";
+    dialog.querySelector("#embed-link").click();
+    await tick();
+    await click('.tools [data-action="import-document"]');
+    dialog = doc.querySelector("dialog[open]");
+    dialog.querySelector("#content-choose").click();
+    choose([new w.File(["One\nTwo\n"], "notes.txt", { type: "text/plain" })]);
+    await until(
+      () => !dialog.querySelector('[type="submit"]').disabled,
+      "Text ready",
+    );
+    dialog.querySelector("form").requestSubmit();
+    await until(() => dialog.dataset.done === "true", "Text imported");
+    dialog.querySelector(".content-cancel").click();
+    const items = await waitFor(7, "Everything saved");
+    const [note, embed, link, frame] = ["note", "embed", "link", "frame"].map(
+      (type) => items.find((i) => i.type === type && !i.parentId),
+    );
+    assert.equal(note.text, "Here first");
+    // The embed sits where the note was asked to go, beside it, and nothing
+    // covers anything else.
+    for (const [a, b] of [
+      [note, embed],
+      [note, link],
+      [embed, link],
+      [frame, note],
+      [frame, embed],
+      [frame, link],
+    ])
+      assert.ok(!overlap(a, b), `${a.type} and ${b.type} overlap`);
+  } finally {
+    w.close();
+  }
+});
+
 test("built app: embeds, paste choice, live overlay, and document import are accessible", async () => {
   const { w, doc, click, tick, until, transfer, choose, audit, outline } =
     await app();
