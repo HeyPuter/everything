@@ -190,7 +190,41 @@ export function createInsertFeatures(host) {
     { label: "Object…", icon: "o:object", onSelect: run(object.insertObject) },
   ];
 
+  /** Object menu items for inserted objects, ending with a separator. */
+  function contextItems(obj) {
+    const items = [];
+    if (equation.isEquation(obj))
+      items.push({
+        label: "Edit Equation",
+        icon: "o:equation",
+        onSelect: run(() => equation.editEquation(obj)),
+      });
+    if (media.isMedia(obj))
+      items.push(
+        {
+          label: "Play / Pause",
+          icon: "o:mediaPlay",
+          onSelect: () => media.toggle(obj),
+        },
+        { label: "Trim…", icon: "o:trim", onSelect: run(media.trimDialog) },
+      );
+    if (object.isObject(obj))
+      items.push({
+        label: "Open Object",
+        icon: "o:object",
+        onSelect: () => object.openObject(obj),
+      });
+    if (obj && !media.isMedia(obj))
+      items.push({
+        label: "Action Settings…",
+        icon: "o:action",
+        onSelect: run(() => actions.actionSettings(obj)),
+      });
+    return items.length ? [...items, { separator: true }] : [];
+  }
+
   return {
+    contextItems,
     api,
     tabs,
     open,
@@ -201,6 +235,5 @@ export function createInsertFeatures(host) {
     slideShow: (show) => createShowExtras(ctx, show),
     leaveSlide: () => media.stopAll(),
     actionSettings: (obj) => actions.actionSettings(obj),
-    isActionTarget: (obj) => !!obj,
   };
 }

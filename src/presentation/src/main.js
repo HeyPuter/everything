@@ -13003,6 +13003,7 @@ function objectContextMenu(e, s) {
             { separator: true },
           ]
         : []),
+      ...insertFeatures.contextItems(obj),
       ...clipboardItems(),
       {
         label: "Duplicate",
