@@ -455,6 +455,8 @@ export class App extends Emitter {
     if (!this.tabTimer) {
       this.tabTimer = setTimeout(() => {
         this.tabTimer = 0;
+        // The app may be gone by then (its page was replaced).
+        if (!this.root.isConnected || !this.root.ownerDocument.defaultView) return;
         this.renderTabs();
       }, 200);
     }
