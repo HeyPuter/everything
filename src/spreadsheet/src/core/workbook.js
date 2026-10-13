@@ -94,6 +94,7 @@ import { formulaReachesOut } from './reaches-out.js';
 import { STYLE_KEYS, BORDER_STYLE_KEYS, GRID_RANGE, intersection, rowRuns, readStyleResets, styleResetAt, assignStyleExceptionRegions, compactStyleResets, removeStyleResets, mapStyleResets, shiftStyleResets, permuteStyleResets, moveLineStyleResets, moveStyleResets } from './style-resets.js';
 import { normalizeScenarios, copyScenarios, mapScenarioCells } from './scenarios.js';
 import { normalizeQueries, serializeQueries } from './queries.js';
+import { normalizeScripts, serializeScripts } from './scripts.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
@@ -951,6 +952,8 @@ export class Workbook extends EventTarget {
     // Watch Window: cells whose values are kept in view, by sheet id and position.
     // Get & Transform: the workbook's queries (see queries.js); their loaded tables are ordinary tables.
     this.queries = normalizeQueries(json.queries);
+    // Automate: the scripts the workbook carries (see scripts.js).
+    this.scripts = normalizeScripts(json.scripts);
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -1021,6 +1024,7 @@ export class Workbook extends EventTarget {
       ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
       ...(this.structureProtected ? { structureProtected: true } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
+      ...(this.scripts.length ? { scripts: serializeScripts(this) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
       ...(this.colorPalette ? { colorPalette: normalizeColorPalette(this.colorPalette) } : {}),
@@ -11729,6 +11733,26 @@ export class Workbook extends EventTarget {
     if (mark == null) return this._history.slice();
     const i = this._history.lastIndexOf(mark);
     return i < 0 ? null : this._history.slice(i + 1);
+  }
+  /**
+   * Fold the steps recorded since `mark` (a historyTop read earlier) into one step called `label`, so a run of edits
+   * made as one action (a script's) is undone and redone as one. A mark evicted meanwhile means every step left is
+   * newer than it. False when there was nothing to fold.
+   */
+  squashHistory(mark, label) {
+    const at = mark == null ? 0 : this._history.lastIndexOf(mark) + 1;
+    const entries = this._history.slice(at);
+    if (!entries.length) return false;
+    this._history.splice(at);
+    const step = {
+      label,
+      undo: () => { for (let i = entries.length - 1; i >= 0; i--) entries[i].undo(); },
+      redo: () => { for (const e of entries) e.redo(); },
+      snapshotCells: entries.reduce((cells, e) => cells + (e.snapshotCells || 0), 0),
+    };
+    this._history.push(step);
+    this._emit('history');
+    return true;
   }
   redoLabels(n = 10) { return this._future.slice(-n).reverse().map((e) => e.label); }
   /** Undo (or redo) several steps at once. Returns how many were taken. */
