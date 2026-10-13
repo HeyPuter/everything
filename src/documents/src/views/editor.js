@@ -53,7 +53,7 @@ import { templateById } from '../lib/templates.js';
 import { autocorrectEnabled, capitalizeSentencesEnabled, correction, sentenceCapital } from '../lib/autocorrect.js';
 import { autolinkEnabled, linkCandidateBefore } from '../lib/linkify.js';
 import { layoutTemplate } from '../lib/template-layout.js';
-import { createWordCommands } from './editor-commands.js';
+import { createWordCommands, documentStatistics as documentStatisticsOf } from './editor-commands.js';
 import { createReview } from './review.js';
 import { createReferences } from './references.js';
 import { createEditingCommands } from './home-editing-commands.js';
@@ -62,9 +62,30 @@ import { styleDisplayName } from '../lib/style-names.js';
 import { createProofing } from './proofing.js';
 import { keyboardShortcuts } from './keyboard-shortcuts.js';
 import { commandIconEl } from '../ui/ribbon.js';
+import { createEditCommands } from './edit-commands.js';
+import { createBackstage } from './backstage.js';
+import { openPreferences } from './preferences.js';
+import { createStatusBar } from './status-bar.js';
+import { openDocumentMenu } from './document-context-menu.js';
+import { createKeymap, displayChord } from './keymap.js';
+import { openCustomizeKeyboard } from './customize-keyboard.js';
+import { MARKUP_VIEWS } from './review.js';
+import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
+import { recentFiles } from '../lib/recent.js';
+import { listVersions } from '../lib/versions.js';
+import { publishPage, findSite, unpublishPage } from '../lib/publish.js';
+import { listCustomTemplates } from '../lib/customtemplates.js';
+import { Doc, versioning, publishing } from '../lib/doc.js';
+import { currentTheme, isDark, darkPage, setDarkPage } from '../ui/theme.js';
+import { UNITS, recallUnit, rememberUnit } from '../lib/units.js';
+import { setAutocorrectEnabled, setCapitalizeSentencesEnabled } from '../lib/autocorrect.js';
+import { setAutolinkEnabled } from '../lib/linkify.js';
+import { recallZoom, rememberZoom } from '../lib/viewprefs.js';
+import { relativeTime, IS_MAC } from '../ui/dom.js';
+import { localStore } from '../lib/storage.js';
 
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
-export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
+export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromTemplate, local = false }) {
   const printAbort = new AbortController();
   let printing = false;
   window.addEventListener('keydown', e => {
@@ -72,21 +93,36 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       e.preventDefault(); printDocument();
     }
   }, {signal:printAbort.signal});
-  async function printDocument() {
+  async function printDocument({ pages = null, copies = 1 } = {}) {
     if (!engine || printing) return;
     printing = true; printButton.disabled = true;
     try {
       await engine.fontRefresh;
-      const printed = await printPages({ host, signal: printAbort.signal, capture: () => engine.printSheets() });
+      // A page range and copies from File > Print choose and repeat sheets; the browser's dialog does the rest.
+      const capture = () => {
+        const sheets = engine.printSheets();
+        const chosen = Array.isArray(pages) && pages.length ? pages.map(n => sheets[n - 1]).filter(Boolean) : sheets;
+        const out = [];
+        for (let copy = 0; copy < Math.max(1, copies); copy++) out.push(...(copy ? chosen.map(cloneSheet) : chosen));
+        return out;
+      };
+      const printed = await printPages({ host, signal: printAbort.signal, capture });
       if (!printed && !destroyed) error(new Error('The document could not be prepared for printing. Please try again.'));
     } catch (e) { if (!destroyed) error(e); }
     finally { printing = false; if (!destroyed) printButton.disabled = !engine; }
+  }
+  function cloneSheet(sheet) {
+    const copy = document.createElement('canvas');
+    copy.className = sheet.className; copy.style.cssText = sheet.style.cssText;
+    copy.width = sheet.width; copy.height = sheet.height;
+    copy.getContext('2d')?.drawImage(sheet, 0, 0);
+    return copy;
   }
   // The clipboard commands the context menu and the Edit menu share. Each works on the selection as it was when
   // chosen: a write that resolves after the selection or document moved on leaves the document alone.
   const clipboardState = () => {
     if (!engine) return { cut: false, copy: false, paste: false };
-    const image = engine.model.selectedImage, editable = !pkg.readOnly;
+    const image = engine.model.selectedImage, editable = !pkg.readOnly && !engine.viewOnly;
     const textSelected = engine.model.range[0] !== engine.model.range[1] && !image;
     return { cut: editable && textSelected, copy: textSelected, paste: editable && !image };
   };
@@ -134,57 +170,42 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   };
   function openDocumentContextMenu({event,behind,selectBehind}) {
     if(!engine) return;
-    const image=engine.model.selectedImage,editable=!pkg.readOnly;
+    const image=engine.model.selectedImage,editable=!pkg.readOnly&&!engine.viewOnly;
     const arrange=direction=>{engine.execute(()=>engine.model.arrangeImage(direction));engine.focus();};
-    const clipboard=clipboardState();
-    const items=[{label:'Undo',shortcut:`${MOD_KEY}+Z`,disabled:!editable || !engine.session.history.length,onSelect:()=>engine.undo()},
-      {label:'Redo',shortcut:`${MOD_KEY}+Shift+Z`,disabled:!editable || !engine.session.future.length,onSelect:()=>engine.redo()},
-      {separator:true},
-      {label:'Cut',shortcut:`${MOD_KEY}+X`,disabled:!clipboard.cut,onSelect:()=>copyText(true)},
-      {label:'Copy',shortcut:`${MOD_KEY}+C`,disabled:!clipboard.copy,onSelect:()=>copyText(false)},
-      {label:'Paste',shortcut:`${MOD_KEY}+V`,disabled:!clipboard.paste,onSelect:pasteText},
-      {label:'Paste without formatting',shortcut:`${MOD_KEY}+Shift+V`,disabled:!clipboard.paste,onSelect:pastePlainText}];
-    if (!image && editable) items.push({separator:true},{label:'Font…',shortcut:`${MOD_KEY}+D`,onSelect:()=>editorCommands.fontDialog()},{label:'Paragraph…',onSelect:()=>paragraphGeometry.click()},
-      {separator:true},{label:engine.model.hyperlink?'Edit link…':'Insert link…',shortcut:`${MOD_KEY}+K`,onSelect:()=>editHyperlink(engine.input)});
-    // A misspelled word under the pointer leads with its suggestions.
-    if (!image) items.unshift(...proofing.menuItems(engine.model.selection.focus));
-    if(image) items.push({separator:true},{label:'Image properties…',disabled:!editable,onSelect:()=>imageProperties.click()},
-      {label:'Arrange',disabled:!editable || !image.anchor,items:[
-        {label:'Bring forward',onSelect:()=>arrange('forward')},{label:'Send backward',onSelect:()=>arrange('backward')},
-        {label:'Bring to front',onSelect:()=>arrange('front')},{label:'Send to back',onSelect:()=>arrange('back')},
-        {separator:true},{label:'In front of text',checked:!image.anchor?.behind,onSelect:()=>arrange('inFront')},
-        {label:'Behind text',checked:!!image.anchor?.behind,onSelect:()=>arrange('behind')} ]},
-      {label:'Delete image',disabled:!editable,onSelect:()=>{engine.execute(()=>engine.model.replace(''));engine.focus();}});
-    if (image) {
-      const frames = pkg.drawingTextFrames(image, engine.model.assets);
-      if (frames.length) items.push({label:'Edit drawing text',disabled:!editable,items:frames.map(frame => ({
-        label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason, hint: frame.reason,
-        onSelect: async () => {
-          const editor = engine;
+    const imageItems=()=>{
+      if(!image) return [];
+      const items=[{label:'Image properties…',icon:'pictures',disabled:!editable,onSelect:()=>imageProperties.click()},
+        {label:'Arrange',icon:'wrapText',disabled:!editable || !image.anchor,items:[
+          {label:'Bring forward',onSelect:()=>arrange('forward')},{label:'Send backward',onSelect:()=>arrange('backward')},
+          {label:'Bring to front',onSelect:()=>arrange('front')},{label:'Send to back',onSelect:()=>arrange('back')},
+          {separator:true},{label:'In front of text',checked:!image.anchor?.behind,onSelect:()=>arrange('inFront')},
+          {label:'Behind text',checked:!!image.anchor?.behind,onSelect:()=>arrange('behind')} ]},
+        {label:'Delete image',icon:'deletePicture',disabled:!editable,onSelect:()=>{engine.execute(()=>engine.model.replace(''));engine.focus();}}];
+      const frames=pkg.drawingTextFrames(image,engine.model.assets);
+      if(frames.length) items.push({label:'Edit drawing text',disabled:!editable,items:frames.map(frame=>({
+        label:`Text frame ${frame.index + 1}`,disabled:!!frame.reason,hint:frame.reason,
+        onSelect:async()=>{
+          const editor=engine;
           try {
             const { openDrawingText } = await import('./drawing-text.js');
             if (!destroyed && engine === editor && editor.model.selectedImage === image) drawingTextModal = openDrawingText({ engine, pkg, image, frame: frame.index });
           } catch (e) { if (!destroyed) error(e); }
         },
       }))});
-    }
-    if(behind) items.push({separator:true},{label:'Select picture behind text',onSelect:selectBehind});
+      return items;
+    };
     // In a table, the row and column commands of Table > Rows & columns are offered here too.
-    if (!image && engine.model.tableContext && editable) {
+    const tableItems=()=>{
       update();
       const tableItem = value => { const option = tableActions.querySelector(`option[value="${value}"]`);
         return option && { label: option.textContent, disabled: option.disabled, onSelect: () => { tableActions.value = value; tableActions.dispatchEvent(new Event('change')); } }; };
-      items.push({separator:true}, ...['addRow', 'addColumn'].map(tableItem), {separator:true}, ...['row', 'column', 'table'].map(tableItem),
-        {separator:true}, ...['mergeCells', 'splitCell'].map(tableItem), {label:'Table properties…',onSelect:()=>tableProperties.click()});
-    }
-    const commentItems = review.contextItems();
-    if (commentItems.length) items.push({separator:true}, ...commentItems);
-    if (engine.session.path === null && engine.model.hasBodyFields) items.push({separator:true},{label:'Update page references',disabled:!editable,onSelect:()=>engine.updatePageReferences()});
-    items.push({separator:true},{label:'Print / Save as PDF',onSelect:printDocument});
-    const rect=engine.input.getBoundingClientRect();
-    // A right-click or long press opens with no item chosen; the ContextMenu key and Shift+F10 start on the first.
-    const pointer=!!event.pointerType || event.button===2;
-    openMenu({anchor:engine.input,x:event.clientX || rect.left,y:event.clientY || rect.bottom,label:image?'Image menu':'Document menu',items,pointer,onClose:()=>engine.focus()});
+      return [...['addRow', 'addColumn'].map(tableItem), {separator:true}, ...['row', 'column', 'table'].map(tableItem),
+        {separator:true}, ...['mergeCells', 'splitCell'].map(tableItem), {label:'Table properties…',icon:'tableProperties',onSelect:()=>tableProperties.click()}].filter(Boolean);
+    };
+    openDocumentMenu({ event, behind, selectBehind, engine, pkg, w: editorCommands, kit: { separator: { separator: true }, focusEditor: () => engine?.focus() },
+      actions: { clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText,
+        paragraphDialog: () => paragraphGeometry.click(), editLink: () => editHyperlink(engine.input), spellingItems: at => proofing.menuItems(at),
+        imageItems, tableItems, commentItems: () => review.contextItems(), print: () => printDocument() } });
   }
   let hyperlinkModal = null, bookmarkModal = null, paragraphShadingModal = null, paragraphBorderModal = null;
   let rulers = null;
@@ -662,7 +683,6 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   Object.assign(editorCommands, editingCommands);
   // The proofing indicator: the book shows whether spelling found errors; clicking opens the Spelling pane.
   const proofingButton = el('button.ed-status-item.ed-proofing', { type: 'button', onclick: () => proofing.openPane() }, commandIconEl('proofingClean', 16));
-  const languageLabel = el('span.ed-status-item.ed-status-language', { title: 'English (United States)' }, 'English (United States)');
   function updateProofingStatus() {
     const summary = proofing.enabled ? proofing.summary : null;
     const label = !proofing.enabled ? 'Spelling check is off' : !summary ? 'Checking spelling' : summary.errors ? `Spelling: ${summary.overflow ? 'too many errors to show' : `${summary.errors} ${summary.errors === 1 ? 'error' : 'errors'} found`}. Select to review.` : 'Spelling: no errors';
@@ -699,6 +719,152 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+
+  /* ---- Application chrome: menu bar, File view, title bar, status bar, keyboard ---- */
+  // Feature modules add menu-bar entries and document context-menu entries the way they add ribbon groups.
+  const baseExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || [])];
+  const baseContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || [])];
+  const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update() });
+  Object.assign(editorCommands, editCommands);
+  // Undo steps are named after the command that made them; a command that changed the document is the one Repeat runs.
+  const undoLabels = new WeakMap();
+  let pendingCommand = null, lastTextLength = null;
+  editorCommands.noteCommand = (label, run) => { if (label) pendingCommand = { label: String(label).replace(/…$/, ''), run, at: Date.now() }; };
+  function labelHistory() {
+    if (!engine) return;
+    const top = engine.session.history.at(-1), length = engine.model.text.length;
+    if (top && !undoLabels.has(top)) {
+      const recent = pendingCommand && Date.now() - pendingCommand.at < 3000 ? pendingCommand : null;
+      undoLabels.set(top, recent?.label || (length !== lastTextLength ? 'Typing' : 'Formatting'));
+      if (recent?.run) editCommands.recordRepeat(recent.label, recent.run);
+      pendingCommand = null;
+    }
+    lastTextLength = length;
+  }
+  const reviewCommands = review.commands;
+  const fileName = ext => P.ensureDocx(title.value || 'Untitled document').replace(/\.docx$/i, ext);
+  const exporters = {
+    html: ['.html', 'text/html', () => documentHtml(engine.model, { title: title.value || 'Document' })],
+    markdown: ['.md', 'text/markdown', () => documentMarkdown(engine.model)],
+    text: ['.txt', 'text/plain', () => documentPlainText(engine.model)],
+  };
+  const exportBody = fn => {
+    // Exports describe the body: leave a header, footer or note first.
+    if (engine.session.path !== null) engine.editStory(null);
+    return fn();
+  };
+  const cloud = !local;
+  const canPublish = () => cloud && publishing.enabled && P.canHost() && !!doc.path;
+  let statusBar = null, backstage = null, keymap = null;
+  const STATUS_HIDDEN = 'documents:statusbar-hidden';
+  Object.assign(editorCommands, {
+    // Review, for the title bar, menus and search.
+    newComment: () => reviewCommands.newComment(), canComment: () => reviewCommands.canComment(),
+    toggleTracking: () => reviewCommands.toggleTracking(), isTracking: () => reviewCommands.tracking, canTrack: () => reviewCommands.canTrack(),
+    resolveChanges: (accept, scope) => reviewCommands.resolve(accept, scope), goChange: direction => reviewCommands.goChange(direction), hasRevisions: () => reviewCommands.hasRevisions(),
+    setMarkupView: mode => reviewCommands.setMarkupView(mode), markupView: () => reviewCommands.markupView, markupViews: () => MARKUP_VIEWS,
+    toggleReviewingPane: () => { reviewCommands.togglePane(); chrome?.refresh(); }, reviewingPaneShown: () => reviewCommands.paneShown,
+    readAloud: () => reviewCommands.toggleReadAloud(),
+    // Editing, Reviewing and Viewing.
+    editingMode: () => !engine ? 'editing' : engine.viewOnly ? 'viewing' : reviewCommands.tracking ? 'reviewing' : 'editing',
+    setEditingMode(mode) {
+      if (!engine || failed) return;
+      if (mode === 'viewing') engine.setViewOnly(true);
+      else {
+        engine.setViewOnly(false);
+        if (!pkg.readOnly) reviewCommands.toggleTracking(mode === 'reviewing');
+      }
+      root.classList.toggle('is-viewing', !!engine.viewOnly);
+      update(); engine.focus();
+    },
+    documentReadOnly: () => !!pkg?.readOnly,
+    // Language of the selection (w:lang) and whether it is proofed.
+    currentLanguage: () => { if (!engine) return 'en-US'; const value = engine.model.runFormatting.fontLanguage; return value === null ? null : value || engine.model.styles?.defaults?.run?.fontLanguage || 'en-US'; },
+    noProofing: () => engine?.model.runFormatting.noProof === true,
+    setLanguage: (tag, { noProof = false } = {}) => { if (!engine || pkg.readOnly || engine.viewOnly) return; engine.setRunFormat({ fontLanguage: tag, noProof: !!noProof }); proofing.changed(); },
+    languageDialog: () => statusBar?.openLanguageDialog(),
+    // Undo history.
+    undoLabel: () => { const top = engine?.session.history.at(-1); return top ? undoLabels.get(top) || null : null; },
+    undoHistory: () => engine ? [...engine.session.history].reverse().map(entry => undoLabels.get(entry) || 'Edit') : [],
+    undoSteps: count => { for (let i = 0; i < count && engine?.session.history.length; i++) engine.undo(); engine?.focus(); },
+    // File.
+    openBackstage: (section, options) => backstage?.open(section, options),
+    saveAs: cloud ? () => backstage.open('save') : null,
+    saveCopy: download,
+    sendCopy: download,
+    savePdf: () => savePdf(),
+    renameDocument: cloud ? () => { title.focus(); title.select(); } : null,
+    versionHistory: cloud && versioning.enabled ? () => backstage.open('info', { scrollTo: 'bs-versions' }) : null,
+    publishWeb: cloud && publishing.enabled && P.canHost() ? () => backstage.open('share') : null,
+    shareItems: cloud ? () => [
+      ...(publishing.enabled && P.canHost() ? [{ label: 'Publish to the Web…', icon: 'share', disabled: !engine || failed, onSelect: () => backstage.open('share') }] : []),
+      { label: 'Send a Copy (.docx)', icon: 'download', disabled: !engine || failed, onSelect: download },
+      { label: 'Send as PDF', icon: 'pdf', disabled: !engine || failed, onSelect: () => savePdf() },
+    ] : null,
+    exportAs(kind) {
+      const exporter = exporters[kind]; if (!exporter || !engine || failed) return;
+      try { engine.finishComposition(); const [ext, type, make] = exporter; P.downloadBlob(new Blob([exportBody(make)], { type: `${type};charset=utf-8` }), fileName(ext)); }
+      catch (e) { error(e); }
+    },
+    recentDocuments: cloud ? async () => {
+      if (session.signedOut) return [];
+      return recentFiles(await P.listFiles(), { exclude: doc.path }).map(f => ({ name: Doc.nameFor(f.path), path: f.path, when: relativeTime(f.modified) }));
+    } : null,
+    openRecent: path => openPath?.(path),
+    documentLocation: () => ({ location: local ? 'This device' : doc.path ? `Puter › ${doc.path.replace(/^\/[^/]+\//, '')}` : 'Puter (not saved yet)' }),
+    autosaveEnabled: () => doc.autosave !== false,
+    setAutosave: cloud ? on => { doc.setAutosave?.(on); updateStatus(); } : null,
+    preferences: section => openPreferencesDialog(section),
+    customizeKeyboard: () => openCustomizeKeyboard({ entries: () => chrome.entries(), keymap, onClose: () => queueMicrotask(() => engine?.focus()) }),
+    shortcutFor: id => keymap?.shortcutFor(id) ?? null,
+    openShortcuts: () => openShortcuts({ custom: customShortcutRows() }),
+    statusBarShown: () => !statusBar?.el.hidden,
+    setStatusBarShown(on) { if (!statusBar) return; statusBar.el.hidden = !on; try { on ? localStore()?.removeItem(STATUS_HIDDEN) : localStore()?.setItem(STATUS_HIDDEN, '1'); } catch { /* storage unavailable */ } fitWidth(); },
+  });
+  function customShortcutRows() {
+    if (!keymap) return [];
+    const entries = chrome.entries();
+    return Object.entries(keymap.custom).flatMap(([id, chords]) => chords.map(chord => [displayChord(chord).replace(/\+/g, ' + '), entries.find(e => e.id === id)?.label || id]));
+  }
+  function openPreferencesDialog(section) {
+    const sections = [
+      { id: 'general', label: 'General', controls: [
+        { type: 'choice', label: 'Appearance', options: [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], get: () => currentTheme(), set: mode => session.setTheme(mode) },
+        { type: 'toggle', label: 'Dark page', hint: 'With the dark appearance, show pages dark too. Printing and saving are unaffected.', get: () => darkPage(), set: on => setDarkPage(on), disabled: !isDark() },
+        { type: 'choice', label: 'Measurement units', hint: 'Rulers, indents, tabs and page setup.', select: true, options: UNITS.map(u => [u.id, u.label]), get: () => recallUnit(), set: unit => { rememberUnit(unit); rulers?.setUnit(unit); } },
+        { type: 'choice', label: 'Open documents at', hint: 'Phones and narrow windows always fit the page width.', select: true, options: [['100', '100%'], ['width', 'Page width'], ['page', 'One page']],
+          get: () => { const z = recallZoom(); return z?.fit || (z?.value ? String(z.value) : '100'); }, set: v => rememberZoom(v === '100' ? { value: 100 } : { fit: v }) },
+      ] },
+      { id: 'typing', label: 'AutoCorrect', note: 'These apply as you type, in every document on this device.', controls: [
+        { type: 'toggle', label: 'Autocorrect as you type', hint: 'Smart quotes, dashes, ellipses, symbols and fractions; “- ” or “1. ” starts a list.', get: () => autocorrectEnabled(), set: on => setAutocorrectEnabled(on) },
+        { type: 'toggle', label: 'Capitalize the first letter of sentences', get: () => capitalizeSentencesEnabled(), set: on => setCapitalizeSentencesEnabled(on) },
+        { type: 'toggle', label: 'Link web and email addresses', hint: 'Addresses become links when you type a space or Return after them.', get: () => autolinkEnabled(), set: on => setAutolinkEnabled(on) },
+      ] },
+      { id: 'proofing', label: 'Proofing', controls: [
+        { type: 'toggle', label: 'Check spelling as you type', get: () => proofing.enabled, set: on => proofing.setEnabled(on) },
+        { type: 'button', label: 'Recheck the document', hint: 'Forget words you chose to ignore and check again.', action: 'Recheck', run: () => proofing.recheck() },
+        { type: 'button', label: 'Language of the selection', hint: 'Mark text as another language, or exclude it from spelling.', action: 'Language…', run: () => statusBar?.openLanguageDialog() },
+      ] },
+      { id: 'saving', label: 'Save', controls: [
+        cloud ? { type: 'toggle', label: 'AutoSave', hint: 'Save every change to Puter as you work. When off, use Save (' + MOD_KEY + '+S).', get: () => doc.autosave !== false, set: on => { doc.setAutosave?.(on); updateStatus(); chrome.refresh(); } }
+          : { type: 'button', label: 'Documents on this device', hint: 'Changes stay in this tab until you download the document.', action: 'Download', run: download },
+      ] },
+      { id: 'view', label: 'View', controls: [
+        { type: 'toggle', label: 'Ruler', get: () => rulers?.visible ?? true, set: on => { if ((rulers?.visible ?? true) !== on) rulers?.toggle(); } },
+        { type: 'toggle', label: 'Formatting marks', hint: `${MOD_KEY}+8`, get: () => !!editorCommands.marksVisible?.(), set: on => { if (!!editorCommands.marksVisible?.() !== on) editorCommands.toggleMarks?.(); } },
+        { type: 'toggle', label: 'Status bar', get: () => editorCommands.statusBarShown(), set: on => editorCommands.setStatusBarShown(on) },
+        { type: 'choice', label: 'Ribbon', options: [['always', 'Always show'], ['tabs', 'Tabs only'], ['auto', 'Auto-hide']], get: () => chrome.ribbonModes?.mode || 'always', set: mode => chrome.ribbonModes?.setMode(mode) },
+      ] },
+      { id: 'keyboard', label: 'Keyboard', controls: [
+        { type: 'button', label: 'Customize Keyboard', hint: 'Give any command a shortcut of your own.', action: 'Customize…', run: () => editorCommands.customizeKeyboard() },
+        { type: 'button', label: 'Keyboard shortcuts', hint: `${MOD_KEY}+/`, action: 'Show', run: () => editorCommands.openShortcuts() },
+        { type: 'button', label: 'KeyTips', hint: `Press and release ${IS_MAC ? 'Option' : 'Alt'} to label the ribbon with keys.`, action: 'Show', run: () => chrome.showKeyTips() },
+      ] },
+    ];
+    return openPreferences({ sections, section, onClose: () => queueMicrotask(() => engine?.focus()) });
+  }
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -711,21 +877,115 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     rulers: { get visible() { return rulers?.visible ?? true; }, toggle: () => rulers?.toggle(), get unit() { return rulers?.unit ?? 'in'; }, setUnit: unit => rulers?.setUnit(unit) },
     actions: { loadFontFiles: () => { if (engine) { const fontEditor = engine; fontPopover = openFontFiles({ anchor: document.activeElement, onFontsAvailable: () => refreshAvailableFonts(fontEditor) }); } }, closeFind: () => finder.close(), closeOutline: () => { outlinePanel.hide(); outline.setAttribute('aria-expanded', 'false'); }, openSearch, goHome: () => goHome?.(), newDocument: () => newDoc?.(), openDocument: () => openInput.click(),
       selectAll: () => { if (engine) { engine.finishComposition(); engine.model.select(0, engine.model.text.length); engine.focus(); update(); } },
-      clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText, hasDocument: () => !!engine && !failed },
+      clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText, hasDocument: () => !!engine && !failed,
+      engine: () => engine, searchDocument: text => { if (!engine) return; openSearch(); outlinePanel.setSearch(text); editCommands.setSearchQuery(text); } },
   });
-  const wordCountButton = el('button.ed-status-item', { type: 'button', title: 'Word Count', onclick: () => editorCommands.wordCount() }, words);
   const focusButton = el('button.ed-status-item', { type: 'button', title: 'Focus', 'aria-label': 'Focus', onclick: () => editorCommands.focusMode() }, commandIconEl('focusArrow', 14), el('span', {}, 'Focus'));
-  const printLayoutButton = el('button.icon-btn.ed-status-view', { type: 'button', 'aria-label': 'Print Layout', title: 'Print Layout', 'aria-pressed': 'true', onclick: () => engine?.focus() }, commandIconEl('printLayoutSolid', 16));
+  statusBar = createStatusBar({ w: editorCommands, a: { hasDocument: () => !!engine && !failed, focusEditor: () => engine?.focus(), toggleNavigation: () => toggleOutline() },
+    parts: { stats, words, proofingButton, editingArea: editingAreaLabel, focusButton, zoomOut, zoomSlider, zoomIn,
+      textMode: el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),
+      zoomLabel: el('label.canvas-zoom', {}, el('span.visually-hidden', {}, 'Zoom '), zoom) },
+    help: el('span.visually-hidden', { id: 'canvas-input-help' }, `Tab moves between table cells · Escape then Tab to leave · ${MOD_KEY}+Enter page break · Shift+Enter line break`) });
+  try { if (localStore()?.getItem(STATUS_HIDDEN) === '1') statusBar.el.hidden = true; } catch { /* storage unavailable */ }
+  backstage = createBackstage({ local, title: () => title.value, focusEditor: () => engine?.focus(),
+    newDocument: () => newDoc?.(), newFromTemplate: newFromTemplate ? id => newFromTemplate(id) : null, customTemplates: cloud ? () => listCustomTemplates() : null,
+    openDocument: () => openInput.click(), openPath: path => openPath?.(path), goHome: () => goHome?.(), recentDocuments: editorCommands.recentDocuments,
+    readOnly: () => !engine || failed || !!pkg?.readOnly,
+    properties: () => (pkg ? pkg.coreProperties : {}),
+    setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
+    statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.layout.pageCount, ...stats }; },
+    location: () => editorCommands.documentLocation().location, size: () => doc.size,
+    versions: cloud && versioning.enabled && doc.path ? () => listVersions(doc.path) : null,
+    saveVersionNow: () => doc.saveVersionNow(),
+    restoreVersion: async version => {
+      if (!await confirmDialog({ title: 'Restore this version?', message: `The document goes back to how it was on ${new Date(version.time).toLocaleString()}. The current version is kept in the history.`, confirmLabel: 'Restore', danger: false })) return;
+      try { await doc.restoreVersion(version.path, { stillWanted: () => !destroyed }); backstage.close({ focus: false }); openPath?.(doc.path); } catch (e) { error(e); }
+    },
+    exportAs: kind => editorCommands.exportAs(kind),
+    save: () => save(), download, saveTemplate: cloud ? saveTemplate : null, savePdf: () => savePdf(), rename: cloud ? () => { title.focus(); title.select(); } : null,
+    saveStatus: () => status.getAttribute('aria-label'),
+    saveAs: cloud ? async name => {
+      try { await ready; if (!engine || failed) return 'The document is not open.'; engine.finishComposition(); if (session.signedOut && !await session.signIn()) return 'Sign in to save a copy.'; }
+      catch (e) { return e?.message || String(e); }
+      const failure = await doc.saveAs(name, { stillWanted: () => !destroyed });
+      if (!failure) { title.value = doc.name; refreshTitle(); document.title = `${doc.name} — Documents`; }
+      return failure;
+    } : null,
+    refreshTitle: () => { title.value = doc.name; refreshTitle(); },
+    pageCount: () => engine?.layout.pageCount || 1, currentPage: () => Math.min(engine?.layout.pageCount || 1, (engine?.caretPageIndex ?? 0) + 1),
+    print: options => printDocument(options), pageSetup: () => pageSetup.click(),
+    previewPages: async (into, max) => {
+      if (!engine) return;
+      await engine.fontRefresh;
+      const sheets = engine.printSheets();
+      into.replaceChildren(...sheets.slice(0, max).map((sheet, i) => {
+        const scale = 150 / sheet.width, thumb = document.createElement('canvas');
+        thumb.width = Math.round(sheet.width * scale); thumb.height = Math.round(sheet.height * scale);
+        thumb.getContext('2d')?.drawImage(sheet, 0, 0, thumb.width, thumb.height);
+        return el('figure.bs-page', {}, thumb, el('figcaption', {}, `Page ${i + 1}`));
+      }), ...(sheets.length > max ? [el('p.bs-muted', {}, `and ${sheets.length - max} more`)] : []));
+    },
+    shareAvailable: () => cloud,
+    publish: canPublish() || (cloud && publishing.enabled && P.canHost()) ? async () => {
+      await ready; if (!engine || failed) throw new Error('The document is not open.');
+      if (!doc.path) { await save(); if (!doc.path) throw new Error('Save the document first.'); }
+      engine.finishComposition();
+      const html = exportBody(() => documentHtml(engine.model, { title: title.value || 'Document' }));
+      return publishPage(doc.path, title.value || 'Document', html, { existing: await findSite(doc.path) });
+    } : null,
+    findSite: cloud ? () => (doc.path && P.canHost() ? findSite(doc.path) : Promise.resolve(null)) : null,
+    unpublish: site => unpublishPage(site),
+    setEditingMode: mode => editorCommands.setEditingMode(mode), preferences: section => openPreferencesDialog(section),
+    onOpen: () => { engine?.finishComposition(); },
+  });
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
       el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, chrome.inspector)),
-    el('footer.canvas-statusbar.ed-statusbar', {}, el('div.ed-status-left', {}, stats, wordCountButton, proofingButton, languageLabel, editingAreaLabel),
-      el('div.ed-status-right', {},
-        el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),
-        focusButton, printLayoutButton,
-        el('div.ed-zoom', {}, zoomOut, zoomSlider, zoomIn, el('label.canvas-zoom', {}, el('span.visually-hidden', {}, 'Zoom '), zoom))),
-      el('span.visually-hidden', { id: 'canvas-input-help' }, `Tab moves between table cells · Escape then Tab to leave · ${MOD_KEY}+Enter page break · Shift+Enter line break`)),
+    statusBar.el, backstage.el,
     openInput, imageInput, fontSizes);
+  chrome.attach(root);
+  // The chrome's own shortcuts and the user's bindings from Customize Keyboard; they run before the
+  // document's built-in chords, so a binding of your own takes precedence.
+  const builtInChords = {
+    'edit.copyFormat': ['Mod+Shift+C'], 'edit.pasteFormat': ['Mod+Shift+V'], 'edit.pasteMatch': ['Mod+Alt+Shift+V'],
+    'edit.pasteSpecial': [IS_MAC ? 'Mod+Ctrl+V' : 'Mod+Alt+V'], 'edit.repeat': ['F4'], 'edit.redoOrRepeat': ['Mod+Y'],
+    'edit.findNext': ['Shift+F4'], 'edit.findPrevious': [IS_MAC ? 'Mod+Shift+F4' : 'Mod+Shift+F4'],
+    ...(IS_MAC ? { 'edit.goTo': ['Mod+Alt+G'], 'format.paragraph': ['Mod+Alt+M'], 'view.focus': ['Mod+Ctrl+Shift+F'] } : {}),
+    'format.styles': ['Mod+Alt+Shift+S'], 'file.open': ['Mod+O'], ...(cloud ? { 'file.saveAs': ['Mod+Shift+S'] } : {}),
+    'app.preferences': ['Mod+Comma'], 'app.search': [IS_MAC ? 'Mod+Alt+K' : 'Alt+Q'], 'view.ribbon': [IS_MAC ? 'Mod+Alt+R' : 'Mod+F1'],
+    'app.menubar': [IS_MAC ? 'Ctrl+F2' : 'Alt+F10'],
+  };
+  const builtInCommands = {
+    'edit.copyFormat': () => editCommands.copyFormat(),
+    'edit.pasteFormat': () => (formatClipboard ? editCommands.pasteFormat() : false),
+    'edit.pasteMatch': () => { if (!engine || !clipboardState().paste) return false; pastePlainText(); },
+    'edit.pasteSpecial': () => (editorCommands.pasteSpecial ? editorCommands.pasteSpecial() : false),
+    'edit.repeat': () => editCommands.repeat(),
+    'edit.redoOrRepeat': () => (engine && !engine.session.future.length && editCommands.canRepeat() ? editCommands.repeat() : false),
+    'edit.findNext': () => editCommands.findNext(1), 'edit.findPrevious': () => editCommands.findNext(-1),
+    'edit.goTo': () => editorCommands.goTo(),
+    'format.paragraph': () => { if (paragraphGeometry.disabled) return false; paragraphGeometry.click(); },
+    'view.focus': () => (engine ? editorCommands.focusMode() : false),
+    'format.styles': () => (editorCommands.stylesPane ? editorCommands.stylesPane() : false),
+    'file.open': () => openInput.click(), 'file.saveAs': () => backstage.open('save'),
+    'app.preferences': () => openPreferencesDialog(), 'app.search': () => chrome.focusSearch(), 'view.ribbon': () => chrome.ribbonModes?.toggle(),
+    'app.menubar': () => chrome.focusMenubar(),
+  };
+  // Copy Formatting makes Cmd/Ctrl+Shift+V paste formatting until text is copied or cut again.
+  let formatClipboard = false;
+  const baseCopyFormat = editCommands.copyFormat;
+  editorCommands.copyFormat = editCommands.copyFormat = () => { baseCopyFormat(); formatClipboard = true; };
+  root.addEventListener('copy', () => { formatClipboard = false; }, true);
+  root.addEventListener('cut', () => { formatClipboard = false; }, true);
+  keymap = createKeymap({ defaults: builtInChords, run: id => {
+    if (backstage.isOpen && !id.startsWith('app.')) return false;
+    if (builtInCommands[id]) return builtInCommands[id]();
+    const entry = chrome.entries().find(e => e.id === id);
+    if (!entry || entry.disabled) return false;
+    return entry.run();
+  } });
+  keymap.onChange(() => chrome.refresh());
+  root.addEventListener('keydown', e => { if (!e.target.closest?.('.backstage') || e.key === 'Escape') keymap.handle(e); }, true);
   /** A bullet or number typed with a space at the start of a paragraph that is not yet a list item. */
   const listMarker = (before, typed, list) => {
     if (list || typed !== ' ') return null;
@@ -783,7 +1043,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f' && engine) { e.preventDefault(); openSearch(); return; }
     // Find and replace: the conventional Ctrl+H; Cmd+H hides the app on a Mac, so there it is Cmd+Shift+H.
     if (e.code === 'KeyH' && !e.altKey && engine && (MOD_KEY === 'Cmd' ? e.metaKey && e.shiftKey : e.ctrlKey && !e.shiftKey)) { e.preventDefault(); openFind(); return; }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === '/') { e.preventDefault(); openShortcuts(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === '/') { e.preventDefault(); editorCommands.openShortcuts(); return; }
     if (e.key === 'F7' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && engine) { e.preventDefault(); proofing.openPane(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && e.code === 'KeyV' && engine && host.contains(e.target)) { e.preventDefault(); pastePlainText(); return; }
     const action = formattingShortcut(e);
@@ -812,12 +1072,14 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
-    if (pkg.readOnly) {
-      for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) control.disabled = true;
+    if (pkg.readOnly || engine.viewOnly) {
+      // Read-only files and Viewing mode: the commands that change the document stay off.
+      for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
+      undo.disabled = redo.disabled = true;
       find.disabled = false; finder.refresh();
       stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
-      words.textContent = 'Read only';
-      chrome.refresh(); review.refresh();
+      if (pkg.readOnly) words.textContent = 'Read only'; else updateWordCount();
+      chrome.refresh(); review.refresh(); statusBar?.refresh();
       return;
     }
     undo.disabled = !engine.session.history.length;
@@ -928,10 +1190,14 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
     chrome.refresh(); review.refresh();
+    stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
+    updateWordCount();
+    statusBar?.refresh();
+  }
+  function updateWordCount() {
     const total = engine.model.text.trim().split(/\s+/u).filter(Boolean).length;
     const [a, b] = engine.model.range;
     const chosen = a !== b ? engine.model.text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
-    stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
     words.textContent = chosen !== null ? `${chosen} of ${total} ${total === 1 ? 'word' : 'words'}` : `${total} ${total === 1 ? 'word' : 'words'}`;
   }
   function renderStatus(label, name, state = '') {
@@ -1005,7 +1271,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       onContextMenu: openDocumentContextMenu,
       onUpdateFields: () => references.updateAllFields(),
       paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, readOnly: !!pkg.readOnly,
-      onChange: () => { doc.changed(); update(); updateStatus(); proofing.changed(true); },
+      onChange: () => { labelHistory(); doc.changed(); update(); updateStatus(); proofing.changed(true); },
       onSelection: () => { update(); proofing.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
       onOpenLink: target => window.open(checkedHyperlinkTarget(target), '_blank', 'noopener,noreferrer'),
       // The account menu's typing settings, read at each keystroke so a change applies at once.
@@ -1043,6 +1309,14 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       const style = getComputedStyle(engine.pages), widest = Math.max(...engine.layout.pages.map(page => page.width));
       if (host.clientWidth && widest + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) > host.clientWidth) { zoom.value = 'fit'; fitWidth(); }
     }
+    // The zoom chosen in Preferences, on desktop-sized windows.
+    const preferredZoom = recallZoom();
+    if (preferredZoom && window.innerWidth >= 1024 && zoom.value === '1') {
+      if (preferredZoom.fit === 'width') { zoom.value = 'fit'; fitWidth(); }
+      else if (preferredZoom.fit === 'page') editorCommands.zoomTo?.('page');
+      else if (preferredZoom.value && preferredZoom.value !== 100) zoomControl.set(Math.max(10, Math.min(200, preferredZoom.value)) / 100);
+    }
+    lastTextLength = engine.model.text.length;
     fitObserver = new ResizeObserver(() => { fitWidth(); engine?.revealCaret(); }); fitObserver.observe(host);
     if (!pkg.readOnly) doc.attach(async () => {
       if (engine.composition) throw new Error('Finish composing text before saving.');
@@ -1093,6 +1367,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
+      backstage?.close({ focus: false });
       fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);

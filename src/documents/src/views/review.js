@@ -64,7 +64,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)'))));
     if (!items.length) paneList.append(el('p.field-hint', {}, 'No comments or tracked changes.'));
   }
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && engine.model.comments ? engine : null; };
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
   const threads = () => { const engine = editor(); return engine?.model.comments ? commentThreads(engine.model.commentList) : []; };
 
@@ -176,6 +176,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     get shown() { return commentsShown; },
     hasComments() { return threads().length > 0; },
+    /* ---- Panes and speech, for the title bar, menus and command search ---- */
+    get paneShown() { return paneShown; },
+    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !commentsShown) commentsShown = true; refresh(true); if (!paneShown) editor()?.focus(); },
+    toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
   };
 
   function threadAtCaret() {

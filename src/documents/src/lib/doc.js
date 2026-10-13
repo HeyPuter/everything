@@ -37,6 +37,15 @@ export const publishing = { enabled: true };
  * Whether leaving the page now could lose work: edits not yet written, or a
  * write still in flight. Used for the browser's "leave site?" prompt.
  */
+const AUTOSAVE_KEY = 'documents:autosave';
+/** Whether edits save themselves (they do, until AutoSave is turned off on this device). */
+export function autosaveEnabled() {
+  try { return globalThis.localStorage?.getItem(AUTOSAVE_KEY) !== '0'; } catch { return true; }
+}
+export function setAutosaveEnabled(on) {
+  try { if (on) globalThis.localStorage?.removeItem(AUTOSAVE_KEY); else globalThis.localStorage?.setItem(AUTOSAVE_KEY, '0'); } catch { /* storage unavailable */ }
+}
+
 export function needsUnloadWarning(doc) {
   if (!doc) return false;
   return doc.dirty || doc.status === 'saving' || !!doc._saving;
@@ -104,7 +113,7 @@ export class Doc extends EventTarget {
     // Saves and exports still receive an initialization failure; observe it
     // here as well in case the user has not asked to export yet.
     this._ready?.catch(() => {});
-    if (this.dirty) this._schedule(this.autosaveDelay);
+    if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
   }
 
   /** Nothing on screen is worth saving (a file the engine could not open, a reopen): no edits pending, and the status says so. */
@@ -145,7 +154,15 @@ export class Doc extends EventTarget {
     if (this._deleted || this._closed) return;
     this.version += 1;
     this._setStatus('unsaved');
-    if (this.exporter) this._schedule(this.autosaveDelay);
+    if (this.exporter && this.autosave) this._schedule(this.autosaveDelay);
+  }
+
+  /** AutoSave (on unless turned off in the title bar): edits save themselves; off, they wait for Save. */
+  get autosave() { return autosaveEnabled(); }
+  setAutosave(on) {
+    setAutosaveEnabled(on);
+    if (on && this.dirty && this.exporter) this._schedule(0);
+    else if (!on && !this._saving) { clearTimeout(this._timer); this._timer = null; }
   }
 
   /**
@@ -247,7 +264,7 @@ export class Doc extends EventTarget {
       // Edits that landed while the write was in flight keep the doc dirty.
       this.savedVersion = version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
-      if (this.dirty) this._schedule(this.autosaveDelay);
+      if (this.dirty && this.autosave) this._schedule(this.autosaveDelay);
       return true;
     } catch (e) {
       console.error(e);
