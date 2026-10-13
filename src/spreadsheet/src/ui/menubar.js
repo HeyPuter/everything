@@ -437,6 +437,12 @@ export function menubarMenus(f = {}) {
       ...(item.submenu && { submenu: item.submenu.map(child => ({ ...child, disabled: editing || !!f.away || !!f.sheet?.protected })) }) }))),
     i('Pivot table…', 'pivot', 'pivot'),
     i('Subtotals…', 'sigma', 'subtotal'),
+    sub('Outline', 'group', [
+      i('Auto Outline', 'group', 'autoOutline'),
+      i('Clear Outline', 'eraser', 'clearOutline'),
+      sep,
+      i('Outline settings…', 'sliders', 'outlineSettings'),
+    ].map(waits)),
     i('Column stats…', 'chartColumn', 'columnStats'),
     i('Goal seek…', 'sliders', 'goalSeek'),
     i('Data table…', 'table', 'dataTable'),

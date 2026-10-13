@@ -19,6 +19,7 @@ import { tableStyleParts, parseTableSpec } from './tables.js';
 import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
+import { writeXlsxOutlineSettings } from './xlsx-outline.js';
 import { richValueWriter } from './xlsx-rich-values.js';
 import { scenariosXml } from './scenarios.js';
 import { parseKey } from './cell.js';
@@ -342,7 +343,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, richValues.sheet(writeXlsxPrint(xml, sheet.printSettings), imageValues));
+    set(path, richValues.sheet(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), imageValues));
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');

@@ -1238,6 +1238,12 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .merge-styles-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .merge-styles-file { padding: 4px 10px; cursor: default; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .merge-styles-file[aria-selected="true"] { background: var(--accent-soft, var(--surface-3)); color: var(--ink); }
+/* Outline settings: each switch with its explanation under it. */
+.outline-settings fieldset { border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 6px 10px 8px; margin: 0 0 10px; }
+.outline-settings legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.outline-setting { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: center; padding: 4px 0; font-size: 13px; }
+.outline-setting input { margin: 0; }
+.outline-setting .field-hint { grid-column: 2; margin: 0; }
 @media (max-width: 640px) {
   .style-part { grid-template-columns: auto 1fr; }
   .style-part-summary { grid-column: 2; }

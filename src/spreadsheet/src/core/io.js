@@ -80,6 +80,7 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
+import { readXlsxOutlineSettings } from './xlsx-outline.js';
 import { serializeQueries } from './queries.js';
 
 export const META_SHEET = '_puter_meta';
@@ -1949,6 +1950,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
+    outlineSettings: readXlsxOutlineSettings(partXml),
     gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,

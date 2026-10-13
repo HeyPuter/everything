@@ -386,7 +386,12 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,
-  nested, Alt+Shift+Right/Left), column and row resizing (drag, double-click to fit,
+  nested, Alt+Shift+Right/Left); Auto Outline builds nested row and column
+  groups from the summary formulas (`SUM`, `SUBTOTAL`, `AVERAGE` and the like
+  beside the cells they total), Clear Outline removes them, and Outline
+  Settings puts summary rows above or below their detail and summary columns
+  left or right of it (saved in .xlsx files) and can set summary lines in bold
+  automatically (Data ▸ Outline), column and row resizing (drag, double-click to fit,
   or an exact size), zoom from 50% to 200% (presets from the status bar),
   optional gridlines, zero values
   that can be hidden per sheet, notes on cells, and colored sheet tabs. The
@@ -613,6 +618,7 @@ src/
     charts.js         chart model and the data read from a range
     tables.js         tables and structured references (Table1[Column])
     subtotal.js       subtotal rows and their outline groups
+    auto-outline.js   Auto Outline, Clear Outline and outline styles from summary formulas
     custom-cell-styles.js  the workbook's named cell styles: parts, applying, merging
     importrange.js    IMPORTRANGE, IMPORTDATA, IMPORTHTML, IMPORTXML helpers
     formula/query.js  the QUERY language: parser and executor

@@ -5003,8 +5003,12 @@ export function createGrid(opts) {
     const size = axis === 'row' ? rowH : colW;
     const lo = axis === 'row' ? vr.r0 : vr.c0;
     const hi = axis === 'row' ? vr.r1 : vr.c1;
+    // The button sits on the group's summary line: the one after it, or the one before it when the sheet's
+    // outline settings put summary rows above (or summary columns left of) their detail.
+    const settings = s.outlineSettings || {};
+    const summaryAfter = axis === 'row' ? settings.summaryBelow !== false : settings.summaryRight !== false;
     for (const g of groups) {
-      const after = Math.min(g.to + 1, total - 1);
+      const after = summaryAfter || g.from === 0 ? Math.min(g.to + 1, total - 1) : g.from - 1;
       if (g.to < lo - 1 || g.from > hi + 1) continue;
       const offset = (g.level - 1) * OUTLINE_STEP + 4;
       const start = pos(g.from);

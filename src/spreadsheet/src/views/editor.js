@@ -105,6 +105,8 @@ import { openColumnStats } from '../ui/colstats.js';
 import { cellStyle } from '../core/cellstyles.js';
 import { definitionFor, stylePatch, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
 import { openCellStylesGallery, openStyleDialog, openMergeStylesDialog, saveCellStyle, deleteCellStyle } from '../ui/cellstyles-ui.js';
+import { autoOutline, clearOutline, applyOutlineStyles } from '../core/auto-outline.js';
+import { openOutlineSettings } from '../ui/outline-settings.js';
 import { renderChartSvg, standaloneSvg, setThemeSeriesColors } from '../ui/chartsvg.js';
 import { openWordArtMenu } from '../ui/wordart.js';
 import { openEquationDialog, runInsertEquation } from '../ui/equation.js';
@@ -2052,7 +2054,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openSubtotalDialog(ctx, range);
         return;
       }
-      /* ---------- Cell styles management ---------- */
+      /* ---------- Cell styles management and outline tools ---------- */
       case 'newCellStyle': if (!committed()) return; openStyleDialog(ctx, { mode: 'new' }); return;
       case 'modifyCellStyle': case 'duplicateCellStyle': {
         if (!committed()) return;
@@ -2091,6 +2093,43 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           readFile: (path) => P.readFile(path), open: (bytes, name) => workbookFromFile(bytes, name), currentPath: doc.path,
         });
         return;
+      case 'autoOutline': {
+        if (!committed()) return;
+        if (refusedByProtection('outline rows and columns')) return;
+        // A single cell outlines the whole sheet; a selected block only what lies in it.
+        const rg = grid.range;
+        const n = autoOutline(wb, sheetId, rg.r1 === rg.r2 && rg.c1 === rg.c2 ? null : rg);
+        toast(n ? `Outline built: ${n} group${n === 1 ? '' : 's'} from the summary formulas` : 'No summary formulas (such as SUM or SUBTOTAL next to the cells they total) to build an outline from', { icon: n ? 'check' : 'info', duration: 3600 });
+        keepFocus();
+        return;
+      }
+      case 'clearOutline': {
+        if (!committed()) return;
+        if (refusedByProtection('clear the outline')) return;
+        const rg = grid.range;
+        const sheet = wb.sheet(sheetId);
+        const whole = (rg.r1 === rg.r2 && rg.c1 === rg.c2) || (rg.r1 === 0 && rg.c1 === 0 && rg.r2 >= sheet.rows - 1 && rg.c2 >= sheet.cols - 1);
+        toast(clearOutline(wb, sheetId, whole ? null : rg) ? 'Outline cleared' : 'No outline here to clear', { icon: 'info' });
+        keepFocus();
+        return;
+      }
+      case 'outlineSettings': {
+        if (!committed()) return;
+        if (!arg?.settings) { openOutlineSettings(ctx); return; }
+        // From the dialog: keep its settings, then Create or Apply Styles with them, as one step.
+        let made = 0;
+        let styled = true;
+        wb.transaction(arg.then === 'create' ? 'Auto Outline' : arg.then === 'styles' ? 'Apply outline styles' : 'Outline settings', () => {
+          wb.setOutlineSettings(sheetId, arg.settings);
+          if (arg.then === 'create') made = autoOutline(wb, sheetId);
+          if (arg.then === 'styles') styled = applyOutlineStyles(wb, sheetId);
+        });
+        if (arg.then === 'create') toast(made ? `Outline built: ${made} group${made === 1 ? '' : 's'}` : 'No summary formulas to build an outline from', { icon: made ? 'check' : 'info', duration: 3200 });
+        if (arg.then === 'styles' && !styled) toast('There is no outline to style yet', { icon: 'info' });
+        grid.refresh();
+        keepFocus();
+        return;
+      }
       case 'textCase': {
         if (!committed()) return;
         if (refusedByProtection('change the text')) return;

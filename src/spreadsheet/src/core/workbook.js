@@ -312,6 +312,25 @@ function shiftCalc(calc, c1, at, n, remove) {
   return out;
 }
 
+/**
+ * A sheet's outline settings, kept only where they differ from the defaults: summary rows below their detail and
+ * summary columns to its right (the outline buttons sit on the summary line), and automatic styles off.
+ */
+export function normalizeOutlineSettings(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  if (raw.summaryBelow === false) out.summaryBelow = false;
+  if (raw.summaryRight === false) out.summaryRight = false;
+  if (raw.autoStyles === true) out.autoStyles = true;
+  return Object.keys(out).length ? out : null;
+}
+
+/** The outline settings in force on a sheet, every field spelt out. */
+export function outlineSettingsOf(sheet) {
+  const s = sheet?.outlineSettings || {};
+  return { summaryBelow: s.summaryBelow !== false, summaryRight: s.summaryRight !== false, autoStyles: s.autoStyles === true };
+}
+
 /** Outline groups: { rows: [{ from, to, collapsed }], cols: [...] }, sorted, sane. */
 function normalizeGroups(raw) {
   // Collapsing and expanding iterate every line. File metadata must never
@@ -591,7 +610,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
+function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, outlineSettings, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -629,6 +648,7 @@ function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeigh
     veryHidden: !!veryHidden,
     protected: !!locked,
     groups: normalizeGroups(groups),
+    ...(normalizeOutlineSettings(outlineSettings) ? { outlineSettings: normalizeOutlineSettings(outlineSettings) } : {}),
     gridlines: gridlines !== false,
     headers: headers !== false,
     rightToLeft: rightToLeft === true,
@@ -812,6 +832,7 @@ function sheetShapeJSON(s) {
     ...(s.split ? { split: normalizeSplit(s.split) } : {}),
     printSettings: s.printSettings ? normalizePrintSettings(s.printSettings) : undefined,
     groups: s.groups.rows.length || s.groups.cols.length ? { rows: s.groups.rows.map((g) => ({ ...g })), cols: s.groups.cols.map((g) => ({ ...g })) } : undefined,
+    ...(s.outlineSettings ? { outlineSettings: { ...s.outlineSettings } } : {}),
     filter: s.filter ? { ...s.filter, range: { ...s.filter.range }, criteria: { ...s.filter.criteria }, ...(s.filter.hiddenButtons ? { hiddenButtons: [...s.filter.hiddenButtons] } : {}) } : null,
     ...(s.otherFilters?.length ? { otherFilters: s.otherFilters.map(copyFilter) } : {}),
     ...(sheetFilters(s).length ? { filterHidden: [...s.filterHidden] } : {}),
@@ -6846,6 +6867,44 @@ export class Workbook extends EventTarget {
       }
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
     });
+  }
+
+  /** Change a sheet's outline settings (see normalizeOutlineSettings); an undo step of its own. */
+  setOutlineSettings(sheetId, patch) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart') return false;
+    const prev = sheet.outlineSettings ? { ...sheet.outlineSettings } : null;
+    const next = normalizeOutlineSettings({ ...outlineSettingsOf(sheet), ...patch });
+    if (JSON.stringify(prev) === JSON.stringify(next)) return false;
+    const apply = (v) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      if (v) live.outlineSettings = { ...v }; else delete live.outlineSettings;
+      this._changed('layout', live.id);
+    };
+    apply(next);
+    this._push({ label: 'Outline settings', undo: () => apply(prev), redo: () => apply(next) });
+    return true;
+  }
+
+  /**
+   * Replace every outline group on an axis (or both, when axis is null) with `groups`, as one step: Auto Outline
+   * and Clear Outline. Lines a removed group had hidden come back; a new group starts expanded.
+   */
+  replaceGroups(sheetId, next, label = 'Outline') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const wanted = normalizeGroups({ rows: next.rows ?? sheet.groups.rows, cols: next.cols ?? sheet.groups.cols });
+    if (JSON.stringify(wanted) === JSON.stringify(normalizeGroups(sheet.groups))) return false;
+    this._structural(label, () => {
+      for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
+        if (!next[key]) continue;
+        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
+      }
+      sheet.groups = wanted;
+      if (sheetFilters(sheet).length) this._applyFilter(sheet);
+    });
+    return true;
   }
 
   /** Is line i inside some group that is (still) collapsed? */
