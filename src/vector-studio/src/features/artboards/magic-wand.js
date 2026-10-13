@@ -16,6 +16,7 @@ export const DEFAULT_WAND = Object.freeze({
   strokeWeight: { on: false, tol: 5 },
   opacity: { on: false, tol: 5 },
   blendMode: { on: false },
+  allLayers: { on: true },
 });
 
 export function wandOptions(app) {
@@ -70,10 +71,11 @@ export function wandCandidates(doc) {
   return out;
 }
 
-/** Ids of every object matching `ref`. */
+/** Ids of every object matching `ref` (on its layer only when Use All Layers is off). */
 export function magicWandSelect(doc, ref, opts) {
+  const layer = opts.allLayers?.on === false ? doc.layerOf(ref.id)?.id : null;
   return wandCandidates(doc)
-    .filter((n) => wandMatches(ref, n, opts))
+    .filter((n) => wandMatches(ref, n, opts) && (!layer || doc.layerOf(n.id)?.id === layer))
     .map((n) => n.id);
 }
 

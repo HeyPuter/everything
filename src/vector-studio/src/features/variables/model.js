@@ -3,18 +3,35 @@
  * binds objects to them; data sets hold one value per variable and
  * applying a data set updates every bound object.
  *
- *   root.variables  [{ id, name, type: 'text' | 'visibility' }]
+ *   root.variables  [{ id, name, type: 'text' | 'visibility' | 'image' | 'graph' }]
  *   root.dataSets   [{ id, name, values: { [variableId]: string | boolean } }]
  *   root.dataSet    id of the data set last applied (or null)
- *   node.bindings   { text?: variableId, visibility?: variableId }
+ *   node.bindings   { text?, visibility?, image?, graph?: variableId }
  *
  * Text variables replace a text object's content; visibility variables
- * show or hide any object. Everything is stored in the document, so it is
- * saved with it and undoable.
+ * show or hide any object; linked file variables swap a placed image for
+ * the file at a URL or Puter path; graph data variables replace a graph's
+ * data (tab-separated rows). Everything is stored in the document, so it
+ * is saved with it and undoable. In CSV headers a leading # marks a
+ * visibility variable, @ a linked file and % graph data.
  */
 import { uid } from '../../lib/ids.js';
 
-export const VARIABLE_TYPES = { text: 'Text', visibility: 'Visibility' };
+export const VARIABLE_TYPES = { text: 'Text', visibility: 'Visibility', image: 'Linked File', graph: 'Graph Data' };
+
+/** CSV header prefixes of the variable types other than text. */
+const PREFIX = { visibility: '#', image: '@', graph: '%' };
+
+/** Graph data cells as tab-separated rows, and back. */
+export function cellsToText(cells) {
+  return (cells || []).map((r) => (r || []).map((c) => String(c ?? '').replace(/[\t\n]/g, ' ')).join('\t')).join('\n');
+}
+
+export function textToCells(text) {
+  return String(text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.split('\t'));
+}
 
 export function variablesOf(doc) {
   return doc.root.variables || [];
@@ -49,7 +66,8 @@ export function cleanName(name) {
 
 /** Add a variable (inside a transaction). Returns it. */
 export function addVariable(doc, type, name = null) {
-  const v = { id: uid('var'), name: cleanName(name || nextName(doc, type === 'visibility' ? 'Visibility' : 'Variable')), type };
+  const base = { visibility: 'Visibility', image: 'Image', graph: 'Graph' }[type] || 'Variable';
+  const v = { id: uid('var'), name: cleanName(name || nextName(doc, base)), type };
   if (variablesOf(doc).some((x) => x.name === v.name)) v.name = nextName(doc, v.name);
   doc.updateRoot({ variables: [...variablesOf(doc), v] });
   return v;
@@ -85,6 +103,8 @@ export function currentValue(doc, v) {
   const b = boundTo(doc, v.id)[0];
   if (!b) return v.type === 'visibility' ? true : '';
   if (v.type === 'text') return b.node.text ?? '';
+  if (v.type === 'image') return b.node.link?.path || b.node.link?.url || '';
+  if (v.type === 'graph') return cellsToText(b.node.live?.data);
   return !b.node.hidden;
 }
 
@@ -105,12 +125,27 @@ export function updateDataSet(doc, id) {
   doc.updateRoot({ dataSets: dataSetsOf(doc).map((ds) => (ds.id === id ? { ...ds, values } : ds)) });
 }
 
+/** The linked-file values a data set needs loaded before it applies (non-empty and different from now). */
+export function imageSources(doc, id) {
+  const ds = dataSetsOf(doc).find((d) => d.id === id);
+  const out = new Set();
+  if (!ds) return out;
+  for (const v of variablesOf(doc)) {
+    if (v.type !== 'image' || !(v.id in ds.values)) continue;
+    const src = String(ds.values[v.id] ?? '').trim();
+    if (src && boundTo(doc, v.id).some(({ node }) => node.type === 'image' && (node.link?.path || node.link?.url) !== src)) out.add(src);
+  }
+  return out;
+}
+
 /**
  * Apply a data set to the bound objects (inside a transaction).
  * `setText(doc, node, text)` replaces a text object's content (the type module
- * keeps its character runs consistent).
+ * keeps its character runs consistent); `setImage(doc, node, source)` swaps
+ * a placed image (its file must be loaded already) and `setGraph(doc, node,
+ * cells)` replaces a graph's data.
  */
-export function applyDataSet(doc, id, setText) {
+export function applyDataSet(doc, id, setText, { setImage = null, setGraph = null } = {}) {
   const ds = dataSetsOf(doc).find((d) => d.id === id);
   if (!ds) return false;
   for (const v of variablesOf(doc)) {
@@ -123,6 +158,15 @@ export function applyDataSet(doc, id, setText) {
       } else if (slot === 'visibility' && v.type === 'visibility') {
         const hidden = !toBool(value);
         if (Boolean(node.hidden) !== hidden) doc.update(node.id, { hidden });
+      } else if (slot === 'image' && v.type === 'image' && node.type === 'image' && setImage) {
+        const src = String(value ?? '').trim();
+        if (src && (node.link?.path || node.link?.url) !== src) setImage(doc, doc.get(node.id), src);
+      } else if (slot === 'graph' && v.type === 'graph' && node.live?.kind === 'graph') {
+        const cells = textToCells(value);
+        if (cellsToText(node.live.data) !== cellsToText(cells)) {
+          if (setGraph) setGraph(doc, node.id, cells);
+          else doc.update(node.id, { live: { ...node.live, data: cells } });
+        }
       }
     }
   }
@@ -180,7 +224,7 @@ const csvCell = (v) => {
 /** CSV of the data sets: a header of variable names (visibility ones prefixed with #), one row per data set. */
 export function toCSV(doc) {
   const vars = variablesOf(doc);
-  const lines = [vars.map((v) => csvCell(v.type === 'visibility' ? `#${v.name}` : v.name)).join(',')];
+  const lines = [vars.map((v) => csvCell(`${PREFIX[v.type] || ''}${v.name}`)).join(',')];
   for (const ds of dataSetsOf(doc)) lines.push(vars.map((v) => csvCell(ds.values[v.id] ?? '')).join(','));
   return `${lines.join('\r\n')}\r\n`;
 }
@@ -195,10 +239,10 @@ export function importCSV(doc, text) {
   if (rows.length < 2) throw new Error('The file needs a header row of variable names and at least one row of values.');
   const header = rows[0].map((h) => h.trim());
   const ids = header.map((h) => {
-    const vis = h.startsWith('#');
-    const name = cleanName(vis ? h.slice(1) : h);
+    const type = Object.keys(PREFIX).find((t) => h.startsWith(PREFIX[t])) || 'text';
+    const name = cleanName(type === 'text' ? h : h.slice(1));
     const existing = variablesOf(doc).find((v) => v.name === name);
-    return existing ? existing.id : addVariable(doc, vis ? 'visibility' : 'text', name).id;
+    return existing ? existing.id : addVariable(doc, type, name).id;
   });
   const types = new Map(variablesOf(doc).map((v) => [v.id, v.type]));
   const sets = [...dataSetsOf(doc)];

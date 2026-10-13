@@ -44,6 +44,20 @@ export class MagicWandPanel extends Panel {
   static icon = 'panel-magic-wand';
   static placement = 'strip';
 
+  menu() {
+    const p = this.app.prefs;
+    const o = wandOptions(this.app);
+    const show = (key, on, off) => ({ label: p.get(key) === false ? on : off, run: () => (p.set(key, p.get(key) === false), this.update()) });
+    return [
+      show('magicWandStrokeOptions', 'Show Stroke Options', 'Hide Stroke Options'),
+      show('magicWandTransparencyOptions', 'Show Transparency Options', 'Hide Transparency Options'),
+      '-',
+      { label: 'Reset', run: () => this.reset() },
+      '-',
+      { label: 'Use All Layers', checked: o.allLayers.on, run: () => this.set('allLayers', { on: !o.allLayers.on }) },
+    ];
+  }
+
   build() {
     const app = this.app;
     this.rows = new Map();
@@ -74,8 +88,11 @@ export class MagicWandPanel extends Panel {
     };
     const bid = 'mwp-blend';
     this.blend = h('input', { type: 'checkbox', id: bid, onchange: () => this.set('blendMode', { on: this.blend.checked }) });
+    // Show/Hide Stroke Options and Transparency Options hide these groups.
+    this.strokeGroup = h('div.mwp-group', h('hr.mwp-sep'), rowEl(ROWS[1]), rowEl(ROWS[2]));
+    this.transparencyGroup = h('div.mwp-group', h('hr.mwp-sep'), rowEl(ROWS[3]), h('div.check-row.mwp-blend', this.blend, h('label', { for: bid }, 'Blending Mode')));
     this.el.append(
-      h('div.mwp', ...ROWS.slice(0, 2).map(rowEl), h('hr.mwp-sep'), rowEl(ROWS[2]), h('hr.mwp-sep'), rowEl(ROWS[3]), h('div.check-row.mwp-blend', this.blend, h('label', { for: bid }, 'Blending Mode'))),
+      h('div.mwp', rowEl(ROWS[0]), this.strokeGroup, this.transparencyGroup),
       h(
         'div.mwp-footer',
         h('button.btn.small', { type: 'button', onclick: () => this.reset() }, 'Reset'),
@@ -109,5 +126,7 @@ export class MagicWandPanel extends Panel {
       }
     }
     this.blend.checked = o.blendMode.on;
+    this.strokeGroup.hidden = this.app.prefs.get('magicWandStrokeOptions') === false;
+    this.transparencyGroup.hidden = this.app.prefs.get('magicWandTransparencyOptions') === false;
   }
 }

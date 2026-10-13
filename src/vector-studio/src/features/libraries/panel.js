@@ -155,6 +155,55 @@ export class LibrariesPanel extends Panel {
     this.store.load().then(() => this.render());
   }
 
+  menu() {
+    const lib = this.library;
+    const ed = this.app.editor;
+    const has = Boolean(ed?.selection.size);
+    const text = currentTextNodes(this.app).length > 0;
+    const first = ed?.selectedNodes()[0];
+    const add = (label, kinds, enabled) => ({ label, enabled: Boolean(lib) && enabled, run: () => this.addFromSelection(kinds) });
+    return [
+      { label: 'New Library...', run: () => this.createLibrary() },
+      { label: 'Rename Library...', enabled: Boolean(lib), run: () => this.renameLibrary() },
+      { label: 'Duplicate Library', enabled: Boolean(lib), run: async () => this.choose((await this.store.duplicate(lib.id)).id) },
+      { label: 'Delete Library...', enabled: Boolean(lib), run: () => this.deleteLibrary() },
+      '-',
+      {
+        label: 'Add from Selection',
+        submenu: [
+          add('Graphic', ['graphic'], has),
+          add('Fill Color', ['fill'], Boolean(first?.fill)),
+          add('Stroke Color', ['stroke'], Boolean(first?.stroke)),
+          add('Graphic Style', ['graphicStyle'], Boolean(first && first.type !== 'group')),
+          '-',
+          add('Character Style', ['characterStyle'], text),
+          add('Paragraph Style', ['paragraphStyle'], text),
+          add('Text', ['text'], text),
+          '-',
+          add('Everything Selected', ['graphic', 'fill', 'stroke', ...(text ? ['characterStyle'] : [])], has),
+        ],
+      },
+      '-',
+      { label: 'View as Grid', checked: this.view === 'grid', run: () => this.setView('grid') },
+      { label: 'View as List', checked: this.view === 'list', run: () => this.setView('list') },
+      { label: 'Sort by Name', enabled: Boolean(lib && lib.items.length > 1), run: () => this.sortItems() },
+      '-',
+      { label: 'Import Library...', run: () => this.importLibrary() },
+      { label: 'Export Library...', enabled: Boolean(lib), run: () => this.exportLibrary() },
+    ];
+  }
+
+  /** Sort the library's items by kind, then name. */
+  async sortItems() {
+    const lib = this.library;
+    if (!lib) return;
+    const order = new Map(ITEM_KINDS.map((k, i) => [k, i]));
+    const sorted = lib.items.slice().sort((a, b) => (order.get(a.kind) ?? 99) - (order.get(b.kind) ?? 99) || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true }));
+    lib.items = sorted;
+    await this.store.save(lib);
+    this.render();
+  }
+
   setView(v) {
     this.view = v;
     this.app.prefs.set('librariesView', v);
