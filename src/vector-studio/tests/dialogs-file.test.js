@@ -144,3 +144,34 @@ describe('Document Setup type options', () => {
     expect(app.editor.doc.root.typeOptions).toMatchObject({ language: 'fr', double: '«»', quotes: true });
   });
 });
+
+describe('SVG export styling and ids', () => {
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g1"><stop offset="0"/></linearGradient></defs><g id="Layer_1"><path id="Star" d="M0 0h1" fill="#f00" stroke="#000" stroke-width="2"/><path d="M0 0h2" fill="url(#g1)"/><rect width="1" height="1" fill="#f00" stroke="#000" stroke-width="2"/></g></svg>';
+
+  it('leaves the default output alone', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    expect(applySvgOptions(SVG)).toBe(SVG);
+  });
+
+  it('writes inline styles and internal CSS classes', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    const inline = applySvgOptions(SVG, { styling: 'inline' });
+    expect(inline).toContain('style="fill:#f00;stroke:#000;stroke-width:2"');
+    expect(inline).not.toContain(' fill="#f00"');
+    const css = applySvgOptions(SVG, { styling: 'css' });
+    expect(css).toContain('.st0{fill:#f00;stroke:#000;stroke-width:2}');
+    expect(css.match(/class="st0"/g)).toHaveLength(2);
+    expect(css).toContain('<style>');
+  });
+
+  it('keeps only referenced ids, or gives every object one', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    const minimal = applySvgOptions(SVG, { objectIds: 'minimal' });
+    expect(minimal).toContain('id="g1"');
+    expect(minimal).not.toContain('id="Star"');
+    expect(minimal).not.toContain('id="Layer_1"');
+    const unique = applySvgOptions(SVG, { objectIds: 'unique' });
+    expect(unique).toContain('id="Star"');
+    expect(unique).toMatch(/<rect[^>]*id="rect-\d+"/);
+  });
+});

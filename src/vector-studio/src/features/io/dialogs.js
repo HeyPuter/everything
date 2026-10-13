@@ -102,8 +102,11 @@ export async function formatOptionsDialog(app, format) {
     const minify = checkbox('Minify', o.minify);
     const responsive = checkbox('Responsive (no fixed width and height)', o.responsive);
     const symbols = checkbox('Write symbols as <symbol> and <use>', o.symbols);
+    const styling = select([{ value: 'attributes', label: 'Presentation Attributes' }, { value: 'inline', label: 'Inline Style' }, { value: 'css', label: 'Internal CSS' }], o.styling || 'attributes');
+    const ids = select([{ value: 'names', label: 'Layer and Object Names' }, { value: 'minimal', label: 'Minimal' }, { value: 'unique', label: 'Unique' }], o.objectIds || 'names');
+    fields.push(row('Styling', styling), row('Object IDs', ids));
     fields.push(row('Font', font, { help: app.textOutlines ? null : 'Converting text to outlines needs the type features.' }), h('div.form-row', h('span.form-label', 'Images'), h('span.io-static', 'Embed')), row('Decimal places', prec), minify.el, responsive.el, symbols.el);
-    readers.push(() => ({ precision: Number(prec.value), textMode: font.value, minify: minify.input.checked, responsive: responsive.input.checked, symbols: symbols.input.checked }));
+    readers.push(() => ({ precision: Number(prec.value), textMode: font.value, minify: minify.input.checked, responsive: responsive.input.checked, symbols: symbols.input.checked, styling: styling.value, objectIds: ids.value }));
   } else if (format === 'pdf') {
     const docBleed = app.editor?.doc.root.bleed;
     const docSides = typeof docBleed === 'number' ? [docBleed] : ['top', 'bottom', 'left', 'right'].map((k) => docBleed?.[k] || 0);
