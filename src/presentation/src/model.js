@@ -342,9 +342,20 @@ export function addDesignedSlide(
   }
   return slide;
 }
+// A new presentation opens on its master's Title Slide layout, with the
+// title and subtitle placeholders waiting to be typed into.
+export function addLayoutSlide(pres, type = "title") {
+  const layout =
+    P.findSlideLayoutByType(pres, type) || P.getSlideLayouts(pres)[0];
+  return P.addSlide(pres, { layout });
+}
+// "title" is a new presentation: one slide on the Title Slide layout.
+// "blank" is a single empty slide in the palette's background; "story" and
+// "pitch" are the designed starter decks.
 export function createDeck(template = "blank", theme = "studio") {
   const pres = P.createPresentation();
-  if (template === "blank") addDesignedSlide(pres, "blank", theme);
+  if (template === "title") addLayoutSlide(pres, "title");
+  else if (template === "blank") addDesignedSlide(pres, "blank", theme);
   else {
     const pitch = template === "pitch";
     addDesignedSlide(
@@ -1628,7 +1639,39 @@ export function slideDiagramDataStamp(pres, slide) {
   }
   return JSON.stringify(values);
 }
-export function preview(pres, slide) {
+// The parts a slide inherits from (its layout, master and theme) by the
+// buffers that hold them: an edit in a master view replaces a buffer, so a
+// render cached under the old stamp is drawn again.
+const bufferIds = new WeakMap();
+let nextBufferId = 0;
+const bufferId = (part) => {
+  if (!part) return 0;
+  let id = bufferIds.get(part.data);
+  if (!id) bufferIds.set(part.data, (id = ++nextBufferId));
+  return id;
+};
+export function templateStamp(pres, slide) {
+  const pkg = P._internalPackageOf(pres);
+  const layout = P.getSlideLayout(slide);
+  const ids = [];
+  if (layout) {
+    const name = P.getSlideLayoutPartName(layout);
+    ids.push(bufferId(pkg.getPart(name)));
+    const master = P.getLayoutMasterPartName(pres, name);
+    if (master) {
+      ids.push(bufferId(pkg.getPart(master)));
+      const rel = pkg
+        .getRels(master)
+        ?.items.find((r) => r.type === REL_TYPES.theme);
+      if (rel)
+        ids.push(bufferId(pkg.getPart(resolveTarget(master, rel.target))));
+    }
+  }
+  return ids.join(":");
+}
+// `prompts` draws empty placeholders with their prompt text, for the
+// editor's canvas only.
+export function preview(pres, slide, { prompts = false } = {}) {
   // SVG is used only as an image, never inserted into the document as markup.
   const embedFonts = hasFontResources(pres);
   const resolved = new Map(),
@@ -1654,6 +1697,7 @@ export function preview(pres, slide) {
     stableDefinitionIds: true,
     resolveFontKerning,
     gradientRendering: "css",
+    placeholderPrompts: prompts,
     measureText: !embedFonts
       ? measureText
       : (value, spec) => {

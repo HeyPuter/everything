@@ -1,0 +1,227 @@
+/* Layouts, placeholders and master views. */
+
+/* A layout's picture: the render with its placeholders outlined. */
+.layout-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: white;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.layout-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.layout-thumb-frame {
+  position: absolute;
+  border: 1px dashed #8a8d86;
+  pointer-events: none;
+}
+
+/* The New Slide and Layout galleries. */
+.layout-gallery {
+  padding: 4px 6px 6px;
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  width: min(92vw, 520px);
+}
+.layout-gallery-heading {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 6px 4px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layout-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.layout-gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  text-align: center;
+  min-width: 0;
+}
+.layout-gallery-item:hover,
+.layout-gallery-item:focus-visible {
+  background: var(--surface-2);
+  border-color: var(--line);
+  outline: none;
+}
+.layout-gallery-item:focus-visible {
+  border-color: var(--accent);
+}
+.layout-gallery-item.selected {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.layout-gallery-label {
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+@media (max-width: 600px) {
+  .layout-gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Empty placeholders on the canvas: a dashed outline the editor draws (the
+   slide itself never shows one), and in master view every placeholder. */
+.object-hit.placeholder-frame {
+  border: 1px dashed color-mix(in srgb, var(--muted) 80%, transparent);
+}
+.object-hit.placeholder-frame:hover {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.object-hit.placeholder-frame.selected {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+/* Quick insert buttons in an empty content placeholder. */
+.placeholder-inserts {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+}
+.placeholder-inserts button {
+  pointer-events: auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, white 70%, transparent);
+  color: #4a5a66;
+}
+.placeholder-inserts button:hover,
+.placeholder-inserts button:focus-visible {
+  background: white;
+  border-color: #8aa0ae;
+  color: #1e5d86;
+  outline: none;
+}
+.placeholder-inserts button:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.placeholder-inserts.compact button {
+  width: 24px;
+  height: 24px;
+}
+.placeholder-inserts.compact svg {
+  width: 14px;
+  height: 14px;
+}
+.editor.text-editing .placeholder-inserts {
+  display: none;
+}
+
+/* Master view: the master and its layouts in place of the slides. */
+.master-pane {
+  padding: 4px 0 16px;
+}
+.master-pane-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 0;
+}
+.master-pane-item.layout {
+  padding-left: 26px;
+}
+.master-pane-number {
+  min-width: 16px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 6px;
+}
+.master-pane-thumb {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: none;
+}
+.master-pane-thumb:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.master-pane-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.master-pane-item.active .master-pane-thumb {
+  border-color: var(--accent);
+}
+.master-pane-item.layout::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+}
+.master-pane-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+}
+.master-pane-heading {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 8px 4px 2px;
+}
+.editor[data-master-view] .canvas-label span {
+  text-transform: none;
+}
+.editor[data-master-view] .notes-area {
+  display: none;
+}
+
+/* The slide positions a handout page shows. */
+.handout-slots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.handout-slots span {
+  position: absolute;
+  border: 1px dashed #9aa0a6;
+  background: color-mix(in srgb, #9aa0a6 8%, transparent);
+}

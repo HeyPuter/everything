@@ -1407,7 +1407,28 @@ export function buildTabs(api) {
             label: "Slide\nMaster",
             icon: "slideMaster",
             title: "Slide Master",
+            description:
+              "Edit the slide master and its layouts, which every slide takes its look from.",
             run: () => api.masterView?.("slide"),
+          },
+          {
+            type: "large",
+            id: "handout-master",
+            label: "Handout\nMaster",
+            icon: "handoutMaster",
+            title: "Handout Master",
+            description:
+              "Edit the header, footer and layout of printed handouts.",
+            run: () => api.masterView?.("handout"),
+          },
+          {
+            type: "large",
+            id: "notes-master",
+            label: "Notes\nMaster",
+            icon: "notesMaster",
+            title: "Notes Master",
+            description: "Edit how notes pages look when they are printed.",
+            run: () => api.masterView?.("notes"),
           },
         ],
       },

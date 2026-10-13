@@ -327,6 +327,8 @@ export const getPlaceholderPrompt = (shape: SlideShapeData): string | null => {
   const slide = shape[SHAPE_SLIDE];
   const root = slide[SLIDE_DOCUMENT].root.name.localName;
   if (root !== "sld") {
+    if (type === "ftr") return "Footer";
+    if (type === "hdr") return "Header";
     if (FOOTER_TYPES.has(type)) return null;
     return TEMPLATE_LABELS[type] ?? "Text";
   }
@@ -1158,6 +1160,55 @@ const setXfrm = (
   );
 };
 
+type Box = { x: number; y: number; w: number; h: number };
+
+const fitObject = (el: XmlElement, from: Box, to: Box): Box => {
+  if (el.name.localName === "graphicFrame") {
+    if (hasTable(el)) return { x: to.x, y: to.y, w: from.w, h: from.h };
+    return { ...to };
+  }
+  if (!from.w || !from.h) return { ...to };
+  const aspect = from.w / from.h;
+  let w = to.w,
+    h = w / aspect;
+  if (h > to.h) {
+    h = to.h;
+    w = h * aspect;
+  }
+  return { x: to.x + (to.w - w) / 2, y: to.y + (to.h - h) / 2, w, h };
+};
+
+const hasTable = (frame: XmlElement): boolean => {
+  const graphic = firstChildElement(frame, aq("graphic"));
+  const data = graphic && firstChildElement(graphic, aq("graphicData"));
+  return !!data && !!firstChildElement(data, aq("tbl"));
+};
+
+/** Writes an object's frame: a picture's `spPr` transform or a frame's. */
+const setObjectFrame = (el: XmlElement, b: Box): void => {
+  const xfrm =
+    el.name.localName === "graphicFrame"
+      ? firstChildElement(el, pq("xfrm"))
+      : (() => {
+          const spPr = firstChildElement(el, pq("spPr"));
+          return spPr && firstChildElement(spPr, aq("xfrm"));
+        })();
+  if (!xfrm) {
+    if (el.name.localName !== "graphicFrame") setXfrm(el, b);
+    return;
+  }
+  const off = firstChildElement(xfrm, aq("off"));
+  const ext = firstChildElement(xfrm, aq("ext"));
+  if (off) {
+    setAttr(off, "x", String(Math.round(b.x)));
+    setAttr(off, "y", String(Math.round(b.y)));
+  }
+  if (ext) {
+    setAttr(ext, "cx", String(Math.round(b.w)));
+    setAttr(ext, "cy", String(Math.round(b.h)));
+  }
+};
+
 const stubFor = (
   id: number,
   type: string,
@@ -1227,14 +1278,31 @@ const matchPlaceholders = (
   };
   // Exact type and index first, then by kind, in document order.
   const pending: Array<{ el: XmlElement; type: string; idx: number }> = [];
+  // A picture, table or chart only goes to a placeholder that holds objects.
+  const holdsObjects = (t: { type: string }) =>
+    t.type === "obj" || t.type === "pic" || OBJECT_TYPES.has(t.type);
+  const objectOf = (el: XmlElement) => el.name.localName !== "sp";
   for (const { el, ph } of slidePhs) {
     const type = phType(ph),
       idx = phIdx(ph);
-    const exact = pick((t) => t.type === type && t.idx === idx);
+    const exact = pick(
+      (t) =>
+        t.type === type && t.idx === idx && (!objectOf(el) || holdsObjects(t)),
+    );
     if (exact) out.set(el, exact);
     else pending.push({ el, type, idx });
   }
   for (const { el, type, idx } of pending) {
+    if (objectOf(el)) {
+      const pic = el.name.localName === "pic";
+      out.set(
+        el,
+        pick((t) => t.type === (pic ? "pic" : type) && holdsObjects(t)) ??
+          pick((t) => t.type === "obj") ??
+          pick(holdsObjects),
+      );
+      continue;
+    }
     const cat = categoryOf(type);
     const match =
       pick((t) => t.type === type) ??
@@ -1291,6 +1359,19 @@ export const applySlideLayout = (
     if (b) bounds.set(el, { x: b.x, y: b.y, w: b.w, h: b.h });
   }
   const matches = matchPlaceholders(slidePhs, targets);
+  const targetBounds = new Map<string, Box>();
+  const layoutView = getTemplateSlide(pres, layoutPartName);
+  for (const shape of layoutView[SLIDE_SHAPES]) {
+    const ph = phOf(shape[SHAPE_ELEMENT]);
+    const b = ph && getShapeBoundsResolved(pres, shape);
+    if (ph && b)
+      targetBounds.set(`${phType(ph)}:${phIdx(ph)}`, {
+        x: b.x,
+        y: b.y,
+        w: b.w,
+        h: b.h,
+      });
+  }
   for (const { el, ph } of slidePhs) {
     const match = matches.get(el);
     const content = el.name.localName !== "sp" || hasText(el);
@@ -1307,6 +1388,13 @@ export const applySlideLayout = (
     setAttr(ph, "type", match.type === "obj" ? null : match.type);
     setAttr(ph, "idx", match.idx ? String(match.idx) : null);
     if (el.name.localName === "sp") removeXfrm(el);
+    else {
+      // An object moves into its new placeholder: a picture keeps its
+      // shape, a table its size, and anything else takes the frame.
+      const to = targetBounds.get(`${match.type}:${match.idx}`);
+      const from = bounds.get(el);
+      if (to && from) setObjectFrame(el, fitObject(el, from, to));
+    }
   }
   // The new layout's other placeholders arrive empty (not the footer row).
   const taken = new Set(
@@ -1395,10 +1483,8 @@ export const resetSlideToLayout = (
   for (const { el, ph } of treePlaceholders(tree)) {
     present.add(`${phType(ph)}:${phIdx(ph)}`);
     present.add(`idx:${phIdx(ph)}`);
-    if (el.name.localName !== "sp") {
-      removeXfrm(el);
-      continue;
-    }
+    // Pictures, tables and charts in a placeholder keep their own frame.
+    if (el.name.localName !== "sp") continue;
     const spPr = firstChildElement(el, pq("spPr"));
     if (spPr) {
       spPr.attrs = [];
@@ -2112,4 +2198,46 @@ export const withPlaceholderPrompt = (
     [SHAPE_ELEMENT]: el,
     [SHAPE_SNAPSHOT]: { ...shape[SHAPE_SNAPSHOT], element: el, text: prompt },
   };
+};
+
+/**
+ * Shows or hides the master's artwork (its non-placeholder shapes) behind a
+ * layout or slide (`showMasterSp`).
+ */
+export const setTemplateShowsMasterShapes = (
+  slide: SlideData,
+  show: boolean,
+): void => {
+  setAttr(slide[SLIDE_DOCUMENT].root, "showMasterSp", show ? null : "0");
+  commitSlideData(slide);
+  rebuildShapesFromDocument(slide);
+};
+
+/**
+ * Makes `shape` (a picture, table, chart or other object put where an empty
+ * placeholder was) take that placeholder's slot, as content inserted into a
+ * placeholder does: it inherits from the same layout placeholder, follows
+ * the slot through layout changes, and Reset does not bring the empty
+ * placeholder back beside it. The placeholder itself is left for the caller
+ * to remove.
+ */
+export const adoptPlaceholderSlot = (
+  shape: SlideShapeData,
+  placeholder: SlideShapeData,
+): void => {
+  const source = phOf(placeholder[SHAPE_ELEMENT]);
+  const el = shape[SHAPE_ELEMENT];
+  const nv = nvOf(el);
+  const nvPr = nv && firstChildElement(nv, pq("nvPr"));
+  if (!source || !nvPr || phOf(el)) return;
+  const type = getAttrValue(source, plain("type"));
+  const idx = getAttrValue(source, plain("idx"));
+  const attrs = [];
+  if (type && type !== "obj" && type !== "body")
+    attrs.push(attr(plain("type"), type));
+  if (idx) attrs.push(attr(plain("idx"), idx));
+  nvPr.children.unshift(elem(pq("ph"), { attrs }));
+  const slide = shape[SHAPE_SLIDE];
+  commitSlideData(slide);
+  rebuildShapesFromDocument(slide);
 };

@@ -625,6 +625,7 @@ export type {
 // Slide masters, layouts and placeholders.
 export {
   addSlideLayout,
+  adoptPlaceholderSlot,
   addSlideMaster,
   applySlideLayout,
   deleteSlideLayout,
@@ -653,6 +654,7 @@ export {
   setNotesPageOrientation,
   setTemplatePlaceholder,
   setTemplatePreserved,
+  setTemplateShowsMasterShapes,
   withPlaceholderPrompt,
   type SlideLayoutEntry,
   type SlideMasterEntry,
