@@ -13,7 +13,10 @@ import { withProgress } from '../io/progress.js';
 import { placeImported, reportWarnings } from '../io/place.js';
 import { exportRegion, renderRegion } from '../io/raster.js';
 import { collectTextOutlines } from '../io/outlines.js';
-import { bytesToDataUrl, imageSize, sniffMime } from '../io/image-info.js';
+import { bytesToDataUrl, dataUrlToBytes, imageSize, sniffMime } from '../io/image-info.js';
+import { createZip } from '../io/zip.js';
+import { safeFileName } from '../io/deliver.js';
+import { prepareDXF } from './dxf/dxf-clip.js';
 import { allFamilies } from '../type/fonts.js';
 import { isPDF, PDFError } from './pdf/document.js';
 import { loadImageCodecs } from './pdf/images.js';
@@ -79,7 +82,7 @@ async function encodeAssets(images) {
 }
 
 /** A new document from builder layers ({ layers, nodes }) with one artboard. */
-function documentFrom({ layers, nodes, assets, spots = [], artboard, name, units = 'pt', warnings = [] }) {
+function documentFrom({ layers, nodes, assets, spots = [], patterns = [], artboard, name, units = 'pt', warnings = [] }) {
   const doc = VDocument.create({ name, width: artboard.w, height: artboard.h, units });
   const root = doc.root;
   for (const id of root.children) doc.nodes.delete(id);
@@ -91,7 +94,8 @@ function documentFrom({ layers, nodes, assets, spots = [], artboard, name, units
     return layer.id;
   });
   for (const [id, n] of nodes) doc.nodes.set(id, n);
-  doc.nodes.set('root', { ...root, children: layerIds, artboards: [{ ...root.artboards[0], ...artboard, name: 'Artboard 1' }], swatches: [...(root.swatches || []), ...spots] });
+  const patternSwatches = patterns.map((p) => ({ id: uid('sw'), name: p.name, paint: { type: 'pattern', id: p.id } }));
+  doc.nodes.set('root', { ...root, children: layerIds, artboards: [{ ...root.artboards[0], ...artboard, name: 'Artboard 1' }], swatches: [...(root.swatches || []), ...spots, ...patternSwatches], ...(patterns.length ? { patterns: [...(root.patterns || []), ...patterns] } : {}) });
   for (const [id, a] of assets) doc.assets.set(id, a);
   doc.repairParents();
   doc.importWarnings = warnings;
@@ -99,7 +103,7 @@ function documentFrom({ layers, nodes, assets, spots = [], artboard, name, units
 }
 
 /** Builder layers as one placeable subtree (layers become named groups when there are several). */
-function subtreeFrom({ layers, nodes, assets, warnings = [], spots = [] }) {
+function subtreeFrom({ layers, nodes, assets, warnings = [], spots = [], patterns = [] }) {
   const nonEmpty = layers.filter((l) => l.ids.length);
   let top = [];
   if (nonEmpty.length > 1) {
@@ -110,7 +114,7 @@ function subtreeFrom({ layers, nodes, assets, warnings = [], spots = [] }) {
       top.push(g.id);
     }
   } else top = nonEmpty.flatMap((l) => l.ids);
-  if (!top.length) return { root: null, subtree: null, assets: {}, bounds: null, warnings, swatches: [] };
+  if (!top.length) return { root: null, subtree: null, assets: {}, bounds: null, warnings, swatches: [], patterns: [] };
   let rootId = top[0];
   if (top.length > 1 || nodes.get(top[0]).type !== 'group') {
     const g = createGroup(top);
@@ -129,7 +133,7 @@ function subtreeFrom({ layers, nodes, assets, warnings = [], spots = [] }) {
   const shim = { get: (id) => nodes.get(id) };
   const out = {};
   for (const [id, a] of assets) out[id] = a;
-  return { root: rootId, subtree: { root: rootId, nodes: list }, assets: out, bounds: nodeBounds(shim, nodes.get(rootId)), warnings, swatches: spots };
+  return { root: rootId, subtree: { root: rootId, nodes: list }, assets: out, bounds: nodeBounds(shim, nodes.get(rootId)), warnings, swatches: spots, patterns };
 }
 
 /** Swatches and pattern definitions an import brings into a document (inside its transaction). */
@@ -224,7 +228,7 @@ export async function placeForeign(app, editor, file, kind, opts = {}) {
       if (!choice) return null;
       r = await withProgress(app, 'Importing DXF', async () => {
         const conv = convertDXF(data, { unitPt: choice.unitPt, families: families() });
-        return subtreeFrom({ layers: conv.layers, nodes: conv.nodes, assets: new Map(), warnings: conv.warnings });
+        return subtreeFrom({ layers: conv.layers, nodes: conv.nodes, assets: new Map(), warnings: conv.warnings, patterns: conv.patterns });
       });
     }
   } catch (err) {
@@ -291,7 +295,7 @@ export async function openForeign(app, bytes, { name, format }) {
         const dy = -b.y + pad;
         const moved = moveNodes(conv.nodes, dx, dy);
         const unit = UNIT_CHOICES.find((u) => u.value === choice.unit);
-        return documentFrom({ layers: conv.layers, nodes: moved, assets: new Map(), artboard: { x: 0, y: 0, w: Math.max(1, b.w + 2 * pad), h: Math.max(1, b.h + 2 * pad) }, name: docName, units: unit && ['mm', 'cm', 'in', 'pt', 'px'].includes(unit.value) ? unit.value : 'pt', warnings: conv.warnings });
+        return documentFrom({ layers: conv.layers, nodes: moved, assets: new Map(), patterns: conv.patterns, artboard: { x: 0, y: 0, w: Math.max(1, b.w + 2 * pad), h: Math.max(1, b.h + 2 * pad) }, name: docName, units: unit && ['mm', 'cm', 'in', 'pt', 'px'].includes(unit.value) ? unit.value : 'pt', warnings: conv.warnings });
       });
     }
     if (format === 'raster') return await openRaster(bytes, docName);
@@ -324,10 +328,16 @@ async function openRaster(bytes, name) {
 function moveNodes(nodes, dx, dy) {
   if (!dx && !dy) return nodes;
   const out = new Map();
+  const shift = (t) => [t[0], t[1], t[2], t[3], t[4] + dx, t[5] + dy];
   for (const [id, n] of nodes) {
     let m = n;
     if (n.anchors) m = { ...n, anchors: n.anchors.map((a) => ({ x: a.x + dx, y: a.y + dy, ix: a.ix + dx, iy: a.iy + dy, ox: a.ox + dx, oy: a.oy + dy })) };
-    else if (n.transform && (n.type === 'text' || n.type === 'image')) m = { ...n, transform: [n.transform[0], n.transform[1], n.transform[2], n.transform[3], n.transform[4] + dx, n.transform[5] + dy] };
+    else if (n.transform && (n.type === 'text' || n.type === 'image')) m = { ...n, transform: shift(n.transform) };
+    // Pattern fills move with the art.
+    for (const key of ['fill', 'stroke']) {
+      const p = m[key];
+      if (p?.type === 'pattern' && p.transform) m = { ...m, [key]: { ...p, transform: shift(p.transform) } };
+    }
     out.set(id, m);
   }
   return out;
@@ -386,9 +396,25 @@ export async function renderExport(app, key, editor, region, options = {}) {
   }
   if (key === 'dxf') {
     const outlines = await outlinesFor(app, doc, ids, Boolean(options.textOutlines));
-    const { text, warnings } = writeDXF(doc, { rect, ids, version: options.version, unit: options.unit, curves: options.curves, fills: options.fills !== false, outlines });
+    let prep = null;
+    try {
+      prep = await prepareDXF(doc, { ids });
+    } catch {
+      prep = null;
+    }
+    const base = safeFileName(options.title || doc.name || 'Drawing', 'Drawing');
+    const { text, warnings, images } = writeDXF(doc, { rect, ids, version: options.version, unit: options.unit, curves: options.curves, fills: options.fills !== false, outlines, view: prep?.view, clipped: prep?.clipped, imageName: (id, i, ext) => `${base}-image-${i}.${ext}` });
     if (warnings.length) app.notify?.(warnings.join(' '), { timeout: 6000 });
-    return new Blob([text], { type: 'application/dxf' });
+    if (!images.length) return new Blob([text], { type: 'application/dxf' });
+    // Images are files next to the drawing: deliver both in a ZIP archive.
+    const entries = [{ name: `${base}.dxf`, data: text }];
+    for (const im of images) {
+      const a = doc.assets.get(im.assetId);
+      if (a?.data) entries.push({ name: im.name, data: dataUrlToBytes(a.data).bytes });
+    }
+    const zip = await createZip(entries);
+    zip.fileExt = 'zip';
+    return zip;
   }
   throw new Error(`Unknown format ${key}`);
 }
