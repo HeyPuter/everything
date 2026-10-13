@@ -114,6 +114,46 @@ function addPersonalWord(word) {
   } catch {}
 }
 
+// Words of everyday slides the word list leaves out.
+const COMMON_WORDS = [
+  "roadmap",
+  "roadmaps",
+  "onboarding",
+  "offboarding",
+  "workflow",
+  "workflows",
+  "dashboard",
+  "dashboards",
+  "startup",
+  "startups",
+  "stakeholder",
+  "stakeholders",
+  "deliverable",
+  "deliverables",
+  "upsell",
+  "upskill",
+  "scalable",
+  "scalability",
+  "teammate",
+  "teammates",
+  "timeline",
+  "timelines",
+  "webinar",
+  "webinars",
+  "app",
+  "apps",
+  "online",
+  "offline",
+  "email",
+  "emails",
+  "website",
+  "websites",
+  "ecommerce",
+  "fintech",
+  "SaaS",
+  "unselected",
+];
+
 let loading = null;
 /** The checker: { correct(word), suggest(word), add(word) }. */
 export function loadSpeller(base = document.baseURI) {
@@ -130,7 +170,7 @@ export function loadSpeller(base = document.baseURI) {
       fetchText("en-US.dic"),
     ]);
     const engine = nspell(aff, dic);
-    for (const w of personalWords()) engine.add(w);
+    for (const w of [...COMMON_WORDS, ...personalWords()]) engine.add(w);
     const correct = (word) =>
       engine.correct(word) ||
       // A capitalized word at a sentence start.

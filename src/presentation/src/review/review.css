@@ -805,10 +805,20 @@
   }
 }
 
-/* Narrow windows keep more of the slide in view. */
+/* Narrow windows keep more of the slide in view, and a status bar with
+   room for less: the Comments button keeps its icon, then gives way (the
+   Review tab and the Tools menu open the pane too). */
 @media (max-width: 1150px) {
   .review-pane {
     --review-w: 290px;
+  }
+  #status-comments span {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  #status-comments {
+    display: none;
   }
 }
 /* A phone has no room beside the slide: the pane is a sheet over the lower

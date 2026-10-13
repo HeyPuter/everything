@@ -1249,6 +1249,7 @@ export function createComments(env, host) {
         id: "status-comments",
         "aria-pressed": "false",
         "data-tip-title": "Comments",
+        "aria-label": "Comments",
         onclick: () => host.toggle("comments"),
       },
       icon("o:comment", 15),

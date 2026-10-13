@@ -45,7 +45,7 @@ export const KINDS = {
     action: "Use a text color that stands out from the background.",
   },
   emptyPlaceholder: {
-    severity: "warning",
+    severity: "tip",
     title: "Empty placeholder",
     why: "An empty placeholder is invisible in the slide show but a screen reader may still announce it.",
     action: "Add content to the placeholder or delete it.",
