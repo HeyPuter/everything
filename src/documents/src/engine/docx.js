@@ -41,7 +41,7 @@ import { hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, bookmarkInlineEvents } from './bookmarks.js';
 import { bookmarkReader, writeBookmark } from './docx-bookmarks.js';
 import { readComments, writeComments, readCommentMarker } from './docx-comments.js';
-import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd } from './docx-page-story-create.js';
+import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd, writePageNumbering } from './docx-page-story-create.js';
 import { footnoteReferences, footnoteStoryPath, footnoteStoryId } from './footnotes.js';
 import { isMathElement, linearMath } from './office-math.js';
 import { commentMarker } from './comments.js';
@@ -178,7 +178,7 @@ function writeParagraphFormat(node, p, make, numbering) {
   const patch = p.shell || p.styleContext || p.paragraphPropertiesCleared ? { ...p.formatOverrides } : { ...paragraphFormat({ ...p, list: null }, numbering) };
   const writeList = p.listChanged || !p.shell && p.list && (!p.styleContext || p.list.direct);
   if (!p.shell && p.list) for (const key of ['indentLeft', 'indentRight', 'firstLine', 'tabs']) if (!(key in (p.formatOverrides || {}))) delete patch[key];
-  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared) return;
+  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared && !p.framePropertiesChanged) return;
   let pPr = child(node, 'pPr');
   if (!pPr) { pPr = make('pPr'); node.prepend(pPr); }
   if (p.paragraphPropertiesCleared) for (const property of children(pPr)) if (!retainedParagraphProperty(property)) property.remove();
@@ -192,6 +192,13 @@ function writeParagraphFormat(node, p, make, numbering) {
   };
   if (p.styleChanged) {
     if (p.styleId) ensure('pStyle').setAttributeNS(W, 'w:val', p.styleId); else child(pPr, 'pStyle')?.remove();
+  }
+  if (p.framePropertiesChanged) {
+    // §17.3.1.11: rewrite the paragraph's own (direct) frame declaration,
+    // attribute for attribute, as the reader produced it (e.g. drop caps).
+    child(pPr, 'framePr')?.remove();
+    const declared = p.styleContext ? p.styleContext.properties.frameProperties : p.frameProperties;
+    if (declared) { const frame = ensure('framePr'); for (const [name, v] of Object.entries(declared)) frame.setAttributeNS(W, `w:${name}`, String(v)); }
   }
   if (writeList) {
     const numPr = ensure('numPr'); numPr.replaceChildren();
@@ -930,7 +937,7 @@ function hasPageStoryControls(root) {
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
-    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.evenAndOdd = null;
+    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1853,6 +1860,8 @@ export class DocxPackage {
   }
   /** Different first page for a section (titlePg); written on the next export. */
   setTitlePage(section, on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.titlePages.set(section, !!on); }
+  /** A section's page number format and starting number (w:pgNumType); null removes both; written on the next export. */
+  setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
   /** Remove footnotes whose body reference was deleted. */
@@ -1889,7 +1898,7 @@ export class DocxPackage {
     if (!!trackRevisions !== !!this.trackRevisions) writeTrackRevisions(parts, trackRevisions);
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
-    if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
+    if (!this.createdStories.length && !this.titlePages.size && !this.pageNumberings.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
     let blocks = documentBlocks(paragraphs, tables);
     listMarkers(paragraphs, numbering);
     writeNumbering(parts, numbering);
@@ -1953,6 +1962,7 @@ export class DocxPackage {
     const outputSections = activeDescendants(doc.documentElement).filter(n => n.namespaceURI === W && n.localName === 'sectPr');
     if (this.createdStories.length) writeCreatedStoryReferences(outputSections, this.createdStories);
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
+    if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
     for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
     bindImageNamespaces(doc);
