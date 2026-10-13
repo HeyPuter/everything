@@ -162,6 +162,28 @@ export class MenuBar {
     entries[i].querySelector('.menu-pop')!.innerHTML = renderItems(resolveMenu(this.e, withContributions(m.id, m.items), m.id, menuCustomization()));
     this.open = i;
   }
+  /** Open the menus leading to a command and highlight it (the Assistant's
+   * "Show me"). Returns false when the command is not in the menu bar. */
+  reveal(id: string): boolean {
+    const custom = menuCustomization();
+    const i = menuSkeleton.findIndex((m) => {
+      const has = (items: Resolved[]): boolean => items.some((x) => (x.kind === 'command' && x.id === id) || (x.kind === 'submenu' && has(x.items)));
+      return has(resolveMenu(this.e, withContributions(m.id, m.items), m.id, custom));
+    });
+    if (i < 0) return false;
+    this.show(i);
+    const entry = this.el.querySelectorAll<HTMLElement>('.menubar-entry')[i];
+    const item = entry.querySelector<HTMLElement>(`.menu-item[data-command="${CSS.escape(id)}"]`);
+    if (!item) return false;
+    // Expand each submenu on the way, outermost first.
+    const owners: HTMLElement[] = [];
+    for (let p = item.parentElement?.closest<HTMLElement>('.has-submenu'); p && entry.contains(p); p = p.parentElement?.closest<HTMLElement>('.has-submenu')) owners.unshift(p);
+    for (const o of owners) this.toggleSubmenus(o);
+    item.focus({ preventScroll: true });
+    item.classList.add('menu-reveal');
+    window.setTimeout(() => item.classList.remove('menu-reveal'), 2400);
+    return true;
+  }
   close() {
     if (this.open < 0) return;
     this.el.querySelectorAll('.menubar-entry').forEach((entry) => {

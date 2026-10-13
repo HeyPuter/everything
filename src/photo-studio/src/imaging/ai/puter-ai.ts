@@ -438,3 +438,73 @@ export async function aiUpscale(img: RGBA8, targetW: number, targetH: number, op
   checkAbort(opts.signal);
   return fromResult(res);
 }
+
+// ---------------------------------------------------------------------------
+// The Assistant: chat with tool calling (puter.ai.chat with `tools`,
+// OpenAI-style function definitions; Puter returns tool calls in
+// `message.tool_calls` with JSON-encoded arguments, and takes results back as
+// `{ role: 'tool', tool_call_id, content }` messages).
+
+export type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+export type ChatToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
+export type ChatMessage =
+  | { role: 'system' | 'user'; content: string | ChatPart[] }
+  | { role: 'assistant'; content?: string; tool_calls?: ChatToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string };
+export type ChatTool = { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } };
+export type ChatReply = { text: string; calls: { id: string; name: string; args: unknown }[] };
+export type ChatOptions = { model?: string; tools?: ChatTool[]; signal?: AbortSignal };
+
+/** Normalize a chat response (OpenAI-style `tool_calls`, or content blocks
+ * with `tool_use`) into text and tool calls with parsed arguments. */
+export function parseChatReply(res: unknown): ChatReply {
+  const msg = ((res as { message?: unknown })?.message ?? res) as { content?: unknown; tool_calls?: unknown } | string | null;
+  if (typeof msg === 'string') return { text: msg, calls: [] };
+  const calls: ChatReply['calls'] = [];
+  const parse = (v: unknown) => {
+    if (typeof v !== 'string') return v ?? {};
+    try {
+      return JSON.parse(v || '{}');
+    } catch {
+      return { __unparsed: v };
+    }
+  };
+  let n = 0;
+  for (const c of Array.isArray(msg?.tool_calls) ? (msg!.tool_calls as Record<string, unknown>[]) : []) {
+    const f = (c.function ?? {}) as { name?: unknown; arguments?: unknown };
+    const name = String(f.name ?? c.name ?? '');
+    if (name) calls.push({ id: String(c.id ?? `call_${++n}`), name, args: parse(f.arguments ?? c.input ?? c.arguments) });
+  }
+  let text = '';
+  const content = msg?.content;
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content))
+    for (const part of content as Record<string, unknown>[]) {
+      if (typeof part === 'string') text += part;
+      else if (part?.type === 'text' && typeof part.text === 'string') text += part.text;
+      else if (part?.type === 'tool_use' && typeof part.name === 'string') calls.push({ id: String(part.id ?? `call_${++n}`), name: part.name, args: parse(part.input) });
+    }
+  return { text: text.trim(), calls };
+}
+
+/** One chat turn with tools. Sends exactly the messages given (the caller
+ * decides what document information and pixels they contain). */
+export async function chatWithTools(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatReply> {
+  const p = (globalThis as unknown as { puter?: PuterAI }).puter;
+  if (!p?.ai?.chat) throw new AIError('unavailable', 'The Assistant needs Puter. Check your connection and try again.');
+  checkAbort(opts.signal);
+  const options: Record<string, unknown> = {};
+  if (opts.model) options.model = opts.model;
+  if (opts.tools?.length) options.tools = opts.tools;
+  if (opts.signal) options.signal = opts.signal;
+  let res: unknown;
+  try {
+    res = await (p.ai.chat as unknown as (m: ChatMessage[], test: boolean, o: Record<string, unknown>) => Promise<unknown>)(messages, false, options);
+  } catch (e) {
+    throw toAIError(e);
+  }
+  checkAbort(opts.signal);
+  const err = (res as { error?: unknown; success?: boolean })?.error;
+  if (err && (res as { success?: boolean }).success === false) throw toAIError(err);
+  return parseChatReply(res);
+}

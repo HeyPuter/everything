@@ -48,7 +48,7 @@ export const workspacePresets: WorkspacePreset[] = [
       'dock-middle': ['adjustments', 'properties'],
       'dock-bottom': ['layers', 'channels', 'paths', 'history'],
     },
-    strip: ['color', 'swatches', 'actions', 'tool-presets'],
+    strip: ['assistant', 'generations', 'color', 'swatches', 'actions', 'tool-presets'],
     sizes: { 'dock-middle': 260, 'dock-bottom': 380 },
   },
   {
