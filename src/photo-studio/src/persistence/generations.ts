@@ -5,14 +5,15 @@
 // features/generations.
 import { IndexedDbStore, MemoryStore, type LocalStore } from './local-store';
 
-export type GenerationKind = 'generate' | 'edit' | 'fill' | 'expand' | 'upscale' | 'assistant';
-export const GENERATION_KINDS: GenerationKind[] = ['generate', 'edit', 'fill', 'expand', 'upscale', 'assistant'];
+export type GenerationKind = 'generate' | 'edit' | 'fill' | 'expand' | 'upscale' | 'restore' | 'assistant';
+export const GENERATION_KINDS: GenerationKind[] = ['generate', 'edit', 'fill', 'expand', 'upscale', 'restore', 'assistant'];
 export const GENERATION_LABELS: Record<GenerationKind, string> = {
   generate: 'Generate Image',
   edit: 'Edit with Prompt',
   fill: 'AI Fill',
   expand: 'AI Expand',
   upscale: 'AI Upscale',
+  restore: 'Portrait & Restore',
   assistant: 'Assistant',
 };
 

@@ -152,6 +152,15 @@ test('Scene Changer sends a request only on Generate and applies as a masked lay
   const calls = await page.evaluate(() => (window as unknown as { puter: { ai: { calls: { prompt: string }[] } } }).puter.ai.calls);
   expect(calls.length).toBe(1);
   expect(calls[0].prompt).toContain('golden hour');
+  // The result is kept in Generation History like other AI results.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { generationStore } = await import('/src/features/generations/record.ts');
+        return (await generationStore().list()).map((x) => [x.kind, x.prompt]);
+      }),
+    )
+    .toContainEqual(['restore', 'Scene: Golden hour']);
   await settled(page);
   // AI results cannot be a Live Filter.
   expect(await d.getByLabel('Send the result to').locator('option[value="live"]').evaluate((o) => (o as HTMLOptionElement).disabled)).toBe(true);

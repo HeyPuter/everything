@@ -29,6 +29,7 @@ import { openWorkspace } from '../retouch/workspace';
 import { RestoreClient, isCancel, type RunResult } from './client';
 import { CompareView, type CompareMode } from './view';
 import { aiInstruction, aiSummary, runAI } from './ai';
+import { recordGeneration } from '../generations/record';
 import { OUTPUTS, deletePreset, exportPresets, importPresets, loadLast, loadPresets, saveLast, savePreset, storable, type OutputKind } from './settings';
 import './restore.css';
 
@@ -470,6 +471,8 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
         if (st) st.textContent = t;
       } });
       if (ac.signal.aborted) return;
+      const area = canvasRect(e.doc);
+      void recordGeneration(e, { kind: 'restore', prompt: aiSummary(en), settings: { filter: en.id, instruction, dialog: 'restore' }, placement: { x: area.x, y: area.y, width: area.width, height: area.height } }, image);
       setAux(en, image);
       en.enabled = true;
       aiStatus.set(en.id, en.id === 'colorize' ? 'AI colors are applied; hints refine them.' : en.id === 'style' ? 'The AI style is applied; Strength blends it.' : 'The changed scene is applied.');

@@ -54,7 +54,7 @@ const shortPrompt = (x: GenerationEntry) => {
   const p = x.prompt.replace(/\s+/g, ' ').trim() || GENERATION_LABELS[x.kind];
   return p.length > 40 ? `${p.slice(0, 39)}…` : p;
 };
-const layerKind = (k: GenerationKind): GeneratedInfo['kind'] => (k === 'assistant' ? 'generate' : k);
+const layerKind = (k: GenerationKind): GeneratedInfo['kind'] => (k === 'assistant' ? 'generate' : k === 'restore' ? 'edit' : k);
 
 /** Place a stored result as a new pixel layer: where it was made when it came
  * from this document, otherwise centered (and scaled down to fit). */
@@ -113,9 +113,12 @@ async function copyPrompt(e: Editor, x: GenerationEntry) {
 }
 // The dialog each kind came from and the command that opens it.
 const dialogCommand: Record<string, string> = { generate: 'edit.generate-image', edit: 'edit.edit-with-prompt', fill: 'edit.ai-fill', expand: 'edit.ai-expand', upscale: 'image.upscale' };
+const dialogOf = (x: GenerationEntry) => (typeof x.settings.dialog === 'string' ? x.settings.dialog : x.kind);
+/** Whether the dialog that made a result can be opened again with its settings. */
+const canReuse = (x: GenerationEntry) => !!dialogCommand[dialogOf(x)];
 /** Open the dialog that made a result, with the same prompt and settings. */
 export async function reuseSettings(e: Editor, x: GenerationEntry) {
-  const dialog = typeof x.settings.dialog === 'string' ? x.settings.dialog : x.kind;
+  const dialog = dialogOf(x);
   const id = dialogCommand[dialog];
   const c = id && findCommand(id);
   if (!c) return e.message('These settings cannot be reused.');
@@ -150,7 +153,7 @@ function rowHTML(x: GenerationEntry) {
   return `<div class="gen-row" role="listitem" data-gen="${x.id}">
 <button type="button" class="gen-thumb" data-gen-act="place" title="Place as a new layer" aria-label="Place as a new layer: ${name}">${url ? `<img src="${url}" alt="">` : svg('image', 18)}</button>
 <div class="gen-meta"><q title="${escapeXML(x.prompt)}">${escapeXML(x.prompt || GENERATION_LABELS[x.kind])}</q><small title="${escapeXML(new Date(x.time).toLocaleString())} · ${sizeText(x.size)}">${meta}</small>
-<div class="gen-actions">${b('place', 'image-plus', 'Place as a new layer')}${b('open', 'file-plus', 'Open as a new document')}${b('copy', 'copy', 'Copy prompt')}${b('reuse', 'repeat', 'Reuse settings')}${b('delete', 'trash-2', 'Delete')}</div></div></div>`;
+<div class="gen-actions">${b('place', 'image-plus', 'Place as a new layer')}${b('open', 'file-plus', 'Open as a new document')}${b('copy', 'copy', 'Copy prompt')}${canReuse(x) ? b('reuse', 'repeat', 'Reuse settings') : ''}${b('delete', 'trash-2', 'Delete')}</div></div></div>`;
 }
 
 export function mountGenerations(e: Editor, el: HTMLElement) {
