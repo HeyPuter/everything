@@ -15,6 +15,7 @@
 // and nothing is resampled more than once per placement.
 import type { TileGrid } from './tiles';
 import { applyMat3, homography, mat3Multiply, type Mat3 } from '../imaging/filters/warp';
+import { validAudioSource, type AudioSource } from './audio-timeline';
 
 export type VideoAlpha = 'straight' | 'premultiplied' | 'ignore';
 export const videoAlphaModes: [VideoAlpha, string][] = [
@@ -59,6 +60,10 @@ export type VideoLayerData = {
   matrix?: Mat3;
   // Altered frame grid coordinates → layer space, per frame (absent: identity).
   alteredMatrix?: Record<string, Mat3>;
+  // The footage's sound (same asset), played by the layer's linked audio clip.
+  audio?: AudioSource;
+  // The footage's sound is silent.
+  muted?: true;
 };
 
 export const maxVideoFrames = 100_000;
@@ -292,6 +297,8 @@ export function validateVideoLayer(v: VideoLayerData, packed: (g: unknown) => bo
     if (!v.altered || typeof v.altered !== 'object' || Array.isArray(v.altered)) throw bad();
     for (const [k, g] of Object.entries(v.altered)) if (!/^\d+$/.test(k) || Number(k) >= v.frames || !packed(g)) throw bad();
   }
+  if (v.audio !== undefined && !(validAudioSource(v.audio) && v.footage && v.audio.asset === v.footage.asset)) throw bad();
+  if (v.muted !== undefined && v.muted !== true) throw bad();
   const mat = (m: unknown) => Array.isArray(m) && m.length === 9 && m.every(finite) && m[8] !== 0;
   if (v.matrix !== undefined && !mat(v.matrix)) throw bad();
   if (v.alteredMatrix !== undefined) {
