@@ -901,6 +901,11 @@ export const COMMAND_ICONS = {
     r(7.5, 9, 11, 9.5, "knock", 2) +
     g("translate(7 7.5) scale(.6)", speaker(2.5, 7.5) + waves(12.5, 10, 2)),
   duration: stopwatch(10, 11, 6.5),
+  delay:
+    p(
+      "M5.5 2.5h9M5.5 17.5h9M7 2.5c0 4.2 6 4.6 6 7.5s-6 3.3-6 7.5M13 2.5c0 4.2-6 4.6-6 7.5s6 3.3 6 7.5",
+      "o",
+    ) + p("M8 16.2h4L10 13.6z", "ys"),
   applyToAll:
     slideBox(2.5, 2.5, 10, 7.5, "kf glassy") +
     slideBox(4.5, 5, 10, 7.5, "kf glassy") +

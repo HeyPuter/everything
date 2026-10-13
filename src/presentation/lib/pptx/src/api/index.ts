@@ -86,6 +86,13 @@ export type { SlideChartData } from "./fn.ts";
 export type { ShapeClickAction } from "./fn.ts";
 export type { IssueSeverity, ValidationIssue } from "./fn.ts";
 export type { AnimationEffect, AnimationOptions } from "./fn.ts";
+export type {
+  AnimationPresetClass,
+  AnimationStart,
+  SlideAnimation,
+  SlideAnimationAfter,
+  SlideAnimationTextBuild,
+} from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
 export type { ImageFit } from "./fn.ts";
 export type {
@@ -267,6 +274,11 @@ export {
   getShapeAdjustValues,
   getShapeAltTitle,
   getShapeAnimation,
+  getSlideAnimations,
+  setSlideAnimations,
+  pruneSlideAnimations,
+  getShapeBuildParagraphs,
+  motionPathFor,
   getShapeAt,
   getShapeBounds,
   getShapeBodyPrEffective,

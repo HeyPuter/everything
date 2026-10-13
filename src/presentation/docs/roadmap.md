@@ -32,13 +32,14 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 3. Animations
 
-- [ ] Animations tab: entrance, emphasis, exit and motion path galleries,
+- [x] Animations tab: entrance, emphasis, exit and motion path galleries,
       Effect Options, Add Animation, Animation Painter, Trigger, Start,
       Duration, Delay, Reorder.
-- [ ] Animation Pane with a timeline, play from, drag reordering, and a dialog
+- [x] Animation Pane with a timeline, play from, drag reordering, and a dialog
       for effect, timing and text animation settings.
-- [ ] Animations written to and read from the file's timing tree, previewed on
+- [x] Animations written to and read from the file's timing tree, previewed on
       the canvas, and played in slide shows.
+- [ ] Adding sounds to effects (sounds already in a file are kept).
 
 ### 4. Transitions
 

@@ -2,6 +2,7 @@ import { textEditHistory } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
+import { createSlideAnimator } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -86,6 +87,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFileTools } from "./export/file-tools.js";
+import { createAnimationTools } from "./animations/editor.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
@@ -3313,7 +3315,10 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()]];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => [animationTools.tab()],
+];
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3326,6 +3331,33 @@ const drawTools = createDrawTools({
     syncToolbar();
   },
 });
+// The Animations tab, the Animation Pane and animation previews.
+const animationTools = createAnimationTools({
+  P,
+  modKey: MOD_KEY,
+  doc: () => doc,
+  slide: () => doc && slide(),
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    selectIds(ids);
+    renderSelection();
+    renderInspector();
+  },
+  topLevelShapes: (s) => {
+    const parents = groupParents(s);
+    return P.getSlideShapes(s).filter((x) => !parents.has(P.getShapeId(x)));
+  },
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  slideSize: () => currentSize(),
+  // One line, for lists and menus.
+  shapeLabel: (shape) =>
+    truncateLabel(shapeLabel(shape, doc.pres).replace(/\s+/g, " ").trim(), 60),
+  renderLayer: (s, layer) => preview(doc.pres, s, layer),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  canvas: () => document.querySelector("#slide-canvas"),
+  editorBody: () => document.querySelector(".editor-body"),
+  refresh: () => syncToolbar(),
+});
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -3333,9 +3365,11 @@ function editorRibbon() {
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
+      animationTools.setTabActive(id === "animations");
     },
   });
   ribbon.onError(fail);
+  animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
   return ribbon.el;
 }
@@ -6180,6 +6214,7 @@ function syncToolbar() {
     ribbon?.refresh();
     updateStatusBar();
     renderSelectionPane();
+    animationTools.sync();
   });
 }
 const navigatorVisible = () =>
@@ -6928,6 +6963,14 @@ function formatItems() {
       disabled: !obj,
       items: arrangeItems(),
     },
+    {
+      label: "Animation Painter",
+      icon: "o:animationPainter",
+      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      checked: animationTools.painting,
+      disabled: !animationTools.painting && !animationTools.current().length,
+      onSelect: () => animationTools.startPainter(false),
+    },
     { separator: true },
     { label: "Theme", icon: "Palette", onSelect: run(themeDialog) },
   ];
@@ -7316,6 +7359,8 @@ function renderSlideArea(refreshNavigator = true) {
       rows.delete(part);
       if (!row) row = slideRow(part);
       row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
+      // A slide with animations is marked beside its number.
+      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
       row.querySelector(".slide-number").textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
       thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
@@ -7441,6 +7486,7 @@ function renderSlideArea(refreshNavigator = true) {
   };
   renderCanvasAids();
   drawTools.attach();
+  animationTools.attach();
   renderSelection();
   focusTarget?.focus();
   const selectedHit =
@@ -13669,6 +13715,31 @@ async function present(options = {}) {
       links.append(node);
     }
   }
+  // Shapes that play effects when clicked get a region of their own.
+  function placeTriggers() {
+    for (const { shapeId, box } of animator?.triggers || []) {
+      if (!box) continue;
+      const shape = P.findShapeById(all[n], Number(shapeId));
+      const name = shape ? P.getShapeName(shape) || "object" : "object";
+      const node = el("button", {
+        type: "button",
+        class: "presenter-link presenter-trigger",
+        title: `Play the effects of ${name}`,
+        "aria-label": `Play the effects of ${name}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          animator?.playTrigger(shapeId);
+        },
+      });
+      Object.assign(node.style, {
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
+      });
+      links.append(node);
+    }
+  }
   function follow(link) {
     if (link.kind === "slide") {
       const i = all.findIndex(
@@ -13688,7 +13759,7 @@ async function present(options = {}) {
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
-    next = iconButton("Next slide", "ChevronRight", () => show(n + 1));
+    next = iconButton("Next slide", "ChevronRight", () => advance());
   // Speaker notes and the slide to come sit beside the slide when asked for.
   const notesText = el("p", { class: "presenter-notes-text" });
   const upcoming = el("img", {
@@ -13743,6 +13814,13 @@ async function present(options = {}) {
   let shown = false;
   let ended = false;
   let currentTransition;
+  // The current slide's animations: an advance plays its next click step
+  // before the show moves on.
+  let animator = null;
+  function advance() {
+    if (!ended && animator?.next()) return;
+    show(n + 1);
+  }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -13782,6 +13860,7 @@ async function present(options = {}) {
     typed = "";
   }
   function showPrevious() {
+    if (!ended && animator?.previous()) return;
     show(ended ? n : n - 1, { backward: true });
   }
   let transitionToken = 0;
@@ -13848,6 +13927,8 @@ async function present(options = {}) {
       playbackTransition?.durationMs ??
       { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    animator?.destroy();
+    animator = null;
     if (
       shown &&
       (n !== from || wrapped) &&
@@ -13888,7 +13969,16 @@ async function present(options = {}) {
     // distant ones render once here and are kept for the navigator.
     image.src = cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
+    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    if (backward) animator.finish();
+    else {
+      const playing = animator;
+      Promise.resolve(readiness).then(() => {
+        if (animator === playing) playing.start();
+      });
+    }
     placeLinks(all[n]);
+    placeTriggers();
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
       : `${n + 1} / ${all.length}`;
@@ -13922,6 +14012,8 @@ async function present(options = {}) {
     syncPause();
   }
   function close() {
+    animator?.destroy();
+    animator = null;
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
@@ -14063,7 +14155,7 @@ async function present(options = {}) {
       (e.key === "Enter" && !typed)
     ) {
       e.preventDefault();
-      show(n + 1);
+      advance();
     }
     if (
       key === "p" ||
@@ -14127,7 +14219,7 @@ async function present(options = {}) {
       close();
       return;
     }
-    if (currentTransition?.advanceOnClick !== false) show(n + 1);
+    if (currentTransition?.advanceOnClick !== false) advance();
   });
   stage.addEventListener("click", (e) => {
     if (e.target.closest(".presenter-controls")) return;
@@ -14165,7 +14257,7 @@ async function present(options = {}) {
       const dy = end.clientY - start.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         swiped = true;
-        if (dx < 0) show(n + 1);
+        if (dx < 0) advance();
         else showPrevious();
       }
     },
@@ -14211,6 +14303,7 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  if (!typing && animationTools.onKey(e)) return;
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();
