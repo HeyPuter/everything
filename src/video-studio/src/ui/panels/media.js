@@ -21,6 +21,8 @@ import { showMenu, menuButton } from '../menu.js';
 import { confirmDialog, promptDialog, toast } from '../dialog.js';
 import { prefs, setPref } from '../prefs.js';
 import { openRecordDialog } from '../record-dialog.js';
+import { canProxy, proxyMode, heavyReason, REASON_LABEL } from '../../model/proxy.js';
+import '../../styles/proxy.css';
 
 const ACCEPT = 'video/*,audio/*,image/*,.mkv,.mov,.m4v,.webm,.mp3,.wav,.m4a,.flac,.ogg,.opus';
 const DRAG_MIME = 'application/x-video-studio';
@@ -46,8 +48,34 @@ export function assetFacts(a) {
   ].filter(Boolean).join(' · ');
 }
 
+/**
+ * Proxy status of a media item for its badge: { state, text, label } where
+ * text is the short badge text and label the spoken/tooltip description.
+ * state 'none' hides the badge.
+ */
+export function proxyBadgeState(asset, proxies, mode = 'auto') {
+  if (!proxies || !canProxy(asset)) return { state: 'none', text: '', label: '' };
+  const st = proxies.status(asset);
+  const pct = Math.round(st.progress * 100);
+  const reason = REASON_LABEL[proxies.isSlow?.(asset) ? 'slow' : heavyReason(asset)];
+  const why = reason ? ` (${reason})` : '';
+  switch (st.state) {
+    case 'ready':
+      return { state: 'ready', text: 'Proxy', label: mode === 'off' ? 'Proxy ready, not used while proxy media is off' : `Plays from a proxy in the preview${why}` };
+    case 'generating':
+      return { state: 'generating', text: `Proxy ${pct}%`, label: `Making a proxy${why}, ${pct}%`, progress: st.progress };
+    case 'queued':
+      return { state: 'queued', text: 'Proxy', label: `Waiting to make a proxy${why}` };
+    case 'error':
+      return { state: 'error', text: 'Proxy', label: `Proxy failed: ${st.error || 'unknown error'}` };
+    default:
+      return { state: 'none', text: '', label: '' };
+  }
+}
+
 export function mediaTab(ctx) {
   const { store, actions, media } = ctx;
+  const proxies = ctx.proxies || null;
   const fileInput = h('input', { type: 'file', multiple: true, accept: ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
   fileInput.addEventListener('change', async () => {
     const files = [...fileInput.files];
@@ -348,9 +376,69 @@ export function mediaTab(ctx) {
       { label: 'Move to folder', icon: 'folderInput', submenu: () => moveMenu(list.map((x) => x.id)) },
       !many ? { label: 'Show on timeline', icon: 'search', onSelect: () => actions.revealAsset(a.id) } : null,
       !many ? { label: 'Replace file...', icon: 'replace', onSelect: () => actions.replaceAssetFile(a.id) } : null,
+      ...proxyMenu(list),
       'separator',
       { label: many ? `Delete ${list.length} items` : 'Delete', icon: 'trash', danger: true, onSelect: () => removeAssets(list) },
     ].filter(Boolean), { label: many ? `${list.length} items` : a.name });
+  }
+
+  /* Proxies ------------------------------------------------------------------- */
+  function proxyBadge(a) {
+    // Painted once it is in its item, which carries the spoken status.
+    return h('span.proxy-badge', { 'data-proxy-asset': a.id, 'aria-hidden': 'true', hidden: true }, icon('zap', 10), h('span.proxy-badge-text'), h('span.proxy-badge-bar', h('span')));
+  }
+
+  function paintProxy(el) {
+    const a = store.project.assets[el.dataset.proxyAsset];
+    const b = proxyBadgeState(a, proxies, proxyMode(store.project));
+    el.dataset.state = b.state;
+    el.hidden = b.state === 'none';
+    el.querySelector('.proxy-badge-text').textContent = b.text;
+    el.style.setProperty('--progress', String(b.progress || 0));
+    el.title = b.label;
+    // Screen readers hear the status on the item itself.
+    const host = el.closest('[data-asset]');
+    if (host) {
+      if (b.label) host.setAttribute('aria-description', b.label);
+      else host.removeAttribute('aria-description');
+    }
+  }
+
+  function repaintProxies(hash) {
+    for (const el of layout.el.querySelectorAll('[data-proxy-asset]')) {
+      const a = store.project.assets[el.dataset.proxyAsset];
+      if (a && (!hash || a.hash === hash)) paintProxy(el);
+    }
+  }
+
+  /** Media menu items for proxies of the chosen items. */
+  function proxyMenu(list) {
+    const videos = list.filter(canProxy);
+    if (!proxies || !videos.length) return [];
+    const mode = proxyMode(store.project);
+    const states = videos.map((x) => proxies.status(x).state);
+    const offNote = () => {
+      if (mode === 'off') toast('Proxy media is off for this project. Turn it on in the project details to use proxies.', { action: { label: 'Turn on', onClick: () => actions.setProxyMode('on') } });
+    };
+    const create = () => {
+      videos.forEach((x) => proxies.create(x));
+      announce(videos.length === 1 ? `Making a proxy for ${videos[0].name}` : `Making proxies for ${videos.length} videos`);
+      offNote();
+    };
+    const remove = async () => {
+      for (const x of videos) await proxies.remove(x);
+      announce(videos.length === 1 ? 'Proxy deleted' : 'Proxies deleted');
+    };
+    if (videos.length === 1) {
+      const st = states[0];
+      if (st === 'ready') return [{ label: 'Delete proxy', icon: 'zap', onSelect: remove }];
+      if (st === 'queued' || st === 'generating') return [{ label: 'Stop making proxy', icon: 'close', onSelect: remove }];
+      return [{ label: st === 'error' ? 'Try proxy again' : 'Create proxy', icon: 'zap', onSelect: create }];
+    }
+    const items = [];
+    if (states.some((st) => st !== 'ready')) items.push({ label: 'Create proxies', icon: 'zap', onSelect: create });
+    if (states.some((st) => st !== 'none' && st !== 'error')) items.push({ label: 'Delete proxies', icon: 'zap', onSelect: remove });
+    return items;
   }
 
   function dragData(a) {
@@ -372,6 +460,7 @@ export function mediaTab(ctx) {
       plusLabel: `Add ${a.name} to timeline`,
     });
     t.dataset.asset = a.id;
+    if (canProxy(a)) paintProxy(t.querySelector('.tile-preview').appendChild(proxyBadge(a)));
     t.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       assetMenu(a, e);
@@ -393,6 +482,7 @@ export function mediaTab(ctx) {
       h('span.media-row-name', a.name),
       h('span.media-row-facts', { 'aria-hidden': 'true' }, icon(KIND_ICON[a.kind] || 'film', 12), assetFacts(a), showFolder && a.folder ? ` · ${findBin(store.project, a.folder)?.name || ''}` : ''),
     ),
+    canProxy(a) ? proxyBadge(a) : null,
     used ? h('span.media-row-used', { 'aria-hidden': 'true' }, 'Added') : null,
     );
     btn.addEventListener('click', (e) => clickAsset(a, e));
@@ -414,6 +504,8 @@ export function mediaTab(ctx) {
       document.body.classList.add('dragging-asset');
     });
     btn.addEventListener('dragend', () => document.body.classList.remove('dragging-asset'));
+    const rowBadge = btn.querySelector('[data-proxy-asset]');
+    if (rowBadge) paintProxy(rowBadge);
     const plus = h('button.icon-btn.small.media-row-add', { type: 'button', 'aria-label': `Add ${a.name} to timeline`, 'data-tip': 'Add to timeline' }, icon('plus', 14));
     plus.addEventListener('click', () => actions.addAsset(a));
     return h('div.media-row-cell', { role: 'listitem' }, btn, plus);
@@ -652,7 +744,7 @@ export function mediaTab(ctx) {
   const signature = () => {
     const used = new Set(allClipsDeep(store.project).map((c) => c.assetId));
     const assets = Object.values(store.project.assets).map((a) => `${a.id}:${used.has(a.id) ? 1 : 0}:${a.folder || ''}:${a.name}`).join('|');
-    return `${assets}#${binsOf(store.project).map((b) => `${b.id}:${b.name}:${b.parent || ''}`).join('|')}`;
+    return `${assets}#${binsOf(store.project).map((b) => `${b.id}:${b.name}:${b.parent || ''}`).join('|')}#${proxyMode(store.project)}`;
   };
   let sig = signature();
   const off = store.on('change', () => {
@@ -662,12 +754,15 @@ export function mediaTab(ctx) {
     refreshSoon();
   });
 
+  const offProxies = proxies?.on('change', ({ hash } = {}) => repaintProxies(hash));
+
   return {
     el: layout.el,
     openImport: () => fileInput.click(),
     openRecord,
     dispose() {
       off();
+      offProxies?.();
       gen?.dispose?.();
       layout.dispose();
     },

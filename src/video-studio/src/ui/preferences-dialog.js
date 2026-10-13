@@ -1,11 +1,12 @@
 /**
- * Preferences: default lengths for new clips, timeline display, playback
- * and theme. Stored per device (prefs.js) and read where clips are made.
+ * Preferences: default lengths for new clips, timeline display, playback,
+ * proxy media stored on this device, and theme. Stored per device (prefs.js) and read where clips are made.
  */
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US } from '../lib/time.js';
-import { openDialog } from './dialog.js';
+import { openDialog, confirmDialog } from './dialog.js';
+import { formatBytes } from '../model/bins.js';
 import { prefs, setPref, getTheme, setTheme } from './prefs.js';
 
 /** Defaults for the preferences below (seconds where it is a length). */
@@ -75,6 +76,30 @@ function choiceRow(label, key, options, { get = () => pref(key), set = (v) => se
   return h('div.pref-row', h('label.pref-label', { for: id }, label), h('span.pref-ctl', sel));
 }
 
+/** Space used by proxy media on this device, with a button to delete them all. */
+function proxyStorageRow(proxies) {
+  const usage = h('span.pref-hint.proxy-usage', { 'aria-live': 'polite' }, 'Checking...');
+  const del = h('button.btn.small', { type: 'button', disabled: true }, icon('trash', 14), 'Delete all proxies');
+  const refresh = () =>
+    proxies.usage().then(
+      ({ files, bytes }) => {
+        usage.textContent = files ? `${files} ${files === 1 ? 'proxy' : 'proxies'}, ${formatBytes(bytes)}` : 'No proxies on this device.';
+        del.disabled = !files;
+      },
+      () => (usage.textContent = 'Could not read the proxy storage.'),
+    );
+  del.addEventListener('click', async () => {
+    const ok = await confirmDialog({ title: 'Delete all proxies?', message: 'The preview plays the original files until proxies are made again. Your media and projects are not changed.', confirm: 'Delete', danger: true });
+    if (!ok) return;
+    del.disabled = true;
+    const n = await proxies.removeAll();
+    announce(n ? 'All proxies deleted' : 'No proxies to delete');
+    refresh();
+  });
+  refresh();
+  return h('div.pref-row', h('span.pref-label', 'Proxy media', h('span.pref-hint', 'Small copies of heavy videos for a smooth preview, kept on this device.'), usage), h('span.pref-ctl', del));
+}
+
 export function openPreferences(ctx) {
   const section = (title, ...rows) => h('section.pref-section', h('h3', title), rows);
   const body = h('div.prefs',
@@ -93,6 +118,7 @@ export function openPreferences(ctx) {
     section('Playback',
       switchRow('Loop playback', 'loopPlayback', 'Start again from the beginning, or from the in point, at the end.'),
     ),
+    ctx.proxies ? section('Storage', proxyStorageRow(ctx.proxies)) : null,
     section('Appearance',
       choiceRow('Theme', 'theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'Match the system']], { get: getTheme, set: setTheme }),
     ),

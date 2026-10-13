@@ -7,7 +7,45 @@ import { clock } from '../../lib/time.js';
 import { allClips } from '../../model/timeline.js';
 import { RATIOS } from '../../model/project.js';
 import { projectSettingsFields } from '../project-settings.js';
+import { segmented } from '../controls.js';
+import { PROXY_MODES, proxyMode, canProxy } from '../../model/proxy.js';
+import { formatBytes } from '../../model/bins.js';
 import { createScope, propSection, uidFor } from './common.js';
+import '../../styles/proxy.css';
+
+const MODE_HINT = {
+  off: 'The preview always plays the original files.',
+  on: 'Every video larger than 720p, or with a high bitrate, gets a proxy.',
+  auto: 'Proxies are made for 4K, high bitrate or high frame rate videos, and for videos that play back slowly on this device.',
+};
+
+/** One line on the project's proxies: "2 ready, 1 being made (40%)". */
+export function proxySummary(project, proxies) {
+  if (!proxies) return '';
+  const seen = new Set();
+  let ready = 0;
+  let size = 0;
+  let waiting = 0;
+  let failed = 0;
+  let making = null;
+  for (const a of Object.values(project.assets)) {
+    if (!canProxy(a) || seen.has(a.hash)) continue;
+    seen.add(a.hash);
+    const st = proxies.status(a);
+    if (st.state === 'ready') {
+      ready++;
+      size += st.size;
+    } else if (st.state === 'generating') making = st.progress;
+    else if (st.state === 'queued') waiting++;
+    else if (st.state === 'error') failed++;
+  }
+  const parts = [];
+  if (ready) parts.push(`${ready} ready${size ? ` (${formatBytes(size)})` : ''}`);
+  if (making !== null) parts.push(`1 being made (${Math.round(making * 100)}%)`);
+  if (waiting) parts.push(`${waiting} waiting`);
+  if (failed) parts.push(`${failed} failed`);
+  return parts.length ? `Proxies: ${parts.join(', ')}.` : seen.size ? 'No proxies yet.' : 'No videos in this project.';
+}
 
 export function projectView(ctx) {
   const { store, actions } = ctx;
@@ -70,9 +108,38 @@ export function projectView(ctx) {
   });
   scope.update();
 
+  // Proxy media: small copies of heavy videos for a smooth preview.
+  const modeCtl = segmented({
+    label: 'Proxy media',
+    options: PROXY_MODES,
+    value: proxyMode(store.project),
+    onChange: (v) => {
+      actions.setProxyMode(v);
+      announce(`Proxy media ${PROXY_MODES.find((m) => m.value === v).label}`);
+    },
+    className: 'proxy-mode',
+  });
+  const hint = h('p.proxy-hint');
+  const status = h('p.proxy-status', { role: 'status' });
+  const proxyBody = h('div.proxy-settings',
+    h('div.field.insp-row', h('span.field-label', 'Use proxies'), h('div.insp-row-control', modeCtl.el)),
+    h('p.proxy-hint', 'Proxies are small copies of your videos that play smoothly while you edit. They stay on this device; exports always use the original files.'),
+    hint,
+    status,
+  );
+  scope.bind(() => {
+    const mode = proxyMode(store.project);
+    modeCtl.set(mode);
+    hint.textContent = MODE_HINT[mode];
+    status.textContent = proxySummary(store.project, ctx.proxies);
+    status.hidden = !ctx.proxies || !status.textContent;
+  });
+  scope.update();
+
   const el = h('div.project-view',
     propSection('Project', [h('div.field.insp-row', h('label.field-label', { for: nameId }, 'Name'), h('div.insp-row-control', name)), info]),
     propSection('Frame', settingsWrap),
+    propSection('Proxy media', proxyBody),
   );
   return { el, scope };
 }
