@@ -216,3 +216,30 @@ describe('regenerated live shapes', () => {
   });
 });
 
+describe('polygon corner radius field', () => {
+  it('rounds every corner of a live polygon and keeps it through a sides change', () => {
+    const id = addShape({ kind: 'polygon', cx: 300, cy: 300, r: 100, sides: 6, angle: 0 });
+    app.openPanel('properties');
+    const props = app.dock.panels.get('properties');
+    props.update();
+    const field = (label) => [...props.el.querySelectorAll('.shape-props input')].find((i) => i.getAttribute('aria-label') === label);
+    const commit = (input, value) => {
+      input.focus();
+      input.value = value;
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      input.blur();
+    };
+    commit(field('Corner radius'), '12');
+    const doc = app.editor.doc;
+    expect(doc.get(id).anchors.every((a) => a.corner?.r === 12)).toBe(true);
+    expect(doc.get(id).shape.sides).toBe(6);
+    props.update();
+    commit(field('Sides'), '8');
+    expect(doc.get(id).anchors).toHaveLength(8);
+    expect(doc.get(id).anchors.every((a) => a.corner?.r === 12)).toBe(true);
+    props.update();
+    commit(field('Corner radius'), '0');
+    expect(doc.get(id).anchors.some((a) => a.corner)).toBe(false);
+  });
+});
+
