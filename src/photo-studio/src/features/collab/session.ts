@@ -296,7 +296,7 @@ export async function openShared(e: Editor, link: RoomLink, o: { target?: Docume
   e.update();
   void cs.loadMembers(true);
   renderBar(e);
-  e.message(`${c.name || 'Shared document'} is open: ${roleLabel(c.role).toLowerCase()}.`);
+  e.message(`Opened the shared document “${c.name || 'Untitled'}” (${roleLabel(c.role).toLowerCase()}).`);
   return cs;
 }
 
@@ -313,9 +313,12 @@ function install(e: Editor) {
   e.pointerHooks.push((ed, p) => active(ed)?.pointer(p?.x, p?.y));
   e.viewHooks.push((ed) => active(ed)?.changed());
   e.onUpdate((ed) => {
-    active(ed)?.changed();
+    const cs = active(ed);
+    cs?.changed();
     renderBar(ed);
-    document.documentElement.classList.toggle('review-mode', !!active(ed)?.review);
+    document.documentElement.classList.toggle('review-mode', !!cs?.review);
+    // A layer comp shown in the review view stays shown as the document updates.
+    if (cs?.review && reviewComp) queueMicrotask(() => void showComp(ed, reviewComp));
   });
   e.el('#viewport').addEventListener('pointerleave', () => active(e)?.pointer(undefined, undefined));
   const all = () => [...shared.values()].filter((x): x is CollabSession => x instanceof CollabSession);
@@ -518,9 +521,12 @@ function reviewHeader(e: Editor, cs: CollabSession) {
   }${comps.length ? `<label>Layer comp <select data-review="comp"><option value="">As shared</option>${comps.map((c) => `<option value="${escapeXML(c.id)}">${escapeXML(c.name)}</option>`).join('')}</select></label>` : ''}<span class="panel-tabs-spacer"></span><button data-review-command="view.fit">${svg('maximize', 14)}Fit</button><button data-review-command="view.actual-pixels">100%</button>${cs.client.canComment ? `<button data-review-command="comments.new">${svg('comment-add', 14)}Comment</button>` : ''}`;
 }
 /** Show a layer comp in the review view (this browser only; nothing is changed). */
+let reviewComp = '';
 async function showComp(e: Editor, id: string) {
+  reviewComp = id;
   const comp = e.doc.layerComps?.find((c) => c.id === id);
   if (!comp) {
+    reviewComp = '';
     e.preview(e.doc);
     return;
   }

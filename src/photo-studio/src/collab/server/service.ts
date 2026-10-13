@@ -9,7 +9,7 @@ import * as Y from 'yjs';
 import { canComment, canEdit, canManage, decode, encode, hash, ID, HASH, INVITE_ROLES, keyPair, MAX_UPDATE, SESSION_TTL, sign, type KeyPair } from '../protocol';
 import { unpackAsset, MAX_CHUNK } from '../asset-codec';
 import { readThreads } from '../ycomments';
-import { checkCommentChange } from '../comments';
+import { checkCommentChange, validateComments } from '../comments';
 
 export type Identity = { uuid: string; username: string };
 type Meta = { owner: string; name: string; created: number; keys: KeyPair; initial: string[]; closed?: number };
@@ -232,12 +232,12 @@ export class RoomService {
   }
 
   async notify(room: string, seq?: number) {
-    await this.kv.set(`ps:${room}:signal`, { nonce: crypto.randomUUID(), ...(seq ? { seq } : {}) }).catch(() => {});
+    await this.kv.set(`ps:${room}:ev:signal`, { nonce: crypto.randomUUID(), ...(seq ? { seq } : {}) }).catch(() => {});
   }
   async events(room: string, user: Identity) {
     const uid = appUid(this.puter.authToken);
     if (!uid) return null;
-    if (user.uuid === (await this.owner()).uuid) return { app: uid, key: `ps:${room}:signal` };
+    if (user.uuid === (await this.owner()).uuid) return { app: uid, key: `ps:${room}:ev:signal` };
     const cache = `ps:${room}:handle:${user.uuid}`;
     let handle = (await this.kv.get(cache)) as string | null;
     if (!handle && this.puter.APIOrigin) {
@@ -245,7 +245,7 @@ export class RoomService {
         const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.puter.authToken}` },
-          body: JSON.stringify({ granteeUid: user.uuid, prefix: `ps:${room}:signal` }),
+          body: JSON.stringify({ granteeUid: user.uuid, prefix: `ps:${room}:ev:` }),
           signal: AbortSignal.timeout(3000),
         });
         const data = (await res.json()) as { handle?: string };
@@ -358,7 +358,7 @@ export class RoomService {
     try {
       Y.applyUpdate(doc, await this.readInitial(room, initial as string[]));
       if (doc.store.pendingStructs || doc.store.pendingDs) throw new Error('Incomplete');
-      readThreads(doc);
+      validateComments(readThreads(doc));
     } catch {
       fail(422, 'This document could not be shared.');
     } finally {

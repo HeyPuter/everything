@@ -20,7 +20,7 @@
 .comment-time { white-space: nowrap; }
 .comment-badge { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; color: var(--muted); }
 .comment-text { font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.comment-mention { color: var(--accent); font-weight: 600; }
+.comment-mention { font-weight: 600; border-radius: 2px; padding: 0 1px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .comment-message { border-top: 1px solid var(--line-soft); padding-top: 4px; display: flex; flex-direction: column; gap: 2px; }
 .comment-message:first-of-type { border-top: 0; padding-top: 0; }
 .comment-actions { margin-left: auto; display: inline-flex; }
@@ -78,8 +78,7 @@ dialog:has(.collab-dialog) { width: 520px; max-width: min(520px, calc(100vw - 32
 .collab-member-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .collab-members .muted { margin: 0; }
 .collab-small { font-size: 11px; }
-.collab-error { color: #e5484d; font-size: 12px; }
-:root[data-theme='light'] .collab-error { color: #b3261e; }
+.collab-error { color: var(--text); font-size: 12px; border-left: 3px solid #e5484d; padding-left: 8px; }
 .collab-error[hidden] { display: none; }
 
 /* Review view: the image, zoom and pan, and comments; no editing tools. */

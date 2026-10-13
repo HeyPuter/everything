@@ -6,7 +6,7 @@
 import type { Editor } from '../../editor';
 import { registerCommand, registerOverlay, registerPanel, registerTool } from '../../app/registry';
 import { lazy, lazyPanel, lazyRun, lazyTool } from '../../app/lazy';
-import { parseLink } from '../../collab/protocol';
+import { parseLink } from '../../collab/links';
 import { commentsOf, commentsOverlay, dropLocalComments, sharedOf, view } from './state';
 
 const share = lazy(() => import('./share'));

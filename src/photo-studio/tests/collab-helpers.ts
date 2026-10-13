@@ -142,7 +142,7 @@ export function environment() {
       if (!env.dropEvents)
         for (const { subject, fn, includeValue } of listeners.values()) {
           const direct = subject === `kv:app-photo:${key}`;
-          const handle = [...handles].find(([h, prefix]) => subject === `kv:${h}:signal` && key === prefix);
+          const handle = [...handles].find(([h, prefix]) => subject === `kv:${h}:signal` && key === prefix + 'signal');
           if (direct || handle) queueMicrotask(() => fn({ event: { key, ts: env.now, ...(includeValue ? { value: clone(value) } : {}) } }));
         }
       return true;

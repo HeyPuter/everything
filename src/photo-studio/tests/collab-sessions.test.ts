@@ -260,6 +260,23 @@ describe('shared documents with several people', () => {
     expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
   });
 
+  it('prompts synchronization with change notices (owner directly, others through event handles)', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    a.client.close();
+    // Polling is slow: only change notices can bring the edits in time.
+    const owner2 = await connect(env, owner, room, { poll: 60_000 });
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor'), poll: 60_000 });
+    edit(owner2, 'Rename', (d) => (d.layers[0].name = 'Noticed'));
+    await owner2.binding.idle();
+    await owner2.client.settled();
+    await until(() => b.binding.history.document.layers[0].name === 'Noticed', 3000, 'notice to the editor');
+    edit(b, 'Rename', (d) => (d.layers[1].name = 'Back'));
+    await b.binding.idle();
+    await b.client.settled();
+    await until(() => owner2.binding.history.document.layers[1].name === 'Back', 3000, 'notice to the owner');
+  });
+
   it('sends edits and presence over verified peer links', async () => {
     const env = environment();
     const { room, a } = await share(env, { peers: true });

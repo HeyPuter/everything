@@ -1,7 +1,7 @@
 // Comments of a shared document, stored in its Yjs document. Changes are
 // written with their own origin, so they never enter Undo, and travel through
 // the same outbox as edits; the worker checks authorship on every commit.
-import { clampText, newMessage, newThread, normalizeAnchor, type CommentAnchor, type CommentAuthor, type CommentThread } from './comments';
+import { clampText, newMessage, newThread, normalizeAnchor, validateComments, type CommentAnchor, type CommentAuthor, type CommentThread } from './comments';
 import { commentsOf, putMessage, readThreads, setThreadField, writeThread } from './ycomments';
 import { ORIGIN } from './shared-project';
 import type { CommentStore } from './comment-store';
@@ -25,7 +25,15 @@ export class SharedComments implements CommentStore {
     return this.client.ydoc;
   }
   threads() {
-    return (this.cache ??= readThreads(this.doc));
+    // Threads come from other people: malformed ones are left out.
+    return (this.cache ??= readThreads(this.doc).filter((t) => {
+      try {
+        validateComments([t]);
+        return true;
+      } catch {
+        return false;
+      }
+    }));
   }
   me(): CommentAuthor {
     const u = this.client.user;
