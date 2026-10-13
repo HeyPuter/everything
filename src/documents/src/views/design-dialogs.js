@@ -16,7 +16,7 @@ const LANGUAGES = [['en-US', 'English (United States)'], ['en-GB', 'English (Uni
 const fontStack = name => `"${name}", "Canvas Noto Sans", "Noto Sans", sans-serif`;
 const hexOf = value => value.replace('#', '').toUpperCase();
 
-function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [] }) {
+function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [], wide = true }) {
   const error = el('p.field-error', { role: 'alert', hidden: true });
   let modal;
   const form = el('form.ed-dialog-body.design-dialog', { onsubmit: async e => {
@@ -29,7 +29,7 @@ function dialog({ title, body, submitLabel = 'Save', onSubmit, extra = [] }) {
     } catch (failure) { error.textContent = failure?.message || String(failure); error.hidden = false; }
   } }, ...body, error,
   el('div.row.row-end', {}, ...extra, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, submitLabel)));
-  modal = openModal({ title, content: form });
+  modal = openModal({ title, content: form, wide });
   return { modal, form, error };
 }
 const field = (label, control, hint) => el('label.field', {}, el('span.field-label', {}, label), control, hint && el('span.field-hint', {}, hint));
@@ -76,7 +76,7 @@ export function openCustomizeFonts({ fonts, name, apply }) {
 export function openParagraphSpacing({ before, after, line, apply }) {
   const number = (value, min, max, step, label) => el('input.input', { type: 'number', value: Number(value.toFixed(2)), min, max, step, required: true, 'aria-label': label });
   const b = number(before, 0, 600, 0.5, 'Before (pt)'), a = number(after, 0, 600, 0.5, 'After (pt)'), l = number(line, 0.06, 132, 0.01, 'Line spacing (multiple)');
-  dialog({ title: 'Custom Paragraph Spacing', submitLabel: 'OK',
+  dialog({ title: 'Custom Paragraph Spacing', submitLabel: 'OK', wide: false,
     body: [el('p.field-hint', {}, 'Sets the spacing of the Normal style; styles based on it follow.'), el('div.grid-2', {}, field('Before (pt)', b), field('After (pt)', a)), field('Line spacing (multiple)', l)],
     onSubmit: () => {
       for (const input of [b, a, l]) if (!input.checkValidity()) { input.reportValidity(); return false; }
@@ -90,7 +90,7 @@ export function openPageColor({ value, apply }) {
   const hex = el('input.input', { type: 'text', value: `#${value}`, 'aria-label': 'Hex value', maxLength: 7, pattern: '#?[0-9A-Fa-f]{6}' });
   picker.addEventListener('input', () => { hex.value = picker.value.toUpperCase(); });
   hex.addEventListener('input', () => { if (/^#?[0-9a-f]{6}$/i.test(hex.value.trim())) picker.value = `#${hex.value.trim().replace('#', '')}`; });
-  dialog({ title: 'Page Color', submitLabel: 'OK', body: [el('div.design-page-color-row', {}, picker, field('Hex value', hex))],
+  dialog({ title: 'Page Color', submitLabel: 'OK', wide: false, body: [el('div.design-page-color-row', {}, picker, field('Hex value', hex))],
     onSubmit: () => { if (!hex.checkValidity()) { hex.reportValidity(); return false; } return apply(hexOf(hex.value.trim())); } });
 }
 
@@ -100,7 +100,7 @@ export function openCustomWatermark({ current, apply }) {
   const text = current?.kind === 'text' ? current : { text: 'DRAFT', font: null, size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal', language: 'en-US' };
   const listId = fieldId('watermark-texts');
   const words = el('input.input', { type: 'text', value: text.text, list: listId, maxLength: 120, 'aria-label': 'Text' });
-  const fonts = el('select.input', { 'aria-label': 'Font' }, el('option', { value: '' }, 'Theme body font (automatic)'), ...DESIGN_FONTS.map(f => el('option', { value: f, selected: f === text.font }, f)));
+  const fonts = el('select.input', { 'aria-label': 'Font' }, el('option', { value: '' }, 'Automatic'), ...DESIGN_FONTS.map(f => el('option', { value: f, selected: f === text.font }, f)));
   const size = el('select.input', { 'aria-label': 'Size' }, el('option', { value: 'auto' }, 'Auto'), ...[36, 48, 54, 60, 66, 72, 80, 90, 96, 105, 120, 144].map(n => el('option', { value: n, selected: n === text.size }, String(n))));
   const color = el('input.design-color-input', { type: 'color', value: `#${text.color || 'C0C0C0'}`, 'aria-label': 'Color' });
   const transparent = el('input', { type: 'checkbox', checked: text.semitransparent !== false });
@@ -180,9 +180,7 @@ export function openFillEffects({ page, apply }) {
     else { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   };
   const colorInput = (key, label) => { const input = el('input.design-color-input', { type: 'color', value: `#${state[key]}`, 'aria-label': label, oninput: () => { state[key] = hexOf(input.value); draw(); } }); return el('label.design-color-field', {}, input, el('span', {}, label)); };
-  const gradientPanel = el('div.design-panel', {}, el('div.design-inline', {}, colorInput('color1', 'Color 1'), colorInput('color2', 'Color 2')),
-    el('div.field', {}, el('span.field-label', {}, 'Shading style'), segmented(GRADIENT_STYLES, state.style, value => { state.style = value; draw(); }, 'Shading style')));
-  const tile = (list, key, paint) => el('div.design-tile-grid', { role: 'radiogroup', 'aria-label': key === 'texture' ? 'Texture' : 'Pattern' }, ...list.map(([id, label]) => {
+  const tile = (list, key, paint) => el('div.design-tile-grid', { role: 'radiogroup', 'aria-label': { texture: 'Texture', pattern: 'Pattern', style: 'Shading style' }[key] }, ...list.map(([id, label]) => {
     const preview = el('canvas', { width: 40, height: 40, 'aria-hidden': 'true' });
     const ctx = preview.getContext('2d'); if (ctx) paint(ctx, id);
     const button = el('button.design-tile', { type: 'button', role: 'radio', 'aria-checked': String(state[key] === id), title: label, 'aria-label': label, onclick: () => {
@@ -190,6 +188,8 @@ export function openFillEffects({ page, apply }) {
     } }, preview);
     return button;
   }));
+  const gradientPanel = el('div.design-panel', {}, el('div.design-inline', {}, colorInput('color1', 'Color 1'), colorInput('color2', 'Color 2')),
+    el('div.field', {}, el('span.field-label', {}, 'Shading style'), tile(GRADIENT_STYLES, 'style', (ctx, id) => drawGradient(ctx, 40, 40, { color1: '7FA7D9', color2: 'FFFFFF', style: id }))));
   const texturePanel = el('div.design-panel', {}, tile(TEXTURES, 'texture', (ctx, id) => drawTexture(ctx, 40, 40, { texture: id })));
   const patternPanel = el('div.design-panel', {}, tile(PATTERNS, 'pattern', (ctx, id) => drawPattern(ctx, 40, 40, { pattern: id, foreground: '595959', background: 'FFFFFF' }, 2)),
     el('div.design-inline', {}, colorInput('foreground', 'Foreground'), colorInput('background', 'Background')));

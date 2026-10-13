@@ -78,3 +78,8 @@
   .design-color-fields { grid-template-columns: minmax(0, 1fr); }
   .design-watermark-preview .design-watermark-page { width: 110px; height: 142px; }
 }
+/* The ribbon's style-set cards are shorter: a smaller title and two body lines. */
+:is(.ribbon-card, .ribbon-flyout) .design-set .design-set-title { font-size: 10px; line-height: 1.1; }
+:is(.ribbon-card, .ribbon-flyout) .design-set .design-set-heading { font-size: 7px; line-height: 1.1; }
+:is(.ribbon-card, .ribbon-flyout) .design-set .design-set-lines { gap: 1.5px; }
+:is(.ribbon-card, .ribbon-flyout) .design-set .design-set-lines > span:nth-child(3) { display: none; }

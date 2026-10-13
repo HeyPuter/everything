@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { onTab, downloadDocx } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
@@ -153,5 +153,49 @@ test('fill effects store a picture page background and page borders offer the op
   await ribbon(page).getByRole('button', { name: 'Page Borders' }).click();
   await expect(page.getByRole('menuitem', { name: 'Borders and Shading Options…' })).toBeVisible();
   await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+test('theme files import, custom paragraph spacing applies, and Set as Default shapes new documents', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const input = await open(page);
+  // A theme package made here: a ZIP holding theme/theme/theme1.xml.
+  const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+  const slots = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
+  const colors = ['000000', 'FFFFFF', '203040', 'F0F0E8', '6A4C93', '1982C4', '8AC926', 'FFCA3A', 'FF595E', '4D908E', '1982C4', '6A4C93'];
+  const fills = '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'.repeat(3);
+  const lines = '<a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'.repeat(3);
+  const theme = `<?xml version="1.0" encoding="UTF-8"?><a:theme xmlns:a="${A}" name="Imported Grove"><a:themeElements><a:clrScheme name="Grove">${slots.map((s, i) => `<a:${s}><a:srgbClr val="${colors[i]}"/></a:${s}>`).join('')}</a:clrScheme>`
+    + '<a:fontScheme name="Grove"><a:majorFont><a:latin typeface="Karla"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Karla"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>'
+    + `<a:fmtScheme name="Grove"><a:fillStyleLst>${fills}</a:fillStyleLst><a:lnStyleLst>${lines}</a:lnStyleLst><a:effectStyleLst>${'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)}</a:effectStyleLst><a:bgFillStyleLst>${fills}</a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
+  const thmx = info.outputPath('grove.thmx');
+  (await import('node:fs')).writeFileSync(thmx, zipSync({ '[Content_Types].xml': strToU8('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'), 'theme/theme/theme1.xml': strToU8(theme) }));
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Browse for Themes…' }).click();
+  await (await chooser).setFiles(thmx);
+  await expectFont(page, /Karla/);
+  await ribbon(page).getByRole('button', { name: 'Themes' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Grove theme' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // Custom paragraph spacing edits the Normal style.
+  await ribbon(page).getByRole('button', { name: 'Paragraph Spacing' }).click();
+  await page.getByRole('menuitem', { name: 'Custom Paragraph Spacing…' }).click();
+  const spacing = page.getByRole('dialog', { name: 'Custom Paragraph Spacing' });
+  await spacing.getByLabel('After (pt)').fill('14');
+  await spacing.getByLabel('Line spacing (multiple)').fill('1.3');
+  await spacing.getByRole('button', { name: 'OK' }).click();
+  await input.press('ControlOrMeta+End');
+  const { parts } = await saved(page, info, 'imported-theme.docx');
+  expect(strFromU8(parts['word/theme/theme1.xml'])).toContain('name="Imported Grove"');
+  expect(strFromU8(parts['word/styles.xml'])).toMatch(/w:styleId="Normal"[\s\S]*?w:after="280"/);
+  // New documents take the theme and style set saved as the default.
+  await ribbon(page).getByRole('button', { name: 'Set as Default' }).click();
+  await page.getByRole('dialog', { name: 'Set as Default' }).getByRole('button', { name: 'Set as Default' }).click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue('');
+  await expectFont(page, /Karla/);
+  await page.evaluate(() => localStorage.removeItem('documents.design.defaults'));
   expect(errors).toEqual([]);
 });

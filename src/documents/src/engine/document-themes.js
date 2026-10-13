@@ -8,7 +8,7 @@
 /** Color scheme slots in §20.1.4.1.10 (clrScheme) order. */
 export const COLOR_SLOTS = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
 export const COLOR_SLOT_LABELS = {
-  dk1: 'Text/Background – Dark 1', lt1: 'Text/Background – Light 1', dk2: 'Text/Background – Dark 2', lt2: 'Text/Background – Light 2',
+  dk1: 'Text – Dark 1', lt1: 'Background – Light 1', dk2: 'Text – Dark 2', lt2: 'Background – Light 2',
   accent1: 'Accent 1', accent2: 'Accent 2', accent3: 'Accent 3', accent4: 'Accent 4', accent5: 'Accent 5', accent6: 'Accent 6',
   hlink: 'Hyperlink', folHlink: 'Followed Hyperlink',
 };

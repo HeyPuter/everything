@@ -135,3 +135,83 @@ it('adds a washed-out picture watermark and a tiled picture page background', as
   setPageFillParts(parts, null);
   expect(hasPageFill(parts)).toBe(false);
 });
+
+it('effect schemes change the fills, outlines and shadows of shapes that use theme styles', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync('public/fixtures/shape-theme.docx');
+  const scenes = pkg => Object.values(pkg.assets).filter(a => a.scene).map(a => a.scene);
+  const results = {};
+  for (const scheme of ['Flat', 'Bold Outline', 'Soft Shadow', 'Gradient', 'Raised']) {
+    const parts = unzipSync(source);
+    applyDesignTheme(parts, { effects: effectScheme(scheme) });
+    const pkg = await DocxPackage.open(zipSync(parts));
+    expect(pkg.readOnly, scheme).not.toBe(true);
+    results[scheme] = scenes(pkg);
+  }
+  expect(JSON.stringify(results['Bold Outline'])).not.toBe(JSON.stringify(results.Flat));
+  // Theme colors apply to the same shapes.
+  const parts = unzipSync(source);
+  applyDesignTheme(parts, { colors: { name: 'Lagoon', ...colorScheme('Lagoon').colors } });
+  const recolored = scenes(await DocxPackage.open(zipSync(parts)));
+  expect(recolored.map(s => s.fill)).not.toEqual(scenes(await DocxPackage.open(source)).map(s => s.fill));
+});
+
+it('puts the watermark on first and even pages too, reusing headers a section already has', async () => {
+  const { setWatermarkParts, readWatermark } = await import('../src/engine/package-design.js');
+  const { strToU8 } = await import('fflate');
+  const parts = await partsOf(blank());
+  const document = strFromU8(parts['word/document.xml']).replace(/<w:sectPr>/, '<w:sectPr><w:titlePg/>');
+  parts['word/document.xml'] = strToU8(document);
+  parts['word/settings.xml'] = strToU8('<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:evenAndOddHeaders/></w:settings>');
+  parts['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('</Relationships>', '<Relationship Id="rSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/></Relationships>'));
+  parts['[Content_Types].xml'] = strToU8(strFromU8(parts['[Content_Types].xml']).replace('</Types>', '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>'));
+  setWatermarkParts(parts, { kind: 'text', text: 'INTERNAL', size: 'auto', color: '999999', semitransparent: false, layout: 'horizontal' });
+  const headers = Object.keys(parts).filter(name => /^word\/header\d+\.xml$/.test(name));
+  expect(headers).toHaveLength(3);
+  const xml = strFromU8(parts['word/document.xml']);
+  for (const kind of ['default', 'first', 'even']) expect(xml).toContain(`w:type="${kind}"`);
+  for (const header of headers) expect(strFromU8(parts[header])).toContain('INTERNAL');
+  // Applying again reuses the same headers rather than adding new ones.
+  setWatermarkParts(parts, { kind: 'text', text: 'FINAL', size: 72, color: '999999', semitransparent: false, layout: 'diagonal' });
+  expect(Object.keys(parts).filter(name => /^word\/header\d+\.xml$/.test(name))).toHaveLength(3);
+  expect(readWatermark(parts)).toMatchObject({ text: 'FINAL', size: 72 });
+  const pkg = await DocxPackage.open(zipSync(parts));
+  expect(pkg.readOnly).not.toBe(true);
+});
+
+it('imports theme files from .thmx packages and rejects files that are not themes', async () => {
+  const { themeFileXml, themeXml } = await import('../src/engine/package-design.js');
+  const { strToU8 } = await import('fflate');
+  const xml = themeXml(resolvedTheme('Citrus'));
+  expect(themeFileXml(zipSync({ 'theme/theme/theme1.xml': strToU8(xml) }))).toContain('name="Citrus"');
+  expect(themeFileXml(strToU8(xml))).toContain('<a:fontScheme name="Poster">');
+  expect(() => themeFileXml(strToU8('<w:document xmlns:w="urn:x"/>'))).toThrow('not a document theme');
+  expect(() => themeFileXml(zipSync({ 'readme.txt': strToU8('x') }))).toThrow('does not contain a theme');
+});
+
+it('restyles the independently authored design fixture and keeps its explicit fonts, header text and background', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { setWatermarkParts, readWatermark, hasPageFill } = await import('../src/engine/package-design.js');
+  const source = readFileSync('public/fixtures/design-theme.docx');
+  const original = await DocxPackage.open(source);
+  expect(original.readOnly).not.toBe(true);
+  expect(styleRun(original, 'Heading1')).toMatchObject({ fontAscii: 'Montserrat', color: '2E7D5B' });
+  expect(original.pageSettings.backgroundPicture).toBeTruthy();
+  const parts = unzipSync(source);
+  expect(readThemeInfo(parts)).toMatchObject({ name: 'Probe Forest', fonts: { major: 'Montserrat', minor: 'Open Sans' } });
+  expect(readWatermark(parts)).toEqual({ kind: 'text' });
+  expect(hasPageFill(parts)).toBe(true);
+  const untouched = { ...parts };
+  applyDesignTheme(parts, { theme: resolvedTheme('Ember') });
+  refreshStyleThemeColors(parts);
+  // Only the theme part and the theme-colored style values change.
+  for (const name of Object.keys(untouched)) if (!['word/theme/forest.xml', 'word/styles.xml'].includes(name)) expect(parts[name], name).toEqual(untouched[name]);
+  const themed = await DocxPackage.open(zipSync(parts));
+  expect(styleRun(themed, 'Heading1')).toMatchObject({ fontAscii: 'Oswald', color: 'C0392B' });
+  expect(styleRun(themed, 'Signature').fontAscii).toBe('Courier New');
+  expect(themed.styles.defaults.run.fontAscii).toBe('Source Sans Pro');
+  setWatermarkParts(parts, { kind: 'text', text: 'REPLACED', size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal' });
+  const header = strFromU8(parts['word/top.xml']);
+  expect(header).toContain('REPLACED'); expect(header).not.toContain('PROBE'); expect(header).toContain('Probe header');
+  expect((await DocxPackage.open(zipSync(parts))).readOnly).not.toBe(true);
+});
