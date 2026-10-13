@@ -299,7 +299,7 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
     if (!f || !el) return;
     if (f.type === 'checkbox') el.checked = Boolean(v);
     else if (f.type === 'radio') {
-      const r = el.querySelector(`input[value="${CSS.escape(String(v))}"]`);
+      const r = [...el.querySelectorAll('input')].find((x) => x.value === String(v));
       if (r) r.checked = true;
     } else if (f.type === 'refpoint') el._picker.set(v, false);
     else if (NUMERIC.includes(f.type)) el.value = showValue(f, v, unit);
