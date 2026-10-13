@@ -210,6 +210,8 @@ export function createInspector(ctx) {
     store.on('change', sync),
     store.on('time', () => current?.tick()),
   ];
+  // Proxy progress shows in the project details.
+  if (ctx.proxies) offs.push(ctx.proxies.on('change', () => key === 'project' && current?.update()));
 
   return {
     el,

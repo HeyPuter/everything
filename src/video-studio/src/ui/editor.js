@@ -9,6 +9,8 @@ import { EditorStore } from '../model/store.js';
 import { AutoSaver } from '../storage/library.js';
 import { Player } from '../engine/player.js';
 import { MediaService } from '../media/media-service.js';
+import { ProxyManager } from '../media/proxy-manager.js';
+import { proxyMode } from '../model/proxy.js';
 import { syncProjectFonts } from '../media/fonts.js';
 import { createActions } from './actions.js';
 import { createTimelineActions } from './timeline-actions.js';
@@ -39,6 +41,9 @@ export class Editor {
     store.on('toggles', () => setPref('toggles', { ...store.toggles }));
     this.saver = new AutoSaver(library, store);
     this.media = new MediaService(library);
+    // Proxy media for heavy footage: a device cache, remembered lists in the preferences.
+    this.proxies = new ProxyManager({ library, memory: { get: () => prefs().proxyMemory, set: (v) => setPref('proxyMemory', v) } });
+    this.media.proxies = this.proxies;
     // Uploaded fonts are registered with the browser before text draws with them.
     syncProjectFonts(library, project);
 
@@ -47,6 +52,7 @@ export class Editor {
       store,
       library,
       media: this.media,
+      proxies: this.proxies,
       saver: this.saver,
       account,
       exitToHome: () => this.exit(),
@@ -94,7 +100,7 @@ export class Editor {
 
     // Player canvas is created up front so the engine exists before views mount.
     const canvas = h('canvas.player-canvas', { 'aria-hidden': 'true' });
-    ctx.player = new Player({ store, library, canvas });
+    ctx.player = new Player({ store, library, canvas, proxies: this.proxies });
     ctx.player.canvas = canvas;
     ctx.player.loop = pref('loopPlayback');
     this._offPrefs = onPrefsChange(() => (ctx.player.loop = pref('loopPlayback')));
@@ -158,6 +164,7 @@ export class Editor {
     store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
     this._coverTimer = null;
     store.on('change', () => this._scheduleCover());
+    this._watchProxies();
   }
 
   _resizer(dir, which) {
@@ -341,6 +348,27 @@ export class Editor {
     }
   }
 
+  /** Keep proxies in step with the project: make wanted ones, stop work for removed media. */
+  _watchProxies() {
+    const { store } = this;
+    const proxies = this.proxies;
+    let sig = '';
+    const sync = (force = false) => {
+      const p = store.project;
+      const next = `${proxyMode(p)}|${Object.values(p.assets).map((a) => a.hash).join(',')}`;
+      if (!force && next === sig) return;
+      sig = next;
+      proxies.sync(p);
+    };
+    proxies.init().then(() => sync(true), () => {});
+    this._offProxySync = [
+      store.on('change', () => sync()),
+      proxies.on('change', (e) => {
+        if (e?.slow) sync(true);
+      }),
+    ];
+  }
+
   async exit(opts = {}) {
     this.ctx.player?.pause();
     await this.saver.flush().catch(() => {});
@@ -366,6 +394,8 @@ export class Editor {
     this.ctx.inspector?.dispose?.();
     this.ctx.assets?.dispose?.();
     this.ctx.player?.dispose();
+    this._offProxySync?.forEach((off) => off());
+    this.proxies.dispose();
     this.media.dispose();
     this.library.releaseMedia();
   }

@@ -1,0 +1,130 @@
+/* Proxy media: status badges in the media panel, the player's compare toggle
+   and the project details section. */
+
+.proxy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-on-media);
+  background: rgba(0, 0, 0, 0.62);
+  overflow: hidden;
+}
+
+.proxy-badge[hidden] {
+  display: none;
+}
+
+/* On a tile it sits in the top left corner of the picture. */
+.tile-preview .proxy-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+}
+
+/* In the list it sits before "Added"; it needs its own colors off the picture. */
+.media-row .proxy-badge {
+  position: relative;
+  flex: none;
+  color: var(--text-2);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+}
+
+.proxy-badge[data-state='ready'] .icon {
+  color: var(--success);
+}
+
+.proxy-badge[data-state='queued'] {
+  opacity: 0.7;
+}
+
+.proxy-badge[data-state='error'] .icon {
+  color: var(--warning);
+}
+
+.proxy-badge[data-state='error'] .proxy-badge-text {
+  text-decoration: line-through;
+}
+
+.proxy-badge-bar {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.proxy-badge-bar > span {
+  display: block;
+  height: 100%;
+  width: calc(var(--progress, 0) * 100%);
+  background: var(--accent);
+  transition: width var(--t) var(--ease);
+}
+
+.proxy-badge[data-state='generating'] .proxy-badge-bar {
+  display: block;
+}
+
+.proxy-badge[data-state='generating'] .icon {
+  color: var(--accent-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proxy-badge-bar > span {
+    transition: none;
+  }
+}
+
+/* Player header toggle. */
+.proxy-toggle[hidden] {
+  display: none;
+}
+
+.proxy-toggle .icon {
+  color: var(--text-3);
+}
+
+.proxy-toggle[aria-pressed='true'] .icon {
+  color: var(--success);
+}
+
+.proxy-toggle-label {
+  min-width: 46px;
+  text-align: left;
+}
+
+/* Project details. */
+.proxy-settings .segmented {
+  width: 100%;
+}
+
+.proxy-hint,
+.proxy-status {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.proxy-status {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.proxy-status[hidden] {
+  display: none;
+}
+
+.proxy-usage {
+  font-variant-numeric: tabular-nums;
+}

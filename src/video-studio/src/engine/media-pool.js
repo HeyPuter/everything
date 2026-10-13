@@ -7,9 +7,11 @@
 let nextId = 1;
 
 export class MediaPool {
-  constructor({ library, onReady }) {
+  /** urlFor(asset): object URL for an element (default the library's file; the player passes proxies). */
+  constructor({ library, onReady, urlFor }) {
     this.library = library;
     this.onReady = onReady;
+    this.urlFor = urlFor || ((asset) => library.mediaURL(asset));
     this.elements = []; // { id, el, assetId, kind, clipId, lastUsed, gain, src }
     this.images = new Map(); // assetId -> ImageBitmap | 'loading' | 'error'
     this.urls = new Map(); // assetId -> url | Promise
@@ -53,7 +55,7 @@ export class MediaPool {
   _url(asset) {
     let u = this.urls.get(asset.id);
     if (u) return u;
-    u = this.library.mediaURL(asset).then((url) => {
+    u = Promise.resolve(this.urlFor(asset)).then((url) => {
       this.urls.set(asset.id, url);
       return url;
     });
@@ -99,7 +101,8 @@ export class MediaPool {
    * serving this clip, then a free element of the same file near that time.
    */
   claim(clip, asset, kind, sourceSec) {
-    let best = this.elements.find((e) => e.clipId === clip.id && !e.claimed && e.kind === kind);
+    // Same file only: a clip can switch files (its proxy, or the original again).
+    let best = this.elements.find((e) => e.clipId === clip.id && !e.claimed && e.kind === kind && e.assetId === asset.id);
     if (!best) {
       let bestD = Infinity;
       for (const e of this.elements) {

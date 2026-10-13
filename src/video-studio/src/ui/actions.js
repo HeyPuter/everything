@@ -629,6 +629,19 @@ export function createActions(ctx) {
       }, { structural: false });
     },
 
+    /** Proxy media for the preview: 'off', 'on' or 'auto' (the default, stored as no field). */
+    setProxyMode(mode) {
+      if (!['off', 'on', 'auto'].includes(mode)) return;
+      store.update('Proxy media', (p) => {
+        if ((p.settings.proxy || 'auto') === mode) return false;
+        // Media is shared by all of the project's timelines, so they all follow.
+        for (const settings of [p.settings, ...(p.timelines || []).map((t) => t.settings).filter(Boolean)]) {
+          if (mode === 'auto') delete settings.proxy;
+          else settings.proxy = mode;
+        }
+      }, { structural: false });
+    },
+
     renameProject(name) {
       store.update('Rename project', (p) => {
         p.name = name;

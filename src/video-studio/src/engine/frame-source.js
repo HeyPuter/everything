@@ -12,15 +12,17 @@
 import { Input, BlobSource, ALL_FORMATS, CanvasSink } from 'mediabunny';
 
 export class FrameSource {
-  constructor({ library, onFrame, height = 720 }) {
+  /** blobFor(asset): the file to decode (default the library's; the player passes proxies). */
+  constructor({ library, onFrame, height = 720, blobFor }) {
     this.library = library;
+    this.blobFor = blobFor || ((asset) => library.mediaBlob(asset));
     this.onFrame = onFrame;
     this.height = height;
     this.entries = new Map(); // assetId -> { sink, input, busy, want, frame: { sec, canvas }, failed }
   }
 
   async _open(asset) {
-    const blob = await this.library.mediaBlob(asset);
+    const blob = await this.blobFor(asset);
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) {
@@ -134,6 +136,15 @@ export class FrameSource {
     } finally {
       e.pairBusy = false;
     }
+  }
+
+  /** Drop the decoder of an asset (its file went away, e.g. a deleted proxy). */
+  forget(assetId) {
+    const e = this.entries.get(assetId);
+    if (!e) return;
+    this.entries.delete(assetId);
+    if (e.input) e.input.dispose();
+    else e.opening?.then(({ input }) => input.dispose()).catch(() => {});
   }
 
   dispose() {

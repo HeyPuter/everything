@@ -16,7 +16,9 @@ import { createPinch } from '../lib/gestures.js';
 import { snapAxis, SAFE_ZONES, rulerStep } from './player-guides.js';
 import { createMaskOverlay } from './mask-overlay.js';
 import { maskEdit } from './mask-edit-state.js';
+import { proxyMode, canProxy } from '../model/proxy.js';
 import '../styles/player-tools.css';
+import '../styles/proxy.css';
 
 const SNAP_PX = 6;
 const RULER = 18;
@@ -107,7 +109,25 @@ export function createPlayerView(ctx) {
     tlBtn.setAttribute('aria-label', `Timeline: ${name}. Switch or add timelines`);
   };
   renderTimelineName();
-  const head = h('div.panel-head', h('h2.panel-title', 'Player'), tlBtn, h('span.spacer'), menuBtn);
+    // Compare proxies with the original files (shown while any media here has a ready proxy).
+  const proxyBtn = h('button.btn.small.ghost.proxy-toggle', { type: 'button', hidden: true, 'aria-pressed': 'true' }, icon('zap', 14), h('span.proxy-toggle-label', 'Proxy'));
+  proxyBtn.addEventListener('click', () => {
+    player.setShowOriginal?.(!player.showOriginal);
+    announce(player.showOriginal ? 'Showing the original media' : 'Showing proxy media');
+  });
+  const syncProxyBtn = () => {
+    const proxies = ctx.proxies;
+    const p = store.project;
+    const any = Boolean(proxies) && proxyMode(p) !== 'off' && Object.values(p.assets).some((a) => canProxy(a) && proxies.isReady(a));
+    proxyBtn.hidden = !any;
+    const original = Boolean(player.showOriginal);
+    proxyBtn.setAttribute('aria-pressed', String(!original));
+    proxyBtn.querySelector('.proxy-toggle-label').textContent = original ? 'Original' : 'Proxy';
+    proxyBtn.dataset.tip = original ? 'Showing the original files. Click to use proxies' : 'Showing proxy media. Click to compare with the original files';
+    proxyBtn.setAttribute('aria-label', 'Use proxy media in the preview');
+  };
+  syncProxyBtn();
+  const head = h('div.panel-head', h('h2.panel-title', 'Player'), tlBtn, h('span.spacer'), proxyBtn, menuBtn);
   const grid = h('div.player-grid', { 'aria-hidden': 'true', hidden: !opts.grid },
     h('span.gv', { style: { left: '33.333%' } }), h('span.gv', { style: { left: '66.666%' } }),
     h('span.gh', { style: { top: '33.333%' } }), h('span.gh', { style: { top: '66.666%' } }));
@@ -737,6 +757,9 @@ export function createPlayerView(ctx) {
     });
   };
   const offs = [
+    player.on('proxy', syncProxyBtn),
+    ...(ctx.proxies ? [ctx.proxies.on('change', syncProxyBtn)] : []),
+    store.on('change', syncProxyBtn),
     player.on('play', onPlay),
     player.on('frame', onFrame),
     store.on('select', drawOverlay),

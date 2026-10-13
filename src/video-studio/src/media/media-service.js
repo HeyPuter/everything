@@ -19,6 +19,16 @@ export class MediaService extends Emitter {
     this.posters = new Map(); // hash -> Promise<ImageBitmap|null>
     this.queue = []; // { asset, times }
     this.busy = 0;
+    this.proxies = null; // ProxyManager: thumbnails decode a ready proxy, which is faster
+  }
+
+  /** File to decode pictures from: the proxy when one is ready, else the original. */
+  async _pictureBlob(asset) {
+    if (this.proxies?.isReady(asset)) {
+      const b = await this.proxies.blob(asset).catch(() => null);
+      if (b) return b;
+    }
+    return this.library.mediaBlob(asset);
   }
 
   _worker() {
@@ -106,7 +116,7 @@ export class MediaService extends Emitter {
     job.started = true;
     this.busy++;
     try {
-      const blob = await this.library.mediaBlob(job.asset);
+      const blob = await this._pictureBlob(job.asset);
       const items = job.items.sort((a, b) => a.sec - b.sec);
       const strip = this.strips.get(job.asset.hash);
       await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
@@ -128,7 +138,7 @@ export class MediaService extends Emitter {
     if (!entry) {
       entry = { value: null, promise: null };
       entry.promise = (async () => {
-        const blob = await this.library.mediaBlob(asset);
+        const blob = asset.kind === 'video' ? await this._pictureBlob(asset) : await this.library.mediaBlob(asset);
         if (asset.kind === 'image') {
           const bmp = await createImageBitmap(blob, { resizeHeight: 240, resizeQuality: 'medium' });
           return bmp;
