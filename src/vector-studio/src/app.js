@@ -534,8 +534,9 @@ export class App extends Emitter {
     // Command shortcuts.
     const cmd = this.commands.match(e);
     if (cmd) {
-      // Let the tool claim Enter/Escape/Delete first (e.g. finishing a pen path, removing a pin).
-      if (!(['Enter', 'Escape', 'Delete', 'Backspace'].includes(e.key) && this.tool?.onKeyDown?.(e))) {
+      // Let the tool claim Enter/Escape/Delete first (e.g. finishing a pen path, removing a pin),
+      // and any key it asks for (letters that change a shape while it is being drawn).
+      if (!((['Enter', 'Escape', 'Delete', 'Backspace'].includes(e.key) || this.tool?.claimsKey?.(e)) && this.tool?.onKeyDown?.(e))) {
         e.preventDefault();
         this.commands.run(cmd);
       } else e.preventDefault();

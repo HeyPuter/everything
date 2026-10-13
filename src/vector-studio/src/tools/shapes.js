@@ -219,6 +219,11 @@ class DragShapeTool extends Tool {
     return false;
   }
 
+  /** While a shape is being dragged its keys (F, X, C, R, ...) come before command shortcuts. */
+  claimsKey() {
+    return Boolean(this.drag?.moved);
+  }
+
   cancel() {
     const d = this.drag;
     this.drag = null;
