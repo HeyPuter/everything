@@ -161,7 +161,7 @@ export class DirectSelectionTool extends Tool {
       this.hookCursor = false;
       this.setCursor('var(--cursor-direct)');
     }
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline', intoCompound: true });
+    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
     const id = hit?.id || null;
     if (editor.hover !== id) {
       editor.hover = id;
@@ -212,7 +212,7 @@ export class DirectSelectionTool extends Tool {
       this.startHandleDrag(e, ah);
       return;
     }
-    const hit = hitTest(doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline', intoCompound: true });
+    const hit = hitTest(doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
     if (hit && !hit.children && !hit.anchors && directSelectHooks.instance?.(this, hit, e)) return;
     if (hit) {
       if (hit.type === 'path') {

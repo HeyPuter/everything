@@ -79,7 +79,7 @@ async function boot() {
     app.rulers?.refresh();
   });
   app.emit('ready');
-  if (!app.editors.length) app.showHome();
+  if (!app.editors.length && app.prefs.get('showStartScreen') !== false) app.showHome();
   if (import.meta.env.DEV) window.vs = app;
 }
 

@@ -95,7 +95,14 @@ export const MENUS = [
       '-',
       'edit.keyboardShortcuts',
       { label: 'My Settings', submenu: ['edit.exportSettings', 'edit.importSettings'] },
-      'edit.preferences',
+      {
+        label: 'Preferences',
+        submenu: [
+          'edit.preferences',
+          '-',
+          ...['general', 'selection', 'type', 'units', 'guides', 'alignment', 'slices', 'ui', 'performance', 'files'].map((s) => `edit.preferences.${s}`),
+        ],
+      },
     ],
   },
   {

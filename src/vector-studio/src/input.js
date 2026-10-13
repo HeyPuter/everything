@@ -296,7 +296,9 @@ export class CanvasInput {
       dx *= 16;
       dy *= 16;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) {
+    // With Zoom with Mouse Wheel on, the plain wheel zooms and Alt/Command+wheel scrolls.
+    const wheelZooms = this.app.prefs?.get('zoomWithWheel') && !e.shiftKey;
+    if (wheelZooms ? !(e.altKey || e.metaKey) : e.ctrlKey || e.metaKey || e.altKey) {
       // Pinch on trackpads arrives as ctrl+wheel with small deltas.
       const factor = Math.exp(-dy * (e.ctrlKey && !e.metaKey && Math.abs(dy) < 50 ? 0.01 : 0.0025));
       v.zoomAt(v.zoom * factor, sx, sy);

@@ -579,3 +579,19 @@
   justify-self: start;
   margin: 0;
 }
+
+.prefs-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.prefs-search {
+  width: 100%;
+}
+
+.prefs-tab[hidden],
+.prefs-main [hidden] {
+  display: none;
+}

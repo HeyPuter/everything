@@ -118,6 +118,18 @@ export function transformEach(editor, p, copy = false) {
   }
 }
 
+/** Zoom In/Out; with Zoom to Selection on (the default), the selection ends up in the middle of the window. */
+function stepZoom(editor, dir) {
+  const v = editor.view;
+  v.stepZoom(dir);
+  const b = editor.prefs?.get('zoomToSelection') !== false && editor.selection.size ? editor.selectionBounds(false) : null;
+  if (b) {
+    const s = v.toScreen(b.x + b.w / 2, b.y + b.h / 2);
+    v.set({ panX: v.panX + v.width / 2 - s.x, panY: v.panY + v.height / 2 - s.y });
+  }
+  editor.viewChanged();
+}
+
 export function registerCoreCommands(app) {
   const c = app.commands;
   let lastSelection = null;
@@ -235,8 +247,8 @@ export function registerCoreCommands(app) {
       run: () => ed().setViewOption('mode', ed().viewOptions.mode === 'outline' ? 'preview' : 'outline'),
     },
     viewToggle('view.pixelPreview', 'Pixel Preview', 'pixelPreview', 'Alt+Mod+Y'),
-    { id: 'view.zoomIn', label: 'Zoom In', shortcut: 'Mod+=', altShortcuts: ['Mod++', 'Shift+Mod+='], enabled: hasDoc, run: () => (ed().view.stepZoom(1), ed().viewChanged()) },
-    { id: 'view.zoomOut', label: 'Zoom Out', shortcut: 'Mod+-', enabled: hasDoc, run: () => (ed().view.stepZoom(-1), ed().viewChanged()) },
+    { id: 'view.zoomIn', label: 'Zoom In', shortcut: 'Mod+=', altShortcuts: ['Mod++', 'Shift+Mod+='], enabled: hasDoc, run: () => stepZoom(ed(), 1) },
+    { id: 'view.zoomOut', label: 'Zoom Out', shortcut: 'Mod+-', enabled: hasDoc, run: () => stepZoom(ed(), -1) },
     { id: 'view.fitArtboard', label: 'Fit Artboard in Window', shortcut: 'Mod+0', enabled: hasDoc, run: () => ed().fitArtboard() },
     { id: 'view.fitAll', label: 'Fit All in Window', shortcut: 'Alt+Mod+0', enabled: hasDoc, run: () => ed().fitAll() },
     { id: 'view.actualSize', label: 'Actual Size', shortcut: 'Mod+1', enabled: hasDoc, run: () => ed().actualSize() },

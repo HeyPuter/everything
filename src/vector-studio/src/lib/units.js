@@ -36,6 +36,9 @@ const TOKEN = /\s*(?:(\d+(?:\.\d*)?|\.\d+)(?:\s*(pt|px|inches|inch|in|"|mm|cm|pc
  * Parse a length expression into points. Bare numbers use `unit`.
  * Returns NaN when the text is not a valid expression.
  */
+/** Global parsing options: `bareUnit` reads numbers typed without a unit in that unit (Preferences). */
+export const unitOptions = { bareUnit: null };
+
 export function parseLength(text, unit = 'pt') {
   return evaluate(String(text ?? ''), (num, suffix, rest) => {
     let u = suffix;
@@ -48,7 +51,7 @@ export function parseLength(text, unit = 'pt') {
       return num * 12 + pts;
     }
     if (u === 'deg' || u === '°' || u === '%') return num;
-    return fromUnit(num, u || unit);
+    return fromUnit(num, u || unitOptions.bareUnit || unit);
   });
 }
 

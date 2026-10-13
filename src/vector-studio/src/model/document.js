@@ -409,7 +409,7 @@ export class VDocument extends Emitter {
       time: Date.now(),
     };
     this.undoStack.push(record);
-    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+    while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
     this.revision++;
     this.emit('transaction', { label: tx.label, before: tx.before, after });
