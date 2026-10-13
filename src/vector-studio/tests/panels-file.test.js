@@ -168,6 +168,11 @@ describe('Package', () => {
     expect(names).toContain('Poster/Report.txt');
     expect(report).toMatch(/Inter 700/);
     expect(report).toMatch(/logo\.png/);
+    // Package options: folder name, images at the top level or left out, no report.
+    const flat = (await packageEntries(app, ed, { includeFonts: false, linksFolder: false, report: false, folder: 'Out' })).entries.map((e) => e.name);
+    expect(flat).toEqual(['Out/Poster.vstudio', 'Out/logo.png']);
+    const bare = (await packageEntries(app, ed, { includeFonts: false, copyLinks: false })).entries.map((e) => e.name);
+    expect(bare).toEqual(['Poster/Poster.vstudio', 'Poster/Report.txt']);
   });
 });
 
