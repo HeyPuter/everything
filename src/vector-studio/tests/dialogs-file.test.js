@@ -118,3 +118,29 @@ describe('Export for Screens', () => {
     await done;
   });
 });
+
+describe('Document Setup type options', () => {
+  it('turns typed straight quotes into the document quotes', async () => {
+    const { typedQuote } = await import('../src/features/files/type-setup.js');
+    expect(typedQuote({}, 'say ', 4, '"')).toBe('“');
+    expect(typedQuote({}, 'say “hi', 7, '"')).toBe('”');
+    expect(typedQuote({}, 'it', 2, "'")).toBe('’');
+    const de = { typeOptions: { language: 'de', double: '„“', single: '‚‘', quotes: true } };
+    expect(typedQuote(de, '', 0, '"')).toBe('„');
+    expect(typedQuote({ typeOptions: { quotes: false } }, '', 0, '"')).toBe('"');
+  });
+
+  it('sets the language and quotes in Document Setup', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const done = app.commands.run('file.documentSetup');
+    const d = await waitDialog();
+    const lang = d.querySelector('#ds-lang');
+    lang.value = 'fr';
+    lang.dispatchEvent(new Event('change'));
+    expect(d.querySelector('#ds-dq').value).toBe('«»');
+    button('OK').click();
+    await done;
+    expect(app.editor.doc.root.typeOptions).toMatchObject({ language: 'fr', double: '«»', quotes: true });
+  });
+});

@@ -10,6 +10,7 @@
  * drawn on the overlay canvas.
  */
 import { h } from '../../lib/dom.js';
+import { typedQuote } from '../files/type-setup.js';
 import { IS_MAC, eventKey } from '../../commands/registry.js';
 import { editLayout, caretPosition, hitTestText, selectionPolygons, lineIndexOf, indexInLine } from '../../model/text-layout.js';
 import { replaceRange, overridesAt, wordAt, prevWordIndex, nextWordIndex, paragraphRanges, paragraphIndexAt } from '../../model/text-runs.js';
@@ -216,6 +217,8 @@ export class TextSession {
     if (!n) return;
     text = String(text).replace(/\r\n?/g, '\n');
     const [a, b] = this.range();
+    // Straight quotes typed become the document's typographer's quotes (Document Setup).
+    if (kind === 'typing' && (text === '"' || text === "'")) text = typedQuote(this.doc.root, n.text, a, text);
     if (kind !== this.lastKind) this.burst++;
     this.lastKind = kind;
     const coalesce = kind === 'paste' ? null : `type:${this.id}:${this.burst}`;
