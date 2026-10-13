@@ -141,6 +141,30 @@ describe('photo restoration', () => {
     };
     for (let c = 0; c < 3; c++) expect(range(out, c)).toBeGreaterThan(range(faded, c) * 2);
   });
+  it('leaves near-uniform channels alone instead of stretching their noise', () => {
+    // A flat gray card with slight grain: its channels span only a few levels.
+    const g = rng(11);
+    const flat = image(64, 64, () => {
+      const v = 128 + (g() + g() + g() - 1.5) * 4;
+      return [v, v + 2, v - 2];
+    });
+    const out = repairFade(flat, 100);
+    const sd = (img: RGBA8, c: number) => {
+      let s = 0, s2 = 0;
+      const n = img.width * img.height;
+      for (let i = c; i < img.data.length; i += 4) (s += img.data[i]), (s2 += img.data[i] ** 2);
+      return Math.sqrt(s2 / n - (s / n) ** 2);
+    };
+    for (let c = 0; c < 3; c++) {
+      expect(sd(out, c)).toBeLessThan(sd(flat, c) * 1.6);
+      for (let i = c; i < out.data.length; i += 4) expect(Math.abs(out.data[i] - flat.data[i])).toBeLessThan(12);
+    }
+    // A channel with a moderate range is stretched only partly, a wide faded one fully.
+    const mixed = image(64, 64, (x) => [100 + x * 1.2, 128 + (x % 3), 90 + x * 0.6]);
+    const m = repairFade(mixed, 100);
+    expect(Math.abs(m.data[(10 * 64 + 63) * 4] - 255)).toBeLessThan(6);
+    for (let i = 1; i < m.data.length; i += 4) expect(Math.abs(m.data[i] - mixed.data[i])).toBeLessThan(12);
+  });
   it('finds the period of a print screen', () => {
     const dots = image(160, 96, (x, y) => {
       const v = (x % 6 < 3) !== (y % 6 < 3) ? 40 : 220;

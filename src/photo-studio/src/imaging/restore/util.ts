@@ -208,6 +208,13 @@ export function mixImages(a: RGBA8, b: RGBA8, t: number): RGBA8 {
   for (let i = 0; i < out.length; i++) out[i] = a.data[i] + (b.data[i] - a.data[i]) * t;
   return { width: a.width, height: a.height, data: out };
 }
+/** Give `out` the alpha of `src` (same size), in place: results that come
+ * from opaque images (AI results) must not fill a layer's transparent parts. */
+export function keepAlpha(out: RGBA8, src: RGBA8): RGBA8 {
+  const o = out.data, a = src.data;
+  for (let i = 3; i < o.length; i += 4) o[i] = a[i];
+  return out;
+}
 export function copyRGBA(img: RGBA8): RGBA8 {
   return { width: img.width, height: img.height, data: new Uint8ClampedArray(img.data) };
 }

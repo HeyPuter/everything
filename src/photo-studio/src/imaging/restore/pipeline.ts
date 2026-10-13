@@ -14,7 +14,7 @@ import { blurRadius, depthBlur, depthFromImage, estimateDepth, type DepthBlurOpt
 import { skinMask, skinScale, smoothSkin } from './skin';
 import { stylize, type ClassicStyle } from './stylize';
 import { colorTransfer } from './transfer';
-import { copyRGBA, differenceMask, gaussian, mixImages, mixMask, planeToMask, resizeRGBA, type Plane } from './util';
+import { copyRGBA, differenceMask, gaussian, keepAlpha, mixImages, mixMask, planeToMask, resizeRGBA, type Plane } from './util';
 
 export type RestoreContext = {
   // Pixels of the source per document pixel (previews run reduced).
@@ -99,10 +99,13 @@ async function stage(e: RestoreEntry, img: RGBA8, ctx: RestoreContext, first: bo
     case 'skin': {
       const area = str(e, 'area');
       const full = (): Mask8 => ({ width: img.width, height: img.height, data: new Uint8Array(img.width * img.height).fill(255) });
-      const mask = area === 'auto' ? memo(`skin-mask:${sig}:${e.params.tolerance}`, () => skinMask(img, { tolerance: num(e, 'tolerance') })) : area === 'selection' && ctx.selection ? ctx.selection : full();
+      // "Selection only" smooths everywhere here: the stack's result is limited
+      // by the selection at the end, and limiting it here too would apply a
+      // feathered selection twice. The overlay still shows the selection.
+      const mask = area === 'auto' ? memo(`skin-mask:${sig}:${e.params.tolerance}`, () => skinMask(img, { tolerance: num(e, 'tolerance') })) : full();
       const scale = area === 'auto' ? skinScale(mask) : Math.min(img.width, img.height) * 0.12;
       const smooth = smoothSkin(img, { smoothness: num(e, 'smoothness'), detail: num(e, 'detail'), tone: num(e, 'tone'), scale });
-      return { image: mixMask(img, smooth, mask), overlay: mask, area: mask };
+      return { image: area === 'auto' ? mixMask(img, smooth, mask) : smooth, overlay: area === 'selection' && ctx.selection ? ctx.selection : mask, area: mask };
     }
     case 'colorize': {
       const prior = str(e, 'source') === 'ai' && e.aux ? ctx.aux?.(e.aux) : undefined;
@@ -136,7 +139,8 @@ async function stage(e: RestoreEntry, img: RGBA8, ctx: RestoreContext, first: bo
       if (style === 'ai') {
         const ai = e.aux ? ctx.aux?.(e.aux) : undefined;
         if (!ai) return passthrough(img);
-        return { image: mixImages(img, ai.width === img.width && ai.height === img.height ? ai : resizeRGBA(ai, img.width, img.height), s) };
+        // The AI result is opaque: the layer keeps its own transparency.
+        return { image: keepAlpha(mixImages(img, ai.width === img.width && ai.height === img.height ? ai : resizeRGBA(ai, img.width, img.height), s), img) };
       }
       const styled = stylize(img, { style: style as ClassicStyle, brush: num(e, 'brush'), scale: ctx.scale, seed: ctx.seed }, progress);
       return { image: s >= 1 ? styled : mixImages(img, styled, s) };
@@ -150,7 +154,7 @@ async function stage(e: RestoreEntry, img: RGBA8, ctx: RestoreContext, first: bo
       const area = new Uint8Array(n);
       for (let i = 0; i < n; i++) area[i] = Math.round(255 * s * (keep ? 1 - keep.data[i] / 255 : 1));
       const m = { width: img.width, height: img.height, data: area };
-      return { image: mixMask(img, copyRGBA(gen), m), overlay: m, area: m };
+      return { image: keepAlpha(mixMask(img, copyRGBA(gen), m), img), overlay: m, area: m };
     }
   }
 }
