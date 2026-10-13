@@ -171,6 +171,15 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 
 ## Artboards, frames, comps and slices (`src/features/layout/`)
 
+- Guides (`src/model/guides.ts`, `src/features/guides.ts`): canvas guides are
+  `doc.guides` in document coordinates; artboard guides are
+  `layer.artboard.guides`, offsets from the artboard's corner, so they move,
+  duplicate and disappear with it. `placedGuides` lists both in document
+  coordinates with selection keys (`c:<i>`, `a:<artboard>:<i>`); snapping uses
+  `guideLines`. A guide dropped on an artboard joins it. `migrateGuides` checks
+  guide lists when a project is read; older projects keep their guides as
+  canvas guides.
+
 - Artboards and frames are groups with `layer.artboard` / `layer.frame` data
   (`src/model/artboard.ts`, `src/model/frame.ts`). Artboards stay at the top level.
   The compositor (`Renderer.groupSource`) draws an artboard's background and clips
@@ -246,6 +255,14 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   layer, mask, live-filter, channel and selection grids as one history step.
 
 ## Type on paths and variables
+
+- Block text (`textData.block`) is laid out as point text and then each line is
+  scaled about its left end to one width and stacked by capital height
+  (`imaging/text/block-text.ts`), so shaping and carets are unchanged.
+- In vertical text `CharStyle.vertical` sets Latin and digits upright, rotated
+  sideways (runs with `angle`, advancing by their width) or, for 'combine', runs
+  of up to three characters set horizontally in one cell (`verticalForms` in
+  `layout.ts`); ideographs always stay upright.
 
 - Path and area text keep their path in `textData.path` (`TypePath`, local text space).
   `layoutText` lays path text out straight and bends it onto the path

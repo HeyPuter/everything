@@ -14,7 +14,7 @@ trade-offs behind it.
 | Assign / Convert to Profile | `edit.assign-profile`, `edit.convert-profile` | `features/color/settings.ts` |
 | Image modes | `image.mode-*`, `image.color-table` | `features/color/modes.ts`, `convert.ts` |
 | Bit depth | `image.depth-8`, `image.depth-16`, `image.depth-32` | `features/color/docops.ts` |
-| Proofing | `view.proof-custom`, `view.proof-cmyk`, `view.proof-monitor-rgb`, `view.proof-colors` (Mod+Y), `view.gamut-warning` (Mod+Shift+Y) | `features/color/proof.ts` |
+| Proofing | `view.proof-custom`, `view.proof-cmyk`, `view.proof-srgb`, `view.proof-legacy-rgb`, `view.proof-monitor-rgb`, `view.proof-colors` (Mod+Y), `view.gamut-warning` (Mod+Shift+Y) | `features/color/proof.ts` |
 | Mode-aware export | `file.export-cmyk-tiff`, `file.export-mode-tiff`, `file.export-mode-png` | `features/color/export.ts`, `encode.ts` |
 | Swatch libraries | `swatches.library-*`, `swatches.harmony-*` | `features/color/swatches.ts` |
 
@@ -106,7 +106,11 @@ color and black ink options. It is baked into a 33-point 3D LUT. The renderer
 applies the LUT after compositing (`Renderer.setDisplayLut`, a `lutPass` into
 a display texture) and presents the result. The composited document texture
 is never changed, so exports, pixel readbacks and the eyedropper still see
-document values. Monitor RGB shows the document values without conversion. The
+document values. Monitor RGB shows the document values without conversion.
+Standard Web RGB (sRGB) and Legacy RGB (Gamma 1.8) keep the document's numbers
+but read them in that profile (a generated gamma 1.8 profile with D65 white and
+the phosphors of older desktop displays), showing how an untagged copy looks in
+software that ignores embedded profiles or on such a display. The
 duotone preview uses the same pass. Proof settings belong to each open
 document, and the tab shows `Proof: <name>` while proofing is on.
 
