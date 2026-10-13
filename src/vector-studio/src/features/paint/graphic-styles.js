@@ -2,11 +2,17 @@
  * Graphic styles: named appearances (fill, stroke and stroke options,
  * opacity, blending and effects) stored in doc.root.graphicStyles. New
  * documents show the built-in defaults until the list is edited.
+ *
+ * Applying a style links the object to it (node.graphicStyle = id). The
+ * link holds while the object's appearance still matches the style, so
+ * any later appearance edit breaks it; Redefine Graphic Style updates the
+ * style and every object still linked to it.
  */
 import { pickStyle } from '../../model/nodes.js';
 import { applyStyleDeep } from '../../tools/navigation.js';
 import { uid } from '../../lib/ids.js';
 import { createEffect } from './effects-model.js';
+import { matchesStyle } from '../panels/select-commands.js';
 
 const solid = (color) => ({ type: 'solid', color });
 
@@ -62,26 +68,82 @@ export function styleOfNode(doc, node) {
  */
 const STROKE_RESET = { strokeCap: 'butt', strokeJoin: 'miter', miterLimit: 10, strokeAlign: 'center', dash: [], dashOffset: 0, dashAlign: undefined, arrowStart: null, arrowEnd: null };
 
-/** Apply a graphic style to the top-level selection. */
-export function applyGraphicStyle(editor, style) {
+/** Apply a graphic style to the top-level selection, linking it when `id` is given. */
+export function applyGraphicStyle(editor, style, id = null) {
   const doc = editor.doc;
-  const top = editor.topSelection().map((id) => doc.get(id)).filter((n) => n && n.type !== 'layer');
+  const top = editor.topSelection().map((nid) => doc.get(nid)).filter((n) => n && n.type !== 'layer');
+  editor.setStyle(structuredClone(style));
+  if (!top.length) return;
+  doc.transact('Apply Graphic Style', () => applyStyleTo(doc, top, style, id));
+}
+
+/** Apply a style to nodes (inside a transaction). */
+export function applyStyleTo(doc, nodes, style, id = null) {
   const paintPatch = { ...STROKE_RESET, ...style };
   delete paintPatch.effects;
   delete paintPatch.opacity;
   delete paintPatch.blendMode;
-  editor.setStyle(structuredClone(style));
-  if (!top.length) return;
-  doc.transact('Apply Graphic Style', () => {
-    for (const n of top) {
-      const own = { effects: structuredClone(style.effects || []), opacity: style.opacity ?? 1, blendMode: style.blendMode || 'normal' };
-      if (n.type === 'group') {
-        for (const c of n.children) applyStyleDeep(doc, doc.get(c), structuredClone(paintPatch));
-        doc.update(n.id, own);
-      } else if (n.type === 'image') doc.update(n.id, own);
-      else applyStyleDeep(doc, n, { ...structuredClone(paintPatch), ...own });
-    }
+  for (const n of nodes) {
+    const own = { effects: structuredClone(style.effects || []), opacity: style.opacity ?? 1, blendMode: style.blendMode || 'normal', graphicStyle: id || undefined };
+    if (n.type === 'group') {
+      for (const c of n.children) applyStyleDeep(doc, doc.get(c), structuredClone(paintPatch));
+      doc.update(n.id, own);
+    } else if (n.type === 'image') doc.update(n.id, own);
+    else applyStyleDeep(doc, n, { ...structuredClone(paintPatch), ...own });
+  }
+}
+
+/** The graphic style a node is linked to (applied and not edited since), or null. */
+export function linkedStyle(doc, node) {
+  if (!node?.graphicStyle) return null;
+  const gs = graphicStylesOf(doc).find((s) => s.id === node.graphicStyle);
+  return gs && matchesStyle(doc, node, gs.style) ? gs : null;
+}
+
+/** Nodes in the document linked to a style. */
+export function styleUsers(doc, id) {
+  const out = [];
+  for (const n of doc.nodes.values()) if (n.graphicStyle === id && linkedStyle(doc, n)) out.push(n);
+  return out;
+}
+
+/** Styles no object in the document uses (by link or by matching appearance). */
+export function unusedGraphicStyleIds(doc) {
+  const list = graphicStylesOf(doc);
+  const nodes = [];
+  doc.walk((n) => {
+    if (n.type !== 'layer') nodes.push(n);
   });
+  return list.filter((gs) => !nodes.some((n) => n.graphicStyle === gs.id || matchesStyle(doc, n, gs.style))).map((gs) => gs.id);
+}
+
+/**
+ * One style combining several: later styles' fill and stroke settings win,
+ * effects stack in order, opacity multiplies and the last non-normal
+ * blending mode wins.
+ */
+export function mergeStyles(styles) {
+  const out = structuredClone(styles[0] || {});
+  out.effects = [...(out.effects || [])];
+  for (const st of styles.slice(1)) {
+    for (const [k, v] of Object.entries(st)) {
+      if (k === 'effects' || k === 'opacity' || k === 'blendMode') continue;
+      if (k === 'fill' || k === 'stroke') {
+        if (v) out[k] = structuredClone(v);
+      } else if (v !== undefined) out[k] = structuredClone(v);
+    }
+    out.effects.push(...structuredClone(st.effects || []));
+    out.opacity = (out.opacity ?? 1) * (st.opacity ?? 1);
+    if (st.blendMode && st.blendMode !== 'normal') out.blendMode = st.blendMode;
+  }
+  if (out.stroke && !(out.strokeWidth > 0)) out.strokeWidth = 1;
+  return out;
+}
+
+/** Sort styles by name (natural order). */
+export function sortStylesByName(list) {
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return list.slice().sort((a, b) => coll.compare(a.name, b.name));
 }
 
 /** Write the list (materializing the defaults on first edit). */

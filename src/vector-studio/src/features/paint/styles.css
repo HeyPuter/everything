@@ -1060,6 +1060,28 @@
   border: 1px solid var(--border);
 }
 
+.ap-thumb[hidden] {
+  display: none;
+}
+
+.ap-head-text {
+  display: grid;
+  min-width: 0;
+}
+
+.ap-style {
+  font-weight: 400;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-style[hidden] {
+  display: none;
+}
+
 .ap-list {
   display: grid;
   gap: 1px;
@@ -1148,6 +1170,65 @@
   display: block;
   width: 46px;
   height: 46px;
+}
+
+.gst-grid.view-smallList,
+.gst-grid.view-largeList {
+  grid-template-columns: 1fr;
+  gap: 1px;
+}
+
+.gst-grid.view-smallList .gst-item,
+.gst-grid.view-largeList .gst-item {
+  width: 100%;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.gst-grid.view-smallList .gst-item canvas {
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+}
+
+.gst-grid.view-largeList .gst-item canvas {
+  width: 40px;
+  height: 40px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+}
+
+.gst-grid.view-smallList .gst-item:hover,
+.gst-grid.view-largeList .gst-item:hover {
+  background: var(--bg-hover);
+}
+
+.gst-grid.view-smallList .gst-item[aria-selected='true'],
+.gst-grid.view-largeList .gst-item[aria-selected='true'] {
+  outline: none;
+  background: var(--bg-selected);
+}
+
+.gst-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gst-lib-grid {
+  max-width: 280px;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 /* ---- Edit Colors dialogs ---- */

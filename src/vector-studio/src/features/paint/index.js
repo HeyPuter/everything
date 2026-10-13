@@ -21,7 +21,7 @@ import { GradientPanel } from './gradient-panel.js';
 import { StrokePanel } from './stroke-panel.js';
 import { TransparencyPanel, registerTransparencyCommands } from './transparency-panel.js';
 import { installOpacityMasks } from './opacity-mask.js';
-import { AppearancePanel, GraphicStylesPanel } from './appearance-panel.js';
+import { AppearancePanel, GraphicStylesPanel, graphicStyleLibraryMenu } from './appearance-panel.js';
 import { GradientTool } from './gradient-tool.js';
 import { registerEffectCommands } from './effects-ui.js';
 import { registerEditColorCommands } from './edit-colors-ui.js';
@@ -89,6 +89,21 @@ export function install(app) {
   installRecentColors(app);
   installOpacityMasks();
   registerTransparencyCommands(app);
+
+  // New Art Has Basic Appearance (on by default): new paths leave out the current effects.
+  const syncBasic = () => {
+    for (const ed of app.editors?.values?.() || [app.editor]) if (ed) ed.basicNewArt = app.prefs.get('newArtBasic') !== false;
+  };
+  app.on('active-editor', syncBasic);
+  app.prefs.on('change', ({ key }) => key === 'newArtBasic' && syncBasic());
+
+  // Window > Graphic Style Libraries: open a library in the Graphic Styles panel.
+  app.menuSources.set('graphicStyleLibraries', (a) =>
+    graphicStyleLibraryMenu(a, (lib) => {
+      a.openPanel('graphicStyles');
+      a.dock.panels.get('graphicStyles')?.openLibrary(lib);
+    }),
+  );
 
   // Window > Swatch Libraries: open a library in the Swatches panel.
   app.menuSources.set('swatchLibraries', (a) =>

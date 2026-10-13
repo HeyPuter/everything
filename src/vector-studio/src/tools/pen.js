@@ -20,9 +20,15 @@ import { drawAnchor, layerColor } from '../render/overlay.js';
 import { findAnchorOrHandle, isSmooth } from './direct-selection.js';
 import { removeEmptyContainers } from '../ops/object-ops.js';
 
-/** Style for new paths drawn with the current paint settings. */
+/**
+ * Style for new paths drawn with the current paint settings. With
+ * `editor.basicNewArt` (New Art Has Basic Appearance) they leave out the
+ * current effects.
+ */
 export function newPathStyle(editor) {
-  return pickStyle(editor.style);
+  const style = pickStyle(editor.style);
+  if (editor.basicNewArt && style.effects?.length) style.effects = [];
+  return style;
 }
 
 /** Selected, unlocked paths (for auto add/delete). */
