@@ -65,7 +65,7 @@
   padding: 6px 10px;
   background: var(--bg-panel-2);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   z-index: 1;
 }

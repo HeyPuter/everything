@@ -160,7 +160,7 @@
 
 .newdoc-details-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -456,7 +456,7 @@
 
 .prefs-title {
   margin: 2px 0 12px;
-  font-size: 14px;
+  font-size: var(--fs-title);
   font-weight: 600;
 }
 
@@ -638,7 +638,7 @@
 
 .brightness-swatches {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .brightness-swatch {

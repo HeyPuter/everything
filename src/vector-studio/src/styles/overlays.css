@@ -100,7 +100,7 @@
 
 .dialog-title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-title);
   font-weight: 600;
 }
 
@@ -331,7 +331,7 @@
 
 .home-h2 {
   margin: 24px 0 12px;
-  font-size: 14px;
+  font-size: var(--fs-title);
   font-weight: 600;
 }
 

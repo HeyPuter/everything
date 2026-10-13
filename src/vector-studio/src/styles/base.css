@@ -205,6 +205,20 @@ textarea:focus {
   box-shadow: 0 0 0 1px var(--focus);
 }
 
+/* Disabled fields look like disabled buttons (once: not again inside an already dimmed group). */
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fx-disabled :disabled,
+.panel-body.disabled :disabled,
+.panel-tabs.disabled :disabled {
+  opacity: 1;
+}
+
 input[type='checkbox'],
 input[type='radio'] {
   accent-color: var(--accent);
