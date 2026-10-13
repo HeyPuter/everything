@@ -12,7 +12,8 @@ import {
   type Library,
   type LibraryItem,
 } from '../src/features/libraries/model';
-import { LibraryRepository, MemoryLocalStore, PuterLibraryCloud } from '../src/features/libraries/storage';
+import { compactOps, LibraryRepository, MemoryLocalStore, PuterLibraryCloud } from '../src/features/libraries/storage';
+import type { QueuedOp, LibraryOp, LibraryIndex } from '../src/features/libraries/model';
 import { sha256Hex } from '../src/model/provenance';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -74,6 +75,46 @@ describe('library model', () => {
     expect(idx.libraries[0].name).toBe('B');
   });
 
+  it('never duplicates an item when a put is replayed after it moved', () => {
+    let idx = applyOps(emptyIndex(), [{ op: 'create-library', library: lib('A', 'A') }, { op: 'create-library', library: lib('B', 'B') }]);
+    const put: LibraryOp = { op: 'put-item', library: 'A', item: color('x', 'Red', '#ff0000', 1) };
+    const move: LibraryOp = { op: 'move-item', from: 'A', to: 'B', id: 'x', at: at(2) };
+    idx = applyOps(idx, [put, move]);
+    // Replaying both (a sync replays recent edits) changes nothing.
+    const again = applyOps(idx, [put, move]);
+    expect(again.libraries.map((l) => [l.id, l.items.map((i) => i.id)])).toEqual([['A', []], ['B', ['x']]]);
+    // A newer put (redefine) updates the item where it is now.
+    const redefined = applyOps(again, [{ op: 'put-item', library: 'A', item: color('x', 'Dark Red', '#880000', 3) }]);
+    expect(redefined.libraries.map((l) => [l.id, l.items.map((i) => i.name)])).toEqual([['A', []], ['B', ['Dark Red']]]);
+    // Deleting finds it wherever it is.
+    expect(findItem(applyOps(redefined, [{ op: 'delete-item', library: 'A', id: 'x', at: at(4) }]), 'x')).toBeUndefined();
+  });
+
+  it('never lets an older move undo a newer one', () => {
+    let idx = applyOps(emptyIndex(), [
+      { op: 'create-library', library: lib('A', 'A', [color('x', 'Red', '#ff0000'), color('y', 'Blue', '#0000ff')]) },
+      { op: 'create-library', library: lib('B', 'B') },
+      { op: 'create-library', library: lib('C', 'C') },
+    ]);
+    idx = applyOps(idx, [{ op: 'move-item', from: 'A', to: 'C', id: 'x', at: at(5) }]);
+    idx = applyOps(idx, [{ op: 'move-item', from: 'A', to: 'B', id: 'x', at: at(2) }]);
+    expect(findItem(idx, 'x')!.library.id).toBe('C');
+    // Reorders too: replaying one already applied keeps later changes.
+    idx = applyOps(idx, [{ op: 'move-item', from: 'A', to: 'C', id: 'y', at: at(6) }]);
+    const reorder: LibraryOp = { op: 'move-item', from: 'C', to: 'C', id: 'y', before: 'x', at: at(7) };
+    idx = applyOps(idx, [reorder, { op: 'move-item', from: 'C', to: 'C', id: 'x', before: 'y', at: at(8) }]);
+    expect(idx.libraries[2].items.map((i) => i.id)).toEqual(['x', 'y']);
+    expect(applyOps(idx, [reorder]).libraries[2].items.map((i) => i.id)).toEqual(['x', 'y']);
+    // Libraries as well.
+    idx = applyOps(idx, [{ op: 'move-library', id: 'C', before: 'A', at: at(9) }]);
+    expect(applyOps(idx, [{ op: 'move-library', id: 'C', at: at(3) }]).libraries.map((l) => l.id)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('heals an index that stores an item twice', () => {
+    const idx = validIndex({ version: 1, revision: 1, libraries: [lib('A', 'A', [color('x', 'Red', '#ff0000')]), lib('B', 'B', [color('x', 'Red', '#ff0000'), color('x', 'Red', '#ff0000')])], deleted: {} });
+    expect(idx!.libraries.map((l) => l.items.length)).toEqual([1, 0]);
+  });
+
   it('searches, groups and names', () => {
     const items = [color('a', 'Ocean Blue', '#0044aa'), { ...color('b', 'Sunset', '#ff8800'), type: 'gradient' as const, data: {} }, color('c', 'Sand', '#ddcc99')];
     expect(searchItems(items, 'blue').map((i) => i.id)).toEqual(['a']);
@@ -123,7 +164,8 @@ describe('library storage and sync', () => {
     const idx = await repo.sync();
     expect(idx.libraries.map((l) => l.name)).toEqual(['Mine']);
     expect(repo.status.state).toBe('local');
-    expect((await repo.local.read()).pending).toEqual([]);
+    // The edit stays queued until a cloud write takes it.
+    expect((await repo.local.read()).pending.length).toBe(1);
   });
 
   it('shares libraries between devices through the cloud copy, with assets', async () => {
@@ -210,6 +252,92 @@ describe('library storage and sync', () => {
     expect(stored.libraries.map((l: Library) => l.name)).toEqual(['Offline Work']);
   });
 
+  it('keeps edits made while signed out to libraries the cloud copy has', async () => {
+    const fs = new FakeFs();
+    let signedIn = true;
+    const a = device(fs, () => signedIn);
+    await a.apply([{ op: 'create-library', library: lib('L', 'Brand') }]);
+    await a.sync();
+    signedIn = false;
+    await a.apply([{ op: 'put-item', library: 'L', item: color('y', 'Blue', '#0000ff', 5) }, { op: 'rename-library', id: 'L', name: 'Brand Kit', at: new Date().toISOString() }]);
+    await a.sync();
+    expect((await a.index()).libraries[0].items.map((i) => i.id)).toEqual(['y']);
+    signedIn = true;
+    const after = await a.sync();
+    expect(a.status.state).toBe('synced');
+    expect(after.libraries.map((l) => [l.name, l.items.map((i) => i.id)])).toEqual([['Brand Kit', ['y']]]);
+    const stored = JSON.parse(await fs.files.get('libraries/index.json')!.text());
+    expect(stored.libraries.map((l: Library) => [l.name, l.items.map((i) => i.id)])).toEqual([['Brand Kit', ['y']]]);
+    expect((await a.local.read()).pending).toEqual([]);
+  });
+
+  it('puts back items whose queued edit was lost (older versions cleared the queue)', async () => {
+    const fs = new FakeFs();
+    const a = device(fs);
+    await a.apply([{ op: 'create-library', library: lib('L', 'Brand', [color('x', 'Red', '#ff0000')]) }]);
+    await a.sync();
+    // The working copy has an item and a newer copy of another, with no queued edit.
+    await a.local.update((s) => {
+      s.index.libraries[0].items.push(color('y', 'Blue', '#0000ff', 5));
+      s.index.libraries[0].items[0] = color('x', 'Crimson', '#dd0000', 6);
+    });
+    // Elsewhere an item was deleted: it is not brought back.
+    const b = device(fs);
+    await b.sync();
+    await b.apply([{ op: 'put-item', library: 'L', item: color('z', 'Gone', '#00ff00', 7) }]);
+    await b.sync();
+    await b.apply([{ op: 'delete-item', library: 'L', id: 'z', at: at(8) }]);
+    await b.sync();
+    await a.local.update((s) => void s.index.libraries[0].items.push(color('z', 'Gone', '#00ff00', 7)));
+    const after = await a.sync();
+    expect(after.libraries[0].items.map((i) => i.name)).toEqual(['Crimson', 'Blue']);
+  });
+
+  it('never drops queued edits: a long queue is compacted', async () => {
+    const fs = new FakeFs();
+    const a = device(fs);
+    await a.apply([{ op: 'create-library', library: lib('L', 'Many') }]);
+    await a.sync();
+    // Puter stops answering: edits queue up.
+    const read = fs.read.bind(fs);
+    fs.read = () => new Promise(() => {});
+    for (let n = 0; n < 400; n++) await a.apply([{ op: 'put-item', library: 'L', item: color(`c${n}`, `C${n}`, '#123456', n) }]);
+    // Renaming one item many times collapses into its first put.
+    for (let n = 0; n < 200; n++) await a.apply([{ op: 'put-item', library: 'L', item: color('c0', `Renamed ${n}`, '#123456', 1000 + n) }]);
+    expect((await a.local.read()).pending.length).toBeLessThanOrEqual(400);
+    await a.sync();
+    expect(a.status.state).toBe('offline');
+    fs.read = read;
+    const after = await a.sync();
+    expect(a.status.state).toBe('synced');
+    expect(after.libraries[0].items.length).toBe(400);
+    expect(after.libraries[0].items[0].name).toBe('Renamed 199');
+    const stored = JSON.parse(await fs.files.get('libraries/index.json')!.text());
+    expect(stored.libraries[0].items.length).toBe(400);
+  });
+
+  it('compacts a queue to one with the same result', () => {
+    const q = (o: LibraryOp, n: number) => ({ ...o, opId: `o${n}` }) as QueuedOp;
+    const ops: QueuedOp[] = [
+      q({ op: 'create-library', library: lib('A', 'A') }, 0),
+      q({ op: 'create-library', library: lib('B', 'B') }, 1),
+      q({ op: 'put-item', library: 'A', item: color('x', 'X1', '#000001', 1) }, 2),
+      q({ op: 'put-item', library: 'A', item: color('y', 'Y1', '#000002', 2) }, 3),
+      q({ op: 'rename-library', id: 'A', name: 'A1', at: at(3) }, 4),
+      q({ op: 'move-item', from: 'A', to: 'B', id: 'x', at: at(4) }, 5),
+      q({ op: 'put-item', library: 'B', item: color('x', 'X2', '#000003', 5) }, 6),
+      q({ op: 'rename-library', id: 'A', name: 'A2', at: at(6) }, 7),
+      q({ op: 'put-item', library: 'A', item: color('z', 'Z', '#000004', 7), before: 'y' }, 8),
+      q({ op: 'move-item', from: 'A', to: 'A', id: 'y', before: 'z', at: at(8) }, 9),
+      q({ op: 'delete-item', library: 'A', id: 'y', at: at(9) }, 10),
+      q({ op: 'put-item', library: 'A', item: color('z', 'Z2', '#000005', 10) }, 11),
+    ];
+    const short = compactOps(ops);
+    expect(short.length).toBeLessThan(ops.length);
+    const bases: LibraryIndex[] = [emptyIndex(), applyOps(emptyIndex(), ops.slice(0, 6)), applyOps(emptyIndex(), [ops[0], ops[1], q({ op: 'put-item', library: 'A', item: color('x', 'Newer', '#000009', 50) }, 99)])];
+    for (const base of bases) expect(applyOps(base, short)).toEqual(applyOps(base, ops));
+  });
+
   it('keeps working in the browser when Puter does not answer', async () => {
     const fs = new FakeFs();
     fs.read = () => new Promise(() => {});
@@ -220,6 +348,28 @@ describe('library storage and sync', () => {
     expect(a.status.state).toBe('offline');
     // The edit stays queued for the next sync.
     expect((await a.local.read()).pending.length).toBe(1);
+  });
+
+  it('does not duplicate items or revert moves when replaying recent edits', async () => {
+    const fs = new FakeFs();
+    const a = device(fs);
+    await a.apply([{ op: 'create-library', library: lib('A', 'A') }, { op: 'create-library', library: lib('B', 'B') }]);
+    await a.sync();
+    await a.apply([{ op: 'put-item', library: 'A', item: color('x', 'Red', '#ff0000', 1) }]);
+    await a.sync();
+    await a.apply([{ op: 'move-item', from: 'A', to: 'B', id: 'x', at: at(2) }]);
+    await a.sync();
+    await a.apply([{ op: 'rename-library', id: 'A', name: 'A2', at: new Date().toISOString() }]);
+    await a.sync();
+    const stored = JSON.parse(await fs.files.get('libraries/index.json')!.text()) as LibraryIndex;
+    expect(stored.libraries.map((l) => [l.name, l.items.map((i) => i.id)])).toEqual([['A2', []], ['B', ['x']]]);
+    // Another device moves it on; this one's recent (older) move is not replayed over it.
+    const b = device(fs);
+    await b.sync();
+    await b.apply([{ op: 'create-library', library: lib('C', 'C') }, { op: 'move-item', from: 'B', to: 'C', id: 'x', at: new Date(Date.now() + 1000).toISOString() }]);
+    await b.sync();
+    const final = await a.sync();
+    expect(final.libraries.map((l) => [l.id, l.items.map((i) => i.id)])).toEqual([['A', []], ['B', []], ['C', ['x']]]);
   });
 
   it('reports a damaged cloud index without losing local work', async () => {

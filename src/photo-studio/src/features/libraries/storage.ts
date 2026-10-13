@@ -10,7 +10,8 @@ import { applyOps, emptyIndex, referencedAssets, validIndex, type LibraryIndex, 
 
 export type LocalState = {
   index: LibraryIndex;
-  // Edits not yet written to the cloud copy (oldest first).
+  // Edits not yet written to the cloud copy (oldest first). Kept while
+  // signed out too, so they are replayed on the cloud copy after sign-in.
   pending: QueuedOp[];
   // Library IDs the cloud copy had at the last sync.
   cloudKnown: string[];
@@ -22,7 +23,8 @@ export type LocalState = {
   recent: (QueuedOp & { sent: number })[];
 };
 export const emptyLocalState = (): LocalState => ({ index: emptyIndex(), pending: [], cloudKnown: [], uploaded: [], recent: [] });
-const MAX_PENDING = 300;
+// Past this many queued edits the queue is compacted (never truncated).
+const COMPACT_AT = 300;
 const MAX_RECENT = 200;
 const RECENT_MS = 10 * 60_000;
 
@@ -202,6 +204,73 @@ export class PuterLibraryCloud implements CloudLibraryStore {
 export type SyncState = 'local' | 'syncing' | 'synced' | 'offline' | 'error';
 export type SyncStatus = { state: SyncState; message: string; at?: number };
 
+/** Put-item edits for items of `own` that `target` lacks or has an older copy of. */
+function missingItems(own: LibraryIndex, target: LibraryIndex): LibraryOp[] {
+  const have = new Map<string, string>();
+  for (const l of target.libraries) for (const i of l.items) have.set(i.id, i.modified);
+  const ops: LibraryOp[] = [];
+  for (const l of own.libraries)
+    l.items.forEach((item, k) => {
+      const t = have.get(item.id);
+      if (target.deleted[item.id] || (t !== undefined && t >= item.modified)) return;
+      ops.push({ op: 'put-item', library: l.id, item, before: l.items[k + 1]?.id });
+    });
+  return ops;
+}
+
+/** A shorter queue with the same result on any index: only the last rename
+ * of a library is kept, later content of an item goes into its earlier put
+ * (so a new item keeps its place), and earlier edits of a deleted item are
+ * dropped. Moves depend on the order of their neighbours and are kept. */
+export function compactOps(ops: readonly QueuedOp[]): QueuedOp[] {
+  const out: (QueuedOp | undefined)[] = [...ops];
+  const rename = new Map<string, number>();
+  const firstPut = new Map<string, number>();
+  const ofItem = new Map<string, number[]>();
+  const note = (id: string, i: number) => {
+    const list = ofItem.get(id);
+    if (list) list.push(i);
+    else ofItem.set(id, [i]);
+  };
+  ops.forEach((o, i) => {
+    switch (o.op) {
+      case 'rename-library': {
+        // The last rename has the latest time: it wins wherever an earlier one would.
+        const prev = rename.get(o.id);
+        if (prev !== undefined) out[prev] = undefined;
+        rename.set(o.id, i);
+        return;
+      }
+      case 'put-item': {
+        const first = firstPut.get(o.item.id);
+        const target = first === undefined ? undefined : out[first];
+        if (target?.op === 'put-item' && o.item.modified >= target.item.modified) {
+          out[first!] = { ...target, item: o.item };
+          out[i] = undefined;
+          return;
+        }
+        if (first === undefined) firstPut.set(o.item.id, i);
+        note(o.item.id, i);
+        return;
+      }
+      case 'move-item':
+        // Later content no longer merges back past a move (the library it
+        // lands in would differ).
+        firstPut.delete(o.id);
+        note(o.id, i);
+        return;
+      case 'delete-item':
+        // Deleting finds the item anywhere and its tombstone blocks later
+        // puts, so earlier edits of it no longer matter.
+        for (const k of ofItem.get(o.id) ?? []) out[k] = undefined;
+        ofItem.set(o.id, [i]);
+        firstPut.delete(o.id);
+        return;
+    }
+  });
+  return out.filter((o): o is QueuedOp => !!o);
+}
+
 const sameContent = (a: LibraryIndex, b: LibraryIndex) => JSON.stringify({ ...a, revision: 0, writer: '' }) === JSON.stringify({ ...b, revision: 0, writer: '' });
 
 /** Working copy plus optional cloud copy, with queued edits and sync. */
@@ -228,7 +297,7 @@ export class LibraryRepository {
     const { state } = await this.local.update((s) => {
       s.index = applyOps(s.index, ops);
       s.pending.push(...queued);
-      if (s.pending.length > MAX_PENDING) s.pending.splice(0, s.pending.length - MAX_PENDING);
+      if (s.pending.length > COMPACT_AT) s.pending = compactOps(s.pending);
     });
     return state.index;
   }
@@ -255,10 +324,9 @@ export class LibraryRepository {
   private async runSync(): Promise<LibraryIndex> {
     const cloud = this.cloud();
     if (!cloud) {
-      const { state } = await this.local.update((s) => {
-        // Nothing to send edits to; they are already in the working copy.
-        s.pending = [];
-      });
+      // Nothing to send edits to: they stay queued (they are already in the
+      // working copy) until a cloud write succeeds after signing in.
+      const state = await this.local.read();
       this.setStatus('local', 'Saved in this browser');
       return state.index;
     }
@@ -271,10 +339,14 @@ export class LibraryRepository {
         const now = Date.now();
         const recent = local.recent.filter((o) => now - o.sent < RECENT_MS);
         let next = applyOps(remote, [...recent, ...local.pending]);
-        // Libraries made here that the cloud copy never had (made while
-        // signed out, or beyond the queue's length) are added.
+        // Libraries made here that the cloud copy never had are added, and
+        // items of the working copy that the result lacks (or has an older
+        // copy of) are put back, unless deleted there: a safety net for
+        // edits whose queue was lost (versions that cleared it while signed
+        // out).
         for (const lib of local.index.libraries)
           if (!next.libraries.some((l) => l.id === lib.id) && !next.deleted[lib.id] && !local.cloudKnown.includes(lib.id)) next.libraries.push(structuredClone(lib));
+        next = applyOps(next, missingItems(local.index, next));
         // Content first, so the index never names a missing asset.
         const uploaded = new Set(local.uploaded);
         for (const h of referencedAssets(next)) {

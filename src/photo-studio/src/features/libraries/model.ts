@@ -44,8 +44,20 @@ export type LibraryItem = {
   // Asset hashes by role: "content" (pattern tile PNG, graphic project or
   // image) and "thumb" (a small PNG preview).
   assets?: Record<string, string>;
+  // When the item was last moved or reordered (ISO time): an older move
+  // replayed later never undoes a newer one.
+  moved?: string;
 };
-export type Library = { id: string; name: string; created: string; modified: string; items: LibraryItem[] };
+export type Library = {
+  id: string;
+  name: string;
+  created: string;
+  modified: string;
+  items: LibraryItem[];
+  // Times of the last rename and the last reorder (see `LibraryItem.moved`).
+  named?: string;
+  moved?: string;
+};
 export type LibraryIndex = {
   version: 1;
   // Incremented on every stored write; `writer` identifies the last writer.
@@ -64,7 +76,7 @@ export type LibraryOp =
   | { op: 'create-library'; library: Library }
   | { op: 'rename-library'; id: string; name: string; at: string }
   | { op: 'delete-library'; id: string; at: string }
-  | { op: 'move-library'; id: string; before?: string }
+  | { op: 'move-library'; id: string; before?: string; at?: string }
   | { op: 'put-item'; library: string; item: LibraryItem; before?: string }
   | { op: 'delete-item'; library: string; id: string; at: string }
   | { op: 'move-item'; from: string; to: string; id: string; before?: string; at: string };
@@ -93,16 +105,26 @@ export function applyOps(index: LibraryIndex, ops: readonly LibraryOp[]): Librar
 }
 function applyOp(index: LibraryIndex, o: LibraryOp) {
   const lib = (id: string) => index.libraries.find((l) => l.id === id);
+  // Item IDs are unique across libraries: every operation finds an item
+  // wherever it is now, so replaying an edit never makes a second copy.
+  const locate = (id: string) => {
+    for (const l of index.libraries) {
+      const i = l.items.findIndex((x) => x.id === id);
+      if (i >= 0) return { l, i };
+    }
+  };
   switch (o.op) {
     case 'create-library': {
       if (index.deleted[o.library.id] || lib(o.library.id) || index.libraries.length >= MAX_LIBRARIES) return;
-      index.libraries.push(structuredClone(o.library));
+      const copy = structuredClone(o.library);
+      copy.items = copy.items.filter((i) => !index.deleted[i.id] && !locate(i.id));
+      index.libraries.push(copy);
       return;
     }
     case 'rename-library': {
       const l = lib(o.id);
       // The later rename wins.
-      if (l && o.at >= l.modified) Object.assign(l, { name: o.name, modified: o.at });
+      if (l && o.at >= (l.named ?? '')) Object.assign(l, { name: o.name, named: o.at, modified: maxTime(l.modified, o.at) });
       return;
     }
     case 'delete-library': {
@@ -113,24 +135,41 @@ function applyOp(index: LibraryIndex, o: LibraryOp) {
     case 'move-library': {
       const l = lib(o.id);
       if (!l || o.before === o.id) return;
+      // The later move wins; replaying one already applied changes nothing.
+      if (o.at !== undefined) {
+        if (l.moved !== undefined && o.at <= l.moved) return;
+        l.moved = o.at;
+      }
       index.libraries = index.libraries.filter((x) => x !== l);
       insertBefore(index.libraries, l, o.before);
       return;
     }
     case 'put-item': {
+      if (index.deleted[o.item.id]) return;
+      const found = locate(o.item.id);
+      if (found) {
+        // Content changes where the item is now; an older copy never
+        // replaces a newer one, and its placement time is kept.
+        const cur = found.l.items[found.i];
+        if (o.item.modified >= cur.modified) {
+          const next = structuredClone(o.item);
+          const moved = latest(cur.moved, o.item.moved);
+          if (moved === undefined) delete next.moved;
+          else next.moved = moved;
+          found.l.items[found.i] = next;
+        }
+        found.l.modified = maxTime(found.l.modified, o.item.modified);
+        return;
+      }
       const l = lib(o.library);
-      if (!l || index.deleted[o.item.id]) return;
-      const i = l.items.findIndex((x) => x.id === o.item.id);
-      if (i >= 0) {
-        // An older copy never replaces a newer one.
-        if (o.item.modified >= l.items[i].modified) l.items[i] = structuredClone(o.item);
-      } else if (l.items.length < MAX_ITEMS) insertBefore(l.items, structuredClone(o.item), o.before);
+      if (!l) return;
+      if (l.items.length < MAX_ITEMS) insertBefore(l.items, structuredClone(o.item), o.before);
       l.modified = maxTime(l.modified, o.item.modified);
       return;
     }
     case 'delete-item': {
-      const l = lib(o.library);
-      if (l) {
+      for (const l of index.libraries) {
+        if (!l.items.some((x) => x.id === o.id)) continue;
         l.items = l.items.filter((x) => x.id !== o.id);
         l.modified = maxTime(l.modified, o.at);
       }
@@ -138,12 +177,16 @@ function applyOp(index: LibraryIndex, o: LibraryOp) {
       return;
     }
     case 'move-item': {
-      const from = lib(o.from),
-        to = lib(o.to);
-      const item = from?.items.find((x) => x.id === o.id);
-      if (!from || !to || !item || o.before === o.id) return;
+      const found = locate(o.id);
+      const to = lib(o.to);
+      if (!found || !to || o.before === o.id) return;
+      const from = found.l,
+        item = from.items[found.i];
+      // The later move wins; replaying one already applied changes nothing.
+      if (item.moved !== undefined && o.at <= item.moved) return;
       if (to !== from && to.items.length >= MAX_ITEMS) return;
       from.items = from.items.filter((x) => x !== item);
+      item.moved = o.at;
       insertBefore(to.items, item, o.before);
       from.modified = maxTime(from.modified, o.at);
       to.modified = maxTime(to.modified, o.at);
@@ -151,6 +194,7 @@ function applyOp(index: LibraryIndex, o: LibraryOp) {
     }
   }
 }
+const latest = (a: string | undefined, b: string | undefined) => (a === undefined ? b : b === undefined ? a : maxTime(a, b));
 const maxTime = (a: string, b: string) => (a > b ? a : b);
 
 /** Every asset hash an index refers to. */
@@ -197,7 +241,7 @@ export function validItem(v: unknown): v is LibraryItem {
   if (!v || typeof v !== 'object') return false;
   const i = v as LibraryItem;
   return (
-    str(i.id, 128) && !!i.id && (ITEM_TYPES as readonly string[]).includes(i.type) && str(i.name, 256) && isTime(i.created) && isTime(i.modified) &&
+    str(i.id, 128) && !!i.id && (ITEM_TYPES as readonly string[]).includes(i.type) && str(i.name, 256) && isTime(i.created) && isTime(i.modified) && (i.moved === undefined || isTime(i.moved)) &&
     !!i.data && typeof i.data === 'object' && !Array.isArray(i.data) &&
     (i.assets === undefined || (typeof i.assets === 'object' && !!i.assets && Object.entries(i.assets).every(([k, h]) => str(k, 32) && isHash(h)))) &&
     (i.type !== 'color' || (typeof i.data.hex === 'string' && /^#[0-9a-f]{6}$/i.test(i.data.hex)))
@@ -206,7 +250,7 @@ export function validItem(v: unknown): v is LibraryItem {
 export function validLibrary(v: unknown): v is Library {
   if (!v || typeof v !== 'object') return false;
   const l = v as Library;
-  return str(l.id, 128) && !!l.id && str(l.name, 256) && isTime(l.created) && isTime(l.modified) && Array.isArray(l.items) && l.items.length <= MAX_ITEMS && l.items.every(validItem);
+  return str(l.id, 128) && !!l.id && str(l.name, 256) && isTime(l.created) && isTime(l.modified) && (l.named === undefined || isTime(l.named)) && (l.moved === undefined || isTime(l.moved)) && Array.isArray(l.items) && l.items.length <= MAX_ITEMS && l.items.every(validItem);
 }
 /** A stored index, or undefined when it is not one (callers start empty). */
 export function validIndex(v: unknown): LibraryIndex | undefined {
@@ -215,7 +259,14 @@ export function validIndex(v: unknown): LibraryIndex | undefined {
   if (x.version !== 1 || !Number.isInteger(x.revision) || x.revision < 0 || !Array.isArray(x.libraries) || x.libraries.length > MAX_LIBRARIES) return undefined;
   if (!x.libraries.every(validLibrary)) return undefined;
   const deleted = x.deleted && typeof x.deleted === 'object' && !Array.isArray(x.deleted) ? x.deleted : {};
-  return { version: 1, revision: x.revision, ...(typeof x.writer === 'string' ? { writer: x.writer } : {}), libraries: x.libraries, deleted: Object.fromEntries(Object.entries(deleted).filter(([k, t]) => str(k, 128) && isTime(t))) };
+  // An item ID appears once (older versions could store a replayed item
+  // twice): later copies are dropped.
+  const seen = new Set<string>();
+  const libraries = x.libraries.map((l) => {
+    const items = l.items.filter((i) => !seen.has(i.id) && !!seen.add(i.id));
+    return items.length === l.items.length ? l : { ...l, items };
+  });
+  return { version: 1, revision: x.revision, ...(typeof x.writer === 'string' ? { writer: x.writer } : {}), libraries, deleted: Object.fromEntries(Object.entries(deleted).filter(([k, t]) => str(k, 128) && isTime(t))) };
 }
 
 // ----- Single-file export -----
@@ -277,7 +328,7 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
     name: v.library.name,
     created: at,
     modified: at,
-    items: items.map((i) => ({ ...i, id: newId(), modified: at })),
+    items: items.map(({ moved: _moved, ...i }) => ({ ...i, id: newId(), modified: at })),
   };
   return { library, assets, skipped };
 }
