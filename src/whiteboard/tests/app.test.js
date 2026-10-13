@@ -28143,6 +28143,39 @@ test("the export dialog says when readable detail is shown smaller", async () =>
   }
 });
 
+test("the export dialog chooses all frames or none at once", async () => {
+  const app = await setup();
+  const { click, doc, w } = app;
+  try {
+    await rotationFixture(app, [
+      item("frame", 0, 0, { w: 400, h: 300, text: "One" }),
+      item("frame", 500, 0, { w: 400, h: 300, text: "Two" }),
+      item("frame", 1000, 0, { w: 400, h: 300, text: "Three" }),
+    ]);
+    await click('[data-action="export"]');
+    const actions = doc.querySelector("#export-frame-actions"),
+      boxes = () =>
+        [...doc.querySelectorAll("#export-frames input")].map((i) => i.checked),
+      estimate = () => doc.querySelector("#pdf-estimate").textContent;
+    // Only with frames as the scope.
+    const scope = doc.querySelector("#export-scope");
+    scope.value = "board";
+    scope.dispatchEvent(new w.Event("change", { bubbles: true }));
+    assert.equal(actions.hidden, true);
+    scope.value = "frames";
+    scope.dispatchEvent(new w.Event("change", { bubbles: true }));
+    assert.equal(actions.hidden, false);
+    doc.querySelector("#export-frames-none").click();
+    assert.deepEqual(boxes(), [false, false, false]);
+    assert.equal(estimate(), "Choose at least one frame.");
+    doc.querySelector("#export-frames-all").click();
+    assert.deepEqual(boxes(), [true, true, true]);
+    assert.equal(estimate(), "Estimated length: 3 pages.");
+  } finally {
+    await app.close();
+  }
+});
+
 test("selected frames export as those frames by default", async () => {
   for (const outside of [false, true]) {
     const app = await setup();
