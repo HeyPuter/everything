@@ -37,6 +37,7 @@ import { install as installCorners } from './features/corners/index.js';
 import { install as installPatterns } from './features/patterns/index.js';
 import { install as installSlices } from './features/slices/index.js';
 import { install as installWorkspace } from './features/workspace/index.js';
+import { install as installLayers } from './features/layers/index.js';
 
 export function installFeatures(app) {
   installHome(app);
@@ -68,6 +69,7 @@ export function installFeatures(app) {
   installVariables(app);
   installSvgInteractivity(app);
   installPanels(app);
+  installLayers(app);
   // After Type: the mesh paint hook wraps the type one.
   installMesh(app);
   installGraphs(app);

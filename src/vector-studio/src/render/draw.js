@@ -488,6 +488,7 @@ function drawImage(ctx, doc, node, opts) {
   } else {
     const img = imageFor(doc, node.asset);
     if (img) {
+      if (opts.dimImages > 0) ctx.globalAlpha *= 1 - Math.min(100, opts.dimImages) / 100;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, node.width, node.height);
     }
@@ -701,7 +702,9 @@ export function drawArtwork(ctx, doc, opts) {
     if (!layer || layer.hidden) continue;
     if (opts.layerFilter && !opts.layerFilter(layer)) continue;
     const layerOpts = layer.outline && !opts.outline ? { ...opts, outline: true } : opts;
-    drawNode(ctx, doc, layer, layer.template ? { ...layerOpts, templateDim: true } : layerOpts);
+    // Layer Options > Dim Images (on by default for template layers): on screen (opts.dimLayers), images draw faded.
+    const dim = opts.dimLayers ? (layer.dimImages ?? (layer.template ? 50 : 0)) : 0;
+    drawNode(ctx, doc, layer, dim > 0 ? { ...layerOpts, dimImages: dim } : layerOpts);
   }
 }
 

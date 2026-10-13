@@ -16,17 +16,27 @@ import { iconButton } from '../widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
+import { layerPicks } from '../../ops/layer-ops.js';
 
-const THUMB = 20;
 const thumbCache = new WeakMap();
+
+/** Row heights of the Panel Options sizes (px). */
+export const ROW_SIZES = { small: 20, medium: 28, large: 44 };
+
+export const DEFAULT_LAYER_PANEL_OPTIONS = Object.freeze({ layersOnly: false, rowSize: 'medium', rowHeight: 28, thumbLayers: true, thumbTopOnly: false, thumbGroups: true, thumbObjects: true });
+
+/** The Layers panel options (prefs 'layersPanel') with defaults filled in. */
+export function layerPanelOptions(prefs) {
+  return { ...DEFAULT_LAYER_PANEL_OPTIONS, ...(prefs?.get('layersPanel') || {}) };
+}
 
 /**
  * A small rendering of a row's artwork. Leaves cache by node identity
  * (immutable nodes); containers also key on the document revision because
  * their children can change without the container object changing.
  */
-function thumbnail(doc, node, { defer = null } = {}) {
-  const key = node.children ? doc.revision : 0;
+function thumbnail(doc, node, { defer = null, size: THUMB = 20 } = {}) {
+  const key = `${node.children ? doc.revision : 0}:${THUMB}`;
   const hit = thumbCache.get(node);
   if (hit && hit.key === key) return hit.el.cloneNode(true);
   // A container redraws all of its contents: while edits keep coming, show the last
@@ -56,12 +66,60 @@ function thumbnail(doc, node, { defer = null } = {}) {
 }
 
 const ROW_H = 28;
+const coarse = () => Boolean(window.matchMedia?.('(pointer: coarse)')?.matches);
 
 export class LayersPanel extends Panel {
   static id = 'layers';
   static title = 'Layers';
   static icon = 'layers';
   static placement = 'dock';
+
+  /** The panel's options menu: command ids, so entries light up as the layers feature registers them. */
+  menu() {
+    return [
+      'layer.newWithOptions',
+      'layers.newSublayer',
+      'layers.duplicate',
+      'layers.delete',
+      '-',
+      'layers.options',
+      '-',
+      'layers.clipMask',
+      '-',
+      'layers.isolate',
+      'object.exitIsolation',
+      '-',
+      'layers.locate',
+      '-',
+      'layers.merge',
+      'layers.flatten',
+      'layers.collect',
+      '-',
+      'layers.releaseSequence',
+      'layers.releaseBuild',
+      'layers.reverse',
+      '-',
+      'layers.template',
+      'layers.hideOthers',
+      'layers.outlineOthers',
+      'layers.lockOthers',
+      '-',
+      'layers.pasteRemembers',
+      '-',
+      'layers.panelOptions',
+    ];
+  }
+
+  get options() {
+    return layerPanelOptions(this.app.prefs);
+  }
+
+  /** Row height in px: the Panel Options size, at least 36 on touch screens. */
+  get rowH() {
+    const o = this.options;
+    const base = o.rowSize === 'other' ? Math.max(12, Math.min(100, Number(o.rowHeight) || ROW_H)) : ROW_SIZES[o.rowSize] || ROW_H;
+    return Math.max(base, coarse() ? 36 : 0);
+  }
 
   build() {
     this.expanded = new Set();
@@ -187,13 +245,15 @@ export class LayersPanel extends Panel {
     const doc = ed.doc;
     const rows = [];
     const f = this.filter;
+    const layersOnly = this.options.layersOnly;
     const matches = (n) => !f || defaultLabel(n).toLowerCase().includes(f);
     const subtreeMatches = (n) => matches(n) || (n.children || []).some((c) => subtreeMatches(doc.get(c)));
     const visit = (id, depth, parentHidden, parentLocked) => {
       const n = doc.get(id);
       if (!n) return;
       if (f && !subtreeMatches(n)) return;
-      const kids = n.type === 'compound' ? [] : n.children || [];
+      let kids = n.type === 'compound' ? [] : n.children || [];
+      if (layersOnly) kids = kids.filter((c) => doc.get(c)?.type === 'layer');
       const open = this.expanded.has(id) || (f && kids.length > 0);
       rows.push({ id, depth, node: n, hasKids: kids.length > 0, open, dimHidden: parentHidden, dimLocked: parentLocked });
       if (open) for (let i = kids.length - 1; i >= 0; i--) visit(kids[i], depth + 1, parentHidden || n.hidden, parentLocked || n.locked);
@@ -216,7 +276,7 @@ export class LayersPanel extends Panel {
     this.rows = this.flatten();
     const layerCount = ed.doc.layers().length;
     this.countEl.textContent = `${layerCount} ${layerCount === 1 ? 'Layer' : 'Layers'}`;
-    this.spacer.style.height = `${this.rows.length * ROW_H}px`;
+    this.spacer.style.height = `${this.rows.length * this.rowH}px`;
     this.renderRows(true);
   }
 
@@ -225,9 +285,9 @@ export class LayersPanel extends Panel {
     if (!ed || !this.rows) return;
     const top = this.viewport.scrollTop;
     const height = this.viewport.clientHeight || 400;
-    const first = Math.max(0, Math.floor(top / ROW_H) - 4);
-    const last = Math.min(this.rows.length, Math.ceil((top + height) / ROW_H) + 4);
-    this.tree.style.transform = `translateY(${first * ROW_H}px)`;
+    const first = Math.max(0, Math.floor(top / this.rowH) - 4);
+    const last = Math.min(this.rows.length, Math.ceil((top + height) / this.rowH) + 4);
+    this.tree.style.transform = `translateY(${first * this.rowH}px)`;
     const frag = [];
     const selectedLeaves = new Set(ed.selection);
     const selectedIn = new Set();
@@ -245,16 +305,21 @@ export class LayersPanel extends Panel {
     const isLayer = n.type === 'layer';
     const color = doc.layerOf(n.id)?.color || '#4f80ff';
     const isSel = selected.has(n.id);
+    const picked = isLayer && layerPicks(ed).has(n.id);
+    const opts = this.options;
+    const rowH = this.rowH;
     const row = h('div.layer-row', {
       id: `lrow-${n.id}`,
       role: 'treeitem',
       'aria-level': String(r.depth + 1),
-      'aria-selected': String(isSel),
+      'aria-selected': String(isSel || picked),
       'aria-expanded': r.hasKids ? String(r.open) : null,
       'aria-label': `${defaultLabel(n)}${n.hidden ? ', hidden' : ''}${n.locked ? ', locked' : ''}`,
       draggable: 'true',
-      style: { '--depth': r.depth, '--layer-color': color },
+      style: { '--depth': r.depth, '--layer-color': color, height: `${rowH}px` },
     });
+    row.classList.toggle('picked', picked);
+    row.classList.toggle('template', Boolean(isLayer && n.template));
     row.classList.toggle('is-layer', isLayer);
     row.classList.toggle('selected', isSel);
     row.classList.toggle('active-layer', isLayer && n.id === ed.activeLayerId);
@@ -281,7 +346,15 @@ export class LayersPanel extends Panel {
       { type: 'button', tabindex: '-1', 'aria-hidden': 'true', onclick: (e) => (e.stopPropagation(), this.setOpen(n.id, !r.open)) },
       r.hasKids ? icon(r.open ? 'chevron-down' : 'chevron-right', 12) : null,
     );
-    const thumb = h('span.lr-thumb', { 'aria-hidden': 'true' }, thumbnail(doc, n, { defer: this.thumbsSettled ? null : this.deferThumbs }) || (isLayer ? null : icon(typeIcon(n), 12)));
+    // Panel Options decide which rows show thumbnails; the rest show a type icon (layers nothing).
+    const showThumb = isLayer ? opts.thumbLayers && (!opts.thumbTopOnly || n.parent === 'root') : n.type === 'group' ? opts.thumbGroups : opts.thumbObjects;
+    const size = Math.max(12, Math.min(48, rowH - 8));
+    const thumb = h(
+      'span.lr-thumb',
+      { 'aria-hidden': 'true', style: { width: `${size + 2}px`, height: `${size + 2}px` } },
+      (showThumb && thumbnail(doc, n, { defer: this.thumbsSettled ? null : this.deferThumbs, size })) || (isLayer ? null : icon(typeIcon(n), 12)),
+    );
+    if (!showThumb && isLayer) thumb.hidden = true;
     const name = h('span.lr-name', defaultLabel(n));
     // Symbol instances carry a symbol glyph next to their (symbol) name.
     if (n.type === 'instance') name.prepend(h('span.lr-symbol', { role: 'img', 'aria-label': 'Symbol instance:' }, icon('symbol', 12)));
@@ -292,10 +365,8 @@ export class LayersPanel extends Panel {
     row.append(h('span.lr-colorbar'), eye, lock, h('span.lr-indent'), twisty, thumb, name, selBox);
     row.addEventListener('click', (e) => {
       this.focusIndex = index;
-      if (isLayer && !(e.shiftKey || e.metaKey || e.ctrlKey)) {
-        ed.activeLayerId = n.id;
-        ed.emit('active-layer');
-        this.renderRows();
+      if (isLayer) {
+        this.pickLayer(n, e);
         return;
       }
       this.selectRow(n, e);
@@ -419,6 +490,8 @@ export class LayersPanel extends Panel {
         { key: 'show', label: 'Show', type: 'checkbox', value: !n.hidden },
         { key: 'print', label: 'Print', type: 'checkbox', value: n.print !== false },
         { key: 'preview', label: 'Preview', type: 'checkbox', value: !n.outline },
+        { key: 'dim', label: 'Dim Images', type: 'checkbox', value: n.dimImages != null ? n.dimImages > 0 : Boolean(n.template) },
+        { key: 'dimImages', label: 'Dim images to (%)', type: 'number', value: n.dimImages || 50, min: 0, max: 100 },
       ],
     });
     const cur = doc.get(n.id);
@@ -434,10 +507,95 @@ export class LayersPanel extends Panel {
         hidden: !v.show,
         print: v.template ? false : Boolean(v.print),
         outline: !v.preview,
+        dimImages: v.dim ? Math.max(0, Math.min(100, v.dimImages)) : 0,
       }),
     );
     for (const id of [...ed.selection]) if (doc.isHidden(id) || doc.isLocked(id)) ed.selection.delete(id);
     ed.emit('selection');
+  }
+
+  /**
+   * Click on a layer row: it becomes the active layer and the picked layer
+   * (the layers the panel menu's layer commands act on). Cmd/Ctrl-click
+   * adds or removes it, Shift-click picks the range from the last pick.
+   */
+  pickLayer(n, e = {}) {
+    const ed = this.app.editor;
+    const picks = layerPicks(ed);
+    if (e.metaKey || e.ctrlKey) {
+      if (picks.has(n.id) && picks.size > 1) picks.delete(n.id);
+      else picks.add(n.id);
+    } else if (e.shiftKey && this.lastPick && picks.has(this.lastPick)) {
+      const layerRows = this.rows.filter((r) => r.node.type === 'layer').map((r) => r.id);
+      const a = layerRows.indexOf(this.lastPick);
+      const b = layerRows.indexOf(n.id);
+      if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) picks.add(layerRows[i]);
+      else picks.add(n.id);
+    } else {
+      picks.clear();
+      picks.add(n.id);
+    }
+    if (!e.shiftKey) this.lastPick = n.id;
+    ed.activeLayerId = n.id;
+    ed.emit('active-layer');
+    this.renderRows();
+  }
+
+  /** Locate Object: reveal an object's row (expanding its ancestors), scroll to it and focus it. */
+  locate(id) {
+    const ed = this.app.editor;
+    if (!ed || !ed.doc.has(id)) return false;
+    this.ensureBuilt();
+    for (const a of ed.doc.ancestors(id)) this.expanded.add(a.id);
+    if (this.filter) {
+      this.filter = '';
+      this.search.value = '';
+    }
+    this.rows = this.flatten();
+    const i = this.rows.findIndex((r) => r.id === id);
+    if (i < 0) return false;
+    this.focusIndex = i;
+    const rowH = this.rowH;
+    this.spacer.style.height = `${this.rows.length * rowH}px`;
+    const view = this.viewport.clientHeight || 400;
+    this.viewport.scrollTop = Math.max(0, i * rowH - view / 2 + rowH / 2);
+    this.renderRows();
+    this.tree.focus({ preventScroll: true });
+    return true;
+  }
+
+  /** Panel Options: rows for layers only, row size and which rows show thumbnails. */
+  async panelOptions() {
+    const o = this.options;
+    const v = await this.app.dialogs.form({
+      title: 'Layers Panel Options',
+      fields: [
+        { key: 'layersOnly', label: 'Show Layers Only', type: 'checkbox', value: o.layersOnly },
+        { type: 'heading', label: 'Row Size' },
+        {
+          key: 'rowSize',
+          label: 'Row size',
+          type: 'radio',
+          value: o.rowSize,
+          options: [
+            { value: 'small', label: 'Small' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'large', label: 'Large' },
+            { value: 'other', label: 'Other' },
+          ],
+        },
+        { key: 'rowHeight', label: 'Other height (px)', type: 'number', value: o.rowHeight, min: 12, max: 100 },
+        { type: 'heading', label: 'Thumbnails' },
+        { key: 'thumbLayers', label: 'Layers', type: 'checkbox', value: o.thumbLayers },
+        { key: 'thumbTopOnly', label: 'Top Level Only', type: 'checkbox', value: o.thumbTopOnly },
+        { key: 'thumbGroups', label: 'Groups', type: 'checkbox', value: o.thumbGroups },
+        { key: 'thumbObjects', label: 'Objects', type: 'checkbox', value: o.thumbObjects },
+      ],
+    });
+    if (!v) return;
+    const next = { ...o, ...v, rowHeight: Math.round(Number(v.rowHeight) || o.rowHeight) };
+    this.app.prefs.set('layersPanel', next);
+    this.update();
   }
 
   setOpen(id, open) {
@@ -489,9 +647,9 @@ export class LayersPanel extends Panel {
     const r = rows[this.focusIndex];
     const move = (i) => {
       this.focusIndex = Math.max(0, Math.min(rows.length - 1, i));
-      const top = this.focusIndex * ROW_H;
+      const top = this.focusIndex * this.rowH;
       if (top < this.viewport.scrollTop) this.viewport.scrollTop = top;
-      else if (top + ROW_H > this.viewport.scrollTop + this.viewport.clientHeight) this.viewport.scrollTop = top + ROW_H - this.viewport.clientHeight;
+      else if (top + this.rowH > this.viewport.scrollTop + this.viewport.clientHeight) this.viewport.scrollTop = top + this.rowH - this.viewport.clientHeight;
       this.renderRows();
     };
     switch (e.key) {

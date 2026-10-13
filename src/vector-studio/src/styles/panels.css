@@ -503,6 +503,15 @@
   background: var(--bg-selected);
 }
 
+.layer-row.picked:not(.selected) {
+  background: var(--bg-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.layer-row.template .lr-name {
+  font-style: italic;
+}
+
 .layer-row.dim .lr-name,
 .layer-row.dim .lr-thumb {
   opacity: 0.45;
@@ -580,8 +589,8 @@
 
 .lr-thumb img {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 100%;
+  height: 100%;
 }
 
 .lr-name {
