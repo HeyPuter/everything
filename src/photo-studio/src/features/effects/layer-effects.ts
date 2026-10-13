@@ -34,7 +34,7 @@ export function fxBadge(l: Layer) {
   if (!fx.length) return '';
   const open = !collapsed.has(l.id);
   const off = (l.style as LayerStyle).enabled === false;
-  return `<button class="fx-badge ${off ? 'fx-off' : ''}" data-fx-collapse="${l.id}" title="Layer style — click to ${open ? 'hide' : 'show'} effects, double-click to edit" aria-label="Layer effects" aria-expanded="${open}">fx${svg(open ? 'chevron-down' : 'chevron-right', 10)}</button>`;
+  return `<button class="fx-badge ${off ? 'fx-off' : ''}" data-fx-collapse="${escapeXML(l.id)}" title="Layer style — click to ${open ? 'hide' : 'show'} effects, double-click to edit" aria-label="Layer effects" aria-expanded="${open}">fx${svg(open ? 'chevron-down' : 'chevron-right', 10)}</button>`;
 }
 export function effectRows(l: Layer, depth: number) {
   const fx = styleEffects(l.style as LayerStyle | undefined);

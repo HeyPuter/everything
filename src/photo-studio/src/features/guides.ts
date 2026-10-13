@@ -3,6 +3,7 @@
 // Canvas guides span the canvas; artboard guides belong to one artboard and
 // move with it (model/guides.ts). A guide dropped on an artboard becomes one
 // of its guides, anywhere else a canvas guide.
+import { escapeXML } from '../model/assets';
 import type { Editor } from '../editor';
 import { registerCommand, registerOverlay } from '../app/registry';
 import { findLayer, type Guide, type Layer, type PhotoDocument, type Rect } from '../model/document';
@@ -216,7 +217,7 @@ function guidesOverlay(e: Editor) {
     const sel = selected.has(g.key);
     const kind = g.extent ? ' artboard-guide' : '';
     const at = line(g, g.extent, pad, doc);
-    html += `<line ${at} class="guide${kind}${sel ? ' selected' : ''}" stroke-width="${(sel ? 2 : 1) / z}"/><line data-guide="${g.key}" ${at} class="guide-hit ${g.orientation}" stroke-width="${7 / z}"/>`;
+    html += `<line ${at} class="guide${kind}${sel ? ' selected' : ''}" stroke-width="${(sel ? 2 : 1) / z}"/><line data-guide="${escapeXML(g.key)}" ${at} class="guide-hit ${g.orientation}" stroke-width="${7 / z}"/>`;
   }
   if (drag?.moved) {
     // The guide being placed spans the artboard it would join.

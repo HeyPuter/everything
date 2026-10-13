@@ -98,7 +98,7 @@ const channelsPanel: Panel = {
     const thumb = (c: (typeof spots)[number]) => `<button class="channel-thumb" aria-label="Load ${escapeXML(c.name)} as selection" title="Click to load as selection"><img src="${gridThumbnail(e.assets.tiles, c.grid, doc.width, doc.height, 34, true)}" alt=""></button>`;
     // Multichannel documents list their ink channels in place of RGB.
     const inkRows = spots
-      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${c.id}"><button type="button" class="eye" data-spot-eye="${c.id}" aria-pressed="${!c.hidden}" aria-label="${c.hidden ? 'Show' : 'Hide'} ${escapeXML(c.name)}" title="${c.hidden ? 'Show' : 'Hide'} channel">${c.hidden ? '' : svg('eye', 14)}</button>${thumb(c)}<span class="channel-ink" style="background:${c.color ?? '#000000'}" aria-hidden="true"></span><span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + 1}</kbd></div>`)
+      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><button type="button" class="eye" data-spot-eye="${escapeXML(c.id)}" aria-pressed="${!c.hidden}" aria-label="${c.hidden ? 'Show' : 'Hide'} ${escapeXML(c.name)}" title="${c.hidden ? 'Show' : 'Hide'} channel">${c.hidden ? '' : svg('eye', 14)}</button>${thumb(c)}<span class="channel-ink" style="background:${c.color ?? '#000000'}" aria-hidden="true"></span><span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + 1}</kbd></div>`)
       .join('');
     const rows = spots.length ? inkRows : [
       ['rgb', 'RGB', 'Mod+2'],
@@ -110,7 +110,7 @@ const channelsPanel: Panel = {
       .join('');
     const alpha = (doc.channels ?? [])
       .filter((c) => !spots.includes(c))
-      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${c.id}"><span class="eye"></span>${thumb(c)}<span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + (spots.length ? spots.length + 1 : 6)}</kbd></div>`)
+      .map((c, i) => `<div class="channel-row ${active === c.id ? 'selected' : ''}" data-channel="${escapeXML(c.id)}"><span class="eye"></span>${thumb(c)}<span class="channel-name">${escapeXML(c.name)}</span><kbd>⌘${i + (spots.length ? spots.length + 1 : 6)}</kbd></div>`)
       .join('');
     const quick = e.settings.quickMask ? `<div class="channel-row selected quick-mask-row"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb"></span><span class="channel-name"><i>Quick Mask</i></span></div>` : '';
     el.innerHTML = `<div class="channel-list">${rows}${alpha}${quick}${composite}</div><div class="layer-footer"><button data-command="select.load-active-channel" title="Load channel as selection" aria-label="Load channel as selection">${svg('circle-dashed', 16)}</button><button data-command="select.save" title="Save selection as channel" aria-label="Save selection as channel">${svg('mask-add', 16)}</button><button data-command="channel.new" title="Create new channel" aria-label="New channel">${svg('plus', 16)}</button><button data-command="channel.delete" title="Delete channel" aria-label="Delete channel">${svg('trash-2', 16)}</button></div>`;

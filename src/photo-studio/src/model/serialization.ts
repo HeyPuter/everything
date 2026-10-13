@@ -1,3 +1,4 @@
+import { isDocumentId } from './ids';
 import { allLayers, assertSize, blends, type Layer, type PhotoDocument } from "./document";
 import { Assets } from "./assets";
 import { rasterMimeType } from './raster';
@@ -222,7 +223,7 @@ export function validateDocument(value: unknown): PhotoDocument {
     for (const l of layers) {
       if (
         ++count > maxLayers ||
-        typeof l.id !== "string" ||
+        !isDocumentId(l.id) ||
         ids.has(l.id) ||
         !["image", "paint", "text", "group", "solid", "vector", "pixel", "adjustment"].includes(l.kind) ||
         !(blends.includes(l.blend) || (l.blend === "pass through" && l.kind === "group")) ||
@@ -310,7 +311,7 @@ export function validateDocument(value: unknown): PhotoDocument {
           (l.pixelMask.vectorMaskDensity !== undefined && l.pixelMask.vectorMaskDensity !== 1))
           throw new Error('Pixel mask rendering parameters are not yet supported.');
       }
-      if (l.linkGroup !== undefined && (typeof l.linkGroup !== 'string' || !l.linkGroup || l.linkGroup.length > 64))
+      if (l.linkGroup !== undefined && (!isDocumentId(l.linkGroup) || l.linkGroup.length > 64))
         throw new Error('Invalid layer link.');
       for (const flag of [l.maskDisabled, l.maskInverted, l.maskUnlinked, l.background])
         if (flag !== undefined && typeof flag !== "boolean")
@@ -364,6 +365,14 @@ export function validateDocument(value: unknown): PhotoDocument {
     }
   };
   walk(doc.layers, 0);
+  if (doc.channels !== undefined) {
+    const channelIds = new Set<string>();
+    if (!Array.isArray(doc.channels)) throw new Error('Invalid channels.');
+    for (const c of doc.channels) {
+      if (!c || typeof c !== 'object' || !isDocumentId(c.id) || channelIds.has(c.id)) throw new Error('Invalid channel.');
+      channelIds.add(c.id);
+    }
+  }
   validateLayerComps(doc.layerComps, doc.lastComp);
   if (doc.globalLight !== undefined && !(finite(doc.globalLight, ['angle', 'altitude']) && Math.abs(doc.globalLight.angle) <= 360 && doc.globalLight.altitude >= 0 && doc.globalLight.altitude <= 90))
     throw new Error('Invalid global light.');
@@ -375,6 +384,7 @@ export function validateDocument(value: unknown): PhotoDocument {
   if (doc.timeline !== undefined) {
     if (doc.animation !== undefined) throw new Error('A document has either a frame animation or a video timeline.');
     validateTimeline(doc.timeline);
+    if (!Object.keys(doc.timeline.clips).every(isDocumentId)) throw new Error('Invalid video timeline.');
   }
   if (doc.textStyles !== undefined && !validTextStyles(doc.textStyles)) throw new Error('Invalid text styles.');
   if (doc.imageAssets !== undefined && typeof doc.imageAssets !== 'boolean') throw new Error('Invalid Image Assets setting.');

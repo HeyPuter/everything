@@ -16,7 +16,7 @@ export function liveRows(e: Editor, l: Layer, depth: number): string {
   if (!isLiveLayer(l)) return '';
   const any = l.liveFilters.some((f) => f.enabled);
   const mask = l.liveMask ? `<img class="live-mask-thumb ${l.liveMaskDisabled ? 'disabled' : ''}" src="${gridThumbnail(e.assets.tiles, l.liveMask, e.doc.width, e.doc.height, 28, true)}" alt="Live Filter mask${l.liveMaskDisabled ? ' (disabled)' : ''}" title="Live Filter mask${l.liveMaskDisabled ? ' (disabled)' : ''}">` : '';
-  const head = `<div class="live-filter-row live-head" style="--depth:${depth}" data-live-layer="${l.id}"><button class="eye" data-live-all="${l.id}" aria-label="${any ? 'Hide' : 'Show'} all Live Filters" title="${any ? 'Hide' : 'Show'} all Live Filters">${any ? svg('eye', 14) : ''}</button>${mask}<span class="live-title">Live Filters</span></div>`;
+  const head = `<div class="live-filter-row live-head" style="--depth:${depth}" data-live-layer="${escapeXML(l.id)}"><button class="eye" data-live-all="${escapeXML(l.id)}" aria-label="${any ? 'Hide' : 'Show'} all Live Filters" title="${any ? 'Hide' : 'Show'} all Live Filters">${any ? svg('eye', 14) : ''}</button>${mask}<span class="live-title">Live Filters</span></div>`;
   const rows = l.liveFilters
     .map((f, i) => ({ f, i }))
     .reverse()

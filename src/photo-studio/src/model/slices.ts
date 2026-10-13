@@ -1,3 +1,4 @@
+import { isDocumentId } from './ids';
 import { findLayer, type PhotoDocument, type Rect } from './document';
 import { layerBounds } from './artboard';
 
@@ -173,15 +174,14 @@ export function validateSlices(slices: unknown) {
     const r = s?.rect;
     if (
       !s ||
-      typeof s.id !== 'string' ||
-      !s.id ||
+      !isDocumentId(s.id) ||
       ids.has(s.id) ||
       (s.name !== undefined && (typeof s.name !== 'string' || s.name.length > 256)) ||
       !r ||
       ![r.x, r.y, r.width, r.height].every(Number.isFinite) ||
       r.width < 0 ||
       r.height < 0 ||
-      (s.layerId !== undefined && typeof s.layerId !== 'string') ||
+      (s.layerId !== undefined && !isDocumentId(s.layerId)) ||
       (s.format !== undefined && !['png', 'jpeg', 'webp', 'gif'].includes(s.format)) ||
       (s.quality !== undefined && !(Number.isFinite(s.quality) && s.quality >= 1 && s.quality <= 256))
     )

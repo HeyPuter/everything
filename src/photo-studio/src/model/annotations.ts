@@ -2,6 +2,7 @@
 // measurement scale. They are part of the document (saved in .photo
 // projects, edited through undoable commands) but never rendered into
 // pixels or exports.
+import { isDocumentId } from './ids';
 import { validScale, type MeasurementScale } from '../imaging/measure/geometry';
 
 export type ColorSampler = { x: number; y: number };
@@ -50,7 +51,7 @@ export function validateAnnotations(a: unknown): asserts a is Annotations | unde
     if (!Array.isArray(v.counts) || v.counts.length > 100) throw bad();
     let total = 0;
     for (const g of v.counts) {
-      if (!g || !str(g.id, 64) || !g.id || !str(g.name, 128) || !hex(g.color) || !finite(g.markerSize, g.labelSize) ||
+      if (!g || !str(g.id, 64) || !isDocumentId(g.id) || !str(g.name, 128) || !hex(g.color) || !finite(g.markerSize, g.labelSize) ||
         g.markerSize < 1 || g.markerSize > 64 || g.labelSize < 4 || g.labelSize > 96 || typeof g.visible !== 'boolean' || !Array.isArray(g.points))
         throw bad();
       total += g.points.length;
@@ -60,7 +61,7 @@ export function validateAnnotations(a: unknown): asserts a is Annotations | unde
   if (v.notes !== undefined) {
     if (!Array.isArray(v.notes) || v.notes.length > 1000) throw bad();
     for (const n of v.notes)
-      if (!n || !str(n.id, 64) || !n.id || !finite(n.x, n.y) || !str(n.author, 256) || !str(n.text, 100_000) || !hex(n.color) || !str(n.created, 64))
+      if (!n || !str(n.id, 64) || !isDocumentId(n.id) || !finite(n.x, n.y) || !str(n.author, 256) || !str(n.text, 100_000) || !hex(n.color) || !str(n.created, 64))
         throw bad();
   }
   if (v.scale !== undefined && !validScale(v.scale)) throw bad();

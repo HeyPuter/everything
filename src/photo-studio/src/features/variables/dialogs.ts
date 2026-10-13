@@ -81,7 +81,7 @@ export async function defineVariables(e: Editor) {
     return d;
   };
   const options = () =>
-    layers.map((l) => `<option value="${l.id}" ${l.id === current ? 'selected' : ''}>${'  '.repeat(depth(l.id))}${esc(l.name)}${draft[l.id] && Object.keys(draft[l.id]).length ? ' •' : ''}</option>`).join('');
+    layers.map((l) => `<option value="${escapeXML(l.id)}" ${l.id === current ? 'selected' : ''}>${'  '.repeat(depth(l.id))}${esc(l.name)}${draft[l.id] && Object.keys(draft[l.id]).length ? ' •' : ''}</option>`).join('');
   const body = `<div class="var-layer-row"><button type="button" class="icon-button" data-step="-1" aria-label="Previous layer" title="Previous layer">‹</button><label class="dialog-field">Layer<select name="layer" autofocus>${options()}</select></label><button type="button" class="icon-button" data-step="1" aria-label="Next layer" title="Next layer">›</button></div>
 <div class="var-kinds"></div>`;
   const dialog = openDialog('var-define', 'Define Variables', body, '<button type="button" data-act="cancel">Cancel</button><button type="submit" class="primary">OK</button>');

@@ -10,6 +10,7 @@ import { canComment, canEdit, canManage, decode, encode, hash, ID, HASH, INVITE_
 import { unpackAsset, MAX_CHUNK } from '../asset-codec';
 import { readThreads } from '../ycomments';
 import { checkCommentChange, validateComments } from '../comments';
+import { isDocumentId } from '../../model/ids';
 
 export type Identity = { uuid: string; username: string };
 type Meta = { owner: string; name: string; created: number; keys: KeyPair; initial: string[]; closed?: number };
@@ -220,6 +221,8 @@ export class RoomService {
       entry.check = new Y.Doc();
       Y.applyUpdate(entry.check, Y.encodeStateAsUpdate(entry.doc));
     } else Y.applyUpdate(entry.check, Y.encodeStateAsUpdate(entry.doc, Y.encodeStateVector(entry.check)));
+    // Typed top-level maps, so a commit's changes compare by identity.
+    for (const name of ['doc', 'layers', 'assets', 'meta', 'comments']) entry.check.getMap(name);
     return entry.check;
   }
   /** Apply log records written since this instance last read the room. */
@@ -420,9 +423,14 @@ export class RoomService {
     const doc = this.checkCopy(entry);
     const before = readThreads(doc);
     const roots = new Set<string>();
+    const layerKeys = new Set<string>();
+    const layers = doc.getMap('layers') as unknown as Y.AbstractType<unknown>;
     let changed = false;
     const watch = (tr: Y.Transaction) => {
-      for (const type of tr.changed.keys()) roots.add(rootName(doc, type as Y.AbstractType<unknown>));
+      for (const [type, keys] of tr.changed) {
+        roots.add(rootName(doc, type as Y.AbstractType<unknown>));
+        if ((type as Y.AbstractType<unknown>) === layers) for (const k of keys) if (k !== null) layerKeys.add(k);
+      }
       if (tr.changed.size || tr.deleteSet.clients.size) changed = true;
     };
     const reject = (status: number, message: string): never => {
@@ -445,6 +453,8 @@ export class RoomService {
       if (!ROLES_ALLOWED.has(r)) reject(400, 'Invalid change.');
       if (!canEdit(member.role)) reject(403, 'You can comment on this shared document but not change it.');
     }
+    // New layers must have IDs of the editor's shape (they reach markup).
+    for (const k of layerKeys) if ((layers as unknown as Y.Map<unknown>).has(k) && !isDocumentId(k)) reject(400, 'Invalid change.');
     if (roots.has('comments')) {
       let after;
       try {

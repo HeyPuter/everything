@@ -27,6 +27,7 @@ import { orderKeys } from './order';
 import { hash } from './protocol';
 import { documentAssetIds } from '../model/serialization';
 import { fitLayerToKind, salvageDocument } from './repair';
+import { isDocumentId } from '../model/ids';
 
 export { documentAssetIds };
 
@@ -340,7 +341,9 @@ export class SharedProject {
    * The document passes `validateDocument`; throws when it cannot. */
   project(local: PrivateState): { document: PhotoDocument; complete: boolean; dropped: string[] } {
     let complete = true;
-    const ids = [...this.layers.keys()];
+    // Layer IDs reach markup: entries under any other key (written past the
+    // editor) are not shown.
+    const ids = [...this.layers.keys()].filter(isDocumentId);
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
     for (const id of ids) {
       if (!this.allDirty && !this.dirty.has(id) && this.cache.has(id) && !this.stale.has(id)) continue;

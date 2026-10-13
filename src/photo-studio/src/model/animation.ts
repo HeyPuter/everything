@@ -10,6 +10,7 @@
 // frame is shown back into that frame. Position offsets are relative: moving a
 // layer in one frame adds to that frame's offset, and switching frames
 // translates each layer by the difference between the two offsets.
+import { isDocumentId } from './ids';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
 import { commitPixelTranslation, pixelTransformKind } from './pixel-layer';
 
@@ -466,7 +467,7 @@ export function validateAnimation(value: unknown) {
   if (a.unify !== undefined && (!a.unify || typeof a.unify !== 'object' || Object.values(a.unify).some((v) => typeof v !== 'boolean'))) throw bad();
   const ids = new Set<string>();
   for (const f of a.frames) {
-    if (!f || typeof f.id !== 'string' || !f.id || ids.has(f.id) || !Number.isInteger(f.delay) || f.delay < 0 || f.delay > maxDelay || !f.layers || typeof f.layers !== 'object' || Array.isArray(f.layers)) throw bad();
+    if (!f || !isDocumentId(f.id) || ids.has(f.id) || !Number.isInteger(f.delay) || f.delay < 0 || f.delay > maxDelay || !f.layers || typeof f.layers !== 'object' || Array.isArray(f.layers)) throw bad();
     ids.add(f.id);
     for (const s of Object.values(f.layers))
       if (

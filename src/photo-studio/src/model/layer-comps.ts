@@ -1,3 +1,4 @@
+import { isDocumentId } from './ids';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
 
 // A layer comp records, per layer, the visibility, position and appearance
@@ -145,7 +146,7 @@ export function validateLayerComps(comps: unknown, lastComp: unknown) {
   const num = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isFinite(v));
   const unit = (v: unknown) => v === undefined || (typeof v === 'number' && v >= 0 && v <= 1);
   for (const c of comps as LayerComp[]) {
-    if (!c || typeof c.id !== 'string' || !c.id || ids.has(c.id) || typeof c.name !== 'string' || c.name.length > 256) throw bad();
+    if (!c || !isDocumentId(c.id) || ids.has(c.id) || typeof c.name !== 'string' || c.name.length > 256) throw bad();
     ids.add(c.id);
     if (c.comment !== undefined && (typeof c.comment !== 'string' || c.comment.length > 4096)) throw bad();
     const k = c.capture;

@@ -1,3 +1,4 @@
+import { isDocumentId } from './ids';
 import type { IRect, RGBA8 } from '../imaging/types';
 import type { Gradient } from '../imaging/gradient/gradient';
 import { renderGradientInto } from '../imaging/gradient/gradient';
@@ -34,7 +35,7 @@ export function validLayerFill(f: unknown): f is LayerFill {
 }
 export function validDocumentPatterns(list: unknown): boolean {
   return Array.isArray(list) && list.length <= 256 && list.every((p) =>
-    !!p && typeof p.id === 'string' && typeof p.name === 'string' && !!p.grid && typeof p.grid === 'object' &&
+    !!p && isDocumentId(p.id) && typeof p.name === 'string' && !!p.grid && typeof p.grid === 'object' &&
     Number.isInteger(p.width) && Number.isInteger(p.height) && p.width > 0 && p.height > 0 && p.width <= 4096 && p.height <= 4096);
 }
 

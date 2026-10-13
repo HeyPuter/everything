@@ -11,6 +11,7 @@ import { newThread } from '../src/collab/comments';
 import type { Identity } from '../src/collab/server/service';
 import { call } from '../src/collab/api';
 import { SharedComments } from '../src/collab/shared-comments';
+import { ORIGIN } from '../src/collab/shared-project';
 import { commenter, editor, environment, owner, until, viewer, wait } from './collab-helpers';
 import { MemoryStore } from '../src/persistence/local-store';
 import type { OutboxStores } from '../src/collab/client';
@@ -316,5 +317,39 @@ describe('comment messages', () => {
     expect(refused).toEqual([]);
     for (const c of [ca, cb]) expect(c.threads()[0].messages[0]).toMatchObject({ text: 'Edited words', deleted: true });
     expect(a.binding.history.document.layers[0].name).toBe('Bob’s rename');
+  });
+});
+
+describe('identifiers from other people', () => {
+  const evil = 'x"><img src=x onerror=alert(1)>';
+  it('never reach the document: the worker refuses new layers under such IDs and projection leaves them out', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const y = await replica(env, owner, room);
+    const forged = await change(y, () => {
+      const m = new Y.Map<unknown>();
+      y.getMap<Y.Map<unknown>>('layers').set(evil, m);
+      m.set('parent', '');
+      m.set('p:name', 'Forged');
+    });
+    await expect(commit(env, owner, room, forged)).rejects.toThrow(/Invalid change/);
+    // Written into a browser's copy anyway (say, by an older worker): not shown.
+    Y.applyUpdate(a.client.ydoc, decode(forged.update), ORIGIN.remote);
+    a.binding.project(true);
+    expect(a.binding.history.document.layers.map((l) => l.name)).toEqual(['Background', 'Top', 'Fill']);
+    expect(JSON.stringify(a.binding.history.document)).not.toContain('onerror');
+  });
+
+  it('leave out a document setting carrying one, with a message', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    const messages: string[] = [];
+    (a.binding as unknown as { o: { onMessage: (m: string) => void } }).o.onMessage = (m) => messages.push(m);
+    b.client.ydoc.transact(() => b.client.project.doc.set('layerComps', [{ id: evil, name: 'Comp', capture: { visibility: true, position: false, appearance: false }, layers: {} }]), ORIGIN.local);
+    await settle(a, b);
+    expect(a.binding.history.document.layerComps).toBeUndefined();
+    expect(a.binding.history.document.layers.map((l) => l.name)).toEqual(['Background', 'Top', 'Fill']);
+    expect(messages.join(' ')).toMatch(/layerComps/);
   });
 });
