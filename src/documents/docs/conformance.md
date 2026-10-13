@@ -22882,3 +22882,36 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+### Layout tab: section breaks, per-section page setup, columns and page arrangement (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.6.17–18 `sectPr`, §17.6.22 `type`, §17.6.13 `pgSz`,
+§17.6.11 `pgMar`, §17.6.3–4 `col`/`cols`, §17.6.23 `vAlign`, §17.6.19 `titlePg`,
+§17.3.3.1 `br` (`clear`), and the document settings of §17.15.1: `mirrorMargins`
+(§17.15.1.57), `gutterAtTop`, `printTwoOnOne`, `bookFoldPrinting`/`bookFoldRevPrinting`
+(§17.15.1.11–13) and `evenAndOddHeaders`.
+
+Supported subset:
+
+| Feature | Behavior |
+| --- | --- |
+| Insert section break | Next page, continuous, even page and odd page. The text before the caret ends a section whose `sectPr` copies the split section's properties (including header/footer references); the following section keeps the original `sectPr` and takes the chosen `type`. One undo step. Not allowed in tables or headers/footers. |
+| Section types on open | `nextPage`, `continuous`, `evenPage` and `oddPage` sections now open for editing. Odd/even sections start on the next page of that parity: an empty page is laid out between, numbered unless the section restarts numbering. `nextColumn` sections still open read-only. |
+| Page settings scope | Whole document, this section, this point forward (a new next-page or, for columns, continuous section starts at the caret unless it already starts one) and selected text (continuous breaks before and after). Only changed properties are applied; document-wide settings always reach every section. Each section's changes are written over its own source `sectPr`, leaving other children untouched. |
+| Page Setup dialog | Paper size and custom width/height, orientation, top/bottom/left/right (inside/outside when mirrored) margins, gutter and gutter position, multiple pages (normal, mirror margins, two pages per sheet, book fold, reverse book fold), section start, different first page and odd/even headers, header/footer distances, vertical alignment, a live preview and Set As Default (stored on this device for new documents). |
+| Mirror margins | Read, edited and written (`w:mirrorMargins` in settings). Even pages swap left and right margins; the gutter stays inside. Headers and footers follow the reading page's margins. |
+| Two pages per sheet | `w:printTwoOnOne` is read, edited and written. Display approximation: each reading page is the sheet halved across its longer side; print imposition is not performed. |
+| Columns | Presets (one, two, three, left, right), a dialog for 1–12 columns with per-column widths/spacing, equal widths and a line between; selected text gets its own continuous section. |
+| Text-wrapping break | Inserted as `w:br w:clear="all"`; the plain Shift+Enter line break is unchanged. |
+| Section marks | Show/Hide ¶ labels each break with its kind. |
+
+Gaps: header/footer option changes (first page, odd/even) are applied when chosen and
+are not part of undo; `nextColumn` breaks are not created or edited; vertical alignment
+combined with columns or continuous sections remains a read-only approximation (an
+edit that needs it is rolled back with a message); booklet and two-per-sheet printing
+show reading pages, not imposed sheets; paper source and printer settings are retained
+but not editable. Sources of evidence: `tests/section-setup.test.js`, the
+independently generated `public/fixtures/section-layout.docx`
+(`tools/section_layout_fixture.py`, which also checks browser exports) and
+`tests/browser/page-layout.spec.js`; exports validate against the transitional schemas.
+This is schema and behavioral conformance for the subset above, not layout fidelity.
