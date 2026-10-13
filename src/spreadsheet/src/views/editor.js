@@ -153,6 +153,9 @@ import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-grou
 import { openFillAcrossDialog } from '../ui/fillacross.js';
 import { createAutoCorrector, openAutoCorrectDialog, syncAutoCorrectSettings } from '../ui/autocorrect.js';
 import { isFormulaText } from '../core/autocorrect.js';
+import { openSpellingDialog } from '../ui/spelling.js';
+import { createLanguagePane } from '../ui/language-pane.js';
+import { translatePrompt } from '../core/formula/functions.js';
 
 const MAX_FORMAT_CELLS = 20000;
 // Clipboard height can exceed JavaScript's argument limit, even when the
@@ -169,8 +172,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   wb.addEventListener('change', syncChartTheme);
   // AI() formulas ask Puter's AI; without the SDK they show #N/A.
   wb.setAsyncProvider('AI', P.canAI() ? (text) => P.aiChat(text) : null);
-  // TRANSLATE and DETECTLANGUAGE: the same AI, with the reply tidied to just the answer.
-  wb.setAsyncProvider('TRANSLATE', P.canAI() ? async (text) => String(await P.aiChat(text, { feature: 'translate' })).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '') : null);
+  // TRANSLATE and DETECTLANGUAGE: the same AI, with the reply tidied to just the answer. Review ▸ Translate asks the same way.
+  const aiTranslate = async (prompt) => String(await P.aiChat(prompt, { feature: 'translate' })).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '');
+  wb.setAsyncProvider('TRANSLATE', P.canAI() ? aiTranslate : null);
   wb.setAsyncProvider('DETECTLANGUAGE', P.canAI() ? async (text) => { const m = /\b([a-z]{2,3})(?:-[A-Za-z]{2,4})?\b/i.exec(String(await P.aiChat(text, { feature: 'detect-language' })).trim()); return m ? m[1].toLowerCase() : { error: '#N/A' }; } : null);
   // A fetch that failed: too much data, or an address off the public internet (this computer, a
   // private network), is a #VALUE! that says so (the status bar shows the reason); anything else
@@ -1129,6 +1133,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
+      languagePane: languagePane?.open ? languagePane.mode : null,
       hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, hasQueries: !!wb.queries?.length,
       chartSheet: sheet?.kind === 'chart',
       // The sheet holds native sparklines, so the commands that edit, regroup or clear them have something to act on.
@@ -2685,6 +2690,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         grid.setShowHeaders(!grid.showHeaders);
         keepFocus();
         return;
+      case 'spelling':
+        if (!committed()) return;
+        await openSpellingDialog(ctx);
+        return;
+      case 'thesaurus': case 'translatePane': {
+        const tool = cmd === 'thesaurus' ? 'thesaurus' : 'translate';
+        if (!languagePane) return;
+        if (languagePane.open && languagePane.mode === tool) { languagePane.hide(); return; }
+        languagePane.show(tool, { fromCell: true });
+        return;
+      }
       case 'autoCorrectOptions':
         if (!committed()) return;
         openAutoCorrectDialog({ onClose: () => keepFocus() });
@@ -5063,6 +5079,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   /* ---------- Assemble ---------- */
 
   let aiPanel = null;
+  let languagePane = null; // Review ▸ Thesaurus and Translate, made below
   let queriesPane = null; // Data ▸ Queries & Connections, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;
@@ -5071,6 +5088,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const statusBar = createStatusBar(ctx);
   const watchWindow = createWatchWindow({ ...ctx, run, docName: () => doc.name, goTo: (sid, r, c) => selectLocation(sid, { r1: r, c1: c, r2: r, c2: c }) });
   // Review ▸ Check Accessibility: a finding goes to its cells, or selects its object.
+  // Review ▸ Thesaurus and Translate, answered by Puter's AI.
+  languagePane = createLanguagePane({ ...ctx, run,
+    ai: P.canAI() ? (prompt) => P.aiChat(prompt, { feature: 'thesaurus' }) : null,
+    translate: P.canAI() ? (text, from, to) => aiTranslate(translatePrompt(text, from || '', to || 'English')) : null });
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
@@ -5150,6 +5171,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         statusBar.el,
         watchWindow.el,
         accessibilityPane.el,
+        languagePane.el,
         errorTag.el,
         quickAnalysis.el,
         queriesPane.el),
@@ -5573,6 +5595,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       statusBar.destroy();
       watchWindow.destroy();
       accessibilityPane.destroy();
+      languagePane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();

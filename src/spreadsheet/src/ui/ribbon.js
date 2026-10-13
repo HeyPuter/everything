@@ -306,7 +306,9 @@ const groupsFor = name => ({
       direct('Show Detail', 'showDetail', 'showDetail', null), direct('Hide Detail', 'hideDetail', 'hideDetail', null)],
   ],
   Review: [
-    ['Proofing', c('Spelling as You Type', 'spell', 'toggleSpellcheck'), c('AutoCorrect Options', 'autoCorrect', 'autoCorrectOptions'), a('Workbook Statistics', 'stats', 'docInfo', null, { ariaLabel: 'Workbook Statistics' })],
+    ['Proofing', large(c('Spelling', 'spellCheck', 'spelling')), c('Thesaurus', 'thesaurus', 'thesaurus'), c('Spelling as You Type', 'spell', 'toggleSpellcheck'),
+      c('AutoCorrect Options', 'autoCorrect', 'autoCorrectOptions'), a('Workbook Statistics', 'stats', 'docInfo', null, { ariaLabel: 'Workbook Statistics' })],
+    ['Language', large(c('Translate', 'translate', 'translatePane'))],
     ['Accessibility', large(direct('Check Accessibility', 'accessibility', 'accessibility', null))],
     ['Comments', large(threadCmd('New Comment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY })), threadCmd('Delete', 'deleteComment', 'deleteComment', { ariaLabel: 'Delete Comment', needs: 'hasComments' }),
       threadCmd('Previous Comment', 'prevComment', 'prevComment', { needs: 'hasComments' }), threadCmd('Next Comment', 'nextComment', 'nextComment', { needs: 'hasComments' }),

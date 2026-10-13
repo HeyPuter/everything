@@ -329,6 +329,9 @@ export const COMMAND_ICONS = {
   /* Review */
   spell: t(8.5, 10, 'abc', 8.5) + p('M7 14l2.5 2.5 6-6', 'g thick'),
   autoCorrect: t(7, 15.5, 'ab', 8.5) + p('M14.5 2.5 11 9.5h3l-1.5 6 5-8h-3l1.5-5z', 'ys'),
+  spellCheck: t(10, 9.5, 'abc', 9) + p('M5.5 13.5l3 3 6-6', 'g thick'),
+  thesaurus: p('M10 5.2C8 3.8 5.5 3.6 3 4.4v11.4c2.5-.8 5-.6 7 .8z', 'bf') + p('M10 5.2c2-1.4 4.5-1.6 7-.8v11.4c-2.5-.8-5-.6-7 .8z', 'of') + p('M12 8h3M12 10.5h3M12 13h2', 'o ln') + t(6.6, 12.2, 'A', 5.5, { serif: true, c: 'txb2' }),
+  translate: r(2.5, 2.5, 10, 9, 'bf', 1.6) + t(7.5, 9.5, 'A', 6.5, { weight: 600, c: 'txb2' }) + p('M5 11.5v3l2.5-3', 'bf') + r(8.5, 8.5, 9, 8, 'of', 1.6) + t(13, 14.8, 'a', 6.5, { serif: true }),
   stats: page(4.5, 2.5, 11, 15) + r(6.8, 10.5, 1.6, 4.5, 'bs', 0.5) + r(9.2, 7.5, 1.6, 7.5, 'bs', 0.5) + r(11.6, 9, 1.6, 6, 'ns', 0.5),
   deleteNote: p('M3.5 3.5h11v7l-4 4h-7z', 'yf') + badge(15, 15, 'x', 'r'),
   notes: p('M5.5 5.5h11v7l-4 4h-7z', 'yf') + p('M3.5 13V3.5h10', 'o'),

@@ -1238,3 +1238,30 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .autocorrect-actions .spacer { flex: 1; }
 .autocorrect-exceptions { display: flex; flex-direction: column; gap: 12px; }
 @media (max-width: 600px) { .autocorrect-top { flex-direction: column; } .autocorrect-fields { grid-template-columns: 1fr; } .autocorrect-actions .spacer { flex-basis: 100%; height: 0; } }
+
+/* Review ▸ Spelling */
+.spell-dialog { display: flex; flex-direction: column; gap: 10px; }
+.spell-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.spell-sentence { min-height: 64px; max-height: 120px; overflow: auto; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.spell-word { background: transparent; color: var(--critical); font-weight: 600; text-decoration: underline wavy var(--critical); text-underline-offset: 3px; }
+.spell-main { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px; align-items: start; }
+.spell-left { display: flex; flex-direction: column; gap: 6px; }
+.spell-left .field { margin: 0; }
+.spell-suggestions { height: 150px; overflow: auto; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); }
+.spell-suggestions:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.spell-suggestion { padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.spell-suggestion[aria-selected="true"] { background: var(--accent-wash); }
+@media (hover: hover) { .spell-suggestion:hover { background: var(--surface-3); } }
+.spell-none { padding: 6px 10px; font-size: 13px; }
+.spell-actions { display: flex; flex-direction: column; gap: 6px; padding-top: 20px; }
+.spell-actions > .btn, .spell-action-pair > .btn { width: 100%; justify-content: center; }
+.spell-action-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.spell-actions > .btn + .spell-action-pair { margin-top: 8px; }
+.spell-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.spell-lang { margin: 0; min-width: 220px; }
+.spell-options { font-size: 13px; }
+.spell-options > summary { cursor: pointer; color: var(--ink-2); padding: 4px 0; }
+.spell-options[open] { display: flex; flex-direction: column; gap: 6px; }
+.spell-status { min-height: 1em; margin: 0; color: var(--ink-2); }
+.spell-custom { width: 100%; font: inherit; }
+@media (max-width: 600px) { .spell-main { grid-template-columns: 1fr; } .spell-actions { padding-top: 0; } }

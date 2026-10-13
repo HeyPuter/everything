@@ -476,3 +476,40 @@
   .ribbon .tb-btn, .ribbon .tb-btn:hover, .ribbon .tb-btn[aria-pressed="true"] { box-shadow: none; }
   .ribbon .ribbon-large > svg.ico { filter: none; }
 }
+
+/* Review ▸ Thesaurus and Translate: a pane along the right of the window, as the task panes sit. */
+.lang-pane { position: fixed; right: 12px; top: 200px; bottom: 64px; z-index: 40; width: min(330px, calc(100vw - 24px)); display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 12.5px; }
+.lang-pane[hidden] { display: none; }
+.lang-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 0 8px; border-bottom: 1px solid var(--hairline); }
+.lang-tabs { display: flex; gap: 2px; }
+.lang-tab { padding: 8px 10px 7px; font-size: 13px; font-weight: 500; color: var(--ink-2); border-bottom: 2px solid transparent; }
+.lang-tab[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--ribbon-accent, var(--accent)); }
+@media (hover: hover) { .lang-tab:hover { color: var(--ink); } }
+.lang-body { flex: 1; overflow: auto; padding: 10px 12px 12px; }
+.lang-panel { display: flex; flex-direction: column; gap: 8px; }
+.lang-panel[hidden] { display: none; }
+.lang-search { display: flex; gap: 6px; align-items: center; }
+.lang-search .input { flex: 1; min-width: 0; height: 32px; }
+.lang-status { margin: 0; min-height: 1em; }
+.lang-foot { margin: 6px 0 0; }
+.thesaurus-sense { border-top: 1px solid var(--hairline); padding-top: 8px; }
+.thesaurus-sense:first-child { border-top: 0; padding-top: 0; }
+.thesaurus-sense h4 { font-size: 12.5px; font-weight: 600; margin: 0 0 4px; display: flex; gap: 6px; align-items: baseline; }
+.thesaurus-pos { font-size: 11px; font-weight: 500; color: var(--ink-3); font-style: italic; }
+.thesaurus-words { list-style: none; margin: 0 0 6px; padding: 0; }
+.thesaurus-words li { display: flex; align-items: center; justify-content: space-between; border-radius: 4px; }
+@media (hover: hover) { .thesaurus-words li:hover { background: var(--accent-wash); } }
+.thesaurus-word { flex: 1; text-align: left; padding: 3px 6px; color: var(--ink); }
+.thesaurus-insert { padding: 1px 8px; font-size: 12px; opacity: 0; }
+.thesaurus-words li:hover .thesaurus-insert, .thesaurus-insert:focus-visible { opacity: 1; }
+@media (hover: none) { .thesaurus-insert { opacity: 1; } }
+.thesaurus-antonyms { margin-left: 6px; }
+.lang-pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: end; }
+.lang-pair .field { margin: 0; min-width: 0; }
+.lang-pair .select { width: 100%; }
+.lang-source { width: 100%; resize: vertical; font: inherit; min-height: 84px; }
+.lang-row { align-items: center; gap: 6px; }
+.lang-row .spacer { flex: 1; }
+.lang-output { min-height: 84px; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface-2); line-height: 1.45; }
+.lang-output p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }

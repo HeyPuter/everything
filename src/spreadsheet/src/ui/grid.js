@@ -4527,6 +4527,12 @@ export function createGrid(opts) {
         e.preventDefault();
         opts.onCommand?.('recalc');
         return;
+      case 'F7':
+        // F7 checks the spelling; Shift+F7 opens the thesaurus.
+        if (mod || e.altKey) break;
+        e.preventDefault();
+        opts.onCommand?.(e.shiftKey ? 'thesaurus' : 'spelling');
+        return;
       case 'F11':
         // Shift+F11 inserts a sheet; F11 alone charts the selection on a chart sheet of its own.
         e.preventDefault();
