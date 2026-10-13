@@ -12,6 +12,14 @@
  *                       (a move, rotation, scale... made with a tool or the
  *                       arrow keys, relative to the selection's center)
  *     kind 'stop'       message, canContinue (pause with a message)
+ *     kind 'select'     name                 (select the objects with this name
+ *                       or note: Select Object)
+ *     kind 'path'       sub, layer?          (Insert Selected Path: add a copy of
+ *                       the recorded paths and select them)
+ *
+ * Playback Options (prefs 'actionPlayback'): 'accelerated' plays steps
+ * back to back, 'step' lets the document redraw between steps, 'pause'
+ * waits `pause` seconds between steps.
  *
  * Steps turned off are skipped. A step with `modal` on shows its dialogs,
  * prefilled with the recorded values; with `modal` off they are applied
@@ -104,7 +112,7 @@ export function parseSetsData(data) {
       id: uid('act'),
       name: String(a.name || 'Action'),
       ...(a.color ? { color: String(a.color) } : {}),
-      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop'].includes(st.kind)).map((st) => ({ ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) })),
+      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop', 'select', 'path'].includes(st.kind)).map((st) => ({ ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) })),
     })),
   }));
 }
@@ -152,8 +160,32 @@ export function stepDetail(st) {
     return out.join(', ');
   }
   if (st.kind === 'stop') return st.message || '';
+  if (st.kind === 'select') return st.name || '';
+  if (st.kind === 'path') return `${st.subs?.length || 0} path${st.subs?.length === 1 ? '' : 's'}`;
   return '';
 }
+
+/** Objects whose name or note is `name` (Select Object steps), visible and unlocked. */
+export function objectsNamed(doc, name) {
+  const out = [];
+  if (!name) return out;
+  doc.walk((n) => {
+    if (n.hidden || n.locked) return false;
+    if (n.type !== 'layer' && (n.name === name || n.notes === name)) {
+      out.push(n.id);
+      return false;
+    }
+    return true;
+  });
+  return out;
+}
+
+/** Playback Options with defaults. */
+export function playbackOptions(prefs) {
+  return { mode: 'accelerated', pause: 1, ...(prefs?.get('actionPlayback') || {}) };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Does replaying this step involve a dialog that can be shown or skipped? */
 export function hasDialog(st) {
@@ -367,6 +399,7 @@ export class ActionEngine {
         if (!st.on) continue;
         const res = await this.#playStep(st);
         if (res === 'stop') return { ok: false, done, stoppedAt: i };
+        if (res === true && i < steps.length - 1) await this.#between();
         if (typeof res === 'string') {
           app.notify(`Action "${found.action.name}" stopped at step ${from + i + 1}: ${res}`, { error: true, timeout: 6000 });
           return { ok: false, done, stoppedAt: i, message: res };
@@ -394,9 +427,37 @@ export class ActionEngine {
     return results;
   }
 
+  /** The wait between steps that Playback Options asks for. */
+  async #between() {
+    const o = playbackOptions(this.app.prefs);
+    if (o.mode === 'step') {
+      this.app.editor?.invalidate?.();
+      this.app.dock?.update();
+      await sleep(120);
+    } else if (o.mode === 'pause') await sleep(Math.max(0, Math.min(60, Number(o.pause) || 0)) * 1000);
+  }
+
   async #playStep(st) {
     const app = this.app;
     const ed = app.editor;
+    if (st.kind === 'select') {
+      if (!ed) return 'No document.';
+      const ids = objectsNamed(ed.doc, st.name);
+      if (!ids.length) return `No object is named "${st.name}".`;
+      ed.select(ids);
+      return true;
+    }
+    if (st.kind === 'path') {
+      if (!ed) return 'No document.';
+      const target = ed.targetLayer();
+      if (!target || ed.doc.isLocked(target.id) || ed.doc.isHidden(target.id)) return 'The current layer is locked or hidden.';
+      const out = [];
+      ed.doc.transact(st.label || 'Insert Path', () => {
+        for (const sub of st.subs || []) out.push(ed.doc.importSubtree(sub, target.id).id);
+      });
+      ed.select(out);
+      return true;
+    }
     if (st.kind === 'command') {
       const c = app.commands.get(st.cmd);
       if (!c) return `"${st.label}" is not available.`;

@@ -65,11 +65,17 @@ export function restoreSnapshot(editor, id) {
   return true;
 }
 
-/** The automatic snapshot of a document as it was when first shown. */
-export function ensureOpenSnapshot(editor) {
+/** History Options (prefs 'historyOptions'). */
+export function historyOptions(prefs) {
+  return { firstSnapshot: true, snapshotDialog: false, showTimes: true, ...(prefs?.get('historyOptions') || {}) };
+}
+
+/** The automatic snapshot of a document as it was when first shown (History Options can turn it off). */
+export function ensureOpenSnapshot(editor, prefs = null) {
   const s = store(editor.doc);
   if (s.opened) return;
   s.opened = true;
+  if (!historyOptions(prefs).firstSnapshot) return;
   const snap = { id: uid('snap'), name: editor.name, time: Date.now(), state: editor.doc.snapshot(), opened: true };
   s.list.unshift(snap);
   s.version++;
@@ -84,6 +90,42 @@ export class HistoryPanel extends Panel {
   static title = 'History';
   static icon = 'panel-history';
   static placement = 'strip';
+
+  menu() {
+    const ed = this.app.editor;
+    const doc = ed?.doc;
+    const snaps = doc ? snapshotsOf(doc) : [];
+    const user = snaps.filter((x) => !x.opened);
+    return [
+      { label: 'Step Forward', enabled: Boolean(doc?.canRedo), run: () => this.step(1) },
+      { label: 'Step Backward', enabled: Boolean(doc?.canUndo), run: () => this.step(-1) },
+      '-',
+      { label: 'New Snapshot...', enabled: Boolean(doc), run: () => this.newSnapshot(true) },
+      { label: 'Restore Snapshot', submenu: snaps.map((x) => ({ label: x.name, run: () => restoreSnapshot(ed, x.id) })) },
+      { label: 'Rename Snapshot', submenu: user.map((x) => ({ label: x.name, run: () => this.rename(x) })) },
+      { label: 'Delete All Snapshots', enabled: user.length > 0, run: () => user.forEach((x) => removeSnapshot(doc, x.id)) },
+      '-',
+      { label: 'Clear History', enabled: Boolean(doc && doc.history().steps.length), run: () => this.clearHistory() },
+      '-',
+      { label: 'History Options...', run: () => this.optionsDialog() },
+    ];
+  }
+
+  async optionsDialog() {
+    const o = historyOptions(this.app.prefs);
+    const v = await this.app.dialogs.form({
+      title: 'History Options',
+      fields: [
+        { key: 'firstSnapshot', label: 'Automatically create a snapshot of each opened document', type: 'checkbox', value: o.firstSnapshot },
+        { key: 'snapshotDialog', label: 'Ask for a name for new snapshots', type: 'checkbox', value: o.snapshotDialog },
+        { key: 'showTimes', label: 'Show the time of each step', type: 'checkbox', value: o.showTimes },
+      ],
+    });
+    if (!v) return;
+    this.app.prefs.set('historyOptions', v);
+    this.key = null;
+    this.update();
+  }
 
   build() {
     this.snapList = h('ul.hp-snaps', { 'aria-label': 'Snapshots' });
@@ -100,7 +142,7 @@ export class HistoryPanel extends Panel {
       (this.backBtn = iconButton('step-back', 'Step Backward', () => this.step(-1), { shortcut: 'Mod+Z' })),
       (this.fwdBtn = iconButton('step-ahead', 'Step Forward', () => this.step(1), { shortcut: 'Shift+Mod+Z' })),
       h('span.hp-spacer'),
-      iconButton('camera', 'New Snapshot', () => this.newSnapshot()),
+      iconButton('camera', 'New Snapshot', (e) => this.newSnapshot(Boolean(e?.altKey))),
       (this.clearBtn = iconButton('trash', 'Clear History', () => this.clearHistory())),
     );
     this.empty = h('p.panel-empty', 'No document open.');
@@ -159,6 +201,7 @@ export class HistoryPanel extends Panel {
 
   renderStates(ed, hist) {
     const focused = document.activeElement === this.list;
+    const showTimes = historyOptions(this.app.prefs).showTimes;
     const rows = hist.steps.map((st, i) => {
       const applied = i < hist.index;
       const current = i === hist.index - 1;
@@ -167,7 +210,7 @@ export class HistoryPanel extends Panel {
         { id: `hp-row-${i + 1}`, role: 'option', 'aria-selected': String(current), dataset: { index: String(i + 1) } },
         icon('history-state', 16),
         h('span.hp-name', st.label || 'Edit'),
-        h('span.hp-time', { 'aria-hidden': 'true' }, timeLabel(st.time)),
+        showTimes ? h('span.hp-time', { 'aria-hidden': 'true' }, timeLabel(st.time)) : null,
       );
       row.classList.toggle('undone', !applied);
       if (!applied) row.setAttribute('aria-description', 'Undone');
@@ -207,11 +250,20 @@ export class HistoryPanel extends Panel {
     this.goTo(go);
   }
 
-  newSnapshot() {
+  /** New Snapshot: asks for a name when History Options say so, or when `ask` (menu, Alt-click). */
+  async newSnapshot(ask = false) {
     const ed = this.app.editor;
-    if (!ed) return;
-    const snap = addSnapshot(ed.doc);
+    if (!ed) return null;
+    let name;
+    if (ask || historyOptions(this.app.prefs).snapshotDialog) {
+      const s = store(ed.doc);
+      const v = await this.app.dialogs.form({ title: 'New Snapshot', fields: [{ key: 'name', label: 'Name', type: 'text', value: `Snapshot ${s.counter + 1}` }] });
+      if (!v) return null;
+      name = v.name?.trim();
+    }
+    const snap = addSnapshot(ed.doc, name);
     this.app.notify(`Saved ${snap.name}.`, { polite: true });
+    return snap;
   }
 
   async rename(snap) {

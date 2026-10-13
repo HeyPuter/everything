@@ -15,7 +15,7 @@ import { iconButton } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
 import { IS_MAC, formatShortcut, normalizeShortcut } from '../../commands/registry.js';
 import { pickWithInput } from '../files/service.js';
-import { ActionEngine, defaultSets, exportSetsData, parseSetsData, findAction, stepDetail, hasDialog, isRecordable } from './actions-model.js';
+import { ActionEngine, defaultSets, exportSetsData, parseSetsData, findAction, stepDetail, hasDialog, isRecordable, playbackOptions } from './actions-model.js';
 
 export const BUTTON_COLORS = ['none', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'gray'];
 
@@ -85,7 +85,6 @@ export class ActionsPanel extends Panel {
       iconButton('folder-plus-2', 'Create New Set', () => this.newSet(), { className: 'small' }),
       iconButton('file-plus-2', 'Create New Action', () => this.newAction(), { className: 'small' }),
       (this.delBtn = iconButton('trash', 'Delete Selection', () => this.deleteSelected(), { className: 'small' })),
-      (this.menuBtn = iconButton('panel-menu', 'Actions Menu', (e) => this.openMenu(e.currentTarget), { className: 'small' })),
     );
     this.el.append(this.tree, this.buttons, this.status, this.footer);
   }
@@ -550,19 +549,20 @@ export class ActionsPanel extends Panel {
 
   async loadActions() {
     const [file] = await pickWithInput('.json,application/json');
-    if (!file) return;
+    if (!file) return 0;
     let sets;
     try {
       sets = parseSetsData(JSON.parse(await file.text()));
     } catch (err) {
       this.app.notify(err?.message?.includes('Vector Studio') ? err.message : 'This file could not be read as actions.', { error: true });
-      return;
+      return 0;
     }
     this.engine.sets.push(...sets);
     for (const s of sets) this.expanded.add(s.id);
     this.saveExpanded();
     this.engine.save();
     this.app.notify(`Loaded ${sets.length} action set${sets.length === 1 ? '' : 's'}.`, { polite: true });
+    return sets.length;
   }
 
   async resetActions() {
@@ -574,11 +574,77 @@ export class ActionsPanel extends Panel {
   }
 
   openMenu(anchor) {
+    this.app.showMenuAt(anchor, this.menu(), 'Actions menu');
+  }
+
+  /** Insert Selected Path: a step that adds copies of the selected paths. */
+  insertSelectedPath() {
+    const ed = this.app.editor;
+    if (!this.selectedAction()) return this.app.notify('Select an action first.');
+    const ids = ed ? ed.topSelection().filter((id) => ['path', 'compound'].includes(ed.doc.get(id)?.type)) : [];
+    if (!ids.length) return this.app.notify('Select a path to insert.');
+    const subs = ids.map((id) => structuredClone(ed.doc.exportSubtree(id)));
+    this.insertStep({ id: uid('st'), kind: 'path', label: 'Insert Path', subs, on: true, modal: false });
+  }
+
+  /** Select Object: a step that selects objects by name (or note). */
+  async insertSelectObject() {
+    if (!this.selectedAction()) return this.app.notify('Select an action first.');
+    const ed = this.app.editor;
+    const current = ed?.selectedNodes()[0];
+    const v = await this.app.dialogs.form({
+      title: 'Select Object',
+      description: 'Playing the action selects the objects with this name or note (Attributes panel).',
+      fields: [{ key: 'name', label: 'Name or note', type: 'text', value: current?.name || current?.notes || '' }],
+    });
+    const name = v?.name?.trim();
+    if (!name) return;
+    this.insertStep({ id: uid('st'), kind: 'select', label: 'Select Object', name, on: true, modal: false });
+  }
+
+  async playbackOptionsDialog() {
+    const o = playbackOptions(this.app.prefs);
+    const v = await this.app.dialogs.form({
+      title: 'Playback Options',
+      fields: [
+        {
+          key: 'mode',
+          label: 'Performance',
+          type: 'radio',
+          value: o.mode,
+          options: [
+            { value: 'accelerated', label: 'Accelerated' },
+            { value: 'step', label: 'Step by Step' },
+            { value: 'pause', label: 'Pause between steps' },
+          ],
+        },
+        { key: 'pause', label: 'Pause for (seconds)', type: 'number', value: o.pause, min: 0, max: 60 },
+      ],
+    });
+    if (v) this.app.prefs.set('actionPlayback', { mode: v.mode, pause: v.pause });
+  }
+
+  async clearActions() {
+    if (!(await this.app.dialogs.confirm({ title: 'Clear Actions', message: 'Delete every action set?', okLabel: 'Clear', danger: true }))) return;
+    this.engine.sets = [];
+    this.sel = null;
+    this.engine.save();
+    syncActionCommands(this.app, this.engine);
+  }
+
+  async replaceActions() {
+    const before = this.engine.sets;
+    this.engine.sets = [];
+    const n = await this.loadActions();
+    if (!n) this.engine.sets = before;
+    else syncActionCommands(this.app, this.engine);
+    this.engine.save();
+  }
+
+  menu() {
     const { action, set } = this.locate();
     const idle = !this.engine.recording && !this.engine.playing;
-    this.app.showMenuAt(
-      anchor,
-      [
+    return [
         { label: 'Button Mode', checked: this.buttonMode, run: () => this.setButtonMode(!this.buttonMode) },
         '-',
         { label: 'New Action...', enabled: idle, run: () => this.newAction() },
@@ -591,16 +657,19 @@ export class ActionsPanel extends Panel {
         { label: 'Start Recording', enabled: idle && Boolean(action), run: () => this.record() },
         { label: 'Insert Menu Item...', enabled: Boolean(action), run: () => this.insertMenuItem() },
         { label: 'Insert Stop...', enabled: Boolean(action), run: () => this.insertStop() },
+        { label: 'Insert Selected Path', enabled: Boolean(action) && Boolean(this.app.editor?.selection.size), run: () => this.insertSelectedPath() },
+        { label: 'Select Object...', enabled: Boolean(action), run: () => this.insertSelectObject() },
         '-',
         { label: 'Action Options...', enabled: Boolean(action), run: () => this.actionOptions(action.id) },
         { label: 'Set Options...', enabled: Boolean(set), run: () => this.setOptions(set.id) },
+        { label: 'Playback Options...', run: () => this.playbackOptionsDialog() },
         '-',
+        { label: 'Clear Actions', enabled: idle && this.sets.length > 0, run: () => this.clearActions() },
         { label: 'Reset Actions', enabled: idle, run: () => this.resetActions() },
         { label: 'Load Actions...', enabled: idle, run: () => this.loadActions() },
+        { label: 'Replace Actions...', enabled: idle, run: () => this.replaceActions() },
         { label: set ? 'Save Set...' : 'Save Actions...', run: () => this.saveActions() },
-      ],
-      'Actions menu',
-    );
+    ];
   }
 
   setButtonMode(on) {
