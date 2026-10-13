@@ -19,7 +19,7 @@
  */
 import './styles.css';
 import { paintHooks, svgExportHooks, exportBakers } from './hooks.js';
-import { appearanceAttrs, layerAppearanceBaker } from './svg-appearance.js';
+import { appearanceAttrs, layerAppearanceBaker, appearanceSpecBaker } from './svg-appearance.js';
 import { installSystemIO } from './system.js';
 import { pickDeviceFiles } from './kinds.js';
 
@@ -40,6 +40,7 @@ export function install(app) {
   // Appearance stacks: marked for SVG import, and layer stacks baked for every exporter.
   if (!svgExportHooks.attrs.includes(appearanceAttrs)) svgExportHooks.attrs.push(appearanceAttrs);
   if (!exportBakers.includes(layerAppearanceBaker)) exportBakers.push(layerAppearanceBaker);
+  if (!exportBakers.includes(appearanceSpecBaker)) exportBakers.push(appearanceSpecBaker);
   app.importers = {
     ...(app.importers || {}),
     svg: async (text, opts) => (await loadIO()).importSvgDocument(app, text, opts),

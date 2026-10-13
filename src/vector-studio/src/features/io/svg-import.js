@@ -392,8 +392,9 @@ class Importer {
       case 'a':
         ids = yield* this.convertChildrenGen(el, { ...ctx, ctm: M, style: st });
         // One object's fills and strokes (an appearance stack written by the SVG export).
-        if (ids.length > 1 && el.hasAttribute('data-appearance')) {
-          const merged = mergeAppearanceGroup(this.nodes, [...el.children].filter((c) => !NON_ART.has(c.localName)), ids);
+        if ((ids.length > 1 || el.hasAttribute('data-appearance-d')) && el.hasAttribute('data-appearance')) {
+          const outline = (d) => parsePathData(d).map((sp) => ({ anchors: transformAnchors(sp.anchors, M), closed: sp.closed }));
+          const merged = mergeAppearanceGroup(this.nodes, [...el.children].filter((c) => !NON_ART.has(c.localName)), ids, { stack: el, outline });
           if (merged) {
             ids = [merged];
             break;
