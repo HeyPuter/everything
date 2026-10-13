@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseFont, fontTables } from '../src/imaging/text/sfnt';
-import { featureOn, featureSettings, featureSupport, normalizeFeatures, toggleFeature } from '../src/imaging/text/font-features';
+import { featureOn, featureSettings, featureSupport, normalizeFeatures, stylisticSetNames, toggleFeature } from '../src/imaging/text/font-features';
 
 const bytes = (rel: string) => new Uint8Array(readFileSync(join(__dirname, '..', 'public', 'fonts', rel)));
 const crimsonBytes = bytes('crimson-pro/CrimsonPro-Variable.woff');
@@ -29,8 +29,22 @@ describe('sfnt cmap and GSUB helpers', () => {
 
 describe('OpenType feature lists', () => {
   it('reports the menu features a font implements', () => {
-    expect([...featureSupport(crimsonBytes)].sort()).toEqual(['dlig', 'frac', 'liga', 'onum']);
-    expect([...featureSupport(interBytes)].sort()).toEqual(['calt', 'dlig', 'frac']);
+    expect([...featureSupport(crimsonBytes)].sort()).toEqual(['case', 'dlig', 'frac', 'liga', 'lnum', 'onum', 'ordn', 'pnum', 'subs', 'sups', 'tnum']);
+    expect([...featureSupport(interBytes)].sort()).toEqual(['calt', 'case', 'dlig', 'frac', 'ordn', 'pnum', 'salt', 'ss01', 'ss02', 'ss03', 'ss04', 'ss05', 'ss06', 'ss07', 'ss08', 'subs', 'sups', 'tnum', 'zero']);
+  });
+  it('reads the names fonts give their stylistic sets', () => {
+    const names = stylisticSetNames(interBytes);
+    expect(names.size).toBe(8);
+    expect(names.get('ss01')).toBe('Open digits');
+    expect(names.get('ss02')).toBe('Disambiguation');
+    expect(stylisticSetNames(crimsonBytes).size).toBe(0);
+  });
+  it('keeps exclusive figure and position styles apart', () => {
+    expect(toggleFeature('onum', 'lnum', true)).toBe('lnum');
+    expect(toggleFeature('lnum pnum', 'tnum', true)).toBe('lnum tnum');
+    expect(toggleFeature('sups', 'subs', true)).toBe('subs');
+    expect(toggleFeature('ss01 tnum', 'ss02', true)).toBe('ss01 ss02 tnum');
+    expect(featureSettings('ss03 zero')).toBe('"ss03" 1, "zero" 1');
   });
   it('normalizes, toggles and converts feature lists', () => {
     expect(normalizeFeatures('onum  dlig onum -calt liga -dlig bogus x')).toBe('-calt dlig onum');

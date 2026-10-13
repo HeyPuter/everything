@@ -417,6 +417,48 @@ export function layoutFeatureTags(v: DataView): string[] {
   return [...tags].sort();
 }
 
+/** UI name IDs of a GSUB table's stylistic sets (ss01–ss20 FeatureParams). */
+export function stylisticSetNameIds(v: DataView): Map<string, number> {
+  const out = new Map<string, number>();
+  const fl = v.getUint16(6);
+  for (let i = 0; i < v.getUint16(fl); i++) {
+    const rec = fl + 2 + i * 6;
+    const t = tag(v, rec);
+    if (!/^ss(0[1-9]|1\d|20)$/.test(t) || out.has(t)) continue;
+    const feature = fl + v.getUint16(rec + 4);
+    const params = v.getUint16(feature);
+    if (!params || feature + params + 4 > v.byteLength) continue;
+    // FeatureParams for stylistic sets: version 0, then the UI name ID.
+    if (v.getUint16(feature + params) !== 0) continue;
+    out.set(t, v.getUint16(feature + params + 2));
+  }
+  return out;
+}
+/** A string of a `name` table by ID: Windows English first, then any Windows
+ * or Unicode record, then a Macintosh Roman one. */
+export function nameString(v: DataView, id: number): string | undefined {
+  const count = v.getUint16(2),
+    strings = v.getUint16(4);
+  let best: { rank: number; text: string } | undefined;
+  for (let i = 0; i < count; i++) {
+    const o = 6 + i * 12;
+    if (o + 12 > v.byteLength) break;
+    const platform = v.getUint16(o),
+      language = v.getUint16(o + 4);
+    if (v.getUint16(o + 6) !== id) continue;
+    const length = v.getUint16(o + 8),
+      start = strings + v.getUint16(o + 10);
+    if (start + length > v.byteLength) continue;
+    const rank = platform === 3 && language === 0x409 ? 0 : platform === 3 || platform === 0 ? 1 : platform === 1 ? 2 : 3;
+    if (rank > 2 || (best && best.rank <= rank)) continue;
+    let text = '';
+    if (rank < 2) for (let k = 0; k + 1 < length; k += 2) text += String.fromCharCode(v.getUint16(start + k));
+    else for (let k = 0; k < length; k++) text += String.fromCharCode(v.getUint8(start + k));
+    if (text.trim()) best = { rank, text: text.trim() };
+  }
+  return best?.text;
+}
+
 function parseCmap(v: DataView): (cp: number) => number {
   const off = bestCmapSubtable(v);
   if (off < 0) return () => 0;

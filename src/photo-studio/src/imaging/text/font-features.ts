@@ -5,7 +5,7 @@
 // GSUB FeatureList) and the feature strings stored in character styles.
 // Reference: OpenType 1.9 specification (Microsoft), GSUB FeatureList.
 
-import { fontTables, layoutFeatureTags } from './sfnt';
+import { fontTables, layoutFeatureTags, nameString, stylisticSetNameIds } from './sfnt';
 import { OPENTYPE_FEATURES, type OpenTypeFeature } from './feature-list';
 
 // Feature lists are plain strings (feature-list.ts); reading a font's GSUB
@@ -21,4 +21,18 @@ export function gsubTags(fontBytes: Uint8Array | ArrayBuffer): string[] {
 export function featureSupport(fontBytes: Uint8Array | ArrayBuffer): Set<OpenTypeFeature> {
   const tags = new Set(gsubTags(fontBytes));
   return new Set(OPENTYPE_FEATURES.filter((f) => tags.has(f)));
+}
+/** Names fonts give their stylistic sets ("ss01" → "Open digits"), read
+ * from GSUB FeatureParams and the name table. Unnamed sets are omitted. */
+export function stylisticSetNames(fontBytes: Uint8Array | ArrayBuffer): Map<string, string> {
+  const tables = fontTables(fontBytes);
+  const gsub = tables.get('GSUB'),
+    name = tables.get('name');
+  const out = new Map<string, string>();
+  if (!gsub || !name) return out;
+  for (const [tag, id] of stylisticSetNameIds(gsub)) {
+    const text = nameString(name, id);
+    if (text) out.set(tag, text.slice(0, 60));
+  }
+  return out;
 }
