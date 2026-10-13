@@ -211,6 +211,25 @@ describe('Assistant plan validation', () => {
     setArgs(plan.steps[1], { kind: 'nonsense' }, e);
     expect(plan.steps[1].problems[0]).toContain('Kind must be one of');
   });
+  it('knows commands that need a selection and then clear it', () => {
+    const extra: Record<string, string> = { 'select.subject': 'Subject', 'edit.ai-fill': 'AI Fill…', 'layer.mask-hide-selection': 'Hide Selection' };
+    const base = env();
+    const e = env({
+      command: (id) => (extra[id] ? { id, label: extra[id] } : base.command(id)),
+      entry: (id) => (extra[id] ? ({ id, kind: 'command', label: extra[id], path: [], input: id === 'edit.ai-fill' ? 'ai' : 'none', words: [], descWords: [] } as never) : base.entry(id)),
+      needsSelection: (id) => id === 'edit.ai-fill' || id === 'layer.mask-hide-selection' || id === 'image.crop',
+    });
+    const plan = buildPlan({ steps: [{ action: 'select.subject' }, { action: 'edit.ai-fill', args: { prompt: 'a bench' } }, { action: 'layer.mask-hide-selection' }] }, 'r', e);
+    expect(plan.steps[1].problems).toEqual([]);
+    // AI Fill leaves no selection, so the mask step would fail after a paid fill.
+    expect(plan.steps[2].problems).toEqual(['“Hide Selection” needs a selection, and there is none at this point. Add a step that selects an area first.']);
+  });
+  it('runs a settings step without settings at its defaults, not in its dialog', () => {
+    const plan = buildPlan({ steps: [{ action: 'filter.apply.gaussian-blur' }] }, 'r', env());
+    expect(plan.steps[0].input).toBe('settings');
+    expect(commandArg(plan.steps[0])).toEqual({ params: {} });
+    expect(stepDetail(plan.steps[0])).toBe('Default settings');
+  });
   it('requires a document for most steps', () => {
     const plan = buildPlan({ steps: [{ action: 'select.all' }, { action: 'op.set_colors', args: { foreground: 'red' } }] }, 'r', env({ hasDocument: false }));
     expect(plan.steps[0].problems).toEqual(['Open or create a document first.']);
