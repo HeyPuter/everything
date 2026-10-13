@@ -16,12 +16,22 @@
  * rest (grouped when there are several); Release puts the art back above
  * the object. Rendering goes through drawHooks.opacityMask, transforms
  * through geometry transformHooks, and SVG export writes a <mask>.
+ *
+ * Mask editing mode (from the Transparency panel's mask thumbnail) edits
+ * the art in place: it moves into the document as a group marked
+ * `maskEdit: { owner }` right above the object (whose mask records
+ * `editing: groupId` and is drawn from that group meanwhile), and the group
+ * is isolated so every tool works on it. The art itself does not paint; its
+ * outlines show. Leaving the mode (Esc, the object thumbnail, Exit
+ * Isolation Mode) stores the edited art back into the mask. Like pattern
+ * editing, the mode is document state, so undo steps in and out of it.
  */
 import { drawNode, drawHooks } from '../../render/draw.js';
 import { transformHooks, nodeBounds, transformNodes } from '../../model/geometry.js';
 import { createGroup } from '../../model/nodes.js';
 import { IDENTITY, multiply, translate } from '../../lib/matrix.js';
-import { svgExportHooks } from '../io/hooks.js';
+import { svgExportHooks, exportBakers } from '../io/hooks.js';
+import { viewHooks } from '../../render/canvas-view.js';
 
 const isIdentity = (m) => !m || m.every((v, i) => Math.abs(v - IDENTITY[i]) < 1e-12);
 
@@ -83,9 +93,11 @@ const maskCache = new WeakMap();
  */
 function maskCanvas(region, m, doc, node, opts) {
   const om = node.opacityMask;
+  // While the art is edited in place it draws from the document (never cached: it changes under the same mask record).
+  const live = om.editing && doc.get(om.editing)?.maskEdit ? doc.get(om.editing) : null;
   const key = [region.x, region.y, region.w, region.h, m.a, m.b, m.c, m.d, m.e, m.f, om.clip, om.invert].join(',');
   const hit = maskCache.get(om);
-  if (hit && hit.key === key && hit.doc === doc) return hit.canvas;
+  if (!live && hit && hit.key === key && hit.doc === doc) return hit.canvas;
   const canvas = hit?.canvas && hit.canvas.width === region.w && hit.canvas.height === region.h ? hit.canvas : makeCanvas(region.w, region.h);
   const mctx = canvas.getContext('2d');
   if (!mctx) return null;
@@ -94,18 +106,18 @@ function maskCanvas(region, m, doc, node, opts) {
   mctx.globalAlpha = 1;
   mctx.fillStyle = om.clip ? '#000000' : '#ffffff';
   mctx.fillRect(0, 0, region.w, region.h);
-  const t = om.transform || IDENTITY;
+  const t = live ? IDENTITY : om.transform || IDENTITY;
   const vm = multiply([m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y], t);
   mctx.setTransform(vm[0], vm[1], vm[2], vm[3], vm[4], vm[5]);
-  const view = maskView(doc, om);
-  const root = view.get(om.art.root);
+  const view = live ? doc : maskView(doc, om);
+  const root = live ? { ...live, maskEdit: undefined } : view.get(om.art.root);
   if (root) drawNode(mctx, view, root, { ...opts, viewRect: null, skip: null, leafFilter: null, overprint: false });
   mctx.setTransform(1, 0, 0, 1, 0, 0);
   const img = mctx.getImageData?.(0, 0, region.w, region.h);
   if (!img?.data || img.data.length < region.w * region.h * 4) return null;
   luminanceToAlpha(img.data, om.invert);
   mctx.putImageData(img, 0, 0);
-  maskCache.set(om, { key, doc, canvas });
+  maskCache.set(om, { key: live ? null : key, doc, canvas });
   return canvas;
 }
 
@@ -155,8 +167,10 @@ function svgMask(node, w, depth) {
   delete plain.opacityMask;
   const inner = w.node(plain, depth + 1);
   if (!inner) return '';
-  const view = maskView(w.doc, om);
-  const root = view.get(om.art.root);
+  // Art being edited in place is written from the document.
+  const live = om.editing ? w.doc.get(om.editing) : null;
+  const view = live ? w.doc : maskView(w.doc, om);
+  const root = live ? { ...live, hidden: false, maskEdit: undefined } : view.get(om.art.root);
   const savedDoc = w.doc;
   const savedCull = w.cullRect;
   let art = '';
@@ -168,7 +182,7 @@ function svgMask(node, w, depth) {
     w.doc = savedDoc;
     w.cullRect = savedCull;
   }
-  const t = multiply(multiply(translate(-w.ox, -w.oy), om.transform || IDENTITY), translate(w.ox, w.oy));
+  const t = multiply(multiply(translate(-w.ox, -w.oy), live ? IDENTITY : om.transform || IDENTITY), translate(w.ox, w.oy));
   const f = (v) => w.n(v);
   const tAttr = isIdentity(t) ? '' : ` transform="matrix(${t.map(f).join(' ')})"`;
   const bg = om.clip ? '#000' : '#fff';
@@ -188,12 +202,28 @@ export function installOpacityMasks() {
   drawHooks.opacityMask = applyMask;
   transformHooks.push(maskTransformPatch);
   svgExportHooks.element.unshift(svgMask);
+  // Mask art being edited in place paints only through the mask (exports included).
+  exportBakers.push({ key: 'maskEdit', test: (n) => Boolean(n.maskEdit), bake: (n) => ({ ...n, hidden: true }) });
+  viewHooks.artOptions.push((editor, opts) => {
+    const g = maskEditGroup(editor.doc);
+    return g ? { ...opts, skip: new Set([...(opts.skip || []), g.id]) } : opts;
+  });
+  viewHooks.afterArt.push((ctx, editor, view) => {
+    const g = maskEditGroup(editor.doc);
+    if (!g) return;
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    drawNode(ctx, editor.doc, { ...g, maskEdit: undefined }, { outline: true, outlineColor: '#7f7f7f', hairline: 1 / view.zoom, viewRect: null, scale: view.zoom });
+    ctx.restore();
+  });
 }
 
 // ---- operations ----
 
-/** Selected objects that carry opacity masks. */
+/** Selected objects that carry opacity masks (the object whose mask is being edited, while editing). */
 export function maskedTargets(editor) {
+  const owner = maskEditOwner(editor.doc);
+  if (owner) return [owner];
   return editor
     .topSelection()
     .map((id) => editor.doc.get(id))
@@ -278,4 +308,91 @@ export function maskFlag(editor, key) {
   if (!t.length) return null;
   const v = t.map((n) => Boolean(n.opacityMask[key]));
   return v.every(Boolean) ? true : v.some(Boolean) ? 'mixed' : false;
+}
+
+// ---- editing the mask in place ----
+
+const editGroups = new WeakMap();
+
+/** The group holding mask art being edited, or null (looked up once per document change). */
+export function maskEditGroup(doc) {
+  const v = doc.nodes.version;
+  const hit = editGroups.get(doc);
+  if (hit && v !== undefined && hit.v === v) return hit.g && doc.get(hit.g.id);
+  let g = null;
+  for (const n of doc.nodes.values()) {
+    if (n.maskEdit && n.type === 'group') {
+      g = n;
+      break;
+    }
+  }
+  editGroups.set(doc, { v, g });
+  return g;
+}
+
+/** The object whose mask is being edited, or null. */
+export function maskEditOwner(doc) {
+  const g = maskEditGroup(doc);
+  const owner = g ? doc.get(g.maskEdit.owner) : null;
+  return owner && owner.opacityMask?.editing === g.id ? owner : null;
+}
+
+/**
+ * Edit an object's mask art in place (see the module comment). Returns the
+ * editing group's id, or null.
+ */
+export function enterMaskEditing(editor, id = null) {
+  const { doc } = editor;
+  if (maskEditGroup(doc)) return null;
+  const owner = doc.get(id || maskedTargets(editor)[0]?.id);
+  const om = owner?.opacityMask;
+  if (!om || !owner.parent) return null;
+  let gid = null;
+  doc.transact('Edit Opacity Mask', () => {
+    const parent = doc.get(owner.parent);
+    const g = createGroup([], { name: '<Opacity Mask>', maskEdit: { owner: owner.id } });
+    doc.insert(g, parent.id, parent.children.indexOf(owner.id) + 1);
+    gid = g.id;
+    const root = doc.importSubtree(structuredClone(om.art), gid);
+    if (!isIdentity(om.transform)) transformNodes(doc, [root.id], om.transform);
+    doc.update(owner.id, { opacityMask: { ...om, editing: gid } });
+  });
+  editor.isolation = gid;
+  editor.clearSelection();
+  editor.emit('isolation');
+  editor.invalidate?.();
+  return gid;
+}
+
+/** Store the edited art back into the mask and leave mask editing. Returns the object's id. */
+export function exitMaskEditing(editor) {
+  const { doc } = editor;
+  const g = maskEditGroup(doc);
+  const ownerId = g?.maskEdit.owner;
+  if (g) {
+    doc.transact('Done Editing Opacity Mask', () => {
+      const owner = doc.get(ownerId);
+      if (owner?.opacityMask) {
+        const kids = g.children.filter((c) => doc.has(c));
+        let art;
+        if (kids.length === 1) art = structuredClone(doc.exportSubtree(kids[0]));
+        else {
+          const sub = structuredClone(doc.exportSubtree(g.id));
+          const root = sub.nodes[0];
+          delete root.maskEdit;
+          delete root.parent;
+          root.name = '';
+          art = sub;
+        }
+        const { editing, ...om } = owner.opacityMask;
+        doc.update(owner.id, { opacityMask: { ...om, art, transform: [...IDENTITY] } });
+      }
+      doc.remove(g.id);
+    });
+  }
+  if (editor.isolation === g?.id || (editor.isolation && !doc.has(editor.isolation))) editor.isolation = null;
+  editor.select(ownerId && doc.has(ownerId) ? [ownerId] : []);
+  editor.emit('isolation');
+  editor.invalidate?.();
+  return ownerId || null;
 }

@@ -1037,6 +1037,17 @@
   border-radius: 2px;
 }
 
+/* The thumbnail being edited (artwork or mask) is outlined. */
+.tp-mask-thumb.editing .tp-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tp-obj-thumb:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .tp-mask-thumb.empty .tp-thumb {
   border-style: dashed;
   opacity: 0.6;

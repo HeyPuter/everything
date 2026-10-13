@@ -16,7 +16,7 @@ import { BLEND_LABELS } from '../../ui/panels/properties.js';
 import { gestureKey } from './ui-common.js';
 import { icon } from '../../ui/icons.js';
 import { drawThumbnail } from './thumbs.js';
-import { maskedTargets, maskFlag, maskRootNode, maskView, canMakeMask, makeOpacityMask, releaseOpacityMask, setMaskFlag } from './opacity-mask.js';
+import { maskedTargets, maskFlag, maskRootNode, maskView, canMakeMask, makeOpacityMask, releaseOpacityMask, setMaskFlag, maskEditGroup, maskEditOwner, enterMaskEditing, exitMaskEditing } from './opacity-mask.js';
 
 /** Objects that carry opacity/blending: the top-level selection (any type). */
 export function transparencyTargets(editor) {
@@ -67,7 +67,19 @@ export function registerTransparencyCommands(app) {
       enabled: (a) => canMakeMask(ed(a)),
       run: (a) => makeOpacityMask(ed(a), { clip: a.prefs.get('newMasksClip') !== false, invert: Boolean(a.prefs.get('newMasksInvert')) }),
     },
-    { id: 'transparency.releaseMask', label: 'Release Opacity Mask', enabled: masked, run: (a) => releaseOpacityMask(ed(a)) },
+    { id: 'transparency.releaseMask', label: 'Release Opacity Mask', enabled: (a) => masked(a) && !maskEditGroup(a.editor.doc), run: (a) => releaseOpacityMask(ed(a)) },
+    {
+      id: 'transparency.editMask',
+      label: 'Edit Opacity Mask',
+      enabled: (a) => masked(a) && !maskEditGroup(a.editor.doc),
+      run: (a) => enterMaskEditing(ed(a)),
+    },
+    {
+      id: 'transparency.stopEditingMask',
+      label: 'Stop Editing Opacity Mask',
+      enabled: (a) => Boolean(a.editor && maskEditGroup(a.editor.doc)),
+      run: (a) => exitMaskEditing(ed(a)),
+    },
     {
       id: 'transparency.toggleMask',
       label: (a) => (a.editor && maskFlag(a.editor, 'disabled') === true ? 'Enable Opacity Mask' : 'Disable Opacity Mask'),
@@ -101,6 +113,27 @@ export function registerTransparencyCommands(app) {
       run: (a) => setMaskFlag(ed(a), 'invert', maskFlag(ed(a), 'invert') !== true, 'Invert Opacity Mask'),
     },
   ]);
+  // Esc and Exit Isolation Mode leave mask editing (stepping out of a group inside the mask art first).
+  const exitIso = app.commands.get('object.exitIsolation');
+  if (exitIso) {
+    app.commands.register({
+      ...exitIso,
+      enabled: (a, args) => Boolean(a.editor && maskEditGroup(a.editor.doc)) || exitIso.enabled(a, args),
+      run: (a, args) => {
+        const e = a.editor;
+        const g = e && maskEditGroup(e.doc);
+        if (!g) return exitIso.run(a, args);
+        if (e.isolation && e.isolation !== g.id && e.doc.has(e.isolation)) {
+          e.isolation = g.id;
+          e.clearSelection();
+          e.emit('isolation');
+          e.invalidate?.();
+          return undefined;
+        }
+        return exitMaskEditing(e);
+      },
+    });
+  }
 }
 
 export class TransparencyPanel extends Panel {
@@ -147,14 +180,17 @@ export class TransparencyPanel extends Panel {
     // Thumbnails: the object, the link between object and mask, and the mask.
     this.thumb = h('canvas.tp-thumb', { width: 48, height: 48, 'aria-hidden': 'true' });
     this.maskThumb = h('canvas.tp-thumb', { width: 48, height: 48, 'aria-hidden': 'true' });
+    // Clicking the mask edits its art in place; clicking the object goes back to the artwork.
+    this.objBtn = h('button.tp-mask-thumb.tp-obj-thumb', { type: 'button', 'aria-label': 'Artwork', 'data-tip': 'Artwork (click to stop editing the mask)', onclick: () => app.editor && maskEditGroup(app.editor.doc) && app.commands.run('transparency.stopEditingMask') }, this.thumb);
     this.maskBtn = h(
       'button.tp-mask-thumb',
       {
         type: 'button',
-        'data-tip': 'Opacity mask (Shift+click to disable or enable it)',
+        'data-tip': 'Opacity mask: click to edit it, Shift+click to disable or enable it',
         onclick: (e) => {
           if (e.shiftKey) app.commands.run('transparency.toggleMask');
           else if (!maskedTargets(app.editor).length) app.commands.run('transparency.makeMask');
+          else if (!maskEditGroup(app.editor.doc)) app.commands.run('transparency.editMask');
         },
       },
       this.maskThumb,
@@ -163,7 +199,7 @@ export class TransparencyPanel extends Panel {
     this.makeBtn = h('button.btn.small.tp-make', { type: 'button', onclick: () => app.commands.run(maskedTargets(app.editor).length ? 'transparency.releaseMask' : 'transparency.makeMask') }, 'Make Mask');
     this.thumbs = h(
       'div.tp-mid',
-      h('div.tp-thumbs', this.thumb, this.linkBtn, this.maskBtn),
+      h('div.tp-thumbs', this.objBtn, this.linkBtn, this.maskBtn),
       h('div.tp-checks', this.makeBtn, this.clip.el, this.invert.el),
     );
     this.options = h('div.tp-options', this.isolate.el, this.knockout.el, this.knockShape.el);
@@ -246,18 +282,26 @@ export class TransparencyPanel extends Panel {
     this.linkBtn.setAttribute('aria-label', linkLabel);
     this.linkBtn.dataset.tip = linkLabel;
     const disabled = maskFlag(ed, 'disabled') === true;
+    const editing = Boolean(maskEditGroup(ed.doc));
     this.maskBtn.classList.toggle('mask-off', disabled);
     this.maskBtn.classList.toggle('empty', !hasMask);
-    this.maskBtn.setAttribute('aria-label', hasMask ? `Opacity mask${disabled ? ', disabled' : ''}. Shift+click to ${disabled ? 'enable' : 'disable'} it.` : 'No opacity mask. Click to make one from the selection.');
+    this.maskBtn.classList.toggle('editing', editing);
+    this.objBtn.classList.toggle('editing', !editing && hasMask);
+    this.maskBtn.setAttribute('aria-pressed', String(editing));
+    this.objBtn.disabled = !editing;
+    this.makeBtn.disabled ||= editing;
+    this.maskBtn.setAttribute('aria-label', hasMask ? `Opacity mask${disabled ? ', disabled' : ''}${editing ? ', being edited' : ''}. Click to edit it, Shift+click to ${disabled ? 'enable' : 'disable'} it.` : 'No opacity mask. Click to make one from the selection.');
     this.maskBtn.disabled = !hasMask && !canMakeMask(ed);
     this.note.hidden = hasMask || canMakeMask(ed) || !this.thumbsShown;
-    if (this.thumbsShown) this.drawThumbs(ed, sel);
+    if (this.thumbsShown) this.drawThumbs(ed, editing ? [maskEditOwner(ed.doc)].filter(Boolean) : sel);
   }
 
   drawThumbs(ed, sel) {
     // Redraw only when the selected object changed (nodes are immutable).
+    // The mask art being edited lives in the document: its thumbnail follows every change.
+    const g = maskEditGroup(ed.doc);
     const key = sel.length === 1 ? sel[0] : sel.length;
-    if (key === this.thumbKey) return;
+    if (key === this.thumbKey && !g) return;
     this.thumbKey = key;
     const node = sel.length === 1 ? sel[0] : null;
     paintThumb(this.thumb, node ? (ctx, w) => drawThumbnail(ctx, ed.doc, { ...node, opacityMask: undefined }, w) : null);
@@ -266,8 +310,11 @@ export class TransparencyPanel extends Panel {
       // The mask shows on its background: black when it clips, white otherwise.
       ctx.fillStyle = om.clip ? '#000000' : '#ffffff';
       ctx.fillRect(0, 0, w, w);
-      const root = maskRootNode(ed.doc, om);
-      if (root) drawThumbnail(ctx, maskView(ed.doc, om), root, w);
+      if (g && om.editing === g.id) drawThumbnail(ctx, ed.doc, { ...g, maskEdit: undefined }, w);
+      else {
+        const root = maskRootNode(ed.doc, om);
+        if (root) drawThumbnail(ctx, maskView(ed.doc, om), root, w);
+      }
     } : null);
   }
 }
