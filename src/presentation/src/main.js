@@ -86,6 +86,7 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createAnimationTools } from "./animations/editor.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -3261,7 +3262,10 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()]];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => [animationTools.tab()],
+];
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3274,6 +3278,33 @@ const drawTools = createDrawTools({
     syncToolbar();
   },
 });
+// The Animations tab, the Animation Pane and animation previews.
+const animationTools = createAnimationTools({
+  P,
+  modKey: MOD_KEY,
+  doc: () => doc,
+  slide: () => doc && slide(),
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    selectIds(ids);
+    renderSelection();
+    renderInspector();
+  },
+  topLevelShapes: (s) => {
+    const parents = groupParents(s);
+    return P.getSlideShapes(s).filter((x) => !parents.has(P.getShapeId(x)));
+  },
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  slideSize: () => currentSize(),
+  // One line, for lists and menus.
+  shapeLabel: (shape) =>
+    truncateLabel(shapeLabel(shape, doc.pres).replace(/\s+/g, " ").trim(), 60),
+  renderLayer: (s, layer) => preview(doc.pres, s, layer),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  canvas: () => document.querySelector("#slide-canvas"),
+  editorBody: () => document.querySelector(".editor-body"),
+  refresh: () => syncToolbar(),
+});
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -3281,9 +3312,11 @@ function editorRibbon() {
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
+      animationTools.setTabActive(id === "animations");
     },
   });
   ribbon.onError(fail);
+  animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
   return ribbon.el;
 }
@@ -6034,6 +6067,7 @@ function syncToolbar() {
     ribbon?.refresh();
     updateStatusBar();
     renderSelectionPane();
+    animationTools.sync();
   });
 }
 const navigatorVisible = () =>
@@ -7194,6 +7228,7 @@ function renderSlideArea(refreshNavigator = true) {
   };
   renderCanvasAids();
   drawTools.attach();
+  animationTools.attach();
   renderSelection();
   focusTarget?.focus();
   const selectedHit =
@@ -14012,6 +14047,7 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  if (!typing && animationTools.onKey(e)) return;
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();
