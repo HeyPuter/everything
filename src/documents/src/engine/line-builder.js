@@ -185,7 +185,8 @@ export class LineBuilder {
     if (!c.image && c.style.textShadow) { g.hasTextShadow = true; this.hasTextShadow = true; }
     if (c.discretionaryHyphen && !hasLineText(g.text)) g.discretionaryOnly = true;
     g.text += c.text === '\u00ad' ? '' : c.text; g.end = c.end;
-    if(g.textOffsets) g.textOffsets.push({offset:c.end,index:g.text.length});
+    // An automatic hyphen has no text position of its own: the break's caret stays before it.
+    if(g.textOffsets && !c.autoHyphen) g.textOffsets.push({offset:c.end,index:g.text.length});
     const nextSpace = c.text === ' ' && f.followingSpace?.group === g && f.followingSpace.text === g.text ? f.followingSpace.metrics : null;
     f.followingSpace = null;
     const extent = c.image && inlineImageExtents(c.image, this.page);
@@ -193,7 +194,7 @@ export class LineBuilder {
     // Measure the first in context, then reuse its isolated metrics so a long
     // hanging tail does not repeatedly shape every growing whitespace prefix.
     const repeatedSpace = c.text === ' ' && f.lastSpace && !this.page.wrapTrailSpaces && this.end > this.right;
-    if (!g.textOffsets && !repeatedSpace && g.ligatures && g.ligatures !== 'none') completeCaretOffsets.get(g)?.push({offset:c.end,index:g.text.length});
+    if (!g.textOffsets && !repeatedSpace && !c.autoHyphen && g.ligatures && g.ligatures !== 'none') completeCaretOffsets.get(g)?.push({offset:c.end,index:g.text.length});
     const space = repeatedSpace && (f.spaceMetrics ||= this.measure(' ', g));
     const shift = (c.style.baselineShift || 0) * 4 / 3;
     const m = isPositionedImage(c.image) ? { width: 0, ascent: 0, descent: 0 } : c.image ? { width: extent.width / EMU_PER_PX, ascent: extent.height / EMU_PER_PX + shift, descent: -shift } : repeatedSpace ? { ...space, width: g.width + space.width } : nextSpace || (g.ligatures && g.ligatures !== 'none' ? measureLtrPrefix(this.measure, g.text, g) : this.measure(g.text, g));

@@ -49,6 +49,8 @@ import { floatingTableInset, floatingFragmentBounds, UnsupportedFloatingTableFlo
 import { avoidTableOverlap, shiftTableItem } from './table-overlap.js';
 import { nestedFloatingTableX } from './nested-floating-tables.js';
 import { paragraphFrameGroups, measureParagraphFrame, placeParagraphFrames, UnsupportedParagraphFrameError } from './paragraph-frames.js';
+import { autoHyphenationBreak, hyphenCharacter } from './hyphenation-layout.js';
+import { hyphenationOf } from './hyphenation-settings.js';
 
 export const PAGE = Object.freeze({ width: 816, height: 1056, margin: 96, gap: 24, lineHeight: 26, paragraphGap: 12, fontSize: 16 });
 export const MAX_PAGES = 200;
@@ -166,7 +168,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const finalPage = page, sectionPages = new Map(); let sectionPage = page;
   for (let i = paragraphs.length - 1; i >= 0; i--) {
     if (paragraphs[i].sectionEnd && paragraphs[i].cellId) throw new Error('Section breaks inside tables are not supported.');
-    if (paragraphs[i].sectionEnd) sectionPage = { ...pageGeometry(paragraphs[i].sectionEnd), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, allowOversizedLines: !!storyOptions.bestEffort };
+    if (paragraphs[i].sectionEnd) sectionPage = { ...pageGeometry(paragraphs[i].sectionEnd), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, ...hyphenationOf(finalPage), allowOversizedLines: !!storyOptions.bestEffort };
     sectionPages.set(paragraphs[i].id, sectionPage);
   }
   // A drawing in a different section does not participate in column flow.
@@ -768,7 +770,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   let firstIndentedStart = 0;
   if (!listMarker) while (['\f','\u000e'].includes(chars[firstIndentedStart]?.text)) firstIndentedStart++;
   const contractionSpace = format.alignment === 'both' && (page.compatibilityMode ?? 12) >= 15 ? contractionMetrics(measure) : null;
-  let start = 0, row = null, pieceIndex = 0, pieces = [], clearance = null, drawingSegmentStart;
+  let start = 0, row = null, pieceIndex = 0, pieces = [], clearance = null, drawingSegmentStart, hyphenatedLines = 0;
   const columnPage = page;
   do {
     if (columnPage.columnWidthAt && !cellBounds) page = { ...columnPage, right: columnPage.width-columnPage.left-columnPage.columnWidthAt(chars[start]?.start ?? documentOffset+text.length) };
@@ -840,10 +842,19 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       }
       if (word.end <= maximum) { pieceIndex++; continue; }
     }
+    // Automatic hyphenation splits the word that overflows the line when the line would otherwise
+    // end further from the margin than the hyphenation zone (hyphenation-layout.js).
+    const autoHyphen = page.autoHyphenation && !format.suppressAutoHyphens && !oversizedInline && !contraction && end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text)
+      ? autoHyphenationBreak(chars, start, end, lastBreak, { right, zone: page.hyphenationZone, caps: !page.doNotHyphenateCaps, limitReached: page.consecutiveHyphenLimit > 0 && hyphenatedLines >= page.consecutiveHyphenLimit,
+        lineEnd: (to, hyphen) => { const probe = new LineBuilder(left, right, format, page, measure, chars[start].start); for (let i = start; i < to; i++) probe.add(chars[i]); if (hyphen) probe.add(hyphenCharacter(chars[to - 1])); return hyphen ? probe.end : probe.field.origin + probe.field.contentWidth; } })
+      : null;
+    if (autoHyphen !== null) end = lastBreak = autoHyphen;
     if (end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text) && lastBreak > start) end = lastBreak;
     const softBreak = !oversizedInline && end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text) && chars[end - 1]?.text === '\u00ad' && end === lastBreak;
     let span = chars.slice(start, end);
     if (softBreak) span[span.length - 1] = { ...span.at(-1), text: '-', discretionaryHyphen: true };
+    if (autoHyphen !== null) span.push(hyphenCharacter(chars[end - 1]));
+    hyphenatedLines = softBreak || autoHyphen !== null ? hyphenatedLines + 1 : 0;
     span = bidiLineCharacters(span);
     // A terminal break normally keeps the paragraph mark on the old page. Give
     // its following insertion position a caret, without consuming a line/gap.
@@ -966,7 +977,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       // run backgrounds and inline pictures. Empty section boundaries stay hidden.
       clipText: emptySectionBoundary || !exact,
       start: span[0]?.start ?? offset, end: span.at(-1)?.end ?? offset,
-      paragraphEnd: end === chars.length, hardBreak, virtual, emptySectionBoundary,
+      paragraphEnd: end === chars.length, hardBreak, virtual, emptySectionBoundary, ...(autoHyphen !== null ? { autoHyphen: true } : {}),
       ...(drawingSegmentStart === undefined ? {} : { drawingSegmentStart }),
       ...(emptySectionBoundary && keepBoundaryLine ? { continuousBoundaryLine: true } : {}), ...measured,
       ...(hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark ? { pageBreakWithMark: true } : {}),
