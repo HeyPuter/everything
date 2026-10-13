@@ -94,6 +94,7 @@ import { formulaReachesOut } from './reaches-out.js';
 import { STYLE_KEYS, BORDER_STYLE_KEYS, GRID_RANGE, intersection, rowRuns, readStyleResets, styleResetAt, assignStyleExceptionRegions, compactStyleResets, removeStyleResets, mapStyleResets, shiftStyleResets, permuteStyleResets, moveLineStyleResets, moveStyleResets } from './style-resets.js';
 import { normalizeScenarios, copyScenarios, mapScenarioCells } from './scenarios.js';
 import { normalizeQueries, serializeQueries } from './queries.js';
+import { installSheetGroups } from './sheet-group.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
@@ -2239,6 +2240,8 @@ export class Workbook extends EventTarget {
       this._changed('cells', live.id, { box, formula });
       if (bounds) this._cellBoundsCache.set(live.id, bounds);
     };
+    // Grouped sheets: the cells written on the active sheet are noted, to be written again on the rest of the group.
+    if (this._groupRecorder?.sheetId === sheetId) for (let i = 0; i < before.length; i++) this._groupRecorder.writes.push({ key: before[i].key, prev: before[i].cell, next: after[i].cell });
     apply(after, afterIgnored);
     // The before-and-after pair the step closes over is the memory it costs, and a sort, fill, paste or
     // replace-all holds a clone of every cell it touched twice over. Weighed against the same budget as a
@@ -12018,3 +12021,5 @@ export class Workbook extends EventTarget {
     this.dispatchEvent(new CustomEvent('change', { detail: { type, sheetId, ...(extra || {}) } }));
   }
 }
+
+installSheetGroups(Workbook);

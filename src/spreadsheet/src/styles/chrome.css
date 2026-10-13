@@ -154,6 +154,8 @@
   .tab-item.active { background: var(--surface); margin-top: -1px; border: 1px solid var(--xl-head-line); border-top: 0; border-radius: 0 0 5px 5px; }
   .tab-item.active::after { display: none; }
   .tab.active { color: var(--xl-green); font-weight: 600; background: transparent; }
+  /* A grouped sheet's tab is white like the one in view, its name not in green. */
+  .tab.grouped:not(.active) { background: var(--surface); color: var(--ink); margin-top: -1px; border: 1px solid var(--xl-head-line); border-top: 0; border-radius: 0 0 5px 5px; }
   .status-bar { min-height: calc(26px + var(--safe-b)); border-top: 0; font-size: 12px; color: var(--chrome-ink); }
   .status-item { font-weight: 400; }
   .status-item .muted { font-weight: 400; color: var(--chrome-ink); }

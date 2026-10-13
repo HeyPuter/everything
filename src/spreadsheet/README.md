@@ -402,6 +402,18 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   Protecting a sheet is an undo step of its own, as the
   gridlines and zero-value switches are, so Ctrl/Cmd+Z after one takes back
   that setting and not the edit before it.
+- **Grouped sheets**: Shift-click a sheet tab to group every sheet from the
+  one in view to it, Ctrl-click (⌘-click on a Mac) to add or drop one sheet,
+  or right-click a tab ▸ Select All Sheets. The title shows **[Group]**, and
+  what you type, format, clear, fill or paste, the rows and columns you insert
+  or delete, and the column widths and row heights you set land on the same
+  cells of every grouped sheet, as one undo step (each sheet keeps its own
+  formatting when only values are typed). Edit ▸ Fill ▸ Across Worksheets
+  copies the selection to the other grouped sheets (all, contents only, or
+  formats only); Hide and Delete act on the whole group. Commands that belong
+  to one sheet (tables, charts, sorting, filters, conditional formatting,
+  validation, notes, freezing) are greyed out and say why until the sheets are
+  ungrouped, by clicking a tab outside the group or with Ungroup Sheets.
 - **Templates**: start from a monthly budget, an expense tracker with a
   donut chart, an invoice, a to-do list with checkboxes and priorities (the
   last three built on tables), a

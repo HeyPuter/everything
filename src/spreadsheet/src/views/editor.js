@@ -149,6 +149,8 @@ import { pasteOptions, legacyMode, pasteLabel, composePaste, cellsFromText } fro
 import { refill, autoFillChoices, defaultAutoFill, justifyLines } from '../core/autofill-options.js';
 import { openPasteSpecialDialog, openInsertPasteDialog, pasteGallery } from '../ui/pastespecialdialog.js';
 import { createOptionButton } from '../ui/option-button.js';
+import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
+import { openFillAcrossDialog } from '../ui/fillacross.js';
 
 const MAX_FORMAT_CELLS = 20000;
 // Clipboard height can exceed JavaScript's argument limit, even when the
@@ -1132,6 +1134,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // active sheet" or "the active cell" have two candidates, and wait until the entry is home again.
       away: !!grid.editing && grid.editState.sheetId !== sheetId,
       canUndo: wb.canUndo(), canRedo: wb.canRedo(), style: styleTarget().style,
+      // Several sheets are grouped: edits reach each of them, and the commands for one sheet's objects wait.
+      grouped: !!wb.sheetGroup,
       // The active sheet among those on show, for the Sheet commands: the last one showing cannot be hidden or
       // deleted, an end one not moved past the end, and one holding work is asked about before it goes.
       sheet: sheetFlags(sheetId),
@@ -1236,6 +1240,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (REPEATABLE.has(cmd) && !(arg instanceof Event) && !(arg instanceof HTMLElement)) lastRepeatable = { cmd, arg };
     const chartSheet = wb.sheet(grid.sheetId)?.kind === 'chart';
     if (chartSheet && !chartSheetCommand(cmd)) return;
+    // A command for one sheet's objects (a table, a chart, a rule, a sort) has no meaning across a group of sheets.
+    if (wb.sheetGroup && GROUP_BLOCKED_COMMANDS.has(cmd)) {
+      toast(GROUP_BLOCKED_REASON, { icon: 'layers', duration: 4000 });
+      statusBar?.announce(GROUP_BLOCKED_REASON);
+      return;
+    }
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
@@ -2500,14 +2510,43 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'placeSheet':
         if (!committed() || !arg?.id) return false;
         return !!placeSheet(wb, arg.id, arg);
-      case 'showSheet': case 'hideSheet':
+      case 'showSheet': case 'hideSheet': {
         if (!committed()) return;
+        // Hiding a grouped sheet hides the whole group, as long as a sheet outside it stays on show.
+        const group = cmd === 'hideSheet' && wb.sheetGroup;
+        if (group && (!arg || group.includes(arg))) {
+          if (group.length >= wb.visibleSheets.length) { toast('At least one sheet must stay visible. Ungroup the sheets first', { icon: 'eyeOff', duration: 3500 }); return; }
+          wb.transaction('Hide sheets', () => { for (const id of group) wb.setSheetHidden(id, true); });
+          return;
+        }
         wb.setSheetHidden(arg || sheetId, cmd === 'hideSheet');
+        return;
+      }
+      case 'selectAllSheets':
+        if (!committed()) return;
+        wb.groupSheets(wb.visibleSheets.filter((s) => s.kind !== 'chart' || s.id === wb.activeSheetId).map((s) => s.id));
+        return;
+      case 'ungroupSheets':
+        wb.ungroupSheets();
+        keepFocus();
+        return;
+      case 'fillAcrossSheets':
+        if (!committed() || !wb.sheetGroup) return;
+        openFillAcrossDialog(ctx);
         return;
       case 'deleteSheet': {
         // From the tab menu, the Insert menu or the palette alike: the last sheet showing stays, and one
         // holding work is asked about first, through the tab strip's own question.
         if (!committed()) return;
+        const group = wb.sheetGroup;
+        if (group && (!arg || group.includes(arg))) {
+          // A grouped sheet goes with the rest of its group, in one step that one undo brings back.
+          if (group.length >= wb.visibleSheets.length) { toast('A spreadsheet needs at least one sheet. Ungroup the sheets first', { icon: 'trash', duration: 3500 }); return; }
+          const ok = await confirmDialog({ title: `Delete ${group.length} sheets?`, message: `${group.map((id) => wb.sheet(id)?.name).join(', ')} and everything on them will be removed. You can undo this.`, confirmLabel: 'Delete sheets' });
+          if (!ok || destroyed) return;
+          wb.transaction('Delete sheets', () => { for (const id of group) wb.deleteSheet(id); });
+          return;
+        }
         const sheet = wb.sheet(arg || sheetId);
         if (!sheet || wb.visibleSheets.length <= 1) return;
         if (sheetHoldsWork(sheet) && !await sheetTabs.confirmDelete(sheet)) return;
@@ -4913,6 +4952,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const titleTip = () => `Rename "${doc.name}"`;
   // A name in a right-to-left script is laid out that way, its number at its own end, as a cell is.
   const titleBtn = el('button.doc-title', { type: 'button', dir: 'auto', title: titleTip(), onclick: () => run('rename') }, doc.name);
+  // Beside the name while several sheets are grouped: what is typed lands on all of them.
+  const groupBadge = el('span.doc-group-badge', { hidden: true, title: 'Several sheets are grouped: edits apply to each of them. Click a sheet outside the group, or right-click a tab, to ungroup.' }, '[Group]');
   // A plain status while signed in; without a session it is the button that starts the sign-in and the save.
   const status = el('button.save-status', { type: 'button', 'aria-live': 'polite', disabled: true, onclick: () => { if (session.signedOut) run('save'); } });
   const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': 'Search the menus', title: `Search the menus (${MOD_KEY}+Shift+P)`, onclick: () => run('palette') });
@@ -4944,7 +4985,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     el('span.brand-mark.desktop-only', { html: icon('brand', 16, 2.2), 'aria-hidden': 'true' }),
     quickAccess,
     el('div.topbar-menus', {}, menubar.el),
-    el('div.topbar-title-wrap', {}, titleBtn, status),
+    el('div.topbar-title-wrap', {}, titleBtn, groupBadge, status),
     el('div.topbar-actions', {}, searchBtn,
       // The Comments button beside Share: the sheet's comment threads in the Comments pane.
       el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': 'Comments', title: 'Comments', onclick: () => run('toggleComments') }),
@@ -4991,8 +5032,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function refreshTitle() {
     titleBtn.textContent = doc.name;
     titleBtn.title = titleTip();
-    document.title = `${doc.name} · Spreadsheet`;
-    P.setWindowTitle(doc.name);
+    groupBadge.hidden = !wb.sheetGroup;
+    const group = wb.sheetGroup ? ' [Group]' : '';
+    document.title = `${doc.name}${group} · Spreadsheet`;
+    P.setWindowTitle(`${doc.name}${group}`);
     refreshStatus();
   }
 
@@ -5175,6 +5218,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   let lastProtectedKey = null;
   let trackedEdit = false;
   const onWbChange = (e) => {
+    if (e.detail?.type === 'sheet-group') { refreshTitle(); notify(); return; }
     abandoned = false;
     // One activation per editor session, including typing, pasting and AI-made data changes.
     if (!trackedEdit && e.detail?.type === 'cells' && wb.dirty) {

@@ -6,6 +6,7 @@
 import { isComposing, el, MOD_KEY, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
 import { ariaKeyShortcuts } from './menu.js';
+import { GROUP_BLOCKED_COMMANDS } from '../core/sheet-group.js';
 
 /**
  * The actions the palette offers. `flags` gates the context-dependent ones
@@ -133,6 +134,7 @@ export function paletteCommands(flags = {}) {
     flags.sparklines && c('Clear entire selected sparkline groups', 'Format', 'eraser', 'clearSparklines', 'groups', { keywords: 'remove delete mini charts' }),
     c('Sparkline function', 'Insert', 'chartLine', 'insertFunction', 'SPARKLINE', { keywords: 'mini chart in cell' }),
     c('New sheet', 'Insert', 'plus', 'newSheet', null, { shortcut: 'Shift+F11', keywords: 'tab' }),
+    flags.grouped && c('Fill across worksheets…', 'Edit', 'layers', 'fillAcrossSheets', null, { keywords: 'group copy same cells other sheets contents formats' }),
     c('Duplicate sheet', 'Insert', 'duplicate', 'duplicateSheet', null, { keywords: 'tab copy' }),
     c('Move or Copy sheet…', 'Insert', 'layers', 'moveOrCopySheet', null, { keywords: 'tab order reorder duplicate destination' }),
     c('Copy sheet to another spreadsheet…', 'Insert', 'copy', 'copySheetTo', null, { keywords: 'tab move export file workbook' }),
@@ -144,6 +146,8 @@ export function paletteCommands(flags = {}) {
     c(flags.sheet?.protected ? 'Unprotect sheet' : 'Protect sheet', 'Insert', 'lock', 'protectSheet', null, { keywords: 'lock unlock tab' }),
     !flags.sheet?.only && c('Hide sheet', 'Insert', 'eyeOff', 'hideSheet', null, { keywords: 'tab' }),
     !flags.sheet?.only && c(flags.sheet?.holdsWork ? 'Delete sheet…' : 'Delete sheet', 'Insert', 'trash', 'deleteSheet', null, { keywords: 'tab remove' }),
+    flags.grouped ? c('Ungroup sheets', 'Insert', 'layers', 'ungroupSheets', null, { keywords: 'tabs group selected sheets single' })
+      : !flags.sheet?.only && c('Select all sheets', 'Insert', 'layers', 'selectAllSheets', null, { keywords: 'tabs group several sheets at once edit together' }),
     c('Insert function…', 'Insert', 'sigma', 'functionMenu', null, { shortcut: 'Shift+F3', keywords: 'formula wizard' }),
     c('AutoSum', 'Insert', 'sigma', 'autosum', null, { shortcut: 'Alt+=', keywords: 'sum total' }),
 
@@ -242,7 +246,8 @@ export function paletteCommands(flags = {}) {
     flags.fns?.shortcuts && { label: 'Keyboard shortcuts…', section: 'Help', icon: 'keyboard', fn: flags.fns.shortcuts, keywords: 'keys help' },
     flags.fns?.locale && { label: 'Regional format…', section: 'Help', icon: 'monitor', fn: flags.fns.locale, keywords: 'locale decimal comma date order language' },
   ];
-  return list.filter(Boolean);
+  // Grouped sheets: the commands for one sheet's objects are greyed in the menus, so they are left out here.
+  return list.filter((item) => item && !(flags.grouped && item.cmd && GROUP_BLOCKED_COMMANDS.has(item.cmd)));
 }
 
 const RECENT_KEY = 'spreadsheet:palette:recent';

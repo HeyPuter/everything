@@ -1020,3 +1020,7 @@
 .tab-drop-marker { position: absolute; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; z-index: 2; }
 .sheet-tabs.tab-dragging .tab { cursor: grabbing; }
 .sheet-tabs.tab-copying .tab { cursor: copy; }
+
+/* Grouped sheets: every tab in the group is drawn as selected, the active one keeps its accent. */
+.tab.grouped:not(.active) { background: var(--surface); color: var(--ink); }
+.doc-group-badge { flex: none; font-size: 12px; font-weight: 600; color: var(--accent-strong); padding: 1px 6px; border-radius: 4px; background: var(--accent-wash); white-space: nowrap; }

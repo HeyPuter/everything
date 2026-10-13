@@ -17,6 +17,7 @@ import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, 
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
+import { GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
 
 /* Presets built on the custom-format engine; matched by their code. */
 /**
@@ -705,6 +706,13 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     const editing = ctx.grid.editing;
     set(paintBtn, !!ctx.painting?.());
     for (const b of [sortBtn, rowsBtn, colsBtn, paintBtn]) b.disabled = editing;
+    // Grouped sheets: sorting, filtering, freezing and the rules are for one sheet at a time; the buttons wait and say why.
+    const grouped = !!ctx.wb.sheetGroup;
+    for (const b of [sortBtn, filterBtn, freezeBtn, cfBtn, dvBtn]) {
+      if (b.dataset.title == null) b.dataset.title = b.title;
+      if (grouped) b.disabled = true; else if (b !== sortBtn) b.disabled = false;
+      b.title = grouped ? `${b.dataset.title}: ${GROUP_BLOCKED_REASON}` : b.dataset.title;
+    }
     // Dates, times, text and custom codes have no decimal places to step, so the buttons are greyed as the menus grey them.
     decLess.disabled = decMore.disabled = editing || ['date', 'time', 'datetime', 'text', 'custom'].includes(s.fmt);
     // Indenting and clearing formatting style the cell being edited, as Bold and the number formats do since

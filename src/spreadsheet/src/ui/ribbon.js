@@ -17,6 +17,7 @@ import { queryForTable } from '../core/queries.js';
 import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { activeChart } from './chart-actions.js';
+import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -49,7 +50,12 @@ const a = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: ex
 const dyn = (label, glyph, build, extra = {}) => ({ label, glyph, ...extra, resolve: (menus, ctx) => lazySubmenu({ label }, () => build(menus, ctx)) });
 /** A command that is not in the menus: available unless a cell is being edited. */
 const direct = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => ({ label, cmd, arg, disabled: !!ctx?.flags?.()?.editing, checked: extra.isChecked?.(ctx) }) });
+  resolve: (menus, ctx) => {
+    const f = ctx?.flags?.() || {};
+    // Grouped sheets: a command for one sheet's objects waits, as the menus' does.
+    const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+    return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: extra.isChecked?.(ctx) };
+  } });
 const large = descriptor => ({ ...descriptor, large: true });
 /** A threaded-comment command (see ui/comments.js): greyed while a cell is edited, or without the thread `needs` names. */
 const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ...extra } = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
@@ -606,7 +612,8 @@ export function createRibbon(ctx) {
         button.setAttribute('aria-label', label);
       }
       button.disabled = descriptor.unsupported || !item || !!item.disabled || (button.closest('[data-table-panel]') && (!!flags.editing || !!flags.sheet?.protected));
-      button.title = descriptor.unsupported ? descriptor.reason || `${descriptor.label}: not supported yet` : !item ? `${descriptor.label}: unavailable in this session` : `${descriptor.label}${item.shortcut ? ` (${item.shortcut})` : ''}`;
+      button.title = descriptor.unsupported ? descriptor.reason || `${descriptor.label}: not supported yet` : !item ? `${descriptor.label}: unavailable in this session`
+        : item.disabled && item.hint ? `${descriptor.label}: ${item.hint}` : `${descriptor.label}${item.shortcut ? ` (${item.shortcut})` : ''}`;
       button.setAttribute('aria-keyshortcuts', ariaKeyShortcuts(item?.shortcut) || '');
       if ((item && 'submenu' in item) || MENU_COMMANDS.has(item?.cmd)) button.setAttribute('aria-haspopup', 'menu'); else button.removeAttribute('aria-haspopup');
       if ((item?.checked ?? descriptor.checked) !== undefined) button.setAttribute('aria-pressed', String(!!(item?.checked ?? descriptor.checked))); else button.removeAttribute('aria-pressed');
