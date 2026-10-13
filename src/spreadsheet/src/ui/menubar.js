@@ -436,6 +436,7 @@ export function menubarMenus(f = {}) {
     i('Define name…', 'tag', 'defineName'),
     i('Create names from selection…', 'tag', 'createNames'),
     i('Protected ranges…', 'lock', 'protectRanges'),
+    i('Edit links…', 'editLinks', 'editLinks'),
     sep,
     sub('Data cleanup', 'dedupe', [
       i('Remove duplicate rows…', 'dedupe', 'dedupe'),

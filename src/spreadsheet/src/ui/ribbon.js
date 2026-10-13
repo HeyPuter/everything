@@ -284,7 +284,7 @@ const groupsFor = name => ({
     ['Get & Transform Data', large(getDataMenu), direct('From Text/CSV', 'fromText', 'getDataText', null), direct('From Web', 'fromWeb', 'getDataWeb', null),
       direct('From Table/Range', 'fromTable', 'getDataTable', null)],
     ['Queries & Connections', large(split(direct('Refresh All', 'refresh', 'refreshAll', null), refreshMenu)),
-      direct('Queries & Connections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane })],
+      direct('Queries & Connections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane }), c('Edit Links', 'editLinks', 'editLinks')],
     ['Sort & Filter', c('Sort A to Z', 'sortAsc', 'sort', 'asc'), c('Sort Z to A', 'sortDesc', 'sort', 'desc'), large(c('Sort', 'sortCustom', 'sortDialog')), large(c('Filter', 'filter', 'filter')),
       direct('Clear', 'filterClear', 'clearFilters', null, { ariaLabel: 'Clear filter' }), direct('Reapply', 'filterReapply', 'reapplyFilters', null), direct('Advanced', 'filterAdvanced', 'advancedFilter', null, { ariaLabel: 'Advanced filter' })],
     ['Data Tools', c('Text to Columns', 'textToColumns', 'splitText'), direct('Flash Fill', 'flashFill', 'flashFill', null, { shortcut: `${MOD_KEY}+E` }), c('Remove Duplicates', 'dedupe', 'dedupe'),

@@ -171,6 +171,7 @@ export function paletteCommands(flags = {}) {
     c('Data validation…', 'Data', 'validation', 'validation', null, { keywords: 'rules dropdown checkbox' }),
     c('Named ranges…', 'Data', 'tag', 'names', null, { keywords: 'define name' }),
     c('Protected ranges…', 'Data', 'lock', 'protectRanges', null, { keywords: 'lock sheet protect' }),
+    c('Edit links…', 'Data', 'editLinks', 'editLinks', null, { keywords: 'external workbook references other file update values change source break startup prompt' }),
 
     c('Bold', 'Format', 'bold', 'bold', null, { shortcut: `${M}+B` }),
     c('Italic', 'Format', 'italic', 'italic', null, { shortcut: `${M}+I` }),

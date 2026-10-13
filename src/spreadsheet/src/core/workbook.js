@@ -129,6 +129,8 @@ const SNAPSHOT_CELLS = 1_000_000;
 const CHANGE_LOG = 256;
 // Formulas that read other files or the web; a file from elsewhere may not run them until the user allows it.
 // Formulas that reach outside the file: the web and other files, and the AI service, which spends the account's quota on a foreign file's prompts.
+/** Edit Links ▸ Startup Prompt choices (see setLinkStartup). */
+export const LINK_STARTUP_MODES = ['ask', 'update', 'none'];
 const EXTERNAL_PROVIDERS = new Set(['IMPORTDATA', 'IMPORTHTML', 'IMPORTXML', 'IMPORTRANGE', 'WEBSERVICE', 'AI', 'TRANSLATE', 'DETECTLANGUAGE']);
 const DEEP_FRAMES = 16; // nested evaluations above this depth hand a stack overflow to a shallower frame
 // A bounded reference is read this far past the data (A1:A5000 on a sheet with
@@ -948,6 +950,8 @@ export class Workbook extends EventTarget {
     this.calcMode = json.calcMode === 'manual' ? 'manual' : 'automatic';
     // Protect Workbook (structure): sheets cannot be added, deleted, renamed, moved, copied, hidden, shown or recoloured.
     this.structureProtected = json.structureProtected === true;
+    // Edit Links ▸ Startup Prompt: what opening the book does about its links to other workbooks.
+    this.linkStartup = LINK_STARTUP_MODES.includes(json.linkStartup) ? json.linkStartup : 'ask';
     // Watch Window: cells whose values are kept in view, by sheet id and position.
     // Get & Transform: the workbook's queries (see queries.js); their loaded tables are ordinary tables.
     this.queries = normalizeQueries(json.queries);
@@ -1020,6 +1024,7 @@ export class Workbook extends EventTarget {
       ...(this.iteration ? { iteration: { ...this.iteration } } : {}),
       ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
       ...(this.structureProtected ? { structureProtected: true } : {}),
+      ...(this.linkStartup !== 'ask' ? { linkStartup: this.linkStartup } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
@@ -11596,6 +11601,28 @@ export class Workbook extends EventTarget {
     this.dirty = true;
     this.version++;
     this._announce('structure', null);
+  }
+
+  /**
+   * Edit Links: put a new set of supporting-workbook links in place (fresh values, another source, a link
+   * dropped). One undo step; every formula is worked out again from the links' cached cells.
+   */
+  setExternalWorkbooks(next, label = 'Edit links') {
+    const prev = this.externalWorkbooks;
+    const value = next?.books?.length ? normalizeExternalWorkbooks(next) : null;
+    const apply = (v) => { this.externalWorkbooks = v; this._changed('structure'); };
+    apply(value);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(value) });
+  }
+
+  /** Edit Links ▸ Startup Prompt: 'ask' on opening whether to update the links, 'update' them without asking, or 'none'. Not an undoable edit. */
+  setLinkStartup(mode) {
+    const next = LINK_STARTUP_MODES.includes(mode) ? mode : 'ask';
+    if (next === this.linkStartup) return;
+    this.linkStartup = next;
+    this.dirty = true;
+    this.version++;
+    this._announce('settings', null);
   }
 
   /** Watch Window: add cells to watch (once each), or remove watches; the list is saved with the workbook. */

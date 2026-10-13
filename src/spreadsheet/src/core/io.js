@@ -2416,7 +2416,9 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   const calcMode = String(book.Workbook?.CalcPr?.calcMode || '').toLowerCase() === 'manual' ? 'manual' : undefined;
   const workbookXml = (() => { const path = book.Directory?.workbooks?.[0]?.replace(/^\//, '') || 'xl/workbook.xml'; const part = book.files?.[path]?.content; return part ? new TextDecoder().decode(part) : ''; })();
   const structureProtected = ['1', 'true'].includes(xmlAttr(workbookXml.match(/<(?:\w+:)?workbookProtection\b[^>]*>/)?.[0], 'lockStructure') || '') || undefined;
-  const wb = new Workbook({ sheets, names, iteration, calcMode, structureProtected, calculationCompatibility, normalFont,
+  // Edit Links ▸ Startup Prompt, from workbookPr's updateLinks (userSet, the default, is to ask).
+  const linkStartup = { always: 'update', never: 'none' }[xmlAttr(workbookXml.match(/<(?:\w+:)?workbookPr\b[^>]*>/)?.[0], 'updateLinks') || ''];
+  const wb = new Workbook({ sheets, names, iteration, calcMode, structureProtected, linkStartup, calculationCompatibility, normalFont,
     nativeNormalStyle: book.bookType === 'xlsx' ? nativeStyles.nativeNormalStyle : normalizeNativeNormalStyle(meta?.nativeNormalStyle),
     nativeNormalFill: book.bookType === 'xlsx' ? nativeStyles.nativeNormalFill : meta?.nativeNormalFill,
     nativeDefaultCellFormat: book.bookType === 'xlsx' ? nativeStyles.nativeDefaultCellFormat : meta?.nativeDefaultCellFormat,

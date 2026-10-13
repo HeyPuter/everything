@@ -379,6 +379,16 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   after asking, and Criteria finds records by field (`>100`, `<>0`, `=Smith`,
   text that begins with what you type, `*` and `?` wildcards) with Find Prev
   and Find Next.
+- **Edit links** (Data → Edit links, or Data → Queries & Connections → Edit
+  Links): every link to another workbook with its source file, kind, update
+  mode and status. Update Values reads the source again from your Puter drive
+  and refreshes the cached cells the formulas read; Change Source points a
+  link at another file (picked on the drive), Open Source opens it, Check
+  Status looks for every source (and its sheets), and Break Link turns every
+  formula that reads a link into its current value, dropping the link and
+  renumbering the rest, in one undo step. Startup Prompt chooses whether
+  opening the book offers to update its links, updates them, or leaves them
+  (kept in the `.xlsx` as the workbook's update-links setting).
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,

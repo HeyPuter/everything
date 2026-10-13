@@ -359,6 +359,15 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   // Protect Workbook: the structure lock sits just before the views, where the schema has it; no password is set.
   workbook = workbook.replace(/<workbookProtection\b[^>]*\/>/g, '');
   if (wb.structureProtected) workbook = workbook.replace(/<bookViews\b/, `${xmlTag('workbookProtection', { lockStructure: 1 })}<bookViews`);
+  // Edit Links ▸ Startup Prompt: workbookPr's updateLinks says whether opening the book asks about its links (the
+  // default, written as nothing), updates them, or leaves them; the element comes before the protection and the views.
+  workbook = workbook.replace(/(<workbookPr\b[^>]*?)\s+updateLinks="[^"]*"/, '$1');
+  const updateLinks = wb.linkStartup === 'update' ? 'always' : wb.linkStartup === 'none' ? 'never' : null;
+  if (updateLinks) {
+    workbook = /<workbookPr\b/.test(workbook)
+      ? workbook.replace(/<workbookPr\b/, `<workbookPr updateLinks="${updateLinks}"`)
+      : workbook.replace(/<(workbookProtection|bookViews)\b/, (m) => `${xmlTag('workbookPr', { updateLinks })}${m}`);
+  }
   if (wb.iteration || wb.calcMode === 'manual') {
     const calc = xmlTag('calcPr', { calcMode: wb.calcMode === 'manual' ? 'manual' : null, ...(wb.iteration ? { iterate: 1, iterateCount: wb.iteration.iterateCount, iterateDelta: wb.iteration.iterateDelta } : {}) });
     workbook = /<calcPr\b/.test(workbook) ? workbook.replace(/<calcPr\b[^>]*\/>/, calc) : workbook.replace('</workbook>', `${calc}</workbook>`);
