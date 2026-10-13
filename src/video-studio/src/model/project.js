@@ -14,6 +14,7 @@
  *   transcript?: { words: [{ text, start, end }], language }  // timed words of the speech
  *   bins?: [{ id, name, parent }]  // media bin folders; asset.folder points at one (model/bins.js)
  *   fonts?: [{ id, family, name, hash, ext, mime, size }]   // uploaded fonts
+ *   timelineId?, timelines?: [{ id, name, ...contents }]   // more timelines sharing the media (model/timelines.js)
  * }
  * Track = { id, kind: 'video'|'audio'|'text'|'effect'|'filter'|'adjust', main?, locked, hidden, muted, solo?, name?, size?, clips: [Clip] }
  *   (main: true marks the base track, the one video track overlays stack on)
@@ -638,7 +639,37 @@ export function normalizeProject(raw) {
     ...(num(raw.deletedAt) > 0 ? { deletedAt: int(raw.deletedAt) } : {}),
     ...(bins.length ? { bins } : {}),
     ...normFonts(raw.fonts),
+    ...normTimelines(raw),
   };
+}
+
+/** What a stored timeline owns (see model/timelines.js). */
+const TIMELINE_KEYS = ['settings', 'tracks', 'markers', 'range', 'transcript', 'guides', 'cover'];
+
+/**
+ * The project's other timelines: each stored one is checked like a project
+ * of its own against the shared media; the open one is just { id, name }.
+ */
+function normTimelines(raw) {
+  if (raw.nested || !Array.isArray(raw.timelines) || typeof raw.timelineId !== 'string') return {};
+  const ids = new Set();
+  const timelines = [];
+  for (const t of raw.timelines.slice(0, 50)) {
+    const id = str(t?.id);
+    if (!id || ids.has(id) || unsafeKey(id)) continue;
+    ids.add(id);
+    const name = str(t.name).replace(/\s+/g, ' ').trim().slice(0, 80) || `Timeline ${timelines.length + 1}`;
+    if (id === raw.timelineId) {
+      timelines.push({ id, name });
+      continue;
+    }
+    const n = normalizeProject({ ...t, format: FORMAT, assets: raw.assets, bins: raw.bins, nested: true });
+    const entry = { id, name };
+    for (const k of TIMELINE_KEYS) if (n[k] !== undefined && n[k] !== null) entry[k] = n[k];
+    timelines.push(entry);
+  }
+  if (!ids.has(raw.timelineId)) return {};
+  return { timelineId: raw.timelineId, timelines };
 }
 
 /**

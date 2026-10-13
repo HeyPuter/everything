@@ -17,7 +17,7 @@ import { createOrganizeActions } from './organize-actions.js';
 import { createSmartActions } from './smart-actions.js';
 import { createMulticamActions } from './multicam-actions.js';
 import { createMediaActions } from './media-actions.js';
-import { allClipsDeep } from '../model/compound.js';
+import { allClipsDeep, removeAssetClips } from '../model/compound.js';
 import { defaultLength } from './preferences-dialog.js';
 import { createClipEffectActions } from './clip-effects-actions.js';
 
@@ -78,14 +78,8 @@ export function createActions(ctx) {
     removeAsset(assetId) {
       const used = allClipsDeep(store.project).some((c) => c.assetId === assetId);
       store.update('Delete media', (p) => {
-        // Clips inside compound clips go too.
-        const strip = (tracks) => {
-          for (const t of tracks) {
-            t.clips = t.clips.filter((c) => c.assetId !== assetId);
-            for (const c of t.clips) if (c.type === 'compound') strip(c.sequence.tracks);
-          }
-        };
-        strip(p.tracks);
+        // Clips inside compound clips and on other timelines go too.
+        removeAssetClips(p, [assetId]);
         delete p.assets[assetId];
       });
       if (used) announce('Media and its clips deleted');

@@ -97,7 +97,17 @@ export function createPlayerView(ctx) {
     { label: 'Save frame to media', icon: 'imagePlus', onSelect: () => ctx.snapshotToMedia?.() },
     { label: 'Export frame as image', icon: 'download', onSelect: () => ctx.exportStill?.() },
   ].filter(Boolean), { align: 'end', label: 'Player options' });
-  const head = h('div.panel-head', h('h2.panel-title', 'Player'), h('span.spacer'), menuBtn);
+  // Which of the project's timelines is playing; the menu switches or adds timelines.
+  const tlName = h('span.player-timeline-name');
+  const tlBtn = h('button.player-timeline-btn', { type: 'button', 'aria-label': 'Timelines', 'data-tip': 'Switch or add timelines' }, icon('timelines', 14), tlName, icon('chevronDown', 12));
+  menuButton(tlBtn, () => ctx.timelines?.menuItems() || [], { label: 'Timelines' });
+  const renderTimelineName = () => {
+    const name = ctx.timelines?.active().name || 'Timeline 1';
+    if (tlName.textContent !== name) tlName.textContent = name;
+    tlBtn.setAttribute('aria-label', `Timeline: ${name}. Switch or add timelines`);
+  };
+  renderTimelineName();
+  const head = h('div.panel-head', h('h2.panel-title', 'Player'), tlBtn, h('span.spacer'), menuBtn);
   const grid = h('div.player-grid', { 'aria-hidden': 'true', hidden: !opts.grid },
     h('span.gv', { style: { left: '33.333%' } }), h('span.gv', { style: { left: '66.666%' } }),
     h('span.gh', { style: { top: '33.333%' } }), h('span.gh', { style: { top: '66.666%' } }));
@@ -734,6 +744,7 @@ export function createPlayerView(ctx) {
     store.on('change', () => {
       updateTime();
       relayout();
+      renderTimelineName();
     }),
   ];
   updateTime();

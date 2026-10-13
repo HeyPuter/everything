@@ -8,10 +8,13 @@
  *   select  { ids }                 selection changed
  *   time    { time }                playhead moved
  *   toggles {}                      ripple/snap/linkOverlays/hover preview changed
+ *   nest    { depth }               a compound clip was opened or closed
+ *   timeline { id }                 another of the project's timelines was opened
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength } from './timeline.js';
+import { switchTimeline } from './timelines.js';
 
 export class EditorStore extends Emitter {
   constructor(project, { toggles } = {}) {
@@ -27,6 +30,25 @@ export class EditorStore extends Emitter {
     this._coalesce = null;
     // Compound clips opened for editing, outermost first: { outer, history, id, time }.
     this.nest = [];
+    // Playhead of each timeline left, to come back to.
+    this._timelineTimes = new Map();
+  }
+
+  /**
+   * Open another of the project's timelines. Compound clips being edited
+   * are closed first. Opening isn't an undo step: undo keeps one history for
+   * the whole project and goes back to the timeline an edit was made on.
+   */
+  openTimeline(id) {
+    while (this.nest.length) this.closeCompound();
+    const from = this.project.timelineId;
+    if (!id || id === from) return false;
+    if (!switchTimeline(this.project, id)) return false;
+    this._timelineTimes.set(from, this.time);
+    this.project.modified = Date.now();
+    this._afterSwap(this._timelineTimes.get(id) || 0, 'Open timeline');
+    this.emit('timeline', { id });
+    return true;
   }
 
   /** Name of the compound clip being edited (innermost), or null. */
@@ -92,12 +114,12 @@ export class EditorStore extends Emitter {
     return inner;
   }
 
-  _afterSwap(time) {
+  _afterSwap(time, label = 'Open compound clip') {
     this._coalesce = null;
     this.selection.clear();
     this.transition = null;
     this.revision++;
-    this.emit('change', { label: 'Open compound clip', structural: true, restore: true });
+    this.emit('change', { label, structural: true, restore: true });
     this.emit('select', { ids: [] });
     this.emit('nest', { depth: this.nest.length });
     this.time = -1;

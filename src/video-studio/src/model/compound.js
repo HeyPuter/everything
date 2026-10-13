@@ -7,6 +7,7 @@ import { uid } from '../lib/ids.js';
 import { makeClip, DEFAULT_TRANSFORM } from './project.js';
 import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips } from './timeline.js';
 import { trimTo } from './slice.js';
+import { storedTimelineTracks } from './timelines.js';
 
 /** Number for the next "Compound clip N" name. */
 function nextNumber(project) {
@@ -123,7 +124,7 @@ export function breakApart(project, id, opts = {}) {
   return restored;
 }
 
-/** Every clip in the project, including the ones inside compound clips. */
+/** Every clip in the project, including the ones inside compound clips and on the other timelines. */
 export function allClipsDeep(project) {
   const out = [];
   const walk = (tracks) => {
@@ -133,7 +134,21 @@ export function allClipsDeep(project) {
     }
   };
   walk(project.tracks);
+  for (const tracks of storedTimelineTracks(project)) walk(tracks);
   return out;
+}
+
+/** Remove every clip (deep, on every timeline) that uses one of the given assets. */
+export function removeAssetClips(project, assetIds) {
+  const ids = new Set(assetIds);
+  const strip = (tracks) => {
+    for (const t of tracks) {
+      t.clips = t.clips.filter((c) => !ids.has(c.assetId));
+      for (const c of t.clips) if (c.type === 'compound') strip(c.sequence.tracks);
+    }
+  };
+  strip(project.tracks);
+  for (const tracks of storedTimelineTracks(project)) strip(tracks);
 }
 
 /** Every compound clip in the project, including nested ones. */

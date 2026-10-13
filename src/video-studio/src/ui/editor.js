@@ -11,6 +11,7 @@ import { Player } from '../engine/player.js';
 import { MediaService } from '../media/media-service.js';
 import { syncProjectFonts } from '../media/fonts.js';
 import { createActions } from './actions.js';
+import { createTimelineActions } from './timeline-actions.js';
 import { createCommands } from './commands.js';
 import { createTopbar, LAYOUTS } from './topbar.js';
 import { createAssetsPanel } from './panels/index.js';
@@ -87,6 +88,7 @@ export class Editor {
     this.onNewProject = onNewProject;
     this.onOpenProject = onOpenProject;
     ctx.actions = createActions(ctx);
+    ctx.timelines = createTimelineActions(ctx);
     ctx.commands = createCommands(ctx);
 
     // Player canvas is created up front so the engine exists before views mount.

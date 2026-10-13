@@ -9,7 +9,7 @@ import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { clock } from '../../lib/time.js';
 import { allClips } from '../../model/timeline.js';
-import { allClipsDeep } from '../../model/compound.js';
+import { allClipsDeep, removeAssetClips } from '../../model/compound.js';
 import {
   binsOf, childBins, binPath, findBin, assetsInBin, binItemCount, createBin, renameBin, deleteBin, moveAssets, moveBin,
   sortAssets, filterAssets, formatBytes, MEDIA_SORTS, MEDIA_TYPES,
@@ -17,6 +17,7 @@ import {
 import { BACKDROPS, BACKDROP_GROUPS, drawBackdrop } from '../../media/backdrops.js';
 import { tabLayout, tileGrid, tile, emptyState } from './common.js';
 import { generatePanel } from './generate.js';
+import { renderTimelines, timelinesSignature } from './timelines.js';
 import { showMenu, menuButton } from '../menu.js';
 import { confirmDialog, promptDialog, toast } from '../dialog.js';
 import { prefs, setPref } from '../prefs.js';
@@ -282,7 +283,7 @@ export function mediaTab(ctx) {
     }
     const ids = new Set(list.map((a) => a.id));
     store.update(`Delete ${list.length} items`, (p) => {
-      for (const t of p.tracks) t.clips = t.clips.filter((c) => !ids.has(c.assetId));
+      removeAssetClips(p, ids);
       for (const id of ids) delete p.assets[id];
     });
     announce(`Deleted ${list.length} items`);
@@ -594,6 +595,7 @@ export function mediaTab(ctx) {
           { id: 'audio', label: 'Audio' },
         ],
       },
+      { id: 'timelines', label: 'Timelines', icon: 'timelines' },
       { id: 'generate', label: 'Generate', icon: 'magic' },
       { id: 'backdrops', label: 'Backdrops' },
     ],
@@ -608,6 +610,7 @@ export function mediaTab(ctx) {
       layout?.el.querySelector('.asset-menu-btn')?.toggleAttribute('hidden', !binView);
       folderBtn.disabled = !binView;
       if (cat === 'backdrops') return renderBackdrops(q);
+      if (cat === 'timelines') return renderTimelines(ctx, q);
       if (cat === 'generate') return (gen ||= generatePanel(ctx, { getFolder: currentFolder })).el;
       const out = renderBin(cat, q);
       queueMicrotask(syncSelection);
@@ -652,7 +655,8 @@ export function mediaTab(ctx) {
   const signature = () => {
     const used = new Set(allClipsDeep(store.project).map((c) => c.assetId));
     const assets = Object.values(store.project.assets).map((a) => `${a.id}:${used.has(a.id) ? 1 : 0}:${a.folder || ''}:${a.name}`).join('|');
-    return `${assets}#${binsOf(store.project).map((b) => `${b.id}:${b.name}:${b.parent || ''}`).join('|')}`;
+    const timelines = layout?.category === 'timelines' ? timelinesSignature(store.project) : '';
+    return `${assets}#${binsOf(store.project).map((b) => `${b.id}:${b.name}:${b.parent || ''}`).join('|')}#${timelines}`;
   };
   let sig = signature();
   const off = store.on('change', () => {

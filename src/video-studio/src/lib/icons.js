@@ -68,6 +68,19 @@ const RippleGap = [
   ['path', { d: 'M14 12h-4' }],
   ['path', { d: 'm12 10-2 2 2 2' }],
 ];
+// Two stacked timelines (strips with a playhead tick).
+const Timelines = [
+  ['rect', { x: '3', y: '4', width: '18', height: '6', rx: '1.5' }],
+  ['rect', { x: '3', y: '14', width: '12', height: '6', rx: '1.5' }],
+  ['path', { d: 'M9 4v6' }],
+  ['path', { d: 'M7 14v6' }],
+];
+const TimelinePlus = [
+  ['rect', { x: '3', y: '4', width: '18', height: '6', rx: '1.5' }],
+  ['rect', { x: '3', y: '14', width: '9', height: '6', rx: '1.5' }],
+  ['path', { d: 'M18 14v6' }],
+  ['path', { d: 'M15 17h6' }],
+];
 const ZoomFit = [
   ['path', { d: 'M3 8V5a2 2 0 0 1 2-2h3' }],
   ['path', { d: 'M16 3h3a2 2 0 0 1 2 2v3' }],
@@ -108,7 +121,7 @@ const ICONS = {
   highlighter: Highlighter,
   retouch: ScanFace,
   select: MousePointer2, hand: Hand, undo: Undo2, redo: Redo2, trash: Trash2, ripple: RippleGap,
-  link: Link, unlink: Unlink, freeze: Snowflake,
+  link: Link, unlink: Unlink, freeze: Snowflake, timelines: Timelines, timelinePlus: TimelinePlus,
   // In this Lucide release the "horizontal" glyph shows a horizontal mirror axis (a vertical flip), so the names are swapped.
   flipH: FlipVertical2, flipV: FlipHorizontal2, rotate: RotateCw,
   rotateLeft: RotateCcw, crop: Crop, mic: Mic, zoomIn: ZoomIn, zoomOut: ZoomOut, lock: Lock, unlock: LockOpen, eye: Eye,

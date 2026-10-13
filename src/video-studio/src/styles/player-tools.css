@@ -382,3 +382,47 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Timeline switcher in the player header */
+.player-timeline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 50%;
+  height: 24px;
+  padding: 0 6px 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.player-timeline-btn:hover,
+.player-timeline-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.player-timeline-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.player-timeline-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.player-timeline-btn svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.timeline-form .dialog-text {
+  margin-bottom: 12px;
+}

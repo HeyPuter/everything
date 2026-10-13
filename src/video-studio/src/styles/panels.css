@@ -636,3 +636,64 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Timelines list (media panel) */
+.timelines-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.timelines-head .asset-hint {
+  flex: 1;
+  margin: 0;
+}
+
+.timelines-head .btn {
+  flex: none;
+}
+
+.timelines-grid .tile-add {
+  display: none;
+}
+
+.timelines-grid .tile.active .tile-preview {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.tile-more {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+.tile-more:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.tile-cell:hover .tile-more,
+.tile-cell:focus-within .tile-more,
+.tile-more:focus-visible {
+  opacity: 1;
+}
+
+.tile-more:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+@media (hover: none) {
+  .tile-more {
+    opacity: 1;
+  }
+}

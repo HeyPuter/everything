@@ -22,6 +22,11 @@ export function createCommands(ctx) {
   const step = (frames) => store.seek(store.time + Math.round((frames * US) / store.fps));
   const hasSel = () => store.selection.size > 0;
   const multicamSel = () => isMulticam(store.selected?.clip);
+  const stepTimeline = (dir) => {
+    const list = ctx.timelines?.list() || [];
+    const i = list.findIndex((t) => t.active);
+    if (list.length > 1) ctx.timelines.open(list[(i + dir + list.length) % list.length].id);
+  };
 
   const list = [
     // Playback
@@ -130,6 +135,11 @@ export function createCommands(ctx) {
 
     // File
     { id: 'import', label: 'Import media', group: 'File', keys: ['Mod+I'], run: () => ctx.openImport?.() },
+    { id: 'newTimeline', label: 'New timeline', group: 'File', keys: ['Mod+Alt+N'], run: () => ctx.timelines?.createWithDialog() },
+    { id: 'duplicateTimeline', label: 'Duplicate timeline', group: 'File', keys: [], run: () => ctx.timelines?.duplicate() },
+    { id: 'renameTimeline', label: 'Rename timeline', group: 'File', keys: [], run: () => ctx.timelines?.rename() },
+    { id: 'prevTimeline', label: 'Previous timeline', group: 'File', keys: [], run: () => stepTimeline(-1), enabled: () => (ctx.timelines?.list().length || 0) > 1 },
+    { id: 'nextTimeline', label: 'Next timeline', group: 'File', keys: [], run: () => stepTimeline(1), enabled: () => (ctx.timelines?.list().length || 0) > 1 },
     { id: 'export', label: 'Export', group: 'File', keys: ['Mod+E'], run: () => ctx.openExport?.() },
     { id: 'scriptToVideo', label: 'Script to video', group: 'File', keys: [], run: () => ctx.openScriptVideo?.() },
     { id: 'shareReview', label: 'Share for review', group: 'File', keys: [], run: () => ctx.openShareReview?.() },

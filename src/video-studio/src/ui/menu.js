@@ -79,7 +79,7 @@ export function showMenu(anchor, items, opts = {}) {
       h('span.menu-check', it.checked ? icon('check', 14) : null),
       it.swatch ? h('span.menu-swatch', { style: { background: it.swatch } }) : it.icon ? icon(it.icon, 16) : null,
       h('span.menu-label', it.label),
-      it.shortcut ? h('span.menu-shortcut', shortcutLabel(it.shortcut)) : null,
+      it.shortcut ? h('span.menu-shortcut', shortcutLabel(it.shortcut)) : it.hint ? h('span.menu-shortcut', it.hint) : null,
       it.submenu ? icon('chevronRight', 14, 'menu-sub-arrow') : null,
     );
     const openSub = () => {
