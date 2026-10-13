@@ -297,6 +297,22 @@ input.just-input {
   min-width: min(380px, calc(100vw - 48px));
 }
 
+.fr-field {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fr-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.fr-special {
+  flex: 0 0 auto;
+  width: 96px;
+}
+
 .fr-checks {
   display: grid;
   grid-template-columns: 1fr 1fr;

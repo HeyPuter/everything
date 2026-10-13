@@ -610,3 +610,12 @@
   background: var(--bg-selected);
   color: var(--accent);
 }
+
+.prefs-panel .form-row.check {
+  flex-wrap: wrap;
+}
+
+.prefs-panel .form-row.check > .form-help {
+  flex-basis: 100%;
+  margin-left: 24px;
+}

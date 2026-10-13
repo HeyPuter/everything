@@ -470,3 +470,109 @@
 .taskbar .btn {
   border-color: transparent;
 }
+
+/* Home: section heads, recent tools, list view, navigation */
+.home-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 24px 0 12px;
+}
+
+.home-section-head .home-h2 {
+  margin: 0;
+}
+
+.home-recent-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-recent-tools[hidden],
+.preset-row[hidden] {
+  display: none;
+}
+
+.home-filter {
+  width: 180px;
+}
+
+.home-views {
+  display: flex;
+  gap: 2px;
+}
+
+.home-view[aria-pressed='true'] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.preset-more .preset-thumb {
+  color: var(--text-2);
+}
+
+.home-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 16px;
+}
+
+.home-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+}
+
+.home-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.recent-list.list-view {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.recent-list.list-view .recent-item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-color: transparent;
+}
+
+.recent-list.list-view .recent-item:hover {
+  border-color: var(--border);
+}
+
+.recent-list.list-view .recent-thumb {
+  width: 40px;
+  aspect-ratio: 1;
+}
+
+@media (max-width: 760px) {
+  .home-recent-tools {
+    width: 100%;
+  }
+
+  .home-filter {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .home-nav {
+    display: none;
+  }
+}
