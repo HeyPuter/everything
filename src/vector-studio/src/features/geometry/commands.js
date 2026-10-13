@@ -14,6 +14,7 @@ import {
   convertToShapes,
 } from './path-ops.js';
 import { isLive, expandLive } from '../../model/live.js';
+import { isGradient } from '../../model/gradients.js';
 import { expandAppearance, hasExpandableAppearance } from '../../ops/expand-appearance.js';
 
 const leaves = (app) => (app.editor ? operands(app.editor) : []);
@@ -74,7 +75,7 @@ export function registerGeometryCommands(app) {
     {
       id: 'object.expand',
       label: 'Expand...',
-      enabled: (a) => Boolean(a.editor) && (selectedLive(a).length > 0 || leaves(a).some((n) => n.shape || (n.stroke && n.strokeWidth > 0)) || a.editor.selectedNodes().some((n) => n.type === 'text')),
+      enabled: (a) => Boolean(a.editor) && (selectedLive(a).length > 0 || leaves(a).some((n) => n.shape || (n.stroke && n.strokeWidth > 0) || isGradient(n.fill)) || a.editor.selectedNodes().some((n) => n.type === 'text')),
       run: (a) => {
         // Live objects (repeats, symbol instances, blends, ...) expand to their artwork directly.
         const live = selectedLive(a);

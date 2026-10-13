@@ -24,6 +24,9 @@ import { createPath } from '../../model/nodes.js';
 import { rectangle, KAPPA } from '../../model/shapes.js';
 import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { isGradient } from '../../model/gradients.js';
+import { expandGradientItems } from './expand-gradient.js';
+import { convertToMesh } from '../mesh/mesh-ops.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { tracePath } from '../../render/draw.js';
 import { formatLength } from '../../lib/units.js';
@@ -158,27 +161,72 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
   return true;
 }
 
-/** Object > Expand dialog: Object (live shapes), Fill, Stroke. */
+/**
+ * Object > Expand dialog: Object (live shapes, type), Fill, Stroke, and
+ * what gradient fills expand to (a gradient mesh or a number of steps).
+ */
 export async function expandDialog(app) {
   const editor = app.editor;
   const sel = editor.selectedNodes();
   const hasStroke = targets(editor).some((n) => n.stroke && n.strokeWidth > 0);
   const hasText = sel.some((n) => n.type === 'text');
+  const hasGradient = targets(editor).some((n) => isGradient(n.fill));
+  const last = app.prefs?.get('expandGradient') || { to: 'steps', steps: 255 };
   const v = await app.dialogs.form({
     title: 'Expand',
     fields: [
       { type: 'heading', label: 'Expand' },
       { key: 'object', label: 'Object', type: 'checkbox', value: true },
-      { key: 'fill', label: 'Fill', type: 'checkbox', value: true },
-      { key: 'stroke', label: 'Stroke', type: 'checkbox', value: hasStroke },
+      { key: 'fill', label: 'Fill', type: 'checkbox', value: true, inline: true },
+      { key: 'stroke', label: 'Stroke', type: 'checkbox', value: hasStroke, inline: true },
+      { type: 'heading', label: 'Expand Gradient To' },
+      {
+        key: 'gradientTo',
+        label: 'Gradients become',
+        type: 'radio',
+        value: last.to,
+        options: [
+          { value: 'mesh', label: 'Gradient Mesh' },
+          { value: 'steps', label: 'Solid steps' },
+        ],
+        disabled: (x) => !hasGradient || !x.fill,
+      },
+      { key: 'steps', label: 'Number of steps', type: 'number', value: last.steps, min: 1, max: 1000, step: 1, disabled: (x) => !hasGradient || !x.fill || x.gradientTo !== 'steps' },
     ],
   });
   if (!v) return false;
+  if (hasGradient) app.prefs?.set('expandGradient', { to: v.gradientTo, steps: Math.round(v.steps) });
   if (v.object) {
     expandShapes(editor, 'Expand');
     if (hasText && app.commands.get('type.createOutlines')) await app.commands.run('type.createOutlines');
   }
   if (v.stroke && hasStroke) await outlineStroke(app, { label: 'Expand', expandFill: v.fill });
+  if (v.fill && hasGradient) expandGradients(app, v.gradientTo, Math.round(v.steps));
+  return true;
+}
+
+/** Expand the gradient fills of the selected paths (Object > Expand). */
+export function expandGradients(app, to = 'steps', steps = 255) {
+  const editor = app.editor;
+  const doc = editor.doc;
+  const nodes = targets(editor).filter((n) => isGradient(n.fill));
+  if (!nodes.length) return false;
+  const keep = new Set(editor.topSelection().filter((id) => !nodes.some((n) => n.id === id)));
+  const ids = [];
+  doc.transact('Expand', () => {
+    for (const n of nodes) {
+      if (to === 'mesh' && n.type === 'path' && n.closed) {
+        const stops = n.fill.stops?.length || 2;
+        const cells = Math.max(2, Math.min(12, stops * 2 - 1));
+        const mesh = convertToMesh(doc, n.id, n.fill.type === 'radial' ? { rows: cells, cols: cells } : { rows: 1, cols: cells });
+        if (mesh) ids.push(mesh.id);
+        continue;
+      }
+      const item = expandGradientItems(doc, n, steps);
+      if (item) ids.push(...replaceWith(doc, [n], [item], at(doc, n)));
+    }
+  });
+  editor.select([...keep, ...ids].filter((id) => doc.has(id)));
   return true;
 }
 
@@ -608,6 +656,12 @@ export function gridCells(b, { rows, cols, rowGutter, colGutter }) {
   return { cells, cw, ch };
 }
 
+/**
+ * Split Into Grid: rows and columns, each with Number, cell size, Gutter and
+ * Total linked (Total = Number x size + gutters). While the size and total
+ * are untouched every object is split to fill its own bounds; once they are
+ * edited, cells take the size entered.
+ */
 export async function splitGridDialog(app) {
   const editor = app.editor;
   const doc = editor.doc;
@@ -617,29 +671,47 @@ export async function splitGridDialog(app) {
     return false;
   }
   const b0 = nodeBounds(doc, nodes[0]);
-  const v = await app.dialogs.form({
-    title: 'Split Into Grid',
-    fields: [
-      { type: 'heading', label: 'Rows' },
-      { key: 'rows', label: 'Number', type: 'number', value: 2, min: 1, max: 500 },
-      { key: 'rowGutter', label: 'Gutter', type: 'length', value: 12, min: 0 },
-      { type: 'heading', label: 'Columns' },
-      { key: 'cols', label: 'Number', type: 'number', value: 2, min: 1, max: 500 },
-      { key: 'colGutter', label: 'Gutter', type: 'length', value: 12, min: 0 },
-      { key: 'guides', label: 'Add Guides', type: 'checkbox', value: false },
-    ],
-    description: b0 ? `The first object is ${formatLength(b0.w, doc.root.units)} by ${formatLength(b0.h, doc.root.units)}.` : undefined,
-  });
-  if (!v) return false;
-  const opts = { rows: Math.round(v.rows), cols: Math.round(v.cols), rowGutter: v.rowGutter, colGutter: v.colGutter };
-  const ids = [];
-  doc.transact('Split Into Grid', () => {
+  const last = app.prefs?.get('splitGrid') || { rows: 2, cols: 2, rowGutter: 12, colGutter: 12, guides: false };
+  const fit = { rows: true, cols: true };
+  const size = (total, n, gutter) => (total - (n - 1) * gutter) / n;
+  const linked = (axis) => {
+    const [nKey, sKey, gKey, tKey] = axis === 'rows' ? ['rows', 'height', 'rowGutter', 'rowTotal'] : ['cols', 'width', 'colGutter', 'colTotal'];
+    const n = (form) => Math.max(1, Math.round(form.get(nKey)));
+    return {
+      // Number and Gutter keep the total and resize the cells; size and Total move each other.
+      count: (_, form) => form.set(sKey, round4(size(form.get(tKey), n(form), form.get(gKey)))),
+      gutter: (_, form) => form.set(sKey, round4(size(form.get(tKey), n(form), form.get(gKey)))),
+      size: (v, form) => {
+        fit[axis] = false;
+        form.set(tKey, round4(n(form) * v + (n(form) - 1) * form.get(gKey)));
+      },
+      total: (v, form) => {
+        fit[axis] = false;
+        form.set(sKey, round4(size(v, n(form), form.get(gKey))));
+      },
+    };
+  };
+  const R = linked('rows');
+  const C = linked('cols');
+  const H = b0?.h || 100;
+  const W = b0?.w || 100;
+  const optsFor = (v, b) => {
+    const rows = Math.max(1, Math.round(v.rows));
+    const cols = Math.max(1, Math.round(v.cols));
+    const h = fit.rows ? size(b.h, rows, v.rowGutter) : v.height;
+    const w = fit.cols ? size(b.w, cols, v.colGutter) : v.width;
+    return { rows, cols, rowGutter: v.rowGutter, colGutter: v.colGutter, h, w };
+  };
+  const apply = (v) => {
+    const ids = [];
     const guides = [...(doc.root.guides || [])];
     for (const n of nodes) {
       const b = nodeBounds(doc, n);
       if (!b) continue;
-      const { cells, cw, ch } = gridCells(b, opts);
-      if (cw <= 0 || ch <= 0) throw new UserError('The gutters are too wide for the selected object.');
+      const o = optsFor(v, b);
+      if (!(o.w > 0) || !(o.h > 0)) throw new UserError('The gutters are too wide for the selected object.');
+      const box = { x: b.x, y: b.y, w: o.cols * o.w + (o.cols - 1) * o.colGutter, h: o.rows * o.h + (o.rows - 1) * o.rowGutter };
+      const { cells } = gridCells(box, o);
       const style = styleOf(n);
       const items = cells.map((c) => ({
         node: createPath(rectangle(c.x, c.y, c.w, c.h), true, style, { shape: { kind: 'rect', cx: c.x + c.w / 2, cy: c.y + c.h / 2, w: c.w, h: c.h, radii: [0, 0, 0, 0], angle: 0 } }),
@@ -647,19 +719,69 @@ export async function splitGridDialog(app) {
       }));
       ids.push(...replaceWith(doc, [n], items, at(doc, n)));
       if (v.guides) {
-        for (const c of cells) {
-          guides.push({ axis: 'x', pos: c.x }, { axis: 'x', pos: c.x + c.w }, { axis: 'y', pos: c.y }, { axis: 'y', pos: c.y + c.h });
-        }
+        for (const c of cells) guides.push({ axis: 'x', pos: c.x }, { axis: 'x', pos: c.x + c.w }, { axis: 'y', pos: c.y }, { axis: 'y', pos: c.y + c.h });
       }
     }
     if (v.guides) {
       const seen = new Set();
       doc.updateRoot({ guides: guides.filter((g) => !seen.has(`${g.axis}${g.pos.toFixed(4)}`) && seen.add(`${g.axis}${g.pos.toFixed(4)}`)) });
     }
+    return ids;
+  };
+  let tx = null;
+  const rollback = () => {
+    if (tx) {
+      tx.cancel();
+      tx = null;
+    }
+  };
+  const preview = (v) => {
+    rollback();
+    if (!v.preview) return;
+    tx = doc.begin('Split Into Grid');
+    try {
+      apply(v);
+    } catch {
+      rollback();
+    }
+  };
+  const rows = Math.max(1, last.rows);
+  const cols = Math.max(1, last.cols);
+  let v;
+  try {
+    v = await app.dialogs.form({
+      title: 'Split Into Grid',
+      className: 'split-grid-dialog',
+      fields: [
+        { type: 'heading', label: 'Rows' },
+        { key: 'rows', label: 'Number', type: 'number', value: rows, min: 1, max: 500, onInput: R.count },
+        { key: 'height', label: 'Height', type: 'length', value: round4(size(H, rows, last.rowGutter)), min: 0.001, onInput: R.size },
+        { key: 'rowGutter', label: 'Gutter', type: 'length', value: last.rowGutter, min: 0, onInput: R.gutter },
+        { key: 'rowTotal', label: 'Total', type: 'length', value: round4(H), min: 0.001, onInput: R.total },
+        { type: 'heading', label: 'Columns' },
+        { key: 'cols', label: 'Number', type: 'number', value: cols, min: 1, max: 500, onInput: C.count },
+        { key: 'width', label: 'Width', type: 'length', value: round4(size(W, cols, last.colGutter)), min: 0.001, onInput: C.size },
+        { key: 'colGutter', label: 'Gutter', type: 'length', value: last.colGutter, min: 0, onInput: C.gutter },
+        { key: 'colTotal', label: 'Total', type: 'length', value: round4(W), min: 0.001, onInput: C.total },
+        { key: 'guides', label: 'Add Guides', type: 'checkbox', value: last.guides },
+        { key: 'preview', label: 'Preview', type: 'checkbox', value: false },
+      ],
+      onChange: preview,
+    });
+  } finally {
+    rollback();
+  }
+  if (!v) return false;
+  app.prefs?.set('splitGrid', { rows: Math.round(v.rows), cols: Math.round(v.cols), rowGutter: v.rowGutter, colGutter: v.colGutter, guides: v.guides });
+  let ids = [];
+  doc.transact('Split Into Grid', () => {
+    ids = apply(v);
   });
   editor.select(ids);
   return true;
 }
+
+const round4 = (v) => Math.round(v * 1e4) / 1e4;
 
 // ---- Clean Up ----
 
