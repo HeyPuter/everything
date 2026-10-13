@@ -52,6 +52,10 @@
   min-width: 0;
 }
 
+.mockup-row > [hidden] {
+  display: none;
+}
+
 .mockup-row > .select {
   flex: 1 1 110px;
   min-width: 0;
@@ -206,8 +210,10 @@
 
 .mf-meta {
   display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3);
+  column-gap: var(--space-3);
   font-size: var(--fs-sm);
 }
 
@@ -218,5 +224,4 @@
 
 .mf-reason {
   color: var(--text-3);
-  text-align: right;
 }

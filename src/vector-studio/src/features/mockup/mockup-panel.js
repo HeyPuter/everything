@@ -78,7 +78,7 @@ export class MockupPanel extends Panel {
           kind: 'length',
           unit: this.editor?.doc.root.units || 'pt',
           value: 0,
-          width: '64px',
+          width: '76px',
           onCommit: (v, o) =>
             this.edit(
               'Mockup Corner',

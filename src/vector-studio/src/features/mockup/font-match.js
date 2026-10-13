@@ -261,7 +261,8 @@ export function rankFonts(answer, families, { limit = 8 } = {}) {
       const s = similarity(f.info, own) * (0.45 + 0.4 * f.confidence);
       if (s > score) {
         score = s;
-        reason = `Similar to ${f.name}`;
+        // Only a shared design trait makes a family look like the identified one; a shared class alone says less.
+        reason = sharesTrait(f.info, own) ? `Similar to ${f.name}` : `${labelOf(f.info.category)} like ${f.name}`;
       }
     }
     const d = similarity(described, own) * 0.6;
@@ -288,6 +289,11 @@ export function rankFonts(answer, families, { limit = 8 } = {}) {
   }
   out.sort((p, q) => q.score - p.score || p.family.localeCompare(q.family));
   return out.slice(0, limit);
+}
+
+function sharesTrait(a, b) {
+  const tb = new Set(b?.traits || []);
+  return (a?.traits || []).some((t) => tb.has(t));
 }
 
 function labelOf(category) {

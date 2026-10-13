@@ -265,13 +265,13 @@ effectOutsets.set(LIGHTING, (e) => e.displace || 0);
 
 registerEffectType(LIGHTING, {
   label: 'Mockup Lighting',
-  command: 'panel.mockup',
+  command: 'effect.mockupLighting',
   defaults: { ...LIGHTING_DEFAULTS },
   ranges: { strength: [0, 1], displace: [0, 50] },
   describe: (e) => `Mockup Lighting: ${Math.round((e.strength ?? 0) * 100)}%`,
   // The Mockup panel edits it.
   openDialog: (app) => {
-    app.commands.run('panel.mockup');
+    app.openPanel?.('mockup');
     return null;
   },
 });
