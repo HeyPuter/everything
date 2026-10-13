@@ -81,6 +81,8 @@ import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
 import { serializeQueries } from './queries.js';
+import { serializeScripts } from './scripts.js';
+import { readXlsxScripts } from './xlsx-scripts.js';
 
 export const META_SHEET = '_puter_meta';
 const META_CHUNK = 30000;
@@ -540,6 +542,8 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
   if (wb.fontTheme) { meta.fontTheme = wb.fontTheme; any = true; }
   if (wb.themeInfo) { meta.themeInfo = wb.themeInfo; any = true; }
   if (wb.queries?.length) { meta.queries = serializeQueries(wb); any = true; }
+  // An .xlsx carries the scripts in a part of their own (xlsx-scripts.js); an .ods in these settings.
+  if (ods && wb.scripts?.length) { meta.scripts = serializeScripts(wb); any = true; }
   const pivotSlicers = !ods && pivotSlicerSidecar(wb);
   if (pivotSlicers?.length) { meta.pivotSlicers = pivotSlicers; any = true; }
   if (structuredNames.length) meta.structuredNames = structuredNames;
@@ -2421,6 +2425,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     nativeNormalFill: book.bookType === 'xlsx' ? nativeStyles.nativeNormalFill : meta?.nativeNormalFill,
     nativeDefaultCellFormat: book.bookType === 'xlsx' ? nativeStyles.nativeDefaultCellFormat : meta?.nativeDefaultCellFormat,
     dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries,
+    scripts: book.bookType === 'xlsx' ? readXlsxScripts(book.files) : meta?.scripts,
     fontTheme: themePart ? readFontTheme(new TextDecoder().decode(themePart)) : normalizeFontTheme(meta?.fontTheme),
     themeInfo: importedThemeInfo(themePart ? readThemeInfo(new TextDecoder().decode(themePart)) : null, meta?.themeInfo, normalFont) });
   if (modelRels && /\/pivotCacheDefinition["']/.test(new TextDecoder().decode(modelRels)))

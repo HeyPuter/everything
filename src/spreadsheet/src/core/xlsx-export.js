@@ -30,6 +30,7 @@ import { writeExportMetadata } from './xlsx-export-meta.js';
 import { normalizeSplit, splitPaneXml, paneName } from './split-panes.js';
 import { conditionalFormatSignature } from './xlsx-condformat-reconcile.js';
 import { createPersonList, writeXlsxThreadedComments, writeXlsxPersons } from './xlsx-threaded-comments.js';
+import { writeXlsxScripts } from './xlsx-scripts.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
@@ -394,6 +395,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     }
   }
   writeXlsxSlicers(wb, slicers, { get, set, contentType });
+  writeXlsxScripts(wb, { get, set, contentType });
   richValues.finish();
   set('/[Content_Types].xml', types);
   if (drawingRecords.size) await updateDrawingMetadata(X, zip, book, wb, drawingRecords, { get, set });
