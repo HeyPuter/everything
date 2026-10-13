@@ -113,3 +113,11 @@ describe('Navigator panel menu', () => {
       });
   });
 });
+
+describe('Info panel colors', () => {
+  it('shows CMYK percentages in CMYK documents', async () => {
+    const { paintInfo } = await import('../src/features/artboards/info-panel.js');
+    expect(paintInfo({ type: 'solid', color: '#ff0000' })).toBe('R 255  G 0  B 0  #FF0000');
+    expect(paintInfo({ type: 'solid', color: '#ff0000' }, 'CMYK')).toBe('C 0%  M 100%  Y 100%  K 0%');
+  });
+});
