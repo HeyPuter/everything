@@ -10,6 +10,7 @@ import { readThreads, writeThread } from '../src/collab/ycomments';
 import { newThread } from '../src/collab/comments';
 import type { Identity } from '../src/collab/server/service';
 import { call } from '../src/collab/api';
+import { SharedComments } from '../src/collab/shared-comments';
 import { commenter, editor, environment, owner, until, viewer, wait } from './collab-helpers';
 import { MemoryStore } from '../src/persistence/local-store';
 import type { OutboxStores } from '../src/collab/client';
@@ -287,5 +288,33 @@ describe('per-person settings', () => {
     expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
     expect(a.binding.history.document.imageAssets).toBe(true);
     expect(a.binding.history.document.hdrPreview?.method).toBe('filmic');
+  });
+});
+
+describe('comment messages', () => {
+  it('merge an owner’s removal with the author’s concurrent edit, keeping the author’s other changes', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    const ca = new SharedComments(a.client),
+      cb = new SharedComments(b.client);
+    const t = cb.add({ x: 5, y: 5 }, 'Original words');
+    await settle(a, b);
+    const refused: string[] = [];
+    b.client.o.onRefused = (m) => refused.push(m);
+    // Bob edits his message and a layer while offline; Alice removes the message meanwhile.
+    env.offlineUsers.add(editor.uuid);
+    const message = cb.threads()[0].messages[0].id;
+    cb.edit(t.id, message, 'Edited words');
+    edit(b, 'Rename', (d) => (d.layers[0].name = 'Bob’s rename'));
+    await b.binding.idle();
+    ca.remove(t.id, message);
+    await settle(a);
+    env.offlineUsers.delete(editor.uuid);
+    b.client.flush();
+    await settle(a, b);
+    expect(refused).toEqual([]);
+    for (const c of [ca, cb]) expect(c.threads()[0].messages[0]).toMatchObject({ text: 'Edited words', deleted: true });
+    expect(a.binding.history.document.layers[0].name).toBe('Bob’s rename');
   });
 });

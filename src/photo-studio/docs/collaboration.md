@@ -35,7 +35,7 @@ A Photo Studio document is an immutable snapshot whose pixels are 256-pixel immu
 | `doc` | Document settings (size, resolution, mode, guides, paths, channels, layer comps, slices, …): one atomic register per property |
 | `layers` | Layer ID → map of `parent` (enclosing group), `order` (fractional key among siblings), `p:<property>` (one atomic register per layer property: name, visibility, opacity, blend mode, transform, style, text, vector, adjustment parameters, …), and for the tile grids `pixels`, `maskGrid`, `liveSource` and `liveMask` a placement register `g:<grid>` and a map `t:<grid>` of tile key → content hash |
 | `assets` | Asset ID → type, size and content hashes of 4 MB chunks (placed images, embedded projects, footage, PSD resources) |
-| `comments` | Thread ID → anchor, author, created, resolved and removed registers, and a map of messages |
+| `comments` | Thread ID → anchor, author, created, resolved and removed registers, and a map of messages (each message's removal is a register of its own beside it, so an owner removing a message while its author edits it keeps both) |
 | `meta` | Schema version |
 
 Every editor history step is written as the difference between the document before and after it (`SharedProject.write`), so a step sends only what it changed. Merging:

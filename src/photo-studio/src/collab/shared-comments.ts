@@ -2,7 +2,7 @@
 // written with their own origin, so they never enter Undo, and travel through
 // the same outbox as edits; the worker checks authorship on every commit.
 import { clampText, newMessage, newThread, normalizeAnchor, validateComments, type CommentAnchor, type CommentAuthor, type CommentThread } from './comments';
-import { commentsOf, putMessage, readThreads, setThreadField, writeThread } from './ycomments';
+import { commentsOf, putMessage, readThreads, removeMessage, setThreadField, writeThread } from './ycomments';
 import { ORIGIN } from './shared-project';
 import type { CommentStore } from './comment-store';
 import type { RoomClient } from './client';
@@ -68,7 +68,7 @@ export class SharedComments implements CommentStore {
     // Shared comments are marked removed; their record stays (the worker refuses outright removal).
     if (!message) return this.write(() => setThreadField(this.doc, thread, 'deleted', true));
     const m = this.find(thread).messages.find((x) => x.id === message);
-    if (m) this.write(() => putMessage(this.doc, thread, { ...m, deleted: true }));
+    if (m) this.write(() => removeMessage(this.doc, thread, message));
   }
   resolve(thread: string, resolved: boolean) {
     this.write(() => setThreadField(this.doc, thread, 'resolved', resolved ? { by: this.me(), at: Date.now() } : null));
