@@ -45,8 +45,17 @@
   grid-template-columns: 1fr;
 }
 
-.ty-row.ty-lang-row {
+.ty-row.ty-lang-row,
+.ty-row.ty-sel-row {
   grid-template-columns: auto 1fr;
+}
+
+.ty-row[hidden] {
+  display: none;
+}
+
+.ty-select {
+  min-width: 0;
 }
 
 .ty-lang-label {

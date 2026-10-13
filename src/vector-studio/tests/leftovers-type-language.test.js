@@ -25,18 +25,18 @@ describe('text language', () => {
     expect(canSpellCheck('none')).toBe(false);
   });
 
-  it('hyphenates English only; other languages are left whole', () => {
+  it('hyphenates languages that have rules; others are left whole', () => {
     expect(hyphenPoints('hyphenation').length).toBeGreaterThan(0);
-    expect(hyphenPoints('hyphenation', undefined, 'en-GB')).toEqual(hyphenPoints('hyphenation'));
-    expect(hyphenPoints('hyphenation', undefined, 'de-DE')).toEqual([]);
+    expect(hyphenPoints('hyphenation', undefined, 'en-GB').length).toBeGreaterThan(0);
+    expect(hyphenPoints('hyphenation', undefined, 'fi-FI')).toEqual([]);
     expect(hyphenPoints('hyphenation', undefined, 'none')).toEqual([]);
-    expect(hyphenationRules('fr-FR')).toBeNull();
+    expect(hyphenationRules('ru-RU')).toBeNull();
     for (const composer of ['single', 'every']) {
       const en = layoutText(area('xx hyphenation', 72, { hyphenate: true, composer }));
       expect(en.lines[0].hyphen, composer).toBe(true);
       expect(lineTexts(en)[0], composer).toMatch(/^xx hyph/);
-      const de = layoutText(area('xx hyphenation', 72, { hyphenate: true, composer }, { language: 'de-DE' }));
-      expect(lineTexts(de), composer).toEqual(['xx', 'hyphenation']);
+      const fi = layoutText(area('xx hyphenation', 72, { hyphenate: true, composer }, { language: 'fi-FI' }));
+      expect(lineTexts(fi), composer).toEqual(['xx', 'hyphenation']);
     }
   });
 

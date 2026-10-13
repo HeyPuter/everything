@@ -30,6 +30,13 @@ export function registerTypeIcons() {
     'baseline-shift': [['path', { d: 'M4 13l3-8 3 8M5 10.5h4' }], ['path', { d: 'M13 20l3-8 3 8M14 17.5h4' }], ['path', { d: 'M3 21h18' }]],
     'char-rotation': [['path', { d: 'M8 17l4-11 4 11M9.4 13.5h5.2' }], ['path', { d: 'M4 12a8 8 0 0 1 4-7M2.5 6.5 4 4.5l2 1.5' }]],
     'indent-first': [['path', { d: 'M10 5h10M4 10h16M4 15h16M4 20h12' }], ['path', { d: 'M4 3v4l3-2z' }]],
+    // East Asian spacing and rendering options (original).
+    tsume: [['rect', { x: '8', y: '6', width: '8', height: '12', rx: '1' }], ['path', { d: 'M2 12h4M4 10l2 2-2 2M22 12h-4M20 10l-2 2 2 2' }]],
+    'aki-before': [['rect', { x: '12', y: '6', width: '9', height: '12', rx: '1' }], ['path', { d: 'M3 12h6M7 10l2 2-2 2M3 8v8' }]],
+    'aki-after': [['rect', { x: '3', y: '6', width: '9', height: '12', rx: '1' }], ['path', { d: 'M21 12h-6M17 10l-2 2 2 2M21 8v8' }]],
+    antialias: [['path', { d: 'M4 19l5-14 5 14M5.8 14h6.4' }], ['path', { d: 'M16 19v-5M18.5 19v-8M21 19V8' }]],
+    'font-height': [['path', { d: 'M5 19l4.5-13 4.5 13M6.6 15h5.8' }], ['path', { d: 'M19 5v14M17 7l2-2 2 2M17 17l2 2 2-2' }]],
+    kinsoku: [['path', { d: 'M4 5h10M4 10h10M4 15h7' }], ['circle', { cx: '17.5', cy: '17.5', r: '3.5' }], ['path', { d: 'M15 20l5-5' }]],
   });
 }
 

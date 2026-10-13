@@ -1,0 +1,2 @@
+# Preserve the exact reviewed pattern bytes (and their license headers) on every platform.
+*.tex -text

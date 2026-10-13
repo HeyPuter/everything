@@ -719,7 +719,11 @@ class PDFRenderer {
         const tc = mode === 'segments' && it.track ? it.track / hs : 0;
         out += `BT\n/${font} ${this.f(it.size)} Tf\n${fill && stroke ? 2 : stroke ? 1 : 0} Tr\n${tc ? `${this.f(tc)} Tc\n` : ''}${this.f(hs)} 0 0 ${this.f(-vs)} ${this.f(x)} ${this.f(y)} Tm\n${winAnsiString(it.str)} Tj\nET\n`;
       }
-      if (fill) for (const [rx, ry, rw, rh] of decoRects(st, it.size, it.deco)) out += `${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re f\n`;
+      for (const [rx, ry, rw, rh, paint] of decoRects(st, it.size, it.deco)) {
+        // Bars in their own color set it for themselves.
+        if (paint) out += `q\n${this.colorOps(res, solid(paint))}\n${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re f\nQ\n`;
+        else if (fill) out += `${this.f(rx)} ${this.f(ry)} ${this.f(rw)} ${this.f(rh)} re f\n`;
+      }
       out += 'Q\n';
     }
     out += 'Q\n';

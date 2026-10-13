@@ -21,7 +21,7 @@ import { pathDataFromSubpaths, numberFormatter } from './svg-path.js';
 import { exportView } from './export-view.js';
 import { svgPaintHooks, svgExportHooks, svgNodeHooks, exportWriters } from './hooks.js';
 import { nodeArrowOutlines, strokedAnchors, effectiveDash, outlineSubpaths } from './outlines.js';
-import { textPieces, decoRects } from './text-segments.js';
+import { textPieces, decoRects, plainDecoration } from './text-segments.js';
 import { cssFeatureSettings } from '../type/feature-settings.js';
 import { expandStops, focalPoint } from '../../model/gradients.js';
 import { renderSubpaths, hasRoundCorners, isElliptical, radialFrame } from './geometry-helpers.js';
@@ -503,7 +503,15 @@ class SVGWriter {
     const tf = this.matrixAttr(node.transform);
     const kids = [];
     const d1 = this.nl(depth + 1);
-    const common = this.commonAttrs(node, { filterUnits: 'box' });
+    // The text's language (hyphenation and spelling language) as xml:lang: on the text, and on pieces in another language.
+    const langOf = (st) => (st.language && st.language !== 'none' ? st.language : null);
+    const baseLang = langOf(node.char || {}) ?? (node.char?.language === 'none' ? null : 'en-US');
+    const langAttr = (st) => {
+      const l = langOf(st);
+      return l && l !== baseLang ? ` xml:lang="${escapeXml(l)}"` : '';
+    };
+    const common = `${this.commonAttrs(node, { filterUnits: 'box' })}${baseLang ? ` xml:lang="${escapeXml(baseLang)}"` : ''}`;
+    const barRect = (x, y, w, h, paint, fill, space) => `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || fill, space)}/>`;
     if (mode === 'segments') {
       // Unscaled pieces share ONE <text> as <tspan>s positioned from the
       // layout (baseline shifts as dy from the line's baseline), so SVG
@@ -516,18 +524,23 @@ class SVGWriter {
         const fill = st.fill === undefined ? node.fill : st.fill;
         const scaled = it.hs !== 1 || it.vs !== 1;
         const ls = it.track ? ` letter-spacing="${this.n(scaled ? it.track / it.hs : it.track)}"` : '';
+        // Spacing the layout set (tracking, kerning pairs) is kept by giving the piece its laid-out length.
+        const tl = it.str && it.str.length > 1 && it.span > 0 && (it.track || it.kerned) ? ` textLength="${this.n(scaled ? it.span / it.hs : it.span)}"` : '';
+        const plain = plainDecoration(st);
         if (it.str && !scaled) {
           if (/^\s|\s$|\s{2}/.test(it.str)) preserve = true;
           const dy = Math.abs(it.y - it.base) > 1e-9 ? ` dy="${this.n(it.y - it.base)}"` : '';
-          const deco = [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ');
-          spans.push({ it, dy, attrs: `${this.fontAttrs(st, it.size)}${ls}${this.textPaintAttrs(node, st, null)}${deco ? ` text-decoration="${deco}"` : ''}`, deco, str: escapeXml(it.str) });
+          const deco = plain ? [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ') : '';
+          spans.push({ it, dy, attrs: `${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, null)}${deco ? ` text-decoration="${deco}"` : ''}${langAttr(st)}`, deco, str: escapeXml(it.str) });
+          // Bars with their own weight, offset, color or dashes are drawn as rectangles.
+          if (!plain) for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
           continue;
         }
         if (it.str) {
           const pre = /^\s|\s$|\s{2}/.test(it.str) ? ' xml:space="preserve"' : '';
-          kids.push(`${d1}<text transform="translate(${this.n(it.x)} ${this.n(it.y)}) scale(${this.n(it.hs)} ${this.n(it.vs)})"${this.fontAttrs(st, it.size)}${ls}${this.textPaintAttrs(node, st, [it.hs, 0, 0, it.vs, it.x, it.y])}${pre}>${escapeXml(it.str)}</text>`);
+          kids.push(`${d1}<text transform="translate(${this.n(it.x)} ${this.n(it.y)}) scale(${this.n(it.hs)} ${this.n(it.vs)})"${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, [it.hs, 0, 0, it.vs, it.x, it.y])}${langAttr(st)}${pre}>${escapeXml(it.str)}</text>`);
         }
-        for (const [x, y, w, h] of decoRects(st, it.size, it.deco)) kids.push(`${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, fill, false)}/>`);
+        for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
       }
       const pre = preserve ? ' xml:space="preserve"' : '';
       if (!spans.length && !kids.length) return '';
@@ -544,8 +557,8 @@ class SVGWriter {
     for (const it of items) {
       const st = it.style;
       const m = it.m.map((v, i) => (i < 4 ? numberFormatter(6, this.o.minify)(v) : this.n(v))).join(' ');
-      const deco = decoRects(st, it.size, it.deco).map(([x, y, w, h]) => `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, st.fill === undefined ? node.fill : st.fill, it.m)}/>`).join('');
-      kids.push(`${d1}<g transform="matrix(${m})"><text${this.fontAttrs(st, it.size)}${this.textPaintAttrs(node, st, it.m)}>${escapeXml(it.str)}</text>${deco}</g>`);
+      const deco = decoRects(st, it.size, it.deco).map(([x, y, w, h, paint]) => `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || (st.fill === undefined ? node.fill : st.fill), it.m)}/>`).join('');
+      kids.push(`${d1}<g transform="matrix(${m})"><text${this.fontAttrs(st, it.size)}${this.textPaintAttrs(node, st, it.m)}${langAttr(st)}>${escapeXml(it.str)}</text>${deco}</g>`);
     }
     if (!kids.length) return '';
     return `${nl}<g${id}${tf}${common}>${kids.join('')}${nl}</g>`;

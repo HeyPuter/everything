@@ -16,7 +16,7 @@ describe('Preferences dialog', () => {
   it('has the sections and opens on the one asked for', async () => {
     const app = await bootAppWithFeatures();
     const ids = sections(app).map((s) => s.id);
-    expect(ids).toEqual(['general', 'selection', 'type', 'units', 'guides', 'alignment', 'slices', 'ui', 'performance', 'files']);
+    expect(ids).toEqual(['general', 'selection', 'type', 'units', 'guides', 'alignment', 'slices', 'hyphenation', 'ui', 'performance', 'files']);
     const done = app.commands.run('edit.preferences.type');
     await tick();
     const dlg = document.querySelector('dialog[open]');

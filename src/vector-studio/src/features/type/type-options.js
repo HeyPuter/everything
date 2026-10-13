@@ -8,11 +8,11 @@
  */
 import { h } from '../../lib/dom.js';
 import { DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
-import { layoutText, autoSized, JUSTIFICATION_DEFAULTS, justificationOf } from '../../model/text-layout.js';
+import { layoutText, autoSized, autoGrows, JUSTIFICATION_DEFAULTS, justificationOf } from '../../model/text-layout.js';
 import { HYPHENATION_DEFAULTS, hyphenationOf } from '../../model/hyphenate.js';
 import { session, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, MIXED } from './type-ops.js';
 import { selectedTextNodes } from './outlines.js';
-import { headOf } from './thread-model.js';
+import { headOf, threadFrames } from './thread-model.js';
 import { paraStylePatch, paragraphIndexAt, paragraphRanges } from '../../model/text-runs.js';
 
 const hasText = (app) => Boolean(session(app)) || (app.editor ? selectedTextNodes(app.editor).length > 0 : false);
@@ -277,13 +277,35 @@ export async function justificationDialog(app) {
 
 const areaNodes = (app) => (app.editor ? currentTextNodes(app).filter((n) => n.kind === 'area') : []);
 
-/** Height an auto-sized frame needs for its text. */
+/**
+ * Height an auto-sized frame needs for its text. One cell grows to its last
+ * line; a frame of rows or columns takes the least height that holds all of
+ * its text (columns come out balanced).
+ */
 export function autoHeight(node) {
+  if (!autoGrows(node)) return gridHeight(node);
   const lay = layoutText(node);
   const inset = node.areaOptions?.inset || 0;
   const last = lay.lines[lay.lines.length - 1];
   const bottom = last ? last.y + last.desc : node.y + inset + lay.ascent + lay.descent;
   return Math.max(1, Math.ceil((bottom + inset - node.y) * 100) / 100);
+}
+
+function gridHeight(node) {
+  const fits = (h) => !layoutText({ ...node, height: h }).overflow;
+  let lo = 1;
+  let hi = Math.max(node.height || 0, 16);
+  for (let i = 0; i < 24 && !fits(hi); i++) {
+    lo = hi;
+    hi *= 2;
+  }
+  if (!fits(hi)) return node.height;
+  while (hi - lo > 0.25) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid;
+    else lo = mid;
+  }
+  return Math.ceil(hi * 100) / 100;
 }
 
 /**
@@ -417,9 +439,20 @@ export function installAutoSize(app) {
     let busy = false;
     doc.on('change', (e) => {
       if (busy || !e.live || !doc.tx || !e.ids) return;
+      // The frames to fit: changed frames, and the last frame of a changed story (it holds the story's end).
+      const fit = new Set();
       for (const id of e.ids) {
         const node = doc.get(id);
-        if (!node || node.type !== 'text' || !autoSized(node)) continue;
+        if (!node || node.type !== 'text' || node.kind !== 'area') continue;
+        if (autoSized(node)) fit.add(node.id);
+        if (node.threadNext || node.threadPrev) {
+          const frames = threadFrames(doc, node);
+          const last = frames[frames.length - 1];
+          if (last && autoSized(last)) fit.add(last.id);
+        }
+      }
+      for (const id of fit) {
+        const node = doc.get(id);
         const height = autoHeight(node);
         if (Math.abs(height - node.height) < 0.01) continue;
         busy = true;

@@ -65,7 +65,10 @@ function textFramePatch(node, m) {
   }
   const p0 = apply(conj, node.x, node.y);
   const p1 = apply(conj, node.x + node.width, node.y + node.height);
-  return { x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y), width: Math.abs(p1.x - p0.x), height: Math.abs(p1.y - p0.y) };
+  const patch = { x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y), width: Math.abs(p1.x - p0.x), height: Math.abs(p1.y - p0.y) };
+  // Setting the height by hand turns Auto Size off.
+  if (node.areaOptions?.autoSize && Math.abs(conj[3] - 1) > 1e-9) patch.areaOptions = { ...node.areaOptions, autoSize: undefined };
+  return patch;
 }
 
 export function unionRect(a, b) {

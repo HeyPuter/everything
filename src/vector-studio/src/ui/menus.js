@@ -108,7 +108,7 @@ export const MENUS = [
         submenu: [
           'edit.preferences',
           '-',
-          ...['general', 'selection', 'type', 'units', 'guides', 'alignment', 'slices', 'ui', 'performance', 'files'].map((s) => `edit.preferences.${s}`),
+          ...['general', 'selection', 'type', 'units', 'guides', 'alignment', 'slices', 'hyphenation', 'ui', 'performance', 'files'].map((s) => `edit.preferences.${s}`),
         ],
       },
     ],

@@ -5,12 +5,13 @@
  * rotated characters are placed glyph by glyph. Everything is in the text
  * node's local space (before node.transform).
  *
- *   { mode: 'segments', items: [{ str, x, y, style, size, hs, vs, track, deco, line, base }] }
- * (y is the shifted baseline, base the line's own baseline)
+ *   { mode: 'segments', items: [{ str, x, y, style, size, hs, vs, track, deco, line, base, span, kerned }] }
+ * (y is the shifted baseline, base the line's own baseline, span the
+ * piece's laid-out advance, kerned whether kerning pairs moved it)
  *   { mode: 'glyphs', items: [{ str, m, style, size, deco }] }
  * deco: { x0, x1, base } for underline/strike bars (null when none).
  */
-import { layoutText, glyphPlacements, extraPlacements, drawsAsSegments, riseOf } from '../../model/text-layout.js';
+import { layoutText, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, decorationRects } from '../../model/text-layout.js';
 
 export function textPieces(node) {
   const lay = layoutText(node);
@@ -30,14 +31,21 @@ export function textPieces(node) {
         }
         const str = text[i] === '\t' ? '' : chars.disp.slice(i, j).join('');
         const x = line.xs[i - line.start];
-        const base = line.y - riseOf(st);
+        const base = line.y - riseOf(st, chars.tm);
         let deco = null;
         if (st.underline || st.strike) {
           const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
           deco = { x0: x, x1, base };
         }
+        // The laid-out advance of the piece (kerning before the next piece left out) and whether it holds kerning pairs.
+        const next = j < line.end ? chars.kern[j] + chars.manual[j] : 0;
+        const span = (j >= end ? line.xs[end - line.start] - (end < line.end ? chars.kern[end] + chars.manual[end] : 0) : line.xs[j - line.start] - next) - x;
+        let kerned = false;
+        for (let k = i + 1; k < j && !kerned; k++) kerned = chars.kern[k] !== 0;
         if (str.trim() || deco) {
           items.push({
+            span,
+            kerned,
             str: str.trim() ? str : '',
             x,
             y: base,
@@ -70,12 +78,13 @@ export function textPieces(node) {
   return { mode: 'glyphs', items, lay };
 }
 
-/** Underline/strike rectangles [x, y, w, h] for a piece (in the piece's own frame). */
+/** Underline/strike rectangles [x, y, w, h, paint] for a piece (in the piece's own frame; paint null: the text fill). */
 export function decoRects(style, size, deco) {
   if (!deco) return [];
-  const t = Math.max(style.fontSize / 18, 0.25);
-  const out = [];
-  if (style.underline) out.push([deco.x0, deco.base + style.fontSize * 0.12, deco.x1 - deco.x0, t]);
-  if (style.strike) out.push([deco.x0, deco.base - size * 0.3, deco.x1 - deco.x0, t]);
-  return out;
+  return decorationRects(style, size, deco.x0, deco.x1, deco.base).map((r) => [r.x, r.y, r.w, r.h, r.paint]);
+}
+
+/** Whether a style's bars are the automatic ones (an SVG text-decoration can draw them). */
+export function plainDecoration(style) {
+  return !style.underlineStyle && !style.strikeStyle;
 }

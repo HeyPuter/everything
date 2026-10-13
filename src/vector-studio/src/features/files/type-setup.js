@@ -24,10 +24,44 @@ export const LANGUAGES = [
   { value: 'pl', label: 'Polish', double: '\u201e\u201d', single: '\u201a\u2019' },
 ];
 
-export const DEFAULT_TYPE_OPTIONS = Object.freeze({ language: 'en', double: '\u201c\u201d', single: '\u2018\u2019', quotes: true });
+export const DEFAULT_TYPE_OPTIONS = Object.freeze({
+  language: 'en',
+  double: '\u201c\u201d',
+  single: '\u2018\u2019',
+  quotes: true,
+  // Superscript, subscript and small caps, % of the type size (positions: baseline offset).
+  superSize: 58.3,
+  superPos: 33.3,
+  subSize: 58.3,
+  subPos: 33.3,
+  smallCaps: 70,
+});
+
+/** Limits of the superscript, subscript and small caps settings (%). */
+export const SCRIPT_LIMITS = Object.freeze({ superSize: [1, 200], superPos: [-500, 500], subSize: [1, 200], subPos: [-500, 500], smallCaps: [1, 200] });
 
 export function typeOptionsOf(root) {
   return { ...DEFAULT_TYPE_OPTIONS, ...(root?.typeOptions || {}) };
+}
+
+const metricsCache = new WeakMap();
+
+/**
+ * The layout metrics (text-layout TYPE_METRICS, fractions) of a document's
+ * type options, or null for the defaults. The same object comes back while
+ * root.typeOptions is the same.
+ */
+export function typeMetricsOf(root) {
+  const o = root?.typeOptions;
+  if (!o) return null;
+  let m = metricsCache.get(o);
+  if (m === undefined) {
+    const t = typeOptionsOf(root);
+    const keys = Object.keys(SCRIPT_LIMITS);
+    m = keys.every((k) => t[k] === DEFAULT_TYPE_OPTIONS[k]) ? null : Object.freeze(Object.fromEntries(keys.map((k) => [k, t[k] / 100])));
+    metricsCache.set(o, m);
+  }
+  return m;
 }
 
 /** Characters after which a quote opens. */

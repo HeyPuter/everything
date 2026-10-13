@@ -112,7 +112,7 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
       }
       ctx.setTransform(scale, 0, 0, scale, -rect.x * scale - px, -rect.y * scale - py);
       const viewRect = inflate({ x: rect.x + px / scale, y: rect.y + py / scale, w: tw / scale, h: th / scale }, 2 / scale);
-      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter };
+      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter, textHints: true };
       if (ids) for (const id of ids) drawNode(ctx, doc, doc.get(id), opts);
       else drawArtwork(ctx, doc, { ...opts, layerFilter: (l) => !l.template });
       if (!antialias && !opaque) hardenAlpha(ctx, tw, th);

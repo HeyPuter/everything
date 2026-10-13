@@ -1,14 +1,22 @@
 /**
- * Automatic hyphenation without a dictionary: break points inside a word
- * from syllable rules. Vowel groups are syllable nuclei; the consonants
- * between two nuclei split so that the next syllable starts with a cluster
- * that can begin a syllable, digraphs stay together, doubled consonants
- * split, and common prefixes and suffixes are syllables of their own. A
- * final silent "e" (and the "-es"/"-ed" endings that do not add a syllable)
- * is not a nucleus. The rules are English ones: words in other languages
- * (see model/languages.js) are not hyphenated until rules for them exist.
+ * Automatic hyphenation. Languages with a pattern file
+ * (model/hyphenation/patterns.js) hyphenate with Liang's patterns
+ * (model/liang.js) once their file has loaded; loading starts the first
+ * time a hyphenated paragraph asks for the language (see
+ * setHyphenationLoader), and until then English uses the syllable rules
+ * below and other languages are left whole. Exception lists (Preferences >
+ * Hyphenation) fix the breaks of particular words per language.
+ *
+ * The fallback rules work without a dictionary: vowel groups are syllable
+ * nuclei; the consonants between two nuclei split so that the next syllable
+ * starts with a cluster that can begin a syllable, digraphs stay together,
+ * doubled consonants split, and common prefixes and suffixes are syllables
+ * of their own. A final silent "e" (and the "-es"/"-ed" endings that do not
+ * add a syllable) is not a nucleus.
  */
 import { languageBase } from './languages.js';
+import { compilePatterns, parseException } from './liang.js';
+import { PATTERN_FILES, patternKey } from './hyphenation/patterns.js';
 
 export const HYPHENATION_DEFAULTS = Object.freeze({
   minWord: 6, // shortest word to hyphenate (letters)
@@ -137,22 +145,120 @@ export function hyphenPoints(word, opts = HYPHENATION_DEFAULTS, language = null)
   const rules = hyphenationRules(language);
   if (!rules) return [];
   const o = { ...HYPHENATION_DEFAULTS, ...opts };
+  const ex = exceptionFor(language, word.toLowerCase());
   if (word.length < Math.max(2, o.minWord) || !/^\p{L}+$/u.test(word)) return [];
   if (!o.capitalized && word[0] !== word[0].toLowerCase()) return [];
   // All-caps words are usually acronyms.
   if (word.length > 1 && word === word.toUpperCase()) return [];
   const before = Math.max(1, o.minBefore);
   const after = Math.max(1, o.minAfter);
-  return rules(word.toLowerCase()).filter((k) => k >= before && word.length - k >= after);
+  return (ex ?? rules(word.toLowerCase())).filter((k) => k >= before && word.length - k >= after);
 }
 
-/** Hyphenation rules by primary language subtag: lowercase word -> break offsets. */
-const RULES = { en: rawPoints };
+// ---- pattern files, loading and exceptions ----
 
-/** The rules for a language (null when it has none: no hyphenation); no language means English. */
+const compiled = new Map(); // pattern key -> hyphenator
+const pending = new Map(); // pattern key -> Promise
+const requested = new Set(); // pattern keys the loader was asked for
+let requestLoad = null;
+
+/**
+ * Who loads missing pattern files: fn(code) is called (once per pattern file)
+ * when hyphenation asks for a language whose patterns have not loaded; the
+ * app loads them and lays text out again. Without a loader, missing
+ * languages stay on the fallback.
+ */
+export function setHyphenationLoader(fn) {
+  requestLoad = fn;
+}
+
+/** Load the patterns of a language (resolves true when the language has patterns). */
+export function loadHyphenation(code) {
+  const key = patternKey(code);
+  if (!key) return Promise.resolve(false);
+  if (compiled.has(key)) return Promise.resolve(true);
+  let p = pending.get(key);
+  if (!p) {
+    p = PATTERN_FILES[key]
+      .load()
+      .then((m) => {
+        compiled.set(key, compilePatterns(m.default ?? m));
+        return true;
+      })
+      .catch((err) => {
+        pending.delete(key);
+        throw err;
+      });
+    pending.set(key, p);
+  }
+  return p;
+}
+
+/** Whether a language's patterns are ready. */
+export function hyphenationLoaded(code) {
+  const key = patternKey(code);
+  return Boolean(key && compiled.has(key));
+}
+
+/** Whether a language can be hyphenated at all (patterns exist, or the fallback rules). */
+export function canHyphenate(code) {
+  if (code === 'none') return false;
+  return Boolean(patternKey(code)) || languageBase(code) === 'en';
+}
+
+let exceptionLists = new Map(); // language code (lower case) -> Map(word -> points)
+let exceptionVersion = 0;
+
+/**
+ * Exception words by language code: { 'en-US': ['ty-po-graph-ic', 'Puter'] }.
+ * An entry's hyphens are its only breaks; an entry without hyphens is never
+ * hyphenated.
+ */
+export function setHyphenationExceptions(byLanguage) {
+  exceptionLists = new Map();
+  for (const [code, list] of Object.entries(byLanguage || {})) {
+    if (!Array.isArray(list) || !list.length) continue;
+    const m = new Map();
+    for (const e of list) {
+      const { word, points } = parseException(e);
+      if (word) m.set(word, points);
+    }
+    exceptionLists.set(code.toLowerCase(), m);
+  }
+  exceptionVersion++;
+}
+
+export function hyphenationExceptionsVersion() {
+  return exceptionVersion;
+}
+
+function exceptionFor(code, w) {
+  if (!exceptionLists.size) return undefined;
+  const tag = String(code || 'en-US').toLowerCase();
+  return exceptionLists.get(tag)?.get(w) ?? exceptionLists.get(languageBase(tag))?.get(w);
+}
+
+/**
+ * The rules for a language: lowercase word -> break offsets, or null (no
+ * hyphenation). No language means English. Asks the loader for patterns
+ * that are not there yet.
+ */
 export function hyphenationRules(language) {
-  return RULES[languageBase(language)] || null;
+  if (language === 'none') return null;
+  const key = patternKey(language);
+  const hit = key && compiled.get(key);
+  if (hit) return hit;
+  if (key && requestLoad && !pending.has(key) && !requested.has(key)) {
+    // Ask once, after the layout pass that needed it.
+    requested.add(key);
+    const load = requestLoad;
+    Promise.resolve().then(() => load(language));
+  }
+  return languageBase(language) === 'en' ? rawPoints : null;
 }
+
+/** The fallback syllable rules (English), for tests and previews. */
+export const englishRules = rawPoints;
 
 /** A word with its hyphenation points shown (for tests and previews): "hy-phen-ation". */
 export function hyphenateWord(word, opts, language) {
