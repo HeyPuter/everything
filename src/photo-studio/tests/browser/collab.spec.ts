@@ -1,7 +1,7 @@
 // Two people in two browser contexts on one shared document, against the
 // real room worker service running in the test process (collab-harness.ts).
 import { test, expect, type Page } from '@playwright/test';
-import { canvasClick, canvasDrag, idle, openImage } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, openImage, tool } from './helpers';
 import { environment, owner, editor } from '../collab-helpers';
 import { person, relay } from './collab-harness';
 
@@ -49,12 +49,20 @@ test('two people edit and comment on one shared document', async ({ browser }, i
   const access = a.page.locator('dialog .collab-dialog');
   await expect(access).toBeVisible({ timeout: 60_000 });
   await expect(a.page.locator('.collab-bar')).toBeVisible();
+  // Nothing to revoke yet, and inviting by username needs a name.
+  await expect(access.locator('.collab-invites')).toHaveText('No active invitation links');
+  await expect(access.getByRole('button', { name: 'Revoke Invitation Links' })).toBeDisabled();
+  await expect(access.getByRole('button', { name: 'Invite', exact: true })).toBeDisabled();
+  await access.getByRole('textbox', { name: 'Puter username' }).fill('carol');
+  await expect(access.getByRole('button', { name: 'Invite', exact: true })).toBeEnabled();
+  await access.getByRole('textbox', { name: 'Puter username' }).fill('');
   await access.locator('select[name="role"]').selectOption('editor');
   await access.getByRole('button', { name: 'Create Link' }).click();
   const linkInput = access.getByRole('textbox', { name: 'Invitation link' });
   await expect(linkInput).toHaveValue(/#ps-server=.*ps-room=.*ps-invite=/);
   const link = new URL(await linkInput.inputValue());
   await expect(access.locator('.collab-members')).toContainText('alice');
+  await expect(access.getByRole('button', { name: 'Revoke Invitation Links' })).toBeEnabled();
   await access.getByRole('button', { name: 'Done' }).click();
   expect((await sharedState(a.page))?.role).toBe('owner');
 
@@ -97,6 +105,16 @@ test('two people edit and comment on one shared document', async ({ browser }, i
   await b.page.locator('.comment-thread').getByRole('button', { name: 'Reply' }).click();
   await b.page.locator('.comment-thread').getByRole('button', { name: 'Resolve' }).click();
   await expect.poll(async () => (await threads(a.page))[0], { timeout: 30_000 }).toEqual({ anchor: { x: 50, y: 40 }, texts: ['alice: Can we warm this up? @bob', 'bob: Done.'], resolved: true });
+
+  // The people popover: aria-expanded, and Escape returns focus to its button.
+  const people = a.page.locator('.collab-bar .collab-people');
+  await people.click();
+  await expect(people).toHaveAttribute('aria-expanded', 'true');
+  await expect(a.page.locator('.collab-popover').getByRole('button', { name: 'Stop Sharing…' })).toBeVisible();
+  await a.page.keyboard.press('Escape');
+  await expect(a.page.locator('.collab-popover')).toBeHidden();
+  await expect(people).toHaveAttribute('aria-expanded', 'false');
+  await expect(people).toBeFocused();
 
   // Both settle with nothing pending and no errors.
   await expect.poll(async () => (await sharedState(a.page))?.pending).toBe(0);
@@ -148,4 +166,23 @@ test('a review link opens the review view; reviewers comment but cannot edit', a
   expect(a.errors).toEqual([]);
   await ctxA.close();
   await ctxR.close();
+});
+
+test('the Comment tool puts the cursor in the new comment, even when the panel was closed', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 320, 240, '#808080', 'local.png');
+  expect(await page.evaluate(() => window.photoStudio.dock.isVisible('comments'))).toBe(false);
+  await tool(page, 'Comment Tool');
+  await canvasClick(page, 100, 80);
+  const draft = page.getByRole('textbox', { name: 'New comment' });
+  await expect(draft).toBeFocused();
+  // Typing goes into the comment, not to tool shortcuts.
+  await page.keyboard.type('hello');
+  await expect(draft).toHaveValue('hello');
+  expect(await page.evaluate(() => window.photoStudio.activeTool?.id)).toBe('comment');
+  // While drafting the panel shows the draft without the empty-state text.
+  await expect(page.locator('.comments-panel')).not.toContainText('No comments yet');
+  await expect(page.locator('.comment-draft').getByRole('button', { name: 'Comment' })).toHaveAttribute('title', /Post the comment/);
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+  await expect(page.locator('.comment-thread')).toHaveCount(1);
 });

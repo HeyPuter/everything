@@ -60,6 +60,16 @@ test.describe('Provenance', () => {
     await expect(body.locator('.prov-entry.prov-edits')).toHaveCount(2);
     await expect(body.locator('.prov-entry.prov-edits').last()).toContainText('×2');
     await expect(body.locator('.prov-summary')).toContainText('3 edit steps');
+    // The filters are one tab stop; arrow keys move between them.
+    const filters = body.getByRole('radiogroup', { name: 'Show' });
+    await filters.getByRole('radio', { name: 'All' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(filters.getByRole('radio', { name: 'Edits' })).toBeFocused();
+    await expect(filters.getByRole('radio', { name: 'Edits' })).toHaveAttribute('aria-checked', 'true');
+    await expect(body.locator('.prov-entry.prov-sources')).toHaveCount(0);
+    await page.keyboard.press('ArrowLeft');
+    await expect(filters.getByRole('radio', { name: 'All' })).toHaveAttribute('aria-checked', 'true');
+    await expect(body.locator('.prov-entry.prov-sources')).toHaveCount(1);
 
     // Undo, then a different edit: the undone step stays, marked as undone.
     await page.evaluate(() => window.photoStudio.runCommand('edit.undo'));
@@ -105,6 +115,9 @@ test.describe('Provenance', () => {
     await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Valid', 'Intact', 'Bound']);
     await expect(dialog).toContainText('self-signed');
     await expect(dialog.locator('.prov-timeline')).toContainText('Invert');
+    // A report: Done and Inspect Another, no Cancel; wider than a plain dialog.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+    expect((await dialog.boundingBox())!.width).toBeGreaterThan(600);
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toHaveCount(0);
     await idle(page);

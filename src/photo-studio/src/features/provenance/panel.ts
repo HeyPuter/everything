@@ -17,14 +17,31 @@ let version = 0;
 
 export function mount(e: Editor, el: HTMLElement) {
   el.classList.add('provenance-panel');
-  el.innerHTML = `<div class="prov-head"></div><div class="prov-filters" role="radiogroup" aria-label="Show">${FILTERS.map(([f, l]) => `<button type="button" role="radio" data-prov-filter="${f}" aria-checked="${f === filter}">${l}</button>`).join('')}</div><div class="prov-body" tabindex="0" aria-label="Provenance timeline"></div><div class="prov-foot muted">Attach the record to exports in Export As or Preferences → Export.</div>`;
-  el.addEventListener('click', (ev) => {
-    const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-prov-filter]');
-    if (!b) return;
+  el.innerHTML = `<div class="prov-head"></div><div class="prov-filters" role="radiogroup" aria-label="Show">${FILTERS.map(([f, l]) => `<button type="button" role="radio" data-prov-filter="${f}" aria-checked="${f === filter}" tabindex="${f === filter ? 0 : -1}">${l}</button>`).join('')}</div><div class="prov-body" tabindex="0" aria-label="Provenance timeline"></div><div class="prov-foot muted">Attach the record to exports in Export As or Preferences → Export.</div>`;
+  const choose = (b: HTMLElement) => {
     filter = b.dataset.provFilter as TimelineFilter;
-    el.querySelectorAll('[data-prov-filter]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+    el.querySelectorAll<HTMLElement>('[data-prov-filter]').forEach((x) => {
+      x.setAttribute('aria-checked', String(x === b));
+      x.tabIndex = x === b ? 0 : -1;
+    });
     version++;
     update(e, el);
+  };
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-prov-filter]');
+    if (b) choose(b);
+  });
+  // Arrow keys move between the filters (one tab stop for the group).
+  el.querySelector('.prov-filters')!.addEventListener('keydown', (ev) => {
+    const k = (ev as KeyboardEvent).key;
+    const step = k === 'ArrowRight' || k === 'ArrowDown' ? 1 : k === 'ArrowLeft' || k === 'ArrowUp' ? -1 : 0;
+    if (!step) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const all = [...el.querySelectorAll<HTMLElement>('[data-prov-filter]')];
+    const next = all[(all.indexOf(document.activeElement as HTMLElement) + step + all.length) % all.length];
+    choose(next);
+    next.focus();
   });
   onRecordChange(() => {
     version++;

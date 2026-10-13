@@ -9,6 +9,10 @@ import { escapeXML } from '../../model/assets';
 import { isRegion, LIMITS, type CommentFilter, type CommentThread } from '../../collab/comments';
 import { commentsOf, sharedOf, view, visibleThreads } from './state';
 import { formDialog } from '../../ui/dialog';
+import { formatShortcut } from '../../app/shortcuts';
+
+// Mod+Enter sends from any comment field.
+const sendKeys = () => formatShortcut('Mod+Enter');
 
 const filters: [CommentFilter, string][] = [
   ['open', 'Open'],
@@ -60,13 +64,13 @@ function threadHtml(e: Editor, t: CommentThread, n: number) {
           : '';
       const body =
         editing === m.id
-          ? `<textarea class="comment-input" data-editing="${m.id}" aria-label="Edit message" maxlength="${LIMITS.text}">${escapeXML(m.text)}</textarea><div class="comment-buttons"><button data-cancel-edit>Cancel</button><button class="primary" data-save-edit="${m.id}">Save</button></div>`
+          ? `<textarea class="comment-input" data-editing="${m.id}" aria-label="Edit message" maxlength="${LIMITS.text}">${escapeXML(m.text)}</textarea><div class="comment-buttons"><button data-cancel-edit>Cancel</button><button class="primary" data-save-edit="${m.id}" title="Save (${sendKeys()})">Save</button></div>`
           : `<div class="comment-text">${richText(m.text)}${m.edited ? ' <span class="muted">(edited)</span>' : ''}</div>`;
       return `<div class="comment-message"><div class="comment-meta"><span class="comment-author">${escapeXML(m.author.name)}</span><span class="muted comment-time">${when(m.created)}</span>${actions}</div>${body}</div>`;
     })
     .join('');
   const reply = can
-    ? `<textarea class="comment-input" data-reply="${t.id}" aria-label="Reply" placeholder="Reply… (@ to mention)" maxlength="${LIMITS.text}">${escapeXML(replies.get(t.id) ?? '')}</textarea><div class="comment-suggest" data-suggest-for="reply"></div><div class="comment-buttons"><button data-resolve="${t.id}">${svg(t.resolved ? 'rotate-ccw' : 'check', 13)}${t.resolved ? 'Reopen' : 'Resolve'}</button>${t.author.id === me || owner ? `<button data-remove-thread="${t.id}" aria-label="Remove comment">${svg('trash-2', 13)}</button>` : ''}<span class="panel-tabs-spacer"></span><button class="primary" data-send="${t.id}">Reply</button></div>`
+    ? `<textarea class="comment-input" data-reply="${t.id}" aria-label="Reply" placeholder="Reply… (@ to mention)" maxlength="${LIMITS.text}">${escapeXML(replies.get(t.id) ?? '')}</textarea><div class="comment-suggest" data-suggest-for="reply"></div><div class="comment-buttons"><button data-resolve="${t.id}">${svg(t.resolved ? 'rotate-ccw' : 'check', 13)}${t.resolved ? 'Reopen' : 'Resolve'}</button>${t.author.id === me || owner ? `<button data-remove-thread="${t.id}" aria-label="Remove comment" title="Remove comment">${svg('trash-2', 13)}</button>` : ''}<span class="panel-tabs-spacer"></span><button class="primary" data-send="${t.id}" title="Reply (${sendKeys()})">Reply</button></div>`
     : '';
   return `<li class="comment-thread selected${t.resolved ? ' resolved' : ''}" data-thread="${t.id}">${head}${msgs}${reply}</li>`;
 }
@@ -79,7 +83,7 @@ function panelHtml(e: Editor) {
   const tabs = filters.map(([f, label]) => `<button data-filter="${f}" aria-pressed="${view.filter === f}">${label}</button>`).join('');
   const can = store.canComment() && e.hasDocument;
   const draft = view.draft
-    ? `<div class="comment-draft"><div class="muted">New comment on ${view.draft.width ? `a ${view.draft.width} × ${view.draft.height} region` : `the point ${view.draft.x}, ${view.draft.y}`}</div><textarea class="comment-input" id="comment-draft" aria-label="New comment" placeholder="Write a comment… (@ to mention)" maxlength="${LIMITS.text}">${escapeXML(draftText)}</textarea><div class="comment-suggest" data-suggest-for="draft"></div><div class="comment-buttons"><button data-cancel-draft>Cancel</button><span class="panel-tabs-spacer"></span><button class="primary" data-post>Comment</button></div></div>`
+    ? `<div class="comment-draft"><div class="muted">New comment on ${view.draft.width ? `a ${view.draft.width} × ${view.draft.height} region` : `the point ${view.draft.x}, ${view.draft.y}`}</div><textarea class="comment-input" id="comment-draft" aria-label="New comment" placeholder="Write a comment… (@ to mention)" maxlength="${LIMITS.text}">${escapeXML(draftText)}</textarea><div class="comment-suggest" data-suggest-for="draft"></div><div class="comment-buttons"><button data-cancel-draft>Cancel</button><span class="panel-tabs-spacer"></span><button class="primary" data-post title="Post the comment (${sendKeys()})">Comment</button></div></div>`
     : '';
   const empty = !e.hasDocument
     ? '<p class="muted">Open a document to review it with comments.</p>'
@@ -88,7 +92,7 @@ function panelHtml(e: Editor) {
       : `<p class="muted">No comments yet.${can ? ' Choose New Comment, then click the image to pin one or drag to comment on a region.' : ''}</p>`;
   const sh = sharedOf(e.session);
   const scope = sh ? `<p class="muted comment-scope">${sh.role === 'viewer' ? 'You can read comments on this shared document.' : 'Comments are shared with everyone on this document.'}</p>` : '';
-  return `<div class="comments-head"><div class="comments-filter" role="group" aria-label="Show comments">${tabs}</div><button class="icon-button" data-command="comments.new" title="New comment" aria-label="New comment" ${can ? '' : 'disabled'}>${svg('comment-add', 16)}</button></div>${draft}${list.length ? `<ul class="comments-list">${list.map((t) => threadHtml(e, t, number.get(t.id) ?? 0)).join('')}</ul>` : empty}${scope}`;
+  return `<div class="comments-head"><div class="comments-filter" role="group" aria-label="Show comments">${tabs}</div><button class="icon-button" data-command="comments.new" title="New comment" aria-label="New comment" ${can ? '' : 'disabled'}>${svg('comment-add', 16)}</button></div>${draft}${list.length ? `<ul class="comments-list">${list.map((t) => threadHtml(e, t, number.get(t.id) ?? 0)).join('')}</ul>` : view.draft ? '' : empty}${scope}`;
 }
 
 /** Center the view on a thread's pin (and fit a region) and open it. */
@@ -107,7 +111,16 @@ export function revealThread(e: Editor, id: string, zoom = true) {
   e.dock.update();
 }
 export function focusComposer(e: Editor) {
-  requestAnimationFrame(() => e.root.querySelector<HTMLTextAreaElement>('#comment-draft')?.focus());
+  // The panel may still be mounting (it loads on first use), so wait for the
+  // field rather than leave focus on the canvas, where typing would run tool
+  // shortcuts. Timers, not animation frames, so a background tab works too.
+  let tries = 0;
+  const attempt = () => {
+    const field = e.root.querySelector<HTMLTextAreaElement>('#comment-draft');
+    if (field) field.focus();
+    else if (view.draft && ++tries < 40) setTimeout(attempt, 25);
+  };
+  setTimeout(attempt, 0);
 }
 
 function suggest(e: Editor, input: HTMLTextAreaElement) {

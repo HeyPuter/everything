@@ -37,7 +37,7 @@ async function startSharing(e: Editor, purpose: 'edit' | 'review'): Promise<Coll
     purpose === 'edit' ? 'Invite to Edit' : 'Share for Review',
     [],
     'Start Sharing',
-    `${purpose === 'edit' ? 'Invited people edit this document with you live; each person undoes only their own changes.' : 'Reviewers see this document with zoom and pan and can leave comments; they cannot change it.'} Sharing sets up a collaboration server in your Puter account and stores the document there (about ${bytes(tiles.bytes)} of pixels before compression). Everyone who opens a link needs to sign in with Puter. This tab becomes the shared document; its earlier Undo steps are cleared.`,
+    `${purpose === 'edit' ? 'People you invite edit this document with you live; each person undoes only their own changes.' : 'Reviewers see this document with zoom and pan and can leave comments; they cannot change it.'}\n\nSharing sets up a collaboration server in your Puter account and stores the document there (about ${bytes(tiles.bytes)} of pixels before compression). Everyone who opens a link signs in with Puter.\n\nThis tab becomes the shared document, and its earlier undo steps are cleared.`,
   );
   if (!ok) return;
   const puter = collabPuter();
@@ -78,7 +78,7 @@ async function accessDialog(e: Editor, cs: CollabSession, purpose: 'edit' | 'rev
 <section aria-labelledby="collab-link-title"><h3 id="collab-link-title">Invitation link</h3>
 <div class="collab-row"><label>Access <select name="role">${roleOptions(purpose === 'edit' ? 'editor' : 'commenter')}</select></label><label>Expires after <select name="days">${days}</select></label><button type="button" data-act="link">${svg('link', 14)}Create Link</button></div>
 <div class="collab-row collab-link" hidden><input readonly aria-label="Invitation link" spellcheck="false"><button type="button" data-act="copy">${svg('copy', 14)}Copy</button></div></section>
-${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="collab-user-title">Invite by Puter username</h3><div class="collab-row"><input name="username" placeholder="username" aria-label="Puter username" spellcheck="false" autocomplete="off"><select name="userrole" aria-label="Access">${roleOptions('editor')}</select><button type="button" data-act="user">Invite</button></div><p class="muted collab-small">They open the document with its link (Copy Link in the people list) after signing in.</p></section>` : ''}
+${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="collab-user-title">Invite by Puter username</h3><div class="collab-row"><input name="username" placeholder="username" aria-label="Puter username" spellcheck="false" autocomplete="off"><select name="userrole" aria-label="Access">${roleOptions('editor')}</select><button type="button" data-act="user" disabled>Invite</button></div><p class="muted collab-small">Then send them the document’s link (Copy Link, in the people list beside the sharing status); they open it after signing in.</p></section>` : ''}
 <section aria-labelledby="collab-members-title"><h3 id="collab-members-title">People with access</h3><ul class="collab-members"><li class="muted">Loading…</li></ul><div class="collab-row"><span class="muted collab-invites"></span><span class="panel-tabs-spacer"></span><button type="button" data-act="revoke">Revoke Invitation Links</button></div></section>
 <p class="collab-error" role="alert" hidden></p>
 <div class="dialog-actions"><button class="primary" value="done">Done</button></div></form>`;
@@ -106,6 +106,8 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
         )
         .join('') + res.named.map((n) => `<li><span class="collab-member-name">${escapeXML(n.username)}</span><span class="muted">${escapeXML(roleLabel(n.role))} · invited, not joined yet</span></li>`).join('');
     form.querySelector('.collab-invites')!.textContent = res.invites ? `${res.invites} active invitation link${res.invites === 1 ? '' : 's'}` : 'No active invitation links';
+    // Nothing to revoke without active links (the text beside it says so).
+    form.querySelector<HTMLButtonElement>('[data-act="revoke"]')!.disabled = !res.invites;
     renderBar(e);
   };
   const act = async (fn: () => Promise<unknown>) => {
@@ -141,8 +143,9 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
     }
     if (a === 'user')
       void act(async () => {
-        await req({ op: 'invite-user', username: value('username'), role: value('userrole') });
+        await req({ op: 'invite-user', username: value('username').trim(), role: value('userrole') });
         form.querySelector<HTMLInputElement>('[name="username"]')!.value = '';
+        form.querySelector<HTMLButtonElement>('[data-act="user"]')!.disabled = true;
         await refresh();
       });
     if (a === 'revoke')
@@ -157,6 +160,19 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
         await req({ op: 'role', uuid, role: 'removed' });
         await refresh();
       });
+    }
+  });
+  // Invite by username needs a name.
+  form.addEventListener('input', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (t.name === 'username') form.querySelector<HTMLButtonElement>('[data-act="user"]')!.disabled = !t.value.trim();
+  });
+  form.addEventListener('keydown', (ev) => {
+    // Enter in the username field invites (rather than closing the dialog).
+    const t = ev.target as HTMLInputElement;
+    if (ev.key === 'Enter' && t.name === 'username') {
+      ev.preventDefault();
+      form.querySelector<HTMLButtonElement>('[data-act="user"]:not(:disabled)')?.click();
     }
   });
   form.addEventListener('change', (ev) => {
@@ -175,7 +191,7 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
 export async function stopSharing(e: Editor) {
   const cs = activeShared(e);
   if (!cs || cs.role !== 'owner') return;
-  if (!(await formDialog('Stop Sharing?', [], 'Stop Sharing', 'Everyone loses access and their open copies stop updating. This tab keeps the document as a local copy (with its comments); save it to keep it.'))) return;
+  if (!(await formDialog('Stop Sharing?', [], 'Stop Sharing', 'Everyone loses access and their open copies stop updating.\n\nThis tab keeps the document as a local copy, with its comments; save it to keep it.'))) return;
   await call(cs.client.o.puter, cs.link.server, { op: 'stop', room: cs.link.room });
   cs.toLocal('Sharing stopped. This tab keeps a local copy.');
 }
