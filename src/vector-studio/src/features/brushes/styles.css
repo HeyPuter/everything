@@ -255,8 +255,8 @@
 }
 
 .sp-profile .profile-preview {
-  flex: 1 1 auto;
-  min-width: 40px;
+  flex: 1 1 0;
+  min-width: 24px;
 }
 
 .sp-profile:disabled {
@@ -264,6 +264,8 @@
 }
 
 .sp-profile-name {
+  flex: none;
+  max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

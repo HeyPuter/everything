@@ -1,16 +1,10 @@
 /*
  * Responsive layout.
- * - Tablet (<= 1100px): narrower dock.
+ * - Desktop and tablet keep the full dock width so X/Y/W/H values fit.
  * - Phone (<= 760px): menu bar scrolls, the tools panel becomes a bottom
  *   bar, and the dock is a bottom sheet over the canvas toggled from the
  *   status bar's panel button.
  */
-@media (max-width: 1100px) {
-  :root {
-    --dock-w: 260px;
-  }
-}
-
 @media (max-width: 760px) {
   :root {
     --topbar-h: 44px;
