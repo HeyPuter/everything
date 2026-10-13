@@ -28145,7 +28145,13 @@ test("selected frames export as those frames by default", async () => {
         doc.querySelector("#pdf-estimate").textContent,
         "Estimated length: 2 pages.",
       );
-      // The help says what the chosen scale and page size do.
+      // The help says what the chosen scale and page size do, and is read
+      // out with the format and scale fields.
+      for (const field of ["#export-format", "#pdf-scale"])
+        assert.equal(
+          doc.querySelector(field).getAttribute("aria-describedby"),
+          "export-help",
+        );
       const help = () => doc.querySelector("#export-help").textContent,
         choose = (selector, value) => {
           const field = doc.querySelector(selector);
