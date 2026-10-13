@@ -89,4 +89,5 @@ dialog.newdoc-window { resize: both; min-width: min(560px, calc(100vw - 16px)); 
 .start-describe-bar button { display: inline-flex; align-items: center; gap: 6px; }
 .start-describe-file { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 40%; }
 .start-describe-spacer { flex: 1; }
-.start-describe-note { margin: 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
+/* #empty p styles the hero text; the note keeps its own size and spacing. */
+#empty .start-describe-note { margin: 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
