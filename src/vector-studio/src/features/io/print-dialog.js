@@ -25,6 +25,7 @@ import { printView, layoutPageRules, printRoot } from './print.js';
 import { PRINT_DEFAULTS, normalizePrint } from './print-settings.js';
 import { documentPlates, printPlates, pageSequence, rasterOutput, buildPrintOutput, printSummary, processPlatePixels, outputProfile } from './print-output.js';
 import '../prepress/print-presets.js';
+import { keepFocus } from './pdf-dialog.js';
 import { presetPicker, savePreset, listPresets, uniqueName } from '../prepress/presets.js';
 import { CMYK_PROFILES, INTENTS, PROCESS_INKS } from '../prepress/color-management.js';
 import { plateView } from '../prepress/separations.js';
@@ -172,6 +173,12 @@ export async function printDialog(app, presetEdit = null) {
   const pane = (label) => panes.find((p) => p.label === label).panel;
 
   const rebuild = () => {
+    const focus = keepFocus(bodyRef.el);
+    rebuildPanes();
+    focus();
+  };
+  const bodyRef = { el: null };
+  const rebuildPanes = () => {
     const rangeInput = h('input.pd-range', { type: 'text', value: st.range, 'aria-label': 'Artboard range', spellcheck: false, autocomplete: 'off', disabled: !doc });
     rangeInput.addEventListener('change', () => {
       st.range = rangeInput.value;
@@ -478,7 +485,7 @@ export async function printDialog(app, presetEdit = null) {
 
   rebuild();
   const error = h('p.form-error', { role: 'alert' });
-  const body = h(
+  const body = (bodyRef.el = h(
     'div.pd',
     h('div.pd-top', nameInput ? h('label.pd-preset-label', 'Name', nameInput) : null, h('label.pd-preset-label', presetEdit ? 'Based on' : 'Preset', picker.el), savePresetBtn),
     h(
@@ -487,7 +494,7 @@ export async function printDialog(app, presetEdit = null) {
       h('div.pd-settings', h('div.pd-tabs', { role: 'tablist', 'aria-orientation': 'vertical' }, tabs), ...panes.map((p) => p.panel)),
     ),
     error,
-  );
+  ));
   showPane(panes[0]);
   if (presetEdit) {
     return app.dialogs.open({

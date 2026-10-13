@@ -17,6 +17,7 @@ import { imageNodeData, reportWarnings, placeFile, placeSVG, placeText } from '.
 
 export { exportAsDialog, exportScreensDialog, placeCommand, placeFiles } from './dialogs.js';
 export { printDialog } from './print-dialog.js';
+export { pdfOptionsDialog } from './pdf-dialog.js';
 export { placeFile, placeSVG, placeText, imageNodeData, reportWarnings, svgToNodes, svgToNodesAsync };
 
 /**

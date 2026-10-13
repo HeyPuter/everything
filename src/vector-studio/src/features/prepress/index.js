@@ -19,6 +19,7 @@ import { videoEffectCommands } from './video-effects.js';
 import { presetsManagerDialog } from './presets.js';
 import { flattenTransparencyDialog } from './flattener-presets.js';
 import './print-presets.js';
+import './pdf-presets.js';
 
 const P = (d, extra = {}) => ['path', { d, ...extra }];
 
@@ -65,6 +66,7 @@ export function install(app) {
       },
     },
     ...videoEffectCommands(),
+    { id: 'edit.pdfPresets', label: 'PDF Presets...', run: (a) => presetsManagerDialog(a, 'pdf') },
     { id: 'edit.printPresets', label: 'Print Presets...', run: (a) => presetsManagerDialog(a, 'print') },
     { id: 'edit.flattenerPresets', label: 'Transparency Flattener Presets...', run: (a) => presetsManagerDialog(a, 'flattener') },
     { id: 'object.flatten', label: 'Flatten Transparency...', enabled: (a) => Boolean(a.editor?.selection.size), run: (a) => flattenTransparencyDialog(a) },

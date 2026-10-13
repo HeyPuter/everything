@@ -12,12 +12,12 @@
 import { UserError } from '../../lib/errors.js';
 import { h } from '../../lib/dom.js';
 import { icon } from '../../ui/icons.js';
-import { formatLength, parseLength } from '../../lib/units.js';
 import { FORMATS, parseRange, artworkBounds, renderFile, outlinesFor } from './jobs.js';
 import { canSaveToPuter, deliverFiles, safeFileName } from './deliver.js';
 import { thumbnail } from './raster.js';
 import { placeFile } from './place.js';
 import { pickDeviceFiles } from './kinds.js';
+import { pdfOptionsDialog } from './pdf-dialog.js';
 
 let uidc = 0;
 const fid = (p) => `io-${p}-${++uidc}`;
@@ -81,10 +81,14 @@ const RESOLUTIONS = [
 
 /** Options dialog for a format. Resolves to an options object or null. */
 export async function formatOptionsDialog(app, format) {
-  const unit = app.editor?.doc.root.units || 'pt';
+  if (format === 'pdf') {
+    // Print production options in panes, with presets (pdf-dialog.js).
+    const res = await pdfOptionsDialog(app, { values: app.prefs?.get('io.opts.pdf') || {} });
+    if (res) setPref(app, 'opts.pdf', { ...res, openPassword: '', permissionsPassword: '' });
+    return res;
+  }
   const defaults = {
     svg: { precision: 3, minify: false, responsive: false, textMode: 'text', symbols: false },
-    pdf: { bleed: 0, useDocBleed: true, textOutlines: true },
     png: { ppi: 72, background: 'transparent', antialias: true },
     jpeg: { ppi: 72, quality: 0.8, antialias: true },
     webp: { ppi: 72, quality: 0.9, background: 'transparent', antialias: true },
@@ -104,32 +108,6 @@ export async function formatOptionsDialog(app, format) {
     const symbols = checkbox('Write symbols as <symbol> and <use>', o.symbols);
     fields.push(row('Font', font, { help: app.textOutlines ? null : 'Converting text to outlines needs the type features.' }), h('div.form-row', h('span.form-label', 'Images'), h('span.io-static', 'Embed')), row('Decimal places', prec), minify.el, responsive.el, symbols.el);
     readers.push(() => ({ precision: Number(prec.value), textMode: font.value, minify: minify.input.checked, responsive: responsive.input.checked, symbols: symbols.input.checked }));
-  } else if (format === 'pdf') {
-    const docBleed = app.editor?.doc.root.bleed;
-    const docSides = typeof docBleed === 'number' ? [docBleed] : ['top', 'bottom', 'left', 'right'].map((k) => docBleed?.[k] || 0);
-    const bleed = h('input', { type: 'text', inputmode: 'decimal', value: formatLength(o.bleed || 0, unit), autocomplete: 'off', spellcheck: false });
-    const useDoc = checkbox('Use Document Bleed Settings', o.useDocBleed !== false);
-    const docHelp = `Document bleed: ${[...new Set(docSides)].map((v) => formatLength(v, unit)).join(', ') || formatLength(0, unit)}.`;
-    const bleedRow = row('Bleed', bleed, { help: 'Added on every side of each page.' });
-    const docRow = h('p.form-help', docHelp);
-    const syncBleed = () => {
-      bleed.disabled = useDoc.input.checked;
-      docRow.hidden = !useDoc.input.checked;
-    };
-    useDoc.input.addEventListener('change', syncBleed);
-    syncBleed();
-    const outl = checkbox('Convert text to outlines', o.textOutlines !== false);
-    if (!app.textOutlines) {
-      outl.input.disabled = true;
-      outl.input.checked = false;
-    }
-    fields.push(useDoc.el, docRow, bleedRow, outl.el);
-    if (!app.textOutlines) fields.push(h('p.form-help', 'Text is written with a standard font.'));
-    readers.push(() => {
-      const b = parseLength(bleed.value, unit);
-      if (!useDoc.input.checked && (!Number.isFinite(b) || b < 0 || b > 1000)) throw Object.assign(new Error('Enter a valid bleed.'), { field: bleed });
-      return { bleed: Number.isFinite(b) ? b : 0, useDocBleed: useDoc.input.checked, textOutlines: outl.input.checked };
-    });
   } else {
     const preset = RESOLUTIONS.some((r) => r.value === String(o.ppi)) ? String(o.ppi) : 'other';
     const res = select(RESOLUTIONS, preset);
@@ -164,7 +142,7 @@ export async function formatOptionsDialog(app, format) {
   }
   const error = h('p.form-error', { role: 'alert' });
   const read = () => Object.assign({}, ...readers.map((r) => r()));
-  const title = { svg: 'SVG Options', pdf: 'PDF Options', png: 'PNG Options', jpeg: 'JPEG Options', webp: 'WebP Options' }[format];
+  const title = { svg: 'SVG Options', png: 'PNG Options', jpeg: 'JPEG Options', webp: 'WebP Options' }[format];
   const result = await app.dialogs.open({
     title,
     className: 'io-dialog',
@@ -291,6 +269,12 @@ export async function exportAsDialog(app) {
     return;
   }
   await runExport(app, files, step1.dest, { zipName: `${step1.name}.zip` });
+  // View PDF after saving: open the file in a new tab.
+  if (step1.format === 'pdf' && options.viewAfter && files[0] && typeof URL.createObjectURL === 'function') {
+    const url = URL.createObjectURL(files[0].blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
 }
 
 // ---------------------------------------------------------------- export for screens

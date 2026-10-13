@@ -86,7 +86,7 @@ export function pixelSize(rect, scale) {
  *   ids         only these roots (selection export)
  *   onProgress  (done, total) per tile
  */
-export async function renderRegion(doc, rect, { scale = 1, background = null, antialias = true, ids = null, onProgress, overprint = false } = {}) {
+export async function renderRegion(doc, rect, { scale = 1, background = null, antialias = true, ids = null, onProgress, overprint = false, leafFilter = null } = {}) {
   const { w, h } = pixelSize(rect, scale);
   await preloadImages(doc, rect);
   const out = makeCanvas(w, h);
@@ -112,7 +112,7 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
       }
       ctx.setTransform(scale, 0, 0, scale, -rect.x * scale - px, -rect.y * scale - py);
       const viewRect = inflate({ x: rect.x + px / scale, y: rect.y + py / scale, w: tw / scale, h: th / scale }, 2 / scale);
-      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint };
+      const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter };
       if (ids) for (const id of ids) drawNode(ctx, doc, doc.get(id), opts);
       else drawArtwork(ctx, doc, { ...opts, layerFilter: (l) => !l.template });
       if (!antialias && !opaque) hardenAlpha(ctx, tw, th);
