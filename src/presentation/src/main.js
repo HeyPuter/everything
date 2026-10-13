@@ -623,6 +623,9 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
         ["Ctrl / ⌘ + J", "Open or close the AI assistant"],
+        ["Ctrl / ⌘ + Shift + M", "New comment"],
+        ["F7", "Check spelling"],
+        ["Shift + F7", "Thesaurus"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
@@ -6438,6 +6441,19 @@ function fileMenu(anchor) {
             { label: "Format", icon: "Type", items: formatItems() },
             { label: "Slide", icon: "LayoutTemplate", items: slideItems() },
             {
+              label: "Review",
+              icon: "o:showComments",
+              items: [
+                {
+                  label: "New Comment",
+                  icon: "o:newComment",
+                  onSelect: () => review.newComment(),
+                },
+                { separator: true },
+                ...review.toolsMenu(),
+              ],
+            },
+            {
               label: "Account and settings",
               icon: "User",
               items: accountItems(),
@@ -9855,14 +9871,22 @@ function editText(target, event = null) {
     setParagraphs,
     paragraphState,
     selectionFormat,
-    // For the review panes and AutoCorrect.
-    text,
+    // For the review panes and AutoCorrect: the text as typed so far.
+    text: () =>
+      read()
+        .runs.map((run) => run.text)
+        .join(""),
     selectionOffsets: () => selection(),
     setSelection,
     replaceRange,
     selectedText: () => {
       const sel = selection();
-      return sel ? text().slice(sel[0], sel[1]) : "";
+      return sel
+        ? read()
+            .runs.map((run) => run.text)
+            .join("")
+            .slice(sel[0], sel[1])
+        : "";
     },
     replaceSelection: (value) => {
       const sel = selection();

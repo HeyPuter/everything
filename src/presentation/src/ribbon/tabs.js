@@ -797,7 +797,7 @@ export function buildTabs(api) {
             id: "insert-comment",
             label: "Comment",
             icon: "newComment",
-            title: `New Comment (${M(api)}+Alt+M)`,
+            title: `New Comment (${M(api)}+Shift+M)`,
             visible: () => !!api.newComment,
             run: () => api.newComment?.(),
           },

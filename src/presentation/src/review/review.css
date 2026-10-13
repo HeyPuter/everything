@@ -817,7 +817,7 @@
   .review-pane {
     position: fixed;
     left: 0;
-    right: 0;
+    right: auto;
     top: auto;
     bottom: 0;
     width: auto;
@@ -830,6 +830,9 @@
     box-shadow: 0 -8px 24px rgb(0 0 0 / 0.18);
   }
   .final-bar-text {
+    display: none;
+  }
+  #status-comments span {
     display: none;
   }
   .comment-marker {

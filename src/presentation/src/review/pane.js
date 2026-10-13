@@ -76,8 +76,8 @@ export function createPaneHost({ onChange = () => {} } = {}) {
     if (key) {
       const again = body.querySelector(`[data-focus-key="${CSS.escape(key)}"]`);
       if (again) {
-        if (field && "value" in again) {
-          again.value = field.value;
+        // The pane keeps unsent text itself; the caret comes back.
+        if (field && again.value === field.value) {
           try {
             again.setSelectionRange(field.start, field.end);
           } catch {}
@@ -86,10 +86,21 @@ export function createPaneHost({ onChange = () => {} } = {}) {
       }
     }
   }
+  // On a phone the pane is a sheet across the screen. A page wider than the
+  // screen widens the layout a fixed sheet is measured against, so the sheet
+  // takes the visible width.
+  const phone = matchMedia("(max-width: 760px)");
+  function fitWidth() {
+    node.style.width = phone.matches
+      ? `${document.documentElement.clientWidth}px`
+      : "";
+  }
+  window.addEventListener("resize", fitWidth);
   function open(id, { focus = true } = {}) {
     if (!panes.has(id)) return;
     const was = current;
     current = id;
+    fitWidth();
     node.hidden = false;
     node.dataset.pane = id;
     if (was && was !== id) panes.get(was)?.onClose?.();

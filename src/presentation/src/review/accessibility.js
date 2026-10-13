@@ -167,7 +167,7 @@ export function findAccessibilityIssues(pres, env) {
       .filter((s) => !ownGroupChildren.has(P.getShapeId(s)))
       .map((s) => ({ id: P.getShapeId(s), ...(env.slideBounds(s) || {}) }))
       .filter((b) => Number.isFinite(b.x) && b.y > -1e9);
-    if (boxes.length >= 3) {
+    if (boxes.length >= 2) {
       const size = env.size();
       const seen = visualOrder(boxes, size.cy * 0.05).map((b) => b.id);
       const read = boxes.map((b) => b.id);
