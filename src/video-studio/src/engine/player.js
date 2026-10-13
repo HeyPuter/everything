@@ -15,22 +15,34 @@ import { hasCurve, speedAt } from '../model/speed-curve.js';
 import { framePosition, needsBetween, FRAME_SNAP } from '../model/slow-motion.js';
 import { ensureLuts, onLutLoaded } from './luts.js';
 import { onCutoutReady } from './cutout.js';
+import { proxyMode, previewSource } from '../model/proxy.js';
+
+/** Suffix of the pool and decoder ids of proxy files (one per asset). */
+const PROXY_ID = '~proxy';
 
 export class Player extends Emitter {
-  constructor({ store, library, canvas }) {
+  /** proxies: optional ProxyManager; ready proxies stand in for heavy media in the preview. */
+  constructor({ store, library, canvas, proxies = null }) {
     super();
     this.store = store;
     this.library = library;
+    this.proxies = proxies;
+    this.showOriginal = false; // compare: show the original media even where a proxy is ready
+    this._views = new WeakMap(); // asset -> its proxy stand-in
+    this._sources = new Map(); // assetId -> 'proxy' | 'original', held steady while playing
+    this._decode = new Map(); // assetId -> { frames, stalls } while playing, to notice slow decoding
     this.canvas = canvas;
     this.playing = false;
     this.previewTime = null; // hover preview position, or null
     this.renderScale = 1;
     this.raf = 0;
     this.dirty = true;
-    this.pool = new MediaPool({ library, onReady: () => this.invalidate() });
+    const urlFor = (a) => (a.proxyOf ? proxies.url(a.proxyOf) : library.mediaURL(a));
+    const blobFor = (a) => (a.proxyOf ? proxies.blob(a.proxyOf).then((b) => b || Promise.reject(new Error('Proxy missing'))) : library.mediaBlob(a));
+    this.pool = new MediaPool({ library, onReady: () => this.invalidate(), urlFor });
     this.audioGraph = new AudioGraph(this.pool, { onReady: () => this.invalidate() });
     this.text = new TextCache({ onFontLoaded: () => this.invalidate() });
-    this.frames = new FrameSource({ library, onFrame: () => this.invalidate() });
+    this.frames = new FrameSource({ library, onFrame: () => this.invalidate(), blobFor });
     try {
       this.compositor = new Compositor(canvas, { resolve: (layer) => this._resolve(layer) });
     } catch (err) {
@@ -47,8 +59,78 @@ export class Player extends Emitter {
       onLutLoaded(() => this.invalidate()),
       onCutoutReady(() => this.invalidate()),
     ];
+    if (proxies) {
+      this.offs.push(proxies.on('change', ({ hash, removed } = {}) => {
+        if (removed) this._forgetProxies(hash);
+        this.invalidate();
+      }));
+    }
     this._loadLuts();
     this._tick = this._tick.bind(this);
+  }
+
+  /**
+   * The asset the preview plays for a project asset: a stand-in that reads
+   * the proxy file when proxies are on and the proxy is ready, else the
+   * asset itself. The choice holds while playing so a proxy finishing
+   * mid-play does not swap files under a running clip.
+   */
+  previewAsset(asset) {
+    if (!asset || !this.proxies) return asset;
+    let use = this.playing ? this._sources.get(asset.id) : undefined;
+    if (!use) {
+      const state = this.proxies.isReady(asset) ? 'ready' : 'none';
+      use = previewSource({ mode: proxyMode(this.store.project), state, original: this.showOriginal });
+      this._sources.set(asset.id, use);
+    }
+    if (use !== 'proxy') return asset;
+    let view = this._views.get(asset);
+    if (!view) {
+      view = { ...asset, id: asset.id + PROXY_ID, proxyOf: asset };
+      this._views.set(asset, view);
+    }
+    return view;
+  }
+
+  /** Whether any media on screen right now plays from a proxy. */
+  usingProxies() {
+    for (const v of this._sources.values()) if (v === 'proxy') return true;
+    return false;
+  }
+
+  /** Show originals instead of proxies (true) or go back to proxies (false). */
+  setShowOriginal(on) {
+    this.showOriginal = Boolean(on);
+    this._sources.clear();
+    this.invalidate();
+    this.emit('proxy', { original: this.showOriginal });
+  }
+
+  /** Close elements and decoders of deleted proxies (all of them when hash is not given). */
+  _forgetProxies(hash) {
+    for (const a of Object.values(this.store.project.assets)) {
+      if (hash && a.hash !== hash) continue;
+      this.pool.forgetAsset(a.id + PROXY_ID);
+      this.frames.forget(a.id + PROXY_ID);
+      this._sources.delete(a.id);
+    }
+  }
+
+  /**
+   * While playing, count frames where an original's element could not show
+   * the wanted frame. A file that misses more than a quarter of its frames
+   * over a few seconds is reported to the proxy manager as slow to decode.
+   */
+  _noteDecode(asset, missed) {
+    if (!this.proxies || asset.proxyOf || performance.now() - this.clockStart < 1000) return;
+    let d = this._decode.get(asset.id);
+    if (!d) this._decode.set(asset.id, (d = { frames: 0, stalls: 0 }));
+    d.frames++;
+    if (missed) d.stalls++;
+    if (d.frames >= 120 && d.stalls / d.frames > 0.25) {
+      this.proxies.markSlow(asset);
+      this._decode.set(asset.id, { frames: -Infinity, stalls: 0 });
+    }
   }
 
   _loadLuts() {
@@ -112,6 +194,8 @@ export class Player extends Emitter {
     const t = this.store.time;
     if (t >= end - 1000 || (this.playRange && t < this._startAt())) this.store.seek(this._startAt());
     this.previewTime = null;
+    this._decode.clear();
+    this._sources.clear();
     this.pool.ensureAudio();
     this.audioGraph.prepare();
     this.playing = true;
@@ -166,25 +250,31 @@ export class Player extends Emitter {
       const bmp = this.pool.image(layer.asset);
       return bmp ? { key: `img:${layer.asset.id}`, source: bmp, width: bmp.width, height: bmp.height, version: 1 } : null;
     }
+    const asset = this.previewAsset(layer.asset);
     const entry = this._frameElements?.get(layer.clip.id);
     const sec = layer.sourceTime / US;
     if (layer.smoothSlow && !this.playing) {
-      const info = this._betweenFrames(layer, sec);
+      const info = this._betweenFrames(layer, sec, asset);
       if (info) return info;
     }
     const tol = 0.5 / this.store.fps + 0.01;
     const el = entry?.el;
     const elReady = el && el.readyState >= 2;
+    // A proxy is smaller than the original: lay it out at the original's size.
+    const elInfo = () => ({ key: `vid:${entry.id}`, source: el, width: (asset.proxyOf && asset.width) || el.videoWidth, height: (asset.proxyOf && asset.height) || el.videoHeight, dynamic: true });
     if (elReady && !el.seeking && (this.playing || Math.abs(el.currentTime - sec) <= tol)) {
-      return { key: `vid:${entry.id}`, source: el, width: el.videoWidth, height: el.videoHeight, dynamic: true };
+      if (this.playing) this._noteDecode(asset, false);
+      return elInfo();
     }
+    if (this.playing && el) this._noteDecode(asset, true);
     // The element is loading or still seeking: show an exact WebCodecs frame instead.
-    this.frames.request(layer.asset, sec);
-    const f = this.frames.get(layer.asset, sec, this.playing ? 0.25 : tol);
-    if (f) return { key: `fs:${layer.asset.id}`, source: f.canvas, width: layer.asset.width || f.canvas.width, height: layer.asset.height || f.canvas.height, version: f.version };
-    if (elReady) return { key: `vid:${entry.id}`, source: el, width: el.videoWidth, height: el.videoHeight, dynamic: true };
-    const any = this.frames.any(layer.asset);
-    return any ? { key: `fs:${layer.asset.id}`, source: any.canvas, width: layer.asset.width || any.canvas.width, height: layer.asset.height || any.canvas.height, version: any.version } : null;
+    this.frames.request(asset, sec);
+    const f = this.frames.get(asset, sec, this.playing ? 0.25 : tol);
+    if (f) return { key: `fs:${asset.id}`, source: f.canvas, width: asset.width || f.canvas.width, height: asset.height || f.canvas.height, version: f.version };
+    if (elReady) return elInfo();
+    // Just switched to (or from) a proxy: the other file's last frame beats a black one.
+    const any = this.frames.any(asset) || (asset.proxyOf ? this.frames.any(asset.proxyOf) : this.frames.any({ id: asset.id + PROXY_ID }));
+    return any ? { key: `fs:${asset.id}`, source: any.canvas, width: asset.width || any.canvas.width, height: asset.height || any.canvas.height, version: any.version } : null;
   }
 
   /**
@@ -195,8 +285,7 @@ export class Player extends Emitter {
    * frame, so slowed clips play their source frames as they are and the
    * in-between frames appear when paused and in the export.
    */
-  _betweenFrames(layer, sec) {
-    const { asset } = layer;
+  _betweenFrames(layer, sec, asset = layer.asset) {
     const pair = this.frames.pair(asset, sec);
     if (!pair) return null;
     const width = asset.width || pair.a.canvas.width;
@@ -227,7 +316,7 @@ export class Player extends Emitter {
       }
       if (layer.kind !== 'media' || layer.clip.type !== 'video' || !layer.asset) return;
       const sec = layer.sourceTime / US;
-      const entry = pool.claim(layer.clip, layer.asset, 'video', sec);
+      const entry = pool.claim(layer.clip, this.previewAsset(layer.asset), 'video', sec);
       map.set(layer.clip.id, entry);
       byId.set(layer.clip.id, layer.clip);
       this._drive(entry, layer.clip, sec, fps, true, t);
@@ -236,7 +325,7 @@ export class Player extends Emitter {
     // Sound: audio clips (and video clips whose picture is hidden) still play.
     for (const { clip, track } of audibleClips(project)) {
       if (t < clip.start || t >= clip.start + clip.duration) continue;
-      const asset = project.assets[clip.assetId];
+      const asset = this.previewAsset(project.assets[clip.assetId]);
       if (!asset) continue;
       let entry = map.get(clip.id);
       const sec = sourceTimeAt(clip, t) / US;
@@ -261,7 +350,7 @@ export class Player extends Emitter {
       for (const c of upcomingVideoClips(project, t, 1.5 * US)) {
         if (map.has(c.id) || !project.assets[c.assetId]) continue;
         const sec = c.in / US;
-        const entry = pool.claim(c, project.assets[c.assetId], 'video', sec);
+        const entry = pool.claim(c, this.previewAsset(project.assets[c.assetId]), 'video', sec);
         if (!entry.el.paused) entry.el.pause();
         if (Math.abs(entry.el.currentTime - sec) > 0.05) pool.seek(entry, sec);
         if (entry.gain) entry.gain.gain.value = 0;

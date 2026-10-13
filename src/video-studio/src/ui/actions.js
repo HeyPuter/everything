@@ -635,6 +635,16 @@ export function createActions(ctx) {
       }, { structural: false });
     },
 
+    /** Proxy media for the preview: 'off', 'on' or 'auto' (the default, stored as no field). */
+    setProxyMode(mode) {
+      if (!['off', 'on', 'auto'].includes(mode)) return;
+      store.update('Proxy media', (p) => {
+        if ((p.settings.proxy || 'auto') === mode) return false;
+        if (mode === 'auto') delete p.settings.proxy;
+        else p.settings.proxy = mode;
+      }, { structural: false });
+    },
+
     renameProject(name) {
       store.update('Rename project', (p) => {
         p.name = name;
