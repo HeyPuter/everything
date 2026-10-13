@@ -1126,6 +1126,7 @@
 
 .ap-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1px;
 }
 
@@ -1170,7 +1171,16 @@
 }
 
 .ap-row .num-field {
-  width: 80px;
+  width: 72px;
+  flex: none;
+}
+
+.ap-row {
+  min-width: 0;
+}
+
+.ap-row .icon-btn.small {
+  flex: none;
 }
 
 .ap-del {
@@ -1196,6 +1206,7 @@
 .ap-tw.icon-btn {
   padding: 0;
   min-width: 18px;
+  width: 18px;
 }
 
 /* An item's own effects and opacity, under its row. */
