@@ -2058,6 +2058,9 @@ function mutate(
       const previous = active.pres;
       try {
         if ((await fn()) === SKIP_MUTATION) return false;
+        // Formatting given to a master's or layout's placeholder text
+        // becomes the style slides inherit.
+        if (masterView.active) masterView.afterEdit();
         await prepareDeckFonts(active.pres, { reuseFrom: previous });
         if (active.pres !== previous) disposeDocumentFonts(previous);
         if (doc !== active) {

@@ -863,6 +863,10 @@ export function createMasterView(host) {
         : null,
     renderPane,
     decorateCanvas,
+    afterEdit: () => {
+      const view = slide();
+      if (view) P.syncPlaceholderListStyles(view);
+    },
     label,
     tabs: () => [slideMasterTab(), pageTab("notes"), pageTab("handout")],
     insertSlideMaster,

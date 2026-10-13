@@ -49,6 +49,7 @@ import {
   getAttrValue,
   parseXml,
   qname,
+  serializeFragment,
   serializeXml,
 } from "../../internal/xml/index.ts";
 import {
@@ -931,7 +932,11 @@ export const addSlideMaster = (
   const masterRels = emptyRels();
   const layoutNames: string[] = [];
   withFieldIds(newFieldIds(), () => {
-    pkg.addPart(partName(masterName), SLIDE_MASTER_CONTENT_TYPE, encode(""));
+    pkg.addPart(
+      partName(masterName),
+      SLIDE_MASTER_CONTENT_TYPE,
+      encode(masterXml(canvas, [])),
+    );
     BUILTIN_LAYOUTS.forEach((layout, i) => {
       const n = nextPartNumber(pkg, layoutPattern);
       const name = `/ppt/slideLayouts/slideLayout${n}.xml`;
@@ -989,6 +994,7 @@ export const duplicateSlideMaster = (
   const entry = getSlideMasters(pres).find(
     (m) => m.partName === masterPartName,
   );
+  const title = copyName(pres, entry?.name ?? "Slide Master");
   const masterName = `/ppt/slideMasters/slideMaster${nextPartNumber(pkg, masterPattern)}.xml`;
   const doc = parseXml(decode(source.data));
   const layouts = masterLayouts(pkg, masterPartName, doc.root);
@@ -1006,7 +1012,11 @@ export const duplicateSlideMaster = (
     target: relTarget(masterName, theme),
     targetMode: "Internal",
   });
-  pkg.addPart(partName(masterName), SLIDE_MASTER_CONTENT_TYPE, encode(""));
+  pkg.addPart(
+    partName(masterName),
+    SLIDE_MASTER_CONTENT_TYPE,
+    source.data.slice(),
+  );
   const list = elem(pq("sldLayoutIdLst"));
   addPresentationMaster(pkg, masterName, masterPartName);
   const used = usedTemplateIds(pkg);
@@ -1040,11 +1050,7 @@ export const duplicateSlideMaster = (
   const old = firstChildElement(doc.root, pq("sldLayoutIdLst"));
   if (old) doc.root.children[doc.root.children.indexOf(old)] = list;
   else insertLayoutListAfterClrMap(doc.root, list);
-  setAttr(
-    cSldOf(doc.root),
-    "name",
-    copyName(pres, entry?.name ?? "Slide Master"),
-  );
+  setAttr(cSldOf(doc.root), "name", title);
   pkg.getPart(partName(masterName))!.data = encode(serializeXml(doc));
   return masterName;
 };
@@ -2240,4 +2246,233 @@ export const adoptPlaceholderSlot = (
   const slide = shape[SHAPE_SLIDE];
   commitSlideData(slide);
   rebuildShapesFromDocument(slide);
+};
+
+// ---------------------------------------------------------------------------
+// Formatting on master and layout placeholders.
+
+const RUN_META = new Set([
+  "lang",
+  "altLang",
+  "dirty",
+  "err",
+  "smtClean",
+  "smtId",
+  "noProof",
+  "bmk",
+]);
+const FILLS = new Set([
+  "noFill",
+  "solidFill",
+  "gradFill",
+  "blipFill",
+  "pattFill",
+  "grpFill",
+]);
+// CT_TextCharacterProperties and CT_TextParagraphProperties child order.
+const RPR_ORDER = [
+  "ln",
+  "noFill",
+  "solidFill",
+  "gradFill",
+  "blipFill",
+  "pattFill",
+  "grpFill",
+  "effectLst",
+  "effectDag",
+  "highlight",
+  "uLnTx",
+  "uLn",
+  "uFillTx",
+  "uFill",
+  "latin",
+  "ea",
+  "cs",
+  "sym",
+  "hlinkClick",
+  "hlinkMouseOver",
+  "rtl",
+  "extLst",
+];
+const PPR_ORDER = [
+  "lnSpc",
+  "spcBef",
+  "spcAft",
+  "buClrTx",
+  "buClr",
+  "buSzTx",
+  "buSzPct",
+  "buSzPts",
+  "buFontTx",
+  "buFont",
+  "buNone",
+  "buAutoNum",
+  "buChar",
+  "buBlip",
+  "tabLst",
+  "defRPr",
+  "extLst",
+];
+const GROUPS: Record<string, ReadonlyArray<string>> = {
+  buClrTx: ["buClrTx", "buClr"],
+  buClr: ["buClrTx", "buClr"],
+  buSzTx: ["buSzTx", "buSzPct", "buSzPts"],
+  buSzPct: ["buSzTx", "buSzPct", "buSzPts"],
+  buSzPts: ["buSzTx", "buSzPct", "buSzPts"],
+  buFontTx: ["buFontTx", "buFont"],
+  buFont: ["buFontTx", "buFont"],
+  buNone: ["buNone", "buAutoNum", "buChar", "buBlip"],
+  buAutoNum: ["buNone", "buAutoNum", "buChar", "buBlip"],
+  buChar: ["buNone", "buAutoNum", "buChar", "buBlip"],
+  buBlip: ["buNone", "buAutoNum", "buChar", "buBlip"],
+};
+
+/** Puts `incoming`'s attributes and children over `target`'s, in order. */
+const mergeProps = (
+  target: XmlElement,
+  incoming: XmlElement,
+  order: ReadonlyArray<string>,
+  skipAttrs: ReadonlySet<string>,
+  skipChildren: ReadonlySet<string> = new Set(),
+): boolean => {
+  let changed = false;
+  for (const a of incoming.attrs) {
+    if (skipAttrs.has(a.name.localName) || a.name.namespaceURI) continue;
+    const current = getAttrValue(target, plain(a.name.localName));
+    if (current === a.value) continue;
+    setAttr(target, a.name.localName, a.value);
+    changed = true;
+  }
+  for (const child of incoming.children) {
+    if (child.kind !== "element" || skipChildren.has(child.name.localName))
+      continue;
+    const name = child.name.localName;
+    const replaces = FILLS.has(name) ? FILLS : new Set(GROUPS[name] ?? [name]);
+    const existing = target.children.filter(
+      (c): c is XmlElement =>
+        c.kind === "element" && replaces.has(c.name.localName),
+    );
+    const copy = cloneElement(child);
+    if (
+      existing.length === 1 &&
+      serializeElement(existing[0]!) === serializeElement(copy)
+    )
+      continue;
+    target.children = target.children.filter(
+      (c) => !(c.kind === "element" && replaces.has(c.name.localName)),
+    );
+    const rank = order.indexOf(name);
+    const at = target.children.findIndex(
+      (c) => c.kind === "element" && order.indexOf(c.name.localName) > rank,
+    );
+    if (at < 0) target.children.push(copy);
+    else target.children.splice(at, 0, copy);
+    changed = true;
+  }
+  return changed;
+};
+
+const serializeElement = (el: XmlElement): string =>
+  serializeFragment({ ...el, prefixDecls: new Map() });
+
+/**
+ * On a master or layout editing view, carries the formatting of each
+ * placeholder's text (the first paragraph of every outline level and its
+ * first run) into the placeholder's list style, which is what slides
+ * inherit. Without this, formatting the sample text of a master placeholder
+ * would change only that sample. Returns whether anything changed.
+ */
+export const syncPlaceholderListStyles = (slide: SlideData): boolean => {
+  if (getTemplateKind(slide) === "slide") return false;
+  let changed = false;
+  for (const { el } of treePlaceholders(spTreeOf(slide[SLIDE_DOCUMENT].root))) {
+    const txBody = firstChildElement(el, pq("txBody"));
+    if (!txBody) continue;
+    const seen = new Set<number>();
+    for (const p of children(txBody, "p", NS.dml)) {
+      const pPr = firstChildElement(p, aq("pPr"));
+      const lvl = Number((pPr && getAttrValue(pPr, plain("lvl"))) ?? "0");
+      if (seen.has(lvl) || !(lvl >= 0 && lvl <= 8)) continue;
+      seen.add(lvl);
+      const run = p.children.find(
+        (c): c is XmlElement =>
+          c.kind === "element" &&
+          (c.name.localName === "r" || c.name.localName === "fld"),
+      );
+      const rPr = run ? firstChildElement(run, aq("rPr")) : null;
+      const hasRun =
+        !!rPr &&
+        (rPr.attrs.some((a) => !RUN_META.has(a.name.localName)) ||
+          rPr.children.some(
+            (c) =>
+              c.kind === "element" &&
+              c.name.localName !== "hlinkClick" &&
+              c.name.localName !== "hlinkMouseOver",
+          ));
+      const hasPara =
+        !!pPr &&
+        (pPr.attrs.some((a) => a.name.localName !== "lvl") ||
+          pPr.children.some((c) => c.kind === "element"));
+      if (!hasRun && !hasPara) continue;
+      let lst = firstChildElement(txBody, aq("lstStyle"));
+      if (!lst) {
+        lst = elem(aq("lstStyle"));
+        const bodyPr = firstChildElement(txBody, aq("bodyPr"));
+        txBody.children.splice(
+          bodyPr ? txBody.children.indexOf(bodyPr) + 1 : 0,
+          0,
+          lst,
+        );
+      }
+      const levelName = `lvl${lvl + 1}pPr`;
+      let level = firstChildElement(lst, aq(levelName));
+      if (!level) {
+        level = elem(aq(levelName));
+        const at = lst.children.findIndex(
+          (c) =>
+            c.kind === "element" &&
+            /^lvl(\d)pPr$/.test(c.name.localName) &&
+            Number(c.name.localName[3]) > lvl + 1,
+        );
+        if (at < 0) lst.children.push(level);
+        else lst.children.splice(at, 0, level);
+      }
+      if (hasPara && pPr)
+        changed =
+          mergeProps(
+            level,
+            pPr,
+            PPR_ORDER,
+            new Set(["lvl"]),
+            new Set(["defRPr"]),
+          ) || changed;
+      if (hasRun && rPr) {
+        let def = firstChildElement(level, aq("defRPr"));
+        if (!def) {
+          def = elem(aq("defRPr"));
+          const rank = PPR_ORDER.indexOf("defRPr");
+          const at = level.children.findIndex(
+            (c) =>
+              c.kind === "element" &&
+              PPR_ORDER.indexOf(c.name.localName) > rank,
+          );
+          if (at < 0) level.children.push(def);
+          else level.children.splice(at, 0, def);
+        }
+        changed =
+          mergeProps(
+            def,
+            rPr,
+            RPR_ORDER,
+            RUN_META,
+            new Set(["hlinkClick", "hlinkMouseOver"]),
+          ) || changed;
+      }
+    }
+  }
+  if (changed) {
+    commitSlideData(slide);
+    rebuildShapesFromDocument(slide);
+  }
+  return changed;
 };

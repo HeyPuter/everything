@@ -655,6 +655,7 @@ export {
   setTemplatePlaceholder,
   setTemplatePreserved,
   setTemplateShowsMasterShapes,
+  syncPlaceholderListStyles,
   withPlaceholderPrompt,
   type SlideLayoutEntry,
   type SlideMasterEntry,
