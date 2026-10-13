@@ -1,6 +1,6 @@
 // Help → Hands-on Tutorials, What's New and the start screen's Learn area.
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasDrag, idle, menu, tool } from './helpers';
+import { boot, canvasClick, canvasDrag, idle, menu, tool } from './helpers';
 
 const card = (page: Page) => page.locator('.tour-card');
 
@@ -122,4 +122,76 @@ test('the start screen offers tutorials without overflowing', async ({ page }) =
   await learn.getByRole('button', { name: /Retouching a blemish/ }).click();
   await expect(card(page)).toContainText('Step 1 of 5');
   await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('Skin Close-up');
+});
+
+test('the other tutorials complete with real actions', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page);
+  const begin = (id: string) => page.evaluate(async (id) => (await import('/src/features/help/windows.ts')).beginTutorial(window.photoStudio, id), id);
+  const next = () => card(page).getByRole('button', { name: /^(Next|Finish)$/ }).click();
+  const at = (n: number, of: number) => expect(card(page)).toContainText(`Step ${n} of ${of}`);
+  const command = (id: string) => page.evaluate((id) => window.photoStudio.runCommand(id), id);
+
+  // Masking: select the subject, add a mask, paint on it.
+  await begin('masking');
+  await at(1, 6);
+  await next();
+  await command('select.subject');
+  await at(3, 6);
+  await page.locator('[data-panel="layers"] [data-command="layer.add-mask"]').click();
+  await at(4, 6);
+  await tool(page, 'Brush Tool');
+  await at(5, 6);
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.setForeground('#000000'));
+  await canvasDrag(page, [[400, 330], [560, 340]]);
+  await at(6, 6);
+  await next();
+  await expect(card(page)).toContainText('Tutorial complete');
+
+  // Adjustment layers: add one, change it, hide it and show it again.
+  await begin('adjustments');
+  await next();
+  await page.locator('[data-layer-adjust]').click();
+  await page.getByRole('menuitem', { name: 'Levels', exact: true }).click();
+  await at(3, 5);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.editLayer('Levels', (l) => (l.adjustment = { ...l.adjustment!, params: { ...l.adjustment!.params, inBlack: 30 } }));
+  });
+  await at(4, 5);
+  await page.locator('#layers [data-visibility]').first().click();
+  await at(5, 5);
+  await page.locator('#layers [data-visibility]').first().click();
+  await expect(card(page)).toContainText('Tutorial complete');
+
+  // Retouching: zoom in, choose the tool, heal a spot.
+  await begin('retouch');
+  await next();
+  await command('view.zoom-in');
+  await at(3, 5);
+  await tool(page, 'Spot Healing Brush Tool');
+  await at(4, 5);
+  const { SKIN_SPOTS } = await import('../../src/features/help/samples');
+  const [u, v] = SKIN_SPOTS[0];
+  await canvasClick(page, u * 960, v * 640);
+  await at(5, 5);
+
+  // Text and shapes: type a title, draw a rectangle, add a shadow.
+  await begin('text-shapes');
+  await next();
+  await tool(page, 'Horizontal Type Tool');
+  await at(3, 7);
+  await canvasClick(page, 100, 120);
+  await page.keyboard.type('Hello');
+  await page.keyboard.press('Escape');
+  await at(4, 7);
+  await tool(page, 'Rectangle Tool');
+  await at(5, 7);
+  await canvasDrag(page, [[300, 300], [600, 450]]);
+  await at(6, 7);
+  await page.evaluate(() => void window.photoStudio.runCommand('layer.style-drop-shadow'));
+  await page.locator('dialog[open]').getByRole('button', { name: 'OK', exact: true }).click();
+  await at(7, 7);
 });

@@ -87,7 +87,7 @@ export const checks = {
   /** Some layer gained effects. */
   styleAdded: ((now, base) => layersOf(now).some((l) => !!l.style && JSON.stringify(l.style) !== JSON.stringify(byId(base, l.id)?.style))) as Check,
   /** The view was zoomed in. */
-  zoomedIn: ((now, base) => now.zoom > base.zoom * 1.05) as Check,
+  zoomedIn: ((now, base) => now.zoom > base.zoom * 1.0001) as Check,
   /** Any of the checks. */
   any: (...list: Check[]): Check => (now, base) => list.some((c) => c(now, base)),
 };

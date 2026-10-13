@@ -61,7 +61,8 @@ describe('tutorial steps', () => {
     expect(checks.selectionMade(selected, base)).toBe(true);
     expect(checks.selectionMade(base, base)).toBe(false);
     expect(checks.zoomedIn({ ...base, zoom: 2 }, base)).toBe(true);
-    expect(checks.zoomedIn({ ...base, zoom: 1.01 }, base)).toBe(false);
+    expect(checks.zoomedIn({ ...base, zoom: 1.01 }, base)).toBe(true);
+    expect(checks.zoomedIn({ ...base, zoom: 0.5 }, base)).toBe(false);
   });
 
   it('notices edited adjustment settings and new effects', () => {
