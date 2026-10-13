@@ -8,6 +8,9 @@ import { strFromU8, unzipSync } from "fflate";
 import { P, parseDeck } from "../src/model.js";
 
 test.setTimeout(120_000);
+// These flows start where a new presentation does by default: on a Title
+// Slide (the shared config starts other specs on a blank slide).
+test.use({ storageState: { cookies: [], origins: [] } });
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 async function start(page) {
@@ -282,4 +285,24 @@ test("the master pane works from the keyboard", async ({ page }, info) => {
   await page.keyboard.press("Escape");
   await page.keyboard.press(`${mod}+Alt+1`);
   await expect(pane).toHaveCount(0);
+});
+
+test("the start of a new presentation is a preference", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name === "mobile",
+    "phones hide the account button that opens the same dialog",
+  );
+  await start(page);
+  await expect(hits(page)).toHaveCount(2);
+  await page.getByRole("button", { name: "Account and settings" }).click();
+  await page.getByRole("menuitem", { name: "Appearance", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "New presentations start with" })
+    .selectOption("blank");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await expect(page.locator("#slide-canvas .slide-image")).toBeVisible();
+  await expect(hits(page)).toHaveCount(0);
 });

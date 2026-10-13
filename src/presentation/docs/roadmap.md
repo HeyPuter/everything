@@ -8,18 +8,35 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 1. Layouts, placeholders and master views
 
-- [ ] New presentations start on a Title Slide layout with title and subtitle
-      placeholders that show prompt text until typed into.
-- [ ] New Slide gallery with a picture of every layout of the slide's master;
-      Layout gallery changes the layout of the selected slides; Reset puts
-      placeholders back to the layout's position, size and formatting.
-- [ ] A full set of built-in layouts (Title Slide, Title and Content, Section
+- [x] New presentations start on a Title Slide layout with title and subtitle
+      placeholders that show prompt text until typed into. Prompts and the
+      dashed outlines of empty placeholders are drawn by the editor only;
+      thumbnails, slide shows, printing and saved files never contain them.
+- [x] New Slide gallery with a picture of every layout of the deck's own
+      masters (imported decks included); Layout gallery changes the layout of
+      the selected slides, moving content into matching placeholders; Reset
+      puts placeholders back to the layout's position, size and formatting and
+      restores deleted ones. Duplicate Selected Slides sits in the same menu.
+- [x] A full set of built-in layouts (Title Slide, Title and Content, Section
       Header, Two Content, Comparison, Title Only, Blank, Content with Caption,
-      Picture with Caption, Title and Vertical Text, Vertical Title and Text).
-- [ ] Slide Master view: edit the master and each layout, insert placeholders,
-      toggle title and footers, rename, duplicate, delete and preserve layouts,
-      insert a new master or layout, close master view.
-- [ ] Handout Master and Notes Master views.
+      Picture with Caption, Title and Vertical Text, Vertical Title and Text),
+      sized to the slide, with date, footer and slide-number placeholders.
+- [x] Empty content placeholders offer quick inserts (table and picture, plus
+      any insert command the Insert tab provides); the inserted object takes
+      the placeholder's slot and follows it through layout changes.
+- [x] Slide Master view (View tab, View menu, Ctrl/Cmd+Alt+1): contextual
+      Slide Master tab, a pane with each master and its layouts, editing of
+      master and layout shapes and placeholders (formatting given to master
+      placeholder text becomes the style slides inherit), Insert Placeholder
+      (content, text, vertical, picture, chart, table, SmartArt, media), Title
+      and Footers switches, Master Layout, Hide Background Graphics, Insert
+      Slide Master, Insert Layout, Delete, Rename, Duplicate, Preserve, Close
+      Master View. Undo and redo work across master edits.
+- [x] Handout Master and Notes Master views: page orientation, header,
+      footer, date, page number (and slide image and body on notes pages)
+      placeholders, slides-per-page guides on the handout page.
+- [ ] Draw a placeholder's rectangle on the canvas with Insert Placeholder
+      (it is placed in the middle of the layout for now).
 
 ### 2. Themes and design
 

@@ -397,6 +397,19 @@ let appearance = "system";
 try {
   appearance = localStorage.getItem("presentation:theme") || "system";
 } catch {}
+// What a new presentation starts with: a Title Slide waiting for its title,
+// or one blank slide.
+let startWith = "title";
+try {
+  if (localStorage.getItem("presentation:start") === "blank")
+    startWith = "blank";
+} catch {}
+function setStartWith(value) {
+  startWith = value === "blank" ? "blank" : "title";
+  try {
+    localStorage.setItem("presentation:start", startWith);
+  } catch {}
+}
 // The canvas fits the window unless a zoom level was chosen; the choice
 // carries over to the next presentation.
 const ZOOM_STEPS = [
@@ -598,6 +611,17 @@ async function appearanceDialog() {
     ),
   );
   select.value = appearance;
+  const start = el(
+    "select",
+    {
+      class: "input",
+      "aria-label": "New presentations start with",
+      onchange: (e) => setStartWith(e.target.value),
+    },
+    el("option", { value: "title" }, "A title slide"),
+    el("option", { value: "blank" }, "A blank slide"),
+  );
+  start.value = startWith;
   await dialog({
     title: "Appearance",
     body: el(
@@ -609,6 +633,7 @@ async function appearanceDialog() {
         { class: "muted" },
         "System follows your device. Your slide colors stay the same.",
       ),
+      el("label", {}, "New presentations start with", start),
     ),
     cancel: null,
   });
@@ -1557,8 +1582,12 @@ async function newDeck(
 ) {
   await openDocument(
     () => ({
-      // A new presentation starts on the Title Slide layout.
-      pres: createDeck(template === "blank" ? "title" : template, color),
+      // A new presentation starts on the Title Slide layout, or with a
+      // blank slide when that is the chosen start.
+      pres: createDeck(
+        template === "blank" && startWith === "title" ? "title" : template,
+        color,
+      ),
       name:
         name ||
         (template === "blank"

@@ -5,7 +5,22 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   timeout: 30000,
-  use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure" },
+  use: {
+    baseURL: `http://127.0.0.1:${port}`,
+    trace: "retain-on-failure",
+    // Specs written against a blank first slide keep it: new presentations
+    // start with the blank slide the app offers as a preference. Specs about
+    // the Title Slide start (e2e/layouts.spec.js) clear this.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: `http://127.0.0.1:${port}`,
+          localStorage: [{ name: "presentation:start", value: "blank" }],
+        },
+      ],
+    },
+  },
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}`,
