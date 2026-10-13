@@ -4,7 +4,7 @@
 import { CodecError } from './bytes';
 
 /** Interleave planar float channels into a 16-bit PCM WAV file. */
-export function encodeWav(channels: Float32Array[], sampleRate: number): Uint8Array {
+export function encodeWav(channels: Float32Array[], sampleRate: number): Uint8Array<ArrayBuffer> {
   const ch = Math.max(1, channels.length);
   const frames = channels[0]?.length ?? 0;
   const dataBytes = frames * ch * 2;
