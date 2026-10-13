@@ -55,6 +55,17 @@ export {
   type SlideShowSelection,
   type SlideShowLaserColor,
 } from "./fn.ts";
+export {
+  getViewProperties,
+  setViewProperties,
+  getNotesPageSize,
+  getSlideOutlineShapes,
+  addSlideOutlinePlaceholder,
+  type ViewProperties,
+  type ViewPropertiesPatch,
+  type DrawingGuide,
+  type LastView,
+} from "./fn.ts";
 export type { PresentationInput, PresentationSize, SlideSize } from "./fn.ts";
 export { SLIDE_SIZE_4_3, SLIDE_SIZE_16_9, SLIDE_SIZE_16_10 } from "./fn.ts";
 export type { ImageFormat } from "../internal/opc/index.ts";

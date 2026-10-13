@@ -630,7 +630,9 @@ export function openMenu({
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
         : anchor;
-  document.body.append(panel);
+  // Inside an open modal dialog (the Reading View), the menu joins it; the
+  // rest of the page is inert there.
+  (anchor?.closest?.("dialog[open]") || document.body).append(panel);
   const parentPanel = parent >= 0 ? chain[parent].panel : null;
   let anchorRect = anchor?.getBoundingClientRect();
   const reposition = () => {

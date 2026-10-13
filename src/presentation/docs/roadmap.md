@@ -90,10 +90,10 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 8. Views
 
-- [ ] Outline View with editable slide titles and body text.
-- [ ] Slide Sorter with sections, zoom, drag reordering and transitions.
-- [ ] Notes Page and Reading View.
-- [ ] Grid and Guides dialog, smart guides, snap to grid, Zoom dialog, status
+- [x] Outline View with editable slide titles and body text.
+- [x] Slide Sorter with sections, zoom, drag reordering and transitions.
+- [x] Notes Page and Reading View.
+- [x] Grid and Guides dialog, smart guides, snap to grid, Zoom dialog, status
       bar view buttons.
 
 ### 9. Review
