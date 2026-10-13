@@ -118,31 +118,35 @@ export async function decorationDialog(app, kind) {
         : null,
     };
   };
+  // Editing any option turns the bar on.
+  const turnOn = (_, form) => form.set('on', true);
+  const fields = [
+    { key: 'on', type: 'checkbox', label: kind === 'underline' ? 'Underline' : 'Strikethrough', value: cur[kind] === true },
+    { key: 'auto', type: 'checkbox', label: 'Automatic Weight and Offset', value: !(st.weight > 0) && !Number.isFinite(st.offset) },
+    { key: 'weight', type: 'length', label: 'Weight', value: st.weight > 0 ? st.weight : auto.thickness, min: 0.01, max: 1000, step: 0.25, disabled: (x) => x.auto },
+    { key: 'offset', type: 'length', label: kind === 'underline' ? 'Offset (below the baseline)' : 'Offset (above the baseline)', value: Number.isFinite(st.offset) ? st.offset : autoOffset, min: -1000, max: 1000, step: 0.25, disabled: (x) => x.auto },
+    {
+      key: 'colorMode',
+      type: 'select',
+      label: 'Color',
+      value: st.color ? 'custom' : 'text',
+      options: [
+        { value: 'text', label: 'Text Color' },
+        { value: 'custom', label: 'Custom Color' },
+      ],
+    },
+    { key: 'color', type: 'color', label: 'Custom Color', value: color, disabled: (x) => x.colorMode !== 'custom' },
+    { key: 'dashed', type: 'checkbox', label: 'Dashed Line', value: Boolean(st.dash) },
+    { key: 'dash', type: 'length', label: 'Dash', value: st.dash?.[0] || 4, min: 0.1, max: 1000, disabled: (x) => !x.dashed },
+    { key: 'gap', type: 'length', label: 'Gap', value: st.dash?.[1] || 2, min: 0.1, max: 1000, disabled: (x) => !x.dashed },
+    { key: 'preview', type: 'checkbox', label: 'Preview', value: true },
+  ];
+  for (const f of fields) if (!['on', 'preview'].includes(f.key)) f.onInput = turnOn;
   let v = null;
   try {
     v = await app.dialogs.form({
       title: label,
-      fields: [
-        { key: 'on', type: 'checkbox', label: kind === 'underline' ? 'Underline' : 'Strikethrough', value: cur[kind] === true },
-        { key: 'auto', type: 'checkbox', label: 'Automatic Weight and Offset', value: !(st.weight > 0) && !Number.isFinite(st.offset) },
-        { key: 'weight', type: 'length', label: 'Weight', value: st.weight > 0 ? st.weight : auto.thickness, min: 0.01, max: 1000, step: 0.25, disabled: (x) => x.auto },
-        { key: 'offset', type: 'length', label: kind === 'underline' ? 'Offset (below the baseline)' : 'Offset (above the baseline)', value: Number.isFinite(st.offset) ? st.offset : autoOffset, min: -1000, max: 1000, step: 0.25, disabled: (x) => x.auto },
-        {
-          key: 'colorMode',
-          type: 'select',
-          label: 'Color',
-          value: st.color ? 'custom' : 'text',
-          options: [
-            { value: 'text', label: 'Text Color' },
-            { value: 'custom', label: 'Custom Color' },
-          ],
-        },
-        { key: 'color', type: 'color', label: 'Custom Color', value: color, disabled: (x) => x.colorMode !== 'custom' },
-        { key: 'dashed', type: 'checkbox', label: 'Dashed Line', value: Boolean(st.dash) },
-        { key: 'dash', type: 'length', label: 'Dash', value: st.dash?.[0] || 4, min: 0.1, max: 1000, disabled: (x) => !x.dashed },
-        { key: 'gap', type: 'length', label: 'Gap', value: st.dash?.[1] || 2, min: 0.1, max: 1000, disabled: (x) => !x.dashed },
-        { key: 'preview', type: 'checkbox', label: 'Preview', value: true },
-      ],
+      fields,
       previewToggle: true,
       onChange: (vals) => {
         if (vals.preview) pv.preview(patchOf(vals));

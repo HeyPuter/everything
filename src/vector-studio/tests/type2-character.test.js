@@ -103,6 +103,15 @@ describe('underline and strikethrough options', () => {
     expect(n.char.underline).toBe(true);
     expect(n.char.underlineStyle).toMatchObject({ weight: null, offset: null, color: { type: 'solid', color: '#00ff00' }, dash: null });
     expect(doc.undoStack.length).toBe(undoDepth + 1);
+    // Editing an option of a bar that is off turns it on.
+    done = app.commands.run('type.strikeOptions');
+    await tick();
+    setField('Dashed Line', true);
+    expect(field('Strikethrough').checked).toBe(true);
+    button('OK').click();
+    await done;
+    expect(doc.get(id).char.strike).toBe(true);
+    expect(doc.get(id).char.strikeStyle.dash).toEqual([4, 2]);
   });
 
   it('exports bars in their own color as rectangles, plain ones as text-decoration', () => {
@@ -256,6 +265,10 @@ describe('vertical type: Roman alignment and tate-chu-yoko', () => {
     expect(groupMid).toBeCloseTo(center, 0);
     // The last character follows one em after the group.
     expect(gs.find((g) => g.i === 3).m[5] - one.m[5]).toBeCloseTo(10);
+    // With Roman characters turned sideways the group still stands across the column.
+    const side = layoutText(vtext('第12回', { verticalRoman: true }, [{ len: 1 }, { len: 2, tcy: true }, { len: 1 }]));
+    expect(side.chars.adv[1]).toBeCloseTo(10);
+    expect(glyphPlacements(side).find((g) => g.i === 1).m[0]).toBeGreaterThan(0);
   });
 
   it('commands toggle the character attributes', () => {

@@ -529,6 +529,9 @@ function groupTcy(text, out) {
       j++;
     }
     const tcy = out.tcy || (out.tcy = new Array(n).fill(null));
+    // The group takes one em of the column (also when its characters would turn sideways).
+    out.adv[i] = st.fontSize * ((st.verticalScale ?? 100) / 100) + ((st.tracking || 0) / 1000) * st.fontSize;
+    out.kern[i] = 0;
     let off = 0;
     for (let k = i; k < j; k++) {
       tcy[k] = { s: i, w, off };
