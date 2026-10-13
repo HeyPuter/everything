@@ -184,10 +184,10 @@ Status: `[ ]` planned, `[x]` done.
 
 ## Assets and provenance
 
-- [ ] Libraries panel: colors, gradients, character styles, layer styles, brushes and graphics shared between documents, stored in Puter (or this browser)
-- [ ] Content Credentials: record how an image was made (sources, edits, AI use) and attach the record to exports
-- [ ] Image Assets: layers named like files (`hero.png`, `200% icon.webp`) are exported automatically on save
-- [ ] Import from a camera (Import → Images from Device) and Import → Notes
+- [x] Libraries panel: colors, gradients, character styles, layer styles, brushes and graphics shared between documents, stored in Puter (or this browser)
+- [x] Provenance: record how an image was made (sources, edits, AI use) and attach the record to exports (XMP, optional self-signed C2PA manifest), with an inspector
+- [x] Image Assets: layers named like files (`hero.png`, `200% icon.webp`) are exported automatically on save
+- [x] Import from a camera (Import → Images from Device) and Import → Notes
 
 ## Remaining parity items
 
