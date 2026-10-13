@@ -68,6 +68,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return false;
     try {
       if (body) toBody(engine); else engine.finishComposition();
+      // A new drawing goes after a selected picture or shape rather than replacing it.
+      if (!replace) afterSelectedDrawing(engine);
       const revision = engine.session.revision, model = engine.model;
       const fragment = await build(engine, replace?.id ?? nextDrawingId(model), nextDrawingOrder(model));
       const ok = await placeDrawing(engine, fragment, { replace, revision });
@@ -75,6 +77,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       return ok;
     } catch (e) { fail(e); return false; }
   }
+  const afterSelectedDrawing = engine => { if (engine.model.selectedImage) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
   const sceneFragment = (engine, xml) => readDrawingFragment(xml, { sourceParts: pkg().parts, assetId: freshDrawingAssetId(engine.model) });
   const withDescription = (xml, text) => text ? xml.replace(/(<wp:docPr [^>]*?)(\/?>)/, (_, open, close) => `${open} descr="${String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;')}"${close}`) : xml;
   const selectedText = engine => { const [a, b] = engine.model.range; return a === b ? '' : engine.model.text.slice(a, b).replace(/[￼\f\v\u000e]/g, '').trim(); };
@@ -108,6 +111,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   async function insertPictureFile(file) {
     const engine = ready(); if (!engine || !file) return;
     try {
+      engine.finishComposition(); afterSelectedDrawing(engine);
       const name = file.name || 'picture', type = file.type || P.mimeFor?.(name) || '';
       if (/^image\/(png|jpeg|tiff)$/.test(type) || /\.(png|jpe?g|tiff?)$/i.test(name) && !type) { await engine.insertImageFile(file); onChange(); return; }
       if (type === 'image/svg+xml' || /\.svg$/i.test(name)) {
@@ -159,6 +163,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         const svg = iconSvg(icon.id, { color, size: 96 }), { png } = await rasterize(new Blob([iconSvg(icon.id, { color, size: 192 })], { type: 'image/svg+xml' }), 192);
         const ok = await insertDrawing((engine, id) => pictureFragment(engine.model, pkg().parts, { png, svg, width: EMU_PER_INCH, height: EMU_PER_INCH, id, name: `Graphic ${id}`, descr: icon.name, stem: 'canvas-icon' }), { body: false });
         if (!ok) break;
+        // The next icon follows this one rather than replacing it.
+        const engine = ready(); if (engine) { engine.model.select(engine.model.range[1]); engine.syncInput(); }
       }
     } });
   }
@@ -229,7 +235,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   function insertDiagram(layout = null) {
     const engine = ready(); if (!engine) return;
     const current = layout ? null : selectedDiagram();
-    openDiagramDialog({ initial: current || (layout ? { layout } : null), onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: ({ layout, colors, items }) => {
+    openDiagramDialog({ initial: current || (layout ? { layout } : null), editing: !!current, onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: ({ layout, colors, items }) => {
       insertDrawing((engine, id) => {
         const width = Math.min(textWidth(engine), 6 * EMU_PER_INCH), height = Math.round(Math.min(width * 0.56, 3.5 * EMU_PER_INCH));
         const size = current ? { width: current.image.width, height: current.image.height } : { width, height };
@@ -254,18 +260,19 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
   const designLines = (design, kind) => design.lines({ title: title(), date: today(), width: (() => { const p = editor()?.model.pageSettings; return p ? p.width - p.left - p.right : 9360; })(), kind });
   function storyPreview(design, kind) {
-    const lines = designLines(design, kind), y = kind === 'header' ? 4 : 98, bands = [];
+    // A strip of the page: the header or footer line over (or under) a few lines of body text.
+    const lines = designLines(design, kind), y = kind === 'header' ? 5 : 21, bands = [];
     const pieces = lines.flatMap(line => {
-      if (line.paragraph.paragraphShading) bands.push({ x: 4, y: y - 2, w: 77, h: 6, color: `#${line.paragraph.paragraphShading}` });
-      if (line.paragraph.paragraphBorders) bands.push({ x: 8, y: kind === 'header' ? y + 4.5 : y - 2.5, w: 69, h: 0.6, color: '#2F5597' });
+      if (line.paragraph.paragraphShading) bands.push({ x: 6, y: y - 2, w: 73, h: 6.4, color: `#${line.paragraph.paragraphShading}` });
+      if (line.paragraph.paragraphBorders) bands.push({ x: 8, y: kind === 'header' ? y + 4 : y - 2.5, w: 69, h: 0.7, color: '#2F5597' });
       const color = line.paragraph.paragraphShading ? '#FFFFFF' : `#${line.run.color || '595959'}`;
       const segments = line.parts.map(p => typeof p === 'string' ? p : p.field ? '#' : p.text || '').join('').split('\t');
       const align = line.paragraph.alignment || 'left';
-      if (segments.length === 1) return [{ y, h: 2, w: Math.min(50, Math.max(8, segments[0].length * 1.6)), color, align }];
-      return segments.map((s, i) => ({ y, h: 2, w: Math.min(22, Math.max(6, s.length * 1.4)), color, align: ['left', 'center', 'right'][Math.min(2, i * (segments.length === 2 ? 2 : 1))] }));
+      if (segments.length === 1) return [{ y, h: 2.4, w: Math.min(50, Math.max(8, segments[0].length * 1.6)), color, align }];
+      return segments.map((s, i) => ({ y, h: 2.4, w: Math.min(22, Math.max(6, s.length * 1.4)), color, align: ['left', 'center', 'right'][Math.min(2, i * (segments.length === 2 ? 2 : 1))] }));
     });
-    const body = [20, 26, 32, 38, 44, 50, 56, 62, 68, 74, 80].map(by => ({ y: by, h: 1.4, w: 60, color: '#D9D9D9' }));
-    return pagePreview([...pieces, ...body], { bands, width: 56 });
+    const body = (kind === 'header' ? [14, 18, 22] : [4, 8, 12]).map(by => ({ y: by, h: 1.4, w: 64, color: '#D9D9D9' }));
+    return pagePreview([...pieces, ...body], { bands, width: 120, viewHeight: 27 });
   }
   function headerItems(kind) {
     const engine = ready(), Kind = kind === 'header' ? 'Header' : 'Footer';
@@ -679,7 +686,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       if (engine.session.path !== null) run(engine, () => engine.model.replace(formatDatePicture(new Date(), picture)));
       else insertFieldInstruction(fieldInstruction({ name: e.code === 'KeyD' ? 'DATE' : 'TIME', picture }));
     }
-  }, { signal: keyAbort.signal });
+  }, { signal: keyAbort.signal, capture: true });
 
   const commands = {
     insertRibbon, coverPageItems, pictureItems, insertPictureFile, openShapes, insertShapeAt, insertIcons, insertDiagram, diagramItems, screenshot,

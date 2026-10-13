@@ -286,9 +286,11 @@ const NS_SVG = 'http://www.w3.org/2000/svg';
 /** An SVG sketch of a diagram's shapes (rectangles, ovals and polygons), for the dialog and gallery. */
 export function diagramSketch(layoutId, items, colors = 'blue', width = 320, height = 180) {
   const palette = DIAGRAM_COLORS.find(c => c.id === colors) || DIAGRAM_COLORS[0];
-  const shapes = diagramShapes(layoutId, items, { width: width * 9525, height: height * 9525 });
+  // Lay out at document size (6 in wide) so spacing reads as it will on the page, then scale the drawing down.
+  const realWidth = 576, realHeight = Math.round(576 * height / width);
+  const shapes = diagramShapes(layoutId, items, { width: realWidth * 9525, height: realHeight * 9525 });
   const svg = document.createElementNS(NS_SVG, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`); svg.classList.add('insert-diagram-sketch');
+  svg.setAttribute('viewBox', `0 0 ${realWidth} ${realHeight}`); svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height)); svg.classList.add('insert-diagram-sketch');
   const add = (name, attrs, text) => { const n = document.createElementNS(NS_SVG, name); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v)); if (text) n.textContent = text; svg.append(n); return n; };
   for (const s of shapes) {
     const x = s.x / 9525, y = s.y / 9525, w = s.w / 9525, h = s.h / 9525;
@@ -302,12 +304,12 @@ export function diagramSketch(layoutId, items, colors = 'blue', width = 320, hei
     else if (s.preset === 'chevron' || s.preset === 'homePlate') { const d = Math.min(w, h) / 2; add('polygon', { points: `${x},${y} ${x + w - d},${y} ${x + w},${y + h / 2} ${x + w - d},${y + h} ${x},${y + h}${s.preset === 'chevron' ? ` ${x + d},${y + h / 2}` : ''}`, ...attrs }); }
     else add('rect', { x, y, width: w, height: h, rx: s.preset === 'roundRect' ? Math.min(w, h) / 6 : 0, ...attrs });
     const label = String(s.text || '').split('\n')[0];
-    if (label && w > 18) add('text', { x: x + w / 2, y: y + h / 2 + (s.preset === 'triangle' ? h / 4 : 0), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': Math.max(6, Math.min(11, w / Math.max(4, label.length) * 1.6)), fill: s.role === 'detail' ? `#${palette.lightText}` : '#fff' }, label.slice(0, 18));
+    if (label && w > 30) add('text', { x: x + w / 2, y: y + h / 2 + (s.preset === 'triangle' ? h / 4 : 0), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': Math.max(10, Math.min(22, w / Math.max(4, label.length) * 1.6, h * 0.4)), 'font-family': 'system-ui, sans-serif', fill: s.role === 'detail' ? `#${palette.lightText}` : '#fff' }, label.slice(0, 24));
   }
   return svg;
 }
 /** Diagram: choose a layout and colors and type the outline; the preview follows each keystroke. */
-export function openDiagramDialog({ initial = null, onInsert, onClose }) {
+export function openDiagramDialog({ initial = null, editing = false, onInsert, onClose }) {
   let layout = initial?.layout || 'basicProcess';
   const colors = select('Colors', DIAGRAM_COLORS.map(c => [c.id, c.name]), initial?.colors || 'blue');
   const outline = el('textarea.input.insert-diagram-outline', { rows: 10, 'aria-label': 'Diagram text', spellcheck: true }, initial?.outline ?? DEFAULT_OUTLINE);
@@ -331,7 +333,7 @@ export function openDiagramDialog({ initial = null, onInsert, onClose }) {
     else { outline.setRangeText('  ', start, start); outline.selectionStart = outline.selectionEnd = caret + 2; }
     render();
   } });
-  const dialog = formDialog({ title: initial ? 'Edit Diagram' : 'Diagram', submit: initial ? 'Update' : 'Insert', wide: true, className: 'insert-diagram', onClose, content: [
+  const dialog = formDialog({ title: editing ? 'Edit Diagram' : 'Diagram', submit: editing ? 'Update' : 'Insert', wide: true, className: 'insert-diagram', onClose, content: [
     el('div.insert-diagram-grid', {}, layouts,
       el('div.insert-diagram-editor', {}, field('Text (one item per line; indent with Tab for details)', outline), field('Colors', colors), preview))],
   onSubmit: () => {

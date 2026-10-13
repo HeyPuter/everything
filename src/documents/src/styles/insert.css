@@ -38,8 +38,8 @@
   padding: 8px 14px; border-radius: var(--r-full); background: var(--ink); color: var(--surface); font-size: 13px; pointer-events: none; box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
 
 /* ---- Dialogs ---- */
-.insert-dialog { min-width: min(420px, 86vw); }
-.modal-panel.wide .insert-dialog { width: min(820px, 92vw); }
+.insert-dialog { min-width: 0; }
+@media (width > 640px) { .modal-panel.wide:has(> .insert-dialog) { width: 860px; } }
 .insert-fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
 .ed-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 

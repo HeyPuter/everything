@@ -27,14 +27,14 @@ export function galleryItems(sections, { columns = 3, size = 'medium', label = '
 }
 
 /** A miniature page drawn in SVG (8.5 × 11 proportions) from lines: [{ y, h, w, x?, color, align? }] in page percent. */
-export function pagePreview(lines = [], { width = 64, background = '#ffffff', bands = [] } = {}) {
-  const height = Math.round(width * 11 / 8.5);
+export function pagePreview(lines = [], { width = 64, background = '#ffffff', bands = [], viewHeight = 110 } = {}) {
+  const height = Math.round(width * viewHeight / 85);
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 85 110'); svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height));
+  svg.setAttribute('viewBox', `0 0 85 ${viewHeight}`); svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height));
   svg.classList.add('insert-page-preview');
   const add = (name, attrs) => { const node = document.createElementNS(ns, name); for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v)); svg.append(node); return node; };
-  add('rect', { x: 0.5, y: 0.5, width: 84, height: 109, rx: 2, fill: background, stroke: 'var(--hairline, #c8c8c8)' });
+  add('rect', { x: 0.5, y: 0.5, width: 84, height: viewHeight - 1, rx: 2, fill: background, stroke: 'var(--hairline, #c8c8c8)' });
   for (const band of bands) add('rect', { x: band.x ?? 0.5, y: band.y, width: band.w ?? 84, height: band.h, fill: band.color, ...(band.stroke ? { stroke: band.stroke, 'stroke-width': band.strokeWidth || 1, fill: band.color || 'none' } : {}) });
   for (const line of lines) {
     const w = line.w, x = line.x ?? (line.align === 'center' ? (85 - w) / 2 : line.align === 'right' ? 85 - 10 - w : 10);

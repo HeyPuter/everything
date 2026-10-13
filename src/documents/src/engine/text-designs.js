@@ -112,7 +112,12 @@ export function signatureLineParams({ id, order = 1, signer = '', title = '', em
     text: paragraphs.join(''), bodyXml: BODY('t', false, [45720, 45720]) };
 }
 
-/** The w:drawing XML for these parameters, with the w14 namespace the WordArt effects need. */
+const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+/**
+ * The w:drawing XML for these parameters. WordArt's w14 effects are an extension: the drawing declares
+ * them ignorable (ECMA-376 Part 3 §10.2.1), so consumers without them keep the plain text.
+ */
 export function textShapeXml(params) {
-  return shapeDrawingXml(params).replace('<w:drawing ', `<w:drawing xmlns:w14="${W14}" `);
+  const xml = shapeDrawingXml(params);
+  return /<w14:/.test(xml) ? xml.replace('<w:drawing ', `<w:drawing xmlns:mc="${MC}" xmlns:w14="${W14}" mc:Ignorable="w14" `) : xml;
 }
