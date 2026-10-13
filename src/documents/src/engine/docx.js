@@ -604,13 +604,16 @@ function readStyles(parts, parsed, readColor, readFonts, onUnsupported = null) {
 // Modify only requested declarations; retain latent styles, links and extension XML.
 function writeStyles(parts, styles) {
   const changed = Object.values(styles.definitions).filter(s => s.changes || s.generated);
-  if (!changed.length) return;
+  const deleted = (styles.deleted || []).filter(id => !Object.hasOwn(styles.definitions, id));
+  if (!changed.length && !deleted.length) return;
   const existingPath = stylesPath(parts);
   let path = existingPath || 'word/styles.xml';
   // Preserve any unrelated/orphan part occupying the conventional name.
   if (!existingPath) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/styles${i}.xml`;
   const doc = existingPath ? xml(parts[path]) : xml(`<w:styles xmlns:w="${W}"/>`), root = doc.documentElement;
   const make = name => doc.createElementNS(W, `w:${name}`);
+  // Deleted styles leave the part; every other definition keeps its XML.
+  for (const node of children(root)) if (node.namespaceURI === W && node.localName === 'style' && deleted.includes(node.getAttributeNS(W, 'styleId'))) node.remove();
   const order = ['name', 'aliases', 'basedOn', 'next', 'link', 'autoRedefine', 'hidden', 'uiPriority', 'semiHidden', 'unhideWhenUsed', 'qFormat', 'locked', 'personal', 'personalCompose', 'personalReply', 'rsid', 'pPr', 'rPr', 'tblPr', 'trPr', 'tcPr', 'tblStylePr'];
   for (const style of changed) {
     let node = children(root).find(n => n.namespaceURI === W && n.localName === 'style' && n.getAttributeNS(W, 'styleId') === style.id);
