@@ -383,10 +383,20 @@ export class Editor {
       this.modal?.apply();
     }
     this.recorder?.(id, arg);
-    await this.run(async () => {
-      await c.run(this, arg);
-    });
+    const outer = this.currentCommand;
+    this.currentCommand = this.lastCommand = id;
+    try {
+      await this.run(async () => {
+        await c.run(this, arg);
+      });
+    } finally {
+      this.currentCommand = outer;
+    }
   }
+  // The command running now, and the last one run (provenance attributes
+  // history steps to them).
+  currentCommand?: string;
+  lastCommand?: string;
   // The Actions panel installs a recorder while recording.
   recorder?: (id: string, arg?: unknown) => void;
   command(label: string, edit: (doc: PhotoDocument) => void, opts: { coalesce?: boolean } = {}) {

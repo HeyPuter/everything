@@ -251,6 +251,9 @@ export interface PhotoDocument {
   globalLight?: { angle: number; altitude: number };
   // Variables bound to layers and the data sets that fill them (Image > Variables).
   variables?: import('./variables').DocumentVariables;
+  // File → Generate → Image Assets: layers named like files are written as
+  // image files after edits (see features/image-assets).
+  imageAssets?: boolean;
 }
 export type DocumentInfo = { title?: string; author?: string; copyright?: string; description?: string; contact?: string; keywords?: string };
 export const blends: Blend[] = [

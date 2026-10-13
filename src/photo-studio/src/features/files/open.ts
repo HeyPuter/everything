@@ -18,7 +18,7 @@ import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
-import { emitAppEvent } from '../../app/app-events';
+import { emitAppEvent, openedFiles } from '../../app/app-events';
 
 const browserTypes: Record<string, string> = {
   png: 'image/png',
@@ -266,6 +266,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     noteRecent(e, name, source);
     e.message(isPsd ? 'PSD opened' : 'Project opened');
     if ('notice' in loaded && loaded.notice) information('PSD import', `<p>${escapeXML(String(loaded.notice))}</p>`);
+    openedFiles.set(s, { blob, name });
     void emitAppEvent('open-document', s);
     return true;
   }
@@ -312,6 +313,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   e.update();
   noteRecent(e, name, source);
   e.message(decoded.notice ?? (doc.animation ? `Opened ${name} as a ${doc.animation.frames.length}-frame animation` : `Opened ${name}`));
+  openedFiles.set(s, { blob, name });
   void emitAppEvent('open-document', s);
   return true;
 }

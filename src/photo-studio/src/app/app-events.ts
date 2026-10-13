@@ -17,6 +17,9 @@ export const appEventLabels: Record<AppEvent, string> = {
 export type AppEventListener = (event: AppEvent, session?: DocumentSession) => void | Promise<void>;
 
 const listeners = new Set<AppEventListener>();
+// The file a document was opened from (set before "open-document"), for
+// listeners that need its bytes (provenance).
+export const openedFiles = new WeakMap<DocumentSession, { blob: Blob; name: string }>();
 // Batch processing and running scripts open and save documents in bulk;
 // events stay quiet meanwhile so automation does not trigger itself.
 let quiet = 0;

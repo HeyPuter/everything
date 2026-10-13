@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { showContextMenu } from './menubar';
-import { panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { commands, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
 import { BottomDock } from './bottom-dock';
 
 const groupLocations: PanelLocation[] = ['dock-top', 'dock-middle', 'dock-bottom'];
@@ -196,16 +196,19 @@ export class Dock {
   }
   /** Register Window → Panels commands for every panel. */
   registerCommands() {
+    // A feature may register its panel's command itself (to place it
+    // directly in the Window menu rather than under Panels).
     for (const p of panels.values())
-      registerCommand({
-        id: `window.panel.${p.id}`,
-        label: p.title,
-        shortcut: p.shortcut,
-        menu: 'window.panels',
-        checked: () => this.isVisible(p.id),
-        run: () => this.show(p.id, true),
-        recordable: false,
-      });
+      if (!commands.has(`window.panel.${p.id}`))
+        registerCommand({
+          id: `window.panel.${p.id}`,
+          label: p.title,
+          shortcut: p.shortcut,
+          menu: 'window.panels',
+          checked: () => this.isVisible(p.id),
+          run: () => this.show(p.id, true),
+          recordable: false,
+        });
     // Standard items closing every panel menu. IDs share the `window.panel.`
     // prefix so command search leaves them out; they act on `menuTarget`.
     const target = () => (this.menuTarget ? panels.get(this.menuTarget) : undefined);

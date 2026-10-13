@@ -59,6 +59,8 @@ export function installLibraries(e: Editor) {
     ),
   );
   const cmd = (c: Omit<Command, 'recordable'>) => registerCommand({ recordable: false, ...c });
+  // Directly in the Window menu (not under Panels).
+  cmd({ id: 'window.panel.libraries', label: 'Libraries', checked: (e) => e.dock.isVisible('libraries'), run: (e) => e.dock.show('libraries', true) });
   cmd({
     id: 'libraries.new',
     label: 'New Library…',

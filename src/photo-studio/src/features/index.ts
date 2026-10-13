@@ -40,7 +40,9 @@ import { installVariables } from './variables';
 import { installPreferences } from './preferences';
 import { installVersions } from './versions';
 import { installScripting } from './scripting';
+import { installImageAssets } from './image-assets';
 import { installLibraries } from './libraries';
+import { installProvenance } from './provenance';
 
 // Each feature registers its commands, tools, panels and overlays. Keep one
 // line per feature so parallel work merges cleanly.
@@ -86,7 +88,9 @@ export function installFeatures(e: Editor) {
   installPreferences(e);
   installVersions(e);
   installScripting(e);
+  installImageAssets(e);
   installLibraries(e);
+  installProvenance(e);
   // User shortcut overrides apply last, after every feature registered.
   applyCustomShortcuts();
 }

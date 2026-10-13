@@ -68,6 +68,10 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
         </div>
       `)}</div>
       <div data-show="text">${sectionHtml('Metadata', row('Include', `<select name="metadata"><option value="none">None</option><option value="copyright">Copyright and contact info</option><option value="all">All file info</option></select>`))}</div>
+      <div data-show="prov">${sectionHtml('Provenance', `
+        ${row('Attach', `<select name="provenance"><option value="none">Nothing</option><option value="record">How it was made (record)</option><option value="signed">Record and signed manifest</option></select>`)}
+        <p class="export-note" data-show="prov-unsigned">This format gets the record only; signed manifests go into PNG and JPEG.</p>
+      `)}</div>
       <div data-show="color">${sectionHtml('Color Space', `
         ${check('convertSrgb', forced ? 'Convert to sRGB (required for this document)' : 'Convert to sRGB')}
         ${check('embedIcc', 'Embed color profile', 'icc')}
@@ -90,6 +94,8 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   const dims = dialog.querySelector<HTMLElement>('.export-dims')!,
     size = dialog.querySelector<HTMLElement>('.export-size')!;
   const [baseW, baseH] = [doc.width, doc.height];
+  // Provenance to attach (Preferences → Export sets the default).
+  let provenance: 'none' | 'record' | 'signed' = e.preferences.provenanceAttach;
 
   const write = () => {
     field<HTMLSelectElement>('format')!.value = s.format;
@@ -106,6 +112,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     field<HTMLInputElement>('convertSrgb')!.checked = forced || s.convertSrgb;
     field<HTMLInputElement>('convertSrgb')!.disabled = forced || !hasProfile;
     field<HTMLInputElement>('embedIcc')!.checked = s.embedIcc;
+    field<HTMLSelectElement>('provenance')!.value = provenance;
     syncSize();
   };
   const syncSize = () => {
@@ -129,6 +136,8 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     if (info.text) tags.add('text');
     if (s.format !== 'svg' && s.format !== 'ico') tags.add('color');
     if (info.icc) tags.add('icc');
+    if (['png', 'jpeg', 'webp', 'tiff'].includes(s.format)) tags.add('prov');
+    if (provenance === 'signed' && (s.format === 'webp' || s.format === 'tiff')) tags.add('prov-unsigned');
     for (const el of dialog.querySelectorAll<HTMLElement>('[data-show]')) el.hidden = !el.dataset.show!.split(' ').some((t) => tags.has(t));
     for (const o of dialog.querySelectorAll<HTMLOutputElement>('output[data-for]')) o.value = field<HTMLInputElement>(o.dataset.for!)!.value;
   };
@@ -146,6 +155,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     s.metadata = field<HTMLSelectElement>('metadata')!.value as ExportSettings['metadata'];
     if (!forced && hasProfile) s.convertSrgb = field<HTMLInputElement>('convertSrgb')!.checked;
     s.embedIcc = field<HTMLInputElement>('embedIcc')!.checked;
+    provenance = field<HTMLSelectElement>('provenance')!.value as typeof provenance;
     const num = (name: string) => Number(field<HTMLInputElement>(name)!.value);
     const prev = outputSize(baseW, baseH, s);
     if (changed === 'outWidth' && num('outWidth') >= 1) Object.assign(s, { sizeMode: 'width', width: Math.min(8192, Math.round(num('outWidth'))) });
@@ -248,7 +258,11 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
         const out = await encode();
         saveSettings(s);
         const name = exportFileName(doc.info?.title?.trim() || doc.name, s.format);
-        const blob = bytesBlob(out.bytes, out.mime);
+        // The export is noted in the document's provenance record either way.
+        const { withProvenance } = await import('../provenance/export');
+        const [w, h] = outputSize(baseW, baseH, s);
+        const bytes = await withProvenance(e.session, out.bytes, name, provenance, { prompts: e.preferences.provenancePrompts, width: s.canvasWidth || w, height: s.canvasHeight || h });
+        const blob = bytesBlob(bytes, out.mime);
         close();
         if (puter) {
           // The picker never settles when dismissed, so it is not awaited.
@@ -260,7 +274,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
             .catch((error) => e.message(String(error instanceof Error ? error.message : error)));
         } else {
           download(blob, name);
-          e.message(`Exported ${name} (${formatBytes(out.bytes.length)})`);
+          e.message(`Exported ${name} (${formatBytes(bytes.length)})${provenance !== 'none' && bytes !== out.bytes ? ' with provenance' : ''}`);
           void emitAppEvent('export', e.session);
         }
       } catch (error) {

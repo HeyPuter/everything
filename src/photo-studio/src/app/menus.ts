@@ -16,6 +16,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
         'file.export-layers', 'file.export-animation', 'file.render-video', '-',
         'file.export-paths', 'file.export-color-lookup', 'file.export-data-sets',
       ] },
+      { label: 'Generate', id: 'file.generate', items: ['file.image-assets', 'file.download-image-assets'] },
       '-',
       'file.place-embedded', 'file.place-linked', 'file.place-linked-cloud', 'file.import-layers', 'file.import-layers-cloud',
       { label: 'Import', id: 'file.import', items: ['file.import-data-sets', 'file.import-video-frames'] },
@@ -23,7 +24,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       { label: 'Automate', id: 'file.automate', items: ['file.batch', 'file.pdf-presentation', 'file.batch-link', 'file.image-processor', '-', 'file.crop-straighten', '-', 'file.contact-sheet', '-', 'file.conditional-mode', 'file.fit-image', 'file.lens-correction-batch', 'file.merge-hdr', 'file.panorama'] },
       // Installed scripts follow the last separator (commands with menu "file.scripts").
       { label: 'Scripts', id: 'file.scripts', items: ['file.delete-empty-layers', '-', 'file.flatten-all-effects', 'file.flatten-all-masks', '-', 'file.script-events', '-', 'file.load-files-into-stack', 'file.statistics', '-', 'file.scripts-browse', 'file.scripts-browse-cloud', '-'] },
-      '-', 'file.package', '-', 'file.info', 'file.print', 'file.print-one-copy',
+      '-', 'file.package', '-', 'file.info', 'file.inspect-provenance', 'file.print', 'file.print-one-copy',
     ],
   },
   {
@@ -200,7 +201,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       ] },
       '-',
       { label: 'Panels', id: 'window.panels', items: [] },
-      'window.panel.scripts',
+      'window.panel.scripts', 'window.panel.libraries', 'window.panel.provenance',
       '-', 'window.options-bar', 'window.tools-panel', 'window.contextual-taskbar', '-',
       { label: 'Documents', id: 'window.documents', items: [] },
       '-', { label: 'Theme', id: 'window.theme', items: [] },
