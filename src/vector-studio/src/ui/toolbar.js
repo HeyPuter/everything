@@ -12,11 +12,12 @@ import { commonStyle, swapFillStroke, defaultFillStroke, setFocusedPaint } from 
 
 /** Toolbar layout: sections of groups of tool ids (first is the default). */
 export const TOOL_LAYOUT = [
-  { label: 'Select', groups: [['selection'], ['direct-selection', 'group-selection'], ['magic-wand', 'lasso']] },
+  { label: 'Select', groups: [['selection'], ['direct-selection', 'group-selection'], ['magic-wand'], ['lasso']] },
   {
     label: 'Draw',
     groups: [
-      ['pen', 'add-anchor', 'delete-anchor', 'anchor-point', 'curvature'],
+      ['pen', 'add-anchor', 'delete-anchor', 'anchor-point'],
+      ['curvature'],
       ['sketch-shape', 'pencil', 'smooth', 'path-eraser', 'join'],
       ['paintbrush', 'blob-brush'],
     ],
@@ -80,9 +81,84 @@ export function createToolbar(app) {
     if (flyout && !flyout.contains(e.target)) closeFlyout();
   };
 
+  const tearoffs = new Set();
+
+  /** A floating strip of the tools `ids`, at (x, y) in the viewport. */
+  const tearOff = (ids, x = 80, y = 80) => {
+    closeFlyout();
+    const first = app.toolClasses.get(ids[0]);
+    const name = `${first.label.replace(' Tool', '')} tools`;
+    const strip = h('div.tool-tearoff', { role: 'toolbar', 'aria-label': name, 'aria-orientation': 'horizontal' });
+    const btns = ids.map((id) => {
+      const cls = app.toolClasses.get(id);
+      const b = h('button.tool-btn', { type: 'button', 'aria-label': cls.label, 'aria-pressed': String(app.toolId === id), 'data-tip': tipFor(cls), tabindex: '-1', onclick: () => app.setTool(id), ondblclick: () => app.tool?.openOptions?.() }, icon(cls.icon, 20));
+      b._id = id;
+      return b;
+    });
+    (btns.find((b) => b._id === app.toolId) || btns[0]).tabIndex = 0;
+    const grip = h('div.tearoff-grip', { 'aria-hidden': 'true', title: 'Drag to move' }, icon('grip', 12));
+    const flip = h('button.tearoff-mini', { type: 'button', 'aria-label': 'Toggle orientation', 'data-tip': 'Horizontal or vertical', onclick: () => {
+      const vertical = strip.classList.toggle('vertical');
+      strip.setAttribute('aria-orientation', vertical ? 'vertical' : 'horizontal');
+      place(strip.offsetLeft, strip.offsetTop);
+    } }, icon('arrow-left-right', 12));
+    const close = h('button.tearoff-mini', { type: 'button', 'aria-label': `Close ${name}`, 'data-tip': 'Close', onclick: () => remove() }, icon('x', 12));
+    const head = h('div.tearoff-head', grip);
+    strip.append(head, h('div.tearoff-tools', btns), h('div.tearoff-ctrls', flip, close));
+    const place = (left, top) => {
+      strip.style.left = `${Math.max(0, Math.min(window.innerWidth - strip.offsetWidth, left))}px`;
+      strip.style.top = `${Math.max(0, Math.min(window.innerHeight - strip.offsetHeight, top))}px`;
+    };
+    const remove = () => {
+      strip.remove();
+      tearoffs.delete(entry);
+      groupButtons.find((b) => b._ids.includes(ids[0]))?.focus();
+    };
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      e.preventDefault();
+      const start = { x: e.clientX, y: e.clientY, left: strip.offsetLeft, top: strip.offsetTop };
+      try {
+        head.setPointerCapture(e.pointerId);
+      } catch {
+        // Synthetic pointers cannot be captured.
+      }
+      const move = (ev) => place(start.left + ev.clientX - start.x, start.top + ev.clientY - start.y);
+      const up = () => {
+        head.removeEventListener('pointermove', move);
+        head.removeEventListener('pointerup', up);
+      };
+      head.addEventListener('pointermove', move);
+      head.addEventListener('pointerup', up);
+    });
+    strip.addEventListener('keydown', (e) => {
+      const i = btns.indexOf(document.activeElement);
+      const vertical = strip.classList.contains('vertical');
+      const next = { [vertical ? 'ArrowDown' : 'ArrowRight']: 1, [vertical ? 'ArrowUp' : 'ArrowLeft']: -1 }[e.key];
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        app.canvasHost?.focus();
+        return;
+      }
+      if (i < 0 || !next) return;
+      e.preventDefault();
+      e.stopPropagation();
+      btns.forEach((b) => (b.tabIndex = -1));
+      const b = btns[(i + next + btns.length) % btns.length];
+      b.tabIndex = 0;
+      b.focus();
+    });
+    const entry = { strip, btns, ids };
+    tearoffs.add(entry);
+    document.body.append(strip);
+    place(x, y);
+    return strip;
+  };
+
   const tipFor = (cls) => (cls.shortcut ? `${cls.label} (${formatShortcut(cls.shortcut)})` : cls.label);
 
-  const openFlyout = (btn, ids, focusFirst = true) => {
+  const openFlyout = (btn, ids, focusFirst = true, allTools = false) => {
     closeFlyout();
     const r = btn.getBoundingClientRect();
     flyout = h('div.tool-flyout', { role: 'menu', 'aria-label': `${app.toolClasses.get(ids[0]).label.replace(' Tool', '')} tools` });
@@ -122,6 +198,28 @@ export function createToolbar(app) {
         h('span.flyout-shortcut', cls.shortcut ? formatShortcut(cls.shortcut) : ''),
       );
       flyout.append(item);
+    }
+    if (ids.length > 1 && !allTools) {
+      flyout.append(
+        h('button.flyout-item.flyout-tearoff', {
+          type: 'button',
+          role: 'menuitem',
+          tabindex: '-1',
+          onclick: () => tearOff(ids, r.right + 4, r.top),
+          onkeydown: (e) => {
+            if (e.key === 'Escape' || e.key === 'ArrowLeft') {
+              e.preventDefault();
+              closeFlyout();
+              btn.focus();
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              const items = [...flyout.querySelectorAll('.flyout-item')];
+              items[e.key === 'ArrowDown' ? 0 : items.length - 2].focus();
+            }
+            e.stopPropagation();
+          },
+        }, icon('app-window', 16), h('span.flyout-label', 'Tear Off as Floating Tools'), h('span.flyout-shortcut', '')),
+      );
     }
     document.body.append(flyout);
     const fw = flyout.offsetWidth;
@@ -237,7 +335,7 @@ export function createToolbar(app) {
 
   const openAllTools = (btn) => {
     const ids = [...app.toolClasses.keys()];
-    openFlyout(btn, ids);
+    openFlyout(btn, ids, true, true);
     flyout?.classList.add('all-tools');
   };
 
@@ -280,6 +378,7 @@ export function createToolbar(app) {
       btn.setAttribute('aria-pressed', String(active));
       btn.classList.toggle('active', active);
     }
+    for (const t of tearoffs) for (const b of t.btns) b.setAttribute('aria-pressed', String(b._id === app.toolId));
   };
 
   const refreshPaint = () => {
@@ -315,5 +414,5 @@ export function createToolbar(app) {
     }
   };
 
-  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list };
+  return { el, refreshTool, refreshPaint, refreshTips, closeFlyout, rebuild, list, tearOff };
 }

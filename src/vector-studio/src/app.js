@@ -611,7 +611,8 @@ export class App extends Emitter {
       defaultFillStroke(ed);
       return;
     }
-    if ((k === ',' || k === '.' || k === '/') && !e.shiftKey && !e.altKey) {
+    // Comma and period work with or without Shift (the keys are labeled < and >).
+    if ((k === ',' || k === '.' || (k === '/' && !e.shiftKey)) && !e.altKey) {
       e.preventDefault();
       setFocusedPaint(ed, k === ',' ? 'color' : k === '.' ? 'gradient' : 'none');
       return;
