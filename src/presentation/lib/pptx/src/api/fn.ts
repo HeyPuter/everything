@@ -52,6 +52,14 @@ export * from "./fn/shape-click-action.ts";
 export * from "./fn/shape-image-effects.ts";
 export * from "./fn/shape-animation.ts";
 
+// Inserted objects: media, vector pictures, actions, embeddings, footers
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
+
 // Slide features
 export * from "./fn/slide-background.ts";
 export * from "./fn/color-map.ts";

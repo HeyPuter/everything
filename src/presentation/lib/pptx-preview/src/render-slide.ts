@@ -40,6 +40,7 @@ import { formatFixedChartNumber } from "./chart-number-format.ts";
 import { PATTERN_CELL_PERIOD, nativePatternPaths } from "./pattern-cells.ts";
 import { resolveGeometryArc } from "../../pptx/src/internal/drawingml/geometry-arc.ts";
 import { bytesToBase64 } from "./base64.ts";
+import { getShapeEmbeddedObjectPreview } from "../../pptx/src/api/fn/ole-object.ts";
 import { detectImageFormat as detectImageFormatLocal } from "../../pptx/src/internal/opc/image-format.ts";
 import { isShapeHidden } from "../../pptx/src/index.ts";
 import { templateShapes } from "./template-shapes.ts";
@@ -11185,6 +11186,12 @@ const renderShape = (
       );
       if (tableSvg) return tableSvg;
     }
+    // An embedded object draws as its icon or preview picture.
+    const objectPreview = getShapeEmbeddedObjectPreview(shape);
+    const objectFormat = objectPreview && detectImageFormatLocal(objectPreview);
+    const objectMime = objectFormat && imageMime[objectFormat];
+    if (objectPreview && objectMime)
+      return `<g data-pptx-object="ole"${transform}><image x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" preserveAspectRatio="none" href="data:${objectMime};base64,${bytesToBase64(objectPreview)}"/>${textOverlay}</g>`;
     let label = diagramFailure
       ? "SmartArt (unsupported layout)"
       : "graphicFrame";
