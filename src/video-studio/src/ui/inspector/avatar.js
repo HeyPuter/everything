@@ -52,7 +52,7 @@ function lookSections(view) {
   });
   return [
     propSection('Presenter', [chars.el]),
-    propSection('Look', [row('Framing', framing.el), h('div.field', h('span.field-label', 'Background'), bg.el), row('Position', pos.el)]),
+    propSection('Look', [h('div.field', h('span.field-label', 'Framing'), framing.el), h('div.field', h('span.field-label', 'Background'), bg.el), row('Position', pos.el)]),
   ];
 }
 
