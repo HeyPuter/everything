@@ -61,6 +61,22 @@ export class Panel {
   }
 }
 
+/**
+ * Fill a list or listbox: its items, or (when there are none) a message.
+ * The list role, name and selection mode apply only while it has items: an
+ * empty list is not valid ARIA, so the message stands on its own instead.
+ */
+export function setListItems(list, items, ...message) {
+  if (!('listRole' in list.dataset)) {
+    for (const [k, a] of [['listRole', 'role'], ['listLabel', 'aria-label'], ['listMulti', 'aria-multiselectable']]) list.dataset[k] = list.getAttribute(a) || '';
+  }
+  for (const [k, a] of [['listRole', 'role'], ['listLabel', 'aria-label'], ['listMulti', 'aria-multiselectable']]) {
+    if (items.length && list.dataset[k]) list.setAttribute(a, list.dataset[k]);
+    else list.removeAttribute(a);
+  }
+  list.replaceChildren(...(items.length ? items : message));
+}
+
 /** Empty-state message used by panels when there is no document. */
 export function emptyState(text) {
   return h('p.panel-empty', text);

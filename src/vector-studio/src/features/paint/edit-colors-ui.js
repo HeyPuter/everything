@@ -198,7 +198,7 @@ export async function recolorDialog(app, preset = {}) {
     return {
       color,
       input,
-      el: h('div.rc-row', h('span.rc-chip', { style: { background: color }, 'aria-hidden': 'true' }), h('span.rc-hex', color.toUpperCase()), h('span.rc-count.muted', `${count}`), h('span.rc-arrow', { 'aria-hidden': 'true' }, '→'), input, reset),
+      el: h('div.rc-row', { role: 'listitem' }, h('span.rc-chip', { style: { background: color }, 'aria-hidden': 'true' }), h('span.rc-hex', color.toUpperCase()), h('span.rc-count.muted', `${count}`), h('span.rc-arrow', { 'aria-hidden': 'true' }, '→'), input, reset),
     };
   });
   const hue = slider('Hue Shift', -180, 180, 0);

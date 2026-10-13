@@ -8,6 +8,7 @@
  * document edits.
  */
 import { h } from '../../lib/dom.js';
+import { setListItems } from '../../ui/panels/panel.js';
 import { layoutText, selectionPolygons } from '../../model/text-layout.js';
 import { replaceRange, styleAt } from '../../model/text-runs.js';
 import { canSpellCheck } from '../../model/languages.js';
@@ -209,7 +210,7 @@ export async function openCheckSpelling(app) {
   const ed = app.editor;
   if (!ed) return;
   const status = h('p.sp-status', { role: 'status', 'aria-live': 'polite' }, 'Loading the dictionary\u2026');
-  const context = h('p.sp-context', { 'aria-label': 'Word in context' });
+  const context = h('p.sp-context', { role: 'status', 'aria-label': 'Word in context' });
   const changeTo = h('input#sp-change', { type: 'text', autocomplete: 'off', spellcheck: false });
   const list = h('div.sp-suggestions', { role: 'listbox', 'aria-label': 'Suggestions', tabindex: '0' });
   const hasSel = Boolean((app.typeSession && !app.typeSession.ended) || selectedTextNodes(ed).length);
@@ -441,7 +442,7 @@ export function openCustomDictionary(app) {
     const q = entry.value.trim().toLowerCase();
     const all = words();
     const shown = all.filter((w) => !q || w.toLowerCase().includes(q));
-    list.replaceChildren(...(shown.length ? shown.map((w) => h('div.cd-item', { role: 'option', 'aria-selected': String(w === selected), 'data-word': w }, w)) : [h('p.panel-empty', all.length ? 'No words match.' : 'No words yet. Type a word and choose Add.')]));
+    setListItems(list, shown.map((w) => h('div.cd-item', { role: 'option', 'aria-selected': String(w === selected), 'data-word': w }, w)), h('p.panel-empty', all.length ? 'No words match.' : 'No words yet. Type a word and choose Add.'));
     bDelete.disabled = !selected;
     bChange.disabled = !selected || !entry.value.trim() || entry.value.trim() === selected;
     bAdd.disabled = !entry.value.trim() || all.includes(entry.value.trim());

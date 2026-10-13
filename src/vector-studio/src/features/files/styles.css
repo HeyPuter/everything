@@ -133,6 +133,11 @@
   font-size: var(--fs-sm);
 }
 
+/* Secondary text on a selected card keeps its contrast against the highlight. */
+.newdoc-card[aria-selected='true'] .newdoc-card-size {
+  color: var(--text-2);
+}
+
 .newdoc-empty {
   grid-column: 1 / -1;
   margin: 24px 0;

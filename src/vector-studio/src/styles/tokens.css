@@ -111,8 +111,8 @@
   --bg-elev: #575757;
   --bg-input: #3a3a3a;
   --bg-hover: rgba(255, 255, 255, 0.08);
-  --bg-active: rgba(255, 255, 255, 0.15);
-  --bg-selected: rgba(110, 160, 255, 0.3);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --bg-selected: rgba(110, 160, 255, 0.22);
   --border: #5e5e5e;
   --border-strong: #737373;
   --text: #f4f4f4;

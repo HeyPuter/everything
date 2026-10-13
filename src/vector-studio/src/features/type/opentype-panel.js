@@ -79,7 +79,6 @@ export function buildOpenTypeControls(app) {
       'button.ot-toggle',
       {
         type: 'button',
-        'aria-label': label,
         'aria-pressed': 'false',
         'data-tip': label,
         'data-key': key,
@@ -88,14 +87,17 @@ export function buildOpenTypeControls(app) {
           apply({ [key]: !on }, label);
         },
       },
+      // The sample shows the feature; the hidden text names the button.
       h('span.ot-sample', { 'aria-hidden': 'true', style: `font-feature-settings: ${previewCss(tags)}` }, sample),
+      h('span.sr-only', label),
     );
     return { b, key, label, tags, def };
   });
   const setsBtn = h(
     'button.ot-toggle.ot-sets',
-    { type: 'button', 'aria-label': 'Stylistic Sets', 'aria-haspopup': 'menu', 'data-tip': 'Stylistic Sets', onclick: () => openSets() },
+    { type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'Stylistic Sets', onclick: () => openSets() },
     h('span.ot-sample', { 'aria-hidden': 'true' }, 'ss'),
+    h('span.sr-only', 'Stylistic Sets'),
     icon('chevron-down', 10),
   );
   const openSets = () => {

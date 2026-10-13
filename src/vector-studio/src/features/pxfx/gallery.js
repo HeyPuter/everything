@@ -214,12 +214,14 @@ export async function openGallery(app, { params = null, edit = null, focus = nul
     list.replaceChildren();
     stack.forEach((l, i) => {
       const f = FILTER.get(l.filter);
-      const eye = h('button.icon-btn.pxg-eye', { type: 'button', tabindex: '-1', 'aria-label': l.hidden ? `Show ${f.label}` : `Hide ${f.label}`, 'aria-pressed': String(!l.hidden), onclick: (e) => (e.stopPropagation(), toggle(i)) }, icon(l.hidden ? 'eye-off' : 'eye', 14));
+      // The eye is a pointer target inside the option (Space toggles it from the keyboard).
+      const eye = h('span.icon-btn.pxg-eye', { 'aria-hidden': 'true', 'data-tip': l.hidden ? `Show ${f.label}` : `Hide ${f.label}`, onclick: (e) => (e.stopPropagation(), toggle(i)) }, icon(l.hidden ? 'eye-off' : 'eye', 14));
       const row = h(
         'li.pxg-layer',
         { id: `${id}-l${i}`, role: 'option', 'aria-selected': String(i === sel), draggable: 'true', dataset: { index: String(i) }, onclick: () => select(i) },
         eye,
         h(`span.pxg-layer-name${l.hidden ? '.off' : ''}`, f.label),
+        l.hidden ? h('span.sr-only', ' (hidden)') : null,
       );
       row.addEventListener('dragstart', (e) => {
         e.dataTransfer?.setData('text/plain', String(i));

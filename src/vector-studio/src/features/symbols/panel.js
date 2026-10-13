@@ -9,7 +9,7 @@
  * panel to make a symbol.
  */
 import { h } from '../../lib/dom.js';
-import { Panel } from '../../ui/panels/panel.js';
+import { Panel, setListItems } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { symbolDefs, instancesOf, onPage, getDef, editingStack, symbolStore } from './model.js';
 import { symbolThumb, pruneThumbs } from './thumbs.js';
@@ -121,7 +121,7 @@ export class SymbolsPanel extends Panel {
     const ed = this.editor;
     this.list.className = `sym-list view-${this.view}`;
     if (!ed) {
-      this.list.replaceChildren(h('p.panel-empty', 'No document'));
+      setListItems(this.list, [], h('p.panel-empty', 'No document'));
       this.count.textContent = '';
       this.refreshButtons();
       return;
@@ -137,9 +137,11 @@ export class SymbolsPanel extends Panel {
     const counts = new Map();
     if (this.view === 'large') for (const n of instancesOf(doc)) if (onPage(doc, n.id)) counts.set(n.symbol, (counts.get(n.symbol) || 0) + 1);
     const items = shown.map((d) => this.item(d, st.selected.has(d.id), used.has(d.id), editing.has(d.id), counts.get(d.id) || 0));
-    this.list.replaceChildren(...items);
-    if (!defs.length) this.list.append(h('p.panel-empty.sym-empty', 'No symbols yet. Select artwork and choose New Symbol, drag artwork here, or place one from a library.'));
-    else if (!items.length) this.list.append(h('p.panel-empty', 'No symbols match.'));
+    setListItems(
+      this.list,
+      items,
+      !defs.length ? h('p.panel-empty.sym-empty', 'No symbols yet. Select artwork and choose New Symbol, drag artwork here, or place one from a library.') : h('p.panel-empty', 'No symbols match.'),
+    );
     const focusId = st.current && shown.some((d) => d.id === st.current) ? st.current : shown[0]?.id;
     const focusEl = focusId ? this.list.querySelector(`[data-id="${CSS.escape(focusId)}"]`) : null;
     if (focusEl) focusEl.tabIndex = 0;

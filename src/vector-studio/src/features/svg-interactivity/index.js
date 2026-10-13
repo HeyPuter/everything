@@ -9,7 +9,7 @@
  *   root.svgScript   'code'          a script embedded in the SVG
  */
 import { h } from '../../lib/dom.js';
-import { Panel, emptyState } from '../../ui/panels/panel.js';
+import { Panel, emptyState, setListItems } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { registerIcons } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
@@ -86,21 +86,21 @@ export class SvgInteractivityPanel extends Panel {
     this.addBtn.disabled = !node;
     this.code.disabled = !node;
     this.scriptsBtn.disabled = !ed;
-    if (!ed) return this.list.replaceChildren(emptyState('Open a document to add interactivity.'));
-    if (!node) return this.list.replaceChildren(emptyState('Select one object to give it event handlers for SVG export.'));
+    if (!ed) return setListItems(this.list, [], emptyState('Open a document to add interactivity.'));
+    if (!node) return setListItems(this.list, [], emptyState('Select one object to give it event handlers for SVG export.'));
     const entries = Object.entries(node.svgEvents || {}).filter(([, v]) => v);
-    this.list.replaceChildren(
-      ...(entries.length
-        ? entries.map(([name, code]) =>
-            h(
-              'div.svgi-item',
-              { role: 'listitem' },
-              h('button.svgi-name', { type: 'button', 'aria-label': `Edit ${name}`, onclick: () => ((this.eventSel.value = name), (this.code.value = code), this.code.focus()) }, name),
-              h('code.svgi-snippet', code),
-              iconButton('trash', `Remove ${name}`, () => this.setEvent(name, ''), { className: 'small' }),
-            ),
-          )
-        : [h('p.panel-empty', 'No events. Choose an event, type JavaScript and Set Event.')]),
+    setListItems(
+      this.list,
+      entries.map(([name, code]) =>
+        h(
+          'div.svgi-item',
+          { role: 'listitem' },
+          h('button.svgi-name', { type: 'button', 'aria-label': `Edit ${name}`, onclick: () => ((this.eventSel.value = name), (this.code.value = code), this.code.focus()) }, name),
+          h('code.svgi-snippet', code),
+          iconButton('trash', `Remove ${name}`, () => this.setEvent(name, ''), { className: 'small' }),
+        ),
+      ),
+      h('p.panel-empty', 'No events. Choose an event, type JavaScript and Set Event.'),
     );
   }
 

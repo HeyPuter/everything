@@ -8,7 +8,7 @@
  * (`altGlyph`), so the text stays searchable and spell-checkable.
  */
 import { h } from '../../lib/dom.js';
-import { Panel } from '../../ui/panels/panel.js';
+import { Panel, setListItems } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { allFamilies, familyFaces, styleName, otFontFor, fontEvents } from './fonts.js';
 import { currentCharStyle, session, MIXED } from './type-ops.js';
@@ -343,17 +343,14 @@ export class GlyphsPanel extends Panel {
     const font = this.font;
     this.observer?.disconnect();
     if (!font) {
-      this.grid.replaceChildren(h('p.panel-empty', this.app.editor ? 'No font' : 'No document'));
+      setListItems(this.grid, [], h('p.panel-empty', this.app.editor ? 'No font' : 'No document'));
       this.altRow.replaceChildren();
       this.renderRecent();
       return;
     }
     const list = this.glyphList();
     const cells = list.map((g) => this.cell(g));
-    this.grid.replaceChildren(...cells);
-    if (!cells.length) {
-      this.grid.append(h('p.panel-empty', this.filter === 'alternates' ? 'Select characters in type to see their alternates.' : 'No glyphs in this category.'));
-    }
+    setListItems(this.grid, cells, h('p.panel-empty', this.filter === 'alternates' ? 'Select characters in type to see their alternates.' : 'No glyphs in this category.'));
     const focusCell = (this.focus != null && this.grid.querySelector(`[data-glyph="${this.focus}"]`)) || cells[0];
     if (focusCell) focusCell.tabIndex = 0;
     // Draw cells as they scroll into view (fonts can have thousands of glyphs).

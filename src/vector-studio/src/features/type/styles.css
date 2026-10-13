@@ -425,7 +425,7 @@ input.just-input {
 }
 
 .ot-toggle.unavailable .ot-sample {
-  opacity: 0.4;
+  color: var(--text-2);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }

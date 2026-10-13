@@ -63,8 +63,14 @@
   background: var(--bg-input);
 }
 
-.sep-list.off {
+/* Preview off: the plates dim, their names stay readable. */
+.sep-list.off .sep-chip,
+.sep-list.off .sep-eye {
   opacity: 0.6;
+}
+
+.sep-list.off {
+  color: var(--text-2);
 }
 
 .sep-row {

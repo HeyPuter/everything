@@ -298,7 +298,7 @@ export async function saveForWebDialog(app, editor) {
   const tabs = ['original', 'optimized', '2up'].map((m) => h('button.sfw-tab', { type: 'button', role: 'tab', 'aria-selected': String(m === mode), onclick: () => setMode(m) }, { original: 'Original', optimized: 'Optimized', '2up': '2-Up' }[m]));
   const zoomSel = h('select', { 'aria-label': 'Preview zoom' }, [['fit', 'Fit'], ['0.5', '50%'], ['1', '100%'], ['2', '200%']].map(([v, l]) => h('option', { value: v }, l)));
   const panes = h('div.sfw-panes');
-  const scroller = h('div.sfw-preview', { tabindex: '0', 'aria-label': 'Preview (click a slice to select it)' }, panes);
+  const scroller = h('div.sfw-preview', { tabindex: '0', role: 'region', 'aria-label': 'Preview (click a slice to select it)' }, panes);
   const infoL = h('p.sfw-info');
   const infoR = h('p.sfw-info');
 

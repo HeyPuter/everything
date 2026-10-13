@@ -119,6 +119,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.hp-row[aria-selected='true'] .hp-time {
+  color: var(--text-2);
+}
+
 .hp-status {
   margin: 0;
   padding: 4px 10px;

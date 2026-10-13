@@ -102,7 +102,7 @@ export async function presetsManagerDialog(app, kind) {
     ...Object.entries(user).filter(([n]) => !k.builtins?.[n]).sort(([a], [b]) => a.localeCompare(b)).map(([name, values]) => ({ name, values: k.normalize(values), builtin: false })),
   ];
   const list = h('ul.pp-preset-list', { role: 'listbox', tabindex: '0', 'aria-label': `${k.noun}s` });
-  const summary = h('dl.pp-summary', { 'aria-live': 'polite' });
+  const summary = h('dl.pp-summary', { 'aria-live': 'polite', tabindex: '0' });
   const btn = (label, iconName, onclick) => h('button.btn.small', { type: 'button', onclick }, iconName ? icon(iconName, 14) : null, label);
   const editBtn = btn('Edit…', 'pencil', () => edit(false));
   const delBtn = btn('Delete', 'trash', () => {
