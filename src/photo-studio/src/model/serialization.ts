@@ -13,6 +13,7 @@ import { isVectorPattern } from './vector-pattern';
 import { packGrid, tilePackMimeType, unpackGrid, type TileGrid } from './tiles';
 import { validDocumentPatterns, validLayerFill } from './fill-layer';
 import { validateAnnotations } from './annotations';
+import { validateComments } from '../collab/comments';
 import { validateAnimation } from './animation';
 import { validateTimeline } from './video-timeline';
 import { validateVideoLayer } from './video-layer';
@@ -31,6 +32,10 @@ import { validateBlending } from './blending';
 // in place of the live tile map.
 type PackedRef = { pack: string };
 const maxLayers = 1000;
+/** Data kept beside a document's history that its saved project includes
+ * (review comments), by the session's asset store; given the document being
+ * saved, so documents made from it (embedded contents) do not take it along. */
+export const projectExtras = new WeakMap<Assets, (doc: PhotoDocument) => Record<string, unknown>>();
 // A portable binary bundle: magic, JSON byte length, metadata, then original image blobs.
 const magic = new TextEncoder().encode("PHOTO001");
 export async function serialize(
@@ -39,6 +44,7 @@ export async function serialize(
 ): Promise<Blob> {
   const packs = new Map<string, Blob>();
   const doc = structuredClone(live);
+  for (const [k, v] of Object.entries(projectExtras.get(assets)?.(live) ?? {})) (doc as unknown as Record<string, unknown>)[k] = v;
   const pack = async (grid: TileGrid): Promise<PackedRef> => {
     const id = crypto.randomUUID();
     packs.set(id, await packGrid(assets.tiles, grid));
@@ -190,6 +196,7 @@ export function validateDocument(value: unknown): PhotoDocument {
     throw new Error("Invalid selection.");
   validateDocumentPaths(doc.paths, doc.workPath);
   validateAnnotations(doc.annotations);
+  validateComments((doc as { comments?: unknown }).comments);
   const ids = new Set<string>();
   let count = 0;
   const walk = (layers: PhotoDocument["layers"], depth: number) => {

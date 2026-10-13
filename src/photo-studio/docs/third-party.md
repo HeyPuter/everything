@@ -9,6 +9,9 @@ Nothing here is a legal opinion; entries marked **Review** need a human check.
 | ag-psd | 31.0.2 | PSD/PSB read and write | https://github.com/Agamnentzar/ag-psd | MIT | Loaded on demand |
 | lucide | ^0.468.0 | Interface icons | https://lucide.dev | ISC (portions MIT from Feather) | |
 | pako | 2.1.0 | Deflate for PSD/project data | https://github.com/nodeca/pako | MIT AND Zlib | |
+| yjs | 13.6.33 | Shared documents (merging concurrent edits, per-person Undo) and the room worker | https://github.com/yjs/yjs | MIT | Loaded on demand; bundled into `public/worker/photo-studio-worker.js` |
+| lib0 | 0.2.119 | Encoding helpers used by yjs | https://github.com/dmonad/lib0 | MIT | Dependency of yjs |
+| isomorphic.js | 0.2.5 | Platform shims used by lib0 | https://github.com/dmonad/isomorphic.js | MIT | Dependency of lib0 |
 | pathkit-wasm | 1.0.0 | Vector path booleans and stroking | https://skia.org | BSD-3-Clause | Loaded on demand |
 | png (Rust crate) | 0.17 | Lossless PNG encoding in Wasm | https://crates.io/crates/png | MIT OR Apache-2.0 | |
 | Inter (font) | 4.001 | Bundled typeface (sans serif), variable 100-900 + italic | https://github.com/rsms/inter (via https://github.com/google/fonts/tree/main/ofl/inter) | OFL-1.1 (no Reserved Font Name) | Latin subset, opsz pinned to 14; WOFF2 for display, WOFF for outlines; `public/fonts/inter/OFL.txt`; 338 KB |

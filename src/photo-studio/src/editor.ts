@@ -293,7 +293,7 @@ export class Editor {
     return findLayer(this.doc.layers, this.selected);
   }
   get dirty() {
-    return this.hasDocument && (this.doc !== this.saved || this.transform.changed);
+    return this.hasDocument && (this.doc !== this.saved || this.session.unsavedExtras || this.transform.changed);
   }
   get activeTool() {
     return tools.get(this.tool);

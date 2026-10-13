@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && npm run build:worker && vite build",
+    "build:worker": "vite build --config vite.worker.config.ts",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "wasm:build": "cargo build --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown --release && cp wasm/target/wasm32-unknown-unknown/release/photo_engine.wasm public/photo-engine.wasm",
@@ -19,7 +20,8 @@
     "ag-psd": "31.0.2",
     "lucide": "^0.468.0",
     "pako": "2.1.0",
-    "pathkit-wasm": "1.0.0"
+    "pathkit-wasm": "1.0.0",
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
