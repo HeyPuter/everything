@@ -88,6 +88,33 @@ describe('audio mix', () => {
     expect(envelopePoints(item)).toEqual([[0, 0], [0.5, 1], [1, 1], [2, 0]]);
   });
 
+  it('gives playback corners that trace the mixed envelope, also when the fades overlap', () => {
+    const lerp = (pts: [number, number][], t: number) => {
+      for (let i = 1; i < pts.length; i++) {
+        const [t0, g0] = pts[i - 1],
+          [t1, g1] = pts[i];
+        if (t <= t1) return t1 === t0 ? g1 : g0 + ((g1 - g0) * (t - t0)) / (t1 - t0);
+      }
+      return pts.at(-1)![1];
+    };
+    for (const p of [
+      { gain: 1, fadeIn: 0.5, fadeOut: 1, length: 2 },
+      { gain: 0.8, fadeIn: 1.5, fadeOut: 1.5, length: 2 },
+      { gain: 1, fadeIn: 2, fadeOut: 0.5, length: 2 },
+      { gain: 1, fadeIn: 0.3, fadeOut: 2, length: 2 },
+      { gain: 0.5, fadeIn: 0, fadeOut: 0, length: 2 },
+    ]) {
+      const pts = envelopePoints(p);
+      for (let t = 0; t <= 2; t += 0.01) expect(Math.abs(lerp(pts, t) - envelopeAt(p, t))).toBeLessThan(1e-9);
+      // The offline mix follows the same curve.
+      const doc = docWith([{ clips: [clip('a', 0, 2, { fadeIn: p.fadeIn || undefined, fadeOut: p.fadeOut || undefined, gain: 20 * Math.log10(p.gain) })] }]);
+      const [l] = mix(doc, { a: dc(1) }, 0, 2);
+      for (let i = 0; i < 2000; i += 37) expect(Math.abs(l[i] - envelopeAt(p, i / SR))).toBeLessThan(1e-5);
+    }
+    // Overlapping fades cross where the ramps meet.
+    expect(envelopeAt({ gain: 1, fadeIn: 1.5, fadeOut: 1.5, length: 2 }, 1)).toBeCloseTo(2 / 3, 9);
+  });
+
   it('sums overlapping clips and tracks', () => {
     const doc = docWith([{ clips: [clip('a', 0, 2), clip('b', 1, 2)] }, { clips: [clip('c', 1.5, 1)] }]);
     const [l] = mix(doc, { a: dc(0.1), b: dc(0.2), c: dc(0.4) });

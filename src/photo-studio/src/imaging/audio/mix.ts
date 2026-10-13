@@ -1,10 +1,10 @@
 // Offline audio mixing: sums the clips of a mix plan (model/audio-timeline)
 // into planar float channels, sample accurately. Times are rounded to whole
 // samples at the output rate; sources are read at their own rate (linearly
-// interpolated when it differs). Fades are linear ramps of the gain, the
-// same shape the live playback schedules with Web Audio. Surround sources
+// interpolated when it differs). Fades are linear ramps of the gain
+// (`fadeShape`), the same shape the live playback schedules with Web Audio. Surround sources
 // are folded down to stereo (`downmixGains`), as playback does too.
-import { envelopeAt, type PlanItem } from '../../model/audio-timeline';
+import { envelopeAt, fadeShape, type PlanItem } from '../../model/audio-timeline';
 
 /** Decoded audio: planar channels at a sample rate. */
 export type Pcm = { sampleRate: number; channels: Float32Array[] };
@@ -89,9 +89,7 @@ function mixItem(out: Float32Array[], item: PlanItem, pcm: Pcm, from: number, sa
       if (gains[c][k]) mixChannel(out[c], pcm.channels[k], item.gain * gains[c][k]);
   function mixChannel(dst: Float32Array, src: Float32Array, gain: number) {
     for (let i = first; i < last; i++) {
-      let g = gain;
-      if (fi > 0 && i < fi) g *= i / fi;
-      if (fo > 0 && i > n - fo) g *= (n - i) / fo;
+      const g = gain * fadeShape(i, fi, fo, n);
       if (g === 0) continue;
       let v: number;
       if (same) {

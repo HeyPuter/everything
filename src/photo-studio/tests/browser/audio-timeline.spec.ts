@@ -343,7 +343,8 @@ test.describe('audio tracks', () => {
       const [t1, t2] = e.doc.timeline!.audio!;
       await e.runCommand('timeline.audio-set', { clip: t1.clips[0].id, gain: -6, fadeIn: 0.25, fadeOut: 0.5 });
       await e.runCommand('timeline.audio-set', { track: t2.id, volume: -9.5 });
-      await e.runCommand('timeline.audio-set', { clip: t2.clips[0].id, fadeOut: 1 });
+      // Overlapping fades on the 2 s clip: they meet where the ramps cross.
+      await e.runCommand('timeline.audio-set', { clip: t2.clips[0].id, fadeIn: 1.4, fadeOut: 1.5 });
     }, toneWav());
     await idle(page);
     const diff = await page.evaluate(async () => {

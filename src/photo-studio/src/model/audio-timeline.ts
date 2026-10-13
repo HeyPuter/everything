@@ -206,18 +206,27 @@ export function audioPlan(doc: PhotoDocument): PlanItem[] {
   return out;
 }
 
-/** Gain of a plan item at `t` seconds into the clip (fades are linear). */
+/** Fraction of the gain `t` seconds into a clip: linear fades, and fades
+ * that overlap meet where their ramps cross (the lower ramp applies). */
+export function fadeShape(t: number, fadeIn: number, fadeOut: number, length: number) {
+  let f = 1;
+  if (fadeIn > 0 && t < fadeIn) f = t / fadeIn;
+  if (fadeOut > 0 && t > length - fadeOut) f = Math.min(f, (length - t) / fadeOut);
+  return f;
+}
+/** Gain of a plan item at `t` seconds into the clip (see `fadeShape`). */
 export function envelopeAt(p: Pick<PlanItem, 'gain' | 'fadeIn' | 'fadeOut' | 'length'>, t: number) {
   if (t < 0 || t > p.length) return 0;
-  let g = p.gain;
-  if (p.fadeIn > 0 && t < p.fadeIn) g *= t / p.fadeIn;
-  if (p.fadeOut > 0 && t > p.length - p.fadeOut) g *= (p.length - t) / p.fadeOut;
-  return g;
+  return p.gain * fadeShape(t, p.fadeIn, p.fadeOut, p.length);
 }
-/** The corners of the gain envelope, as [seconds into the clip, gain]. */
+/** The corners of the gain envelope, as [seconds into the clip, gain]:
+ * straight lines between them trace `envelopeAt` exactly. */
 export function envelopePoints(p: Pick<PlanItem, 'gain' | 'fadeIn' | 'fadeOut' | 'length'>): [number, number][] {
-  const times = [0, p.fadeIn, p.length - p.fadeOut, p.length].filter((t) => t >= 0 && t <= p.length).sort((a, b) => a - b);
-  return [...new Set(times)].map((t) => [t, envelopeAt(p, t)]);
+  const times = [0, p.fadeIn, p.length - p.fadeOut, p.length];
+  // Overlapping fades: the point where the ramps cross.
+  if (p.fadeIn > 0 && p.fadeOut > 0 && p.fadeIn + p.fadeOut > p.length) times.push((p.fadeIn * p.length) / (p.fadeIn + p.fadeOut));
+  const inside = times.filter((t) => t >= 0 && t <= p.length).sort((a, b) => a - b);
+  return [...new Set(inside)].map((t) => [t, envelopeAt(p, t)]);
 }
 
 // ----- Clip edits (seconds) -----
