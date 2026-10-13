@@ -2467,3 +2467,115 @@ test("PDF pages keep web links clickable", async () => {
   assert.ok(turned, "The cut card keeps its link");
   assert.equal(turned.get(PDFName.of("QuadPoints")), undefined);
 });
+
+test("PDF overviews, page labels and bookmarks go to their pages", async () => {
+  const pageLinks = (doc) => {
+    const pages = doc.getPages(),
+      number = new Map(pages.map((p, n) => [p.ref.toString(), n + 1]));
+    return pages.map((page) =>
+      (page.node.Annots()?.asArray() || [])
+        .map((ref) => doc.context.lookup(ref))
+        .filter((a) => a.get(PDFName.of("Dest")))
+        .map((a) => number.get(a.get(PDFName.of("Dest")).get(0).toString())),
+    );
+  };
+  // One large area: an overview, then a page per part reached.
+  const wide = board("Wide");
+  wide.items = Array.from({ length: 6 }, (_, n) =>
+    item("note", n * 1100, 0, { text: `Part ${n}` }),
+  );
+  const plan = pdfPlan(exportRegions(wide), {});
+  assert.equal(plan[0].kind, "overview");
+  let doc = await PDFDocument.load(
+    await blobBytes(
+      await exportPDF(wide, exportRegions(wide), "en", rasterizer, {}),
+    ),
+  );
+  const links = pageLinks(doc);
+  // Each part on the overview goes to its page.
+  assert.deepEqual(
+    links[0].sort((p, q) => p - q),
+    plan.slice(1).map((p) => p.index),
+  );
+  // Each part's page names its neighbours, and goes to them.
+  for (const page of plan.slice(1))
+    assert.deepEqual(
+      links[page.index - 1].sort((p, q) => p - q),
+      Object.values(page.neighbors)
+        .filter(Boolean)
+        .sort((p, q) => p - q),
+    );
+  // A single area has no bookmarks.
+  assert.equal(doc.catalog.get(PDFName.of("Outlines")), undefined);
+  // A web link on the overview lies over a part's link to its page, and
+  // comes after it, as viewers take the last link under a click.
+  wide.items.push(
+    item("link", 0, 300, {
+      w: 320,
+      h: 115,
+      url: "https://example.com/",
+      text: "Example",
+    }),
+  );
+  doc = await PDFDocument.load(
+    await blobBytes(
+      await exportPDF(wide, exportRegions(wide), "en", rasterizer, {}),
+    ),
+  );
+  const kinds = doc
+    .getPages()[0]
+    .node.Annots()
+    .asArray()
+    .map((ref) =>
+      doc.context.lookup(ref).get(PDFName.of("Dest")) ? "page" : "web",
+    );
+  assert.ok(kinds.includes("web"));
+  assert.equal(kinds.indexOf("web"), kinds.lastIndexOf("page") + 1);
+  // Without page boundaries and labels, nothing is drawn to click.
+  doc = await PDFDocument.load(
+    await blobBytes(
+      await exportPDF(wide, exportRegions(wide), "en", rasterizer, {
+        markers: false,
+      }),
+    ),
+  );
+  assert.deepEqual(pageLinks(doc).flat(), []);
+
+  // Several frames are bookmarked by name at their first pages.
+  const frames = board("Frames");
+  frames.items = ["Ideas", "Plan", "Équipe"].map((text, n) =>
+    item("frame", n * 900, 0, { w: 800, h: 600, text }),
+  );
+  doc = await PDFDocument.load(
+    await blobBytes(
+      await exportPDF(
+        frames,
+        exportRegions(frames, { scope: "frames" }),
+        "en",
+        rasterizer,
+        { scale: "fit" },
+      ),
+    ),
+  );
+  const outline = doc.context.lookup(doc.catalog.get(PDFName.of("Outlines")));
+  assert.equal(outline.get(PDFName.of("Count")).asNumber(), 3);
+  const titles = [],
+    targets = [],
+    number = new Map(doc.getPages().map((p, n) => [p.ref.toString(), n + 1]));
+  for (
+    let entry = doc.context.lookup(outline.get(PDFName.of("First")));
+    entry;
+    entry = entry.get(PDFName.of("Next"))
+      ? doc.context.lookup(entry.get(PDFName.of("Next")))
+      : null
+  ) {
+    titles.push(entry.get(PDFName.of("Title")).decodeText());
+    targets.push(number.get(entry.get(PDFName.of("Dest")).get(0).toString()));
+  }
+  assert.deepEqual(titles, ["Ideas", "Plan", "Équipe"]);
+  assert.deepEqual(targets, [1, 2, 3]);
+  assert.equal(
+    doc.catalog.get(PDFName.of("PageMode")).toString(),
+    "/UseOutlines",
+  );
+});

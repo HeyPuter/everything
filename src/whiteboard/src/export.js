@@ -532,7 +532,7 @@ export async function exportPDF(
   // The PDF writer and its fonts load when a PDF is first exported, as the
   // PowerPoint and SVG writers do, rather than with every visit.
   const [
-    { PDFDocument, PDFHexString, StandardFonts, degrees, rgb },
+    { PDFDocument, PDFHexString, PDFName, StandardFonts, degrees, rgb },
     { createVectorContext, drawVectorRegion },
   ] = await Promise.all([
     import("pdf-lib"),
@@ -645,6 +645,7 @@ export async function exportPDF(
       regionLinks.set(region, exportLinks(region.items, linkContext));
     return regionLinks.get(region);
   };
+  const linked = [];
   function addLinks(page, entry, drawn) {
     const { rect, scale, placement } = entry;
     for (const link of linksFor(entry.region)) {
@@ -695,11 +696,18 @@ export async function exportPDF(
       page.node.addAnnot(pdf.context.register(annotation));
     }
   }
-  // A turned chip reads upward, to fit the narrow side margins.
-  const chip = (page, text, cx, cy, size = 7, color = muted, turned) => {
+  // Areas that go to another page of the file when clicked: the parts
+  // the overview shows, and the names of the pages beside a page.
+  const jumps = [];
+  const jump = (page, x, y, width, height, to) =>
+    jumps.push({ page, rect: [x, y, x + width, y + height], to });
+  // A turned chip reads upward, to fit the narrow side margins. One naming
+  // another page goes there.
+  const chip = (page, text, cx, cy, size = 7, color = muted, turned, to) => {
     const length = font.widthOfTextAtSize(text, size) + 8,
       thickness = size + 5,
       [width, height] = turned ? [thickness, length] : [length, thickness];
+    if (to) jump(page, cx - width / 2, cy - height / 2, width, height, to);
     page.drawRectangle({
       x: cx - width / 2,
       y: cy - height / 2,
@@ -811,7 +819,7 @@ export async function exportPDF(
         { textOnly: true },
       );
     }
-    addLinks(page, entry, drawn);
+    linked.push([page, entry, drawn]);
     if (o.markers && entry.kind === "detail") {
       page.drawRectangle({
         x: drawn.x,
@@ -847,8 +855,27 @@ export async function exportPDF(
       const n = entry.neighbors,
         label = (index) => phrase(lang, "Page {page}", { page: index });
       if (n.up)
-        chip(page, label(n.up), drawn.x + drawn.w / 2, drawn.y + drawn.h + 7);
-      if (n.down) chip(page, label(n.down), drawn.x + drawn.w / 2, drawn.y - 7);
+        chip(
+          page,
+          label(n.up),
+          drawn.x + drawn.w / 2,
+          drawn.y + drawn.h + 7,
+          7,
+          muted,
+          false,
+          n.up,
+        );
+      if (n.down)
+        chip(
+          page,
+          label(n.down),
+          drawn.x + drawn.w / 2,
+          drawn.y - 7,
+          7,
+          muted,
+          false,
+          n.down,
+        );
       if (n.left)
         chip(
           page,
@@ -858,6 +885,7 @@ export async function exportPDF(
           7,
           muted,
           true,
+          n.left,
         );
       if (n.right)
         chip(
@@ -868,6 +896,7 @@ export async function exportPDF(
           7,
           muted,
           true,
+          n.right,
         );
     }
     if (o.markers && entry.kind === "overview")
@@ -887,6 +916,7 @@ export async function exportPDF(
         });
         const index = entry.index + n + 1,
           text = phrase(lang, "Page {page}", { page: index });
+        jump(page, x, y, w, h, index);
         chip(
           page,
           font.widthOfTextAtSize(text, 8) + 12 < w ? text : String(index),
@@ -914,6 +944,58 @@ export async function exportPDF(
       entry.region.name !== b.title &&
       (await label(b.title, 9, room, 60, muted));
     if (title) write(page, title, width - m - title.width, m - 6, 9, muted);
+  }
+  const pageRefs = pdf.getPages().map((page) => page.ref);
+  for (const { page, rect, to } of jumps)
+    page.node.addAnnot(
+      pdf.context.register(
+        pdf.context.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: rect,
+          Border: [0, 0, 0],
+          Dest: [pageRefs[to - 1], "Fit"],
+        }),
+      ),
+    );
+  // Web links go last, above the overview's links to its parts, as
+  // viewers take the last link under a click.
+  for (const args of linked) addLinks(...args);
+  // Several frames or areas are bookmarked by name, each at its first
+  // page, and the file opens with its bookmarks shown.
+  const starts = plan.filter(
+    (entry, n) => n === 0 || entry.region !== plan[n - 1].region,
+  );
+  if (starts.length > 1) {
+    const outline = pdf.context.nextRef(),
+      refs = starts.map(() => pdf.context.nextRef());
+    starts.forEach((entry, n) =>
+      pdf.context.assign(
+        refs[n],
+        pdf.context.obj({
+          Title: PDFHexString.fromText(
+            Array.from(entry.region.name || b.title || "")
+              .slice(0, 200)
+              .join(""),
+          ),
+          Parent: outline,
+          ...(n > 0 && { Prev: refs[n - 1] }),
+          ...(n < refs.length - 1 && { Next: refs[n + 1] }),
+          Dest: [pageRefs[entry.index - 1], "Fit"],
+        }),
+      ),
+    );
+    pdf.context.assign(
+      outline,
+      pdf.context.obj({
+        Type: "Outlines",
+        First: refs[0],
+        Last: refs.at(-1),
+        Count: refs.length,
+      }),
+    );
+    pdf.catalog.set(PDFName.of("Outlines"), outline);
+    pdf.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
   }
   return new Blob([await pdf.save()], { type: "application/pdf" });
 }
