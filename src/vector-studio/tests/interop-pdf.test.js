@@ -296,10 +296,12 @@ describe('PDF images, forms and layers', () => {
     expect(g.rows[0]).toEqual([0, 0, 0, 255, 255, 255]);
   });
 
-  it('replaces images it cannot decode with labeled boxes', async () => {
+  it('replaces images it cannot decode with gray images and says so', async () => {
     const doc = await open(onePage('q 10 0 0 10 0 0 cm /X Do Q', { resources: '<< /XObject << /X 5 0 R >> >>', extra: [{ dict: '<< /Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /JPXDecode >>', stream: 'xxxx' }] }));
-    expect(leaves(doc)[0]).toMatchObject({ type: 'path', name: 'JPEG 2000 image' });
-    expect(doc.importWarnings.join(' ')).toMatch(/JPEG 2000/);
+    const img = leaves(doc)[0];
+    expect(img).toMatchObject({ type: 'image', width: 4, height: 4 });
+    expect(pngPixels(doc.assets.get(img.asset).data).rows[0].slice(0, 3)).toEqual([200, 200, 200]);
+    expect(doc.importWarnings.join(' ')).toMatch(/could not be decoded/);
   });
 
   it('turns form XObjects into groups (transparency groups keep their opacity)', async () => {

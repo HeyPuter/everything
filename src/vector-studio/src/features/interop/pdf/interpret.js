@@ -1079,6 +1079,7 @@ export class Interpreter {
         this.warn('An image could not be decoded.');
         return;
       }
+      if (img.kind === 'deferred') img.source = { stream, resources, fillRGB };
       asset = this.imageAsset(img);
       if (cacheKey) this.imageCache.set(cacheKey, asset);
     }
@@ -1087,8 +1088,7 @@ export class Interpreter {
 
   imageAsset(img) {
     if (img.kind === 'unsupported') {
-      const what = { JPXDecode: 'JPEG 2000', CCITTFaxDecode: 'CCITT fax', JBIG2Decode: 'JBIG2' }[img.codec] || img.codec;
-      this.warn(`Images in ${what} format cannot be shown and were replaced by gray boxes.`);
+      this.warn(`Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
       return { placeholder: true, width: img.width, height: img.height, label: `${what} image` };
     }
     const id = uid('img');
@@ -1182,6 +1182,7 @@ export class Interpreter {
       img = null;
     }
     if (!img) return;
+    if (img.kind === 'deferred') img.source = { stream, resources, fillRGB };
     this.placeImage(this.imageAsset(img), gs);
   }
 

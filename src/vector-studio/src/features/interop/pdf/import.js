@@ -12,6 +12,7 @@
 import { PDFDocument, PDFError } from './document.js';
 import { Interpreter } from './interpret.js';
 import { Builder, makeLayerNode } from './build.js';
+import { decodeImage, loadImageCodecs } from './images.js';
 import { encodePNG } from '../codec/png.js';
 import { VDocument } from '../../../model/document.js';
 import { createGroup, createPath } from '../../../model/nodes.js';
@@ -56,9 +57,46 @@ export function pageMatrix(page, box, ox = 0, oy = 0) {
   return multiply([1, 0, 0, 1, ox, oy], multiply(rot, flip));
 }
 
+/**
+ * Decode an image whose codec was not loaded while interpreting: load it
+ * and decode again (at the size the page placed it), or a gray stand-in.
+ */
+async function resolveDeferred(interp, img) {
+  let out = null;
+  try {
+    await loadImageCodecs(img.codecs);
+    const { stream, resources, fillRGB } = img.source;
+    out = decodeImage(interp.xref, stream, resources, { fillRGB });
+  } catch {
+    out = null;
+  }
+  if (!out || (out.kind !== 'rgba' && out.kind !== 'jpeg')) {
+    interp.warn('Some images could not be decoded and were replaced by gray boxes.');
+    const data = new Uint8ClampedArray(img.width * img.height * 4).fill(200);
+    for (let i = 3; i < data.length; i += 4) data[i] = 255;
+    return { kind: 'rgba', width: img.width, height: img.height, data };
+  }
+  if (out.kind === 'rgba' && (out.width !== img.width || out.height !== img.height)) return resampleRGBA(out, img.width, img.height);
+  return out;
+}
+
+function resampleRGBA(img, w, h) {
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const sy = Math.min(img.height - 1, Math.floor(((y + 0.5) * img.height) / h));
+    for (let x = 0; x < w; x++) {
+      const sx = Math.min(img.width - 1, Math.floor(((x + 0.5) * img.width) / w));
+      data.set(img.data.subarray((sy * img.width + sx) * 4, (sy * img.width + sx) * 4 + 4), (y * w + x) * 4);
+    }
+  }
+  return { kind: 'rgba', width: w, height: h, data };
+}
+
 /** Encode decoded images as PNG (or keep JPEG data) into assets. */
 async function encodeImages(interp, assets) {
-  for (const { id, img } of interp.images) {
+  for (const entry of interp.images) {
+    if (entry.img.kind === 'deferred') entry.img = await resolveDeferred(interp, entry.img);
+    const { id, img } = entry;
     if (img.kind === 'jpeg') assets.set(id, { mime: 'image/jpeg', data: bytesToDataUrl(img.bytes, 'image/jpeg'), name: '' });
     else if (img.kind === 'rgba') {
       const png = await encodePNG(img);
