@@ -25,6 +25,7 @@ import { openDialog, toast, installTooltips } from './dialog.js';
 import { openShortcutsDialog } from './shortcuts-dialog.js';
 import { createHistoryPanel } from './history-panel.js';
 import { createReviewPanel } from './review/review-panel.js';
+import { createEditAssistant } from './edit-assistant.js';
 import { openPreferences, pref, onPrefsChange } from './preferences-dialog.js';
 import { prefs, setPref } from './prefs.js';
 
@@ -124,6 +125,9 @@ export class Editor {
     ctx.review = createReviewPanel(ctx);
     this.el.append(ctx.review.el);
     ctx.mobile = createMobileChrome(ctx, this.el);
+    ctx.assistant = createEditAssistant(ctx);
+    ctx.timeline.el.append(ctx.assistant.launcher);
+    this.el.append(ctx.assistant.el);
     root.replaceChildren(this.el);
     root.removeAttribute('aria-busy');
     installTooltips(this.el);
@@ -349,6 +353,7 @@ export class Editor {
     this._offPrefs?.();
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
+    this.ctx.assistant?.dispose?.();
     clearTimeout(this._coverTimer);
     document.removeEventListener('keydown', this._onKey);
     window.removeEventListener('beforeunload', this._onUnload);
