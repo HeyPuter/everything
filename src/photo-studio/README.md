@@ -114,7 +114,7 @@ npm run test:browser
 npm run build       # also bundles the room worker (npm run build:worker)
 ```
 
-`tests/browser/smoke-all.spec.ts` runs every command, tool and panel in an empty workspace and with a document (about four minutes; `SMOKE_ONLY=<regex>` and `SMOKE_VERBOSE=1` help when debugging). Timing-budget tests are opt-in through environment variables (`CODECS_PERF`, `FILTERS_PERF`, `ADJUST_PERF`, `RETOUCH_BENCH`, and `PHOTO_PERF` for the browser interaction budgets) because shared machines make them flaky. Browser tests use installed Google Chrome; set `PHOTO_EDITOR_TEST_PORT` to choose the dev-server port.
+`tests/browser/smoke-all.spec.ts` runs every command, tool and panel in an empty workspace and with a document (about five minutes, `SMOKE_TIMEOUT` raises the limit on slow machines; `SMOKE_ONLY=<regex>` and `SMOKE_VERBOSE=1` help when debugging). Timing-budget tests are opt-in through environment variables (`CODECS_PERF`, `FILTERS_PERF`, `ADJUST_PERF`, `RETOUCH_BENCH`, and `PHOTO_PERF` for the browser interaction budgets) because shared machines make them flaky. Browser tests use installed Google Chrome; set `PHOTO_EDITOR_TEST_PORT` to choose the dev-server port.
 
 Rebuild the Wasm engine after editing Rust:
 

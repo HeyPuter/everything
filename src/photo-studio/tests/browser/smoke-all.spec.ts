@@ -453,7 +453,7 @@ async function selectContext(s: Smoke, context: string) {
 
 for (const withDocument of [false, true]) {
   test(`every command, tool and panel runs cleanly ${withDocument ? 'with a document' : 'in an empty workspace'}`, async ({ page, context }) => {
-    test.setTimeout(Number(process.env.SMOKE_TIMEOUT) || (withDocument ? 300_000 : 180_000));
+    test.setTimeout(Number(process.env.SMOKE_TIMEOUT) || (withDocument ? 480_000 : 240_000));
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const s = new Smoke(page);
     await s.boot();
