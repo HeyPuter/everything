@@ -17,6 +17,7 @@ export * from "./fn/template-import.ts";
 export * from "./fn/embedded-fonts.ts";
 export * from "./fn/theme.ts";
 export * from "./fn/properties.ts";
+export * from "./fn/document-statistics.ts";
 export * from "./fn/thumbnail.ts";
 export * from "./fn/slide-show.ts";
 
