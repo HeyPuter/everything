@@ -733,3 +733,7 @@ export const detachCopiedSlideComments = (slide: SlideData): void => {
   )
     setCommentRelExtension(slide, null);
 };
+
+/** The slide's `p:sldId/@id` in presentation.xml (256 when unreadable). */
+export const getSlideNumericId = (slide: SlideData): number =>
+  Number(slideIds(slide).sldId) || 256;

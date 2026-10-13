@@ -945,6 +945,8 @@ const importSlideUnchecked = (
   const slides = getSlides(targetPres);
   const last = slides[slides.length - 1];
   if (!last) throw new Error("importSlide: post-condition failed");
+  // Comments stay with the source; drop the pointer at them.
+  detachCopiedSlideComments(last);
   return last;
 };
 
