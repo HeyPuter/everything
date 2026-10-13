@@ -5,7 +5,7 @@
 import type { Editor } from '../../editor';
 import { findLayer, type Layer } from '../../model/document';
 import { canvasRect } from '../../model/selection';
-import { emptyGrid, readMask, writeRect } from '../../model/tiles';
+import { readMask, writeRect, type TileGrid, type TileStore } from '../../model/tiles';
 import { layerLock } from '../../model/locks';
 import type { Mask8, RGBA8 } from '../../imaging/types';
 import { formDialog } from '../../ui/dialog';
@@ -48,6 +48,15 @@ const crop = <T extends Mask8 | RGBA8>(src: T, r: Rect, channels: 1 | 4): T => {
   return { width: r.width, height: r.height, data: out } as T;
 };
 
+/** Store a refined band (document rectangle `band`, values as the mask shows)
+ * back into `grid`. Only the band changes: tiles outside it, including those
+ * off the canvas, and the grid's fill stay as they were. With `inverted` the
+ * grid holds the mask before inversion, so the values are inverted back. */
+export function writeRefinedBand(store: TileStore, grid: TileGrid, band: Rect, refined: Mask8, inverted: boolean): TileGrid {
+  const data = inverted ? refined.data.map((v) => 255 - v) : refined.data;
+  return writeRect(store, grid, band.x, band.y, { width: band.width, height: band.height, data });
+}
+
 export async function refineMaskEdge(e: Editor) {
   const l = e.layer;
   if (!l || l.kind === 'group' || l.kind === 'adjustment') return e.message('Select a layer with a layer mask.');
@@ -77,7 +86,9 @@ export async function refineMaskEdge(e: Editor) {
   const grid = l.maskGrid ?? (await legacyMaskToGrid(e, l));
   if (!grid) return e.message('This layer has no layer mask.');
   const mask = readMask(store, grid, area);
-  if (l.maskGrid && l.maskInverted) for (let i = 0; i < mask.data.length; i++) mask.data[i] = 255 - mask.data[i];
+  // A legacy mask is converted as it shows, so the result drops the flag.
+  const inverted = !!(l.maskGrid && l.maskInverted);
+  if (inverted) for (let i = 0; i < mask.data.length; i++) mask.data[i] = 255 - mask.data[i];
   const band = edgeBand(mask, Math.ceil(settings.radius * 2 + settings.feather + 4));
   if (!band) return e.message('The mask has no edge to refine: it shows or hides the whole layer.');
   // The layer's own pixels, without its mask or effects, guide the matting.
@@ -87,8 +98,7 @@ export async function refineMaskEdge(e: Editor) {
     part = crop(mask, band, 1);
   const res = await heavy<{ mask: Mask8 }>(e, 'Refining mask edge', 'refine', { img, mask: part, settings, brushed: null, brushRadius: 0 });
   if (!res) return;
-  for (let y = 0; y < band.height; y++) mask.data.set(res.mask.data.subarray(y * band.width, (y + 1) * band.width), (band.y + y) * area.width + band.x);
-  const next = writeRect(store, emptyGrid(1), 0, 0, mask);
+  const next = writeRefinedBand(store, grid, { ...band, x: band.x + area.x, y: band.y + area.y }, res.mask, inverted);
   const id = l.id;
   e.command('Refine Mask Edge', (d) => {
     const t = findLayer(d.layers, id);
@@ -97,7 +107,8 @@ export async function refineMaskEdge(e: Editor) {
     delete t.maskAsset;
     delete t.pixelMask;
     delete t.maskStrokes;
-    delete t.maskInverted;
+    if (inverted) t.maskInverted = true;
+    else delete t.maskInverted;
     t.maskGrid = next;
   });
   e.message('Refined the mask edge.');

@@ -188,7 +188,9 @@ test('Refine Mask Edge rewrites the mask near its edge', async ({ page }) => {
     // A loose rectangular mask on the gray layer.
     const m = new Uint8Array(600 * 400);
     for (let y = 100; y < 300; y++) for (let x = 150; x < 450; x++) m[y * 600 + x] = 255;
-    const grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 600, height: 400, data: m });
+    let grid = writeRect(e.assets.tiles, emptyGrid(1), 0, 0, { width: 600, height: 400, data: m });
+    // Mask data off the canvas (left of it) must survive the refinement.
+    grid = writeRect(e.assets.tiles, grid, -300, 0, { width: 40, height: 40, data: new Uint8Array(1600).fill(77) });
     e.command('Mask', (d) => void (d.layers[0].maskGrid = grid));
     e.selectLayers([e.doc.layers[0].id]);
   });
@@ -202,13 +204,15 @@ test('Refine Mask Edge rewrites the mask near its edge', async ({ page }) => {
     const e = window.photoStudio;
     const { readMask } = await import('/src/model/tiles.ts');
     const m = readMask(e.assets.tiles, e.doc.layers[0].maskGrid!, { x: 0, y: 0, width: 600, height: 400 });
-    return [m.data[200 * 600 + 300], m.data[200 * 600 + 150], m.data[10 * 600 + 10]];
+    const off = readMask(e.assets.tiles, e.doc.layers[0].maskGrid!, { x: -290, y: 10, width: 1, height: 1 });
+    return [m.data[200 * 600 + 300], m.data[200 * 600 + 150], m.data[10 * 600 + 10], off.data[0]];
   });
   // Inside stays shown, the edge is softened, far outside stays hidden.
   expect(values[0]).toBe(255);
   expect(values[1]).toBeGreaterThan(0);
   expect(values[1]).toBeLessThan(255);
   expect(values[2]).toBe(0);
+  expect(values[3]).toBe(77);
 });
 
 test('block text, vertical forms and named stylistic sets', async ({ page }) => {
