@@ -49,7 +49,7 @@ const DEFS = {
   transform: {
     label: 'Transform',
     command: 'effect.transform',
-    defaults: { scaleH: 1, scaleV: 1, moveH: 0, moveV: 0, angle: 0, reflectX: false, reflectY: false, origin: [0.5, 0.5], copies: 0, random: false, seed: 0 },
+    defaults: { scaleH: 1, scaleV: 1, moveH: 0, moveV: 0, angle: 0, reflectX: false, reflectY: false, origin: [0.5, 0.5], copies: 0, random: false, seed: 0, scaleStrokes: false },
     ranges: { scaleH: [-20, 20], scaleV: [-20, 20], moveH: [-100000, 100000], moveV: [-100000, 100000], angle: [-3600, 3600], copies: [0, 1000], seed: [0, 0x7fffffff] },
     init: seeded,
     normalize(out) {
@@ -58,7 +58,7 @@ const DEFS = {
       out.copies = Math.round(out.copies);
       return out;
     },
-    apply: (subs, fx, info) => transformEffect(subs, fx, info.bounds),
+    apply: (subs, fx, info) => transformEffect(subs, fx, info.bounds, info.node?.stroke ? info.node.strokeWidth : 0),
   },
   tweak: {
     label: 'Tweak',

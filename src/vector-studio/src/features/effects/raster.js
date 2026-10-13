@@ -2,8 +2,8 @@
  * Rasterizing: Effect > Document Raster Effects Settings, the live
  * Effect > Rasterize appearance and Object > Rasterize.
  *
- * The document's raster settings ({ resolution, background, antialias,
- * padding }) live on the root (resolution as root.rasterResolution, the
+ * The document's raster settings ({ colorModel, resolution, background,
+ * antialias, padding }) live on the root (resolution as root.rasterResolution, the
  * rest as root.rasterOptions). A Rasterize effect either uses them (and is
  * updated whenever they change) or carries its own.
  */
@@ -23,7 +23,13 @@ export const RESOLUTIONS = Object.freeze([
   { value: 300, label: 'High (300 ppi)' },
 ]);
 
-const DOC_DEFAULTS = Object.freeze({ resolution: 72, background: 'transparent', antialias: true, padding: 0 });
+export const COLOR_MODELS = Object.freeze([
+  { value: 'rgb', label: 'RGB' },
+  { value: 'grayscale', label: 'Grayscale' },
+  { value: 'bitmap', label: 'Bitmap (black and white)' },
+]);
+
+const DOC_DEFAULTS = Object.freeze({ colorModel: 'rgb', resolution: 72, background: 'transparent', antialias: true, padding: 0 });
 
 /** The document's raster effects settings. */
 export function docRasterSettings(doc) {
@@ -31,6 +37,7 @@ export function docRasterSettings(doc) {
   const o = r.rasterOptions || {};
   const res = Number(r.rasterResolution);
   return {
+    colorModel: COLOR_MODELS.some((m) => m.value === o.colorModel) ? o.colorModel : 'rgb',
     resolution: Number.isFinite(res) && res >= 36 && res <= 2400 ? res : DOC_DEFAULTS.resolution,
     background: o.background === 'white' ? 'white' : 'transparent',
     antialias: o.antialias !== false,
@@ -42,7 +49,7 @@ export function docRasterSettings(doc) {
 export function setDocRasterSettings(doc, s) {
   const cur = docRasterSettings(doc);
   const next = { ...cur, ...s };
-  doc.updateRoot({ rasterResolution: next.resolution, rasterOptions: { background: next.background, antialias: next.antialias, padding: next.padding } });
+  doc.updateRoot({ rasterResolution: next.resolution, rasterOptions: { colorModel: next.colorModel, background: next.background, antialias: next.antialias, padding: next.padding } });
   doc.walk((n) => {
     if (!n.effects?.some((e) => e.type === 'rasterize' && e.useDocument)) return;
     doc.update(n.id, { effects: n.effects.map((e) => (e.type === 'rasterize' && e.useDocument ? { ...e, ...next } : e)) });
@@ -54,8 +61,8 @@ registerEffectType('rasterize', {
   command: 'effect.rasterize',
   defaults: { useDocument: true, ...DOC_DEFAULTS },
   ranges: { resolution: [36, 2400], padding: [0, 10000] },
-  enums: { background: ['transparent', 'white'] },
-  describe: (e) => `Rasterize (${e.resolution} ppi)`,
+  enums: { background: ['transparent', 'white'], colorModel: COLOR_MODELS.map((m) => m.value) },
+  describe: (e) => `Rasterize (${e.colorModel && e.colorModel !== 'rgb' ? `${COLOR_MODELS.find((m) => m.value === e.colorModel).label.split(' ')[0]}, ` : ''}${e.resolution} ppi)`,
 });
 
 function makeCanvas(w, hgt) {
@@ -91,6 +98,32 @@ function alphaBox(ctx, w, hgt) {
 }
 
 /**
+ * Convert pixels to a color model in place: grayscale keeps luminance;
+ * bitmap makes every pixel black or white (and fully opaque or clear).
+ */
+export function convertPixels(d, model) {
+  if (model !== 'grayscale' && model !== 'bitmap') return d;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    const v = model === 'bitmap' ? (lum >= 128 ? 255 : 0) : Math.round(lum);
+    d[i] = d[i + 1] = d[i + 2] = v;
+    if (model === 'bitmap') d[i + 3] = d[i + 3] >= 128 ? 255 : 0;
+  }
+  return d;
+}
+
+function convertCanvas(ctx, w, hgt, model) {
+  if (model !== 'grayscale' && model !== 'bitmap') return;
+  try {
+    const img = ctx.getImageData(0, 0, w, hgt);
+    convertPixels(img.data, model);
+    ctx.putImageData(img, 0, 0);
+  } catch {
+    /* unreadable canvas: keep the colors */
+  }
+}
+
+/**
  * The live Rasterize appearance: the artwork is resampled at the effect's
  * resolution (visible as pixels when zoomed in past it), optionally on a
  * white background reaching `padding` around it, and with hard edges when
@@ -121,12 +154,14 @@ export function rasterizeLayer(layer, e, scale, pool) {
     if ('imageSmoothingQuality' in t) t.imageSmoothingQuality = 'high';
     t.drawImage(src, 0, 0, W, H, 0, 0, w, hh);
     if (e.antialias === false) harden(t, w, hh);
+    convertCanvas(t, w, hh, e.colorModel);
     c.imageSmoothingEnabled = false;
     c.drawImage(tmp, 0, 0, w, hh, 0, 0, W, H);
     c.imageSmoothingEnabled = true;
   } else {
     c.drawImage(src, 0, 0);
     if (e.antialias === false) harden(c, W, H);
+    convertCanvas(c, W, H, e.colorModel);
   }
   return out;
 }
@@ -150,6 +185,7 @@ registerContentEffect('rasterize', rasterizeLayer);
 function rasterControls(start, unit, { useDoc = false, clip = null, onChange }) {
   const preset = RESOLUTIONS.some((r) => r.value === start.resolution) ? String(start.resolution) : 'other';
   const resOptions = [...(useDoc ? [{ value: 'document', label: 'Use Document Settings' }] : []), ...RESOLUTIONS.map((r) => ({ value: String(r.value), label: r.label })), { value: 'other', label: 'Other' }];
+  const model = selectRow({ label: 'Color Model', value: start.colorModel || 'rgb', options: COLOR_MODELS, onChange });
   const res = selectRow({ label: 'Resolution', value: useDoc && start.useDocument ? 'document' : preset, options: resOptions, onChange: () => sync() });
   const other = numberRow({ label: 'Pixels per inch', value: start.resolution, min: 36, max: 2400, integer: true, onInput: onChange });
   const bg = choiceField({ label: 'Background', value: start.background, options: [{ value: 'white', label: 'White' }, { value: 'transparent', label: 'Transparent' }], onChange });
@@ -160,15 +196,16 @@ function rasterControls(start, unit, { useDoc = false, clip = null, onChange }) 
     const v = res.get();
     other.el.hidden = v !== 'other';
     const docMode = v === 'document';
-    for (const el of [bg.el, aa.el, pad.el]) el.classList.toggle('fx-disabled', docMode);
-    for (const i of [...bg.el.querySelectorAll('input'), ...aa.el.querySelectorAll('input'), pad.field]) i.disabled = docMode;
+    for (const el of [model.el, bg.el, aa.el, pad.el]) el.classList.toggle('fx-disabled', docMode);
+    for (const i of [model.select, ...bg.el.querySelectorAll('input'), ...aa.el.querySelectorAll('input'), pad.field]) i.disabled = docMode;
     onChange?.();
   };
   sync();
-  const els = [res.el, other.el, group('Background', bg.el), group('Options', aa.el, ...(clipBox ? [clipBox.el] : []), pad.el)];
+  const els = [model.el, res.el, other.el, group('Background', bg.el), group('Options', aa.el, ...(clipBox ? [clipBox.el] : []), pad.el)];
   const read = () => {
     const v = res.get();
     return {
+      colorModel: model.get(),
       useDocument: v === 'document',
       resolution: v === 'other' || v === 'document' ? other.get() : Number(v),
       background: bg.get(),
@@ -177,7 +214,7 @@ function rasterControls(start, unit, { useDoc = false, clip = null, onChange }) 
       ...(clipBox ? { clip: clipBox.get() } : {}),
     };
   };
-  return { els, read, focus: () => res.select };
+  return { els, read, focus: () => model.select };
 }
 
 /** Effect > Document Raster Effects Settings. */
@@ -236,9 +273,10 @@ async function blobToDataURL(blob) {
 }
 
 /** Render ids at `ppi` into a PNG data URL: { data, width, height }. */
-export async function renderToImage(doc, ids, rect, { ppi, background, antialias }) {
+export async function renderToImage(doc, ids, rect, { ppi, background, antialias, colorModel = 'rgb' }) {
   const { renderRegion } = await import('../io/raster.js');
   const canvas = await renderRegion(doc, rect, { scale: ppi / 72, background: background === 'white' ? '#ffffff' : null, antialias, ids });
+  convertCanvas(canvas.getContext('2d'), canvas.width, canvas.height, colorModel);
   const blob = canvas.convertToBlob ? await canvas.convertToBlob({ type: 'image/png' }) : await new Promise((r) => canvas.toBlob(r, 'image/png'));
   return { data: await blobToDataURL(blob), width: canvas.width, height: canvas.height };
 }
@@ -255,7 +293,7 @@ export async function rasterizeObjects(editor, ids, opts, render = renderToImage
   const vb = selectionBounds(doc, ordered, true);
   if (!vb || !(vb.w > 0) || !(vb.h > 0)) return null;
   const rect = inflate(vb, Math.max(0, opts.padding || 0));
-  const img = await render(doc, ordered, rect, { ppi: opts.resolution, background: opts.background, antialias: opts.antialias });
+  const img = await render(doc, ordered, rect, { ppi: opts.resolution, background: opts.background, antialias: opts.antialias, colorModel: opts.colorModel });
   const snap = ordered.map((id) => doc.get(id));
   if (ordered.some((id, i) => doc.get(id) !== snap[i])) return null;
   const assetId = uid('img');

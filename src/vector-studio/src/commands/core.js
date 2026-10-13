@@ -55,16 +55,38 @@ export function applyTransform(editor, label, m, { copy = false, opts } = {}) {
   editor.lastTransform = { matrix: m, copy, opts: o };
 }
 
+/** A small seeded random generator (mulberry32), so a previewed random Transform Each matches what OK applies. */
+export function seededRandom(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
  * Transform Each: scale/rotate/move every object around its own reference
  * point. The reference point and the scale axes come from each object's
  * bounding box frame, so a turned object scales along its own axes.
+ *
+ * p: { scaleX, scaleY (percent), moveX, moveY, angle, reflectX, reflectY,
+ *      random, seed, refX, refY (0..1), absolute (scaleX/scaleY are target
+ *      width/height in points), scaleStrokes, scaleCorners, objects, patterns }
  */
 export function transformEach(editor, p, copy = false) {
   const doc = editor.doc;
   let ids = editor.topSelection();
   if (copy) ids = duplicate(editor, ids);
   const visual = editor.prefs?.get('previewBounds');
+  const rand = p.random ? (p.seed != null ? seededRandom(p.seed) : Math.random) : null;
+  const opts = {
+    scaleStrokes: p.scaleStrokes ?? editor.prefs?.get('scaleStrokes'),
+    scaleCorners: p.scaleCorners ?? editor.prefs?.get('scaleCorners'),
+    transformPatterns: p.patterns ?? editor.prefs?.get('transformPatterns') ?? true,
+    ...(p.objects === false ? { transformObjects: false } : {}),
+  };
   for (const id of ids) {
     const f = selectionFrame(doc, [id], visual);
     if (!f) continue;
@@ -74,15 +96,24 @@ export function transformEach(editor, p, copy = false) {
     let dx = p.moveX || 0;
     let dy = p.moveY || 0;
     let ang = p.angle || 0;
-    if (p.random) {
-      dx *= Math.random() * 2 - 1;
-      dy *= Math.random() * 2 - 1;
-      ang *= Math.random() * 2 - 1;
+    let sx = (p.scaleX ?? 100) / 100;
+    let sy = (p.scaleY ?? 100) / 100;
+    if (p.absolute) {
+      sx = f.w > 1e-9 ? (p.scaleX ?? f.w) / f.w : 1;
+      sy = f.h > 1e-9 ? (p.scaleY ?? f.h) / f.h : 1;
     }
-    let m = frameMatrix(f, scale((p.scaleX ?? 100) / 100 * (p.reflectX ? -1 : 1), (p.scaleY ?? 100) / 100 * (p.reflectY ? -1 : 1), lx, ly));
+    if (rand) {
+      // Random picks each value between none and the amount entered.
+      dx *= rand() * 2 - 1;
+      dy *= rand() * 2 - 1;
+      ang *= rand() * 2 - 1;
+      sx = 1 + (sx - 1) * rand();
+      sy = 1 + (sy - 1) * rand();
+    }
+    let m = frameMatrix(f, scale(sx * (p.reflectX ? -1 : 1), sy * (p.reflectY ? -1 : 1), lx, ly));
     m = multiply(rotate(-ang, rx, ry), m);
     m = multiply(translate(dx, dy), m);
-    const patches = transformPatches(doc, doc.get(id), m, { scaleStrokes: editor.prefs?.get('scaleStrokes') });
+    const patches = transformPatches(doc, doc.get(id), m, opts);
     for (const [pid, patch] of patches) doc.update(pid, patch);
   }
 }
