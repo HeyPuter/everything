@@ -4,7 +4,8 @@
  *
  * project = {
  *   format: 'video-studio-project', version, id, name, created, modified,
- *   settings: { width, height, fps, ratio, background: { type: 'color'|'blur', color, blur } },
+ *   settings: { width, height, fps, ratio, background: { type: 'color'|'blur', color, blur }, proxy?: 'off'|'on' },
+ *     (proxy: proxy media for the preview, model/proxy.js; no field means 'auto')
  *   assets: { [id]: Asset },
  *   tracks: [Track]            // visual order, top to bottom
  *   markers: [{ id, time, color, label, note? }],
@@ -38,6 +39,7 @@ import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
+import { normalizeProxyMode } from './proxy.js';
 import { isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
@@ -558,6 +560,7 @@ export function normalizeProject(raw) {
       color: color(s.background?.color, '#000000'),
       blur: clampN(s.background?.blur, 0, 1, 0.5),
     },
+    ...(normalizeProxyMode(s.proxy) ? { proxy: normalizeProxyMode(s.proxy) } : {}),
   };
   const assets = {};
   for (const a of Object.values(raw.assets && typeof raw.assets === 'object' ? raw.assets : {})) {
