@@ -149,12 +149,8 @@ export const SYMBOL_SUBSETS = [['Basic Latin', 0x21, 0x7E], ['Latin-1 Supplement
   ['Superscripts and Subscripts', 0x2070, 0x209C], ['Currency Symbols', 0x20A0, 0x20C0], ['Letterlike Symbols', 0x2100, 0x214F], ['Number Forms', 0x2150, 0x218B], ['Arrows', 0x2190, 0x21FF],
   ['Mathematical Operators', 0x2200, 0x22FF], ['Miscellaneous Technical', 0x2300, 0x23FF], ['Enclosed Alphanumerics', 0x2460, 0x24FF], ['Box Drawing', 0x2500, 0x257F], ['Block Elements', 0x2580, 0x259F],
   ['Geometric Shapes', 0x25A0, 0x25FF], ['Miscellaneous Symbols', 0x2600, 0x26FF], ['Dingbats', 0x2700, 0x27BF]];
-/** Special characters: [label, character, shortcut hint]. Names are plain descriptions. */
-export const SPECIAL_CHARACTERS = [['Em Dash', '—', 'Alt+Ctrl+Num -'], ['En Dash', '–', 'Ctrl+Num -'], ['Nonbreaking Hyphen', '‑', 'Ctrl+Shift+_'], ['Optional Hyphen', '­', 'Ctrl+-'],
-  ['Em Space', ' ', ''], ['En Space', ' ', ''], ['Quarter Em Space', ' ', ''], ['Nonbreaking Space', ' ', 'Ctrl+Shift+Space'], ['Copyright', '©', 'Alt+Ctrl+C'],
-  ['Registered', '®', 'Alt+Ctrl+R'], ['Trademark', '™', 'Alt+Ctrl+T'], ['Section', '§', ''], ['Paragraph', '¶', ''], ['Ellipsis', '…', 'Alt+Ctrl+.'],
-  ['Single Opening Quote', '‘', ''], ['Single Closing Quote', '’', ''], ['Double Opening Quote', '“', ''], ['Double Closing Quote', '”', ''], ['Zero-Width Space', '​', ''], ['Word Joiner', '⁠', ''],
-  ['Degree', '°', ''], ['Plus-Minus', '±', ''], ['Bullet', '•', ''], ['Dagger', '†', ''], ['Double Dagger', '‡', '']];
+/** Special characters: [label, character]. Names are plain descriptions. */
+export const SPECIAL_CHARACTERS = [['Em Dash', '\u2014'], ['En Dash', '\u2013'], ['Nonbreaking Hyphen', '\u2011'], ['Optional Hyphen', '\u00AD'], ['Em Space', '\u2003'], ['En Space', '\u2002'], ['Quarter Em Space', '\u2005'], ['Nonbreaking Space', '\u00A0'], ['Copyright', '\u00A9'], ['Registered', '\u00AE'], ['Trademark', '\u2122'], ['Section', '\u00A7'], ['Paragraph', '\u00B6'], ['Ellipsis', '\u2026'], ['Single Opening Quote', '\u2018'], ['Single Closing Quote', '\u2019'], ['Double Opening Quote', '\u201C'], ['Double Closing Quote', '\u201D'], ['Zero-Width Space', '\u200B'], ['Word Joiner', '\u2060'], ['Degree', '\u00B0'], ['Plus-Minus', '\u00B1'], ['Bullet', '\u2022'], ['Dagger', '\u2020'], ['Double Dagger', '\u2021']];
 export const SYMBOL_FONTS = ['(normal text)', 'Noto Sans', 'Noto Serif', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Segoe UI Symbol'];
 const assigned = ch => /\P{C}/u.test(ch) && !/\p{Cn}/u.test(ch);
 const RECENT_KEY = 'documents.insert.recentSymbols';
@@ -206,10 +202,10 @@ export function openSymbolDialog({ onInsert, onClose }) {
   });
   subset.addEventListener('change', drawGrid);
   font.addEventListener('change', () => { for (const b of [...grid.children, ...recent.children]) b.style.fontFamily = fontStyle(); preview.style.fontFamily = fontStyle(); });
-  const special = el('div.ed-choice-list.insert-special', { role: 'listbox', 'aria-label': 'Special characters' }, ...SPECIAL_CHARACTERS.map(([label, ch, keys]) =>
+  const special = el('div.ed-choice-list.insert-special', { role: 'listbox', 'aria-label': 'Special characters' }, ...SPECIAL_CHARACTERS.map(([label, ch]) =>
     el('button.ed-choice.insert-special-row', { type: 'button', role: 'option', 'aria-selected': 'false', onclick: e => { chosen = ch; for (const o of special.children) o.setAttribute('aria-selected', String(o === e.currentTarget)); describe(ch); },
       ondblclick: () => { chosen = ch; dialog.form.requestSubmit(); } },
-    el('span.insert-special-char', {}, /\s|­|​|⁠/.test(ch) ? '·' : ch), el('span', {}, label), el('span.insert-special-keys', {}, keys))));
+    el('span.insert-special-char', {}, /[\s\u00AD\u200B\u2060]/.test(ch) ? '\u00B7' : ch), el('span', {}, label), el('span.insert-special-keys', {}, `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`))));
   const symbolsPane = el('div.insert-symbol-pane', {}, el('div.insert-symbol-filters', {}, field('Font', font), field('Subset', subset)), grid,
     el('div.insert-symbol-footer', {}, preview, el('div', {}, name, field('Character code', code))), el('span.field-label', {}, 'Recently used symbols'), recent);
   const specialPane = el('div.insert-symbol-pane', { hidden: true }, special);

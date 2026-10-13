@@ -28,7 +28,7 @@ import { dropCapState, setDropCap } from '../engine/drop-caps.js';
 import { iconSvg } from '../lib/icon-library.js';
 import { chartCommands } from './insert-chart.js';
 
-const OBJECT = '￼';
+const OBJECT = '\uFFFC';
 const TWIP_EMU = 635;
 const AUTOTEXT_KEY = 'documents.insert.autoText';
 
@@ -80,7 +80,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const afterSelectedDrawing = engine => { if (engine.model.selectedImage) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
   const sceneFragment = (engine, xml) => readDrawingFragment(xml, { sourceParts: pkg().parts, assetId: freshDrawingAssetId(engine.model) });
   const withDescription = (xml, text) => text ? xml.replace(/(<wp:docPr [^>]*?)(\/?>)/, (_, open, close) => `${open} descr="${String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;')}"${close}`) : xml;
-  const selectedText = engine => { const [a, b] = engine.model.range; return a === b ? '' : engine.model.text.slice(a, b).replace(/[￼\f\v\u000e]/g, '').trim(); };
+  const selectedText = engine => { const [a, b] = engine.model.range; return a === b ? '' : engine.model.text.slice(a, b).replace(/[\uFFFC\f\v\u000e]/g, '').trim(); };
 
   /* ---- Pages ---- */
   function coverPreview(design) {
@@ -460,7 +460,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const [a, b] = engine.model.range;
     if (a === b) { toast('Select the text to save as AutoText first.', { icon: 'info' }); return; }
     const { copyFragment } = await import('../engine/clipboard-fragment.js');
-    const fragment = copyFragment(engine.model), text = engine.model.text.slice(a, b).replace(/￼/g, '');
+    const fragment = copyFragment(engine.model), text = engine.model.text.slice(a, b).replace(/\uFFFC/g, '');
     const name = await promptDialog({ title: 'Create New Building Block', label: 'Name', value: text.trim().split(/\s+/).slice(0, 4).join(' ').slice(0, 40), confirmLabel: 'Save',
       hint: fragment ? 'Saved with its formatting, for you in this browser.' : 'Pictures, fields and tables are saved as their text.', validate: v => v.trim() ? null : 'Enter a name.' });
     if (!name) return;
@@ -502,7 +502,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         const source = new TextDocument(opened.paragraphs, opened.pageSettings, opened.numbering, opened.styles, opened.tables, opened.assets, { displayOnly: !!opened.readOnly });
         source.select(0, source.text.length);
         fragment = formatted ? copyFragment(source) : null;
-        text = source.text.replace(/[￼]/g, '').replace(/[\f\u000e]/g, '\n');
+        text = source.text.replace(/[\uFFFC]/g, '').replace(/[\f\u000e]/g, '\n');
         if (!fragment) toast('Pictures, tables and fields in that file were inserted as text.', { icon: 'info' });
       } else {
         const raw = await file.text();

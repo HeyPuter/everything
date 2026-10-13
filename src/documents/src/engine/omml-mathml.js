@@ -43,11 +43,11 @@ function convert(node) {
       return `<mrow>${base}${convert(m(node, 'e'))}</mrow>`;
     }
     case 'func': return `<mrow>${convert(m(node, 'fName'))}<mo>&#x2061;</mo>${convert(m(node, 'e'))}</mrow>`;
-    case 'acc': return `<mover accent="true">${convert(m(node, 'e'))}<mo>${escape(val(m(node, 'accPr'), 'chr') ?? '̂')}</mo></mover>`;
-    case 'bar': return val(m(node, 'barPr'), 'pos') === 'top' ? `<mover accent="true">${convert(m(node, 'e'))}<mo>‾</mo></mover>` : `<munder>${convert(m(node, 'e'))}<mo>_</mo></munder>`;
+    case 'acc': return `<mover accent="true">${convert(m(node, 'e'))}<mo>${escape(val(m(node, 'accPr'), 'chr') ?? '\u0302')}</mo></mover>`;
+    case 'bar': return val(m(node, 'barPr'), 'pos') === 'top' ? `<mover accent="true">${convert(m(node, 'e'))}<mo>\u203E</mo></mover>` : `<munder>${convert(m(node, 'e'))}<mo>_</mo></munder>`;
     case 'limLow': return `<munder>${convert(m(node, 'e'))}${convert(m(node, 'lim'))}</munder>`;
     case 'limUpp': return `<mover>${convert(m(node, 'e'))}${convert(m(node, 'lim'))}</mover>`;
-    case 'groupChr': return `<munder>${convert(m(node, 'e'))}<mo>${escape(val(m(node, 'groupChrPr'), 'chr') ?? '⏟')}</mo></munder>`;
+    case 'groupChr': return `<munder>${convert(m(node, 'e'))}<mo>${escape(val(m(node, 'groupChrPr'), 'chr') ?? '\u23DF')}</mo></munder>`;
     case 'm': return `<mrow><mtable>${kids(node).filter(n => n.localName === 'mr').map(r => `<mtr>${kids(r).filter(n => n.localName === 'e').map(e => `<mtd>${convert(e)}</mtd>`).join('')}</mtr>`).join('')}</mtable></mrow>`;
     case 'eqArr': return `<mtable columnalign="left">${kids(node).filter(n => n.localName === 'e').map(e => `<mtr><mtd>${convert(e)}</mtd></mtr>`).join('')}</mtable>`;
     case 'box': case 'borderBox': case 'phant': return convert(m(node, 'e'));
@@ -58,6 +58,6 @@ function convert(node) {
 /** MathML markup (a `<math>` element string) for an OMML string; display adds block layout. */
 export function ommlToMathml(xml, { display = false } = {}) {
   const root = new DOMParser().parseFromString(xml, 'application/xml').documentElement;
-  if (!root || root.getElementsByTagName('parsererror').length) return '';
+  if (!root || root.localName === 'parsererror' || root.getElementsByTagName('parsererror').length) return '';
   return `<math xmlns="http://www.w3.org/1998/Math/MathML"${display || root.localName === 'oMathPara' ? ' display="block"' : ''}>${convert(root)}</math>`;
 }
