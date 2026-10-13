@@ -623,6 +623,17 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
         ["Ctrl / ⌘ + J", "Open or close the AI assistant"],
+        [
+          "Ctrl / ⌘ + 1 / 2 / 3 / 4 / 5",
+          "Normal, Slide Sorter, Notes Page, Outline View, Reading View",
+        ],
+        ["Ctrl + Shift + Tab", "Show or hide the outline"],
+        ["Ctrl / ⌘ + '", "Show or hide the gridlines"],
+        [
+          "Tab / Shift + Tab in the outline",
+          "Move a line down or up a level; a title becomes a paragraph",
+        ],
+        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
