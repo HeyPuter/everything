@@ -793,7 +793,7 @@ export function regression(y, xs, options = {}) {
   const [r2, sey] = s[2], [F, df] = s[3], [ssReg, ssRes] = s[4];
   const regDf = k, totalDf = regDf + df;
   const out = output('Regression');
-  out.put(0, 0, 'SUMMARY OUTPUT', TITLE);
+  out.put(0, 0, 'Regression Summary', TITLE);
   let r = out.table(2, 0, ['Regression Statistics', ''], [
     ['Multiple R', Math.sqrt(r2)],
     ['R Square', r2],
@@ -819,7 +819,7 @@ export function regression(y, xs, options = {}) {
   const coefRows = [constantZero ? ['Intercept', 0, NA, NA, NA, ...levels.flatMap(() => [NA, NA])] : coefRow('Intercept', b, seB),
     ...coef.map((c, j) => coefRow(xLabels[j] || `X Variable ${k === 1 ? '' : j + 1}`.trim(), c, se[j]))];
   r = out.table(r, 0, header, coefRows);
-  out.colWidths = { 0: 140 };
+  out.colWidths = Object.fromEntries(header.map((_, c) => [c, c ? 104 : 140]));
   const predicted = y.map((_, i) => (constantZero ? 0 : b) + sum(coef.map((c, j) => c * xs[j][i])));
   const resid = y.map((v, i) => v - predicted[i]);
   const charts = [];
@@ -828,7 +828,7 @@ export function regression(y, xs, options = {}) {
   const wantResiduals = residuals || standardized || residualPlots || lineFitPlots;
   if (wantResiduals) {
     r += 2;
-    out.put(r, 0, 'RESIDUAL OUTPUT', TITLE);
+    out.put(r, 0, 'Residual Analysis', TITLE);
     residTop = r + 2;
     const sdRes = Math.sqrt(ssRes / (n - 1));
     out.table(residTop, 0, ['Observation', `Predicted ${yLabel}`, 'Residuals', ...(standardized ? ['Standard Residuals'] : [])],
@@ -837,7 +837,7 @@ export function regression(y, xs, options = {}) {
   if (normalPlot) {
     const top = residTop ?? r + 4;
     const c0 = wantResiduals ? (standardized ? 5 : 4) : 0;
-    out.put(top - 2, c0, 'PROBABILITY OUTPUT', TITLE);
+    out.put(top - 2, c0, 'Normal Probability Data', TITLE);
     const sorted = [...y].sort((p, q) => p - q);
     out.table(top, c0, ['Percentile', yLabel], sorted.map((v, i) => [(100 * (i + 0.5)) / n, v]));
     charts.push({ type: 'scatter', title: 'Normal Probability Plot', ...chartSize, legend: false, xTitle: 'Sample Percentile', yTitle: yLabel,
@@ -934,7 +934,8 @@ function chartSpec(wb, sourceWb, chart, sheetName, r0, c0) {
   });
   const first = chart.series.find((s) => s.values?.rel)?.values.rel;
   return {
-    type: chart.type, title: chart.title || '', range: first ? rel(first) : { r1: r0, c1: c0, r2: r0, c2: c0 },
+    // The chart's title says what it shows, for people who cannot see it as well.
+    type: chart.type, title: chart.title || '', ...(chart.title ? { description: chart.title } : {}), range: first ? rel(first) : { r1: r0, c1: c0, r2: r0, c2: c0 },
     seriesIn: 'cols', headers: false, legend: chart.legend !== false, legendPos: 'bottom',
     xTitle: chart.xTitle || '', yTitle: chart.yTitle || '', ...(chart.secondaryAxis ? { secondaryAxis: true } : {}),
     anchor: { r: r0 + chart.anchor.r, c: c0 + chart.anchor.c }, dx: 0, dy: 0, w: chart.w || 432, h: chart.h || 260, sourceRefs,

@@ -541,13 +541,15 @@ export function* solverSteps(p) {
     const maxIter = lim(o.maxIterations) === Infinity ? 100000 : o.maxIterations;
     const linear = { cols, base, F0, lp, fConst };
     if (p.hasInteger) {
+      let iterations = 0;
       const relax = function* (lo, hi) {
         const r = solveLP({ ...lp, lb: lo, ub: hi }, { maxIter });
+        iterations += r.iterations;
         yield progress({ phase: 'branch' });
         return r;
       };
       const r = yield* branchAndBound(relax, p.lb, p.ub, { integer: p.integer, groups: p.groups, intTol, gap, maxNodes: lim(o.maxSubproblems), maxFeasible: lim(o.maxFeasible), stop });
-      result = { status: r.status === 'optimal' ? (gap > 0 && r.subproblems > 1 ? 'optimalInteger' : 'optimal') : r.status, x: r.x, subproblems: r.subproblems, linear };
+      result = { status: r.status === 'optimal' ? (gap > 0 && r.subproblems > 1 ? 'optimalInteger' : 'optimal') : r.status, x: r.x, subproblems: r.subproblems, iterations, linear };
     } else {
       const r = solveLP({ ...lp, lb: p.lb, ub: p.ub }, { maxIter });
       yield progress({ phase: 'simplex', iterations: r.iterations });
@@ -564,12 +566,15 @@ export function* solverSteps(p) {
       central: o.derivatives === 'central', autoScale: o.scaling !== false, stop, starts: Math.max(2, Math.min(1000, Math.round(o.population || 100))), seed: o.seed };
     const local = (pr) => (o.multistart && !p.hasInteger ? solveNLPMultistart(pr, nlpOptions) : solveNLP(pr, nlpOptions));
     if (p.hasInteger) {
+      let iterations = 0;
       const relax = function* (lo, hi) {
         const r = yield* local({ ...problem, lb: lo, ub: hi, x0: problem.x0.map((v, j) => Math.min(hi[j], Math.max(lo[j], v))) });
+        iterations += r.iterations || 0;
         return { ...r, status: r.status === 'converged' ? 'optimal' : r.status };
       };
       const r = yield* branchAndBound(relax, p.lb, p.ub, { integer: p.integer, groups: p.groups, intTol: 1e-5, gap, maxNodes: lim(o.maxSubproblems), maxFeasible: lim(o.maxFeasible), stop });
-      result = { status: r.status === 'optimal' ? 'optimalInteger' : r.status, x: r.x, subproblems: r.subproblems };
+      // Each subproblem's solution is only locally optimal, so the integer one is reported as such.
+      result = { status: r.status === 'optimal' ? (gap > 0 ? 'optimalInteger' : 'localOptimal') : r.status, x: r.x, subproblems: r.subproblems, iterations };
     } else {
       const r = yield* local(problem);
       const status = r.status === 'optimal' ? 'localOptimal' : r.status;

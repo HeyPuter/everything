@@ -437,7 +437,7 @@ describe('Reading ranges and writing output', () => {
     const book = A.analysisWorkbook(wb, layout, 'Regression');
     expect(book.sheets).toHaveLength(1);
     expect(book.sheets[0].name).toBe('Regression');
-    expect(book.getValue(book.activeSheetId, 0, 0)).toBe('SUMMARY OUTPUT');
+    expect(book.getValue(book.activeSheetId, 0, 0)).toBe('Regression Summary');
     const source = book.sheets[0].charts[0].sourceRefs[0];
     expect(source.literal.categories).toEqual([1, 2, 3, 4, 5]);
     expect(source.values).toMatch(/^Regression!\$C\$\d+:\$C\$\d+$/);

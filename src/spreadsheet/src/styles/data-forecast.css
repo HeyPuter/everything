@@ -65,8 +65,8 @@ select.da-list { width: 100%; min-height: 240px; background-image: none; padding
 
 /* Solver */
 .sv-dialog { display: flex; flex-direction: column; gap: 10px; }
-.sv-goal { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
-.sv-goal > legend { padding: 0; margin-bottom: 4px; width: 100%; }
+.sv-goal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.sv-goal-label { margin: 0 4px 0 0; }
 .sv-value { width: 120px; flex: none; }
 .sv-constraints { display: flex; gap: 12px; align-items: stretch; }
 .sv-list-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }

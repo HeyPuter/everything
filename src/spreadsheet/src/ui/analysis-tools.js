@@ -42,10 +42,15 @@ const TOOL_HINTS = {
 const toolName = (id) => TOOLS.find(([key]) => key === id)?.[1] || id;
 
 /** The selection as absolute reference text; a single cell stands for its data region. */
-function selectionText(ctx) {
+function selectionText(ctx, column = null) {
   const sel = ctx.range?.();
-  const range = sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2) ? sel : ctx.dataRange?.() || sel;
+  let range = sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2) ? sel : ctx.dataRange?.() || sel;
   if (!range) return '';
+  // A two-sample tool offers the block's first column as one sample and its second as the other.
+  if (column != null) {
+    if (range.c2 - range.c1 < 1) return column === 0 ? selectionText(ctx) : '';
+    range = { ...range, c1: range.c1 + column, c2: range.c1 + column };
+  }
   const a = (r, c) => `$${colName(c)}$${r + 1}`;
   return range.r1 === range.r2 && range.c1 === range.c2 ? a(range.r1, range.c1) : `${a(range.r1, range.c1)}:${a(range.r2, range.c2)}`;
 }
@@ -192,7 +197,7 @@ export function openAnalysisTool(ctx, id) {
     if (failed(b)) return b;
     return { g1: a.group, g2: b.group, inputs: [a.found, b.found] };
   };
-  const twoSampleFields = (extra = []) => [range('range1', 'Variable 1 range', selectionText(ctx)), range('range2', 'Variable 2 range'),
+  const twoSampleFields = (extra = []) => [range('range1', 'Variable 1 range', selectionText(ctx, 0)), range('range2', 'Variable 2 range', selectionText(ctx, 1)),
     number('difference', 'Hypothesized mean difference', 0), ...extra, check('labels', 'Labels'), alpha()];
   const tRun = (kind) => () => {
     const v = twoVariables(); if (failed(v)) return v;
@@ -269,7 +274,7 @@ export function openAnalysisTool(ctx, id) {
       },
     },
     ftest: {
-      fields: () => [range('range1', 'Variable 1 range', selectionText(ctx)), range('range2', 'Variable 2 range'), check('labels', 'Labels'), alpha()],
+      fields: () => [range('range1', 'Variable 1 range', selectionText(ctx, 0)), range('range2', 'Variable 2 range', selectionText(ctx, 1)), check('labels', 'Labels'), alpha()],
       run: () => {
         const v = twoVariables(); if (failed(v)) return v;
         const a = withAlpha(); if (failed(a)) return a;

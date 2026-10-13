@@ -117,7 +117,7 @@ describe('Data Analysis', () => {
     const sheet = wb.sheetByName('Fit');
     expect(sheet).toBeTruthy();
     expect(wb.activeSheetId).toBe(sheet.id);
-    expect(wb.getValue(sheet.id, 0, 0)).toBe('SUMMARY OUTPUT');
+    expect(wb.getValue(sheet.id, 0, 0)).toBe('Regression Summary');
     expect(sheet.charts).toHaveLength(1);
     expect(sheet.charts[0].sourceRefs[0].categories).toBe('Sheet1!$B$2:$B$6');
   });

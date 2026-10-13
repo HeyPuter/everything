@@ -23,6 +23,7 @@ const WORD = { int: 'integer', bin: 'binary', dif: 'AllDifferent' };
 
 const constraintText = (k) => `${k.lhs} ${k.rel === 'int' || k.rel === 'bin' || k.rel === 'dif' ? '= ' + WORD[k.rel] : `${RELATION_LABEL[k.rel]} ${k.rhs}`}`;
 const clone = (m) => JSON.parse(JSON.stringify(m));
+const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 
 /** A selection as dialog text: absolute references, the ranges joined by commas. */
 function selectionText(ctx) {
@@ -298,7 +299,7 @@ function openResults(ctx, prepared, result, { onReturn }) {
         el('label.check', { for: restore.id }, restore, el('span', {}, 'Restore original values'))),
       el('fieldset.check-group.vertical', {}, el('legend.field-label', {}, 'Reports (each on a new sheet)'), ...reportBoxes)),
     el('label.check', { for: back.id }, back, el('span', {}, 'Return to Solver Parameters')),
-    el('p.small.muted.sv-result-stats', {}, `${result.seconds.toFixed(2)} s · ${result.evals} trial solutions${result.subproblems ? ` · ${result.subproblems} subproblems` : ''}`),
+    el('p.small.muted.sv-result-stats', {}, [`${result.seconds.toFixed(2)} s`, count(result.evals, 'trial solution'), result.iterations && count(result.iterations, 'iteration'), result.subproblems && count(result.subproblems, 'subproblem')].filter(Boolean).join(' · ')),
     el('div.row.row-end', {},
       el('button.btn.btn-ghost.sv-scenario', { type: 'button', disabled: !result.x, onclick: saveAsScenario }, 'Save Scenario…'),
       el('span.sv-spacer'),
@@ -408,7 +409,7 @@ export function openSolver(ctx, start = null) {
   const field = (label, control, extra = null) => el('div.field', {}, el('label.field-label', { for: control.id }, label), control, extra);
   const content = el('form.sv-dialog', { onsubmit: solve },
     field('Set objective', objective),
-    el('fieldset.sv-goal', {}, el('legend.field-label', {}, 'To'),
+    el('div.sv-goal', { role: 'radiogroup', 'aria-labelledby': `${goalName}-label` }, el('span.field-label.sv-goal-label', { id: `${goalName}-label` }, 'To'),
       el('label.check', { for: goals.max.id }, goals.max, el('span', {}, 'Max')),
       el('label.check', { for: goals.min.id }, goals.min, el('span', {}, 'Min')),
       el('label.check', { for: goals.value.id }, goals.value, el('span', {}, 'Value of')), value),
