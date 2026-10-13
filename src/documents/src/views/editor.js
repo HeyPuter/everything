@@ -66,6 +66,7 @@ import { createDesignTab } from './design-tab.js';
 import { createLayoutTab } from './layout-tab.js';
 import { createLineNumbers } from './line-numbers.js';
 import { createHyphenation } from './hyphenation.js';
+import { defaultPageSettings } from '../lib/page-defaults.js';
 
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
 export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
@@ -498,6 +499,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const spaceAfter = spacingInput('spaceAfter', 'Space after paragraph (pt)');
   const pageSetup = tool('Page setup', 'pageSettings', () => {
     if (!engine) return;
+    if (editorCommands.openPageSetup) { pageSetupModal = editorCommands.openPageSetup(); return; }
     engine.finishComposition();
     pageSetupModal = openPageSetup(engine.model.pageSettings, settings => {
       const ok = engine.setPageSettings(settings);
@@ -1009,7 +1011,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     const importedHtml = imported?.type === 'markdown' ? (await import('../lib/markdown-html.js')).markdownHtml(imported.value) : imported?.type === 'html' ? imported.value : null;
     if (imported && importedText === null && importedHtml === null) throw new Error('This file type cannot be opened here. Open a .docx, Markdown, HTML or plain-text file.');
     const template = !doc.blob && doc.template ? templateById(doc.template) : null;
-    const opened = doc.blob ? await openCanvasDocument(doc.blob) : { pkg: createDocx([paragraph()], undefined, undefined, undefined, [], {}, WRITING_STYLES), images: new Map() };
+    const opened = doc.blob ? await openCanvasDocument(doc.blob) : { pkg: createDocx([paragraph()], defaultPageSettings(), undefined, undefined, [], {}, WRITING_STYLES), images: new Map() };
     pkg = opened.pkg;
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();

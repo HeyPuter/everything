@@ -142,3 +142,40 @@ describe('multiple pages', () => {
     expect(reopened.pageSettings.bookFoldPrinting).toBe(true);
   });
 });
+
+describe('text-wrapping breaks', () => {
+  it('insert a clearing line break that saves as br clear="all"', async () => {
+    const { pkg, doc } = fresh('Before after');
+    doc.select(6);
+    expect(doc.insertTextWrappingBreak('all')).toBe(true);
+    expect(doc.text).toBe('Before\v after');
+    expect(doc.paragraphs[0].runs.find(r => r.text === '\v').breakClear).toBe('all');
+    const bytes = await save(pkg, doc);
+    expect(part(bytes, 'word/document.xml')).toContain('<w:br w:clear="all"/>');
+    const reopened = await DocxPackage.open(bytes);
+    expect(reopened.paragraphs[0].runs.find(r => r.text === '\v').breakClear).toBe('all');
+    doc.undo(); expect(doc.text).toBe('Before after');
+  });
+});
+
+describe('section layout fixture', () => {
+  it('opens odd-page, continuous and column sections with mirrored margins for editing and saves them unchanged', async () => {
+    const { readFileSync } = await import('node:fs');
+    const bytes = readFileSync('public/fixtures/section-layout.docx'), pkg = await DocxPackage.open(bytes);
+    expect(pkg.readOnly).not.toBe(true);
+    const doc = open(pkg);
+    expect(doc.sectionSettings.map(s => s.sectionType)).toEqual(['nextPage', 'oddPage', 'continuous']);
+    expect(doc.sectionSettings.map(s => s.mirrorMargins)).toEqual([true, true, true]);
+    expect(doc.sectionSettings[1].columns).toMatchObject({ count: 2, separator: true });
+    expect(doc.paragraphs[2].runs.some(r => r.breakClear === 'all')).toBe(true);
+    const pages = layout(doc);
+    // Title page, an empty even page, then the odd landscape page shared by the last two sections.
+    expect(pages.pageCount).toBe(3);
+    expect(pages.pageSections).toEqual([0, null, 1]);
+    expect(unzipSync(await save(pkg, doc))).toEqual(unzipSync(bytes));
+    doc.select(doc.text.length);
+    doc.setPageSettings({ left: 2160 }, { scope: 'section' });
+    const edited = await DocxPackage.open(await save(pkg, doc));
+    expect([...edited.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd.left), edited.pageSettings.left]).toEqual([1800, 1800, 2160]);
+  });
+});

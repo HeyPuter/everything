@@ -623,6 +623,21 @@ export class TextDocument {
     else this.pageSettings = validatePageSettings({ ...this.pageSettings, sectionType: type });
   }
   insertPageBreak() { return this.replace('\f'); }
+  /**
+   * A text-wrapping break (§17.3.3.1 br with clear): the line ends here and the text continues below
+   * any floating objects beside it (clear 'all'), or a plain line break with clear 'none'.
+   */
+  insertTextWrappingBreak(clear = 'all') {
+    if (!['none', 'left', 'right', 'all'].includes(clear)) throw new Error('Invalid text-wrapping break.');
+    const start = this.range[0];
+    if (!this.replace('\v')) return false;
+    const at = locate(this.paragraphs, start), p = this.paragraphs[at.index];
+    let offset = 0;
+    const run = p.runs.find(r => { const inside = at.offset >= offset && at.offset < offset + r.text.length; offset += r.text.length; return inside; });
+    if (!run || run.text[at.offset - (offset - run.text.length)] !== '\v' || run.image || run.contentControl) return true;
+    p.runs = [...sliceRuns(p.runs, 0, at.offset), { ...run, text: '\v', breakClear: clear }, ...sliceRuns(p.runs, at.offset + 1)];
+    this.didChange(); return true;
+  }
   insertColumnBreak() { return this.replace('\u000e'); }
   get tableContext() { return cellContext(this.tables, this.paragraphs[locate(this.paragraphs, this.selection.focus).index].cellId); }
   get selectedTableCells() {

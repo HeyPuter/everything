@@ -1,0 +1,36 @@
+/* Page Setup and Columns dialogs (src/views/page-setup.js, columns-dialog.js). */
+.ps-dialog { display: grid; gap: 12px; }
+.ps-body { display: grid; grid-template-columns: minmax(0, 1fr) 176px; gap: 16px; align-items: start; }
+.ps-panels { display: grid; gap: 12px; min-width: 0; }
+.ps-panel.ed-font-panel { gap: 10px; }
+.ps-side { display: grid; gap: 8px; position: sticky; top: 0; }
+.ps-group { border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 6px 12px 10px; margin: 0; min-width: 0; display: grid; gap: 6px; }
+.ps-group legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.ps-group .canvas-page-fields .field { margin-bottom: 4px; }
+.ps-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.ps-actions { justify-content: space-between; align-items: center; gap: 8px; }
+.ps-actions .row-end { margin-left: auto; }
+.ps-preview { display: grid; place-items: center; min-height: 150px; background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--r-md); padding: 12px; overflow: hidden; }
+.ps-preview-sheet { position: relative; max-width: 100%; }
+.ps-page { position: absolute; top: 0; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .22), 0 1px 3px rgba(0, 0, 0, .18); }
+.ps-text { position: absolute; background: repeating-linear-gradient(to bottom, #9aa4b2 0 1px, transparent 1px 4px); opacity: .8; outline: 1px dashed var(--accent); outline-offset: 1px; }
+.ps-gutter { position: absolute; background: repeating-linear-gradient(45deg, rgba(0, 0, 0, .12) 0 2px, transparent 2px 5px); }
+.ps-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.ps-preset { display: grid; justify-items: center; gap: 2px; padding: 6px 8px 4px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: transparent; color: var(--ink); min-width: 58px; font-size: 12px; }
+.ps-preset:hover { background: var(--surface-2); }
+.ps-preset[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-wash); }
+.ps-columns-options { display: flex; gap: 12px 16px; flex-wrap: wrap; align-items: end; }
+.ps-columns-options .field { margin: 0; }
+.ps-columns-options .input { width: 88px; }
+.ps-columns { display: grid; gap: 4px; max-height: 200px; overflow: auto; }
+.ps-columns-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; }
+.ps-columns-row.is-head span { font-size: 12px; color: var(--ink-2); }
+.ps-columns-row .input { width: 100%; min-width: 0; }
+.ps-preview.is-columns .ps-preview-sheet { height: 150px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .22); }
+.ps-column { position: absolute; top: 10px; bottom: 10px; background: repeating-linear-gradient(to bottom, #9aa4b2 0 1px, transparent 1px 4px); opacity: .8; }
+.ps-column-line { position: absolute; top: 10px; bottom: 10px; width: 1px; background: var(--ink-2); }
+@media (max-width: 700px) {
+  .ps-body { grid-template-columns: minmax(0, 1fr); }
+  .ps-side { position: static; }
+  .ps-preview { min-height: 120px; }
+}

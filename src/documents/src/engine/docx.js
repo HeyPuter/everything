@@ -1897,7 +1897,7 @@ export class DocxPackage {
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
     // Document-wide page layout settings (§17.15.1): gutter position, mirrored margins, booklets, two pages per sheet.
-    const pageFlags = ['gutterAtTop', 'mirrorMargins', 'bookFoldPrinting', 'bookFoldRevPrinting', 'printTwoOnOne'].filter(key => pageSettings[key] !== this.initialPageSettings[key]);
+    const pageFlags = ['gutterAtTop', 'mirrorMargins', 'bookFoldPrinting', 'bookFoldRevPrinting', 'printTwoOnOne'].filter(key => pageSettings[key] !== this.initialPageSettings[key] || !this.originals.size && pageSettings[key]);
     if (pageFlags.length) {
       const { settings, related, path } = openSettings(parts);
       if (pageFlags.map(key => writeSettingsFlag(settings, key, pageSettings[key])).some(Boolean)) saveSettings(parts, settings, related, path);
