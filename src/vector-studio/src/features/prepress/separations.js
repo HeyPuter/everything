@@ -14,6 +14,13 @@
  *
  * The Separations Preview shows the chosen plates on the canvas in their
  * ink colors (a canvas post-process, see ink-gl.js).
+ *
+ * Spot ink options (the Spot Colors dialog): a spot swatch can print as
+ * process instead (`printAsProcess`) and can carry a CMYK equivalent
+ * (`spotCmyk` { c, m, y, k } in percent). doc.root.spotColors.definition
+ * picks what process builds of spot inks use: 'lab' (the ink's on-screen
+ * color through the press model, the default) or 'cmyk' (each ink's CMYK
+ * equivalent, where it has one).
  */
 import { exportView } from '../io/export-view.js';
 import { RASTER_EFFECTS } from '../../render/effects.js';
@@ -32,13 +39,39 @@ const grayHex = (v) => {
   return `#${c}${c}${c}`;
 };
 
-export function isSpot(sw) {
+/** A spot color swatch, whether it prints on its own plate or as process. */
+export function isSpotSwatch(sw) {
   return Boolean(sw && (sw.spot || sw.colorType === 'spot') && sw.paint?.type === 'solid');
 }
 
-/** The document's spot inks: [{ id, name, color }] in swatch order. */
+/** A spot ink that prints on a plate of its own. */
+export function isSpot(sw) {
+  return isSpotSwatch(sw) && !sw.printAsProcess;
+}
+
+/** Whether process builds of spot inks use their CMYK equivalents. */
+export function spotsUseCmyk(doc) {
+  return doc.root.spotColors?.definition === 'cmyk';
+}
+
+const validCmyk = (c) => Boolean(c && ['c', 'm', 'y', 'k'].every((k) => Number.isFinite(c[k])));
+
+/** The document's spot inks: [{ id, name, color, cmyk? }] in swatch order (cmyk: the CMYK equivalent in use). */
 export function spotInks(doc) {
-  return (doc.root.swatches || []).filter(isSpot).map((s) => ({ id: s.id, name: s.name || 'Spot', color: s.paint.color }));
+  const useCmyk = spotsUseCmyk(doc);
+  return (doc.root.swatches || []).filter(isSpot).map((s) => ({ id: s.id, name: s.name || 'Spot', color: s.paint.color, ...(useCmyk && validCmyk(s.spotCmyk) ? { cmyk: { ...s.spotCmyk } } : {}) }));
+}
+
+/**
+ * CMYK equivalents of every spot swatch for process output (spot inks
+ * converted to process, or printing as process): Map id -> { c, m, y, k,
+ * color }. Empty unless the document uses CMYK equivalents.
+ */
+export function spotEquivalents(doc) {
+  const out = new Map();
+  if (!spotsUseCmyk(doc)) return out;
+  for (const s of doc.root.swatches || []) if (isSpotSwatch(s) && validCmyk(s.spotCmyk)) out.set(s.id, { ...s.spotCmyk, color: s.paint.color });
+  return out;
 }
 
 /** How much of a spot ink a color linked to it carries (0..1): an explicit tint, or how far the color is from white toward the ink. */

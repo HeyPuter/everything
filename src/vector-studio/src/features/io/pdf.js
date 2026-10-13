@@ -265,6 +265,12 @@ class PDFRenderer {
   colorValues(color) {
     const hex = typeof color === 'string' ? color : color?.color || '#000000';
     if (this.cmyk) {
+      // A spot color printing as process with a CMYK equivalent: the equivalent, by tint.
+      const eq = typeof color === 'object' && color?.swatchId ? this.opts.spotEquivalents?.get(color.swatchId) : null;
+      if (eq) {
+        const t = spotTint(hex, eq.color, color.tint);
+        return [eq.c, eq.m, eq.y, eq.k].map((v) => Math.max(0, Math.min(1, (v / 100) * t)));
+      }
       const c = (typeof color === 'object' && color?.cmyk) || separate(Object.values(hexToRgb(hex)).map((v) => v / 255), this.profile);
       return [c.c, c.m, c.y, c.k].map((v) => Math.max(0, Math.min(1, v / 100)));
     }
@@ -289,7 +295,8 @@ class PDFRenderer {
   colorOps(res, color, stroke = false) {
     const spot = typeof color === 'object' && color?.swatchId ? this.spots.get(color.swatchId) : null;
     if (spot) {
-      const cs = this.separationSpace(spot.name, this.colorValues(spot.color));
+      const alt = spot.cmyk && this.cmyk ? [spot.cmyk.c, spot.cmyk.m, spot.cmyk.y, spot.cmyk.k].map((v) => Math.max(0, Math.min(1, v / 100))) : this.colorValues(spot.color);
+      const cs = this.separationSpace(spot.name, alt);
       const tint = spotTint(color.color, spot.color, color.tint);
       return `/${res.name(res.colorspace, 'CS', cs)} ${stroke ? 'CS' : 'cs'} ${pdfNum(tint)} ${stroke ? 'SCN' : 'scn'}`;
     }

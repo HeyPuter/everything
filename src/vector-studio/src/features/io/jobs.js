@@ -11,7 +11,7 @@ import { selectionBounds } from '../../model/geometry.js';
 import { applySvgOptions } from './svg-styling.js';
 import { normalizePdf, pdfVersion, pdfEncrypted } from './pdf-settings.js';
 import { documentCmykProfile, cmykProfile } from '../prepress/color-management.js';
-import { spotInks } from '../prepress/separations.js';
+import { spotInks, spotEquivalents } from '../prepress/separations.js';
 import { getPreset } from '../prepress/presets.js';
 import { normalizeFlattener } from '../prepress/flattener-presets.js';
 import { exportFormats } from './hooks.js';
@@ -99,6 +99,8 @@ export function pdfWriterOptions(app, doc, raw = {}) {
     }
   }
   if (!o.spotsToProcess) out.spots = new Map(spotInks(doc).map((s) => [s.id, s]));
+  // Spot inks printed as process use their CMYK equivalents when the document says so.
+  out.spotEquivalents = spotEquivalents(doc);
   if (o.standard === 'press') out.outputIntent = cmykProfile(o.outputIntent === 'document' ? documentCmykProfile(app, doc) : o.outputIntent).label;
   if (o.flatten) {
     const p = getPreset(app, 'flattener', o.flattener)?.values || normalizeFlattener({});
