@@ -1406,3 +1406,8 @@
 .sp-options[hidden] {
   display: none;
 }
+
+/* The find field takes the free space; the spacer only keeps the view buttons right when it is hidden. */
+.sw-search:not([hidden]) + .sw-spacer {
+  display: none;
+}
