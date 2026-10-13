@@ -8,7 +8,7 @@ import type { DocumentSession } from '../../app/session';
 import type { PhotoDocument } from '../../model/document';
 import { audioPlan, envelopeAt, envelopePoints, type AudioSource, type PlanItem } from '../../model/audio-timeline';
 import { audioPcm, loadAll } from './audio-media';
-import type { Pcm } from '../../imaging/audio/mix';
+import { downmix, type Pcm } from '../../imaging/audio/mix';
 
 let ctx: AudioContext | undefined;
 const buffers = new WeakMap<Pcm, AudioBuffer>();
@@ -16,11 +16,14 @@ function context() {
   if (!ctx) ctx = new AudioContext({ latencyHint: 'interactive' });
   return ctx;
 }
+/** The source as a buffer; surround sources folded to stereo the way the
+ * offline mix does (not by the context's own channel rules). */
 function bufferOf(c: BaseAudioContext, pcm: Pcm) {
   let b = buffers.get(pcm);
   if (!b) {
-    b = c.createBuffer(pcm.channels.length, pcm.channels[0].length, pcm.sampleRate);
-    pcm.channels.forEach((ch, i) => b!.copyToChannel(ch as Float32Array<ArrayBuffer>, i));
+    const { channels } = downmix(pcm, 2);
+    b = c.createBuffer(channels.length, channels[0].length, pcm.sampleRate);
+    channels.forEach((ch, i) => b!.copyToChannel(ch as Float32Array<ArrayBuffer>, i));
     buffers.set(pcm, b);
   }
   return b;

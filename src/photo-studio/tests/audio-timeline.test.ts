@@ -25,7 +25,7 @@ import {
   type AudioSource,
   type PlanItem,
 } from '../src/model/audio-timeline';
-import { mixPlan, type Pcm } from '../src/imaging/audio/mix';
+import { downmix, downmixGains, mixPlan, type Pcm } from '../src/imaging/audio/mix';
 import { audioPcm, purgeAudioCache } from '../src/features/animation/audio-media';
 import { mixDocument } from '../src/features/animation/audio-export';
 import type { Editor } from '../src/editor';
@@ -119,6 +119,40 @@ describe('audio mix', () => {
     expect(r[0]).toBe(-0.5);
     expect(l[1999]).toBe(0.25);
     expect(l[2000]).toBe(0);
+  });
+
+  it('folds surround sources down to stereo without losing center or surround channels', () => {
+    const h = Math.SQRT1_2;
+    const levels = (values: number[]): Pcm => ({ sampleRate: SR, channels: values.map((v) => new Float32Array(SR).fill(v)) });
+    const at = (values: number[]) => {
+      const items: PlanItem[] = [{ source: src('s', 1, values.length), at: 0, offset: 0, length: 1, gain: 1, fadeIn: 0, fadeOut: 0, clip: 'x' }];
+      const [l, r] = mixPlan(items, () => levels(values), 0, 1, SR);
+      // The same fold for playback buffers (mono and stereo stay as they are).
+      const folded = downmix(levels(values));
+      expect(folded.channels).toHaveLength(Math.min(2, values.length));
+      expect(folded.channels[0][5]).toBeCloseTo(l[5], 6);
+      expect(folded.channels.at(-1)![5]).toBeCloseTo(r[5], 6);
+      return [l[5], r[5]];
+    };
+    // 5.1: L R C LFE SL SR (the LFE is dropped).
+    const [l6, r6] = at([0.1, 0.2, 0.3, 0.4, 0.05, 0.06]);
+    expect(l6).toBeCloseTo(0.1 + h * 0.3 + h * 0.05, 6);
+    expect(r6).toBeCloseTo(0.2 + h * 0.3 + h * 0.06, 6);
+    // Quad: L R SL SR.
+    const [l4, r4] = at([0.1, 0.2, 0.3, 0.4]);
+    expect(l4).toBeCloseTo(0.1 + h * 0.3, 6);
+    expect(r4).toBeCloseTo(0.2 + h * 0.4, 6);
+    // 7.1 and an unusual layout keep every channel but the LFE.
+    const [l8, r8] = at([0.1, 0.2, 0.3, 0.4, 0.01, 0.02, 0.03, 0.04]);
+    expect(l8).toBeCloseTo(0.1 + h * (0.3 + 0.01 + 0.03), 6);
+    expect(r8).toBeCloseTo(0.2 + h * (0.3 + 0.02 + 0.04), 6);
+    const [l3, r3] = at([0.1, 0.2, 0.3]);
+    expect(l3).toBeCloseTo(0.1 + h * 0.3, 6);
+    expect(r3).toBeCloseTo(0.2 + h * 0.3, 6);
+    // Mono and stereo are unchanged.
+    expect(at([0.25])).toEqual([0.25, 0.25]);
+    expect(at([0.25, -0.5])).toEqual([0.25, -0.5]);
+    expect(downmixGains(2, 2)).toEqual([[1, 0], [0, 1]]);
   });
 
   it('resamples sources at another rate and stops at the end of the source', () => {

@@ -496,4 +496,40 @@ test.describe('audio edge cases', () => {
     expect(await state()).toEqual(before);
     expect(errors).toEqual([]);
   });
+
+  test('surround sound keeps its center and surround channels in playback and the mix', async ({ page }) => {
+    await openImage(page, 32, 32, '#ffffff', 'surround.png');
+    await run(page, 'timeline.create');
+    // 5.1 WAV (L R C LFE SL SR): a tone on the center channel only.
+    const rate = 48000;
+    const tone = Float32Array.from({ length: rate }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate));
+    const silent = new Float32Array(rate);
+    const wav = Buffer.from(encodeWav([silent, silent, tone, silent, silent, silent], rate)).toString('base64');
+    await page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await window.photoStudio.runCommand('timeline.audio-add', new File([bytes], 'center.wav', { type: 'audio/wav' }));
+    }, wav);
+    await idle(page);
+    expect((await timeline(page)).audio![0].clips[0].source).toMatchObject({ channels: 6 });
+    const r = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { audioPlan } = await import('/src/model/audio-timeline.ts');
+      const { mixPlan, peakLevel } = await import('/src/imaging/audio/mix.ts');
+      const { audioPcm, loadAll } = await import('/src/features/animation/audio-media.ts');
+      const { scheduleSegment } = await import('/src/features/animation/audio-playback.ts');
+      const plan = audioPlan(e.doc);
+      await loadAll(e.session, plan.map((p) => p.source));
+      const ctx = new OfflineAudioContext(2, 48000, 48000);
+      scheduleSegment(ctx, ctx.destination, plan, 0, 1, 0);
+      const live = await ctx.startRendering();
+      const mix = mixPlan(plan, (p) => audioPcm(p.source), 0, 1, 48000, 2);
+      let worst = 0;
+      for (let c = 0; c < 2; c++) for (let i = 0; i < 48000; i++) worst = Math.max(worst, Math.abs(live.getChannelData(c)[i] - mix[c][i]));
+      return { worst, left: peakLevel([mix[0]]), right: peakLevel([mix[1]]) };
+    });
+    // The center reaches both sides at -3 dB.
+    expect(r.left).toBeCloseTo(0.5 * Math.SQRT1_2, 2);
+    expect(r.right).toBeCloseTo(0.5 * Math.SQRT1_2, 2);
+    expect(r.worst).toBeLessThan(2e-3);
+  });
 });
