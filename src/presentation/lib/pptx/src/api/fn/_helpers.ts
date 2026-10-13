@@ -59,7 +59,20 @@ export const commitSlideData = (slide: SlideData): void => {
   const part = slide[INTERNAL_PACKAGE].getPart(slide[SLIDE_PART_NAME]);
   if (!part) throw new Error(`slide part missing: ${slide[SLIDE_PART_NAME]}`);
   part.data = encode(xml);
+  // An editing view over a layout or master stays the part's view after
+  // its own edits; any other change to the part makes a fresh one.
+  const view = templateViews.get(part);
+  if (view?.slide === slide) view.data = part.data;
 };
+
+/**
+ * Editing views over layout / master parts (`getTemplateSlide`), by part,
+ * with the bytes each view was read from or last committed.
+ */
+export const templateViews = new WeakMap<
+  object,
+  { data: Uint8Array; slide: SlideData }
+>();
 
 export const refreshSlideData = (slide: SlideData): void => {
   const fresh = readSlidePart(slide[SLIDE_DOCUMENT].root);

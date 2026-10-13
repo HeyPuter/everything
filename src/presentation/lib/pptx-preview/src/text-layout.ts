@@ -2,6 +2,7 @@ import { splitGraphemes } from "unicode-segmenter/grapheme";
 import type {
   DateFieldOptions,
   SlideLayoutData,
+  SlideShapeData,
 } from "../../pptx/src/index.ts";
 
 // Pure-SVG text layout engine for the preview renderer.
@@ -84,6 +85,14 @@ export interface RenderSlideOptions {
   /** Font-provider capabilities may further restrict the resolved OOXML
    * kerning. Uses the same resolved face for measuring and painting. */
   readonly resolveFontKerning?: (spec: FontSpec) => FontSpec["kerning"];
+  /** Editors only: draw each empty placeholder with the prompt it shows
+   * while waiting for content ("Click to add title"), in the format typed
+   * text would take. `true` uses the standard prompts; a function picks
+   * the prompt per shape (null for none). Slide shows, exports and
+   * thumbnails leave this off so prompts never appear as content. */
+  readonly placeholderPrompts?:
+    | boolean
+    | ((shape: SlideShapeData) => string | null);
 }
 
 // ---------------------------------------------------------------------------

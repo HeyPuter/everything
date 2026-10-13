@@ -622,5 +622,43 @@ export type {
   TransitionOptions,
 } from "../internal/presentationml/index.ts";
 
+// Slide masters, layouts and placeholders.
+export {
+  addSlideLayout,
+  addSlideMaster,
+  applySlideLayout,
+  deleteSlideLayout,
+  deleteSlideMaster,
+  duplicateSlideLayout,
+  duplicateSlideMaster,
+  ensureHandoutMaster,
+  ensureNotesMaster,
+  getHandoutMasterPartName,
+  getLayoutMasterPartName,
+  getNotesMasterPartName,
+  getNotesPageSize,
+  getPlaceholderContentKind,
+  getPlaceholderPrompt,
+  getSlideLayoutUsage,
+  getSlideMasters,
+  getTemplateKind,
+  getTemplatePageSize,
+  getTemplateSlide,
+  hasTemplatePlaceholder,
+  insertTemplatePlaceholder,
+  isPlaceholderEmpty,
+  moveSlideLayout,
+  renameTemplate,
+  resetSlideToLayout,
+  setNotesPageOrientation,
+  setTemplatePlaceholder,
+  setTemplatePreserved,
+  withPlaceholderPrompt,
+  type SlideLayoutEntry,
+  type SlideMasterEntry,
+  type TemplatePlaceholderKind,
+  type TemplatePlaceholderSlot,
+} from "./fn.ts";
+
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";

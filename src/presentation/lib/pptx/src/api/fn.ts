@@ -13,6 +13,7 @@ export * from "./fn/package-io.ts";
 export * from "./fn/text-fields.ts";
 export * from "./fn/sections.ts";
 export * from "./fn/layouts.ts";
+export * from "./fn/slide-masters.ts";
 export * from "./fn/template-import.ts";
 export * from "./fn/embedded-fonts.ts";
 export * from "./fn/theme.ts";

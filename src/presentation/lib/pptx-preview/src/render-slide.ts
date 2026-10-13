@@ -154,6 +154,14 @@ import {
   getSlideMasterBackgroundPatternFill,
   getSlideShapes,
   getSlideSize,
+  findSlideLayoutByPartName,
+  getPlaceholderPrompt,
+  getSlidePartName,
+  getTemplateKind,
+  getTemplatePageSize,
+  getSlideMasterShapes,
+  getSlideXmlString,
+  withPlaceholderPrompt,
   getTableCellAnchor,
   getTableCellMargins,
   getTableCellSpan,
@@ -11538,12 +11546,33 @@ export const renderSlideSvg = (
   }
 };
 
+// A layout hides its master's artwork with `showMasterSp="0"`.
+const showsMasterArtwork = (slide: SlideData): boolean => {
+  const xml = getSlideXmlString(slide);
+  const root = /<p:sldLayout\b[^>]*>/.exec(xml)?.[0] ?? "";
+  return !/\bshowMasterSp="(0|false)"/.test(root);
+};
+
 const renderSlideSvgInContext = (
   pres: PresentationData,
   slide: SlideData,
   opts: RenderSlideOptions,
 ): string => {
-  const size = getSlideSize(pres) ?? DEFAULT_SIZE;
+  // A layout or master editing view is drawn on its own: a layout over its
+  // master's background and artwork, a master alone, and the notes and
+  // handout masters on the notes page.
+  const templateKind = getTemplateKind(slide);
+  const viewLayout =
+    templateKind === "layout"
+      ? findSlideLayoutByPartName(pres, getSlidePartName(slide))
+      : null;
+  const page =
+    templateKind === "notesMaster" || templateKind === "handoutMaster"
+      ? getTemplatePageSize(pres, slide)
+      : null;
+  const size = page
+    ? { width: page.cx, height: page.cy }
+    : (getSlideSize(pres) ?? DEFAULT_SIZE);
   const W = size.width as number;
   const H = size.height as number;
   const theme = themeForSlide(slide)?.theme ?? getPresentationTheme(pres);
@@ -11589,6 +11618,13 @@ const renderSlideSvgInContext = (
         );
         if (masterBg.kind !== "inherit") bg = masterBg;
       }
+    } else if (viewLayout) {
+      const masterBg = getSlideMasterBackground(
+        pres,
+        viewLayout,
+        backgroundContext,
+      );
+      if (masterBg.kind !== "inherit") bg = masterBg;
     }
   }
   let bgColor = "#FFFFFF";
@@ -11603,6 +11639,12 @@ const renderSlideSvgInContext = (
     // shape fills so radial / rect / shape paths all behave.
     // Walk slide → layout → master for the actual gradient definition.
     let grad = getSlideBackgroundGradientFill(slide, backgroundContext);
+    if (!grad && viewLayout)
+      grad = getSlideMasterBackgroundGradientFill(
+        pres,
+        viewLayout,
+        backgroundContext,
+      );
     if (!grad) {
       const layout = getSlideLayout(slide);
       if (layout) {
@@ -11627,6 +11669,12 @@ const renderSlideSvgInContext = (
     }
   } else if (bg.kind === "pattern") {
     let pat = getSlideBackgroundPatternFill(pres, slide, activeColorMap);
+    if (!pat && viewLayout)
+      pat = getSlideMasterBackgroundPatternFill(
+        pres,
+        viewLayout,
+        activeColorMap,
+      );
     if (!pat) {
       const layout = getSlideLayout(slide);
       if (layout) {
@@ -11654,6 +11702,8 @@ const renderSlideSvgInContext = (
   let bgImage = "";
   if (bg.kind === "image") {
     let bytes = getSlideBackgroundImageBytes(slide);
+    if (!bytes && viewLayout)
+      bytes = getSlideMasterBackgroundImageBytes(pres, viewLayout);
     if (!bytes && pres) {
       const layout = getSlideLayout(slide);
       if (layout) {
@@ -11702,12 +11752,37 @@ const renderSlideSvgInContext = (
     } catch {
       layoutBgShapes = "";
     }
+  } else if (viewLayout && showsMasterArtwork(slide)) {
+    try {
+      layoutBgShapes = topLevelShapes(getSlideMasterShapes(pres, viewLayout), {
+        dropPlaceholders: true,
+      })
+        .map((s) => renderShape(s, pres, theme, ctx))
+        .join("");
+    } catch {
+      layoutBgShapes = "";
+    }
   }
 
+  const prompts = opts.placeholderPrompts;
+  const promptFor =
+    typeof prompts === "function"
+      ? prompts
+      : prompts
+        ? getPlaceholderPrompt
+        : null;
   const shapesSvg = topLevelShapes(getSlideShapes(slide), {
     dropPlaceholders: false,
   })
-    .map((s) => renderShape(s, pres, theme, ctx))
+    .map((s) => {
+      const prompt = promptFor?.(s);
+      return renderShape(
+        prompt ? withPlaceholderPrompt(s, prompt) : s,
+        pres,
+        theme,
+        ctx,
+      );
+    })
     .join("");
 
   // A viewBox alone supplies an aspect ratio, but no intrinsic dimensions.
