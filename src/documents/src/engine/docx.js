@@ -28,6 +28,7 @@ import { relatedPartPath } from './docx-relationships.js';
 import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
+import { readMailMerge, writeMailMerge } from './docx-mail-merge.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
@@ -931,6 +932,7 @@ export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
     this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.evenAndOdd = null;
+    this.mailMerge = null; this.initialMailMerge = 'null';
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1568,6 +1570,7 @@ export class DocxPackage {
     checkMarkers(paragraphs);
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
+    pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
@@ -1792,6 +1795,8 @@ export class DocxPackage {
   export(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
     const parts = this.exportBodyParts(paragraphs, pageSettings, numbering, styles, tables, assets, comments, trackRevisions);
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
+    // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
+    if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
     this.pruneFootnotes(parts, paragraphs);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });

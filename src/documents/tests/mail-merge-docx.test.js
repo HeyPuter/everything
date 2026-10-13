@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, it, expect, describe } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
@@ -37,4 +37,161 @@ describe('mail merge main documents', () => {
     expect(bodyFieldRanges(again.paragraphs).map(r => r.field.instruction)).toEqual(bodyFieldRanges(d.paragraphs).map(r => r.field.instruction));
     expect(again.text).toBe(d.text);
   });
+});
+
+import { readMailMerge, writeMailMerge, mergeDocumentParts, xmlMergeFields, partText, MAIL_MERGE_NS } from '../src/engine/docx-mail-merge.js';
+import { labelSheetDocx, envelopeDocx, LABEL_LAYOUTS, ENVELOPE_SIZES, layoutProblems } from '../src/engine/mail-documents.js';
+import { createDocx, WRITING_STYLES } from '../src/engine/docx.js';
+import { paragraph } from '../src/engine/model.js';
+import { addressBlockInstruction } from '../src/engine/merge-fields.js';
+import { insertMergeField, mergeFieldRanges, applyMergeResults, placeholderResults, updateLabels, labelTable, labelCells, insertEnvelope } from '../src/engine/mail-merge-model.js';
+import { mergeCopy, mergeRecords } from '../src/engine/merge-fields.js';
+
+const list = { columns: ['First Name', 'Last Name', 'City', 'Status', 'Ship Date', 'Balance', 'Title', 'Address Line 1', 'Country'], rows: [
+  { values: ['Rosa', 'Vidal', 'Oslo', 'active', '2026-04-01', '1500', 'Ms.', '1 Pier Rd', 'Norway'], included: true },
+  { values: ['Ken', 'Ito', 'Austin', 'inactive', '2026-04-02', '20', '', '9 Elm St', 'United States'], included: true },
+  { values: ['Ana', 'Silva', 'Lima', 'active', '', '7.5', 'Dr.', '', 'Peru'], included: false },
+  { values: ['Lee', 'Park', 'Seoul', 'active', '2026-05-09', '0', '', '3 Hill Rd', 'South Korea'], included: true },
+], sort: [], filters: [] };
+
+describe('mail merge settings and recipient data', () => {
+  it('reads an imported main document and keeps unmanaged settings when changing the type', async () => {
+    const pkg = await DocxPackage.open(fixture('letter.docx'));
+    expect(pkg.mailMerge).toMatchObject({ type: 'formLetters', preview: true, activeRecord: 2, external: 'file:///C:/Data/contacts.csv', list: null });
+    pkg.mailMerge = { ...pkg.mailMerge, type: 'email', preview: false, list, mapping: { first: 'First Name' }, source: { kind: 'typed', name: '' }, email: { to: 'Email', format: 'text' } };
+    const d = model(pkg), out = await save(pkg, d), parts = unzipSync(out);
+    const settings = strFromU8(parts['word/settings.xml']);
+    expect(settings).toMatch(/<w:mailMerge><w:mainDocumentType w:val="email"\/><w:linkToQuery\/><w:dataType w:val="textFile"\/><w:connectString w:val=""\/><w:query w:val="SELECT \* FROM contacts.csv"\/><w:dataSource r:id="rMergeSource"\/><w:addressFieldName w:val="Email"\/><w:activeRecord w:val="2"\/><w:odso>/);
+    expect(settings).not.toContain('viewMergedData');
+    expect(parts['word/_rels/settings.xml.rels']).toEqual(pkg.parts['word/_rels/settings.xml.rels']);
+    const again = await DocxPackage.open(out);
+    expect(again.mailMerge).toMatchObject({ type: 'email', list, mapping: { first: 'First Name' }, email: { to: 'Email', format: 'text' } });
+    expect(strFromU8(parts['customXml/item1.xml'])).toContain(MAIL_MERGE_NS);
+    expect(strFromU8(parts['[Content_Types].xml'])).toContain('/customXml/itemProps1.xml');
+    // Clearing the list and choosing a normal document removes both.
+    again.mailMerge = null;
+    const cleared = unzipSync(await save(again, model(again)));
+    expect(cleared['customXml/item1.xml']).toBeUndefined();
+    expect(strFromU8(cleared['word/settings.xml'])).not.toContain('mailMerge');
+    expect(strFromU8(cleared['word/_rels/document.xml.rels'])).not.toContain('customXml');
+  });
+  it('creates settings and the data part in a new document', async () => {
+    const blank = createDocx([paragraph('Hi')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    const pkg = await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer()));
+    pkg.mailMerge = { type: 'mailingLabels', activeRecord: 3, preview: true, list, mapping: {}, source: { kind: 'csv', name: 'people.csv' }, email: { format: 'html' } };
+    const out = await save(pkg, model(pkg));
+    expect(strFromU8(unzipSync(out)['word/settings.xml'])).toContain('<w:mailMerge><w:mainDocumentType w:val="mailingLabels"/><w:dataType w:val="native"/><w:viewMergedData/><w:activeRecord w:val="3"/></w:mailMerge>');
+    expect((await DocxPackage.open(out)).mailMerge).toMatchObject({ type: 'mailingLabels', activeRecord: 3, preview: true, source: { kind: 'csv', name: 'people.csv' }, list });
+  });
+});
+
+describe('merging to a new document', () => {
+  it('produces one section per record with rules applied', async () => {
+    const source = unzipSync(fixture('letter.docx'));
+    const data = mergeRecords(list);
+    const { parts, copies } = mergeDocumentParts(source, { data, mapping: { first: 'First Name', last: 'Last Name', title: 'Title', city: 'City', address1: 'Address Line 1', country: 'Country' } });
+    expect(copies.map(c => c.sequence)).toEqual([1, 2]);
+    const text = partText(parts['word/document.xml']);
+    expect(text).toContain('Ms. Rosa Vidal\n1 Pier Rd\nOslo\nNorway');
+    expect(text).toContain('Dear Ms. Vidal,');
+    expect(text).toContain('Your order ships to Oslo on April 1, 2026.');
+    expect(text).toContain('See you at the fjord.');
+    expect(text).toContain('$1,500.00');
+    expect(text).toContain('Lee Park\n3 Hill Rd\nSeoul\nSouth Korea');
+    expect(text).toContain('Dear Park,');
+    expect(text).not.toContain('Ken');
+    expect(text).toContain('Record 4');
+    const xml = strFromU8(parts['word/document.xml']);
+    expect(xml).not.toMatch(/fldChar|instrText|fldSimple/);
+    expect(xml.match(/<w:sectPr>/g)).toHaveLength(2);
+    expect(strFromU8(parts['word/settings.xml'])).not.toContain('mailMerge');
+    const reopened = await DocxPackage.open(zipSync(parts));
+    expect(reopened.readOnly).toBeFalsy();
+    expect(reopened.paragraphs.filter(p => p.sectionEnd)).toHaveLength(1);
+  });
+  it('fills label sheets with NEXT and a directory without breaks', async () => {
+    const source = unzipSync(fixture('labels.docx'));
+    const data = mergeRecords({ ...list, rows: [...list.rows, ...list.rows, ...list.rows].map(r => ({ ...r, included: true })) });
+    const { parts, copies } = mergeDocumentParts(source, { data, type: 'mailingLabels' });
+    expect(copies).toHaveLength(2);
+    const text = partText(parts['word/document.xml']);
+    expect(text.match(/Rosa Oslo/g)).toHaveLength(3);
+    expect(xmlMergeFields([...new DOMParser().parseFromString(strFromU8(parts['word/document.xml']), 'application/xml').documentElement.children])).toHaveLength(0);
+    const directory = mergeDocumentParts(source, { data: data.slice(0, 2), type: 'catalog' });
+    expect(strFromU8(directory.parts['word/document.xml']).match(/<w:sectPr>/g)).toHaveLength(1);
+  });
+});
+
+describe('editing merge fields in the model', () => {
+  const blankModel = async (text = 'Hello ') => {
+    const blank = createDocx([paragraph(text)], undefined, undefined, undefined, [], {}, WRITING_STYLES);
+    const pkg = await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer()));
+    return { pkg, d: model(pkg) };
+  };
+  it('inserts fields that save as complex fields and preview record values', async () => {
+    const { pkg, d } = await blankModel();
+    d.select(6); insertMergeField(d, ' MERGEFIELD "First Name" ');
+    d.replace('!\n'); insertMergeField(d, addressBlockInstruction());
+    d.replace('\n'); insertMergeField(d, ' IF "{ MERGEFIELD City }" = "Oslo" "Hei" "Hello" ');
+    expect(d.text).toBe('Hello «First Name»!\n«AddressBlock»\nHei');
+    const fields = mergeFieldRanges(d);
+    const copy = mergeCopy(fields.map(f => f.code), { data: mergeRecords(list), mapping: { first: 'First Name', last: 'Last Name', title: 'Title', address1: 'Address Line 1', city: 'City', country: 'Country' } });
+    applyMergeResults(d, fields, copy.results);
+    expect(d.text).toBe('Hello Rosa!\nMs. Rosa Vidal\v1 Pier Rd\vOslo\vNorway\nHei');
+    applyMergeResults(d, mergeFieldRanges(d), placeholderResults(mergeFieldRanges(d)));
+    expect(d.text).toBe('Hello «First Name»!\n«AddressBlock»\nHei');
+    const out = await save(pkg, d), xml = strFromU8(unzipSync(out)['word/document.xml']);
+    expect(xml).toContain('<w:instrText xml:space="preserve"> MERGEFIELD "First Name" </w:instrText>');
+    expect(xml).toContain('<w:instrText xml:space="preserve"> MERGEFIELD City </w:instrText>');
+    const again = model(await DocxPackage.open(out));
+    expect(mergeFieldRanges(again).map(f => f.code)).toEqual(fields.map(f => f.code));
+  });
+  it('builds label sheets that open editable and propagates the first label', async () => {
+    const layout = LABEL_LAYOUTS.find(l => l.id === 'letter-10');
+    expect(layoutProblems(layout)).toEqual([]);
+    const blob = labelSheetDocx(layout, i => i === 0 ? { fields: [{ field: addressBlockInstruction() }] } : null, { mailMerge: { type: 'mailingLabels', list, mapping: {}, activeRecord: 1 } });
+    const pkg = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
+    expect(pkg.readOnly).toBeFalsy();
+    expect(pkg.mailMerge.type).toBe('mailingLabels');
+    const d = model(pkg);
+    expect(labelCells(labelTable(d))).toHaveLength(10);
+    d.checkpoint = () => {};
+    expect(updateLabels(d)).toBe(9);
+    expect(d.text.match(/«Next Record»«AddressBlock»/g)).toHaveLength(9);
+    const out = await save(pkg, d);
+    const plan = mergeDocumentParts(unzipSync(out), { data: mergeRecords(list), type: 'mailingLabels' });
+    expect(plan.copies).toHaveLength(1);
+    expect(partText(plan.parts['word/document.xml'])).toContain('Lee Park');
+  });
+  it('lays out envelopes in an empty document and as a first section', async () => {
+    const size = ENVELOPE_SIZES[0];
+    const blob = await envelopeDocx({ width: size.width, height: size.height, delivery: 'Rosa Vidal\n1 Pier Rd', returnAddress: 'Sam Lee\n4 Main St' });
+    const pkg = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
+    expect(pkg.pageSettings).toMatchObject({ width: size.width, height: size.height, orientation: 'landscape' });
+    expect(model(pkg).text).toBe('Sam Lee\v4 Main St\nRosa Vidal\v1 Pier Rd');
+    const { pkg: letter, d } = await blankModel('Dear reader');
+    d.checkpoint = () => {};
+    insertEnvelope(d, { width: size.width, height: size.height, delivery: 'Rosa Vidal', returnAddress: '' });
+    expect(d.text).toBe('\nRosa Vidal\nDear reader');
+    expect(d.paragraphs[1].sectionEnd).toMatchObject({ width: size.width, height: size.height });
+    const again = await DocxPackage.open(await save(letter, d));
+    expect(again.paragraphs[1].sectionEnd).toMatchObject({ width: size.width });
+    expect(again.pageSettings.width).toBe(12240);
+  });
+});
+
+// MAIL_MERGE_EXPORTS=<dir> writes representative outputs for schema validation (tools/check-docx-schema.py).
+it.runIf(!!process.env.MAIL_MERGE_EXPORTS)('writes outputs for schema validation', async () => {
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const dir = process.env.MAIL_MERGE_EXPORTS; mkdirSync(dir, { recursive: true });
+  const write = async (name, data) => writeFileSync(`${dir}/${name}`, data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data);
+  const data = mergeRecords(list);
+  await write('merged-letters.docx', zipSync(mergeDocumentParts(unzipSync(fixture('letter.docx')), { data }).parts));
+  await write('merged-labels.docx', zipSync(mergeDocumentParts(unzipSync(fixture('labels.docx')), { data, type: 'mailingLabels' }).parts));
+  for (const layout of [LABEL_LAYOUTS[0], LABEL_LAYOUTS.find(l => l.id === 'a4-21')]) await write(`labels-${layout.id}.docx`, labelSheetDocx(layout, i => ({ text: `Label ${i + 1}\nSecond line` }), { mailMerge: { type: 'mailingLabels', list, mapping: {}, activeRecord: 1 } }));
+  await write('envelope.docx', await envelopeDocx({ width: ENVELOPE_SIZES[5].width, height: ENVELOPE_SIZES[5].height, delivery: { field: addressBlockInstruction() }, returnAddress: 'Sam Lee\n4 Main St' }, { mailMerge: { type: 'envelopes', list, mapping: {}, activeRecord: 1 } }));
+  const pkg = await DocxPackage.open(fixture('letter.docx'));
+  pkg.mailMerge = { ...pkg.mailMerge, type: 'catalog', list, mapping: { first: 'First Name' } };
+  const d = model(pkg); d.select(0); insertMergeField(d, ' IF "{ MERGEFIELD City }" <> "" "{ MERGEFIELD City }" "none" ');
+  await write('main-document.docx', await save(pkg, d));
 });
