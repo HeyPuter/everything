@@ -40,7 +40,7 @@ Status: `[ ]` planned, `[x]` done.
 - [x] Position, opacity and style keyframes with stopwatches and linear or hold interpolation
 - [x] Playback at the timeline frame rate, onion skins, fade, fade with color and cross fade transitions, duration and frame rate settings
 - [x] Conversion between frame animations and video timelines; Render Video of the timeline to WebM or a PNG image sequence (ZIP)
-- [ ] Audio tracks: footage audio is ignored and rendered video is silent
+- [x] Audio tracks: footage sound, audio clips, mixing, playback and rendered sound
 
 ## Measurement and annotation
 
@@ -195,4 +195,4 @@ Status: `[ ]` planned, `[x]` done.
 - [ ] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
 - [ ] Layer: Convert to Linked, mask edge enhancement; Edit → Rotate Object
 - [ ] Help: What's New and hands-on tutorials (guided tours of real tasks)
-- [ ] Audio tracks on the video timeline (import, mix, render with sound)
+- [x] Audio tracks on the video timeline (import, mix, render with sound)
