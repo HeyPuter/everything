@@ -35,6 +35,7 @@ import { openPopover, closePopover } from '../../ui/popover.js';
 import { createColorPicker } from '../../ui/color-picker.js';
 import { focalPoint } from '../../model/gradients.js';
 import { setStop } from './gradient-model.js';
+import { strokeApplyOf } from './stroke-gradient.js';
 
 const POINT_R = 7;
 
@@ -70,7 +71,8 @@ export class GradientTool extends Tool {
     const ed = this.editor;
     if (!ed) return [];
     const key = ed.focusPaint;
-    return paintTargets(ed).filter((n) => isGradient(n[key]));
+    // Gradients along or across a stroke have no vector to edit.
+    return paintTargets(ed).filter((n) => isGradient(n[key]) && strokeApplyOf(n[key]) === 'within');
   }
 
   /** Resolved annotator geometry for a node (document space). */
