@@ -153,10 +153,9 @@
 }
 .anim-row {
   display: grid;
-  grid-template-columns: 18px 16px 14px 18px minmax(48px, 1fr) minmax(
-      60px,
-      0.9fr
-    ) 22px;
+  grid-template-columns:
+    18px 16px 14px 18px minmax(48px, 1fr) minmax(60px, 0.9fr)
+    22px;
   align-items: center;
   gap: 4px;
   min-height: 28px;
@@ -262,10 +261,9 @@
 }
 .anim-ruler {
   display: grid;
-  grid-template-columns: 18px 16px 14px 18px minmax(48px, 1fr) minmax(
-      60px,
-      0.9fr
-    ) 22px;
+  grid-template-columns:
+    18px 16px 14px 18px minmax(48px, 1fr) minmax(60px, 0.9fr)
+    22px;
   align-items: center;
   gap: 4px;
   padding: 6px 5px 6px 7px;

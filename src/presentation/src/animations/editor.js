@@ -297,6 +297,7 @@ export function createAnimationTools(ctx) {
   function startPainter(sticky = false) {
     if (painter) {
       painter = null;
+      ctx.canvas()?.classList.remove("anim-painting");
       ctx.refresh();
       return;
     }
@@ -547,6 +548,17 @@ export function createAnimationTools(ctx) {
       );
     }
     canvas.classList.toggle("anim-painting", !!painter);
+    // A double-click on the Animation Painter keeps it for several objects.
+    const painterButton = document.querySelector(
+      '.ribbon [data-command="animation-painter"]',
+    );
+    if (painterButton && !painterButton.dataset.sticky) {
+      painterButton.dataset.sticky = "1";
+      painterButton.addEventListener("dblclick", () => {
+        painter = null;
+        startPainter(true);
+      });
+    }
     if (!(tabActive || pane.open)) return;
     const s = slide();
     if (!s) return;

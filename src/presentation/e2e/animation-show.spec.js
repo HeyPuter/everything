@@ -111,3 +111,32 @@ test("reduced motion still steps through effects", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => visibleLayers(page)).toEqual([true, false, false]);
 });
+
+test("clicking a trigger object plays its effects", async ({ page }) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const button = shape(slide, 1, 5, 2, 1, "#444444");
+  P.renameShape(button, "Reveal button");
+  const card = shape(slide, 5, 1, 3, 2, "#22aa66");
+  P.setSlideAnimations(slide, [
+    {
+      shapeId: String(P.getShapeId(card)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 200,
+      trigger: String(P.getShapeId(button)),
+    },
+  ]);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect.poll(() => visibleLayers(page)).toEqual([false]);
+  await page
+    .getByRole("button", { name: "Play the effects of Reveal button" })
+    .click();
+  await expect.poll(() => visibleLayers(page)).toEqual([true]);
+  // The trigger plays without using up the slide's advance.
+  await expect(page.locator(".presenter-counter")).toHaveText("1 / 1");
+});
