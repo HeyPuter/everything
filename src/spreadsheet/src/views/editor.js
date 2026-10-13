@@ -92,6 +92,7 @@ import { openDataTable } from '../ui/datatable.js';
 import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
 import { openCustomViews } from '../ui/customviews.js';
+import { openZoomDialog } from '../ui/zoomdialog.js';
 import { createSelectionPane } from '../ui/selection-pane.js';
 import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
@@ -2665,13 +2666,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'zoomCustom': {
-        const text = await promptDialog({
-          title: 'Custom zoom', label: 'Zoom percentage', value: String(Math.round(grid.zoom * 100)), confirmLabel: 'Apply', inputMode: 'numeric',
-          hint: 'Enter a whole percentage from 10% to 400%.',
-          validate: (value) => /^\d+\s*%?$/.test(value) && parseInt(value, 10) >= 10 && parseInt(value, 10) <= 400 ? null : 'Enter a whole percentage from 10% to 400%.',
-        });
-        if (text != null) return run('zoomTo', parseInt(text, 10) / 100);
-        keepFocus();
+        // View ▸ Zoom: the presets, Fit selection (a chart sheet fits its window), or a percentage of one's own.
+        const chartSheet = wb.sheet(sheetId)?.kind === 'chart';
+        openZoomDialog({ zoom: grid.zoom, apply: (z) => run('zoomTo', z), fit: () => run(chartSheet ? 'zoomFit' : 'zoomSelection'), onClose: () => keepFocus() });
         return;
       }
       case 'zoomTo':

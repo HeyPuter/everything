@@ -56,3 +56,11 @@
 .selpane-row.drop-before::before { top: -1px; }
 .selpane-row.drop-after::after { bottom: -1px; }
 .selpane-empty { color: var(--ink-3); margin: 8px 6px; line-height: 1.45; }
+
+/* ---------- View ▸ Zoom ---------- */
+
+.zoom-dialog { display: flex; flex-direction: column; gap: 12px; min-width: min(260px, 100%); }
+.zoom-dialog .check-group.vertical { flex-direction: column; gap: 6px; }
+.zoom-option { align-items: center; }
+.zoom-custom-wrap { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.zoom-custom { width: 64px; height: 30px; padding: 2px 8px; text-align: right; }
