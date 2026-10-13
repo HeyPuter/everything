@@ -1329,6 +1329,9 @@ export class PSInterpreter {
       const arr = cs.list();
       const conv = arr.map((x, i) => {
         if (x instanceof PSArray && x.exec) return null;
+        // Ink names may be strings in PostScript.
+        if (i === 1 && fam === 'Separation' && x instanceof PSString) return Name.get(x.text());
+        if (i === 1 && fam === 'DeviceN' && x instanceof PSArray) return x.list().map((n) => Name.get(n instanceof PSString ? n.text() : n?.name || ''));
         return toPDF(x);
       });
       const tint = arr.find((x) => x instanceof PSArray && x.exec);

@@ -103,7 +103,8 @@ function installDrop(app, service) {
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
   const ours = (name) => {
     const ext = extensionOf(name);
-    return ext === '.vstudio' || ((ext === '.svg' || ext === '.svgz') && (!app.editor || !app.home.hidden));
+    const other = ext === '.svg' || ext === '.svgz' || (app.importers?.openExtensions || []).includes(ext);
+    return ext === '.vstudio' || (other && (!app.editor || !app.home.hidden));
   };
   window.addEventListener('dragover', (e) => {
     if (e.defaultPrevented || !hasFiles(e)) return;
