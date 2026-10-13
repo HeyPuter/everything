@@ -7,9 +7,12 @@
  * a gradient-filled object selected, the annotator shows the gradient bar:
  * drag the round origin to move the gradient, the square end point to
  * resize it, just outside the end point to rotate it, stops along the bar
- * to move them (drag away from the bar to remove one), midpoint diamonds to
- * skew the blend, click the bar to add a stop, and for radial gradients
- * drag the dot on the dashed ellipse to change the aspect ratio. On a
+ * to move them (drag away from the bar to remove one, Alt-drag to copy
+ * one), double-click a stop to edit its color, opacity and location in
+ * place, midpoint diamonds to skew the blend, click the bar to add a stop,
+ * and for radial gradients drag the dot on the dashed ellipse to change
+ * the aspect ratio, the ellipse itself to turn it, and the hollow focal
+ * ring (or the origin with Alt) to move the focal point. On a
  * freeform gradient the annotator shows its color points instead: click
  * the object to add a point, drag points to move them, Delete removes the
  * selected one. In lines mode a new point continues the line from the
@@ -26,6 +29,12 @@ import { setGradientVector, insertStop, moveStop, removeStop, setMidpoint, proje
 import { paintState } from './ui-common.js';
 import { isFreeform, addPoint, setPoint, removePoint, sampleFreeform, insertLinePoint, freeformFrame, framePoint, frameFraction } from './freeform.js';
 import { rgbToHex } from '../../lib/color.js';
+import { h } from '../../lib/dom.js';
+import { numberField } from '../../ui/widgets.js';
+import { openPopover, closePopover } from '../../ui/popover.js';
+import { createColorPicker } from '../../ui/color-picker.js';
+import { focalPoint } from '../../model/gradients.js';
+import { setStop } from './gradient-model.js';
 
 const POINT_R = 7;
 
@@ -38,7 +47,7 @@ export class GradientTool extends Tool {
   static label = 'Gradient Tool';
   static shortcut = 'G';
   static icon = 'tool-gradient';
-  static hint = 'Drag across an object to set its gradient | Drag stops on the bar, click the bar to add one | Shift constrains to 45 degrees';
+  static hint = 'Drag across an object to set its gradient | Drag stops on the bar, click the bar to add one, Alt-drag copies a stop, double-click edits it | Shift constrains to 45 degrees';
 
   constructor(app) {
     super(app);
@@ -105,12 +114,19 @@ export class GradientTool extends Tool {
       if (d(p) <= HANDLE && len > 20) return { kind: 'mid', index: i, node };
     }
     if (d(s2) <= HANDLE + 1) return { kind: 'end', node };
-    if (d(s1) <= HANDLE + 1) return { kind: 'origin', node };
+    if (paint.type === 'radial' && paint.focal) {
+      const fp = focalScreen(g, paint, v);
+      if (d(fp) <= HANDLE) return { kind: 'focal', node };
+    }
+    // Alt on the origin moves the focal point alone.
+    if (d(s1) <= HANDLE + 1) return { kind: paint.type === 'radial' && e.alt ? 'focal' : 'origin', node };
     if (paint.type === 'radial') {
       const ap = aspectHandle(g, paint, v);
       if (d(ap) <= HANDLE) return { kind: 'aspect', node };
     }
     if (d(s2) <= ROTATE_RING) return { kind: 'rotate', node };
+    // On the dashed ellipse of a radial gradient: turn it.
+    if (paint.type === 'radial' && onEllipse(s1, s2, paint.aspect ?? 1, e.sx, e.sy, 4)) return { kind: 'rotate', node };
     // On the bar itself: add a stop.
     const f = projectOnVector({ x1: s1.x, y1: s1.y, x2: s2.x, y2: s2.y }, e.sx, e.sy);
     if (f > 0 && f < 1) {
@@ -280,8 +296,15 @@ export class GradientTool extends Tool {
         });
         return;
       }
-      if (part.kind === 'stop') paintState.setStop(part.index);
-      this.drag = { part, tx: doc.begin(gradLabel(part.kind)), node, paint0: paint, g0: { ...g }, x0: e.x, y0: e.y, sx0: e.sx, sy0: e.sy, index: part.index };
+      let paint0 = paint;
+      let drag = part;
+      if (part.kind === 'stop' && e.alt) {
+        // Alt-drag copies the stop and drags the copy.
+        paint0 = { ...paint, stops: [...paint.stops, { ...paint.stops[part.index] }] };
+        drag = { ...part, index: paint0.stops.length - 1 };
+      }
+      if (drag.kind === 'stop') paintState.setStop(drag.index);
+      this.drag = { part: drag, tx: doc.begin(drag !== part ? 'Duplicate Gradient Stop' : gradLabel(part.kind)), node, paint0, g0: { ...g }, x0: e.x, y0: e.y, sx0: e.sx, sy0: e.sy, index: drag.index, copy: drag !== part };
       this.overlay();
       return;
     }
@@ -348,7 +371,8 @@ export class GradientTool extends Tool {
       this.setPaint([node], (paint) => setGradientVector(paint, g.x1, g.y1, p.x, p.y));
     } else if (kind === 'rotate') {
       const len = Math.hypot(g.x2 - g.x1, g.y2 - g.y1);
-      let a = Math.atan2(e.y - g.y1, e.x - g.x1);
+      // Turn by how far the pointer went around the origin (it may start anywhere on the ellipse).
+      let a = Math.atan2(g.y2 - g.y1, g.x2 - g.x1) + Math.atan2(e.y - g.y1, e.x - g.x1) - Math.atan2(d.y0 - g.y1, d.x0 - g.x1);
       if (e.shift) a = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
       this.setPaint([node], (paint) => setGradientVector(paint, g.x1, g.y1, g.x1 + Math.cos(a) * len, g.y1 + Math.sin(a) * len));
     } else if (kind === 'stop') {
@@ -358,7 +382,7 @@ export class GradientTool extends Tool {
       const f = projectOnVector({ x1: s1.x, y1: s1.y, x2: s2.x, y2: s2.y }, e.sx, e.sy);
       const px = s1.x + (s2.x - s1.x) * Math.min(1, Math.max(0, f));
       const py = s1.y + (s2.y - s1.y) * Math.min(1, Math.max(0, f));
-      const away = Math.hypot(e.sx - px, e.sy - py) > REMOVE_PX + STOP_OFFSET && d.paint0.stops.length > 2;
+      const away = Math.hypot(e.sx - px, e.sy - py) > REMOVE_PX + STOP_OFFSET && d.paint0.stops.length > (d.copy ? 3 : 2);
       d.removing = away;
       if (away) {
         this.setPaint([node], () => removeStop(d.paint0, d.part.index));
@@ -377,6 +401,28 @@ export class GradientTool extends Tool {
       const a = d.paint0.stops[d.part.index];
       const b = d.paint0.stops[d.part.index + 1];
       if (b.offset - a.offset > 1e-6) this.setPaint([node], () => setMidpoint(d.paint0, d.part.index, (f - a.offset) / (b.offset - a.offset)));
+    } else if (kind === 'focal') {
+      // The focal point in the gradient's unit circle, kept inside it.
+      const ax = g.x2 - g.x1;
+      const ay = g.y2 - g.y1;
+      const r2 = ax * ax + ay * ay || 1;
+      const asp = d.paint0.aspect || 1;
+      const dx = e.x - g.x1;
+      const dy = e.y - g.y1;
+      let u = (dx * ax + dy * ay) / r2;
+      let w = (-dx * ay + dy * ax) / (r2 * asp);
+      const m = Math.hypot(u, w);
+      if (m > 0.98) {
+        u *= 0.98 / m;
+        w *= 0.98 / m;
+      }
+      const snap = Math.hypot(e.sx - d.sx0, e.sy - d.sy0) < 3 && !d.paint0.focal;
+      this.setPaint([node], (paint) => {
+        const out = { ...setGradientVector(paint, g.x1, g.y1, g.x2, g.y2) };
+        if (snap || Math.hypot(u, w) < 1e-3) delete out.focal;
+        else out.focal = [u, w];
+        return out;
+      });
     } else if (kind === 'aspect') {
       const len = Math.hypot(g.x2 - g.x1, g.y2 - g.y1) || 1;
       const nx = -(g.y2 - g.y1) / len;
@@ -417,8 +463,53 @@ export class GradientTool extends Tool {
     this.overlay();
   }
 
-  onDoubleClick() {
+  onDoubleClick(e) {
+    const part = e && !this.freeformTarget() ? this.partAt(e) : null;
+    if (part?.kind === 'stop') {
+      this.editStop(part.node, part.index, e);
+      return;
+    }
     this.app.openPanel('gradient');
+  }
+
+  /** Edit one stop in place: its color, opacity and location in a popover at the stop. */
+  editStop(node, index, e) {
+    const ed = this.editor;
+    const doc = ed.doc;
+    const key = ed.focusPaint;
+    const stop = node[key]?.stops?.[index];
+    if (!stop) return;
+    paintState.setStop(index);
+    let i = index;
+    const coalesce = `gradient-stop-${node.id}-${Date.now()}`;
+    const edit = (patch, label) => {
+      doc.transact(label, () => this.setPaint([doc.get(node.id)], (p) => {
+        if (patch.offset === undefined) return setStop(p, i, patch);
+        const r = moveStop(p, i, patch.offset);
+        i = r.index;
+        paintState.setStop(i);
+        return r.paint;
+      }), { coalesce });
+      this.overlay();
+    };
+    const picker = createColorPicker({ value: stop.color, label: `Stop ${index + 1} color`, onInput: (hex) => edit({ color: hex }, 'Gradient Stop Color') });
+    const opacity = numberField({ label: 'Opacity', kind: 'percent', value: (stop.opacity ?? 1) * 100, min: 0, max: 100, width: '64px', onCommit: (v) => edit({ opacity: v / 100 }, 'Gradient Stop Opacity') });
+    const location = numberField({ label: 'Location', kind: 'percent', value: stop.offset * 100, min: 0, max: 100, width: '64px', onCommit: (v) => edit({ offset: v / 100 }, 'Gradient Stop Location') });
+    const del = h('button.btn.small', { type: 'button', disabled: node[key].stops.length <= 2, onclick: () => {
+      doc.transact('Delete Gradient Stop', () => this.setPaint([doc.get(node.id)], (p) => removeStop(p, i)));
+      paintState.setStop(Math.max(0, i - 1));
+      closePopover();
+      this.overlay();
+    } }, 'Delete Stop');
+    const x = e.native?.clientX ?? 0;
+    const y = e.native?.clientY ?? 0;
+    const canvas = e.native?.target instanceof Element ? e.native.target : null;
+    const anchor = {
+      getBoundingClientRect: () => ({ left: x, top: y, right: x, bottom: y, width: 0, height: 0 }),
+      contains: () => false,
+      focus: () => canvas?.focus?.(),
+    };
+    openPopover(anchor, h('div.paint-popover.gt-stop-popover', h('h3.popover-title', `Stop ${index + 1}`), picker.el, h('div.gt-stop-fields', opacity.el, location.el, del)), { label: 'Gradient stop', placement: 'below' });
   }
 
   onKeyDown(e) {
@@ -550,6 +641,25 @@ export class GradientTool extends Tool {
       ctx.arc(ap.x, ap.y, 3.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      if (paint.focal) {
+        // The focal point: a hollow ring joined to the origin.
+        const fp = focalScreen(g, paint, v);
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(s1.x, s1.y);
+        ctx.lineTo(fp.x, fp.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(fp.x, fp.y, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = this.hoverPart?.kind === 'focal' ? '#3d7bfd' : '#000';
+        ctx.stroke();
+      }
     }
     // Bar: white core with a dark outline so it reads on any artwork.
     ctx.lineCap = 'round';
@@ -651,6 +761,24 @@ function aspectHandle(g, paint, v) {
   return v.toScreen(g.x1 + nx * r, g.y1 + ny * r);
 }
 
+/** Screen position of a radial gradient's focal point. */
+function focalScreen(g, paint, v) {
+  const f = focalPoint(paint, g, paint.aspect || 1);
+  return v.toScreen(g.x1 + f.x, g.y1 + f.y);
+}
+
+/** Whether a screen point is within `tol` pixels of the gradient's dashed ellipse. */
+function onEllipse(s1, s2, aspect, x, y, tol) {
+  const r = Math.hypot(s2.x - s1.x, s2.y - s1.y);
+  if (r < 8) return false;
+  const a = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+  const dx = x - s1.x;
+  const dy = y - s1.y;
+  const u = dx * Math.cos(a) + dy * Math.sin(a);
+  const w = (-dx * Math.sin(a) + dy * Math.cos(a)) / Math.max(1e-3, aspect);
+  return Math.abs(Math.hypot(u, w) - r) <= tol / Math.min(1, Math.max(aspect, 1e-3));
+}
+
 function stripVector(p) {
   const out = { ...p };
   delete out.x1;
@@ -662,5 +790,5 @@ function stripVector(p) {
 }
 
 function gradLabel(kind) {
-  return { origin: 'Move Gradient', end: 'Gradient', rotate: 'Rotate Gradient', stop: 'Move Gradient Stop', mid: 'Gradient Midpoint', aspect: 'Gradient Aspect Ratio' }[kind] || 'Gradient';
+  return { origin: 'Move Gradient', end: 'Gradient', rotate: 'Rotate Gradient', stop: 'Move Gradient Stop', mid: 'Gradient Midpoint', aspect: 'Gradient Aspect Ratio', focal: 'Gradient Focal Point' }[kind] || 'Gradient';
 }

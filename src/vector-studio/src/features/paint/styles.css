@@ -770,6 +770,15 @@
   gap: var(--space-5);
 }
 
+/* Gradient tool: a stop edited in place */
+.gt-stop-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-end;
+  margin-top: var(--space-4);
+}
+
 /* ---- Spot Colors dialog ---- */
 .spot-colors {
   width: min(520px, calc(100vw - 32px));
