@@ -21,7 +21,8 @@ describe('text language', () => {
     expect(languageBase('en-GB')).toBe('en');
     expect(languageBase(undefined)).toBe('en');
     expect(canSpellCheck('en-AU')).toBe(true);
-    expect(canSpellCheck('fr-FR')).toBe(false);
+    expect(canSpellCheck('fr-FR')).toBe(true);
+    expect(canSpellCheck('de-DE')).toBe(false);
     expect(canSpellCheck('none')).toBe(false);
   });
 

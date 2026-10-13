@@ -20,6 +20,19 @@ beforeAll(() => {
   setSpeller(gb, 'en-GB');
 });
 
+describe('French', () => {
+  it('reads long flags, elision prefixes, irregular forms and accents', () => {
+    const fr = createSpeller({ aff: read('fr-FR.aff'), dic: read('fr-FR.dic') });
+    for (const w of ['maison', 'maisons', "l'homme", 'l\u2019homme', "d'accord", "qu'il", 'aujourd\u2019hui', 'mangeons', 'chevaux', "s'est", "j'aime", 'été', 'très', 'Paris']) expect(fr.correct(w), w).toBe(true);
+    for (const w of ['maisonn', 'hommme', 'mangons', 'tres']) expect(fr.correct(w), w).toBe(false);
+    expect(fr.suggest('tres')[0]).toBe('très');
+    expect(fr.suggest('hommme')[0]).toBe('homme');
+    setSpeller(fr, 'fr-FR');
+    const t = { ...createText('une maisonn', 0, 0), char: { ...createText('', 0, 0).char, language: 'fr-FR' } };
+    expect(spellIssues(t, loadedSpeller).map((i) => [i.word, i.dict])).toEqual([['maisonn', 'fr-FR']]);
+  });
+});
+
 describe('spelling dictionaries', () => {
   it('maps languages to dictionaries', () => {
     expect(dictionaryKey('en-US')).toBe('en-US');
@@ -27,6 +40,7 @@ describe('spelling dictionaries', () => {
     expect(dictionaryKey('en-GB')).toBe('en-GB');
     expect(dictionaryKey('en-AU')).toBe('en-GB');
     expect(dictionaryKey('de-DE')).toBe(null);
+    expect(dictionaryKey('fr-CA')).toBe('fr-FR');
     expect(dictionaryKey('none')).toBe(null);
     expect(loadedSpeller('en-GB')).toBe(gb);
   });
