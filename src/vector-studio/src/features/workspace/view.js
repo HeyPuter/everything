@@ -71,7 +71,7 @@ export function applyProof(app) {
 
 // ---- rotate view ----
 
-export const ROTATE_PRESETS = [180, 135, 90, 45, 30, 15, 0, -15, -30, -45, -90, -135];
+export const ROTATE_PRESETS = [180, 150, 135, 120, 90, 60, 45, 30, 15, 0, -15, -30, -45, -60, -90, -120, -135, -150, -180];
 
 /** View rotation in degrees (0..360) that levels the selection's bounding box. */
 export function levelRotation(editor) {
