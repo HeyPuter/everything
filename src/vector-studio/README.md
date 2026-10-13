@@ -19,7 +19,8 @@ npm run build   # production build in dist/ (includes the collaboration worker)
 - **Paint:** color, swatches with libraries and groups, gradients (linear, radial) and gradient mesh, patterns with a pattern editing mode, Recolor Artwork, Color Guide, brushes (calligraphic, scatter, art, pattern, bristle) and brush libraries, graphic styles, transparency and blend modes, Appearance panel.
 - **Effects (non-destructive):** Distort & Transform, Warp (15 styles), Path, Convert to Shape, Pathfinder effects, Stylize (drop shadow, glows, feather, round corners, scribble), crop marks, 3D and Materials (extrude, revolve, inflate, rotate with materials and lighting), pixel effects and the Effect Gallery, SVG filters, rasterize, Expand Appearance, Flatten Transparency.
 - **Type:** point, area and path type (horizontal and vertical), Character Edit tool, threaded text, text wrap, character and paragraph styles, OpenType features, Glyphs, tabs, bullets and numbering, smart punctuation, spell checking, Find and Replace, Find Font, Create Outlines.
-- **Documents:** multiple artboards, layers, templates, version history, File Info, Package, Print with presets, marks, bleed, scaling and tiling, Save for Web, slices, Export for Screens, Asset Export, SVG/PDF/PNG/JPEG/WebP export, SVG and image import, Trace Image.
+- **Documents:** multiple artboards, layers, templates, version history, File Info, Package, Print with presets, marks, bleed, scaling and tiling, Save for Web, slices, Export for Screens, Asset Export, SVG/PDF/EPS/PNG/JPEG/WebP/TIFF/DXF export, Trace Image.
+- **Import:** open or place SVG, PDF (pages as artboards, or one page cropped to a page box; editable paths, colors with spot swatches, gradients, patterns, clipping, transparency, images, text kept editable or as outlines, layers), PDF-compatible .ai files, EPS/PostScript (interpreted, or its preview image), DXF (layers, units, curves, text, blocks) and PNG, JPEG, WebP, GIF, TIFF, BMP and PSD images.
 - **Workflow:** History and Actions panels, File > Scripts (sandboxed automation), Variables (data-driven artwork from CSV), Libraries shared across documents, customizable keyboard shortcuts and workspaces, View options (outline, pixel preview, trim view, presentation mode, proof colors, saved views, rotate view), Links, Attributes, Document Info, SVG Interactivity.
 - **Collaboration:** Invite to Edit (live co-editing with presence and roles), Share for Review, and comments.
 
@@ -31,7 +32,7 @@ npm run build   # production build in dist/ (includes the collaboration worker)
 - `src/ops/` editing operations (group, arrange, align, clipboard, paint, Expand Appearance).
 - `src/commands/` the command registry: menus, shortcuts and buttons all run commands by id.
 - `src/ui/` the shell: menu bar, tools panel, panel dock, dialogs, status bar, rulers.
-- `src/features/` feature modules, each registering its tools, panels, commands and hooks (`src/features.js` installs them): files, import/export, geometry, paint, type, symbols, brushes, effects, 3D, envelopes, repeat, paint regions, trace, mesh, graphs, perspective, patterns, slices, workspaces, panels, collaboration and more.
+- `src/features/` feature modules, each registering its tools, panels, commands and hooks (`src/features.js` installs them): files, import/export, format interoperability (PDF, EPS, DXF, TIFF, PSD), geometry, paint, type, symbols, brushes, effects, 3D, envelopes, repeat, paint regions, trace, mesh, graphs, perspective, patterns, slices, workspaces, panels, collaboration and more.
 - `worker/` the collaboration server that sharing deploys to the owner's Puter account.
 
 ## License
