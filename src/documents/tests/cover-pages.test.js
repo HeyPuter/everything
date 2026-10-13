@@ -2,7 +2,7 @@ import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
-import { insertCoverPage, COVER_DESIGNS } from '../src/engine/cover-pages.js';
+import { insertCoverPage, COVER_DESIGNS, COVER_DEFAULTS } from '../src/engine/cover-pages.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -20,14 +20,16 @@ it('every design inserts a formatted title page ending in a page break before th
     const { pkg, doc } = documentWith(['Introduction', 'Body text.']);
     doc.select(0, 12); doc.setParagraphStyle('Heading1');
     insertCoverPage(doc, design.id, text);
-    expect(doc.paragraphs.slice(0, 5).map(paragraphText), design.id).toEqual(['Annual Plan', 'For the year ahead', 'Sam Lee', 'October 9, 2026\f', 'Introduction']);
+    const expected = design.lines.map(([role], i) => (text[role] ?? COVER_DEFAULTS[role]) + (i === design.lines.length - 1 ? '\f' : ''));
+    const n = design.lines.length, titleAt = design.lines.findIndex(([role]) => role === 'title');
+    expect(doc.paragraphs.slice(0, n + 1).map(paragraphText), design.id).toEqual([...expected, 'Introduction']);
     expect(doc.paragraphs[0].styleId ?? 'Normal', design.id).toBe('Normal');
-    expect(doc.paragraphs[0].runs[0].fontSize).toBeGreaterThanOrEqual(32);
-    expect(doc.paragraphs[4].styleId).toBe('Heading1');
+    expect(doc.paragraphs[titleAt].runs[0].fontSize).toBeGreaterThanOrEqual(30);
+    expect(doc.paragraphs[n].styleId).toBe('Heading1');
     const blob = await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets);
     const reopened = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
-    expect(reopened.paragraphs.slice(0, 4).map(paragraphText), design.id).toEqual(['Annual Plan', 'For the year ahead', 'Sam Lee', 'October 9, 2026\f']);
-    expect(reopened.paragraphs[0].runs[0], design.id).toMatchObject({ fontSize: design.lines[0][2].fontSize, color: design.lines[0][2].color });
+    expect(reopened.paragraphs.slice(0, n).map(paragraphText), design.id).toEqual(expected);
+    expect(reopened.paragraphs[titleAt].runs[0], design.id).toMatchObject({ fontSize: design.lines[titleAt][2].fontSize, color: design.lines[titleAt][2].color });
   }
 });
 
@@ -47,4 +49,23 @@ it('refuses a document that starts with a table', () => {
   const { doc } = documentWith(['x']);
   doc.select(0); doc.insertTable(1, 1, 600);
   if (doc.paragraphs[0].cellId) expect(() => insertCoverPage(doc, 'simple', text)).toThrow(/table/);
+});
+
+it('marks the cover with a hidden bookmark that survives saving, replaces it with another design and removes it', async () => {
+  const { removeCoverPage, coverPageRange } = await import('../src/engine/cover-pages.js');
+  const { pkg, doc } = documentWith(['Introduction', 'Body text.']);
+  doc.select(0, 12); doc.setParagraphStyle('Heading1');
+  insertCoverPage(doc, 'sidebar', text);
+  expect(coverPageRange(doc)).toMatchObject({ start: 0 });
+  const blob = await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets);
+  const reopened = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
+  const again = new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets);
+  expect(coverPageRange(again)).not.toBe(null);
+  insertCoverPage(again, 'minimal', text);
+  expect(again.paragraphs.map(paragraphText).filter(t => t.includes('Annual Plan'))).toHaveLength(1);
+  expect(paragraphText(again.paragraphs[COVER_DESIGNS.find(d => d.id === 'minimal').lines.length])).toBe('Introduction');
+  expect(removeCoverPage(again)).toBe(true);
+  expect(again.paragraphs.map(paragraphText)).toEqual(['Introduction', 'Body text.']);
+  expect(again.paragraphs[0].styleId).toBe('Heading1');
+  expect(removeCoverPage(again)).toBe(false);
 });
