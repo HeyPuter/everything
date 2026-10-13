@@ -86,6 +86,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createChartTools } from "./charts/chart-tools.js";
+import { createSmartArtTools } from "./smartart/smartart-tools.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -3261,7 +3262,11 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()], () => chartTools.tabs()];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => chartTools.tabs(),
+  () => smartArtTools.tabs(),
+];
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3292,6 +3297,34 @@ const chartTools = createChartTools({
   refresh: () => {
     renderInspector();
   },
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
+  },
+}); // SmartArt: inserting graphics, the Text Pane, the SmartArt Design tab, and
+// Convert to SmartArt for bulleted text.
+const smartArtTools = createSmartArtTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  refreshRibbon: () => syncToolbar(),
+  removeShape: (target, shape) => removeAnyShape(target, shape),
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  setIndentLevel: (shape, i, level, bulleted) =>
+    setParagraphIndentLevel(shape, i, level, bulleted),
+  canHoldText: (shape) => canHoldText(shape),
+  displayText: (shape) => displayShapeText(doc.pres, shape),
   fields: {
     field: (...a) => field(...a),
     colorInput: (...a) => colorInput(...a),
@@ -5221,12 +5254,21 @@ function ribbonApi() {
     if (!list.length) return null;
     if (list.length === 1 && isTable(list[0])) return "table";
     if (list.length === 1 && chartTools.isChart(list[0])) return "chart";
+    if (list.length === 1 && smartArtTools.isSmartArt(list[0]))
+      return "smartart";
     if (list.every((s) => P.getShapeKind(s) === "picture")) return "picture";
     return "shape";
   };
   return {
     extraTabs: () => extraTabProviders.flatMap((provide) => provide()),
     insertChart: () => chartTools.insert(),
+    ...(P.addSlideSmartArt
+      ? {
+          insertSmartArt: () => smartArtTools.insert(),
+          canConvertToSmartArt: () => smartArtTools.canConvert(),
+          convertToSmartArtMenu: () => smartArtTools.convertMenu(),
+        }
+      : {}),
     modKey: MOD_KEY,
     newSlideKeys: IS_MAC ? "⌘+Shift+N" : "Ctrl+M",
     selection: () => selectedShapes(),
@@ -6573,6 +6615,12 @@ function insertItems() {
     { label: "Image", icon: "Image", onSelect: () => insertImage() },
     { label: "Shape", icon: "Square", items: shapeItems() },
     { label: "Table", icon: "Table", onSelect: run(tableDialog) },
+    { label: "Chart…", icon: "o:chart", onSelect: () => chartTools.insert() },
+    P.addSlideSmartArt && {
+      label: "SmartArt…",
+      icon: "o:smartArt",
+      onSelect: () => smartArtTools.insert(),
+    },
     { separator: true },
     {
       label: "Link",
@@ -9023,7 +9071,8 @@ function editText(target, event = null) {
   if (i < 0) return;
   const obj = shapes()[i];
   if (P.isDiagramShape(obj)) {
-    editDiagramText(obj);
+    if (P.getShapeSmartArt?.(obj)?.layout) smartArtTools.openPane(obj);
+    else editDiagramText(obj);
     return;
   }
   if (chartTools.isChart(obj)) {
@@ -10176,6 +10225,7 @@ function colorInput(
 function renderInspector() {
   syncToolbar();
   chartTools.sync();
+  smartArtTools.sync();
   assistant?.refresh();
   const panel = document.querySelector("#inspector");
   if (!panel) return;
@@ -10335,6 +10385,7 @@ function renderInspectorContents(panel, obj) {
           : multiSelected()
             ? "Format"
             : chartTools.formatTitle(obj) ||
+              smartArtTools.formatTitle(obj) ||
               (P.getShapeKind(obj) === "picture"
                 ? "Format Picture"
                 : isTable(obj)
@@ -10625,7 +10676,8 @@ function renderInspectorContents(panel, obj) {
       ),
     );
   }
-  const chartSection = chartTools.inspector(obj);
+  const chartSection =
+    smartArtTools.inspector(obj) || chartTools.inspector(obj);
   if (chartSection) body.append(...chartSection);
   if (!isTable(obj)) body.append(...textBox.childNodes);
 
@@ -12980,11 +13032,29 @@ function objectContextMenu(e, s) {
     label: "Object options",
     contextual: true,
     items: [
+      ...(chartTools.isChart(obj)
+        ? [
+            {
+              label: "Edit Data",
+              icon: "o:editData",
+              shortcut: "Enter",
+              onSelect: () => chartTools.editData(obj),
+            },
+            {
+              label: "Change Chart Type…",
+              icon: "o:changeChartType",
+              onSelect: () => chartTools.changeType(obj),
+            },
+            { separator: true },
+          ]
+        : []),
       ...(canEditText(obj) || isTable(obj) || P.isDiagramShape(obj)
         ? [
             {
               label: P.isDiagramShape(obj)
-                ? "Edit diagram text"
+                ? P.getShapeSmartArt?.(obj)?.layout
+                  ? "Show Text Pane"
+                  : "Edit diagram text"
                 : isTable(obj)
                   ? "Edit cell"
                   : "Edit text",

@@ -625,12 +625,23 @@ export function setSlideBounds(
   let local = bounds;
   for (const group of enclosingGroups(shape, parents))
     local = intoGroup(local, group);
+  const diagram = P.isDiagramShape(shape);
+  const before = diagram ? P.getShapeBounds(shape) : null;
   P.setShapeBounds(
     shape,
     Object.fromEntries(
       Object.entries(local).map(([key, value]) => [key, Math.round(value)]),
     ),
   );
+  // A SmartArt graphic's saved drawing is laid out for its frame's size; a
+  // new size lays it out again (graphics in layouts this editor draws).
+  if (diagram) {
+    const after = P.getShapeBounds(shape);
+    if (before && after && (before.w !== after.w || before.h !== after.h))
+      try {
+        P.relayoutSmartArt?.(shape);
+      } catch {}
+  }
 }
 // Any shape can hold text, but a shape drawn without any
 // has no text body to type into. Give it the body a new shape would have:

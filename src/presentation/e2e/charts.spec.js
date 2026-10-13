@@ -35,15 +35,24 @@ async function ribbonCommand(page, tab, command) {
   await button.click();
 }
 async function download(page) {
-  await page
-    .getByRole("menuitem", { name: "File", exact: true })
-    .or(page.getByRole("button", { name: "File options" }))
-    .filter({ visible: true })
-    .click();
+  // An edit landing as the menu opens can redraw it away; open it again.
+  const item = page.getByRole("menuitem", {
+    name: "Download PowerPoint (.pptx)",
+    exact: true,
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page
+      .getByRole("menuitem", { name: "File", exact: true })
+      .or(page.getByRole("button", { name: "File options" }))
+      .filter({ visible: true })
+      .click();
+    try {
+      await item.waitFor({ state: "visible", timeout: 5000 });
+      break;
+    } catch {}
+  }
   const event = page.waitForEvent("download");
-  await page
-    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
-    .click();
+  await item.click();
   const bytes = await readFile(await (await event).path());
   const pres = await parseDeck(bytes);
   const chart = P.getSlideShapes(P.getSlides(pres)[0]).find((s) =>
