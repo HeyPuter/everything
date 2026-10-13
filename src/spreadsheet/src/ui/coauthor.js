@@ -9,7 +9,7 @@ import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { confirmDialog, promptDialog } from './modal.js';
-import { colorFor, initials, roleLabel } from '../collab/protocol.js';
+import { colorFor, colorsFor, initials, roleLabel } from '../collab/protocol.js';
 import { invitationLink, startSharing, stopSharing } from '../collab/session.js';
 import { rangeName } from '../core/cell.js';
 
@@ -21,8 +21,9 @@ export function peopleHere(client) {
     const prior = byUser.get(p.user);
     if (!prior || p.at > prior.at) byUser.set(p.user, p);
   }
+  const colors = colorsFor([...byUser.keys()]);
   return [...byUser.values()].sort((a, b) => a.username.localeCompare(b.username)).map((p) => ({
-    id: p.session, user: p.user, name: p.username, role: p.role, color: colorFor(p.user),
+    id: p.session, user: p.user, name: p.username, role: p.role, color: colors.get(p.user),
     sheet: p.state?.sheet ?? null, sel: p.state?.sel ?? null, active: p.state?.active ?? null, editing: !!p.state?.editing,
   }));
 }

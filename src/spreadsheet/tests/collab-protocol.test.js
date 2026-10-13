@@ -180,3 +180,13 @@ describe('worker permission checks', () => {
     await expect(call(sdk, SERVER, { op: 'sync', room: id, since: 0 })).rejects.toMatchObject({ status: 401 });
   });
 });
+
+describe('colors for people present together', () => {
+  it('gives everyone in the room a different color while the palette lasts, the same in every browser', async () => {
+    const { colorsFor, PERSON_COLORS } = await import('../src/collab/protocol.js');
+    const ids = Array.from({ length: PERSON_COLORS.length }, (_, i) => `user-${i}`);
+    const colors = colorsFor(ids);
+    expect(new Set(colors.values()).size).toBe(PERSON_COLORS.length);
+    expect(colorsFor([...ids].reverse())).toEqual(colors);
+  });
+});

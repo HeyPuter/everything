@@ -149,14 +149,32 @@ export function topology(roster) {
   return { edges, relays: new Set(relays) };
 }
 
-/** Colors for people: white text on each meets 4.5:1 (checked by tests). */
-export const PERSON_COLORS = ['#b3261e', '#9a420a', '#1d6b3a', '#0b6a73', '#1e5aa8', '#5b3fb5', '#8e2f8a', '#a1214f', '#4d5d12', '#6f4310'];
+/** Colors for people, far apart in hue and none of them the green of this person's own selection; white text on each meets 4.5:1 (checked by tests). */
+export const PERSON_COLORS = ['#c62828', '#1d4ed8', '#b45309', '#6d28d9', '#0e7490', '#be185d', '#475569', '#a21caf', '#7c2d12'];
 
-/** A stable color for a person, from their account ID. */
-export function colorFor(id) {
+const colorSlot = (id) => {
   let h = 2166136261;
   for (let i = 0; i < String(id).length; i++) h = Math.imul(h ^ String(id).charCodeAt(i), 16777619);
-  return PERSON_COLORS[(h >>> 0) % PERSON_COLORS.length];
+  return (h >>> 0) % PERSON_COLORS.length;
+};
+
+/** A stable color for a person, from their account ID. */
+export const colorFor = (id) => PERSON_COLORS[colorSlot(id)];
+
+/**
+ * Colors for the people present together: each keeps their own color unless someone already has it, then takes
+ * the next free one, so two people side by side on the grid never share a color while the palette lasts. The
+ * order is by account ID, so every browser in the room hands out the same colors.
+ */
+export function colorsFor(ids) {
+  const out = new Map(), taken = new Set();
+  for (const id of [...new Set(ids)].sort()) {
+    let slot = colorSlot(id);
+    for (let step = 0; step < PERSON_COLORS.length && taken.has(slot); step++) slot = (slot + 1) % PERSON_COLORS.length;
+    taken.add(slot);
+    out.set(id, PERSON_COLORS[slot]);
+  }
+  return out;
 }
 
 export const initials = (name) => String(name || '').trim().split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
