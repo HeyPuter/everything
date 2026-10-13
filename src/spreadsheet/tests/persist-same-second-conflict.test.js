@@ -66,6 +66,8 @@ it('reads the file back before overwriting a same-size write made within the bas
   const path = doc.path;
   const other = Doc.blank();
   other.wb.setInput(other.wb.activeSheetId, 0, 0, 'thei'); // as long as "mine", so the file is the same size
+  // The file carries the record of recent edits (Show Changes) too: the other tab's is the same, but for its sheet's id.
+  other.wb.changeHistory = structuredClone(doc.wb.changeHistory);
   const theirs = await other.toXlsxBlob();
   other.destroy();
   expect(theirs.size).toBe(doc.remoteSize);
@@ -92,6 +94,8 @@ it('reads the file back before overwriting a same-size write made in the second 
   const doc = await Doc.fromPath(path);
   const other = Doc.blank();
   other.wb.setInput(other.wb.activeSheetId, 0, 0, 'thei');
+  // The file carries the record of recent edits (Show Changes) too: the other tab's is the same, but for its sheet's id.
+  other.wb.changeHistory = structuredClone(doc.wb.changeHistory);
   const theirs = await other.toXlsxBlob();
   other.destroy();
   expect(theirs.size).toBe(doc.remoteSize);

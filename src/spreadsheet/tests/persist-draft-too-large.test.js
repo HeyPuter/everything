@@ -49,7 +49,8 @@ it('writes cells without their empty keys and reads them back whole', () => {
   expect(raw).not.toContain('"f":null');
   expect(raw).not.toContain('"v":null');
   const draft = loadDraft(key);
-  expect(raw.length).toBeLessThan(JSON.stringify({ ...draft, workbook: wb.toJSON() }).length);
+  // The plain spelling of the same draft: the book and, beside it, the record of edits (Show Changes) the draft carries.
+  expect(raw.length).toBeLessThan(JSON.stringify({ ...draft, workbook: { ...wb.toJSON(), changeHistory: draft.workbook.changeHistory } }).length);
   const back = new Workbook(draft.workbook);
   expect(back.getValue(back.activeSheetId, 0, 0)).toBe('text');
   expect(back.getValue(back.activeSheetId, 1, 0)).toBe('text!');
