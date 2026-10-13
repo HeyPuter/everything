@@ -394,6 +394,10 @@ const custom: Record<string, Node[]> = {
   'share-review': [p('M4 4.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5h-9.5L6 21.5v-4H4A1.5 1.5 0 0 1 2.5 16V6A1.5 1.5 0 0 1 4 4.5Z'), p('M6.5 11s2-3 5.5-3 5.5 3 5.5 3-2 3-5.5 3-5.5-3-5.5-3Z'), ['circle', { cx: 12, cy: 11, r: 1.2, fill: 'currentColor' }]],
   'follow-view': [p('M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3'), ['circle', { cx: 12, cy: 10, r: 2.5 }], p('M7.5 17c.6-2.2 2.4-3.5 4.5-3.5s3.9 1.3 4.5 3.5')],
   'protect-skin': [['circle', { cx: 12, cy: 7.5, r: 3.2 }], p('M5.5 20.5c0-4.2 2.9-6.5 6.5-6.5s6.5 2.3 6.5 6.5'), p('M3 3.5v4M21 3.5v4')],
+  // Assistant (original glyph): a speech bubble holding a four-point spark.
+  'assistant': [p('M5 3.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6.5L7 20.5v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z'), p('M12 6.5c.35 1.9 1.1 2.65 3 3-1.9.35-2.65 1.1-3 3-.35-1.9-1.1-2.65-3-3 1.9-.35 2.65-1.1 3-3Z')],
+  // Generation History (original glyph): stacked pictures, the front one with a spark.
+  'generation-history': [['rect', { x: 3, y: 7, width: 14, height: 14, rx: 2 }], p('M7 3.5h12a2 2 0 0 1 2 2v12'), p('m3.5 18.5 4-4 3 3 2-2 4 4'), p('M12.5 9c.2 1.05.65 1.5 1.7 1.7-1.05.2-1.5.65-1.7 1.7-.2-1.05-.65-1.5-1.7-1.7 1.05-.2 1.5-.65 1.7-1.7Z')],
 };
 const attrs = (a: Record<string, string | number>) =>
   Object.entries(a)

@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { showContextMenu } from './menubar';
-import { panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { commands, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
 import { BottomDock } from './bottom-dock';
 
 const groupLocations: PanelLocation[] = ['dock-top', 'dock-middle', 'dock-bottom'];
@@ -24,6 +24,7 @@ const storageKey = 'photo-studio-dock';
 // Icon strip sections, in order: panels of one kind sit together (until the
 // user drags them elsewhere) and each section is a labelled group.
 const stripSections: [string, string[]][] = [
+  ['Assist', ['assistant', 'generations']],
   ['History', ['history', 'actions', 'versions']],
   ['Inspect', ['navigator', 'info', 'histogram', 'measurement-log', 'notes', 'comments']],
   ['Painting', ['brushes', 'brush-settings', 'tool-presets', 'clone-source']],
@@ -196,15 +197,18 @@ export class Dock {
   /** Register Window → Panels commands for every panel. */
   registerCommands() {
     for (const p of panels.values())
-      registerCommand({
-        id: `window.panel.${p.id}`,
-        label: p.title,
-        shortcut: p.shortcut,
-        menu: 'window.panels',
-        checked: () => this.isVisible(p.id),
-        run: () => this.show(p.id, true),
-        recordable: false,
-      });
+      // A feature may register the command itself (listed directly in the
+      // Window menu instead of Window → Panels); it is kept.
+      if (!commands.has(`window.panel.${p.id}`))
+        registerCommand({
+          id: `window.panel.${p.id}`,
+          label: p.title,
+          shortcut: p.shortcut,
+          menu: 'window.panels',
+          checked: () => this.isVisible(p.id),
+          run: () => this.show(p.id, true),
+          recordable: false,
+        });
     // Standard items closing every panel menu. IDs share the `window.panel.`
     // prefix so command search leaves them out; they act on `menuTarget`.
     const target = () => (this.menuTarget ? panels.get(this.menuTarget) : undefined);

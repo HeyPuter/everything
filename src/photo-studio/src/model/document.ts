@@ -156,7 +156,7 @@ export interface Layer {
   // current time); see model/video-layer.
   video?: import('./video-layer').VideoLayerData;
 }
-export type GeneratedInfo = { kind: 'generate' | 'edit' | 'upscale'; prompt: string; model?: string; style?: string };
+export type GeneratedInfo = { kind: 'generate' | 'edit' | 'upscale' | 'fill' | 'expand'; prompt: string; model?: string; style?: string };
 // One Live Filter: an operation ID from the filter catalog with its settings
 // and blending options. `seed` keeps noise-like filters stable on re-render.
 export type LiveFilter = {

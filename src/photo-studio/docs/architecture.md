@@ -260,8 +260,8 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 ## Assisted editing (`src/features/assist/`)
 
 - Puter AI calls live only in `src/imaging/ai/puter-ai.ts` and run only from an
-  explicit button press in a dialog that states what is sent (prompt, pixels)
-  and that it needs a Puter account. Results become new layers; the prompt is
+  explicit button press in a dialog (or the Assistant's Send) that states what is
+  sent (prompt, pixels, document description) and that it needs a Puter account. Results become new layers; the prompt is
   kept in `layer.generated` and shown in Properties. Tests replace `aiCodec`
   and stub `globalThis.puter`.
 - Classical counterparts run in the assist worker (`worker.ts`): Enhanced
@@ -270,6 +270,36 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   filter operations (`imaging/filters/restore.ts`).
 - `commitResampled` (`features/transform/image-size.ts`) stores resampled
   layer, mask, live-filter, channel and selection grids as one history step.
+
+## Assistant and Generation History (`src/features/assistant/`, `src/features/generations/`)
+
+- The Assistant turns a request into a plan of registry commands and its own
+  operations (`ops.ts`: select, crop to an aspect ratio, adjustment layers
+  with settings, layer styles, text, layer properties). The model gets a
+  fixed system prompt (operations and common commands) and four tools
+  (`model.ts`): `search_catalog` (ranked one-line matches from `catalog.ts`,
+  built from the live command, tool and panel registries with menu paths),
+  `get_details` (settings schemas on demand: filter `ParamSpec`s, adjustment
+  defaults, AI dialog prefills), `propose_plan` and `answer`. Chat goes through
+  `chatWithTools` in `imaging/ai/puter-ai.ts`; tests pass a scripted chat
+  function (`setChat`, or a stubbed `puter.ai.chat` in the browser).
+- `plan.ts` resolves and checks every step against a `PlanEnv` (registry,
+  preloaded settings schemas, whether a command needs a selection, document
+  state): arguments are coerced with `params.ts`, and selection effects are
+  carried from step to step. Problems are plain sentences on the step; a plan
+  with any does not run.
+- `runner.ts` runs steps through a `ScriptHost` (commands with their recorded
+  `{ params }`, AI commands with `{ prefill }` so only their dialog opens), and
+  `host.finish` squashes the run into one undo step named after the request.
+  Commands that apply settings directly without a dialog can declare them in
+  `catalog.ts` (`SETTINGS_PARAMS`).
+- Generation History stores results in its own IndexedDB database
+  (`persistence/generations.ts`, bounded by count and bytes). Dialogs that
+  generate call `recordGeneration` (`features/generations/record.ts`) with
+  every image that arrived; Reuse Settings reopens the dialog with `{ prefill }`.
+- `MenuBar.reveal(id)` opens the menus leading to a command and highlights it
+  (the Assistant's Show me). A feature can register its own `window.panel.<id>`
+  command (listed directly in the Window menu); the dock keeps it.
 
 ## Type on paths and variables
 

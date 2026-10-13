@@ -15,6 +15,7 @@ import { ensureSignedIn } from '../retouch/ai';
 import { mergedImage } from '../retouch/source';
 import { drawImage, field, openWorkspace, options } from '../retouch/workspace';
 import { runJob } from './client';
+import { recordGeneration } from '../generations/record';
 import { ASPECTS, STYLES, aspectSize, qualityFor, styledPrompt, type FitMode } from './place';
 import './assist.css';
 
@@ -38,10 +39,33 @@ function generateTarget(e: Editor): Target {
   return { rect: canvasRect(e.doc), mask: null, label: 'canvas' };
 }
 
+/** Settings to open a dialog with (Generation History's Reuse Settings, the Assistant). */
+export type GeneratePrefill = { prompt?: string; style?: string; aspect?: string; model?: string; quality?: string; count?: number; fit?: FitMode; via?: 'assistant' };
+/** The prefill passed as a command argument `{ prefill }`, if any. */
+export function prefillOf(arg: unknown): GeneratePrefill | undefined {
+  const p = arg && typeof arg === 'object' ? (arg as { prefill?: unknown }).prefill : undefined;
+  return p && typeof p === 'object' ? (p as GeneratePrefill) : undefined;
+}
+function applyPrefill(mode: Mode, p: GeneratePrefill | undefined) {
+  if (!p) return;
+  if (typeof p.prompt === 'string') {
+    if (mode === 'generate') remembered.prompt = p.prompt;
+    else remembered.instruction = p.prompt;
+  }
+  if (typeof p.style === 'string' && STYLES.some((x) => x.id === p.style)) remembered.style = p.style;
+  if (typeof p.aspect === 'string' && ASPECTS.some((x) => x.id === p.aspect)) remembered.aspect = p.aspect;
+  if (typeof p.model === 'string' && MODELS[mode].some(([v]) => v === p.model)) remembered.model = p.model;
+  if (typeof p.quality === 'string' && ['draft', 'standard', 'high'].includes(p.quality)) remembered.quality = p.quality;
+  if (typeof p.count === 'number' && p.count >= 1 && p.count <= 4) remembered.count = Math.round(p.count);
+  if (p.fit === 'fill' || p.fit === 'fit') remembered.fit = p.fit;
+}
+
 type Session = {
   e: Editor;
   mode: Mode;
   target: Target;
+  // Opened by the Assistant: results are recorded as the Assistant's.
+  via?: 'assistant';
   // Edit with Prompt: the pixels sent (the target area of the source).
   source?: RGBA8;
   sourceLabel?: string;
@@ -176,6 +200,10 @@ async function studio(s: Session) {
         used = { prompt: text, model };
       }
       if (ac.signal.aborted) return;
+      const settings = gen
+        ? { style: remembered.style, aspect: remembered.aspect, model, quality: remembered.quality, count: n, fit: remembered.fit }
+        : { model, quality: remembered.quality, count: n };
+      void recordGeneration(s.e, { kind: s.via === 'assistant' ? 'assistant' : mode, prompt: text, settings: { ...settings, dialog: mode }, model: model || undefined, placement: { ...target.rect } }, out);
       images = out;
       showResults();
       say(out.length < n ? `${out.length} of ${n} variations arrived; the others failed.` : '');
@@ -231,11 +259,13 @@ function placeLayer(e: Editor, label: string, name: string, image: RGBA8, target
   insertAbove(e, l, anchor, label);
 }
 
-export async function generateImageDialog(e: Editor) {
+export async function generateImageDialog(e: Editor, arg?: unknown) {
   e.transform.apply();
   const target = generateTarget(e);
   const anchor = e.selected;
-  const out = await studio({ e, mode: 'generate', target });
+  const prefill = prefillOf(arg);
+  applyPrefill('generate', prefill);
+  const out = await studio({ e, mode: 'generate', target, via: prefill?.via });
   if (!out) return;
   const { width, height } = target.rect;
   const image = await runJob<RGBA8>(undefined, 'fit', { img: out.image, width, height, mode: out.fit });
@@ -243,7 +273,7 @@ export async function generateImageDialog(e: Editor) {
   e.message('The generated image was added as a new layer.');
 }
 
-export async function editWithPromptDialog(e: Editor) {
+export async function editWithPromptDialog(e: Editor, arg?: unknown) {
   e.transform.apply();
   const l = e.layer;
   const grid = selectionGrid(e.doc, e.assets.tiles), selB = selectionBounds(e.doc, grid);
@@ -257,7 +287,9 @@ export async function editWithPromptDialog(e: Editor) {
   const full = useLayer ? readRGBA(e.assets.tiles, l!.pixels!, rect) : cropRect(await mergedImage(e), rect);
   if (!full.data.some((v, i) => (i & 3) === 3 && v > 0)) return e.message('There is nothing visible to edit here.');
   const sourceLabel = useLayer ? `The ${selB ? 'selected part of the layer' : 'layer'} “${l!.name}”` : selB ? 'The selected part of the visible image' : 'The visible image';
-  const out = await studio({ e, mode: 'edit', target, source: full, sourceLabel });
+  const prefill = prefillOf(arg);
+  applyPrefill('edit', prefill);
+  const out = await studio({ e, mode: 'edit', target, source: full, sourceLabel, via: prefill?.via });
   if (!out) return;
   // Keep the source layer's transparency so an edit does not fill empty areas.
   if (useLayer) for (let i = 3; i < out.image.data.length; i += 4) out.image.data[i] = Math.min(out.image.data[i], full.data[i]);
