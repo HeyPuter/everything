@@ -7,16 +7,21 @@ import { h } from '../../lib/dom.js';
 import { Panel, emptyState } from '../../ui/panels/panel.js';
 import { paintSwatch, updatePaintSwatch } from '../../ui/widgets.js';
 import { formatLength } from '../../lib/units.js';
-import { hexToRgb } from '../../lib/color.js';
+import { hexToRgb, rgbToCmyk } from '../../lib/color.js';
 import { commonStyle } from '../../ops/paint-ops.js';
 import { measureValues } from './measure-reshape.js';
 
-/** Text description of a paint for the Info panel. */
-export function paintInfo(p) {
+/** Text description of a paint for the Info panel (CMYK percentages in CMYK documents). */
+export function paintInfo(p, mode = 'RGB') {
   if (p === 'mixed') return 'Mixed';
   if (!p) return 'None';
   if (p.type === 'solid') {
     const c = hexToRgb(p.color);
+    if (mode === 'CMYK') {
+      const k = rgbToCmyk(c);
+      const r = (v) => Math.round(v);
+      return `C ${r(k.c)}%  M ${r(k.m)}%  Y ${r(k.y)}%  K ${r(k.k)}%`;
+    }
     return `R ${c.r}  G ${c.g}  B ${c.b}  ${p.color.toUpperCase()}`;
   }
   if (p.type === 'linear' || p.type === 'radial') return `${p.type === 'linear' ? 'Linear' : 'Radial'} gradient, ${p.stops.length} stops`;
@@ -124,8 +129,9 @@ export class InfoPanel extends Panel {
     const stroke = commonStyle(ed, 'stroke');
     updatePaintSwatch(this.fillSw, fill === 'mixed' ? null : fill, fill === 'mixed');
     updatePaintSwatch(this.strokeSw, stroke === 'mixed' ? null : stroke, stroke === 'mixed');
-    this.fillTxt.textContent = paintInfo(fill);
+    const mode = ed.doc.root.colorMode === 'CMYK' ? 'CMYK' : 'RGB';
+    this.fillTxt.textContent = paintInfo(fill, mode);
     const sw = commonStyle(ed, 'strokeWidth');
-    this.strokeTxt.textContent = paintInfo(stroke) + (stroke && stroke !== 'mixed' && sw !== 'mixed' && sw != null ? `, ${f(sw)}` : '');
+    this.strokeTxt.textContent = paintInfo(stroke, mode) + (stroke && stroke !== 'mixed' && sw !== 'mixed' && sw != null ? `, ${f(sw)}` : '');
   }
 }

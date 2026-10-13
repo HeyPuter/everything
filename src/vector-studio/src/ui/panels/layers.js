@@ -149,6 +149,7 @@ export class LayersPanel extends Panel {
       this.countEl,
       h(
         'div.layers-actions',
+        (this.locateBtn = iconButton('crosshair', 'Locate Object', () => app.commands.run('layers.locate'))),
         iconButton('square-dashed', 'Make/Release Clipping Mask', () => this.clipButton()),
         iconButton('file-plus', 'Create New Sublayer', () => this.newLayer(true)),
         iconButton('plus', 'Create New Layer', () => this.newLayer(false)),
@@ -274,6 +275,7 @@ export class LayersPanel extends Panel {
     // Reveal selected objects by expanding their ancestors.
     for (const id of ed.selection) for (const a of ed.doc.ancestors(id)) this.expanded.add(a.id);
     this.rows = this.flatten();
+    this.locateBtn.disabled = !ed.selection.size;
     const layerCount = ed.doc.layers().length;
     this.countEl.textContent = `${layerCount} ${layerCount === 1 ? 'Layer' : 'Layers'}`;
     this.spacer.style.height = `${this.rows.length * this.rowH}px`;

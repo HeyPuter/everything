@@ -16,19 +16,48 @@
  * share of the length between its keys, keeping the keys' own offsets
  * from the spine, and with orientation 'path' turns with the spine.
  *
+ * Easing spaces the steps unevenly (bunched toward the start, the end or
+ * both) and can apply to the colors as well; colors blend in RGB or around
+ * the hue wheel (the short or the long way).
+ *
  * Generated steps are cached per blend group and key-object identity, so
  * redraws cost nothing until a key object changes.
  */
 import { registerLive } from '../../model/live.js';
 import { insertAnchor, segmentCount, segmentPoints, cubicLength } from '../../model/bezier.js';
 import { nodeBounds, transformPatches } from '../../model/geometry.js';
-import { hexToRgb, rgbToHex } from '../../lib/color.js';
+import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { multiply, scale, translate, rotate } from '../../lib/matrix.js';
 import { pathSampler } from '../../model/path-sampler.js';
 
-export const DEFAULT_BLEND = Object.freeze({ spacing: 'smooth', steps: 5, distance: 20, orientation: 'page' });
+export const DEFAULT_BLEND = Object.freeze({ spacing: 'smooth', steps: 5, distance: 20, orientation: 'page', easing: 'linear', easeAmount: 0.5, easeColor: true, colorMode: 'rgb' });
+
+/** Step spacing curves and color interpolation modes of blend options. */
+export const BLEND_EASINGS = [
+  { value: 'linear', label: 'Even' },
+  { value: 'in', label: 'Ease In (bunched at the start)' },
+  { value: 'out', label: 'Ease Out (bunched at the end)' },
+  { value: 'inOut', label: 'Ease In and Out' },
+];
+export const BLEND_COLOR_MODES = [
+  { value: 'rgb', label: 'Straight (RGB)' },
+  { value: 'hue', label: 'Around the Hue Wheel' },
+  { value: 'hueLong', label: 'Around the Hue Wheel (long way)' },
+];
 
 const lerp = (a, b, t) => a + (b - a) * t;
+
+/**
+ * Where a step at even position t (0-1) goes with an easing curve.
+ * `amount` (0-1) sets how strong the curve is (0 is even spacing).
+ */
+export function easeT(t, easing = 'linear', amount = 0.5) {
+  const p = 1 + 3 * Math.max(0, Math.min(1, amount));
+  if (easing === 'in') return t ** p;
+  if (easing === 'out') return 1 - (1 - t) ** p;
+  if (easing === 'inOut') return t < 0.5 ? 0.5 * (2 * t) ** p : 1 - 0.5 * (2 - 2 * t) ** p;
+  return t;
+}
 
 /** Split the longest segments of an anchor list until it has `count` anchors. */
 export function subdivideTo(anchors, closed, count) {
@@ -104,17 +133,28 @@ export function lerpAnchors(A, B, t) {
   });
 }
 
-export function lerpColor(a, b, t) {
+export function lerpColor(a, b, t, mode = 'rgb') {
   const p = hexToRgb(a);
   const q = hexToRgb(b);
+  if (mode === 'hue' || mode === 'hueLong') {
+    const x = rgbToHsb(p);
+    const y = rgbToHsb(q);
+    // A gray end takes the other end's hue, so it does not swing through the wheel.
+    const ha = x.s < 1e-6 ? y.h : x.h;
+    const hb = y.s < 1e-6 ? x.h : y.h;
+    let d = (((hb - ha) % 360) + 540) % 360 - 180;
+    if (mode === 'hueLong' && Math.abs(d) > 1e-9) d = d > 0 ? d - 360 : d + 360;
+    const c = hsbToRgb({ h: ha + d * t, s: lerp(x.s, y.s, t), v: lerp(x.v, y.v, t) });
+    return rgbToHex({ r: Math.round(c.r), g: Math.round(c.g), b: Math.round(c.b) });
+  }
   return rgbToHex({ r: Math.round(lerp(p.r, q.r, t)), g: Math.round(lerp(p.g, q.g, t)), b: Math.round(lerp(p.b, q.b, t)) });
 }
 
 /** Interpolate two paints. None blends as the other color fading out; mismatched kinds switch halfway. */
-export function lerpPaint(a, b, t) {
+export function lerpPaint(a, b, t, mode = 'rgb') {
   if (!a && !b) return null;
   if (a?.type === 'solid' && b?.type === 'solid') {
-    const out = { type: 'solid', color: lerpColor(a.color, b.color, t) };
+    const out = { type: 'solid', color: lerpColor(a.color, b.color, t, mode) };
     const oa = a.opacity ?? 1;
     const ob = b.opacity ?? 1;
     if (oa !== 1 || ob !== 1) out.opacity = lerp(oa, ob, t);
@@ -128,7 +168,7 @@ export function lerpPaint(a, b, t) {
     const out = {
       ...a,
       angle: lerp(a.angle || 0, b.angle || 0, t),
-      stops: sa.map((s, i) => ({ offset: lerp(s.offset, sb[i].offset, t), color: lerpColor(s.color, sb[i].color, t), opacity: lerp(s.opacity ?? 1, sb[i].opacity ?? 1, t) })),
+      stops: sa.map((s, i) => ({ offset: lerp(s.offset, sb[i].offset, t), color: lerpColor(s.color, sb[i].color, t, mode), opacity: lerp(s.opacity ?? 1, sb[i].opacity ?? 1, t) })),
     };
     for (const k of ['x1', 'y1', 'x2', 'y2']) if (a[k] !== undefined && b[k] !== undefined) out[k] = lerp(a[k], b[k], t);
     return out;
@@ -138,12 +178,13 @@ export function lerpPaint(a, b, t) {
 
 const STYLE_SWITCH = ['strokeCap', 'strokeJoin', 'strokeAlign', 'dash', 'blendMode', 'effects', 'arrowStart', 'arrowEnd'];
 
-export function lerpStyle(a, b, t) {
+/** Interpolated style; `colorT` and `colorMode` let paints follow their own easing and color mode. */
+export function lerpStyle(a, b, t, { colorT = t, colorMode = 'rgb' } = {}) {
   const out = {
-    fill: lerpPaint(a.fill ?? null, b.fill ?? null, t),
-    stroke: lerpPaint(a.stroke ?? null, b.stroke ?? null, t),
+    fill: lerpPaint(a.fill ?? null, b.fill ?? null, colorT, colorMode),
+    stroke: lerpPaint(a.stroke ?? null, b.stroke ?? null, colorT, colorMode),
     strokeWidth: lerp(a.strokeWidth ?? 0, b.strokeWidth ?? 0, t),
-    opacity: lerp(a.opacity ?? 1, b.opacity ?? 1, t),
+    opacity: lerp(a.opacity ?? 1, b.opacity ?? 1, colorT),
     miterLimit: lerp(a.miterLimit ?? 10, b.miterLimit ?? 10, t),
   };
   for (const k of STYLE_SWITCH) {
@@ -219,23 +260,23 @@ function transformedCopy(doc, node, m, extra, style) {
  * An interpolated (virtual) node between key objects a and b at t in (0, 1).
  * Child nodes of virtual groups/compounds go into `extra` (id -> node).
  */
-export function interpolateNode(doc, a, b, t, extra) {
+export function interpolateNode(doc, a, b, t, extra, copts = {}) {
   if (a.type === 'path' && b.type === 'path' && a.anchors.length && b.anchors.length) {
     const [A, B] = matchAnchors(a.anchors, a.closed, b.anchors, b.closed);
-    return { ...a, ...lerpStyle(a, b, t), id: `blend~${++vid}`, anchors: lerpAnchors(A, B, t), closed: t < 0.5 ? a.closed : b.closed, shape: undefined };
+    return { ...a, ...lerpStyle(a, b, t, copts), id: `blend~${++vid}`, anchors: lerpAnchors(A, B, t), closed: t < 0.5 ? a.closed : b.closed, shape: undefined };
   }
   if ((a.type === 'compound' || a.type === 'group') && a.type === b.type && a.children.length === b.children.length && a.children.length) {
     const kids = a.children.map((c, i) => {
       const ca = doc.get(c);
       const cb = doc.get(b.children[i]);
       if (!ca || !cb) return null;
-      const k = interpolateNode(doc, ca, cb, t, extra);
+      const k = interpolateNode(doc, ca, cb, t, extra, copts);
       extra.set(k.id, k);
       return k.id;
     }).filter(Boolean);
     const out = { ...a, id: `blend~${++vid}`, children: kids };
-    if (a.type === 'compound') Object.assign(out, lerpStyle(a, b, t));
-    else out.opacity = lerp(a.opacity ?? 1, b.opacity ?? 1, t);
+    if (a.type === 'compound') Object.assign(out, lerpStyle(a, b, t, copts));
+    else out.opacity = lerp(a.opacity ?? 1, b.opacity ?? 1, copts.colorT ?? t);
     return out;
   }
   // Different structures: move and scale the nearer key object's box toward the other.
@@ -251,7 +292,7 @@ export function interpolateNode(doc, a, b, t, extra) {
   const sx = from.w > 1e-9 ? w / from.w : 1;
   const sy = from.h > 1e-9 ? hgt / from.h : 1;
   const m = multiply(translate(cx - (from.x + from.w / 2), cy - (from.y + from.h / 2)), scale(sx, sy, from.x + from.w / 2, from.y + from.h / 2));
-  const style = (a.type === 'path' || a.type === 'compound' || a.type === 'text') && (b.type === 'path' || b.type === 'compound' || b.type === 'text') ? lerpStyle(a, b, t) : null;
+  const style = (a.type === 'path' || a.type === 'compound' || a.type === 'text') && (b.type === 'path' || b.type === 'compound' || b.type === 'text') ? lerpStyle(a, b, t, copts) : null;
   return transformedCopy(doc, src, m, extra, style);
 }
 
@@ -312,7 +353,8 @@ export function blendSteps(doc, group) {
   const spine = blendSpine(doc, group);
   const sampler = spine ? pathSampler(spine.anchors, spine.closed) : null;
   const along = (k) => (keys.length > 1 ? (k / (keys.length - 1)) * sampler.length : 0);
-  const orient = group.blend?.orientation === 'path';
+  const opts = { ...DEFAULT_BLEND, ...group.blend };
+  const orient = opts.orientation === 'path';
   for (let k = 0; k < keys.length - 1; k++) {
     const a = keys[k];
     const b = keys[k + 1];
@@ -345,8 +387,9 @@ export function blendSteps(doc, group) {
     } else count = blendStepCount(doc, group.blend, a, b);
     const nodes = [];
     for (let i = 1; i <= count; i++) {
-      const t = i / (count + 1);
-      let n = interpolateNode(doc, a, b, t, extra);
+      const even = i / (count + 1);
+      const t = easeT(even, opts.easing, opts.easeAmount);
+      let n = interpolateNode(doc, a, b, t, extra, { colorT: opts.easeColor === false ? even : t, colorMode: opts.colorMode });
       if (place) n = moveVirtual(doc, extra, n, place(t));
       nodes.push(n);
     }

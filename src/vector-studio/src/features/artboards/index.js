@@ -5,7 +5,7 @@
  *    Artboards panel, Object > Artboards commands
  *  - Align (Shift+F7), Transform (Shift+F8), Info (F8) and Navigator panels
  *  - Free Transform (E), Magic Wand (Y), Measure, Reshape and Blend (W)
- *    tools, Object > Blend commands with live blends
+ *    tools, Object > Blend commands with live blends and the Blend panel
  *  - the contextual task bar, guide selection with the Selection tool,
  *    key objects and Object > Transform > Reset Bounding Box
  */
@@ -27,6 +27,7 @@ import { FreeTransformTool } from './free-transform.js';
 import { MagicWandTool } from './magic-wand.js';
 import { MeasureTool, ReshapeTool } from './measure-reshape.js';
 import { BlendTool, registerBlendCommands } from './blend.js';
+import { BlendPanel } from './blend-panel.js';
 import { installTaskbar } from './taskbar.js';
 import { installSelectionExtensions, setGuide } from './selection-ext.js';
 import { convertToArtboards, isRectangle, fitArtboardToArtwork, fitArtboardToIds } from './artboard-ops.js';
@@ -208,7 +209,7 @@ function registerArtboardCommands(app) {
 
 export function install(app) {
   for (const T of [ArtboardTool, FreeTransformTool, MagicWandTool, MeasureTool, ReshapeTool, BlendTool]) app.registerTool(T);
-  for (const P of [AlignPanel, ArtboardsPanel, InfoPanel, NavigatorPanel, TransformPanel]) app.registerPanel(P);
+  for (const P of [AlignPanel, ArtboardsPanel, BlendPanel, InfoPanel, NavigatorPanel, TransformPanel]) app.registerPanel(P);
   PropertiesPanel.extraSections.push(artboardControlsSection(app));
   registerArtboardCommands(app);
   registerBlendCommands(app);
