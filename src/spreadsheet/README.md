@@ -370,6 +370,39 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   input value that makes a formula reach a wanted result; and Column stats,
   a profile of a column (counts, sum, average, median, spread, the most
   frequent values, and a distribution).
+- **Solver** (Data ▸ Analyze, the Data menu, or the palette): make a formula
+  cell as large or as small as it can be, or equal to a value, by changing
+  variable cells (several ranges) subject to constraints (`<=`, `=`, `>=`,
+  whole numbers, 0/1 and all different), with three methods: Simplex LP
+  for linear models (a bounded two-phase simplex that cannot cycle, with a
+  check that the model really is linear), GRG Nonlinear for smooth models
+  (gradients measured through the sheet's own recalculation, optionally from
+  many starting points) and Evolutionary for models built on IF, lookups or
+  rounding; integer constraints go through branch and bound. Options cover
+  precision, scaling, time and iteration limits, integer optimality,
+  convergence, derivatives, population, mutation rate and a random seed. The
+  solve runs in the background with a Stop button; the result can be kept
+  or the original values restored, saved as a scenario, and reported on new
+  sheets (Answer; Sensitivity with reduced costs, shadow prices and allowable
+  ranges, or reduced gradients and Lagrange multipliers; Limits). Keeping a
+  solution is one undo step. The model is saved with the sheet in hidden
+  defined names, so it travels in .xlsx files, follows inserted rows and
+  columns, and can also be saved to and loaded from a range of cells.
+- **Data Analysis** (Data ▸ Analyze): a list of statistical tools, each
+  with its own dialog — Anova (single factor, two-factor with and without
+  replication), Correlation, Covariance, Descriptive Statistics (with a
+  confidence level and kth largest and smallest), Exponential Smoothing,
+  F-Test for variances, Fourier Analysis, Histogram (with Pareto order,
+  cumulative percentage and a chart), Moving Average, Random Number
+  Generation (uniform, normal, Bernoulli, binomial, Poisson, patterned and
+  discrete, with a seed), Rank and Percentile, Regression (multiple X
+  columns, residuals, standardized residuals, residual, line fit and normal
+  probability plots, a chosen confidence level, constant zero), Sampling,
+  t-Tests (paired, equal and unequal variances) and a two-sample z-Test.
+  Inputs grouped by columns or rows with optional labels are checked with
+  clear messages; results (and their charts) go to a range, a new sheet or a
+  new spreadsheet as one undo step, computed with the same statistics as the
+  sheet functions (`LINEST`, `T.DIST`, `F.DIST`…).
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,
