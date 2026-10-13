@@ -46,6 +46,8 @@ describe('Editing opacity masks in place', () => {
     // The art only paints through the mask: the canvas skips it and exports hide it.
     const opts = viewHooks.artOptions.reduce((o, f) => f(ed, o) || o, {});
     expect(opts.skip.has(g.id)).toBe(true);
+    // ...and the masked result is not faded like the outside of an isolated group.
+    expect(viewHooks.dimIsolation.every((f) => f(ed) !== false)).toBe(false);
     // ...except in the mask, which exports the art as edited so far.
     const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 200 } });
     expect(svg.split('#808080').length - 1).toBe(1);

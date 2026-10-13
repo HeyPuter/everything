@@ -208,6 +208,8 @@ export function installOpacityMasks() {
     const g = maskEditGroup(editor.doc);
     return g ? { ...opts, skip: new Set([...(opts.skip || []), g.id]) } : opts;
   });
+  // The masked result shows at full strength (no isolation fade over it).
+  viewHooks.dimIsolation.push((editor) => !maskEditGroup(editor.doc));
   viewHooks.afterArt.push((ctx, editor, view) => {
     const g = maskEditGroup(editor.doc);
     if (!g) return;
