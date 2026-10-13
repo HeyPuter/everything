@@ -22,6 +22,22 @@
   height: 32px;
 }
 
+.pf-modes {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pf-modes .pf-expand {
+  margin-left: auto;
+  height: 32px;
+}
+
+.pf-row .icon-btn[aria-pressed='true'] {
+  background: var(--bg-selected);
+  color: var(--accent);
+}
+
 .pf-props .pf-row {
   margin-bottom: 0;
 }

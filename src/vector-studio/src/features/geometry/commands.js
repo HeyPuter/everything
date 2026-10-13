@@ -1,5 +1,7 @@
 /** Commands for Pathfinder and Object > Path / Shape / Expand. */
 import { ALL_KINDS, canRun, runPathfinder, pathfinderOptions, operands } from './pathfinder.js';
+import { trapCommand, makeCompoundShape, releaseCompoundShapes, expandCompoundShapes, selectedCompoundShapes } from './pathfinder-extras.js';
+import { installMixEffects } from './mix-effects.js';
 import {
   outlineStroke,
   offsetPathDialog,
@@ -16,12 +18,15 @@ import {
 import { isLive, expandLive } from '../../model/live.js';
 import { expandAppearance, hasExpandableAppearance } from '../../ops/expand-appearance.js';
 
+const PATHFINDER_DEFAULTS = Object.freeze({ ...pathfinderOptions });
 const leaves = (app) => (app.editor ? operands(app.editor) : []);
 const selectedLive = (app) => (app.editor ? app.editor.selectedNodes().filter((n) => isLive(n)) : []);
 const hasPaths = (app) => leaves(app).length > 0;
 
 export function registerGeometryCommands(app) {
   const c = app.commands;
+  Object.assign(pathfinderOptions, app.prefs.get('pathfinderOptions') || {});
+  installMixEffects(app);
   c.register(
     ALL_KINDS.map((def) => ({
       id: `pathfinder.${def.kind}`,
@@ -50,13 +55,39 @@ export function registerGeometryCommands(app) {
           title: 'Pathfinder Options',
           fields: [
             { key: 'precision', label: 'Precision', type: 'length', value: pathfinderOptions.precision, min: 0.001, max: 100, step: 0.001 },
+            { key: 'removeRedundant', label: 'Remove Redundant Points', type: 'checkbox', value: pathfinderOptions.removeRedundant },
             { key: 'removeUnpainted', label: 'Divide and Outline Will Remove Unpainted Artwork', type: 'checkbox', value: pathfinderOptions.removeUnpainted },
           ],
+          extraButtons: [{ label: 'Defaults', action: 'defaults' }],
         });
         if (!v) return;
-        pathfinderOptions.precision = v.precision;
-        pathfinderOptions.removeUnpainted = v.removeUnpainted;
+        Object.assign(pathfinderOptions, v.__action === 'defaults' ? PATHFINDER_DEFAULTS : { precision: v.precision, removeRedundant: v.removeRedundant, removeUnpainted: v.removeUnpainted });
+        a.prefs.set('pathfinderOptions', { ...pathfinderOptions });
       },
+    },
+    {
+      id: 'pathfinder.trap',
+      label: 'Trap...',
+      enabled: (a) => leaves(a).filter((n) => n.fill).length >= 2,
+      run: (a) => trapCommand(a),
+    },
+    {
+      id: 'pathfinder.makeCompoundShape',
+      label: 'Make Compound Shape',
+      enabled: (a) => Boolean(a.editor && (a.editor.topSelection().length >= 2 || selectedCompoundShapes(a.editor).length)),
+      run: (a, args) => makeCompoundShape(a.editor, args?.kind || 'unite'),
+    },
+    {
+      id: 'pathfinder.releaseCompoundShape',
+      label: 'Release Compound Shape',
+      enabled: (a) => selectedCompoundShapes(a.editor).length > 0,
+      run: (a) => releaseCompoundShapes(a.editor),
+    },
+    {
+      id: 'pathfinder.expandCompoundShape',
+      label: 'Expand Compound Shape',
+      enabled: (a) => selectedCompoundShapes(a.editor).length > 0,
+      run: (a) => expandCompoundShapes(a.editor),
     },
     { id: 'path.outlineStroke', label: 'Outline Stroke', enabled: (a) => leaves(a).some((n) => n.stroke && n.strokeWidth > 0), run: (a) => outlineStroke(a) },
     { id: 'path.offset', label: 'Offset Path...', enabled: hasPaths, run: (a) => offsetPathDialog(a) },

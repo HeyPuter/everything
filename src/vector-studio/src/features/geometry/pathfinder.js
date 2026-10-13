@@ -32,8 +32,44 @@ export const PATHFINDERS = [
 
 export const ALL_KINDS = [...SHAPE_MODES, ...PATHFINDERS];
 
-/** Pathfinder options (panel menu): precision in points and unpainted-artwork removal. */
-export const pathfinderOptions = { precision: 0.028, removeUnpainted: false };
+/** Pathfinder options (panel menu): precision in points, redundant-point and unpainted-artwork removal. */
+export const pathfinderOptions = { precision: 0.028, removeRedundant: true, removeUnpainted: false };
+
+/** Remove anchors that add nothing: duplicates, and straight-line corners between collinear neighbors. */
+export function removeRedundantAnchors(anchors, closed, eps = 1e-6) {
+  const plainIn = (a) => Math.abs(a.ix - a.x) < eps && Math.abs(a.iy - a.y) < eps;
+  const plainOut = (a) => Math.abs(a.ox - a.x) < eps && Math.abs(a.oy - a.y) < eps;
+  // Is b (between a and c) redundant?
+  const redundant = (a, b, c) => {
+    if (!plainIn(b) || !plainOut(b)) return false;
+    if (Math.hypot(a.x - b.x, a.y - b.y) < eps && plainOut(a)) return true;
+    if (!plainOut(a) || !plainIn(c)) return false;
+    const len = Math.hypot(c.x - a.x, c.y - a.y);
+    if (len < eps) return false;
+    const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    const t = ((b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y)) / (len * len);
+    return Math.abs(cross) / len < 1e-4 && t >= -1e-9 && t <= 1 + 1e-9;
+  };
+  const min = closed ? 3 : 2;
+  const out = [];
+  for (const b of anchors) {
+    out.push(b);
+    while (out.length >= 3 && redundant(out[out.length - 3], out[out.length - 2], out[out.length - 1])) out.splice(out.length - 2, 1);
+  }
+  if (closed) {
+    // Around the seam: the last anchor between its neighbors, then the first.
+    let guard = out.length;
+    while (out.length > min && guard-- > 0) {
+      const n = out.length;
+      if (redundant(out[n - 2], out[n - 1], out[0])) out.pop();
+      else if (redundant(out[n - 1], out[0], out[1])) out.shift();
+      else break;
+    }
+  }
+  return out.length >= min ? out : anchors;
+}
+
+const tidy = (subpaths, opts) => (opts.removeRedundant ? subpaths.map((s) => ({ ...s, anchors: removeRedundantAnchors(s.anchors, s.closed) })) : subpaths);
 
 /** Per-document change counters so operand lists can be cached between edits. */
 const docVersions = new WeakMap();
@@ -70,14 +106,15 @@ export function canRun(editor, kind) {
  * Pure part: build result items from engine records. Exported for tests.
  * Returns [{ node, descendants }] to insert (one item; pathfinders return a group).
  */
-export function buildResults(kind, leaves, records, { removeUnpainted = false } = {}) {
+export function buildResults(kind, leaves, records, opts = {}) {
+  const { removeUnpainted = false } = opts;
   const def = ALL_KINDS.find((k) => k.kind === kind);
   const isShapeMode = SHAPE_MODES.includes(def) || kind === 'minusBack';
   if (isShapeMode) {
     const rec = records[0];
     if (!rec || !rec.subpaths.length) return [];
     const owner = leaves[rec.owner];
-    const built = nodeFromSubpaths(rec.subpaths, styleOf(owner));
+    const built = nodeFromSubpaths(tidy(rec.subpaths, opts), styleOf(owner));
     return built ? [built] : [];
   }
   const items = [];
@@ -95,7 +132,7 @@ export function buildResults(kind, leaves, records, { removeUnpainted = false } 
       if (!owner.fill) continue;
       style = fillOnly(styleOf(owner));
     }
-    const built = nodeFromSubpaths(rec.subpaths, style);
+    const built = nodeFromSubpaths(tidy(rec.subpaths, opts), style);
     if (built) items.push(built);
   }
   if (!items.length) return [];

@@ -318,7 +318,7 @@ export const MENUS = [
       { label: 'Path', submenu: ['effect.offsetPath', 'effect.outlineObject', 'effect.outlineStroke'] },
       {
         label: 'Pathfinder',
-        submenu: ['effect.pathfinder.unite', 'effect.pathfinder.intersect', 'effect.pathfinder.exclude', 'effect.pathfinder.minusFront', 'effect.pathfinder.minusBack', '-', 'effect.pathfinder.divide', 'effect.pathfinder.trim', 'effect.pathfinder.merge', 'effect.pathfinder.crop', 'effect.pathfinder.outline'],
+        submenu: ['effect.pathfinder.unite', 'effect.pathfinder.intersect', 'effect.pathfinder.exclude', 'effect.pathfinder.minusFront', 'effect.pathfinder.minusBack', '-', 'effect.pathfinder.divide', 'effect.pathfinder.trim', 'effect.pathfinder.merge', 'effect.pathfinder.crop', 'effect.pathfinder.outline', '-', 'effect.pathfinder.hardMix', 'effect.pathfinder.softMix', 'effect.pathfinder.trap'],
       },
       'effect.rasterize',
       { label: 'Stylize', submenu: ['effect.dropShadow', 'effect.feather', 'effect.innerGlow', 'effect.outerGlow', 'effect.roundCorners', 'effect.scribble'] },
