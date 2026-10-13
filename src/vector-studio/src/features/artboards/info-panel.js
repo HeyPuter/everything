@@ -11,10 +11,15 @@ import { hexToRgb, rgbToCmyk } from '../../lib/color.js';
 import { commonStyle } from '../../ops/paint-ops.js';
 import { measureValues } from './measure-reshape.js';
 
-/** Text description of a paint for the Info panel (CMYK percentages in CMYK documents). */
-export function paintInfo(p, mode = 'RGB') {
+/**
+ * Text description of a paint for the Info panel (CMYK percentages in CMYK
+ * documents); a spot color shows its name and tint.
+ */
+export function paintInfo(p, mode = 'RGB', doc = null) {
   if (p === 'mixed') return 'Mixed';
   if (!p) return 'None';
+  const spot = p.swatchId && (doc?.root.swatches || []).find((sw) => sw.id === p.swatchId && sw.spot);
+  if (spot) return `${spot.name} ${Math.round((p.tint ?? 1) * 100)}%`;
   if (p.type === 'solid') {
     const c = hexToRgb(p.color);
     if (mode === 'CMYK') {
@@ -130,8 +135,8 @@ export class InfoPanel extends Panel {
     updatePaintSwatch(this.fillSw, fill === 'mixed' ? null : fill, fill === 'mixed');
     updatePaintSwatch(this.strokeSw, stroke === 'mixed' ? null : stroke, stroke === 'mixed');
     const mode = ed.doc.root.colorMode === 'CMYK' ? 'CMYK' : 'RGB';
-    this.fillTxt.textContent = paintInfo(fill, mode);
+    this.fillTxt.textContent = paintInfo(fill, mode, ed.doc);
     const sw = commonStyle(ed, 'strokeWidth');
-    this.strokeTxt.textContent = paintInfo(stroke, mode) + (stroke && stroke !== 'mixed' && sw !== 'mixed' && sw != null ? `, ${f(sw)}` : '');
+    this.strokeTxt.textContent = paintInfo(stroke, mode, ed.doc) + (stroke && stroke !== 'mixed' && sw !== 'mixed' && sw != null ? `, ${f(sw)}` : '');
   }
 }
