@@ -219,6 +219,23 @@ describe('editing dimensions', () => {
     expect(layoutIn(doc, doc.get(d.id)).label.x).toBeCloseTo(L.x + 40);
   });
 
+  it('starts a chained dimension when a measured point is clicked rather than dragged', () => {
+    const d = make();
+    const t = app.tool;
+    click(t, 300, 300);
+    expect(t.pick?.pts).toHaveLength(1);
+    expect(t.pick.pts[0]).toMatchObject({ x: 300, y: 300 });
+    click(t, 450, 300);
+    click(t, 375, 250);
+    expect(dims()).toHaveLength(2);
+    expect(layoutIn(doc, doc.get(d.id)).value).toBeCloseTo(200);
+    expect(layoutIn(doc, dims()[1]).value).toBeCloseTo(150);
+    // The context menu offers the options for selected dimensions only.
+    expect(app.commands.isEnabled('dimension.edit')).toBe(true);
+    app.editor.clearSelection();
+    expect(app.commands.isEnabled('dimension.edit')).toBe(false);
+  });
+
   it('edits with the Direct Selection tool too', () => {
     const d = make();
     app.setTool('direct-selection');

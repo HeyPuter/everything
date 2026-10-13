@@ -169,7 +169,7 @@ export async function dimensionOptionsDialog(app, { nodes = [], tool = false } =
     scaleRow,
     row('Prefix', c.prefix),
     row('Suffix', c.suffix),
-    c.symbol.el,
+    !editing || kinds.has('radial') ? c.symbol.el : null,
     h('h3.form-heading', 'Label'),
     row('Font', c.fontFamily),
     row('Size (pt)', c.fontSize),
@@ -184,7 +184,7 @@ export async function dimensionOptionsDialog(app, { nodes = [], tool = false } =
     c.extension.el,
     row('Gap from object (pt)', c.extGap),
     row('Past the line (pt)', c.extOvershoot),
-    c.centerMark.el,
+    !editing || kinds.has('radial') ? c.centerMark.el : null,
     preview ? preview.el : null,
   );
 

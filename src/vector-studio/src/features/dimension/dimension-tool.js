@@ -42,6 +42,16 @@ export function newDimOptions(app) {
   return dimOptions(app.prefs.get('dimensionOptions') || {});
 }
 
+/** Snap index of the artwork, leaving dimensions out (their boxes are not useful to measure from). */
+function snapIndex(editor, exclude = []) {
+  const ids = new Set(exclude);
+  editor.doc.walk((n) => {
+    if (isDimension(n)) ids.add(n.id);
+    return true;
+  });
+  return buildSnapIndex(editor, ids);
+}
+
 export function selectedDimensions(editor) {
   return editor ? editor.selectedNodes().filter((n) => isDimension(n) && !editor.doc.isLocked(n.id)) : [];
 }
@@ -199,7 +209,7 @@ export function startHandleDrag(app, editor, h, e0) {
   const node = h.node;
   const eff = h.lay.effective;
   const settings = toolSettings(app);
-  const snap = buildSnapIndex(editor, new Set([node.id]));
+  const snap = snapIndex(editor, [node.id]);
   // Work from the drawn points so attached points that moved stay put.
   const base = { ...node, p1: eff.p1, p2: eff.p2, ...(node.kind === 'angular' ? { vertex: eff.vertex } : {}), at: eff.at };
   let tx = null;
@@ -359,7 +369,7 @@ export class DimensionTool extends Tool {
   #snapIndex() {
     const ed = this.editor;
     const now = Date.now();
-    if (!this.hoverSnap || this.hoverSnap.doc !== ed.doc || now - this.hoverSnap.at > 800) this.hoverSnap = { doc: ed.doc, at: now, index: buildSnapIndex(ed) };
+    if (!this.hoverSnap || this.hoverSnap.doc !== ed.doc || now - this.hoverSnap.at > 800) this.hoverSnap = { doc: ed.doc, at: now, index: snapIndex(ed) };
     return this.hoverSnap.index;
   }
 
@@ -392,22 +402,11 @@ export class DimensionTool extends Tool {
     if (!pk) {
       const h = handleAt(ed, e);
       if (h) {
-        this.drag = startHandleDrag(this.app, ed, h, e);
+        // Dragging a handle edits; a click on a measured point starts a new dimension there (chained dimensions).
+        this.pending = { h, e };
         return;
       }
-      if (!ed.canDrawInTarget()) {
-        this.app.notify('The target layer is locked or hidden.');
-        return;
-      }
-      const s = this.settings;
-      this.pick = { kind: s.kind, pts: [], snap: buildSnapIndex(ed), press: { sx: e.sx, sy: e.sy }, moved: false, phase: 'points' };
-      const circle = s.kind === 'radial' ? circleAt(ed, e, s.associative) : null;
-      if (circle) {
-        this.pick.pts.push(circle.p1, circle.p2);
-        this.#beginPlace(e);
-      } else this.pick.pts.push(this.#point(e));
-      this.hoverPoint = null;
-      this.overlay();
+      this.#startPick(e);
       return;
     }
     pk.press = { sx: e.sx, sy: e.sy };
@@ -422,7 +421,29 @@ export class DimensionTool extends Tool {
     pk.commitOnUp = true;
   }
 
+  #startPick(e, first = null) {
+    const ed = this.editor;
+    if (!ed.canDrawInTarget()) {
+      this.app.notify('The target layer is locked or hidden.');
+      return;
+    }
+    const s = this.settings;
+    this.pick = { kind: s.kind, pts: [], snap: snapIndex(ed), press: { sx: e.sx, sy: e.sy }, moved: false, phase: 'points' };
+    const circle = s.kind === 'radial' ? circleAt(ed, e, s.associative) : null;
+    if (circle) {
+      this.pick.pts.push(circle.p1, circle.p2);
+      this.#beginPlace(e);
+    } else this.pick.pts.push(first || this.#point(e));
+    this.hoverPoint = null;
+    this.overlay();
+  }
+
   onPointerMove(e) {
+    const pend = this.pending;
+    if (pend && Math.hypot(e.sx - pend.e.sx, e.sy - pend.e.sy) >= 3) {
+      this.pending = null;
+      this.drag = startHandleDrag(this.app, this.editor, pend.h, pend.e);
+    }
     if (this.drag) {
       this.drag.move(e);
       return;
@@ -434,6 +455,22 @@ export class DimensionTool extends Tool {
   }
 
   onPointerUp(e) {
+    const pend = this.pending;
+    this.pending = null;
+    if (pend && !this.drag) {
+      const { node, part, lay } = pend.h;
+      if (['p1', 'p2', 'vertex'].includes(part) && this.settings.kind !== 'radial') {
+        // Start exactly on the clicked point, attached to what it measures.
+        const p = lay.effective[part];
+        const ref = this.settings.associative && isAttached(node) ? node.attach[part] || null : null;
+        this.#startPick(pend.e, { x: p.x, y: p.y, ref });
+        if (this.pick) {
+          this.pick.press = null;
+          this.pick.moved = false;
+        }
+      }
+      return;
+    }
     if (this.drag) {
       this.drag.up(e);
       this.drag = null;
@@ -547,6 +584,7 @@ export class DimensionTool extends Tool {
   }
 
   cancel() {
+    this.pending = null;
     if (this.drag) {
       this.drag.cancel();
       this.drag = null;
@@ -568,7 +606,7 @@ export class DimensionTool extends Tool {
   }
 
   openOptions() {
-    import('./dimension-ui.js').then((m) => m.dimensionOptionsDialog(this.app, { nodes: selectedDimensions(this.editor), tool: true }));
+    this.app.commands.run('dimension.toolOptions');
   }
 
   drawOverlay(ctx, editor) {

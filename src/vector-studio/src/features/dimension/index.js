@@ -144,6 +144,9 @@ export function install(app) {
       enabled: (a) => Boolean(a.editor),
       run: (a) => dimensionOptionsDialog(a, { nodes: selectedDimensions(a.editor) }),
     },
+    { id: 'dimension.toolOptions', label: 'Dimension Tool Options...', enabled: (a) => Boolean(a.editor), run: (a) => dimensionOptionsDialog(a, { nodes: selectedDimensions(a.editor), tool: true }) },
+    // The context menu's entry: only with dimensions selected.
+    { id: 'dimension.edit', label: 'Dimension Options...', enabled: some, run: (a) => dimensionOptionsDialog(a, { nodes: selectedDimensions(a.editor) }) },
     {
       id: 'dimension.detach',
       label: 'Detach from Objects',

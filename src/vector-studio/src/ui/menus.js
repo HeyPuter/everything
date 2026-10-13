@@ -546,6 +546,7 @@ export const CONTEXT_MENU = [
   { id: 'symbol.breakLink', label: 'Break Link to Symbol' },
   { id: 'repeat.release', label: 'Release Repeat' },
   { id: 'envelope.editContents', label: 'Edit Contents' },
+  'dimension.edit',
   { label: 'Perspective', submenu: ['perspective.attach', 'perspective.release', 'perspective.movePlane', 'perspective.editText'] },
   'type.createOutlines',
   '-',
