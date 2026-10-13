@@ -165,3 +165,34 @@ Status: `[ ]` planned, `[x]` done.
 - [x] Statistics (images combined into an embedded object with a stack mode, optional alignment)
 - [x] Lens Correction for many photos (automatic straightening and vignetting per photo, or custom settings; ZIP or Puter folder)
 - [x] Create Batch Link: a link that opens Photo Studio ready to run an action on dropped photos (in place of executable droplets)
+
+## Collaboration and review
+
+- [ ] Invite to Edit: live co-editing of a document through Puter, with presence (cursors, selected layers) and an access list
+- [ ] Share for Review: a read-only review link that shows the flattened image and takes comments
+- [ ] Comments panel: comments pinned to points or regions of the canvas, threads, replies, resolve, mentions; kept in `.photo` projects
+
+## Assistant and generation
+
+- [ ] Assistant panel: describe an edit in words; the assistant plans it as registry commands, shows each step and runs it as one undoable change
+- [ ] Describe-an-edit box on the start screen (opens the image and hands the prompt to the assistant)
+- [ ] Generation History panel: every AI result with its prompt and settings, reusable as a new layer or a starting point
+
+## Portrait and restoration filters
+
+- [ ] Skin Smoothing, JPEG Artifact Removal, Photo Restoration, Colorize, Depth Blur, Style Transfer, Color Transfer and Scene Changer in one filter workspace with live previews, output as a new layer, a masked layer or a Live Filter
+
+## Assets and provenance
+
+- [ ] Libraries panel: colors, gradients, character styles, layer styles, brushes and graphics shared between documents, stored in Puter (or this browser)
+- [ ] Content Credentials: record how an image was made (sources, edits, AI use) and attach the record to exports
+- [ ] Image Assets: layers named like files (`hero.png`, `200% icon.webp`) are exported automatically on save
+- [ ] Import from a camera (Import → Images from Device) and Import → Notes
+
+## Remaining parity items
+
+- [ ] View: Actual Size, sRGB and legacy Mac RGB proof presets, separate canvas and artboard guides, New Guides From Shape, show mesh and pins, pattern tile bounds
+- [ ] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
+- [ ] Layer: Convert to Linked, mask edge enhancement; Edit → Rotate Object
+- [ ] Help: What's New and hands-on tutorials (guided tours of real tasks)
+- [ ] Audio tracks on the video timeline (import, mix, render with sound)
