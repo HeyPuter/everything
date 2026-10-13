@@ -13,7 +13,7 @@ import { buildSnapIndex, snapPoint } from '../../tools/snap.js';
 import { hitTest } from '../../render/hit.js';
 import { layerColor } from '../../render/overlay.js';
 import { meshLinesPath } from './mesh-raster.js';
-import { movePoint, nearestPoint, nearestHandle, locate, patchCorners, slideTarget, slidePoint, liveHandles, rgba } from './mesh-model.js';
+import { movePoint, nearestPoint, nearestHandle, locate, patchCorners, slideTarget, slidePoint, liveHandles, rgba, patchColor } from './mesh-model.js';
 import { isMesh } from './mesh-live.js';
 import { rgbToHex } from '../../lib/color.js';
 
@@ -302,6 +302,30 @@ export function meshCommonStyle(editor, key) {
   if (key === 'stroke') return null;
   return undefined;
 }
+
+/** The color of a mesh at a document point: { color, opacity } or null outside it. */
+export function meshColorAt(mesh, x, y) {
+  const loc = isMesh(mesh) ? locate(mesh, x, y) : null;
+  if (!loc) return null;
+  const [r, g, b, a] = patchColor(mesh, loc.i, loc.j, loc.s, loc.t);
+  return { color: rgbToHex({ r, g, b }), opacity: a };
+}
+
+/**
+ * Eyedropper on meshes: clicking a mesh picks the color under the pointer
+ * (not just the object's style), and with mesh points selected the picked
+ * fill color goes to those points.
+ */
+export const meshEyedropperHook = {
+  sample(editor, hit, e) {
+    const c = isMesh(hit) ? meshColorAt(hit, e.x, e.y) : null;
+    return c ? { fill: { type: 'solid', color: c.color } } : null;
+  },
+  apply(editor, patch) {
+    if (!meshPointSelection(editor).size || patch.fill?.type !== 'solid') return false;
+    return paintMeshPoints(editor, { color: patch.fill.color }, 'Eyedropper');
+  },
+};
 
 /** The paint hooks for mesh points, wrapping any hooks already installed. */
 export function installMeshPaintHooks(app, paintHooks) {

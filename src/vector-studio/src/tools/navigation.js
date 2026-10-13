@@ -179,6 +179,14 @@ function eyedropperKeys(app) {
   return EYEDROPPER_KEYS.filter((k) => Object.entries(EYEDROPPER_GROUPS).every(([name, keys]) => g[name] || !keys.includes(k)));
 }
 
+/**
+ * Feature hooks for the Eyedropper: sample(editor, hit, e) -> style patch
+ * picked from the clicked object (e.g. the color at the point on a gradient
+ * mesh) or null; apply(editor, patch, hit) -> true when the feature applied
+ * the picked style itself (e.g. to selected mesh points).
+ */
+export const eyedropperHooks = [];
+
 export class EyedropperTool extends Tool {
   static id = 'eyedropper';
   static label = 'Eyedropper Tool';
@@ -218,7 +226,12 @@ export class EyedropperTool extends Tool {
       // A chosen glyph alternate belongs to its character, not to the picked style.
       if (groups.character) patch.char = Object.fromEntries(CHAR_KEYS.filter((k) => k !== 'altGlyph').map((k) => [k, st[k]]));
     }
+    for (const hk of eyedropperHooks) {
+      const p = hk.sample?.(editor, hit, e);
+      if (p) Object.assign(patch, p);
+    }
     editor.setStyle(patch);
+    if (eyedropperHooks.some((hk) => hk.apply?.(editor, patch, hit))) return;
     const targets = editor.selectedNodes().filter((n) => n.id !== hit.id);
     if (!targets.length) return;
     doc.transact('Eyedropper', () => {

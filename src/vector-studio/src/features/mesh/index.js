@@ -2,15 +2,17 @@
  * Gradient Mesh: mesh objects (a grid of Coons patches with a color per
  * mesh point), the Mesh tool (U), Object > Create Gradient Mesh, Direct
  * Selection of mesh points and patches, coloring selected points from the
- * paint controls, and SVG / PDF export.
+ * paint controls, the Eyedropper picking the color under the pointer on a
+ * mesh (into selected mesh points), and SVG / PDF export.
  */
 import './mesh-live.js';
 import { MeshTool } from './mesh-tool.js';
 import { canMesh, convertToMesh, removeLinesThrough } from './mesh-ops.js';
-import { drawMeshOverlay, directPointerDown, directMarquee, installMeshPaintHooks, meshPointSelection } from './mesh-edit.js';
+import { drawMeshOverlay, directPointerDown, directMarquee, installMeshPaintHooks, meshPointSelection, meshEyedropperHook } from './mesh-edit.js';
 import { installMeshExport } from './mesh-export.js';
 import { overlayHooks } from '../../render/overlay.js';
 import { directSelectionHooks } from '../../tools/direct-selection.js';
+import { eyedropperHooks } from '../../tools/navigation.js';
 import { paintHooks } from '../../ops/paint-ops.js';
 
 const DIRECT_HOOK = { pointerDown: directPointerDown, marquee: directMarquee };
@@ -118,5 +120,6 @@ export function install(app) {
   overlayHooks.add(drawMeshOverlay);
   if (!directSelectionHooks.includes(DIRECT_HOOK)) directSelectionHooks.push(DIRECT_HOOK);
   installMeshPaintHooks(app, paintHooks);
+  if (!eyedropperHooks.includes(meshEyedropperHook)) eyedropperHooks.push(meshEyedropperHook);
   installMeshExport();
 }
