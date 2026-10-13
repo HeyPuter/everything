@@ -27,6 +27,7 @@ import { BEVELS } from './mesh.js';
 import { trackball, lightSphere, paintMaterialBall } from './widgets.js';
 import { setDraft } from './live-kind.js';
 import { normalize } from './math.js';
+import { exportSelection } from './export-ui.js';
 
 let uid = 0;
 const nid = (p) => `td-${p}-${++uid}`;
@@ -469,6 +470,9 @@ export class ThreeDPanel extends Panel {
       '-',
       { id: 'object.expandAppearance', label: 'Expand' },
       { label: 'Remove 3D', enabled: has, run: () => this.remove3D() },
+      '-',
+      { label: 'Export as OBJ...', enabled: has, run: () => exportSelection(this.app, this.targets(), 'obj') },
+      { label: 'Export as glTF Binary...', enabled: has, run: () => exportSelection(this.app, this.targets(), 'glb') },
     ];
   }
 

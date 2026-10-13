@@ -84,3 +84,32 @@ describe('DXF export with images', () => {
     expect(dxfBlob.type).toBe('application/dxf');
   });
 });
+
+describe('3D export in the app', () => {
+  it('exports 3D objects from Export As and the 3D panel menu', async () => {
+    const { newParams } = await import('../src/features/three-d/params.js');
+    const { normalizeEffect } = await import('../src/features/paint/effects-model.js');
+    const ed = app.newDocument({ width: 200, height: 200 });
+    const node = createPath(rectangle(20, 20, 60, 40), true, { fill: { type: 'solid', color: '#3366cc' }, stroke: null, effects: [normalizeEffect({ type: 'threeD', ...newParams('extrude') })] });
+    ed.doc.transact('x', () => ed.doc.insert(node, ed.targetLayer().id));
+    expect(exportFormats.get('obj').label).toMatch(/OBJ/);
+    const { renderFile, allFormats } = await import('../src/features/io/jobs.js');
+    expect(Object.keys(allFormats())).toEqual(expect.arrayContaining(['obj', 'glb']));
+    const glb = await renderFile(app, ed, 'glb', { artboard: 0 }, { orientation: 'view' });
+    expect(new Uint8Array(await glb.arrayBuffer()).subarray(0, 4)).toEqual(new Uint8Array([0x67, 0x6c, 0x54, 0x46]));
+    const obj = await renderFile(app, ed, 'obj', { artboard: 0 }, { orientation: 'model', units: 'mm', title: 'Box' });
+    expect(obj.fileExt).toBe('zip');
+    expect(new TextDecoder('latin1').decode(new Uint8Array(await obj.arrayBuffer()))).toContain('Box.obj');
+    // The panel menu exports the selected objects.
+    ed.select([node.id]);
+    app.openPanel('3d');
+    const panel = app.dock.panels.get('3d');
+    const menu = panel.menu().filter((m) => typeof m !== 'string');
+    const labels = menu.map((m) => m.label);
+    expect(menu.find((m) => m.label === 'Export as OBJ...').enabled).toBe(true);
+    expect(labels).toEqual(expect.arrayContaining(['Export as OBJ...', 'Export as glTF Binary...']));
+    // Nothing to export: a clear message.
+    const empty = app.newDocument({ width: 100, height: 100 });
+    await expect(renderFile(app, empty, 'glb', { artboard: 0 }, {})).rejects.toThrow(/no 3D objects/);
+  });
+});

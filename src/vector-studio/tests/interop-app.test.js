@@ -56,7 +56,7 @@ describe('format detection', () => {
     expect(app.importers.openExtensions).toEqual(expect.arrayContaining(['.pdf', '.ai', '.eps', '.dxf', '.tif', '.psd']));
     expect(app.files.service.openExtensions()).toEqual(expect.arrayContaining(['.vstudio', '.svg', '.pdf']));
     expect(Object.keys(allFormats())).toEqual(expect.arrayContaining(['svg', 'pdf', 'png', 'eps', 'tiff', 'dxf']));
-    expect([...exportFormats.keys()]).toEqual(['eps', 'tiff', 'dxf']);
+    expect([...exportFormats.keys()]).toEqual(expect.arrayContaining(['eps', 'tiff', 'dxf']));
   });
 });
 
