@@ -42,6 +42,12 @@ async function openWorkspace(page: Page) {
   await expect(dialog(page).getByRole('heading', { name: 'Portrait & Restore' })).toBeVisible();
   await settled(page);
 }
+/** Screen position of a document point in the fitted preview. */
+async function docToScreen(page: Page, x: number, y: number): Promise<[number, number]> {
+  const box = (await dialog(page).locator('.pr-canvas').boundingBox())!;
+  const z = Math.min(box.width / 200, box.height / 150) * 0.96;
+  return [box.x + box.width / 2 + (x - 100) * z, box.y + box.height / 2 + (y - 75) * z];
+}
 const pixel = (page: Page, layer: number, x: number, y: number) =>
   page.evaluate(
     async ({ layer, x, y }) => {
@@ -106,15 +112,8 @@ test('colorize hints spread on the current layer, and settings are remembered', 
   await d.getByRole('button', { name: 'Colorize', exact: true }).click();
   await d.getByLabel('Hint color').fill('#2050e0');
   // Click the dark left half of the preview to place a blue hint.
-  const canvas = d.locator('.pr-canvas');
   await d.getByTitle('Result only').click();
-  const box = (await canvas.boundingBox())!;
-  const fit = await page.evaluate(() => {
-    const c = document.querySelector<HTMLCanvasElement>('dialog.pr-workspace .pr-canvas')!;
-    const w = c.clientWidth, h = c.clientHeight, z = Math.min(w / 200, h / 150) * 0.96;
-    return { w, h, z };
-  });
-  await page.mouse.click(box.x + fit.w / 2 + (50 - 100) * fit.z, box.y + fit.h / 2 + (75 - 75) * fit.z);
+  await page.mouse.click(...(await docToScreen(page, 50, 75)));
   await expect(d.locator('.pr-count')).toHaveText('1 hint');
   await expect(d.getByRole('checkbox', { name: 'Use Colorize' })).toBeChecked();
   await settled(page);
@@ -226,4 +225,56 @@ test('presets save and load the settings', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   await idle(page);
+});
+
+test('AI style with a reference image, and depth blur focus with the depth map saved as a channel', async ({ page }) => {
+  await boot(page, 'default', PUTER);
+  await scene(page);
+  // A second layer to serve as the style reference.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(200 * 150 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([30, 90, 200, 255], i);
+    const l = newPixelLayer('Reference', e.doc, gridFromImage(e.assets.tiles, { width: 200, height: 150, data }, 0, 0));
+    l.visible = false;
+    e.command('Add reference', (d) => d.layers.splice(0, 0, l));
+    e.selectLayers([e.doc.layers[1].id]);
+  });
+  await idle(page);
+  await openWorkspace(page);
+  const d = dialog(page);
+  await d.getByRole('checkbox', { name: 'Use Skin Smoothing' }).uncheck();
+  await d.getByRole('button', { name: 'Style Transfer', exact: true }).click();
+  await d.locator('.pr-form select').first().selectOption('ai');
+  await expect(d.getByLabel('Brush Size')).toHaveCount(0);
+  await d.getByLabel('Describe the Style').fill('a bold poster');
+  await d.getByLabel('Style reference').selectOption({ label: 'Reference' });
+  await expect(d.getByRole('button', { name: 'Remove Reference' })).toBeVisible();
+  await d.getByRole('button', { name: 'Generate Style' }).click();
+  await expect(d.locator('.pr-ai-status')).toHaveText('The AI style is applied; Strength blends it.');
+  const call = await page.evaluate(() => (window as unknown as { puter: { ai: { calls: { prompt: string; opts: { input_images?: string[] } }[] } } }).puter.ai.calls[0]);
+  expect(call.prompt).toContain('Restyle this photo as a bold poster');
+  expect(call.opts.input_images?.length).toBe(2);
+  // Depth Blur: clicking the preview focuses there.
+  await d.getByRole('checkbox', { name: 'Use Style Transfer' }).uncheck();
+  await d.getByRole('button', { name: 'Depth Blur', exact: true }).click();
+  await d.getByRole('checkbox', { name: 'Use Depth Blur' }).check();
+  await settled(page);
+  const focal = d.locator('.pr-form .fp-number').filter({ hasText: 'Focal Distance' }).locator('input[type="number"]');
+  const before = await focal.inputValue();
+  await d.getByTitle('Result only').click();
+  // Click near the top of the image (far away), so the focus moves.
+  await page.mouse.click(...(await docToScreen(page, 100, 6)));
+  await expect(focal).not.toHaveValue(before);
+  await d.getByLabel('Save the depth map as a channel').check();
+  await settled(page);
+  await d.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await idle(page);
+  const channels = await page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name));
+  expect(channels).toContain('Depth Map');
+  await undo(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.channels?.length ?? 0)).toBe(0);
 });
