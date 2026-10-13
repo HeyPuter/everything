@@ -133,6 +133,22 @@ describe('PDF/X', () => {
     const s = latin1(bytes);
     expect(s).toMatch(/^%PDF-1\.[67]/);
     expect(s).toContain('<pdfxid:GTS_PDFXVersion>PDF/X-4</pdfxid:GTS_PDFXVersion>');
+    const xmp = /<\?xpacket begin[^]*?<\?xpacket end="w"\?>/.exec(s)[0];
+    expect(xmp).toMatch(/<xmpMM:DocumentID>uuid:[0-9a-f-]{36}<\/xmpMM:DocumentID>/);
+    expect(xmp).toMatch(/<xmpMM:InstanceID>uuid:[0-9a-f-]{36}<\/xmpMM:InstanceID>/);
+    expect(xmp).toContain('<xmpMM:RenditionClass>default</xmpMM:RenditionClass>');
+    expect(xmp).toContain('<xmp:CreatorTool>Vector Studio</xmp:CreatorTool>');
+    expect(xmp).toContain('<pdf:Trapped>False</pdf:Trapped>');
+    // The document id in the XMP is the file identifier.
+    const fileId = /\/ID \[<([0-9a-f]{32})>/.exec(s)[1];
+    expect(/<xmpMM:DocumentID>uuid:([0-9a-f-]+)</.exec(xmp)[1].replace(/-/g, '')).toBe(fileId);
+    const created = /<xmp:CreateDate>([^<]+)</.exec(xmp)[1];
+    const info = /\/CreationDate \(D:(\d{14})Z\)/.exec(s)[1];
+    expect(created.replace(/\D/g, '')).toBe(info);
+    // Metadata missing pieces is reported.
+    const { xmpProblems } = await import('../src/features/icc/pdfx.js');
+    const broken = xmp.replace(/<xmpMM:InstanceID>[^<]*<\/xmpMM:InstanceID>/, '').replace('<pdf:Trapped>False', '<pdf:Trapped>True');
+    expect(xmpProblems(broken, '/Trapped /False').join(' ')).toMatch(/InstanceID[^]*trapping state differs/);
     // Transparency stays; RGB stays and is described by its profile.
     expect(s).toMatch(/\/ca 0.5/);
     expect(s).toMatch(/\/DefaultRGB/);

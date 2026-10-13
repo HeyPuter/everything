@@ -70,6 +70,29 @@ async function contentText(objects) {
   return out.join('\n');
 }
 
+const tagValue = (xml, tag) => new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml)?.[1]?.trim() ?? null;
+
+/** What PDF/X-4 needs in the XMP metadata, and its agreement with the information dictionary. */
+export function xmpProblems(xml, info = '') {
+  const out = [];
+  if (tagValue(xml, 'pdfxid:GTS_PDFXVersion') !== 'PDF/X-4') out.push('The XMP metadata does not name the PDF/X-4 version.');
+  for (const tag of ['xmpMM:DocumentID', 'xmpMM:InstanceID']) if (!/^uuid:[0-9a-f-]{36}$/i.test(tagValue(xml, tag) || '')) out.push(`The XMP metadata has no ${tag.split(':')[1]}.`);
+  if (!tagValue(xml, 'xmpMM:VersionID')) out.push('The XMP metadata has no VersionID.');
+  if (!tagValue(xml, 'xmpMM:RenditionClass')) out.push('The XMP metadata has no RenditionClass.');
+  const iso = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?(Z|[+-]\d\d:\d\d)$/;
+  for (const tag of ['xmp:CreateDate', 'xmp:ModifyDate', 'xmp:MetadataDate']) if (!iso.test(tagValue(xml, tag) || '')) out.push(`The XMP metadata has no valid ${tag.split(':')[1]}.`);
+  if (!tagValue(xml, 'xmp:CreatorTool')) out.push('The XMP metadata has no CreatorTool.');
+  if (!tagValue(xml, 'pdf:Producer')) out.push('The XMP metadata has no Producer.');
+  const trapped = tagValue(xml, 'pdf:Trapped');
+  if (trapped !== 'True' && trapped !== 'False') out.push('The XMP metadata has no trapping state.');
+  else if (info && !new RegExp(`/Trapped /${trapped}\\b`).test(info)) out.push('The trapping state differs between the XMP metadata and the document information.');
+  // Dates in the information dictionary must match the XMP ones.
+  const created = tagValue(xml, 'xmp:CreateDate');
+  const infoDate = /\/CreationDate \(D:(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/.exec(info);
+  if (created && infoDate && !created.startsWith(`${infoDate[1]}-${infoDate[2]}-${infoDate[3]}T${infoDate[4]}:${infoDate[5]}:${infoDate[6]}`)) out.push('The creation date differs between the XMP metadata and the document information.');
+  return out;
+}
+
 export async function checkPdfx(bytes, standard) {
   const text = latin1(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
   const objects = pdfObjects(text);
@@ -87,8 +110,12 @@ export async function checkPdfx(bytes, standard) {
   if (standard === 'x1a' && !/\/GTS_PDFXVersion \(PDF\/X-1/.test(info)) problems.push('The document information does not name the PDF/X version.');
   if (standard === 'x1a' && !/\/GTS_PDFXConformance \(PDF\/X-1a/.test(info)) problems.push('The document information does not name the PDF/X-1a conformance level.');
   if (standard === 'x4') {
-    const meta = objects.find((o) => /\/Type \/Metadata/.test(o.dict))?.stream || '';
-    if (!/GTS_PDFXVersion>PDF\/X-4</.test(meta)) problems.push('The XMP metadata does not name the PDF/X-4 version.');
+    const cat = objects.find((o) => /\/Type \/Catalog/.test(o.dict))?.dict || '';
+    const metaNum = /\/Metadata (\d+) 0 R/.exec(cat)?.[1];
+    const metaObj = objects.find((o) => String(o.num) === metaNum);
+    const meta = metaObj && !/\/Filter/.test(metaObj.dict) ? metaObj.stream || '' : '';
+    if (!meta) problems.push('The document has no readable XMP metadata.');
+    else problems.push(...xmpProblems(meta, info));
   }
   if (!/\/Trapped \/(True|False)/.test(info)) problems.push('The trapping state (Trapped) is missing.');
   if (!/\/Title /.test(info)) problems.push('The document has no title.');

@@ -31,8 +31,9 @@ describe('clean-room names', () => {
       lines.forEach((line, i) => {
         // The README may say which products this is an alternative to.
         if (readme && line.includes('open-source alternative to')) return;
-        // File-format identifiers (the PostScript header comment, vendor MIME types) are interop, not names.
-        const m = PATTERN.exec(line.replace(/%!PS-\w+-/g, '').replace(/vnd\\?\.\w+\\?\.\w+/g, ''));
+        // File-format identifiers (the PostScript header comment, vendor MIME types, the standard XMP
+        // namespace URIs PDF/X metadata requires) are interop, not names.
+        const m = PATTERN.exec(line.replace(/%!PS-\w+-/g, '').replace(/vnd\\?\.\w+\\?\.\w+/g, '').replace(/https?:\/\/ns\.\w+\.com\/[\w./-]*\//g, ''));
         if (m) hits.push(`${path.relative(ROOT, f)}:${i + 1}: ${m[0]}`);
       });
     }

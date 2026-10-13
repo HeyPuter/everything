@@ -1161,12 +1161,41 @@ class PDFRenderer {
 
 const xmlText = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]);
 
-/** XMP metadata naming the title and the PDF/X version. */
-function xmpPacket({ title, version }) {
+/** A UUID URN from 16 bytes. */
+const uuidOf = (b) => {
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `uuid:${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+};
+
+/**
+ * XMP metadata of a PDF/X file: title, dates, creator tool and producer,
+ * trapping, document and instance ids, version and rendition, and the
+ * PDF/X version. `date` is the ISO 8601 time the info dictionary also
+ * carries; `id` the file identifier bytes.
+ */
+export function xmpPacket({ title, version, date, id, instance }) {
   const text = `<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:pdfxid="http://www.npes.org/pdfx/ns/id/">
+<rdf:Description rdf:about=""
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+ xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+ xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+ xmlns:pdfx="http://ns.adobe.com/pdfx/1.3/"
+ xmlns:pdfxid="http://www.npes.org/pdfx/ns/id/">
+<dc:format>application/pdf</dc:format>
 <dc:title><rdf:Alt><rdf:li xml:lang="x-default">${xmlText(title)}</rdf:li></rdf:Alt></dc:title>
+<xmp:CreateDate>${date}</xmp:CreateDate>
+<xmp:ModifyDate>${date}</xmp:ModifyDate>
+<xmp:MetadataDate>${date}</xmp:MetadataDate>
+<xmp:CreatorTool>Vector Studio</xmp:CreatorTool>
+<pdf:Producer>Vector Studio</pdf:Producer>
+<pdf:Trapped>False</pdf:Trapped>
+<xmpMM:DocumentID>${uuidOf(id)}</xmpMM:DocumentID>
+<xmpMM:InstanceID>${uuidOf(instance)}</xmpMM:InstanceID>
+<xmpMM:VersionID>1</xmpMM:VersionID>
+<xmpMM:RenditionClass>default</xmpMM:RenditionClass>
+<pdfx:GTS_PDFXVersion>${version}</pdfx:GTS_PDFXVersion>
 <pdfxid:GTS_PDFXVersion>${version}</pdfxid:GTS_PDFXVersion>
 </rdf:Description>
 </rdf:RDF>
@@ -1345,11 +1374,13 @@ export async function writePDF(source, pages, opts = {}) {
   const meta = doc.root?.info || {};
   const title = meta.title || opts.title || (opts.pdfx ? 'Untitled' : '');
   const pdfxInfo = { x1a: ' /GTS_PDFXVersion (PDF/X-1:2001) /GTS_PDFXConformance (PDF/X-1a:2001)', x4: ' /GTS_PDFXVersion (PDF/X-4)' }[opts.pdfx] || '';
-  const metadata = opts.pdfx === 'x4' ? ` /Metadata ${w.addStream('/Type /Metadata /Subtype /XML', xmpPacket({ title, version: 'PDF/X-4' }), { compress: false })} 0 R` : '';
-  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent}${metadata} >>`);
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   const date = `D:${d.getUTCFullYear()}${p2(d.getUTCMonth() + 1)}${p2(d.getUTCDate())}${p2(d.getUTCHours())}${p2(d.getUTCMinutes())}${p2(d.getUTCSeconds())}Z`;
+  // The XMP dates match the information dictionary's (ISO 8601, UTC, whole seconds).
+  const isoDate = `${d.toISOString().slice(0, 19)}Z`;
+  const metadata = opts.pdfx === 'x4' ? ` /Metadata ${w.addStream('/Type /Metadata /Subtype /XML', xmpPacket({ title, version: 'PDF/X-4', date: isoDate, id: w.id, instance: newDocumentId() }), { compress: false })} 0 R` : '';
+  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent}${metadata} >>`);
   // File Info metadata (doc.root.info) fills the document information dictionary.
   const list = (v) => (Array.isArray(v) ? v.join('; ') : v);
   const extra = [['Author', list(meta.author)], ['Subject', meta.description], ['Keywords', list(meta.keywords)]].filter(([, v]) => v).map(([k, v]) => `/${k} ${pdfText(v)} `).join('');
