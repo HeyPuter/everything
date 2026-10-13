@@ -78,6 +78,21 @@ describe('sheet views', () => {
     expect(Object.keys(sheet.filter.criteria)).toEqual([]);
   });
 
+  it('a structural edit and its undo inside a view keep the person in it, and a sheet copy is in no view', () => {
+    const wb = book(), id = wb.activeSheetId, sheet = wb.activeSheet;
+    const view = wb.newSheetView(id);
+    filterBy(wb, 'gt', '10');
+    wb.insertRows(id, 0, 1);
+    expect(wb.activeSheet.personalView.id).toBe(view);
+    wb.undo();
+    expect(wb.activeSheet.personalView.id).toBe(view);
+    expect(wb.activeSheet.filterHidden.size).toBe(10);
+    const copy = wb.duplicateSheet(id);
+    expect(copy.personalView).toBeUndefined();
+    expect(copy.filterHidden.size).toBe(10);
+    expect(sheet.id).toBe(id);
+  });
+
   it('views follow rows inserted above them, and rename, duplicate and delete', () => {
     const wb = book(), id = wb.activeSheetId, sheet = wb.activeSheet;
     wb.newSheetView(id);
