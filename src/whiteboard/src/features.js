@@ -2751,7 +2751,7 @@ export function createFeatures(api) {
         ...(shown.some(hasTask) ? [["tasks", escape(t("Tasks"))]] : []),
         ["frames", escape(t("Frames"))],
         ...tables.map((i, n) => {
-          const prefix = `${t("Table")} ${n + 1}: `,
+          const prefix = labelled(`${t("Table")} ${n + 1}`, ""),
             header = tableTextContent(i, {
               rows: [i.cells[0]],
               separator: ", ",

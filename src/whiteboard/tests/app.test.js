@@ -31074,7 +31074,7 @@ test("CSV table choices preserve authored header languages and export the select
   try {
     const { selected } = await rotationFixture(app, tables);
     await showCSV();
-    const check = (prefix) => {
+    const check = (prefix, colon = ": ") => {
       const group = doc.querySelector("#export-sheet");
       const french = [...group.querySelectorAll("option, label")].find((el) =>
         el.textContent.includes("Bonjour à tous."),
@@ -31088,7 +31088,7 @@ test("CSV table choices preserve authored header languages and export the select
         "the French header has its own language, separate from the interface prefix",
       );
       assert.equal(content.getAttribute("lang"), "fr-CA");
-      assert.ok(french.textContent.startsWith(`${prefix} 1: `));
+      assert.ok(french.textContent.startsWith(`${prefix} 1${colon}`));
       assert.equal(french.hasAttribute("lang"), false);
       assert.equal(group.querySelector("img"), null);
       assert.ok(french.textContent.includes('<img src="bad">'));
@@ -31126,7 +31126,8 @@ test("CSV table choices preserve authored header languages and export the select
     doc.querySelector("#language").dispatchEvent(new w.Event("change"));
     await tick();
     await showCSV();
-    check("Tableau de données");
+    // French sets its colon apart, as elsewhere in the interface.
+    check("Tableau de données", " : ");
     assert.equal(
       doc.querySelector("#sheet-choice legend").textContent,
       "Contenu de la feuille de calcul",
