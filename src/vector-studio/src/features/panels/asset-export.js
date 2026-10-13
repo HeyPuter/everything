@@ -166,6 +166,56 @@ export class AssetExportPanel extends Panel {
   static icon = 'panel-asset-export';
   static placement = 'strip';
 
+  menu() {
+    const doc = this.doc;
+    const assets = doc ? assetsOf(doc) : [];
+    const n = this.selected.size;
+    const one = n === 1 ? assets.find((a) => this.selected.has(a.id)) : null;
+    return [
+      { id: 'assetExport.single', label: 'Add Selection as Single Asset' },
+      { id: 'assetExport.multiple', label: 'Add Selection as Multiple Assets' },
+      '-',
+      { label: 'Select All', enabled: assets.length > 0, run: () => ((this.selected = new Set(assets.map((a) => a.id))), this.update()) },
+      { label: 'Deselect All', enabled: n > 0, run: () => (this.selected.clear(), this.update()) },
+      { label: 'Select Artwork', enabled: n > 0, run: () => this.selectArtwork() },
+      { label: 'Rename...', enabled: Boolean(one), run: () => this.renameDialog(one) },
+      { label: n > 1 ? 'Remove Selected Assets' : 'Remove Selected Asset', enabled: n > 0, run: () => this.removeSelected() },
+      { label: 'Remove Assets with Deleted Artwork', enabled: assets.some((a) => !liveIds(doc, a).length), run: () => this.removeMissing() },
+      '-',
+      { label: n ? 'Export Selected Assets...' : 'Export All Assets...', enabled: assets.length > 0, run: () => this.export() },
+      { label: 'Export Settings', submenu: [
+        { label: 'iOS Scales', run: () => this.setSettings(structuredClone(SCALE_PRESETS.ios)) },
+        { label: 'Android Scales', run: () => this.setSettings(structuredClone(SCALE_PRESETS.android)) },
+        { label: 'Reset to 1x PNG', run: () => this.setSettings(structuredClone(DEFAULT_SETTINGS)) },
+      ] },
+      { label: 'Zip Several Files', checked: this.app.prefs.get('assetExportZip') !== false, run: () => this.setZip(this.app.prefs.get('assetExportZip') === false) },
+      '-',
+      { label: 'Sort by Name', enabled: assets.length > 1, run: () => this.sortByName() },
+    ];
+  }
+
+  setZip(on) {
+    this.app.prefs.set('assetExportZip', on);
+    this.zip.checked = on;
+  }
+
+  async renameDialog(asset) {
+    const v = await this.app.dialogs.form({ title: 'Rename Asset', fields: [{ key: 'name', label: 'Name', type: 'text', value: asset.name }] });
+    const name = v?.name?.trim();
+    const doc = this.doc;
+    if (name && doc) doc.transact('Rename Asset', () => updateAssets(doc, (list) => list.map((a) => (a.id === asset.id ? { ...a, name } : a))));
+  }
+
+  removeMissing() {
+    const doc = this.doc;
+    doc.transact('Remove Asset', () => updateAssets(doc, (list) => list.filter((a) => liveIds(doc, a).length)));
+  }
+
+  sortByName() {
+    const doc = this.doc;
+    doc.transact('Sort Assets', () => updateAssets(doc, (list) => list.slice().sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))));
+  }
+
   build() {
     this.selected = new Set();
     this.thumbs = new Map(); // asset id -> { key, url }

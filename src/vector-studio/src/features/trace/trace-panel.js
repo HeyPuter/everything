@@ -290,15 +290,68 @@ export class TracePanel extends Panel {
   }
 
   presetMenu(anchor) {
-    const app = this.app;
-    const saved = savedPresets(app);
+    this.app.showMenuAt(anchor, this.presetItems(), 'Preset options');
+  }
+
+  presetItems() {
+    const saved = savedPresets(this.app);
     const cur = saved.find((p) => p.id === this.state.preset);
-    app.showMenuAt(anchor, [
+    return [
       { label: 'Save as New Preset...', run: () => this.savePreset() },
+      { label: cur ? `Rename "${cur.label}"...` : 'Rename Preset...', enabled: Boolean(cur), run: () => this.renamePreset(cur) },
       { label: cur ? `Delete "${cur.label}"` : 'Delete Preset', enabled: Boolean(cur), run: () => this.deletePreset(cur) },
       '-',
+      { label: 'Import Presets...', run: () => this.importPresets() },
+      { label: 'Export Presets...', enabled: saved.length > 0, run: () => this.exportPresets() },
+      '-',
       { label: 'Reset to Default', run: () => this.choosePreset('auto-color') },
-    ], 'Preset options');
+    ];
+  }
+
+  menu() {
+    return [...this.presetItems(), '-', 'trace.make', 'trace.makeExpand', 'trace.expand', 'trace.release'];
+  }
+
+  async renamePreset(p) {
+    if (!p) return;
+    const v = await this.app.dialogs.form({ title: 'Rename Trace Preset', fields: [{ key: 'name', type: 'text', label: 'Name', value: p.label }] });
+    const name = v?.name?.trim();
+    if (!name) return;
+    this.app.prefs.set('tracePresets', savedPresets(this.app).map((q) => (q.id === p.id ? { ...q, label: name } : q)));
+    this.update();
+  }
+
+  exportPresets() {
+    const data = { format: 'vector-studio-trace-presets', version: 1, presets: savedPresets(this.app) };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = h('a', { href: url, download: 'Trace Presets.json' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** Import presets from a file written by Export Presets (names that exist are replaced). */
+  async importPresets(file = null) {
+    if (!file) {
+      const { pickWithInput } = await import('../files/service.js');
+      [file] = await pickWithInput('.json,application/json');
+    }
+    if (!file) return 0;
+    let list;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data?.format !== 'vector-studio-trace-presets' || !Array.isArray(data.presets)) throw new Error('bad');
+      list = data.presets.filter((p) => p?.label && p.options).map((p, i) => ({ id: `user-${Date.now().toString(36)}-${i}`, label: String(p.label), options: normalizeOptions(p.options) }));
+    } catch {
+      this.app.notify('This file does not contain trace presets.', { error: true });
+      return 0;
+    }
+    const names = new Set(list.map((p) => p.label));
+    this.app.prefs.set('tracePresets', [...savedPresets(this.app).filter((p) => !names.has(p.label)), ...list]);
+    this.app.notify(`Imported ${list.length} trace preset${list.length === 1 ? '' : 's'}.`, { polite: true });
+    this.update();
+    return list.length;
   }
 
   async savePreset() {

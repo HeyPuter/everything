@@ -456,6 +456,40 @@ export class ThreeDPanel extends Panel {
     this.apply({});
   }
 
+  menu() {
+    const has = this.targets().length > 0;
+    const cur = this.current();
+    const quality = (value, label) => ({ label, checked: has && cur.detail === value, enabled: has, run: () => this.apply({ detail: value }) });
+    return [
+      { label: 'Copy 3D Settings', enabled: has, run: () => (this.app.threeDClipboard = { ...cur }) },
+      { label: 'Paste 3D Settings', enabled: Boolean(this.app.threeDClipboard) && this.candidates().length > 0, run: () => this.paste3D() },
+      { label: 'Reset to Defaults', enabled: has, run: () => this.apply({ ...DEFAULTS, kind: cur.kind }) },
+      '-',
+      { label: 'Mesh Quality', submenu: [quality('low', 'Low (fast)'), quality('medium', 'Medium'), quality('high', 'High')] },
+      '-',
+      { id: 'object.expandAppearance', label: 'Expand' },
+      { label: 'Remove 3D', enabled: has, run: () => this.remove3D() },
+    ];
+  }
+
+  /** Paste 3D Settings: the copied settings replace (or become) the selection's 3D effect. */
+  paste3D() {
+    const ed = this.app.editor;
+    const clip = this.app.threeDClipboard;
+    const cands = this.candidates();
+    if (!ed || !clip || !cands.length) return;
+    const fx = normalizeEffect({ ...clip, type: EFFECT_TYPE });
+    ed.doc.transact('Paste 3D Settings', () => {
+      for (const n of cands) {
+        const rec = threeDRecord(n);
+        const list = (n.effects || []).slice();
+        if (rec) list[rec.index] = { ...fx, ...(rec.fx.hidden ? { hidden: true } : {}) };
+        else list.push(fx);
+        ed.doc.update(n.id, { effects: list });
+      }
+    });
+  }
+
   remove3D() {
     const ed = this.app.editor;
     const t = this.targets();

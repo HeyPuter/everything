@@ -46,6 +46,25 @@ export class SvgInteractivityPanel extends Panel {
   static title = 'SVG Interactivity';
   static icon = 'panel-svg-interactivity';
 
+  menu() {
+    const ed = this.app.editor;
+    const node = ed && ed.selection.size === 1 ? ed.selectedNodes()[0] : null;
+    const withEvents = [];
+    ed?.doc.walk((n) => {
+      if (n.svgEvents) withEvents.push(n.id);
+    });
+    const root = ed?.doc.root;
+    return [
+      { label: 'Remove Event', enabled: Boolean(node?.svgEvents?.[this.eventSel.value]), run: () => this.setEvent(this.eventSel.value, '') },
+      { label: 'Clear Events', enabled: Boolean(node?.svgEvents), run: () => ed.doc.transact('Clear Events', () => ed.doc.update(node.id, { svgEvents: undefined })) },
+      { label: 'Clear All Events in Document', enabled: withEvents.length > 0, run: () => ed.doc.transact('Clear All Events', () => withEvents.forEach((id) => ed.doc.update(id, { svgEvents: undefined }))) },
+      { label: 'Select Objects with Events', enabled: withEvents.length > 0, run: () => ed.select(withEvents) },
+      '-',
+      { label: 'Document Scripts...', enabled: Boolean(ed), run: () => this.editScripts() },
+      { label: 'Remove All Scripts', enabled: Boolean(root?.svgScripts?.length || root?.svgScript), run: () => ed.doc.transact('Remove Scripts', () => ed.doc.updateRoot({ svgScripts: undefined, svgScript: undefined })) },
+    ];
+  }
+
   build() {
     this.eventSel = h('select.svgi-event', { 'aria-label': 'Event' }, SVG_EVENTS.map((e) => h('option', { value: e }, e)));
     this.code = h('textarea.svgi-code', { rows: 3, placeholder: 'JavaScript, e.g. alert(evt.target.id)', 'aria-label': 'JavaScript for the event', spellcheck: false });
