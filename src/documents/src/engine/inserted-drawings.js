@@ -30,7 +30,8 @@ export const EMU_PER_INCH = 914400;
 export const SVG_BLIP_URI = '{96DAC541-7B7A-43D3-8B79-37D633B846F1}';
 
 const declarations = Object.entries(NS).map(([prefix, uri]) => `xmlns:${prefix}="${uri}"`).join(' ');
-export const xmlEscape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Line breaks and tabs are written as character references, so attribute values keep them.
+export const xmlEscape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;').replace(/\t/g, '&#9;');
 
 let counter = 0;
 const token = () => `${Date.now().toString(36)}${(++counter).toString(36)}`;
