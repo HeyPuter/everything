@@ -18,7 +18,7 @@ import { decodeBrowserImage } from '../files/open';
 import { compositeRGBA } from '../pixels';
 import { currentPattern, effectsState } from '../effects/state';
 import { applyLayerStyle } from '../effects/commands';
-import { applyBrushPreset, currentBrushPreset, type BrushPresetData } from '../brushes';
+import { applyBrushPreset, currentBrushPreset, paintingTools, type BrushPresetData } from '../brushes';
 import { applyExternalTextStyle, captureAttributes } from '../type/styles-panel';
 import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, setContents } from '../embedded/contents';
 import { nestedFromLayers } from '../embedded/convert';
@@ -90,7 +90,8 @@ async function captureItem(e: Editor, src: AddSource): Promise<Captured | undefi
       return add(src, name, { def: { id: '', name, ...attrs } });
     }
     case 'brush': {
-      const preset = currentBrushPreset(e, `${e.activeTool?.label?.replace(/ Tool$/, '') ?? 'Brush'} ${Math.round(Number(currentBrushPreset(e, '').tip.size ?? 30))} px`);
+      const tool = paintingTools.has(e.tool) ? (e.activeTool?.label?.replace(/ Tool$/, '') ?? 'Brush') : 'Brush';
+      const preset = currentBrushPreset(e, `${tool} ${Math.round(Number(currentBrushPreset(e, '').tip.size ?? 30))} px`);
       return add('brush', preset.name, { preset });
     }
     case 'layers': {

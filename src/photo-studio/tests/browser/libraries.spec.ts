@@ -197,6 +197,43 @@ test.describe('Libraries', () => {
     await expect(body.locator('.lib-section-title, .lib-select')).toContainText(['Shared Kit']);
   });
 
+  test('reorders libraries and moves items between them by dragging', async ({ page }) => {
+    await boot(page);
+    await freshLibraries(page);
+    const body = await panel(page, 'Libraries');
+    await page.evaluate(async () => {
+      const { libraries } = await import('/src/features/libraries/service.ts');
+      const l = libraries();
+      await l.load();
+      const a = await l.createLibrary('Alpha');
+      const b = await l.createLibrary('Beta');
+      await l.addItem(a.id, { type: 'color', name: 'Red', data: { hex: '#ff0000' } });
+      await l.addItem(b.id, { type: 'color', name: 'Blue', data: { hex: '#0000ff' } });
+    });
+    await body.locator('.lib-select').selectOption('');
+    await expect(body.locator('.lib-section-title .link-button')).toHaveText(['Alpha', 'Beta']);
+    const drag = (from: string, to: string) =>
+      page.evaluate(
+        ({ from, to }) => {
+          const dt = new DataTransfer();
+          const src = document.querySelector<HTMLElement>(from)!,
+            dst = document.querySelector<HTMLElement>(to)!;
+          src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+          dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+          dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+          src.dispatchEvent(new DragEvent('dragend', { dataTransfer: dt, bubbles: true }));
+        },
+        { from, to },
+      );
+    // Beta's heading onto Alpha's: Beta first.
+    await drag('.lib-section:nth-of-type(2) .lib-section-title', '.lib-section:nth-of-type(1) .lib-section-title');
+    await expect(body.locator('.lib-section-title .link-button')).toHaveText(['Beta', 'Alpha']);
+    // Red (now in the second section) onto Blue: moves into Beta before Blue.
+    await drag('.lib-section:nth-of-type(2) .lib-item', '.lib-section:nth-of-type(1) .lib-item');
+    await expect(body.locator('.lib-section:nth-of-type(1) .lib-item .lib-name')).toHaveText(['Red', 'Blue']);
+    await expect(body.locator('.lib-section:nth-of-type(2) .lib-empty-note')).toBeVisible();
+  });
+
   test('shows changes made in another tab', async ({ page, context }) => {
     await boot(page);
     await freshLibraries(page);

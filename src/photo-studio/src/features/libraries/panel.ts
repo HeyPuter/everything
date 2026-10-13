@@ -15,6 +15,8 @@ import { showStyleThumbnail } from '../effects/style-thumbs';
 import { brushPresetPreview, type BrushPresetData } from '../brushes';
 import { libraries } from './service';
 import { ITEM_MIME, libState, saveViewState } from './state';
+
+const LIBRARY_MIME = 'application/x-photo-studio-library';
 import { groupByType, searchItems, TYPE_LABELS, type Library, type LibraryItem } from './model';
 import { applyItem, describeItem } from './apply';
 import { ADD_SOURCES } from './context';
@@ -72,7 +74,7 @@ function thumb(e: Editor, item: LibraryItem): string {
 
 function itemHtml(e: Editor, item: LibraryItem) {
   const selected = libState.itemId === item.id;
-  const extra = item.type === 'color' ? String(item.data.hex) : item.type === 'graphic' ? `${item.data.width} × ${item.data.height}` : '';
+  const extra = item.type === 'color' && String(item.data.hex).toLowerCase() !== item.name.toLowerCase() ? String(item.data.hex) : item.type === 'graphic' ? `${item.data.width} × ${item.data.height}` : '';
   return `<button type="button" class="lib-item" role="option" draggable="true" data-item="${escapeXML(item.id)}" aria-selected="${selected}" title="${escapeXML(describeItem(item))} — click to use, right-click for more" aria-label="${escapeXML(describeItem(item))}">${thumb(e, item)}<span class="lib-name">${escapeXML(item.name)}</span>${libState.view === 'list' && extra ? `<span class="lib-extra">${escapeXML(extra)}</span>` : ''}</button>`;
 }
 function itemsHtml(e: Editor, items: LibraryItem[]) {
@@ -83,7 +85,7 @@ function itemsHtml(e: Editor, items: LibraryItem[]) {
     .join('');
 }
 function libraryHtml(e: Editor, lib: Library, items: LibraryItem[], heading: boolean) {
-  const head = heading ? `<div class="lib-section-title" data-library-drop="${escapeXML(lib.id)}"><button type="button" class="link-button" data-show-library="${escapeXML(lib.id)}">${escapeXML(lib.name)}</button><span class="lib-count">${items.length}</span></div>` : '';
+  const head = heading ? `<div class="lib-section-title" data-library-drop="${escapeXML(lib.id)}" draggable="true" title="Drag to reorder libraries"><button type="button" class="link-button" data-show-library="${escapeXML(lib.id)}">${escapeXML(lib.name)}</button><span class="lib-count">${items.length}</span></div>` : '';
   const body = items.length ? itemsHtml(e, items) : `<p class="muted lib-empty-note" data-library-drop="${escapeXML(lib.id)}">${libState.search ? 'No matching items.' : 'Empty. Use + to add the foreground color, a layer style, selected layers and more.'}</p>`;
   return `<section class="lib-section" data-library="${escapeXML(lib.id)}">${head}${body}</section>`;
 }
@@ -224,6 +226,12 @@ export function mount(e: Editor, el: HTMLElement) {
   });
   // Drag: onto the canvas (use or place), onto an item (reorder, also across libraries) or a library heading.
   body.addEventListener('dragstart', (ev) => {
+    const title = (ev.target as HTMLElement).closest<HTMLElement>('.lib-section-title');
+    if (title && ev.dataTransfer) {
+      ev.dataTransfer.setData(LIBRARY_MIME, title.dataset.libraryDrop!);
+      ev.dataTransfer.effectAllowed = 'move';
+      return;
+    }
     const b = itemOf(ev.target);
     if (!b || !ev.dataTransfer) return;
     ev.dataTransfer.setData(ITEM_MIME, b.dataset.item!);
@@ -239,6 +247,14 @@ export function mount(e: Editor, el: HTMLElement) {
     return id ? { library: id, before: undefined, el: zone! } : undefined;
   };
   body.addEventListener('dragover', (ev) => {
+    if (ev.dataTransfer?.types.includes(LIBRARY_MIME)) {
+      const title = (ev.target as HTMLElement).closest<HTMLElement>('.lib-section-title');
+      if (!title) return;
+      ev.preventDefault();
+      body.querySelectorAll('.drop-before').forEach((x) => x !== title && x.classList.remove('drop-before'));
+      title.classList.add('drop-before');
+      return;
+    }
     if (!ev.dataTransfer?.types.includes(ITEM_MIME)) return;
     const target = dropTarget(ev.target);
     if (!target?.library) return;
@@ -248,6 +264,16 @@ export function mount(e: Editor, el: HTMLElement) {
     target.el.classList.add('drop-before');
   });
   body.addEventListener('drop', (ev) => {
+    const moved = ev.dataTransfer?.getData(LIBRARY_MIME);
+    if (moved) {
+      const title = (ev.target as HTMLElement).closest<HTMLElement>('.lib-section-title');
+      body.querySelectorAll('.drop-before').forEach((x) => x.classList.remove('drop-before'));
+      if (title && title.dataset.libraryDrop !== moved) {
+        ev.preventDefault();
+        void lib.moveLibrary(moved, title.dataset.libraryDrop);
+      }
+      return;
+    }
     const id = ev.dataTransfer?.getData(ITEM_MIME);
     const target = dropTarget(ev.target);
     body.querySelectorAll('.drop-before').forEach((x) => x.classList.remove('drop-before'));
