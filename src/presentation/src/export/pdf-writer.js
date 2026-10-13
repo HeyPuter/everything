@@ -135,21 +135,31 @@ class Page {
   }
   // Draws `text` with its baseline at y. Returns false, drawing nothing,
   // when the text has characters the standard fonts cannot show.
+  // `invisible` text is not painted but can be searched and selected, as
+  // over a picture of a slide; characters it cannot encode are left out.
   text(
     text,
     x,
     y,
     size,
-    { bold = false, color = "#000000", width = 0, align = "left" } = {},
+    {
+      bold = false,
+      color = "#000000",
+      width = 0,
+      align = "left",
+      invisible = false,
+    } = {},
   ) {
-    const bytes = winAnsi(text);
-    if (!bytes) return false;
+    const bytes = invisible
+      ? Array.from(String(text)).flatMap((ch) => winAnsi(ch) || [])
+      : winAnsi(text);
+    if (!bytes || (invisible && !bytes.length)) return false;
     const font = bold ? "F2" : "F1";
     this.fonts.add(font);
     const left =
       align === "right" ? x - width : align === "center" ? x - width / 2 : x;
     this.ops.push(
-      `BT /${font} ${num(size)} Tf ${rgb(color).join(" ")} rg ${num(left)} ${num(this.#y(y))} Td ${literal(bytes)} Tj ET`,
+      `BT /${font} ${num(size)} Tf${invisible ? " 3 Tr" : ""} ${rgb(color).join(" ")} rg ${num(left)} ${num(this.#y(y))} Td ${literal(bytes)} Tj ET`,
     );
     return true;
   }

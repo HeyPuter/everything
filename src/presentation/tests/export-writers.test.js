@@ -31,6 +31,9 @@ describe("PDF writer", () => {
     a.image(im, 0, 0, 720, 405);
     expect(a.text("Café – “quoted”", 10, 20, 12, { bold: true })).toBe(true);
     expect(a.text("日本", 10, 40, 12)).toBe(false);
+    expect(a.text("日本 search me", 10, 60, 12, { invisible: true })).toBe(
+      true,
+    );
     a.line(0, 0, 10, 10, { width: 0.5, color: "#808080" });
     a.rect(1, 1, 5, 5);
     const b = pdf.addPage(612, 792);
@@ -94,6 +97,9 @@ describe("PDF writer", () => {
     // Top-left coordinates flip to PDF's bottom-left origin.
     expect(content).toContain("10 385 Td");
     expect(content).toContain("/Im1 Do");
+    expect(content).toContain(
+      "/F1 12 Tf 3 Tr 0 0 0 rg 10 345 Td ( search me) Tj",
+    );
   });
 
   it("maps text to WinAnsi bytes or reports it cannot", () => {

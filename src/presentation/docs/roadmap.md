@@ -85,10 +85,18 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 10. File, print and export
 
-- [ ] Export as PDF, PNG/JPEG, video, animated GIF, outline (RTF/text).
-- [ ] Print dialog with full-page slides, notes pages, outline and handouts
-      (1, 2, 3, 4, 6, 9 per page), frame, scale to fit.
-- [ ] Properties, Save as Template, Compress Pictures, Reduce File Size.
+- [x] Export as PDF (slides, notes pages, handouts, outline; searchable
+      text layer and bookmarks), PNG/JPEG, MP4/WebM video with transitions
+      and timings, animated GIF, outline (RTF/text), template (.potx).
+- [x] Print dialog with preview: full-page slides, notes pages, outline and
+      handouts (1, 2, 3 with lines, 4, 6, 9 per page, across or down),
+      paper and orientation, colour/grayscale/black and white, frame, scale
+      to fit, hidden slides, slide range, header and footer; Save as PDF.
+- [x] Properties (core and extended properties, statistics in app.xml),
+      Save as Template, Compress Pictures (resolution, delete cropped
+      areas, selected or all), File size summary with unused media removal.
+- [x] File menu: Open recent, Close, Page setup (slide size).
+- [ ] OpenDocument (.odp) export: not planned.
 
 ### 11. Format dialogs and panes
 

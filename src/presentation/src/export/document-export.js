@@ -91,6 +91,20 @@ export async function exportPdf({
       if (item.kind === "slide") {
         out.clip(0, 0, page.width, page.height);
         out.image(embedded.get(item.slide), item.x, item.y, item.w, item.h);
+        // The slide's words go over its picture unpainted, so the PDF can
+        // be searched and its text selected and copied.
+        const k = item.w / (slideWidth / 12700);
+        for (const block of slides[item.slide].textBlocks || []) {
+          const size = Math.max(1, block.size * k);
+          const x = item.x + (block.x / 12700) * k + 7.2 * k;
+          let baseline = item.y + (block.y / 12700) * k + 3.6 * k;
+          for (const line of block.lines) {
+            baseline += size * 1.2;
+            out.text(line, x, baseline - size * 0.2, size, {
+              invisible: true,
+            });
+          }
+        }
         out.restore();
         if (item.frame)
           out.rect(item.x, item.y, item.w, item.h, {

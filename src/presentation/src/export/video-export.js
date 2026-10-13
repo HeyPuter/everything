@@ -158,7 +158,6 @@ async function encodeFast({
   const { width, height } = config;
   let muxer = null;
   let failure = null;
-  const chunks = [];
   const encoder = new VideoEncoder({
     output(chunk, metadata) {
       const data = new Uint8Array(chunk.byteLength);
@@ -187,7 +186,6 @@ async function encodeFast({
             height,
           });
       }
-      chunks.push(1);
       muxer.addFrame(data, chunk.timestamp / 1000, chunk.type === "key");
     },
     error(e) {

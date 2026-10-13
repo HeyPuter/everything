@@ -129,6 +129,23 @@ export function createFileTools(ctx) {
     };
   }
 
+  // Where each piece of a slide's text sits, for the PDF's searchable layer.
+  function textBlocks(pres, slide) {
+    const out = [];
+    for (const shape of ctx.visibleSlideShapes(slide)) {
+      const items = paragraphs(pres, shape);
+      if (!items.length) continue;
+      const b = ctx.slideBounds(pres, shape);
+      if (!b) continue;
+      let size = 18;
+      try {
+        size = P.getShapeRunFormatEffective(pres, shape, 0, 0)?.size || 18;
+      } catch {}
+      out.push({ x: b.x, y: b.y, size, lines: items.map((p) => p.text) });
+    }
+    return out;
+  }
+
   // The slides an export or print covers, with what each needs.
   function gather({ range = "all", custom = "", includeHidden = false } = {}) {
     const target = ctx.doc();
@@ -170,6 +187,9 @@ export function createFileTools(ctx) {
         },
         get alt() {
           return ctx.slideDescription(s, pres) || `Slide ${i + 1}`;
+        },
+        get textBlocks() {
+          return textBlocks(pres, s);
         },
         get transition() {
           try {
