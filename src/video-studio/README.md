@@ -20,7 +20,7 @@ The editor has an assets panel, the player and a details panel on top, the timel
 - **Player**: zoom and pan, rulers, guides, snapping, safe zones, loop and play range, snapshots to the media library.
 - **Export**: H.264, HEVC, VP9 and AV1 where the browser can encode them; MP4, WebM and MOV; animated GIF; still frames; the whole project, the in/out range or the selection; 480p to 4K; 24 to 60 fps; audio only as WAV, M4A or OGG; captions as SRT; saved to the device or to Puter.
 - **Share for review**: send a 720p review copy of the project or its in/out range to people with a Puter account through an invite link (can comment or can view, with expiry); they comment on exact frames or short ranges, reply and resolve on a focused review page; every new share adds a version; the owner sees the comments in the editor and jumps to them. See [docs/review.md](docs/review.md).
-- Autosave, undo and redo, project gallery with thumbnails, light, dark and system themes, layout presets, customizable keyboard shortcuts, preferences, screen reader labels.
+- Autosave, undo and redo, project gallery with thumbnails, light, dark and system themes, layout presets, customizable keyboard shortcuts with three keyboard layouts (Default, Track editing and Left hand; your own changes stay on top and shared keys are flagged), preferences, screen reader labels.
 - Home screen with ten original project templates (generated backdrops, placeholder slots, text, motion and sound effects), a Trash with restore and a 30 day purge, and portable project files (a ZIP with the project and its media) for backup and moving work between accounts.
 
 ## How it works

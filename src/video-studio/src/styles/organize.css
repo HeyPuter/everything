@@ -389,6 +389,98 @@
   padding: 16px 4px;
 }
 
+/* Keyboard layouts and conflicts. */
+.shortcut-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.shortcut-layout .segmented {
+  justify-self: start;
+}
+
+.shortcut-layout .segmented button {
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.shortcut-layout-desc {
+  grid-column: 2;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.shortcut-tab.is-warning {
+  color: var(--warning);
+}
+
+.shortcut-conflicts {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-size: 12px;
+}
+
+.shortcut-conflicts[hidden] {
+  display: none;
+}
+
+.shortcut-conflicts-title {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.shortcut-conflicts-title .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warning);
+}
+
+.shortcut-conflicts ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 96px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+}
+
+.shortcut-conflicts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kbd-chip.static {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+}
+
+.shortcut-clash {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--warning);
+}
+
+.shortcut-row.has-conflict {
+  box-shadow: inset 2px 0 0 var(--warning);
+}
+
 /* Title bar menu bar --------------------------------------------------------- */
 .menubar {
   display: flex;

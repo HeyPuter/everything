@@ -1,13 +1,16 @@
 /**
- * Keyboard shortcuts dialog: browse every command by group, search, and
- * rebind keys. Rebinding records the next key combination pressed; a key
- * another command uses can be taken over after confirming.
+ * Keyboard shortcuts dialog: pick a keyboard layout, browse every command
+ * by group, search, and rebind keys. Rebinding records the next key
+ * combination pressed; a key another command uses can be taken over after
+ * confirming. Switching layouts asks whether the user's own rebinding stays
+ * on top; keys two commands share are listed (and get their own tab).
  */
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { isMac, shortcutLabel } from '../lib/platform.js';
 import { SHORTCUT_GROUPS, RESERVED_KEYS } from './commands.js';
 import { openDialog, confirmDialog } from './dialog.js';
+import { segmented } from './controls.js';
 
 const CODE_NAMES = {
   Space: 'Space', Period: 'Period', Slash: 'Slash', Minus: 'Minus', Equal: 'Equal', BracketLeft: 'BracketLeft', BracketRight: 'BracketRight', Comma: 'Comma',
@@ -37,19 +40,91 @@ export function specFromEvent(e) {
   return parts.join('+');
 }
 
+/**
+ * Ask what happens to the user's rebinding when switching layouts:
+ * 'keep' (on top of the new layout), 'discard', or null (cancel).
+ */
+export function askKeepCustom(count, layoutLabel) {
+  const keep = h('button.btn.primary', { type: 'button' }, 'Keep mine on top');
+  const discard = h('button.btn', { type: 'button' }, 'Use the layout only');
+  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const d = openDialog({
+    title: `Switch to ${layoutLabel}?`,
+    body: h('p.dialog-text', `You changed ${count} shortcut${count === 1 ? '' : 's'}. Keep ${count === 1 ? 'it' : 'them'} on top of the ${layoutLabel} layout, or use the layout as it is?`),
+    actions: [cancel, h('span.spacer'), discard, keep],
+    labelledBody: true,
+    className: 'small',
+  });
+  keep.addEventListener('click', () => d.close('keep'));
+  discard.addEventListener('click', () => d.close('discard'));
+  cancel.addEventListener('click', () => d.close(null));
+  keep.focus();
+  return d.result.then((v) => (v === 'keep' || v === 'discard' ? v : null));
+}
+
 export function openShortcutsDialog(commands) {
   let group = 'All';
   let query = '';
   let recording = null; // { id, chip, onKey }
   const search = h('input.input.shortcut-search', { type: 'search', placeholder: 'Search commands or keys', 'aria-label': 'Search shortcuts' });
-  const groupNames = ['All', ...SHORTCUT_GROUPS.filter((g) => commands.list.some((c) => c.group === g))];
+  const baseGroups = ['All', ...SHORTCUT_GROUPS.filter((g) => commands.list.some((c) => c.group === g))];
   const tabList = h('div.shortcut-tabs', { role: 'tablist', 'aria-label': 'Shortcut groups' });
   const list = h('div.shortcut-list', { role: 'region', 'aria-live': 'polite' });
   const status = h('p.shortcut-status', { role: 'status' });
+  const conflictBox = h('div.shortcut-conflicts', { role: 'status' });
+
+  // ---- Layout -------------------------------------------------------------
+  const layoutDesc = h('p.shortcut-layout-desc');
+  const layoutSeg = segmented({
+    label: 'Keyboard layout',
+    options: commands.layouts.map((l) => ({ value: l.id, label: l.label })),
+    value: commands.layout,
+    onChange: async (id) => {
+      const layout = commands.layouts.find((l) => l.id === id);
+      const n = commands.customCount();
+      let keepCustom = true;
+      if (n) {
+        const answer = await askKeepCustom(n, layout.label);
+        if (!answer) {
+          layoutSeg.set(commands.layout);
+          return;
+        }
+        keepCustom = answer === 'keep';
+      }
+      commands.setLayout(id, { keepCustom });
+      const clashes = commands.allConflicts().length;
+      status.textContent = `${layout.label} layout${clashes ? `. ${clashes} key${clashes === 1 ? ' is' : 's are'} shared by two commands.` : ''}`;
+      announce(status.textContent);
+      renderAll();
+    },
+  });
+  const renderLayout = () => {
+    layoutSeg.set(commands.layout);
+    layoutDesc.textContent = commands.layouts.find((l) => l.id === commands.layout)?.description || '';
+  };
+  const layoutRow = h('div.shortcut-layout', h('span.field-label', 'Layout'), layoutSeg.el, layoutDesc);
+
+  // ---- Conflicts ----------------------------------------------------------
+  let conflictIds = new Set();
+  const renderConflicts = () => {
+    const clashes = commands.allConflicts();
+    conflictIds = new Set(clashes.flatMap((x) => x.commands.map((c) => c.id)));
+    conflictBox.hidden = !clashes.length;
+    if (!clashes.length) {
+      conflictBox.replaceChildren();
+      if (group === 'Conflicts') group = 'All';
+      return;
+    }
+    conflictBox.replaceChildren(
+      h('p.shortcut-conflicts-title', icon('warning', 14), h('span', `${clashes.length} shortcut${clashes.length === 1 ? ' is' : 's are'} used by more than one command. The first one listed runs.`)),
+      h('ul', clashes.map((x) => h('li', h('kbd.kbd-chip.static', shortcutLabel(x.key)), h('span', x.commands.map((c) => c.label).join(', '))))),
+    );
+  };
 
   const renderTabs = () => {
+    const groupNames = conflictIds.size ? [...baseGroups, 'Conflicts'] : baseGroups;
     tabList.replaceChildren(...groupNames.map((g) => {
-      const b = h('button.shortcut-tab', { type: 'button', role: 'tab', 'aria-selected': String(g === group) }, g);
+      const b = h(`button.shortcut-tab${g === 'Conflicts' ? '.is-warning' : ''}`, { type: 'button', role: 'tab', 'aria-selected': String(g === group) }, g);
       b.addEventListener('click', () => {
         group = g;
         renderTabs();
@@ -103,7 +178,7 @@ export function openShortcutsDialog(commands) {
       commands.setKeys(cmd.id, [...new Set(keys)]);
       status.textContent = `${cmd.label}: ${shortcutLabel(spec)}`;
       announce(status.textContent);
-      renderList();
+      renderAll();
     };
     recording = { id: cmd.id, chip, onKey };
     document.addEventListener('keydown', onKey, true);
@@ -116,7 +191,7 @@ export function openShortcutsDialog(commands) {
       const remove = h('button.icon-btn.small.kbd-remove', { type: 'button', 'aria-label': `Remove ${shortcutLabel(k)} from ${cmd.label}`, 'data-tip': 'Remove' }, icon('close', 12));
       remove.addEventListener('click', () => {
         commands.setKeys(cmd.id, cmd.keys.filter((x) => x !== k));
-        renderList();
+        renderAll();
       });
       return h('span.kbd-pair', chip, remove);
     });
@@ -125,16 +200,17 @@ export function openShortcutsDialog(commands) {
     const reset = commands.isCustom(cmd.id) ? h('button.btn.ghost.small', { type: 'button', 'aria-label': `Reset ${cmd.label} to its default`, 'data-tip': 'Default: ' + (cmd.defaultKeys.map(shortcutLabel).join(', ') || 'none') }, icon('reset', 14)) : null;
     reset?.addEventListener('click', () => {
       commands.setKeys(cmd.id, null);
-      renderList();
+      renderAll();
     });
-    return h('div.shortcut-row', h('span.shortcut-label', cmd.label, commands.isCustom(cmd.id) ? h('span.shortcut-custom', 'Custom') : null), h('span.shortcut-keys', chips, add, reset));
+    const clash = conflictIds.has(cmd.id) ? h('span.shortcut-clash', { 'data-tip': 'Shares a key with another command' }, icon('warning', 12), 'Conflict') : null;
+    return h(`div.shortcut-row${clash ? '.has-conflict' : ''}`, h('span.shortcut-label', cmd.label, commands.isCustom(cmd.id) ? h('span.shortcut-custom', 'Custom') : null, clash), h('span.shortcut-keys', chips, add, reset));
   };
 
   const renderList = () => {
     const q = query.trim().toLowerCase();
-    const groups = group === 'All' ? SHORTCUT_GROUPS : [group];
+    const groups = group === 'All' || group === 'Conflicts' ? SHORTCUT_GROUPS : [group];
     const sections = groups.map((g) => {
-      const items = commands.list.filter((c) => c.group === g && (!q || c.label.toLowerCase().includes(q) || c.keys.some((k) => shortcutLabel(k).toLowerCase().includes(q) || k.toLowerCase().includes(q))));
+      const items = commands.list.filter((c) => c.group === g && (group !== 'Conflicts' || conflictIds.has(c.id)) && (!q || c.label.toLowerCase().includes(q) || c.keys.some((k) => shortcutLabel(k).toLowerCase().includes(q) || k.toLowerCase().includes(q))));
       if (!items.length) return null;
       return h('section.shortcut-group', h('h3', g), items.map(row));
     }).filter(Boolean);
@@ -145,24 +221,31 @@ export function openShortcutsDialog(commands) {
     query = search.value;
     renderList();
   });
-  renderTabs();
-  renderList();
+  // Every edit can add or clear a conflict, so the whole view follows.
+  function renderAll() {
+    renderLayout();
+    renderConflicts();
+    renderTabs();
+    renderList();
+  }
+  renderAll();
 
-  const resetAll = h('button.btn', { type: 'button' }, 'Reset all to defaults');
+  const resetAll = h('button.btn', { type: 'button' }, 'Reset to layout');
   const done = h('button.btn.primary', { type: 'button' }, 'Done');
   const d = openDialog({
     title: 'Keyboard shortcuts',
-    body: h('div.shortcuts-editor', h('div.shortcut-top', tabList, search), list, status),
+    body: h('div.shortcuts-editor', layoutRow, h('div.shortcut-top', tabList, search), conflictBox, list, status),
     actions: [resetAll, h('span.spacer'), done],
     wide: true,
     className: 'shortcuts-dialog',
     onClose: stopRecording,
   });
   resetAll.addEventListener('click', async () => {
-    const ok = await confirmDialog({ title: 'Reset shortcuts?', message: 'Every shortcut goes back to its default.', confirm: 'Reset' });
+    const layout = commands.layouts.find((l) => l.id === commands.layout);
+    const ok = await confirmDialog({ title: 'Reset shortcuts?', message: `Every shortcut goes back to the ${layout.label} layout.`, confirm: 'Reset' });
     if (!ok) return;
     commands.resetKeys();
-    renderList();
+    renderAll();
   });
   done.addEventListener('click', () => d.close());
   return d;
