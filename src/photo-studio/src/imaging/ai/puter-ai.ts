@@ -319,6 +319,46 @@ export async function describeImage(img: RGBA8, opts: { model?: string; testMode
   return text.trim();
 }
 
+// Match Font: ask which of the listed font families is closest to the text in
+// a crop. Sends only the crop (at most MAX_SIDE pixels on the longer side) and
+// the names; returns the listed names the answer mentions, best first.
+export async function matchFontWithAI(img: RGBA8, families: string[], opts: { model?: string; testMode?: boolean; signal?: AbortSignal } = {}): Promise<string[]> {
+  const p = api();
+  checkAbort(opts.signal);
+  const s = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+  const small = resample(img, Math.max(1, Math.round(img.width * s)), Math.max(1, Math.round(img.height * s)));
+  const uri = await toDataUri(small);
+  const file = new File([await (await fetch(uri)).blob()], 'text.png', { type: 'image/png' });
+  const list = families.map((f, i) => `${i + 1}. ${f}`).join('\n');
+  let res: unknown;
+  try {
+    res = await p.ai.chat(
+      `The image shows a piece of text. Which of these font families is the closest match to its typeface?\n${list}\n` +
+        'Answer with up to five family names copied exactly from the list, best match first, one per line. No other text.',
+      file,
+      !!opts.testMode,
+      opts.model ? { model: opts.model } : {},
+    );
+  } catch (e) {
+    throw toAIError(e);
+  }
+  checkAbort(opts.signal);
+  const content = (res as { message?: { content?: unknown } })?.message?.content ?? res;
+  const text = (Array.isArray(content) ? content.map((c) => (typeof c === 'string' ? c : (c as { text?: string })?.text ?? '')).join('') : String(content ?? '')).toLowerCase();
+  // Order by first mention; longer names first so "Inter Display" is not read as "Inter".
+  const found: [string, number][] = [];
+  const taken: [number, number][] = [];
+  for (const f of [...families].sort((a, b) => b.length - a.length)) {
+    const needle = f.toLowerCase();
+    let at = text.indexOf(needle);
+    while (at >= 0 && taken.some(([a, b]) => at < b && at + needle.length > a)) at = text.indexOf(needle, at + 1);
+    if (at < 0) continue;
+    taken.push([at, at + needle.length]);
+    found.push([f, at]);
+  }
+  return found.sort((a, b) => a[1] - b[1]).map(([f]) => f);
+}
+
 // ---------------------------------------------------------------------------
 // Generate Image, Edit with Prompt and the AI detail pass of Upscale.
 
