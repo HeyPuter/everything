@@ -1,6 +1,7 @@
 import { openClusters } from "./clusters-ui.js";
 import { busy } from "./accessibility/busy.js";
 import { fileName } from "./file-name.js";
+import { fontFiles } from "./svg-fonts.js";
 import { fileDetails } from "./file-details.js";
 import { createTextEditor } from "./text-editor.js";
 import { equalTextRuns, textDifference } from "./rich-text.js";
@@ -94,7 +95,7 @@ import {
 } from "./i18n.js";
 import { paint, exportImage } from "./render.js";
 import { reflowTextItems, clearTextLayoutCache } from "./text.js";
-import { loadItemFonts } from "./fonts.js";
+import { loadItemFonts, itemFontFamilies, FONT_FAMILIES } from "./fonts.js";
 import { clearConnectorLabelCache } from "./connectors.js";
 import { exportPDF, exportRegions, pdfPlan } from "./export.js";
 import { exportCSV, exportXLSX } from "./export-sheet.js";
@@ -2965,7 +2966,19 @@ export function createFeatures(api) {
               blob = (await loadWriter(import("./export-svg.js"))).exportSVG(
                 snapshot,
                 regions,
-                { lang: language },
+                {
+                  lang: language,
+                  // The fonts its text uses go with it.
+                  fonts: await fontFiles(
+                    [
+                      ...itemFontFamilies([
+                        // Titles and tags are in DM Sans.
+                        { fontFamily: "dm-sans" },
+                        ...regions.flatMap((r) => r.items),
+                      ]),
+                    ].map((id) => FONT_FAMILIES.find((f) => f.id === id).name),
+                  ),
+                },
               );
             else if (format === "xlsx")
               blob = exportXLSX(

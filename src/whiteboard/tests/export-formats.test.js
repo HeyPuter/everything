@@ -2829,3 +2829,103 @@ test("PDF text in any script can be found, copied and read aloud", async () => {
     assert.doesNotMatch(text, /\ufffd/);
   }
 });
+
+test("SVG exports carry the font files their text uses", async () => {
+  const b = board("Fonts");
+  b.items = [
+    item("note", 0, 0, { text: "Handwritten", fontFamily: "caveat" }),
+    item("text", 0, 250, {
+      w: 400,
+      text: "Bold words",
+      textRuns: [{ start: 0, end: 4, style: { bold: true } }],
+    }),
+  ];
+  const fonts = new Map(
+    [
+      "Caveat|400|normal",
+      "Caveat|600|normal",
+      "DM Sans|400|normal",
+      "DM Sans|600|normal",
+      "DM Sans|400|italic",
+      "EB Garamond|400|normal",
+    ].map((key) => [key, `data:font/woff2;base64,${btoa(key)}`]),
+  );
+  const svg = exportSVG(b, exportRegions(b), { fonts });
+  const faces = [
+    ...svg.matchAll(
+      /@font-face\{font-family:"([^"]+)";font-weight:(\d+);font-style:(\w+);src:url\(data:font\/woff2;base64,([^)]+)\)/g,
+    ),
+  ].map((m) => `${m[1]}|${m[2]}|${m[3]}`);
+  // Only what is used, each once.
+  assert.deepEqual(faces, [
+    "Caveat|400|normal",
+    "DM Sans|400|normal",
+    "DM Sans|600|normal",
+  ]);
+  const doc = new JSDOM(svg, { contentType: "image/svg+xml" }).window.document;
+  assert.equal(doc.querySelector("parsererror"), null);
+  // Italic Caveat has no file of its own: the upright face goes, for the
+  // viewer to slant as the canvas does; a weight without a file takes the
+  // nearest.
+  b.items = [
+    item("note", 0, 0, {
+      text: "Slanted",
+      fontFamily: "caveat",
+      textRuns: [{ start: 0, end: 7, style: { italic: true } }],
+    }),
+  ];
+  const slanted = exportSVG(b, exportRegions(b), {
+    fonts: new Map([
+      ["Caveat|400|normal", "data:font/woff2;base64,AA=="],
+      ["Caveat|600|normal", "data:font/woff2;base64,AQ=="],
+      ["DM Sans|400|normal", "data:font/woff2;base64,Ag=="],
+    ]),
+  });
+  assert.match(slanted, /font-style="italic"/);
+  assert.deepEqual(
+    [
+      ...slanted.matchAll(
+        /font-family:"([^"]+)";font-weight:(\d+);font-style:(\w+)/g,
+      ),
+    ].map((m) => m.slice(1).join("|")),
+    ["Caveat|400|normal"],
+  );
+  // Without fonts to embed, the file only names them, as before.
+  assert.doesNotMatch(exportSVG(b, exportRegions(b)), /@font-face|<style>/);
+});
+
+test("the font files for an SVG come from the page's own font faces", async () => {
+  const { fontFiles } = await import("../src/svg-fonts.js");
+  const dom = new JSDOM(
+    `<style>
+      @font-face { font-family: "Caveat"; font-weight: 400; font-style: normal; src: url(/fonts/caveat-400.woff2) format("woff2"), url(/fonts/caveat-400.woff) format("woff"); }
+      @font-face { font-family: "DM Sans"; font-weight: 600; font-style: italic; src: url("/fonts/dm-600-italic.woff2") format("woff2"); }
+      @font-face { font-family: "Other"; src: url(/fonts/other.woff2); }
+    </style>`,
+    { url: "https://whiteboard.test/board" },
+  );
+  const asked = [];
+  const fetchBefore = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    asked.push(url);
+    if (url.includes("dm-600")) return { ok: false };
+    return {
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    };
+  };
+  try {
+    const files = await fontFiles(["Caveat", "DM Sans"], dom.window.document);
+    assert.deepEqual(asked.sort(), [
+      "https://whiteboard.test/fonts/caveat-400.woff2",
+      "https://whiteboard.test/fonts/dm-600-italic.woff2",
+    ]);
+    // A file that could not be read is left out.
+    assert.deepEqual(
+      [...files],
+      [["Caveat|400|normal", "data:font/woff2;base64,AQID"]],
+    );
+  } finally {
+    globalThis.fetch = fetchBefore;
+  }
+});

@@ -81,18 +81,56 @@ export function exportSVG(b, regions, options = {}) {
   // descriptions of its images. Its language is the interface's, as in a
   // PDF, so text without a language of its own is read in it.
   const lang = (options.lang ?? language) === "fr" ? "fr-CA" : "en-CA";
+  const faces = fontFaces(body.join(""), options.fonts);
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${num(regions.length === 1 ? regions[0].rect.w : width)}" height="${num(regions.length === 1 ? regions[0].rect.h : height)}" viewBox="${view}" role="graphics-document document" aria-labelledby="board-title" xml:lang="${lang}">` +
     `<title id="board-title">${xml(b.title || "")}</title><desc>${xml(t("Exported from Whiteboard"))}</desc>` +
-    (state.images.size
-      ? `<defs>${[...state.images].map(([href, id]) => `<image id="${id}" width="1" height="1" preserveAspectRatio="none" ${imageLink(href)}/>`).join("")}</defs>`
+    (state.images.size || faces
+      ? `<defs>${faces}${[...state.images].map(([href, id]) => `<image id="${id}" width="1" height="1" preserveAspectRatio="none" ${imageLink(href)}/>`).join("")}</defs>`
       : "") +
     `${body.join("")}</svg>\n`
   );
 }
 
 const font = (family) => xml(fontStack(family).replaceAll('"', "'"));
+// The font files `fonts` holds ("Family|weight|style" to a data URL) for
+// each family, weight and style the text uses, as a style sheet.
+function fontFaces(markup, fonts) {
+  if (!fonts?.size) return "";
+  const used = new Set();
+  for (const [, family, weight = "400", italic] of markup.matchAll(
+    /font-family="&apos;([^&]+)&apos;[^"]*" font-size="[^"]*"(?: font-weight="(\d+)")?( font-style="italic")?/g,
+  ))
+    used.add(`${family}|${weight}|${italic ? "italic" : "normal"}`);
+  // A face the page has no file for, such as Caveat in italic, which the
+  // canvas slants from the upright face, takes the nearest face of its
+  // family, same style first, then the closest weight, under its own
+  // style and weight, so the viewer slants or weights it the same way.
+  const faces = new Set();
+  for (const key of used) {
+    if (fonts.has(key)) {
+      faces.add(key);
+      continue;
+    }
+    const [family, weight, style] = key.split("|"),
+      nearest = [...fonts.keys()]
+        .map((k) => k.split("|"))
+        .filter(([f]) => f === family)
+        .sort(
+          ([, w1, s1], [, w2, s2]) =>
+            (s1 !== style) - (s2 !== style) ||
+            Math.abs(w1 - weight) - Math.abs(w2 - weight) ||
+            w1 - w2,
+        )[0];
+    if (nearest) faces.add(nearest.join("|"));
+  }
+  const rules = [...faces].sort().map((key) => {
+    const [family, weight, style] = key.split("|");
+    return `@font-face{font-family:"${family}";font-weight:${weight};font-style:${style};src:url(${fonts.get(key)}) format("woff2")}`;
+  });
+  return rules.length ? `<style>${rules.join("")}</style>` : "";
+}
 const dash = (values) =>
   values.length ? ` stroke-dasharray="${values.map(num).join(" ")}"` : "";
 const ROUND = ' stroke-linecap="round" stroke-linejoin="round"';
@@ -113,10 +151,10 @@ function textAttributes(style) {
     `${style.italic ? ' font-style="italic"' : ""}${style.lang ? ` xml:lang="${xml(style.lang)}"` : ""} fill="${xml(style.color)}"`
   );
 }
-// One <text> per styled part keeps the measured canvas positions exact. The
-// fonts are named, not embedded, so each run keeps its measured width: a
-// viewer without the font fits its fallback to that width instead of
-// running past the object's edge or into the next word.
+// One <text> per styled part keeps the measured canvas positions exact.
+// Each run keeps its measured width, so a viewer that lacks a font, as
+// when none were given to embed, fits its fallback to that width instead
+// of running past the object's edge or into the next word.
 function textRun(text, x, top, style, ctx) {
   if (!text || !text.trim()) return "";
   const y = top + baselineOffset(ctx, style.font);
