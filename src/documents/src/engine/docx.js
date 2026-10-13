@@ -25,6 +25,7 @@ import { contentControlReader, projectControlContents, projectRetainedStoryContr
 import { blockControlGroups, blockControlSignature, changedBlockControls } from './block-controls.js';
 import { appendControlledBlocks } from './docx-block-controls.js';
 import { relatedPartPath } from './docx-relationships.js';
+import { readCoreProperties, writeCoreProperties, corePropertiesPath, cleanCoreValue, CORE_FIELDS, w3cdtf } from './docx-core-properties.js';
 import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
@@ -1794,7 +1795,34 @@ export class DocxPackage {
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
     this.pruneFootnotes(parts, paragraphs);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
+    this.writeCoreProperties(parts);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });
+  }
+  /** Document properties (Part 2 §11): the file's values with this session's edits over them. */
+  get coreProperties() { return { ...readCoreProperties(this.parts), ...(this.coreEdits || {}) }; }
+  /** Change title, subject, author, keywords… on the next export. An empty value removes one. */
+  setCoreProperties(patch) {
+    if (this.readOnly) throw new Error('This document is open read-only.');
+    const edits = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => Object.hasOwn(CORE_FIELDS, key) && key !== 'modified').map(([key, value]) => [key, cleanCoreValue(value)]));
+    const current = this.coreProperties;
+    const changed = Object.entries(edits).filter(([key, value]) => current[key] !== value);
+    if (!changed.length) return false;
+    this.coreEdits = { ...(this.coreEdits || {}), ...Object.fromEntries(changed) };
+    return true;
+  }
+  /**
+   * Edited properties are written with a fresh modification time and author. Content edits alone leave
+   * the part as it was, so an unedited part (and an undone edit) still saves byte for byte.
+   */
+  writeCoreProperties(parts) {
+    const edits = { ...(this.coreEdits || {}) };
+    if (!Object.keys(edits).length) return;
+    const existing = corePropertiesPath(this.parts);
+    const now = w3cdtf(this.clock?.() || new Date());
+    edits.modified = now;
+    if (this.coreAuthor) edits.lastModifiedBy = this.coreAuthor;
+    if (!existing) { edits.created ??= now; if (this.coreAuthor) edits.creator ??= this.coreAuthor; }
+    writeCoreProperties(parts, edits);
   }
   /** Reserve a new footnote in the notes part (created if needed): { id, part, path, settings }. */
   addFootnote() {
