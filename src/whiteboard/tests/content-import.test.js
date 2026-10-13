@@ -2295,6 +2295,64 @@ test("built app: links pasted without their scheme or over plain HTTP are still 
   }
 });
 
+test("built app: the Embed and Google dialogs take links typed without a scheme or over plain HTTP", async () => {
+  const { w, doc, click, tick, until, outline } = await app();
+  try {
+    await click('[data-action="new"]');
+    await until(() => doc.querySelector("#canvas"), "Board opened");
+    await tick();
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="embed"]');
+    let dialog = doc.querySelector("dialog[open]");
+    const url = dialog.querySelector("#embed-url");
+    for (const typed of [
+      "youtube.com/watch?v=dQw4w9WgXcQ",
+      "http://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ]) {
+      url.value = typed;
+      url.dispatchEvent(new w.Event("input"));
+      assert.match(
+        dialog.querySelector("#embed-detected").textContent,
+        /YouTube · Ready to embed/,
+        typed,
+      );
+      assert.equal(dialog.querySelector("#embed-submit").disabled, false);
+    }
+    // A file name or a host still being typed is not a link.
+    for (const typed of ["notes.txt", "youtube.c"]) {
+      url.value = typed;
+      url.dispatchEvent(new w.Event("input"));
+      assert.equal(dialog.querySelector("#embed-submit").disabled, true, typed);
+    }
+    // A link card from an address without its scheme.
+    url.value = "www.example.com/plan";
+    url.dispatchEvent(new w.Event("input"));
+    dialog.querySelector("#embed-link").click();
+    await tick();
+    assert.ok(!doc.querySelector("dialog[open]"), "Link card added");
+    assert.ok(outline().some((l) => /example\.com/.test(l)));
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="google-workspace"]');
+    dialog = doc.querySelector("dialog[open]");
+    const google = dialog.querySelector("#google-url");
+    for (const typed of [
+      `http://docs.google.com/document/d/${DOC_ID}/edit`,
+      `docs.google.com/document/d/${DOC_ID}/edit`,
+    ]) {
+      google.value = typed;
+      google.dispatchEvent(new w.Event("input"));
+      assert.match(
+        dialog.querySelector("#google-detected").textContent,
+        /Google Docs/,
+        typed,
+      );
+    }
+    dialog.close();
+  } finally {
+    w.close();
+  }
+});
+
 test("built app: embeds, paste choice, live overlay, and document import are accessible", async () => {
   const { w, doc, click, tick, until, transfer, choose, audit, outline } =
     await app();

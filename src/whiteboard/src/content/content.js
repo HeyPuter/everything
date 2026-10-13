@@ -64,6 +64,21 @@ const summaryParts = (counts) =>
 // A file the import dialog can turn into board objects.
 const importable = (file) =>
   !!documentKind(file) && !/^image\//.test(file?.type || "");
+// A link as typed or copied. An address without its scheme is read as a
+// web address when it starts with www. or is a service that can be
+// embedded, such as youtube.com/watch?v=…, so a file name such as
+// notes.txt stays as it was. With `secure` an http: link is read over
+// HTTPS, as the services that can be embedded all serve it and embeds
+// need it.
+export function webLink(text, secure = true) {
+  const value = String(text ?? "").trim();
+  if (secure && /^http:\/\//i.test(value)) return `https://${value.slice(7)}`;
+  if (!/^[\w-]+(\.[\w-]+)+(?=[/?#]|$)/.test(value)) return value;
+  const address = `https://${value}`;
+  return /^www\./i.test(value) || normalizeEmbed(address, { generic: false })
+    ? address
+    : value;
+}
 export function createContentTools(api) {
   // The person's organization and, on a shared board, the board's
   // organization can each turn Google Workspace or embeds off.
@@ -203,7 +218,7 @@ export function createContentTools(api) {
         const update = () => {
           error.textContent = "";
           conflict = false;
-          result = normalizeEmbed(input.value, { generic });
+          result = normalizeEmbed(webLink(input.value), { generic });
           // A page its site refuses to frame would show an empty frame.
           if (result?.provider === "web" && refusesFraming(result.url))
             result = null;
@@ -229,7 +244,7 @@ export function createContentTools(api) {
           link.onclick = () => {
             let url;
             try {
-              url = new URL(input.value.trim());
+              url = new URL(webLink(input.value, false));
               if (!["http:", "https:"].includes(url.protocol)) throw Error();
             } catch {
               error.textContent = t("Enter a valid http or https link.");
@@ -721,7 +736,7 @@ export function createContentTools(api) {
           (r) => (r.onchange = () => ((touched = true), update())),
         );
         const update = () => {
-          const found = googleFile(input.value);
+          const found = googleFile(webLink(input.value));
           const kind = found?.provider;
           const allowed = {
             embed: !!found,
@@ -760,7 +775,7 @@ export function createContentTools(api) {
         d.querySelector("form").onsubmit = (event) => {
           event.preventDefault();
           if (running) return;
-          const value = input.value,
+          const value = webLink(input.value),
             choice = radios.find((r) => r.checked).value,
             tableMode = d.querySelector(
               '[name="google-table-mode"]:checked',
@@ -988,13 +1003,9 @@ export function createContentTools(api) {
     },
     // Returns true when a pasted or dropped link was handled here.
     receiveText(text, point, target) {
-      let value = text.trim();
-      if (!value || /\s/.test(value)) return false;
-      // A known service's link copied without its scheme, or over plain
-      // HTTP, is still that service's: they all serve HTTPS.
-      if (/^http:\/\//i.test(value)) value = `https://${value.slice(7)}`;
-      else if (/^[\w-]+(\.[\w-]+)+(?=[/?#]|$)/.test(value))
-        value = `https://${value}`;
+      const typed = text.trim();
+      if (!typed || /\s/.test(typed)) return false;
+      const value = webLink(typed);
       const result = normalizeEmbed(value, { generic: false });
       if (
         !result ||
