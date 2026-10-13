@@ -2344,3 +2344,126 @@ test("long exports report each slide and give the page its turn", async () => {
   await breathe();
   assert.ok(ran);
 });
+
+// A board with each kind of web link: a turned link card, an embed card,
+// and a linked word in a note.
+function linkedBoard() {
+  const b = board("Links");
+  b.items = [
+    {
+      ...item("link", 0, 0, {
+        w: 320,
+        h: 115,
+        url: "https://example.com/a?b=1&c=(2",
+        text: "Example",
+      }),
+      rotation: 30,
+    },
+    item("embed", 400, 0, {
+      w: 480,
+      h: 300,
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      provider: "youtube",
+      text: "Video",
+    }),
+    item("note", 0, 400, {
+      w: 300,
+      h: 200,
+      text: "Read the spec today",
+      textRuns: [
+        { start: 9, end: 13, style: { link: "https://example.com/spec" } },
+      ],
+    }),
+  ];
+  validateBoard(b);
+  return b;
+}
+
+test("PDF pages keep web links clickable", async () => {
+  const b = linkedBoard();
+  for (const mode of ["raster", "vector"]) {
+    const doc = await PDFDocument.load(
+      await blobBytes(
+        await exportPDF(b, exportRegions(b), "en", rasterizer, {
+          mode,
+          scale: "fit",
+        }),
+      ),
+    );
+    const [page] = doc.getPages(),
+      { width, height } = page.getSize();
+    const links = page.node
+      .Annots()
+      .asArray()
+      .map((ref) => doc.context.lookup(ref))
+      .filter((a) => a.get(PDFName.of("Subtype"))?.toString() === "/Link")
+      .map((a) => ({
+        url:
+          a.get(PDFName.of("A")).get(PDFName.of("URI")).decodeText?.() ??
+          Buffer.from(
+            a.get(PDFName.of("A")).get(PDFName.of("URI")).asString(),
+            "hex",
+          ).toString("latin1"),
+        rect: a
+          .get(PDFName.of("Rect"))
+          .asArray()
+          .map((n) => n.asNumber()),
+        quad: !!a.get(PDFName.of("QuadPoints")),
+      }));
+    assert.deepEqual(
+      links.map((l) => l.url).sort(),
+      [
+        "https://example.com/a?b=1&c=(2",
+        "https://example.com/spec",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      ],
+      mode,
+    );
+    for (const { rect } of links) {
+      assert.ok(rect[0] >= 0 && rect[2] <= width && rect[0] < rect[2]);
+      assert.ok(rect[1] >= 0 && rect[3] <= height && rect[1] < rect[3]);
+    }
+    // Only the turned card is a quadrilateral; the word is narrower than
+    // its note's card.
+    assert.deepEqual(
+      links.map((l) => l.quad),
+      links.map((l) => l.url.includes("(2")),
+    );
+    const word = links.find((l) => l.url.endsWith("/spec")).rect,
+      card = links.find((l) => l.url.includes("(2")).rect;
+    assert.ok(word[2] - word[0] < (card[2] - card[0]) / 2);
+  }
+  // A region cutting the turned card keeps its link to the region, with no
+  // quadrilateral reaching past it, which viewers would ignore.
+  const cut = await PDFDocument.load(
+    await blobBytes(
+      await exportPDF(
+        b,
+        exportRegions(b, {
+          scope: "selection",
+          region: { x: 100, y: -100, w: 900, h: 800 },
+        }),
+        "en",
+        rasterizer,
+        { scale: "fit" },
+      ),
+    ),
+  );
+  const turned = cut
+    .getPages()[0]
+    .node.Annots()
+    .asArray()
+    .map((ref) => cut.context.lookup(ref))
+    .find(
+      (a) =>
+        a.get(PDFName.of("A"))?.get(PDFName.of("URI")) &&
+        Buffer.from(
+          a.get(PDFName.of("A")).get(PDFName.of("URI")).asString(),
+          "hex",
+        )
+          .toString("latin1")
+          .includes("(2"),
+    );
+  assert.ok(turned, "The cut card keeps its link");
+  assert.equal(turned.get(PDFName.of("QuadPoints")), undefined);
+});

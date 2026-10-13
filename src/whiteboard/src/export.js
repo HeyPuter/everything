@@ -4,6 +4,7 @@ import { mindLines } from "./mind-map.js";
 import { orderedFrames, framesItems, isConnector } from "./scene.js";
 import { rasterRegion } from "./render.js";
 import { measureContext, breathe } from "./export-layout.js";
+import { exportLinks, linkCorners } from "./export-links.js";
 import { addTranslations, t } from "./i18n.js";
 
 export function exportRegions(b, options = {}) {
@@ -531,7 +532,7 @@ export async function exportPDF(
   // The PDF writer and its fonts load when a PDF is first exported, as the
   // PowerPoint and SVG writers do, rather than with every visit.
   const [
-    { PDFDocument, StandardFonts, degrees, rgb },
+    { PDFDocument, PDFHexString, StandardFonts, degrees, rgb },
     { createVectorContext, drawVectorRegion },
   ] = await Promise.all([
     import("pdf-lib"),
@@ -635,6 +636,65 @@ export async function exportPDF(
       }),
   });
   const scenes = new WeakMap();
+  // Web links stay clickable: an invisible link annotation over each link
+  // card, embed card and linked word on the page, cut to the page's area.
+  const linkContext = o.measure || measureContext(),
+    regionLinks = new WeakMap();
+  const linksFor = (region) => {
+    if (!regionLinks.has(region))
+      regionLinks.set(region, exportLinks(region.items, linkContext));
+    return regionLinks.get(region);
+  };
+  function addLinks(page, entry, drawn) {
+    const { rect, scale, placement } = entry;
+    for (const link of linksFor(entry.region)) {
+      const corners = linkCorners(link).map((p) => ({
+          x: placement.x + (p.x - rect.x) * scale,
+          y: placement.y - (p.y - rect.y) * scale,
+        })),
+        xs = corners.map((p) => p.x),
+        ys = corners.map((p) => p.y);
+      const box = [
+        Math.max(drawn.x, Math.min(...xs)),
+        Math.max(drawn.y, Math.min(...ys)),
+        Math.min(drawn.x + drawn.w, Math.max(...xs)),
+        Math.min(drawn.y + drawn.h, Math.max(...ys)),
+      ];
+      // Too small to click, or off this page.
+      if (box[2] - box[0] < 1 || box[3] - box[1] < 1) continue;
+      const annotation = pdf.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: box,
+        Border: [0, 0, 0],
+        // A turned link is the quadrilateral it covers, counterclockwise
+        // from its bottom left, unless the page cuts it: corners outside
+        // the area would make viewers ignore the quadrilateral.
+        ...(link.rotation &&
+          box[0] <= Math.min(...xs) &&
+          box[1] <= Math.min(...ys) &&
+          box[2] >= Math.max(...xs) &&
+          box[3] >= Math.max(...ys) && {
+            QuadPoints: [3, 2, 1, 0].flatMap((n) => [
+              corners[n].x,
+              corners[n].y,
+            ]),
+          }),
+        // As hexadecimal, since an address may hold an unmatched
+        // parenthesis; addresses are ASCII once parsed.
+        A: {
+          Type: "Action",
+          S: "URI",
+          URI: PDFHexString.of(
+            Array.from(link.url, (c) =>
+              c.charCodeAt(0).toString(16).padStart(2, "0"),
+            ).join(""),
+          ),
+        },
+      });
+      page.node.addAnnot(pdf.context.register(annotation));
+    }
+  }
   // A turned chip reads upward, to fit the narrow side margins.
   const chip = (page, text, cx, cy, size = 7, color = muted, turned) => {
     const length = font.widthOfTextAtSize(text, size) + 8,
@@ -751,6 +811,7 @@ export async function exportPDF(
         { textOnly: true },
       );
     }
+    addLinks(page, entry, drawn);
     if (o.markers && entry.kind === "detail") {
       page.drawRectangle({
         x: drawn.x,
