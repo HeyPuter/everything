@@ -93,6 +93,7 @@ import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
 import { openCustomViews } from '../ui/customviews.js';
 import { openZoomDialog } from '../ui/zoomdialog.js';
+import { openSheetViewOptions, askViewName, nextViewName } from '../ui/sheetviews.js';
 import { createSelectionPane } from '../ui/selection-pane.js';
 import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
@@ -346,6 +347,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const previewedSheets = new Set();
   const pageBreakLinesOn = (id) => !!wb.sheet(id)?.showPageBreaks || previewedSheets.has(id);
   let selectionPane = null; // made once the editor's commands exist (see below)
+  /*
+   * The sheet view each person is in is their own: remembered on this device for this file, never saved in
+   * it, and taken up again when the file opens here.
+   */
+  const sheetViewKey = () => (doc.path ? `spreadsheet:sheet-views:${doc.path}` : null);
+  function rememberSheetViews() {
+    const key = sheetViewKey();
+    if (!key) return;
+    const mine = Object.fromEntries(wb.sheets.filter((s) => s.personalView && !s.sheetViews?.find((v) => v.id === s.personalView.id)?.temporary).map((s) => [s.id, s.personalView.id]));
+    try { if (Object.keys(mine).length) localStorage.setItem(key, JSON.stringify(mine)); else localStorage.removeItem(key); } catch { /* no storage */ }
+  }
+  try {
+    const key = sheetViewKey(), mine = key ? JSON.parse(localStorage.getItem(key) || '{}') || {} : {};
+    for (const [sheetId, viewId] of Object.entries(mine)) wb.enterSheetView(sheetId, viewId, { undoable: false });
+  } catch { /* no storage, or nothing remembered */ }
 
   const view = { focus: false, spell: true };
   try { Object.assign(view, JSON.parse(localStorage.getItem('spreadsheet:view') || '{}') || {}); } catch { /* no storage */ }
@@ -1134,6 +1150,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       showPageBreaks: pageBreakLinesOn(sheetId), background: !!sheet?.background,
       // Arrange: the Selection Pane, and snapping for objects dragged on the sheet.
       selectionPane: !!selectionPane?.open, snapGrid: !!view.snapGrid, snapShape: !!view.snapShape,
+      // View ▸ Sheet View: the view this person is in, if any, and whether it is the temporary one.
+      sheetView: sheet?.personalView ? (sheet.sheetViews || []).find((v) => v.id === sheet.personalView.id) || null : null,
       headers: sheet?.headers !== false, focus: !!view.focus, spell: view.spell !== false,
       split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: view.formulaBar !== false,
       // While a cell is being edited the sheet behind it is off limits: undo, paste, fill and the like wait.
@@ -1801,6 +1819,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (refusedByProtection('sort')) return;
         if (!oneRange('sort')) return;
+        // In a sheet view the filters are one's own, but sorting moves the rows themselves, for everyone.
+        if (wb.sheet(sheetId)?.personalView) toast('Sorting reorders the rows for everyone; in a sheet view only the filters are your own', { icon: 'info', duration: 3500 });
         let range = grid.range;
         const single = S.isSingle(grid.selection);
         const sheet = wb.sheet(sheetId);
@@ -3108,6 +3128,32 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'forecastSheet': if (!committed()) return; openForecastSheet(ctx); return;
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
       case 'customViews': if (!committed()) return; openCustomViews(ctx); return;
+      case 'sheetView': {
+        // View ▸ Sheet View: New, Keep, Exit, switching views, and Options (rename, duplicate, delete).
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        const action = typeof arg === 'string' ? arg : arg?.action;
+        const views = sheet.sheetViews || [];
+        if (action === 'new') {
+          if (wb.newSheetView(sheetId)) toast('You are in a temporary sheet view: the filters you set stay yours. Keep it to give it a name', { icon: 'sheetView', duration: 4000 });
+        } else if (action === 'keep') {
+          const at = views.find((v) => v.id === sheet.personalView?.id);
+          if (!at) { toast('Choose New first: Keep names the temporary view you are in', { icon: 'info', duration: 3000 }); return; }
+          const name = await askViewName(views, { title: 'Keep View', value: at.temporary ? nextViewName(views) : at.name, except: at.id, confirmLabel: 'Keep' });
+          if (name != null && wb.keepSheetView(sheetId, name)) statusBar?.announce(`Sheet view ${name.trim()} kept`);
+        } else if (action === 'exit') {
+          if (wb.exitSheetView(sheetId)) statusBar?.announce('Back to the default view');
+        } else if (action === 'switch') {
+          if (arg?.id) wb.enterSheetView(sheetId, arg.id); else wb.exitSheetView(sheetId);
+        } else if (action === 'rename') wb.renameSheetView(sheetId, arg.id, arg.name);
+        else if (action === 'duplicate') wb.duplicateSheetView(sheetId, arg.id);
+        else if (action === 'delete') wb.deleteSheetView(sheetId, arg.id);
+        else if (action === 'options') { openSheetViewOptions(ctx); return; }
+        rememberSheetViews();
+        notify(); keepFocus();
+        return;
+      }
       case 'addCustomView': {
         // The zoom in force may be this device's, not yet the sheet's own: the view keeps what is on screen.
         if (!committed() || !arg?.name) return;

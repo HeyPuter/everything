@@ -64,3 +64,11 @@
 .zoom-option { align-items: center; }
 .zoom-custom-wrap { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
 .zoom-custom { width: 64px; height: 30px; padding: 2px 8px; text-align: right; }
+
+/* ---------- View ▸ Sheet View: one's own filter view ---------- */
+
+.tab-view { display: inline-flex; align-items: center; color: var(--series-7, #4a3aa7); margin-right: 4px; }
+.grid.in-sheet-view .grid-colhead-clip::after, .grid.in-sheet-view .grid-rowhead-clip::after {
+  content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  background: color-mix(in srgb, var(--series-7, #4a3aa7) 12%, transparent);
+}

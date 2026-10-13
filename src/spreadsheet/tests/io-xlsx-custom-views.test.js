@@ -38,7 +38,7 @@ describe('xlsx custom views', () => {
     const wb = book(), data = wb.sheets[0];
     wb.setHidden(data.id, 'row', [4, 5], true);
     wb.setFilterRange(data.id, { r1: 0, c1: 0, r2: 29, c2: 1 });
-    wb._setFilter(data, { range: data.filter.range, criteria: { 1: { op: 'greaterThan', value: '20' } } }, 'Filter');
+    wb._setFilter(data, { range: data.filter.range, criteria: { 1: { op: 'gt', value: '20' } } }, 'Filter');
     wb.setSheetView(data.id, { viewZoom: 0.8 });
     wb.addCustomView('Filtered');
     const back = await reopen(await zipOf(wb));
@@ -47,7 +47,7 @@ describe('xlsx custom views', () => {
     expect(view.name).toBe('Filtered');
     expect(view.id).toBe(wb.customViews[0].id);
     expect(state).toMatchObject({ zoom: 0.8, hiddenRows: [4, 5] });
-    expect(state.filter.criteria[1]).toMatchObject({ op: 'greaterThan' });
+    expect(state.filter.criteria[1]).toMatchObject({ op: 'gt' });
     // The view's AutoFilter is not mistaken for the sheet's own.
     back.clearFilter(back.sheets[0].id);
     const again = await reopen(await zipOf(back));

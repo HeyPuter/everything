@@ -228,6 +228,11 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
         },
       },
         s.protected && el('span.tab-lock', { role: 'img', html: icon('lock', 12, 2.2), 'aria-label': 'Protected', title: 'Protected sheet' }),
+        // In a sheet view of one's own (View ▸ Sheet View), the tab says which.
+        s.personalView && (() => {
+          const name = s.sheetViews?.find((v) => v.id === s.personalView.id)?.name || 'Sheet view';
+          return el('span.tab-view', { role: 'img', html: icon('eye', 12, 2), 'aria-label': `In sheet view ${name}`, title: `Sheet view: ${name}` });
+        })(),
         // A name in a right-to-left script is laid out that way, its number and full stop at its own end, as a cell is.
         el('span.tab-name', { dir: 'auto' }, s.name));
       if (!isActive) return tab;

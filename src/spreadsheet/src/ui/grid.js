@@ -1799,6 +1799,8 @@ export function createGrid(opts) {
     root.style.setProperty('--cell-default-bg', fillColorCss(defaultBg) || 'var(--surface)');
     for (const layer of [viewport, frzRows.el, frzCols.el, frzCorner.el]) layer.style.backgroundColor = chartSheet ? '' : fillColorCss(defaultBg);
     paintBackground(s);
+    // In a sheet view of one's own (View ▸ Sheet View) the headings take a tint, so it is plain which view is on show.
+    root.classList.toggle('in-sheet-view', !!s.personalView);
     root.classList.toggle('chart-sheet', chartSheet);
     if (chartSheet) {
       chartView = chartSheetLayout(s, viewport.clientWidth, viewport.clientHeight, zoom);

@@ -721,6 +721,8 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
     if (sheet.viewZoom != null) { meta.sheets[sheet.name].viewZoom = sheet.viewZoom; any = true; }
     if (sheet.viewMode) { meta.sheets[sheet.name].viewMode = sheet.viewMode; any = true; }
     if (sheet.showPageBreaks) { meta.sheets[sheet.name].showPageBreaks = true; any = true; }
+    // View ▸ Sheet View: the sheet's named filter views (a file has no one in them).
+    if (sheet.sheetViews?.length) { meta.sheets[sheet.name].sheetViews = sheet.sheetViews.filter((v) => !v.temporary); any = true; }
     if (sheet.printSettings) { meta.sheets[sheet.name].printSettings = sheet.printSettings; any = true; }
     if (sheet.tables.length) {
       meta.sheets[sheet.name].tables = sheet.tables;
@@ -837,8 +839,20 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false } = {}
   return book;
 }
 
+/**
+ * The workbook as everyone sees it. While this person is in a sheet view (View ▸ Sheet View) a file must
+ * still hold the default view's filters: the copy toJSON makes has them, with the view kept among the views.
+ */
+function sharedBook(wb) {
+  if (!wb.sheets.some((s) => s.personalView)) return wb;
+  const copy = new Workbook(wb.toJSON());
+  if (wb.externalFormulas) copy.externalFormulas = wb.externalFormulas;
+  return copy;
+}
+
 /** Serialize the workbook to an .xlsx Blob. */
 export async function workbookToXlsx(wb, { sourceWorkbook = null } = {}) {
+  wb = sharedBook(wb);
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
   const book = buildBook(X, wb);
@@ -853,6 +867,7 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null } = {}) {
  * styles, rules, and tables in standard ODF application settings.
  */
 export async function workbookToOds(wb, { settings = true } = {}) {
+  wb = sharedBook(wb);
   const X = await XLSX();
   // The app's own settings (styles, frozen panes, tab colours, protection, rules, charts,
   // tables and filter criteria) ride along in a standard ODF settings block other readers
@@ -1961,6 +1976,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     viewZoom: own?.viewZoom ?? part?.viewZoom,
     viewMode: partXml ? nativePart?.viewMode : own?.viewMode,
     showPageBreaks: own?.showPageBreaks === true,
+    sheetViews: own?.sheetViews,
     viewSelection: partXml ? nativePart?.viewSelection : own?.viewSelection,
     viewOrigin: partXml ? nativePart?.viewOrigin : own?.viewOrigin,
     frozenOrigin: partXml ? nativePart?.frozenOrigin : own?.frozenOrigin,

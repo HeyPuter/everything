@@ -63,14 +63,14 @@ describe('custom views', () => {
   it('keeps a filter with the view and runs it again on the current data', () => {
     const wb = book(), data = wb.sheets[0];
     wb.setFilterRange(data.id, { r1: 0, c1: 0, r2: 29, c2: 1 });
-    wb._setFilter(data, { range: data.filter.range, criteria: { 1: { op: 'greaterThan', value: '20' } } }, 'Filter');
+    wb._setFilter(data, { range: data.filter.range, criteria: { 1: { op: 'gt', value: '20' } } }, 'Filter');
     const hiddenBefore = data.filterHidden.size;
     expect(hiddenBefore).toBeGreaterThan(0);
     const id = wb.addCustomView('Big ones');
     wb.clearFilter(data.id);
     expect(data.filter).toBeNull();
     wb.showCustomView(id);
-    expect(data.filter.criteria[1]).toMatchObject({ op: 'greaterThan' });
+    expect(data.filter.criteria[1]).toMatchObject({ op: 'gt' });
     expect(data.filterHidden.size).toBe(hiddenBefore);
   });
 

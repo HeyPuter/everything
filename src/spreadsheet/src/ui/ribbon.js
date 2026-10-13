@@ -118,6 +118,12 @@ const printOption = (label, key, glyph) => ({ label, glyph, ariaLabel: label, re
   return { label, cmd: 'pageSetup', arg: { [key]: !on }, disabled: !!ctx?.flags?.()?.editing, checked: on };
 } });
 const disabledItem = (label, reason) => ({ label, hint: reason, disabled: true });
+/** A View ▸ Sheet View button; `unavailable(flags)` greys it (Keep needs a temporary view, Exit any view). */
+const sheetViewButton = (label, glyph, action, unavailable) => ({ label, glyph, ariaLabel: `${label} sheet view`,
+  resolve: (menus, ctx) => {
+    const f = ctx?.flags?.() || {};
+    return { label, cmd: 'sheetView', arg: action, disabled: !!f.editing || !!f.chartSheet || unavailable(f) };
+  } });
 
 /** Home ▸ Cells ▸ Format: cell size, visibility, sheet organization and protection, then Format Cells. */
 const formatMenu = dyn('Format', 'formatCells', menus => {
@@ -334,6 +340,21 @@ const groupsFor = name => ({
       large(direct('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { isChecked: ctx => ctx.viewMode?.() === 'pageBreak' })),
       large(direct('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'Page Layout view', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' })),
       large(c('Custom Views', 'customViews', 'customViews'))],
+    ['Sheet View', large(dyn('Sheet View', 'sheetView', (menus, ctx) => {
+      const f = ctx.flags?.() || {}, sheet = ctx.wb.sheet(ctx.sheetId()), off = !!f.editing || !!f.chartSheet;
+      const views = (sheet?.sheetViews || []).filter((v) => !v.temporary || v.id === f.sheetView?.id);
+      return [
+        { label: 'Default', cmd: 'sheetView', arg: { action: 'switch', id: null }, radio: true, checked: !f.sheetView, disabled: off },
+        ...views.map((v) => ({ label: v.name, cmd: 'sheetView', arg: { action: 'switch', id: v.id }, radio: true, checked: f.sheetView?.id === v.id, disabled: off })),
+        { separator: true },
+        { label: 'New', icon: 'sheetView', cmd: 'sheetView', arg: 'new', disabled: off },
+        { label: 'Keep…', cmd: 'sheetView', arg: 'keep', disabled: off || !f.sheetView?.temporary },
+        { label: 'Exit', cmd: 'sheetView', arg: 'exit', disabled: off || !f.sheetView },
+        { label: 'Options…', icon: 'sliders', cmd: 'sheetView', arg: 'options', disabled: off },
+      ];
+    }, { ariaLabel: 'Sheet View' })),
+      sheetViewButton('New', 'filePlus', 'new', () => false), sheetViewButton('Keep', 'save', 'keep', f => !f.sheetView || !f.sheetView.temporary),
+      sheetViewButton('Exit', 'back', 'exit', f => !f.sheetView), sheetViewButton('Options', 'sliders', 'options', () => false)],
     ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas'),
       c('Page Breaks', 'pageBreak', 'showPageBreaks')],
     ['Zoom', large(c('Zoom', 'zoomIn', 'zoomCustom')), large(c('100%', 'zoom100', 'zoom', 'reset')), large(direct('Zoom to Selection', 'zoomSelection', 'zoomSelection', null))],
