@@ -11,6 +11,7 @@ import { visualBounds, nodeBounds, rectsIntersect, inflate, unionRect } from '..
 import { flattenPath } from '../model/bezier.js';
 import { apply, invert } from '../lib/matrix.js';
 import { layoutText, hitTextLocal } from '../model/text-layout.js';
+import { hasAppearanceStack, layerAppearanceArtwork } from '../model/appearance.js';
 
 let hitCtx = null;
 function hctx() {
@@ -138,8 +139,40 @@ export function hitTest(doc, x, y, tol, opts = {}) {
   for (let li = layers.length - 1; li >= 0; li--) {
     const layer = doc.get(layers[li]);
     if (!layer || layer.hidden || layer.locked) continue;
-    const r = hitChildren(doc, layer, x, y, tol, { outline: outline || layer.outline, intoCompound, filter, skip });
+    const o = { outline: outline || layer.outline, intoCompound, filter, skip };
+    const r = hitChildren(doc, layer, x, y, tol, o) || (!o.outline && hasAppearanceStack(layer) ? layerStackHit(doc, layer, x, y, tol, o) : null);
     if (r) return r;
+  }
+  return null;
+}
+
+/**
+ * A layer's own fills and strokes paint copies of its objects: a click on
+ * them picks the object the copy was made from.
+ */
+function layerStackHit(doc, layer, x, y, tol, opts) {
+  const { items, vdoc } = layerAppearanceArtwork(doc, layer);
+  const leaf = (n) => {
+    if (!n || n.hidden) return null;
+    if (n.type === 'group' && !liveDef(n)) {
+      for (let i = n.children.length - 1; i >= 0; i--) {
+        const r = leaf(vdoc.get(n.children[i]));
+        if (r) return r;
+      }
+      return null;
+    }
+    return n.source && hitNode(vdoc, n, x, y, tol, opts) ? n : null;
+  };
+  for (let i = items.length - 1; i >= 0; i--) {
+    // The contents were hit tested as the layer's children already.
+    if (doc.get(items[i].id) === items[i]) continue;
+    const v = leaf(items[i]);
+    const src = v && doc.get(v.source);
+    if (!src || src.hidden || (doc.isLocked ? doc.isLocked(src.id) : src.locked) || (opts.skip && opts.skip.has(src.id))) continue;
+    // A path of a compound path picks the compound.
+    const pick = src.parent && doc.get(src.parent)?.type === 'compound' && !opts.intoCompound ? doc.get(src.parent) : src;
+    if (opts.filter && !opts.filter(pick)) continue;
+    return pick;
   }
   return null;
 }

@@ -252,10 +252,14 @@ function itemNode(node, item, objFx, frame) {
   return v;
 }
 
-/** The node itself drawn as its contents item: its own children or characters. */
+/**
+ * The node itself drawn as its contents item: its own children or
+ * characters. A knockout group's children knock each other out inside it;
+ * the group's own fills and strokes composite over the result.
+ */
 function contentsNode(node, objFx) {
   const { appearance, opacityMask, graphicStyle, ...rest } = node;
-  return { ...rest, id: virtualId(node.id), source: node.source || node.id, opacity: 1, blendMode: 'normal', effects: objFx, isolate: undefined, knockout: undefined };
+  return { ...rest, id: virtualId(node.id), source: node.source || node.id, opacity: 1, blendMode: 'normal', effects: objFx, isolate: undefined, knockout: CONTAINERS.has(node.type) && node.knockout ? true : undefined };
 }
 
 /**
@@ -353,6 +357,8 @@ function expandStack(doc, node) {
   for (const n of sub.nodes) {
     delete n.appearanceItem;
     if (n.id === sub.root && node.opacityMask) n.opacityMask = node.opacityMask;
+    // The contents item carries a group's knockout.
+    if (n.id === sub.root && CONTAINERS.has(node.type)) delete n.knockout;
   }
   const parent = doc.get(node.parent);
   const index = parent ? parent.children.indexOf(node.id) : Infinity;

@@ -544,7 +544,8 @@ export function drawNode(ctx, doc, node, opts) {
     const m = ctx.getTransform();
     lctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
     if (container) {
-      if (node.knockout && !opts.outline) drawKnockout(lctx, doc, node, opts, pool);
+      // A knockout group with its own fills and strokes knocks out within its contents item (model/appearance.js).
+      if (node.knockout && !opts.outline && !hasAppearanceStack(node)) drawKnockout(lctx, doc, node, opts, pool);
       else drawContent(lctx, doc, node, opts);
     } else drawContent(lctx, doc, node, opts);
     if (om) drawHooks.opacityMask(layer, region, m, doc, node, opts);

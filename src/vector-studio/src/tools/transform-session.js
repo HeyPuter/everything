@@ -35,11 +35,15 @@ export class TransformSession {
     this.preview = this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor();
   }
 
-  /** Moving content inside a group with opacity, blending, effects or clipping cannot be split out as a bitmap. */
+  /**
+   * Moving content inside a group with opacity, blending, effects or
+   * clipping cannot be split out as a bitmap, nor opacity mask art edited in
+   * place (the masked object redraws as it moves).
+   */
   #isolatedAncestor() {
     for (const id of this.ids) {
       for (const a of this.doc.ancestors(id)) {
-        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend) return true;
+        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend || a.maskEdit) return true;
       }
     }
     return false;

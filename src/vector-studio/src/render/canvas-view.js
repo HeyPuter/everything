@@ -382,8 +382,9 @@ export class CanvasView {
         const parent = n.parent ? doc.get(n.parent) : null;
         if (parent?.type === 'compound') n = parent;
         // Isolated ancestors (opacity, blending, effects, clipping) composite as a unit: no split.
+        // Opacity mask art edited in place masks an object below it: redraw everything.
         for (const a of doc.ancestors(n.id)) {
-          if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip) return false;
+          if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.maskEdit) return false;
           // Live artwork made from a changing object redraws with it.
           if (liveDef(a) && order.has(a.id)) lo = Math.min(lo, order.get(a.id));
         }
