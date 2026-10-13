@@ -369,13 +369,17 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 
 - Libraries (`src/features/libraries/`): `model.ts` is the index format and
   the edit operations (`LibraryOp`), which are idempotent and refer to IDs, so
-  replaying queued edits on a newer index merges concurrent changes.
+  replaying queued edits on a newer index merges concurrent changes (item
+  operations find an item in any library; moves and renames carry times so
+  an older replayed edit never undoes a newer one).
   `storage.ts` keeps the working copy in IndexedDB (`photo-studio-libraries`:
   index, queued edits, content-addressed asset blobs) and, while signed in,
   syncs with the app's Puter folder (`libraries/index.json`,
   `libraries/assets/<sha256>`): read, replay, write with a new revision and
   writer nonce, read back to confirm, retry otherwise; recently written edits
   are replayed for a while so a writer that missed them cannot drop them.
+  Queued edits stay queued until a cloud write takes them (also while signed
+  out) and long queues are compacted (`compactOps`), never truncated.
   Tabs hear about changes through a BroadcastChannel. Placements made with
   Place Linked are embedded objects whose `link.kind` is `library`
   (`linkReaders` in `embedded/link-state.ts` reads them).
@@ -383,11 +387,17 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   the recorder watches new history states of the active document (labels,
   `e.currentCommand` / `e.lastCommand`), placed embedded contents and
   `openedFiles` (`app/app-events.ts`), and keeps one `ProvenanceRecord`
-  (`model/provenance.ts`) per session. Projects store it as a sidecar
+  (`model/provenance.ts`) per session. Steps form a tree (each step's parent
+  is the state it was made from, looked up weakly from document states), so
+  non-linear history keeps the steps leading to the latest edit; projections
+  of shared documents (`SharedBinding.project`) map onto the state they show
+  and are never steps. Projects store it as a sidecar
   (`projectSidecars` in `model/serialization.ts`: data beside the document,
   outside the undo history). `attachProvenance` writes the XMP packet, then
   the C2PA-format store with a hard binding found by fixed-point layout;
-  `inspectProvenance` never throws.
+  `inspectProvenance` never throws. Reading uses only assertions the claim
+  lists by hash and binds only the active manifest to the file; no trust
+  list is checked, so the report never names a verified signer.
 - Image Assets (`src/features/image-assets/`): `names.ts` parses layer names,
   `plan.ts` turns a document into outputs, `generate.ts` renders, encodes
   (export worker) and writes them; see `docs/image-assets.md`.
