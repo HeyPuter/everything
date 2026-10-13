@@ -4,10 +4,13 @@
  * and the text rectangle. Coordinates are in the shape's own units (EMU); `adj` reads a resolved
  * adjustment value. Each returns { points, textRect } with the text rectangle as fractions of w and h.
  */
+import { MORE_PRESET_GEOMETRIES } from './preset-geometries-more.js';
+export { PRESET_CATEGORIES } from './preset-geometries-more.js';
 const pin = (low, value, high) => Math.max(low, Math.min(high, value));
 const degrees = angle => angle * Math.PI / 180;
 
 export const PRESET_GEOMETRIES = {
+  ...MORE_PRESET_GEOMETRIES,
   diamond: {
     defaults: {},
     build: (w, h) => ({ points: [['M', 0, h / 2], ['L', w / 2, 0], ['L', w, h / 2], ['L', w / 2, h], ['Z']], text: [w / 4, h / 4, w * 3 / 4, h * 3 / 4] }),
