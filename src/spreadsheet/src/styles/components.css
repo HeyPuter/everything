@@ -1217,3 +1217,24 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .cfq-row > .input { flex: 1 1 120px; min-width: 0; }
 .cfq-and, .cfq-with { font-size: 13px; color: var(--ink-2); }
 .cfq-row > .select-wrap { flex: 1 1 220px; }
+
+/* Tools ▸ AutoCorrect Options */
+.autocorrect-dialog { display: flex; flex-direction: column; gap: 14px; }
+.autocorrect-top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+.autocorrect-options { border: 0; padding: 0; margin: 0; gap: 6px; }
+.autocorrect-options legend { margin-bottom: 6px; }
+.autocorrect-replace { display: flex; flex-direction: column; gap: 8px; }
+.autocorrect-fields { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.autocorrect-fields .field { margin: 0; }
+.autocorrect-list { height: 180px; overflow: auto; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); }
+.autocorrect-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.autocorrect-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 2fr); gap: 4px; align-items: center; padding: 3px 10px; font-size: 13px; cursor: pointer; }
+.autocorrect-row:nth-child(even) { background: var(--surface-2); }
+.autocorrect-row[aria-selected="true"] { background: var(--accent-wash); }
+@media (hover: hover) { .autocorrect-row:hover { background: var(--surface-3); } }
+.autocorrect-from, .autocorrect-to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.autocorrect-arrow { color: var(--ink-3); text-align: center; }
+.autocorrect-actions { align-items: center; gap: 8px; flex-wrap: wrap; }
+.autocorrect-actions .spacer { flex: 1; }
+.autocorrect-exceptions { display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 600px) { .autocorrect-top { flex-direction: column; } .autocorrect-fields { grid-template-columns: 1fr; } .autocorrect-actions .spacer { flex-basis: 100%; height: 0; } }

@@ -469,6 +469,7 @@ export function menubarMenus(f = {}) {
     f.ai && i('Explain this formula (AI)…', 'sparkle', 'aiExplain', null, { disabled: !f.hasFormula }),
     sep,
     i('Check spelling as you type', 'text', 'toggleSpellcheck', null, { checked: f.spell !== false }),
+    i('AutoCorrect Options…', 'autoCorrect', 'autoCorrectOptions'),
     fn('Regional format…', 'monitor', f.fns?.locale),
   ];
 

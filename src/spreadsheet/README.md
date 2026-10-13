@@ -414,6 +414,17 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   to one sheet (tables, charts, sorting, filters, conditional formatting,
   validation, notes, freezing) are greyed out and say why until the sheets are
   ungrouped, by clicking a tab outside the group or with Ungroup Sheets.
+- **AutoCorrect** (Tools ▸ AutoCorrect Options, or Review ▸ Proofing): as a
+  word ends in a cell or the formula bar (never in a formula), listed text is
+  replaced — (c) → ©, (tm) → ™, -- → –, -> → →, and common typos such as
+  teh → the, keeping the case it was typed in — TWo INitial CApitals and
+  words typed with caps lock on are fixed, days get a capital, and so does
+  the first word after a full stop (abbreviations such as e.g. and etc. are
+  exceptions you can edit, and the first word of a cell is left as typed).
+  Ctrl/Cmd+Z straight after a correction puts the word back; a last word
+  corrected as the entry is committed is an undo step of its own. The list,
+  the exceptions and an optional `\alpha` → α math-symbols rule are kept for
+  your account.
 - **Templates**: start from a monthly budget, an expense tracker with a
   donut chart, an invoice, a to-do list with checkboxes and priorities (the
   last three built on tables), a

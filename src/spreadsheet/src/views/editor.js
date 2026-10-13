@@ -129,7 +129,7 @@ import { trackEvent } from '../lib/analytics.js';
 import { VIEW_ONLY, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, MAX_ROW, MAX_COL } from '../core/refs.js';
-import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo } from '../core/format.js';
+import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText } from '../core/format.js';
 import { maxLineWidth, cellLayoutText } from '../core/textfit.js';
 import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
@@ -151,6 +151,8 @@ import { openPasteSpecialDialog, openInsertPasteDialog, pasteGallery } from '../
 import { createOptionButton } from '../ui/option-button.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
 import { openFillAcrossDialog } from '../ui/fillacross.js';
+import { createAutoCorrector, openAutoCorrectDialog, syncAutoCorrectSettings } from '../ui/autocorrect.js';
+import { isFormulaText } from '../core/autocorrect.js';
 
 const MAX_FORMAT_CELLS = 20000;
 // Clipboard height can exceed JavaScript's argument limit, even when the
@@ -285,9 +287,24 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!dialog) toast(v.message || 'That value is not allowed here', { icon: 'alert', duration: 3500 });
   };
 
+  // AutoCorrect: words fixed as they are typed into a cell or the formula bar (Tools ▸ AutoCorrect Options).
+  const autoCorrector = createAutoCorrector({ announce: (text) => statusBar?.announce(text) });
+  ctx.autocorrect = autoCorrector;
+  if (!session.signedOut) syncAutoCorrectSettings().catch(() => {});
+
   const grid = createGrid({
     wb,
     sheetId: wb.activeSheetId,
+    autocorrect: autoCorrector,
+    // The entry is written: its last word, corrected, is a step of its own, so Ctrl/Cmd+Z brings back what was typed.
+    afterCommit: ({ sheetId: sid, r, c, text }) => {
+      if (isFormulaText(text)) return;
+      const fixed = autoCorrector.tail(text);
+      if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
+      if (wb.validateInput(sid, r, c, fixed).ok === false) return;
+      wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      statusBar?.announce(`AutoCorrect changed the entry to ${fixed}. ${MOD_KEY}+Z puts back what was typed`);
+    },
     onSelection: notify,
     onEdit: (e) => { if (e.editing) { endCut(); optionButton?.hide(); } else entryPasted = false; notify(); }, // typing into a cell ends a cut
     onCommand: (cmd, arg) => run(cmd, arg),
@@ -2667,6 +2684,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'toggleHeaders':
         grid.setShowHeaders(!grid.showHeaders);
         keepFocus();
+        return;
+      case 'autoCorrectOptions':
+        if (!committed()) return;
+        openAutoCorrectDialog({ onClose: () => keepFocus() });
         return;
       case 'toggleSpellcheck':
         view.spell = view.spell === false;

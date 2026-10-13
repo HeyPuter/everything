@@ -81,6 +81,7 @@ export function paletteCommands(flags = {}) {
     c('Row and column headers', 'View', 'borders', 'toggleHeaders', null, { keywords: 'toggle hide show' }),
     c('Focus mode', 'View', 'eyeOff', 'focusMode', null, { keywords: 'toolbar hide distraction' }),
     c('Check spelling as you type', 'View', 'text', 'toggleSpellcheck', null, { keywords: 'spellcheck toggle' }),
+    c('AutoCorrect Options…', 'Tools', 'autoCorrect', 'autoCorrectOptions', null, { keywords: 'autocorrect replace text typing typos capitals capitalize symbols' }),
     flags.fullscreen && c('Full screen', 'View', 'monitor', 'fullscreen'),
     c('Zoom in', 'View', 'zoomIn', 'zoom', 0.1),
     c('Zoom out', 'View', 'zoomOut', 'zoom', -0.1),

@@ -2911,6 +2911,7 @@ export function createGrid(opts) {
     if (focusEditor) scrollIntoView({ r, c });
     edit = { r, c, sheetId, text: initial, mode, refInsert: null, point: null, pasted: false, preserveRichText,
       arrayRange: array ? { r1: array.r1, c1: array.c1, r2: array.r2, c2: array.c2 } : null };
+    opts.autocorrect?.reset?.();
     editor.value = initial;
     editor.spellcheck = spellcheck && !initial.startsWith('=');
     editor.hidden = false;
@@ -3063,6 +3064,8 @@ export function createGrid(opts) {
           if (widenForEntry(r, c)) { invalidateOffsets(); refitWrappedRows([c], new Map([[c, was]])); }
         });
       }
+      // The entry is in: a correction of its last word (AutoCorrect) follows as a step of its own.
+      opts.afterCommit?.({ sheetId, r, c, text });
     }
     if (move === 'down') enterDown(false);
     else if (move === 'up') enterDown(true);
@@ -4673,6 +4676,12 @@ export function createGrid(opts) {
     if (hints.handleKey(e)) return;
     const input = editInput();
     const key = e.key;
+    // Ctrl/Cmd+Z straight after an AutoCorrect puts the word back as it was typed.
+    if (isMod(e) && !e.shiftKey && !e.altKey && key.toLowerCase() === 'z' && opts.autocorrect?.undo?.(input)) {
+      e.preventDefault();
+      setEditText(input.value, { fromEditor: input === editor });
+      return;
+    }
     // The ready-mode chords a browser also owns (Ctrl+R reloads, Ctrl+D bookmarks, Ctrl+9, 0, [, ], \ and `
     // switch or zoom its tabs) do nothing while an entry is typed, as in Excel, rather than reaching the browser.
     if (isMod(e) && !e.altKey && (/^[rd[\]\\`90]$/i.test(key) || e.code === 'Digit9' || e.code === 'Digit0')) { e.preventDefault(); return; }
@@ -4893,6 +4902,8 @@ export function createGrid(opts) {
   // event, so a formula reaching out would otherwise be let out on a drag nobody consented to.
   editor.addEventListener('drop', () => { if (edit) edit.pasted = true; });
   editor.addEventListener('input', (e) => {
+    // AutoCorrect looks at the word a space or a punctuation mark just ended (never in a formula).
+    if (edit && !isComposing(e) && e.inputType === 'insertText') opts.autocorrect?.input?.(editor, e.data);
     setEditText(editor.value, { fromEditor: true });
     if (!isComposing(e) && e.inputType === 'insertText') completeFromColumn();
   });

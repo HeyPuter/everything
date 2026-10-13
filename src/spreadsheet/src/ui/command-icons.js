@@ -328,6 +328,7 @@ export const COMMAND_ICONS = {
 
   /* Review */
   spell: t(8.5, 10, 'abc', 8.5) + p('M7 14l2.5 2.5 6-6', 'g thick'),
+  autoCorrect: t(7, 15.5, 'ab', 8.5) + p('M14.5 2.5 11 9.5h3l-1.5 6 5-8h-3l1.5-5z', 'ys'),
   stats: page(4.5, 2.5, 11, 15) + r(6.8, 10.5, 1.6, 4.5, 'bs', 0.5) + r(9.2, 7.5, 1.6, 7.5, 'bs', 0.5) + r(11.6, 9, 1.6, 6, 'ns', 0.5),
   deleteNote: p('M3.5 3.5h11v7l-4 4h-7z', 'yf') + badge(15, 15, 'x', 'r'),
   notes: p('M5.5 5.5h11v7l-4 4h-7z', 'yf') + p('M3.5 13V3.5h10', 'o'),
