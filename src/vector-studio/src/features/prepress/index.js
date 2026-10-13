@@ -1,8 +1,8 @@
 /**
  * Print production: color management (Edit > Color Settings, Assign
  * Profile, color-managed proofs and CMYK conversion), the Separations
- * Preview panel, Effect > Video, and the presets for transparency
- * flattening, printing and PDF export.
+ * Preview and Flattener Preview panels, Effect > Video, and the presets
+ * for transparency flattening, printing and PDF export.
  */
 import './styles.css';
 import { registerIcons } from '../../ui/icons.js';
@@ -15,6 +15,7 @@ import { colorSettingsDialog, assignProfileDialog, proofCustomizeDialog } from '
 import { drawSeparations, separationState } from './separations.js';
 import { drawGpuProof, gpuHandlesProof } from './gpu-proof.js';
 import { SeparationsPanel } from './separations-panel.js';
+import { FlattenerPreviewPanel } from './flattener-preview.js';
 import { videoEffectCommands } from './video-effects.js';
 import { presetsManagerDialog } from './presets.js';
 import { flattenTransparencyDialog } from './flattener-presets.js';
@@ -72,6 +73,7 @@ export function install(app) {
     { id: 'object.flatten', label: 'Flatten Transparency...', enabled: (a) => Boolean(a.editor?.selection.size), run: (a) => flattenTransparencyDialog(a) },
   ]);
   app.registerPanel(SeparationsPanel);
+  app.registerPanel(FlattenerPreviewPanel);
 
   // Separations first: while they show, the proof does not apply on top.
   viewHooks.postArt.push((ctx, editor) => {

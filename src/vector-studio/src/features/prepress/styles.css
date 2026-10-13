@@ -208,3 +208,94 @@
   min-width: 0;
   flex: 1;
 }
+
+/* ---- Flattener Preview ---- */
+.fp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fp-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.fp-field select {
+  min-width: 0;
+}
+
+.fp-options {
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+}
+
+.fp-options .pp-flattener {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fp-options .fx-row {
+  grid-template-columns: minmax(0, 1fr) 64px;
+  gap: 4px 8px;
+}
+
+.fp-options .fx-row:not(.fx-plain) > .fx-label {
+  grid-column: 1 / -1;
+}
+
+.fp-preview {
+  position: relative;
+}
+
+.fp-canvas {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  touch-action: none;
+}
+
+.fp-canvas:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.fp-zoom {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-float);
+}
+
+.fp-status {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.pp-flattener {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
