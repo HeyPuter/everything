@@ -101,7 +101,7 @@ The top bar shows a status chip (Connected, Syncing…, Offline · N pending, Di
 
 ## Offline and recovery
 
-Every local change goes into an outbox in IndexedDB (`photo-studio-collab`), with the deflated bytes of the tiles it needs, before it is sent. Delivery merges queued updates into batches, uploads their tiles first, and removes them once the worker accepts. Without a connection the chip shows how many changes are waiting; they are sent when the connection returns, and also after a reload: opening the document again in this browser replays its outbox. Closing a tab with undelivered changes asks first. Clearing site data removes undelivered changes.
+Every local change goes into an outbox in IndexedDB (`photo-studio-collab`), with the deflated bytes of the tiles it needs, before it is sent. Each tab numbers its own entries (keyed by its session), so several tabs with the same shared document in one browser never overwrite each other's queued changes; any of them may deliver them, in the order they were made. Delivery merges queued updates into batches, uploads their tiles first, and removes them once the worker accepts. Tiles refused for good (after a role change, at the storage limit) are handled like a refused commit: the queued changes are dropped, the person is told why, and the tab opens the shared state again. Without a connection the chip shows how many changes are waiting; they are sent when the connection returns, and also after a reload: opening the document again in this browser replays its outbox. Closing a tab with undelivered changes asks first. Clearing site data removes undelivered changes.
 
 When access ends (removed, expired, sharing stopped), the tab keeps the document as a local copy with its comments and says so.
 

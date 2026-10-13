@@ -483,7 +483,7 @@ export class RoomService {
   }
 
   private async putAssets(room: string, member: Member, input: Record<string, unknown>) {
-    if (!canEdit(member.role)) fail(403, 'You can only view this shared document.');
+    if (!canEdit(member.role)) fail(403, canComment(member.role) ? 'You can comment on this shared document but not change it.' : 'You can only view this shared document.');
     const list = input.assets;
     if (!Array.isArray(list) || list.length > 256) fail(400, 'Invalid assets.');
     let total = 0;

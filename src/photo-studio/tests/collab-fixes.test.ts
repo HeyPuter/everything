@@ -11,7 +11,9 @@ import { newThread } from '../src/collab/comments';
 import type { Identity } from '../src/collab/server/service';
 import { call } from '../src/collab/api';
 import { commenter, editor, environment, owner, until, viewer, wait } from './collab-helpers';
-import { closeAll, connect, idOf, invite, SERVER, settle, share, type Env } from './collab-session-helpers';
+import { MemoryStore } from '../src/persistence/local-store';
+import type { OutboxStores } from '../src/collab/client';
+import { closeAll, connect, edit, idOf, invite, paintOn, pixel, SERVER, settle, share, type Env } from './collab-session-helpers';
 
 afterEach(closeAll);
 
@@ -146,5 +148,54 @@ describe('comment author names', () => {
     await expect(commit(env, commenter, room, await change(y3, () => y3.getMap<Y.Map<unknown>>('comments').get(t.id)!.set('resolved', { by: { id: commenter.uuid, name: 'alice' }, at: 5 })))).rejects.toThrow(/own name/);
     await settle(a);
     expect(readThreads(a.client.ydoc).map((x) => x.author.name)).toEqual(['dee']);
+  });
+});
+
+describe('the outbox', () => {
+  it('keeps the changes of two tabs on one document in one browser apart', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const token = await invite(env, room, 'editor');
+    const store = new MemoryStore<OutboxStores>();
+    const one = await connect(env, editor, room, { token, store });
+    const two = await connect(env, editor, room, { store });
+    const top = idOf(two, 'Top');
+    env.offlineUsers.add(editor.uuid);
+    edit(one, 'Rename', (d) => (d.layers[0].name = 'From tab one'));
+    edit(two, 'Rename', (d) => (d.layers[1].name = 'From tab two'));
+    paintOn(two, top, 0, 0, 20, 20, 99);
+    for (const p of [one, two]) await p.binding.idle();
+    await until(async () => (await store.all('outbox')).length === 3, 2000, 'three queued changes');
+    // Tab one closes; tab two delivers everything once back online.
+    one.client.close();
+    env.offlineUsers.delete(editor.uuid);
+    two.client.flush();
+    await two.client.settled();
+    await settle(a);
+    expect(a.binding.history.document.layers.map((l) => l.name)).toEqual(['From tab one', 'From tab two', 'Fill']);
+    expect(pixel(a, top, 5, 5)).toBe(99);
+    expect(await store.all('outbox')).toEqual([]);
+  });
+
+  it('drops queued changes whose tiles the worker refuses after a demotion, and says so', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    const refused: string[] = [];
+    b.client.o.onRefused = (m) => refused.push(m);
+    env.offlineUsers.add(editor.uuid);
+    paintOn(b, idOf(b, 'Top'), 0, 0, 30, 30, 55);
+    await b.binding.idle();
+    await until(async () => (await b.store.all('blobs')).length > 0, 2000, 'staged tiles');
+    await call(env.sdk(owner), SERVER, { op: 'role', room, uuid: editor.uuid, role: 'commenter' });
+    env.offlineUsers.delete(editor.uuid);
+    b.client.flush();
+    await until(() => refused.length > 0, 3000, 'refusal');
+    expect(refused[0]).toMatch(/comment/i);
+    expect(await b.store.all('outbox')).toEqual([]);
+    expect(await b.store.all('blobs')).toEqual([]);
+    expect(b.client.status.state).not.toBe('error');
+    await settle(a);
+    expect(pixel(a, idOf(a, 'Top'), 5, 5)).toBe(0);
   });
 });
