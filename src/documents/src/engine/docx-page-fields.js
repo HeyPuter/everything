@@ -40,6 +40,8 @@ export const RETAINED_FIELDS = new Set(['SEQ', 'REF', 'NOTEREF', 'STYLEREF', 'DA
 
 export function pageFieldInstruction(instruction) {
   // Retained instructions can carry arbitrary data (citation add-ins embed JSON), so they are not tokenized.
+  // An = (formula) field keeps its cached result; table formulas recompute it on Update Fields.
+  if (/^\s*=/.test(instruction || '')) return { type: '=', instruction, retained: true, mergeFormat: /\\\*\s*MERGEFORMAT\b/i.test(instruction) };
   const keyword = /^\s*([A-Za-z]+)(?=\s|$)/.exec(instruction || '')?.[1]?.toUpperCase();
   if (RETAINED_FIELDS.has(keyword)) return { type: keyword, instruction, retained: true, mergeFormat: /\\\*\s*MERGEFORMAT\b/i.test(instruction) };
   const tokens = fieldInstructionTokens(instruction);

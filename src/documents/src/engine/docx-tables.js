@@ -18,6 +18,7 @@ import { readFloatingTable } from './floating-tables.js';
 import { tableId, cellSpan, verticalMerges } from './tables.js';
 import { tableStyleLook } from './table-style-regions.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
+import { writeTableStyleProperties } from './docx-table-styles.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const children = n => [...(n?.children || [])];
 const child = (n, name) => children(n).find(c => c.namespaceURI === W && c.localName === name);
@@ -119,6 +120,8 @@ function tableProperties(n, base, readColor) {
     next.indent = ['dxa', 'nil'].includes(w.type) ? w.type === 'nil' ? 0 : w.value : 0;
   }
   checkCellSpacing(child(n, 'tblCellSpacing'));
+  if (child(n, 'tblCaption')) next.caption = attr(child(n, 'tblCaption'), 'val') ?? '';
+  if (child(n, 'tblDescription')) next.description = attr(child(n, 'tblDescription'), 'val') ?? '';
   next.margins = resolveCellMargins(base.margins, readCellMargins(child(n, 'tblCellMar'), true));
   next.borders = { ...base.borders, ...readTableBorders(child(n, 'tblBorders'), readColor) };
   next.shading = readCellShading(n, readColor) ?? base.shading;
@@ -297,6 +300,11 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
   if (!columns.length || columns.length > 32 || format.layout === 'fixed' && columns.some(w => !w)) fail('missing, zero or excessive grid columns');
   const table = { id: tableId('t'), ...format, styleId: styleId || null, grid: columns, shell: shell(node, ['tblPr', 'tblGrid']), rows: [] }, paragraphs = [], contentByCell = new Map(), wrappedCellSources = new Map();
   const conditional = conditionalStyle(chain, pr, cellBase, rowBase, readColor, preview, properties);
+  // The look chooses the style's regions (Table Style Options), with or without regions to choose.
+  for (const properties of [...chain.map(s => child(s, 'tblPr')), pr]) {
+    const look = child(properties, 'tblLook');
+    if (look) try { table.look = tableStyleLook(Object.fromEntries([...look.attributes].filter(a => a.namespaceURI === W).map(a => [a.localName, a.value]))); } catch { /* the conditional reader reports it */ }
+  }
   if (conditional) {
     conditional.settings.compatibilityMode = compatibilityMode;
     table.conditionalStyle = conditional;
@@ -428,7 +436,29 @@ export function writeTable(block, doc, writeParagraph) {
       else pr.insertBefore(next, children(pr).find(n => order.indexOf(n.localName) > order.indexOf(tag)) || null);
     }
   }
-  if (table.floatingChanged) {
+  const tableOrder = ['tblStyle', 'tblpPr', 'tblOverlap', 'bidiVisual', 'tblStyleRowBandSize', 'tblStyleColBandSize', 'tblW', 'jc', 'tblCellSpacing', 'tblInd', 'tblBorders', 'shd', 'tblLayout', 'tblCellMar', 'tblLook', 'tblCaption', 'tblDescription', 'tblPrChange'];
+  // Replace (or remove, with null) one table property, keeping the schema order.
+  const setTableProperty = (tag, next) => {
+    let pr = child(node, 'tblPr');
+    if (!pr) { if (!next) return; pr = make('tblPr'); node.prepend(pr); }
+    const old = child(pr, tag);
+    if (old && next) old.replaceWith(next);
+    else if (old) old.remove();
+    else if (next) pr.insertBefore(next, children(pr).find(n => tableOrder.indexOf(n.localName) > tableOrder.indexOf(tag)) || null);
+  };
+  writeTableStyleProperties(table, setTableProperty, prop, make);
+  if (table.altTextChanged) {
+    setTableProperty('tblCaption', table.caption ? prop('tblCaption', { val: table.caption }) : null);
+    setTableProperty('tblDescription', table.description ? prop('tblDescription', { val: table.description }) : null);
+  }
+  if (table.marginsChanged) {
+    const margins = make('tblCellMar'); for (const side of ['top', 'left', 'bottom', 'right']) margins.append(prop(side, { type: 'dxa', w: table.margins[side] ?? 0 }));
+    setTableProperty('tblCellMar', margins);
+  }
+  if (table.floatingCreated || table.floatingRemoved) {
+    const position = table.floating;
+    setTableProperty('tblpPr', position ? prop('tblpPr', Object.fromEntries(['leftFromText', 'rightFromText', 'topFromText', 'bottomFromText', 'vertAnchor', 'horzAnchor', 'tblpXSpec', 'tblpX', 'tblpYSpec', 'tblpY'].filter(k => position[k] !== undefined && !(k === 'tblpX' && position.tblpXSpec)).map(k => [k, position[k]]))) : null);
+  } else if (table.floatingChanged) {
     const positioning = child(child(node,'tblPr'),'tblpPr');
     if (!positioning) throw new Error('Missing retained floating-table positioning.');
     positioning.setAttributeNS(W,'w:tblpX',String(table.floating.tblpX));
@@ -447,6 +477,13 @@ export function writeTable(block, doc, writeParagraph) {
     if (row.alignmentChanged || !row.shell && row.alignment) {
       const pr = rowProperties(); child(pr, 'jc')?.remove();
       pr.insertBefore(prop('jc', { val: row.alignment }), children(pr).find(n => ['hidden', 'ins', 'del', 'trPrChange'].includes(n.localName)) || null);
+    }
+    for (const side of ['Before', 'After']) if (row[`grid${side}Changed`]) {
+      const pr = rowProperties(), name = `grid${side}`, old = child(pr, name), value = row[name] || 0;
+      const next = value ? prop(name, { val: value }) : null;
+      if (old && next) old.replaceWith(next); else if (old) old.remove();
+      else if (next) pr.insertBefore(next, children(pr).find(n => !['cnfStyle', 'divId', ...(side === 'After' ? ['gridBefore'] : [])].includes(n.localName)) || null);
+      if (!value) { child(pr, `w${side}`)?.remove(); row[`width${side}Changed`] = false; }
     }
     for (const side of ['Before', 'After']) if (row[`width${side}Changed`]) {
       const pr = rowProperties(), name = `w${side}`, next = prop(name, widthAttrs(row[`width${side}`])), old = child(pr, name);
@@ -496,13 +533,15 @@ export function writeTable(block, doc, writeParagraph) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }
         pr.insertBefore(make('hideMark'), children(pr).find(n => ['headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
       }
-      if (!cell.shell && (cell.noWrap || cell.noWrapExplicit)) {
+      if (cell.noWrapChanged || !cell.shell && (cell.noWrap || cell.noWrapExplicit)) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }
-        pr.insertBefore(prop('noWrap', cell.noWrap ? {} : { val: '0' }), children(pr).find(n => ['tcMar', 'textDirection', 'tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
+        child(pr, 'noWrap')?.remove();
+        if (cell.noWrapExplicit) pr.insertBefore(prop('noWrap', cell.noWrap ? {} : { val: '0' }), children(pr).find(n => ['tcMar', 'textDirection', 'tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
       }
-      if (!cell.shell && cell.textDirectionExplicit) {
+      if (cell.textDirectionChanged || !cell.shell && cell.textDirectionExplicit) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }
-        pr.insertBefore(prop('textDirection', { val: cell.textDirection }), children(pr).find(n => ['tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
+        child(pr, 'textDirection')?.remove();
+        if (cell.textDirectionExplicit && cell.textDirection !== 'lrTb') pr.insertBefore(prop('textDirection', { val: cell.textDirection }), children(pr).find(n => ['tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
       }
       if (cell.shadingChanged || !cell.shell && cell.shadingExplicit) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }

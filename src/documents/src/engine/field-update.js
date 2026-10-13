@@ -5,6 +5,7 @@ import { bodyFieldRanges } from './body-fields.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
+import { formulaResult } from './table-formula.js';
 
 const FORMATS = { ARABIC: 'decimal', ROMAN: 'upperRoman', roman: 'lowerRoman', ALPHABETIC: 'upperLetter', alphabetic: 'lowerLetter' };
 
@@ -65,7 +66,8 @@ export function fieldUpdatePlan(model, { onIssue = () => {} } = {}) {
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
         if (bookmark.columnRange || /[\n￼]/.test(value)) { retain('A REF with structural or object content cannot be refreshed yet'); continue; }
       }
-    } else continue;
+    } else if (type === '=') value = formulaResult(model, range.field.instruction, range.cellId || null);
+    else continue;
     if (text.slice(range.start, range.end) !== value) changes.push({ range, text: value });
   }
   return changes;

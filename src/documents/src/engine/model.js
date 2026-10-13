@@ -38,6 +38,7 @@ import { checkedHighlight, checkedShading, cellShadingFill } from './backgrounds
 import { checkedVerticalAlign, checkedBaselineShift } from './vertical-align.js';
 import { normalizeColor } from './colors.js';
 import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount, tableId, fixedColumnWidths, documentBlocks, cellSpan, rowGrid, spanWidth } from './tables.js';
+import { normalizeCellBlock, cellBlockPlacements } from './table-selection.js';
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
@@ -351,6 +352,8 @@ export class TextDocument {
     this.didChange(); return true;
   }
   setParagraphFormat(patch) {
+    const pass = this.blockCellPass(() => this.setParagraphFormat(patch));
+    if (pass !== undefined) return pass;
     if (!Object.keys(patch).length) return false;
     patch = { ...patch };
     if ('underlineColor' in patch && !('underline' in patch)) throw new Error('Set underline and its color together.');
@@ -535,7 +538,51 @@ export class TextDocument {
   insertPageBreak() { return this.replace('\f'); }
   insertColumnBreak() { return this.replace('\u000e'); }
   get tableContext() { return cellContext(this.tables, this.paragraphs[locate(this.paragraphs, this.selection.focus).index].cellId); }
+  /** A rectangular cell selection (Select Column, a drag across cells), or null. It is not part of the document. */
+  get activeCellBlock() {
+    const block = this.cellBlock, table = block && this.tables.find(t => t.id === block.tableId);
+    if (!table) return null;
+    let normalized; try { normalized = normalizeCellBlock(table, block); } catch { return null; }
+    return normalized && normalized.top === block.top && normalized.bottom === block.bottom && normalized.left === block.left && normalized.right === block.right ? { ...block, table } : null;
+  }
+  setCellBlock(block) {
+    const table = block && this.tables.find(t => t.id === block.tableId);
+    const normalized = table ? normalizeCellBlock(table, block) : null;
+    const placements = normalized ? cellBlockPlacements(table, normalized) : [], first = placements[0];
+    if (!first) { this.cellBlock = null; return false; }
+    // Whole rows are one stretch of text, so text commands reach all of them. Any other block's text
+    // selection covers its first cell: typing replaces that cell's text, as with any selection.
+    const whole = normalized.left === 0 && normalized.right === table.grid.length, lastCell = whole ? placements.at(-1).cell : first.cell;
+    const index = this.paragraphs.findIndex(p => p.cellId === first.cell.id);
+    const last = this.paragraphs.findLastIndex(p => p.cellId === lastCell.id);
+    this.select(this.paragraphOffset(index), this.paragraphOffset(last) + paragraphText(this.paragraphs[last]).length);
+    this.cellBlock = { tableId: table.id, top: normalized.top, bottom: normalized.bottom, left: normalized.left, right: normalized.right };
+    return true;
+  }
+  /**
+   * A rectangular cell selection that is not whole rows formats each of its cells in turn: the text
+   * range through them would also reach the cells between. Returns undefined when there is no such block.
+   */
+  blockCellPass(fn) {
+    if (!this.cellBlock || this.inBlockCellPass) return undefined;
+    const block = this.activeCellBlock;
+    if (!block || block.left === 0 && block.right === block.table.grid.length) return undefined;
+    const selection = { ...this.selection }, saved = this.cellBlock;
+    let changed = false;
+    this.inBlockCellPass = true;
+    try {
+      for (const { cell } of cellBlockPlacements(block.table, block)) {
+        const first = this.paragraphs.findIndex(p => p.cellId === cell.id), last = this.paragraphs.findLastIndex(p => p.cellId === cell.id);
+        if (first < 0) continue;
+        this.select(this.paragraphOffset(first), this.paragraphOffset(last) + paragraphText(this.paragraphs[last]).length);
+        if (fn()) changed = true;
+      }
+    } finally { this.inBlockCellPass = false; this.selection = selection; this.cellBlock = saved; }
+    return changed;
+  }
   get selectedTableCells() {
+    const block = this.activeCellBlock;
+    if (block) return cellBlockPlacements(block.table, block).map(p => p.cell);
     const ids = new Set(this.selectedParagraphs.map(p => p.cellId).filter(Boolean));
     return this.tables.flatMap(table => editableCells(table).filter(cell => ids.has(cell.id)));
   }
@@ -766,6 +813,8 @@ export class TextDocument {
     refreshTableStyles(this, table); this.didChange(); return true;
   }
   get selectedTableRows() {
+    const block = this.activeCellBlock;
+    if (block) return block.table.rows.slice(block.top, block.bottom + 1);
     const rows = new Map();
     for (const table of this.tables) for (const [id, owner] of verticalMerges(table)) if (id === owner.cell.id) rows.set(id, table.rows.slice(owner.rowIndex, owner.endRow + 1));
     return [...new Set(this.selectedParagraphs.flatMap(p => rows.get(p.cellId) || []))];
@@ -825,7 +874,7 @@ export class TextDocument {
     if(this.hasBodyFields && bodyFieldRanges(this.paragraphs).some(r=>r.start<=this.range[0]&&this.range[0]<=r.end))throw new Error('Tables inside body fields are not supported yet.');
     if (this.hasPersistentBlockControls && blockControlGroups(this.paragraphs).some(g => g.control.persistent && g.start <= this.range[0] && this.range[0] <= g.end)) throw new Error('Tables inside persistent content controls are not supported yet.');
     const parent = this.tableContext;
-    if (!Number.isInteger(rows) || rows < 1 || rows > 100 || !Number.isInteger(columns) || columns < 1 || columns > 16) throw new Error('Choose 1–100 rows and 1–16 columns.');
+    if (!Number.isInteger(rows) || rows < 1 || rows > 500 || !Number.isInteger(columns) || columns < 1 || columns > 32) throw new Error('Choose 1–500 rows and 1–32 columns.');
     if (this.text.length + rows * columns + 1 > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const borderSize = 4; // Eighth-points; the generated table uses single borders.
     const page = this.sectionPageSettings;
@@ -973,6 +1022,7 @@ export class TextDocument {
   }
   snapshot() { return copy({ comments: this.comments, tables: this.tables, styles: this.styles, stylesEnabled: this.stylesEnabled, numbering: this.numbering, pageSettings: this.pageSettings, paragraphs: this.paragraphs, selection: this.selection, typingFormat: this.typingFormat, typingStyle: this.typingStyle, typingDirectCleared: this.typingDirectCleared }); }
   restore(state) {
+    this.cellBlock = null;
     if (state.comments !== undefined) this.comments = copy(state.comments);
     this.tables = copy(state.tables || []);
     this.styles = copy(state.styles || emptyStyles()); this.stylesEnabled = !!state.stylesEnabled;
@@ -989,6 +1039,7 @@ export class TextDocument {
     this.future = [];
   }
   select(anchor, focus = anchor, controlCaret, controlSelection) {
+    this.cellBlock = null;
     const text = this.text, points = boundaries(text);
     const clamp = value => {
       const n = Math.max(0, Math.min(Number.isFinite(value) ? value : 0, text.length));
@@ -1435,6 +1486,8 @@ export class TextDocument {
   }
   setFontSize(fontSize) { return this.setRunFormat({ fontSize, fontSizeCs: fontSize }); }
   setRunFormat(patch) {
+    const pass = this.blockCellPass(() => this.setRunFormat(patch));
+    if (pass !== undefined) return pass;
     if (patch.cs || patch.rtl) throw new Error('Active complex-script and RTL editing is not supported yet.');
     const legacyUnderline = 'underline' in patch && !('underlineStyle' in patch);
     patch = { ...underlineDeclaration(patch) };
@@ -2052,3 +2105,6 @@ export class TextDocument {
     return true;
   }
 }
+
+// Table commands outside this file (table-editing.js) share the structural helpers above.
+export const tableModelInternals = Object.freeze({ tableContent, applyTableContent, blankCellParagraph, clearMerge, setCellWidths, refreshTableStyles, reparentCellContent, removeOrphanedTables });

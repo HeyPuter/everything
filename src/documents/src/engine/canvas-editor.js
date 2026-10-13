@@ -37,6 +37,7 @@ import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRec
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext } from './tables.js';
+import { cellBlockRects } from './table-selection.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -534,7 +535,8 @@ export class CanvasEditor {
     const [start, end] = this.model.range;
     // A shape selected on its own shows only its frame handles.
     const shapeOnly = end === start + 1 && this.drawingEditor?.canResize(this.model.selectedImage);
-    const rects = shapeOnly ? [] : selectionRects(this.selectionLayout, start, end);
+    // A rectangular cell selection highlights whole cells rather than the text range through them.
+    const rects = shapeOnly ? [] : this.model.cellBlock ? cellBlockRects(this.selectionLayout, this.model) : selectionRects(this.selectionLayout, start, end);
     const owned = this.model.selection.controlCaret?.side === 'inside' && start === end && !this.accessible && document.activeElement === this.input
       ? inlineControlCaret(this.model.paragraphs, start, this.model.selection.controlCaret) : null;
     const controlRects = owned && !owned.control.hiddenAppearance ? owned.start === owned.end
@@ -620,7 +622,8 @@ export class CanvasEditor {
         const backgrounds = paragraphBackgrounds(pageLines, geometry, paintedCells);
         const paragraphBorders = (pageStory ? this.storyLayout.borders : this.layout.paragraphBorders || []).filter(border => border.page === index);
         const paintedParagraphInk = paintParagraphBackgrounds(ctx, new Set([...backgrounds.values()].map(value => value.rect).filter(Boolean)), paragraphBorders);
-        for (const guide of printing ? [false] : [true, false]) for (const stroke of tableBorders) if (stroke.guide === guide) paintTableBorder(ctx, stroke);
+        // Dashed gridlines mark borderless cell edges on screen (View Gridlines); they never print.
+        for (const guide of printing || this.showTableGridlines === false ? [false] : [true, false]) for (const stroke of tableBorders) if (stroke.guide === guide) paintTableBorder(ctx, stroke);
         for (const border of paragraphBorders) paintParagraphBorder(ctx, border, paintedParagraphInk.get(border));
         // Run backgrounds precede selection and glyphs, including repeated headers.
         const surfaceGeometry = geometry;

@@ -64,8 +64,6 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const separator = { separator: true };
   const optionItems = (select, filter = () => true) => [...select.options].filter(o => o.value && !o.disabled && filter(o)).map(o => ({
     label: o.textContent, onSelect: () => { select.value = o.value; select.dispatchEvent(new Event('change', { bubbles: true })); } }));
-  const tableAction = value => () => { c.tableActions.value = value; c.tableActions.dispatchEvent(new Event('change', { bubbles: true })); };
-  const tableOption = value => c.tableActions.querySelector(`option[value="${value}"]`);
   // Ribbon commands without an editor control follow these predicates on every refresh.
   const states = [];
   const when = (control, enabled, pressed) => { states.push({ control, enabled, pressed }); return control; };
@@ -348,60 +346,10 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- Contextual: tables ---- */
-  const repeatHeader = command('Repeat Header Rows', 'repeatHeader', () => {
-    const header = c.tableActions.querySelector('option[value="clearHeader"]');
-    (header && !header.disabled ? tableAction('clearHeader') : tableAction('repeatHeader'))();
-  }, { text: 'Repeat Header Rows', attrs: { 'aria-pressed': 'false' } });
-  when(repeatHeader, () => !c.tableActions.disabled && !(tableOption('repeatHeader')?.disabled && tableOption('clearHeader')?.disabled),
-    () => tableOption('clearHeader') && !tableOption('clearHeader').disabled ? 'true' : 'false');
-  large(c.cellShading, { label: 'Shading', icon: 'cellShading' });
-  large(c.cellBorders, { label: 'Borders', icon: 'cellBorders' });
-  // Table designs: style options and a gallery of table styles.
-  const designs = w.tableDesignControls?.();
-  const designMore = command('More Table Styles', 'more', e => openMenu({ anchor: designMore, label: 'Table Styles', minWidth: 220, pointer: !!e?.detail, onClose: focusEditor, items: inDocument(designs?.menuItems() || []) }));
-  designMore.classList.add('ribbon-gallery-more');
-  noFocusSteal(designMore);
-  if (designs) when(designMore, () => !c.tableActions.disabled);
-  const tableDesign = { id: 'tableDesign', label: 'Table Design', contextual: 'table', groups: [
-    ...(designs ? [{ id: 'styleOptions', label: 'Table Style Options', icon: 'headerRow', priority: 5, items: [designs.optionsGrid] },
-      { id: 'tableStyles', label: 'Table Styles', icon: 'table', priority: 7, items: [el('div.ribbon-gallery-frame', {}, designs.gallery, designMore)] }] : []),
-    { id: 'borders', label: 'Borders', icon: 'cellBorders', priority: 6, items: [c.cellShading, c.cellBorders] },
-  ] };
-  large(c.tableProperties, { label: 'Properties', icon: 'tableProperties' });
-  const deleteMenu = menuButton('Delete', 'deleteTable', () => [['row', 'deleteRow'], ['column', 'deleteColumn'], ['table', 'deleteTable']].map(([value, icon]) => {
-    const option = tableOption(value);
-    return { label: option?.textContent || value, icon, disabled: !option || option.disabled || c.tableActions.disabled, onSelect: tableAction(value) };
-  }));
-  const tableCommand = (value, label, icon, size = 'large') => {
-    const button = command(label, icon, tableAction(value), { size, text: label });
-    when(button, () => !c.tableActions.disabled && !!tableOption(value) && !tableOption(value).disabled);
-    noFocusSteal(button);
-    return button;
-  };
-  when(deleteMenu, () => !c.tableActions.disabled);
-  const insertBelow = tableCommand('addRow', 'Insert Below', 'insertBelow');
-  const insertRight = tableCommand('addColumn', 'Insert Right', 'insertRight');
-  const paragraphBefore = tableCommand('before', 'Paragraph Before', 'paragraphBefore', 'small');
-  const paragraphAfter = tableCommand('after', 'Paragraph After', 'paragraphAfter', 'small');
-  const mergeCells = tableCommand('mergeCells', 'Merge Cells', 'mergeCells', 'small');
-  const mergeBelow = tableCommand('mergeBelow', 'Merge Below', 'mergeBelow', 'small');
-  const splitCells = tableCommand('splitCell', 'Split Cells', 'splitCells', 'small');
-  const autofit = menuButton('AutoFit', 'autofit', () => [
-    { label: 'AutoFit Contents', disabled: c.tableActions.disabled, onSelect: tableAction('fitContents') },
-    { label: tableOption('fitPage')?.textContent === 'Fit to cell' ? 'AutoFit Cell' : 'AutoFit Window', disabled: c.tableActions.disabled, onSelect: tableAction('fitPage') }]);
-  when(autofit, () => !c.tableActions.disabled);
-  small(c.rowHeight, { icon: 'rowHeight', label: 'Height' });
-  small(c.keepRow, { icon: 'keepRow', label: 'Keep Together' });
-  large(c.cellAlignment, { label: 'Alignment', icon: 'cellAlignment' });
-  large(c.cellMargins, { label: 'Cell Margins', icon: 'cellMargins' });
-  const tableLayout = { id: 'tableLayout', label: 'Table Layout', contextual: 'table', groups: [
-    { id: 'table', label: 'Table', icon: 'tableProperties', priority: 5, items: [c.tableProperties] },
-    { id: 'rowsColumns', label: 'Rows & Columns', icon: 'insertBelow', priority: 8, items: [deleteMenu, insertBelow, insertRight, rows([paragraphBefore], [paragraphAfter])] },
-    { id: 'merge', label: 'Merge', icon: 'mergeCells', priority: 7, items: [rows([mergeCells], [mergeBelow], [splitCells])] },
-    { id: 'cellSize', label: 'Cell Size', icon: 'rowHeight', priority: 6, items: [autofit, rows([c.rowHeight], [c.keepRow])] },
-    { id: 'alignment', label: 'Alignment', icon: 'cellAlignment', priority: 4, items: [c.cellAlignment, c.cellMargins] },
-    { id: 'data', label: 'Data', icon: 'repeatHeader', priority: 3, items: [rows([repeatHeader])] },
-  ] };
+  // The table tabs come from the table tools (views/table-tools.js); `designs` also refreshes them.
+  const designs = w.tableRibbon?.({ command, menuButton, split, rows, divider, large, small, when, check, spin, inDocument, engineReady, focusEditor, separator, commandIconEl, controls: c });
+  const tableDesign = { id: 'tableDesign', label: 'Table Design', contextual: 'table', groups: designs?.design || [] };
+  const tableLayout = { id: 'tableLayout', label: 'Table Layout', contextual: 'table', groups: designs?.layout || [] };
 
   /* ---- Contextual: pictures ---- */
   large(c.imageProperties, { label: 'Image Properties', icon: 'pictures' });

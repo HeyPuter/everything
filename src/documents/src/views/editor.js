@@ -27,6 +27,7 @@ import { openTextColor } from './text-color.js';
 import { openTableProperties } from './table-properties.js';
 import { openImageProperties } from './image-properties.js';
 import { openInsertTable } from './insert-table.js';
+import { createTableTools } from './table-tools.js';
 import { openStyleEditor } from './style-editor.js';
 import { createNavigationPane } from './navigation-pane.js';
 import { goToTargets, openGoTo } from './go-to.js';
@@ -169,14 +170,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       }))});
     }
     if(behind) items.push({separator:true},{label:'Select picture behind text',onSelect:selectBehind});
-    // In a table, the row and column commands of Table > Rows & columns are offered here too.
-    if (!image && engine.model.tableContext && editable) {
-      update();
-      const tableItem = value => { const option = tableActions.querySelector(`option[value="${value}"]`);
-        return option && { label: option.textContent, disabled: option.disabled, onSelect: () => { tableActions.value = value; tableActions.dispatchEvent(new Event('change')); } }; };
-      items.push({separator:true}, ...['addRow', 'addColumn'].map(tableItem), {separator:true}, ...['row', 'column', 'table'].map(tableItem),
-        {separator:true}, ...['mergeCells', 'splitCell'].map(tableItem), {label:'Table properties…',onSelect:()=>tableProperties.click()});
-    }
+    // In a table, the table commands (insert, delete, merge, borders, alignment…) are offered here too.
+    if (!image && engine.model.tableContext && editable) items.push(...(editorCommands.contextMenuItems?.('table', {}) || []));
     const commentItems = review.contextItems();
     if (commentItems.length) items.push({separator:true}, ...commentItems);
     if (engine.session.path === null && engine.model.hasBodyFields) items.push({separator:true},{label:'Update page references',disabled:!editable,onSelect:()=>engine.updatePageReferences()});
@@ -545,10 +540,11 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       const ok = engine.insertTable(rows, columns);
       if (!ok && start !== end) { engine.model.select(start, end); engine.syncInput(); }
       if (ok) queueMicrotask(() => engine?.focus()); return ok;
-    }, { anchor, ...options });
+    }, { anchor, items: editorCommands.tableInsertMenuItems?.() || [], ...options });
   };
   const tableProperties = tool('Table properties', 'ruler', () => {
     if (!engine?.model.tableContext) return; engine.finishComposition();
+    if (editorCommands.openTableProperties) { editorCommands.openTableProperties(); return; }
     const { table, column } = engine.model.tableContext;
     const widths = engine.layout.tableWidths[table.id].map(w => w * 15);
     tableModal = openTableProperties(table, widths, column, patch => {
@@ -680,6 +676,11 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       { label: 'Recheck Document', disabled: !proofing.enabled, onSelect: () => proofing.recheck() },
     ],
   });
+  const tables = createTableTools({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(), controls: { get cellBorders() { return cellBorders; } } });
+  Object.assign(editorCommands, tables.commands);
+  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...tables.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...tables.contextMenuItems(context, kit)];
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
     base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
   Object.assign(editorCommands, references.commands);
@@ -817,7 +818,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       find.disabled = false; finder.refresh();
       stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
       words.textContent = 'Read only';
-      chrome.refresh(); review.refresh();
+      chrome.refresh(); review.refresh(); tables.refresh();
       return;
     }
     undo.disabled = !engine.session.history.length;
@@ -927,7 +928,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     lineSpacing.value = format.lineRule === 'auto' && [1, 1.15, 1.5, 2, 2.5, 3].includes(format.lineSpacing) ? String(format.lineSpacing) : '';
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
-    chrome.refresh(); review.refresh();
+    chrome.refresh(); review.refresh(); tables.refresh();
     const total = engine.model.text.trim().split(/\s+/u).filter(Boolean).length;
     const [a, b] = engine.model.range;
     const chosen = a !== b ? engine.model.text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
@@ -1035,6 +1036,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     }
     editorCommands.restoreMarks(engine);
     proofing.attach(engine);
+    tables.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
     rulers = createCanvasRulers({ host, surface, editor: () => engine, openParagraph: () => paragraphGeometry.click(), openPage: () => pageSetup.click() });
     // In a tablet-sized or narrow window (under 1024px) a page wider than the view at 100% opens at Fit
@@ -1092,7 +1094,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     destroy() {
       drawingTextModal?.close();
       printAbort.abort();
-      destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
+      destroyed = true; tables.destroy(); paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);

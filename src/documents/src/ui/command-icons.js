@@ -400,6 +400,44 @@ export const COMMAND_ICONS = {
   paragraphBefore: p('M3.5 3.5h8M3.5 6h5', 'o') + cells(3.5, 9, 13, 8.5, 3, 2) + badge(15.5, 4.5, 'plus', 'g', 3),
   paragraphAfter: cells(3.5, 2.5, 13, 8.5, 3, 2) + p('M3.5 14h8M3.5 16.5h5', 'o') + badge(15.5, 15.5, 'plus', 'g', 3),
   insertTab: p('M3.5 10h11M11.5 7l3 3-3 3', 'b thick') + p('M16.5 5v10', 'o'),
+  // Insert ▸ Table and drawing tools: a ready table with a spark, a table drawn with a pencil, an eraser over a line.
+  quickTable: tableWith(2.5, 4.5, 12, 12, 3, 3, r(2.5, 4.5, 12, 4, 'bw')) + p('M15.8 1.8 13 7h2.6l-1.2 4.5 4-6h-2.7l1.4-3.7z', 'ys'),
+  drawTable: cells(2.5, 6.5, 11, 11, 2, 2, { frame: 'o' }) + pencil(2.5, -3),
+  tableEraser: cells(2.5, 3.5, 12, 11, 2, 2, { frame: 'o' }) + p('M9.5 17.5l5-5a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4l-3.5 3.5h-3z', 'pf') + p('M12.2 14.8l2.6 2.6', 'o'),
+  convertToTable: lines(2.5, 5, 5.5, 4, 3) + arrowRight(8.5, 9.5, 3.5) + cells(13, 4.5, 5, 10.5, 1, 3),
+  convertToText: cells(2.5, 4.5, 5, 10.5, 1, 3) + arrowRight(8.5, 9.5, 3.5) + lines(13, 5, 5, 4, 3),
+  // Borders group: pens and the painter.
+  borderStyles: p('M3 5h14', 'b thick') + p('M3 9.5h14M3 11.5h14', 'o') + p('M3 15.5h14', 'n dash thick'),
+  lineStyle: p('M3 4.5h14', 'o thick') + p('M3 9h14', 'o dash') + p('M3 13.5h14M3 15.5h14', 'o'),
+  penColor: pencil(1.5, -2.5) + r(3, 16, 14, 2.5, 'rs', 0.6),
+  borderPainter: borderIcon(['left', 'bottom']).replace(/o dash ln/g, 'o dash ln') + brush(0, -2),
+  borderInsideH: borderIcon(['h']),
+  borderInsideV: borderIcon(['v']),
+  // Select: the selected part of a table under a blue wash.
+  selectTable: tableWith(2.5, 3.5, 15, 13, 3, 3, r(2.5, 3.5, 15, 13, 'bw')),
+  selectRow: tableWith(2.5, 3.5, 15, 13, 3, 3, r(2.5, 7.83, 15, 4.33, 'bw')) + r(2.5, 7.83, 15, 4.33, 'b'),
+  selectColumn: tableWith(2.5, 3.5, 15, 13, 3, 3, r(7.5, 3.5, 5, 13, 'bw')) + r(7.5, 3.5, 5, 13, 'b'),
+  selectCell: cells(2.5, 3.5, 15, 13, 3, 3, { frame: 'o' }) + r(7.5, 7.83, 5, 4.33, 'b thick'),
+  insertCells: tableWith(2.5, 3.5, 13, 12, 3, 3, r(6.83, 7.5, 4.33, 4, 'gw')) + badge(15.5, 15.5, 'plus'),
+  deleteCells: tableWith(2.5, 3.5, 13, 12, 3, 3, r(6.83, 7.5, 4.33, 4, 'rw')) + badge(15.5, 15.5, 'minus', 'r'),
+  splitTable: cells(2.5, 2.5, 15, 5.5, 3, 2, { frame: 'o' }) + cells(2.5, 12, 15, 5.5, 3, 2, { frame: 'o' }) + p('M1.5 10h17', 'b dash'),
+  fitWindow: cells(5, 5.5, 10, 9, 3, 2) + p('M1.5 3.5v13M18.5 3.5v13', 'o') + p('M2.5 10h2M15.5 10h2', 'b thick'),
+  distributeRows: cells(6, 3, 11.5, 14, 2, 3, { frame: 'o' }) + p('M3 3.5v13M1.5 5 3 3.5 4.5 5M1.5 15 3 16.5 4.5 15M1.8 8.2h2.4M1.8 11.8h2.4', 'b'),
+  distributeColumns: cells(3, 6, 14, 11.5, 3, 2, { frame: 'o' }) + p('M3.5 3h13M5 1.5 3.5 3 5 4.5M15 1.5 16.5 3 15 4.5M8.2 1.8v2.4M11.8 1.8v2.4', 'b'),
+  // Alignment grid: two lines placed in the cell as the command aligns them.
+  cellAlignTopLeft: r(2.5, 2.5, 15, 15, 'of') + p('M5 5.5h7M5 8.0h4.5', 'b thick'),
+  cellAlignTopCenter: r(2.5, 2.5, 15, 15, 'of') + p('M6.5 5.5h7M7.75 8.0h4.5', 'b thick'),
+  cellAlignTopRight: r(2.5, 2.5, 15, 15, 'of') + p('M8 5.5h7M10.5 8.0h4.5', 'b thick'),
+  cellAlignCenterLeft: r(2.5, 2.5, 15, 15, 'of') + p('M5 8.75h7M5 11.25h4.5', 'b thick'),
+  cellAlignCenterCenter: r(2.5, 2.5, 15, 15, 'of') + p('M6.5 8.75h7M7.75 11.25h4.5', 'b thick'),
+  cellAlignCenterRight: r(2.5, 2.5, 15, 15, 'of') + p('M8 8.75h7M10.5 11.25h4.5', 'b thick'),
+  cellAlignBottomLeft: r(2.5, 2.5, 15, 15, 'of') + p('M5 12h7M5 14.5h4.5', 'b thick'),
+  cellAlignBottomCenter: r(2.5, 2.5, 15, 15, 'of') + p('M6.5 12h7M7.75 14.5h4.5', 'b thick'),
+  cellAlignBottomRight: r(2.5, 2.5, 15, 15, 'of') + p('M8 12h7M10.5 14.5h4.5', 'b thick'),
+  textDirection: `<g transform="rotate(-90 8 10)">${t(8, 14, 'A', 11)}</g>` + arrowUp(15.5, 3.5, 12, 'b thick'),
+  sortTable: cells(2.5, 3.5, 9, 13, 1, 4, { head: 'bf' }) + cells(2.5, 3.5, 9, 13, 1, 4, { frame: 'o' }) + arrowDown(15, 3.5, 13),
+  // Formula: an equals sign and a pair of parentheses in a cell.
+  formula: r(2.5, 3.5, 15, 13, 'of') + p('M5 8.5h4.5M5 11.5h4.5', 'b thick') + p('M13 6.5c-1.6 1.2-1.6 5.8 0 7M15 6.5c1.6 1.2 1.6 5.8 0 7', 'o'),
 };
 
 /** Aliases: the editor's existing control icon names that map onto a drawing above. */
