@@ -310,6 +310,8 @@ const phrase = (lang, text, values = {}) =>
     (_, key) => values[key],
   );
 
+// The most pixels per inch a page's picture needs, as printed.
+const PRINT_PPI = 400;
 // Content area below the title band and above the footer labels, in PDF
 // coordinates (origin at the bottom left).
 const contentBox = ([width, height], m) => ({
@@ -680,7 +682,14 @@ export async function exportPDF(
         entry.kind === "detail"
           ? pageItems(entry.region, rect, scenes)
           : entry.region.items;
-      const pixels = Math.min(4, Math.max(2, (scale * 200) / 72)),
+      // Two to four pixels per board pixel keep a page sharp when zoomed,
+      // but never more than print needs: a large area reduced onto a page
+      // would otherwise take hundreds of megapixels a page.
+      const pixels = Math.min(
+          4,
+          Math.max(2, (scale * 200) / 72),
+          (scale * PRINT_PPI) / 72,
+        ),
         maxSize = entry.kind === "overview" ? 2400 : 4096;
       // One picture is at most 4,096 pixels a side, which on a very large
       // page, as fit to content makes for a big board, would print at a

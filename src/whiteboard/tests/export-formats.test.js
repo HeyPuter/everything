@@ -2058,6 +2058,41 @@ test("a fit-to-content PDF of a very large board is drawn as several pictures, n
   assert.equal(calls.length, 1);
 });
 
+test("image PDF pages hold no more pixels than print needs", async () => {
+  const b = board("Spread out");
+  // A few notes far apart: fitted on one page, or split into readable
+  // detail, the area is reduced far below one point per board pixel.
+  b.items = [0, 1, 2, 3].map((n) =>
+    item("note", n * 20000, (n % 2) * 10000, { text: `Note ${n}` }),
+  );
+  const calls = [];
+  const tiny = async (board, rect, options) => {
+    calls.push({ rect, ...options });
+    return createCanvas(2, 2);
+  };
+  for (const scale of ["fit", "auto"]) {
+    calls.length = 0;
+    const options = { pageSize: "a4", scale },
+      plan = pdfPlan(exportRegions(b), options);
+    await exportPDF(b, exportRegions(b), "en", tiny, options);
+    const pictures = calls.filter((c) => !c.transparent);
+    // Pixels drawn, against the printed area of every page at 400 pixels
+    // per inch (72 points to the inch).
+    const drawn = pictures.reduce((sum, c) => {
+        const s = Math.min(c.scale, c.maxSize / Math.max(c.rect.w, c.rect.h));
+        return sum + c.rect.w * s * (c.rect.h * s);
+      }, 0),
+      printed = plan.reduce(
+        (sum, page) =>
+          sum +
+          ((page.rect.w * page.scale * page.rect.h * page.scale) / 72 ** 2) *
+            400 ** 2,
+        0,
+      );
+    assert.ok(drawn <= printed * 1.01, `${scale}: ${drawn} > ${printed}`);
+  }
+});
+
 test("UML, BPMN and ERD connector ends validate and export as drawn", () => {
   const b = board("Ends");
   b.items = [
