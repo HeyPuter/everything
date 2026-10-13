@@ -4,7 +4,7 @@
  * Paths keep their fills, strokes (width, caps, joins, miter limit,
  * dashes) and fill rules; colors convert from any color space, with
  * separation colors linked to spot swatches; axial and radial shadings
- * become gradients; tiling patterns become pattern swatches; clipping
+ * become gradients, function-based and mesh shadings gradient meshes; tiling patterns become pattern swatches; clipping
  * paths become clip groups and soft masks opacity masks; constant alpha
  * and blend modes carry over; images decode to embedded images; text
  * becomes editable type when its font is available (or the user asks for
@@ -18,6 +18,7 @@ import { Lexer, Parser, EOF } from './lexer.js';
 import { PDFDict, PDFStream, Name, Ref, Cmd, isCmd, textString } from './primitives.js';
 import { parseColorSpace, rgbHex, DEVICE_SPACES } from './colors.js';
 import { compileFunction } from './functions.js';
+import { meshShadingNodes } from './shading-mesh.js';
 import { loadFont, PDFFont } from './fonts.js';
 import { decodeImage, inlineImageDict } from './images.js';
 import { Builder, createPath, createCompound, createGroup } from './build.js';
@@ -670,6 +671,14 @@ export class Interpreter {
       }
       return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     };
+    // A path filled with a mesh shading: the meshes clipped by the path, then its stroke.
+    const meshes = fill ? this.fillMeshes(gs) : null;
+    if (meshes) {
+      const sps = subs.filter((s) => s.anchors.length >= 2).map((s) => ({ anchors: s.anchors.map((a) => ({ ...a })), closed: true }));
+      this.emitMeshes(meshes, gs, [...gs.wraps, { type: 'clip', subpaths: sps, evenOdd }]);
+      if (stroke) this.paintPath(gs, false, stroke, evenOdd, ctx);
+      return;
+    }
     const style = {
       fill: fill ? this.paintOf(gs.fill, gs.ca, gs, bbox) : null,
       stroke: stroke ? this.paintOf(gs.stroke, gs.CA, gs, bbox) : null,
@@ -830,6 +839,11 @@ export class Interpreter {
     const dict = resources.get('Shading');
     const sh = dict instanceof PDFDict && name instanceof Name ? dict.get(name.name) : null;
     if (!sh) return;
+    const meshes = this.shadingMeshes(sh, gs.ctm, gs.ca);
+    if (meshes) {
+      this.emitMeshes(meshes, gs, gs.wraps);
+      return;
+    }
     const paint = this.shadingPaint(sh, gs.ctm, gs.ca);
     if (!paint) return;
     // Cover the clip region (or the shading's bbox, or the page).
@@ -855,6 +869,44 @@ export class Interpreter {
     const pts = [{ x: rect.x, y: rect.y }, { x: rect.x + rect.w, y: rect.y }, { x: rect.x + rect.w, y: rect.y + rect.h }, { x: rect.x, y: rect.y + rect.h }];
     const node = createPath(pts.map(anchorAt), true, { fill: paint, stroke: null, blendMode: gs.bm }, { shadingFill: true });
     this.emit(node, gs);
+  }
+
+  /** Mesh nodes for a function-based or mesh shading (null for other types or unreadable data). */
+  shadingMeshes(sh, m, alpha = 1) {
+    try {
+      return meshShadingNodes(this.xref, sh, m, alpha);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mesh objects under the given wraps, with the blend mode of the graphics state (grouped when there are several). */
+  emitMeshes(meshes, gs, wraps) {
+    const bm = gs.bm && gs.bm !== 'normal' ? gs.bm : null;
+    if (meshes.length === 1) {
+      const node = bm ? { ...meshes[0], blendMode: bm } : meshes[0];
+      this.out.add(node);
+      this.out.push(node.id, wraps);
+      return;
+    }
+    this.out.beginGroup(wraps, { name: 'Mesh shading', keep: true, ...(bm ? { blendMode: bm } : {}) });
+    for (const node of meshes) {
+      this.out.add(node);
+      this.out.push(node.id, wraps);
+    }
+    this.out.endGroup();
+  }
+
+  /** The mesh shading of a fill's shading pattern, or null. */
+  fillMeshes(gs) {
+    const c = gs.fill;
+    if (!c.pattern || gs.forceWhite) return null;
+    const pd = c.pattern.resources.get('Pattern');
+    const pat = pd instanceof PDFDict ? pd.get(c.pattern.name) : null;
+    const pdict = pat instanceof PDFStream ? pat.dict : pat;
+    if (!(pdict instanceof PDFDict) || pdict.num('PatternType', 1) !== 2) return null;
+    const m = multiply(c.pattern.base || this.pageBase || [1, 0, 0, 1, 0, 0], pdict.array('Matrix') || [1, 0, 0, 1, 0, 0]);
+    return this.shadingMeshes(pdict.get('Shading'), m, gs.ca);
   }
 
   patternPaint(c, alpha, gs, bboxFn) {
@@ -1027,6 +1079,7 @@ export class Interpreter {
         this.warn('An image could not be decoded.');
         return;
       }
+      if (img.kind === 'deferred') img.source = { stream, resources, fillRGB };
       asset = this.imageAsset(img);
       if (cacheKey) this.imageCache.set(cacheKey, asset);
     }
@@ -1035,8 +1088,7 @@ export class Interpreter {
 
   imageAsset(img) {
     if (img.kind === 'unsupported') {
-      const what = { JPXDecode: 'JPEG 2000', CCITTFaxDecode: 'CCITT fax', JBIG2Decode: 'JBIG2' }[img.codec] || img.codec;
-      this.warn(`Images in ${what} format cannot be shown and were replaced by gray boxes.`);
+      this.warn(`Images in ${img.codec} format cannot be shown and were replaced by gray boxes.`);
       return { placeholder: true, width: img.width, height: img.height, label: `${what} image` };
     }
     const id = uid('img');
@@ -1130,6 +1182,7 @@ export class Interpreter {
       img = null;
     }
     if (!img) return;
+    if (img.kind === 'deferred') img.source = { stream, resources, fillRGB };
     this.placeImage(this.imageAsset(img), gs);
   }
 
@@ -1416,8 +1469,8 @@ export function shadingToPaint(xref, sh, m, alpha = 1, warn = () => {}) {
     if (r1 > 0 && r0 > 0) paint.focalRadius = Math.min(1, r0 / r1);
     return paint;
   }
-  // Function-based and mesh shadings: an average color.
-  warn('Mesh and function-based shadings were simplified to solid colors.');
+  // Function-based and mesh shadings that are not drawn as meshes (strokes, text): an average color.
+  warn('Some mesh and function-based shadings were simplified to solid colors.');
   let color = '#808080';
   try {
     if (fn) color = colorAt((domain[0] + domain[1]) / 2);

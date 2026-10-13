@@ -16,6 +16,7 @@ import { collectTextOutlines } from '../io/outlines.js';
 import { bytesToDataUrl, imageSize, sniffMime } from '../io/image-info.js';
 import { allFamilies } from '../type/fonts.js';
 import { isPDF, PDFError } from './pdf/document.js';
+import { loadImageCodecs } from './pdf/images.js';
 import { pdfPages, pdfToDocument, pdfToNodes } from './pdf/import.js';
 import { makeLayerNode } from './pdf/build.js';
 import { isPostScript, interpretEPS, previewNodes } from './ps/eps.js';
@@ -26,7 +27,7 @@ import { UNIT_CHOICES } from './dxf/common.js';
 import { encodeTIFF } from './codec/tiff.js';
 import { encodePNG } from './codec/png.js';
 import { rasterToPNG as toPNG } from './codec/raster.js';
-import { pdfPlaceDialog, pdfOpenDialog, dxfImportDialog, TEXT_MODES } from './dialogs.js';
+import { pdfPlaceDialog, pdfOpenDialog, pdfPasswordDialog, dxfImportDialog, TEXT_MODES } from './dialogs.js';
 
 export { reportWarnings };
 
@@ -161,6 +162,33 @@ function relinkSpots(r, remap) {
   return { ...r, subtree: { ...r.subtree, nodes } };
 }
 
+/**
+ * The page list of a PDF, asking for the password of an encrypted file
+ * (again after a wrong one). Null when the user cancels.
+ */
+export async function openPDFInfo(app, bytes, name) {
+  try {
+    return pdfPages(bytes);
+  } catch (err) {
+    if (!(err instanceof PDFError) || err.code !== 'password') throw err;
+  }
+  const attempt = (password) => {
+    try {
+      return pdfPages(bytes, { password });
+    } catch (err) {
+      if (err instanceof PDFError && err.code === 'password') return null;
+      throw err;
+    }
+  };
+  return pdfPasswordDialog(app, { name, attempt });
+}
+
+/** Load the fax codec before interpreting PostScript that uses it (the interpreter is synchronous). */
+async function preparePostScript(bytes) {
+  const text = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 4 << 20)));
+  if (text.includes('CCITTFaxDecode')) await loadImageCodecs(['CCITTFaxDecode']);
+}
+
 // ---------------------------------------------------------------- place
 
 export async function placeForeign(app, editor, file, kind, opts = {}) {
@@ -172,13 +200,15 @@ export async function placeForeign(app, editor, file, kind, opts = {}) {
   try {
     if (kind === 'pdf') {
       if (!isPDF(bytes)) throw new UserError(`${file.name || 'The file'} is not a PDF file. Files from vector editors open here only when they were saved with PDF compatibility.`);
-      const info = pdfPages(bytes);
+      const info = await openPDFInfo(app, bytes, file.name || name);
+      if (!info) return null;
       const fams = families();
       const choice = await pdfPlaceDialog(app, info, { name: file.name || name, families: fams });
       if (!choice) return null;
       r = await withProgress(app, 'Importing PDF', () => pdfToNodes(info.doc, { page: choice.page, crop: choice.crop, families: fams, textMode: choice.textMode }));
       if (info.pages.length > 1 && !opts.name) r.name = `${name} (page ${choice.page + 1})`;
     } else if (kind === 'eps') {
+      await preparePostScript(bytes);
       r = await withProgress(app, 'Importing PostScript', async () => {
         const res = interpretEPS(bytes, { families: families() });
         const built = res.kind === 'vector' ? res : { ...previewNodes(res.image, res.bbox), warnings: res.warnings };
@@ -223,7 +253,8 @@ export async function openForeign(app, bytes, { name, format }) {
   try {
     if (format === 'pdf') {
       if (!isPDF(bytes)) throw new UserError(`"${name}" is not a PDF file. Files from vector editors open here only when they were saved with PDF compatibility.`);
-      const info = pdfPages(bytes);
+      const info = await openPDFInfo(app, bytes, name);
+      if (!info) return null;
       const fams = families();
       let pages = null;
       let textMode = app.prefs?.get('interop.pdfOpen')?.textMode || 'auto';
@@ -236,6 +267,7 @@ export async function openForeign(app, bytes, { name, format }) {
       return await withProgress(app, 'Opening PDF', (onProgress) => pdfToDocument(info.doc, { name: docName, pages, families: fams, textMode, onProgress }));
     }
     if (format === 'eps') {
+      await preparePostScript(bytes);
       return await withProgress(app, 'Opening PostScript', async () => {
         const res = interpretEPS(bytes, { families: families() });
         const built = res.kind === 'vector' ? res : { ...previewNodes(res.image, res.bbox), warnings: res.warnings };

@@ -222,6 +222,69 @@ export async function pdfOpenDialog(app, info, { name = '', families = [] } = {}
   return result;
 }
 
+/**
+ * Password prompt for an encrypted PDF. `attempt(password)` returns the
+ * opened result or null for a wrong password; the dialog stays open with a
+ * message until a password works or the user cancels. Resolves to the
+ * attempt's result or null. The password lives only in the input element.
+ */
+export async function pdfPasswordDialog(app, { name = '', attempt }) {
+  const input = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', id: fid('pw'), 'aria-describedby': '' });
+  const show = h('input', { type: 'checkbox', id: fid('pwshow') });
+  show.addEventListener('change', () => {
+    input.type = show.checked ? 'text' : 'password';
+    input.focus();
+  });
+  const error = h('p.form-error', { role: 'alert', id: fid('pwerr') });
+  input.setAttribute('aria-describedby', error.id);
+  let opened = null;
+  const result = await app.dialogs.open({
+    title: 'Password Required',
+    className: 'io-dialog ix-dialog-password',
+    body: h(
+      'div.form',
+      name ? h('p.ix-file', name) : null,
+      h('p.form-help', 'This PDF is protected. Enter its password to open it. The password is used only to read the file and is not saved.'),
+      row('Password', input),
+      h('div.form-row.check', show, h('label', { for: show.id }, 'Show password')),
+      error,
+    ),
+    initialFocus: () => input,
+    buttons: [
+      { label: 'Cancel', value: null },
+      {
+        label: 'Open',
+        primary: true,
+        validate: () => {
+          error.textContent = '';
+          let r = null;
+          try {
+            r = attempt(input.value);
+          } catch (err) {
+            error.textContent = err.message || 'The file could not be opened.';
+            return false;
+          }
+          if (!r) {
+            error.textContent = input.value ? 'That password is not correct. Try again.' : 'Enter the password.';
+            input.focus();
+            input.select();
+            return false;
+          }
+          opened = r;
+          input.value = '';
+          return true;
+        },
+        // Not a plain value: recorded actions show this dialog again instead of replaying a password.
+        value: () => opened,
+      },
+    ],
+    onClose: () => {
+      input.value = '';
+    },
+  });
+  return result || null;
+}
+
 /** DXF import: { unitPt } or null. `data` is readDXF() output; `extent` the drawing's size in its own units. */
 export async function dxfImportDialog(app, data, { name = '', extent = null } = {}) {
   const fromFile = UNITS[data.units]?.pt ? UNIT_CHOICES.find((u) => Math.abs(u.pt - UNITS[data.units].pt) < 1e-9) : null;

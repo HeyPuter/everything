@@ -4,13 +4,14 @@
  * with inherited attributes, and reconstruction of the object table by
  * scanning the file when the cross-reference data is missing or damaged.
  *
- * Encrypted files using the standard security handler with an empty user
- * password (common for files that only restrict printing or copying) are
- * decrypted; see crypto.js.
+ * Encrypted files using the standard security handler are decrypted with
+ * the password given to the constructor (or an empty one, which opens files
+ * that only restrict printing or copying); see crypto.js. A missing or
+ * wrong password throws a PDFError with code 'password'.
  */
 import { Lexer, Parser, EOF } from './lexer.js';
 import { Ref, PDFDict, PDFStream, Name, isCmd, textString } from './primitives.js';
-import { createDecryptor } from './crypto.js';
+import { createDecryptor, isStandardEncryption } from './crypto.js';
 import './filters.js';
 
 export class PDFError extends Error {
@@ -40,8 +41,12 @@ export function isPDF(bytes) {
 }
 
 export class PDFDocument {
-  /** bytes: the file (Uint8Array). Throws PDFError for files that cannot be read. */
-  constructor(bytes) {
+  /**
+   * bytes: the file (Uint8Array); opts: { password } for encrypted files
+   * (used to derive the decryption key, not kept). Throws PDFError for
+   * files that cannot be read.
+   */
+  constructor(bytes, { password = '' } = {}) {
     const off = pdfHeaderOffset(bytes);
     if (off < 0) throw new PDFError('This is not a PDF file.');
     this.bytes = off ? bytes.subarray(off) : bytes;
@@ -61,8 +66,11 @@ export class PDFDocument {
     const enc = this.trailer.get('Encrypt');
     if (enc) {
       const id = this.trailer.get('ID');
-      this.decryptor = createDecryptor(enc, Array.isArray(id) ? id[0] : '');
-      if (!this.decryptor) throw new PDFError('This PDF is protected with a password or an encryption method that cannot be opened here.', 'encrypted');
+      this.decryptor = createDecryptor(enc, Array.isArray(id) ? id[0] : '', password);
+      if (!this.decryptor) {
+        if (isStandardEncryption(enc)) throw new PDFError(password ? 'The password is not correct.' : 'This PDF needs a password to open.', 'password');
+        throw new PDFError('This PDF is protected with an encryption method that cannot be opened here.', 'encrypted');
+      }
       this.encryptRef = this.trailer.getRaw('Encrypt');
       this.cache.clear();
     }
