@@ -5,8 +5,8 @@
 //   this editor does not manage (data source links, queries, ODSO mappings)
 //   are kept as they are.
 // - The recipient list, column matching and email options are stored inside
-//   the document as a custom XML data part (Part 1 §22.5, Part 2 relationship
-//   …/customXml) in the namespace below, so a reopened document has its list
+//   the document as a custom XML data storage part with its properties part
+//   (Part 1 §15.2, relationship …/customXml) in the namespace below, so a reopened document has its list
 //   without an external data source. Other consumers ignore the part.
 // - mergeDocumentParts() produces a merged copy of a saved main document:
 //   every copy of the body with merge fields replaced by their results.
@@ -73,7 +73,7 @@ export function readMailMerge(parts) {
   const element = child(settings, 'mailMerge');
   const data = dataPart(parts);
   if (!element && !data) return null;
-  const state = { type: null, activeRecord: 1, preview: false, subject: '', addressField: '', list: null, mapping: {}, source: null, email: { format: 'html' }, external: null, highlight: false };
+  const state = { type: null, activeRecord: 1, preview: false, subject: '', addressField: '', list: null, mapping: {}, source: null, email: { format: 'html' }, external: null };
   if (element) {
     const type = val(child(element, 'mainDocumentType'));
     state.type = DOCUMENT_TYPES.some(([id]) => id === type) ? type : type === 'fax' ? 'formLetters' : null;
@@ -104,7 +104,6 @@ export function readMailMerge(parts) {
     if (source) state.source = { name: source.getAttribute('name') || '', kind: source.getAttribute('kind') || 'typed' };
     const email = mm('email');
     if (email) state.email = { to: email.getAttribute('to') || '', format: email.getAttribute('format') === 'text' ? 'text' : 'html' };
-    if (mm('highlight')) state.highlight = true;
   }
   return state;
 }
@@ -134,12 +133,11 @@ export function mailMergeDataXml(state) {
   const mapping = Object.entries(state.mapping || {}).filter(([, column]) => column);
   if (mapping.length) { const node = add(root, 'mapping'); for (const [field, column] of mapping) add(node, 'map', { field, column }); }
   if (state.email?.to || state.email?.format === 'text') add(root, 'email', { to: state.email.to || '', format: state.email.format || 'html' });
-  if (state.highlight) add(root, 'highlight');
   return doc;
 }
 
 const W_SETTINGS_ORDER = ['writeProtection', 'view', 'zoom', 'removePersonalInformation', 'removeDateAndTime', 'doNotDisplayPageBoundaries', 'displayBackgroundShape', 'printPostScriptOverText', 'printFractionalCharacterWidth', 'printFormsData', 'embedTrueTypeFonts', 'embedSystemFonts', 'saveSubsetFonts', 'saveFormsData', 'mirrorMargins', 'alignBordersAndEdges', 'bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'gutterAtTop', 'hideSpellingErrors', 'hideGrammaticalErrors', 'activeWritingStyle', 'proofState', 'formsDesign', 'attachedTemplate', 'linkStyles', 'stylePaneFormatFilter', 'stylePaneSortMethod', 'documentType', 'mailMerge'];
-// CT_MailMerge child order (§17.14.21).
+// CT_MailMerge child order (§17.14).
 const MAIL_MERGE_ORDER = ['mainDocumentType', 'linkToQuery', 'dataType', 'connectString', 'query', 'dataSource', 'headerSource', 'doNotSuppressBlankLines', 'destination', 'addressFieldName', 'mailSubject', 'mailAsAttachment', 'viewMergedData', 'activeRecord', 'checkErrors', 'odso'];
 
 function ensureContentType(parts, partName, type) {
@@ -202,7 +200,7 @@ function writeSettings(parts, state) {
 /** Write the recipient data part, creating, replacing or removing it. */
 function writeDataPart(parts, state) {
   const existing = dataPart(parts);
-  const wanted = !!(state && (state.list || Object.keys(state.mapping || {}).length || state.source || state.email?.to || state.highlight));
+  const wanted = !!(state && (state.list || Object.keys(state.mapping || {}).length || state.source || state.email?.to));
   if (!wanted) {
     if (!existing) return;
     const rels = relationships(parts, 'word/document.xml');

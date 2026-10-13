@@ -214,3 +214,54 @@ test('adds an envelope to the document and prints labels from the Labels dialog'
   expect(strFromU8(unzipSync(readFileSync(sheet))['word/document.xml']).match(/<w:tc>/g).length).toBeGreaterThanOrEqual(21);
   expect(errors).toEqual([]);
 });
+
+test('prints one copy per recipient and saves email messages when sending is unavailable', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.addInitScript(() => { window.print = () => { window.printCalls = (window.printCalls || 0) + 1; }; });
+  await page.goto('/playground.html');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await page.locator('input[type=file][accept*=".xlsx"]').setInputFiles('tests/fixtures/mail-merge/recipients.csv');
+  await page.getByRole('dialog', { name: 'Mail Merge Recipients' }).getByRole('button', { name: 'OK' }).click();
+  await ribbon(page).getByRole('button', { name: 'Start Mail Merge' }).click();
+  await page.getByRole('menuitemradio', { name: 'Email Messages' }).click();
+  await caret(input, 0);
+  await ribbon(page).getByRole('button', { name: 'Insert Merge Field' }).click();
+  await page.getByRole('menuitem', { name: 'First Name', exact: true }).click();
+  await page.keyboard.type(', your order is ready. ');
+  await expect(input).toHaveValue(/^«First Name», your order is ready\. A small/);
+
+  // Print: three recipients, one page each, captured in one print job; the placeholders return afterwards.
+  await ribbon(page).getByRole('button', { name: 'Finish & Merge' }).click();
+  await page.getByRole('menuitem', { name: 'Print Documents…' }).click();
+  await page.getByRole('dialog', { name: 'Merge to Printer' }).getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => page.evaluate(() => window.printCalls)).toBe(1);
+  await expect(page.locator('.print-stage canvas')).toHaveCount(3);
+  await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+  await expect(page.locator('.print-stage')).toHaveCount(0);
+  await expect(input).toHaveValue(/^«First Name», your order is ready\./);
+
+  // Email: without a mail account the messages download as .eml files; Ana has no address.
+  await ribbon(page).getByRole('button', { name: 'Finish & Merge' }).click();
+  await page.getByRole('menuitem', { name: 'Send Email Messages…' }).click();
+  const options = page.getByRole('dialog', { name: 'Merge to Email' });
+  await expect(options.getByLabel('To', { exact: true })).toHaveValue('Email');
+  await options.getByLabel('Subject line').fill('Your order');
+  const zip = page.waitForEvent('download');
+  await options.getByRole('button', { name: 'Continue' }).click();
+  const path = info.outputPath('messages.zip');
+  await (await zip).saveAs(path);
+  const files = unzipSync(readFileSync(path));
+  expect(Object.keys(files)).toEqual(['001 rosa@example.com.eml', '002 ken@example.com.eml']);
+  const first = strFromU8(files['001 rosa@example.com.eml']);
+  expect(first).toContain('To: rosa@example.com\r\nSubject: Your order\r\n');
+  const body = first.split('Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n')[1].split('\r\n--')[0];
+  expect(Buffer.from(body.replace(/\r\n/g, ''), 'base64').toString('utf8')).toMatch(/^Rosa, your order is ready\. A small beginning/);
+  const saved = await download(page, info, 'email-main');
+  expect(strFromU8(unzipSync(readFileSync(saved))['word/settings.xml'])).toContain('<w:mainDocumentType w:val="email"/>');
+  expect(strFromU8(unzipSync(readFileSync(saved))['word/settings.xml'])).toContain('<w:mailSubject w:val="Your order"/>');
+  expect(errors).toEqual([]);
+});

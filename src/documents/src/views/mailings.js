@@ -18,7 +18,7 @@ import { openAddressBlock, openGreetingLine, openInsertField, openRule, openMatc
 import { openEnvelopes, openLabels } from './mailings-create.js';
 import { DOCUMENT_TYPES } from '../engine/docx-mail-merge.js';
 
-const BLANK = Object.freeze({ type: null, activeRecord: 1, preview: false, subject: '', addressField: '', list: null, mapping: {}, source: null, email: { format: 'html' }, external: null, highlight: false });
+const BLANK = Object.freeze({ type: null, activeRecord: 1, preview: false, subject: '', addressField: '', list: null, mapping: {}, source: null, email: { format: 'html' }, external: null });
 const HIGHLIGHT = 'rgba(128, 128, 128, 0.28)';
 const RECIPIENT_FILES = ['.csv', '.tsv', '.txt', '.xlsx'];
 const sdk = () => (typeof puter !== 'undefined' ? puter : null);
@@ -26,7 +26,8 @@ const sdk = () => (typeof puter !== 'undefined' ? puter : null);
 export function createMailings({ editor, pkg, error, onChange = () => {}, markDirty = () => {}, importFile, print, documentTitle = () => '', focus = () => editor()?.focus(), layoutChanged = () => {} }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const fail = e => { error(e); };
-  let engineModules = null, answers = {};
+  // Highlighting is a view preference for this session, like formatting marks; it is not saved.
+  let engineModules = null, answers = {}, highlighted = false;
   const modules = async () => (engineModules ||= await Promise.all([import('../engine/merge-fields.js'), import('../engine/mail-merge-model.js'), import('../engine/docx-mail-merge.js'), import('../engine/mail-documents.js'), import('fflate')])
     .then(([fields, model, docx, documents, zip]) => ({ fields, model, docx, documents, zip })));
   // Recipient lists and the merge evaluator are small; load them before the first command needs them.
@@ -42,7 +43,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   function setState(patch) {
     const p = pkg(); if (!p || p.readOnly) return;
     const next = { ...BLANK, ...state(), ...patch };
-    p.mailMerge = next.type || next.list || Object.keys(next.mapping || {}).length || next.highlight ? next : null;
+    p.mailMerge = next.type || next.list || Object.keys(next.mapping || {}).length ? next : null;
     markDirty();
     refreshUi();
   }
@@ -78,7 +79,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   }
   function refreshHighlight() {
     const engine = editor(); if (!engine?.setRangeTints) return;
-    const on = state().highlight && loaded && engine.session;
+    const on = highlighted && loaded && engine.session;
     const fields = on ? loaded.model.mergeFieldRanges(engine.session.body).filter(f => loaded.fields.MERGE_TYPES.has(f.type)) : [];
     engine.setRangeTints(fields.map(f => ({ start: f.range.start, end: Math.max(f.range.end, f.range.start), fill: HIGHLIGHT })).filter(t => t.end > t.start), 'mergeFields');
   }
@@ -103,7 +104,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   };
   async function typeNewList() {
     const m = await modules();
-    openRecipientGrid({ list: state().list?.source === 'typed' ? state().list : { ...m.fields.emptyRecipientList(), rows: [] }, title: 'New Address List',
+    openRecipientGrid({ list: state().source?.kind === 'typed' && state().list ? state().list : { ...m.fields.emptyRecipientList(), rows: [] }, title: state().source?.kind === 'typed' && state().list ? 'Edit Address List' : 'New Address List',
       onSave: list => applyList(list, { source: { kind: 'typed', name: '' }, mapping: {} }) });
   }
   const fileInput = el('input', { type: 'file', accept: RECIPIENT_FILES.join(','), hidden: true, onchange: () => { const file = fileInput.files[0]; fileInput.value = ''; if (file) loadListFile(file); } });
@@ -152,7 +153,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
       const s = state();
       if (s.list && !await confirmDialog({ title: 'Make this a normal document?', message: 'The recipient list and merge settings are removed from this document. The fields stay in place.', confirmLabel: 'Remove' })) return;
       if (s.preview) { setState({ preview: false }); refreshPreview(); }
-      const p = pkg(); if (p && !p.readOnly) { p.mailMerge = s.highlight ? { ...BLANK, highlight: true } : null; markDirty(); refreshUi(); }
+      const p = pkg(); if (p && !p.readOnly) { p.mailMerge = null; markDirty(); refreshUi(); }
       return;
     }
     if (quiet || !['envelopes', 'mailingLabels'].includes(type)) { setState({ type }); return; }
@@ -373,7 +374,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
     const start = menuButton('Start Mail Merge', 'startMerge', typeItems, { text: 'Start Mail Merge' });
     const select = menuButton('Select Recipients', 'selectRecipients', recipientItems, { text: 'Select Recipients' });
     const edit = command('Edit Recipient List', 'editRecipients', () => mm.editRecipients(), { size: 'large', text: 'Edit Recipient List' });
-    const highlight = command('Highlight Merge Fields', 'highlightFields', () => { setState({ highlight: !state().highlight }); refreshHighlight(); }, { size: 'large', text: 'Highlight Merge Fields', attrs: { 'aria-pressed': 'false' } });
+    const highlight = command('Highlight Merge Fields', 'highlightFields', () => { highlighted = !highlighted; refreshHighlight(); onChange(); }, { size: 'large', text: 'Highlight Merge Fields', attrs: { 'aria-pressed': 'false' } });
     const address = command('Address Block', 'addressBlock', () => mm.addressBlock(), { size: 'large', text: 'Address Block' });
     const greeting = command('Greeting Line', 'greetingLine', () => mm.greetingLine(), { size: 'large', text: 'Greeting Line' });
     const insert = menuButton('Insert Merge Field', 'mergeField', fieldItems, { text: 'Insert Merge Field' });
@@ -395,7 +396,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
     for (const b of [envelopesButton, labelsButton, start, select, address, greeting, insert, rules]) when(b, has);
     when(edit, hasList); when(match, hasList); when(find, hasRecords); when(check, has);
     when(update, () => has() && state().type === 'mailingLabels');
-    when(highlight, has, () => String(!!state().highlight));
+    when(highlight, has, () => String(highlighted));
     when(preview, hasRecords, () => String(!!state().preview && hasRecords()));
     const at = () => Math.min(state().activeRecord || 1, records().length);
     when(first, () => hasRecords() && at() > 1); when(previous, () => hasRecords() && at() > 1);
@@ -425,7 +426,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
     commands: { mailMergeWizard: () => wizard.show(), mailEnvelopes: () => envelopes().catch(fail), mailLabels: () => labels().catch(fail) },
     extraTabs, extendMenu, pane: el('div.mm-pane-host', {}, wizard.pane, fileInput), wizard,
     /** Called on every editor update: keeps highlighting in step with edits. */
-    refresh() { if (state().highlight || editor()?.tintLayers?.mergeFields?.length) refreshHighlight(); },
+    refresh() { if (highlighted || editor()?.tintLayers?.mergeFields?.length) refreshHighlight(); },
     mm,
   };
 }

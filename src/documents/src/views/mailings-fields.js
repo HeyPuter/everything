@@ -64,7 +64,7 @@ export function openAddressBlock(mm) {
   const hint = el('p.field-hint');
   const refreshHint = () => { const missing = unmatched(); hint.textContent = mm.records().length && missing.length ? `Not matched yet: ${missing.map(id => ADDRESS_FIELDS.find(f => f.id === id).label.toLowerCase()).join(', ')}. Use Match Fields to choose their columns.` : ''; };
   refreshHint();
-  dialog({ title: 'Insert Address Block', size: 'wide', submit: 'Insert', body: [
+  dialog({ title: 'Insert Address Block', size: 'wide', submit: 'Insert', focus: format, body: [
     el('div.mm-two', {},
       el('div', {}, el('p.field-label', {}, 'Recipient name'), format, company, postal, country, excluded),
       el('div', {}, el('p.field-label', {}, 'Preview'), preview, nav, hint, button('Match Fields…', () => openMatchFields(mm, () => { refreshHint(); update(); })))),
@@ -269,7 +269,7 @@ export function askPrompts(prompts, answers = {}) {
 export function openFinish(kind, mm) {
   const total = mm.records().length, current = Math.min(mm.state().activeRecord || 1, total);
   const range = radios('Merge records', [['all', `All (${total})`], ['current', `Current record (${current})`], ['range', 'From–to']], 'all', () => sync());
-  const from = input('1', { type: 'number', min: 1, max: total, 'aria-label': 'From' }), to = input(String(total), { type: 'number', min: 1, max: total, 'aria-label': 'To' });
+  const from = input('1', { type: 'number', min: 1, max: total, 'aria-label': 'From record' }), to = input(String(total), { type: 'number', min: 1, max: total, 'aria-label': 'To record' });
   const sync = () => { from.disabled = to.disabled = range.value !== 'range'; };
   sync();
   const titles = { document: 'Merge to New Document', print: 'Merge to Printer', email: 'Merge to Email' };
@@ -281,7 +281,7 @@ export function openFinish(kind, mm) {
     let result = null;
     dialog({ title: titles[kind], size: kind === 'email' ? 'wide' : '', submit: kind === 'email' ? 'Continue' : 'OK', body: [
       ...(kind === 'email' ? [field('To', emailColumn), field('Subject line', subject), field('Mail format', format)] : []),
-      el('p.field-label', {}, 'Merge records'), range, el('div.mm-inline', {}, field('From', from), field('To', to)),
+      el('p.field-label', {}, 'Merge records'), range, el('div.mm-inline', {}, field('From record', from), field('To record', to)),
     ], onSubmit: () => {
       let a = 1, b = total;
       if (range.value === 'current') a = b = current;

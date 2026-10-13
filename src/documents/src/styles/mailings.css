@@ -81,6 +81,7 @@
 .mm-stamp { fill: none; stroke: var(--ink-3); stroke-width: 0.02; stroke-dasharray: 0.06 0.05; }
 .mm-label { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 0.015; }
 .mm-label.is-on { fill: var(--accent); }
+.mm-label-text { fill: var(--paper-ink); font-family: Arial, Helvetica, sans-serif; }
 .mm-layout { display: grid; gap: 10px; }
 .mm-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .mm-details[open] summary { margin-bottom: 8px; }
@@ -121,5 +122,8 @@
   .mm-condition { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .mm-sort-keys .mm-condition { grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1fr); }
   .mm-grid-wrap { max-height: 46vh; }
+  .mm-steps { display: flex; gap: 4px; margin: 2px 12px 6px; }
+  .mm-steps button { width: auto; padding: 4px; }
+  .mm-steps button > span:not(.mm-step-number) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .mm-pane { position: relative; order: 1; flex: 0 0 auto; width: 100%; max-height: min(50dvh, calc(100% - 130px)); border-left: 0; border-top: 1px solid var(--hairline); z-index: 5; }
 }

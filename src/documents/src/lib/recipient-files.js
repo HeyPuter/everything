@@ -160,12 +160,12 @@ export function readWorkbook(bytes) {
 }
 
 /** Read a recipient list from a File/Blob by its name: .xlsx workbooks, .tsv/.txt tab-separated, else comma-separated. */
-export async function readRecipientFile(file, { sheet = 0 } = {}) {
+export async function readRecipientFile(file, { sheet } = {}) {
   const name = file.name || '';
   if (file.size > 20 * 1024 * 1024) throw new Error('Recipient files can be up to 20 MB.');
   if (/\.xlsx$/i.test(name)) {
     const sheets = readWorkbook(new Uint8Array(await file.arrayBuffer()));
-    const chosen = sheets[sheet] || sheets.find(s => s.rows.length) || sheets[0];
+    const chosen = (sheet !== undefined && sheets[sheet]) || sheets.find(s => s.rows.length) || sheets[0];
     return { ...rowsToList(chosen.rows), sheets: sheets.map(s => s.name), sheet: sheets.indexOf(chosen) };
   }
   if (/\.(xls|xlsm|xlsb|ods|numbers)$/i.test(name)) throw new Error('Save this spreadsheet as .xlsx or .csv to use it as a recipient list.');

@@ -99,7 +99,7 @@ export function openEnvelopes({ mode = 'create', delivery: initialDelivery = '',
 }
 
 /** The label layout chooser with measurement details and a sheet preview. Returns { node, layout() }. */
-function layoutPicker(onChange = () => {}) {
+function layoutPicker(onChange = () => {}, text = () => '') {
   const groups = Object.entries(SHEETS).map(([id, sheet]) => el('optgroup', { label: sheet.name }, ...LABEL_LAYOUTS.filter(l => l.sheet === id).map(l => el('option', { value: l.id }, l.name))));
   const choice = el('select.input', { 'aria-label': 'Label sheet' }, ...groups, el('option', { value: 'custom' }, 'Custom measurements'));
   choice.value = LABEL_LAYOUTS.some(l => l.id === stored(LAYOUT_KEY)) ? stored(LAYOUT_KEY) : 'letter-30';
@@ -133,7 +133,12 @@ function layoutPicker(onChange = () => {}) {
     const rects = [];
     for (let r = 0; r < Math.min(layout.rows, 40); r++) for (let c = 0; c < Math.min(layout.columns, 10); c++) {
       const on = highlight && highlight.row === r + 1 && highlight.column === c + 1;
-      rects.push(svg('rect', { x: (layout.left + c * layout.pitchX) / IN, y: (layout.top + r * layout.pitchY) / IN, width: layout.width / IN, height: layout.height / IN, rx: Math.min(0.08, layout.height / IN / 6), class: on ? 'mm-label is-on' : 'mm-label' }));
+      const x = (layout.left + c * layout.pitchX) / IN, y = (layout.top + r * layout.pitchY) / IN, lw = layout.width / IN, lh = layout.height / IN;
+      rects.push(svg('rect', { x, y, width: lw, height: lh, rx: Math.min(0.08, lh / 6), class: on ? 'mm-label is-on' : 'mm-label' }));
+      // The label's text, to scale, where it will print.
+      const lines = (highlight && !on) ? [] : String(text() || '').split('\n').filter(Boolean).slice(0, 6);
+      const size = Math.min(10 / 72, lh / Math.max(lines.length, 1) / 1.3);
+      lines.forEach((line, i) => rects.push(svg('text', { x: x + 0.06, y: y + (lh - lines.length * size * 1.2) / 2 + (i + 0.85) * size * 1.2, 'font-size': size, class: 'mm-label-text' }, line.slice(0, 60))));
     }
     preview.replaceChildren(svg('rect', { x: 0, y: 0, width: w, height: h, class: 'mm-paper' }), ...rects);
     onChange(layout);
@@ -162,14 +167,15 @@ export function openLabels({ mode = 'create', address: initial = '', onNew, onSu
   const useReturn = checkbox('Use the return address');
   const which = radios('Print', [['full', 'Full page of the same label'], ['single', 'A single label']], 'full', () => sync());
   const row = input('1', { type: 'number', min: 1, max: 40, 'aria-label': 'Row' }), column = input('1', { type: 'number', min: 1, max: 10, 'aria-label': 'Column' });
-  const picker = layoutPicker(layout => { row.max = layout.rows; column.max = layout.columns; });
+  const picker = layoutPicker(layout => { row.max = layout.rows; column.max = layout.columns; }, () => address.value);
+  address.addEventListener('input', () => sync());
   const fontSize = select([['8', '8 pt'], ['9', '9 pt'], ['10', '10 pt'], ['11', '11 pt'], ['12', '12 pt'], ['14', '14 pt']], '10', { 'aria-label': 'Font size' });
   function sync() {
     row.disabled = column.disabled = which.value !== 'single';
     picker.highlight(which.value === 'single' ? { row: Number(row.value), column: Number(column.value) } : null);
   }
   for (const c of [row, column]) c.addEventListener('input', sync);
-  useReturn.input.addEventListener('change', () => { if (useReturn.input.checked) address.value = stored(RETURN_KEY) || ''; });
+  useReturn.input.addEventListener('change', () => { if (useReturn.input.checked) address.value = stored(RETURN_KEY) || ''; sync(); });
   sync();
   if (mode === 'merge') return dialog({ title: 'Label Options', size: 'xwide', body: [el('div.mm-two', {}, el('div', {}, picker.node, field('Font size', fontSize)), el('div', {}, el('p.field-label', {}, 'Preview'), picker.preview))],
     onSubmit: () => onSubmit(picker.layout(), { fontSize: Number(fontSize.value) }) });

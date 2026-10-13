@@ -23,6 +23,10 @@ Evidence: [docx-page-fields.js](../src/engine/docx-page-fields.js),
 The inventory has 11 separately handled codes (all partial), 46 additional
 cached-only codes and 15 codes without a dedicated editable-body handler. These
 counts describe dispatch paths, not affected-template counts or visual success.
+Mail merge (2026-10-13) added a merge evaluator for ADDRESSBLOCK, ASK, FILLIN,
+GREETINGLINE, IF, MERGEFIELD, MERGEREC, MERGESEQ, NEXT, NEXTIF, SET and SKIPIF
+(and REF to ASK/SET bookmarks) used by preview and merging only, and moved IF,
+NEXT, NEXTIF and SKIPIF into the retained, editable set; the counts above predate it.
 
 A retained field is not evaluated merely because its cached text looks correct.
 An unhandled field can still show a saved result in read-only recovery. Recovery
@@ -32,9 +36,9 @@ context-specific readers.
 
 | Field code | Part 1 clause | Current behavior / remaining work |
 | --- | --- | --- |
-| `ADDRESSBLOCK` | §17.16.5.1 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `ADDRESSBLOCK` | §17.16.5.1 | Mail merge: inserted by the Address Block dialog and evaluated in preview and merge from matched columns. `\f` format groups (`<<…_TOKEN_…>>`), `\c` and `\e` are applied; `\d` (country-specific layout) and `\l` are retained but not applied. Blank lines are dropped. |
 | `ADVANCE` | §17.16.5.2 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `ASK` | §17.16.5.3 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `ASK` | §17.16.5.3 | Mail merge: inserted by the Ask rule; one answer per prompt is collected before Finish & Merge and assigned to the bookmark for REF. `\d` and `\o` are honored; per-record prompting is not. |
 | `AUTHOR` | §17.16.5.4 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `AUTOTEXT` | §17.16.5.5 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `AUTOTEXTLIST` | §17.16.5.6 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
@@ -50,14 +54,14 @@ context-specific readers.
 | `EDITTIME` | §17.16.5.16 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `FILENAME` | §17.16.5.17 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `FILESIZE` | §17.16.5.18 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `FILLIN` | §17.16.5.19 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `FILLIN` | §17.16.5.19 | Mail merge: inserted by the Fill-in rule; the answer (or `\d` default) is the result in preview and merged output. One answer per prompt for the whole merge. |
 | `FORMCHECKBOX` | §17.16.5.20 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `FORMDROPDOWN` | §17.16.5.21 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `FORMTEXT` | §17.16.5.22 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `GOTOBUTTON` | §17.16.5.23 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `GREETINGLINE` | §17.16.5.24 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `GREETINGLINE` | §17.16.5.24 | Mail merge: inserted by the Greeting Line dialog; `\f` format with `_BEFORE_`/`_AFTER_` text and `\e` fallback for empty names are evaluated. `\l` is retained only. |
 | `HYPERLINK` | §17.16.5.25 | Partial parsed clickable destination and retained instruction; combined external address plus bookmark is explicitly rejected. |
-| `IF` | §17.16.5.26 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
+| `IF` | §17.16.5.26 | Retained with nested instruction fields (operands such as `{ MERGEFIELD City }`) kept in the envelope; editable. Evaluated in mail merge preview/output: `= <> < <= > >=`, numeric comparison, `*`/`?` wildcards for `=`/`<>`. Not refreshed by Update Fields outside a merge; formula operands are not evaluated. |
 | `INCLUDEPICTURE` | §17.16.5.27 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `INCLUDETEXT` | §17.16.5.28 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `INDEX` | §17.16.5.29 | Cached result and instruction retained; no index generator identified in the current References path. Implement entry collection, collation, ranges and switches. |
@@ -66,11 +70,11 @@ context-specific readers.
 | `LINK` | §17.16.5.32 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `LISTNUM` | §17.16.5.33 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `MACROBUTTON` | §17.16.5.34 | Partial literal prompt display and formatting with retained command/envelope; command is never executed; prompt replacement requires removing the field. |
-| `MERGEFIELD` | §17.16.5.35 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `MERGEREC` | §17.16.5.36 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `MERGESEQ` | §17.16.5.37 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `NEXT` | §17.16.5.38 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
-| `NEXTIF` | §17.16.5.39 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
+| `MERGEFIELD` | §17.16.5.35 | Mail merge: inserted from the ribbon/dialog as complex fields; evaluated in preview and merged output with `\b`, `\f`, `\*` (Upper, Lower, FirstCap, Caps, ordinal/roman/alphabetic), `\#` numeric and `\@` date pictures (common tokens). `\m`/`\v` retained only. Missing columns are reported by Check for Errors. |
+| `MERGEREC` | §17.16.5.36 | Mail merge: evaluated as the record's 1-based position in the recipient list. |
+| `MERGESEQ` | §17.16.5.37 | Mail merge: evaluated as the 1-based count of documents produced so far (skipped records excluded). |
+| `NEXT` | §17.16.5.38 | Retained and editable. Mail merge: moves to the next record within one output copy (label sheets); Update Labels inserts it before each later label. |
+| `NEXTIF` | §17.16.5.39 | Retained and editable with nested operands. Mail merge: moves to the next record when the comparison is true. |
 | `NOTEREF` | §17.16.5.40 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `NUMCHARS` | §17.16.5.41 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `NUMPAGES` | §17.16.5.42 | Partial evaluation from current layout; no full general-switch semantics. |
@@ -88,8 +92,8 @@ context-specific readers.
 | `SECTION` | §17.16.5.54 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SECTIONPAGES` | §17.16.5.55 | Partial evaluation of current section page count; locked results retained; complete geometry/section semantics remain dependencies. |
 | `SEQ` | §17.16.5.56 | Partial explicit counter refresh with reset/repeat/hidden results and supported number formats; heading restart and bookmark argument semantics remain missing. |
-| `SET` | §17.16.5.57 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `SKIPIF` | §17.16.5.58 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
+| `SET` | §17.16.5.57 | Mail merge: assigns its bookmark value for REF within the merge. No bookmark is created in the document. |
+| `SKIPIF` | §17.16.5.58 | Retained and editable with nested operands. Mail merge: a true comparison leaves the record out of merged documents, printing and email; preview still shows it. |
 | `STYLEREF` | §17.16.5.59 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SUBJECT` | §17.16.5.60 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SYMBOL` | §17.16.5.61 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
@@ -108,9 +112,11 @@ context-specific readers.
 ## Cross-cutting gaps and implementation work
 
 - Complete valid field envelopes across paragraphs, stories and supported
-  structural containers. Body reading supports nested result fields, but rejects
-  nested fields inside instructions; the flat page-field reader rejects nested
-  envelopes and non-run content inside complex fields. Do not flatten authored
+  structural containers. Body reading supports nested result fields and, since
+  the mailings work, fields nested inside an instruction (kept verbatim in the
+  outer envelope and shown in braces in its instruction text); the flat
+  page-field reader rejects nested result envelopes and non-run content inside
+  complex fields. Do not flatten authored
   instructions or treat successful cache projection as support for those forms.
 - Implement missing instruction evaluation, including IF comparisons and formula
   dependencies. Audit instruction grammar, argument quoting, result formatting,
