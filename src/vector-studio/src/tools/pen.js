@@ -115,8 +115,13 @@ export class PenTool extends Tool {
 
   onHover(e) {
     const editor = this.editor;
-    this.cursorPt = { x: e.x, y: e.y };
     const p = this.path;
+    this.cursorPt = { x: e.x, y: e.y };
+    // The rubber band previews where a Shift-click puts the next anchor.
+    if (p && e.shift) {
+      const last = p.anchors[p.anchors.length - 1];
+      this.cursorPt = constrain45(last.x, last.y, e.x, e.y, constrainAngle(this.app));
+    }
     let cursor = 'var(--cursor-pen)';
     if (p) {
       const first = p.anchors[0];
