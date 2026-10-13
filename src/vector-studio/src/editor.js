@@ -13,7 +13,7 @@
  */
 import { Emitter } from './lib/emitter.js';
 import { Viewport } from './render/viewport.js';
-import { DEFAULT_STYLE } from './model/nodes.js';
+import { DEFAULT_STYLE, createGroup } from './model/nodes.js';
 import { selectionBounds, selectionFrame, nodeBounds } from './model/geometry.js';
 
 export const DEFAULT_VIEW_OPTIONS = {
@@ -81,7 +81,8 @@ export class Editor extends Emitter {
     this.focusPaint = 'fill'; // which of fill/stroke is in front in the toolbar
     this.activeLayerId = doc.root.children[doc.root.children.length - 1];
     this.activeArtboard = 0;
-    this.isolation = null; // group id in isolation mode
+    this.isolation = null; // container or object id in isolation mode
+    this.isolationLeaf = null; // the object isolated before drawing wrapped it in a group
     this.hover = null;
     this.textEdit = null; // { id, caret, anchor } while editing type
     this.lastTransform = null; // matrix for Transform Again
@@ -97,9 +98,28 @@ export class Editor extends Emitter {
     };
     doc.on('change', (e) => {
       if (e.structural) this.#pruneSelection();
+      if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();
       if (!doc.has(this.activeLayerId)) this.activeLayerId = doc.root.children[doc.root.children.length - 1];
       this.emit('doc-change', e);
     });
+  }
+
+  /**
+   * The isolated object is gone (undo, delete): an object wrapped into a
+   * group by drawing goes back to being isolated on its own, else
+   * isolation ends.
+   */
+  #lostIsolation() {
+    const leaf = this.isolationLeaf;
+    this.isolation = leaf && this.doc.has(leaf) ? leaf : null;
+    this.isolationLeaf = null;
+    this.emit('isolation');
+  }
+
+  /** True when an object can be picked in isolation mode: the isolated object or inside it. */
+  inIsolation(id) {
+    const iso = this.isolation;
+    return !iso || id === iso || this.doc.isAncestor(iso, id);
   }
 
   /** Tab and title name: the file name once saved or opened, else the document name. */
@@ -288,7 +308,7 @@ export class Editor extends Emitter {
   selectionTarget(id) {
     let n = this.doc.get(id);
     const stop = this.isolation || null;
-    while (n && n.parent) {
+    while (n && n.parent && n.id !== stop) {
       const p = this.doc.get(n.parent);
       if (!p || p.type === 'layer' || p.type === 'root' || p.id === stop) break;
       n = p;
@@ -333,10 +353,33 @@ export class Editor extends Emitter {
 
   /** The layer new objects go into (unlocked, visible); null when none is usable. */
   targetLayer() {
-    if (this.isolation && this.doc.has(this.isolation)) return this.doc.get(this.isolation);
+    if (this.isolation && this.doc.has(this.isolation)) {
+      const iso = this.doc.get(this.isolation);
+      if (iso.children && iso.type !== 'compound') return iso;
+      return this.#isolationContainer(iso);
+    }
     let layer = this.doc.get(this.activeLayerId);
     if (!layer || layer.type !== 'layer') layer = this.doc.layers().slice(-1)[0];
     return layer;
+  }
+
+  /**
+   * New artwork while a single object (path, compound path, text...) is
+   * isolated: inside an open transaction the object is wrapped in a group
+   * that becomes the isolated container, so the new artwork joins it; outside
+   * one (a read for checks) the object's parent stands in.
+   */
+  #isolationContainer(leaf) {
+    const doc = this.doc;
+    const parent = doc.get(leaf.parent);
+    if (!doc.tx || !parent) return parent || doc.layers().slice(-1)[0];
+    const g = createGroup([]);
+    doc.insert(g, parent.id, parent.children.indexOf(leaf.id));
+    doc.move(leaf.id, g.id);
+    this.isolationLeaf = leaf.id;
+    this.isolation = g.id;
+    this.emit('isolation');
+    return doc.get(g.id);
   }
 
   /**

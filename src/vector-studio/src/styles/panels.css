@@ -480,6 +480,26 @@
   width: 100%;
 }
 
+.layers-isolation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-hover);
+  font-size: 12px;
+}
+
+.layers-isolation[hidden] {
+  display: none;
+}
+
+.layers-iso-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .layers-viewport {
   position: relative;
   flex: 1;

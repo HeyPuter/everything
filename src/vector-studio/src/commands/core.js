@@ -15,6 +15,18 @@ const hasSel = (app) => Boolean(app.editor?.selection.size);
 const selCount = (n) => (app) => (app.editor?.topSelection().length || 0) >= n;
 const selHas = (pred) => (app) => Boolean(app.editor?.selectedNodes().some(pred));
 
+/** What Isolate acts on: a selected group, else a single selected object that is not already isolated. */
+function isolateTarget(app) {
+  const e = app.editor;
+  if (!e) return null;
+  const nodes = e.selectedNodes();
+  const g = nodes.find((n) => n.type === 'group');
+  if (g) return g;
+  const top = e.topSelection();
+  const n = top.length === 1 ? e.doc.get(top[0]) : null;
+  return n && n.type !== 'layer' && n.id !== e.isolation ? n : null;
+}
+
 function transformAgain(app) {
   const ed = app.editor;
   const last = ed.lastTransform;
@@ -192,11 +204,14 @@ export function registerCoreCommands(app) {
     { id: 'path.reverse', label: 'Reverse Path Direction', enabled: selHas((n) => n.type === 'path' || n.type === 'compound'), run: () => O.reversePaths(ed()) },
     {
       id: 'object.isolate',
-      label: 'Isolate Selected Group',
-      enabled: (a, args) => Boolean(args?.id) || selHas((n) => n.type === 'group')(a),
+      // A group, or a single object (path, compound path, text...) on its own.
+      label: (a) => (isolateTarget(a)?.type === 'group' || !isolateTarget(a) ? 'Isolate Selected Group' : 'Isolate Selected Object'),
+      enabled: (a, args) => Boolean(args?.id) || Boolean(isolateTarget(a)),
       run: (a, args) => {
-        const id = args?.id || ed().selectedNodes().find((n) => n.type === 'group')?.id;
+        const id = args?.id || isolateTarget(a)?.id;
+        if (!id) return;
         ed().isolation = id;
+        ed().isolationLeaf = null;
         ed().clearSelection();
         ed().emit('isolation');
         ed().invalidate();
@@ -209,6 +224,7 @@ export function registerCoreCommands(app) {
       run: () => {
         const id = ed().isolation;
         ed().isolation = null;
+        ed().isolationLeaf = null;
         ed().select(ed().doc.has(id) ? [id] : []);
         ed().emit('isolation');
         ed().invalidate();
