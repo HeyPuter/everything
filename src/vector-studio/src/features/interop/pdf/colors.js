@@ -1,14 +1,18 @@
 /**
- * PDF color spaces converted to the document's sRGB colors. Device and
- * calibrated spaces map directly (ICC-based spaces by their component
- * count or alternate space), CMYK goes through the app's CMYK engine (so
- * color settings apply), Lab through XYZ, and Indexed, Separation and
- * DeviceN through their base or alternate spaces. Separation colors carry
- * their ink name so the importer can make spot swatches.
+ * PDF color spaces converted to the document's RGB colors. ICC-based
+ * spaces convert through their embedded profile, CalRGB, CalGray and Lab
+ * through the color engine (icc/import.js), all into the RGB working
+ * space. Device colors are characterized by the Default color spaces of
+ * the resources, else by the file's output intent profile; otherwise RGB
+ * numbers stay as they are and CMYK goes through the app's CMYK engine
+ * (the working CMYK profile). Indexed, Separation and DeviceN go through
+ * their base or alternate spaces. Separation colors carry their ink name
+ * so the importer can make spot swatches.
  */
 import { PDFDict, PDFStream, Name, Ref, strBytes } from './primitives.js';
 import { compileFunction } from './functions.js';
 import { cmykEngine } from '../../../lib/color.js';
+import { iccImportSpace, labImportSpace, calImportSpace } from '../../icc/import.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : Number.isFinite(v) ? v : 0);
 
@@ -22,18 +26,6 @@ export function rgbHex(rgb) {
   return `#${h(rgb[0])}${h(rgb[1])}${h(rgb[2])}`;
 }
 
-function labToRgb(L, a, b, white = [0.9505, 1, 1.089]) {
-  const fy = (L + 16) / 116;
-  const fx = fy + a / 500;
-  const fz = fy - b / 200;
-  const g = (t) => (t > 6 / 29 ? t * t * t : 3 * (6 / 29) ** 2 * (t - 4 / 29));
-  const X = white[0] * g(fx);
-  const Y = white[1] * g(fy);
-  const Z = white[2] * g(fz);
-  const lin = [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.204 * Y + 1.057 * Z];
-  return lin.map((v) => clamp01(v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055));
-}
-
 const DEVICE = {
   gray: { kind: 'gray', n: 1, toRGB: (c) => [clamp01(c[0]), clamp01(c[0]), clamp01(c[0])], initial: [0] },
   rgb: { kind: 'rgb', n: 3, toRGB: (c) => [clamp01(c[0]), clamp01(c[1]), clamp01(c[2])], initial: [0, 0, 0] },
@@ -41,6 +33,50 @@ const DEVICE = {
 };
 export const DEVICE_SPACES = DEVICE;
 const PATTERN = { kind: 'pattern', n: 0, toRGB: () => [0, 0, 0], initial: [] };
+
+const DEFAULT_NAMES = { gray: 'DefaultGray', rgb: 'DefaultRGB', cmyk: 'DefaultCMYK' };
+const intentCache = new WeakMap();
+
+/** The space of the file's output intent profile (or null). */
+function outputIntentSpace(xref) {
+  if (!xref?.catalog) return null;
+  if (intentCache.has(xref)) return intentCache.get(xref);
+  let space = null;
+  try {
+    let list = xref.catalog.get('OutputIntents');
+    if (list instanceof Ref) list = xref.fetch(list);
+    for (let oi of Array.isArray(list) ? list : []) {
+      if (oi instanceof Ref) oi = xref.fetch(oi);
+      let prof = oi instanceof PDFDict ? oi.get('DestOutputProfile') : null;
+      if (prof instanceof Ref) prof = xref.fetch(prof);
+      if (!(prof instanceof PDFStream)) continue;
+      const bytes = prof.decoded();
+      space = iccImportSpace(bytes, prof.dict.num('N', 4)) || null;
+      if (space) break;
+    }
+  } catch {
+    space = null;
+  }
+  intentCache.set(xref, space);
+  return space;
+}
+
+/**
+ * A device color space as the file characterizes it: the resources'
+ * Default space, else the output intent profile when it has the same
+ * number of components, else the plain device space.
+ */
+export function deviceSpace(xref, kind, resources, depth = 0) {
+  const dict = resources?.get?.('ColorSpace');
+  const def = dict instanceof PDFDict ? dict.get(DEFAULT_NAMES[kind]) : null;
+  if (def && depth < 8) {
+    const s = parseColorSpace(xref, def, null, depth + 1);
+    if (s.n === DEVICE[kind].n && s.kind !== 'pattern') return s;
+  }
+  const oi = outputIntentSpace(xref);
+  if (oi && oi.n === DEVICE[kind].n) return oi;
+  return DEVICE[kind];
+}
 
 /**
  * Parse a color space (a name, an array, or a name looked up in the
@@ -55,15 +91,17 @@ export function parseColorSpace(xref, cs, resources, depth = 0) {
     switch (cs.name) {
       case 'DeviceGray':
       case 'G':
+        return deviceSpace(xref, 'gray', resources, depth);
       case 'CalGray':
         return DEVICE.gray;
       case 'DeviceRGB':
       case 'RGB':
+        return deviceSpace(xref, 'rgb', resources, depth);
       case 'CalRGB':
         return DEVICE.rgb;
       case 'DeviceCMYK':
       case 'CMYK':
-        return DEVICE.cmyk;
+        return deviceSpace(xref, 'cmyk', resources, depth);
       case 'Pattern':
         return PATTERN;
       default: {
@@ -82,32 +120,54 @@ export function parseColorSpace(xref, cs, resources, depth = 0) {
   const arg = (i) => (cs[i] instanceof Ref ? xref.fetch(cs[i]) : cs[i]);
   switch (fam) {
     case 'DeviceGray':
-    case 'CalGray':
     case 'G':
-      return DEVICE.gray;
+      return deviceSpace(xref, 'gray', resources, depth);
     case 'DeviceRGB':
-    case 'CalRGB':
     case 'RGB':
-      return DEVICE.rgb;
+      return deviceSpace(xref, 'rgb', resources, depth);
     case 'DeviceCMYK':
     case 'CMYK':
-      return DEVICE.cmyk;
+      return deviceSpace(xref, 'cmyk', resources, depth);
+    case 'CalGray':
+    case 'CalRGB': {
+      const d = arg(1);
+      const gray = fam === 'CalGray';
+      if (!(d instanceof PDFDict)) return gray ? DEVICE.gray : DEVICE.rgb;
+      const g = d.get('Gamma');
+      return calImportSpace({
+        white: d.array('WhitePoint') || [0.9505, 1, 1.089],
+        gamma: gray ? [typeof g === 'number' ? g : 1] : Array.isArray(g) ? g : [1, 1, 1],
+        matrix: gray ? null : d.array('Matrix') || null,
+        channels: gray ? 1 : 3,
+      });
+    }
     case 'ICCBased': {
       const s = arg(1);
       const d = s instanceof PDFStream ? s.dict : s instanceof PDFDict ? s : null;
+      const n = d ? d.num('N', 3) : 3;
+      // The embedded profile first; the alternate space or the component count when it is unusable.
+      if (s instanceof PDFStream) {
+        let bytes = null;
+        try {
+          bytes = s.decoded();
+        } catch {
+          bytes = null;
+        }
+        const icc = iccImportSpace(bytes, n);
+        if (icc) return icc;
+      }
       const alt = d?.get('Alternate');
       if (alt) {
         const a = parseColorSpace(xref, alt, resources, depth + 1);
         if (a.kind !== 'pattern') return a;
       }
-      const n = d ? d.num('N', 3) : 3;
       return n === 1 ? DEVICE.gray : n === 4 ? DEVICE.cmyk : DEVICE.rgb;
     }
     case 'Lab': {
       const d = arg(1);
       const white = (d instanceof PDFDict && d.array('WhitePoint')) || [0.9505, 1, 1.089];
       const range = (d instanceof PDFDict && d.array('Range')) || [-100, 100, -100, 100];
-      return { kind: 'lab', n: 3, toRGB: (c) => labToRgb(c[0], c[1], c[2], white), initial: [0, 0, 0], ranges: [[0, 100], [range[0], range[1]], [range[2], range[3]]] };
+      return labImportSpace(white, range);
     }
     case 'Indexed':
     case 'I': {

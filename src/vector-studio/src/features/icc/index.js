@@ -10,7 +10,8 @@ import { registerIcons } from '../../ui/icons.js';
 import { applyProof } from '../workspace/view.js';
 import { colorSettings } from '../prepress/color-management.js';
 import { pasteMismatch, pasteAction, askPaste, documentProfiles, colorConverter, mapItemColors } from '../prepress/color-policies.js';
-import { conversionOptions } from './cms.js';
+import { conversionOptions, usableProfile } from './cms.js';
+import { importTarget } from './import.js';
 import { ProfileStore, registerDocumentProfiles } from './store.js';
 import { registryEvents } from './profiles.js';
 
@@ -39,6 +40,15 @@ registerIcons({
 });
 
 export function install(app) {
+  // Imported files convert into the working RGB space with the Color Settings' intent.
+  const syncImport = () => {
+    const cs = colorSettings(app);
+    Object.assign(importTarget, { rgb: usableProfile(cs.rgb, 'RGB'), intent: cs.intent, bpc: cs.bpc });
+  };
+  syncImport();
+  app.prefs.on?.('change', ({ key }) => key === 'colorSettings' && syncImport());
+  registryEvents.on('loaded', syncImport);
+
   app.iccProfiles = new ProfileStore(app);
   app.iccProfiles.load().catch(() => {});
   // Signing in or out switches where profiles are kept.

@@ -16,7 +16,7 @@
  */
 import { Lexer, Parser, EOF } from './lexer.js';
 import { PDFDict, PDFStream, Name, Ref, Cmd, isCmd, textString } from './primitives.js';
-import { parseColorSpace, rgbHex, DEVICE_SPACES } from './colors.js';
+import { parseColorSpace, rgbHex, DEVICE_SPACES, deviceSpace } from './colors.js';
 import { compileFunction } from './functions.js';
 import { loadFont, PDFFont } from './fonts.js';
 import { decodeImage, inlineImageDict } from './images.js';
@@ -398,7 +398,7 @@ export class Interpreter {
             const stroke = obj.cmd === obj.cmd.toUpperCase();
             const target = stroke ? gs.stroke : gs.fill;
             const kind = { g: 'gray', rg: 'rgb', k: 'cmyk' }[obj.cmd.toLowerCase()];
-            target.space = DEVICE_SPACES[kind];
+            target.space = deviceSpace(this.xref, kind, resources);
             target.comps = a.filter((x) => typeof x === 'number');
             target.pattern = null;
             break;
