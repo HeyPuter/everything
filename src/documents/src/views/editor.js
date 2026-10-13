@@ -1083,6 +1083,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   return {
     el: root, doc, ready,
     get engine() { return engine; },
+    get commands() { return editorCommands; },
     async flush() {
       if (destroyed) return true;
       engine?.finishComposition();

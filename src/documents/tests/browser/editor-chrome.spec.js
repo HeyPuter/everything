@@ -96,7 +96,7 @@ test('shows the table tabs inside a table and keeps their commands working', asy
   await ribbon(page).getByRole('button', { name: 'Insert Below', exact: true }).click();
   expect(await rows()).toBe(before + 1);
   await expect(text(page)).toBeFocused();
-  await ribbon(page).getByRole('button', { name: 'Delete', exact: true }).click(); await item(page, 'Delete table').click();
+  await ribbon(page).getByRole('button', { name: 'Delete', exact: true }).click(); await item(page, 'Delete Table').click();
   await expect(tab(page, 'Table Layout')).toBeHidden(); await expect(tab(page, 'Insert')).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('checkbox', { name: 'Text mode', exact: true }).check();
   await expect(page.getByRole('checkbox', { name: 'Text mode', exact: true })).toBeChecked();

@@ -1,4 +1,5 @@
 import { el } from './dom.js';
+import { closeMenu } from './menu.js';
 import { refreshConditionalTable } from '../engine/conditional-table-formatting.js';
 import { conditionalFromSpec, specTableBorders, DEFAULT_LOOK, TABLE_STYLE_FAMILIES } from '../engine/table-styles.js';
 
@@ -72,7 +73,7 @@ export function createTableStyleGallery({ styles, current, look, setLook, apply,
   const thumbnails = new Map();
   const item = (spec, { menu = false } = {}) => {
     const canvas = el('canvas', { 'aria-hidden': 'true' });
-    const button = el(menu ? 'button.swatch.table-style-swatch' : 'button.ribbon-table-design', { type: 'button', role: menu ? 'menuitemradio' : 'option', title: spec.name, 'aria-label': spec.name, onclick: e => apply(spec.id, { keepFormatting: !!e.altKey }) }, canvas);
+    const button = el(menu ? 'button.swatch.table-style-swatch' : 'button.ribbon-table-design', { type: 'button', role: menu ? 'menuitemradio' : 'option', title: spec.name, 'aria-label': spec.name, onclick: e => { if (menu) closeMenu(); apply(spec.id, { keepFormatting: !!e.altKey }); } }, canvas);
     button.addEventListener('mousedown', e => e.preventDefault());
     return { spec, button, canvas, drawn: '' };
   };
@@ -103,7 +104,7 @@ export function createTableStyleGallery({ styles, current, look, setLook, apply,
     for (const [family, label] of TABLE_STYLE_FAMILIES) {
       const members = all.filter(s => (s.family || 'custom') === family);
       if (!members.length) continue;
-      const grid = el('div.menu-custom-grid.table-style-grid', { role: 'group', 'aria-label': label, dataset: { columns: '7' } }, ...members.map(spec => {
+      const grid = el('div.menu-custom-grid.table-style-grid', { dataset: { columns: '7' } }, ...members.map(spec => {
         const entry = item(spec, { menu: true });
         entry.button.disabled = !on; entry.button.tabIndex = -1;
         entry.button.setAttribute('aria-checked', String(spec.id === id));
