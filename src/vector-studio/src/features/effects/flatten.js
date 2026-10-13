@@ -13,6 +13,12 @@
  * to those faces. The Raster/Vector balance trades the two: at 0 the whole
  * selection becomes one image; higher values keep more faces as vectors
  * before falling back to an image for very complex overlaps.
+ *
+ * Flattener preset options: line art/text and gradient resolutions (the
+ * image uses the gradient one when only gradients need it), text converted
+ * to outlines first (so solid type stays vector), strokes kept as strokes
+ * where nothing is painted over them, and complex regions clipped to their
+ * exact outlines or to their bounding boxes.
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
@@ -125,13 +131,16 @@ const rectSub = (r) => ({
  *   shapes: engine shapes in paint order; complex[i] marks a shape that
  *   needs the raster image (its area is its visual bounds or outline).
  */
-export function collectArtwork(doc, ids, strokeOutlines) {
+export function collectArtwork(doc, ids, strokeOutlines, { textOutlines = null, liveStrokes = null } = {}) {
   const shapes = [];
   const complex = [];
+  // Why a shape needs the image: 'gradient' (only a gradient) or 'other'.
+  const reasons = [];
   let transparent = false;
-  const addShape = (subpaths, { evenodd = false, hard = false } = {}) => {
+  const addShape = (subpaths, { evenodd = false, hard = false, reason = 'other' } = {}) => {
     shapes.push({ subpaths, filled: true, evenodd });
     complex.push(hard);
+    reasons.push(hard ? reason : null);
     return shapes.length - 1;
   };
   const visit = (n) => {
@@ -159,7 +168,8 @@ export function collectArtwork(doc, ids, strokeOutlines) {
       if (!isSolid(n.fill) || !isSolid(n.stroke)) {
         if ((n.fill?.stops || n.stroke?.stops || []).some((s) => (s.opacity ?? 1) < 1)) transparent = true;
         const vb = visualBounds(doc, n);
-        return vb ? { kind: 'shape', index: addShape([rectSub(vb)], { hard: true }), hard: true } : null;
+        const gradientOnly = [n.fill, n.stroke].every((p) => !p || p.type === 'solid' || p.type === 'linear' || p.type === 'radial');
+        return vb ? { kind: 'shape', index: addShape([rectSub(vb)], { hard: true, reason: gradientOnly ? 'gradient' : 'other' }), hard: true } : null;
       }
       subs ||= n.type === 'path' ? [{ anchors: n.anchors, closed: n.closed }] : n.children.map((c) => doc.get(c)).filter((c) => c?.anchors).map((c) => ({ anchors: c.anchors, closed: c.closed }));
       const parts = [];
@@ -168,7 +178,7 @@ export function collectArtwork(doc, ids, strokeOutlines) {
         if ((n.fill.opacity ?? 1) < 1) transparent = true;
         parts.push({ kind: 'shape', index: addShape(subs, { evenodd: n.type === 'compound' && n.fillRule === 'evenodd' }), color: hexToRgb(n.fill.color), alpha: a, mode });
       }
-      if (n.stroke && n.strokeWidth > 0) {
+      if (n.stroke && n.strokeWidth > 0 && !liveStrokes?.has(n.id)) {
         const outline = strokeOutlines.get(n.id);
         if (outline?.length) {
           if ((n.stroke.opacity ?? 1) < 1) transparent = true;
@@ -177,12 +187,23 @@ export function collectArtwork(doc, ids, strokeOutlines) {
       }
       return parts.length ? { kind: 'group', opacity: 1, mode: 'normal', isolated: false, children: parts } : null;
     }
+    // Type converted to outlines: solid-colored glyph runs composite like shapes.
+    if (n.type === 'text' && textOutlines?.has(n.id)) {
+      const runs = textOutlines.get(n.id);
+      if (runs.every((r) => !r.stroke && isSolid(r.fill))) {
+        const parts = runs.filter((r) => r.fill && r.subpaths.length).map((r) => {
+          if ((r.fill.opacity ?? 1) < 1) transparent = true;
+          return { kind: 'shape', index: addShape(r.subpaths), color: hexToRgb(r.fill.color), alpha: (r.fill.opacity ?? 1) * opacity, mode };
+        });
+        return parts.length ? { kind: 'group', opacity: 1, mode: 'normal', isolated: false, children: parts } : null;
+      }
+    }
     // Type, images, clipping groups and live artwork.
     return hardBox();
   };
   const ordered = doc.sortByPaintOrder(ids);
   const tree = { kind: 'group', opacity: 1, mode: 'normal', isolated: false, children: ordered.map((id) => visit(doc.get(id))).filter(Boolean) };
-  return { tree, shapes, complex, transparent };
+  return { tree, shapes, complex, reasons, transparent };
 }
 
 /** The composited color of a face covered by `cover` (shape indices), over white. */
@@ -216,7 +237,10 @@ const subpathsOfRecords = (recs) => recs.flatMap((r) => r.subpaths).filter((s) =
 
 /**
  * Flatten the editor's selection. Options: { balance 0-100, resolution
- * ppi, antialias }. `deps` replaces the engine and the rasterizer in tests.
+ * (line art and text ppi), gradientResolution, antialias, textOutlines
+ * (Map text id -> outline runs, when type converts to outlines),
+ * strokesToOutlines (default true), clipComplex (default true) }. `deps`
+ * replaces the engine and the rasterizer in tests.
  * Returns the id of the flattened group, or null.
  */
 export async function flattenSelection(editor, opts, deps = {}) {
@@ -236,12 +260,14 @@ export async function flattenSelection(editor, opts, deps = {}) {
       if ((n?.type === 'path' || n?.type === 'compound') && n.stroke?.type === 'solid' && n.strokeWidth > 0 && !n.hidden) leaves.push(n);
     }
   }
+  const liveStrokes = opts.strokesToOutlines === false ? keepableStrokes(doc, ids, leaves) : new Set();
   for (const n of leaves) {
+    if (liveStrokes.has(n.id)) continue;
     const subs = geomEffectsOf(n) ? effectiveSubpaths(doc, n) : n.type === 'path' ? [{ anchors: n.anchors, closed: n.closed }] : n.children.map((c) => doc.get(c)).filter((c) => c?.anchors).map((c) => ({ anchors: c.anchors, closed: c.closed }));
     const recs = await run(OP.STROKE, [{ subpaths: subs, filled: Boolean(n.fill), evenodd: n.fillRule === 'evenodd' }], strokeParams(n));
     strokeOutlines.set(n.id, subpathsOfRecords(recs));
   }
-  const art = collectArtwork(doc, ids, strokeOutlines);
+  const art = collectArtwork(doc, ids, strokeOutlines, { textOutlines: opts.textOutlines || null, liveStrokes });
   if (!art.transparent) return { error: 'The selection has no transparency to flatten.' };
   if (!art.shapes.length) return { error: 'Nothing in the selection can be flattened.' };
 
@@ -280,9 +306,13 @@ export async function flattenSelection(editor, opts, deps = {}) {
     const vb = selectionBounds(doc, ids, true);
     if (vb && vb.w > 0 && vb.h > 0) {
       const rect = inflate(vb, 1);
-      image = { rect, ...(await render(doc, doc.sortByPaintOrder(ids), rect, { ppi: opts.resolution || 300, background: 'white', antialias: opts.antialias !== false })) };
+      // Gradients alone can use their own (usually lower) resolution.
+      const gradientsOnly = !allRaster && rasterFaces.every((rec) => rec.cover.every((i) => !art.complex[i] || art.reasons[i] === 'gradient'));
+      const ppi = (gradientsOnly && opts.gradientResolution) || opts.resolution || 300;
+      image = { rect, ...(await render(doc, doc.sortByPaintOrder(ids), rect, { ppi, background: 'white', antialias: opts.antialias !== false })) };
       const clipFaces = allRaster ? null : rasterFaces;
-      if (clipFaces) clip = subpathsOfRecords(clipFaces);
+      if (clipFaces && opts.clipComplex === false) clip = clipFaces.map((rec) => rectSub(recordBounds(rec))).filter(Boolean);
+      else if (clipFaces) clip = subpathsOfRecords(clipFaces);
       else {
         // Everything is raster: keep the image to the artwork's own outline.
         const all = await run(OP.UNITE, art.shapes.map((s) => ({ ...s, evenodd: s.evenodd })));
@@ -326,11 +356,58 @@ export async function flattenSelection(editor, opts, deps = {}) {
       comp.children = kids.map((k) => k.id);
       doc.insert(comp, cg.id, Infinity, kids);
     }
+    // Strokes kept as strokes go on top, in their paint order (nothing was painted over them).
+    for (const n of leaves) {
+      if (!liveStrokes.has(n.id)) continue;
+      const style = { fill: null, stroke: { ...n.stroke }, strokeWidth: n.strokeWidth, strokeCap: n.strokeCap, strokeJoin: n.strokeJoin, miterLimit: n.miterLimit, dash: n.dash, dashOffset: n.dashOffset, opacity: 1, blendMode: 'normal', effects: [] };
+      doc.insert(createPath(n.anchors.map((a) => ({ ...a })), n.closed, style), gid);
+    }
     for (const id of ordered) doc.remove(id);
   });
   editor.select([gid]);
-  return { id: gid, vector: merged.length, raster: Boolean(image) };
+  return { id: gid, vector: merged.length + liveStrokes.size, raster: Boolean(image) };
 }
+
+function recordBounds(rec) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const s of rec.subpaths) {
+    for (const a of s.anchors) {
+      for (const [x, y] of [[a.x, a.y], [a.ix ?? a.x, a.iy ?? a.y], [a.ox ?? a.x, a.oy ?? a.y]]) {
+        x0 = Math.min(x0, x);
+        y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x);
+        y1 = Math.max(y1, y);
+      }
+    }
+  }
+  return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : { x: 0, y: 0, w: 0, h: 0 };
+}
+
+/**
+ * Strokes that can stay strokes: plain centered strokes of opaque paths in
+ * opaque, normal-blending ancestry, with nothing selected painted over them.
+ */
+function keepableStrokes(doc, ids, leaves) {
+  const keep = new Set();
+  const order = doc.paintOrder();
+  const items = [];
+  for (const id of ids) for (const n of [doc.get(id), ...doc.descendants(id)]) if (n && !n.hidden && n.type !== 'group' && n.type !== 'layer' && !(n.parent && doc.get(n.parent)?.type === 'compound')) items.push(n);
+  for (const n of leaves) {
+    if (n.type !== 'path' || (n.strokeAlign && n.strokeAlign !== 'center') || n.arrowStart || n.arrowEnd || n.widthProfile || liveDef(n) || geomEffectsOf(n) || rasterEffects(n)) continue;
+    if ((n.stroke.opacity ?? 1) < 1 || (n.opacity ?? 1) < 1 || (n.blendMode && n.blendMode !== 'normal')) continue;
+    if (doc.ancestors(n.id).some((a) => (a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.clip || a.knockout || rasterEffects(a))) continue;
+    const vb = visualBounds(doc, n);
+    const o = order.get(n.id) ?? 0;
+    const covered = items.some((m) => m !== n && (order.get(m.id) ?? 0) > o && rectsOverlap(visualBounds(doc, m), vb));
+    if (!covered) keep.add(n.id);
+  }
+  return keep;
+}
+
+const rectsOverlap = (a, b) => Boolean(a && b) && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /** Object > Flatten Transparency dialog. */
 export async function flattenDialog(app) {
