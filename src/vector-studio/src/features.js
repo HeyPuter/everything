@@ -34,6 +34,7 @@ import { install as installGraphs } from './features/graphs/index.js';
 import { install as installFlare } from './features/flare/index.js';
 import { install as installCollab } from './features/collab/index.js';
 import { install as installCorners } from './features/corners/index.js';
+import { install as installLiveShapes } from './features/live-shapes/index.js';
 import { install as installPatterns } from './features/patterns/index.js';
 import { install as installSlices } from './features/slices/index.js';
 import { install as installWorkspace } from './features/workspace/index.js';
@@ -73,6 +74,7 @@ export function installFeatures(app) {
   installGraphs(app);
   installFlare(app);
   installCorners(app);
+  installLiveShapes(app);
   // After the document features: sharing wraps Save and gates editing commands.
   installCollab(app);
   // Last: shortcut sets apply to every command and tool registered above.

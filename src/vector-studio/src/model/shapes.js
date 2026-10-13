@@ -75,6 +75,42 @@ export function ellipse(x, y, w, h) {
   ];
 }
 
+/** Is a live ellipse cut into a pie (its start and end angles differ)? */
+export function isPie(shape) {
+  if (shape?.kind !== 'ellipse' || shape.pieStart == null || shape.pieEnd == null) return false;
+  const sweep = (((shape.pieEnd - shape.pieStart) % 360) + 360) % 360;
+  return sweep > 1e-6 && sweep < 360 - 1e-6;
+}
+
+/**
+ * Pie of the ellipse centered at (cx, cy): the arc from `start` to `end`
+ * degrees, counterclockwise on screen from 3 o'clock, closed through the
+ * center. Arc pieces span at most 90 degrees each.
+ */
+export function pie(cx, cy, rx, ry, start, end) {
+  let sweep = (((end - start) % 360) + 360) % 360;
+  if (sweep < 1e-6) sweep = 360;
+  const n = Math.max(1, Math.ceil(sweep / 90 - 1e-9));
+  const step = ((sweep / n) * Math.PI) / 180;
+  const k = (4 / 3) * Math.tan(step / 4);
+  const a0 = (start * Math.PI) / 180;
+  const pt = (t) => ({ x: cx + rx * Math.cos(t), y: cy - ry * Math.sin(t), dx: -rx * Math.sin(t), dy: -ry * Math.cos(t) });
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const p = pt(a0 + i * step);
+    out.push({
+      x: p.x,
+      y: p.y,
+      ix: i > 0 ? p.x - k * p.dx : p.x,
+      iy: i > 0 ? p.y - k * p.dy : p.y,
+      ox: i < n ? p.x + k * p.dx : p.x,
+      oy: i < n ? p.y + k * p.dy : p.y,
+    });
+  }
+  out.push(anchor(cx, cy));
+  return out;
+}
+
 /** Regular polygon with `sides` corners, radius to the corners, first corner at the top. */
 export function polygon(cx, cy, radius, sides = 6) {
   const n = Math.max(3, Math.round(sides));
@@ -209,7 +245,7 @@ export function shapeAnchors(shape) {
       pts = rectangle(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h, shape.radii || 0);
       break;
     case 'ellipse':
-      pts = ellipse(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h);
+      pts = isPie(shape) ? pie(shape.cx, shape.cy, shape.w / 2, shape.h / 2, shape.pieStart, shape.pieEnd) : ellipse(shape.cx - shape.w / 2, shape.cy - shape.h / 2, shape.w, shape.h);
       break;
     case 'polygon':
       pts = polygon(shape.cx, shape.cy, shape.r, shape.sides);
