@@ -160,6 +160,14 @@ export async function ask(e: Editor, request: string) {
       const ids = (Array.isArray(reply.plan.steps) ? reply.plan.steps : []).map((s) => String((s as { action?: unknown })?.action ?? ''));
       await preload(ids.filter((id) => findCommand(id)).map((id) => findCommand(id)!.id));
       const plan = buildPlan(reply.plan, text, planEnv(e));
+      // Steps named by label resolve only now: load their settings and check them again.
+      const late = plan.steps.filter((s) => (s.input === 'settings' || s.input === 'ai') && !paramCache.has(s.action));
+      if (late.length) {
+        await preload(late.map((s) => s.action));
+        const env = planEnv(e);
+        for (const s of late) setArgs(s, s.args, env);
+        validatePlan(plan, env);
+      }
       if (!plan.steps.length) c.messages.push({ id: newId(), role: 'assistant', kind: 'text', text: reply.text || plan.summary || 'There is nothing to do for this request.' });
       else c.messages.push({ id: newId(), role: 'assistant', kind: 'plan', text: reply.text, plan, state: 'ready' });
     } else if (reply.kind === 'answer') c.messages.push({ id: newId(), role: 'assistant', kind: 'answer', text: reply.text, pointers: reply.pointers.map((p) => pointer(e, p)).filter((p): p is Pointer => !!p) });
