@@ -121,6 +121,10 @@
   margin-right: auto;
 }
 
+.dialog-footer .btn.left:has(+ .btn.left) {
+  margin-right: 0;
+}
+
 .dialog-message {
   margin: 0;
   max-width: 420px;

@@ -123,3 +123,40 @@ describe('Split Into Grid', () => {
     expect(doc.undoStack.length).toBe(2);
   });
 });
+
+describe('Gap Options', () => {
+  it('sets the defaults only on Set Default and resets to them', async () => {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const ids = [];
+    doc.transact('r', () => {
+      for (const x of [0, 50]) {
+        const n = createPath(rectangle(x, 0, 80, 80), true, { fill: null, stroke: { type: 'solid', color: '#000000' }, strokeWidth: 1 });
+        doc.insert(n, app.editor.targetLayer().id);
+        ids.push(n.id);
+      }
+    });
+    app.editor.select(ids);
+    await app.commands.run('paintRegions.make');
+    const done = app.commands.run('paintRegions.gapOptions');
+    await tick();
+    const d = dlg();
+    const size = d.querySelector('select');
+    size.value = 'large';
+    size.dispatchEvent(new Event('change'));
+    button('Set Default');
+    expect(app.prefs.get('regionGaps').size).toBe('large');
+    size.value = 'small';
+    size.dispatchEvent(new Event('change'));
+    button('Reset');
+    expect(size.value).toBe('large');
+    size.value = 'medium';
+    size.dispatchEvent(new Event('change'));
+    button('OK');
+    await done;
+    expect(app.prefs.get('regionGaps').size).toBe('large');
+    const g = doc.get(app.editor.topSelection()[0]);
+    expect(g.live.gaps.size).toBe('medium');
+  });
+});
