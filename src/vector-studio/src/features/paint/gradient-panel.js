@@ -3,7 +3,7 @@
  * swatches), gradient type (linear / radial / freeform), the gradient
  * slider with stops and midpoints, stop color / opacity / location, angle,
  * aspect ratio for radial gradients, reverse, and how a gradient applies
- * to a stroke (within the stroke). Freeform gradients show the selected
+ * to a stroke (within, along or across it, see stroke-gradient.js). Freeform gradients show the selected
  * color point's color, opacity and spread instead of the slider (points are
  * added and moved with the Gradient tool). Edits apply to the focused fill
  * or stroke of the selection; when that paint is not a gradient yet, the
@@ -24,6 +24,7 @@ import { miniFillStroke, focusedPaint, gestureKey, paintState } from './ui-commo
 import { isFreeform, setPoint, removePoint, setFreeformMode } from './freeform.js';
 import { swatchesOf } from './swatch-model.js';
 import { createSwatchFromFocused } from './swatches-panel.js';
+import { setStrokeApply, strokeApplyOf } from './stroke-gradient.js';
 
 /** Popover to edit one color: swatches plus the color picker. */
 export function openColorPopover(app, anchor, { color, title = 'Color', onInput }) {
@@ -76,13 +77,12 @@ export class GradientPanel extends Panel {
       'Stroke gradient',
       [
         { value: 'within', label: 'Apply gradient within stroke', icon: 'stroke-within' },
-        { value: 'along', label: 'Apply gradient along stroke (not available)', icon: 'stroke-along' },
-        { value: 'across', label: 'Apply gradient across stroke (not available)', icon: 'stroke-across' },
+        { value: 'along', label: 'Apply gradient along stroke', icon: 'stroke-along' },
+        { value: 'across', label: 'Apply gradient across stroke', icon: 'stroke-across' },
       ],
       'within',
-      () => {},
+      (v) => this.commit(setStrokeApply(this.paint, v), 'Stroke Gradient', null),
     );
-    this.strokeMode.el.querySelectorAll('button').forEach((b, i) => (b.disabled = i > 0));
     this.strokeRow = h('div.pp-row.gp-stroke', h('span.pp-label', 'Stroke'), this.strokeMode.el);
     this.angle = numberField({
       label: 'Angle',
@@ -350,7 +350,8 @@ export class GradientPanel extends Panel {
     if (ff) {
       const i = this.pointIndex();
       const pt = paint.points[i];
-      this.strokeRow.hidden = ed.focusPaint !== 'stroke';
+      // Freeform gradients fill the stroke area.
+      this.strokeRow.hidden = true;
       this.resetVec.disabled = true;
       if (pt) {
         updatePaintSwatch(this.pointChip, { type: 'solid', color: pt.color });
@@ -369,6 +370,7 @@ export class GradientPanel extends Panel {
     this.aspect.set((paint.aspect ?? 1) * 100);
     this.aspectRow.hidden = paint.type !== 'radial';
     this.strokeRow.hidden = ed.focusPaint !== 'stroke';
+    this.strokeMode.set(strokeApplyOf(paint));
     this.resetVec.disabled = paint.x1 === undefined;
     const sel = Math.min(paintState.stop, paint.stops.length - 1);
     this.slider.set(paint, sel);
