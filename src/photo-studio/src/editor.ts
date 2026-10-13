@@ -15,6 +15,7 @@ import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts'
 import { watchOptionTips } from './app/option-tips';
 import { svg } from './app/icons';
 import { startIdleWork } from './app/lazy';
+import { emitActivity } from './app/activity';
 import { rulerTicks, rulerUnitScale } from './ui/rulers';
 import { DocumentView, WindowManager } from './app/views';
 import { applyAffine, centerPoint, fitZoom, invertAffine, panToCenter, stageTransform, viewMatrix, zoomAround } from './app/view-transform';
@@ -385,6 +386,7 @@ export class Editor {
     this.recorder?.(id, arg);
     await this.run(async () => {
       await c.run(this, arg);
+      emitActivity({ kind: 'command', id: c.id, arg });
     });
   }
   // The Actions panel installs a recorder while recording.
@@ -511,6 +513,7 @@ export class Editor {
     this.overlay();
     // Tool-dependent panels (brush settings, character) follow the active tool.
     this.dock?.update();
+    emitActivity({ kind: 'tool', id });
   }
   // ----- Colors -----
   setForeground(hex: string) {

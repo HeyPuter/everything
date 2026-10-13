@@ -129,7 +129,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       { label: 'Orientation', id: 'type.orientation', items: ['type.horizontal', 'type.vertical'] },
       { label: 'OpenType', id: 'type.opentype', items: ['type.ot-liga', 'type.ot-calt', 'type.ot-dlig', 'type.ot-swsh', 'type.ot-onum', 'type.ot-salt', 'type.ot-titl', 'type.ot-ordn', 'type.ot-frac'] },
       '-', 'type.create-work-path', 'type.convert-to-shape', 'type.rasterize', '-',
-      'type.convert-paragraph', { label: 'Convert to Arc Text', id: 'type.arc', items: [] }, 'type.path-options', 'type.warp', '-',
+      'type.convert-paragraph', { label: 'Convert to Arc Text', id: 'type.arc', items: [] }, 'type.path-options', 'type.warp', 'type.match-font', '-',
       { label: 'Font Preview Size', id: 'type.font-preview-size', items: ['type.preview-none', 'type.preview-small', 'type.preview-medium', 'type.preview-large', 'type.preview-xlarge', 'type.preview-huge'] },
       { label: 'Language Options', id: 'type.language-options', items: ['type.dir-ltr', 'type.dir-rtl', '-', 'type.digits-western', 'type.digits-arabic', 'type.digits-persian'] },
       '-', 'type.update-all', 'type.replace-missing', '-', 'type.paste-lorem', '-', 'type.load-default-styles', 'type.save-default-styles',
@@ -209,6 +209,6 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
   {
     id: 'help',
     label: 'Help',
-    items: ['help.shortcuts', '-', 'help.system-info', '-', 'help.about', 'help.legal'],
+    items: ['help.tutorials', 'help.whats-new', '-', 'help.shortcuts', '-', 'help.system-info', '-', 'help.about', 'help.legal'],
   },
 ];

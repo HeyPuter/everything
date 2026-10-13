@@ -1,0 +1,42 @@
+/* Help windows (tutorial chooser, What's New) and the tutorial step card. */
+dialog.help-window { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: min(640px, calc(100dvh - 48px)); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+dialog.help-window:not([open]) { display: none; }
+.help-window-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px 10px; border-bottom: 1px solid var(--line-soft); }
+.help-window-head h2 { margin: 0; }
+.help-window-body { padding: 14px 18px 18px; overflow: auto; min-height: 0; }
+.help-intro { margin: 0 0 14px; }
+
+.tutorial-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.tutorial-tile { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; padding: 8px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface2); text-align: left; white-space: normal; }
+.tutorial-tile:hover:not(:disabled) { border-color: var(--accent); background: var(--hover); }
+.tutorial-tile img { width: 100%; height: auto; aspect-ratio: 3 / 2; border-radius: 4px; display: block; background: var(--surface); }
+.tutorial-title { font-size: 13px; font-weight: 600; margin-top: 4px; }
+.tutorial-summary { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.tutorial-time { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+
+.whats-new-release { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 14px 0 6px; }
+.whats-new-release:first-child { margin-top: 0; }
+.whats-new-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.whats-new-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 5px; background: var(--surface2); }
+.whats-new-item strong { font-size: 13px; }
+.whats-new-item p { margin: 3px 0 0; line-height: 1.45; }
+.whats-new-item button { flex: none; border-color: var(--input-line); padding: 3px 10px; }
+
+/* Step card and the ring around the control it points at. Above panels and
+   the toolbar, below menus so an open menu is never covered. */
+.tour-ring { position: fixed; z-index: 29; pointer-events: none; border: 2px solid var(--accent); border-radius: 6px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent); transition: left 0.15s, top 0.15s, width 0.15s, height 0.15s; }
+.tour-ring[hidden] { display: none; }
+.tour-card { position: fixed; z-index: 28; width: min(320px, calc(100vw - 24px)); padding: 12px 14px; background: var(--menu); color: var(--text); border: 1px solid var(--line-soft); border-left: 3px solid var(--accent); border-radius: 6px; box-shadow: 0 10px 34px #0009; font-size: 12px; }
+.tour-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tour-kicker { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tour-progress { height: 3px; margin: 6px 0 8px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
+.tour-progress > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+.tour-card h3 { font-size: 14px; margin: 0 0 6px; display: flex; align-items: center; gap: 6px; }
+.tour-card p { margin: 0 0 8px; line-height: 1.5; color: var(--text); }
+.tour-card .tour-status { color: var(--muted); font-size: 11.5px; }
+.tour-card .tour-status-done { color: var(--text); display: flex; align-items: center; gap: 5px; font-weight: 600; }
+.tour-card.done { border-left-color: #2f9e5b; }
+.tour-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.tour-actions button:not(.primary) { border-color: var(--input-line); }
+.tour-spacer { flex: 1; }
+@media (prefers-reduced-motion: reduce) { .tour-ring, .tour-progress > span { transition: none; } }
