@@ -500,7 +500,8 @@ export function createContentTools(api) {
         };
         async function choose(next) {
           pending = next;
-          attachOnly.hidden = false;
+          // A file card's own document is already attached.
+          attachOnly.hidden = !attach;
           error.textContent = "";
           d.querySelector(".content-status").textContent = "";
           submit.hidden = false;

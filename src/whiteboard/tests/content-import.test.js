@@ -1931,6 +1931,7 @@ test("built app: several documents dropped at once are attached, and each file c
     );
     // The file card is already on the board.
     assert.equal(importer.querySelector("#content-attach").checked, false);
+    assert.equal(importer.querySelector("#content-attach-only").hidden, true);
     await until(
       () => !importer.querySelector('[type="submit"]').disabled,
       "CSV ready",
