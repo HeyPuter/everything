@@ -88,3 +88,8 @@
     flex-wrap: wrap;
   }
 }
+
+.dim-section [hidden],
+.dim-options [hidden] {
+  display: none;
+}
