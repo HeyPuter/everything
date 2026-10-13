@@ -59,6 +59,9 @@ export function installAudio() {
         e.update();
       },
     },
-    { id: 'layer.video-mute', label: 'Mute Video Sound', enabled: (e) => !!videoLayerOf(e)?.video.audio, checked: (e) => !!videoLayerOf(e)?.video.muted, description: 'Silence the sound of the selected video layer', ...lazyRun(m, (x, e) => x.toggleVideoMute(e)) },
+    { id: 'layer.video-mute', label: 'Mute Video Sound', enabled: (e) => !!videoLayerOf(e)?.video.audio, checked: (e) => !!videoLayerOf(e)?.video.muted, description: 'Silence the sound of the selected video layer', ...lazyRun(m, (x, e, arg) => x.toggleVideoMute(e, arg)) },
+    // The same for a given video layer (the audio properties bar names the
+    // layer of the selected linked clip, whatever layers are selected).
+    { id: 'timeline.audio-video-mute', label: 'Mute Video Sound', hidden: true, enabled: hasTimeline, ...lazyRun(m, (x, e, arg) => x.toggleVideoMute(e, arg)) },
   );
 }

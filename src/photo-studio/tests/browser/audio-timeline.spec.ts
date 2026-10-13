@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { boot, downloadFrom, historyLabels, idle, openImage, run } from './helpers';
+import { boot, downloadFrom, historyLabels, idle, layerRow, openImage, run } from './helpers';
 import { decodeWav, encodeWav } from '../../src/imaging/codecs/wav';
 import { ebmlIds, readEbml, type EbmlNode } from '../../src/imaging/codecs/webm';
 import { demuxWebm } from '../../src/imaging/codecs/webm-demux';
@@ -532,5 +532,69 @@ test.describe('audio edge cases', () => {
     expect(r.left).toBeCloseTo(0.5 * Math.SQRT1_2, 2);
     expect(r.right).toBeCloseTo(0.5 * Math.SQRT1_2, 2);
     expect(r.worst).toBeLessThan(2e-3);
+  });
+
+  test('the properties bar mutes the layer of the selected linked clip', async ({ page }) => {
+    await openImage(page, 32, 32, '#ffffff', 'mute.png');
+    await addFootage(page);
+    await addFootage(page);
+    const [a, b] = await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.video).map((l) => l.id));
+    const clipOf = (layer: string) => page.evaluate((id) => window.photoStudio.doc.timeline!.audio!.flatMap((t) => t.clips).find((c) => c.link === id)!.id, layer);
+    // Layer b's clip plays after a's and b is selected; the linked sound of layer a is clicked.
+    await page.evaluate((id) => {
+      const e = window.photoStudio;
+      e.command('Later', (d) => {
+        const tl = d.timeline!;
+        tl.duration = Math.max(tl.duration, 3 * tl.fps);
+        tl.clips[id] = { ...(tl.clips[id] ?? { in: 0, length: tl.fps }), start: 2 * tl.fps };
+      });
+      e.selectLayers([id]);
+      e.update();
+    }, b);
+    const panel = page.locator('.panel-body[aria-label="Timeline"]');
+    await panel.locator(`[data-audio-clip="${await clipOf(a)}"]`).click();
+    await idle(page);
+    const mute = page.locator('.vt-audio-props button[aria-label="Mute the sound of the video layer"]');
+    await expect(mute).toHaveAttribute('aria-pressed', 'false');
+    await mute.click();
+    await idle(page);
+    const muted = () => page.evaluate(() => Object.fromEntries(window.photoStudio.doc.layers.filter((l) => l.video).map((l) => [l.id, !!l.video!.muted])));
+    expect(await muted()).toEqual({ [a]: true, [b]: false });
+    await expect(mute).toHaveAttribute('aria-pressed', 'true');
+    await mute.click();
+    await idle(page);
+    expect(await muted()).toEqual({ [a]: false, [b]: false });
+  });
+
+  test('selecting a layer outside the timeline ends the audio clip selection', async ({ page }) => {
+    await openImage(page, 32, 32, '#ffffff', 'select.png');
+    await addFootage(page);
+    const video = await page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.video)!);
+    await page.evaluate(async (b64) => {
+      const e = window.photoStudio;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      e.selectLayers([e.doc.layers[0].id]);
+      // The new clip is selected.
+      await e.runCommand('timeline.audio-add', new File([bytes], 'music.wav', { type: 'audio/wav' }));
+      await e.runCommand('timeline.go-to', Math.round(e.doc.timeline!.fps / 2));
+    }, toneWav(1));
+    await idle(page);
+    const selected = () => page.evaluate(async () => (await import('/src/features/animation/video-state.ts')).selectedAudioClips(window.photoStudio));
+    expect(await selected()).toHaveLength(1);
+    // Select the video layer in the Layers panel: Split now splits it, not the sound.
+    await layerRow(page, video.name).click();
+    await idle(page);
+    expect(await selected()).toEqual([]);
+    await run(page, 'timeline.split');
+    const after = await page.evaluate(() => ({ layers: window.photoStudio.doc.layers.filter((l) => l.video).length, plain: window.photoStudio.doc.timeline!.audio![0].clips.filter((c) => c.source).length }));
+    expect(after).toEqual({ layers: 2, plain: 1 });
+    // A clip selected in the timeline afterwards is acted on again.
+    await run(page, 'edit.undo');
+    const plain = await page.evaluate(() => window.photoStudio.doc.timeline!.audio![0].clips.find((c) => c.source)!.id);
+    await page.locator(`.panel-body[aria-label="Timeline"] [data-audio-clip="${plain}"]`).click();
+    await idle(page);
+    expect(await selected()).toEqual([plain]);
+    await run(page, 'timeline.split');
+    expect(await page.evaluate(() => window.photoStudio.doc.timeline!.audio![0].clips.filter((c) => c.source).length)).toBe(2);
   });
 });

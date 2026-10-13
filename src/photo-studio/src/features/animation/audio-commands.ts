@@ -29,7 +29,7 @@ import {
 import { addAudioFile, purgeAudioCache } from './audio-media';
 import { editTimeline } from './video-frames';
 import { prepareTimeline } from './video-commands';
-import { selectedAudioClips, selectedAudioTrack, timelineOf, videoLayerOf, videoView } from './video-state';
+import { isVideoLayer, selectedAudioClips, selectedAudioTrack, timelineOf, videoLayerOf, videoView } from './video-state';
 
 const tlOf = (e: Editor) => timelineOf(e)!;
 const frame = (tl: VideoTimeline) => 1 / tl.fps;
@@ -308,8 +308,11 @@ export async function trimAudio(e: Editor, edge: 'start' | 'end') {
   });
 }
 
-export function toggleVideoMute(e: Editor) {
-  const l = videoLayerOf(e);
+/** Mute or unmute the sound of a video layer: the layer with ID `arg`, or
+ * the selected video layer. */
+export function toggleVideoMute(e: Editor, arg?: unknown) {
+  const given = typeof arg === 'string' && arg ? findLayer(e.doc.layers, arg) : undefined;
+  const l = given ? (isVideoLayer(given) ? given : undefined) : videoLayerOf(e);
   if (!l?.video.audio) return;
   return editTimeline(e, l.video.muted ? 'Unmute Video Sound' : 'Mute Video Sound', (d) => {
     const x = findLayer(d.layers, l.id)!;
