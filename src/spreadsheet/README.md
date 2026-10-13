@@ -508,6 +508,24 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
 - **Import from URL**: File → Import from URL fetches a .csv, .tsv, .xlsx, or
   .ods from a web address through Puter and adds its sheets to the open
   spreadsheet (the format is read from the address or sniffed from the bytes).
+- **Editing together**: Share → Start editing together lets several people
+  work in one spreadsheet at once. Everyone sees the others' edits within a
+  second or two (cell values and formulas, formatting, inserted, deleted and
+  moved rows and columns, added, renamed, moved and deleted sheets, settings)
+  without overwriting each other: changes go through one ordered log, and a
+  formula typed while someone inserted rows above it is rewritten as the
+  workbook rewrites its own. Each person's initials sit beside Share (a click
+  goes to where they are), their selection is outlined on the grid in their
+  colour with their name, and the sheet tabs show who is on which sheet. The
+  owner hands out invitation links that let people edit or only view (enforced
+  by the owner's own collaboration server, a Puter Worker, not only by the
+  interface), invites people by username, changes or removes access, and can
+  stop at any time. Undo takes back only your own changes, and leaves alone
+  what others changed since. Edits made offline wait on the device (through
+  a reload too) and merge when the connection returns; the status says Live,
+  Syncing or Offline with what is waiting. The .xlsx file stays the copy the
+  owner keeps: it is written back as people work, so it opens anywhere. See
+  [docs/collaboration.md](docs/collaboration.md).
 - **Version history**: File → Version history lists snapshots of the file
   kept under `Spreadsheets/.versions/<name> ~<file id>/` — one is written on
   its own about every 10 minutes of saving, and any can be saved by hand with a
@@ -761,6 +779,12 @@ Two dev harnesses (not part of the production build):
   (`dev/puter-mock.js`), so no Puter account is needed. Add `?env=app` to
   simulate the Puter desktop or `?signedout` to start without a session.
 - `/dev/phone.html` shows the mock app in phone- and tablet-sized frames.
+
+In `/mock.html`, editing together runs against a room worker inside the page
+(`dev/collab-mock.js`); `window.__collabDemo.addPerson('maria')` adds a
+simulated collaborator to the shared workbook that is open, whose `RoomClient`
+can then edit and move about. `npm run build:worker` bundles the room worker
+into `public/worker/spreadsheet-worker.js` (part of `npm run build`).
 
 ### Tests
 

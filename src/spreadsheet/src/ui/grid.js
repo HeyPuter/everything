@@ -309,6 +309,9 @@ export function createGrid(opts) {
   linkPop.addEventListener('pointerdown', (e) => e.stopPropagation());
   linkPop.addEventListener('dblclick', (e) => e.stopPropagation());
   const refLayer = el('div.ref-layer', { 'aria-hidden': 'true' });
+  // Where the other people editing a shared workbook are: each one's selection outlined in their colour, with their name.
+  const peerLayer = el('div.peer-layer', { 'aria-hidden': 'true' });
+  let peers = []; // [{ id, name, color, sel, active, editing }] on this sheet
   const hlLayer = el('div.hl-layer', { 'aria-hidden': 'true' });
   let highlights = { cells: [], current: -1 };
   const editor = el('textarea.grid-editor', {
@@ -322,7 +325,7 @@ export function createGrid(opts) {
   const tablePreviewEl = el('div.sel-range.table-preview', { hidden: true, 'aria-hidden': 'true' });
   // Page Layout view: the sheets of paper beneath the cells, with their headers and footers.
   const paperLayer = el('div.grid-paper');
-  const canvas = el('div.grid-canvas', {}, paperLayer, cellsLayer, pageLayer, hlLayer, refLayer, extraLayer, cutRangeEl, selRange, selActive, tableLayer, tablePreviewEl, fillHandle, fillPreviewEl, movePreviewEl, objectsLayer, notePop, promptPop, linkPop, listButton, editor);
+  const canvas = el('div.grid-canvas', {}, paperLayer, cellsLayer, pageLayer, hlLayer, refLayer, extraLayer, cutRangeEl, peerLayer, selRange, selActive, tableLayer, tablePreviewEl, fillHandle, fillPreviewEl, movePreviewEl, objectsLayer, notePop, promptPop, linkPop, listButton, editor);
   const viewport = el('div.grid-viewport', {
     role: 'grid', tabindex: 0, 'aria-label': 'Spreadsheet grid', 'aria-multiselectable': 'true',
   }, canvas);
@@ -1700,7 +1703,7 @@ export function createGrid(opts) {
   function syncOverlayClones() {
     for (const layer of [frzRows, frzCols, frzCorner]) {
       if (layer.el.hidden) { if (layer.overlays.childElementCount) layer.overlays.replaceChildren(); continue; }
-      layer.overlays.replaceChildren(...[hlLayer, refLayer, extraLayer, cutRangeEl, selRange, selActive, fillPreviewEl, movePreviewEl, fillHandle].map((n) => n.cloneNode(true)));
+      layer.overlays.replaceChildren(...[hlLayer, refLayer, extraLayer, cutRangeEl, peerLayer, selRange, selActive, fillPreviewEl, movePreviewEl, fillHandle].map((n) => n.cloneNode(true)));
     }
   }
 
@@ -2454,7 +2457,31 @@ export function createGrid(opts) {
     else cutRangeEl.hidden = true;
   }
 
+  function renderPeers() {
+    const s = sheet();
+    const shown = peers.filter((p) => p.sheet === sheetId && p.sel && s);
+    peerLayer.replaceChildren(...shown.flatMap((p) => {
+      const sel = { r1: p.sel.r1, c1: p.sel.c1, r2: Math.min(p.sel.r2, s.rows - 1), c2: Math.min(p.sel.c2, s.cols - 1) };
+      if (sel.r2 < sel.r1 || sel.c2 < sel.c1) return [];
+      const box = rangeBox(sel);
+      const active = p.active ? (mergeAt(p.active.r, p.active.c) || { r1: p.active.r, c1: p.active.c, r2: p.active.r, c2: p.active.c }) : null;
+      const outline = el('div.peer-sel', { style: { '--peer': p.color }, dataset: { peer: p.id } });
+      place(outline, box);
+      const nodes = [outline];
+      if (active && (active.r1 !== sel.r1 || active.c1 !== sel.c1 || active.r2 !== sel.r2 || active.c2 !== sel.c2)) {
+        const cell = el('div.peer-active', { style: { '--peer': p.color } });
+        place(cell, rangeBox(active));
+        nodes.push(cell);
+      }
+      const flag = el('div.peer-flag', { style: { '--peer': p.color }, className: `peer-flag${p.editing ? ' editing' : ''}${p.quiet ? ' quiet' : ''}${box.top < 18 ? ' below' : ''}` }, p.editing ? `${p.name} · typing` : p.name);
+      flag.style.transform = `translate(${box.left}px, ${box.top}px)`;
+      nodes.push(flag);
+      return nodes;
+    }));
+  }
+
   function renderSelection(view = viewMetrics()) {
+    renderPeers();
     renderTables();
     root.classList.toggle('protected', wb.isProtected(sheetId));
     root.classList.toggle('no-gridlines', sheet().gridlines === false);
@@ -5523,6 +5550,8 @@ export function createGrid(opts) {
     focus() { if (!validationPending) (edit ? editor : viewport).focus({ preventScroll: true }); },
     focusEditor() { if (edit && !validationPending) editor.focus({ preventScroll: true }); },
     refresh() { rebuildOffsets(); rendered.key = null; schedule(); },
+    /** Show where the other people in a shared workbook are: [{ id, name, color, sheet, sel, active, editing }]. */
+    setPeers(list) { peers = Array.isArray(list) ? list : []; renderPeers(); },
     setHighlights(cells, current = -1) { highlights = { cells, current }; renderHighlights(visibleRange()); schedule(); },
     /** Outline the cells cut on the sheet shown (null ends it): the box shows while that sheet is on screen. */
     setCutRange(range) { cutRange = range ? { sheetId, range: normalizeRange(range) } : null; renderCutRange(); schedule(); },

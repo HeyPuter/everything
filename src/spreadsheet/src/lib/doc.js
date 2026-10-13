@@ -158,6 +158,8 @@ export function forgetExternalDecision(file, scope = storageScope()) {
 }
 const DRAFT_MS = 600; // unsaved edits are copied to this browser's storage after this pause
 export const UNTITLED = 'Untitled spreadsheet';
+/** How long a shared workbook waits after its last change before its owner's browser writes the .xlsx file. */
+const SHARED_FILE_MS = 15_000;
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
 /** Why a spreadsheet shared with the user only to view is not saved. */
 export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
@@ -313,6 +315,7 @@ export class Doc extends EventTarget {
   }
 
   destroy() {
+    if (this.collab) { this._leaveRoom(); return; }
     clearTimeout(this._timer);
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) clearDraft(this._ownDraftKey, this._draftRevision);
@@ -348,6 +351,8 @@ export class Doc extends EventTarget {
 
   /** Copy the unsaved book to local storage (no-op once it is clean). */
   writeDraft() {
+    // A shared workbook keeps unsent changes in its own outbox (see collab/outbox.js), not in a draft.
+    if (this.collab) return false;
     clearTimeout(this._draftTimer);
     if (!this.wb.dirty) { clearDraft(this._ownDraftKey, this._draftRevision); return false; }
     // Timestamps and workbook versions can coincide across tabs. Each write
@@ -430,6 +435,7 @@ export class Doc extends EventTarget {
 
   _changed(type) {
     if (type === 'active-sheet') return;
+    if (this.collab) { this._sharedChanged(type); return; }
     if (type === 'clean') {
       // The book was declared clean without a save (columns fitted on open, say): nothing is pending.
       if (!this.wb.dirty && this.status === 'unsaved') {
@@ -462,6 +468,7 @@ export class Doc extends EventTarget {
 
   /** Save now. Returns true when the file was written. */
   save({ auto = false, retry = false } = {}) {
+    if (this.collab) return this._enqueueWrite(() => this._saveShared({ auto }));
     clearTimeout(this._timer);
     if (!retry) this._retryDelay = 0; // an edit, a save asked for, or coming back online starts the retries over
     return this._enqueueWrite(() => {
@@ -869,6 +876,75 @@ export class Doc extends EventTarget {
   /* ---------- Constructors ---------- */
 
   /** Recover a spreadsheet that closed before its first cloud save. */
+  /* ---------- Shared workbooks (see collab/client.js) ---------- */
+
+  /**
+   * The document of a shared workbook: its changes go to everyone through the room as they are made, and
+   * saving writes a checkpoint and the .xlsx file (over the owner's file, so it still opens anywhere).
+   */
+  static forRoom(client, { path = null, uid = null } = {}) {
+    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: client.file?.path ?? path, uid: client.file?.uid ?? uid });
+    doc.collab = client;
+    doc._onRoomStatus = () => doc._sharedChanged('room');
+    client.addEventListener('status', doc._onRoomStatus);
+    doc._setStatus(client.status.pending ? 'saving' : 'saved');
+    return doc;
+  }
+
+  get isOwner() {
+    return !!this.collab && this.collab.user?.uuid === this.collab.owner;
+  }
+
+  /** A change reached a shared workbook (here or from someone else): the status follows the room's, and the file is written once things settle. */
+  _sharedChanged(type) {
+    const { state, pending } = this.collab.status;
+    if (state === 'offline') this._setStatus('offline', this.collab.status.message);
+    else if (state === 'error') this._setStatus('error', this.collab.status.message);
+    else this._setStatus(pending ? 'saving' : 'saved');
+    if (type === 'room' || type === 'clean' || !this.wb.dirty) return;
+    // The owner's browser keeps the .xlsx current while it is open: a while after the last change, everyone's.
+    if (this.isOwner && autoSaveEnabled() && !session.signedOut) {
+      clearTimeout(this._timer);
+      this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), SHARED_FILE_MS);
+    }
+  }
+
+  /** Deliver what is pending, then write a checkpoint and the .xlsx. */
+  async _saveShared({ auto = false } = {}) {
+    const client = this.collab;
+    clearTimeout(this._timer);
+    await client.flush();
+    await client.settled();
+    if (client.replica.pending.length) {
+      this._sharedChanged('room');
+      if (auto) return false;
+      throw new Error(client.status.message || 'Your changes are waiting to be sent. They are kept on this device until the connection returns.');
+    }
+    if (!client.canEdit) { this.wb.markClean(); return true; }
+    this._setStatus('saving');
+    try {
+      const res = await client.checkpoint({ file: true });
+      // The worker writes the owner's file when Puter lets it; the owner's own browser can always.
+      if (this.isOwner && this.path && this.isXlsxPath && !res?.wrote) await P.writeFile(this.path, await workbookToXlsx(this.wb), { overwrite: true });
+      this.lastSaved = Date.now();
+      this.wb.markClean();
+      this._setStatus('saved');
+      return true;
+    } catch (e) {
+      this._setStatus(client.status.state === 'offline' ? 'offline' : 'error', e?.message || 'Could not save');
+      if (auto) return false;
+      throw e;
+    }
+  }
+
+  _leaveRoom() {
+    clearTimeout(this._timer);
+    this.collab.removeEventListener('status', this._onRoomStatus);
+    this.wb.removeEventListener('change', this._onChange);
+    session.removeEventListener('change', this._onSession);
+    this.collab.leave().catch(() => {});
+  }
+
   static fromDraft(key) {
     // Only this account's drafts of spreadsheets that have no file are recovered this way.
     const draft = isUnsavedDraftKey(key) ? loadDraft(key) : null;

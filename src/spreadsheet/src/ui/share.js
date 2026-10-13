@@ -10,6 +10,7 @@ import { openModal, fieldAlert, focusListRow, promptDialog } from './modal.js';
 import { toast } from './toast.js';
 import * as P from '../lib/puter.js';
 import { fileLink } from '../lib/links.js';
+import { coauthorSection } from './coauthor.js';
 
 export const SHARE_MODES = [['read', 'Can view'], ['write', 'Can edit']];
 const modeLabel = (mode) => (mode === 'write' || mode === 'manage' ? 'Can edit' : 'Can view');
@@ -29,7 +30,7 @@ function rowMeta(row) {
  * Open the dialog for the file at `path` (named `name`; `uid`, when known, spares a look-up for
  * the link). `onChange` runs after access was given or withdrawn.
  */
-export function openShareDialog({ path, name, uid = null, onChange = null }) {
+export function openShareDialog({ path, name, uid = null, onChange = null, doc = null, onLive = null }) {
   const { alert, refuse, clear } = fieldAlert('share');
   const who = el('input.input', {
     type: 'text', placeholder: 'Username or email address', 'aria-label': 'Username or email address',
@@ -221,7 +222,11 @@ export function openShareDialog({ path, name, uid = null, onChange = null }) {
   const addForm = el('form.share-add', { onsubmit: (e) => { e.preventDefault(); add(); } }, who, mode, shareBtn);
   const hint = el('p.field-hint', {}, 'Share with a Puter username, or an email address: someone without an account is invited to join.');
   const doneBtn = el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Done');
+  // Editing together (see coauthor.js) comes first: it is what most people sharing a spreadsheet want.
+  const live = doc && coauthorSection({ doc, onStarted: (room) => { modal.close(); onLive?.(room); } });
   const content = el('div.share-dialog', {},
+    live,
+    live && el('h3.share-h3', {}, 'Share the file'),
     addForm,
     alert,
     hint,

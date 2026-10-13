@@ -1,7 +1,7 @@
 import brandIconUrl from '../../icon.png';
 import { commandIcon } from './command-icons.js';
 import {
-  createElement,
+  createElement, UsersRound,
   Plus, FilePlus, FolderOpen, Upload, Download, Save, Undo2, Redo2,
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight,
   Baseline, PaintBucket, Eraser, Percent, DollarSign, Hash, Calendar, Type,
@@ -148,6 +148,8 @@ const ICONS = {
   minus: Minus,
   share: Share2,
   users: Users,
+  // The people in a shared workbook (a plain glyph: 'users' has a drawing of its own).
+  people: UsersRound,
   panelCollapse: PanelRightClose,
   panelExpand: PanelRightOpen,
   attach: Paperclip,

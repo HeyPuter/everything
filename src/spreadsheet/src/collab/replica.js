@@ -469,6 +469,8 @@ export class Replica extends EventTarget {
       }
     }
     this.dispatchEvent(new CustomEvent('local', { detail: change }));
+    // A new step, announced as the workbook announces its own (Undo and Redo announce theirs when done).
+    if (undoable && !this.undoing) this.wb._emit('history');
     return change;
   }
 
@@ -530,8 +532,8 @@ export class Replica extends EventTarget {
     else this._refreshShadow(touched);
     this._resetDirty();
     if (applied) this.dispatchEvent(new CustomEvent('remote', { detail: { structural } }));
+    // Not a step of this person's: the workbook's 'history' event (which the editor counts steps by) is not sent.
     this.dispatchEvent(new CustomEvent('history'));
-    wb._emit('history');
     return applied;
   }
 

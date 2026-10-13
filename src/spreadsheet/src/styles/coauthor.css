@@ -1,0 +1,60 @@
+/* Editing together: the people in a shared workbook, their selections on the grid, and the Share dialog's part. */
+
+/* People beside Share: overlapping initials in each person's colour (white on each meets 4.5:1), then the list button. */
+.collab-people { display: flex; align-items: center; margin: 0 4px 0 2px; }
+.collab-people[hidden] { display: none; }
+.collab-avatar {
+  display: grid; place-items: center; width: 28px; height: 28px; margin-left: -6px; padding: 0;
+  border-radius: 50%; border: 2px solid var(--chrome); background: var(--peer); color: #fff;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .02em; cursor: pointer; position: relative;
+}
+.collab-avatar:first-child { margin-left: 0; }
+.collab-avatar:hover, .collab-avatar:focus-visible { z-index: 1; transform: translateY(-1px); }
+.collab-avatar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.collab-list-btn {
+  display: inline-flex; align-items: center; gap: 3px; height: 28px; min-width: 28px; margin-left: 4px; padding: 0 6px;
+  border: 1px solid transparent; border-radius: 6px; background: none; color: var(--chrome-ink); cursor: pointer; font-size: 12px;
+}
+@media (hover: hover) { .collab-list-btn:hover { background: var(--chrome-hover); } }
+.collab-more { font-weight: 600; }
+
+/* The save pill of a shared workbook: live, syncing, offline (warning colour) or not connected. */
+.save-status.shared.connected { color: var(--accent); }
+.save-status.shared.syncing, .save-status.shared.connecting { color: var(--ink-3); }
+.save-status.shared.offline { color: var(--warn); font-weight: 600; }
+.save-status.shared.error { color: var(--critical); font-weight: 600; }
+
+/* Other people's selections on the grid: an outline in their colour, their active cell, and a flag with their name. */
+.peer-layer { position: absolute; inset: 0 auto auto 0; pointer-events: none; z-index: 2; }
+.peer-sel, .peer-active, .peer-flag { position: absolute; top: 0; left: 0; box-sizing: border-box; pointer-events: none; will-change: transform; }
+.peer-sel { border: 2px solid var(--peer); background: color-mix(in srgb, var(--peer) 7%, transparent); }
+.peer-active { border: 2px solid var(--peer); }
+.peer-flag {
+  margin-top: -17px; height: 17px; padding: 0 6px; border-radius: 3px 3px 3px 0; background: var(--peer); color: #fff;
+  font: 600 11px/17px var(--font-ui, system-ui, sans-serif); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
+.peer-flag.below { margin-top: 0; border-radius: 0 3px 3px 3px; transform-origin: top left; }
+.peer-flag.editing::after { content: ''; display: inline-block; width: 5px; height: 5px; margin-left: 5px; border-radius: 50%; background: #fff; vertical-align: 1px; animation: peer-typing 1s ease-in-out infinite; }
+@keyframes peer-typing { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .peer-flag.editing::after { animation: none; } }
+@media print { .peer-layer { display: none; } }
+
+/* The sheet tabs: a dot per person on the sheet they are on. */
+.tab-peers { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; }
+.tab-peer { width: 8px; height: 8px; border-radius: 50%; background: var(--peer); box-shadow: 0 0 0 1.5px var(--surface); }
+.tab-peer-more { font-size: 10.5px; color: var(--ink-3); margin-left: 1px; }
+
+/* The Share dialog's Edit together part. */
+.collab-share { margin-bottom: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--hairline, var(--surface-3)); }
+.collab-share .share-h3:first-child { margin-top: 0; }
+.collab-share-text { margin: 6px 0 12px; font-size: 13.5px; color: var(--ink-2); line-height: 1.45; }
+.collab-share .btn svg { flex: none; }
+.collab-share .btn { gap: 6px; }
+.collab-link-row { gap: 8px; align-items: center; margin-bottom: 10px; }
+.collab-member-avatar { background: var(--peer); color: #fff; font-size: 11.5px; }
+.collab-stop-row { margin-top: 12px; justify-content: flex-end; }
+/* After a few seconds without moving, the flag shrinks to a small tab in the person's colour. */
+.peer-flag { transition: max-width .2s ease, padding .2s ease, color .2s ease; }
+.peer-flag.quiet { max-width: 10px; height: 6px; margin-top: -6px; padding: 0; color: transparent; border-radius: 2px 2px 0 0; }
+.peer-flag.quiet.below { margin-top: 0; border-radius: 0 0 2px 2px; }
+@media (prefers-reduced-motion: reduce) { .peer-flag { transition: none; } }

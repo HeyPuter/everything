@@ -122,6 +122,7 @@ import { createMenubar, SPECIAL_KINDS } from '../ui/menubar.js';
 import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
 import { openShareDialog } from '../ui/share.js';
+import { createPeopleBar, peopleHere, roomStatus } from '../ui/coauthor.js';
 import { openShortcuts } from '../ui/shortcuts.js';
 import { session } from '../lib/session.js';
 import * as P from '../lib/puter.js';
@@ -154,7 +155,7 @@ const MAX_FORMAT_CELLS = 20000;
 // Clipboard height can exceed JavaScript's argument limit, even when the
 // cells ultimately pasted are clipped to the sheet's supported dimensions.
 const clipboardWidth = (rows) => rows.reduce((width, row) => Math.max(width, row.length), 0);
-export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importFile, initialRange = null, leaveDialog = null }) {
+export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importFile, openLive = null, initialRange = null, leaveDialog = null }) {
   let destroyed = false;
   let palette = null; // the open command palette, closed with the view
   const { wb } = doc;
@@ -2383,7 +2384,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           if (destroyed) return;
         }
         if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return; }
-        openShareDialog({ path: doc.path, name: doc.name, uid: doc.uid });
+        openShareDialog({
+          path: doc.path, name: doc.name, uid: doc.uid, doc: openLive ? doc : null,
+          // Editing together started (or stopped): the workbook opens again as the room's (or as the file).
+          onLive: async (room) => {
+            if (destroyed) return;
+            if (room) openLive?.({ ...room, path: doc.path, uid: doc.uid });
+            else openPath(doc.path, { reload: true });
+          },
+        });
         return;
       }
       case 'importUrl': {
@@ -4909,6 +4918,57 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   /* ---------- Top bar and menu bar ---------- */
 
+  /* ---------- Editing together (a shared workbook; see collab/ and coauthor.js) ---------- */
+
+  const room = doc.collab || null;
+  const FLAG_MS = 4000;
+  /** Show where someone is: their sheet, with their selection. */
+  const jumpTo = (person) => {
+    if (!person.sheet || !wb.sheet(person.sheet)) { toast(`${person.name} has not picked a cell yet`, { icon: 'info', duration: 2200 }); return; }
+    if (grid.editing && !grid.commitEdit()) return;
+    if (wb.activeSheetId !== person.sheet) wb.setActiveSheet(person.sheet);
+    const target = person.sel || { r1: person.active.r, c1: person.active.c, r2: person.active.r, c2: person.active.c };
+    grid.setRanges([target], person.active || { r: target.r1, c: target.c1 });
+    statusBar?.announce(`At ${person.name}'s selection`);
+    keepFocus();
+  };
+  const peopleBar = room ? createPeopleBar({ client: room, wb, jump: jumpTo }) : null;
+  let lastPresence = '';
+  const sharePresence = () => {
+    if (!room) return;
+    const state = { sheet: grid.sheetId, sel: grid.range, active: grid.active, editing: grid.editing };
+    const key = JSON.stringify(state);
+    if (key === lastPresence) return;
+    lastPresence = key;
+    room.setPresence(state);
+  };
+  // A person's name flag shows while they move or type, then shrinks to a tab in their colour, so names do not cover the cells.
+  const movedAt = new Map(); // session → { key, at }
+  let flagTimer = null;
+  const showPeople = () => {
+    if (!room || destroyed) return;
+    const now = Date.now();
+    const people = peopleHere(room).map((p) => {
+      const key = JSON.stringify([p.sheet, p.sel, p.active, p.editing]);
+      const seen = movedAt.get(p.id);
+      if (seen?.key !== key) movedAt.set(p.id, { key, at: now });
+      return { ...p, quiet: !p.editing && now - movedAt.get(p.id).at > FLAG_MS };
+    });
+    peopleBar.update();
+    grid.setPeers(people);
+    clearTimeout(flagTimer);
+    const next = Math.min(...people.filter((p) => !p.quiet && !p.editing).map((p) => movedAt.get(p.id).at + FLAG_MS - now + 20));
+    if (Number.isFinite(next)) flagTimer = setTimeout(showPeople, Math.max(50, next));
+    const bySheet = new Map();
+    for (const p of people) if (p.sheet) bySheet.set(p.sheet, [...(bySheet.get(p.sheet) || []), { name: p.name, color: p.color }]);
+    sheetTabs.setPeers(bySheet);
+  };
+  const onRoomRefused = (e) => toast(e.detail?.message || 'That change could not be shared', { icon: 'alert', duration: 4000 });
+  const onRoomRole = (e) => toast(e.detail?.role === 'viewer' ? 'You can now only view this shared workbook' : 'You can now edit this shared workbook', { icon: 'info', duration: 4000 });
+  const onRoomClosed = (e) => toast(`${e.detail?.message || 'This shared workbook is no longer available'} What you see stays open; use File > Save a copy to keep it.`, { icon: 'alert', duration: 8000 });
+  const onRoomOnline = () => room?.resume();
+  const onRoomVisible = () => { if (document.visibilityState === 'visible') room?.resume(); };
+
   // The tooltip carries the whole name: the title is cut short with an ellipsis when the window is narrow.
   const titleTip = () => `Rename "${doc.name}"`;
   // A name in a right-to-left script is laid out that way, its number at its own end, as a cell is.
@@ -4948,11 +5008,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     el('div.topbar-actions', {}, searchBtn,
       // The Comments button beside Share: the sheet's comment threads in the Comments pane.
       el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': 'Comments', title: 'Comments', onclick: () => run('toggleComments') }),
+      peopleBar?.el,
       ...(P.canShare() ? [el('button.btn.share-btn.desktop-only', { type: 'button', title: 'Share this spreadsheet', onclick: () => run('share') },
       el('span', { html: icon('share', 16) }), el('span', {}, 'Share'))] : []), avatar));
   const header = el('header.editor-header', {}, topbar);
 
   function refreshStatus() {
+    if (room) {
+      const [ic, label, title] = roomStatus(room);
+      status.disabled = true;
+      status.className = `save-status shared ${room.status.state}`;
+      status.replaceChildren(el('span', { html: icon(ic, 14, 2), className: ic === 'spinner' ? 'spin' : '' }), el('span.save-label', {}, label));
+      status.title = title;
+      return;
+    }
     if (session.signedOut) {
       // Nowhere to write yet: the pill invites the sign-in that saving needs. The edits are normally copied into
       // this browser's draft meanwhile; when they could not be (the book outgrew local storage), it says so here
@@ -5271,6 +5340,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     notify();
   };
   wb.addEventListener('change', onWbChange);
+  if (room) {
+    room.addEventListener('people', showPeople);
+    room.addEventListener('status', refreshStatus);
+    room.addEventListener('refused', onRoomRefused);
+    room.addEventListener('role', onRoomRole);
+    room.addEventListener('closed', onRoomClosed);
+    window.addEventListener('online', onRoomOnline);
+    document.addEventListener('visibilitychange', onRoomVisible);
+    ctx.subscribe(sharePresence);
+    setTimeout(() => { sharePresence(); showPeople(); }, 0);
+  }
   doc.addEventListener('status', refreshStatus);
   doc.addEventListener('draft', refreshStatus); // whether this browser holds a copy of the edits changed
   doc.addEventListener('path', refreshTitle);
@@ -5490,6 +5570,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       doc.removeEventListener('conflict', onConflict);
       window.removeEventListener('app:locale', onLocale);
       wb.removeEventListener('change', onWbChange);
+      if (room) {
+        clearTimeout(flagTimer);
+        room.removeEventListener('people', showPeople);
+        room.removeEventListener('status', refreshStatus);
+        room.removeEventListener('refused', onRoomRefused);
+        room.removeEventListener('role', onRoomRole);
+        room.removeEventListener('closed', onRoomClosed);
+        window.removeEventListener('online', onRoomOnline);
+        document.removeEventListener('visibilitychange', onRoomVisible);
+      }
       wb.removeEventListener('change', syncChartTheme);
       wb.removeEventListener('change', disarmCutOnChange);
       unsubscribePageView();

@@ -40,7 +40,7 @@ export function environment() {
     },
     async read(path) {
       if (!files.has(path)) throw new Error(`Missing file: ${path}`);
-      return new Blob([files.get(path)]);
+      return new Response(files.get(path));
     },
     async stat(path) {
       if (!files.has(path)) throw new Error(`Missing file: ${path}`);

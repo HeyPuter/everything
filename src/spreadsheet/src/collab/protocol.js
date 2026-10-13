@@ -44,7 +44,7 @@ export async function hash(value) {
 
 /** Bytes through a (de)compression stream. */
 async function through(bytes, stream) {
-  const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+  const out = new Response(new Response(bytes).body.pipeThrough(stream));
   return new Uint8Array(await out.arrayBuffer());
 }
 
