@@ -477,7 +477,7 @@ function fillPopover(cs: CollabSession, pop: HTMLElement) {
     .map((p) => {
       const s = p.sessions[0];
       const following = s && cs.following === s.session;
-      const follow = s?.view ? `<button class="icon-button" data-follow="${s.session}" aria-pressed="${following}" title="${following ? 'Stop following' : `Follow ${escapeXML(p.username)}'s view`}" aria-label="${following ? 'Stop following' : `Follow ${escapeXML(p.username)}`}">${svg('follow-view', 15)}</button>` : '';
+      const follow = s?.view ? `<button class="icon-button" data-follow="${escapeXML(s.session)}" aria-pressed="${following}" title="${following ? 'Stop following' : `Follow ${escapeXML(p.username)}'s view`}" aria-label="${following ? 'Stop following' : `Follow ${escapeXML(p.username)}`}">${svg('follow-view', 15)}</button>` : '';
       return row(p.user, p.username, p.role, s ? (s.toolLabel ?? 'here') : p.user === cs.client.user?.uuid ? 'here' : '', p.user === cs.client.user?.uuid ? '' : follow);
     })
     .concat(away.map((m) => row(m.uuid, m.username, m.role, 'not here')))
@@ -530,7 +530,7 @@ function reviewHeader(e: Editor, cs: CollabSession) {
   const artboards = doc.layers.filter((l) => l.artboard);
   const comps = doc.layerComps ?? [];
   el.innerHTML = `<span class="review-title">${svg('share-review', 15)}<strong>${escapeXML(doc.name)}</strong><span class="muted">${cs.client.canComment ? 'Review · you can comment' : 'Review · view only'}</span></span>${
-    artboards.length ? `<label>Artboard <select data-review="artboard"><option value="">Whole document</option>${artboards.map((a) => `<option value="${a.id}">${escapeXML(a.name)}</option>`).join('')}</select></label>` : ''
+    artboards.length ? `<label>Artboard <select data-review="artboard"><option value="">Whole document</option>${artboards.map((a) => `<option value="${escapeXML(a.id)}">${escapeXML(a.name)}</option>`).join('')}</select></label>` : ''
   }${comps.length ? `<label>Layer comp <select data-review="comp"><option value="">As shared</option>${comps.map((c) => `<option value="${escapeXML(c.id)}">${escapeXML(c.name)}</option>`).join('')}</select></label>` : ''}<span class="panel-tabs-spacer"></span><button data-review-command="view.fit">${svg('maximize', 14)}Fit</button><button data-review-command="view.actual-pixels">100%</button>${cs.client.canComment ? `<button data-review-command="comments.new">${svg('comment-add', 14)}Comment</button>` : ''}`;
 }
 /** Show a layer comp in the review view (this browser only; nothing is changed). */

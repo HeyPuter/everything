@@ -16,7 +16,7 @@
 // wins; painting on one layer merges per 256-pixel tile, the same tile being
 // last writer wins. Tile grids inside other registers (alpha channels,
 // patterns, altered video frames) are atomic with their register. Selections
-// are each person's own and never shared.
+// and a few view settings (PRIVATE_DOC) are each person's own and never shared.
 import * as Y from 'yjs';
 import type { Layer, PhotoDocument } from '../model/document';
 import { computeBounds, type TileGrid } from '../model/tiles';
@@ -26,6 +26,8 @@ import type { TileIndex } from './tile-index';
 import { orderKeys } from './order';
 import { hash } from './protocol';
 import { documentAssetIds } from '../model/serialization';
+import { fitLayerToKind, salvageDocument } from './repair';
+import { isDocumentId } from '../model/ids';
 
 export { documentAssetIds };
 
@@ -38,8 +40,12 @@ export const ORIGIN = {
 } as const;
 
 export const SCHEMA = 1;
-// Document properties every participant keeps for themselves.
-const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask']);
+// Document properties every participant keeps for themselves: the selection,
+// File → Generate → Image Assets (it writes files to that person's storage)
+// and the 32-bit preview options (display only).
+const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'imageAssets', 'hdrPreview']);
+/** This person's own document properties, kept through projection. */
+export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'imageAssets' | 'hdrPreview'>>;
 // Layer properties held as per-tile maps.
 export const GRID_KEYS = ['pixels', 'maskGrid', 'liveSource', 'liveMask'] as const;
 const GRID_SET = new Set<string>(GRID_KEYS);
@@ -324,14 +330,20 @@ export class SharedProject {
       }
     }
     l.children = [];
+    // Concurrent edits merge per property: keep only what fits the merged kind.
+    fitLayerToKind(l as unknown as Layer);
     return l as unknown as Layer;
   }
 
   /** The shared document as an editor document; `local` supplies this
-   * person's selection. Returns `complete: false` while tiles download. */
-  project(local: Pick<PhotoDocument, 'selection' | 'selectionMask'>): { document: PhotoDocument; complete: boolean } {
+   * person's selection. Returns `complete: false` while tiles download, and
+   * in `dropped` what a merge left invalid and is not shown (see repair.ts).
+   * The document passes `validateDocument`; throws when it cannot. */
+  project(local: PrivateState): { document: PhotoDocument; complete: boolean; dropped: string[] } {
     let complete = true;
-    const ids = [...this.layers.keys()];
+    // Layer IDs reach markup: entries under any other key (written past the
+    // editor) are not shown.
+    const ids = [...this.layers.keys()].filter(isDocumentId);
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
     for (const id of ids) {
       if (!this.allDirty && !this.dirty.has(id) && this.cache.has(id) && !this.stale.has(id)) continue;
@@ -385,18 +397,25 @@ export class SharedProject {
     }
     const document = { ...structuredCloneShallow(docRegs), selection: local.selection ?? null } as PhotoDocument;
     if (local.selectionMask) document.selectionMask = local.selectionMask;
-    const build = (parent: string, depth: number): Layer[] =>
+    if (local.imageAssets !== undefined) document.imageAssets = local.imageAssets;
+    if (local.hdrPreview !== undefined) document.hdrPreview = local.hdrPreview;
+    const build = (parent: string, depth: number, inFrame: boolean): Layer[] =>
       (groups.get(parent) ?? []).map((id) => {
         const l = { ...this.cache.get(id)! };
-        l.children = depth < 12 ? build(id, depth + 1) : [];
+        // Artboards stay at the top level and frames do not nest, whatever
+        // concurrent moves did.
+        if (depth > 0) delete l.artboard;
+        if (inFrame) delete l.frame;
+        l.children = depth < 12 ? build(id, depth + 1, inFrame || !!l.frame) : [];
         // Pixel layers keep their transform equal to their merged content.
         if (l.kind === 'pixel' && l.pixels?.bounds) syncPixelTransform(l, document);
         return l;
       });
-    document.layers = build('', 0);
+    document.layers = build('', 0, false);
     document.version = 1;
+    const dropped = salvageDocument(document);
     this.referencedIds = new Set(documentAssetIds(document));
-    return { document, complete };
+    return { document, complete, dropped };
   }
   private stale = new Set<string>();
   /** Project everything again (after tiles arrived). */

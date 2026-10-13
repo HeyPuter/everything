@@ -12,6 +12,7 @@
 // clip edits, validation and the history hook part); decoding, mixing,
 // playback and encoding live with the timeline features and in
 // imaging/audio.
+import { isDocumentId } from './ids';
 import { allLayers, findLayer, type Layer, type PhotoDocument } from './document';
 import type { VideoTimeline } from './video-timeline';
 
@@ -263,17 +264,17 @@ export function validateAudio(tracks: unknown) {
   const ids = new Set<string>();
   let clips = 0;
   for (const t of tracks as AudioTrack[]) {
-    if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !t.id || ids.has(t.id) || typeof t.name !== 'string' || t.name.length > 255 || !Array.isArray(t.clips)) throw bad();
+    if (!t || typeof t !== 'object' || !isDocumentId(t.id) || ids.has(t.id) || typeof t.name !== 'string' || t.name.length > 255 || !Array.isArray(t.clips)) throw bad();
     ids.add(t.id);
     if (t.volume !== undefined && !(finite(t.volume) && t.volume >= volumeRange[0] && t.volume <= volumeRange[1])) throw bad();
     if ((t.muted !== undefined && t.muted !== true) || (t.solo !== undefined && t.solo !== true)) throw bad();
     clips += t.clips.length;
     if (clips > maxAudioClips) throw bad();
     for (const c of t.clips) {
-      if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !c.id || ids.has(c.id)) throw bad();
+      if (!c || typeof c !== 'object' || !isDocumentId(c.id) || ids.has(c.id)) throw bad();
       ids.add(c.id);
       if (![c.start, c.in, c.length].every(seconds)) throw bad();
-      if (c.link !== undefined ? typeof c.link !== 'string' || c.source !== undefined : !validAudioSource(c.source) || c.length <= 0) throw bad();
+      if (c.link !== undefined ? !isDocumentId(c.link) || c.source !== undefined : !validAudioSource(c.source) || c.length <= 0) throw bad();
       if (c.gain !== undefined && !(finite(c.gain) && c.gain >= gainRange[0] && c.gain <= gainRange[1])) throw bad();
       if ((c.fadeIn !== undefined && !seconds(c.fadeIn)) || (c.fadeOut !== undefined && !seconds(c.fadeOut))) throw bad();
     }

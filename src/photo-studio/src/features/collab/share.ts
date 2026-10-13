@@ -102,7 +102,7 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
         .map((m) =>
           m.role === 'owner'
             ? `<li><span class="collab-member-name">${escapeXML(m.username)}</span><span class="muted">Owner</span></li>`
-            : `<li data-member="${m.uuid}"><span class="collab-member-name">${escapeXML(m.username)}</span><select data-member-role aria-label="Access for ${escapeXML(m.username)}">${roleOptions(m.role, INVITE_ROLES)}</select><select data-member-expiry aria-label="Access of ${escapeXML(m.username)} expires">${expiry(m)}</select><button type="button" class="icon-button" data-act="remove" aria-label="Remove ${escapeXML(m.username)}" title="Remove access">${svg('trash-2', 14)}</button></li>`,
+            : `<li data-member="${escapeXML(m.uuid)}"><span class="collab-member-name">${escapeXML(m.username)}</span><select data-member-role aria-label="Access for ${escapeXML(m.username)}">${roleOptions(m.role, INVITE_ROLES)}</select><select data-member-expiry aria-label="Access of ${escapeXML(m.username)} expires">${expiry(m)}</select><button type="button" class="icon-button" data-act="remove" aria-label="Remove ${escapeXML(m.username)}" title="Remove access">${svg('trash-2', 14)}</button></li>`,
         )
         .join('') + res.named.map((n) => `<li><span class="collab-member-name">${escapeXML(n.username)}</span><span class="muted">${escapeXML(roleLabel(n.role))} · invited, not joined yet</span></li>`).join('');
     form.querySelector('.collab-invites')!.textContent = res.invites ? `${res.invites} active invitation link${res.invites === 1 ? '' : 's'}` : 'No active invitation links';

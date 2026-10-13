@@ -200,13 +200,13 @@ const compsPanel: Panel = {
     const on = shown(e);
     const selected = find(e, s.selected);
     const marker = (active: boolean, id: string, name: string) =>
-      `<button class="comp-apply" data-comp-apply="${id}" aria-pressed="${active}" title="${active ? 'Shown in the document' : `Apply ${escapeXML(name)}`}" aria-label="Apply ${escapeXML(name)}">${active ? svg('layer-comps', 14) : ''}</button>`;
+      `<button class="comp-apply" data-comp-apply="${escapeXML(id)}" aria-pressed="${active}" title="${active ? 'Shown in the document' : `Apply ${escapeXML(name)}`}" aria-label="Apply ${escapeXML(name)}">${active ? svg('layer-comps', 14) : ''}</button>`;
     const rows = list
       .map((c) => {
         const missing = missingLayers(e.doc, c).length;
         const aspects = [c.capture.visibility && 'visibility', c.capture.position && 'position', c.capture.appearance && 'appearance'].filter(Boolean).join(', ') || 'nothing';
         const tip = `${c.name} — restores ${aspects}${c.comment ? `\n${c.comment}` : ''}`;
-        return `<div class="comp-row ${selected === c ? 'selected' : ''}" data-comp="${c.id}" role="listitem" title="${escapeXML(tip)}">${marker(on === c, c.id, c.name)}<span class="comp-name">${escapeXML(c.name)}</span>${
+        return `<div class="comp-row ${selected === c ? 'selected' : ''}" data-comp="${escapeXML(c.id)}" role="listitem" title="${escapeXML(tip)}">${marker(on === c, c.id, c.name)}<span class="comp-name">${escapeXML(c.name)}</span>${
           missing
             ? `<span class="comp-warning" role="img" aria-label="Cannot be fully restored" title="${missing} layer${missing === 1 ? '' : 's'} in this comp no longer exist${missing === 1 ? 's' : ''}. Update the comp to clear this warning.">${svg('info', 14)}</span>`
             : ''

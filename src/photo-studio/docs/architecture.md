@@ -98,6 +98,10 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 - Selections: `doc.selectionMask` (1-channel grid, origin 0) and `doc.selection` (its
   bounds). Use `selectionGrid`, `applySelection`, `commitSelectionMask(e, mask, op, label)`.
 - Layer masks painted in the app are `layer.maskGrid` (fill 255 = reveal all).
+- Identifiers of layers, channels, embedded objects, audio tracks and clips, comps,
+  slices, paths, frames and annotations are made with `crypto.randomUUID()` and must
+  match `ID_PATTERN` (`src/model/ids.ts`); `validateDocument` refuses others. Still
+  escape them with `escapeXML` wherever they go into markup.
 
 ## Document windows and views (`src/app/views.ts`)
 

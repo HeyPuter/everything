@@ -93,14 +93,14 @@ function clipHtml(e: Editor, tl: VideoTimeline, l: Layer, zoom: number) {
   const left = c.start * zoom,
     width = Math.max(3, c.length * zoom);
   const fade = (t: Transition | undefined, edge: 'in' | 'out') =>
-    t ? `<span class="vt-fade ${edge} ${t.kind}" data-transition="${l.id}" style="width:${Math.min(width, t.duration * zoom)}px${t.kind === 'fade-color' ? `;--fade-color:${t.color ?? '#000000'}` : ''}" title="${escapeXML(transitionText(t, edge, tl.fps))} (click to change)"></span>` : '';
+    t ? `<span class="vt-fade ${edge} ${t.kind}" data-transition="${escapeXML(l.id)}" style="width:${Math.min(width, t.duration * zoom)}px${t.kind === 'fade-color' ? `;--fade-color:${t.color ?? '#000000'}` : ''}" title="${escapeXML(transitionText(t, edge, tl.fps))} (click to change)"></span>` : '';
   const marks = (tl.clips[l.id]?.keys ? keyProperties.flatMap((p) => tl.clips[l.id].keys![p]?.map((k) => k.t - c.in + c.start) ?? []) : [])
     .filter((t, i, a) => a.indexOf(t) === i)
     .map((t) => `<span class="vt-mark" style="left:${(t - c.start + 0.5) * zoom}px"></span>`)
     .join('');
   const sel = e.selectedIds.has(l.id);
   const range = `${timecode(c.start, tl.fps)} to ${timecode(clipEnd(c), tl.fps)}`;
-  return `<div class="vt-clip ${kind}${sel ? ' selected' : ''}${l.visible ? '' : ' hidden-layer'}" data-clip="${l.id}" style="left:${left}px;width:${width}px" title="${escapeXML(`${l.name}: ${range}`)}"><span class="vt-trim start" data-trim="start" title="Drag to trim the start"></span>${fade(c.fadeIn, 'in')}<span class="vt-clip-label">${kind === 'video' ? svg('film', 11) : ''}${escapeXML(l.name)}</span>${marks}${fade(c.fadeOut, 'out')}<span class="vt-trim end" data-trim="end" title="Drag to trim the end"></span></div>`;
+  return `<div class="vt-clip ${kind}${sel ? ' selected' : ''}${l.visible ? '' : ' hidden-layer'}" data-clip="${escapeXML(l.id)}" style="left:${left}px;width:${width}px" title="${escapeXML(`${l.name}: ${range}`)}"><span class="vt-trim start" data-trim="start" title="Drag to trim the start"></span>${fade(c.fadeIn, 'in')}<span class="vt-clip-label">${kind === 'video' ? svg('film', 11) : ''}${escapeXML(l.name)}</span>${marks}${fade(c.fadeOut, 'out')}<span class="vt-trim end" data-trim="end" title="Drag to trim the end"></span></div>`;
 }
 
 function keyLane(e: Editor, tl: VideoTimeline, l: Layer, prop: KeyProperty, zoom: number) {
@@ -114,16 +114,16 @@ function keyLane(e: Editor, tl: VideoTimeline, l: Layer, prop: KeyProperty, zoom
   const lane = keys
     .map((k) => {
       const t = k.t - c.in + c.start;
-      return `<span class="vt-key${k.hold ? ' hold' : ''}${selected.has(k.t) ? ' selected' : ''}" data-key="${l.id}|${prop}|${k.t}" style="left:${(t + 0.5) * zoom}px" title="${escapeXML(`${name} keyframe at ${timecode(t, tl.fps)} (${k.hold ? 'hold' : 'linear'})`)}"></span>`;
+      return `<span class="vt-key${k.hold ? ' hold' : ''}${selected.has(k.t) ? ' selected' : ''}" data-key="${escapeXML(`${l.id}|${prop}|${k.t}`)}" style="left:${(t + 0.5) * zoom}px" title="${escapeXML(`${name} keyframe at ${timecode(t, tl.fps)} (${k.hold ? 'hold' : 'linear'})`)}"></span>`;
     })
     .join('');
-  return `<div class="vt-row vt-prop-row" data-owner="${l.id}"><div class="vt-head vt-prop-head">
-<button class="icon-button vt-stopwatch" data-command="timeline.animate-${prop}" data-arg="${l.id}" aria-pressed="${on}" title="${on ? `Stop animating ${name.toLowerCase()} (removes its keyframes)` : `Animate ${name.toLowerCase()}: edits at the playhead add keyframes`}" aria-label="Animate ${name} of ${escapeXML(l.name)}">${svg('stopwatch', 13)}</button>
+  return `<div class="vt-row vt-prop-row" data-owner="${escapeXML(l.id)}"><div class="vt-head vt-prop-head">
+<button class="icon-button vt-stopwatch" data-command="timeline.animate-${prop}" data-arg="${escapeXML(l.id)}" aria-pressed="${on}" title="${on ? `Stop animating ${name.toLowerCase()} (removes its keyframes)` : `Animate ${name.toLowerCase()}: edits at the playhead add keyframes`}" aria-label="Animate ${name} of ${escapeXML(l.name)}">${svg('stopwatch', 13)}</button>
 <span class="vt-prop-name">${name}</span>
 <span class="vt-key-nav">
-<button class="icon-button" data-key-nav="-1" data-arg="${arg}" title="Previous ${name.toLowerCase()} keyframe" aria-label="Previous ${name} keyframe" ${on ? '' : 'disabled'}>${svg('chevron-left', 12)}</button>
-<button class="icon-button vt-key-toggle${here ? ' on' : ''}" data-command="timeline.toggle-key" data-arg="${arg}" title="${here ? 'Remove the keyframe at the playhead' : 'Add a keyframe at the playhead'}" aria-label="${here ? 'Remove' : 'Add'} ${name} keyframe" ${on ? '' : 'disabled'}>${svg('keyframe', 12)}</button>
-<button class="icon-button" data-key-nav="1" data-arg="${arg}" title="Next ${name.toLowerCase()} keyframe" aria-label="Next ${name} keyframe" ${on ? '' : 'disabled'}>${svg('chevron-right', 12)}</button>
+<button class="icon-button" data-key-nav="-1" data-arg="${escapeXML(arg)}" title="Previous ${name.toLowerCase()} keyframe" aria-label="Previous ${name} keyframe" ${on ? '' : 'disabled'}>${svg('chevron-left', 12)}</button>
+<button class="icon-button vt-key-toggle${here ? ' on' : ''}" data-command="timeline.toggle-key" data-arg="${escapeXML(arg)}" title="${here ? 'Remove the keyframe at the playhead' : 'Add a keyframe at the playhead'}" aria-label="${here ? 'Remove' : 'Add'} ${name} keyframe" ${on ? '' : 'disabled'}>${svg('keyframe', 12)}</button>
+<button class="icon-button" data-key-nav="1" data-arg="${escapeXML(arg)}" title="Next ${name.toLowerCase()} keyframe" aria-label="Next ${name} keyframe" ${on ? '' : 'disabled'}>${svg('chevron-right', 12)}</button>
 </span></div><div class="vt-lane vt-key-lane">${lane}</div></div>`;
 }
 
@@ -136,9 +136,9 @@ function bodyHtml(e: Editor, tl: VideoTimeline, zoom: number) {
       const open = view.expanded.has(l.id);
       const icon = isVideoLayer(l) ? 'film' : l.kind === 'group' ? 'folder' : l.kind === 'adjustment' ? 'adjustment-layer' : l.kind === 'text' ? 'type' : l.kind === 'vector' ? 'shapes' : 'image';
       const sel = e.selectedIds.has(l.id);
-      const head = `<div class="vt-head" data-select="${l.id}" style="--depth:${depth}"><button class="icon-button vt-disclosure" data-expand="${l.id}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} keyframes" aria-label="${open ? 'Hide' : 'Show'} keyframes of ${escapeXML(l.name)}">${svg(open ? 'chevron-down' : 'chevron-right', 12)}</button><span class="vt-icon" aria-hidden="true">${svg(icon, 13)}</span><span class="vt-name" title="${escapeXML(l.name)}">${escapeXML(l.name)}</span>${isVideoLayer(l) && l.video.audio ? `<button class="icon-button vt-track-toggle" data-video-mute="${l.id}" aria-pressed="${!!l.video.muted}" title="${l.video.muted ? 'Unmute' : 'Mute'} the sound of this video layer" aria-label="Mute the sound of ${escapeXML(l.name)}">${svg(l.video.muted ? 'speaker-off' : 'speaker', 13)}</button>` : ''}</div>`;
+      const head = `<div class="vt-head" data-select="${escapeXML(l.id)}" style="--depth:${depth}"><button class="icon-button vt-disclosure" data-expand="${escapeXML(l.id)}" aria-expanded="${open}" title="${open ? 'Hide' : 'Show'} keyframes" aria-label="${open ? 'Hide' : 'Show'} keyframes of ${escapeXML(l.name)}">${svg(open ? 'chevron-down' : 'chevron-right', 12)}</button><span class="vt-icon" aria-hidden="true">${svg(icon, 13)}</span><span class="vt-name" title="${escapeXML(l.name)}">${escapeXML(l.name)}</span>${isVideoLayer(l) && l.video.audio ? `<button class="icon-button vt-track-toggle" data-video-mute="${escapeXML(l.id)}" aria-pressed="${!!l.video.muted}" title="${l.video.muted ? 'Unmute' : 'Mute'} the sound of this video layer" aria-label="Mute the sound of ${escapeXML(l.name)}">${svg(l.video.muted ? 'speaker-off' : 'speaker', 13)}</button>` : ''}</div>`;
       const props = open ? keyProperties.filter((p) => canAnimate(l, p)).map((p) => keyLane(e, tl, l, p, zoom)).join('') : '';
-      return `<div class="vt-row vt-track${sel ? ' selected' : ''}" data-row="${l.id}">${head}<div class="vt-lane" data-lane="${l.id}">${clipHtml(e, tl, l, zoom)}</div></div>${props}`;
+      return `<div class="vt-row vt-track${sel ? ' selected' : ''}" data-row="${escapeXML(l.id)}">${head}<div class="vt-lane" data-lane="${escapeXML(l.id)}">${clipHtml(e, tl, l, zoom)}</div></div>${props}`;
     })
     .join('');
   const empty = rows ? '' : '<p class="vt-empty">Add layers to place them on the timeline.</p>';

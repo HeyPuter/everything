@@ -131,14 +131,16 @@ export const isRegion = (a: CommentAnchor) => !!a.width && !!a.height;
 
 /**
  * Checks a change of the threads by one person, as the worker does for every
- * commit: new threads and messages must be theirs, only an author may edit or
- * remove their message, nothing is removed outright, and limits hold. Owners
- * may remove (soft delete) anyone's thread or message. Returns a reason when
- * the change is refused.
+ * commit: new threads and messages must be theirs, under their authenticated
+ * Puter username; only an author may edit or remove their message; resolving
+ * is recorded in the resolver's own name; nothing is removed outright, and
+ * limits hold. Owners may remove (soft delete) anyone's thread or message.
+ * Returns a reason when the change is refused.
  */
-export function checkCommentChange(before: CommentThread[], after: CommentThread[], user: { uuid: string }, role: string): string | null {
+export function checkCommentChange(before: CommentThread[], after: CommentThread[], user: { uuid: string; username: string }, role: string): string | null {
   const old = new Map(before.map((t) => [t.id, t]));
   const owner = role === 'owner';
+  const mine = (a: CommentAuthor) => a.id === user.uuid && a.name === user.username;
   if (after.length > Math.max(LIMITS.threads, before.length)) return 'Too many comment threads.';
   const next = new Set(after.map((t) => t.id));
   for (const t of before) if (!next.has(t.id)) return 'Comments cannot be removed outright.';
@@ -151,6 +153,7 @@ export function checkCommentChange(before: CommentThread[], after: CommentThread
     const prev = old.get(t.id);
     if (!prev) {
       if (t.author.id !== user.uuid || t.messages.some((m) => m.author.id !== user.uuid)) return 'A new comment must be your own.';
+      if (!mine(t.author) || !t.messages.every((m) => mine(m.author))) return 'Write comments in your own name.';
       if (t.deleted) return 'Invalid comment thread.';
       continue;
     }
@@ -164,6 +167,7 @@ export function checkCommentChange(before: CommentThread[], after: CommentThread
       const p = msgs.get(m.id);
       if (!p) {
         if (m.author.id !== user.uuid || m.deleted) return 'A new reply must be your own.';
+        if (!mine(m.author)) return 'Write replies in your own name.';
         continue;
       }
       if (m.author.id !== p.author.id || m.author.name !== p.author.name || m.created !== p.created) return 'Comment authors cannot change.';
@@ -171,7 +175,7 @@ export function checkCommentChange(before: CommentThread[], after: CommentThread
       if (changedText && p.author.id !== user.uuid) return 'Only the author can edit a comment.';
       if (m.deleted !== p.deleted && !(m.deleted && (owner || p.author.id === user.uuid))) return 'Only the author can remove a comment.';
     }
-    if (JSON.stringify(t.resolved ?? null) !== JSON.stringify(prev.resolved ?? null) && t.resolved && t.resolved.by.id !== user.uuid) return 'Resolve comments in your own name.';
+    if (JSON.stringify(t.resolved ?? null) !== JSON.stringify(prev.resolved ?? null) && t.resolved && !mine(t.resolved.by)) return 'Resolve comments in your own name.';
   }
   return null;
 }

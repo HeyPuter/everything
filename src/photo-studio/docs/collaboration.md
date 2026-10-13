@@ -35,7 +35,7 @@ A Photo Studio document is an immutable snapshot whose pixels are 256-pixel immu
 | `doc` | Document settings (size, resolution, mode, guides, paths, channels, layer comps, slices, …): one atomic register per property |
 | `layers` | Layer ID → map of `parent` (enclosing group), `order` (fractional key among siblings), `p:<property>` (one atomic register per layer property: name, visibility, opacity, blend mode, transform, style, text, vector, adjustment parameters, …), and for the tile grids `pixels`, `maskGrid`, `liveSource` and `liveMask` a placement register `g:<grid>` and a map `t:<grid>` of tile key → content hash |
 | `assets` | Asset ID → type, size and content hashes of 4 MB chunks (placed images, embedded projects, footage, PSD resources) |
-| `comments` | Thread ID → anchor, author, created, resolved and removed registers, and a map of messages |
+| `comments` | Thread ID → anchor, author, created, resolved and removed registers, and a map of messages (each message's removal is a register of its own beside it, so an owner removing a message while its author edits it keeps both) |
 | `meta` | Schema version |
 
 Every editor history step is written as the difference between the document before and after it (`SharedProject.write`), so a step sends only what it changed. Merging:
@@ -47,15 +47,15 @@ Every editor history step is written as the difference between the document befo
 - Layer order uses fractional keys, so concurrent moves of different layers merge; equal keys sort by layer ID. A layer moved into a group that someone else deleted moves to the top level; concurrent moves that would nest groups in each other are broken deterministically (the greatest ID in the cycle moves to the top level).
 - A layer deleted by one person and edited by another stays deleted.
 - Tile grids inside other registers (alpha channels, patterns, altered video frames) are atomic with that register.
-- Each person's selection is their own and is never shared.
+- Each person's selection, their File → Generate → Image Assets setting (it writes files to their own storage) and their 32-bit preview options are their own and are never shared; projection keeps them for that person.
 
-Projection (`SharedProject.project`) turns the Yjs state back into an editor document, reusing unchanged layers, and is validated with the same `validateDocument` that checks `.photo` files before the editor shows it.
+Projection (`SharedProject.project`) turns the Yjs state back into an editor document, reusing unchanged layers, and is validated with the same `validateDocument` that checks `.photo` files before the editor shows it. Because layer properties merge separately, concurrent edits can combine into a layer nobody made (one person rasterizes a text layer while another edits its text: kind `pixel` with text data). Projection repairs these the same way in every browser (`src/collab/repair.ts`): data that does not fit the merged kind is left out (text, shape, fill, adjustment, pixel and Live Filter data, artboards below the top level, nested frames, pass-through blending outside groups). Anything still invalid is left out of the shown document (a document setting, or a layer, whose children take its place) and the editor says what, so a merge never stops tabs from updating or people from joining. The repair is not written back; the next edit of the layer writes it normally.
 
 Tiles are addressed by the SHA-256 of their bytes (`TileIndex`). They are uploaded deflated before the edit that refers to them; identical tiles (flat areas, duplicated layers) are stored and sent once. Both the worker and the browsers inflate with a size cap and check the hash, so no one can store other bytes under a tile's address. Large initial states are uploaded the same way: the owner uploads every tile and the Yjs state (in 4 MB chunks), and a joiner downloads the state and then the tiles it needs in batches of 24. (We chose this over sending a `.photo` file for the joiner: tiles then deduplicate across versions, and any tile Undo needs later can be fetched by its address.)
 
 ## History and Undo
 
-A shared tab's history is a `SharedHistory`. Each step is written into the Yjs document and recorded by a Yjs `UndoManager` that tracks only this browser's edits. Undo and Redo apply to the person's own steps: undoing a step restores what that step changed unless someone else changed the same property or tile since, and never removes other people's work. Steps that change only the person's selection (Select All, Deselect) stay in their history and undo locally. The History panel therefore lists the person's own steps; edits by others appear in the document without steps. Starting to share clears the tab's earlier Undo steps. Remote edits arriving during a brush stroke, a transform, an open dialog or live text are shown once that finishes, so an unfinished local edit never overwrites them. Comments never enter Undo.
+A shared tab's history is a `SharedHistory`. Each step is written into the Yjs document and recorded by a Yjs `UndoManager` that tracks only this browser's edits. Undo and Redo apply to the person's own steps: undoing a step restores what that step changed unless someone else changed the same property or tile since, and never removes other people's work. Each Undo or Redo applies exactly one step: when other people have since replaced everything a step changed, that step is used up without changing anything (the editor says so) rather than Undo reaching past it to an earlier step. Steps that change only the person's selection (Select All, Deselect) stay in their history and undo locally. The History panel therefore lists the person's own steps; edits by others appear in the document without steps. Starting to share clears the tab's earlier Undo steps. Remote edits arriving during a brush stroke, a transform, an open dialog or live text are shown once that finishes, so an unfinished local edit never overwrites them. Comments never enter Undo.
 
 ## The room worker
 
@@ -78,10 +78,13 @@ Requests (`join`, `sync`, `commit`, `asset.put`, `asset.get`, `presence`, `leave
 The worker enforces roles on every request, independently of the interface:
 
 - Viewers cannot commit or upload.
-- Commenters can commit only changes to the `comments` map: the worker applies the commit to its copy of the document and refuses it when any other shared type changed.
+- Commenters can commit only changes to the `comments` map: the worker tries each commit on a scratch copy of the document and refuses it when any other shared type changed.
+- Commits to one room are checked one at a time. A refused commit only ever touches the scratch copy (which is then rebuilt); the worker's loaded document, which synchronization sends and checkpoints are written from, receives a commit only after it is accepted and logged.
 - Editors and owners can change `doc`, `layers`, `assets` and `comments`, nothing else.
-- Comment changes are checked for authorship (`checkCommentChange`): new threads and messages must be the committer's own; only authors edit or remove their messages (owners may remove any); nothing is removed outright (removal is a marker); resolving is recorded in the resolver's own name; limits of 500 threads, 100 messages per thread and 4,000 characters per message.
+- Comment changes are checked for authorship (`checkCommentChange`): new threads and messages must be the committer's own, under their account ID and their authenticated Puter username; only authors edit or remove their messages (owners may remove any); nothing is removed outright (removal is a marker); resolving is recorded in the resolver's own name; limits of 500 threads, 100 messages per thread and 4,000 characters per message.
 - A commit that builds on edits the worker does not have is refused (409) and retried after a synchronization; one refused for good (role changed, invalid data) is dropped together with later queued edits, and the tab opens the shared state again.
+- An invitation (link or username) admits only people who are not members yet. For a member it changes nothing: it never raises a role the owner lowered or lifts an access expiry the owner set, and an expired or revoked link does not stop a current member.
+- New layers must have identifiers of the editor's shape (`src/model/ids.ts`): they reach markup in other people's panels. Projection also leaves out layers under any other key, and `validateDocument` (used for projections and `.photo` files alike) refuses identifiers of other shapes for channels, embedded objects, audio tracks and clips, comps, slices, paths, frames and annotations; panels escape identifiers as well.
 - Only the owner manages access: invitation links (with role and expiry), invitations by username, role changes, access expiry, removal, revoking links, and Stop Sharing.
 
 Accepted commits return a receipt signed with the room key, binding the update hash, the room and the committer.
@@ -99,7 +102,7 @@ The top bar shows a status chip (Connected, Syncing…, Offline · N pending, Di
 
 ## Offline and recovery
 
-Every local change goes into an outbox in IndexedDB (`photo-studio-collab`), with the deflated bytes of the tiles it needs, before it is sent. Delivery merges queued updates into batches, uploads their tiles first, and removes them once the worker accepts. Without a connection the chip shows how many changes are waiting; they are sent when the connection returns, and also after a reload: opening the document again in this browser replays its outbox. Closing a tab with undelivered changes asks first. Clearing site data removes undelivered changes.
+Every local change goes into an outbox in IndexedDB (`photo-studio-collab`), with the deflated bytes of the tiles it needs, before it is sent. Each tab numbers its own entries (keyed by its session), so several tabs with the same shared document in one browser never overwrite each other's queued changes; any of them may deliver them, in the order they were made. Delivery merges queued updates into batches, uploads their tiles first, and removes them once the worker accepts. Tiles refused for good (after a role change, at the storage limit) are handled like a refused commit: the queued changes are dropped, the person is told why, and the tab opens the shared state again. Without a connection the chip shows how many changes are waiting; they are sent when the connection returns, and also after a reload: opening the document again in this browser replays its outbox. Closing a tab with undelivered changes asks first. Clearing site data removes undelivered changes.
 
 When access ends (removed, expired, sharing stopped), the tab keeps the document as a local copy with its comments and says so.
 
@@ -122,7 +125,8 @@ Local documents keep comments outside the history (so Undo never removes a comme
 
 ## Tests
 
-- `tests/collab-project.test.ts`: the Yjs model (round trip, merges, per-tile conflicts, order, cycles, private selections).
+- `tests/collab-project.test.ts`: the Yjs model (round trip, merges, per-tile conflicts, order, cycles, private selections, kind changes merged with content edits).
+- `tests/collab-fixes.test.ts`: refused commits and checkpoints, invitations versus memberships, comment names, the outbox of several tabs, refused tile uploads, one-step Undo, merged kind changes, identifiers, private settings and comment registers.
 - `tests/collab-sessions.test.ts`: two and three simulated people against the real worker service with an in-memory Puter (`tests/collab-helpers.ts`, ported from the Whiteboard tests): joining, merging, three-way order, the offline outbox across a reload, server-side roles, comment threads, per-person Undo, peer edits and presence, access management, tile integrity and a second worker instance.
 - `tests/collab-protocol.test.ts`, `tests/collab-comments-file.test.ts`: links, signatures, topology, colors, the tile codec, the comment model and authorship rules, comments in projects.
 - `tests/browser/collab.spec.ts`: two browser contexts with a stand-in Puter.js forwarding to the worker service in the test process (`tests/browser/collab-harness.ts`, used only by tests): invite, join, paint in one and see it in the other, presence, a comment pin in one and a reply and resolution in the other.

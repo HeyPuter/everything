@@ -12,6 +12,10 @@ import { validateDocument } from '../src/model/serialization';
 import { SharedProject, ORIGIN, documentTiles } from '../src/collab/shared-project';
 import { TileIndex } from '../src/collab/tile-index';
 import { keyBetween, orderKeys } from '../src/collab/order';
+import { textLayer } from '../src/imaging/text/model';
+import { closedPath, liveKnots } from '../src/features/vector/geometry';
+import { shapeLayer } from '../src/features/vector/state';
+import type { Layer } from '../src/model/document';
 
 function paint(store: TileStore, doc: PhotoDocument, id: string, x: number, y: number, w: number, h: number, value: number) {
   const next = structuredClone(doc);
@@ -215,3 +219,95 @@ describe('shared document model', () => {
     expect(final('c') < final('a') && final('a') < final('b')).toBe(true);
   });
 });
+
+// A kind change merged with a concurrent edit of the old kind's content
+// (per-property registers) must still project into a valid document.
+describe('merges of a kind change with a content edit', () => {
+  const red = { rgb: [1, 0, 0] as [number, number, number], space: 'srgb' as const };
+  const contentLayers = (doc: PhotoDocument): Record<string, Layer> => {
+    const text = { ...layer('text', 'Title', 200, 80), textData: textLayer('Hello') };
+    const live = { kind: 'rect' as const, x: 10, y: 10, width: 100, height: 50, radii: [0, 0, 0, 0] as [number, number, number, number] };
+    const vector = shapeLayer(doc, 'Shape', { paths: [closedPath(liveKnots(live))] }, red, undefined, live);
+    const fill = { ...layer('solid', 'Gradient', 600, 400), fill: { type: 'gradient', gradient: { kind: 'solid', colorStops: [{ color: { r: 0, g: 0, b: 0 }, location: 0, midpoint: 50 }], opacityStops: [] }, style: 'linear', angle: 90, scale: 1 } } as unknown as Layer;
+    const adjustment = { ...layer('adjustment', 'Levels', 600, 400), adjustment: { kind: 'levels', params: { gamma: 1 } } } as unknown as Layer;
+    return { text, vector, fill, adjustment };
+  };
+  /** Turn a layer into pixels, as Rasterize does. */
+  const rasterize = (doc: PhotoDocument, id: string) => {
+    const next = structuredClone(doc);
+    const l = findLayer(next.layers, id)! as unknown as Record<string, unknown>;
+    for (const k of ['textData', 'vector', 'fill', 'adjustment']) delete l[k];
+    l.kind = 'pixel';
+    l.pixels = newPixelLayer('x', next).pixels;
+    return next;
+  };
+  const edits: Record<string, (l: Layer) => void> = {
+    text: (l) => (l.textData = textLayer('Changed concurrently')),
+    vector: (l) => (l.vector = { ...l.vector!, fill: { rgb: [0, 0, 1], space: 'srgb' } as never }),
+    fill: (l) => ((l.fill as { angle: number }).angle = 45),
+    adjustment: (l) => (l.adjustment = { ...l.adjustment!, params: { gamma: 2 } }),
+  };
+  async function setup() {
+    const a = participant();
+    const doc = newDocument(600, 400);
+    const content = contentLayers(doc);
+    doc.layers = [newPixelLayer('Background', doc), ...Object.values(content)];
+    expect(validateDocument(structuredClone(doc))).toBeTruthy();
+    await write(a, null, doc);
+    const b = participant();
+    exchange(a, b);
+    return { a, b, ids: Object.fromEntries(Object.entries(content).map(([k, l]) => [k, l.id])) };
+  }
+
+  for (const kind of ['text', 'vector', 'fill', 'adjustment']) {
+    it(`projects a valid document after one person rasterizes a ${kind} layer while another edits it`, async () => {
+      const { a, b, ids } = await setup();
+      const da = view(a),
+        db = view(b);
+      await write(a, da, rasterize(da, ids[kind]));
+      const eb = structuredClone(db);
+      edits[kind](findLayer(eb.layers, ids[kind])!);
+      await write(b, db, eb);
+      exchange(a, b);
+      for (const p of [a, b]) {
+        const result = p.project.project({ selection: null });
+        expect(() => validateDocument(result.document)).not.toThrow();
+        const l = findLayer(result.document.layers, ids[kind])!;
+        expect(l.kind).toBe('pixel');
+        expect(l.textData ?? l.vector ?? l.fill ?? l.adjustment).toBeUndefined();
+        expect(result.dropped).toEqual([]);
+      }
+    });
+  }
+
+  it('settles two concurrent kind changes of one layer the same way everywhere', async () => {
+    const { a, b, ids } = await setup();
+    const da = view(a),
+      db = view(b);
+    await write(a, da, rasterize(da, ids.text));
+    const eb = structuredClone(db);
+    const t = findLayer(eb.layers, ids.text)! as unknown as Record<string, unknown>;
+    t.kind = 'vector';
+    t.vector = structuredClone(findLayer(eb.layers, ids.vector)!.vector);
+    delete t.textData;
+    await write(b, db, eb);
+    exchange(a, b);
+    const out = [a, b].map((p) => p.project.project({ selection: null }).document);
+    for (const d of out) expect(() => validateDocument(d)).not.toThrow();
+    expect(findLayer(out[0].layers, ids.text)!.kind).toBe(findLayer(out[1].layers, ids.text)!.kind);
+  });
+
+  it('leaves out, and reports, a layer or setting that cannot be repaired instead of failing', async () => {
+    const { a, ids } = await setup();
+    a.project.ydoc.transact(() => {
+      a.project.layers.get(ids.adjustment)!.delete('p:adjustment');
+      a.project.doc.set('lastComp', 'missing');
+    }, ORIGIN.remote);
+    const result = a.project.project({ selection: null });
+    expect(() => validateDocument(result.document)).not.toThrow();
+    expect(findLayer(result.document.layers, ids.adjustment)).toBeUndefined();
+    expect(findLayer(result.document.layers, ids.text)).toBeTruthy();
+    expect(result.dropped).toEqual(['document setting “lastComp”', 'layer “Levels”']);
+  });
+});
+

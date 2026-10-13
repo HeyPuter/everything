@@ -21,7 +21,13 @@ import type { LocalStore } from '../persistence/local-store';
 
 export type OutboxStores = 'outbox' | 'blobs';
 export type Outbox = LocalStore<OutboxStores>;
-type OutboxEntry = { room: string; seq: number; update: Uint8Array; assets: string[] };
+// Every tab keeps its own numbered entries (`tab` is its session), so tabs
+// with the same document in one browser never overwrite each other's; `at`
+// orders entries across tabs (never decreasing within a tab). Entries from
+// before tabs were told apart have neither.
+type OutboxEntry = { room: string; seq: number; update: Uint8Array; assets: string[]; tab?: string; at?: number };
+const outboxKey = (e: OutboxEntry) => (e.tab ? `${e.room}:${e.tab}:${pad(e.seq)}` : `${e.room}:${pad(e.seq)}`);
+const outboxOrder = (a: OutboxEntry, b: OutboxEntry) => (a.at ?? 0) - (b.at ?? 0) || ((a.tab ?? '') < (b.tab ?? '') ? -1 : (a.tab ?? '') > (b.tab ?? '') ? 1 : a.seq - b.seq);
 
 /** Restored outbox entries are applied with this origin (already queued). */
 const RESTORED = { kind: 'restored' };
@@ -65,6 +71,7 @@ export class RoomClient {
   readonly session = crypto.randomUUID().replaceAll('-', '');
   private keys?: KeyPair;
   private seq = 0;
+  private queuedAt = 0;
   private staged = new Set<string>();
   private staging: Promise<void> = Promise.resolve();
   private flushing?: Promise<void>;
@@ -196,7 +203,6 @@ export class RoomClient {
     await this.sync();
     // Changes this browser made earlier and never delivered.
     const queued = await this.queued();
-    this.seq = queued.at(-1)?.seq ?? 0;
     if (queued.length) {
       this.ydoc.transact(() => {
         for (const e of queued) Y.applyUpdate(this.ydoc, e.update, RESTORED);
@@ -216,7 +222,7 @@ export class RoomClient {
     if (queued.length) this.flush();
   }
   private async queued(): Promise<OutboxEntry[]> {
-    return (await this.o.store.all<OutboxEntry>('outbox')).filter((e) => e.room === this.o.room).sort((a, b) => a.seq - b.seq);
+    return (await this.o.store.all<OutboxEntry>('outbox')).filter((e) => e.room === this.o.room).sort(outboxOrder);
   }
   private connectedPeers() {
     return this.peers?.connectedSessions.length ?? 0;
@@ -292,10 +298,11 @@ export class RoomClient {
     });
   }
   private enqueue(update: Uint8Array) {
-    const entry: OutboxEntry = { room: this.o.room, seq: ++this.seq, update, assets: [...this.staged] };
+    this.queuedAt = Math.max(this.queuedAt, Date.now());
+    const entry: OutboxEntry = { room: this.o.room, tab: this.session, seq: ++this.seq, at: this.queuedAt, update, assets: [...this.staged] };
     this.staged.clear();
     this.status.pending++;
-    this.staging = this.staging.then(() => this.o.store.put('outbox', `${this.o.room}:${pad(entry.seq)}`, entry));
+    this.staging = this.staging.then(() => this.o.store.put('outbox', outboxKey(entry), entry));
     this.setStatus();
     this.flush();
   }
@@ -344,7 +351,19 @@ export class RoomClient {
         batch.push(e);
         size += e.update.length;
       }
-      await this.upload(batch.flatMap((e) => e.assets));
+      try {
+        await this.upload(batch.flatMap((e) => e.assets));
+      } catch (error) {
+        // Tiles refused for good (the role changed, the storage limit, bad
+        // data): the edits needing them cannot be saved either.
+        if (error instanceof CollabError && [400, 403, 413].includes(error.status)) {
+          await this.discard();
+          this.refused = error.message;
+          this.o.onRefused?.(error.message);
+          return;
+        }
+        throw error;
+      }
       const update = batch.length === 1 ? batch[0].update : Y.mergeUpdates(batch.map((e) => e.update));
       const id = await hash(update);
       const text = encode(update);
@@ -375,7 +394,7 @@ export class RoomClient {
         throw error;
       }
       this.conflicts = 0;
-      for (const e of batch) await this.o.store.delete('outbox', `${this.o.room}:${pad(e.seq)}`);
+      for (const e of batch) await this.o.store.delete('outbox', outboxKey(e));
       this.status.pending = Math.max(0, entries.length - batch.length);
       if (text.length <= MAX_PEER_UPDATE) void this.peers?.broadcast('edit', { update: text, id, receipt: res.receipt });
       else void this.peers?.broadcast('committed', { seq: res.seq });
@@ -387,7 +406,7 @@ export class RoomClient {
   /** Forget every queued change of this room (and its staged uploads). */
   async discard() {
     for (const e of await this.queued()) {
-      await this.o.store.delete('outbox', `${this.o.room}:${pad(e.seq)}`);
+      await this.o.store.delete('outbox', outboxKey(e));
       for (const h of e.assets) await this.o.store.delete('blobs', `${this.o.room}:${h}`);
     }
     this.status.pending = 0;

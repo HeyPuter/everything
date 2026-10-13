@@ -9,7 +9,6 @@ import * as Y from 'yjs';
 import { History, type HistoryMark } from '../history/history';
 import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
-import { validateDocument } from '../model/serialization';
 import { ORIGIN } from './shared-project';
 import type { RoomClient } from './client';
 
@@ -241,9 +240,12 @@ export class SharedBinding {
     this.redoEntries.push(entry);
     this.run(() => {
       if (entry.items) {
-        this.undoManager.stopCapturing();
-        for (let i = 0; i < entry.items; i++) this.undoManager.undo();
-        this.undoManager.stopCapturing();
+        // Each Undo item is applied on its own; items others have since
+        // replaced change nothing and are dropped, so the count follows.
+        let moved = 0;
+        for (let i = 0; i < entry.items; i++) if (this.step('undo')) moved++;
+        entry.items = moved;
+        if (!moved) this.usedUp(entry, this.redoEntries, 'undo');
       }
       this.project(true, entry.before);
     });
@@ -254,12 +256,40 @@ export class SharedBinding {
     this.entries.push(entry);
     this.run(() => {
       if (entry.items) {
-        this.undoManager.stopCapturing();
-        for (let i = 0; i < entry.items; i++) this.undoManager.redo();
-        this.undoManager.stopCapturing();
+        // Each Undo item is applied on its own; items others have since
+        // replaced change nothing and are dropped, so the count follows.
+        let moved = 0;
+        for (let i = 0; i < entry.items; i++) if (this.step('redo')) moved++;
+        entry.items = moved;
+        if (!moved) this.usedUp(entry, this.entries, 'redo');
       }
       this.project(true, entry.after);
     });
+  }
+  /** Undo or redo exactly the top Yjs stack item. A Yjs UndoManager skips
+   * items that no longer change anything (others changed the same
+   * properties since) and goes on to earlier ones; history entries and
+   * stack items must stay one for one, so the rest of the stack is set
+   * aside meanwhile. Returns whether the item changed the document. */
+  private step(kind: 'undo' | 'redo') {
+    const um = this.undoManager;
+    const stack = kind === 'undo' ? um.undoStack : um.redoStack;
+    if (!stack.length) return false;
+    const rest = stack.splice(0, stack.length - 1);
+    um.stopCapturing();
+    try {
+      return (kind === 'undo' ? um.undo() : um.redo()) !== null;
+    } finally {
+      stack.unshift(...rest);
+      um.stopCapturing();
+    }
+  }
+  /** A step whose changes others have all replaced: Yjs dropped its stack
+   * item, so its history entry goes too. */
+  private usedUp(entry: Entry, list: Entry[], kind: 'undo' | 'redo') {
+    const at = list.lastIndexOf(entry);
+    if (at >= 0) list.splice(at, 1);
+    this.o.onMessage?.(`Nothing to ${kind} in “${entry.label}”: other people have changed it since.`);
   }
   // Undo and Redo apply at once unless steps are still being written.
   private run(fn: () => void) {
@@ -293,18 +323,26 @@ export class SharedBinding {
     const local = selectionFrom ?? h.document;
     let result;
     try {
-      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask });
-      validateDocument(result.document);
+      // Validated (and repaired where a merge left it invalid) by the projection.
+      result = this.client.project.project({ selection: local.selection, selectionMask: local.selectionMask, imageAssets: local.imageAssets, hdrPreview: local.hdrPreview });
     } catch (error) {
       this.o.onMessage?.(`The shared document contains a change this browser cannot show: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
+    this.reportDropped(result.dropped);
     this.client.o.tiles.prune();
     this.shown = result.document;
     h.show(result.document);
     this.o.onDocument?.(result.document);
     const missing = this.client.project.missing(this.assets);
     if (!result.complete || missing.tiles.size || missing.assets.size) void this.fetch(missing);
+  }
+  private dropped = '';
+  /** Say once what a merge left invalid and this browser does not show. */
+  reportDropped(dropped: string[]) {
+    const text = dropped.join(', ');
+    if (text && text !== this.dropped) this.o.onMessage?.(`Changes made at the same time could not all be combined: the shared document is shown without ${text}.`);
+    this.dropped = text;
   }
   private async fetch(missing: ReturnType<RoomClient['project']['missing']>) {
     if (this.fetching) return;
@@ -352,6 +390,7 @@ export async function openBinding(client: RoomClient, assets: Assets, o: Binding
     client.project.invalidate();
     result = client.project.project({ selection: null });
   }
-  validateDocument(result.document);
-  return new SharedBinding(client, assets, result.document, o);
+  const binding = new SharedBinding(client, assets, result.document, o);
+  binding.reportDropped(result.dropped);
+  return binding;
 }

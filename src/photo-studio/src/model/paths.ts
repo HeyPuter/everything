@@ -1,3 +1,4 @@
+import { isDocumentId } from './ids';
 import { validateVectorMask, type VectorMask } from './vector';
 
 // Document paths (the Paths panel) keep editable cubic knots in document
@@ -15,7 +16,7 @@ export function validateDocumentPaths(paths: unknown, workPath: unknown) {
     if (!Array.isArray(paths) || paths.length > 1000) throw new Error('Invalid document paths.');
     const ids = new Set<string>();
     for (const p of paths as DocumentPath[]) {
-      if (!p || typeof p.id !== 'string' || !p.id || ids.has(p.id) || typeof p.name !== 'string')
+      if (!p || !isDocumentId(p.id) || ids.has(p.id) || typeof p.name !== 'string')
         throw new Error('Invalid document path.');
       ids.add(p.id);
       validateVectorMask(p.mask);

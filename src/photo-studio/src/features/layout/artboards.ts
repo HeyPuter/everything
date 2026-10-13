@@ -322,7 +322,7 @@ function artboardOverlay(e: Editor) {
       html += `<rect class="artboard-outline ${active ? 'active' : ''}" x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" stroke-width="${(active ? 1.5 : 1) / z}"/>`;
     if (names) {
       const label = `${a.name}`;
-      html += `<text class="artboard-name canvas-ui ${active ? 'active' : ''}" data-artboard-name="${a.id}" x="${r.x}" y="${r.y - 6 / z}" font-size="${12 / z}" stroke-width="${3 / z}">${escapeXML(label)}</text>`;
+      html += `<text class="artboard-name canvas-ui ${active ? 'active' : ''}" data-artboard-name="${escapeXML(a.id)}" x="${r.x}" y="${r.y - 6 / z}" font-size="${12 / z}" stroke-width="${3 / z}">${escapeXML(label)}</text>`;
     }
   }
   const sel = toolActive ? selectedArtboard(e) : undefined;
@@ -343,7 +343,7 @@ function artboardOverlay(e: Editor) {
         ['left', r.x - off, r.y + r.height / 2],
       ];
       for (const [side, cx, cy] of sides)
-        html += `<g class="artboard-add canvas-ui" data-artboard-add="${side}" data-artboard-id="${live.id}"><title>Add an artboard ${side === 'top' ? 'above' : side === 'bottom' ? 'below' : `to the ${side}`}</title><circle cx="${cx}" cy="${cy}" r="${9 / z}" stroke-width="${1 / z}"/><path d="M${cx - 4 / z} ${cy}h${8 / z}M${cx} ${cy - 4 / z}v${8 / z}" stroke-width="${1.5 / z}"/></g>`;
+        html += `<g class="artboard-add canvas-ui" data-artboard-add="${side}" data-artboard-id="${escapeXML(live.id)}"><title>Add an artboard ${side === 'top' ? 'above' : side === 'bottom' ? 'below' : `to the ${side}`}</title><circle cx="${cx}" cy="${cy}" r="${9 / z}" stroke-width="${1 / z}"/><path d="M${cx - 4 / z} ${cy}h${8 / z}M${cx} ${cy - 4 / z}v${8 / z}" stroke-width="${1.5 / z}"/></g>`;
     }
   }
   if (drag?.kind === 'create' && toolActive) {
