@@ -45,7 +45,11 @@ describe('DXF import', () => {
     expect(r.layers.map((l) => l.name)).toEqual(['Walls', 'Hidden', 'Locked']);
     expect(r.layers[1].hidden).toBe(true);
     expect(r.layers[2].locked).toBe(true);
-    const [line, poly, arc, circle, ell] = shapes;
+    // Nodes come grouped by layer: Walls (line, arc, ellipse), Hidden (polyline), Locked (circle).
+    const byLayer = (name) => r.layers.find((l) => l.name === name).ids.map((id) => shapes.find((n) => n.id === id));
+    const [line, arc, ell] = byLayer('Walls');
+    const [poly] = byLayer('Hidden');
+    const [circle] = byLayer('Locked');
     expect(line.stroke.color).toBe('#ff0000');
     // y is flipped (DXF y up).
     expect(line.anchors.map((a) => [a.x, a.y + 0])).toEqual([[0, 0], [100, 0]]);

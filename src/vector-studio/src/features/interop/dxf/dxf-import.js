@@ -424,7 +424,8 @@ class DXFConverter {
     const pat = this.d.ltypes.get(lt);
     if (!pat || !pat.length) return [];
     const s = (Number(this.d.header.$LTSCALE?.[40]) || 1) * gn(e, 48, 1) * scaleOf(m);
-    return pat.map((v) => Math.max(0.5, Math.abs(v) * s || 0.5));
+    // Zero-length dashes are dots (drawn by the round caps).
+    return pat.map((v) => Math.abs(v) * s || 0.01);
   }
 
   widthOf(e, L) {
