@@ -36,6 +36,7 @@ export function install(app) {
   const hasDoc = (a) => Boolean(a.editor);
   app.commands.register([
     { id: 'select.object.brushStrokes', label: 'Brush Strokes', enabled: hasDoc, run: (a) => selectBrushStrokes(a.editor) },
+    { id: 'select.object.bristleStrokes', label: 'Bristle Brush Strokes', enabled: hasDoc, run: (a) => selectBrushStrokes(a.editor, 'bristle') },
     { id: 'brush.new', label: 'New Brush...', enabled: hasDoc, run: (a) => newBrush(a) },
     {
       id: 'brush.strokeOptions',

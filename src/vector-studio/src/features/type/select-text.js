@@ -1,6 +1,7 @@
 /**
  * Select > Same text attributes (font family, family and style, family,
- * style and size, text fill, text stroke, all of them) and Select > Object
+ * style and size, size, text fill, text stroke, fill and stroke, all of
+ * them) and Select > Object
  * > Point Type Objects / Area Type Objects.
  *
  * A type object can mix styles, so each object contributes the set of
@@ -19,8 +20,10 @@ export const SAME_TEXT = {
   fontFamily: { label: 'Font Family', key: (s) => s.fontFamily },
   fontStyle: { label: 'Font Family and Style', key: (s) => [s.fontFamily, s.fontWeight, s.fontStyle].join('|') },
   fontSize: { label: 'Font Family, Style and Size', key: (s) => [s.fontFamily, s.fontWeight, s.fontStyle, s.fontSize].join('|') },
+  size: { label: 'Font Size', key: (s) => String(s.fontSize) },
   textFill: { label: 'Text Fill Color', key: (s) => paintKey(s.fill) },
   textStroke: { label: 'Text Stroke Color', key: (s) => paintKey(s.stroke) },
+  textFillStroke: { label: 'Text Fill & Stroke Color', key: (s) => `${paintKey(s.fill)}|${paintKey(s.stroke)}` },
 };
 
 /** Attribute combinations a text object's characters use. */

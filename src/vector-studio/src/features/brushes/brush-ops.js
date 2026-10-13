@@ -138,15 +138,19 @@ export function unusedBrushIds(doc) {
   return docBrushes(doc).filter((b) => !used.has(b.id)).map((b) => b.id);
 }
 
-/** Select > Object > Brush Strokes: every visible, unlocked path painted with a brush. */
-export function selectBrushStrokes(editor) {
+/**
+ * Select > Object > Brush Strokes: every visible, unlocked path painted with
+ * a brush; with `type` ('bristle'), only strokes of brushes of that type.
+ */
+export function selectBrushStrokes(editor, type = null) {
   const out = [];
+  const doc = editor.doc;
   editor.doc.walk((n) => {
     if (n.hidden || n.locked) return false;
-    if ((n.type === 'path' || n.type === 'compound') && n.brush?.id) out.push(n.id);
+    if ((n.type === 'path' || n.type === 'compound') && n.brush?.id && (!type || brushById(doc, n.brush.id)?.type === type)) out.push(n.id);
     return n.type !== 'compound';
   });
-  if (!out.length) throw new UserError('No objects use a brush.');
+  if (!out.length) throw new UserError(type === 'bristle' ? 'No objects use a bristle brush.' : 'No objects use a brush.');
   editor.select(out);
   return out.length;
 }

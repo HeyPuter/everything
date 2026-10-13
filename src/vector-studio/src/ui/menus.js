@@ -259,6 +259,7 @@ export const MENUS = [
       {
         label: 'Same',
         submenu: [
+          'select.same.shapesText',
           'select.same.appearance',
           'select.same.appearanceAttribute',
           'select.same.blendMode',
@@ -275,8 +276,10 @@ export const MENUS = [
           'select.same.fontFamily',
           'select.same.fontStyle',
           'select.same.fontSize',
+          'select.same.size',
           'select.same.textFill',
           'select.same.textStroke',
+          'select.same.textFillStroke',
         ],
       },
       {
@@ -285,6 +288,7 @@ export const MENUS = [
           'select.object.sameLayer',
           'select.object.handles',
           '-',
+          'select.object.bristleStrokes',
           'select.object.brushStrokes',
           'select.object.clipping',
           'select.object.stray',
@@ -297,6 +301,7 @@ export const MENUS = [
       '-',
       'select.save',
       'select.edit',
+      'select.update',
       { label: 'Saved Selections', source: 'savedSelections' },
     ],
   },
@@ -374,7 +379,16 @@ export const MENUS = [
       'view.fitAll',
       'view.fitSelection',
       'view.actualSize',
-      { label: 'Rotate View', submenu: ['view.rotate.180', 'view.rotate.135', 'view.rotate.90', 'view.rotate.45', 'view.rotate.30', 'view.rotate.15', 'view.rotate.0', 'view.rotate.-15', 'view.rotate.-30', 'view.rotate.-45', 'view.rotate.-90', 'view.rotate.-135'] },
+      {
+        label: 'Rotate View',
+        submenu: [
+          'view.rotate.180', 'view.rotate.150', 'view.rotate.135', 'view.rotate.120', 'view.rotate.90', 'view.rotate.60', 'view.rotate.45', 'view.rotate.30', 'view.rotate.15',
+          '-',
+          'view.rotate.0',
+          '-',
+          'view.rotate.-15', 'view.rotate.-30', 'view.rotate.-45', 'view.rotate.-60', 'view.rotate.-90', 'view.rotate.-120', 'view.rotate.-135', 'view.rotate.-150', 'view.rotate.-180',
+        ],
+      },
       'view.resetRotation',
       'view.rotateToSelection',
       '-',
@@ -419,14 +433,17 @@ export const MENUS = [
     label: 'Window',
     submenu: [
       'window.newWindow',
-      { label: 'Arrange', submenu: ['window.arrange.cascade', 'window.arrange.tile', '-', 'window.arrange.float', 'window.arrange.consolidate'] },
+      { label: 'Arrange', submenu: ['window.arrange.cascade', 'window.arrange.tile', '-', 'window.arrange.float', 'window.arrange.floatAll', 'window.arrange.consolidate'] },
       {
         label: 'Workspace',
         submenu: [
+          'window.workspace.automation',
           'window.workspace.essentials',
           'window.workspace.classic',
+          'window.workspace.gettingStarted',
           'window.workspace.layout',
           'window.workspace.painting',
+          'window.workspace.printing',
           'window.workspace.tracing',
           'window.workspace.typography',
           'window.workspace.web',
