@@ -86,6 +86,7 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFileTools } from "./export/file-tools.js";
+import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -610,7 +611,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + S", "Save to Puter"],
         ["Ctrl / ⌘ + Shift + S", "Save a copy to Puter"],
         ["Ctrl / ⌘ + O", "Open from Puter"],
-        ["Ctrl / ⌘ + P", "Print / Save as PDF"],
+        ["Ctrl / ⌘ + P", "Print"],
         ["Ctrl / ⌘ + F or H", "Find, or find and replace"],
         ["Ctrl / ⌘ + = or -", "Zoom in or out"],
         ["Ctrl / ⌘ + 0", "Fit the slide to the window"],
@@ -623,6 +624,17 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
         ["Ctrl / ⌘ + J", "Open or close the AI assistant"],
+        [
+          "Ctrl / ⌘ + 1 / 2 / 3 / 4 / 5",
+          "Normal, Slide Sorter, Notes Page, Outline View, Reading View",
+        ],
+        ["Ctrl + Shift + Tab", "Show or hide the outline"],
+        ["Ctrl / ⌘ + '", "Show or hide the gridlines"],
+        [
+          "Tab / Shift + Tab in the outline",
+          "Move a line down or up a level; a title becomes a paragraph",
+        ],
+        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
@@ -2935,6 +2947,7 @@ function renderEditor() {
       "div",
       {
         class: `editor ${chrome.formatPane ? "" : "hide-inspector"} ${chrome.thumbnails ? "" : "hide-slides"} ${chrome.notes ? "" : "hide-notes"}`,
+        "data-view": editorView,
       },
       editorTopbar(),
       fontLoadNotice(),
@@ -3044,6 +3057,8 @@ function renderEditor() {
               }),
             ),
           ),
+          // Slide Sorter and Notes Page take the place of the panes.
+          el("section", { id: "view-host", class: "view-host" }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -3067,6 +3082,7 @@ function renderEditor() {
   canvasObserver.observe(document.querySelector("#canvas-area"));
   fitCanvas();
   applyPaneSizes();
+  views.mounted();
 }
 // The title bar: the way back to the library, the quick access commands
 // (save, undo, redo), the menu bar, the presentation's name with its save
@@ -3455,19 +3471,10 @@ function renderCanvasAids() {
   const inchesWide = size.cx / 914400,
     inchesHigh = size.cy / 914400;
   if (chrome.gridlines || chrome.guides) {
-    const aids = el("div", { class: "canvas-aids", "aria-hidden": "true" });
-    if (chrome.gridlines) {
-      // The grid spacing is a twelfth of an inch; the lines drawn
-      // are every half inch, with the inches stronger.
-      aids.style.setProperty("--grid-x", `${100 / (inchesWide * 2)}%`);
-      aids.style.setProperty("--grid-y", `${100 / (inchesHigh * 2)}%`);
-      aids.classList.add("grid");
-    }
-    if (chrome.guides)
-      aids.append(
-        el("div", { class: "guide-line vertical" }),
-        el("div", { class: "guide-line horizontal" }),
-      );
+    // The grid at the deck's spacing, and the drawing guides, which can be
+    // dragged (see views/grid-guides.js).
+    const aids = el("div", { class: "canvas-aids" });
+    views.grid.decorate(aids, canvas);
     canvas.append(aids);
   }
   if (chrome.ruler) {
@@ -3576,6 +3583,20 @@ function statusBar() {
         icon("o:notesPane", 15),
         el("span", {}, "Notes"),
       ),
+      // Shown once the editor has a comments pane to open.
+      el(
+        "button",
+        {
+          type: "button",
+          class: "status-item status-button desktop-only",
+          id: "status-comments",
+          "aria-pressed": "false",
+          hidden: true,
+          onclick: () => statusComments()?.toggle(),
+        },
+        icon("o:showComments", 15),
+        el("span", {}, "Comments"),
+      ),
       el(
         "div",
         {
@@ -3646,7 +3667,10 @@ function updateZoomUi() {
     );
   document
     .querySelector(".status-view.fit")
-    ?.setAttribute("aria-pressed", String(zoom === "fit"));
+    ?.setAttribute(
+      "aria-pressed",
+      String(viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+    );
   const zoomIn = document.querySelector('.zoom-control [aria-label="Zoom in"]');
   const zoomOut = document.querySelector(
     '.zoom-control [aria-label="Zoom out"]',
@@ -3654,9 +3678,26 @@ function updateZoomUi() {
   disableControl(zoomIn, !nextZoomStep(1), workspace);
   disableControl(zoomOut, !nextZoomStep(-1), workspace);
 }
+// The comments pane, when the editor has one.
+let statusApi = null;
+function statusComments() {
+  const api = (statusApi ??= ribbonApi());
+  return typeof api.toggleComments === "function"
+    ? {
+        toggle: () => api.toggleComments(),
+        open: () => !!api.commentsOpen?.(),
+      }
+    : null;
+}
 function updateStatusBar() {
   const notes = document.querySelector("#status-notes");
   if (notes) notes.setAttribute("aria-pressed", String(showing("notes")));
+  const comments = document.querySelector("#status-comments");
+  if (comments) {
+    const pane = statusComments();
+    comments.hidden = !pane;
+    comments.setAttribute("aria-pressed", String(!!pane?.open()));
+  }
   for (const node of document.querySelectorAll(".status-views [data-view]"))
     node.setAttribute(
       "aria-pressed",
@@ -3861,24 +3902,91 @@ async function altText() {
   const value = decorative.checked ? "" : input.value.trim();
   mutateShape(obj, (obj) => P.setShapeDescription(obj, value));
 }
-// The editor's views: Normal, plus the others as they are added (see
-// setView).
+// The editor's views: Normal, Outline View, Slide Sorter and Notes Page
+// (src/views), and Reading View, which plays the show inside the window.
 let editorView = "normal";
 const currentView = () => editorView;
 const VIEW_HANDLERS = {};
 function supportsView(id) {
-  return id === "normal" || !!VIEW_HANDLERS[id];
+  return id === "normal" || id === "reading" || !!VIEW_HANDLERS[id];
 }
-function setView(id) {
+// `remount` enters the view again after the editor was drawn anew.
+function setView(id, { remount = false } = {}) {
   if (id === "reading") return present({ from: "current", reading: true });
   if (!supportsView(id)) return;
   const previous = editorView;
+  if (previous === id && !remount) {
+    syncToolbar();
+    return;
+  }
+  if (previous !== id) {
+    commitText();
+    VIEW_HANDLERS[previous]?.leave?.();
+  }
   editorView = id;
-  if (previous !== "normal") VIEW_HANDLERS[previous]?.leave?.();
-  if (id !== "normal") VIEW_HANDLERS[id].enter();
   document.querySelector(".editor")?.setAttribute("data-view", id);
-  syncToolbar();
+  if (id !== "normal") {
+    clearSelection();
+    VIEW_HANDLERS[id].enter();
+  }
+  if (!remount) views.viewChanged(id);
+  renderSelection();
+  updatePanelToggles();
+  updateZoomUi();
+  if (id === "normal" && previous !== "normal")
+    document.querySelector("#main")?.focus({ preventScroll: true });
 }
+// The zoom of the view in front, when it keeps its own.
+const viewZoom = () => VIEW_HANDLERS[editorView]?.zoom || null;
+const views = createViews({
+  P,
+  doc: () => doc,
+  docKey: () => doc && (doc.path || doc.id),
+  currentSlide: () => slide(),
+  currentSize: () => currentSize(),
+  currentView,
+  setView,
+  show,
+  showing,
+  chrome,
+  saveChrome,
+  renderCanvasAids: () => renderCanvasAids(),
+  sync: () => syncToolbar(),
+  thumbnail: (s) => cachedPreview(doc.previews, doc.pres, s),
+  slideLabel: (s, i) => thumbLabel(s, i, false),
+  markers: (s) => ({
+    transition: (transitionDetails(s)?.effect || "none") !== "none",
+    animation: /<(\w+:)?timing[\s>]/.test(P.getSlideXmlString(s)),
+  }),
+  selectedParts: () => selectedSlideParts(),
+  choose: (part, extras) => {
+    const s = P.getSlides(doc.pres).find((x) => P.getSlidePartName(x) === part);
+    return s ? chooseSlide(s, { extras }) : Promise.resolve();
+  },
+  settle: (parts) => settleIndex(parts),
+  settleIndex: (i) => {
+    index = Math.max(0, Math.min(i, P.getSlides(doc.pres).length - 1));
+  },
+  mutate: (fn, options) => mutate(fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  SKIP: SKIP_MUTATION,
+  undo: () => undo(),
+  redo: () => redo(),
+  addSlideAfter: (s) => addSlideAfter(s),
+  duplicateSlides: (list) => duplicateSlides(list),
+  deleteSlides: (list) => deleteSlides(list),
+  setSlidesHidden: (list, hidden) => setSlidesHidden(list, hidden),
+  moveSlides: (list, direction) =>
+    moveSlides(list, direction, [P.getSlidePartName(slide())]),
+  stepZoom: (direction) => stepZoom(direction),
+  setZoom: (level) => setZoom(level),
+  zoomFactor: () => zoomFactor(),
+  zoomIsFit: () => (viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+  zoomChanged: () => updateZoomUi(),
+  toast,
+  fail,
+});
+Object.assign(VIEW_HANDLERS, views.handlers);
 function setColorMode(id) {
   chrome.colorMode = id;
   saveChrome();
@@ -5704,6 +5812,8 @@ function ribbonApi() {
     showing,
     show,
     zoomMenu: () => zoomItems(),
+    zoomDialog: () => views.openZoomDialog(),
+    gridDialog: () => views.grid.gridDialog(),
     fitToWindow: () => setZoom("fit"),
     colorMode: () => chrome.colorMode,
     setColorMode,
@@ -6134,12 +6244,14 @@ function fitCanvas() {
 }
 // The step above or below the current zoom, or undefined at the ladder's end.
 function nextZoomStep(direction, current = zoomFactor()) {
+  const steps = viewZoom()?.steps || ZOOM_STEPS;
   return direction > 0
-    ? ZOOM_STEPS.find((step) => step > current + 0.01)
-    : [...ZOOM_STEPS].reverse().find((step) => step < current - 0.01);
+    ? steps.find((step) => step > current + 0.01)
+    : [...steps].reverse().find((step) => step < current - 0.01);
 }
 // The slide's scale on screen, whatever set it.
 function zoomFactor() {
+  if (viewZoom()) return viewZoom().factor();
   if (zoom !== "fit") return zoom;
   const canvas = document.querySelector("#slide-canvas");
   const size = currentSize();
@@ -6149,6 +6261,12 @@ function zoomFactor() {
 }
 // A new zoom keeps the middle of the view where it was.
 function setZoom(next) {
+  // Slide Sorter and Notes Page zoom on their own.
+  if (viewZoom()) {
+    viewZoom().set(next);
+    updateZoomUi();
+    return;
+  }
   const area = document.querySelector("#canvas-area");
   const center = area && {
     x: (area.scrollLeft + area.clientWidth / 2) / Math.max(1, area.scrollWidth),
@@ -6171,20 +6289,27 @@ function stepZoom(direction) {
   if (next) setZoom(next);
 }
 function zoomItems() {
+  const setting = viewZoom() ? viewZoom().setting() : zoom;
   return [
     {
       label: "Fit to screen",
       icon: "Maximize",
       shortcut: `${MOD_KEY}+0`,
-      checked: zoom === "fit",
+      checked: setting === "fit",
       onSelect: () => setZoom("fit"),
     },
     { separator: true },
     ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((level) => ({
       label: `${Math.round(level * 100)}%`,
-      checked: zoom === level,
+      checked: setting === level,
       onSelect: () => setZoom(level),
     })),
+    { separator: true },
+    {
+      label: "Zoom…",
+      icon: "o:zoom",
+      onSelect: () => views.openZoomDialog().catch(fail),
+    },
   ];
 }
 function zoomMenu(e) {
@@ -6606,6 +6731,8 @@ function editItems() {
 const editMenu = menuFor("Edit", editItems);
 function viewItems() {
   return [
+    ...views.menuItems(),
+    { separator: true },
     {
       label: "Slide navigator",
       icon: "PanelLeft",
@@ -6641,6 +6768,18 @@ function viewItems() {
       onSelect: () => stepZoom(-1),
     },
     { label: "Zoom", icon: "Maximize", items: zoomItems() },
+    { separator: true },
+    {
+      label: "Ruler",
+      icon: "o:ruler",
+      checked: !!chrome.ruler,
+      onSelect: () => show("ruler", !chrome.ruler),
+    },
+    {
+      label: "Grid and Guides",
+      icon: "o:gridlines",
+      items: views.grid.menuItems(),
+    },
     { separator: true },
     { label: "Present", icon: "Play", onSelect: run(present) },
     { separator: true },
@@ -7314,6 +7453,7 @@ function renderSlideArea(refreshNavigator = true) {
       document.querySelector("#main")
     )?.focus({ preventScroll: true });
   }
+  views.refresh();
 }
 // A navigator row for one slide, built once and kept. Its buttons look the
 // slide up when used: the deck behind the row changes with every edit and
@@ -8320,8 +8460,13 @@ function snapTargets(
   threshold,
   moving = new Set([P.getShapeId(obj)]),
 ) {
-  const xs = [0, size.cx / 2, size.cx];
-  const ys = [0, size.cy / 2, size.cy];
+  // The drawing guides always offer themselves; the slide and the other
+  // objects do while smart guides are on.
+  const guides = views.grid.snapTargets();
+  const smart = views.grid.smartGuides();
+  const xs = [...guides.xs, ...(smart ? [0, size.cx / 2, size.cx] : [])];
+  const ys = [...guides.ys, ...(smart ? [0, size.cy / 2, size.cy] : [])];
+  if (!smart) return { xs, ys, threshold };
   const parents = groupParents(slide());
   const visible = new Set(visibleSlideShapes(slide()).map(P.getShapeId));
   for (const other of shapes()) {
@@ -8368,6 +8513,24 @@ function snapBounds(b, mode, { xs, ys, threshold }, { dx = 0, dy = 0 } = {}) {
   const y = Math.abs(dy) >= threshold ? nearest(yEdges, ys, threshold) : null;
   const bounds = { ...b };
   const guides = [];
+  // An edge that meets no guide settles on the grid when snapping is on.
+  const onGrid = (values) => views.grid.gridDelta(values);
+  const gx = !x && Math.abs(dx) > 0 ? onGrid(xEdges.slice(0, 1)) : null;
+  const gy = !y && Math.abs(dy) > 0 ? onGrid(yEdges.slice(0, 1)) : null;
+  if (gx != null) {
+    if (moving) bounds.x += gx;
+    else if (left) {
+      bounds.x += gx;
+      bounds.w -= gx;
+    } else bounds.w += gx;
+  }
+  if (gy != null) {
+    if (moving) bounds.y += gy;
+    else if (top) {
+      bounds.y += gy;
+      bounds.h -= gy;
+    } else bounds.h += gy;
+  }
   if (x) {
     if (moving) bounds.x += x.delta;
     else if (left) {
@@ -13159,18 +13322,7 @@ function canvasContextMenu(e) {
       {
         label: "Grid and Guides",
         icon: "o:gridlines",
-        items: [
-          {
-            label: "Gridlines",
-            checked: !!chrome.gridlines,
-            onSelect: () => show("gridlines", !chrome.gridlines),
-          },
-          {
-            label: "Guides",
-            checked: !!chrome.guides,
-            onSelect: () => show("guides", !chrome.guides),
-          },
-        ],
+        items: views.grid.menuItems(),
       },
       {
         label: "Format Background…",
@@ -13350,7 +13502,10 @@ const BACKGROUND_LABELS = {
   image: "Image",
   inherit: "From layout",
 };
-async function present() {
+// `reading` plays the show in Reading View: inside the window, under its
+// title bar, with a status bar for moving through it.
+async function present(options = {}) {
+  const reading = !!options?.reading;
   await settled();
   if (document.querySelector("dialog.presenter[open]")) return;
   const pres = doc.pres;
@@ -13734,7 +13889,9 @@ async function present() {
     image.src = cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
     placeLinks(all[n]);
-    counter.textContent = `${n + 1} / ${all.length}`;
+    counter.textContent = reading
+      ? `Slide ${n + 1} of ${all.length}`
+      : `${n + 1} / ${all.length}`;
     previous.disabled = n === 0 && !showTiming.loop;
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
@@ -13815,19 +13972,45 @@ async function present() {
   document.addEventListener("fullscreenchange", syncFullscreen);
   const slideArea = el("div", { class: "presenter-slide-area" }, frame);
   frameObserver.observe(slideArea);
-  const controls = el(
-    "div",
-    { class: "presenter-controls" },
-    button("Exit", "X", close),
-    previous,
-    counter,
-    next,
-    notesButton,
-    laserButton,
-    pauseButton,
-    timer,
-    fullscreen,
-  );
+  const controls = reading
+    ? readingBar({
+        previous,
+        next,
+        counter,
+        count: all.length,
+        current: () => n,
+        show: (i) => show(i, { backward: i < n }),
+        close,
+        titleOf: (i) => slideTitle(all[i], pres),
+        // Another view from the bar: the show ends on the slide it reached.
+        switchTo: (id) => {
+          const part = P.getSlidePartName(all[n]);
+          close();
+          const at = P.getSlides(doc.pres).findIndex(
+            (s) => P.getSlidePartName(s) === part,
+          );
+          if (at >= 0) index = at;
+          if (id === "show") present({ from: "current" }).catch(fail);
+          else {
+            renderSlideArea();
+            setView(id);
+          }
+        },
+      })
+    : el(
+        "div",
+        { class: "presenter-controls" },
+        button("Exit", "X", close),
+        previous,
+        counter,
+        next,
+        notesButton,
+        laserButton,
+        pauseButton,
+        timer,
+        fullscreen,
+      );
+  if (reading) placeReadingDialog(d);
   controlsObserver.observe(controls);
   stage.append(slideArea, notes, status, controls);
   d.append(stage);
@@ -14034,6 +14217,8 @@ document.addEventListener("keydown", (e) => {
     (e.shiftKey ? saveCopy() : saveCloud()).catch(fail);
     return;
   }
+  // The views by number (Cmd/Ctrl+1 to 5), Show Outline, and the grid.
+  if (views.keydown(e)) return;
   if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "o") {
     e.preventDefault();
     if (editing) e.target.blur();

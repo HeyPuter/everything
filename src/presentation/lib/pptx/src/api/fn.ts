@@ -20,6 +20,8 @@ export * from "./fn/properties.ts";
 export * from "./fn/document-statistics.ts";
 export * from "./fn/thumbnail.ts";
 export * from "./fn/slide-show.ts";
+export * from "./fn/view-properties.ts";
+export * from "./fn/outline.ts";
 
 // Slide-level
 export * from "./fn/slide-query.ts";
