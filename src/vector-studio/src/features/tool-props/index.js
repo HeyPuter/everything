@@ -2,7 +2,7 @@
  * Tool settings in the Properties panel: with nothing selected and a
  * drawing tool active, the panel shows the appearance new artwork gets and
  * a section with that tool's settings (Pencil and Paintbrush fidelity, the
- * brush, Blob Brush and Eraser size, shape tool defaults, the options of
+ * brush, Merge Brush and Eraser size, shape tool defaults, the options of
  * the line, arc, spiral and grid tools), edited in place instead of
  * through the tool's options dialog.
  */

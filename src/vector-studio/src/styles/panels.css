@@ -76,7 +76,7 @@
   right: 100%;
   top: 6px;
   z-index: 50;
-  width: 264px;
+  width: var(--dock-w);
   max-height: calc(100% - 12px);
   display: flex;
   flex-direction: column;
@@ -125,6 +125,7 @@
 .flyout-body {
   overflow-y: auto;
   min-height: 0;
+  scrollbar-width: thin;
 }
 
 .dock {
@@ -176,6 +177,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: thin;
 }
 
 .panel-body[hidden] {
@@ -333,21 +335,37 @@
 .num-input {
   width: 100%;
   min-width: 0;
+  padding-left: 5px;
+  padding-right: 5px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Fields given a width keep it; the row around them wraps or scrolls instead. */
+.num-input[style*='width'] {
+  flex: none;
 }
 
 /* ---- Transform section ---- */
 .tf-grid {
   display: grid;
-  grid-template-columns: 28px 1fr 24px;
-  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px;
   align-items: center;
 }
 
 .tf-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 4px;
+}
+
+/* Single-letter labels (X, Y, W, H) take only their own width. */
+.tf-fields .num-field {
+  gap: 3px;
+}
+
+.tf-fields .num-label {
+  min-width: 9px;
 }
 
 .tf-row {

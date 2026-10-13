@@ -130,7 +130,7 @@ export class GenerationHistoryPanel extends Panel {
       h('span.gen-hist-title', { title: e.prompt }, e.kind === 'text' && e.settings?.action !== 'generate' ? `${label}: ${e.settings?.action || ''}` : promptTitle(e.prompt || label)),
       h('span.gen-hist-time', timeAgo(e.time)),
       canReuse ? h('button.icon-btn.small', { type: 'button', 'aria-label': 'Use this prompt again', 'data-tip': 'Use this prompt again', onclick: () => openGenerate(app, e.kind, { prompt: e.prompt, settings: e.settings }) }, icon('refresh-cw', 14)) : null,
-      e.kind === 'recolor' ? h('button.icon-btn.small', { type: 'button', 'aria-label': 'Open in Generative Recolor', 'data-tip': 'Open in Generative Recolor', onclick: () => app.commands.run('generative.recolor', { prompt: e.prompt, palettes: e.items }) }, icon('refresh-cw', 14)) : null,
+      e.kind === 'recolor' ? h('button.icon-btn.small', { type: 'button', 'aria-label': 'Open in Recolor from Prompt', 'data-tip': 'Open in Recolor from Prompt', onclick: () => app.commands.run('generative.recolor', { prompt: e.prompt, palettes: e.items }) }, icon('refresh-cw', 14)) : null,
       h('button.icon-btn.small', { type: 'button', 'aria-label': 'Delete from history', 'data-tip': 'Delete', onclick: () => this.store.remove(e.id) }, icon('trash', 14)),
     );
     return h('section.gen-hist-entry', { role: 'listitem', 'aria-label': `${label}: ${e.prompt || ''}` }, head, h(`div.gen-hist-items.kind-${e.kind}`, items));

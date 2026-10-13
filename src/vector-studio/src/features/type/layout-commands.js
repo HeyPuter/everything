@@ -1,7 +1,7 @@
 /**
  * Type menu commands for paragraph layout and type geometry: Bullets and
  * Numbering, Optical Margin Alignment, Type Orientation, the Type on a Path
- * effects and options, the vertical type tools and View > Snap to Glyph.
+ * effects and options, the vertical type tools and View > Snap to Letterforms.
  */
 import { layoutText, listLabels, glyphMetrics } from '../../model/text-layout.js';
 import { paragraphRanges, paraStylePatch, replaceRange, overridesAt, paraAt } from '../../model/text-runs.js';
@@ -262,7 +262,7 @@ function updatePathType(app) {
   });
 }
 
-// ---- snap to glyph ----
+// ---- snap to letterforms ----
 
 const GLYPH_GUIDES = [
   ['baseline', (l) => l.y],
@@ -359,7 +359,7 @@ export function installLayoutCommands(app) {
     { id: 'type.path.update', label: 'Update Type on a Path', enabled: (a) => pathNodes(a).length > 0, run: updatePathType },
     {
       id: 'view.snapGlyph',
-      label: 'Snap to Glyph',
+      label: 'Snap to Letterforms',
       enabled: (a) => Boolean(a.editor),
       checked: (a) => a.editor?.viewOptions.snapGlyph !== false,
       run: (a) => a.editor.setViewOption('snapGlyph', a.editor.viewOptions.snapGlyph === false),

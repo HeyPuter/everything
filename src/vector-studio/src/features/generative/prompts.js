@@ -103,7 +103,7 @@ export function palettePrompt(prompt, { count = 4, colors = 5, current = [] } = 
   return [
     `Create ${count} different color palettes inspired by: "${cleanPrompt(prompt)}".`,
     `Each palette has exactly ${colors} colors that work together, ordered from the most dominant to the least, with a range of light and dark values.`,
-    current.length ? `They will recolor artwork whose current colors are ${current.slice(0, 12).join(', ')}; keep enough contrast between light and dark.` : '',
+    current.length ? `They will recolor art whose current colors are ${current.slice(0, 12).join(', ')}; keep enough contrast between light and dark.` : '',
     'Give each palette a short evocative name of at most 3 words.',
     'Reply with only a JSON array like [{"name":"...","colors":["#rrggbb", ...]}] and no other text.',
   ].filter(Boolean).join('\n');

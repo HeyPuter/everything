@@ -1,7 +1,7 @@
 /**
- * Generative Recolor: describe a mood, get color palettes from Puter AI
+ * Recolor from Prompt: describe a mood, get color palettes from Puter AI
  * chat (JSON), preview each on the selected artwork and apply one through
- * the Recolor Artwork machinery (or open it in Recolor Artwork to refine).
+ * the Recolor machinery (or open it in Recolor to refine).
  */
 import { h, announce } from '../../lib/dom.js';
 import { clamp, hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
@@ -66,7 +66,7 @@ export function selectionColors(editor) {
 }
 
 /** Apply a palette to the selection as one undo step. Returns the number of changed objects. */
-export function applyPalette(editor, palette, label = 'Generative Recolor') {
+export function applyPalette(editor, palette, label = 'Recolor from Prompt') {
   const nodes = selectionColorNodes(editor);
   const map = paletteRecolorMap(collectColors(nodes), palette);
   const patches = colorPatches(nodes, recolorFn(map));
@@ -82,7 +82,7 @@ function paletteChips(colors) {
 }
 
 /**
- * Edit > Edit Colors > Generative Recolor (also Object > Generative): the
+ * Edit > Edit Colors > Recolor from Prompt (also Object > Generative): the
  * dialog. Resolves to true when a palette was applied.
  */
 export async function generativeRecolorDialog(app, { prompt: initialPrompt = '', palettes: initialPalettes = null } = {}) {
@@ -103,7 +103,7 @@ export async function generativeRecolorDialog(app, { prompt: initialPrompt = '',
   const mapFor = (i) => paletteRecolorMap(colors, palettes[i].colors);
   const preview = () => {
     if (chosen < 0) return;
-    if (!tx) tx = doc.begin('Generative Recolor');
+    if (!tx) tx = doc.begin('Recolor from Prompt');
     restore();
     for (const [id, p] of colorPatches([...originals.values()], recolorFn(mapFor(chosen)))) doc.update(id, p);
   };
@@ -212,12 +212,12 @@ export async function generativeRecolorDialog(app, { prompt: initialPrompt = '',
   let result;
   try {
     result = await openDialog({
-      title: 'Generative Recolor',
+      title: 'Recolor from Prompt',
       body,
       className: 'gen-dialog',
       initialFocus: () => promptBox,
       buttons: [
-        { label: 'Edit in Recolor Artwork', left: true, value: () => (chosen >= 0 ? { edit: true, map: mapFor(chosen) } : null) },
+        { label: 'Edit in Recolor', left: true, value: () => (chosen >= 0 ? { edit: true, map: mapFor(chosen) } : null) },
         { label: 'Cancel', value: null },
         { label: 'Apply', primary: true, value: () => (chosen >= 0 ? { map: mapFor(chosen) } : null) },
       ],
@@ -227,10 +227,10 @@ export async function generativeRecolorDialog(app, { prompt: initialPrompt = '',
   }
   if (!result || result.edit) {
     tx?.cancel();
-    if (result?.edit) return recolorDialog(app, { map: result.map, title: 'Recolor Artwork' });
+    if (result?.edit) return recolorDialog(app, { map: result.map, title: 'Recolor' });
     return false;
   }
-  if (!tx) tx = doc.begin('Generative Recolor');
+  if (!tx) tx = doc.begin('Recolor from Prompt');
   restore();
   for (const [id, p] of colorPatches([...originals.values()], recolorFn(result.map))) doc.update(id, p);
   tx.commit();

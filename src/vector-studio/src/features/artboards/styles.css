@@ -340,7 +340,7 @@
   background: var(--border);
 }
 
-/* ---- Contextual task bar ---- */
+/* ---- Task bar ---- */
 .ctx-taskbar {
   max-width: calc(100% - 16px);
   overflow-x: auto;

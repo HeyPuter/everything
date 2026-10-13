@@ -66,7 +66,7 @@ describe('Character panel menu', () => {
     const id = add('Hello');
     const items = panelMenu('character');
     const labels = items.filter((i) => i.type !== 'sep').map((i) => i.label);
-    for (const l of ['Hide Options', 'All Caps', 'Small Caps', 'Superscript', 'Subscript', 'Underline', 'Strikethrough', 'Kerning', 'Fractional Widths', 'No Break', 'Snap to Glyph', 'Character Edit Tool', 'Reset Panel']) expect(labels).toContain(l);
+    for (const l of ['Hide Options', 'All Caps', 'Small Caps', 'Superscript', 'Subscript', 'Underline', 'Strikethrough', 'Kerning', 'Fractional Widths', 'No Break', 'Snap to Letterforms', 'Character Edit Tool', 'Reset Panel']) expect(labels).toContain(l);
     await choose(find(items, 'All Caps'));
     expect(doc.get(id).char.caps).toBe('all');
     expect(find(panelMenu('character'), 'All Caps').checked).toBe(true);

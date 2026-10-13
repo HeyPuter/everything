@@ -214,8 +214,8 @@ function wireToolbarDrag(app) {
 /** Built-in workspaces: panel arrangement, tool set and bars. */
 export const WORKSPACES = {
   automation: { name: 'Automation', dock: ['properties', 'actions', 'layers'], strip: ['variables', 'history', 'links', 'documentInfo', 'swatches', 'color'], active: 'actions', toolbar: 'advanced', controlBar: false },
-  essentials: { name: 'Essentials', dock: ['properties', 'layers'], strip: ['color', 'swatches', 'stroke', 'gradient', 'transparency', 'appearance', 'align', 'pathfinder', 'character', 'paragraph'], active: 'properties', toolbar: 'advanced', controlBar: false },
-  classic: { name: 'Essentials Classic', dock: ['properties', 'layers', 'swatches'], strip: ['color', 'stroke', 'gradient', 'transparency', 'appearance', 'graphicStyles', 'align', 'transform', 'pathfinder', 'character', 'paragraph', 'navigator', 'info', 'artboards'], active: 'properties', toolbar: 'advanced', controlBar: true },
+  essentials: { name: 'Standard', dock: ['properties', 'layers'], strip: ['color', 'swatches', 'stroke', 'gradient', 'transparency', 'appearance', 'align', 'pathfinder', 'character', 'paragraph'], active: 'properties', toolbar: 'advanced', controlBar: false },
+  classic: { name: 'Classic', dock: ['properties', 'layers', 'swatches'], strip: ['color', 'stroke', 'gradient', 'transparency', 'appearance', 'graphicStyles', 'align', 'transform', 'pathfinder', 'character', 'paragraph', 'navigator', 'info', 'artboards'], active: 'properties', toolbar: 'advanced', controlBar: true },
   gettingStarted: { name: 'Getting Started', dock: ['properties', 'layers'], strip: ['swatches', 'color', 'libraries'], active: 'properties', toolbar: 'basic', controlBar: false },
   layout: { name: 'Layout', dock: ['properties', 'layers', 'artboards'], strip: ['align', 'transform', 'character', 'paragraph', 'characterStyles', 'paragraphStyles', 'swatches', 'color', 'stroke', 'info', 'navigator'], active: 'artboards', toolbar: 'advanced', controlBar: true },
   painting: { name: 'Painting', dock: ['properties', 'swatches', 'color'], strip: ['brushes', 'gradient', 'transparency', 'appearance', 'graphicStyles', 'stroke', 'layers', 'navigator'], active: 'color', toolbar: 'basic', controlBar: false },
@@ -479,7 +479,7 @@ export function installWindow(app) {
     { id: 'window.workspace.manage', label: 'Manage Workspaces...', run: (a) => manageWorkspacesDialog(a) },
     {
       id: 'window.resetWorkspace',
-      label: (a) => `Reset ${workspaceByKey(a, currentKey(a))?.name || 'Essentials'}`,
+      label: (a) => `Reset ${workspaceByKey(a, currentKey(a))?.name || 'Standard'}`,
       run: (a) => {
         const key = currentKey(a);
         applyWorkspace(a, workspaceByKey(a, key) || WORKSPACES.essentials, workspaceByKey(a, key) ? key : 'essentials');

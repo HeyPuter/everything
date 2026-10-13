@@ -37,7 +37,7 @@ async function quickLabels() {
   return [...props.el.querySelectorAll('.quick-actions button')].filter((b) => !b.closest('[hidden]')).map((b) => b.textContent.trim());
 }
 
-describe('contextual task bar', () => {
+describe('task bar', () => {
   it('names its context per selection type', () => {
     const p = add(path());
     const s = add(shape());

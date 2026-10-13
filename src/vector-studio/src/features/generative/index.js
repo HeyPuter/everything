@@ -2,8 +2,8 @@
  * Generative features on Puter AI:
  *   Object > Generative > Generate Vectors, Generative Shape Fill,
  *     Rewrite (Generate Text, Fit Text to Frame, Proofread, Translate,
- *     Rewrite), Generative Recolor, Generate Patterns, Generation History
- *   Edit > Edit Colors > Generative Recolor, Type > Rewrite
+ *     Rewrite), Recolor from Prompt, Generate Patterns, Generation History
+ *   Edit > Edit Colors > Recolor from Prompt, Type > Rewrite
  *   Object > Remove Background (local, no AI)
  *   the Generate and Generation History panels, and task bar quick actions.
  * Pictures come from puter.ai.txt2img and are traced into vectors with the
@@ -36,7 +36,7 @@ export function install(app) {
     { id: 'generative.vectors', label: 'Generate Vectors...', enabled: hasEditor, run: (a) => openGenerate(a, 'vectors') },
     { id: 'generative.shapeFill', label: 'Generative Shape Fill...', enabled: (a) => Boolean(selectedShape(a.editor)), run: (a) => openGenerate(a, 'shapeFill') },
     { id: 'generative.patterns', label: 'Generate Patterns...', enabled: hasEditor, run: (a) => openGenerate(a, 'pattern') },
-    { id: 'generative.recolor', label: 'Generative Recolor...', enabled: hasSel, run: (a, args) => generativeRecolorDialog(a, args || {}) },
+    { id: 'generative.recolor', label: 'Recolor from Prompt...', enabled: hasSel, run: (a, args) => generativeRecolorDialog(a, args || {}) },
     { id: 'generative.text.generate', label: 'Generate Text...', enabled: hasEditor, run: (a) => generateTextDialog(a) },
     { id: 'generative.text.fit', label: 'Fit Text to Frame', enabled: (a) => fitTargets(a).length > 0, run: (a) => fitText(a) },
     { id: 'generative.text.proofread', label: 'Proofread', enabled: hasTargets, run: (a) => proofread(a) },
@@ -45,13 +45,13 @@ export function install(app) {
     { id: 'object.removeBackground', label: 'Remove Background...', enabled: (a) => selectedImages(a.editor).length > 0, run: (a) => removeBackgroundCommand(a) },
   ]);
 
-  // Contextual task bar quick actions.
+  // Task bar quick actions.
   app.taskbarExtras ||= [];
   app.taskbarExtras.push((ctx, { cmdButton, menuButton }) => {
     if (ctx === 'none') return [cmdButton('generative.vectors', 'Generate Vectors', 'gen-vectors')];
     if (ctx === 'path' || ctx === 'shape') return [cmdButton('generative.shapeFill', 'Shape Fill', 'gen-shape-fill', { text: false })];
     if (ctx === 'text') return [menuButton('Rewrite', 'gen-text', TEXT_MENU, { text: false })];
-    if (ctx === 'group' || ctx === 'multiple' || ctx === 'live' || ctx === 'clip' || ctx === 'blend') return [cmdButton('generative.recolor', 'Generative Recolor', 'gen-recolor', { text: false })];
+    if (ctx === 'group' || ctx === 'multiple' || ctx === 'live' || ctx === 'clip' || ctx === 'blend') return [cmdButton('generative.recolor', 'Recolor from Prompt', 'gen-recolor', { text: false })];
     if (ctx === 'image') return [cmdButton('object.removeBackground', 'Remove Background', 'gen-remove-bg', { text: false })];
     if (ctx === 'other') {
       const n = app.editor?.doc.get(app.editor.topSelection()[0]);

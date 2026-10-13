@@ -454,7 +454,7 @@
   color: var(--accent);
 }
 
-/* ---- Contextual task bar ---- */
+/* ---- Task bar ---- */
 .taskbar {
   position: absolute;
   z-index: 4;

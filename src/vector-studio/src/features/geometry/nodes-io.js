@@ -42,7 +42,7 @@ export function isOpenLine(node) {
 
 /**
  * Engine shape for a node. `string` makes it a cutting line (Divide uses
- * open unfilled paths that way). `key` groups shapes for Merge and Blob Brush.
+ * open unfilled paths that way). `key` groups shapes for Merge and Merge Brush.
  */
 export function shapeOf(doc, node, { string = false, key = -1 } = {}) {
   return {
@@ -124,7 +124,7 @@ export function fillOnly(style) {
   return { ...style, stroke: null };
 }
 
-/** A stable string key for a solid fill (Merge, Blob Brush); null when not a plain solid. */
+/** A stable string key for a solid fill (Merge, Merge Brush); null when not a plain solid. */
 export function solidKey(node) {
   const f = node.fill;
   if (!f || f.type !== 'solid') return null;

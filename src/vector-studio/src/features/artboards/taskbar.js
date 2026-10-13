@@ -1,9 +1,9 @@
 /**
- * Contextual task bar: a floating toolbar under the selection (or at the
+ * Task bar: a floating toolbar under the selection (or at the
  * bottom center of the canvas with nothing selected) with quick actions for
  * what is selected. It hides while dragging, panning or editing type,
  * follows view changes, can be moved by its grip (and then stays put until
- * reset), and is turned on and off with Window > Contextual Task Bar.
+ * reset), and is turned on and off with Window > Task Bar.
  * It is an ARIA toolbar: Alt+F10 (or Tab from the panels side) focuses it,
  * arrow keys move between its controls and Escape returns to the canvas.
  * (Tab on the canvas itself keeps its native meaning: hide panels.)
@@ -386,7 +386,7 @@ export function installTaskbar(app) {
 
   app.commands.register({
     id: 'window.contextualTaskbar',
-    label: 'Contextual Task Bar',
+    label: 'Task Bar',
     checked: (a) => a.prefs.get('contextualTaskbar') !== false,
     run: (a) => {
       a.prefs.set('contextualTaskbar', a.prefs.get('contextualTaskbar') === false);
@@ -396,7 +396,7 @@ export function installTaskbar(app) {
 
   app.commands.register({
     id: 'window.focusTaskbar',
-    label: 'Focus Contextual Task Bar',
+    label: 'Focus Task Bar',
     shortcut: 'Alt+F10',
     enabled: (a) => Boolean(a.editor) && a.prefs.get('contextualTaskbar') !== false,
     run: () => {

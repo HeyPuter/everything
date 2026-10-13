@@ -1,7 +1,7 @@
 /**
  * Edit > Edit Colors commands: Invert Colors, Convert to Grayscale, Adjust
  * Color Balance, Blend Horizontally / Vertically / Front to Back, Saturate
- * and Recolor Artwork. Dialog commands preview live inside a transaction
+ * and Recolor. Dialog commands preview live inside a transaction
  * that Cancel rolls back.
  */
 import { h } from '../../lib/dom.js';
@@ -174,7 +174,7 @@ async function saturateDialog(app) {
 }
 
 /**
- * Recolor Artwork: the selection's colors with editable new colors and
+ * Recolor: the selection's colors with editable new colors and
  * global adjustments. `preset.map` ({ oldHex: newHex }) preassigns new
  * colors (Recolor with Preset); `preset.title` names the dialog.
  */
@@ -282,7 +282,7 @@ export async function recolorDialog(app, preset = {}) {
     prev.el,
   );
   return previewDialog(app, {
-    title: preset.title || 'Recolor Artwork',
+    title: preset.title || 'Recolor',
     body,
     read: () => ({ map: { ...map }, h: hue.value, s: sat.value, b: bri.value, preserve: preserveOpts() }),
     previewBox: prev.input,
@@ -315,6 +315,6 @@ export function registerEditColorCommands(app) {
     { id: 'color.blendHorizontal', label: 'Blend Horizontally', enabled: has, run: blend('horizontal', 'Blend Horizontally') },
     { id: 'color.blendVertical', label: 'Blend Vertically', enabled: has, run: blend('vertical', 'Blend Vertically') },
     { id: 'color.saturate', label: 'Saturate...', enabled: has, run: (a) => saturateDialog(a) },
-    { id: 'color.recolor', label: 'Recolor Artwork...', enabled: has, run: (a) => recolorDialog(a) },
+    { id: 'color.recolor', label: 'Recolor...', enabled: has, run: (a) => recolorDialog(a) },
   ]);
 }

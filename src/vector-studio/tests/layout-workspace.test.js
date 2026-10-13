@@ -42,7 +42,7 @@ describe('view toggles', () => {
       expect(Boolean(ed.viewOptions[key]), id).toBe(!before);
     }
     expect(app.commands.label('view.template')).toBe('Show Template');
-    expect(app.commands.label('view.gradientAnnotator')).toBe('Show Gradient Annotator');
+    expect(app.commands.label('view.gradientAnnotator')).toBe('Show Gradient Controls');
     expect(app.commands.get('view.template').shortcut).toBe('Shift+Mod+W');
   });
 
