@@ -8,8 +8,14 @@
  * link holds while the object's appearance still matches the style, so
  * any later appearance edit breaks it; Redefine Graphic Style updates the
  * style and every object still linked to it.
+ *
+ * On type, a style replaces the characters' own colors (Override Character
+ * Color, the default) or, with that option off, keeps them: the style's
+ * fills and strokes then paint under the characters, and its effects and
+ * opacity apply to the whole type object.
  */
 import { pickStyle } from '../../model/nodes.js';
+import { stackItems, itemPaint, itemStrokeAttrs, normalizeAppearance } from '../../model/appearance.js';
 import { applyStyleDeep } from '../../tools/navigation.js';
 import { uid } from '../../lib/ids.js';
 import { createEffect } from './effects-model.js';
@@ -71,17 +77,45 @@ export function styleOfNode(doc, node) {
  */
 const STROKE_RESET = { strokeCap: 'butt', strokeJoin: 'miter', miterLimit: 10, strokeAlign: 'center', dash: [], dashOffset: 0, dashAlign: undefined, arrowStart: null, arrowEnd: null, appearance: undefined };
 
+/** Preference: graphic styles replace the character colors of type (true, the default). */
+export const OVERRIDE_CHAR_COLOR = 'graphicStylesOverrideCharColor';
+
+export function overridesCharColor(prefs) {
+  return prefs?.get?.(OVERRIDE_CHAR_COLOR) !== false;
+}
+
 /** Apply a graphic style to the top-level selection, linking it when `id` is given. */
 export function applyGraphicStyle(editor, style, id = null) {
   const doc = editor.doc;
   const top = editor.topSelection().map((nid) => doc.get(nid)).filter((n) => n && n.type !== 'layer');
   editor.setStyle(structuredClone(style));
   if (!top.length) return;
-  doc.transact('Apply Graphic Style', () => applyStyleTo(doc, top, style, id));
+  doc.transact('Apply Graphic Style', () => applyStyleTo(doc, top, style, id, { keepCharColor: !overridesCharColor(editor.prefs) }));
 }
 
-/** Apply a style to nodes (inside a transaction). */
-export function applyStyleTo(doc, nodes, style, id = null) {
+/**
+ * A type object keeping its character colors: the style's fills and
+ * strokes become stack items under the characters.
+ */
+function styleAroundCharacters(doc, n, style, own) {
+  const src = { type: 'path', fill: null, stroke: null, ...style };
+  const items = [];
+  for (const it of stackItems(src)) {
+    const paint = itemPaint(src, it);
+    if (!paint || (it.type !== 'fill' && it.type !== 'stroke')) continue;
+    const { base, ...attrs } = it;
+    if (it.type === 'fill') items.push({ ...structuredClone(attrs), type: 'fill', fill: structuredClone(paint) });
+    else {
+      const sa = itemStrokeAttrs(src, it);
+      if (sa.strokeWidth > 0) items.push({ ...structuredClone(attrs), ...structuredClone(sa), type: 'stroke', stroke: structuredClone(paint) });
+    }
+  }
+  items.push({ type: 'contents' });
+  doc.update(n.id, { ...own, ...normalizeAppearance(n, items) });
+}
+
+/** Apply a style to nodes (inside a transaction). `keepCharColor` keeps type's character colors. */
+export function applyStyleTo(doc, nodes, style, id = null, { keepCharColor = false } = {}) {
   const paintPatch = { ...STROKE_RESET, ...style };
   delete paintPatch.effects;
   delete paintPatch.opacity;
@@ -95,6 +129,7 @@ export function applyStyleTo(doc, nodes, style, id = null) {
       for (const c of n.children) applyStyleDeep(doc, doc.get(c), structuredClone(paintPatch));
       doc.update(n.id, own);
     } else if (n.type === 'image') doc.update(n.id, own);
+    else if (n.type === 'text' && keepCharColor) styleAroundCharacters(doc, n, style, own);
     else applyStyleDeep(doc, n, { ...structuredClone(paintPatch), ...own });
   }
 }

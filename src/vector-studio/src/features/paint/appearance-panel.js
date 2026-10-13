@@ -16,7 +16,8 @@
  * Graphic Styles shows the document's styles in thumbnail or list views;
  * clicking applies and links a style (Alt+click adds it to the current
  * appearance). Its menu duplicates, merges, deletes, breaks links, selects
- * unused styles, sorts, and opens or saves style libraries.
+ * unused styles, sorts, opens or saves style libraries, and sets whether
+ * styles override the character colors of type.
  */
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
@@ -28,7 +29,7 @@ import { selectionKind, BLEND_LABELS } from '../../ui/panels/properties.js';
 import { EFFECTS, effectLabel } from './effects-model.js';
 import { effectDialog, effectTargets } from './effects-ui.js';
 import { drawThumbnail, standaloneDoc } from './thumbs.js';
-import { graphicStylesOf, setGraphicStyles, styleOfNode, applyGraphicStyle, applyStyleTo, newStyleId, linkedStyle, styleUsers, unusedGraphicStyleIds, mergeStyles, sortStylesByName } from './graphic-styles.js';
+import { graphicStylesOf, setGraphicStyles, styleOfNode, applyGraphicStyle, applyStyleTo, newStyleId, linkedStyle, styleUsers, unusedGraphicStyleIds, mergeStyles, sortStylesByName, overridesCharColor, OVERRIDE_CHAR_COLOR } from './graphic-styles.js';
 import { graphicStyleLibraries } from './graphic-style-libraries.js';
 import { userLibraryMenu, saveLibraryDialog, exportLibraryFile, pickTextFile } from './user-libraries.js';
 import { MENUS } from '../../ui/menus.js';
@@ -854,6 +855,8 @@ export class GraphicStylesPanel extends Panel {
       { label: 'Break Link to Graphic Style', enabled: this.linkedTargets().length > 0, run: () => this.breakLink() },
       { label: 'Redefine Graphic Style', enabled: ids.length === 1 && sel === 1, run: () => redefineGraphicStyle(app, ids[0]) },
       '-',
+      { label: 'Override Character Color', checked: overridesCharColor(app.prefs), run: () => app.prefs.set(OVERRIDE_CHAR_COLOR, !overridesCharColor(app.prefs)) },
+      '-',
       { label: 'Select All Unused', enabled: has, run: () => this.selectUnused() },
       { label: 'Sort by Name', enabled: has, run: () => this.sortByName() },
       '-',
@@ -949,7 +952,7 @@ export class GraphicStylesPanel extends Panel {
     const top = ed.topSelection().map((id) => ed.doc.get(id)).filter((n) => n && n.type !== 'layer');
     if (!top.length) return applyGraphicStyle(ed, mergeStyles([ed.style, gs.style]));
     ed.doc.transact('Add Graphic Style', () => {
-      for (const n of top) applyStyleTo(ed.doc, [ed.doc.get(n.id)], mergeStyles([styleOfNode(ed.doc, n), gs.style]));
+      for (const n of top) applyStyleTo(ed.doc, [ed.doc.get(n.id)], mergeStyles([styleOfNode(ed.doc, n), gs.style]), null, { keepCharColor: !overridesCharColor(this.app.prefs) });
     });
   }
 
