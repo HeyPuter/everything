@@ -16227,6 +16227,8 @@ function parse_ws_xml(data/*:?string*/, opts, idx/*:number*/, rels, wb/*:WBWBPro
 		data1 = data.slice(0, mtch.index);
 		data2 = data.slice(mtch.index + mtch[0].length);
 	} else data1 = data2 = data;
+	/* Puter Spreadsheet local patch: a custom view's AutoFilter and page margins are the view's, not the sheet's. */
+	data2 = data2.replace(/<(?:\w+:)?customSheetViews\b[\s\S]*?<\/(?:\w+:)?customSheetViews>/g, "");
 
 	/* 18.3.1.82 sheetPr CT_SheetPr */
 	var sheetPr = data1.match(sheetprregex);

@@ -23,6 +23,7 @@ const CHART_SHEET_COMMANDS = new Set([
   'undo', 'redo', 'undoSteps', 'redoSteps', 'escape', 'palette', 'recalc', 'names',
   'newSheet', 'duplicateSheet', 'showSheet', 'hideSheet', 'deleteSheet', 'renameSheet', 'moveSheet',
   'protectSheet', 'sheetColor', 'copySheetTo', 'moveOrCopySheet', 'placeSheet', 'sheet', 'focusMode', 'fullscreen', 'zoom', 'zoomTo', 'zoomCustom', 'zoomFit',
+  'customViews', 'addCustomView', 'deleteCustomView', 'showCustomView', 'zoomDialog',
   'editChart', 'deleteChart', 'duplicateChart', 'copyChart', 'downloadChart', 'chart',
   'insertImage', 'insertImagePuter', 'insertImageUrl', 'replaceImage', 'insertTextBox', 'copy', 'paste', 'find', 'goTo', 'goToName',
 ]);

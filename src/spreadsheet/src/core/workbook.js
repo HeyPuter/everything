@@ -74,6 +74,7 @@ import { prepareDataModelImport } from './data-model-import.js';
 import { nativePivotSheetCopy } from './native-pivot-sheet-copy.js';
 import { normalizePrintSettings, mapPrintAreas } from './print-settings.js';
 import { normalizeBackground } from './sheet-background.js';
+import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText } from './formula/functions.js';
@@ -971,6 +972,8 @@ export class Workbook extends EventTarget {
     this._sheetDefaultStyles = new WeakMap();
     this.sheets = (json.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(makeSheet);
     this.workbookView = normalizeWorkbookView(json.workbookView);
+    // View ▸ Custom Views (see custom-views.js).
+    this.customViews = normalizeCustomViews(json.customViews, this.sheets.map((s) => s.id), normalizeFilter);
     this.names = [];
     for (const n of json.names || []) {
       // Preserve legacy name/table collisions on load; reject new collisions
@@ -1021,6 +1024,7 @@ export class Workbook extends EventTarget {
       ...(this.externalWorkbooks ? { externalWorkbooks: normalizeExternalWorkbooks(this.externalWorkbooks) } : {}),
       activeSheetId: this.activeSheetId,
       ...(this.workbookView ? { workbookView: normalizeWorkbookView(this.workbookView) } : {}),
+      ...(this.customViews?.length ? { customViews: normalizeCustomViews(this.customViews, this.sheets.map((s) => s.id), normalizeFilter) } : {}),
       names: this.names.map((n) => ({ ...n })),
       ...(this.iteration ? { iteration: { ...this.iteration } } : {}),
       ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
@@ -6970,6 +6974,109 @@ export class Workbook extends EventTarget {
     };
     apply(next);
     this._push({ label: next ? 'Background' : 'Delete background', undo: () => apply(prev), redo: () => apply(next) });
+    return true;
+  }
+
+  /* ---------- Custom Views ---------- */
+
+  /** Views read from a file, made safe as stored ones are; not an undo step. */
+  adoptCustomViews(views) {
+    this.customViews = normalizeCustomViews(views, this.sheets.map((s) => s.id), normalizeFilter);
+  }
+
+  _setCustomViews(next, label) {
+    const prev = this.customViews;
+    const apply = (list) => { this.customViews = list; this._changed('view', null); this.dirty = true; };
+    apply(next);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(next) });
+  }
+
+  /**
+   * Add a view of the workbook as it is now, under `name` (replacing a view of that name). `print` keeps the
+   * page setup with it, `hidden` the hidden rows and columns and the filters. Returns the view's id, or null.
+   */
+  addCustomView(name, { print = true, hidden = true } = {}) {
+    const text = String(name ?? '').trim();
+    if (!text || text.length > CUSTOM_VIEW_NAME_MAX) return null;
+    const view = captureCustomView(this, text, { print, hidden, copyFilter });
+    const at = this.customViews.findIndex((v) => v.name.toLowerCase() === text.toLowerCase());
+    if (at < 0 && this.customViews.length >= MAX_CUSTOM_VIEWS) return null;
+    const next = this.customViews.slice();
+    if (at >= 0) next[at] = { ...view, id: this.customViews[at].id }; else next.push(view);
+    this._setCustomViews(next, 'Add view');
+    return next[at >= 0 ? at : next.length - 1].id;
+  }
+
+  deleteCustomView(id) {
+    if (!this.customViews.some((v) => v.id === id)) return false;
+    this._setCustomViews(this.customViews.filter((v) => v.id !== id), 'Delete view');
+    return true;
+  }
+
+  /**
+   * Show a view: each sheet it holds goes back to how it was shown (zoom, selection, scroll, view mode,
+   * frozen panes or split, display switches, and with the view's options its hidden lines, filters and page
+   * setup), and its active sheet comes to the front. The edits among those are one undo step; zoom,
+   * selection and scroll are navigation, as elsewhere. Returns false for an unknown view.
+   */
+  showCustomView(id) {
+    const view = this.customViews.find((v) => v.id === id);
+    if (!view) return false;
+    const entries = Object.entries(view.sheets).map(([sheetId, state]) => [this.sheet(sheetId), state]).filter(([sheet]) => sheet && !sheet.externalCache);
+    const frame = (sheet) => ({
+      frozenRows: sheet.frozenRows, frozenCols: sheet.frozenCols, frozenOrigin: sheet.frozenOrigin ? { ...sheet.frozenOrigin } : null,
+      split: sheet.split ? { ...sheet.split } : null, gridlines: sheet.gridlines, headers: sheet.headers, zeros: sheet.zeros,
+      hiddenRows: [...sheet.hiddenRows], hiddenCols: [...sheet.hiddenCols],
+      filter: copyFilter(sheet.filter), otherFilters: (sheet.otherFilters || []).map(copyFilter), filterHidden: [...sheet.filterHidden],
+      printSettings: sheet.printSettings ? normalizePrintSettings(sheet.printSettings) : null,
+      hidden: !!sheet.hidden,
+    });
+    const before = new Map(entries.map(([sheet]) => [sheet.id, frame(sheet)]));
+    const target = (sheet, state) => {
+      const was = before.get(sheet.id);
+      const t = { ...was, frozenRows: state.frozenRows, frozenCols: state.frozenCols, frozenOrigin: state.frozenOrigin || null,
+        split: state.split || null, gridlines: state.gridlines, headers: state.headers, zeros: state.zeros, hidden: state.sheetHidden };
+      if (view.hidden && state.hiddenRows) Object.assign(t, { hiddenRows: state.hiddenRows, hiddenCols: state.hiddenCols, filter: state.filter, otherFilters: state.otherFilters, filterHidden: null });
+      if (view.print && 'printSettings' in state && sheet.kind !== 'chart') t.printSettings = state.printSettings;
+      return t;
+    };
+    const after = new Map(entries.map(([sheet, state]) => [sheet.id, target(sheet, state)]));
+    // Never every sheet hidden: the view's active sheet stays in view whatever the view says of it.
+    const front = this.sheet(view.activeSheetId) && !this.sheet(view.activeSheetId).externalCache ? view.activeSheetId : null;
+    if (front && after.has(front)) after.get(front).hidden = false;
+    if (this.sheets.every((s) => (after.get(s.id)?.hidden ?? s.hidden))) for (const v of after.values()) { v.hidden = false; break; }
+    const apply = (states) => {
+      for (const [sheetId, v] of states) {
+        const live = this.sheet(sheetId);
+        if (!live) continue;
+        live.frozenRows = v.frozenRows; live.frozenCols = v.frozenCols;
+        if (v.frozenOrigin) live.frozenOrigin = { ...v.frozenOrigin }; else delete live.frozenOrigin;
+        if (v.split && !v.frozenRows && !v.frozenCols) live.split = { ...v.split }; else delete live.split;
+        live.gridlines = v.gridlines; live.headers = v.headers; live.zeros = v.zeros;
+        live.hiddenRows = new Set(v.hiddenRows); live.hiddenCols = new Set(v.hiddenCols);
+        live.filter = copyFilter(v.filter); live.otherFilters = (v.otherFilters || []).map(copyFilter);
+        if (v.filterHidden) live.filterHidden = new Set(v.filterHidden);
+        else { this._applyFilter(live); v.filterHidden = [...live.filterHidden]; }
+        if (live.kind !== 'chart') live.printSettings = normalizePrintSettings(v.printSettings);
+        live.hidden = v.hidden;
+        this._changed('layout', live.id);
+      }
+      if (this.sheet(this.activeSheetId)?.hidden) this.activeSheetId = this.sheets.find((s) => !s.hidden).id;
+      this._changed('structure', null);
+    };
+    apply(after);
+    this._push({ label: `Show view ${view.name}`, undo: () => apply(before), redo: () => apply(after) });
+    // Navigation: where each sheet was, as it was zoomed and in which view.
+    for (const [sheet, state] of entries) {
+      if (sheet.kind !== 'chart') {
+        if (state.selection) sheet.viewSelection = normalizeSheetSelection(state.selection);
+        if (state.origin) sheet.viewOrigin = { ...state.origin }; else delete sheet.viewOrigin;
+        if (state.mode === 'normal') delete sheet.viewMode; else sheet.viewMode = state.mode;
+      }
+      sheet.viewZoom = state.zoom;
+      this._changed('view', sheet.id);
+    }
+    if (front && !this.sheet(front).hidden && front !== this.activeSheetId) { this.activeSheetId = front; this._emit('active-sheet'); }
     return true;
   }
 

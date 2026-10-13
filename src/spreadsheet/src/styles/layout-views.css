@@ -1,0 +1,20 @@
+/* ---------- View ▸ Custom Views ---------- */
+
+.cv-manager { display: flex; flex-direction: column; gap: 12px; min-width: min(440px, 100%); }
+.cv-top { display: flex; gap: 12px; align-items: stretch; }
+.cv-list-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cv-list { min-height: 168px; max-height: 260px; overflow: auto; border: 1px solid var(--field-border); border-radius: 6px; padding: 3px; background: var(--surface); }
+.cv-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cv-item { padding: 5px 8px; border-radius: 4px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.cv-item:hover { background: var(--surface-2); }
+.cv-item[aria-selected="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.cv-list:focus-visible .cv-item[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+.cv-empty { border: 1px dashed var(--hairline-strong); border-radius: 6px; padding: 14px; min-height: 140px; margin: 0; }
+.cv-buttons { display: flex; flex-direction: column; gap: 6px; padding-top: 22px; min-width: 96px; }
+.cv-detail { margin: 0; min-height: 1.4em; }
+.cv-add { display: flex; flex-direction: column; gap: 12px; min-width: min(380px, 100%); }
+.cv-add .check-group.vertical { flex-direction: column; }
+@media (max-width: 560px) {
+  .cv-top { flex-direction: column; }
+  .cv-buttons { flex-direction: row; padding-top: 0; }
+}

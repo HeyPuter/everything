@@ -103,6 +103,10 @@ export function menubarMenus(f = {}) {
       i('Remove page break', 'eraser', 'pageBreak', 'remove'),
       i('Reset all page breaks', 'reset', 'pageBreak', 'reset'),
     ].map(waits)),
+    sub('Sheet background', 'background', [
+      i(f.background ? 'Replace background…' : 'Background picture…', 'background', 'sheetBackground', 'pick', { disabled: f.chartSheet }),
+      i('Delete background', 'deleteItem', 'sheetBackground', 'delete', { disabled: !f.background }),
+    ].map(waits)),
     sep,
     i('Back to all spreadsheets', 'back', 'home'),
   ];
@@ -176,6 +180,7 @@ export function menubarMenus(f = {}) {
     i('Normal', 'normalView', 'viewMode', 'normal', { checked: (f.viewMode || 'normal') === 'normal', disabled: f.chartSheet }),
     i('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { checked: f.viewMode === 'pageLayout', disabled: f.chartSheet }),
     i('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { checked: f.viewMode === 'pageBreak', disabled: f.chartSheet }),
+    waits(i('Custom views…', 'customViews', 'customViews')),
     sep,
     i('Show formulas', 'fx', 'showFormulas', null, { shortcut: `${K}+\``, checked: !!f.showFormulas }),
     i('Gridlines', 'borders', 'gridlines', null, { checked: f.gridlines !== false }),

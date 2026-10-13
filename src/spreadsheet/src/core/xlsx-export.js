@@ -20,6 +20,7 @@ import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
 import { writeXlsxBackground } from './xlsx-background.js';
+import { writeXlsxSheetCustomViews, writeXlsxWorkbookCustomViews } from './xlsx-custom-views.js';
 import { richValueWriter } from './xlsx-rich-values.js';
 import { scenariosXml } from './scenarios.js';
 import { parseKey } from './cell.js';
@@ -350,7 +351,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, richValues.sheet(writeXlsxPrint(xml, sheet.printSettings), imageValues));
+    set(path, richValues.sheet(writeXlsxSheetCustomViews(writeXlsxPrint(xml, sheet.printSettings), wb.customViews || [], sheet), imageValues));
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');
@@ -380,6 +381,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     { get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
   if (wb.nativePivots) workbook = (await import('./xlsx-pivots.js')).writeXlsxPivots(wb, workbook, { get, set, contentType, styles, pivotRulePriorities });
   if (wb.externalWorkbooks) workbook = writeXlsxExternalWorkbooks(rebaseExternalWorkbooks(wb.externalWorkbooks, sourceWorkbook), workbook, { get, set, contentType });
+  workbook = writeXlsxWorkbookCustomViews(workbook, wb.customViews || [], wb);
   set('/xl/workbook.xml', workbook);
   set('/xl/styles.xml', styles.xml());
   if (book.PuterExportMeta && conditionalRecords.size) {

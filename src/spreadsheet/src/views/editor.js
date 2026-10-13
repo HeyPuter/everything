@@ -91,6 +91,7 @@ import { openGoalSeek } from '../ui/goalseek.js';
 import { openDataTable } from '../ui/datatable.js';
 import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
+import { openCustomViews } from '../ui/customviews.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
@@ -3048,6 +3049,36 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'dataTable': if (!committed()) return; openDataTable(ctx); return;
       case 'forecastSheet': if (!committed()) return; openForecastSheet(ctx); return;
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
+      case 'customViews': if (!committed()) return; openCustomViews(ctx); return;
+      case 'addCustomView': {
+        // The zoom in force may be this device's, not yet the sheet's own: the view keeps what is on screen.
+        if (!committed() || !arg?.name) return;
+        if (wb.sheet(grid.sheetId)?.viewZoom == null && grid.zoom !== 1) wb.setSheetView(grid.sheetId, { viewZoom: grid.zoom });
+        if (wb.addCustomView(arg.name, { print: arg.print !== false, hidden: arg.hidden !== false })) {
+          statusBar?.announce(`View ${arg.name} added`);
+          toast(`View “${arg.name}” added`, { icon: 'customViews', duration: 1800 });
+        }
+        notify();
+        return;
+      }
+      case 'deleteCustomView':
+        if (wb.deleteCustomView(arg)) statusBar?.announce('View deleted');
+        notify();
+        return;
+      case 'showCustomView': {
+        // Show a view: the grid goes to the view's sheet first, so leaving this one does not record its place over the view's.
+        if (!committed()) return;
+        const view = wb.customViews.find((v) => v.id === arg);
+        if (!view) return;
+        const front = wb.sheet(view.activeSheetId);
+        if (front && !front.hidden && front.id !== wb.activeSheetId) wb.setActiveSheet(front.id);
+        wb.showCustomView(view.id);
+        grid.reloadSheetView();
+        refreshPageView(true);
+        statusBar?.announce(`View ${view.name} shown`);
+        notify(); keepFocus();
+        return;
+      }
       case 'advancedFilter': if (!committed()) return; if (refusedByProtection('filter the list')) return; openAdvancedFilter(ctx); return;
       // Data ▸ Get & Transform Data and Queries & Connections (see ui/get-data.js, ui/query-editor.js, core/queries.js).
       case 'getDataText': if (!committed()) return; getDataText(ctx, editQuery); return;

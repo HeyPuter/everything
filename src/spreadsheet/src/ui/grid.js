@@ -5578,6 +5578,25 @@ export function createGrid(opts) {
     get editing() { return !!edit; },
     get editState() { return edit ? { ...edit } : null; },
     get keyMode() { return keyMode; },
+    /**
+     * Take each sheet's saved selection and scroll position afresh (a custom view was shown): what the grid
+     * remembered of the sheets it has shown is forgotten, and the sheet in view goes to its saved place.
+     */
+    reloadSheetView() {
+      if (edit) return;
+      if (drag || tap || freezeDrag) cancelDrag();
+      perSheet.clear();
+      const s = sheet();
+      if (!s) return;
+      if (s.viewZoom != null && s.viewZoom !== zoom) setZoom(s.viewZoom, true);
+      rebuildOffsets();
+      rendered.key = null;
+      pendingOrigin = s.kind === 'chart' ? null : s.viewOrigin || { r: 0, c: 0 };
+      const saved = savedSheetSelection();
+      extras = saved?.extras || [];
+      setSelection(saved?.sel || S.single(0, 0), { scroll: false, announce: false, add: true, grow: false });
+      schedule();
+    },
     /** Show the printed pages over the sheet (Page Break Preview), or null for the normal view. */
     setPageView(view) { pageView = view; renderPages(); },
     /**

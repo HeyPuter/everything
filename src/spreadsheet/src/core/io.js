@@ -81,6 +81,8 @@ import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
 import { readXlsxBackground } from './xlsx-background.js';
+import { readXlsxCustomViews } from './xlsx-custom-views.js';
+import { remapCustomViews } from './custom-views.js';
 import { serializeQueries } from './queries.js';
 
 export const META_SHEET = '_puter_meta';
@@ -546,6 +548,11 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
   if (structuredNames.length) meta.structuredNames = structuredNames;
   const relativeNames = wb.names.filter(n => n.relative).map(n => ({ name: n.name, ref: n.ref, ...(n.sheet ? { sheet: n.sheet } : {}) }));
   if (relativeNames.length) { meta.relativeNames = relativeNames; any = true; }
+  // Custom Views: whole, by sheet name (the native parts have no place for hidden-line lists).
+  if (wb.customViews?.length) {
+    meta.customViews = remapCustomViews(wb.customViews, (id) => wb.sheet(id)?.name ?? null);
+    any = true;
+  }
   const tableNames = wb.tableNames();
   const nativeDefaultVAlign = wb.sheets.find(s => s.kind !== 'chart')?.defaultVAlign || 'middle';
   for (const sheet of wb.sheets) {
@@ -2487,6 +2494,14 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   // SheetJS CE does not carry the workbook's active tab through a write, so
   // the sidecar remembers which sheet was open. Treat this optional hint as
   // a name only; coercing malformed objects can abort an otherwise valid import.
+  // Custom Views: the native ones, made whole from the app's record of them where it has one.
+  const views = book.bookType === 'xlsx' && workbookPart
+    ? readXlsxCustomViews(new TextDecoder().decode(workbookPart), book.SheetNames.filter((n) => n !== sidecar?.name), partOf, meta?.customViews)
+    : Array.isArray(meta?.customViews) ? meta.customViews.map((v) => ({ ...v, activeSheet: v.activeSheetId })) : [];
+  if (views.length) {
+    const idOf = (name) => wb.sheetByName(renamed.get(name) || name)?.id ?? null;
+    wb.adoptCustomViews(remapCustomViews(views.map((v) => ({ ...v, activeSheetId: v.activeSheet })), idOf));
+  }
   const view = workbookPart && new TextDecoder().decode(workbookPart).replace(/<!--[\s\S]*?-->/g, '').match(/<(?:\w+:)?workbookView\b[^>]*>/)?.[0];
   if (view) {
     const rawFirstSheet = xlsxAttr(view, 'firstSheet');
