@@ -1,8 +1,9 @@
 /**
  * Swatch storage and global swatches.
  *
- * doc.root.swatches is a flat list of { id, name, paint, global?, mode?,
- * group? } (group = id of a color group). Color groups live in
+ * doc.root.swatches is a flat list of { id, name, paint, global?, spot?,
+ * mode?, group? } (group = id of a color group; spot = a spot ink, which
+ * is global too). Color groups live in
  * doc.root.swatchGroups as [{ id, name }]; the Swatches panel lists
  * ungrouped swatches first, then each group as a folder row followed by its
  * swatches. Keeping swatches flat means simple consumers (the fill/stroke
@@ -42,7 +43,7 @@ export function paintFromSwatch(sw) {
 /** Insert a swatch (inside a transaction). Returns its id. */
 export function addSwatch(doc, swatch, index = Infinity) {
   const list = swatchesOf(doc).slice();
-  const sw = { id: swatch.id || newSwatchId(), name: swatch.name || 'Swatch', paint: swatch.paint, ...(swatch.global ? { global: true } : {}), ...(swatch.mode ? { mode: swatch.mode } : {}), ...(swatch.group ? { group: swatch.group } : {}) };
+  const sw = { id: swatch.id || newSwatchId(), name: swatch.name || 'Swatch', paint: swatch.paint, ...(swatch.global || swatch.spot ? { global: true } : {}), ...(swatch.spot ? { spot: true } : {}), ...(swatch.mode ? { mode: swatch.mode } : {}), ...(swatch.group ? { group: swatch.group } : {}) };
   list.splice(Math.max(0, Math.min(list.length, index)), 0, sw);
   doc.updateRoot({ swatches: list });
   return sw.id;
@@ -69,6 +70,7 @@ export function updateSwatch(doc, id, patch) {
   const prev = list[i];
   const next = { ...prev, ...patch };
   if (!next.global) delete next.global;
+  if (!next.spot || !next.global) delete next.spot;
   const copy = list.slice();
   copy[i] = next;
   doc.updateRoot({ swatches: copy });

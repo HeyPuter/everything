@@ -87,6 +87,12 @@ export function cmykToRgb({ c, m, y, k }) {
   return { r: 255 * (1 - c / 100) * kk, g: 255 * (1 - m / 100) * kk, b: 255 * (1 - y / 100) * kk };
 }
 
+/**
+ * The CMYK conversion of Edit > Convert to CMYK: plain by default; color
+ * management swaps in the document's press model.
+ */
+export const cmykEngine = { toCmyk: rgbToCmyk, toRgb: cmykToRgb };
+
 /** Grayscale percentage (0 = white, 100 = black) like the Color panel's K slider. */
 export function rgbToGray({ r, g, b }) {
   const lum = 0.299 * r + 0.587 * g + 0.114 * b;

@@ -21,12 +21,13 @@ import { SWATCH_LIBRARIES } from './swatch-libraries.js';
 import { collectColors, colorTargets } from './edit-colors.js';
 import { isGradient } from '../../model/gradients.js';
 
-/** Swatch Options dialog. Resolves to { name, global, mode, paint } or null. */
+/** Swatch Options dialog. Resolves to { name, global, spot, mode, paint } or null. */
 export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview }) {
   const paint = swatch.paint;
   const isSolid = paint?.type === 'solid';
   const name = h('input', { type: 'text', id: 'swo-name', value: swatch.name || '', spellcheck: false, autocomplete: 'off' });
-  const type = h('select', { id: 'swo-type' }, h('option', { value: 'process', selected: !swatch.global }, 'Process Color'), h('option', { value: 'global', selected: Boolean(swatch.global) }, 'Global Color'));
+  // Spot colors print on a plate of their own; they are always global.
+  const type = h('select', { id: 'swo-type' }, h('option', { value: 'process', selected: !swatch.global }, 'Process Color'), h('option', { value: 'global', selected: Boolean(swatch.global && !swatch.spot) }, 'Global Color'), h('option', { value: 'spot', selected: Boolean(swatch.spot) }, 'Spot Color'));
   let mode = swatch.mode || 'rgb';
   let color = isSolid ? paint.color : '#000000';
   const modeSel = h('select', { id: 'swo-mode', onchange: () => {
@@ -51,7 +52,8 @@ export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onP
   preview.addEventListener('change', () => onPreview?.(preview.checked ? result() : null));
   const result = () => ({
     name: name.value.trim() || (isSolid ? colorName(color) : swatch.name || 'Gradient'),
-    global: type.value === 'global',
+    global: type.value !== 'process',
+    spot: type.value === 'spot',
     mode,
     paint: isSolid ? { type: 'solid', color } : paint,
   });
@@ -163,7 +165,7 @@ export class SwatchesPanel extends Panel {
 
   item(sw, grouped, active) {
     const sel = this.selected.has(sw.id);
-    const label = sw.name + (sw.global ? ' (Global)' : '');
+    const label = sw.name + (sw.spot ? ' (Spot)' : sw.global ? ' (Global)' : '');
     const el = h(
       'div.sw-item',
       {
@@ -176,7 +178,7 @@ export class SwatchesPanel extends Panel {
       },
       paintSwatch(sw.paint),
       this.view === 'list' ? h('span.sw-name', sw.name) : null,
-      sw.global ? h('span.sw-global', { 'aria-hidden': 'true' }) : null,
+      sw.global ? h(`span.sw-global${sw.spot ? '.sw-spot' : ''}`, { 'aria-hidden': 'true' }) : null,
       this.view === 'list' && sw.paint ? h('span.sw-kind', { 'aria-hidden': 'true' }, icon(sw.paint.type === 'solid' ? 'square' : sw.paint.type === 'pattern' ? 'pattern-swatch' : 'paint-gradient', 12)) : null,
     );
     el.classList.toggle('grouped', grouped);
@@ -339,7 +341,7 @@ export class SwatchesPanel extends Panel {
     if (!res) return;
     const doc = ed.doc;
     doc.transact('New Swatch', () => {
-      const id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, mode: res.mode });
+      const id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, spot: res.spot, mode: res.mode });
       this.selected = new Set([id]);
       this.focusId = id;
       // The object that supplied the color now uses the new swatch.
@@ -373,7 +375,7 @@ export class SwatchesPanel extends Panel {
       if (!res) tx.cancel();
     }
     if (!res) return;
-    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, mode: res.mode });
+    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.mode });
     tx.commit();
     if (sw.global && swatchUsage(doc, id)) this.app.notify(`Updated objects using "${res.name}".`, { polite: true });
   }

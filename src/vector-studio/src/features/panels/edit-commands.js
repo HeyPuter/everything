@@ -9,7 +9,7 @@
  * values), which the color controls show by default.
  */
 import { UserError } from '../../lib/errors.js';
-import { hexToRgb, rgbToHex, rgbToCmyk, cmykToRgb } from '../../lib/color.js';
+import { hexToRgb, rgbToHex, rgbToCmyk, cmykEngine } from '../../lib/color.js';
 import { applyTheme } from '../../theme.js';
 import { colorTargets, collectColors } from '../paint/edit-colors.js';
 import { findSwatch, swatchesOf, updateSwatch } from '../paint/swatch-model.js';
@@ -79,9 +79,9 @@ async function importSettings(app) {
 // ---- Convert to CMYK / RGB ----
 
 export function quantizeCmyk(hex) {
-  const c = rgbToCmyk(hexToRgb(hex));
+  const c = cmykEngine.toCmyk(hexToRgb(hex));
   const cmyk = { c: Math.round(c.c), m: Math.round(c.m), y: Math.round(c.y), k: Math.round(c.k) };
-  return { color: rgbToHex(cmykToRgb(cmyk)), cmyk };
+  return { color: rgbToHex(cmykEngine.toRgb(cmyk)), cmyk };
 }
 
 function convertPaint(p, mode) {

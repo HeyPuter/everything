@@ -551,6 +551,19 @@
   border-bottom: 6px solid #ffffff;
 }
 
+/* Spot inks: a dot in the corner marker. */
+.sw-global.sw-spot::before {
+  content: '';
+  position: absolute;
+  right: 1px;
+  top: 4px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #000000;
+  z-index: 1;
+}
+
 .sw-list.list .sw-global {
   position: static;
   margin-left: auto;
