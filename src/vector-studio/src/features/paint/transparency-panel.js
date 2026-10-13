@@ -273,7 +273,7 @@ export class TransparencyPanel extends Panel {
     }
     this.makeBtn.textContent = hasMask ? 'Release' : 'Make Mask';
     this.makeBtn.disabled = !hasMask && !canMakeMask(ed);
-    this.makeBtn.setAttribute('aria-label', hasMask ? 'Release Opacity Mask' : 'Make Opacity Mask');
+    this.makeBtn.dataset.tip = hasMask ? 'Release Opacity Mask' : 'Make Opacity Mask';
     const linked = maskFlag(ed, 'unlinked') !== true;
     this.linkBtn.hidden = !hasMask;
     this.linkBtn.setAttribute('aria-pressed', String(hasMask && linked));

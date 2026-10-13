@@ -133,6 +133,11 @@
   font-size: var(--fs-sm);
 }
 
+/* Secondary text on a selected card keeps its contrast against the highlight. */
+.newdoc-card[aria-selected='true'] .newdoc-card-size {
+  color: var(--text-2);
+}
+
 .newdoc-empty {
   grid-column: 1 / -1;
   margin: 24px 0;
@@ -155,7 +160,7 @@
 
 .newdoc-details-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -451,7 +456,7 @@
 
 .prefs-title {
   margin: 2px 0 12px;
-  font-size: 14px;
+  font-size: var(--fs-title);
   font-weight: 600;
 }
 
@@ -633,7 +638,7 @@
 
 .brightness-swatches {
   display: flex;
-  gap: 8px;
+  gap: var(--space-4);
 }
 
 .brightness-swatch {

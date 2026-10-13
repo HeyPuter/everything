@@ -6,6 +6,7 @@
  * side, stacked, floating) and the screen modes.
  */
 import { h } from '../../lib/dom.js';
+import { setListItems } from '../../ui/panels/panel.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
@@ -72,8 +73,11 @@ async function manageNamedDialog(app, { title, items, label, empty, fallback }) 
   const name = h('input#mw-name', { type: 'text', autocomplete: 'off', spellcheck: false });
   let sel = list[0]?.orig || null;
   const render = () => {
-    ul.replaceChildren(...list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))));
-    if (!list.length) ul.append(h('li.panel-empty', empty));
+    setListItems(
+      ul,
+      list.map((w) => h('li.ev-item', { role: 'option', tabindex: w.orig === sel ? '0' : '-1', 'aria-selected': String(w.orig === sel), onclick: () => ((sel = w.orig), render()) }, h('span.ev-name', w.name))),
+      h('li.panel-empty', empty),
+    );
     const cur = list.find((w) => w.orig === sel);
     name.value = cur?.name || '';
     name.disabled = del.disabled = dup.disabled = !cur;

@@ -213,7 +213,8 @@ export class DocumentInfoPanel extends Panel {
       CATEGORIES.map((c) => h('option', { value: c.id, selected: c.id === this.category }, c.label)),
     );
     this.selOnly = h('input#di-sel', { type: 'checkbox', onchange: () => this.setSelectionOnly(this.selOnly.checked) });
-    this.body = h('div.di-body', { 'aria-live': 'off' });
+    // A scrolling report: focusable so it scrolls from the keyboard.
+    this.body = h('div.di-body', { 'aria-live': 'off', role: 'region', 'aria-label': 'Document report', tabindex: '0' });
     this.empty = h('p.panel-empty', 'No document open.');
     this.head = h('div.di-head', this.cat, h('div.check-row.di-selonly', this.selOnly, h('label', { for: 'di-sel' }, 'Selection Only')), iconButton('download', 'Save Report as Text', () => this.save(), { className: 'small' }));
     this.el.append(this.empty, this.head, this.body);

@@ -30,12 +30,12 @@
 .env-props-label {
   min-width: 56px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs);
 }
 
 .env-edit-toggle .seg-btn {
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 
 .env-props-actions {

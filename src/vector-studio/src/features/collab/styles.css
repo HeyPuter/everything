@@ -58,7 +58,7 @@
   background: var(--who, var(--accent));
   color: #fff;
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -68,7 +68,7 @@
 .collab-avatar.more {
   background: var(--bg-active);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .collab-avatar.following {
@@ -224,7 +224,7 @@
   border-radius: 50%;
   color: #fff;
   font-weight: 700;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -237,7 +237,7 @@
 .mention-avatar {
   width: 18px;
   height: 18px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .thread-summary {

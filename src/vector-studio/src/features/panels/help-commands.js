@@ -131,6 +131,8 @@ async function systemInfoDialog(app) {
   const text = systemInfoText(sections);
   const body = h(
     'div.sysinfo',
+    // Scrolls when long: focusable so the keyboard can scroll it.
+    { role: 'region', 'aria-label': 'System information', tabindex: '0' },
     sections.map(([title, rows]) => h('section.sysinfo-sec', h('h3.form-heading', title), h('dl.files-info-list', rows.flatMap(([k, v]) => [h('dt', k), h('dd', v)])))),
   );
   const copy = h('button.btn', {

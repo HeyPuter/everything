@@ -321,6 +321,9 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
       const off = Boolean(f.disabled(v));
       const row = rowsByKey.get(f.key);
       row.classList.toggle('disabled', off);
+      // Dimmed labels belong to inactive controls (no contrast requirement).
+      if (off) row.setAttribute('aria-disabled', 'true');
+      else row.removeAttribute('aria-disabled');
       for (const el of row.querySelectorAll('input, select, textarea, button')) el.disabled = off;
       for (const el of row.querySelectorAll('.angle-dial')) el.tabIndex = off ? -1 : 0;
     }

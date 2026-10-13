@@ -196,7 +196,11 @@ function rasterControls(start, unit, { useDoc = false, clip = null, onChange }) 
     const v = res.get();
     other.el.hidden = v !== 'other';
     const docMode = v === 'document';
-    for (const el of [model.el, bg.el, aa.el, pad.el]) el.classList.toggle('fx-disabled', docMode);
+    for (const el of [model.el, bg.el, aa.el, pad.el]) {
+      el.classList.toggle('fx-disabled', docMode);
+      if (docMode) el.setAttribute('aria-disabled', 'true');
+      else el.removeAttribute('aria-disabled');
+    }
     for (const i of [model.select, ...bg.el.querySelectorAll('input'), ...aa.el.querySelectorAll('input'), pad.field]) i.disabled = docMode;
     onChange?.();
   };

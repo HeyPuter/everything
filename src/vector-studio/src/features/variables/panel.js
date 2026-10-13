@@ -6,7 +6,7 @@
  * save and load variable libraries, and export every data set as files.
  */
 import { h } from '../../lib/dom.js';
-import { Panel, emptyState } from '../../ui/panels/panel.js';
+import { Panel, emptyState, setListItems } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { replaceIn } from '../type/type-ops.js';
@@ -79,7 +79,7 @@ export class VariablesPanel extends Panel {
     const doc = this.doc;
     this.el.classList.toggle('disabled', !doc);
     if (!doc) {
-      this.list.replaceChildren(emptyState('Open a document to use variables.'));
+      setListItems(this.list, [], emptyState('Open a document to use variables.'));
       return;
     }
     const key = [doc.root.variables, doc.root.dataSets, doc.root.dataSet, this.app.editor.selection.size, doc.nodes.version];
@@ -98,10 +98,11 @@ export class VariablesPanel extends Panel {
     const vars = variablesOf(doc);
     if (!vars.some((v) => v.id === this.selected)) this.selected = null;
     if (!vars.length) {
-      this.list.replaceChildren(h('p.panel-empty', 'Select a text object and choose Make Text Dynamic, or any object and Make Visibility Dynamic.'));
+      setListItems(this.list, [], h('p.panel-empty', 'Select a text object and choose Make Text Dynamic, or any object and Make Visibility Dynamic.'));
     } else {
-      this.list.replaceChildren(
-        ...vars.map((v) => {
+      setListItems(
+        this.list,
+        vars.map((v) => {
           const bound = boundTo(doc, v.id);
           return h(
             `div.var-row${v.id === this.selected ? '.selected' : ''}`,

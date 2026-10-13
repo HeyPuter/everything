@@ -4,8 +4,14 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Without text the controls dim, but the note saying why stays readable. */
+.panel-body.panel-tabs.disabled {
+  opacity: 1;
+  pointer-events: auto;
+}
 .panel-tabs.disabled .tab-bar,
-.panel-tabs.disabled .tab-fields {
+.panel-tabs.disabled .tab-fields,
+.panel-tabs.disabled .tab-ruler-wrap {
   opacity: 0.5;
   pointer-events: none;
 }
