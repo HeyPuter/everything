@@ -96,20 +96,20 @@ export function audioPropsHtml(e: Editor, tl: VideoTimeline) {
   if (!track) return '';
   const vol = track.volume ?? 0;
   const volume = `<label class="vt-ap-field" title="Volume of the track (dB)">Track volume<input type="range" min="-40" max="12" step="0.5" value="${vol}" data-audio="volume" data-track="${track.id}" aria-label="Track volume (dB)"><output>${fmtDb(vol)}</output></label>`;
-  if (!hit) return `<span class="vt-ap-name">${svg('audio-wave', 13)}${escapeXML(track.name)}</span>${volume}`;
+  if (!hit) return `<span class="vt-ap-name" title="${escapeXML(track.name)}">${svg('audio-wave', 13)}<span>${escapeXML(track.name)}</span></span>${volume}`;
   const c = hit.clip;
   const span = clipSpan(e.doc, c);
   const max = span ? Math.round(span.length * 1000) / 1000 : 0;
   const g = c.gain ?? 0;
   const linked = span?.linked;
   const layerMuted = linked && span?.muted;
-  return `<span class="vt-ap-name" title="${escapeXML(clipName(e.doc, c))}">${svg(linked ? 'link' : 'audio-wave', 13)}${escapeXML(clipName(e.doc, c))}</span>
+  return `<span class="vt-ap-name" title="${escapeXML(clipName(e.doc, c))}">${svg(linked ? 'link' : 'audio-wave', 13)}<span>${escapeXML(clipName(e.doc, c))}</span></span>
 <label class="vt-ap-field" title="Gain of the clip (dB)">Gain<input type="range" min="-40" max="12" step="0.5" value="${g}" data-audio="gain" data-clip="${c.id}" aria-label="Clip gain (dB)"><output>${fmtDb(g)}</output></label>
 <label class="vt-ap-field" title="Length of the fade in (seconds)">Fade in<input type="number" min="0" max="${max}" step="0.05" value="${c.fadeIn ?? 0}" data-audio="fadeIn" data-clip="${c.id}" aria-label="Fade in (seconds)">s</label>
 <label class="vt-ap-field" title="Length of the fade out (seconds)">Fade out<input type="number" min="0" max="${max}" step="0.05" value="${c.fadeOut ?? 0}" data-audio="fadeOut" data-clip="${c.id}" aria-label="Fade out (seconds)">s</label>
 <span class="timeline-sep"></span>${volume}
 ${linked ? `<span class="timeline-sep"></span><button class="icon-button" data-command="layer.video-mute" aria-pressed="${!!layerMuted}" title="${layerMuted ? 'Unmute' : 'Mute'} the sound of the video layer" aria-label="Mute the sound of the video layer">${svg(layerMuted ? 'speaker-off' : 'speaker', 15)}</button><button class="icon-button" data-command="timeline.audio-unlink" title="Unlink the sound from its video clip" aria-label="Unlink audio">${svg('unlink', 15)}</button>` : ''}
-<span class="vt-ap-length">${span ? secs(span.length) : ''}</span>`;
+<span class="vt-ap-length" title="Length of the clip">${span ? secs(span.length) : ''}</span>`;
 }
 
 // ----- Gestures -----

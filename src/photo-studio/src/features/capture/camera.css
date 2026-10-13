@@ -11,6 +11,7 @@
 .camera-dialog .camera-settings select { min-width: 0; width: 100%; }
 .camera-dialog .camera-target { border: 1px solid var(--line-soft); border-radius: 4px; padding: 6px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .camera-dialog .camera-target legend { padding: 0 4px; color: var(--muted); }
+.camera-dialog .camera-target .export-check { margin: 2px 0; }
 .camera-dialog.flash .camera-stage { animation: camera-flash 0.25s ease-out; }
 @keyframes camera-flash { from { box-shadow: inset 0 0 0 999px #fff8; } to { box-shadow: inset 0 0 0 999px #fff0; } }
 @media (prefers-reduced-motion: reduce) { .camera-dialog.flash .camera-stage { animation: none; } }
