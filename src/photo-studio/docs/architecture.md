@@ -254,6 +254,10 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   and hit testing reuse the straight geometry. Area text breaks lines into the spans of
   the shape. The path is also a `PathTarget` of kind `text`, so the pen and path
   selection tools edit it; `selectHooks` let the type feature claim its markers.
+- Match Font measures text with pure functions (`src/imaging/text/match-font.ts`:
+  binarizing, deskewing, glyph segmentation, gradient-histogram descriptors, ranking)
+  and draws candidates through an injected renderer: canvas text in the dialog
+  (`features/type/match-font.ts`), glyph outlines from the font files in tests.
 - `doc.variables` binds layers to variables and holds data sets (`src/model/variables.ts`).
   `documentWithSet` (`src/features/variables/apply.ts`) builds the document a set
   produces without committing it, for previews, Apply Data Set and batch export.
@@ -314,6 +318,25 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 Pure functions on `RGBA8`/`Mask8` (`src/imaging/types.ts`), straight alpha,
 deterministic, no DOM. Operations with parameters implement `ImageOperation` so the
 UI can generate dialogs, presets, recorded actions and live filters from `params`.
+
+## Tutorials and user activity (`src/features/help/`)
+
+- `src/app/activity.ts` announces what the user did: `emitActivity({ kind: 'command', id })`
+  after `runCommand` finishes a command and `{ kind: 'tool', id }` from `setTool`.
+  `onActivity(listener)` returns an unsubscribe function; with no listeners it costs nothing.
+- A tutorial (`tutorials.ts`) is a list of steps with a card text, an anchor (selector,
+  tool, panel, top-level menu, command button or the canvas) and how it completes:
+  `commands` (one of them ran), `tool` (it is active) or `check(now, base)`, which
+  compares the workspace with its state when the step began (`checks` in `tour.ts`:
+  layer added, pixels or mask changed, selection made, opacity lowered and so on).
+  Steps without any of these are read and continued with Next.
+- `TourMachine` (`tour.ts`, pure) holds the step index, completed steps, back, skip and
+  restart; `tour-ui.ts` draws the card and the ring around the anchor and evaluates the
+  current step on activity, on editor updates and on a short timer (zoom changes and
+  layout moves do not announce themselves, and background tabs get no animation frames).
+- Each tutorial opens a procedurally generated sample (`samples.ts`, seeded, no downloads).
+  What's New entries (`whats-new-data.ts`) name a command, tool, panel or tutorial; the
+  window hides "Try it" when the target is not registered.
 
 ## Legal
 
