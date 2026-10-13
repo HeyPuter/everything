@@ -23,6 +23,12 @@ function cloud(): CloudLibraryStore | undefined {
   return cloudStore;
 }
 
+/** A copy of an item with a new ID and times (no placement history). */
+function fresh(item: LibraryItem, at: string): LibraryItem {
+  const { moved: _moved, ...rest } = structuredClone(item);
+  return { ...rest, id: newId(), created: at, modified: at };
+}
+
 class LibraryService {
   index: LibraryIndex = emptyIndex();
   loaded = false;
@@ -137,12 +143,12 @@ class LibraryService {
     const src = this.library(id);
     if (!src) return;
     const at = new Date().toISOString();
-    const library: Library = { id: newId(), name: uniqueName(`${src.name} copy`, this.index.libraries.map((l) => l.name)), created: at, modified: at, items: src.items.map((i) => ({ ...structuredClone(i), id: newId(), created: at, modified: at })) };
+    const library: Library = { id: newId(), name: uniqueName(`${src.name} copy`, this.index.libraries.map((l) => l.name)), created: at, modified: at, items: src.items.map((i) => fresh(i, at)) };
     await this.apply({ op: 'create-library', library });
     return library;
   }
   moveLibrary(id: string, before?: string) {
-    return this.apply({ op: 'move-library', id, before });
+    return this.apply({ op: 'move-library', id, before, at: new Date().toISOString() });
   }
   /** Add an item; `content`/`thumb` blobs become content-addressed assets. */
   async addItem(libraryId: string, item: Pick<LibraryItem, 'type' | 'name' | 'data'>, blobs: Record<string, Blob> = {}): Promise<LibraryItem> {
@@ -182,7 +188,7 @@ class LibraryService {
     const at = new Date().toISOString();
     const lib = found.library;
     const at2 = lib.items.indexOf(found.item);
-    const copy: LibraryItem = { ...structuredClone(found.item), id: newId(), name: uniqueName(`${found.item.name} copy`, lib.items.map((i) => i.name)), created: at, modified: at };
+    const copy: LibraryItem = { ...fresh(found.item, at), name: uniqueName(`${found.item.name} copy`, lib.items.map((i) => i.name)) };
     await this.apply({ op: 'put-item', library: lib.id, item: copy, before: lib.items[at2 + 1]?.id });
     return copy;
   }

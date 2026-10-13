@@ -112,8 +112,9 @@ test.describe('Provenance', () => {
     await (await chooser).setFiles({ name: 'exported.png', mimeType: 'image/png', buffer: png.bytes });
     const dialog = page.locator('dialog.inspect-provenance');
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Valid', 'Intact', 'Bound']);
+    await expect(dialog.locator('.prov-check.prov-ok')).toContainText(['Match', 'Matches', 'Intact', 'Bound']);
     await expect(dialog).toContainText('self-signed');
+    await expect(dialog).toContainText('No trust list is checked');
     await expect(dialog.locator('.prov-timeline')).toContainText('Invert');
     // A report: Done and Inspect Another, no Cancel; wider than a plain dialog.
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
@@ -121,6 +122,23 @@ test.describe('Provenance', () => {
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toHaveCount(0);
     await idle(page);
+  });
+
+  test('Image → Duplicate carries the record over to the copy', async ({ page }) => {
+    await boot(page);
+    await openImage(page, 40, 30, '#aa5500', 'base.png');
+    await run(page, 'adjust.invert');
+    await start(page, 'image.duplicate');
+    const dialog = page.locator('dialog').filter({ hasText: 'Duplicate Image' });
+    await dialog.locator('button[type="submit"]').click();
+    await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('base copy');
+    await idle(page);
+    const record = await page.evaluate(async () => {
+      const { recordOf } = await import('/src/features/provenance/recorder.ts');
+      const r = recordOf(window.photoStudio.session);
+      return { steps: r.steps.map((s) => s.label), sources: r.sources.map((s) => s.name) };
+    });
+    expect(record).toEqual({ steps: ['Invert'], sources: ['base.png'] });
   });
 
   test('exports without provenance by default and keeps the record in .photo projects', async ({ page }) => {

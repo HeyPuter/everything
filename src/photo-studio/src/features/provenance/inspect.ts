@@ -12,15 +12,27 @@ type Check = [ok: boolean | undefined, label: string, text: string];
 const checks = (list: Check[]) =>
   `<ul class="prov-checks">${list.map(([ok, label, text]) => `<li class="prov-check ${ok === true ? 'prov-ok' : ok === false ? 'prov-bad' : ''}"><b>${escapeXML(label)}</b><span>${escapeXML(text)}</span></li>`).join('')}</ul>`;
 
+// No trust list or certificate chain is checked, so a matching signature
+// never shows who signed: any key can sign with a certificate naming anyone.
+const TRUST_CAVEAT = 'No trust list is checked: the certificate is not vouched for by a trusted authority, so this shows only that the manifest is unchanged since that certificate’s key signed it, not who signed it.';
+
 function manifestHtml(m: C2paManifestReport, active: boolean) {
   const sig = m.signature;
   const list: Check[] = [
-    [sig.valid, sig.valid ? 'Valid' : 'Invalid', sig.valid ? `Signature verifies with the certificate in the file${sig.selfSigned ? ' (self-signed: not issued by a trusted authority, so it shows only that the manifest is unchanged since that key signed it)' : ''}.` : 'The signature does not match the manifest.'],
-    [m.assertionHashesValid, m.assertionHashesValid ? 'Intact' : 'Altered', m.assertionHashesValid ? 'Every assertion matches its hash in the claim.' : 'An assertion was changed after signing.'],
+    !sig.checked
+      ? [undefined, 'Not checked', `The signature uses ${sig.algorithm ?? 'an algorithm'} that cannot be checked here.`]
+      : sig.valid
+        ? [true, 'Matches', `The signature matches the certificate embedded in the file. ${TRUST_CAVEAT}`]
+        : [false, 'Invalid', 'The signature does not match the manifest.'],
+    m.unlisted.length
+      ? [false, 'Unsigned', `The manifest holds assertions its claim does not list (${[...new Set(m.unlisted)].join(', ')}): they were added after signing and are ignored.`]
+      : [m.assertionHashesValid, m.assertionHashesValid ? 'Intact' : 'Altered', m.assertionHashesValid ? 'Every assertion matches its hash in the claim.' : 'An assertion was changed after signing.'],
   ];
-  if (m.dataHashValid !== undefined)
-    list.push([m.dataHashValid, m.dataHashValid ? 'Bound' : 'Changed', m.dataHashValid ? 'The file’s bytes are exactly the ones that were signed.' : 'The file was changed after signing (its bytes no longer match the signed hash).']);
-  const who = [sig.subject && `signed by ${sig.subject}`, sig.notBefore && `certificate valid ${formatTime(sig.notBefore)} – ${formatTime(sig.notAfter ?? '')}`].filter(Boolean).join('; ');
+  if (m.binding === 'bound') list.push([true, 'Bound', 'The file’s bytes are exactly the ones that were signed.']);
+  else if (m.binding === 'changed') list.push([false, 'Changed', 'The file was changed after signing (its bytes no longer match the signed hash).']);
+  else if (m.binding === 'missing') list.push([false, 'Unbound', 'The manifest has no signed hash of this file, so it may describe a different file.']);
+  else if (m.binding === 'unchecked') list.push([undefined, 'Not checked', 'The manifest is bound to the file in a way that cannot be checked here.']);
+  const who = [sig.subject && `certificate names ${sig.subject}${sig.selfSigned ? ' (self-signed)' : sig.issuer ? `, issued by ${sig.issuer}` : ''}`, sig.notBefore && `certificate valid ${formatTime(sig.notBefore)} – ${formatTime(sig.notAfter ?? '')}`].filter(Boolean).join('; ');
   const actions = m.actions.slice(0, 200).map((a) => `<li>${escapeXML(a.description ?? a.action)}${(a.count ?? 1) > 1 ? ` ×${a.count}` : ''} <span class="prov-meta">${escapeXML(a.action)}${a.digitalSourceType ? ', AI-generated content' : ''}${a.when ? `, ${escapeXML(formatTime(a.when))}` : ''}</span></li>`);
   const ingredients = m.ingredients.map((i) => `<li>${escapeXML(i.title)} <span class="prov-meta">${escapeXML([i.relationship, i.format, i.sha256 && `SHA-256 ${i.sha256.slice(0, 12)}…`].filter(Boolean).join(', '))}</span></li>`);
   return `<section><h3>C2PA manifest${active ? ' (active)' : ''}</h3><p class="prov-note">${escapeXML([m.claimGenerator, m.title, m.format, who].filter(Boolean).join(' · '))}</p>${checks(list)}${m.errors.length ? `<p class="prov-note">${m.errors.map(escapeXML).join('<br>')}</p>` : ''}${ingredients.length ? `<h3>Ingredients</h3><ul class="prov-actions-list">${ingredients.join('')}</ul>` : ''}${actions.length ? `<h3>Actions</h3><ul class="prov-actions-list">${actions.join('')}</ul>` : ''}</section>`;
