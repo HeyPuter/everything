@@ -464,6 +464,12 @@
   flex-direction: column;
 }
 
+/* Floating strips belong to the editing view: none on the start screen or with panels hidden. */
+body:has(.app.no-doc) .tool-tearoff,
+body:has(.app.hide-panels) .tool-tearoff {
+  display: none;
+}
+
 .tool-tearoff .tool-btn[aria-pressed='true'] {
   background: var(--bg-active);
   color: var(--text);

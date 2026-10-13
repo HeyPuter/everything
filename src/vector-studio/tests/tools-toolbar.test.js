@@ -94,3 +94,70 @@ describe('fill and stroke keys', () => {
     expect(doc.get(id).stroke.color).toBe('#000000');
   });
 });
+
+describe('custom toolbars', () => {
+  it('makes a named toolbar, fills it and keeps it in preferences', async () => {
+    app.dialogs.form = async () => ({ name: 'Favorites' });
+    await app.commands.run('window.toolbar.new');
+    const strip = document.querySelector('.tool-tearoff.editable');
+    expect(strip.getAttribute('aria-label')).toBe('Favorites');
+    // Add tools through the Add menu.
+    strip.querySelector('.tearoff-add').click();
+    const pick = (label) => {
+      const item = [...document.querySelectorAll('.menu [role^="menuitem"]')].find((i) => i.textContent.includes(label));
+      item.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      item.click();
+    };
+    pick('Shapes');
+    pick('Star Tool');
+    // Drop a tool from the All Tools drawer.
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    drop.dataTransfer = { types: ['text/x-vs-tool'], getData: (t) => (t === 'text/x-vs-tool' ? 'pen' : '') };
+    strip.dispatchEvent(drop);
+    let saved = app.prefs.get('customToolbars');
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ name: 'Favorites', tools: ['star', 'pen'], visible: true });
+    const btns = () => [...document.querySelector('.tool-tearoff.editable').querySelectorAll('.tool-btn:not(.tearoff-add)')];
+    btns()[0].click();
+    expect(app.toolId).toBe('star');
+    expect(btns()[0].getAttribute('aria-pressed')).toBe('true');
+    // Remove a tool from its context menu.
+    btns()[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    pick('Remove from Toolbar');
+    expect(app.prefs.get('customToolbars')[0].tools).toEqual(['star']);
+    // Closing hides it; the Toolbars menu shows it again.
+    document.querySelector('.tool-tearoff.editable [aria-label="Close Favorites"]').click();
+    expect(document.querySelector('.tool-tearoff.editable')).toBe(null);
+    saved = app.prefs.get('customToolbars');
+    expect(saved[0].visible).toBe(false);
+    const { resolveItems } = await import('../src/ui/menubar.js');
+    const menu = resolveItems(app, app.menuSources.get('toolbars')(app));
+    const entry = menu.find((m) => m.label === 'Favorites');
+    expect(entry.checked).toBe(false);
+    entry.run();
+    expect(document.querySelector('.tool-tearoff.editable')).toBeTruthy();
+    expect(menu.map((m) => m.label)).toEqual(expect.arrayContaining(['Advanced', 'Basic', 'New Toolbar...', 'Manage Toolbars...']));
+  });
+
+  it('renames and deletes toolbars in Manage Toolbars', async () => {
+    app.prefs.set('customToolbars', [
+      { id: 'a', name: 'One', tools: ['pen'], visible: true },
+      { id: 'b', name: 'Two', tools: [], visible: true },
+    ]);
+    app.customToolbars.sync();
+    expect(document.querySelectorAll('.tool-tearoff.editable')).toHaveLength(2);
+    const done = app.commands.run('window.toolbar.manage');
+    await new Promise((r) => setTimeout(r, 0));
+    const dlg = document.querySelector('dialog[open]');
+    const name = dlg.querySelector('#mt-name');
+    name.value = 'Drawing';
+    name.dispatchEvent(new Event('input'));
+    [...dlg.querySelectorAll('.ev-item')][1].click();
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Delete').click();
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await done;
+    expect(app.prefs.get('customToolbars').map((t) => t.name)).toEqual(['Drawing']);
+    const strips = [...document.querySelectorAll('.tool-tearoff.editable')];
+    expect(strips.map((s) => s.getAttribute('aria-label'))).toEqual(['Drawing']);
+  });
+});
