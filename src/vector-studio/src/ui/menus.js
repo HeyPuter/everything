@@ -452,6 +452,7 @@ export const MENUS = [
       'panel.artboards',
       'panel.assetExport',
       'panel.attributes',
+      'panel.blend',
       'panel.brushes',
       'panel.color',
       'panel.colorGuide',
