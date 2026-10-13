@@ -242,6 +242,7 @@ function listPanel(ctx, opts) {
   aiBtn?.addEventListener('click', () => showMenu(aiBtn, [
     { label: 'Translate captions...', icon: 'languages', onSelect: () => openTranslate(ctx) },
     { label: 'Add emojis', icon: 'effects', onSelect: () => addEmojis(ctx) },
+    { label: 'Dub into another language...', icon: 'speech', onSelect: () => import('../dub-dialog.js').then((m) => m.openDubDialog(ctx)) },
   ], { label: 'AI caption tools' }));
   const markBtn = h('button.btn.small', { type: 'button', 'aria-haspopup': 'menu' }, icon('highlighter', 14), 'Highlight', icon('chevronDown', 12));
   markBtn.addEventListener('click', () => showMenu(markBtn, [

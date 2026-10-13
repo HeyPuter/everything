@@ -140,6 +140,7 @@ export function createTopbar(ctx) {
       cmd('extractAudio', { icon: 'fileAudio' }),
       cmd('autoReframe', { icon: 'focus', label: 'Auto reframe...' }),
       cmd('findHighlights', { icon: 'highlights', label: 'Find highlights...' }),
+      cmd('dub', { icon: 'languages', label: 'Dub into another language...' }),
       cmd('trackMotion', { icon: 'crosshair', label: 'Track motion...' }),
       'separator',
       cmd('markIn', { icon: 'markIn' }),

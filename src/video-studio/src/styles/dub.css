@@ -1,0 +1,14 @@
+/* Dub dialog progress */
+.dub-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.dub-progress-fill {
+  width: var(--pct, 0%);
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--t);
+}
