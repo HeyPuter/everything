@@ -4,7 +4,9 @@ import path from 'node:path';
 import { bootAppWithFeatures } from './helpers.js';
 import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
 import { exportFormats } from '../src/features/io/hooks.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createImage } from '../src/model/nodes.js';
+import { encodePNGSync } from '../src/features/interop/codec/png.js';
+import { bytesToDataUrl } from '../src/features/io/image-info.js';
 import { rectangle } from '../src/model/shapes.js';
 
 let app;
@@ -58,5 +60,27 @@ describe('EPS export options', () => {
     expect(notes.join(' ')).not.toMatch(/transparency/);
     // The document itself keeps its transparency.
     expect([...ed.doc.nodes.values()].some((n) => n.opacity === 0.5)).toBe(true);
+  });
+});
+
+describe('DXF export with images', () => {
+  it('delivers the drawing and its images together in a ZIP archive', async () => {
+    const ed = app.newDocument({ width: 100, height: 100 });
+    ed.doc.assets.set('a1', { mime: 'image/png', data: bytesToDataUrl(encodePNGSync({ width: 2, height: 2, data: new Uint8ClampedArray(16).fill(128) }), 'image/png') });
+    ed.doc.transact('x', () => ed.doc.insert(createImage('a1', 2, 2, [20, 0, 0, 20, 10, 10]), ed.targetLayer().id));
+    const { renderFile } = await import('../src/features/io/jobs.js');
+    const blob = await renderFile(app, ed, 'dxf', { artboard: 0 }, { version: 'R2000', unit: 'mm', title: 'Plan' });
+    expect(blob.fileExt).toBe('zip');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const text = new TextDecoder('latin1').decode(bytes);
+    expect(Array.from(bytes.subarray(0, 4))).toEqual([0x50, 0x4b, 3, 4]);
+    expect(text).toContain('Plan.dxf');
+    expect(text).toContain('Plan-image-1.png');
+    // Without images the result stays a plain DXF file.
+    const plain = app.newDocument({ width: 100, height: 100 });
+    plain.doc.transact('x', () => plain.doc.insert(createPath(rectangle(10, 10, 40, 40), true, { fill: null, stroke: { type: 'solid', color: '#000000' }, strokeWidth: 1 }), plain.targetLayer().id));
+    const dxfBlob = await renderFile(app, plain, 'dxf', { artboard: 0 }, { version: 'R2000', unit: 'mm' });
+    expect(dxfBlob.fileExt).toBeUndefined();
+    expect(dxfBlob.type).toBe('application/dxf');
   });
 });

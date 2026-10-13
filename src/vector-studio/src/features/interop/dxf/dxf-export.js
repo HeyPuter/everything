@@ -6,15 +6,19 @@
  * layer becomes a DXF layer. Straight paths are written as polylines,
  * curves as cubic splines (or flattened to polylines), circles and
  * ellipses as CIRCLE/ELLIPSE entities, fills as solid hatches, text as
- * TEXT entities (or as outlines), with true colors (and the nearest color
- * index) and lineweights. Coordinates are in the chosen drawing units with
- * y up, measured from the exported region's lower-left corner.
+ * TEXT entities (or as outlines), images as IMAGE entities referring to
+ * image files written next to the drawing, with true colors (and the
+ * nearest color index) and lineweights. Artwork in clipping masks is cut
+ * to the mask when clip data from prepareDXF (dxf-clip.js) is given.
+ * Coordinates are in the chosen drawing units with y up, measured from the
+ * exported region's lower-left corner.
  */
 import { exportView } from '../../io/export-view.js';
 import { nodeBounds } from '../../../model/geometry.js';
 import { flattenPath } from '../../../model/bezier.js';
 import { layoutText } from '../../../model/text-layout.js';
 import { nearestAci, nearestLineweight, UNIT_CHOICES } from './common.js';
+import { dataUrlToBytes, imageSize } from '../../io/image-info.js';
 
 const KAPPA = 0.5522847498;
 
@@ -88,11 +92,13 @@ function ellipseOf(anchors, closed) {
  * opts: { rect (region in document space), ids (top-level ids, default all
  *   visible layers), version 'R2000'|'R12', unit (UNIT_CHOICES value),
  *   curves 'splines'|'polylines', fills (bool), outlines (Map id -> runs
- *   when text is converted) }
- * Returns { text, warnings }.
+ *   when text is converted), view and clipped (from prepareDXF),
+ *   imageName(assetId, index, ext) -> file name }
+ * Returns { text, warnings, images: [{ assetId, name }] }.
  */
 export function writeDXF(source, opts = {}) {
-  const doc = exportView(source);
+  const doc = opts.view || exportView(source);
+  const clipped = opts.clipped || null;
   const version = opts.version === 'R12' ? 'R12' : 'R2000';
   const unit = UNIT_CHOICES.find((u) => u.value === opts.unit) || UNIT_CHOICES[0];
   const k = 1 / unit.pt;
@@ -124,17 +130,20 @@ export function writeDXF(source, opts = {}) {
     if (n.type === 'group' || n.type === 'layer') {
       const kids = n.children || [];
       if (n.clip && kids.length) {
-        warnings.add('Clipping masks are not supported in DXF; clipped artwork was exported whole.');
+        if (!clipped) warnings.add('Clipping masks are not supported in DXF; clipped artwork was exported whole.');
         kids.slice(0, -1).forEach((c) => walk(c, layerName, depth + 1));
         return;
       }
       kids.forEach((c) => walk(c, layerName, depth + 1));
       return;
     }
+    const clip = clipped?.get(n.id);
     if (n.type === 'image') {
-      warnings.add('Images are not exported to DXF.');
+      if (version === 'R12') warnings.add('Images need the AutoCAD 2000 format; they were left out of the Release 12 file.');
+      else entities.push({ kind: 'image', layer: layerName, node: n, clip: clip?.image || null });
       return;
     }
+    if (n.type === 'text' && clip?.text) warnings.add('Type inside clipping masks was exported unclipped.');
     if (n.type === 'text') {
       const runs = opts.outlines?.get(n.id);
       if (runs?.length) {
@@ -145,6 +154,13 @@ export function writeDXF(source, opts = {}) {
     if (n.type === 'path' || n.type === 'compound') {
       const subpaths = n.type === 'path' ? [{ anchors: n.anchors, closed: n.closed }] : (n.children || []).map((c) => doc.get(c)).filter((c) => c?.anchors).map((c) => ({ anchors: c.anchors, closed: c.closed }));
       if (n.fill && n.fill.type !== 'solid') warnings.add('Gradient and pattern fills were exported as solid colors.');
+      if (clip) {
+        // Cut to the clipping mask: the fill's intersection and the stroke's pieces inside.
+        const fillSubs = clip.fill || [];
+        if (!fillSubs.length && !clip.lines?.length) return;
+        entities.push({ kind: 'shape', layer: layerName, subpaths: fillSubs, lines: clip.lines || [], fill: fillSubs.length ? paintColor(n.fill) : null, stroke: n.strokeWidth > 0 ? paintColor(n.stroke) : null, strokeWidth: n.strokeWidth || 0 });
+        return;
+      }
       entities.push({ kind: 'shape', layer: layerName, subpaths, fill: paintColor(n.fill), stroke: n.strokeWidth > 0 ? paintColor(n.stroke) : null, strokeWidth: n.strokeWidth || 0, opacity: n.opacity });
       return;
     }
@@ -165,7 +181,11 @@ export function writeDXF(source, opts = {}) {
   let ext = null;
   for (const e of entities) {
     for (const s of e.subpaths || []) for (const a of s.anchors) ext = grow(ext, X(a.x), Y(a.y));
-    if (e.node) {
+    for (const l of e.lines || []) for (const p of l) ext = grow(ext, X(p.x), Y(p.y));
+    if (e.kind === 'image') {
+      const t = e.node.transform;
+      for (const [u, v] of [[0, 0], [e.node.width, 0], [0, e.node.height], [e.node.width, e.node.height]]) ext = grow(ext, X(t[0] * u + t[2] * v + t[4]), Y(t[1] * u + t[3] * v + t[5]));
+    } else if (e.node) {
       const t = e.node.transform;
       ext = grow(ext, X(t[4] + e.node.x), Y(t[5] + e.node.y));
     }
@@ -211,6 +231,40 @@ export function writeDXF(source, opts = {}) {
       w.pair(290, 1);
     }
   });
+
+  // ---- images: one definition per asset ----
+  const images = [];
+  const imageDefs = new Map();
+  for (const e of entities) {
+    if (e.kind !== 'image' || imageDefs.has(e.node.asset)) continue;
+    const asset = doc.assets?.get(e.node.asset);
+    let size = null;
+    let ext = 'png';
+    try {
+      const { bytes, mime } = dataUrlToBytes(asset?.data || '');
+      size = imageSize(bytes);
+      ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp' }[mime] || 'png';
+    } catch {
+      size = null;
+    }
+    const name = (opts.imageName || ((id, i, x) => `image-${i}.${x}`))(e.node.asset, images.length + 1, ext);
+    const def = { name, w: size?.width || Math.max(1, Math.round(e.node.width)), h: size?.height || Math.max(1, Math.round(e.node.height)), handle: null, reactors: [] };
+    imageDefs.set(e.node.asset, def);
+    images.push({ assetId: e.node.asset, name });
+  }
+  if (images.length) {
+    section('CLASSES', () => {
+      for (const [dxfName, cpp, flags, entity] of [['IMAGEDEF', 'AcDbRasterImageDef', 0, 0], ['IMAGEDEF_REACTOR', 'AcDbRasterImageDefReactor', 1, 0], ['RASTERVARIABLES', 'AcDbRasterVariables', 0, 0], ['IMAGE', 'AcDbRasterImage', 127, 1]]) {
+        w.pair(0, 'CLASS');
+        w.pair(1, dxfName);
+        w.pair(2, cpp);
+        w.pair(3, 'ISM');
+        w.pair(90, flags);
+        w.pair(280, 0);
+        w.pair(281, entity);
+      }
+    });
+  }
 
   // ---- tables ----
   const owner = {};
@@ -353,6 +407,7 @@ export function writeDXF(source, opts = {}) {
     if (!w.r12 && lw !== undefined) w.pair(370, lw);
     if (!w.r12 && sub) w.pair(100, sub);
   };
+  head.owner = () => owner.model;
   const polyline = (pts, closed, layer, color, lw) => {
     if (w.r12) {
       head('POLYLINE', layer, color);
@@ -510,7 +565,13 @@ export function writeDXF(source, opts = {}) {
         const color = e.stroke || (!fills ? e.fill : null);
         if (!color) continue;
         const lw = e.stroke ? nearestLineweight(e.strokeWidth) : -1;
-        for (const s of e.subpaths) writeOutline(s, e.layer, color, lw);
+        if (e.lines) {
+          // Clipped: the stroke's pieces, or the clipped fill's outline when only the fill shows.
+          if (e.stroke) for (const l of e.lines) polyline(l.map((p) => ({ x: X(p.x), y: Y(p.y) })), false, e.layer, color, lw);
+          else for (const s of e.subpaths) writeOutline(s, e.layer, color, lw);
+        } else for (const s of e.subpaths) writeOutline(s, e.layer, color, lw);
+      } else if (e.kind === 'image') {
+        writeImage(w, head, e, imageDefs.get(e.node.asset), X, Y);
       } else if (e.kind === 'text') {
         writeText(w, head, e, X, Y, k);
       }
@@ -520,6 +581,8 @@ export function writeDXF(source, opts = {}) {
     section('OBJECTS', () => {
       const root = w.h();
       const groups = w.h();
+      const imageDict = images.length ? w.h() : null;
+      const rasterVars = images.length ? w.h() : null;
       w.pair(0, 'DICTIONARY');
       w.pair(5, root);
       w.pair(330, 0);
@@ -527,17 +590,138 @@ export function writeDXF(source, opts = {}) {
       w.pair(281, 1);
       w.pair(3, 'ACAD_GROUP');
       w.pair(350, groups);
+      if (imageDict) {
+        w.pair(3, 'ACAD_IMAGE_DICT');
+        w.pair(350, imageDict);
+        w.pair(3, 'ACAD_IMAGE_VARS');
+        w.pair(350, rasterVars);
+      }
       w.pair(0, 'DICTIONARY');
       w.pair(5, groups);
       w.pair(330, root);
       w.pair(100, 'AcDbDictionary');
       w.pair(281, 1);
+      if (!imageDict) return;
+      const defs = [...imageDefs.values()];
+      w.pair(0, 'DICTIONARY');
+      w.pair(5, imageDict);
+      w.pair(330, root);
+      w.pair(100, 'AcDbDictionary');
+      w.pair(281, 1);
+      defs.forEach((d, i) => {
+        w.pair(3, `IMAGE_${i + 1}`);
+        w.pair(350, d.handle);
+      });
+      w.pair(0, 'RASTERVARIABLES');
+      w.pair(5, rasterVars);
+      w.pair(330, root);
+      w.pair(100, 'AcDbRasterVariables');
+      w.pair(90, 0);
+      w.pair(70, 0);
+      w.pair(71, 1);
+      w.pair(72, 0);
+      for (const d of defs) {
+        w.pair(0, 'IMAGEDEF');
+        w.pair(5, d.handle);
+        w.pair(102, '{ACAD_REACTORS');
+        for (const r of d.reactors) w.pair(330, r.handle);
+        w.pair(102, '}');
+        w.pair(330, imageDict);
+        w.pair(100, 'AcDbRasterImageDef');
+        w.pair(90, 0);
+        w.pair(1, d.name);
+        w.pair(10, d.w);
+        w.pair(20, d.h);
+        w.pair(11, 1);
+        w.pair(21, 1);
+        w.pair(280, 1);
+        w.pair(281, 0);
+        for (const r of d.reactors) {
+          w.pair(0, 'IMAGEDEF_REACTOR');
+          w.pair(5, r.handle);
+          w.pair(330, r.image);
+          w.pair(100, 'AcDbRasterImageDefReactor');
+          w.pair(90, 2);
+          w.pair(330, r.image);
+        }
+      }
     });
   }
   w.pair(0, 'EOF');
   // Fix the handle seed now that every handle is known.
   const text = w.text().replace('$HANDSEED\r\n5\r\nFFFFF', `$HANDSEED\r\n5\r\n${(w.handle + 1).toString(16).toUpperCase()}`);
-  return { text, warnings: [...warnings], entityCount: entities.length };
+  return { text, warnings: [...warnings], entityCount: entities.length, images };
+}
+
+/**
+ * An IMAGE entity: the lower-left corner, one pixel along the image's
+ * width (U) and up its height (V), the pixel size, the definition and its
+ * reactor, and a polygonal clip boundary (pixel coordinates from the
+ * top-left pixel's center) when the image is in a clipping mask.
+ */
+function writeImage(w, head, e, def, X, Y) {
+  const n = e.node;
+  const t = n.transform || [1, 0, 0, 1, 0, 0];
+  const P = (u, v) => ({ x: X(t[0] * u + t[2] * v + t[4]), y: Y(t[1] * u + t[3] * v + t[5]) });
+  const o = P(0, n.height);
+  const right = P(n.width, n.height);
+  const top = P(0, 0);
+  if (!def.handle) def.handle = w.h();
+  const imageHandle = w.h();
+  const reactor = { handle: w.h(), image: imageHandle };
+  def.reactors.push(reactor);
+  // head() allocates its own handle: write the entity header by hand to use the reserved one.
+  w.pair(0, 'IMAGE');
+  w.pair(5, imageHandle);
+  w.pair(330, head.owner());
+  w.pair(100, 'AcDbEntity');
+  w.pair(8, e.layer);
+  w.pair(100, 'AcDbRasterImage');
+  w.pair(90, 0);
+  w.pair(10, o.x);
+  w.pair(20, o.y);
+  w.pair(30, 0);
+  w.pair(11, (right.x - o.x) / def.w);
+  w.pair(21, (right.y - o.y) / def.w);
+  w.pair(31, 0);
+  w.pair(12, (top.x - o.x) / def.h);
+  w.pair(22, (top.y - o.y) / def.h);
+  w.pair(32, 0);
+  w.pair(13, def.w);
+  w.pair(23, def.h);
+  w.pair(340, def.handle);
+  const poly = e.clip?.find((p) => p.length >= 3) || null;
+  w.pair(70, poly ? 15 : 7);
+  w.pair(280, poly ? 1 : 0);
+  w.pair(281, 50);
+  w.pair(282, 50);
+  w.pair(283, 0);
+  w.pair(360, reactor.handle);
+  // Document points to pixels: invert the image transform, then scale local units to pixels.
+  const det = t[0] * t[3] - t[1] * t[2] || 1;
+  const toPixel = (p) => {
+    const x = p.x - t[4];
+    const y = p.y - t[5];
+    const u = (t[3] * x - t[2] * y) / det;
+    const v = (-t[1] * x + t[0] * y) / det;
+    return { x: (u * def.w) / (n.width || 1) - 0.5, y: (v * def.h) / (n.height || 1) - 0.5 };
+  };
+  if (poly) {
+    const pts = poly.map(toPixel);
+    w.pair(71, 2);
+    w.pair(91, pts.length + 1);
+    for (const p of [...pts, pts[0]]) {
+      w.pair(14, p.x);
+      w.pair(24, p.y);
+    }
+  } else {
+    w.pair(71, 1);
+    w.pair(91, 2);
+    w.pair(14, -0.5);
+    w.pair(24, -0.5);
+    w.pair(14, def.w - 0.5);
+    w.pair(24, def.h - 0.5);
+  }
 }
 
 function writeText(w, head, e, X, Y, k) {

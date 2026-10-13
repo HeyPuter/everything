@@ -270,7 +270,9 @@ export async function exportAsDialog(app) {
     if (!step1.useArtboards) {
       const rect = artworkBounds(doc);
       if (!rect) throw new UserError('There is no artwork to export.');
-      files.push({ name: `${step1.name}.${fmt.ext}`, blob: await renderFile(app, editor, step1.format, { rect }, { ...options, title: step1.name }) });
+      const blob = await renderFile(app, editor, step1.format, { rect }, { ...options, title: step1.name });
+      // A format may deliver another container (DXF with images comes as a ZIP).
+      files.push({ name: `${step1.name}.${blob.fileExt || fmt.ext}`, blob });
     } else if (step1.format === 'pdf') {
       const rects = step1.indices.map((i) => doc.artboards[i]);
       files.push({ name: `${step1.name}.pdf`, blob: await renderFile(app, editor, 'pdf', { rects }, { ...options, title: step1.name }) });
@@ -278,7 +280,8 @@ export async function exportAsDialog(app) {
       for (const i of step1.indices) {
         const board = doc.artboards[i];
         const suffix = step1.indices.length > 1 ? `-${safeFileName(board.name || `Artboard ${i + 1}`)}` : '';
-        files.push({ name: `${step1.name}${suffix}.${fmt.ext}`, blob: await renderFile(app, editor, step1.format, { artboard: i }, { ...options, title: board.name }) });
+        const blob = await renderFile(app, editor, step1.format, { artboard: i }, { ...options, title: board.name });
+        files.push({ name: `${step1.name}${suffix}.${blob.fileExt || fmt.ext}`, blob });
       }
     }
   } catch (err) {
