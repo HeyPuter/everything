@@ -590,7 +590,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
+export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -785,7 +785,7 @@ export function safeLinkUrl(url) {
 }
 
 /** A sheet as toJSON writes it, apart from its cells; makeSheet reads the same shape back. */
-function sheetShapeJSON(s) {
+export function sheetShapeJSON(s) {
   return {
     id: s.id,
     name: s.name,
@@ -844,7 +844,7 @@ function sheetShapeJSON(s) {
 const sheetListEntry = (s) => ({ id: s.id, name: s.name, hidden: s.hidden, veryHidden: s.veryHidden });
 
 /** Whether two values as toJSON writes them are alike: the same keys and, key by key, the same values. */
-function sameJSON(a, b) {
+export function sameJSON(a, b) {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || !a || !b || Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a)) return a.length === b.length && a.every((x, i) => sameJSON(x, b[i]));
@@ -886,6 +886,10 @@ function sameRule(stored, next, defaults) {
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
   '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_cyclic', '_provisional', '_blankProvisional',
   '_blankKeys', '_unsettled', '_tentative', '_grown'];
+
+/** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
+export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
+  'calculationCompatibility', 'colorPalette', 'fontTheme', 'themeInfo', 'normalFont', 'nativeNormalStyle', 'nativeNormalFill', 'nativeDefaultCellFormat', 'names'];
 
 export class Workbook extends EventTarget {
   /** Async sources for functions like AI(): name → (text) => Promise<string>. Answers are cached per prompt. */
@@ -940,6 +944,33 @@ export class Workbook extends EventTarget {
 
   _load(json) {
     json = unpackNativeFillState(json);
+    this._loadSettings(json);
+    this.sheets = (json.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(makeSheet);
+    this.workbookView = normalizeWorkbookView(json.workbookView);
+    this._loadNames(json);
+    // Never every sheet hidden, and never a hidden sheet in front.
+    if (this.sheets.every((s) => s.hidden)) this.sheets[0].hidden = false;
+    this.activeSheetId = this.sheets.some((s) => s.id === json.activeSheetId && !s.hidden)
+      ? json.activeSheetId : this.sheets.find((s) => !s.hidden).id;
+    this._invalidate();
+    const bind = [];
+    for (const sheet of this.sheets) for (const [key, cell] of sheet.cells) if (cell.externalResult && !cell.externalResult.context) {
+      const { r, c } = parseKey(key);
+      bind.push({ sheet, r, c, cell });
+      cell.externalResult.context = this._externalCallerContext(sheet, r, c, cell.f);
+    }
+    let filtered = false;
+    this.sheets.forEach((s, i) => { if (sheetFilters(s).length && !Array.isArray(json.sheets?.[i]?.filterHidden)) { this._applyFilter(s); filtered = true; } });
+    if (filtered && bind.length) {
+      // The imported result belongs to the fully loaded state, including any
+      // filters reconstructed from criteria. Existing provenance is never rebound.
+      this._invalidate();
+      for (const { sheet, r, c, cell } of bind) cell.externalResult.context = this._externalCallerContext(sheet, r, c, cell.f);
+    }
+  }
+
+  /** The workbook's own settings (everything but its sheets and defined names), read from serialized contents. */
+  _loadSettings(json) {
     this.dataModel = normalizeDataModel(json.dataModel);
     this.nativePivots = normalizeNativePivots(json.nativePivots);
     this.externalWorkbooks = normalizeExternalWorkbooks(json.externalWorkbooks);
@@ -964,8 +995,10 @@ export class Workbook extends EventTarget {
     this.nativeDefaultCellFormat = normalizeNativeDefaultCellFormat(json.nativeDefaultCellFormat);
     this.cellDefaultStyle = this.nativeDefaultCellFormat ? { ...this.normalStyle, ...this.nativeDefaultCellFormat.style } : this.normalStyle;
     this._sheetDefaultStyles = new WeakMap();
-    this.sheets = (json.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(makeSheet);
-    this.workbookView = normalizeWorkbookView(json.workbookView);
+  }
+
+  /** The defined names, read from serialized contents against the sheets already loaded (a scope must name one). */
+  _loadNames(json) {
     this.names = [];
     for (const n of json.names || []) {
       // Preserve legacy name/table collisions on load; reject new collisions
@@ -974,25 +1007,37 @@ export class Workbook extends EventTarget {
       if (n?.sheet != null && !scope) continue;
       if (n?.name && n?.ref && !this.validateName(n.name, null, { allowTableName: true, sheet: scope })) this.names.push({ name: n.name, ref: String(n.ref), ...(n.hidden === true ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(n.relative === true ? { relative: true } : {}) });
     }
-    // Never every sheet hidden, and never a hidden sheet in front.
-    if (this.sheets.every((s) => s.hidden)) this.sheets[0].hidden = false;
-    this.activeSheetId = this.sheets.some((s) => s.id === json.activeSheetId && !s.hidden)
-      ? json.activeSheetId : this.sheets.find((s) => !s.hidden).id;
-    this._invalidate();
-    const bind = [];
-    for (const sheet of this.sheets) for (const [key, cell] of sheet.cells) if (cell.externalResult && !cell.externalResult.context) {
-      const { r, c } = parseKey(key);
-      bind.push({ sheet, r, c, cell });
-      cell.externalResult.context = this._externalCallerContext(sheet, r, c, cell.f);
+  }
+
+  /**
+   * The workbook's settings beside its sheets, each as the live value it is held as (shared editing compares these
+   * by identity first, as an edit replaces a setting rather than changing it in place). See bookState.
+   */
+  bookFields() {
+    const out = {};
+    for (const key of BOOK_STATE_KEYS) out[key] = this[key];
+    return out;
+  }
+
+  /** The workbook's settings beside its sheets, serialized as a file holds them (natively filled colors unpacked); `keys` limits them. */
+  bookState(keys = BOOK_STATE_KEYS) {
+    const out = {};
+    for (const key of keys) {
+      const value = key === 'queries' ? serializeQueries(this) : key === 'names' ? this.names.map((n) => ({ ...n })) : this[key];
+      out[key] = JSON.parse(JSON.stringify(value ?? null));
     }
-    let filtered = false;
-    this.sheets.forEach((s, i) => { if (sheetFilters(s).length && !Array.isArray(json.sheets?.[i]?.filterHidden)) { this._applyFilter(s); filtered = true; } });
-    if (filtered && bind.length) {
-      // The imported result belongs to the fully loaded state, including any
-      // filters reconstructed from criteria. Existing provenance is never rebound.
-      this._invalidate();
-      for (const { sheet, r, c, cell } of bind) cell.externalResult.context = this._externalCallerContext(sheet, r, c, cell.f);
-    }
+    return out;
+  }
+
+  /**
+   * Put serialized settings (some keys of bookState) in place, read as a file's are; the sheets stay. Not an undo step:
+   * shared editing applies the settings someone else changed with this, and keeps its own record around it.
+   */
+  applyBookState(partial) {
+    const json = { ...this.bookState(), ...partial };
+    this._loadSettings(json);
+    if ('names' in partial) this._loadNames(json);
+    this._changed('structure');
   }
 
   /**
