@@ -105,9 +105,9 @@ export class PlanRun {
   stop() {
     this.stopped = true;
   }
-  /** Close the undo step between steps, so edits made by hand (or by others
-   * in a shared document) while the plan waits stay their own steps and
-   * history is trimmed as usual. Going on unchanged continues this step. */
+  /** Close the undo step between steps, so edits made by hand while the plan
+   * waits stay their own steps and history is trimmed as usual. Going on from
+   * the unchanged document continues this step. */
   pause() {
     const host = this.host, s = this.session;
     if (!host) return 0;
