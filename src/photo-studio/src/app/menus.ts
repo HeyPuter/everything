@@ -90,14 +90,14 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
         'layer.adj-invert', 'layer.adj-posterize', 'layer.adj-threshold', 'layer.adj-gradient-map', 'layer.adj-selective-color',
       ] },
       'layer.content-options', '-',
-      { label: 'Layer Mask', id: 'layer.mask', items: ['layer.mask-reveal-all', 'layer.mask-hide-all', 'layer.mask-reveal-selection', 'layer.mask-hide-selection', 'layer.mask-from-transparency', '-', 'layer.mask-delete', 'layer.mask-apply', '-', 'layer.mask-toggle', 'layer.mask-link', 'layer.mask-invert'] },
+      { label: 'Layer Mask', id: 'layer.mask', items: ['layer.mask-reveal-all', 'layer.mask-hide-all', 'layer.mask-reveal-selection', 'layer.mask-hide-selection', 'layer.mask-from-transparency', '-', 'layer.mask-delete', 'layer.mask-apply', '-', 'layer.mask-toggle', 'layer.mask-link', 'layer.mask-invert', '-', 'layer.mask-refine-edge'] },
       { label: 'Vector Mask', id: 'layer.vector-mask', items: ['layer.vmask-reveal-all', 'layer.vmask-hide-all', 'layer.vmask-current-path', '-', 'layer.vmask-delete', 'layer.vmask-toggle', 'layer.vmask-link'] },
       'layer.clipping-mask', 'layer.mask-all-objects', 'layer.harmonize', '-',
       { label: 'Embedded Objects', id: 'layer.embedded', items: [
         'layer.embed-convert', 'layer.embed-new-via-copy', '-',
         'layer.embed-update', 'layer.embed-update-all', '-',
         'layer.embed-edit', 'layer.embed-reset', 'layer.embed-relink', 'layer.embed-replace', 'layer.embed-export', '-',
-        'layer.embed-embed-linked', 'layer.embed-embed-all', 'layer.embed-to-layers', '-',
+        'layer.embed-embed-linked', 'layer.embed-embed-all', 'layer.embed-convert-linked', 'layer.embed-to-layers', '-',
         { label: 'Stack Mode', id: 'layer.embed-stack', items: [] }, 'layer.embed-rasterize',
       ] },
       { label: 'Video Layers', id: 'layer.video', items: [

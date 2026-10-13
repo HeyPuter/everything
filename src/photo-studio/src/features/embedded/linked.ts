@@ -6,9 +6,11 @@
 import type { Editor } from '../../editor';
 import { allLayers, findLayer } from '../../model/document';
 import { contentsOf, type EmbeddedContents, type EmbedLink } from '../../model/embedded';
-import { cloudRead, pickCloudFiles } from '../files/cloud';
-import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, setContents } from './contents';
-import { fileAccept, pickLocalFiles, selectedObject } from './convert';
+import { cloudRead, cloudSaveAs, pickCloudFiles } from '../files/cloud';
+import { formDialog } from '../../ui/dialog';
+import { download } from '../../persistence/puter';
+import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, plainContents, setContents } from './contents';
+import { contentsFile, contentsFormats, fileAccept, pickLocalFiles, selectedObject } from './convert';
 import { handles, linkedIn, statuses, type FileHandle } from './link-state';
 
 export { hasLinked, linkStatus, linkStatusText, watchLinks, type LinkStatus } from './link-state';
@@ -152,3 +154,79 @@ export function embedLinked(e: Editor, all: boolean) {
   e.message(`${ids.length === 1 ? 'The object is' : `${ids.length} objects are`} now embedded; the file is no longer read.`);
 }
 
+
+type SaveHandle = FileHandle & { name: string; createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> };
+type SavePicker = (options?: { suggestedName?: string; types?: { description: string; accept: Record<string, string[]> }[] }) => Promise<SaveHandle>;
+const saveTypes: Record<string, { description: string; accept: Record<string, string[]> }> = {
+  '.photo': { description: 'Photo Studio project', accept: { 'application/octet-stream': ['.photo'] } },
+  '.png': { description: 'PNG image', accept: { 'image/png': ['.png'] } },
+};
+
+/** Layer → Embedded Objects → Convert to Linked…: write the contents of an
+ * embedded object to a file on this device or on Puter and link to it, so
+ * the file can be edited elsewhere and updated here. */
+export async function convertToLinked(e: Editor) {
+  const l = selectedObject(e);
+  if (!l) return;
+  const existing = contentsOf(e.doc, l);
+  if (existing?.link) {
+    e.message(`“${existing.name}” is already linked to ${existing.link.name}.`);
+    return;
+  }
+  const c = existing ?? plainContents(l, e.assets);
+  const formats = contentsFormats(c);
+  // A project keeps layers; the original file only while it is the content.
+  const preferred = formats.find(([k]) => k === 'project')?.[0] ?? formats[0][0];
+  const v = await formDialog('Convert to Linked', [
+    { name: 'format', label: 'Save contents as', type: 'select', value: preferred, options: formats.filter(([k]) => k !== 'source' || !c.project) },
+    { name: 'to', label: 'Save to', type: 'select', value: 'device', options: [['device', 'This device'], ['puter', 'Puter']] },
+  ], 'Save and Link', `The contents of “${c.name}” are written to a file and the object links to it; edit the file elsewhere and use Update Modified Content to bring changes in.`);
+  if (!v) return;
+  const file = await contentsFile(e, c, v.format);
+  const link = async (kind: 'local' | 'puter', name: string, path?: string, handle?: FileHandle) => {
+    const id = existing?.id ?? c.id;
+    if (handle) handles.set(id, handle);
+    statuses.set(id, kind === 'local' && !handle ? 'unavailable' : 'current');
+    const embedLink = await linkFor(kind, file.blob, name, path);
+    e.command('Convert to Linked', (d) => {
+      const t = findLayer(d.layers, l.id);
+      if (!t) return;
+      if (!t.embed) {
+        d.embeds = { ...d.embeds, [c.id]: c };
+        t.embed = { contents: c.id };
+      }
+      const cur = d.embeds?.[id];
+      if (cur) d.embeds![id] = { ...cur, link: embedLink };
+    });
+    e.message(`“${c.name}” is now linked to ${name}.${kind === 'local' && !handle ? ' This browser cannot keep access to the downloaded file; use Relink to File to update from it later.' : ''}`);
+  };
+  if (v.to === 'puter') {
+    // The Puter picker never settles when dismissed; do not hold the editor.
+    e.release();
+    const item = await cloudSaveAs(file.blob, file.name);
+    if (!item) return;
+    await e.run(() => link('puter', item.name, item.path));
+    return;
+  }
+  const picker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+  if (picker) {
+    let handle: SaveHandle | undefined;
+    try {
+      const ext = /\.[^.]+$/.exec(file.name)?.[0]?.toLowerCase() ?? '';
+      handle = await picker({ suggestedName: file.name, ...(saveTypes[ext] ? { types: [saveTypes[ext]] } : {}) });
+    } catch (error) {
+      if ((error as DOMException)?.name === 'AbortError') return;
+      // Embedded frames and some browsers refuse the picker: download instead.
+    }
+    if (handle) {
+      const w = await handle.createWritable();
+      await w.write(file.blob);
+      await w.close();
+      await link('local', handle.name || file.name, undefined, handle);
+      return;
+    }
+  }
+  // No save picker (or it was refused): download the file and link to it by name.
+  download(file.blob, file.name);
+  await link('local', file.name);
+}
