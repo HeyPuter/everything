@@ -1679,15 +1679,32 @@ test("vector PDF keeps large objects it rasterizes sharp", async () => {
     item("frame", 0, 0, { w: 4000, h: 3000, text: "Ideas 💡" }),
     item("note", 4200, 0, { text: "Snow ☃" }),
   ];
+  const regions = exportRegions(b),
+    plan = pdfPlan(regions, {});
   rasterizer.calls = [];
-  await exportPDF(b, exportRegions(b), "en", rasterizer, {
-    mode: "vector",
-    measure,
-  });
-  const frame = rasterizer.calls.find((c) => c.rect.w > 4000);
-  assert.equal(frame.maxSize, 4096);
-  // Small objects are drawn at three times their size, as before.
-  assert.ok(rasterizer.calls.every((c) => c.scale === 3));
+  await exportPDF(b, regions, "en", rasterizer, { mode: "vector", measure });
+  const inside = (c, page) =>
+    c.rect.x >= page.rect.x - 1e-6 &&
+    c.rect.y >= page.rect.y - 1e-6 &&
+    c.rect.x + c.rect.w <= page.rect.x + page.rect.w + 1e-6 &&
+    c.rect.y + c.rect.h <= page.rect.y + page.rect.h + 1e-6;
+  const frameParts = rasterizer.calls.filter((c) =>
+    c.items.some((i) => i.type === "frame"),
+  );
+  // The frame is drawn for each page that shows it, the overview and the
+  // detail page under its title, there only as far as that page reaches.
+  assert.equal(frameParts.length, 2);
+  assert.ok(frameParts.some((c) => c.rect.w <= 1040 && c.rect.h <= 680));
+  for (const c of rasterizer.calls) {
+    const page = plan.find((p) => inside(c, p));
+    assert.ok(page, "Each picture lies on a page");
+    // At least 200 pixels per inch as printed, within the canvas limit.
+    const pixels = Math.min(c.scale, c.maxSize / Math.max(c.rect.w, c.rect.h));
+    assert.ok(
+      (pixels / page.scale) * 72 >= 199,
+      `${(pixels / page.scale) * 72} ppi`,
+    );
+  }
 });
 
 test("SVG text keeps its measured width when the viewer lacks the font", () => {
