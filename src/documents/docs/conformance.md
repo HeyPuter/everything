@@ -22882,3 +22882,128 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+## Insert tab (2026-10-13)
+
+The Insert tab writes ordinary WordprocessingML and DrawingML that this editor reads back through the
+same readers it uses for opened documents. Each feature is covered by unit round trips
+(`tests/cover-pages.test.js`, `field-results`, `header-footer-designs`, `text-designs`,
+`picture-insert`, `diagram-builder`, `chart-builder`, `insert-chart`, `insert-math`, `math-linear`,
+`drop-caps`, `preset-geometries-more`, `icon-library`), by the independently written fixture
+`tests/fixtures/insert-features/insert-features.docx` (generator and provenance beside it; it opens
+editable and exports byte-identical when unchanged) and by `tests/browser/insert-tab.spec.js`, whose
+browser exports (`test-results/insert-exports/*.docx`) pass `tools/check-docx-schema.py` against the
+ECMA-376 transitional schemas and the supported MS-ODRAWXML extension schemas. A schema pass is not a
+claim of full OOXML conformance or of layout fidelity with other consumers.
+
+### Pages
+
+- **Cover pages**: Normal-style paragraphs with direct formatting (§17.3.1 paragraph properties,
+  §17.3.2 run properties, `w:pBdr` §17.3.1.24, `w:shd` §17.3.1.31) ended by a page break
+  (`w:br w:type="page"`, §17.3.3.1). The cover is marked with the hidden bookmark `_CoverPage`
+  (§17.13.6.2; names starting with an underscore are hidden), so it can be replaced or removed after
+  reopening. Removal deletes the cover's whole paragraphs; a cover containing tables, sections,
+  fields or other bookmarks falls back to deleting its text range.
+- **Blank Page / Page Break**: page breaks as above.
+
+### Drawings inserted by the editor (§20.4 WordprocessingML drawing, §20.1 DrawingML)
+
+- New drawings are built as a `w:drawing` with `wp:inline` or `wp:anchor` (§20.4.2.8, §20.4.2.3),
+  read through the package reader in a minimal package, and inserted as retained drawings. Parts a
+  drawing references (media, chart parts) travel with its asset and are written with their
+  relationships and content-type overrides only while the drawing is in the story, so undoing an
+  insertion leaves no orphan parts. Insertions in the body only, except pictures.
+- **Pictures**: PNG/JPEG/TIFF as before; GIF, WebP and BMP are stored as PNG; SVG files and icons are
+  written as a PNG `a:blip` with an `asvg:svgBlip` companion (MS-ODRAWXML §2.3.7, extension URI
+  `{96DAC541-7B7A-43D3-8B79-37D633B846F1}`) and `a:picLocks noChangeAspect`. Screenshots use
+  `getDisplayMedia` and are inserted as PNG.
+- **Shapes** (`wps:wsp`, `a:prstGeom` §20.1.9.18 with ST_ShapeType §20.1.10.56): 133 presets in eight
+  categories. 121 presets were added to the geometry reader (`preset-geometries-more.js`) from the
+  standard's preset definitions: rectangles with snipped/rounded corners, basic shapes, block arrows,
+  equation shapes, all flowchart shapes, stars, seals, ribbons, waves, scrolls and callouts. Arcs are
+  approximated by cubic Béziers of at most 45°. Shaded faces (`lighten`, `lightenLess`, `darken`)
+  paint as plain fills; only `darkenLess` is honoured. Inserted at the caret (keyboard) or drawn by
+  click/drag on the page, anchored `relativeFrom="page"` to the paragraph under the pointer.
+  Adjustments (`a:avLst`) are read but not editable from the ribbon.
+- **Text boxes, WordArt and signature lines**: `wps:wsp` with `wps:txbx` / `w:txbxContent` and
+  `wps:bodyPr` (§20.1.2.1.1). Drawing text cannot carry paragraph borders, shading, tab stops or
+  underlines in this engine, so designs avoid them. WordArt is a no-fill, no-line text box whose runs
+  carry the w14 extensions `textOutline`, `textFill` and `shadow` (MS-DOCX §2.6), declared ignorable
+  with `mc:Ignorable="w14"` on the drawing (ECMA-376 Part 3 §10.2.1); warped text (`a:prstTxWarp`
+  other than `textNoShape`) is not produced. The signature line is a text box (an X over a rule of
+  low lines, signer, title, date line) with the instructions as alternative text; it is not a
+  digital-signature object.
+- **Diagrams**: an original approach rather than a diagram-definition (`dgm`) part. Eleven layouts
+  (list, process, timeline, cycle, hierarchy, Venn, radial, matrix, pyramid) are generated as one
+  `wpg:wgp` group (§20.4) of preset shapes with shape text, alpha fills (`a:alpha` §20.1.2.3.1) for
+  Venn circles and rotated arrows (`a:xfrm rot`). The outline that generated the diagram is stored as
+  the drawing's alternative text (`wp:docPr descr`, §20.4.2.5) in the form
+  `Diagram: <layout> (<colors>)` followed by the indented outline; Edit Diagram reads it back and
+  replaces the group in one undo step. Diagrams edited in another application keep their XML but
+  regenerate from their description when edited here.
+- **Charts** (§21.2 DrawingML charts): `c:chartSpace` parts with literal data (`c:strLit`,
+  `c:numLit`), explicit text properties and no external workbook. Column and bar
+  (`c:barChart`, `c:barDir` `col`/`bar`; clustered, stacked, percentStacked), line with or without
+  circle markers (`c:lineChart`, `c:marker`), area (standard, stacked), pie (`c:pieChart`), doughnut
+  (`c:doughnutChart`) and scatter (`c:scatterChart`, `c:crossBetween val="midCat"`) are written,
+  read and painted. Charts are inline and in the body only. Data labels, axis titles, secondary axes,
+  combined plots and non-Latin labels are not supported (the reader keeps such charts read-only);
+  without an embedded workbook other applications show the chart but cannot edit its data.
+
+### Header, footer and page numbers (§17.10)
+
+- Gallery designs are written into the section's header or footer story (created when missing) as
+  paragraphs with direct formatting, center/right tab stops (`w:tabs`, §17.3.1.37) and PAGE /
+  NUMPAGES fields (§17.16.5.44, §17.16.5.42) as page-field runs. Page Number → Top/Bottom appends a
+  paragraph; Current Position inserts field runs in a story or body fields in the body.
+- **Format Page Numbers** writes `w:pgNumType` (§17.6.12) `w:fmt` (decimal, decimalZero, upper/lower
+  letter and roman) and `w:start`, preserving other attributes. Chapter numbers (`w:chapStyle`,
+  `w:chapSep`) are not written and remain unsupported in layout. The setting is applied to the
+  section with the caret and is not part of undo history.
+- Remove Page Numbers deletes paragraphs holding a PAGE field from the current section's existing
+  header and footer stories.
+
+### Fields (§17.16)
+
+- Insert → Field, Date & Time and Document Property insert body fields (`w:fldSimple` /
+  complex fields on save) with their current result cached: DATE, TIME, CREATEDATE, SAVEDATE
+  (§17.16.5.13, .67, .11, .55) with the date-time picture switch `\@` (§17.16.4.1: M, d, y, h, H, m,
+  s, AM/PM, quoted literals), AUTHOR, TITLE, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, FILENAME
+  (`\p`), DOCPROPERTY (core and extended properties), NUMPAGES, NUMWORDS, NUMCHARS, PAGE, SEQ, REF,
+  USERNAME, USERINITIALS, with the general formatting switch `\*` (§17.16.4.3: Upper, Lower,
+  FirstCap, Caps, roman, ROMAN, alphabetic, ALPHABETIC, Ordinal, CardText, OrdText, Hex,
+  MERGEFORMAT). Update Fields (F9) recomputes these from the open document's properties; without a
+  document context only DATE and TIME refresh, so cached document information is never blanked.
+  The numeric picture switch `\#` and EDITTIME are not evaluated. Fields in headers and footers are
+  limited to PAGE and NUMPAGES; Date & Time inserts plain text there.
+- Document properties are read from `docProps/core.xml` and `docProps/app.xml`; this editor does not
+  write them, so a DOCPROPERTY for an empty property shows a bracketed placeholder until fields update.
+- Content controls bound to document properties (`w:dataBinding`) are not produced; the reader keeps
+  such controls read-only.
+
+### Drop caps (§17.3.1.11 framePr, §17.18.20 ST_DropCap)
+
+- The first character moves into its own preceding paragraph with `w:framePr w:dropCap` (`drop` or
+  `margin`), `w:lines`, `w:wrap="around"`, `w:vAnchor="text"`, `w:hAnchor` (`text` for drop, `page`
+  for margin) and `w:hSpace`, exact line spacing and a lowered (`w:position`) enlarged run. Layout
+  places the cap at the following paragraph's first line, spanning `lines` lines, with its baseline
+  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. Ignored for
+  caps: x/y offsets and alignments. Gaps: indented paragraphs (the cap uses the column edge),
+  per-font cap heights, caps across pages or in section columns.
+
+### Equations (§22.1 Office Math)
+
+- Equations are typed in a UnicodeMath-like linear format and converted to OMML (`m:oMath`, or
+  `m:oMathPara` when displayed on its own line): fractions `m:f`, scripts `m:sSup`/`m:sSub`/
+  `m:sSubSup`/`m:sPre`, radicals `m:rad` (`m:degHide`), n-ary operators `m:nary` (`m:chr`,
+  `m:limLoc`, `m:subHide`/`m:supHide`), delimiters `m:d` (`m:begChr`/`m:endChr`), functions
+  `m:func`, limits `m:limLow`, accents `m:acc`, bars `m:bar`, matrices `m:m` and equation arrays
+  `m:eqArr`, with child elements in schema order. Equations are atomic objects: the canvas shows
+  their linear text; the editor dialog previews them as MathML. Gaps: alignment points in equation
+  arrays, delimiter separators, nested superscripts, two-dimensional canvas rendering.
+
+### Symbols
+
+- Symbols are ordinary characters; a symbol font choice is written as `w:rFonts` ascii/hAnsi on the
+  inserted run. Nonbreaking and optional hyphens are inserted as U+2011 and U+00AD (not
+  `w:noBreakHyphen` / `w:softHyphen` elements). `w:sym` (§17.3.3.30) is read but not written.
