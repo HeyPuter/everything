@@ -42,7 +42,7 @@ const MAX_PPS = 1200;
 const EDGE_PX = 7;
 
 const HEIGHTS = { video: 52, main: 64, audio: 44, text: 30, effect: 26, filter: 26, adjust: 26 };
-const TYPE_LABEL = { video: 'Video', image: 'Photo', audio: 'Audio', text: 'Text', sticker: 'Graphic', effect: 'Effect', filter: 'Filter', adjust: 'Color layer', compound: 'Compound clip' };
+const TYPE_LABEL = { video: 'Video', image: 'Photo', audio: 'Audio', text: 'Text', sticker: 'Graphic', avatar: 'Avatar', effect: 'Effect', filter: 'Filter', adjust: 'Color layer', compound: 'Compound clip' };
 const TRACK_ICON = { video: 'film', audio: 'music', text: 'text', effect: 'effects', filter: 'filters', adjust: 'adjust' };
 const TRACK_NAME = { video: 'Video', audio: 'Audio', text: 'Text', effect: 'Effects', filter: 'Filters', adjust: 'Color' };
 const SIZE_FACTOR = { small: 0.7, medium: 1, large: 1.6 };
@@ -361,7 +361,7 @@ export function createTimeline(ctx) {
 
   function iconForClip(c) {
     if (c.multicam) return 'multicam';
-    return { video: 'film', image: 'image', audio: 'music', text: 'text', sticker: 'sticker', effect: 'effects', filter: 'filters', adjust: 'adjust', compound: 'layers' }[c.type];
+    return { video: 'film', image: 'image', audio: 'music', text: 'text', sticker: 'sticker', avatar: 'avatar', effect: 'effects', filter: 'filters', adjust: 'adjust', compound: 'layers' }[c.type];
   }
 
   function render(force = false) {

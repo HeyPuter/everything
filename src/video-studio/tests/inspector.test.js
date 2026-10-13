@@ -84,19 +84,19 @@ describe('inspector layout', () => {
 
   it('picks top tabs per clip type', () => {
     const p = env.store.project;
-    expect(tabsFor(p, env.v1)).toEqual(['video', 'audio', 'speed', 'animation', 'clipfx', 'adjust']);
-    expect(tabsFor(p, env.img)).toEqual(['video', 'animation', 'clipfx', 'adjust']);
+    expect(tabsFor(p, env.v1)).toEqual(['video', 'audio', 'speed', 'animation', 'clipfx', 'stylize', 'adjust']);
+    expect(tabsFor(p, env.img)).toEqual(['video', 'animation', 'clipfx', 'stylize', 'adjust']);
     expect(tabsFor(p, env.aud)).toEqual(['audio', 'voice', 'speed']);
     expect(tabsFor(p, env.text)).toEqual(['text', 'animation', 'clipfx', 'speech']);
     env.store.select(env.v1.id);
     const names = [...env.el.querySelectorAll('.top-tabs [role=tab]')].map((t) => t.textContent);
-    expect(names).toEqual(['Video', 'Audio', 'Speed', 'Animation', 'Effects', 'Color']);
+    expect(names).toEqual(['Video', 'Audio', 'Speed', 'Animation', 'Effects', 'Style', 'Color']);
     const subs = [...env.el.querySelectorAll('.subtabs [role=tab]')].map((t) => t.textContent);
     expect(subs).toEqual(['Basic', 'Mask', 'Cutout', 'Retouch', 'Chroma key']);
     const panel = env.el.querySelector('[role=tabpanel]');
     expect(panel.getAttribute('aria-labelledby')).toBe(tab('Video').id);
     env.store.select(env.img.id);
-    expect([...env.el.querySelectorAll('.top-tabs [role=tab]')].map((t) => t.textContent)).toEqual(['Image', 'Animation', 'Effects', 'Color']);
+    expect([...env.el.querySelectorAll('.top-tabs [role=tab]')].map((t) => t.textContent)).toEqual(['Image', 'Animation', 'Effects', 'Style', 'Color']);
   });
 
   it('remembers the tab per clip type', () => {

@@ -26,8 +26,8 @@ export const easeLabel = (name) => EASE_LABELS[name] || (String(name).startsWith
  * keys: clip fields copied as a whole; kf: keyframe props that go with them.
  */
 export const ATTRIBUTE_GROUPS = [
-  { id: 'transform', label: 'Position, scale and rotation', keys: ['transform'], kf: ['x', 'y', 'scale', 'rotation', 'sx', 'sy'], types: ['video', 'image', 'text', 'sticker'] },
-  { id: 'opacity', label: 'Opacity and blend mode', keys: ['opacity', 'blend'], kf: ['opacity'], types: ['video', 'image', 'text', 'sticker'] },
+  { id: 'transform', label: 'Position, scale and rotation', keys: ['transform'], kf: ['x', 'y', 'scale', 'rotation', 'sx', 'sy'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
+  { id: 'opacity', label: 'Opacity and blend mode', keys: ['opacity', 'blend'], kf: ['opacity'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
   { id: 'crop', label: 'Crop', keys: ['crop'], types: ['video', 'image'] },
   { id: 'mask', label: 'Masks', keys: ['mask', 'masks', 'maskUse'], kfPrefix: 'mask', types: ['video', 'image'] },
   { id: 'picture', label: 'Motion blur, noise, relight and canvas', keys: ['motionBlur', 'denoise', 'relight', 'canvas'], kfPrefix: 'relight.', types: ['video', 'image'] },
@@ -36,8 +36,9 @@ export const ATTRIBUTE_GROUPS = [
   { id: 'retouch', label: 'Retouch (skin, face and hair)', keys: ['retouch', 'faceShape', 'hairColor'], types: ['video', 'image'] },
   { id: 'color', label: 'Color adjustments', keys: ['adjust', 'grade', 'colorTarget'], kfPrefix: 'adjust.', types: ['video', 'image', 'adjust'] },
   { id: 'filter', label: 'Filter', keys: ['filter'], types: ['video', 'image'] },
-  { id: 'animation', label: 'Animations', keys: ['animIn', 'animOut', 'animLoop'], types: ['video', 'image', 'text', 'sticker'] },
-  { id: 'effects', label: 'Clip effects', keys: ['effects'], types: ['video', 'image', 'text', 'sticker'] },
+  { id: 'stylize', label: 'Style look', keys: ['stylize'], types: ['video', 'image'] },
+  { id: 'animation', label: 'Animations', keys: ['animIn', 'animOut', 'animLoop'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
+  { id: 'effects', label: 'Clip effects', keys: ['effects'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
   { id: 'speed', label: 'Speed', keys: ['smoothSlow'], speed: true, types: ['video', 'audio'] },
   { id: 'audio', label: 'Volume and fades', keys: ['volume', 'fadeIn', 'fadeOut', 'muted'], kf: ['volume'], types: ['video', 'audio'] },
   { id: 'audioFx', label: 'Audio effects', keys: ['audioFx', 'keepPitch'], types: ['video', 'audio'] },
@@ -46,7 +47,7 @@ export const ATTRIBUTE_GROUPS = [
 ];
 
 /** Optional clip fields an attribute paste may create on a clip that lacks them. */
-const OPTIONAL_KEYS = ['mask', 'masks', 'motionBlur', 'denoise', 'relight', 'canvas', 'chroma', 'cutout', 'retouch', 'faceShape', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow'];
+const OPTIONAL_KEYS = ['mask', 'masks', 'motionBlur', 'denoise', 'relight', 'canvas', 'chroma', 'cutout', 'retouch', 'faceShape', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow', 'stylize'];
 /** Optional fields only video clips carry (their group also covers audio clips). */
 const VIDEO_ONLY_KEYS = ['smoothSlow'];
 

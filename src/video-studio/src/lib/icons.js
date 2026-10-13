@@ -16,6 +16,9 @@ import {
   ScrollText, SwitchCamera, Grid2x2, MessageSquare, MessageSquareShare, Reply, CircleCheck, SendHorizontal, Users, UserMinus,
 } from 'lucide';
 import {
+  SquareUserRound, Paintbrush,
+} from 'lucide';
+import {
   Heart, Hexagon, PenTool, Brush, Eraser, SquaresUnite, SquaresSubtract, SquaresIntersect, CopyPlus, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
 } from 'lucide';
 
@@ -174,6 +177,9 @@ Object.assign(ICONS, {
   comment: MessageSquare, shareReview: MessageSquareShare, reply: Reply, resolve: CircleCheck, send: SendHorizontal,
   people: Users, removePerson: UserMinus,
 });
+
+// Presenter avatars and style looks.
+Object.assign(ICONS, { avatar: SquareUserRound, stylize: Paintbrush });
 
 /** An SVG icon element. Icons are decorative (aria-hidden); label the control instead. */
 export function icon(name, size = 16, extraClass = '') {
