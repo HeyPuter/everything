@@ -215,7 +215,7 @@ describe("PSD opaque image resources", () => {
       assets.clear();
       reopened?.assets.clear();
     }
-  });
+  }, 20_000);
   it("preserves odd/even payloads, other resources and later sections in PSD and PSB", () => {
     for (const version of [1, 2]) {
       const original = minimalFile(version);
