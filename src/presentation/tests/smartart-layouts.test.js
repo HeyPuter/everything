@@ -101,8 +101,8 @@ describe("SmartArt layout catalog", () => {
     expect(labelled).toContain("#112233");
   });
 
-  it("handles empty outlines, deep nesting and many items", () => {
-    for (const layout of P.SMARTART_LAYOUTS) {
+  for (const layout of P.SMARTART_LAYOUTS)
+    it(`handles empty, deep and long outlines in ${layout.id}`, () => {
       for (const items of [
         [],
         Array.from({ length: 12 }, (_, i) => ({ text: `n${i}`, level: i % 4 })),
@@ -116,6 +116,5 @@ describe("SmartArt layout catalog", () => {
         expect(svg).not.toMatch(/NaN|Infinity/);
         expect(svg).not.toContain("data-pptx-diagram-issues");
       }
-    }
-  });
+    });
 });

@@ -90,11 +90,7 @@ export const textBodyXml = (s: ArtShape, paint: Paint, tag: string): string => {
   const paras = (s.paras ?? []).map((para) => {
     const size = Math.max(100, Math.round(paraPt(para, pt, s) * 2) * 50);
     const indent = Math.round((size / 100) * PT * BULLET);
-    const align = para.bullet
-      ? s.align === "r"
-        ? "r"
-        : "l"
-      : (s.align ?? "ctr");
+    const align = para.bullet ? "l" : (s.align ?? "ctr");
     const pPr = para.bullet
       ? `<a:pPr marL="${indent * (para.level + 1)}" lvl="${Math.min(8, para.level + 1)}" indent="${-indent}" algn="${align}" defTabSz="${indent * 2}"><a:lnSpc><a:spcPct val="90000"/></a:lnSpc><a:spcBef><a:spcPct val="0"/></a:spcBef><a:spcAft><a:spcPct val="15000"/></a:spcAft><a:buFont typeface="Arial" panose="020B0604020202020204" pitchFamily="34" charset="0"/><a:buChar char="&#8226;"/></a:pPr>`
       : `<a:pPr marL="0" lvl="0" indent="0" algn="${align}" defTabSz="${Math.round(pt * PT * 1.5)}"><a:lnSpc><a:spcPct val="90000"/></a:lnSpc><a:spcBef><a:spcPct val="0"/></a:spcBef><a:spcAft><a:spcPct val="35000"/></a:spcAft><a:buNone/></a:pPr>`;

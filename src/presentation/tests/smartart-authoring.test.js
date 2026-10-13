@@ -116,6 +116,15 @@ describe("SmartArt authoring", () => {
         )[1],
       );
     expect(firstX(rtl)).toBeGreaterThan(firstX(ltr));
+    // Slices mirror by angle so their text still reads left to right.
+    const wheel = insert({
+      ...MODEL,
+      layout: "wheel",
+      rightToLeft: true,
+    }).frame;
+    expect(decode(readShapeDiagram(wheel).drawing.part.data)).not.toContain(
+      "flipH",
+    );
   });
 
   it("normalizes outlines and falls back to default colors and styles", () => {

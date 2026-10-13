@@ -232,8 +232,14 @@ export const mirror = (shapes: ArtShape[], width: number): ArtShape[] =>
             line.map(([x, y]) => [s.w - x, y] as const),
           ),
         }
-      : s.geom === "pie" || s.geom === "blockArc"
-        ? { flipH: !s.flipH }
+      : s.geom === "pie" && s.adj
+        ? {
+            // Mirror the slice's angles; flipping would mirror its text.
+            adj: {
+              adj1: mirrorAngle(s.adj["adj2"] ?? 0),
+              adj2: mirrorAngle(s.adj["adj1"] ?? 0),
+            },
+          }
         : MIRRORED.has(s.geom)
           ? { flipH: !s.flipH }
           : {}),
@@ -243,6 +249,8 @@ export const mirror = (shapes: ArtShape[], width: number): ArtShape[] =>
         ? { align: "l" as const }
         : {}),
   }));
+const mirrorAngle = (a: number) =>
+  (((10800000 - a) % 21600000) + 21600000) % 21600000;
 const MIRRORED = new Set([
   "rightArrow",
   "leftArrow",
