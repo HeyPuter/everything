@@ -63,6 +63,8 @@ export type {
   ChartAxisTickLabelPosition,
   ChartAxisScaling,
   ChartDataLabels,
+  ChartDataTable,
+  ChartErrorBars,
   ChartGrouping,
   ChartKind,
   ChartDataLabelPosition,

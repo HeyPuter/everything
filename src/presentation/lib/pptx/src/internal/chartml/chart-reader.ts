@@ -48,6 +48,8 @@ import type {
   ChartSpec,
   ChartTextStyle,
   ChartTrendline,
+  ChartErrorBars,
+  ChartDataTable,
 } from "./types.ts";
 
 const NS_C = NS.chart;
@@ -428,6 +430,78 @@ const readSeriesLineProps = (
   };
 };
 
+// <c:errBars> — the editable model holds one set per series. An XY series
+// may carry an X and a Y set; the Y set (the usual one) is preferred.
+const readErrorBars = (
+  ser: XmlElement,
+  resolveColor: ChartColorResolver,
+): ChartErrorBars | undefined => {
+  const all = allChildElements(ser, qname("c", "errBars", NS_C));
+  const token = (el: XmlElement, local: string): string | null => {
+    const child = firstChildElement(el, qname("c", local, NS_C));
+    return child && getAttrValue(child, ATTR_VAL);
+  };
+  const bars = all.find((el) => (token(el, "errDir") ?? "y") === "y") ?? all[0];
+  if (!bars) return undefined;
+  const direction = token(bars, "errDir") === "x" ? "x" : undefined;
+  const rawType = token(bars, "errBarType");
+  const type: ChartErrorBars["type"] =
+    rawType === "plus" || rawType === "minus" ? rawType : "both";
+  const rawValueType = token(bars, "errValType");
+  const valueType: ChartErrorBars["valueType"] =
+    rawValueType === "percentage" ||
+    rawValueType === "stdDev" ||
+    rawValueType === "stdErr"
+      ? rawValueType
+      : "fixedVal";
+  const rawValue = token(bars, "val");
+  const parsed = rawValue === null ? NaN : Number(rawValue);
+  const defaultValue = valueType === "percentage" ? 5 : 1;
+  const value =
+    valueType !== "stdErr" &&
+    Number.isFinite(parsed) &&
+    parsed >= 0 &&
+    parsed !== defaultValue
+      ? parsed
+      : undefined;
+  const noEndCap = readBoolean(
+    firstChildElement(bars, qname("c", "noEndCap", NS_C)),
+  );
+  const spPr = firstChildElement(bars, NAME_SP_PR_C);
+  const ln = spPr && firstChildElement(spPr, qname("a", "ln", NS_A));
+  const color = ln ? readChartSolidPaint(ln, resolveColor) : undefined;
+  return {
+    ...(direction !== undefined ? { direction } : {}),
+    type,
+    valueType,
+    ...(value !== undefined ? { value } : {}),
+    ...(noEndCap === true ? { noEndCap } : {}),
+    ...(color !== undefined ? { color } : {}),
+  };
+};
+
+// <c:dTable> flags, each present only when authored.
+const readDataTable = (plotArea: XmlElement): ChartDataTable | undefined => {
+  const table = firstChildElement(plotArea, qname("c", "dTable", NS_C));
+  if (!table) return undefined;
+  const out: {
+    showHorzBorder?: boolean;
+    showVertBorder?: boolean;
+    showOutline?: boolean;
+    showKeys?: boolean;
+  } = {};
+  for (const key of [
+    "showHorzBorder",
+    "showVertBorder",
+    "showOutline",
+    "showKeys",
+  ] as const) {
+    const on = readBoolean(firstChildElement(table, qname("c", key, NS_C)));
+    if (on !== undefined) out[key] = on;
+  }
+  return out;
+};
+
 const readTitle = (chart: XmlElement): string | undefined => {
   const title = firstChildElement(chart, NAME_TITLE);
   if (!title) return undefined;
@@ -749,6 +823,7 @@ export const readChartSpec = (
     const smooth =
       smoothEl !== null && getAttrValue(smoothEl, ATTR_VAL) !== "0";
     const trendline = readTrendline(ser, resolveColor);
+    const errorBars = readErrorBars(ser, resolveColor);
     // Per-series <c:dLbls> overrides the chart-level toggles for this
     // one series.
     const serDLblsEl = firstChildElement(ser, qname("c", "dLbls", NS_C));
@@ -806,6 +881,7 @@ export const readChartSpec = (
       ...(pointExplosions !== undefined ? { pointExplosions } : {}),
       ...(smoothEl !== null ? { smooth } : {}),
       ...(trendline !== undefined ? { trendline } : {}),
+      ...(errorBars !== undefined ? { errorBars } : {}),
       ...(serDataLabels !== undefined ? { dataLabels: serDataLabels } : {}),
     });
   }
@@ -992,6 +1068,13 @@ export const readChartSpec = (
     qname("c", "hiLowLines", NS_C),
   );
   const dropLines = dropLinesEl !== null ? true : undefined;
+  const linePlot = plotGroups.find((group) => group.kind === "line");
+  const upDownBars =
+    linePlot &&
+    firstChildElement(linePlot.element, qname("c", "upDownBars", NS_C))
+      ? true
+      : undefined;
+  const dataTable = readDataTable(plotArea);
   const hiLowLines = hiLowLinesEl !== null ? true : undefined;
 
   // Preserve the raw Show Marker flag, including absence. Readers ignore it
@@ -1489,7 +1572,7 @@ export const readChartSpec = (
   const textStyle = textPr
     ? readChartTextStyle(textPr, resolveColor)
     : undefined;
-  return {
+  const spec: ChartSpec = {
     kind,
     categories,
     ...(categoryNumberFormat !== undefined ? { categoryNumberFormat } : {}),
@@ -1505,6 +1588,8 @@ export const readChartSpec = (
     ...(grouping !== undefined ? { grouping } : {}),
     ...(dropLines !== undefined ? { dropLines } : {}),
     ...(hiLowLines !== undefined ? { hiLowLines } : {}),
+    ...(upDownBars !== undefined ? { upDownBars } : {}),
+    ...(dataTable !== undefined ? { dataTable } : {}),
     ...(lineMarkers !== undefined ? { lineMarkers } : {}),
     ...(gapWidthPct !== undefined ? { gapWidthPct } : {}),
     ...(overlapPct !== undefined ? { overlapPct } : {}),
@@ -1641,5 +1726,46 @@ export const readChartSpec = (
     ...(radarStyle !== undefined ? { radarStyle } : {}),
     ...(bubbleScale !== undefined ? { bubbleScale } : {}),
     ...(bubbleSizeRepresents !== undefined ? { bubbleSizeRepresents } : {}),
+  };
+  return foldImpliedSeriesStyle(spec);
+};
+
+// The writer spells a scatter / radar sub-type on each series as well (a
+// hidden line, no markers, smoothing). Those series values say nothing the
+// group style does not, so the model keeps just the style.
+const foldImpliedSeriesStyle = (spec: ChartSpec): ChartSpec => {
+  if (spec.kind !== "scatter" && spec.kind !== "radar") return spec;
+  const scatter = spec.kind === "scatter";
+  const style = scatter ? (spec.scatterStyle ?? "marker") : spec.radarStyle;
+  const hidesLine = scatter && (style === "marker" || style === "none");
+  const hidesMarkers = scatter
+    ? style === "line" || style === "smooth" || style === "none"
+    : style !== "marker";
+  const smooth = style === "smooth" || style === "smoothMarker";
+  return {
+    ...spec,
+    series: spec.series.map((series) => {
+      const out: { -readonly [K in keyof ChartSeries]?: ChartSeries[K] } = {
+        ...series,
+      };
+      if (
+        hidesLine &&
+        out.lineColor === null &&
+        out.lineWidthEmu === undefined &&
+        out.lineDash === undefined
+      )
+        delete out.lineColor;
+      if (
+        hidesMarkers &&
+        out.markerSymbol === "none" &&
+        out.markerSizePt === undefined &&
+        out.markerFill === undefined &&
+        out.markerStrokeColor === undefined &&
+        out.markerStrokeWidthEmu === undefined
+      )
+        delete out.markerSymbol;
+      if (scatter && out.smooth === smooth) delete out.smooth;
+      return out as ChartSeries;
+    }),
   };
 };
