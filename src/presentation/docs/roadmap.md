@@ -79,9 +79,12 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 9. Review
 
-- [ ] Comments pane with threaded replies, resolve, mentions, previous/next,
-      saved in the file.
-- [ ] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Comments pane with threaded replies, resolve, mentions, previous/next,
+      saved in the file (threaded comment parts; legacy comments read too),
+      draggable markers, thumbnail indicators and a status bar button.
+- [x] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Spelling pane, AutoCorrect while typing, Reading Order pane, and
+      Always Open Read-Only with Edit Anyway.
 
 ### 10. File, print and export
 
