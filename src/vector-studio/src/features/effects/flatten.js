@@ -154,7 +154,7 @@ export function collectArtwork(doc, ids, strokeOutlines, { textOutlines = null, 
       const vb = visualBounds(doc, n);
       return vb ? { kind: 'shape', index: addShape([rectSub(vb)], { hard: true }), hard: true } : null;
     };
-    if (rasterEffects(n) || n.knockout) {
+    if (rasterEffects(n) || n.knockout || n.opacityMask) {
       transparent = true;
       return hardBox();
     }

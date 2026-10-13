@@ -1700,6 +1700,49 @@ export class PSInterpreter {
     return out;
   }
 
+  /** A masked image (ImageType 3): the image with the 1-bit mask as its transparency. */
+  maskedImage(dict) {
+    const md = dict.get('MaskDict');
+    const dd = dict.get('DataDict');
+    if (!(md instanceof PSDict) || !(dd instanceof PSDict)) throw new PSError('typecheck', 'image');
+    const mw = md.get('Width');
+    const mh = md.get('Height');
+    if (!(mw > 0) || !(mh > 0) || mw * mh > 5e7) throw new PSError('rangecheck', 'image');
+    const mdec = md.get('Decode');
+    // After decoding, mask samples of 0 paint and 1 mask out.
+    const flip = mdec instanceof PSArray && mdec.list()[0] === 1;
+    const rb = Math.ceil(mw / 8);
+    let bits;
+    if (dict.get('InterleaveType') === 3 || md.get('DataSource')) bits = this.readAll(this.dataSource(md.get('DataSource')), rb * mh);
+    else bits = new Uint8Array(rb * mh);
+    const alpha = new Uint8Array(mw * mh);
+    for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) alpha[y * mw + x] = ((bits[y * rb + (x >> 3)] >> (7 - (x & 7))) & 1) === (flip ? 1 : 0) ? 255 : 0;
+    const before = this.images.length;
+    this.push(dd);
+    this.image('image');
+    const entry = this.images[before];
+    if (!entry) return;
+    if (entry.img.kind === 'rgba' && entry.img.width === mw && entry.img.height === mh) {
+      for (let i = 0; i < mw * mh; i++) entry.img.data[i * 4 + 3] = alpha[i];
+      return;
+    }
+    // JPEG data (or a mask of another size): an opacity mask image over the same area.
+    const node = [...this.out.nodes.values()].find((n) => n.type === 'image' && n.asset === entry.id);
+    if (!node) return;
+    const maskId = uid('img');
+    const data = new Uint8ClampedArray(mw * mh * 4);
+    for (let i = 0; i < mw * mh; i++) {
+      data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = alpha[i];
+      data[i * 4 + 3] = 255;
+    }
+    this.images.push({ id: maskId, img: { kind: 'rgba', width: mw, height: mh, data } });
+    const sx = node.width / mw;
+    const sy = node.height / mh;
+    const t = node.transform;
+    const maskImg = createImage(maskId, mw, mh, [t[0] * sx, t[1] * sx, t[2] * sy, t[3] * sy, t[4], t[5]]);
+    this.out.nodes.set(node.id, { ...node, opacityMask: { art: { root: maskImg.id, nodes: [maskImg] }, transform: [1, 0, 0, 1, 0, 0], clip: true, invert: false } });
+  }
+
   image(kind) {
     this.lastFill = null;
     let width;
@@ -1713,6 +1756,10 @@ export class PSInterpreter {
     let polarity = false;
     let colorSpace = null;
     const top = this.pop();
+    if (top instanceof PSDict && top.get('ImageType') === 3 && kind === 'image') {
+      this.maskedImage(top);
+      return;
+    }
     if (top instanceof PSDict) {
       // Level 2 image dictionary.
       width = top.get('Width');
@@ -1823,6 +1870,12 @@ export class PSInterpreter {
         const raw = this.rawFrom(from, eodString || null);
         return { bytes: raw, pos: 0, end: raw.length };
       }));
+      return;
+    }
+    if (fname === 'ReusableStreamDecode') {
+      // Read the whole source now: the data stays available after the file moves on.
+      const raw = this.rawFrom(src, null).slice();
+      this.push(new PSFile({ bytes: raw, pos: 0, end: raw.length }));
       return;
     }
     const file = new PSFile(() => {

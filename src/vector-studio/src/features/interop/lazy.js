@@ -24,6 +24,8 @@ import { writeEPS, dosEPS } from './ps/eps-export.js';
 import { readDXF, convertDXF } from './dxf/dxf-import.js';
 import { writeDXF } from './dxf/dxf-export.js';
 import { UNIT_CHOICES } from './dxf/common.js';
+import { listPresets, getPreset } from '../prepress/presets.js';
+import { normalizeFlattener } from '../prepress/flattener-presets.js';
 import { encodeTIFF } from './codec/tiff.js';
 import { encodePNG } from './codec/png.js';
 import { rasterToPNG as toPNG } from './codec/raster.js';
@@ -333,6 +335,15 @@ function moveNodes(nodes, dx, dy) {
 
 // ---------------------------------------------------------------- export
 
+/** flattenSelection options for a flattener preset name ('' or 'none': keep transparency out). */
+async function flattenSettings(app, doc, ids, name) {
+  if (!name || name === 'none') return null;
+  const v = normalizeFlattener(getPreset(app, 'flattener', name)?.values || {});
+  const opts = { balance: v.balance, resolution: v.lineArtPpi, gradientResolution: v.gradientPpi, antialias: v.antialias, strokesToOutlines: v.strokesToOutlines, clipComplex: v.clipComplex };
+  if (v.textToOutlines && app.textOutlines) opts.textOutlines = await collectTextOutlines(app, doc, ids || doc.root.children);
+  return opts;
+}
+
 async function outlinesFor(app, doc, ids, wanted) {
   if (!wanted || !app.textOutlines) return null;
   const map = await collectTextOutlines(app, doc, ids || doc.root.children);
@@ -351,7 +362,8 @@ export async function renderExport(app, key, editor, region, options = {}) {
   if (!rect || !(rect.w > 0) || !(rect.h > 0)) throw new UserError('There is nothing to export.');
   if (key === 'eps') {
     const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false);
-    const { text, warnings } = await writeEPS(doc, { rect, ids, level: options.level, colorMode: options.colorMode, outlines, title: options.title });
+    const flatten = await flattenSettings(app, doc, ids, options.flattener);
+    const { text, warnings } = await writeEPS(doc, { rect, ids, level: options.level, colorMode: options.colorMode, outlines, title: options.title, flatten });
     if (warnings.length) app.notify?.([...new Set(warnings)].join(' '), { timeout: 6000 });
     if (options.preview === 'tiff') {
       try {
@@ -401,8 +413,21 @@ export function exportOptions(app, key, o, { row, select, checkbox }) {
       outl.input.checked = false;
       outl.input.disabled = true;
     }
-    fields.push(row('PostScript', level), row('Color', color), row('Preview', preview, { help: 'Programs that cannot read PostScript show the preview image.' }), outl.el, h('p.form-help', 'PostScript has no transparency: opacity and blending modes are not kept.'));
-    return { fields, read: () => ({ level: Number(level.value), colorMode: color.value, preview: preview.value, textOutlines: outl.input.checked }) };
+    let presets = [];
+    try {
+      presets = listPresets(app, 'flattener');
+    } catch {
+      presets = [];
+    }
+    const flat = select([...presets.map((p) => ({ value: p.name, label: p.name })), { value: 'none', label: 'None (drop transparency)' }], presets.some((p) => p.name === o.flattener) ? o.flattener : presets[0]?.name || 'none');
+    fields.push(
+      row('PostScript', level),
+      row('Color', color),
+      row('Preview', preview, { help: 'Programs that cannot read PostScript show the preview image.' }),
+      row('Flatten transparency', flat, { help: 'PostScript has no transparency: transparent artwork and what it overlaps become opaque shapes and images with this flattener preset.' }),
+      outl.el,
+    );
+    return { fields, read: () => ({ level: Number(level.value), colorMode: color.value, preview: preview.value, textOutlines: outl.input.checked, flattener: flat.value }) };
   }
   if (key === 'tiff') {
     const mode = select([{ value: 'rgb', label: 'RGB' }, { value: 'cmyk', label: 'CMYK' }, { value: 'gray', label: 'Grayscale' }], o.mode);
