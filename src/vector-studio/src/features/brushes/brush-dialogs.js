@@ -12,6 +12,8 @@ import { h } from '../../lib/dom.js';
 import { parseNumber } from '../../lib/units.js';
 import { BRUSH_TYPES, BRISTLE_SHAPES, COLORIZE_METHODS, artFromNodes } from './brush-model.js';
 import { drawBrushPreview, inkColor } from './thumbs.js';
+import { orientedArt } from './generate.js';
+import { tracePath } from '../../render/draw.js';
 
 let uidCounter = 0;
 const uid = (p) => `${p}-${++uidCounter}`;
@@ -20,6 +22,7 @@ const MODES = [
   { value: 'fixed', label: 'Fixed' },
   { value: 'random', label: 'Random' },
   { value: 'pressure', label: 'Pressure' },
+  { value: 'velocity', label: 'Velocity' },
 ];
 
 const fmt = (v, unit) => `${Number((v ?? 0).toFixed(2))}${unit}`;
@@ -100,10 +103,32 @@ function rangeField(label, r, { unit = '', min = 0, max = 1000, step = 1 } = {})
   };
 }
 
-function colorizeField(c) {
+/** The solid colors of a brush's artwork (art, or pattern tiles), most used first. */
+export function brushArtColors(brush) {
+  const counts = new Map();
+  const add = (p) => {
+    const list = p?.type === 'solid' ? [p.color] : p?.stops ? p.stops.map((st) => st.color) : [];
+    for (const c of list) counts.set(c.toLowerCase(), (counts.get(c.toLowerCase()) || 0) + 1);
+  };
+  const arts = [brush.art, ...Object.values(brush.tiles || {})].filter((a) => a && typeof a === 'object' && a.items);
+  for (const art of arts) for (const it of art.items) {
+    add(it.fill);
+    if (it.strokeWidth > 0) add(it.stroke);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+}
+
+function colorizeField(c, artColors = []) {
   const method = select(COLORIZE_METHODS, c?.method || 'none', 'Colorization method');
   const key = h('input', { type: 'color', value: c?.key || '#000000', 'aria-label': 'Key color' });
-  const keyWrap = h('span.bo-key', h('span.bo-sub', 'Key color'), key);
+  // The key color is picked from the artwork's own colors (or any color).
+  const chips = artColors.slice(0, 12).map((col) =>
+    h('button.bo-key-chip', { type: 'button', style: { background: col }, 'aria-label': `Use ${col.toUpperCase()} as the key color`, 'data-tip': col.toUpperCase(), onclick: () => {
+      key.value = col;
+      key.dispatchEvent(new Event('input', { bubbles: true }));
+    } }),
+  );
+  const keyWrap = h('span.bo-key', h('span.bo-sub', 'Key color'), key, chips.length ? h('span.bo-key-chips', { role: 'group', 'aria-label': 'Artwork colors' }, chips) : null);
   const help = h('p.bo-help');
   const HELP = {
     none: 'The artwork keeps its own colors.',
@@ -128,6 +153,102 @@ function slider(label, value, { min = 1, max = 100, unit = '%' } = {}) {
   return { el: h('div.bo-row', h('label.bo-label', { for: id }, label), h('div.bo-controls.range-wrap', input, out)), get: () => Number(input.value) };
 }
 
+const SVG = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}) => {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+};
+
+/** SVG path data for subpaths. */
+function pathData(subpaths) {
+  let d = '';
+  const n = (v) => Number(v.toFixed(2));
+  const sink = {
+    moveTo: (x, y) => (d += `M${n(x)} ${n(y)}`),
+    lineTo: (x, y) => (d += `L${n(x)} ${n(y)}`),
+    bezierCurveTo: (a, b, c, e, x, y) => (d += `C${n(a)} ${n(b)} ${n(c)} ${n(e)} ${n(x)} ${n(y)}`),
+    closePath: () => (d += 'Z'),
+  };
+  for (const sp of subpaths) tracePath(sink, sp.anchors, sp.closed);
+  return d;
+}
+
+/**
+ * Art brush guides on the artwork: the art as it runs along the stroke
+ * (its direction applied) with two dashed guides to drag. The part
+ * between them stretches; the ends keep their size. Synced with the Start
+ * and End fields (percent of the art's length).
+ */
+function guideEditor(brush, g0, g1) {
+  const art = orientedArt(brush.art, brush.direction || 'right');
+  if (!art || typeof document === 'undefined') return null;
+  const B = art.bounds;
+  const pad = Math.max(B.w, B.h) * 0.06;
+  const svg = svgEl('svg', { viewBox: `${B.x - pad} ${B.y - pad} ${B.w + 2 * pad} ${B.h + 2 * pad}`, preserveAspectRatio: 'xMidYMid meet', 'aria-hidden': 'true' });
+  for (const it of art.items) {
+    const paint = (p) => (p?.type === 'solid' ? p.color : p?.stops?.[0]?.color || 'none');
+    svg.append(svgEl('path', { d: pathData(it.subpaths), fill: it.fill ? paint(it.fill) : 'none', stroke: it.stroke && it.strokeWidth > 0 ? paint(it.stroke) : 'none', 'stroke-width': it.strokeWidth || 0, 'fill-rule': it.fillRule || 'nonzero', opacity: it.opacity ?? 1 }));
+  }
+  const band = svgEl('rect', { class: 'bo-guide-band', y: B.y - pad, height: B.h + 2 * pad });
+  svg.prepend(band);
+  const lines = [g0, g1].map(() => svgEl('line', { class: 'bo-guide', y1: B.y - pad, y2: B.y + B.h + pad, 'vector-effect': 'non-scaling-stroke' }));
+  svg.append(...lines);
+  const wrap = h('div.bo-guides', { role: 'group', 'aria-label': 'Guides on the artwork: drag to set where the art stretches' }, svg);
+  const frac = (f) => f.get() / 100;
+  const place = () => {
+    const a = Math.min(1, Math.max(0, frac(g0) || 0));
+    const b = Math.min(1, Math.max(0, frac(g1) || 0));
+    [a, b].forEach((v, i) => {
+      lines[i].setAttribute('x1', String(B.x + v * B.w));
+      lines[i].setAttribute('x2', String(B.x + v * B.w));
+    });
+    band.setAttribute('x', String(B.x + Math.min(a, b) * B.w));
+    band.setAttribute('width', String(Math.abs(b - a) * B.w));
+  };
+  let enabled = true;
+  const toFrac = (clientX) => {
+    const r = svg.getBoundingClientRect();
+    // The art is centered in the box at its aspect ratio.
+    const s = Math.min(r.width / (B.w + 2 * pad), r.height / (B.h + 2 * pad)) || 1;
+    const x0 = r.left + (r.width - (B.w + 2 * pad) * s) / 2 + pad * s;
+    return Math.min(1, Math.max(0, (clientX - x0) / (B.w * s)));
+  };
+  svg.addEventListener('pointerdown', (e) => {
+    if (!enabled) return;
+    const f = toFrac(e.clientX);
+    // The nearer guide follows the pointer.
+    const field = Math.abs(f - frac(g0)) <= Math.abs(f - frac(g1)) ? g0 : g1;
+    const move = (ev) => {
+      field.set(Math.round(toFrac(ev.clientX) * 1000) / 10);
+      field.el.dispatchEvent(new Event('input', { bubbles: true }));
+      place();
+    };
+    move(e);
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic pointer.
+    }
+    const up = () => {
+      svg.removeEventListener('pointermove', move);
+      svg.removeEventListener('pointerup', up);
+      field.el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    svg.addEventListener('pointermove', move);
+    svg.addEventListener('pointerup', up);
+  });
+  for (const f of [g0, g1]) f.el.addEventListener('input', place);
+  place();
+  return {
+    el: wrap,
+    setEnabled(on) {
+      enabled = on;
+      wrap.classList.toggle('disabled', !on);
+    },
+  };
+}
+
 /** Fields for a brush type. `scope` 'stroke' shows only what a single stroke can override. */
 function typeFields(app, brush, scope, selectionArt) {
   const f = {};
@@ -149,7 +270,7 @@ function typeFields(app, brush, scope, selectionArt) {
       add('rotation', rangeField('Rotation', brush.rotation, { unit: '°', min: -360, max: 360 }));
       f.rotateRelative = select([{ value: 'page', label: 'Page' }, { value: 'path', label: 'Path' }], brush.rotateRelative || 'page', 'Rotation relative to');
       parts.push(row('Rotation relative to', f.rotateRelative.el));
-      add('colorize', colorizeField(brush.colorize));
+      add('colorize', colorizeField(brush.colorize, brushArtColors(brush)));
       break;
     case 'art': {
       add('width', variableField('Width', brush.width, { unit: '%', min: 1, max: 1000 }));
@@ -164,10 +285,16 @@ function typeFields(app, brush, scope, selectionArt) {
         f.scaling = scaling;
         f.guides = { get: () => ({ start: g0.get() / 100, end: g1.get() / 100 }) };
         // Guides only matter when stretching between them.
-        const syncGuides = () => (g0.el.disabled = g1.el.disabled = scaling.get() !== 'guides');
+        const editor = guideEditor(brush, g0, g1);
+        const syncGuides = () => {
+          const on = scaling.get() === 'guides';
+          g0.el.disabled = g1.el.disabled = !on;
+          editor?.setEnabled(on);
+        };
         scaling.el.addEventListener('change', syncGuides);
-        syncGuides();
         parts.push(row('Scale', scaling.el), row('Guides', h('span.bo-sub', 'Start'), g0.el, h('span.bo-sub', 'End'), g1.el));
+        if (editor) parts.push(editor.el);
+        syncGuides();
         const dir = radios('Direction', [
           { value: 'right', label: '→ Left to right' },
           { value: 'left', label: '← Right to left' },
@@ -188,7 +315,7 @@ function typeFields(app, brush, scope, selectionArt) {
       f.flipAlong = fa;
       f.flipAcross = fx;
       parts.push(row('Flip', fa.el, fx.el));
-      add('colorize', colorizeField(brush.colorize));
+      add('colorize', colorizeField(brush.colorize, brushArtColors(brush)));
       break;
     }
     case 'pattern': {
@@ -250,7 +377,7 @@ function typeFields(app, brush, scope, selectionArt) {
       f.flipAlong = fa;
       f.flipAcross = fx;
       parts.push(row('Flip', fa.el, fx.el));
-      add('colorize', colorizeField(brush.colorize));
+      add('colorize', colorizeField(brush.colorize, brushArtColors(brush)));
       break;
     }
     case 'bristle': {

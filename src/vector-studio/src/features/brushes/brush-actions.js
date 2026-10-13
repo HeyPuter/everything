@@ -1,8 +1,8 @@
 /**
  * Brush workflows that involve dialogs, shared by the Brushes panel, the
  * Properties panel and the commands: New Brush, Brush Options (with Apply
- * to Strokes / Leave Strokes for brushes in use), Options of Selected
- * Object and Delete Brush.
+ * to Strokes / Apply to Selected Strokes / Leave Strokes for brushes in
+ * use), Options of Selected Object and Delete Brush.
  */
 import { h } from '../../lib/dom.js';
 import { BRUSH_TYPES, makeBrush, brushDefaults, brushById, docBrushes, setDocBrushes, brushUsers, copyBrush, uniqueBrushName, resolveBrush } from './brush-model.js';
@@ -40,16 +40,21 @@ export async function newBrush(app, presetType = null) {
   return result;
 }
 
-/** Ask what to do with strokes that use a changed brush: 'apply' | 'leave' | null. */
-function askApplyToStrokes(app, count) {
+/**
+ * Ask what to do with strokes that use a changed brush: 'apply' | 'leave' |
+ * 'selected' (only the selected strokes take the new settings) | null.
+ */
+function askApplyToStrokes(app, count, selected = 0) {
+  const some = selected > 0 && selected < count;
   return app.dialogs.open({
     title: 'Brush Change',
-    body: h('p.dialog-message', `${count} ${count === 1 ? 'object uses' : 'objects use'} this brush. Update them with the new settings, or leave them as they are (the new settings become a new brush)?`),
+    body: h('p.dialog-message', `${count} ${count === 1 ? 'object uses' : 'objects use'} this brush. Update them with the new settings, or leave them as they are (the new settings become a new brush)?${some ? ` ${selected} of them ${selected === 1 ? 'is' : 'are'} selected and can take the new settings alone.` : ''}`),
     buttons: [
       { label: 'Cancel', value: null, left: true },
       { label: 'Leave Strokes', value: 'leave' },
+      some ? { label: 'Apply to Selected Strokes', value: 'selected' } : null,
       { label: 'Apply to Strokes', value: 'apply', primary: true },
-    ],
+    ].filter(Boolean),
   });
 }
 
@@ -86,8 +91,11 @@ export async function editBrush(app, brushId) {
   if (!result) return false;
   if (JSON.stringify(result) === JSON.stringify(def)) return true;
   let how = 'apply';
+  // Selected strokes using the brush (directly or through an appearance stroke).
+  const picked = new Set(ed.topSelection());
+  const selectedUsers = users.filter((id) => picked.has(id) || doc.ancestors(id).some((a) => picked.has(a.id)));
   if (users.length) {
-    how = await askApplyToStrokes(app, users.length);
+    how = await askApplyToStrokes(app, users.length, selectedUsers.length);
     if (!how) return false;
   }
   doc.transact('Brush Options', () => {
@@ -97,6 +105,8 @@ export async function editBrush(app, brushId) {
       const fresh = { ...copyBrush(result, uniqueBrushName(doc, result.name === def.name ? `${def.name} copy` : result.name)) };
       addBrush(doc, fresh, def.id);
       brushState(app).currentId = fresh.id;
+      // Apply to Selected Strokes: the selected ones move to the new brush (keeping their own overrides).
+      if (how === 'selected') for (const id of selectedUsers) doc.update(id, { brush: { ...doc.get(id).brush, id: fresh.id } });
     }
   });
   return true;

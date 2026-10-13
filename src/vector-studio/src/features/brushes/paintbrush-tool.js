@@ -1,7 +1,8 @@
 /**
  * Paintbrush tool (B) with brushes: strokes are painted with the current
  * brush (chosen in the Brushes panel), pen pressure is recorded for brushes
- * that vary with pressure, and with "Edit selected paths" a stroke drawn
+ * that vary with pressure and drawing speed for brushes that vary with
+ * velocity, and with "Edit selected paths" a stroke drawn
  * along a selected path reshapes that part of it instead of making a new
  * path. Double-click the tool for its options.
  */
@@ -32,6 +33,35 @@ export function pressureSamples(points, pressures, max = 24) {
     out.push([Math.round((target / L) * 1000) / 1000, Math.round(p * 1000) / 1000]);
   }
   return out;
+}
+
+/** Screen speed (pixels per millisecond) that counts as fast (velocity 1). */
+const FAST = 2.5;
+
+/**
+ * Drawing speed (0 slow .. 1 fast) at each stroke point from timestamps:
+ * the screen speed over the neighboring points, smoothed.
+ */
+export function velocities(points, times, zoom = 1) {
+  if (!times || times.length !== points.length || points.length < 2) return null;
+  const n = points.length;
+  const raw = points.map((_, i) => {
+    const a = Math.max(0, i - 2);
+    const b = Math.min(n - 1, i + 2);
+    let d = 0;
+    for (let k = a; k < b; k++) d += Math.hypot(points[k + 1].x - points[k].x, points[k + 1].y - points[k].y);
+    const dt = Math.max(1, times[b] - times[a]);
+    return Math.min(1, (d * zoom) / dt / FAST);
+  });
+  return raw.map((_, i) => {
+    let sum = 0;
+    let c = 0;
+    for (let k = Math.max(0, i - 3); k <= Math.min(n - 1, i + 3); k++) {
+      sum += raw[k];
+      c++;
+    }
+    return sum / c;
+  });
 }
 
 /** Global position (segment index + t) of the nearest point on a path. */
@@ -76,16 +106,21 @@ export class BrushPaintbrushTool extends PaintbrushTool {
   onPointerDown(e) {
     super.onPointerDown(e);
     this.pressures = e.pointerType === 'pen' ? [e.pressure ?? 0.5] : null;
+    this.times = this.points ? this.points.map(() => e.native?.timeStamp ?? performance.now()) : null;
   }
 
   onPointerMove(e) {
     if (!this.points) return;
     const before = this.points.length;
     super.onPointerMove(e);
+    const samples = e.native?.getCoalescedEvents?.() || [];
+    const added = this.points.length - before;
     if (this.pressures) {
-      const samples = e.native?.getCoalescedEvents?.() || [];
-      const added = this.points.length - before;
       for (let i = 0; i < added; i++) this.pressures.push(samples.length > 1 && samples[i] ? samples[i].pressure ?? e.pressure : e.pressure ?? 0.5);
+    }
+    if (this.times) {
+      const now = e.native?.timeStamp ?? performance.now();
+      for (let i = 0; i < added; i++) this.times.push(samples.length > 1 && samples[i]?.timeStamp ? samples[i].timeStamp : now);
     }
   }
 
@@ -108,7 +143,9 @@ export class BrushPaintbrushTool extends PaintbrushTool {
   onPointerUp(e) {
     const pts = this.points;
     const pressures = this.pressures;
+    const times = this.times;
     this.pressures = null;
+    this.times = null;
     if (!pts || pts.length < 2) {
       super.onPointerUp(e);
       return;
@@ -118,8 +155,10 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     if (!target || (endpoint && !target.b)) {
       // A new stroke (or one continuing an end of a selected path: the base tool handles it).
       this.lastPressure = pressureSamples(pts, pressures);
+      this.lastVelocity = pressureSamples(pts, velocities(pts, times, this.editor?.view.zoom || 1));
       super.onPointerUp(e);
       this.lastPressure = null;
+      this.lastVelocity = null;
       return;
     }
     this.points = null;
@@ -149,6 +188,8 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     if (id && brushById(ed.doc, id)) {
       style.brush = { id, seed: Math.floor(Math.random() * 0x7fffffff) };
       if (this.lastPressure && brushUsesPressure(brushById(ed.doc, id))) style.brushPressure = this.lastPressure;
+      // Drawing speed rides on the brush reference (the brush reads it as `velocity`).
+      if (this.lastVelocity && brushUsesMode(brushById(ed.doc, id), 'velocity')) style.brush.velocity = this.lastVelocity;
     } else {
       style.strokeCap = 'round';
       style.strokeJoin = 'round';
@@ -184,5 +225,10 @@ export class BrushPaintbrushTool extends PaintbrushTool {
 export function brushUsesPressure(b) {
   if (!b) return false;
   if (b.type === 'bristle') return true;
-  return Object.values(b).some((v) => v && typeof v === 'object' && v.mode === 'pressure');
+  return brushUsesMode(b, 'pressure');
+}
+
+/** Whether any of a brush's variable parameters uses a mode ('pressure', 'velocity', ...). */
+export function brushUsesMode(b, mode) {
+  return Boolean(b) && Object.values(b).some((v) => v && typeof v === 'object' && v.mode === mode);
 }

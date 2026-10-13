@@ -60,23 +60,30 @@ export function pressureFunction(samples) {
   };
 }
 
-/** A Variable { mode, value, variation } at a stroke's random draw `u` (0..1) and pressure p. */
-export function variableValue(param, u, p) {
+/**
+ * A Variable { mode, value, variation } at a stroke's random draw `u`
+ * (0..1), pressure p and drawing speed v (0..1, slow to fast; 0.5 without
+ * data). Pressure and velocity modes go from value - variation (light,
+ * slow) to value + variation (hard, fast).
+ */
+export function variableValue(param, u, p, v = 0.5) {
   if (param == null) return 0;
   if (typeof param === 'number') return param;
   const { mode = 'fixed', value = 0, variation = 0 } = param;
   if (mode === 'random') return value + variation * (2 * u - 1);
   if (mode === 'pressure') return value + variation * (2 * p - 1);
+  if (mode === 'velocity') return value + variation * (2 * v - 1);
   return value;
 }
 
-/** A Range { mode, min, max } for a draw u and pressure p. */
-export function rangeValue(param, u, p) {
+/** A Range { mode, min, max } for a draw u, pressure p and speed v. */
+export function rangeValue(param, u, p, v = 0.5) {
   if (param == null) return 0;
   if (typeof param === 'number') return param;
   const { mode = 'fixed', min = 0, max = min } = param;
   if (mode === 'random') return min + (max - min) * u;
   if (mode === 'pressure') return min + (max - min) * p;
+  if (mode === 'velocity') return min + (max - min) * v;
   return min;
 }
 
@@ -100,7 +107,7 @@ function mapArt(art, map, { colorize, strokeColor, widthScale = 1, opacity = 1 }
 
 /** Art turned so it runs along +x (the brush's direction), with its bounds. */
 const orientedCache = new WeakMap();
-function orientedArt(art, direction = 'right') {
+export function orientedArt(art, direction = 'right') {
   if (!art) return null;
   let byDir = orientedCache.get(art);
   if (!byDir) orientedCache.set(art, (byDir = {}));
@@ -195,15 +202,17 @@ export function calligraphicShapes(subpaths, style, brush, { seed = 1, pressure 
   const ur = rand();
   const us = rand();
   const pf = pressureFunction(pressure);
+  const vf = pressureFunction(brush.velocity);
   const prof = profileFunction(style.widthProfile);
   const rings = [];
   for (const sp of spinesOf(subpaths)) {
     const L = sp.spine.length;
     const nib = (s) => {
       const p = pf(s / L);
-      const size = Math.max(0, variableValue(brush.size, us, p)) * sw;
-      const round = Math.min(100, Math.max(0, variableValue(brush.roundness, ur, p))) / 100;
-      const angle = (variableValue(brush.angle, ua, p) * Math.PI) / 180;
+      const v = vf(s / L);
+      const size = Math.max(0, variableValue(brush.size, us, p, v)) * sw;
+      const round = Math.min(100, Math.max(0, variableValue(brush.roundness, ur, p, v))) / 100;
+      const angle = (variableValue(brush.angle, ua, p, v) * Math.PI) / 180;
       return { a: size / 2, b: Math.max(1e-4, (size / 2) * round), ux: Math.cos(angle), uy: -Math.sin(angle) };
     };
     const offset = (side, s, nx, ny) => {
@@ -218,7 +227,7 @@ export function calligraphicShapes(subpaths, style, brush, { seed = 1, pressure 
       const Y = (b * b * nv) / den;
       return { x: (X * ux - Y * uy) * k, y: (X * uy + Y * ux) * k };
     };
-    const maxSize = Math.max(variableValue(brush.size, us, 1), variableValue(brush.size, us, 0), 0.1) * sw * profileMax(style.widthProfile);
+    const maxSize = Math.max(variableValue(brush.size, us, 1, 1), variableValue(brush.size, us, 0, 0), 0.1) * sw * profileMax(style.widthProfile);
     rings.push(...sweepOutline(sp.spine, { offset, cap: 'round', join: 'round', maxWidth: maxSize }));
   }
   const shape = ringsToShape(rings, paint);
@@ -237,13 +246,14 @@ export function artBrushShapes(subpaths, style, brush, { seed = 1, pressure = nu
   const rand = rng(seed);
   const uw = rand();
   const pf = pressureFunction(pressure);
+  const vf = pressureFunction(brush.velocity);
   const prof = profileFunction(style.widthProfile);
   const strokeColor = strokeColorOf(style.stroke);
   const out = [];
   for (const sp of spinesOf(subpaths)) {
     const L = sp.spine.length;
     const at = spineSampler(sp.spine).at;
-    const widthAt = (s) => (Math.max(0, variableValue(brush.width, uw, pf(s / L))) / 100) * sw;
+    const widthAt = (s) => (Math.max(0, variableValue(brush.width, uw, pf(s / L), vf(s / L))) / 100) * sw;
     const prop = brush.scaling === 'proportional' ? L / W : 1;
     // Arc length for an art position u (0..W): stretched, or with fixed ends between guides.
     let sOf = (u) => ((u - B.x) / W) * L;
@@ -309,6 +319,7 @@ export function scatterShapes(subpaths, style, brush, { seed = 1, pressure = nul
   const sw = style.strokeWidth || 1;
   const rand = rng(seed);
   const pf = pressureFunction(pressure);
+  const vf = pressureFunction(brush.velocity);
   const strokeColor = strokeColorOf(style.stroke);
   const out = [];
   for (const sp of spinesOf(subpaths)) {
@@ -319,10 +330,11 @@ export function scatterShapes(subpaths, style, brush, { seed = 1, pressure = nul
     const placements = [];
     while (s <= L + 1e-6 && guard++ < 4000) {
       const p = pf(s / L);
-      const size = Math.max(0.01, rangeValue(brush.size, rand(), p) / 100) * sw;
-      const spacing = Math.max(0.02, rangeValue(brush.spacing, rand(), p) / 100) * D * size;
-      const scatter = (rangeValue(brush.scatter, rand(), p) / 100) * D * size;
-      const rot = rangeValue(brush.rotation, rand(), p);
+      const v = vf(s / L);
+      const size = Math.max(0.01, rangeValue(brush.size, rand(), p, v) / 100) * sw;
+      const spacing = Math.max(0.02, rangeValue(brush.spacing, rand(), p, v) / 100) * D * size;
+      const scatter = (rangeValue(brush.scatter, rand(), p, v) / 100) * D * size;
+      const rot = rangeValue(brush.rotation, rand(), p, v);
       placements.push({ s, size, scatter, rot });
       s += spacing;
       if (sp.closed && s > L - spacing * 0.5) break;
@@ -374,7 +386,7 @@ export function patternShapes(subpaths, style, brush, { seed = 1, pressure = nul
   for (const sp of spinesOf(subpaths)) {
     const L = sp.spine.length;
     const at = spineSampler(sp.spine).at;
-    const k = (Math.max(1, variableValue(brush.scale, us, pf(0.5))) / 100) * sw;
+    const k = (Math.max(1, variableValue(brush.scale, us, pf(0.5), pressureFunction(brush.velocity)(0.5))) / 100) * sw;
     const H = side.bounds.h * k;
     // Corners that get their own tile (or none): they split the sides.
     const corners = [];
@@ -506,10 +518,39 @@ function wobble(rand) {
 }
 
 /**
+ * Whether a stroke paints over itself: two points of the spine more than
+ * `gap` apart along it come within `reach` of each other.
+ */
+export function spineOverlaps(at, L, reach, gap) {
+  const step = Math.max(reach / 2, L / 600);
+  const cell = Math.max(reach, 1e-3);
+  const grid = new Map();
+  for (let s = 0; s <= L; s += step) {
+    const p = at(s);
+    const cx = Math.floor(p.x / cell);
+    const cy = Math.floor(p.y / cell);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const q of grid.get(`${cx + dx},${cy + dy}`) || []) {
+          if (s - q.s > gap && Math.hypot(p.x - q.x, p.y - q.y) < reach) return true;
+        }
+      }
+    }
+    const k = `${cx},${cy}`;
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push({ x: p.x, y: p.y, s });
+  }
+  return false;
+}
+
+/**
  * Bristle brush: many thin, semi-transparent strokes following the path,
  * spread across the brush width (wider or narrower with the stroke's
  * direction for flat brushes), each with its own taper at the ends and a
- * gentle wobble that grows as the bristles get softer.
+ * gentle wobble that grows as the bristles get softer. Paint builds up
+ * like real paint: where a stroke crosses itself its bristles are laid
+ * down in pieces, so the second pass darkens the first, and with pen
+ * pressure harder parts of the stroke carry more paint.
  */
 export function bristleShapes(subpaths, style, brush, { seed = 1, pressure = null } = {}) {
   const paint = style.stroke;
@@ -549,6 +590,8 @@ export function bristleShapes(subpaths, style, brush, { seed = 1, pressure = nul
     };
     const step = Math.max(1, Math.min(4, L / 120));
     const reach = Math.min(L / 2, taperLen);
+    // A stroke over itself is laid down in pieces (at most 40 per bristle) so its passes build up.
+    const pieceLen = !sp.closed && spineOverlaps(at, L, halfBase * 2, halfBase * 4) ? Math.max(halfBase * 4, L / 40) : Infinity;
     for (let i = 0; i < count; i++) {
       const signed = count === 1 ? 0 : -1 + (2 * (i + 0.5)) / count + (rand() - 0.5) * (1.6 / count);
       const y = Math.min(1, Math.abs(signed));
@@ -568,18 +611,32 @@ export function bristleShapes(subpaths, style, brush, { seed = 1, pressure = nul
         const d = lat * halfAt(s, nx, ny) + amp * wob(s);
         pts.push({ x: p.x + nx * d, y: p.y + ny * d });
       }
-      const anchors = fitCurve(pts, 0.05);
       const alpha = opacity * (0.45 + rand() * 0.45);
-      const stroke = paint.type === 'solid' ? { ...paint, opacity: (paint.opacity ?? 1) * alpha } : paint;
-      out.push({
-        subpaths: [{ anchors, closed: false }],
-        fill: null,
-        stroke,
-        strokeWidth: thickness * (0.7 + rand() * 0.6),
-        strokeCap: 'round',
-        strokeJoin: 'round',
-        ...(paint.type === 'solid' ? {} : { opacity: alpha }),
-      });
+      const width = thickness * (0.7 + rand() * 0.6);
+      // Pieces of the bristle (one unless the stroke crosses itself), each with the paint pressure gives it.
+      const pieces = [];
+      if (pieceLen === Infinity) pieces.push({ pts, mid: 0.5 * (t0 + t1) });
+      else {
+        const per = Math.max(2, Math.round((pieceLen / (t1 - t0)) * n));
+        for (let a = 0; a < pts.length - 1; a += per) {
+          const b = Math.min(pts.length - 1, a + per);
+          pieces.push({ pts: pts.slice(a, b + 1), mid: t0 + ((t1 - t0) * (a + b)) / (2 * n) });
+        }
+      }
+      for (const pc of pieces) {
+        const a = Math.min(1, alpha * (hasPressure ? 0.55 + 0.9 * pf(pc.mid / L) : 1));
+        const stroke = paint.type === 'solid' ? { ...paint, opacity: (paint.opacity ?? 1) * a } : paint;
+        out.push({
+          subpaths: [{ anchors: fitCurve(pc.pts, 0.05), closed: false }],
+          fill: null,
+          stroke,
+          strokeWidth: width,
+          // Pieces meet end to end: butt ends keep the joins from doubling up.
+          strokeCap: pieces.length > 1 ? 'butt' : 'round',
+          strokeJoin: 'round',
+          ...(paint.type === 'solid' ? {} : { opacity: a }),
+        });
+      }
     }
   }
   return out;

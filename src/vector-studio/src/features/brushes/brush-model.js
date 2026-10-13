@@ -10,7 +10,9 @@
  *
  * Types and parameters:
  *   calligraphic  angle (deg), roundness (%), size (pt): each a Variable
- *                 { mode: 'fixed' | 'random' | 'pressure', value, variation }
+ *                 { mode: 'fixed' | 'random' | 'pressure' | 'velocity', value,
+ *                 variation } (velocity: how fast the stroke was drawn, kept
+ *                 on the path as node.brush.velocity [[t, v]])
  *   scatter       art; size / spacing / scatter (%), rotation (deg): Ranges
  *                 { mode, min, max }; rotateRelative 'page' | 'path'; colorize
  *   art           art; direction 'right' | 'left' | 'down' | 'up'; width

@@ -167,6 +167,57 @@
   gap: 6px;
 }
 
+.bo-key-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.bo-key-chip {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.bo-key-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bo-guides {
+  margin: 0 0 4px 130px;
+  height: 72px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.bo-guides svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bo-guides.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bo-guide {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.bo-guide-band {
+  fill: var(--bg-selected);
+}
+
 .bo-help {
   margin: 2px 0 0 130px;
   color: var(--text-3);
@@ -332,7 +383,8 @@
     gap: 4px;
   }
 
-  .bo-help {
+  .bo-help,
+  .bo-guides {
     margin-left: 0;
   }
 
