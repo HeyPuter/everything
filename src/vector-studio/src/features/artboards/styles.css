@@ -137,6 +137,10 @@
   box-shadow: inset 0 0 0 1px var(--focus);
 }
 
+.ab-row[aria-current='true'] {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .ab-row.dragging {
   opacity: 0.5;
 }
