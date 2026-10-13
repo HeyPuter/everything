@@ -211,16 +211,38 @@ function separateExact(c, rgb, blackMap = true) {
   // Black generation follows the gray component measured from the press black up to the paper.
   const rel = [0, 1, 2].map((i) => clamp01((t[i] - c.blackRel[i]) / Math.max(1e-6, 1 - c.blackRel[i])));
   const gray = 1 - Math.max(rel[0], rel[1], rel[2]);
-  const k = Math.min(p.kmax, c.start >= 1 ? 0 : c.start < 0 ? gray * p.kmax : gray * p.kmax * clamp01((gray - c.start) / (1 - c.start)));
+  let k = Math.min(p.kmax, c.start >= 1 ? 0 : c.start < 0 ? gray * p.kmax : gray * p.kmax * clamp01((gray - c.start) / (1 - c.start)));
+  let res = solveCmy(c, t, k);
+  if (!res) return [0, 0, 0, k];
+  // Black must not make a color darker than the colored inks can bring back
+  // (deep saturated colors): with the result too dark, generate less black.
+  for (let i = 0; i < 6 && k > 0.005; i++) {
+    const tooDark = res.f.reduce((sum, v, ch) => sum + Math.max(0, t[ch] - v), 0);
+    if (tooDark < 0.01) break;
+    k *= 0.6;
+    res = solveCmy(c, t, k) || res;
+  }
+  let x = res.x;
+  // Total ink limit: pull the colored inks back.
+  const limit = p.til / 100;
+  const cs = x[0] + x[1] + x[2];
+  if (cs + k > limit && cs > 0) x = x.map((v) => (v * Math.max(0, limit - k)) / cs);
+  return [...x, k];
+}
+
+/** Colored inks matching target `t` (relative to the paper) over black ink k: { x: [c, m, y], f: printed color } or null when black hides everything. */
+function solveCmy(c, t, k) {
+  const p = c.p;
   const ka = dotGain(k, p.gain);
   const kf = c.absorb[3].map((ab) => 1 - ka * ab);
   // Solid black ink hides everything under it: no colored ink is needed.
-  if (Math.max(kf[0], kf[1], kf[2]) < 1e-3) return [0, 0, 0, k];
+  if (Math.max(kf[0], kf[1], kf[2]) < 1e-3) return null;
   // Start from the plain inversion, then refine.
   let x = [0, 1, 2].map((i) => clamp01(1 - t[i] / Math.max(1e-6, kf[i])));
+  let f = t;
   for (let it = 0; it < 12; it++) {
     const a = x.map((v) => dotGain(v, p.gain));
-    const f = [0, 1, 2].map((ch) => (1 - a[0] * c.absorb[0][ch]) * (1 - a[1] * c.absorb[1][ch]) * (1 - a[2] * c.absorb[2][ch]) * kf[ch]);
+    f = [0, 1, 2].map((ch) => (1 - a[0] * c.absorb[0][ch]) * (1 - a[1] * c.absorb[1][ch]) * (1 - a[2] * c.absorb[2][ch]) * kf[ch]);
     const r = f.map((v, ch) => v - t[ch]);
     if (Math.abs(r[0]) + Math.abs(r[1]) + Math.abs(r[2]) < 1e-5) break;
     // J[ch][i] = d f_ch / d x_i
@@ -235,11 +257,9 @@ function separateExact(c, rgb, blackMap = true) {
     const step = solve3(A, g);
     x = x.map((v, i) => clamp01(v - step[i]));
   }
-  // Total ink limit: pull the colored inks back.
-  const limit = p.til / 100;
-  const cs = x[0] + x[1] + x[2];
-  if (cs + k > limit && cs > 0) x = x.map((v) => (v * Math.max(0, limit - k)) / cs);
-  return [...x, k];
+  const a = x.map((v) => dotGain(v, p.gain));
+  f = [0, 1, 2].map((ch) => (1 - a[0] * c.absorb[0][ch]) * (1 - a[1] * c.absorb[1][ch]) * (1 - a[2] * c.absorb[2][ch]) * kf[ch]);
+  return { x, f };
 }
 
 function solve3(A, b) {
