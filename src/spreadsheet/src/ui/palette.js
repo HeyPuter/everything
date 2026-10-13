@@ -34,6 +34,7 @@ export function paletteCommands(flags = {}) {
     flags.share && c('Share…', 'File', 'share', 'share', null, { keywords: 'invite collaborate people access permission send email username' }),
     c('Document details…', 'File', 'info', 'docInfo', null, { keywords: 'info size path statistics' }),
     c('Version history…', 'File', 'clock', 'versions', null, { keywords: 'snapshots restore backup earlier revert undo save version' }),
+    c(flags.changesPane ? 'Hide changes' : 'Show changes', 'File', 'showChanges', 'showChanges', null, { keywords: 'track changes edits history who changed audit log recent review' }),
     c(flags.saving ? 'Export as .xlsx…' : 'Download .xlsx', 'File', 'fileDown', 'downloadXlsx', null, { keywords: 'excel export' }),
     c(flags.saving ? 'Export as .ods…' : 'Download .ods', 'File', 'fileDown', 'downloadOds', null, { keywords: 'libreoffice export' }),
     c(flags.saving ? 'Export sheet as .csv…' : 'Download sheet as .csv', 'File', 'fileDown', 'downloadCsv', null, { keywords: 'export' }),

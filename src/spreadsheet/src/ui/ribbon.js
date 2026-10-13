@@ -306,6 +306,7 @@ const groupsFor = name => ({
       threadCmd('Previous Comment', 'prevComment', 'prevComment', { needs: 'hasComments' }), threadCmd('Next Comment', 'nextComment', 'nextComment', { needs: 'hasComments' }),
       large(threadCmd('Show Comments', 'showComments', 'toggleComments', { toggle: true }))],
     ['Notes', large(c('Note', 'note', 'note')), c('Delete Note', 'deleteNote', 'deleteNote'), a('Notes on This Sheet', 'notes', 'selectSpecial', 'notes', { ariaLabel: 'Select notes on this sheet' })],
+    ['Changes', large(direct('Show Changes', 'showChanges', 'showChanges', null, { isChecked: ctx => !!ctx.flags?.()?.changesPane }))],
     ['Protection', large(c('Protect Sheet', 'protectSheet', 'protectSheet')), direct('Protect Workbook', 'protectBook', 'protectWorkbook', null, { isChecked: ctx => !!ctx.wb.structureProtected }), c('Protected Ranges', 'protectRanges', 'protectRanges')],
     ['Collaboration', c('Share', 'share', 'share'), c('Version History', 'versions', 'versions')],
   ],

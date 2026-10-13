@@ -36,6 +36,7 @@ import { shapeSvg, iconSvg, svgDataUrl, openShapesMenu, openIconsDialog } from '
 import { flashFill } from '../core/flashfill.js';
 import { createWatchWindow } from '../ui/watchwindow.js';
 import { createAccessibilityPane } from '../ui/accessibility-pane.js';
+import { createChangesPane } from '../ui/changes-pane.js';
 import { openAltTextDialog } from '../ui/alttext.js';
 import { invalidCells } from '../core/validation-circles.js';
 import { openRecommendedPivots } from '../ui/recommended-pivots.js';
@@ -1110,7 +1111,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
-      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, hasQueries: !!wb.queries?.length,
+      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, changesPane: !!changesPane?.open, hasQueries: !!wb.queries?.length,
       chartSheet: sheet?.kind === 'chart',
       // The sheet holds native sparklines, so the commands that edit, regroup or clear them have something to act on.
       sparklines: !!sheet?.sparklineGroups?.length,
@@ -2190,6 +2191,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openDedupeDialog(ctx, range);
         return;
       }
+      /* ---------- Show Changes (Review ▸ Show Changes, the cell menu) ---------- */
+      // With 'selection' (the cell menu) the pane opens on the changes to the selected cells; alone it opens or closes.
+      case 'showChanges':
+        if (arg === 'selection') changesPane.show({ selection: true });
+        else changesPane.toggle();
+        notify();
+        return;
       case 'resizeCols': case 'resizeRows': {
         if (!committed()) return;
         const isCol = cmd === 'resizeCols';
@@ -5000,6 +5008,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
 
   let aiPanel = null;
   let queriesPane = null; // Data ▸ Queries & Connections, made below
+  let changesPane = null; // Review ▸ Show Changes, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;
   const formulaBar = createFormulaBar(ctx, { fixedActions: true });
@@ -5013,6 +5022,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (obj) { selectLocation(item.sheetId, { r1: obj.anchor.r, c1: obj.anchor.c, r2: obj.anchor.r, c2: obj.anchor.c }); grid.selectChart(obj.id); return; }
     if (wb.sheet(item.sheetId) && !wb.sheet(item.sheetId).hidden) wb.setActiveSheet(item.sheetId);
   } });
+  // Review ▸ Show Changes: the recent edits, each with who made it; the signed-in user is the author of the edits made here.
+  changesPane = createChangesPane({ ...ctx, run, reveal: (sid, range) => selectLocation(sid, range), currentUser: () => session.user?.username || null });
+  const syncChangeAuthor = () => { wb.changeAuthor = session.user?.username || null; };
+  syncChangeAuthor();
   // Data ▸ Queries & Connections: the queries of the workbook, beside the sheet.
   ctx.autofitColumns = (sid, c1, c2) => autofitColumns(c1, c2, sid);
   queriesPane = createQueriesPane({ ...ctx, run, edit: (id) => editQuery(ctx, { queryId: id }), allowQuerySources });
@@ -5086,6 +5099,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         statusBar.el,
         watchWindow.el,
         accessibilityPane.el,
+        changesPane.el,
         errorTag.el,
         quickAnalysis.el,
         queriesPane.el),
@@ -5275,6 +5289,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   doc.addEventListener('draft', refreshStatus); // whether this browser holds a copy of the edits changed
   doc.addEventListener('path', refreshTitle);
   const onSession = () => {
+    syncChangeAuthor();
     renderAccountButton(avatar);
     refreshStatus();
     // Edits made before signing in now have a place to go.
@@ -5508,6 +5523,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       statusBar.destroy();
       watchWindow.destroy();
       accessibilityPane.destroy();
+      changesPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();

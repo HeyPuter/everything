@@ -519,6 +519,18 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   a file deleted or renamed outside the app before it was kept that way is set
   aside, its snapshots kept, when another file takes that name, so no file
   lists or restores a stranger's snapshots.
+- **Show Changes**: Review → Show Changes (also File → Show changes, and
+  Show Changes on the cell menu for the selected cells) opens a pane listing
+  the recent edits newest first: who made each one (the signed-in Puter
+  user), when, where, and what the cell held before and after, formulas shown
+  as formulas. A paste or fill is one card that opens onto the cells it
+  changed; rows and sheets inserted or deleted, and undo and redo, are listed
+  by name. A click selects the cells. The list narrows to the sheet shown and
+  to the selection or a typed range, and older edits load on demand. The
+  record keeps the last 1,000 edits (up to 100 cells listed each) and travels
+  with the file in the app's own sidecar part and in drafts; it is not part
+  of undo, and Clear empties it after asking. The pane links on to Version
+  history.
 - **Nothing lost**: unsaved edits are also copied to the browser's local
   storage moments after they are made. If a tab closes while offline or a
   save fails, opening the file again offers to restore those changes (or
@@ -603,6 +615,7 @@ src/
     importrange.js    IMPORTRANGE, IMPORTDATA, IMPORTHTML, IMPORTXML helpers
     formula/query.js  the QUERY language: parser and executor
     aiformula.js      prompts for the AI formula helper and reading formulas from replies
+    change-history.js the record of recent edits behind Show Changes
     pivot.js          pivot tables as live formulas
     clipboard.js      HTML tables for and from the system clipboard
     selection.js      selection and keyboard navigation rules

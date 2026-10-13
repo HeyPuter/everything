@@ -94,6 +94,7 @@ import { formulaReachesOut } from './reaches-out.js';
 import { STYLE_KEYS, BORDER_STYLE_KEYS, GRID_RANGE, intersection, rowRuns, readStyleResets, styleResetAt, assignStyleExceptionRegions, compactStyleResets, removeStyleResets, mapStyleResets, shiftStyleResets, permuteStyleResets, moveLineStyleResets, moveStyleResets } from './style-resets.js';
 import { normalizeScenarios, copyScenarios, mapScenarioCells } from './scenarios.js';
 import { normalizeQueries, serializeQueries } from './queries.js';
+import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-history.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
@@ -951,6 +952,10 @@ export class Workbook extends EventTarget {
     // Watch Window: cells whose values are kept in view, by sheet id and position.
     // Get & Transform: the workbook's queries (see queries.js); their loaded tables are ordinary tables.
     this.queries = normalizeQueries(json.queries);
+    // Show Changes: the record of recent edits (see change-history.js). It is no part of undo, nor of toJSON, which
+    // undo restores exactly: the draft and the file's sidecar carry it beside the book (drafts.js, io.js).
+    this.changeHistory = normalizeChangeHistory(json.changeHistory);
+    this._changeJoin = null;
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -2240,6 +2245,7 @@ export class Workbook extends EventTarget {
       if (bounds) this._cellBoundsCache.set(live.id, bounds);
     };
     apply(after, afterIgnored);
+    recordCellWrites(this, sheet, before, after, label, box);
     // The before-and-after pair the step closes over is the memory it costs, and a sort, fill, paste or
     // replace-all holds a clone of every cell it touched twice over. Weighed against the same budget as a
     // structural step's snapshots, so that a history of them cannot grow without end (see _evictSnapshots).
@@ -11741,6 +11747,7 @@ export class Workbook extends EventTarget {
     this._snapshotCells -= entry.snapshotCells || 0;
     this._coalesce(() => entry.undo()); // a transaction's step is announced once, as the transaction was
     this._future.push(entry);
+    recordStep(this, 'undo', entry.label);
     this._emit('history');
     return true;
   }
@@ -11750,6 +11757,7 @@ export class Workbook extends EventTarget {
     if (!entry) return false;
     this._coalesce(() => entry.redo());
     this._history.push(entry);
+    recordStep(this, 'redo', entry.label);
     this._snapshotCells += entry.snapshotCells || 0;
     // A redone structural step holds its after snapshot as well as its before: the oldest steps make way for it.
     this._evictSnapshots();
@@ -11831,6 +11839,7 @@ export class Workbook extends EventTarget {
 
   /** Run a structural edit with snapshots, for undo, of the sheets it changes (see _capture). */
   _structural(label, fn) {
+    recordStep(this, 'structure', label);
     if (this._group) {
       // Inside a transaction one pair of snapshots serves every structural step: the state
       // before the first step, and the state at the end of the transaction (captured when
