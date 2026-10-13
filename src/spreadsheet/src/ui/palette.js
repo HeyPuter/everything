@@ -164,6 +164,7 @@ export function paletteCommands(flags = {}) {
     c('Subtotals…', 'Data', 'sigma', 'subtotal', null, { keywords: 'group by outline' }),
     c('Pivot table…', 'Data', 'pivot', 'pivot', null, { keywords: 'summarize' }),
     c('Column stats…', 'Data', 'chartColumn', 'columnStats', null, { keywords: 'summary distribution' }),
+    c('Data form…', 'Data', 'dataForm', 'dataForm', null, { keywords: 'record entry fields list database criteria find' }),
     c('Goal seek…', 'Data', 'sliders', 'goalSeek', null, { keywords: 'what if solve' }),
     c('Data table…', 'Data', 'table', 'dataTable', null, { keywords: 'what if analysis sensitivity' }),
     c('Remove duplicate rows…', 'Data', 'dedupe', 'dedupe', null, { keywords: 'unique' }),
@@ -178,6 +179,7 @@ export function paletteCommands(flags = {}) {
     c('Data validation…', 'Data', 'validation', 'validation', null, { keywords: 'rules dropdown checkbox' }),
     c('Named ranges…', 'Data', 'tag', 'names', null, { keywords: 'define name' }),
     c('Protected ranges…', 'Data', 'lock', 'protectRanges', null, { keywords: 'lock sheet protect' }),
+    c('Edit links…', 'Data', 'editLinks', 'editLinks', null, { keywords: 'external workbook references other file update values change source break startup prompt' }),
 
     c('Bold', 'Format', 'bold', 'bold', null, { shortcut: `${M}+B` }),
     c('Italic', 'Format', 'italic', 'italic', null, { shortcut: `${M}+I` }),

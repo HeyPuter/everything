@@ -77,6 +77,8 @@ import { runChartAction, insertChart as insertExcelChart, insertChartSheet } fro
 import { createChartUi } from '../ui/chart-format-pane.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { openSubtotalDialog } from '../ui/subtotaldialog.js';
+import { openDataForm } from '../ui/dataform.js';
+import { openEditLinks, updateAllLinks } from '../ui/editlinks.js';
 import { openFormatCellsDialog } from '../ui/formatcells.js';
 import { openTableDialog } from '../ui/tabledialog.js';
 import { openAiDialog } from '../ui/aidialog.js';
@@ -1255,6 +1257,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (ok) doc.allowExternal();
     return ok;
   }
+  /** What Edit Links needs from the editor: this book's path, and reading, picking and opening other files on the drive. */
+  function linkHost() {
+    return {
+      docPath: () => doc.path || null,
+      read: async (path) => workbookFromFile(await P.readFile(path), P.displayName(path)),
+      open: (path) => run('openFile', path),
+      pick: P.canPickFiles() ? () => P.pickFile() : null,
+      // A book from elsewhere reads no other file until allowed, as its IMPORTRANGE formulas wait.
+      allow: async () => {
+        if (wb.externalAllowed !== false) return true;
+        const ok = await confirmDialog({ title: 'Read linked workbooks', message: 'This workbook came from elsewhere, so it has not been allowed to read other files. Allow it to read the workbooks it links to?', confirmLabel: 'Allow', danger: false });
+        if (ok) doc.allowExternal();
+        return ok;
+      },
+    };
+  }
   async function run(cmd, arg) {
     // F4 (and Ctrl+Y with nothing to redo) repeats the last formatting or structural command on the selection now.
     if (cmd === 'repeat') { if (lastRepeatable && !grid.editing) return run(lastRepeatable.cmd, lastRepeatable.arg); return; }
@@ -2077,6 +2095,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           wb.updateTable(sheetId, t.id, { [arg]: !on });
         }
         keepFocus();
+        return;
+      }
+      // Data ▸ Form: a record at a time over the list at the selection (see ui/dataform.js, core/data-form.js).
+      case 'dataForm': {
+        if (!committed()) return;
+        openDataForm(ctx);
+        return;
+      }
+      // Data ▸ Queries & Connections ▸ Edit Links: the book's links to other workbooks (see ui/editlinks.js, core/edit-links.js).
+      case 'editLinks': {
+        if (!committed()) return;
+        openEditLinks(ctx, linkHost());
         return;
       }
       case 'subtotal': {
@@ -5548,6 +5578,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     toast(VIEW_ONLY, { icon: 'eye', duration: 7000 });
   }
   if (!session.signedOut) checkViewOnly();
+
+  // A saved book with links to other workbooks: its Startup Prompt says whether opening it updates them, offers to, or leaves them.
+  if (doc.path && wb.externalWorkbooks?.books?.some((b) => !b.kind) && wb.linkStartup !== 'none') {
+    setTimeout(() => {
+      if (destroyed) return;
+      const host = linkHost();
+      if (wb.linkStartup === 'update' && wb.externalAllowed !== false) { updateAllLinks(ctx, host); return; }
+      toast('This workbook reads values from other workbooks', { icon: 'link', duration: 9000,
+        action: { label: 'Update links', onClick: async () => { if (await host.allow()) updateAllLinks(ctx, host); } } });
+    }, 0);
+  }
 
   return {
     el: root,

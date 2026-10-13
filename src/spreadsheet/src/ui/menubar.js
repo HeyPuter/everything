@@ -434,6 +434,7 @@ export function menubarMenus(f = {}) {
     i('Scenario Manager…', 'scenarioManager', 'scenarioManager'),
     i('Forecast sheet…', 'forecast', 'forecastSheet'),
     i('Advanced filter…', 'filterAdvanced', 'advancedFilter'),
+    i('Form…', 'dataForm', 'dataForm'),
     f.ai && i('Ask AI about this data…', 'sparkle', 'aiAsk'),
     sep,
     i('Data validation…', 'validation', 'validation'),
@@ -441,6 +442,7 @@ export function menubarMenus(f = {}) {
     i('Define name…', 'tag', 'defineName'),
     i('Create names from selection…', 'tag', 'createNames'),
     i('Protected ranges…', 'lock', 'protectRanges'),
+    i('Edit links…', 'editLinks', 'editLinks'),
     sep,
     sub('Data cleanup', 'dedupe', [
       i('Remove duplicate rows…', 'dedupe', 'dedupe'),

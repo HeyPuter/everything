@@ -37,3 +37,59 @@
 .af-dialog { display: flex; flex-direction: column; gap: 8px; }
 .af-dialog .check-group.vertical { flex-direction: column; }
 select.sm-list { background-image: none; padding-right: 8px; height: auto; }
+
+/* Data Form: the record's fields on the left, its place and the buttons on the right. */
+.df-form { display: flex; gap: 16px; align-items: stretch; min-width: min(560px, 100%); }
+.df-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.df-fields { display: flex; flex-direction: column; gap: 6px; max-height: min(52vh, 420px); overflow: auto; padding: 2px; }
+.df-row { display: grid; grid-template-columns: minmax(84px, 34%) 1fr; align-items: center; gap: 8px; }
+.df-label { text-align: right; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-input { width: 100%; min-width: 0; padding-top: 6px; padding-bottom: 6px; }
+.df-readonly { display: block; min-height: 34px; line-height: 34px; padding: 0 12px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.df-readonly[hidden], .df-input[hidden] { display: none; }
+.df-slider { width: 100%; accent-color: var(--accent); }
+.df-form.criteria .df-fields { background: var(--surface-2); border-radius: 8px; padding: 8px; }
+.df-message { margin: 0; color: var(--critical); }
+.df-side { display: flex; flex-direction: column; gap: 6px; min-width: 104px; }
+.df-side .btn { justify-content: center; }
+.df-status { margin: 0 0 6px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; min-height: 1.4em; }
+.df-gap { height: 6px; }
+@media (max-width: 640px) {
+  .df-form { flex-direction: column; min-width: 0; }
+  .df-side { flex-direction: row; flex-wrap: wrap; }
+  .df-status { width: 100%; }
+  .df-gap { display: none; }
+}
+
+/* Edit Links: the links in a list beside the buttons that act on the selected one. */
+.el-dialog { display: flex; flex-direction: column; gap: 12px; }
+.el-top { display: flex; gap: 14px; align-items: stretch; }
+.el-table { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); overflow: hidden; }
+.el-row { display: grid; grid-template-columns: minmax(140px, 2fr) minmax(70px, 0.8fr) minmax(76px, 0.8fr) minmax(110px, 1.6fr); gap: 10px; padding: 6px 10px; align-items: center; }
+.el-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-head { background: var(--surface-2); color: var(--ink-2); font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--hairline); }
+.el-list { min-height: 132px; max-height: 240px; overflow: auto; outline: none; }
+.el-list .el-row { cursor: default; border-bottom: 1px solid var(--hairline); }
+.el-list .el-row[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.el-list:focus-visible .el-row[aria-selected="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
+.el-source { font-weight: 500; }
+.el-status.error { color: var(--critical); }
+.el-status.ok { color: var(--accent); }
+.el-empty { margin: 0; padding: 18px 14px; min-height: 132px; }
+.el-side { display: flex; flex-direction: column; gap: 6px; min-width: 132px; }
+.el-side .btn, .el-foot .btn { justify-content: center; }
+.el-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.el-details dt { color: var(--ink-2); }
+.el-details dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-working { margin: 0; min-height: 1.2em; color: var(--ink-2); }
+.el-foot { align-items: center; }
+.el-spacer { flex: 1; }
+.el-choices { border: 0; padding: 0; margin: 8px 0 14px; display: flex; flex-direction: column; gap: 10px; }
+.el-choice { display: flex; gap: 10px; align-items: flex-start; }
+.el-choice input { margin-top: 3px; }
+@media (max-width: 640px) {
+  .el-top { flex-direction: column; }
+  .el-side { flex-direction: row; flex-wrap: wrap; }
+  .el-row { grid-template-columns: minmax(110px, 2fr) minmax(60px, 1fr) minmax(90px, 1.4fr); }
+  .el-row > span:nth-child(3) { display: none; }
+}

@@ -317,6 +317,9 @@ export const COMMAND_ICONS = {
   fromText: page(4.5, 2.5, 11, 15) + lines(6.5, 8, 7, 4) + p('M9 7v8.5M11.5 7v8.5', 'g dash'),
   fromTable: cells(2.5, 4.5, 10, 11, 2, 3, { head: 'bw', frame: 'of' }) + arrowRight(12.5, 10, 5.5, 'g'),
   blankQuery: page(4.5, 2.5, 11, 15) + p('M7 9h6M7 11.5h6M7 14h4', 'o dash'),
+  // Data Form: a card of labelled fields with the record's arrows; Edit Links: a workbook joined to another by a chain link.
+  dataForm: r(2.5, 2.5, 15, 15, 'of', 1.6) + p('M4.5 6h3M4.5 10h3M4.5 14h3', 'o ln') + r(9, 4.75, 6.5, 2.5, 'bw', 0.6) + r(9, 8.75, 6.5, 2.5, 'bw', 0.6) + r(9, 12.75, 6.5, 2.5, 'gw', 0.6) + p('M9 4.75h6.5v2.5H9zM9 8.75h6.5v2.5H9zM9 12.75h6.5v2.5H9z', 'o ln'),
+  editLinks: cells(2.5, 2.5, 9, 10, 2, 3, { head: 'bw', frame: 'of' }) + r(10, 10, 8.5, 8, 'knock', 2) + p('M12 15.5l-.6.6a1.8 1.8 0 0 1-2.5-2.5l1.6-1.6a1.8 1.8 0 0 1 2.5 0', 'o thick') + p('M14.5 12.5l.6-.6a1.8 1.8 0 0 1 2.5 2.5L16 16a1.8 1.8 0 0 1-2.5 0', 'b thick'),
   queriesPane: r(2.5, 3.5, 15, 13, 'of', 1) + r(11.5, 3.5, 6, 13, 'bw') + p('M11.5 3.5v13', 'o') + p('M13 7h3M13 10h3M13 13h3', 'b thick') + p('M4.5 7h5M4.5 10h5M4.5 13h5', 'o ln'),
   closeLoad: cells(7.5, 7.5, 10, 10, 2, 3, { head: 'gw', frame: 'of' }) + r(2.5, 2.5, 7, 5, 'nf', 1) + p('M6 7.5v4.5h4M8.5 10l1.5 2-1.5 2', 'g'),
   chooseColumns: cells(2.5, 3.5, 15, 13, 3, 2) + r(2.5, 3.5, 5, 13, 'bw') + r(12.5, 3.5, 5, 13, 'bw') + cells(2.5, 3.5, 15, 13, 3, 2, { frame: 'o' }) + p('M8.5 9.5l1.5 1.5 2.5-3', 'g thick'),
