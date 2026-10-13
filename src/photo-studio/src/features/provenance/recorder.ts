@@ -59,6 +59,16 @@ function track(s: DocumentSession, origin: ProvenanceRecord['origin'] = 'unknown
 }
 /** The record of a document (created on first use). */
 export const recordOf = (s: DocumentSession) => track(s).record;
+// Documents that began as a camera capture (their opened file is the capture).
+const captured = new WeakSet<DocumentSession>();
+/** Mark a document opened from a camera shot as captured. */
+export function noteCapture(s: DocumentSession) {
+  captured.add(s);
+  const t = track(s, 'captured');
+  t.record.origin = 'captured';
+  for (const x of t.record.sources) if (x.role === 'opened') x.role = 'captured';
+  changed();
+}
 /** Note an export of the session's document. */
 export function noteExport(s: DocumentSession, x: ProvenanceExport) {
   addExport(track(s).record, x);
@@ -66,9 +76,11 @@ export function noteExport(s: DocumentSession, x: ProvenanceExport) {
 }
 
 const formatOf = (name: string) => (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1].toLowerCase().replace('jpg', 'jpeg').replace('tif', 'tiff') ?? 'unknown');
-async function noteFile(t: Tracking, blob: Blob, name: string, role: 'opened' | 'placed' | 'library' | 'captured') {
+async function noteFile(t: Tracking, blob: Blob, name: string, role: 'opened' | 'placed' | 'library' | 'captured', s?: DocumentSession) {
   try {
-    addSource(t.record, { name: name.slice(0, 1024), format: formatOf(name).slice(0, 32), sha256: await sha256Hex(blob), size: blob.size, when: new Date().toISOString(), role });
+    const hash = await sha256Hex(blob);
+    if (role === 'opened' && s && captured.has(s)) role = 'captured';
+    addSource(t.record, { name: name.slice(0, 1024), format: formatOf(name).slice(0, 32), sha256: hash, size: blob.size, when: new Date().toISOString(), role });
     changed();
   } catch {
     /* Hashing unavailable: the source is not recorded. */
@@ -161,10 +173,10 @@ export function installRecorder(e: Editor) {
     } else if (event === 'open-document') {
       tracked.delete(s);
       const fromProject = loaded.has(s.doc);
-      const t = track(s, 'opened');
+      const t = track(s, captured.has(s) ? 'captured' : 'opened');
       const file = openedFiles.get(s);
       // A project carries its own record; other files are the record's first source.
-      if (file && !fromProject) void noteFile(t, file.blob, file.name, 'opened');
+      if (file && !fromProject) void noteFile(t, file.blob, file.name, 'opened', s);
       changed();
     }
   });

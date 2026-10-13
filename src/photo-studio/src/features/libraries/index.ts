@@ -165,8 +165,8 @@ export function installLibraries(e: Editor) {
     description: 'Send library changes to Puter and take in changes made elsewhere',
     run: async (e) => {
       const l = await loaded();
-      await l.sync();
-      e.message(l.status.message);
+      // Puter may take a while (or never answer); the editor stays usable.
+      void l.sync().then(() => e.message(l.status.message));
     },
   });
   const view = (id: string, label: string, v: 'grid' | 'list') =>
@@ -218,7 +218,11 @@ export function installLibraries(e: Editor) {
   itemCmd('libraries.item-place-linked', 'Place Linked', async (e) => (await apply()).placeGraphic(e, currentItem()!, { linked: true }), (t) => t === 'graphic', 'Place the graphic so it updates when the library item changes');
   itemCmd('libraries.item-redefine', 'Redefine from Current', async (e) => {
     const item = currentItem()!;
-    if (await (await apply()).redefineItem(e, item)) e.message(`Updated ${item.name}.`);
+    const m = await apply();
+    if (!(await m.redefineItem(e, item))) return;
+    // Linked placements in this document follow as part of this command.
+    const n = e.hasDocument ? await m.updateLibraryLinks(e) : 0;
+    if (!n) e.message(`Updated ${item.name}.`);
   }, () => true, 'Replace the item with the current color, style, brush, selected layers or selection');
   itemCmd('libraries.item-rename', 'Rename…', async () => {
     const item = currentItem()!;

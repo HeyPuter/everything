@@ -240,7 +240,8 @@ export class LibraryRepository {
     const own = await this.local.getAsset(hash);
     if (own) return own;
     const cloud = this.cloud();
-    if (!cloud) return undefined;
+    // Unreachable cloud copy: fail at once rather than wait for a timeout.
+    if (!cloud || this.status.state === 'offline') return undefined;
     const blob = await cloud.readAsset(hash);
     if (blob) await this.local.putAsset(hash, blob);
     return blob;
