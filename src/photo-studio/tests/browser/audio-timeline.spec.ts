@@ -325,4 +325,49 @@ test.describe('audio tracks', () => {
     expect((await timeline(page)).audio![0].clips).toEqual([]);
     expect(errors).toEqual([]);
   });
+
+  test('playback schedules the same sound as the offline mix', async ({ page }) => {
+    await openImage(page, 32, 32, '#ffffff', 'schedule.png');
+    await run(page, 'timeline.create');
+    await page.evaluate(async (b64) => {
+      const e = window.photoStudio;
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      await e.runCommand('timeline.audio-add', new File([bytes], 'a.wav', { type: 'audio/wav' }));
+      await e.runCommand('timeline.audio-track-new');
+      await e.runCommand('timeline.go-to', 15);
+      await e.runCommand('timeline.audio-add', new File([bytes], 'b.wav', { type: 'audio/wav' }));
+      const [t1, t2] = e.doc.timeline!.audio!;
+      await e.runCommand('timeline.audio-set', { clip: t1.clips[0].id, gain: -6, fadeIn: 0.25, fadeOut: 0.5 });
+      await e.runCommand('timeline.audio-set', { track: t2.id, volume: -9.5 });
+      await e.runCommand('timeline.audio-set', { clip: t2.clips[0].id, fadeOut: 1 });
+    }, toneWav());
+    await idle(page);
+    const diff = await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { audioPlan } = await import('/src/model/audio-timeline.ts');
+      const { mixPlan } = await import('/src/imaging/audio/mix.ts');
+      const { audioPcm } = await import('/src/features/animation/audio-media.ts');
+      const { scheduleSegment } = await import('/src/features/animation/audio-playback.ts');
+      const plan = audioPlan(e.doc);
+      const rate = 48000;
+      const ctx = new OfflineAudioContext(2, rate * 3, rate);
+      // Playback from 0.25 s: the segment [0.25, 3) starts at context time 0.
+      scheduleSegment(ctx, ctx.destination, plan, 0.25, 3, 0);
+      const live = await ctx.startRendering();
+      const mix = mixPlan(plan, (p) => audioPcm(p.source), 0.25, 3.25, rate, 2);
+      let worst = 0;
+      let level = 0;
+      for (let c = 0; c < 2; c++) {
+        const a = live.getChannelData(c);
+        for (let i = 0; i < Math.round(2.75 * rate); i++) {
+          worst = Math.max(worst, Math.abs(a[i] - mix[c][i]));
+          level = Math.max(level, Math.abs(mix[c][i]));
+        }
+      }
+      return { worst, level, items: plan.length };
+    });
+    expect(diff.items).toBe(2);
+    expect(diff.level).toBeGreaterThan(0.3);
+    expect(diff.worst).toBeLessThan(2e-3);
+  });
 });
