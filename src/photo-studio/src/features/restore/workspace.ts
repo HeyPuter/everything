@@ -109,9 +109,9 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   <section class="pr-stage" aria-label="Preview">
     <div class="pr-toolbar" role="toolbar" aria-label="Preview">
       <div class="pr-modes" role="radiogroup" aria-label="Compare">
-        <button type="button" class="icon-button" data-mode="split" role="radio" title="Split view: drag the divider to compare">${svg('compare-split', 16)}</button>
-        <button type="button" class="icon-button" data-mode="side" role="radio" title="Side by side">${svg('compare-side', 16)}</button>
-        <button type="button" class="icon-button" data-mode="after" role="radio" title="Result only">${svg('image', 16)}</button>
+        <button type="button" class="icon-button" data-mode="split" role="radio" aria-label="Split view" title="Split view: drag the divider to compare">${svg('compare-split', 16)}</button>
+        <button type="button" class="icon-button" data-mode="side" role="radio" aria-label="Side by side" title="Side by side">${svg('compare-side', 16)}</button>
+        <button type="button" class="icon-button" data-mode="after" role="radio" aria-label="Result only" title="Result only">${svg('image', 16)}</button>
       </div>
       <button type="button" class="pr-hold" title="Hold to show the original (or hold the \\ key)">${svg('eye', 14)} Hold to Compare</button>
       <span class="rw-spacer"></span>
@@ -648,7 +648,16 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     view.draw();
   };
   hold.addEventListener('pointerdown', () => compare(true));
-  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) hold.addEventListener(ev, () => compare(false));
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel', 'blur']) hold.addEventListener(ev, () => compare(false));
+  // Keyboard: holding Space or Enter on the button compares too.
+  hold.addEventListener('keydown', (ev) => {
+    if (ev.key !== ' ' && ev.key !== 'Enter') return;
+    ev.preventDefault();
+    compare(true);
+  });
+  hold.addEventListener('keyup', (ev) => {
+    if (ev.key === ' ' || ev.key === 'Enter') compare(false);
+  });
   ws.dialog.addEventListener('keydown', (ev) => {
     if (ev.key === '\\' && !(ev.target as HTMLElement).matches('input, textarea, select')) compare(true);
   });
