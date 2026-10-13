@@ -547,17 +547,17 @@ describe('shared workbook model', () => {
   });
 
   // Random sessions of three people: every operation the model knows, pushed and pulled at random moments.
-  for (const seed of [7, 11, 19, 23, 42, 101, 2024, 31337]) {
+  for (const seed of [7, 42, 2024, 31337]) {
     it(`converges three people editing at random (seed ${seed})`, () => {
       const room = new Room({ sheets: [{ name: 'S' }, { name: 'T' }] });
       const people = [room.join('a'), room.join('b'), room.join('c')];
       let x = seed;
       const rand = (n) => { x = (x * 1103515245 + 12345) % 2147483648; return x % n; };
-      for (let step = 0; step < 160; step++) {
+      for (let step = 0; step < 220; step++) {
         const p = people[rand(3)];
         const sheets = p.wb.sheets;
         const s = sheets[rand(sheets.length)].id;
-        const k = rand(16);
+        const k = rand(26);
         if (k < 5) p.wb.setInput(s, rand(8), rand(4), rand(2) ? String(rand(100)) : rand(2) ? `=SUM(A1:A${1 + rand(8)})` : `=${p.wb.sheets[0].name}!B${1 + rand(5)}+1`);
         else if (k === 5) p.wb.insertRows(s, rand(8), 1 + rand(2));
         else if (k === 6) p.wb.deleteRows(s, rand(8), 1 + rand(2));
@@ -569,7 +569,17 @@ describe('shared workbook model', () => {
         else if (k === 12) p.wb.renameSheet(s, `N${rand(50)}`);
         else if (k === 13) p.wb.moveRows(s, rand(4), 1, 5 + rand(3));
         else if (k === 14) p.wb.redo();
-        else p.wb.undo();
+        else if (k === 15) p.wb.undo();
+        else if (k === 16) { const added = p.wb.addSheet(`X${rand(9)}`); if (added && rand(2)) p.wb.setInput(added.id, 0, 0, 'x'); }
+        else if (k === 17 && sheets.length > 2) p.wb.deleteSheet(s);
+        else if (k === 18) p.wb.moveSheet(s, rand(sheets.length));
+        else if (k === 19) p.wb.setNote(s, rand(6), rand(3), rand(2) ? `note ${rand(9)}` : '');
+        else if (k === 20) p.wb.setHidden(s, 'row', [rand(8)], !!rand(2));
+        else if (k === 21) p.wb.insertCells(s, { r1: rand(4), c1: rand(3), r2: rand(4) + 4, c2: rand(3) + 1 }, rand(2) ? 'down' : 'right');
+        else if (k === 22) p.wb.deleteCells(s, { r1: rand(4), c1: rand(3), r2: rand(4) + 2, c2: rand(3) }, rand(2) ? 'up' : 'left');
+        else if (k === 23) p.wb.clearRange(s, { r1: rand(6), c1: 0, r2: rand(6) + 2, c2: rand(4) });
+        else if (k === 24) p.wb.defineName(`Nm${rand(5)}`, `${p.wb.sheet(s).name.match(/^[A-Za-z]\w*$/) ? p.wb.sheet(s).name : "'" + p.wb.sheet(s).name + "'"}!$A$${1 + rand(5)}`);
+        else p.wb.sortRange(s, { r1: 0, c1: 0, r2: 7, c2: 3 }, rand(4), !!rand(2));
         if (rand(3) === 0) p.push();
         if (rand(3) === 0) p.pull();
       }

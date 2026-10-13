@@ -498,6 +498,7 @@ export class Replica extends EventTarget {
     if (this.mode === 'local' && !this.wb._group) this._flushStep('Edit', { undoable: false });
     const wb = this.wb;
     let rolled = false, applied = false, structural = false;
+    const touched = []; // what was applied, when nothing structural was: the shadow is brought up to date for it alone
     wb._coalesce(() => {
       for (const rec of list) {
         if (rec.rev !== this.rev + 1) break;
@@ -519,17 +520,80 @@ export class Replica extends EventTarget {
           for (const e of [...this.undoStack, ...this.redoStack]) e.ops = this._xform(e.ops, theirs, false)[0];
           applied = true;
           if (ch.ops.some((o) => isStructure(o) || o.t === 'put')) structural = true;
+          else touched.push(...ch.ops);
         }
         this.rev = rec.rev;
       }
       if (rolled) this._replay();
     });
-    this.shadow = this._fullShadow();
+    if (rolled || structural) this.shadow = this._fullShadow();
+    else this._refreshShadow(touched);
     this._resetDirty();
     if (applied) this.dispatchEvent(new CustomEvent('remote', { detail: { structural } }));
     this.dispatchEvent(new CustomEvent('history'));
     wb._emit('history');
     return applied;
+  }
+
+  /**
+   * Changes this browser kept from an earlier visit (see outbox.js), made on top of the current revision: applied
+   * as pending changes again, to be sent. They are not undoable here.
+   */
+  restorePending(changes) {
+    for (const ch of changes) {
+      if (!ch?.ops?.length || this.pending.some((p) => p.id === ch.id)) continue;
+      const p = { id: ch.id, label: ch.label || 'Edit', ops: ch.ops, rollback: [] };
+      this.replayParts = [];
+      this._withMode('replay', () => this.wb.transaction(p.label, () => applyOps(this.wb, p.ops, p.label)));
+      p.rollback = this.replayParts;
+      this.replayParts = null;
+      this.pending.push(p);
+    }
+    this.shadow = this._fullShadow();
+    this._resetDirty();
+  }
+
+  /** Take back every pending change (the room refused one for good; later ones may build on it). */
+  discardPending() {
+    if (!this.pending.length) return;
+    this.wb._coalesce(() => this._rollback());
+    this.pending = [];
+    this.undoStack = [];
+    this.redoStack = [];
+    this.shadow = this._fullShadow();
+    this._resetDirty();
+    this.wb._emit('history');
+  }
+
+  /** Bring the shadow up to date for the registers `ops` wrote (none of them structural). */
+  _refreshShadow(ops) {
+    const wb = this.wb, sh = this.shadow;
+    const sheets = new Set();
+    let book = false;
+    for (const op of ops) {
+      if (op.t === 'book') { book = true; continue; }
+      const live = wb.sheet(op.s), shadow = sh.sheets.get(op.s);
+      if (!live || !shadow) continue;
+      sheets.add(op.s);
+      if (op.t !== 'cells') continue;
+      for (const key of new Set([...Object.keys(op.v || {}), ...Object.keys(op.st || {})])) {
+        const cur = live.cells.get(key);
+        if (cur) { shadow.cells.set(key, cur); if (cur.f != null) shadow.f.set(key, cur.f); else shadow.f.delete(key); }
+        else { shadow.cells.delete(key); shadow.f.delete(key); }
+      }
+    }
+    // Settings (a cell write can clear a sheet's ignored errors, say) are read again for each sheet written.
+    for (const id of sheets) {
+      const live = wb.sheet(id), shadow = sh.sheets.get(id);
+      const shape = sheetShapeJSON(live);
+      for (const p of SHEET_PROPS) shadow.props.set(p, json(shape[p]));
+      shadow.lines = linesOf(shape);
+      shadow.shape = shape;
+    }
+    if (book) {
+      const fields = wb.bookFields(), state = wb.bookState(BOOK_PROPS);
+      for (const k of BOOK_PROPS) sh.book.set(k, { ref: fields[k], json: json(state[k]) });
+    }
   }
 
   _rollback() {

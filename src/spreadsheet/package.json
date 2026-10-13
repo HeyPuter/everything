@@ -6,12 +6,13 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:worker && vite build",
     "preview": "vite preview",
     "icons": "sh dev/generate-icons.sh",
     "template:thumbnails": "node dev/generate-template-thumbnails.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:worker": "vite build --config vite.worker.config.js"
   },
   "repository": {
     "type": "git",
