@@ -8,6 +8,7 @@
  * While dragging a polygon or star the Up/Down arrow keys change the number
  * of sides or points; for a rounded rectangle they change the radius (Left
  * and Right Arrow give square or fully rounded corners).
+ * Holding ` (~) while dragging leaves a trail of shapes along the drag.
  */
 import { Tool, fmt, constrain45, constrainAngle } from './tool.js';
 import { createPath, createGroup, createCompound } from '../model/nodes.js';
@@ -16,6 +17,7 @@ import { buildSnapIndex, snapPoint } from './snap.js';
 import { newPathStyle } from './pen.js';
 import { rotate } from '../lib/matrix.js';
 import { transformAnchors } from '../model/bezier.js';
+import { trailKeyDown, installTrailKey } from './trail-key.js';
 
 /**
  * Drawing planes: a feature can have the shape tools draw onto a plane
@@ -63,6 +65,7 @@ class DragShapeTool extends Tool {
     super(app);
     this.drag = null;
     this.cursor = 'crosshair';
+    installTrailKey();
   }
 
   activate() {
@@ -150,8 +153,11 @@ class DragShapeTool extends Tool {
     const doc = editor.doc;
     const built = this.build(d);
     if (!built) return;
-    if (!d.tx) {
-      d.tx = doc.begin(this.constructor.label.replace(' Tool', ''));
+    // With the trail key held each pointer move (a few pixels apart) starts a new shape.
+    const trail = d.tx && e && trailKeyDown() && (!d.trailAt || Math.hypot(e.sx - d.trailAt.sx, e.sy - d.trailAt.sy) >= 3);
+    if (!d.tx || trail) {
+      d.tx ||= doc.begin(this.constructor.label.replace(' Tool', ''));
+      if (e) d.trailAt = { sx: e.sx, sy: e.sy };
       const nodes = Array.isArray(built) ? built : [built];
       if (nodes.length === 1 && !nodes[0].compound) {
         const node = createPath(nodes[0].anchors, nodes[0].closed, newPathStyle(editor), { shape: nodes[0].shape });
@@ -163,7 +169,8 @@ class DragShapeTool extends Tool {
         d.select = this.place(doc, group, descendants, d.plane);
         d.id = group.id;
       }
-      editor.select([d.select]);
+      (d.shapes ||= []).push(d.select);
+      editor.select(d.shapes);
     } else if (!Array.isArray(built)) {
       doc.update(d.id, { anchors: built.anchors, shape: built.shape, closed: built.closed, ...(built.style || {}) });
     } else {
