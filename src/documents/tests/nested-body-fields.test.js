@@ -96,7 +96,7 @@ it('rejects a partial nested boundary edit atomically',async()=>{
 });
 
 it.each([
- ['instruction nesting',x=>x.replace('<w:instrText xml:space="preserve"> PAGE </w:instrText>','<w:fldChar w:fldCharType="begin"/>'),'inside instructions'],
+ ['instruction nesting',x=>x.replace('<w:instrText xml:space="preserve"> PAGE </w:instrText>','<w:fldChar w:fldCharType="begin"/>'),'body field instruction'],
  ['unterminated child',x=>x.replace('<w:fldChar w:fldCharType="end"/>',''),'body field'],
 ])('rejects %s',async(_,change,message)=>{
  const parts=unzipSync(source);parts['word/document.xml']=strToU8(change(strFromU8(parts['word/document.xml'])));

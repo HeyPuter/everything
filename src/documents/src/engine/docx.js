@@ -1244,7 +1244,7 @@ export class DocxPackage {
           if (!context.drawingText && !context.pageStory && t.namespaceURI === W && ['fldChar','instrText'].includes(t.localName)) {
             push();bodyFields.token(t,r,textPosition,fieldMarkers,link);continue;
           }
-          if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('visible content inside a body field instruction');
+          if (!context.drawingText && !context.pageStory && bodyFields.inCode) { if (bodyFields.absorb(t, r)) continue; throw new UnsupportedDocumentError('visible content inside a body field instruction'); }
           if (t.namespaceURI === W && t.localName === 't') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'delText' && currentRevision?.type === 'del') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'sym') {
