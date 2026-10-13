@@ -52,6 +52,15 @@ export async function refineMaskEdge(e: Editor) {
   const l = e.layer;
   if (!l || l.kind === 'group' || l.kind === 'adjustment') return e.message('Select a layer with a layer mask.');
   if (layerLock(e.doc.layers, l.id, 'all')) return e.message('Unlock this layer to refine its mask.');
+  const area = canvasRect(e.doc);
+  const store = e.assets.tiles;
+  // The mask as it applies (an inverted mask is refined as it shows).
+  const grid = l.maskGrid ?? (await legacyMaskToGrid(e, l));
+  if (!grid) return e.message('This layer has no layer mask.');
+  const mask = readMask(store, grid, area);
+  if (l.maskGrid && l.maskInverted) for (let i = 0; i < mask.data.length; i++) mask.data[i] = 255 - mask.data[i];
+  // Checked before asking for settings: a uniform mask has nothing to refine.
+  if (!edgeBand(mask, 0)) return e.message('The mask has no edge to refine: it shows or hides the whole layer.');
   const v = await formDialog('Refine Mask Edge', [
     { name: 'radius', label: 'Edge radius (px)', value: 8, type: 'number', min: 1, max: 250 },
     { name: 'adaptive', label: 'Adaptive radius (keep hard edges crisp)', value: 'yes', type: 'checkbox' },
@@ -71,15 +80,7 @@ export async function refineMaskEdge(e: Editor) {
     shiftEdge: clamp('shift', -100, 100),
     decontaminate: 0,
   };
-  const area = canvasRect(e.doc);
-  const store = e.assets.tiles;
-  // The mask as it applies (an inverted mask is refined as it shows).
-  const grid = l.maskGrid ?? (await legacyMaskToGrid(e, l));
-  if (!grid) return e.message('This layer has no layer mask.');
-  const mask = readMask(store, grid, area);
-  if (l.maskGrid && l.maskInverted) for (let i = 0; i < mask.data.length; i++) mask.data[i] = 255 - mask.data[i];
-  const band = edgeBand(mask, Math.ceil(settings.radius * 2 + settings.feather + 4));
-  if (!band) return e.message('The mask has no edge to refine: it shows or hides the whole layer.');
+  const band = edgeBand(mask, Math.ceil(settings.radius * 2 + settings.feather + 4))!;
   // The layer's own pixels, without its mask or effects, guide the matting.
   const plain: Layer = { ...l, mask: null, maskAsset: undefined, pixelMask: undefined, maskStrokes: undefined, maskGrid: undefined, maskInverted: false, maskDisabled: false, opacity: 1, blend: 'normal', fillOpacity: 1, style: undefined };
   const image = await layerRGBA(e, plain);

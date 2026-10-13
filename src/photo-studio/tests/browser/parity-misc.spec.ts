@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { boot, canvasClick, client, idle, openImage, run, start, tool } from './helpers';
+import { boot, canvasClick, client, historyLabels, idle, openImage, run, start, tool } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -209,6 +209,15 @@ test('Refine Mask Edge rewrites the mask near its edge', async ({ page }) => {
   expect(values[1]).toBeGreaterThan(0);
   expect(values[1]).toBeLessThan(255);
   expect(values[2]).toBe(0);
+});
+
+test('Refine Mask Edge explains a mask without an edge before asking for settings', async ({ page }) => {
+  await run(page, 'layer.mask-reveal-all');
+  const before = (await historyLabels(page)).length;
+  await start(page, 'layer.mask-refine-edge');
+  await expect(page.locator('#status')).toContainText('no edge to refine');
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  expect((await historyLabels(page)).length).toBe(before);
 });
 
 test('block text, vertical forms and named stylistic sets', async ({ page }) => {
