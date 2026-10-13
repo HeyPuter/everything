@@ -37,6 +37,15 @@ function targetParent(app, editor) {
   return editor.targetLayer().id;
 }
 
+/**
+ * Where placed artwork goes (inside the open transaction): the drawing
+ * mode's target (behind the selection, inside a path) when the target
+ * layer takes artwork, else the fallback layer, on top.
+ */
+function drawTarget(editor, parent) {
+  return editor.canDrawInTarget() ? editor.drawTarget() : { parentId: parent, index: Infinity };
+}
+
 /** Image node data for a raster blob: { node, assetId, asset, width, height }. */
 export async function imageNodeData(blob, { name = '' } = {}) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -78,7 +87,8 @@ export async function placeImage(app, editor, blob, { point, name = '', select =
   const link = blob.puterPath ? { source: 'puter', path: blob.puterPath, name: blob.name || name, size: blob.size, modified: blob.lastModified || Date.now() } : null;
   let id = null;
   doc.transact('Place', () => {
-    id = doc.insert({ ...node, transform: m, ...(link ? { link } : {}) }, parent).id;
+    const t = drawTarget(editor, parent);
+    id = doc.insert({ ...node, transform: m, ...(link ? { link } : {}) }, t.parentId, t.index).id;
   });
   if (select) editor.select([id]);
   return id;
@@ -107,7 +117,8 @@ export async function placeSVG(app, editor, text, { point, name = '', select = t
   doc.transact('Place', () => {
     const root = { ...r.subtree.nodes[0] };
     if (name && !root.name) root.name = name;
-    const placed = doc.importSubtree({ root: r.root, nodes: [root, ...r.subtree.nodes.slice(1)] }, parent);
+    const t = drawTarget(editor, parent);
+    const placed = doc.importSubtree({ root: r.root, nodes: [root, ...r.subtree.nodes.slice(1)] }, t.parentId, t.index);
     id = placed.id;
     const b = r.bounds;
     if (b) transformNodes(doc, [id], translate(p.x - (b.x + b.w / 2), p.y - (b.y + b.h / 2)));
@@ -155,7 +166,8 @@ export function placeText(app, editor, text, { point } = {}) {
   const p = point || viewCenter(editor);
   let id = null;
   doc.transact('Paste', () => {
-    id = doc.insert(createText(String(text).replace(/\r\n?/g, '\n').slice(0, 20000), p.x, p.y), parent).id;
+    const t = drawTarget(editor, parent);
+    id = doc.insert(createText(String(text).replace(/\r\n?/g, '\n').slice(0, 20000), p.x, p.y), t.parentId, t.index).id;
   });
   editor.select([id]);
   return id;

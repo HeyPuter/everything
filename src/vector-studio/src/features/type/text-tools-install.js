@@ -44,7 +44,7 @@ export function pastePlainText(app, text) {
   const r = ed.view.visibleRect(0);
   const d = typeDefaults(app);
   const node = createText(text, r.x + r.w / 2, r.y + r.h / 2, { char: { ...d.char }, para: { ...d.para, align: 'center' }, fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth });
-  ed.doc.transact('Paste', () => ed.doc.insert(node, ed.targetLayer().id));
+  ed.doc.transact('Paste', () => ed.insertDrawn(node));
   ed.select([node.id]);
   return node.id;
 }

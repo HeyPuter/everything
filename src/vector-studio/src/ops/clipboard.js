@@ -138,7 +138,10 @@ export function paste(editor, mode = 'center') {
     const sel = editor.topSelection();
     let parentId = editor.targetLayer().id;
     let index = Infinity;
-    if ((mode === 'front' || mode === 'back') && sel.length) {
+    if (mode === 'center' || mode === 'place') {
+      // Paste and Paste in Place follow the drawing mode (behind the selection, inside a path).
+      ({ parentId, index } = editor.drawTarget());
+    } else if ((mode === 'front' || mode === 'back') && sel.length) {
       const anchorId = mode === 'front' ? sel[sel.length - 1] : sel[0];
       const node = doc.get(anchorId);
       parentId = node.parent;
