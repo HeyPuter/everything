@@ -188,11 +188,13 @@ import {
 } from "../../pptx/src/index.ts";
 import { getParagraphLayout } from "../../pptx/src/api/fn/paragraph-format.ts";
 import {
+  getShapeBackgroundFill,
   getShapeImageFillMode,
   getShapeLineGradient,
   getShapePictureAdjustments,
 } from "../../pptx/src/api/fn/shape-paint-format.ts";
 import { getShapeStrokeWidth } from "../../pptx/src/index.ts";
+import { getShape3D } from "../../pptx/src/api/fn/shape-effect-format.ts";
 import {
   defaultMeasurer,
   layoutCore,
@@ -893,6 +895,8 @@ const sharedDefinitionIds = { next: 0 };
 let activeDefinitionIds = sharedDefinitionIds;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
+// The slide background as a paint server for shapes that fill with it.
+let activeBackgroundFill: { id: string; used: boolean } | null = null;
 
 // Effective color map (`<p:clrMap>` overlaid by `<p:clrMapOvr>`) for the slide
 // currently rendering. The slide tokens (`tx1`, `bg1`, …) remap to
@@ -1791,6 +1795,16 @@ const formatAutoNum = (token: string, n: number): string => {
       return `(${toAlpha(n)})`;
     case "alphaLcParenBoth":
       return `(${toAlpha(n).toLowerCase()})`;
+    // Enclosed numbers: ①..⑳ in a circle, ❶..❿ white on a black circle.
+    case "circleNumDbPlain":
+    case "circleNumWdWhitePlain":
+      return n >= 1 && n <= 20
+        ? String.fromCodePoint(0x245f + n)
+        : `${arabic}.`;
+    case "circleNumWdBlackPlain":
+      return n >= 1 && n <= 10
+        ? String.fromCodePoint(0x2775 + n)
+        : `${arabic}.`;
     default:
       return `${arabic}.`;
   }
@@ -2308,6 +2322,17 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
             const last = pieces[pieces.length - 1];
             if (last !== undefined && !last.isBreak) pieces.push(breakPiece());
             pieces.push({ ...base, text: g, isBreak: false });
+          }
+        } else if (fmt?.cap === "small") {
+          // Small capitals: lowercase letters become capitals drawn smaller.
+          for (const part of seg.match(/\p{Ll}+|[^\p{Ll}]+/gu) ?? []) {
+            const lower = /\p{Ll}/u.test(part);
+            pieces.push({
+              ...base,
+              ...(lower ? { sizePx: base.sizePx * 0.8 } : {}),
+              text: part.toUpperCase(),
+              isBreak: false,
+            });
           }
         } else {
           pieces.push({ ...base, text: segText, isBreak: false });
@@ -11200,7 +11225,7 @@ const renderShape = (
       : "";
 
   if (kind === "picture") {
-    return renderPicture(
+    const picture = renderPicture(
       shape,
       pres,
       x,
@@ -11212,6 +11237,8 @@ const renderShape = (
       stroke,
       theme,
     );
+    const solid = apply3D(shape, picture, { x, y, w, h });
+    return solid.defs + solid.svg;
   }
 
   // Shapes with an image fill (`<p:sp>` + `<a:blipFill>` instead of a
@@ -11400,7 +11427,7 @@ const renderShape = (
     effects.length === 0 &&
     (geometry === null ||
       (geometry.kind === "preset" && geometry.preset === "rect"));
-  const p = paint(
+  let p = paint(
     shape,
     fill,
     stroke,
@@ -11415,6 +11442,20 @@ const renderShape = (
       ? { x, y, w, h }
       : undefined,
   );
+  // A shape filled with the slide background shows the background through
+  // it, hiding whatever lies beneath.
+  if (
+    activeBackgroundFill &&
+    kind === "shape" &&
+    getShapeBackgroundFill(shape)
+  ) {
+    activeBackgroundFill.used = true;
+    p = {
+      ...p,
+      fill: `url(#${activeBackgroundFill.id})`,
+      cssGradient: undefined,
+    };
+  }
 
   if (kind === "graphicFrame") {
     let drawing = readDiagramDrawing(shape);
@@ -11630,6 +11671,9 @@ const renderShape = (
     geomSvg = reflection.svg + geomSvg;
     fxDefs += reflection.defs;
   }
+  const solid = apply3D(shape, geomSvg, { x, y, w, h });
+  geomSvg = solid.svg;
+  fxDefs += solid.defs;
 
   // B6 — Shape-level hyperlinks + slide-jump click actions. Wrap the
   // rendered shape in an SVG <a href> so the playground preview is
@@ -11672,7 +11716,11 @@ const renderShape = (
     : "";
   // Geometry carries rotation + flips; text carries rotation only so it stays
   // upright when the shape is flipped.
-  const placedText = textOverlay ? `<g${textTransform}>${textOverlay}</g>` : "";
+  const placedText = textOverlay
+    ? solid.projection
+      ? `<g transform="${solid.projection}"><g${textTransform}>${textOverlay}</g></g>`
+      : `<g${textTransform}>${textOverlay}</g>`
+    : "";
   const custGeomAttr = isCustGeom ? ' data-pptx-fallback="custGeom"' : "";
   const textRectAttr = invalidTextRectangle(geometry?.geometry?.textRect)
     ? ' data-pptx-text-rect="invalid"'
@@ -11717,6 +11765,96 @@ interface ReflectionResult {
   readonly defs: string;
 }
 
+// Camera presets as X/Y rotations of the face, for the flat projection.
+const CAMERA_ANGLES: Record<string, [number, number]> = {
+  isometricLeftDown: [45, 35],
+  isometricRightUp: [315, 35],
+  isometricTopUp: [315, 325],
+  isometricBottomDown: [45, 325],
+  isometricOffAxis1Left: [64, 18],
+  isometricOffAxis1Right: [334, 18],
+  isometricOffAxis2Left: [26, 18],
+  isometricOffAxis2Right: [296, 18],
+  perspectiveLeft: [20, 0],
+  perspectiveRight: [340, 0],
+  perspectiveAbove: [0, 340],
+  perspectiveBelow: [0, 20],
+  perspectiveRelaxed: [0, 309],
+  perspectiveHeroicExtremeLeftFacing: [34, 8],
+  perspectiveHeroicExtremeRightFacing: [326, 8],
+};
+
+// The 2-D matrix that shows a face turned by X (about the vertical axis),
+// Y (about the horizontal axis) and Z, seen straight on; oblique cameras
+// shear. Null when the face is not turned.
+const projectionMatrix = (
+  t: ReturnType<typeof getShape3D>,
+): [number, number, number, number] | null => {
+  if (t.camera.startsWith("oblique")) {
+    const k = 0.18;
+    return [
+      1,
+      t.camera.includes("Top") ? -k : k,
+      t.camera.includes("Left") ? -k : k,
+      1,
+    ];
+  }
+  const preset = CAMERA_ANGLES[t.camera] ?? [0, 0];
+  const ax = ((preset[0] + t.rotX) * Math.PI) / 180;
+  const ay = ((preset[1] + t.rotY) * Math.PI) / 180;
+  const az = (t.rotZ * Math.PI) / 180;
+  if (!Math.sin(ax) && !Math.sin(ay) && !Math.sin(az)) return null;
+  const ux = [Math.cos(ax), Math.sin(ay) * Math.sin(ax)];
+  const uy = [0, Math.cos(ay)];
+  const cz = Math.cos(az),
+    sz = Math.sin(az);
+  const rot = (v: number[]) => [
+    v[0]! * cz - v[1]! * sz,
+    v[0]! * sz + v[1]! * cz,
+  ];
+  const a = rot(ux),
+    b = rot(uy);
+  return [a[0]!, a[1]!, b[0]!, b[1]!];
+};
+
+// 3-D format as the slide can show it: a bevel lit along the shape's edge
+// (SVG lighting on the blurred outline) and a 3-D rotation as a flat
+// projection about the shape's center. The full setting stays in the file.
+const apply3D = (
+  shape: SlideShapeData,
+  svg: string,
+  box: { x: number; y: number; w: number; h: number },
+): { svg: string; defs: string; projection: string | null } => {
+  let t: ReturnType<typeof getShape3D>;
+  try {
+    t = getShape3D(shape);
+  } catch {
+    return { svg, defs: "", projection: null };
+  }
+  if (!t.present) return { svg, defs: "", projection: null };
+  let defs = "";
+  let out = svg;
+  const bevel = t.bevelTop;
+  if (bevel && bevel.widthEmu > 0 && bevel.heightEmu > 0) {
+    const id = mintId();
+    const depth = Math.max(0.6, Math.min(10, bevel.widthEmu / EMU_PER_PX / 2));
+    const inset = bevel.preset === "divot" || bevel.preset === "relaxedInset";
+    const surface =
+      (inset ? -1 : 1) * Math.min(6, bevel.heightEmu / EMU_PER_PX / 2 + 1);
+    defs += `<defs><filter id="${id}" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="${PX(depth)}" result="bump"/><feSpecularLighting in="bump" surfaceScale="${PX(surface)}" specularConstant="0.8" specularExponent="20" lighting-color="#ffffff" result="spec"><feDistantLight azimuth="225" elevation="35"/></feSpecularLighting><feComposite in="spec" in2="SourceAlpha" operator="in" result="lit"/><feDiffuseLighting in="bump" surfaceScale="${PX(surface)}" diffuseConstant="1.05" lighting-color="#ffffff" result="diff"><feDistantLight azimuth="225" elevation="50"/></feDiffuseLighting><feComposite in="SourceGraphic" in2="diff" operator="arithmetic" k1="1" result="shaded"/><feComposite in="shaded" in2="SourceAlpha" operator="in" result="body"/><feComposite in="lit" in2="body" operator="arithmetic" k2="0.6" k3="1"/></filter></defs>`;
+    out = `<g filter="url(#${id})">${out}</g>`;
+  }
+  const m = projectionMatrix(t);
+  let projection: string | null = null;
+  if (m) {
+    const cx = E(box.x + box.w / 2),
+      cy = E(box.y + box.h / 2);
+    projection = `translate(${cx} ${cy}) matrix(${m.map((n) => n.toFixed(4)).join(" ")} 0 0) translate(-${cx} -${cy})`;
+    out = `<g transform="${projection}">${out}</g>`;
+  }
+  return { svg: out, defs, projection };
+};
+
 // Builds the reflection: a vertically mirrored copy of the shape's raw
 // geometry placed below its bottom edge, faded by a vertical opacity mask.
 // DrawingML encodes the mirror as a negative `sy`; `stA`/`endA` give the
@@ -11749,7 +11887,9 @@ const buildReflection = (
   const defs =
     `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">` +
     `<stop offset="0" stop-color="#fff" stop-opacity="${startA.toFixed(3)}"/>` +
-    `<stop offset="1" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/>` +
+    (refl.endPos !== undefined && refl.endPos < 1
+      ? `<stop offset="${Math.max(0, refl.endPos).toFixed(3)}" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>`
+      : `<stop offset="1" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/>`) +
     `</linearGradient>` +
     `<mask id="${maskId}" maskContentUnits="objectBoundingBox">` +
     `<rect width="1" height="1" fill="url(#${gradId})"/></mask></defs>`;
@@ -12100,11 +12240,20 @@ const renderSlideSvgInContext = (
     }
   }
 
-  const shapesSvg = topLevelShapes(getSlideShapes(slide), {
-    dropPlaceholders: false,
-  })
-    .map((s) => renderShape(s, pres, theme, ctx))
-    .join("");
+  const previousBackgroundFill = activeBackgroundFill;
+  const backgroundFill = (activeBackgroundFill = { id: mintId(), used: false });
+  let shapesSvg: string;
+  try {
+    shapesSvg = topLevelShapes(getSlideShapes(slide), {
+      dropPlaceholders: false,
+    })
+      .map((s) => renderShape(s, pres, theme, ctx))
+      .join("");
+  } finally {
+    activeBackgroundFill = previousBackgroundFill;
+  }
+  if (backgroundFill.used)
+    bgGradientDefs += `<defs><pattern id="${backgroundFill.id}" patternUnits="userSpaceOnUse" x="0" y="0" width="${E(W)}" height="${E(H)}"><rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"/>${bgGradient}${bgImage}</pattern></defs>`;
 
   // A viewBox alone supplies an aspect ratio, but no intrinsic dimensions.
   // Use the same CSS-pixel grid for the image's native size and its geometry

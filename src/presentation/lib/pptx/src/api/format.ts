@@ -4,3 +4,4 @@
 export * from "./fn/paragraph-format.ts";
 export * from "./fn/shape-effect-format.ts";
 export * from "./fn/shape-paint-format.ts";
+export * from "./fn/typefaces.ts";

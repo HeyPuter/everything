@@ -573,3 +573,187 @@ export const setShapePresetGeometry = (
   }
   commitAndRefresh(shape);
 };
+
+// ---------------------------------------------------------------------------
+// Slide background fill and the aspect-ratio lock
+
+/** Whether the shape is filled with the slide's background (`useBgFill`). */
+export const getShapeBackgroundFill = (shape: SlideShapeData): boolean =>
+  shape[SHAPE_SNAPSHOT].kind === "shape" &&
+  ["1", "true"].includes(
+    getAttrValue(shape[SHAPE_ELEMENT], A("useBgFill")) ?? "",
+  );
+
+/**
+ * Fills the shape with the slide's background, as if it were a window onto
+ * it that hides what lies beneath. Turning it on removes the shape's own fill.
+ */
+export const setShapeBackgroundFill = (
+  shape: SlideShapeData,
+  on: boolean,
+): void => {
+  if (shape[SHAPE_SNAPSHOT].kind !== "shape")
+    throw new Error("only shapes take the slide background as their fill");
+  const el = shape[SHAPE_ELEMENT];
+  el.attrs = el.attrs.filter(
+    (x) => !(x.name.namespaceURI === "" && x.name.localName === "useBgFill"),
+  );
+  if (on) {
+    el.attrs.push(attr(A("useBgFill"), "1"));
+    without(requireSpPr(shape), [
+      "noFill",
+      "solidFill",
+      "gradFill",
+      "blipFill",
+      "pattFill",
+      "grpFill",
+    ]);
+  }
+  commitAndRefresh(shape);
+};
+
+const locksOf = (shape: SlideShapeData, create: boolean): XmlElement | null => {
+  const kind = shape[SHAPE_SNAPSHOT].kind;
+  const holderName =
+    kind === "picture"
+      ? "cNvPicPr"
+      : kind === "connector"
+        ? "cNvCxnSpPr"
+        : kind === "group"
+          ? "cNvGrpSpPr"
+          : kind === "graphicFrame"
+            ? "cNvGraphicFramePr"
+            : "cNvSpPr";
+  const locksName =
+    kind === "picture"
+      ? "picLocks"
+      : kind === "connector"
+        ? "cxnSpLocks"
+        : kind === "group"
+          ? "grpSpLocks"
+          : kind === "graphicFrame"
+            ? "graphicFrameLocks"
+            : "spLocks";
+  const nv = shape[SHAPE_ELEMENT].children.find(
+    (c): c is XmlElement =>
+      c.kind === "element" &&
+      c.name.namespaceURI === NS.pml &&
+      c.name.localName.startsWith("nv"),
+  );
+  if (!nv) return null;
+  let holder = firstChildElement(nv, qname("p", holderName, NS.pml));
+  if (!holder) {
+    if (!create) return null;
+    holder = elem(qname("p", holderName, NS.pml));
+    // The holder follows cNvPr.
+    nv.children.splice(1, 0, holder);
+  }
+  let locks = firstChildElement(holder, a(locksName));
+  if (!locks && create) {
+    locks = elem(a(locksName));
+    holder.children.unshift(locks);
+  }
+  return locks;
+};
+
+/** Whether resizing keeps the object's proportions (`noChangeAspect`). */
+export const getShapeAspectLock = (shape: SlideShapeData): boolean => {
+  const locks = locksOf(shape, false);
+  return (
+    !!locks &&
+    ["1", "true"].includes(getAttrValue(locks, A("noChangeAspect")) ?? "")
+  );
+};
+
+export const setShapeAspectLock = (
+  shape: SlideShapeData,
+  on: boolean,
+): void => {
+  const locks = locksOf(shape, true);
+  if (!locks) throw new Error("the object has no non-visual properties");
+  locks.attrs = locks.attrs.filter(
+    (x) =>
+      !(x.name.namespaceURI === "" && x.name.localName === "noChangeAspect"),
+  );
+  if (on) locks.attrs.push(attr(A("noChangeAspect"), "1"));
+  commitAndRefresh(shape);
+};
+
+// ---------------------------------------------------------------------------
+// Theme style references
+
+/** One reference into the theme's style matrix, with the color it takes. */
+export interface StyleMatrixRef {
+  /** 0 = none; 1..3 subtle → intense (fills 1001.. use the background list). */
+  readonly idx: number;
+  /** `#RRGGBB` or a scheme reference such as `scheme:accent2/lumMod=75000`. */
+  readonly color: string;
+}
+
+/**
+ * Styles a shape from the theme's style matrix (`<p:style>`): its fill,
+ * line and effects follow the theme's subtle-to-intense entries in the
+ * given colors, and its text takes `fontColor` in the theme's minor font.
+ * The shape's own fill, line and effects are removed so the style shows.
+ */
+export const setShapeStyleMatrix = (
+  shape: SlideShapeData,
+  refs: {
+    readonly fill: StyleMatrixRef;
+    readonly line: StyleMatrixRef;
+    readonly effect: StyleMatrixRef;
+    readonly fontColor: string;
+  },
+): void => {
+  if (shape[SHAPE_SNAPSHOT].kind !== "shape")
+    throw new Error("only shapes take a theme style");
+  const spPr = requireSpPr(shape);
+  without(spPr, [
+    "noFill",
+    "solidFill",
+    "gradFill",
+    "blipFill",
+    "pattFill",
+    "grpFill",
+    "ln",
+    "effectLst",
+    "effectDag",
+  ]);
+  const el = shape[SHAPE_ELEMENT];
+  el.attrs = el.attrs.filter(
+    (x) => !(x.name.namespaceURI === "" && x.name.localName === "useBgFill"),
+  );
+  el.children = el.children.filter(
+    (c) =>
+      !(
+        c.kind === "element" &&
+        c.name.namespaceURI === NS.pml &&
+        c.name.localName === "style"
+      ),
+  );
+  const ref = (name: string, r: StyleMatrixRef) =>
+    elem(a(name), {
+      attrs: [attr(A("idx"), String(Math.max(0, Math.round(r.idx))))],
+      children: [buildColorElement(r.color)],
+    });
+  const style = elem(qname("p", "style", NS.pml), {
+    children: [
+      ref("lnRef", refs.line),
+      ref("fillRef", refs.fill),
+      ref("effectRef", refs.effect),
+      elem(a("fontRef"), {
+        attrs: [attr(A("idx"), "minor")],
+        children: [buildColorElement(refs.fontColor)],
+      }),
+    ],
+  });
+  // p:style follows spPr and precedes txBody.
+  const at = el.children.findIndex(
+    (c) =>
+      c.kind === "element" &&
+      c.name.namespaceURI === NS.pml &&
+      c.name.localName === "spPr",
+  );
+  el.children.splice(at + 1, 0, style);
+  commitAndRefresh(shape);
+};
