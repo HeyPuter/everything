@@ -1,0 +1,90 @@
+/* Dimension Options dialog and the Properties panel sections. */
+.dim-dialog .dialog-body {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+}
+
+.dim-options {
+  min-width: min(380px, 100%);
+}
+
+.dim-options .form-row {
+  grid-template-columns: minmax(110px, 150px) 1fr;
+}
+
+.dim-sample-box {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Artwork colors are document colors: the sample sits on paper in both themes. */
+  background: #ffffff;
+}
+
+.dim-sample {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+}
+
+.dim-sample-object {
+  fill: #e6e9ef;
+  stroke: #9aa3b2;
+  stroke-width: 1;
+}
+
+.dim-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dim-scale .dim-num {
+  width: 64px;
+}
+
+.dim-scale .select {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.dim-num {
+  width: 90px;
+  max-width: 100%;
+}
+
+.dim-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dim-section .segmented .seg-btn {
+  flex: 1;
+  font-size: var(--fs-sm);
+}
+
+.dim-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dim-scale-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 760px) {
+  .dim-options .form-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .dim-scale {
+    flex-wrap: wrap;
+  }
+}

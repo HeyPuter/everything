@@ -159,10 +159,13 @@ function wireToolbarDrag(app) {
 
 /** Built-in workspaces: panel arrangement, tool set and bars. */
 export const WORKSPACES = {
+  automation: { name: 'Automation', dock: ['properties', 'actions', 'layers'], strip: ['variables', 'history', 'links', 'documentInfo', 'swatches', 'color'], active: 'actions', toolbar: 'advanced', controlBar: false },
   essentials: { name: 'Essentials', dock: ['properties', 'layers'], strip: ['color', 'swatches', 'stroke', 'gradient', 'transparency', 'appearance', 'align', 'pathfinder', 'character', 'paragraph'], active: 'properties', toolbar: 'advanced', controlBar: false },
   classic: { name: 'Essentials Classic', dock: ['properties', 'layers', 'swatches'], strip: ['color', 'stroke', 'gradient', 'transparency', 'appearance', 'graphicStyles', 'align', 'transform', 'pathfinder', 'character', 'paragraph', 'navigator', 'info', 'artboards'], active: 'properties', toolbar: 'advanced', controlBar: true },
+  gettingStarted: { name: 'Getting Started', dock: ['properties', 'layers'], strip: ['swatches', 'color', 'libraries'], active: 'properties', toolbar: 'basic', controlBar: false },
   layout: { name: 'Layout', dock: ['properties', 'layers', 'artboards'], strip: ['align', 'transform', 'character', 'paragraph', 'characterStyles', 'paragraphStyles', 'swatches', 'color', 'stroke', 'info', 'navigator'], active: 'artboards', toolbar: 'advanced', controlBar: true },
   painting: { name: 'Painting', dock: ['properties', 'swatches', 'color'], strip: ['brushes', 'gradient', 'transparency', 'appearance', 'graphicStyles', 'stroke', 'layers', 'navigator'], active: 'color', toolbar: 'basic', controlBar: false },
+  printing: { name: 'Printing and Proofing', dock: ['properties', 'layers', 'separations'], strip: ['attributes', 'flattenerPreview', 'documentInfo', 'links', 'swatches', 'color', 'artboards'], active: 'properties', toolbar: 'advanced', controlBar: true },
   tracing: { name: 'Tracing', dock: ['properties', 'traceImage', 'layers'], strip: ['navigator', 'color', 'swatches', 'stroke', 'transparency', 'pathfinder'], active: 'traceImage', toolbar: 'advanced', controlBar: false },
   typography: { name: 'Typography', dock: ['properties', 'character', 'paragraph'], strip: ['characterStyles', 'paragraphStyles', 'glyphs', 'openType', 'tabs', 'layers', 'swatches', 'color', 'align'], active: 'character', toolbar: 'advanced', controlBar: true },
   web: { name: 'Web', dock: ['properties', 'layers', 'assetExport'], strip: ['swatches', 'color', 'align', 'transform', 'info', 'artboards', 'symbols', 'svgInteractivity', 'navigator'], active: 'properties', toolbar: 'advanced', controlBar: true },
@@ -352,6 +355,8 @@ export function layoutViews(app) {
     view.host.classList.toggle('floating', isFloat);
     view.host.classList.toggle('active-pane', ed === app.editor && (tiled || floating.size > 0));
     view.host.style.order = tiled && !isFloat ? String(docked.indexOf(ed)) : '';
+    // The active floating window sits above the others.
+    view.host.style.zIndex = isFloat && ed === app.editor ? '4' : '';
     if (isFloat) ensureFloatChrome(app, ed, view);
     else view.host.querySelector(':scope > .float-head')?.remove();
     if (visible) view.resize();
@@ -408,10 +413,27 @@ export function setArrangement(app, mode, { float = false } = {}) {
   app.floating ||= new Set();
   if (float && app.editor) {
     app.floating.add(app.editor);
-  } else if (mode === 'tabs') {
+  } else if (mode === 'tabs' || mode === 'tile') {
+    // Tiling and consolidating dock every floating window first.
     for (const ed of [...app.floating]) unfloat(app, ed);
   }
   if (mode) app.arrangement = mode;
+  layoutViews(app);
+}
+
+/** Float All in Windows: every document in its own window; windows already floating keep their place. */
+export function floatAll(app) {
+  app.floating ||= new Set();
+  for (const ed of app.editors) app.floating.add(ed);
+  layoutViews(app);
+}
+
+/** Cascade: every document in a floating window, stacked diagonally from the top left with the active one in front. */
+export function cascadeWindows(app) {
+  app.floating ||= new Set();
+  for (const ed of [...app.floating]) unfloat(app, ed);
+  const order = [...app.editors.filter((e) => e !== app.editor), ...(app.editor ? [app.editor] : [])];
+  for (const ed of order) app.floating.add(ed);
   layoutViews(app);
 }
 
@@ -461,10 +483,11 @@ export function installWindow(app) {
     { id: 'window.toolbar', label: 'Tools', checked: (a) => a.prefs.get('toolbarVisible') !== false, run: (a) => setToolbarVisible(a, a.prefs.get('toolbarVisible') === false) },
     { id: 'window.controlBar', label: 'Control', checked: (a) => Boolean(a.prefs.get('controlBar')), run: (a) => setControlBar(a, !a.prefs.get('controlBar')) },
     { id: 'window.newWindow', label: 'New Window', enabled: hasDoc, run: (a) => newWindow(a) },
-    { id: 'window.arrange.cascade', label: 'Stack Documents', enabled: (a) => a.editors.length > 1, checked: (a) => a.arrangement === 'stack', run: (a) => setArrangement(a, 'stack') },
-    { id: 'window.arrange.tile', label: 'Tile Side by Side', enabled: (a) => a.editors.length > 1, checked: (a) => a.arrangement === 'tile', run: (a) => setArrangement(a, 'tile') },
-    { id: 'window.arrange.float', label: 'Float in Window', enabled: (a) => Boolean(a.editor) && a.editors.length > 1 && !a.floating?.has(a.editor), run: (a) => setArrangement(a, null, { float: true }) },
-    { id: 'window.arrange.consolidate', label: 'Consolidate All into Tabs', enabled: (a) => (a.arrangement && a.arrangement !== 'tabs') || a.floating?.size > 0, run: (a) => setArrangement(a, 'tabs') },
+    { id: 'window.arrange.cascade', label: 'Cascade', enabled: (a) => a.editors.length > 0, run: (a) => cascadeWindows(a) },
+    { id: 'window.arrange.tile', label: 'Tile', enabled: (a) => a.editors.length > 1, checked: (a) => a.arrangement === 'tile' && !a.floating?.size, run: (a) => setArrangement(a, 'tile') },
+    { id: 'window.arrange.float', label: 'Float in Window', enabled: (a) => Boolean(a.editor) && !a.floating?.has(a.editor), run: (a) => setArrangement(a, null, { float: true }) },
+    { id: 'window.arrange.floatAll', label: 'Float All in Windows', enabled: (a) => a.editors.some((e) => !a.floating?.has(e)), run: (a) => floatAll(a) },
+    { id: 'window.arrange.consolidate', label: 'Consolidate All Windows', enabled: (a) => (a.arrangement && a.arrangement !== 'tabs') || a.floating?.size > 0, run: (a) => setArrangement(a, 'tabs') },
     ...SCREEN_MODES.map((m) => ({
       id: `window.screenMode.${m}`,
       label: { normal: 'Normal Screen Mode', menu: 'Full Screen with Menu Bar', full: 'Full Screen Mode' }[m],

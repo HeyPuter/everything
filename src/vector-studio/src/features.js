@@ -32,6 +32,7 @@ import { install as installEnvelope } from './features/envelope/index.js';
 import { install as installMesh } from './features/mesh/index.js';
 import { install as installGraphs } from './features/graphs/index.js';
 import { install as installFlare } from './features/flare/index.js';
+import { install as installDimension } from './features/dimension/index.js';
 import { install as installCollab } from './features/collab/index.js';
 import { install as installCorners } from './features/corners/index.js';
 import { install as installPatterns } from './features/patterns/index.js';
@@ -77,6 +78,7 @@ export function installFeatures(app) {
   installMesh(app);
   installGraphs(app);
   installFlare(app);
+  installDimension(app);
   installCorners(app);
   // After the document features: sharing wraps Save and gates editing commands.
   installCollab(app);
