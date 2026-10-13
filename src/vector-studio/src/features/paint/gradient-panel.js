@@ -21,7 +21,7 @@ import { createGradientSlider } from './gradient-slider.js';
 import { DEFAULT_LINEAR, setStop, removeStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle, normalizeGradient, resetGradientVector } from './gradient-model.js';
 import { isGradient } from '../../model/gradients.js';
 import { miniFillStroke, focusedPaint, gestureKey, paintState } from './ui-common.js';
-import { isFreeform, setPoint, removePoint } from './freeform.js';
+import { isFreeform, setPoint, removePoint, setFreeformMode } from './freeform.js';
 import { swatchesOf } from './swatch-model.js';
 import { createSwatchFromFocused } from './swatches-panel.js';
 
@@ -188,8 +188,19 @@ export class GradientPanel extends Panel {
       this.commit(removePoint(this.paint, i), 'Delete Color Point', null);
     }, { className: 'small' });
     this.pointNote = h('p.gp-note.muted');
+    // Points blend from each point; Lines spread colors along lines joining points.
+    this.ffMode = segmented(
+      'Freeform gradient mode',
+      [
+        { value: 'points', label: 'Points: colors blend out from each point', text: 'Points' },
+        { value: 'lines', label: 'Lines: colors spread along lines joining the points', text: 'Lines' },
+      ],
+      'points',
+      (v) => this.paint?.type === 'freeform' && this.commit(setFreeformMode(this.paint, v), 'Freeform Gradient Mode', null),
+    );
     this.freeform = h(
       'div.gp-freeform',
+      h('div.gp-row', h('span.pp-label', 'Draw'), this.ffMode.el),
       h('div.gp-stoprow', this.pointBtn, h('div.gp-field', this.pointOpacity.el), h('div.gp-field', this.spread.el), this.delPoint),
       this.pointNote,
     );
@@ -347,7 +358,11 @@ export class GradientPanel extends Panel {
         this.spread.set((pt.spread ?? 0) * 100);
       }
       this.delPoint.disabled = paint.points.length <= 1;
-      this.pointNote.textContent = `Point ${i + 1} of ${paint.points.length}. With the Gradient tool, click the object to add a point, drag points to move them, Delete removes the selected one.`;
+      const lines = paint.mode === 'lines';
+      this.ffMode.set(lines ? 'lines' : 'points');
+      this.pointNote.textContent = lines
+        ? `Point ${i + 1} of ${paint.points.length}. With the Gradient tool, click the object to continue the line from the selected point (Shift+click for a point on its own), click a line to add a point on it, drag points to move them.`
+        : `Point ${i + 1} of ${paint.points.length}. With the Gradient tool, click the object to add a point, drag points to move them, Delete removes the selected one.`;
       return;
     }
     this.angle.set(gradientAngle(paint));

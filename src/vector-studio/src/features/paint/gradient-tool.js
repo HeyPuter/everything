@@ -12,7 +12,9 @@
  * drag the dot on the dashed ellipse to change the aspect ratio. On a
  * freeform gradient the annotator shows its color points instead: click
  * the object to add a point, drag points to move them, Delete removes the
- * selected one.
+ * selected one. In lines mode a new point continues the line from the
+ * selected point (Shift+click places a point on its own) and clicking a
+ * line inserts a point on it.
  * Edits apply to the focused paint (fill or stroke).
  */
 import { Tool, tol, constrain45 } from '../../tools/tool.js';
@@ -22,7 +24,7 @@ import { isGradient } from '../../model/gradients.js';
 import { paintTargets } from '../../ops/paint-ops.js';
 import { setGradientVector, insertStop, moveStop, removeStop, setMidpoint, projectOnVector, DEFAULT_LINEAR } from './gradient-model.js';
 import { paintState } from './ui-common.js';
-import { isFreeform, addPoint, setPoint, removePoint, sampleFreeform } from './freeform.js';
+import { isFreeform, addPoint, setPoint, removePoint, sampleFreeform, insertLinePoint, freeformFrame, framePoint, frameFraction } from './freeform.js';
 import { rgbToHex } from '../../lib/color.js';
 
 const POINT_R = 7;
@@ -127,20 +129,41 @@ export class GradientTool extends Tool {
     return t.length === 1 && paintTargets(ed).length === 1 ? t[0] : null;
   }
 
-  /** Screen position of a freeform point. */
-  pointScreen(node, pt) {
-    const b = nodeBounds(this.editor.doc, node) || { x: 0, y: 0, w: 1, h: 1 };
-    return this.editor.view.toScreen(b.x + pt.x * b.w, b.y + pt.y * b.h);
+  /** The frame freeform points are placed in (turns with the object). */
+  frame(node) {
+    return freeformFrame(this.editor.doc, node) || { x: 0, y: 0, w: 1, h: 1, angle: 0 };
   }
 
-  /** The freeform point under the pointer: { kind: 'point', index, node } or null. */
+  /** Screen position of a freeform point. */
+  pointScreen(node, pt) {
+    const p = framePoint(this.frame(node), pt.x, pt.y);
+    return this.editor.view.toScreen(p.x, p.y);
+  }
+
+  /**
+   * The freeform part under the pointer: { kind: 'point', index, node },
+   * { kind: 'segment', line, k, t, node } on a line (lines mode), or null.
+   */
   freeformPartAt(e) {
     const node = this.freeformTarget();
     if (!node) return null;
-    const pts = node[this.editor.focusPaint].points;
+    const paint = node[this.editor.focusPaint];
+    const pts = paint.points;
     for (let i = pts.length - 1; i >= 0; i--) {
       const p = this.pointScreen(node, pts[i]);
       if (Math.hypot(e.sx - p.x, e.sy - p.y) <= POINT_R + 2) return { kind: 'point', index: i, node };
+    }
+    if (paint.mode === 'lines') {
+      for (let li = 0; li < (paint.lines || []).length; li++) {
+        const line = paint.lines[li];
+        for (let k = 0; k + 1 < line.length; k++) {
+          const a = this.pointScreen(node, pts[line[k]]);
+          const b = this.pointScreen(node, pts[line[k + 1]]);
+          const t = projectOnVector({ x1: a.x, y1: a.y, x2: b.x, y2: b.y }, e.sx, e.sy);
+          if (t <= 0 || t >= 1) continue;
+          if (Math.hypot(e.sx - (a.x + (b.x - a.x) * t), e.sy - (a.y + (b.y - a.y) * t)) <= 4) return { kind: 'segment', line: li, k, t, node };
+        }
+      }
     }
     return null;
   }
@@ -153,18 +176,34 @@ export class GradientTool extends Tool {
     if (!node) return false;
     const key = ed.focusPaint;
     let part = this.freeformPartAt(e);
-    const b = nodeBounds(doc, node);
-    if (!part) {
-      const hit = hitTest(doc, e.x, e.y, tol(ed, 3));
-      const inside = hit && (hit.id === node.id || doc.isAncestor(node.id, hit.id) || doc.isAncestor(hit.id, node.id));
-      if (!inside || !b || !(b.w > 0) || !(b.h > 0)) return false;
-      const u = (e.x - b.x) / b.w;
-      const v = (e.y - b.y) / b.h;
-      const c = sampleFreeform(node[key], u, v, b.w / b.h);
+    const b = freeformFrame(doc, node);
+    if (part?.kind === 'segment') {
+      // Clicking a line puts a point on it, ready to drag.
       const tx = doc.begin('Add Color Point');
       let index = 0;
       this.setFreeform(node, (p) => {
-        const r = addPoint(p, u, v, rgbToHex(c));
+        const r = insertLinePoint(p, part.line, part.k, part.t);
+        if (!r) return p;
+        index = r.index;
+        return r.paint;
+      });
+      paintState.setStop(index);
+      this.drag = { part: { kind: 'point', index, node }, tx, node, b, moved: true };
+      this.overlay();
+      return true;
+    }
+    if (!part) {
+      const hit = hitTest(doc, e.x, e.y, tol(ed, 3));
+      const inside = hit && (hit.id === node.id || doc.isAncestor(node.id, hit.id) || doc.isAncestor(hit.id, node.id));
+      if (!inside || !b) return false;
+      const { u, v } = frameFraction(b, e.x, e.y);
+      const c = sampleFreeform(node[key], u, v, b.w / b.h);
+      const tx = doc.begin('Add Color Point');
+      let index = 0;
+      const selected = node[key].points.length ? Math.min(paintState.stop, node[key].points.length - 1) : null;
+      this.setFreeform(node, (p) => {
+        // Lines mode continues the line from the selected point unless Shift places a point on its own.
+        const r = addPoint(p, u, v, rgbToHex(c), { after: e.shift ? null : selected });
         index = r.index;
         return r.paint;
       });
@@ -194,7 +233,7 @@ export class GradientTool extends Tool {
       const part = this.freeformPartAt(e);
       const prev = this.hoverPart;
       this.hoverPart = part;
-      this.setCursor(part ? 'move' : 'copy');
+      this.setCursor(part?.kind === 'point' ? 'move' : 'copy');
       if (prev?.index !== part?.index) this.overlay();
       return;
     }
@@ -281,8 +320,9 @@ export class GradientTool extends Tool {
     const kind = d.part.kind;
     if (kind === 'point') {
       d.moved = true;
-      const u = Math.max(0, Math.min(1, (e.x - d.b.x) / d.b.w));
-      const v = Math.max(0, Math.min(1, (e.y - d.b.y) / d.b.h));
+      const f = frameFraction(d.b, e.x, e.y);
+      const u = Math.max(0, Math.min(1, f.u));
+      const v = Math.max(0, Math.min(1, f.v));
       this.setFreeform(d.node, (p) => setPoint(p, d.part.index, { x: u, y: v }));
       this.overlay();
       return;
@@ -413,15 +453,33 @@ export class GradientTool extends Tool {
   drawFreeform(ctx, node) {
     const ed = this.editor;
     const paint = node[ed.focusPaint];
-    const b = nodeBounds(ed.doc, node);
+    const b = freeformFrame(ed.doc, node);
     const sel = Math.min(paintState.stop, paint.points.length - 1);
     ctx.save();
+    // Lines mode: the lines the colors spread along.
+    if (paint.mode === 'lines') {
+      for (const line of paint.lines || []) {
+        ctx.beginPath();
+        line.forEach((j, k) => {
+          const p = this.pointScreen(node, paint.points[j] || { x: 0, y: 0 });
+          if (k) ctx.lineTo(p.x, p.y);
+          else ctx.moveTo(p.x, p.y);
+        });
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.stroke();
+      }
+    }
     paint.points.forEach((pt, i) => {
       const p = this.pointScreen(node, pt);
       const selected = i === sel;
       if (selected && pt.spread > 0 && b) {
-        const a = ed.view.toScreen(b.x, b.y);
-        const c = ed.view.toScreen(b.x + b.w, b.y + b.h);
+        // The spread is a fraction of the frame's diagonal.
+        const a = this.pointScreen(node, { x: 0, y: 0 });
+        const c = this.pointScreen(node, { x: 1, y: 1 });
         const r = pt.spread * Math.hypot(c.x - a.x, c.y - a.y);
         ctx.setLineDash([4, 3]);
         ctx.strokeStyle = 'rgba(0,0,0,0.7)';
