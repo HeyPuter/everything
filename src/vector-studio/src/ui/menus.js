@@ -262,6 +262,7 @@ export const MENUS = [
       { label: 'Change Case', submenu: ['type.case.upper', 'type.case.lower', 'type.case.title', 'type.case.sentence'] },
       'type.smartPunctuation',
       '-',
+      'type.matchFont',
       'generative.text.rewrite',
       '-',
       'type.createOutlines',
