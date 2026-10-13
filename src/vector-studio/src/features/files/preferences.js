@@ -52,6 +52,7 @@ export const PREF_DEFAULTS = {
   bareNumbersArePoints: false,
   showSliceNumbers: true,
   sliceLineColor: '#e8590c',
+  showPixelGrid: true,
   canvasColor: 'match',
   undoLevels: 200,
 };
@@ -196,6 +197,7 @@ export function sections(app) {
         { key: 'gridSpacing', label: 'Gridline every', type: 'length', min: 1, max: 10000 },
         { key: 'gridSubdivisions', label: 'Subdivisions', type: 'number', min: 1, max: 100, integer: true },
         { key: 'gridsInBack', label: 'Grids In Back', type: 'checkbox' },
+        { key: 'showPixelGrid', label: 'Show Pixel Grid (Above 600% Zoom)', type: 'checkbox', help: 'In Pixel Preview.' },
       ],
       note: 'Grid spacing applies to the active document and to new documents.',
     },
