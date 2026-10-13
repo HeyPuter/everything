@@ -170,3 +170,74 @@ describe('transform tools', () => {
     expect(bounds(copy).w).toBeCloseTo(200);
   });
 });
+
+describe('tool options from the Tools panel', () => {
+  it('double-clicking navigation tools runs their view commands', () => {
+    const ran = [];
+    const run = app.commands.run.bind(app.commands);
+    app.commands.run = (id, a) => {
+      ran.push(id);
+      return run(id, a);
+    };
+    for (const id of ['hand', 'zoom', 'rotate-view']) {
+      app.setTool(id);
+      app.tool.openOptions();
+    }
+    expect(ran).toEqual(['view.fitArtboard', 'view.actualSize', 'view.resetRotation']);
+  });
+
+  it('double-clicking Direct Selection opens the Move dialog for the selection', () => {
+    const id = addRect(0, 0, 10, 10);
+    app.editor.select([id]);
+    let ran = null;
+    app.commands.run = (cmd) => (ran = cmd);
+    app.setTool('direct-selection');
+    app.tool.openOptions();
+    expect(ran).toBe('object.transform.move');
+  });
+
+  it('the Eyedropper picks up only the attributes its options allow', async () => {
+    const src = addRect(0, 0, 10, 10);
+    const dst = addRect(50, 0, 10, 10);
+    const doc = app.editor.doc;
+    doc.transact('Style', () => doc.update(src, { fill: { type: 'solid', color: '#00ff00' }, strokeWidth: 7, opacity: 0.5 }));
+    app.setTool('eyedropper');
+    app.dialogs.form = async (spec) => {
+      expect(spec.title).toBe('Eyedropper Options');
+      return { fill: true, stroke: false, transparency: false, character: true };
+    };
+    await app.tool.openOptions();
+    app.editor.select([dst]);
+    app.tool.onPointerDown(ev(app, 5, 5));
+    const n = doc.get(dst);
+    expect(n.fill.color).toBe('#00ff00');
+    expect(n.strokeWidth).not.toBe(7);
+    expect(n.opacity ?? 1).toBe(1);
+  });
+
+  it('Smooth Tool Options keep the fidelity', async () => {
+    app.setTool('smooth');
+    app.dialogs.form = async () => ({ fidelity: 90 });
+    await app.tool.openOptions();
+    expect(app.tool.fidelity).toBe(90);
+  });
+});
+
+describe('Pen auto add and delete', () => {
+  it('Shift-click on a selected path starts a new path instead of adding an anchor', () => {
+    app.prefs.set('autoAddDelete', true);
+    const id = addRect(100, 100, 100, 100);
+    app.editor.select([id]);
+    app.setTool('pen');
+    const pen = app.tool;
+    pen.onPointerDown(ev(app, 150, 100, { shift: true }));
+    pen.onPointerUp(ev(app, 150, 100, { shift: true }));
+    expect(app.editor.doc.get(id).anchors).toHaveLength(4);
+    expect(pen.pathId).not.toBe(id);
+    pen.finish();
+    app.editor.select([id]);
+    pen.onPointerDown(ev(app, 150, 100));
+    pen.onPointerUp(ev(app, 150, 100));
+    expect(app.editor.doc.get(id).anchors).toHaveLength(5);
+  });
+});

@@ -147,6 +147,11 @@ export class DirectSelectionTool extends Tool {
     for (const hook of directSelectionHooks) if (hook.doubleClick?.(this, e)) return;
   }
 
+  /** Double-clicking the tool opens the Move dialog for the selection. */
+  openOptions() {
+    if (this.editor?.selection.size) this.app.commands.run('object.transform.move');
+  }
+
   onHover(e) {
     const editor = this.editor;
     for (const hook of directSelectionHooks) {
@@ -600,6 +605,10 @@ export class GroupSelectionTool extends Tool {
     this.selectionMode = 'object';
     this.drag = null;
     this.last = null;
+  }
+
+  openOptions() {
+    DirectSelectionTool.prototype.openOptions.call(this);
   }
 
   activate() {

@@ -5,9 +5,10 @@
  * Pen: click for a corner, drag for a smooth anchor (Alt while dragging
  * breaks the handles), click the first anchor to close, click the last
  * anchor to retract its outgoing handle (drag from it for a new one). Over a
- * selected path the Pen adds or deletes anchors; over an open endpoint it
- * continues that path, and while drawing it connects to another open path's
- * endpoint; with Alt it converts anchors like the Anchor Point tool. Enter,
+ * selected path the Pen adds or deletes anchors (not while Shift is held);
+ * over an open endpoint it continues that path, and while drawing it
+ * connects to another open path's endpoint; with Alt it converts anchors
+ * like the Anchor Point tool. Enter,
  * Escape, deselecting or a click with Command/Ctrl ends the path; undo
  * removes the last anchor and drawing goes on.
  */
@@ -136,8 +137,8 @@ export class PenTool extends Tool {
       const ah = findAnchorOrHandle(editor, e.sx, e.sy, sel, { handles: false });
       const ep = endpointAt(editor, e.sx, e.sy);
       if (ep) cursor = 'var(--cursor-pen-continue)';
-      else if (ah && this.app.prefs.get('autoAddDelete')) cursor = 'var(--cursor-pen-minus)';
-      else if (sel.length && this.app.prefs.get('autoAddDelete')) {
+      else if (ah && this.app.prefs.get('autoAddDelete') && !e.shift) cursor = 'var(--cursor-pen-minus)';
+      else if (sel.length && this.app.prefs.get('autoAddDelete') && !e.shift) {
         for (const sp of sel) {
           const near = nearestOnPath(sp.anchors, sp.closed, e.x, e.y);
           if (near && near.d < tol(editor, 4)) cursor = 'var(--cursor-pen-plus)';
@@ -183,7 +184,8 @@ export class PenTool extends Tool {
         return;
       }
       const sel = selectedPaths(editor);
-      if (this.app.prefs.get('autoAddDelete')) {
+      // Shift turns automatic add and delete off for the click.
+      if (this.app.prefs.get('autoAddDelete') && !e.shift) {
         // Delete anchor on a selected path.
         const ah = findAnchorOrHandle(editor, e.sx, e.sy, sel, { handles: false });
         if (ah) {

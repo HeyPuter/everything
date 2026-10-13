@@ -202,6 +202,20 @@ export class SmoothTool extends Tool {
   static icon = 'tool-smooth';
   static hint = 'Drag along a selected path to smooth it';
 
+  /** Fidelity 0 (accurate) to 100 (smooth), from Smooth Tool Options. */
+  get fidelity() {
+    const v = Number(this.app.prefs.get('smoothFidelity'));
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 50;
+  }
+
+  async openOptions() {
+    const v = await this.app.dialogs.form({
+      title: 'Smooth Tool Options',
+      fields: [{ key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity }],
+    });
+    if (v) this.app.prefs.set('smoothFidelity', v.fidelity);
+  }
+
   activate() {
     this.setCursor('var(--cursor-pencil)');
     this.status();
@@ -263,7 +277,9 @@ export class SmoothTool extends Tool {
       const at = (i) => n.anchors[((i % count) + count) % count];
       const run = [];
       for (let i = lo; i <= hi; i++) run.push(at(i));
-      const fitted = fitCurve(simplifyPolyline(flattenPath(run, false, 0.5), r / 3), (r / 3) ** 2);
+      // Fidelity sets how far the refit may stray from the stroke (a third of the reach at 50).
+      const t = r * (0.08 + this.fidelity * 0.005);
+      const fitted = fitCurve(simplifyPolyline(flattenPath(run, false, 0.5), t), t ** 2);
       if (fitted.length >= run.length || fitted.length < 2) continue;
       const first = { ...run[0], ox: fitted[0].ox, oy: fitted[0].oy };
       const last = { ...run[run.length - 1], ix: fitted[fitted.length - 1].ix, iy: fitted[fitted.length - 1].iy };
