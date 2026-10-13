@@ -186,7 +186,7 @@ export function menubarMenus(f = {}) {
       sep,
       i('New sheet view', 'sheetView', 'sheetView', 'new', { disabled: f.chartSheet }),
       i('Keep…', 'save', 'sheetView', 'keep', { disabled: !f.sheetView?.temporary }),
-      i('Exit', 'back', 'sheetView', 'exit', { disabled: !f.sheetView }),
+      i('Exit', 'exitView', 'sheetView', 'exit', { disabled: !f.sheetView }),
       i('Options…', 'sliders', 'sheetView', 'options', { disabled: f.chartSheet }),
     ].map(waits)),
     sep,

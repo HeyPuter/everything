@@ -86,7 +86,7 @@ export function paletteCommands(flags = {}) {
     c('Custom zoom…', 'View', 'zoomIn', 'zoomCustom', null, { keywords: 'percentage scale magnification' }),
     c('Custom views…', 'View', 'customViews', 'customViews', null, { keywords: 'saved view show add named layout zoom hidden print' }),
     !flags.chartSheet && c('New sheet view', 'View', 'sheetView', 'sheetView', 'new', { keywords: 'personal temporary filter my own view collaborate' }),
-    flags.sheetView && c('Exit sheet view', 'View', 'back', 'sheetView', 'exit', { keywords: 'default view leave' }),
+    flags.sheetView && c('Exit sheet view', 'View', 'exitView', 'sheetView', 'exit', { keywords: 'default view leave' }),
     !flags.chartSheet && c('Sheet view options…', 'View', 'sliders', 'sheetView', 'options', { keywords: 'rename duplicate delete switch personal view' }),
     !flags.chartSheet && (!flags.viewMode || flags.viewMode === 'normal') && c('Page breaks', 'View', 'pageBreak', 'showPageBreaks', null, { keywords: 'dashed lines pages print toggle' }),
     c('Insert page break', 'File', 'breaks', 'pageBreak', 'insert', { keywords: 'print new page manual' }),

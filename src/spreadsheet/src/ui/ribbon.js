@@ -354,7 +354,7 @@ const groupsFor = name => ({
       ];
     }, { ariaLabel: 'Sheet View' })),
       sheetViewButton('New', 'filePlus', 'new', () => false), sheetViewButton('Keep', 'save', 'keep', f => !f.sheetView || !f.sheetView.temporary),
-      sheetViewButton('Exit', 'back', 'exit', f => !f.sheetView), sheetViewButton('Options', 'sliders', 'options', () => false)],
+      sheetViewButton('Exit', 'exitView', 'exit', f => !f.sheetView), sheetViewButton('Options', 'sliders', 'options', () => false)],
     ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas'),
       c('Page Breaks', 'pageBreak', 'showPageBreaks')],
     ['Zoom', large(c('Zoom', 'zoomIn', 'zoomCustom')), large(c('100%', 'zoom100', 'zoom', 'reset')), large(direct('Zoom to Selection', 'zoomSelection', 'zoomSelection', null))],

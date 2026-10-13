@@ -365,6 +365,11 @@ export const COMMAND_ICONS = {
   alignObjects: p('M3.5 2.5v15', 'b thick') + r(5, 4.5, 11, 4, 'bf', 1) + r(5, 11.5, 7, 4, 'gf', 1),
   // Group: two shapes inside one dashed frame with handles at its corners.
   groupObjects: r(2.5, 2.5, 15, 15, 'o dash ln', 0) + r(4.5, 4.5, 6.5, 5.5, 'bf', 1) + ci(12.5, 12.5, 3.3, 'gf') + r(1.5, 1.5, 2, 2, 'bs', 0) + r(16.5, 1.5, 2, 2, 'bs', 0) + r(1.5, 16.5, 2, 2, 'bs', 0) + r(16.5, 16.5, 2, 2, 'bs', 0),
+  // Bring Forward and Send Backward: two overlapping sheets, the one moving drawn solid on top or tucked beneath.
+  bringForward: r(2.5, 2.5, 9, 9, 'of', 1.4) + r(8.5, 8.5, 9, 9, 'of', 1.4) + r(5.5, 5.5, 9, 9, 'bs', 1.4),
+  sendBackward: r(5.5, 5.5, 9, 9, 'bf', 1.4) + r(2.5, 2.5, 9, 9, 'of', 1.4) + r(8.5, 8.5, 9, 9, 'of', 1.4),
+  // Exit a view: an arrow leaving a sheet.
+  exitView: cells(6.5, 3.5, 11, 13, 2, 3, { frame: 'of' }) + p('M10 10H2.5M5.5 7 2.5 10l3 3', 'b thick'),
   // Rotate: a shape and the turning arrow around it (Rotate Left turns the other way).
   rotateObjects: p('M7 6.5 13.5 13l-6.5 3.5z', 'bf') + p('M4 10a6 6 0 0 1 10.5-4M14.5 3v3h-3', 'b thick'),
   rotateLeft: p('M13 6.5 6.5 13l6.5 3.5z', 'bf') + p('M16 10a6 6 0 0 0-10.5-4M5.5 3v3h3', 'b thick'),
