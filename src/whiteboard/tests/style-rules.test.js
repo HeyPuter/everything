@@ -328,3 +328,10 @@ test("a long frame title takes at most two lines in Frames and navigation", () =
   assert.match(title, /display:\s*-webkit-box/);
   assert.match(title, /overflow:\s*hidden/);
 });
+
+test("a choice's box keeps its size beside a label long enough to wrap", () => {
+  assert.match(rule(".slide-choices input {"), /flex:\s*none/);
+  const label = rule(".slide-choices label > span {");
+  assert.match(label, /min-width:\s*0/);
+  assert.match(label, /overflow-wrap:\s*anywhere/);
+});

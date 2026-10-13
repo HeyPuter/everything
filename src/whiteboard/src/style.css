@@ -3283,6 +3283,12 @@ dialog.rail-flyout.add-content-flyout {
   accent-color: var(--accent);
   width: 18px;
   height: 18px;
+  /* A label long enough to wrap leaves the box its size. */
+  flex: none;
+}
+.slide-choices label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 #export-sheet label {
   flex-shrink: 0;
