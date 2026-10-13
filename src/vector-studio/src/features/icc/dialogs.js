@@ -126,7 +126,7 @@ export async function profilesDialog(app) {
     if (i >= 0) list.setAttribute('aria-activedescendant', `icc-opt-${i}`);
     const e = profileEntry(selected);
     removeBtn.disabled = e?.source !== 'user';
-    keepBtn.hidden = e?.source !== 'embedded';
+    keepBtn.style.display = e?.source === 'embedded' ? '' : 'none';
     saveBtn.disabled = !e;
     details.replaceChildren(...profileFacts(selected).flatMap(([k, v]) => [h('dt', k), h('dd', v)]));
   }
