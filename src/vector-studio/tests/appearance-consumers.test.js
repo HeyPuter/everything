@@ -14,6 +14,11 @@ import { selectSameAppearanceAttribute } from '../src/features/panels/select-com
 import { outlineStroke } from '../src/features/geometry/path-ops.js';
 import { newPathStyle } from '../src/tools/pen.js';
 import { pickStyle } from '../src/model/nodes.js';
+import { liveArtwork, liveDef } from '../src/model/live.js';
+import { applyBrush, selectionBrush } from '../src/features/brushes/brush-ops.js';
+import { docBrushes } from '../src/features/brushes/brush-model.js';
+import { applyProfile, selectionProfile } from '../src/features/brushes/profiles-ui.js';
+import { WIDTH_PROFILES } from '../src/features/brushes/width-profile.js';
 
 beforeAll(() => {
   setGeomSource(fs.readFileSync(path.resolve(__dirname, '../src/wasm/geom.wasm')));
@@ -139,6 +144,30 @@ describe('stacks in swatches, recoloring and Select Same', () => {
     ed.select([d]);
     expect(selectSameAppearanceAttribute(ed)).toEqual([d]);
     expect(c).toBeTruthy();
+  });
+});
+
+describe('brushes and width profiles on one stroke', () => {
+  it('puts a brush and a profile on the picked stroke only', async () => {
+    const { ed, add, panel } = await paintSetup();
+    const id = add({ fill: null, stroke: solid('#0000ff'), strokeWidth: 2, appearance: STACK }, [0, 0, 100, 100]);
+    ed.select([id]);
+    const p = panel('appearance');
+    p.pick('item:2');
+    const brush = docBrushes(ed.doc)[0];
+    expect(applyBrush(ed, brush.id)).toBe(true);
+    let n = ed.doc.get(id);
+    expect(n.brush).toBeUndefined();
+    expect(stackItems(n)[2].brush.id).toBe(brush.id);
+    expect(selectionBrush(ed)).toBe(brush.id);
+    // The brushed stroke draws as brush artwork inside the stack.
+    const item = liveArtwork(ed.doc, n).items.find((v) => v.brush);
+    expect(liveDef(item).key).toBe('brush');
+    applyProfile(ed, WIDTH_PROFILES.find((w) => w.id === 'lens').points);
+    n = ed.doc.get(id);
+    expect(stackItems(n)[2].widthProfile).toHaveLength(3);
+    expect(n.widthProfile).toBeUndefined();
+    expect(selectionProfile(ed)).toHaveLength(3);
   });
 });
 
