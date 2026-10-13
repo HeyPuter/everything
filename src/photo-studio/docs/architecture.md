@@ -171,6 +171,15 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 
 ## Artboards, frames, comps and slices (`src/features/layout/`)
 
+- Guides (`src/model/guides.ts`, `src/features/guides.ts`): canvas guides are
+  `doc.guides` in document coordinates; artboard guides are
+  `layer.artboard.guides`, offsets from the artboard's corner, so they move,
+  duplicate and disappear with it. `placedGuides` lists both in document
+  coordinates with selection keys (`c:<i>`, `a:<artboard>:<i>`); snapping uses
+  `guideLines`. A guide dropped on an artboard joins it. `migrateGuides` checks
+  guide lists when a project is read; older projects keep their guides as
+  canvas guides.
+
 - Artboards and frames are groups with `layer.artboard` / `layer.frame` data
   (`src/model/artboard.ts`, `src/model/frame.ts`). Artboards stay at the top level.
   The compositor (`Renderer.groupSource`) draws an artboard's background and clips
@@ -264,6 +273,14 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 
 ## Type on paths and variables
 
+- Block text (`textData.block`) is laid out as point text and then each line is
+  scaled about its left end to one width and stacked by capital height
+  (`imaging/text/block-text.ts`), so shaping and carets are unchanged.
+- In vertical text `CharStyle.vertical` sets Latin and digits upright, rotated
+  sideways (runs with `angle`, advancing by their width) or, for 'combine', runs
+  of up to three characters set horizontally in one cell (`verticalForms` in
+  `layout.ts`); ideographs always stay upright.
+
 - Path and area text keep their path in `textData.path` (`TypePath`, local text space).
   `layoutText` lays path text out straight and bends it onto the path
   (`src/imaging/text/path-text.ts`): runs become rotated glyphs, and `layout.map` /
@@ -271,6 +288,10 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   and hit testing reuse the straight geometry. Area text breaks lines into the spans of
   the shape. The path is also a `PathTarget` of kind `text`, so the pen and path
   selection tools edit it; `selectHooks` let the type feature claim its markers.
+- Match Font measures text with pure functions (`src/imaging/text/match-font.ts`:
+  binarizing, deskewing, glyph segmentation, gradient-histogram descriptors, ranking)
+  and draws candidates through an injected renderer: canvas text in the dialog
+  (`features/type/match-font.ts`), glyph outlines from the font files in tests.
 - `doc.variables` binds layers to variables and holds data sets (`src/model/variables.ts`).
   `documentWithSet` (`src/features/variables/apply.ts`) builds the document a set
   produces without committing it, for previews, Apply Data Set and batch export.
@@ -331,6 +352,25 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
 Pure functions on `RGBA8`/`Mask8` (`src/imaging/types.ts`), straight alpha,
 deterministic, no DOM. Operations with parameters implement `ImageOperation` so the
 UI can generate dialogs, presets, recorded actions and live filters from `params`.
+
+## Tutorials and user activity (`src/features/help/`)
+
+- `src/app/activity.ts` announces what the user did: `emitActivity({ kind: 'command', id })`
+  after `runCommand` finishes a command and `{ kind: 'tool', id }` from `setTool`.
+  `onActivity(listener)` returns an unsubscribe function; with no listeners it costs nothing.
+- A tutorial (`tutorials.ts`) is a list of steps with a card text, an anchor (selector,
+  tool, panel, top-level menu, command button or the canvas) and how it completes:
+  `commands` (one of them ran), `tool` (it is active) or `check(now, base)`, which
+  compares the workspace with its state when the step began (`checks` in `tour.ts`:
+  layer added, pixels or mask changed, selection made, opacity lowered and so on).
+  Steps without any of these are read and continued with Next.
+- `TourMachine` (`tour.ts`, pure) holds the step index, completed steps, back, skip and
+  restart; `tour-ui.ts` draws the card and the ring around the anchor and evaluates the
+  current step on activity, on editor updates and on a short timer (zoom changes and
+  layout moves do not announce themselves, and background tabs get no animation frames).
+- Each tutorial opens a procedurally generated sample (`samples.ts`, seeded, no downloads).
+  What's New entries (`whats-new-data.ts`) name a command, tool, panel or tutorial; the
+  window hides "Try it" when the target is not registered.
 
 ## Legal
 

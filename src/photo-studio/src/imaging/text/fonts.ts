@@ -158,7 +158,13 @@ export async function prepareFonts(data: TextLayerData): Promise<void> {
 // The Type menu's OpenType features a bundled face implements (from its GSUB
 // table); other fonts report none, since their files cannot be read.
 const supportCache = new Map<string, Set<string>>();
+const setNameCache = new Map<string, Map<string, string>>();
 const supportLoading = new Set<string>();
+/** Names a bundled face gives its stylistic sets (after fontFeatureSupport loaded it). */
+export function stylisticSetNamesOf(family: string, italic: boolean): Map<string, string> | undefined {
+  const b = findBundled(family);
+  return b ? setNameCache.get(`${b.family}|${italic}`) : undefined;
+}
 export function fontFeatureSupport(family: string, italic: boolean, onLoad?: () => void): Set<string> | undefined {
   const b = findBundled(family);
   if (!b) return new Set();
@@ -168,7 +174,8 @@ export function fontFeatureSupport(family: string, italic: boolean, onLoad?: () 
   if (!supportLoading.has(key)) {
     supportLoading.add(key);
     void Promise.all([loadFontFile(b.family, italic), import('./font-features')]).then(
-      ([buf, { featureSupport }]) => {
+      ([buf, { featureSupport, stylisticSetNames }]) => {
+        setNameCache.set(key, stylisticSetNames(buf));
         supportCache.set(key, featureSupport(buf));
         onLoad?.();
       },

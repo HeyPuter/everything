@@ -1,0 +1,22 @@
+/* Type → Match Font… */
+dialog.match-font { width: min(1060px, calc(100vw - 32px)); height: min(700px, calc(100dvh - 32px)); }
+.match-font .mf-side { width: 320px; display: flex; flex-direction: column; gap: 6px; }
+.match-font .mf-side > button { align-self: flex-start; padding: 4px 12px; border-color: var(--input-line); }
+.mf-hint { margin: 2px 0 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.mf-status { min-height: 16px; margin: 2px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.mf-status.error { color: var(--text); font-weight: 600; }
+.mf-results { display: flex; flex-direction: column; gap: 4px; }
+.mf-match { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 5px 6px; min-height: 0; text-align: left; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--input); color: var(--text); cursor: pointer; }
+.mf-match canvas { grid-column: 1 / -1; display: block; max-width: 100%; }
+.mf-match .mf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.mf-match .mf-name small { color: var(--muted); font-size: 11px; }
+.mf-match .mf-score { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.mf-match .mf-score em { font-style: normal; font-weight: 600; color: var(--text); padding: 0 4px; border: 1px solid var(--line-soft); border-radius: 3px; }
+.mf-match[aria-checked='true'] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.mf-match:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mf-ai { margin-top: 8px; font-size: 11px; line-height: 1.45; }
+.mf-target { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@media (max-width: 720px) {
+  .match-font .rw-body { flex-direction: column; }
+  .match-font .mf-side { width: auto; border-left: 0; border-top: 1px solid var(--line); max-height: 50%; }
+}

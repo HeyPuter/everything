@@ -12,6 +12,7 @@ import { fitTextFrame, syncLegacyFields } from '../../model/text-layer';
 import { applyParagraphStyle, textLength, type ArcPreset, type TextLayerData, type TypePath } from '../../imaging/text/model';
 import type { TextLayout } from '../../imaging/text/layout';
 import { arcPresetPath, nearestOnPath, pathGeometry, pointAt, type PathGeometry } from '../../imaging/text/path-text';
+import { blockFor } from '../../imaging/text/block-text';
 import { prepareFonts } from '../../imaging/text/fonts';
 import { targetPath, textPathHooks } from '../vector/state';
 import { selectHooks } from '../vector/select-hooks';
@@ -220,8 +221,25 @@ export function arcTextData(d: TextLayerData, layout: TextLayout, preset: ArcPre
     box: undefined,
     orientation: 'horizontal',
     warp: undefined,
+    block: undefined,
     path: { kind: 'path', knots: shape.knots, closed: shape.closed, start: 0, end: 1, flip: false, arc: { preset, bend, x: cx, y: cy, width: width * 1.04 } },
   };
+}
+
+// ------------------------------------------------------------ block text
+
+/** Point text whose lines are all scaled to the width of the widest line and
+ * stacked (imaging/text/block-text.ts). */
+export function blockTextData(d: TextLayerData, layout: TextLayout): TextLayerData {
+  const visible = layout.lines.filter((l) => l.visible);
+  const first = visible[0] ?? layout.lines[0];
+  const widest = visible.reduce((a, l) => (l.width > a.width ? l : a), first);
+  const width = Math.max(8, widest?.width ?? 0);
+  const align = d.content.paragraphs[0]?.style.align ?? 'left';
+  // The block starts where the widest line started.
+  const left = widest ? widest.x : d.origin.x;
+  const x = left + (align === 'center' || align === 'justify-center' ? width / 2 : align === 'right' || align === 'justify-right' ? width : 0);
+  return { ...d, mode: 'point', box: undefined, orientation: 'horizontal', warp: undefined, path: undefined, origin: { x, y: first?.y ?? d.origin.y }, block: blockFor(width) };
 }
 // Rebuilds an arc text path with a new preset or bend (same center and width).
 export function reshapeArc(d: TextLayerData, preset: ArcPreset, bend: number): TextLayerData {
@@ -250,15 +268,60 @@ export function dropTypePath(d: TextLayerData, layout: TextLayout): TextLayerDat
 
 // ------------------------------------------------------------ options dialog
 
-function currentPathData(e: Editor): { data: TextLayerData; id: string } | undefined {
-  if (session && !session.mask) return session.data.path ? { data: session.data, id: session.layerId } : undefined;
+function currentPathData(e: Editor, which: 'path' | 'block' = 'path'): { data: TextLayerData; id: string } | undefined {
+  const has = (d: TextLayerData) => (which === 'path' ? !!d.path : !!d.block && !d.path);
+  if (session && !session.mask) return has(session.data) ? { data: session.data, id: session.layerId } : undefined;
   const l = e.layer;
   if (l?.kind !== 'text' || e.selectedIds.size !== 1) return;
   const t = editable(l, ppiOf(e));
-  return t.textData.path ? { data: t.textData, id: l.id } : undefined;
+  return has(t.textData) ? { data: t.textData, id: l.id } : undefined;
+}
+
+// Width of the block and the space between its lines, previewed live.
+async function blockOptions(e: Editor) {
+  const cur = currentPathData(e, 'block');
+  if (!cur) return;
+  const { data, id } = cur;
+  if (!session && layerLock(e.doc.layers, id, 'all')) return e.message('Unlock this layer to change its block.');
+  const b = data.block!;
+  const body = `<label class="dialog-field">Width (px)<input name="width" type="number" min="8" max="100000" step="1" value="${Math.round(b.width)}"></label>
+       <label class="dialog-field">Space between lines (px)<input name="gap" type="number" min="-1000" max="10000" step="1" value="${Math.round(b.gap)}"></label>
+       <p class="muted">Every line is scaled to this width.</p>`;
+  const read = (form: HTMLFormElement): TextLayerData => {
+    const num = (k: string, lo: number, hi: number, dflt: number) => {
+      const v = Number(fieldValue(form, k));
+      return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt;
+    };
+    return { ...data, block: { width: num('width', 8, 100000, b.width), gap: num('gap', -1000, 10000, b.gap) } };
+  };
+  const apply = (d: TextLayerData) => {
+    if (session) updateData(e, () => d, 'block-options');
+    else e.preview(previewData(e, id, d));
+  };
+  const result = await modal({
+    title: 'Block Text Options',
+    submit: 'OK',
+    className: 'type-path-options',
+    body,
+    bind: (dialog) => {
+      const form = dialog.querySelector('form')!;
+      form.addEventListener('input', () => apply(read(form)));
+    },
+  });
+  if (!result) {
+    if (session) updateData(e, () => data, 'block-options');
+    else e.preview(e.doc);
+    return;
+  }
+  const next = read(result.form);
+  result.close();
+  if (session) return;
+  e.preview(e.doc);
+  await editLayers(e, 'Block Text Options', () => next, [id]);
 }
 
 async function pathOptions(e: Editor) {
+  if (!currentPathData(e) && currentPathData(e, 'block')) return blockOptions(e);
   const cur = currentPathData(e);
   if (!cur) return;
   const { data, id } = cur;
@@ -377,10 +440,30 @@ export function installPathType(e: Editor) {
       },
     });
   registerCommand({
+    id: 'type.arc-block',
+    label: 'Block',
+    menu: 'type.arc',
+    order: ARC_PRESETS.length,
+    description: 'Stack the lines and scale each one to the same width; adjust the width and spacing later in Path Type Options.',
+    enabled: () => !!textTarget() && textTarget()!.orientation === 'horizontal' && (!textTarget()!.path || !!textTarget()!.path!.arc),
+    run: async (e) => {
+      const d = textTarget();
+      if (!d) return;
+      await prepareFonts(d);
+      // Arc text goes back to point text first.
+      const make = (x: TextLayerData) => {
+        const flat = x.path ? dropTypePath(x, layoutOf(x, ppiOf(e))) : x;
+        return blockTextData({ ...flat, block: undefined }, layoutOf({ ...flat, block: undefined }, ppiOf(e)));
+      };
+      if (session) return updateData(e, make, 'block');
+      await editLayers(e, 'Convert to Block Text', make, [e.layer!.id]);
+    },
+  });
+  registerCommand({
     id: 'type.path-options',
     label: 'Path Type Options…',
-    description: 'Start and end, flip, arc shape and bend of text on a path, or the inset of area text.',
-    enabled: (e) => !!currentPathData(e),
+    description: 'Start and end, flip, arc shape and bend of text on a path, the inset of area text, or the width and line spacing of block text.',
+    enabled: (e) => !!currentPathData(e) || !!currentPathData(e, 'block'),
     run: (e) => pathOptions(e),
   });
   registerOverlay('type-path-markers', markersOverlay);

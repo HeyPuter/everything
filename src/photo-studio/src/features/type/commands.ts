@@ -202,7 +202,7 @@ export function installTypeCommands(e: Editor) {
       e.setTool(o === 'vertical' ? 'type-vertical' : 'type');
       return;
     }
-    await applyLayer(e, 'Change Text Orientation', (d) => (d.path ? d : { ...d, orientation: o }));
+    await applyLayer(e, 'Change Text Orientation', (d) => (d.path ? d : { ...d, orientation: o, ...(o === 'vertical' ? { block: undefined } : {}) }));
   };
   cmd('type.horizontal', 'Horizontal', orient('horizontal'), { checked: (e) => (currentData(e)?.orientation ?? (e.tool.includes('vertical') ? 'vertical' : 'horizontal')) === 'horizontal' });
   cmd('type.vertical', 'Vertical', orient('vertical'), { checked: (e) => (currentData(e)?.orientation ?? (e.tool.includes('vertical') ? 'vertical' : 'horizontal')) === 'vertical' });
@@ -223,7 +223,7 @@ export function installTypeCommands(e: Editor) {
     }
     if (findLayer(e.doc.layers, l.id)) await rasterizeLayer(e, l.id, 'Rasterize Type');
   }, { enabled: (e) => !!target(e) });
-  cmd('type.convert-paragraph', 'Convert to Paragraph Text', (e) => applyLayer(e, 'Convert Text Shape Type', (d) => (d.path ? dropTypePath(d, layoutOf(d, ppiOf(e))) : convertParagraphMode(d, layoutOf(d, ppiOf(e))))), {
+  cmd('type.convert-paragraph', 'Convert to Paragraph Text', (e) => applyLayer(e, 'Convert Text Shape Type', (d) => (d.path ? dropTypePath(d, layoutOf(d, ppiOf(e))) : { ...convertParagraphMode(d, layoutOf(d, ppiOf(e))), block: undefined })), {
     enabled: (e) => !!currentData(e),
     description: 'Convert Text Shape Type: point text to paragraph text and back; path text to point text, area text to paragraph text.',
   });

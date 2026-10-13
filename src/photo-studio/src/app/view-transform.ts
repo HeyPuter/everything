@@ -128,6 +128,13 @@ export function dragRotation(start: number, from: [number, number], to: [number,
 export function printSizeZoom(docPpi: number, screenPpi: number) {
   return clampZoom(screenPpi / Math.max(1e-6, docPpi));
 }
+/** Zoom at which one image pixel covers exactly one physical display pixel.
+ * The canvas is laid out in CSS pixels, and one CSS pixel spans
+ * `devicePixelRatio` display pixels (screen density times browser zoom). */
+export function actualSizeZoom(devicePixelRatio: number) {
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return clampZoom(1 / dpr);
+}
 /** Pixels per inch from a stored resolution (pixels per centimeter converted). */
 export function pixelsPerInch(resolution?: { horizontalResolution: number; horizontalResolutionUnit: 'PPI' | 'PPCM' }) {
   if (!resolution) return 72;

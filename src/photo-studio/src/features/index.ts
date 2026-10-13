@@ -41,6 +41,7 @@ import { installPreferences } from './preferences';
 import { installVersions } from './versions';
 import { installScripting } from './scripting';
 import { installCollab } from './collab';
+import { installHelp } from './help';
 
 // Each feature registers its commands, tools, panels and overlays. Keep one
 // line per feature so parallel work merges cleanly.
@@ -87,6 +88,7 @@ export function installFeatures(e: Editor) {
   installVersions(e);
   installScripting(e);
   installCollab(e);
+  installHelp(e);
   // User shortcut overrides apply last, after every feature registered.
   applyCustomShortcuts();
 }

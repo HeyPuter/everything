@@ -2,11 +2,12 @@ import type { Editor } from '../editor';
 import { commands, registerCommand, registerOverlay } from '../app/registry';
 import type { DocumentView } from '../app/views';
 import type { DocumentSession } from '../app/session';
-import { centerPoint, fitZoom, panToCenter, pixelsPerInch, printSizeZoom, rotateAround, type Size } from '../app/view-transform';
+import { actualSizeZoom, centerPoint, fitZoom, panToCenter, pixelsPerInch, printSizeZoom, rotateAround, type Size } from '../app/view-transform';
 import { selectedRoots } from '../model/layers';
 import { allLayers } from '../model/document';
 import { transformBounds } from '../model/transform';
 import { formDialog } from '../ui/dialog';
+import { extraHidden } from './view-extras';
 
 // View modes that change how a document is shown, never its pixels: view
 // rotation and mirroring, zoom presets, pixel aspect ratio correction and
@@ -147,6 +148,10 @@ export function installViewModes(e: Editor) {
   cmd('view.print-size', 'Print Size', (e) => {
     e.zoomAt(printSizeZoom(pixelsPerInch(e.doc.resolution), e.preferences.screenPpi ?? 96));
   }, { enabled: (e) => e.hasDocument, description: 'Show the image at its printed size, using the screen resolution set in Preferences' });
+  cmd('view.actual-size', 'Actual Size', (e) => e.zoomBy(actualSizeZoom(globalThis.devicePixelRatio ?? 1)), {
+    enabled: (e) => e.hasDocument,
+    description: 'Show one image pixel per physical screen pixel (differs from 100% on high-density screens and when the browser is zoomed)',
+  });
   cmd('view.fit-layers', 'Fit Layer(s) on Screen', (e) => {
     const leaves = allLayers(selectedRoots(e.doc.layers, e.selectedIds)).filter((l) => l.kind !== 'group' && l.kind !== 'adjustment');
     if (!leaves.length) return e.fit();
@@ -202,8 +207,9 @@ export function installViewModes(e: Editor) {
     e.update();
   }, { enabled: (e) => e.hasDocument, checked: (e) => patternPreviewOn(e), description: 'Repeat the image around itself to design seamless patterns' });
   e.onUpdate(syncPattern);
+  // View > Show > Pattern Preview Tile Bounds (on by default).
   registerOverlay('pattern-bounds', (e) =>
-    patternPreviewOn(e) ? `<rect class="pattern-bounds" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" fill="none" stroke-width="${1 / e.zoom}" stroke-dasharray="${4 / e.zoom} ${4 / e.zoom}"/>` : '',
+    patternPreviewOn(e) && e.preferences.showPatternTileBounds !== false && !extraHidden(e, 'pattern-bounds') ? `<rect class="pattern-bounds" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" fill="none" stroke-width="${1 / e.zoom}" stroke-dasharray="${4 / e.zoom} ${4 / e.zoom}"/>` : '',
   );
   e.whenReady(() =>
     e.renderer.frameListeners.add((canvas, doc) => {

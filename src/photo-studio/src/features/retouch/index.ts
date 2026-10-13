@@ -7,6 +7,7 @@ import type { Editor } from '../../editor';
 import { contributeMenu, registerCommand, registerOverlay, registerTool, type Tool } from '../../app/registry';
 import { lazy, lazyRun, lazyTool } from '../../app/lazy';
 import { installTaskbar } from './taskbar';
+import { hasMask } from '../../model/masks';
 
 const selectTools = lazy(() => import('./tools-select'));
 const healTools = lazy(() => import('./tools-heal'));
@@ -16,6 +17,7 @@ const focusArea = lazy(() => import('./focus-area'));
 const selectAndMask = lazy(() => import('./select-mask'));
 const contextFill = lazy(() => import('./context-fill'));
 const ai = lazy(() => import('./ai'));
+const refineMask = lazy(() => import('./refine-mask'));
 
 type ToolMeta = Parameters<typeof lazyTool>[0];
 const tool = (meta: ToolMeta, list: typeof selectTools | typeof healTools) =>
@@ -52,6 +54,13 @@ export function installRetouch(e: Editor) {
       description: 'Hide the background of the selected layer with a layer mask (non-destructive).',
       enabled: (e) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment',
       ...lazyRun(commands, (m, e) => m.removeBackground(e)),
+    },
+    {
+      id: 'layer.mask-refine-edge',
+      label: 'Refine Mask Edge…',
+      description: 'Re-estimate the layer mask near its edge from the layer’s pixels, so hair and soft outlines follow the image.',
+      enabled: (e) => !!e.layer && e.layer.kind !== 'group' && e.layer.kind !== 'adjustment' && (hasMask(e.layer) || !!e.layer.maskGrid),
+      ...lazyRun(refineMask, (m, e) => m.refineMaskEdge(e)),
     },
     { id: 'layer.defringe', label: 'Defringe…', enabled: pixel, ...lazyRun(commands, (m, e) => m.runMatting(e, 'defringe')) },
     { id: 'layer.color-decontaminate', label: 'Color Decontaminate…', enabled: pixel, ...lazyRun(commands, (m, e) => m.runMatting(e, 'decontaminate')) },

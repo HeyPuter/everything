@@ -1,10 +1,9 @@
 // View > Show (layer edges, alignment guides, brush preview, all/none, extras
-// options), View > Snap To, and guide selection (clear/edit selected guides,
-// clear canvas guides). Proof plates and vision simulations live with the
+// options) and View > Snap To. Guides live in features/guides.ts. Proof plates and vision simulations live with the
 // rest of soft proofing in features/color.
 import type { Editor } from '../editor';
 import { registerCommand, registerOverlay } from '../app/registry';
-import { allLayers, findLayer, type Guide, type Layer, type PhotoDocument, type Transform } from '../model/document';
+import { allLayers, findLayer, type Layer, type PhotoDocument, type Transform } from '../model/document';
 import { layerTargetRects, lineTargets, snapTargets, snapTranslation, transformBounds, worldPoint, type Guides, type SnapOptions } from '../model/transform';
 import { smartGuides, type SmartGuideResult } from '../model/smart-guides';
 import { formDialog } from '../ui/dialog';
@@ -22,6 +21,9 @@ export const EXTRAS: [string, string][] = [
   ['alignment-guides', 'Alignment guides'],
   ['pixel-grid', 'Pixel grid'],
   ['brush-preview', 'Brush preview'],
+  ['pattern-bounds', 'Pattern preview tile bounds'],
+  ['mesh', 'Pin Warp mesh'],
+  ['edit-pins', 'Pin Warp pins'],
 ];
 const defaultExtras = EXTRAS.map(([k]) => k).filter((k) => k !== 'brush-preview');
 export const extrasIncluded = (e: Editor) => e.preferences.extras ?? defaultExtras;
@@ -122,27 +124,6 @@ export function smartGuidesSvg(e: Editor, g: SmartGuideResult) {
   return html;
 }
 
-// ----- Guide selection -----
-// Selected guides are indexes into one specific `doc.guides` array; any edit
-// that replaces the array clears the selection unless it is carried over.
-let guideSelection: { guides: Guide[] | undefined; indexes: Set<number> } = { guides: undefined, indexes: new Set() };
-export function selectedGuides(e: Editor): Set<number> {
-  const guides = e.doc.guides;
-  if (!guides || guideSelection.guides !== guides) return new Set();
-  return new Set([...guideSelection.indexes].filter((i) => i < guides.length));
-}
-export function selectGuides(e: Editor, indexes: Iterable<number>, guides = e.doc.guides) {
-  guideSelection = { guides, indexes: new Set(indexes) };
-  e.overlay();
-}
-function setGuides(e: Editor, guides: Guide[], label: string, keep: number[] = []) {
-  e.command(label, (d) => {
-    d.guides = guides.length ? guides : undefined;
-  });
-  if (keep.length) selectGuides(e, keep);
-}
-const insideCanvas = (doc: PhotoDocument, g: Guide) => g.position >= 0 && g.position <= (g.orientation === 'vertical' ? doc.width : doc.height);
-
 // ----- Overlays -----
 function layerEdgesOverlay(e: Editor) {
   // While a move is dragged the transform frame already shows the live bounds.
@@ -160,14 +141,16 @@ function layerEdgesOverlay(e: Editor) {
 }
 
 // ----- Commands -----
-type Flag = 'showLayerEdges' | 'showAlignmentGuides' | 'showBrushPreview';
+type Flag = 'showLayerEdges' | 'showAlignmentGuides' | 'showBrushPreview' | 'showPatternTileBounds' | 'showMesh' | 'showEditPins';
 const flag = (e: Editor, key: Flag) => e.preferences[key] ?? key !== 'showLayerEdges';
 function toggle(e: Editor, key: Flag) {
   e.preferences[key] = !flag(e, key);
   refresh(e);
+  // The Pin Warp options bar shows the mesh setting too.
+  if (key === 'showMesh') e.options();
 }
 function showEverything(e: Editor, on: boolean) {
-  Object.assign(e.preferences, { showGrid: on, showGuides: on, showPixelGrid: on, showLayerEdges: on, showAlignmentGuides: on, showBrushPreview: on, showSlices: on });
+  Object.assign(e.preferences, { showGrid: on, showGuides: on, showCanvasGuides: on, showArtboardGuides: on, showPatternTileBounds: on, showMesh: on, showEditPins: on, showPixelGrid: on, showLayerEdges: on, showAlignmentGuides: on, showBrushPreview: on, showSlices: on });
   e.settings.hideSelectionEdges = !on;
   e.settings.hideTargetPath = !on;
   e.settings.hideNotes = !on;
@@ -203,35 +186,8 @@ async function extrasOptions(e: Editor) {
   refresh(e);
 }
 
-async function editSelectedGuides(e: Editor) {
-  const guides = [...(e.doc.guides ?? [])];
-  const selected = [...selectedGuides(e)];
-  if (!selected.length) return;
-  if (selected.length === 1) {
-    const g = guides[selected[0]];
-    const v = await formDialog('Edit Guide', [
-      { name: 'orientation', label: 'Orientation', value: g.orientation, type: 'select', options: [['horizontal', 'Horizontal'], ['vertical', 'Vertical']] },
-      { name: 'position', label: 'Position (px)', value: g.position, type: 'number' },
-    ], 'OK');
-    if (!v || !Number.isFinite(Number(v.position))) return;
-    guides[selected[0]] = { orientation: v.orientation as Guide['orientation'], position: Number(v.position) };
-    setGuides(e, guides, 'Edit Guide', selected);
-    return;
-  }
-  const v = await formDialog('Edit Selected Guides', [
-    { name: 'dx', label: 'Move vertical guides by (px)', value: 0, type: 'number' },
-    { name: 'dy', label: 'Move horizontal guides by (px)', value: 0, type: 'number' },
-  ], 'OK', `${selected.length} guides are selected.`);
-  if (!v) return;
-  const dx = Number(v.dx) || 0,
-    dy = Number(v.dy) || 0;
-  for (const i of selected) guides[i] = { ...guides[i], position: guides[i].position + (guides[i].orientation === 'vertical' ? dx : dy) };
-  setGuides(e, guides, 'Edit Guides', selected);
-}
-
 export function installViewExtras(_e: Editor) {
   registerOverlay('layer-edges', layerEdgesOverlay);
-  const hasDoc = (e: Editor) => e.hasDocument;
   const snapItem = (id: string, label: string, key: keyof typeof snapDefaults) => ({
     id,
     label,
@@ -251,6 +207,9 @@ export function installViewExtras(_e: Editor) {
     { id: 'view.show-layer-edges', label: 'Layer Edges', checked: (e) => flag(e, 'showLayerEdges'), run: (e) => toggle(e, 'showLayerEdges'), recordable: false, description: 'Outline the bounds of the selected layers.' },
     { id: 'view.show-alignment-guides', label: 'Alignment Guides', checked: (e) => flag(e, 'showAlignmentGuides'), run: (e) => toggle(e, 'showAlignmentGuides'), recordable: false, description: 'While moving layers, show alignment with other layers and equal spacing.' },
     { id: 'view.show-brush-preview', label: 'Brush Preview', checked: (e) => flag(e, 'showBrushPreview'), run: (e) => toggle(e, 'showBrushPreview'), recordable: false, description: 'Show the brush outline at the pointer; off shows a precise crosshair.' },
+    { id: 'view.show-pattern-bounds', label: 'Pattern Preview Tile Bounds', checked: (e) => flag(e, 'showPatternTileBounds'), run: (e) => toggle(e, 'showPatternTileBounds'), recordable: false, description: 'Outline the original tile while Pattern Preview repeats the image.' },
+    { id: 'view.show-mesh', label: 'Mesh', checked: (e) => flag(e, 'showMesh'), run: (e) => toggle(e, 'showMesh'), recordable: false, description: 'Show the triangle mesh while bending a layer with Pin Warp.' },
+    { id: 'view.show-edit-pins', label: 'Edit Pins', checked: (e) => flag(e, 'showEditPins'), run: (e) => toggle(e, 'showEditPins'), recordable: false, description: 'Show the pins of Pin Warp; hide them to judge the result. Clicking the mesh shows them again.' },
     { id: 'view.show-all', label: 'All', run: (e) => showEverything(e, true), recordable: false },
     { id: 'view.show-none', label: 'None', run: (e) => showEverything(e, false), recordable: false },
     { id: 'view.show-extras-options', label: 'Show Extras Options…', run: extrasOptions, recordable: false },
@@ -260,27 +219,5 @@ export function installViewExtras(_e: Editor) {
     snapItem('view.snap-document', 'Document Bounds', 'document'),
     { id: 'view.snap-all', label: 'All', run: (e) => setSnap(e, { guides: true, grid: true, layers: true, document: true }), recordable: false },
     { id: 'view.snap-none', label: 'None', run: (e) => setSnap(e, { guides: false, grid: false, layers: false, document: false }), recordable: false },
-    {
-      id: 'view.guides-clear-selected',
-      label: 'Clear Selected Guides',
-      enabled: (e) => selectedGuides(e).size > 0,
-      run: (e) => {
-        const selected = selectedGuides(e);
-        setGuides(e, (e.doc.guides ?? []).filter((_, i) => !selected.has(i)), 'Clear Selected Guides');
-      },
-    },
-    { id: 'view.guides-edit-selected', label: 'Edit Selected Guides…', enabled: (e) => selectedGuides(e).size > 0, run: editSelectedGuides },
-    {
-      id: 'view.guides-clear-canvas',
-      label: 'Clear Canvas Guides',
-      description: 'Remove guides that cross the canvas; guides placed out on the pasteboard stay.',
-      enabled: (e) => hasDoc(e) && !!e.doc.guides?.some((g) => insideCanvas(e.doc, g)),
-      run: (e) => {
-        const all = e.doc.guides ?? [];
-        const kept = all.filter((g) => !insideCanvas(e.doc, g));
-        setGuides(e, kept, 'Clear Canvas Guides');
-        if (kept.length) e.message(`Cleared ${all.length - kept.length} canvas guides; ${kept.length} outside the canvas kept.`);
-      },
-    },
   );
 }

@@ -87,6 +87,7 @@ export type BuiltinProfileId =
   | 'romm-rgb'
   | 'rec2020'
   | 'linear-srgb'
+  | 'legacy-rgb-18'
   | 'gray-gamma-22'
   | 'gray-gamma-18'
   | 'gray-dot-gain-20'
@@ -134,6 +135,15 @@ const factories: Record<BuiltinProfileId, { name: string; colorSpace: string; ma
     name: 'Linear sRGB',
     colorSpace: 'RGB',
     make: () => matrixProfile('linear-srgb', 'Linear sRGB', srgbProfile.matrix, D65xy, gamma(1)),
+  },
+  // Older desktop displays calibrated to gamma 1.8 (published phosphor
+  // chromaticities, D65 white). Used to preview untagged images as such a
+  // display showed them.
+  'legacy-rgb-18': {
+    name: 'Legacy RGB (Gamma 1.8)',
+    colorSpace: 'RGB',
+    make: () =>
+      matrixProfile('legacy-rgb-18', 'Legacy RGB (Gamma 1.8)', rgbToXYZMatrix([[0.625, 0.34], [0.28, 0.595], [0.155, 0.07]], D65xy), D65xy, gamma(1.8)),
   },
   'gray-gamma-22': { name: 'Gray Gamma 2.2', colorSpace: 'GRAY', make: () => grayProfile('gray-gamma-22', 'Gray Gamma 2.2', gamma(2.2)) },
   'gray-gamma-18': { name: 'Gray Gamma 1.8', colorSpace: 'GRAY', make: () => grayProfile('gray-gamma-18', 'Gray Gamma 1.8', gamma(1.8)) },

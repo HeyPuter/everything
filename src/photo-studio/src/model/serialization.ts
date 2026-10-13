@@ -28,6 +28,7 @@ import { migratePinWarps, validatePinWarp } from './pin-warp';
 import { validTextStyles } from '../imaging/text/styles';
 import { validateHdrPreview } from './hdr-preview';
 import { validateBlending } from './blending';
+import { migrateGuides } from './guides';
 // Tile grids are stored as one packed asset each; the saved JSON names the pack
 // in place of the live tile map.
 type PackedRef = { pack: string };
@@ -370,6 +371,8 @@ export function validateDocument(value: unknown): PhotoDocument {
     !(Array.isArray(doc.perspectivePlanes) && doc.perspectivePlanes.length <= 64 && doc.perspectivePlanes.every((q) => Array.isArray(q) && q.length === 4 && q.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))))
   )
     throw new Error('Invalid perspective planes.');
+  // Canvas guides of older projects stay canvas guides; invalid entries go.
+  migrateGuides(doc);
   return doc;
 }
 /** Read a .photo project. With `into`, its assets are added to an existing

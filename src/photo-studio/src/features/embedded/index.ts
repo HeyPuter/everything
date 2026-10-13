@@ -43,6 +43,11 @@ export function installEmbedded(e: Editor) {
   cmd('layer.embed-export', 'Export Contents…', async () => (await convert()).exportContents(e), { enabled: object, recordable: false });
   cmd('layer.embed-embed-linked', 'Embed Linked', async () => (await linked()).embedLinked(e, false), { enabled: (e) => hasLinked(e, false) });
   cmd('layer.embed-embed-all', 'Embed All Linked', async () => (await linked()).embedLinked(e, true), { enabled: (e) => hasLinked(e, true) });
+  cmd('layer.embed-convert-linked', 'Convert to Linked…', async () => (await linked()).convertToLinked(e), {
+    enabled: (e) => object(e) && !hasLinked(e, false),
+    recordable: false,
+    description: 'Save the contents to a file on this device or on Puter and link to it',
+  });
   cmd('layer.embed-to-layers', 'Convert to Layers', async () => (await convert()).convertToLayers(e), { enabled: object, description: 'Unpack the contents into a group in place' });
   cmd('layer.embed-rasterize', 'Rasterize', async () => {
     if (e.layer?.kind === 'image') await rasterizeLayer(e, e.layer.id, 'Rasterize Embedded Object');

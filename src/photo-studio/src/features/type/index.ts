@@ -20,6 +20,7 @@ import { forgetLayout } from './text-utils';
 // The Glyphs panel and Find and Replace / Check Spelling load on first use.
 const glyphs = lazy(() => import('./glyphs'));
 const findSpell = lazy(() => import('./find-spell'));
+const matchFont = lazy(() => import('./match-font'));
 
 export function installType(e: Editor) {
   installTypeTools(e);
@@ -48,6 +49,14 @@ export function installType(e: Editor) {
       enabled: hasText,
       description: 'Check the spelling of text layers against an English dictionary.',
       ...lazyRun(findSpell, (m, e) => void m.checkSpelling(e)),
+    },
+    {
+      id: 'type.match-font',
+      label: 'Match Font…',
+      recordable: false,
+      enabled: (e) => e.hasDocument,
+      description: 'Find fonts that look like text in the image and apply one to the selected text layer.',
+      ...lazyRun(matchFont, (m, e) => void m.matchFontDialog(e)),
     },
   );
   contributeMenu('edit', ['edit.check-spelling', 'edit.find-replace-text'], 'edit.search');

@@ -24,21 +24,24 @@ import { effectiveFrame, fromQuad } from '../embedded/frame-math';
 import { ensureEmbed } from '../embedded/contents';
 import { pngJob } from './client';
 import { previewCopy, WarpSession, warpTarget } from './session';
+import { extraHidden } from '../view-extras';
 
 export { PIN_WARP_TOOL } from './ids';
 import { PIN_WARP_TOOL } from './ids';
 type Pin = { tri: number; bary: [number, number, number]; rest: Point; x: number; y: number; angle?: number; depth: number };
 type Snap = { pins: Pin[]; pos: Float64Array; selected: number[]; mode: ArapMode; density: PinDensity; expansion: number };
 type Drag = { kind: 'pins'; start: Point; from: Pin[]; moved: boolean } | { kind: 'rotate'; pin: number; center: Point; start: number; from: number };
-type Settings = { mode: ArapMode; density: PinDensity; expansion: number; showMesh: boolean };
+type Settings = { mode: ArapMode; density: PinDensity; expansion: number };
 const DEG = 180 / Math.PI;
+// View > Show > Mesh and Edit Pins (preferences, shared with the options bar).
+const meshShown = (e: Editor) => e.preferences.showMesh !== false && !extraHidden(e, 'mesh');
+const pinsShown = (e: Editor) => e.preferences.showEditPins !== false && !extraHidden(e, 'edit-pins');
 
 function settings(e: Editor): Settings {
   const s = ((e.settings.pinWarp as Partial<Settings> | undefined) ??= {}) as Partial<Settings>;
   s.mode ??= 'normal';
   s.density ??= 'normal';
   s.expansion ??= 2;
-  s.showMesh ??= true;
   return s as Settings;
 }
 
@@ -198,6 +201,12 @@ class PinWarpSession extends WarpSession<Snap> {
   // ----- Pointer -----
   pointerDown(p: CanvasPointer) {
     if (!this.solver || !this.mesh) return;
+    // Pins hidden with View > Show > Edit Pins come back when the mesh is edited.
+    if (!pinsShown(this.e)) {
+      this.e.preferences.showEditPins = true;
+      this.e.savePreferences();
+      this.e.overlay();
+    }
     const local = this.toLocal(p);
     const rot = (p.event.target as Element).closest?.('[data-pin-rotate]')?.getAttribute('data-pin-rotate');
     if (rot != null) {
@@ -333,7 +342,7 @@ class PinWarpSession extends WarpSession<Snap> {
     html += `<label>Mode <select id="pw-mode" aria-label="Warp mode" ${busy}>${opt(ARAP_MODES, s.mode)}</select></label>`;
     html += `<label>Density <select id="pw-density" aria-label="Mesh density" ${busy}>${opt(PIN_DENSITIES, s.density)}</select></label>`;
     html += `<label title="How far the mesh extends past the layer’s visible pixels">Expansion <input id="pw-expansion" type="number" min="0" max="200" step="1" value="${s.expansion}" aria-label="Mesh expansion" ${busy}>px</label>`;
-    html += `<label class="transform-setting"><input id="pw-mesh" type="checkbox" ${s.showMesh ? 'checked' : ''}>Show Mesh</label>`;
+    html += `<label class="transform-setting"><input id="pw-mesh" type="checkbox" ${meshShown(this.e) ? 'checked' : ''}>Show Mesh</label>`;
     html += `<span class="divider"></span><span class="pw-caption">Pin Depth</span>`;
     html += `<button class="icon-button" data-pw="forward" title="Bring the selected pins’ area forward" aria-label="Bring pin forward" ${sel.length ? '' : 'disabled'}>${svg('pin-forward', 16)}</button>`;
     html += `<button class="icon-button" data-pw="backward" title="Send the selected pins’ area backward" aria-label="Send pin backward" ${sel.length ? '' : 'disabled'}>${svg('pin-backward', 16)}</button>`;
@@ -390,7 +399,8 @@ class PinWarpSession extends WarpSession<Snap> {
       remesh();
     });
     this.on(el, 'pw-mesh', (_v, t) => {
-      this.s.showMesh = t.checked;
+      this.e.preferences.showMesh = t.checked;
+      this.e.savePreferences();
       this.e.overlay();
     });
     this.on(el, 'pw-rotate', (v) => {
@@ -424,7 +434,7 @@ class PinWarpSession extends WarpSession<Snap> {
     const z = this.e.zoom,
       sw = 1 / z;
     let html = '';
-    if (this.s.showMesh && this.edges) {
+    if (meshShown(this.e) && this.edges) {
       const P = this.solver.pos,
         E = this.edges;
       let d = '';
@@ -435,6 +445,7 @@ class PinWarpSession extends WarpSession<Snap> {
       }
       html += `<path class="pw-mesh" d="${d}" stroke-width="${sw}"/>`;
     }
+    if (!pinsShown(this.e)) return html;
     this.pins.forEach((pin, i) => {
       const c = this.toDoc(pin.x, pin.y),
         sel = this.selected.has(i);

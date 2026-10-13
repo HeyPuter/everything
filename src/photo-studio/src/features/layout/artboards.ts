@@ -599,7 +599,7 @@ export function installArtboards(e: Editor) {
   );
   contributeMenu('layer.new-menu', ['layer.new-artboard', 'layer.artboard-from-group', 'layer.artboard-from-layers'], 'layer.group-from-layers');
   contributeMenu('view', ['view.fit-artboard'], 'view.fill');
-  contributeMenu('view.show', ['view.show-artboard-names'], 'view.show-guides');
+  contributeMenu('view.show', ['view.show-artboard-names'], 'view.show-artboard-guides');
   registerOverlay('artboards', artboardOverlay);
   // Layers dropped onto another artboard join it; artboards grow the canvas.
   layerMoveHooks.push((doc, ids) => {

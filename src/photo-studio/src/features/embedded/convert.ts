@@ -296,29 +296,40 @@ export async function replaceContents(e: Editor, file?: File) {
 
 const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/avif': 'avif', 'image/gif': 'gif' };
 /** Save the content as a file: the original file, the layered project, or a PNG. */
-export async function exportContents(e: Editor) {
-  const l = selectedObject(e);
-  if (!l) return;
-  const c: EmbeddedContents = contentsOf(e.doc, l) ?? plainContents(l, e.assets);
+/** Formats the contents can be written in: the original file while it is
+ * still the content, the layered project, or a flattened PNG. */
+export function contentsFormats(c: EmbeddedContents): [string, string][] {
   const options: [string, string][] = [];
   if (c.source) options.push(['source', `Original file${c.sourceName ? ` (${c.sourceName})` : ''}`]);
   if (c.project) options.push(['project', 'Layered project (.photo)']);
   options.push(['png', 'Flattened image (.png)']);
+  return options;
+}
+/** The contents as a file in one of `contentsFormats`. */
+export async function contentsFile(e: Editor, c: EmbeddedContents, format: string): Promise<{ blob: Blob; name: string }> {
+  const name = baseName(c.sourceName ?? c.name);
+  if (format === 'source' && c.source) {
+    const blob = e.assets.blob(c.source);
+    return { blob: new Blob([blob], { type: extensions[blob.type] ? blob.type : 'application/octet-stream' }), name: c.sourceName ?? `${name}.${extensions[blob.type] ?? 'bin'}` };
+  }
+  if (format === 'project' && c.project) return { blob: new Blob([e.assets.blob(c.project)], { type: 'application/octet-stream' }), name: `${name}.photo` };
+  const img = await assetRGBA(e, e.doc, e.assets, c.composite, c.colorSpace, c.width, c.height);
+  return { blob: new Blob([encodePng({ width: img.width, height: img.height, data: img.data, channels: 4 }).slice()], { type: 'image/png' }), name: `${name}.png` };
+}
+
+export async function exportContents(e: Editor) {
+  const l = selectedObject(e);
+  if (!l) return;
+  const c: EmbeddedContents = contentsOf(e.doc, l) ?? plainContents(l, e.assets);
+  const options = contentsFormats(c);
   let pick = options[0][0];
   if (options.length > 1) {
     const v = await formDialog('Export Contents', [{ name: 'format', label: 'Save as', type: 'select', value: pick, options }], 'Export', `Contents of “${c.name}”, ${c.width} × ${c.height} px.`);
     if (!v) return;
     pick = v.format;
   }
-  const name = baseName(c.sourceName ?? c.name);
-  if (pick === 'source') {
-    const blob = e.assets.blob(c.source!);
-    download(new Blob([blob], { type: extensions[blob.type] ? blob.type : 'application/octet-stream' }), c.sourceName ?? `${name}.${extensions[blob.type] ?? 'bin'}`);
-  } else if (pick === 'project') download(e.assets.blob(c.project!), `${name}.photo`);
-  else {
-    const img = await assetRGBA(e, e.doc, e.assets, c.composite, c.colorSpace, c.width, c.height);
-    download(new Blob([encodePng({ width: img.width, height: img.height, data: img.data, channels: 4 }).slice()], { type: 'image/png' }), `${name}.png`);
-  }
+  const file = await contentsFile(e, c, pick);
+  download(file.blob, file.name);
   e.message(`Exported the contents of “${c.name}”.`);
 }
 

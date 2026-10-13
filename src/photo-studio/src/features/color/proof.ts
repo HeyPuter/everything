@@ -26,8 +26,10 @@ import { mapLut, plateGray, simulateVision, VISION_LABELS, type Plate, type Visi
 
 export type ProofSetup = {
   // "plate" shows one or more inks of the working CMYK separation; "vision"
-  // simulates a color vision deficiency (ref is unused).
-  kind: 'cmyk' | 'custom' | 'monitor' | 'plate' | 'vision';
+  // simulates a color vision deficiency (ref is unused); "rgb" shows the
+  // document's numbers as they look when read in the RGB profile `ref`
+  // (no conversion into it), like an untagged image on that display.
+  kind: 'cmyk' | 'custom' | 'monitor' | 'plate' | 'vision' | 'rgb';
   ref: string;
   plate?: Plate | 'cmy';
   vision?: VisionKind;
@@ -65,8 +67,13 @@ export function plateSetup(plate: Plate | 'cmy'): ProofSetup {
 export function visionSetup(vision: VisionKind): ProofSetup {
   return { ...workingCmykSetup(), kind: 'vision', ref: 'builtin:srgb', vision };
 }
+/** Preview document numbers read in another RGB profile. */
+export function rgbSetup(ref: string): ProofSetup {
+  return { ...workingCmykSetup(), kind: 'rgb', ref };
+}
 export function proofLabel(st: ProofState) {
   if (st.setup.kind === 'monitor') return 'Monitor RGB';
+  if (st.setup.kind === 'rgb') return profileName(st.setup.ref);
   if (st.setup.kind === 'plate') return PLATE_LABELS[st.setup.plate ?? 'cmy'];
   if (st.setup.kind === 'vision') return VISION_LABELS[st.setup.vision ?? 'deutan'];
   if (st.setup.kind === 'cmyk') return 'Working CMYK';
@@ -107,6 +114,10 @@ export function displayLut(doc: PhotoDocument, st: ProofState): Lut3D | null {
   if (st.on && st.setup.kind === 'monitor') {
     // Monitor RGB: document numbers sent to the display without conversion.
     lut = base ?? identityLut(17);
+  } else if (st.on && st.setup.kind === 'rgb') {
+    // The numbers stay; only their interpretation changes.
+    const toSrgb = cachedTransform(profileFromRef(st.setup.ref), srgb, 'relative');
+    lut = base ? composeLut(base, toSrgb) : bakeLut3D(toSrgb, 33);
   } else if (st.on && st.setup.kind === 'vision') {
     const toSrgb = cachedTransform(dp, srgb, 'relative');
     const kind = st.setup.vision ?? 'deutan';

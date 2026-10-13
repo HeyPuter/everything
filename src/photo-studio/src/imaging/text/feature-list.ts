@@ -2,11 +2,25 @@
 // the Type menu's features, toggling them and their CSS settings. Which
 // features a font file implements is read in font-features.ts.
 
-// Features offered in the Type menu: standard and discretionary ligatures,
-// contextual alternates, swash, oldstyle figures, stylistic alternates,
-// titling alternates, ordinals and fractions.
-export const OPENTYPE_FEATURES = ['liga', 'dlig', 'calt', 'swsh', 'onum', 'salt', 'titl', 'ordn', 'frac'] as const;
-export type OpenTypeFeature = (typeof OPENTYPE_FEATURES)[number];
+// Stylistic sets ss01–ss20; fonts may name them (font-features.ts).
+export const STYLISTIC_SETS = Array.from({ length: 20 }, (_, i) => `ss${String(i + 1).padStart(2, '0')}`) as readonly string[];
+// Features offered in the Type menu: ligatures, contextual, stylistic,
+// titling and justification alternates, swash, ornaments, small capitals,
+// figure styles (lining or oldstyle, proportional or tabular), slashed zero,
+// case-sensitive forms, superscript and subscript, ordinals, fractions and
+// the stylistic sets.
+export const OPENTYPE_FEATURES = [
+  'liga', 'dlig', 'calt', 'swsh', 'onum', 'salt', 'titl', 'ordn', 'frac',
+  'ornm', 'jalt', 'smcp', 'c2sc', 'lnum', 'pnum', 'tnum', 'zero', 'case', 'sups', 'subs',
+  ...STYLISTIC_SETS,
+] as const;
+export type OpenTypeFeature = string;
+// Features that exclude each other: turning one on turns the others off.
+export const EXCLUSIVE_FEATURES: readonly (readonly string[])[] = [
+  ['lnum', 'onum'],
+  ['pnum', 'tnum'],
+  ['sups', 'subs'],
+];
 // Features text shapers apply without being asked; styles store them as
 // "-tag" when switched off.
 export const DEFAULT_ON_FEATURES = new Set<string>(['liga', 'calt', 'clig']);
@@ -30,6 +44,7 @@ export function toggleFeature(features: string | undefined, tag: string, on: boo
   const list = new Set(normalizeFeatures(features).split(' ').filter(Boolean));
   list.delete(tag);
   list.delete(`-${tag}`);
+  if (on) for (const group of EXCLUSIVE_FEATURES) if (group.includes(tag)) for (const other of group) list.delete(other);
   if (DEFAULT_ON_FEATURES.has(tag)) {
     if (!on) list.add(`-${tag}`);
   } else if (on) list.add(tag);

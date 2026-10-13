@@ -24,7 +24,7 @@ const near = (a: number[], b: number[], tol = 1) => a.forEach((v, i) => expect(M
 
 describe('sfnt reader', () => {
   it('reads the bundled WOFF files', () => {
-    expect([inter.unitsPerEm, inter.numGlyphs, inter.axes.map((a) => a.tag)]).toEqual([2048, 913, ['wght']]);
+    expect([inter.unitsPerEm, inter.numGlyphs, inter.axes.map((a) => a.tag)]).toEqual([2048, 1333, ['wght']]);
     expect(bebas.axes).toEqual([]);
     expect(inter.glyphIndex(0x41)).toBeGreaterThan(0);
     expect(inter.glyphIndex(0x4e2d)).toBe(0); // no CJK in the Latin subset
