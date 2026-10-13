@@ -23,6 +23,18 @@ export function applyBlock<T extends Core>(core: T, block: BlockText, left: numb
   const lines: LayoutLine[] = [];
   const runs: GlyphRun[] = [];
   const decorations: Decoration[] = [];
+  // Each decoration belongs to exactly one line: the one it was made for, or
+  // (without that) the line whose baseline is nearest among those it lies on.
+  const owner = (d: Decoration): LayoutLine | undefined => {
+    if (d.line !== undefined) return core.lines.find((l) => l.start === d.line);
+    let best: LayoutLine | undefined;
+    for (const l of core.lines) {
+      if (d.x < l.x - 0.5 || d.x > l.x + l.width + 0.5) continue;
+      if (!best || Math.abs(d.y - l.y) < Math.abs(d.y - best.y)) best = l;
+    }
+    return best;
+  };
+  const owners = core.decorations.map(owner);
   let baseline = originY;
   let prevBottom: number | undefined;
   for (const l of core.lines) {
@@ -60,8 +72,8 @@ export function applyBlock<T extends Core>(core: T, block: BlockText, left: numb
         font: r.font.replace(/(\d+(?:\.\d+)?)px/, (_, v: string) => `${Math.round(Number(v) * s * 1000) / 1000}px`),
       });
     }
-    for (const d of core.decorations) {
-      if (Math.abs(d.y - l.y) > l.ascent + l.descent || d.x < l.x - 0.5 || d.x > l.x + l.width + 0.5) continue;
+    for (const [i, d] of core.decorations.entries()) {
+      if (owners[i] !== l) continue;
       const [x, y] = map(d.x, d.y);
       decorations.push({ ...d, x, y, width: d.width * s, thickness: d.thickness * s });
     }
