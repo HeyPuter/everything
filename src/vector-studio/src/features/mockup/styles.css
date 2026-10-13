@@ -1,0 +1,227 @@
+/* Mockup, Match Font and Expand Image panels and dialogs. */
+
+.mockup-intro {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+
+.mockup-intro[hidden],
+.mockup-main[hidden],
+.mockup-group[hidden] {
+  display: none;
+}
+
+.mockup-intro-art {
+  color: var(--text-3);
+}
+
+.mockup-intro-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+
+.mockup-intro-text,
+.mockup-hint,
+.mockup-status {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs);
+  line-height: 1.45;
+}
+
+.mockup-status:empty {
+  display: none;
+}
+
+.mockup-group {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.mockup-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.mockup-row > [hidden] {
+  display: none;
+}
+
+.mockup-row > .select {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.mockup-label {
+  min-width: 76px;
+  color: var(--text-2);
+  font-size: var(--fs);
+}
+
+.mockup-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs);
+  color: var(--text);
+}
+
+.mockup-fit .seg-btn {
+  padding: 0 12px;
+  font-size: var(--fs);
+}
+
+.mockup-actions {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: var(--space-4);
+}
+
+.mockup-intro .btn,
+.mockup-main .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .mockup-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---- Match Font ---- */
+
+.mf-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 248 / 140;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.mf-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mf-region {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: rgba(37, 99, 235, 0.12);
+  pointer-events: none;
+}
+
+.mf-region[hidden] {
+  display: none;
+}
+
+.mf-region-row {
+  margin: var(--space-3) 0;
+}
+
+.mf-note {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.mf-match {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mf-results[hidden] {
+  display: none;
+}
+
+.mf-label {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--fs);
+  margin-bottom: var(--space-2);
+}
+
+.mf-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.mf-list {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-4) 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+}
+
+.mf-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.mf-option {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.mf-option:hover {
+  background: var(--bg-hover);
+}
+
+.mf-option[aria-selected='true'] {
+  background: var(--bg-selected);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.mf-sample {
+  font-size: 18px;
+  line-height: 1.25;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+.mf-family {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mf-reason {
+  color: var(--text-3);
+}
