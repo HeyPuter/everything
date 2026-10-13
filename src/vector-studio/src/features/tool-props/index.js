@@ -108,7 +108,8 @@ function control(f, unit, onChange) {
     input.addEventListener('input', () => (out.textContent = input.value));
     input.addEventListener('change', () => onChange(Number(input.value)));
     return {
-      el: h('div.tool-range', h('label', { for: id }, f.label), input, out),
+      // Long dialog labels ("Skew (top -100 to bottom 100)") show their short part; the rest is the tooltip.
+      el: h('div.tool-range', h('label', { for: id, 'data-tip': f.label }, f.label.replace(/\s*\(.*\)$/, '')), input, out),
       set: (v) => {
         if (document.activeElement === input) return;
         input.value = v;
