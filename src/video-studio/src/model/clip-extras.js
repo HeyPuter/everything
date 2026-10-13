@@ -4,9 +4,13 @@
  *   motionBlur { on, amount 0..100 }       blur along the clip's own motion
  *   denoise    { on, strength 0..100 }     edge-preserving noise reduction
  *   relight    { on, angle, intensity 0..100, temperature -100..100 }
+ *   enhance    { on, strength 0..100 }     crisper soft or small footage
  *   canvas     { on, type: color|blur|gradient, color, color2, angle, blur 0..100 }
  * Each is stored only once used; turning a section off keeps its settings.
- * Relight angle and intensity are keyframable (relight.angle, relight.intensity).
+ * Relight angle and intensity are keyframable (relight.angle, relight.intensity),
+ * so is the enhance strength (enhance.strength). Enhance works on the source
+ * picture before it is placed (engine/source-fx.js), the others on the clip
+ * as drawn (engine/layer-extras.js).
  *
  * Also the layout helpers behind non-uniform scale (transform.sx / sy) and
  * the align-to-frame buttons.
@@ -17,6 +21,7 @@ export const EXTRA_DEFAULTS = {
   motionBlur: { on: true, amount: 50 },
   denoise: { on: true, strength: 40 },
   relight: { on: true, angle: 135, intensity: 50, temperature: 0 },
+  enhance: { on: true, strength: 50 },
   canvas: { on: true, type: 'blur', color: '#000000', color2: '#1f3b73', angle: 180, blur: 50 },
 };
 
@@ -46,6 +51,8 @@ export function normalizeClipExtras(raw, out) {
       temperature: clampN(rl.temperature, -100, 100, 0),
     };
   }
+  const en = raw?.enhance;
+  if (en && typeof en === 'object') out.enhance = { on: en.on !== false, strength: clampN(en.strength, 0, 100, d.enhance.strength) };
   const cv = raw?.canvas;
   if (cv && typeof cv === 'object') {
     out.canvas = {
@@ -151,4 +158,22 @@ export function layerExtras(clip, local, fps, stateAt) {
   const cv = clip.canvas;
   if (cv?.on) (out ||= {}).canvas = { type: cv.type, color: cv.color, color2: cv.color2, angle: cv.angle, blur: cv.blur / 100 };
   return out;
+}
+
+/** Enhance strength (0..1) of a clip at clip-local time, or null when off. */
+export function enhanceAt(clip, local) {
+  const en = clip.enhance;
+  if (!en?.on) return null;
+  const strength = valueAt(clip.keyframes, 'enhance.strength', local, en.strength);
+  return strength > 0 ? { strength: Math.min(1, strength / 100) } : null;
+}
+
+/**
+ * How many times the source is enlarged when the clip fills the frame at
+ * scale 1 (above 1 when it is smaller than the project frame), or 0 when the
+ * size is unknown.
+ */
+export function upscaleFactor(srcW, srcH, W, H) {
+  if (!(srcW > 0) || !(srcH > 0) || !(W > 0) || !(H > 0)) return 0;
+  return Math.min(W / srcW, H / srcH);
 }

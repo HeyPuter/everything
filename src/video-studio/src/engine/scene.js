@@ -16,7 +16,8 @@ import { applyMotion, WHOLE_LOOPS } from './motion-anims.js';
 import { expandProject } from './compound.js';
 import { isGlyphAnim, isWholeClipAnim } from './text-anim.js';
 import { evaluateMasks } from '../model/masks.js';
-import { layerExtras } from '../model/clip-extras.js';
+import { layerExtras, enhanceAt } from '../model/clip-extras.js';
+import { removalAt } from '../model/removal.js';
 import { activeClipEffects } from '../model/clip-effects.js';
 import { smoothSlowAt } from '../model/slow-motion.js';
 
@@ -186,6 +187,9 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.maskUse = clip.maskUse || null;
     layer.masks = evaluateMasks(clip, local);
     layer.extras = layerExtras(clip, local, project.settings.fps, (l) => motionStateAt(clip, l));
+    // Passes on the source picture itself: object removal, then enhance (engine/source-fx.js).
+    layer.removal = removalAt(clip, local);
+    layer.enhance = enhanceAt(clip, local);
   }
   // The clip's own effect stack (rendered on this clip only, see engine/fx-render.js).
   const fx = activeClipEffects(clip);

@@ -17,6 +17,8 @@ import { snapAxis, SAFE_ZONES, rulerStep } from './player-guides.js';
 import { createMaskOverlay } from './mask-overlay.js';
 import { maskEdit } from './mask-edit-state.js';
 import { proxyMode, canProxy } from '../model/proxy.js';
+import { createRemovalOverlay } from './removal-overlay.js';
+import { removeEdit } from './remove-edit-state.js';
 import '../styles/player-tools.css';
 import '../styles/proxy.css';
 
@@ -452,6 +454,8 @@ export function createPlayerView(ctx) {
   let box = null;
   // While the Mask panel is open, the selected clip shows its mask handles instead of the transform box.
   const maskOverlay = createMaskOverlay({ store, actions, stage });
+  // While the Remove panel is open, it shows the object removal regions instead.
+  const removalOverlay = createRemovalOverlay({ store, actions, stage });
 
   function selectedLayer() {
     const s = store.selected;
@@ -483,6 +487,13 @@ export function createPlayerView(ctx) {
     }
     const b = player.boxFor(layer);
     if (!b) return;
+    if (removalOverlay.active(layer)) {
+      maskOverlay.clear();
+      if (!overlay.contains(removalOverlay.el)) overlay.replaceChildren(removalOverlay.el);
+      removalOverlay.draw(layer, b, cssW / store.project.settings.width, cssW, cssH);
+      return;
+    }
+    removalOverlay.clear();
     if (maskOverlay.active(layer)) {
       if (!overlay.contains(maskOverlay.el)) overlay.replaceChildren(maskOverlay.el);
       maskOverlay.draw(layer, b, cssW / store.project.settings.width, cssW, cssH);
@@ -764,6 +775,7 @@ export function createPlayerView(ctx) {
     player.on('frame', onFrame),
     store.on('select', drawOverlay),
     maskEdit.on('change', drawOverlay),
+    removeEdit.on('change', drawOverlay),
     store.on('change', () => {
       updateTime();
       relayout();
@@ -786,6 +798,7 @@ export function createPlayerView(ctx) {
     dispose() {
       offs.forEach((f) => f());
       maskOverlay.dispose();
+      removalOverlay.dispose();
       ro.disconnect();
       document.removeEventListener('fullscreenchange', onFs);
     },

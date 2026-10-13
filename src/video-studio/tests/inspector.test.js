@@ -92,7 +92,7 @@ describe('inspector layout', () => {
     const names = [...env.el.querySelectorAll('.top-tabs [role=tab]')].map((t) => t.textContent);
     expect(names).toEqual(['Video', 'Audio', 'Speed', 'Animation', 'Effects', 'Color']);
     const subs = [...env.el.querySelectorAll('.subtabs [role=tab]')].map((t) => t.textContent);
-    expect(subs).toEqual(['Basic', 'Mask', 'Cutout', 'Retouch', 'Chroma key']);
+    expect(subs).toEqual(['Basic', 'Mask', 'Cutout', 'Remove', 'Retouch', 'Chroma key']);
     const panel = env.el.querySelector('[role=tabpanel]');
     expect(panel.getAttribute('aria-labelledby')).toBe(tab('Video').id);
     env.store.select(env.img.id);

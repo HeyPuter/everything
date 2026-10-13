@@ -25,6 +25,7 @@ export function propLabel(prop) {
   const words = (s) => s.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, (c) => c.toUpperCase());
   if (group === 'adjust') return words(key);
   if (group && /^mask\d+$/.test(group)) return `Mask ${Number(group.slice(4)) + 1} ${words(key).toLowerCase()}`;
+  if (group && /^remove\d+$/.test(group)) return `Removal region ${Number(group.slice(6)) + 1} ${key === 'x' || key === 'y' ? `position ${key.toUpperCase()}` : words(key).toLowerCase()}`;
   return group ? `${words(group)} ${words(key).toLowerCase()}` : words(key);
 }
 

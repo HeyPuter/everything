@@ -170,6 +170,10 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
       openDetails(b);
       ctx.inspector?.showVideoSub?.('cutout');
     } },
+    { id: 'remove', label: 'Remove', icon: 'eraser', when: (c) => c.type === 'video' || c.type === 'image', run: (b) => {
+      openDetails(b);
+      ctx.inspector?.showVideoSub?.('remove');
+    } },
     { id: 'retouch', label: 'Retouch', icon: 'retouch', when: (c) => c.type === 'video' || c.type === 'image', run: (b) => {
       openDetails(b);
       ctx.inspector?.showVideoSub?.('retouch');
