@@ -417,7 +417,7 @@ export class AppearancePanel extends Panel {
     const eyeBtn = eye != null ? iconButton(eye ? 'eye' : 'eye-off', eyeLabel || (eye ? 'Hide' : 'Show'), (e) => {
       e.stopPropagation();
       onEye();
-    }, { className: 'small ap-eye', pressed: eye }) : h('span.ap-eye-pad');
+    }, { className: 'small ap-eye' }) : h('span.ap-eye-pad');
     r.append(tw, eyeBtn, swatch || h('span.ap-sw-pad'), h('span.ap-label', label));
     if (extra) r.append(...[].concat(extra).filter(Boolean));
     if (onDelete) r.append(iconButton('x', `Delete ${text}`, (e) => {
