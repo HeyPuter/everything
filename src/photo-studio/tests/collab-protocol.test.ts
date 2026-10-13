@@ -88,7 +88,7 @@ describe('comment model', () => {
   it('allows only authorship-preserving changes', () => {
     const t = newThread({ x: 0, y: 0 }, alice, 'Original');
     const before: CommentThread[] = [t];
-    const me = { uuid: 'u-bob' };
+    const me = { uuid: 'u-bob', username: 'bob' };
     // A reply of one's own, and resolving in one's own name: accepted.
     expect(checkCommentChange(before, [{ ...t, messages: [...t.messages, newMessage(bob, 'Reply')] }], me, 'editor')).toBeNull();
     expect(checkCommentChange(before, [{ ...t, resolved: { by: bob, at: 5 } }], me, 'commenter')).toBeNull();
@@ -98,6 +98,11 @@ describe('comment model', () => {
     expect(checkCommentChange(before, [], me, 'editor')).toMatch(/removed/);
     expect(checkCommentChange(before, [t, newThread({ x: 1, y: 1 }, alice, 'Forged')], me, 'editor')).toMatch(/own/);
     expect(checkCommentChange(before, [{ ...t, resolved: { by: alice, at: 5 } }], me, 'editor')).toMatch(/own name/);
+    // The right ID under someone else's name: refused too.
+    const posing = { id: 'u-bob', name: 'alice' };
+    expect(checkCommentChange(before, [t, newThread({ x: 1, y: 1 }, posing, 'Forged')], me, 'editor')).toMatch(/own name/);
+    expect(checkCommentChange(before, [{ ...t, messages: [...t.messages, newMessage(posing, 'Reply')] }], me, 'editor')).toMatch(/own name/);
+    expect(checkCommentChange(before, [{ ...t, resolved: { by: posing, at: 5 } }], me, 'editor')).toMatch(/own name/);
     // Owners may remove anyone's comment (a soft removal).
     expect(checkCommentChange(before, [{ ...t, deleted: true }], me, 'owner')).toBeNull();
   });

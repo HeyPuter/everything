@@ -75,9 +75,14 @@ function rootName(doc: Y.Doc, type: Y.AbstractType<unknown>) {
   return '';
 }
 
-type Room = { doc: Y.Doc; seq: number; holes: Map<number, number>; loaded: number };
+// `doc` holds only what the log holds (accepted edits): synchronization
+// reads it and checkpoints are written from it. `check` is a copy a commit is
+// tried on first; it is discarded when it took a refused change.
+type Room = { doc: Y.Doc; seq: number; holes: Map<number, number>; loaded: number; check?: Y.Doc };
 // Rooms loaded by this worker instance, refreshed from the log on each use.
 const ROOMS = new Map<string, Room>();
+// Commits in progress per room (per set of loaded rooms), taken one at a time.
+const COMMITS = new WeakMap<Map<string, Room>, Map<string, Promise<unknown>>>();
 
 export class RoomService {
   kv: WorkerPuter['kv'];
@@ -141,12 +146,15 @@ export class RoomService {
     await this.kv.set(`ps:${room}:member:${m.uuid}`, m);
   }
   /** Admit someone opening the document: an existing member, an invitation
-   * link, or an invitation by username. */
+   * link, or an invitation by username. An existing membership is the
+   * owner's decision: an invitation never changes its role or its expiry
+   * (membership checks then apply as usual), and an expired or revoked link
+   * does not stop a current member. */
   async admit(room: string, user: Identity, token: unknown) {
     const meta = await this.meta(room);
     const prior = (await this.kv.get(`ps:${room}:member:${user.uuid}`)) as Member | null;
     if (prior?.role === 'removed') fail(403, 'Your access to this shared document was removed.');
-    if (prior && !(prior.expires && prior.expires < this.now()) && !token) return;
+    if (prior) return;
     let role: string | null = null;
     if (typeof token === 'string' && token) {
       if (token.length > 200) fail(400, 'Invalid invitation.');
@@ -157,15 +165,9 @@ export class RoomService {
       const named = (await this.kv.get(`ps:${room}:named:${user.username.toLowerCase()}`)) as Invite | null;
       if (named && named.expires >= this.now()) role = named.role;
     }
-    if (!role) {
-      if (prior) return;
-      fail(403, 'Ask the owner for an invitation to this shared document.');
-    }
-    // An invitation never lowers a role someone already has.
-    const rank = (r: string) => ['owner', 'editor', 'commenter', 'viewer'].indexOf(r);
-    if (prior && !(prior.expires && prior.expires < this.now()) && rank(prior.role) <= rank(role)) return;
+    if (!role) fail(403, 'Ask the owner for an invitation to this shared document.');
     if (user.uuid === meta.owner) role = 'owner';
-    await this.setMember(room, { uuid: user.uuid, username: user.username, role, joined: this.now(), ...(prior?.expires && prior.expires >= this.now() ? { expires: prior.expires } : {}) });
+    await this.setMember(room, { uuid: user.uuid, username: user.username, role, joined: this.now() });
     await this.notify(room);
   }
 
@@ -192,8 +194,33 @@ export class RoomService {
     return entry;
   }
   private drop(room: string) {
-    this.rooms.get(room)?.doc.destroy();
+    const entry = this.rooms.get(room);
+    entry?.doc.destroy();
+    entry?.check?.destroy();
     this.rooms.delete(room);
+  }
+  /** Run commits of one room one after another. */
+  private serial<T>(room: string, fn: () => Promise<T>): Promise<T> {
+    let locks = COMMITS.get(this.rooms);
+    if (!locks) COMMITS.set(this.rooms, (locks = new Map()));
+    const run = (locks.get(room) ?? Promise.resolve()).then(fn);
+    const tail = run.then(
+      () => {},
+      () => {},
+    );
+    locks.set(room, tail);
+    void tail.then(() => {
+      if (locks.get(room) === tail) locks.delete(room);
+    });
+    return run;
+  }
+  /** The copy a commit is tried on, brought up to the accepted state. */
+  private checkCopy(entry: Room) {
+    if (!entry.check) {
+      entry.check = new Y.Doc();
+      Y.applyUpdate(entry.check, Y.encodeStateAsUpdate(entry.doc));
+    } else Y.applyUpdate(entry.check, Y.encodeStateAsUpdate(entry.doc, Y.encodeStateVector(entry.check)));
+    return entry.check;
   }
   /** Apply log records written since this instance last read the room. */
   async refresh(room: string, entry: Room) {
@@ -305,7 +332,7 @@ export class RoomService {
         return { update: encode(update), seq: entry.seq, role: member.role, serverTime: this.now() };
       }
       case 'commit':
-        return this.commit(room, meta, user, member, input);
+        return this.serial(room, () => this.commit(room, meta, user, member, input));
       case 'asset.put':
         return this.putAssets(room, member, input);
       case 'asset.get':
@@ -388,7 +415,9 @@ export class RoomService {
     const digest = await hash(update);
     if (input.id !== digest) fail(400, 'The change does not match its checksum.');
     const entry = await this.load(room, meta);
-    const doc = entry.doc;
+    // The change is tried on a copy; the loaded document (what others read and
+    // checkpoints are made of) receives it only once it is accepted and logged.
+    const doc = this.checkCopy(entry);
     const before = readThreads(doc);
     const roots = new Set<string>();
     let changed = false;
@@ -396,20 +425,20 @@ export class RoomService {
       for (const type of tr.changed.keys()) roots.add(rootName(doc, type as Y.AbstractType<unknown>));
       if (tr.changed.size || tr.deleteSet.clients.size) changed = true;
     };
+    const reject = (status: number, message: string): never => {
+      // The copy holds the refused change: it is made again for the next commit.
+      doc.destroy();
+      if (entry.check === doc) entry.check = undefined;
+      fail(status, message);
+    };
     doc.on('afterTransaction', watch);
     try {
       Y.applyUpdate(doc, update, 'commit');
     } catch {
-      this.drop(room);
-      fail(400, 'Invalid change.');
+      reject(400, 'Invalid change.');
     } finally {
       doc.off('afterTransaction', watch);
     }
-    const reject = (status: number, message: string): never => {
-      // The loaded copy holds the refused change; the next request reloads it.
-      this.drop(room);
-      fail(status, message);
-    };
     if (doc.store.pendingStructs || doc.store.pendingDs) reject(409, 'This change builds on edits the server has not received. Synchronize and try again.');
     for (const r of roots) {
       if (r === 'comments') continue;
@@ -437,11 +466,12 @@ export class RoomService {
         await this.writeText(record.file, text);
       } else record.update = text;
       await this.kv.set(`ps:${room}:log:${pad(seq)}`, record);
+      Y.applyUpdate(entry.doc, update, 'log');
       // The loaded copy now matches the log up to here (when nothing is missing before it).
       if (entry.seq === seq - 1) entry.seq = seq;
       if (seq % CHECKPOINT_EVERY === 0 && entry.seq === seq) {
         const path = this.path(room, `cp-${pad(seq)}.txt`);
-        await this.writeText(path, encode(Y.encodeStateAsUpdate(doc)));
+        await this.writeText(path, encode(Y.encodeStateAsUpdate(entry.doc)));
         await this.kv.set(`ps:${room}:cp`, { seq, path });
       }
       await this.notify(room, seq);

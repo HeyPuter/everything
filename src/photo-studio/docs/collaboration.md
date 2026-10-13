@@ -78,10 +78,12 @@ Requests (`join`, `sync`, `commit`, `asset.put`, `asset.get`, `presence`, `leave
 The worker enforces roles on every request, independently of the interface:
 
 - Viewers cannot commit or upload.
-- Commenters can commit only changes to the `comments` map: the worker applies the commit to its copy of the document and refuses it when any other shared type changed.
+- Commenters can commit only changes to the `comments` map: the worker tries each commit on a scratch copy of the document and refuses it when any other shared type changed.
+- Commits to one room are checked one at a time. A refused commit only ever touches the scratch copy (which is then rebuilt); the worker's loaded document, which synchronization sends and checkpoints are written from, receives a commit only after it is accepted and logged.
 - Editors and owners can change `doc`, `layers`, `assets` and `comments`, nothing else.
-- Comment changes are checked for authorship (`checkCommentChange`): new threads and messages must be the committer's own; only authors edit or remove their messages (owners may remove any); nothing is removed outright (removal is a marker); resolving is recorded in the resolver's own name; limits of 500 threads, 100 messages per thread and 4,000 characters per message.
+- Comment changes are checked for authorship (`checkCommentChange`): new threads and messages must be the committer's own, under their account ID and their authenticated Puter username; only authors edit or remove their messages (owners may remove any); nothing is removed outright (removal is a marker); resolving is recorded in the resolver's own name; limits of 500 threads, 100 messages per thread and 4,000 characters per message.
 - A commit that builds on edits the worker does not have is refused (409) and retried after a synchronization; one refused for good (role changed, invalid data) is dropped together with later queued edits, and the tab opens the shared state again.
+- An invitation (link or username) admits only people who are not members yet. For a member it changes nothing: it never raises a role the owner lowered or lifts an access expiry the owner set, and an expired or revoked link does not stop a current member.
 - Only the owner manages access: invitation links (with role and expiry), invitations by username, role changes, access expiry, removal, revoking links, and Stop Sharing.
 
 Accepted commits return a receipt signed with the room key, binding the update hash, the room and the committer.
