@@ -595,3 +595,18 @@
 .prefs-main [hidden] {
   display: none;
 }
+
+.newdoc-layout-box[hidden] {
+  display: none;
+}
+
+.newdoc-layouts {
+  display: flex;
+  gap: 2px;
+}
+
+.newdoc-layout[aria-checked='true'],
+.newdoc-layout[aria-pressed='true'] {
+  background: var(--bg-selected);
+  color: var(--accent);
+}

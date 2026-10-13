@@ -6,13 +6,23 @@
  */
 import { h } from '../../lib/dom.js';
 import { formatLength, UNITS } from '../../lib/units.js';
-import { icon } from '../../ui/icons.js';
+import { icon, registerIcons } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { CATEGORIES, PRESETS, UNIT_OPTIONS, RASTER_OPTIONS, PREVIEW_OPTIONS, parsePresetForm, sizeLabel, presetKey, orientationOf, pushPreset } from './presets.js';
-import { parseLength } from '../../lib/units.js';
+import { CATEGORIES, PRESETS, UNIT_OPTIONS, RASTER_OPTIONS, PREVIEW_OPTIONS, COLOR_MODE_OPTIONS, LAYOUT_OPTIONS, artboardPositions, parsePresetForm, sizeLabel, presetKey, orientationOf, pushPreset } from './presets.js';
+import { VDocument } from '../../model/document.js';
+import { parseLength, parseNumber } from '../../lib/units.js';
 import { nextUntitled } from './naming.js';
 
 const SIDES = ['top', 'bottom', 'left', 'right'];
+
+const box = (x, y, w, h) => ['rect', { x: String(x), y: String(y), width: String(w), height: String(h), rx: '1' }];
+registerIcons({
+  'layout-gridRow': [box(4, 4, 6, 6), box(14, 4, 6, 6), box(4, 14, 6, 6), box(14, 14, 6, 6), ['path', { d: 'M11 7h2M11 17h2', 'stroke-width': '1.5' }]],
+  'layout-gridCol': [box(4, 4, 6, 6), box(14, 4, 6, 6), box(4, 14, 6, 6), box(14, 14, 6, 6), ['path', { d: 'M7 11v2M17 11v2', 'stroke-width': '1.5' }]],
+  'layout-row': [box(2.5, 9, 5, 6), box(9.5, 9, 5, 6), box(16.5, 9, 5, 6)],
+  'layout-col': [box(9, 2.5, 6, 5), box(9, 9.5, 6, 5), box(9, 16.5, 6, 5)],
+  'layout-rtl': [['path', { d: 'M20 12H5M9 8l-4 4 4 4' }]],
+});
 
 /** Next "Untitled-N" name, advancing the app's untitled counter. */
 export function takeUntitledName(app) {
@@ -31,17 +41,24 @@ export function createFromSettings(app, v) {
   if (m) app.untitled = Math.max(app.untitled || 0, Number(m[1]));
   const spacing = Number(app.prefs.get('gridSpacing'));
   const subdivisions = Number(app.prefs.get('gridSubdivisions'));
-  const editor = app.newDocument({
+  const doc = VDocument.create({
     name: v.name,
     width: v.width,
     height: v.height,
     units: v.units,
     artboards: v.artboards,
     bleed: v.bleed,
-    colorMode: 'RGB',
+    colorMode: v.colorMode === 'CMYK' ? 'CMYK' : 'RGB',
     rasterResolution: v.rasterResolution,
     grid: spacing > 0 && subdivisions >= 1 ? { spacing, subdivisions } : null,
   });
+  if (v.artboards > 1 && v.layout) {
+    // Lay the artboards out before the document opens (not an undoable edit).
+    const pos = artboardPositions(v.artboards, v.width, v.height, v);
+    const root = doc.root;
+    doc.nodes.set('root', { ...root, artboards: root.artboards.map((a, i) => ({ ...a, ...pos[i] })) });
+  }
+  const editor = app.addDocument(doc);
   if (v.previewMode === 'pixel') editor.setViewOption('pixelPreview', true);
   return editor;
 }
@@ -80,7 +97,15 @@ export function newDocumentDialog(app) {
   const artboardsInput = h('input', { type: 'text', id: 'nd-artboards', inputmode: 'numeric', value: String(start.artboards || 1), autocomplete: 'off' });
   const bleedInputs = Object.fromEntries(SIDES.map((s) => [s, h('input', { type: 'text', id: `nd-bleed-${s}`, inputmode: 'decimal', autocomplete: 'off', spellcheck: false })]));
   const linkBtn = h('button.icon-btn.newdoc-link', { type: 'button', 'aria-label': 'Link bleed values', 'aria-pressed': 'true', 'data-tip': 'Make all settings the same' }, icon('link', 14));
-  const colorSelect = h('select.select', { id: 'nd-color' }, h('option', { value: 'RGB' }, 'RGB Color'));
+  const colorSelect = h('select.select', { id: 'nd-color' }, COLOR_MODE_OPTIONS.map((o) => h('option', { value: o.value }, o.label)));
+  // Layout of several artboards.
+  const layoutBtns = LAYOUT_OPTIONS.map((o) =>
+    h('button.icon-btn.newdoc-layout', { type: 'button', role: 'radio', 'aria-label': o.label, 'data-tip': o.label, 'aria-checked': String(o.value === 'gridRow'), tabindex: o.value === 'gridRow' ? '0' : '-1', dataset: { layout: o.value } }, icon(`layout-${o.value}`, 16)),
+  );
+  const rtlBtn = h('button.icon-btn.newdoc-layout', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Right to left', 'data-tip': 'Change to right-to-left layout' }, icon('layout-rtl', 16));
+  const spacingInput = h('input', { type: 'text', id: 'nd-spacing', inputmode: 'decimal', autocomplete: 'off', spellcheck: false });
+  const columnsInput = h('input', { type: 'text', id: 'nd-columns', inputmode: 'numeric', autocomplete: 'off', value: '' , placeholder: 'Auto' });
+  const columnsLabel = h('label', { for: 'nd-columns' }, 'Columns');
   const rasterSelect = h('select.select', { id: 'nd-raster' }, RASTER_OPTIONS.map((o) => h('option', { value: String(o.value) }, o.label)));
   const previewSelect = h('select.select', { id: 'nd-preview' }, PREVIEW_OPTIONS.map((o) => h('option', { value: o.value }, o.label)));
   const error = h('p.form-error', { role: 'alert' });
@@ -120,19 +145,42 @@ export function newDocumentDialog(app) {
     linkBtn.replaceChildren(icon(on ? 'link' : 'unlink', 14));
   };
   const setUnits = (u) => {
+    const sp = parseLength(spacingInput.value, state.units);
     const { w, h: hh } = currentSize();
     const bl = Object.fromEntries(SIDES.map((s) => [s, parseLength(bleedInputs[s].value, state.units)]));
     state.units = u;
     unitsSelect.value = u;
     if (Number.isFinite(w) && Number.isFinite(hh)) setSize(w, hh);
     for (const s of SIDES) if (Number.isFinite(bl[s])) bleedInputs[s].value = fmt(bl[s]);
+    if (Number.isFinite(sp)) spacingInput.value = fmt(sp);
+  };
+  const layoutValue = () => layoutBtns.find((b) => b.getAttribute('aria-checked') === 'true')?.dataset.layout || 'gridRow';
+  const setLayout = (value) => {
+    for (const b of layoutBtns) {
+      const on = b.dataset.layout === value;
+      b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    // Columns for row-first layouts, rows for column-first ones; none for a single row or column.
+    columnsLabel.textContent = value === 'gridCol' ? 'Rows' : 'Columns';
+    columnsInput.disabled = value === 'row' || value === 'col';
+  };
+  const syncLayoutEnabled = () => {
+    const n = parseNumber(artboardsInput.value);
+    layoutBox.hidden = !(Number.isInteger(n) && n > 1);
   };
   const applyPreset = (p) => {
     state.units = UNITS[p.units] ? p.units : 'pt';
+    colorSelect.value = p.colorMode === 'CMYK' ? 'CMYK' : 'RGB';
+    spacingInput.value = fmt(p.spacing ?? 20);
+    columnsInput.value = p.columns ? String(p.columns) : '';
+    setLayout(p.layout || 'gridRow');
+    rtlBtn.setAttribute('aria-pressed', String(Boolean(p.rtl)));
     unitsSelect.value = state.units;
     setSize(p.width, p.height);
     setBleed(p.bleed || 0);
     artboardsInput.value = String(p.artboards || 1);
+    syncLayoutEnabled();
     if (p.rasterResolution) rasterSelect.value = String(p.rasterResolution);
     if (p.previewMode) previewSelect.value = p.previewMode;
     error.textContent = '';
@@ -176,8 +224,13 @@ export function newDocumentDialog(app) {
     bleed: Object.fromEntries(SIDES.map((s) => [s, bleedInputs[s].value])),
     rasterResolution: Number(rasterSelect.value),
     previewMode: previewSelect.value,
+    colorMode: colorSelect.value,
+    layout: layoutValue(),
+    spacing: spacingInput.value,
+    columns: columnsInput.value,
+    rtl: rtlBtn.getAttribute('aria-pressed') === 'true',
   });
-  const fieldEl = { name: nameInput, width: widthInput, height: heightInput, artboards: artboardsInput, ...Object.fromEntries(SIDES.map((s) => [`bleed-${s}`, bleedInputs[s]])) };
+  const fieldEl = { name: nameInput, width: widthInput, height: heightInput, artboards: artboardsInput, spacing: spacingInput, columns: columnsInput, ...Object.fromEntries(SIDES.map((s) => [`bleed-${s}`, bleedInputs[s]])) };
   let parsed = null;
   const validate = () => {
     const r = parsePresetForm(rawValues());
@@ -196,6 +249,26 @@ export function newDocumentDialog(app) {
   const deleteBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Delete Saved Preset', 'data-tip': 'Delete saved preset', hidden: true }, icon('trash', 16));
 
   const row = (label, id, ...controls) => h('div.newdoc-row', h('label', { for: id }, label), h('div.newdoc-ctl', ...controls));
+  const layoutBox = h(
+    'div.newdoc-layout-box',
+    { hidden: true },
+    h('div.newdoc-row', h('span.form-label', { id: 'nd-layout-l' }, 'Layout'), h('div.newdoc-ctl', h('div.newdoc-layouts', { role: 'radiogroup', 'aria-labelledby': 'nd-layout-l' }, layoutBtns), rtlBtn)),
+    row('Spacing', 'nd-spacing', spacingInput),
+    h('div.newdoc-row', columnsLabel, h('div.newdoc-ctl', columnsInput)),
+  );
+  artboardsInput.addEventListener('input', syncLayoutEnabled);
+  layoutBtns.forEach((b, i) => {
+    b.addEventListener('click', () => setLayout(b.dataset.layout));
+    b.addEventListener('keydown', (e) => {
+      const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const next = layoutBtns[(i + d + layoutBtns.length) % layoutBtns.length];
+      next.click();
+      next.focus();
+    });
+  });
+  rtlBtn.addEventListener('click', () => rtlBtn.setAttribute('aria-pressed', String(rtlBtn.getAttribute('aria-pressed') !== 'true')));
   const details = h(
     'section.newdoc-details',
     { 'aria-labelledby': 'nd-details-title' },
@@ -205,6 +278,7 @@ export function newDocumentDialog(app) {
     row('Width', 'nd-width', widthInput, unitsSelect),
     h('div.newdoc-row', h('label', { for: 'nd-height' }, 'Height'), h('div.newdoc-ctl', heightInput, h('div.newdoc-orients', { role: 'radiogroup', 'aria-label': 'Orientation' }, orientBtns))),
     row('Artboards', 'nd-artboards', artboardsInput),
+    layoutBox,
     h(
       'fieldset.newdoc-bleed',
       h('legend', 'Bleed'),
@@ -334,7 +408,7 @@ export function newDocumentDialog(app) {
     const name = values?.name?.trim();
     if (!name) return;
     const v = r.value;
-    const preset = { name, width: v.width, height: v.height, units: v.units, artboards: v.artboards, bleed: v.bleed, rasterResolution: v.rasterResolution, previewMode: v.previewMode };
+    const preset = { name, width: v.width, height: v.height, units: v.units, artboards: v.artboards, bleed: v.bleed, rasterResolution: v.rasterResolution, previewMode: v.previewMode, colorMode: v.colorMode, ...layoutOf(v) };
     prefs.set('newDocSaved', pushPreset(prefs.get('newDocSaved'), preset, 50));
     state.selected = presetKey(preset);
     setCategory('saved');
@@ -370,15 +444,17 @@ export function newDocumentDialog(app) {
     if (!v) return null;
     const sizeChanged = !state.selectedPreset || Math.abs(state.selectedPreset.width - v.width) > 0.01 || Math.abs(state.selectedPreset.height - v.height) > 0.01;
     const recentName = sizeChanged ? 'Custom' : state.selectedPreset.name;
-    prefs.set('newDocRecent', pushPreset(prefs.get('newDocRecent'), { name: recentName, width: v.width, height: v.height, units: v.units, artboards: v.artboards, bleed: v.bleed, rasterResolution: v.rasterResolution, previewMode: v.previewMode }, 12));
+    prefs.set('newDocRecent', pushPreset(prefs.get('newDocRecent'), { name: recentName, width: v.width, height: v.height, units: v.units, artboards: v.artboards, bleed: v.bleed, rasterResolution: v.rasterResolution, previewMode: v.previewMode, colorMode: v.colorMode, ...layoutOf(v) }, 12));
     prefs.set('newDocUnits', v.units);
     return createFromSettings(app, v);
   });
 }
 
+const layoutOf = (v) => (v.layout ? { layout: v.layout, spacing: v.spacing, columns: v.columns, rtl: v.rtl } : {});
+
 /** New document with the most recent settings, no dialog (Alt+Mod+N). */
 export function newDocumentQuick(app) {
   const last = (app.prefs.get('newDocRecent') || [])[0];
-  const v = last ? { ...last, name: takeUntitledName(app), colorMode: 'RGB' } : { name: takeUntitledName(app), width: 612, height: 792, units: 'pt', artboards: 1, bleed: 0, rasterResolution: 72, previewMode: 'default' };
+  const v = last ? { ...last, name: takeUntitledName(app) } : { name: takeUntitledName(app), width: 612, height: 792, units: 'pt', artboards: 1, bleed: 0, rasterResolution: 72, previewMode: 'default' };
   return createFromSettings(app, v);
 }

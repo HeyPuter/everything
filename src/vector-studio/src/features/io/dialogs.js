@@ -305,6 +305,21 @@ const SCREEN_FORMATS = [
   { value: 'pdf', label: 'PDF', format: 'pdf', opts: {} },
 ];
 const SCALES = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+const SCALE_SETS = {
+  ios: [
+    { scale: 1, suffix: '', fmt: 'png' },
+    { scale: 2, suffix: '@2x', fmt: 'png' },
+    { scale: 3, suffix: '@3x', fmt: 'png' },
+  ],
+  android: [
+    { scale: 0.75, suffix: '-ldpi', fmt: 'png' },
+    { scale: 1, suffix: '-mdpi', fmt: 'png' },
+    { scale: 1.5, suffix: '-hdpi', fmt: 'png' },
+    { scale: 2, suffix: '-xhdpi', fmt: 'png' },
+    { scale: 3, suffix: '-xxhdpi', fmt: 'png' },
+    { scale: 4, suffix: '-xxxhdpi', fmt: 'png' },
+  ],
+};
 const scaleSuffix = (s) => (s === 1 ? '' : `@${s}x`);
 
 /**
@@ -314,7 +329,7 @@ export async function exportScreensDialog(app, mode = 'artboards') {
   const editor = app.editor;
   if (!editor) return;
   const doc = editor.doc;
-  const last = getPref(app, 'screens', { rows: [{ scale: 1, suffix: '', fmt: 'png' }], prefix: '', zip: true, dest: 'device' });
+  const last = getPref(app, 'screens', { rows: [{ scale: 1, suffix: '', fmt: 'png' }], prefix: '', zip: true, dest: 'device', bleed: false, fullDocument: false, subfolders: false });
   const assets = [];
   if (mode === 'selection') {
     const ids = editor.topSelection();
@@ -353,10 +368,33 @@ export async function exportScreensDialog(app, mode = 'artboards') {
     list.append(h('li.io-asset', h('div.io-thumb-wrap', thumb), h('div.io-asset-meta', mode === 'selection' ? null : cb, label, nameInput)));
   });
   const selectAll = (v) => checks.forEach((c) => (c.checked = v));
+  // A range ("1-3, 5") ticks exactly those artboards.
+  const rangeInput = h('input.io-range', { type: 'text', 'aria-label': 'Artboard range', placeholder: 'Range, e.g. 1-3', autocomplete: 'off', spellcheck: false });
+  rangeInput.addEventListener('input', () => {
+    const picked = parseRange(rangeInput.value, checks.length);
+    rangeInput.toggleAttribute('aria-invalid', Boolean(rangeInput.value.trim()) && !picked);
+    if (picked) checks.forEach((c, i) => (c.checked = picked.includes(i)));
+  });
+  const bleedBox = checkbox('Include Bleed', last.bleed);
+  const fullDoc = checkbox('Full Document (all artwork as one file)', last.fullDocument);
+  const syncFull = () => {
+    const on = fullDoc.input.checked;
+    list.classList.toggle('io-disabled', on);
+    for (const el of [...checks, rangeInput, bleedBox.input, ...list.querySelectorAll('input')]) el.disabled = on;
+  };
+  fullDoc.input.addEventListener('change', syncFull);
+  if (mode !== 'selection') syncFull();
   const leftTools =
     mode === 'selection'
       ? null
-      : h('div.io-select-row', h('span', 'Select:'), h('button.btn.small.ghost', { type: 'button', onclick: () => selectAll(true) }, 'All'), h('button.btn.small.ghost', { type: 'button', onclick: () => selectAll(false) }, 'None'));
+      : h(
+          'div.io-select-row',
+          h('span', 'Select:'),
+          h('button.btn.small.ghost', { type: 'button', onclick: () => selectAll(true) }, 'All'),
+          h('button.btn.small.ghost', { type: 'button', onclick: () => selectAll(false) }, 'None'),
+          rangeInput,
+        );
+  const leftOptions = mode === 'selection' ? null : h('div.form.io-screens-options', bleedBox.el, fullDoc.el);
 
   // Right: formats.
   const rowsHost = h('div.io-format-rows', { role: 'group', 'aria-label': 'Formats' });
@@ -403,12 +441,26 @@ export async function exportScreensDialog(app, mode = 'artboards') {
   );
   const prefix = h('input', { type: 'text', value: last.prefix, autocomplete: 'off', spellcheck: false, placeholder: 'none' });
   const zip = checkbox('Save as one ZIP file', last.zip);
+  const subfolders = checkbox('Create Sub-folders (by scale and format)', last.subfolders);
+  const syncZip = () => (subfolders.input.disabled = !zip.input.checked);
+  zip.input.addEventListener('change', syncZip);
+  syncZip();
+  // Common scale sets for app icons and assets.
+  const presetBtn = (label, key) =>
+    h('button.btn.small.ghost', {
+      type: 'button',
+      onclick: () => {
+        rows.splice(0, rows.length, ...SCALE_SETS[key].map((r) => ({ ...r })));
+        renderRows();
+      },
+    }, label);
+  const presets = h('div.io-format-presets', h('span', 'Presets:'), presetBtn('iOS', 'ios'), presetBtn('Android', 'android'));
   const dest = destinationField(app, last.dest);
   const error = h('p.form-error', { role: 'alert' });
   const body = h(
     'div.io-screens',
-    h('section.io-screens-left', h('h3.form-heading', mode === 'selection' ? 'Asset' : 'Artboards'), leftTools, list),
-    h('section.io-screens-right', h('h3.form-heading', 'Formats'), rowsHost, addBtn, h('div.form', row('Prefix', prefix), zip.el, dest?.el), error),
+    h('section.io-screens-left', h('h3.form-heading', mode === 'selection' ? 'Asset' : 'Artboards'), leftTools, list, leftOptions),
+    h('section.io-screens-right', h('h3.form-heading', 'Formats'), presets, rowsHost, addBtn, h('div.form', row('Prefix', prefix), zip.el, subfolders.el, dest?.el), error),
   );
   const ok = await app.dialogs.open({
     title: mode === 'selection' ? 'Export Selection' : 'Export for Screens',
@@ -420,6 +472,7 @@ export async function exportScreensDialog(app, mode = 'artboards') {
         label: mode === 'selection' ? 'Export Asset' : 'Export Artboard',
         primary: true,
         validate: () => {
+          if (mode !== 'selection' && fullDoc.input.checked) return true;
           if (!checks.some((c) => c.checked)) {
             error.textContent = 'Select at least one artboard.';
             return false;
@@ -431,20 +484,39 @@ export async function exportScreensDialog(app, mode = 'artboards') {
     ],
   });
   if (!ok) return;
-  setPref(app, 'screens', { rows, prefix: prefix.value, zip: zip.input.checked, dest: dest?.get() || 'device' });
+  const full = mode !== 'selection' && fullDoc.input.checked;
+  const withBleed = mode !== 'selection' && bleedBox.input.checked;
+  setPref(app, 'screens', { rows, prefix: prefix.value, zip: zip.input.checked, dest: dest?.get() || 'device', bleed: bleedBox?.input.checked ?? last.bleed, fullDocument: fullDoc?.input.checked ?? last.fullDocument, subfolders: subfolders.input.checked });
   app.notify('Exporting...', { timeout: 2000 });
   const files = [];
+  const folders = zip.input.checked && subfolders.input.checked;
+  const bleed = doc.root.bleed || {};
+  const regionOf = (i) => {
+    const r = assets[i].region;
+    if (!withBleed || r.artboard == null) return r;
+    const a = doc.artboards[r.artboard];
+    const t = bleed.top || 0;
+    const l = bleed.left || 0;
+    return { rect: { x: a.x - l, y: a.y - t, w: a.w + l + (bleed.right || 0), h: a.h + t + (bleed.bottom || 0) } };
+  };
+  const jobs = full
+    ? [{ name: docBaseName(editor), region: { rect: artworkBounds(doc) } }]
+    : assets.map((a, i) => (checks[i].checked ? { name: nameInputs[i].value || a.name, region: regionOf(i) } : null)).filter(Boolean);
+  if (full && !jobs[0].region.rect) {
+    app.notify('There is no artwork to export.');
+    return;
+  }
   try {
-    for (let i = 0; i < assets.length; i++) {
-      if (!checks[i].checked) continue;
-      const base = safeFileName(`${prefix.value}${nameInputs[i].value || assets[i].name}`);
+    for (const job of jobs) {
+      const base = safeFileName(`${prefix.value}${job.name}`);
       for (const r of rows) {
         const f = SCREEN_FORMATS.find((x) => x.value === r.fmt) || SCREEN_FORMATS[0];
         const fmt = FORMATS[f.format];
         const options = { ...f.opts, scale: r.scale, background: 'transparent' };
         if (f.format === 'svg' || f.format === 'pdf') options.scale = 1;
-        const blob = await renderFile(app, editor, f.format, assets[i].region, options);
-        files.push({ name: `${base}${safeFileName(r.suffix || '', '')}.${fmt.ext}`, blob });
+        const blob = await renderFile(app, editor, f.format, job.region, options);
+        const folder = !folders ? '' : f.format === 'svg' || f.format === 'pdf' ? `${fmt.ext.toUpperCase()}/` : `${r.scale}x/`;
+        files.push({ name: `${folder}${base}${safeFileName(r.suffix || '', '')}.${fmt.ext}`, blob });
       }
     }
   } catch (err) {
