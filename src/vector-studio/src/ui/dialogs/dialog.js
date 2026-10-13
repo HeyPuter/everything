@@ -150,6 +150,67 @@ const REF_POINTS = [
 ];
 
 /**
+ * An angle dial: a small circle with a hand pointing at the angle
+ * (degrees, counterclockwise from 3 o'clock). Drag or click to set it
+ * (Shift snaps to 15°); arrow keys step by 1° (Shift for 15°).
+ */
+export function angleDial({ value = 0, label = 'Angle', onChange } = {}) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 32 32');
+  svg.setAttribute('aria-hidden', 'true');
+  const ring = document.createElementNS(NS, 'circle');
+  for (const [k, v] of Object.entries({ cx: 16, cy: 16, r: 13, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5 })) ring.setAttribute(k, v);
+  const hand = document.createElementNS(NS, 'line');
+  for (const [k, v] of Object.entries({ x1: 16, y1: 16, stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' })) hand.setAttribute(k, v);
+  svg.append(ring, hand);
+  const el = h('div.angle-dial', { role: 'slider', tabindex: '0', 'aria-label': `${label} dial`, 'aria-valuemin': '-180', 'aria-valuemax': '180' });
+  el.append(svg);
+  let cur = value;
+  const draw = () => {
+    const a = (cur * Math.PI) / 180;
+    hand.setAttribute('x2', String(16 + Math.cos(a) * 11));
+    hand.setAttribute('y2', String(16 - Math.sin(a) * 11));
+    el.setAttribute('aria-valuenow', String(Math.round(cur * 100) / 100));
+    el.setAttribute('aria-valuetext', `${Math.round(cur * 100) / 100}°`);
+  };
+  const set = (v, notify = true) => {
+    if (!Number.isFinite(v)) return;
+    cur = v;
+    draw();
+    if (notify) onChange?.(cur);
+  };
+  const fromPointer = (e) => {
+    const r = el.getBoundingClientRect();
+    let a = (Math.atan2(r.top + r.height / 2 - e.clientY, e.clientX - r.left - r.width / 2) * 180) / Math.PI;
+    if (e.shiftKey) a = Math.round(a / 15) * 15;
+    set(Math.round(a * 10) / 10);
+  };
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture?.(e.pointerId);
+    fromPointer(e);
+    const move = (ev) => fromPointer(ev);
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  });
+  el.addEventListener('keydown', (e) => {
+    const d = { ArrowUp: 1, ArrowRight: -1, ArrowDown: -1, ArrowLeft: 1 }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    let v = cur + d * (e.shiftKey ? 15 : 1);
+    if (v > 180) v -= 360;
+    if (v <= -180) v += 360;
+    set(v);
+  });
+  draw();
+  return { el, get: () => cur, set };
+}
+
+/**
  * A 3x3 reference point picker (a radio group). `value` is { x, y } with
  * coordinates 0, 0.5 or 1 in the object's bounding box.
  */
@@ -198,6 +259,7 @@ export function refPointPicker({ value = { x: 0.5, y: 0.5 }, label = 'Reference 
  *
  * Field options:
  *   slider: [min, max]       a slider next to a numeric field
+ *   dial: true               an angle dial next to an angle field
  *   disabled(values)         greys the field out (re-evaluated on every edit)
  *   onInput(value, form)     runs when the user edits this field; `form.get(key)`
  *                            and `form.set(key, value)` keep linked fields in step
@@ -210,6 +272,7 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
   const inputs = new Map();
   const rowsByKey = new Map();
   const sliders = new Map();
+  const dials = new Map();
   let fid = 0;
   const readOne = (f) => {
     const el = inputs.get(f.key);
@@ -242,6 +305,7 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
     else if (NUMERIC.includes(f.type)) el.value = showValue(f, v, unit);
     else el.value = v;
     syncSlider(f);
+    if (dials.has(key) && Number.isFinite(v)) dials.get(key).set(v, false);
   };
   const form = { get: (key) => readOne(fields.find((x) => x.key === key) || {}), set: writeOne, values: read };
   const syncSlider = (f) => {
@@ -258,6 +322,7 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
       const row = rowsByKey.get(f.key);
       row.classList.toggle('disabled', off);
       for (const el of row.querySelectorAll('input, select, textarea, button')) el.disabled = off;
+      for (const el of row.querySelectorAll('.angle-dial')) el.tabIndex = off ? -1 : 0;
     }
   };
   const valid = () => {
@@ -362,7 +427,22 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
     }
     inputs.set(f.key, input);
     let control = input;
-    if (f.slider && NUMERIC.includes(f.type)) {
+    if (f.dial && f.type === 'angle') {
+      const dial = angleDial({
+        value: f.value ?? 0,
+        label: f.label,
+        onChange: (v) => {
+          input.value = showValue(f, v, unit);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        },
+      });
+      input.addEventListener('input', () => {
+        const v = parseNumber(input.value);
+        if (Number.isFinite(v)) dial.set(v, false);
+      });
+      dials.set(f.key, dial);
+      control = h('div.range-wrap.dial-field', dial.el, input);
+    } else if (f.slider && NUMERIC.includes(f.type)) {
       const factor = f.type === 'length' ? UNITS[unit]?.factor || 1 : 1;
       const s = h('input', { type: 'range', min: f.slider[0], max: f.slider[1], step: f.sliderStep ?? 'any', 'aria-label': `${f.label} slider`, tabindex: '-1' });
       sliders.set(f.key, s);

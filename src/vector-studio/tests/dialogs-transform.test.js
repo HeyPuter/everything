@@ -196,3 +196,19 @@ describe('Transform Each dialog', () => {
     expect(doc.undoStack.length).toBeGreaterThan(0);
   });
 });
+
+describe('Angle dial', () => {
+  it('steps the Rotate angle with the keyboard and follows typing', async () => {
+    const { app } = await setup();
+    const done = app.commands.run('object.transform.rotate');
+    await tick();
+    const dial = dlg().querySelector('.angle-dial');
+    expect(dial.getAttribute('role')).toBe('slider');
+    dial.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }));
+    expect(parseFloat(field('Angle').value)).toBe(15);
+    type('Angle', '90');
+    expect(dial.getAttribute('aria-valuenow')).toBe('90');
+    button('Cancel');
+    await done;
+  });
+});
