@@ -19,7 +19,8 @@ import { ColorPanel } from './color-panel.js';
 import { SwatchesPanel } from './swatches-panel.js';
 import { GradientPanel } from './gradient-panel.js';
 import { StrokePanel } from './stroke-panel.js';
-import { TransparencyPanel } from './transparency-panel.js';
+import { TransparencyPanel, registerTransparencyCommands } from './transparency-panel.js';
+import { installOpacityMasks } from './opacity-mask.js';
 import { AppearancePanel, GraphicStylesPanel } from './appearance-panel.js';
 import { GradientTool } from './gradient-tool.js';
 import { registerEffectCommands } from './effects-ui.js';
@@ -86,6 +87,8 @@ export function install(app) {
   registerEffectCommands(app);
   registerEditColorCommands(app);
   installRecentColors(app);
+  installOpacityMasks();
+  registerTransparencyCommands(app);
 
   // Window > Swatch Libraries: open a library in the Swatches panel.
   app.menuSources.set('swatchLibraries', (a) =>

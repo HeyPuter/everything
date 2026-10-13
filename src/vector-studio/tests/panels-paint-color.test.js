@@ -1,42 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createPath } from '../src/model/nodes.js';
-import { rectangle } from '../src/model/shapes.js';
-import { bootAppWithFeatures } from './helpers.js';
+import { paintSetup } from './panels-paint-helpers.js';
 import { addSwatch, findSwatch, swatchesOf, updateSwatch } from '../src/features/paint/swatch-model.js';
 
 const solid = (color, extra = {}) => ({ type: 'solid', color, ...extra });
-
-export async function paintSetup() {
-  const app = await bootAppWithFeatures();
-  const ed = app.newDocument();
-  const doc = ed.doc;
-  const add = (style, rect = [0, 0, 10, 10]) => {
-    const p = createPath(rectangle(...rect), true, style);
-    doc.transact('Add', () => doc.insert(p, ed.targetLayer().id));
-    return p.id;
-  };
-  const panel = (id) => {
-    app.openPanel(id);
-    const p = app.dock.panels.get(id);
-    p.ensureBuilt();
-    p.update();
-    return p;
-  };
-  const menuItem = (p, label) => {
-    const find = (spec) => {
-      for (const it of spec) {
-        if (it && typeof it === 'object' && it.label === label) return it;
-        if (it?.submenu) {
-          const r = find(it.submenu);
-          if (r) return r;
-        }
-      }
-      return null;
-    };
-    return find(p.menu());
-  };
-  return { app, ed, doc, add, panel, menuItem };
-}
 
 describe('Color panel menu', () => {
   it('has the options, modes, invert, complement and new swatch entries', async () => {

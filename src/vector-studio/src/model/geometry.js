@@ -493,6 +493,20 @@ function transformShape(shape, m, opts) {
 }
 
 /**
+ * Properties that feature modules keep in step with an object's transform
+ * (e.g. a linked opacity mask): fn(node, m, opts) -> patch or null, merged
+ * into the node's patch whenever the node itself is transformed.
+ */
+export const transformHooks = [];
+
+function hookPatches(node, m, opts, out) {
+  for (const fn of transformHooks) {
+    const p = fn(node, m, opts);
+    if (p) out.set(node.id, { ...out.get(node.id), ...p });
+  }
+}
+
+/**
  * Patches (id -> patch) that apply matrix m to a node and its descendants.
  * opts.scaleStrokes scales stroke widths and effects with the object;
  * opts.scaleCorners scales live-corner radii.
@@ -567,6 +581,7 @@ export function transformPatches(doc, node, m, opts = {}, out = new Map()) {
       break;
     }
   }
+  if (transformHooks.length) hookPatches(node, m, opts, out);
   return out;
 }
 
@@ -646,6 +661,7 @@ export function transformFromOriginals(doc, originals, m, opts = {}) {
       if ('frameAngle' in fp || lp) patches.set(n.id, { ...fp, ...lp });
     }
   }
+  if (transformHooks.length) for (const n of originals.values()) hookPatches(n, inner.get(n.id) || m, opts, patches);
   // A drag back to a plain move restores the original frame angle a previous step changed.
   for (const n of originals.values()) {
     const p = patches.get(n.id);

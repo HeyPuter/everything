@@ -204,11 +204,15 @@ function arrowPaths(node) {
  *   dashPattern(node, scale)  -> { dash, offset } replacing node.dash (e.g. aligned to corners)
  *   paintStyle(ctx, doc, node, paint, seg) -> canvas style for paint types beyond solid
  *                             and gradients (pattern swatches); `seg` as in paintStyle()
+ *   opacityMask(layer, region, m, doc, node, opts)
+ *                             apply node.opacityMask to the object's artwork, drawn in
+ *                             `layer` ({ canvas, ctx }) covering device `region` under
+ *                             view transform `m`
  *
  * Live artwork (blends, repeats, symbol instances, ...) draws through
  * model/live.js and geometry effects through model/geom-effects.js.
  */
-export const drawHooks = { arrowheads: null, strokePath: null, dashPattern: null, paintStyle: null };
+export const drawHooks = { arrowheads: null, strokePath: null, dashPattern: null, paintStyle: null, opacityMask: null };
 
 const effectPathCache = new WeakMap();
 
@@ -522,7 +526,9 @@ export function drawNode(ctx, doc, node, opts) {
   const container = node.type === 'group' || node.type === 'layer';
   // Leaf live objects (symbol instances, brush strokes, effected type) are several shapes too: they isolate like groups.
   const grouped = container || (node.type !== 'image' && Boolean(liveDef(node)));
-  const isolated = !opts.outline && grouped && (opacity < 1 || blend !== 'source-over' || fx || node.isolate || node.knockout);
+  // An opacity mask (drawHooks.opacityMask) needs the object's finished artwork in a layer.
+  const om = !opts.outline && node.opacityMask && !node.opacityMask.disabled && drawHooks.opacityMask ? node.opacityMask : null;
+  const isolated = !opts.outline && ((grouped && (opacity < 1 || blend !== 'source-over' || fx || node.isolate || node.knockout)) || Boolean(om));
 
   if (fx || isolated) {
     // Groups with opacity, blending, isolation or effects, and any object
@@ -539,6 +545,7 @@ export function drawNode(ctx, doc, node, opts) {
       if (node.knockout && !opts.outline) drawKnockout(lctx, doc, node, opts, pool);
       else drawChildren(lctx, doc, node, opts);
     } else drawContent(lctx, doc, node, opts);
+    if (om) drawHooks.opacityMask(layer, region, m, doc, node, opts);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha *= opacity;
@@ -585,7 +592,11 @@ function drawContent(ctx, doc, node, opts) {
   }
 }
 
-/** Knockout group: each child replaces what earlier children drew instead of compositing over it. */
+/**
+ * Knockout group: each child replaces what earlier children drew instead
+ * of compositing over it. The child's whole shape knocks out; with
+ * `knockoutShape` its opacity and opacity mask set how much.
+ */
 function drawKnockout(ctx, doc, node, opts, pool) {
   const m = ctx.getTransform();
   for (const c of node.children) {
@@ -594,13 +605,20 @@ function drawKnockout(ctx, doc, node, opts, pool) {
     const tmp = pool.acquire(ctx.canvas.width, ctx.canvas.height);
     tmp.ctx.setTransform(m);
     drawNode(tmp.ctx, doc, child, opts);
+    const partial = !child.knockoutShape && ((child.opacity ?? 1) < 1 || (child.opacityMask && !child.opacityMask.disabled));
+    const cut = partial ? pool.acquire(ctx.canvas.width, ctx.canvas.height) : tmp;
+    if (partial) {
+      cut.ctx.setTransform(m);
+      drawNode(cut.ctx, doc, { ...child, opacity: 1, opacityMask: undefined }, opts);
+    }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.drawImage(tmp.canvas, 0, 0);
+    ctx.drawImage(cut.canvas, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(tmp.canvas, 0, 0);
     ctx.restore();
+    if (partial) pool.release(cut);
     pool.release(tmp);
   }
 }

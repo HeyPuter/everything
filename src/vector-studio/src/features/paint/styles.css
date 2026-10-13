@@ -968,11 +968,72 @@
   align-items: center;
 }
 
+.tp-mid[hidden],
+.tp-options[hidden] {
+  display: none;
+}
+
+.tp-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
 .tp-thumb {
-  width: 56px;
-  height: 56px;
+  display: block;
+  width: 48px;
+  height: 48px;
   border: 1px solid var(--border-strong);
   flex: none;
+}
+
+.tp-mask-thumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 2px;
+}
+
+.tp-mask-thumb.empty .tp-thumb {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.tp-mask-thumb.mask-off {
+  position: relative;
+}
+
+.tp-mask-thumb.mask-off::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--danger);
+  transform: rotate(45deg);
+}
+
+.tp-mask-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tp-link[hidden] {
+  visibility: hidden;
+  display: inline-flex;
+}
+
+.tp-make {
+  justify-self: start;
+}
+
+.tp-options {
+  display: grid;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
 
 .tp-checks {
