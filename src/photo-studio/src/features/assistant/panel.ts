@@ -135,8 +135,14 @@ function renderLog(e: Editor, el: HTMLElement) {
   const count = c.messages.length;
   const intro = `<div class="ast-intro">${svg('assistant', 28)}<p><strong>Describe an edit</strong> and the Assistant plans it with Photo Studio’s own commands. You review the steps, change them if you like, and run them as one undo step. You can also ask how to do something.</p><div class="ast-examples" role="group" aria-label="Examples">${EXAMPLES.map((x) => `<button type="button" data-example="${escapeXML(x)}">${escapeXML(x)}</button>`).join('')}</div></div>`;
   const pending = c.pending ? `<div class="ast-pending" role="status"><span class="ast-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${escapeXML(c.pending.status)}</span><button type="button" data-cancel>Stop</button></div>` : '';
+  const scroll = log.scrollTop;
   log.innerHTML = (count ? c.messages.map(messageHTML).join('') : intro) + pending;
-  if (atBottom || Number(log.dataset.count ?? 0) !== count || c.pending) log.scrollTop = log.scrollHeight;
+  const last = log.querySelector<HTMLElement>(':scope > :last-child');
+  if (Number(log.dataset.count ?? 0) < count && last && !c.pending && last.offsetHeight > log.clientHeight - 16) {
+    // A long new reply (a plan) shows from its start.
+    log.scrollTop = last.offsetTop - log.offsetTop - 8;
+  } else if (atBottom || Number(log.dataset.count ?? 0) !== count || c.pending) log.scrollTop = log.scrollHeight;
+  else log.scrollTop = scroll;
   log.dataset.count = String(count);
   const busy = !!c.pending;
   const input = el.querySelector<HTMLTextAreaElement>('.ast-input')!;
@@ -147,7 +153,7 @@ function renderLog(e: Editor, el: HTMLElement) {
   el.querySelector<HTMLElement>('.ast-sent')!.textContent = sentNote(e);
 }
 const sentNote = (e: Editor) =>
-  `Sends your request${e.hasDocument ? ', a description of the document (size, layer names and kinds)' : ''}${assistantSettings.seeImage && e.hasDocument ? ' and a small preview of the image' : ''} to Puter’s AI service. Needs a Puter account; may use credits.`;
+  `Sends your request${e.hasDocument ? `, the document’s size and layer list${assistantSettings.seeImage ? ' and a small preview' : ''}` : ''} to Puter’s AI service (Puter account; may use credits).`;
 
 function readForm(form: HTMLFormElement, params: Param[]): Record<string, unknown> | string {
   const out: Record<string, unknown> = {};
@@ -186,7 +192,7 @@ export function mountAssistant(e: Editor, el: HTMLElement) {
   el.classList.add('assistant-panel');
   el.innerHTML = `<div class="ast-log" role="log" aria-label="Assistant conversation" aria-live="polite" tabindex="-1"></div>
 <form class="ast-compose" aria-label="Ask the Assistant">
-<textarea class="ast-input" rows="3" aria-label="Describe an edit or ask a question" placeholder="Describe an edit, or ask how to do something"></textarea>
+<textarea class="ast-input" rows="2" aria-label="Describe an edit or ask a question" placeholder="Describe an edit, or ask how to do something"></textarea>
 <div class="ast-compose-bar"><label class="ast-see" title="Let the model see a small preview of the visible image"><input type="checkbox"> Share image preview</label><span class="ast-spacer"></span><span class="ast-model muted" title="Change the model in the panel menu"></span><button type="submit" class="primary ast-send" aria-label="Send" title="Send (Enter)">${svg('arrow-up', 15)}</button></div>
 <p class="ast-sent"></p></form>`;
   const form = el.querySelector<HTMLFormElement>('.ast-compose')!;

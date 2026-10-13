@@ -1,7 +1,7 @@
 /* Assistant panel */
 .dock-drawer:has(.assistant-panel) { width: 340px; max-height: calc(100% - 8px); }
 .assistant-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; font-size: 12px; }
-.dock-drawer .assistant-panel { height: min(640px, calc(100dvh - 160px)); }
+.dock-drawer .assistant-panel { height: min(900px, calc(100dvh - 110px)); }
 .ast-log { flex: 1; min-height: 120px; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; outline: none; }
 .ast-text p { margin: 0 0 6px; line-height: 1.45; overflow-wrap: anywhere; }
 .ast-text p:last-child { margin-bottom: 0; }
@@ -81,7 +81,7 @@ button.ast-step-name:hover { color: var(--accent); }
 
 /* Composer */
 .ast-compose { flex: none; display: flex; flex-direction: column; gap: 5px; padding: 8px; border-top: 1px solid var(--line-soft); background: var(--surface); }
-.ast-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 54px; max-height: 200px; font: inherit; font-size: 12px; line-height: 1.4; }
+.ast-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 40px; max-height: 200px; font: inherit; font-size: 12px; line-height: 1.4; }
 .ast-compose-bar { display: flex; align-items: center; gap: 6px; }
 .ast-see { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
 .ast-model { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

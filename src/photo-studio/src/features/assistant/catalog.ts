@@ -74,8 +74,8 @@ export const AI_PARAMS: Record<string, Param[]> = {
 
 export function commandInput(c: Pick<Command, 'id' | 'label'>): InputKind {
   if (AI_COMMANDS.has(c.id)) return 'ai';
-  const op = opIdFromCommand(c.id);
-  if (c.id.startsWith('filter.apply.') && op) return immediateFilters.has(op) ? 'none' : 'settings';
+  // Filters that open a dialog take its settings directly as `{ params }`.
+  if (c.id.startsWith('filter.apply.')) return c.label.endsWith('…') ? 'settings' : 'none';
   if (c.id === 'filter.denoise' || c.id === 'filter.sharpen-details' || SETTINGS_PARAMS[c.id]) return 'settings';
   return c.label.endsWith('…') ? 'dialog' : 'none';
 }

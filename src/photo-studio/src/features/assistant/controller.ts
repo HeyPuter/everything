@@ -192,7 +192,7 @@ export function pointer(e: Editor, id: string): Pointer | undefined {
   const cat = liveCatalog(e);
   const x = cat.get(id) ?? cat.get(id.startsWith('window.panel.') ? `panel.${id.slice(13)}` : '') ?? (findCommand(id) ? cat.get(findCommand(id)!.id) : undefined);
   if (!x || x.kind === 'op') return undefined;
-  const where = x.kind === 'tool' ? `Tools panel${x.shortcut ? ` · ${x.shortcut}` : ''}` : x.kind === 'panel' ? 'Window > Panels' : [...x.path, x.label].join(' > ') + (x.shortcut ? ` · ${x.shortcut}` : '');
+  const where = x.kind === 'tool' ? `Tools panel${x.shortcut ? ` · key ${x.shortcut}` : ''}` : x.kind === 'panel' ? 'Window > Panels' : (x.path.join(' > ') || 'Edit > Search') + (x.shortcut ? ` · ${x.shortcut}` : '');
   return { id: x.id, label: x.label.replace(/…$/, ''), where };
 }
 /** Open the menu holding a command, select a tool or show a panel. */
