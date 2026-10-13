@@ -6,7 +6,7 @@
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 import type { HistoryMark } from '../../history/history';
-import { commands, findCommand } from '../../app/registry';
+import { commands, findCommand, interactiveOnly } from '../../app/registry';
 import { allLayers, blends, findLayer, layer as newLayer, type Blend, type Layer, type PhotoDocument } from '../../model/document';
 import { moveLayers } from '../../model/layers';
 import { layerLock } from '../../model/locks';
@@ -158,9 +158,9 @@ function depthOf(layers: Layer[], id: string): number {
   return depth;
 }
 
-// Commands a script must not run: running scripts from scripts, and the
-// windows that manage them.
-const blockedCommand = (id: string) => id.startsWith('script.') || ['file.scripts-browse', 'file.script-events', 'file.batch-link', 'window.panel.scripts'].includes(id);
+// Commands a script must not run: running scripts from scripts, the windows
+// that manage them, and commands that need the person's own action.
+const blockedCommand = (id: string) => id.startsWith('script.') || interactiveOnly(id) || ['file.scripts-browse', 'file.script-events', 'file.batch-link', 'window.panel.scripts'].includes(id);
 // Effects a script can set, by the key scripts use.
 const effectKeys = ['dropShadow', 'innerShadow', 'outerGlow', 'innerGlow', 'bevel', 'satin', 'colorOverlay', 'stroke'] as const;
 
@@ -570,6 +570,7 @@ export class ScriptHost {
   private async runCommand(id: string, arg: unknown) {
     if (blockedCommand(id)) fail(`Scripts cannot run “${id}”.`);
     const c = findCommand(id) ?? fail(`Unknown command “${id}”.`);
+    if (blockedCommand(c.id)) fail(`Scripts cannot run “${id}”.`);
     if (c.enabled && !c.enabled(this.e)) fail(`“${c.label}” is not available in the current state.`);
     // Commands are called directly, as recorded actions replay them, but
     // named as the running command like Editor.runCommand does, so provenance

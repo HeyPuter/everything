@@ -1,5 +1,5 @@
 import type { Editor } from '../editor';
-import { commands, registerCommand, registerPanel, type Panel } from '../app/registry';
+import { commands, interactiveOnly, registerCommand, registerPanel, type Panel } from '../app/registry';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
@@ -77,6 +77,8 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       if (!s.enabled) continue;
       const c = commands.get(s.command);
       if (!c) throw new Error(`The command “${s.command}” is not available.`);
+      // Imported action files can name any command.
+      if (interactiveOnly(c.id)) throw new Error(`Actions cannot run “${c.label.replace(/…$/, '')}”.`);
       if (c.enabled && !c.enabled(e)) throw new Error(`“${c.label}” is not available in the current state.`);
       // Steps call commands directly so the busy guard does not skip them.
       await c.run(e, s.dialog ? undefined : s.arg);

@@ -165,7 +165,12 @@ Portrait & Restore filter IDs are `skin`, `jpeg`, `restore`, `colorize` (with
 `depth`, `style` and `scene`; AI options and layer-based depth need the
 workspace and are skipped when run with settings.
 
-`studio.commands.list()` returns `{ id, label, enabled }` for every command.
+Scripts cannot run the scripting commands themselves, the Assistant
+(`assistant.*`) or Generation History (`generations.*`); those run only from
+the person's own click.
+
+`studio.commands.list()` returns `{ id, label, enabled }` for every command
+a script can run.
 Commands that manage scripts cannot be run from scripts.
 
 ### Dialogs

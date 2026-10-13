@@ -192,6 +192,25 @@ describe('scripting API host', () => {
     host.finish();
   });
 
+  it('never runs the Assistant or Generation History, which need the person’s own action', async () => {
+    const e = mockEditor();
+    const asked = vi.fn();
+    registerCommand({ id: 'assistant.ask', label: 'Describe an Edit…', run: asked }, { id: 'generations.clear', label: 'Clear Generation History…', run: asked });
+    const host = new ScriptHost(e as unknown as Editor, ui(), 'Cmd');
+    await expect(host.call('commands.run', ['assistant.ask', { prompt: 'make it pop' }])).rejects.toThrow('Scripts cannot run “assistant.ask”.');
+    await expect(host.call('commands.run', ['generations.clear'])).rejects.toThrow('cannot run');
+    expect(((await host.call('commands.list', [])) as { id: string }[]).filter((c) => /^(assistant|generations)\./.test(c.id))).toEqual([]);
+    // Recorded actions (an imported file can name any command) refuse them too.
+    const { playAction } = await import('../src/features/actions');
+    const messages: string[] = [];
+    const ed = { message: (m: string) => messages.push(m), update() {} } as unknown as Editor;
+    expect(await playAction(ed, { id: 'a', name: 'Ask', steps: [{ command: 'assistant.ask', arg: { prompt: 'make it pop' }, enabled: true, dialog: false }] })).toBe(false);
+    expect(messages).toEqual(['Action stopped: Actions cannot run “Describe an Edit”.']);
+    expect(asked).not.toHaveBeenCalled();
+    commands.delete('assistant.ask');
+    commands.delete('generations.clear');
+    host.finish();
+  });
   it('can keep each edit as its own step or add checkpoints', async () => {
     const e = mockEditor();
     const start = e.history.position;
