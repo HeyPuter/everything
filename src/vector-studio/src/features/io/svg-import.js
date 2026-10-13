@@ -26,6 +26,10 @@ import { measure } from '../../model/text-layout.js';
 import { parsePathData } from './svg-path.js';
 import { parseTransform, parseLength, parseNumberList, parseDeclarations, parseStylesheet, matchStylesheet } from './svg-style.js';
 import { dataUrlToBytes, sniffMime, imageSize, svgImageSize } from './image-info.js';
+import { mergeAppearanceGroup } from './svg-appearance.js';
+
+/** Children that are not artwork (they never make nodes). */
+const NON_ART = new Set(['title', 'desc', 'metadata', 'defs', 'style', 'script']);
 
 const INHERITED = [
   'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin',
@@ -387,6 +391,14 @@ class Importer {
       case 'g':
       case 'a':
         ids = yield* this.convertChildrenGen(el, { ...ctx, ctm: M, style: st });
+        // One object's fills and strokes (an appearance stack written by the SVG export).
+        if (ids.length > 1 && el.hasAttribute('data-appearance')) {
+          const merged = mergeAppearanceGroup(this.nodes, [...el.children].filter((c) => !NON_ART.has(c.localName)), ids);
+          if (merged) {
+            ids = [merged];
+            break;
+          }
+        }
         if (ids.length) {
           const g = createGroup(ids, { name: this.nameOf(el) });
           ids = [this.add(g)];
