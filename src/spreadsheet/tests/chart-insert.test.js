@@ -27,11 +27,14 @@ async function nativeCycle(wb, { meta = false } = {}) {
 
 describe('Insert ▸ Charts galleries', () => {
   it('offers the subtypes under each button, every one a chart the model can draw', () => {
-    expect(CHART_GALLERIES.map(g => g.label)).toEqual(['Column', 'Line', 'Pie', 'Bar', 'Area', 'Scatter']);
+    expect(CHART_GALLERIES.map(g => g.label)).toEqual(['Column', 'Line', 'Pie', 'Bar', 'Area', 'Scatter', 'Hierarchy', 'Statistic', 'Other Charts', 'Combo']);
     const labels = id => CHART_GALLERIES.find(g => g.id === id).groups.flatMap(g => g.items.map(i => i.label));
     expect(labels('column')).toEqual(['Clustered Column', 'Stacked Column', '100% Stacked Column']);
     expect(labels('line')).toContain('Line with Markers');
-    expect(labels('pie')).toEqual(['Pie', 'Doughnut']);
+    expect(labels('pie')).toEqual(['Pie', 'Exploded Pie', 'Pie of Pie', 'Bar of Pie', 'Doughnut', 'Exploded Doughnut']);
+    expect(labels('hierarchy')).toEqual(['Treemap', 'Sunburst']);
+    expect(labels('other')).toEqual(['Waterfall', 'Funnel', 'High-Low-Close', 'Open-High-Low-Close', 'Volume-High-Low-Close',
+      'Volume-Open-High-Low-Close', '3-D Surface', 'Wireframe 3-D Surface', 'Contour', 'Wireframe Contour', 'Radar', 'Radar with Markers', 'Filled Radar']);
     expect(labels('scatter')).toEqual(['Scatter', 'Scatter, smooth lines and markers', 'Scatter, smooth lines',
       'Scatter, straight lines and markers', 'Scatter, straight lines', 'Bubble']);
     const { wb, id } = book();

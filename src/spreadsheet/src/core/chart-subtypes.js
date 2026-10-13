@@ -35,8 +35,14 @@ export const CHART_GALLERIES = Object.freeze([
       { id: 'lineStackedMarkers', label: 'Stacked Line with Markers', type: 'line', stacked: true, markers: true, icon: 'chartLineStackedMarkers' },
       { id: 'lineStacked100Markers', label: '100% Stacked Line with Markers', type: 'line', stacked: true, stack100: true, markers: true, icon: 'chartLineStacked100Markers' }] }] },
   { id: 'pie', label: 'Pie', icon: 'chartPie', more: 'More pie chart types…', groups: [
-    { header: 'Pie', items: [{ id: 'pie', label: 'Pie', type: 'pie', icon: 'chartPie' }] },
-    { header: 'Doughnut', items: [{ id: 'doughnut', label: 'Doughnut', type: 'donut', icon: 'chartDoughnut' }] }] },
+    { header: 'Pie', items: [
+      { id: 'pie', label: 'Pie', type: 'pie', icon: 'chartPie' },
+      { id: 'pieExploded', label: 'Exploded Pie', type: 'pie', explosion: 15, icon: 'chartPieExploded' },
+      { id: 'pieOfPie', label: 'Pie of Pie', type: 'pie', ofPie: 'pie', icon: 'chartPieOfPie' },
+      { id: 'barOfPie', label: 'Bar of Pie', type: 'pie', ofPie: 'bar', icon: 'chartBarOfPie' }] },
+    { header: 'Doughnut', items: [
+      { id: 'doughnut', label: 'Doughnut', type: 'donut', icon: 'chartDoughnut' },
+      { id: 'doughnutExploded', label: 'Exploded Doughnut', type: 'donut', explosion: 15, icon: 'chartDoughnutExploded' }] }] },
   { id: 'bar', label: 'Bar', icon: 'chartBar', more: 'More bar chart types…', groups: [
     { header: 'Bar', items: [
       { id: 'barClustered', label: 'Clustered Bar', type: 'bar', icon: 'chartBarClustered' },
@@ -55,33 +61,57 @@ export const CHART_GALLERIES = Object.freeze([
       { id: 'scatterLinesMarkers', label: 'Scatter, straight lines and markers', type: 'scatter', markers: true, lines: 'straight', icon: 'chartScatterLinesMarkers' },
       { id: 'scatterLines', label: 'Scatter, straight lines', type: 'scatter', markers: false, lines: 'straight', icon: 'chartScatterLines' }] },
     { header: 'Bubble', items: [{ id: 'bubble', label: 'Bubble', type: 'bubble', icon: 'chartBubble' }] }] },
+  { id: 'hierarchy', label: 'Hierarchy', icon: 'chartTreemap', more: 'More hierarchy charts…', groups: [
+    { header: 'Treemap', items: [{ id: 'treemap', label: 'Treemap', type: 'treemap', icon: 'chartTreemap' }] },
+    { header: 'Sunburst', items: [{ id: 'sunburst', label: 'Sunburst', type: 'sunburst', icon: 'chartSunburst' }] }] },
+  { id: 'statistic', label: 'Statistic', icon: 'chartBoxWhisker', more: 'More statistical charts…', groups: [
+    { header: 'Histogram', items: [{ id: 'histogram', label: 'Histogram', type: 'histogram', icon: 'chartHistogram' }] },
+    { header: 'Box and Whisker', items: [{ id: 'boxWhisker', label: 'Box and Whisker', type: 'boxWhisker', icon: 'chartBoxWhisker' }] }] },
+  { id: 'other', label: 'Other Charts', icon: 'chartStockOhlc', more: 'More chart types…', groups: [
+    { header: 'Waterfall and Funnel', items: [
+      { id: 'waterfall', label: 'Waterfall', type: 'waterfall', icon: 'chartWaterfall' },
+      { id: 'funnel', label: 'Funnel', type: 'funnel', icon: 'chartFunnel' }] },
+    { header: 'Stock', items: [
+      { id: 'stockHlc', label: 'High-Low-Close', type: 'stock', stock: 'hlc', icon: 'chartStockHlc' },
+      { id: 'stockOhlc', label: 'Open-High-Low-Close', type: 'stock', stock: 'ohlc', icon: 'chartStockOhlc' },
+      { id: 'stockVhlc', label: 'Volume-High-Low-Close', type: 'stock', stock: 'vhlc', icon: 'chartStockVhlc' },
+      { id: 'stockVohlc', label: 'Volume-Open-High-Low-Close', type: 'stock', stock: 'vohlc', icon: 'chartStockVohlc' }] },
+    { header: 'Surface', items: [
+      { id: 'surface3d', label: '3-D Surface', type: 'surface', surfaceView: 'surface3d', icon: 'chartSurface' },
+      { id: 'surfaceWireframe3d', label: 'Wireframe 3-D Surface', type: 'surface', surfaceView: 'wireframe3d', icon: 'chartSurfaceWireframe' },
+      { id: 'contour', label: 'Contour', type: 'surface', surfaceView: 'contour', icon: 'chartContour' },
+      { id: 'contourWireframe', label: 'Wireframe Contour', type: 'surface', surfaceView: 'wireframeContour', icon: 'chartContourWireframe' }] },
+    { header: 'Radar', items: [
+      { id: 'radar', label: 'Radar', type: 'radar', markers: false, icon: 'chartRadar' },
+      { id: 'radarMarkers', label: 'Radar with Markers', type: 'radar', markers: true, icon: 'chartRadarMarkers' },
+      { id: 'radarFilled', label: 'Filled Radar', type: 'radar', filled: true, icon: 'chartRadarFilled' }] }] },
+  { id: 'combo', label: 'Combo', icon: 'chartCombo', more: 'More combo charts…', groups: [
+    { header: 'Combo', items: [
+      { id: 'comboColumnLine', label: 'Column and line', type: 'combo', icon: 'chartCombo' },
+      { id: 'comboColumnLineSecondary', label: 'Column and line, line on a second axis', type: 'combo', secondaryAxis: true, icon: 'chartComboSecondary' }] }] },
 ]);
 
 /** The All Charts list of Insert Chart and Change Chart Type: the chart families. */
 export const CHART_FAMILIES = Object.freeze([
   { id: 'column', label: 'Column', icon: 'chartColumn', subtypes: ['columnClustered', 'columnStacked', 'columnStacked100'] },
   { id: 'line', label: 'Line', icon: 'chartLine', subtypes: ['line', 'lineStacked', 'lineStacked100', 'lineMarkers', 'lineStackedMarkers', 'lineStacked100Markers'] },
-  { id: 'pie', label: 'Pie', icon: 'chartPie', subtypes: ['pie', 'doughnut'] },
+  { id: 'pie', label: 'Pie', icon: 'chartPie', subtypes: ['pie', 'pieExploded', 'pieOfPie', 'barOfPie', 'doughnut', 'doughnutExploded'] },
   { id: 'bar', label: 'Bar', icon: 'chartBar', subtypes: ['barClustered', 'barStacked', 'barStacked100'] },
   { id: 'area', label: 'Area', icon: 'chartArea', subtypes: ['area', 'areaStacked', 'areaStacked100'] },
   { id: 'scatter', label: 'Scatter', icon: 'chartScatter', subtypes: ['scatter', 'scatterSmoothMarkers', 'scatterSmooth', 'scatterLinesMarkers', 'scatterLines', 'bubble'] },
+  { id: 'stock', label: 'Stock', icon: 'chartStockOhlc', subtypes: ['stockHlc', 'stockOhlc', 'stockVhlc', 'stockVohlc'] },
+  { id: 'surface', label: 'Surface', icon: 'chartSurface', subtypes: ['surface3d', 'surfaceWireframe3d', 'contour', 'contourWireframe'] },
   { id: 'radar', label: 'Radar', icon: 'chartRadar', subtypes: ['radar', 'radarMarkers', 'radarFilled'] },
+  { id: 'treemap', label: 'Treemap', icon: 'chartTreemap', subtypes: ['treemap'] },
+  { id: 'sunburst', label: 'Sunburst', icon: 'chartSunburst', subtypes: ['sunburst'] },
   { id: 'histogram', label: 'Histogram', icon: 'chartHistogram', subtypes: ['histogram'] },
+  { id: 'boxWhisker', label: 'Box & Whisker', icon: 'chartBoxWhisker', subtypes: ['boxWhisker'] },
   { id: 'waterfall', label: 'Waterfall', icon: 'chartWaterfall', subtypes: ['waterfall'] },
+  { id: 'funnel', label: 'Funnel', icon: 'chartFunnel', subtypes: ['funnel'] },
   { id: 'combo', label: 'Combo', icon: 'chartCombo', subtypes: ['comboColumnLine', 'comboColumnLineSecondary'] },
 ]);
 
-const EXTRA_SUBTYPES = [
-  { id: 'radar', label: 'Radar', type: 'radar', markers: false, icon: 'chartRadar' },
-  { id: 'radarMarkers', label: 'Radar with Markers', type: 'radar', markers: true, icon: 'chartRadarMarkers' },
-  { id: 'radarFilled', label: 'Filled Radar', type: 'radar', filled: true, icon: 'chartRadarFilled' },
-  { id: 'histogram', label: 'Histogram', type: 'histogram', icon: 'chartHistogram' },
-  { id: 'waterfall', label: 'Waterfall', type: 'waterfall', icon: 'chartWaterfall' },
-  { id: 'comboColumnLine', label: 'Column and line', type: 'combo', icon: 'chartCombo' },
-  { id: 'comboColumnLineSecondary', label: 'Column and line, line on a second axis', type: 'combo', secondaryAxis: true, icon: 'chartComboSecondary' },
-];
-
-export const CHART_SUBTYPES = Object.freeze([...CHART_GALLERIES.flatMap(g => g.groups.flatMap(group => group.items)), ...EXTRA_SUBTYPES]
+export const CHART_SUBTYPES = Object.freeze(CHART_GALLERIES.flatMap(g => g.groups.flatMap(group => group.items))
   .map(s => Object.freeze(s)));
 export const chartSubtype = id => CHART_SUBTYPES.find(s => s.id === id) || null;
 /** The subtype Alt+F1 and the Recommended Charts default insert: the default chart. */
@@ -134,20 +164,27 @@ export function excelChartAppearance(subtype, { font = 'calibri' } = {}) {
   }
   if (s.type === 'bubble') appearance.bubble = { scale: 100, sizeRepresents: 'area', showNegative: false, xGrid: false, series: [] };
   if (s.type === 'radar') appearance.radar = { style: s.filled ? 'filled' : s.markers ? 'marker' : 'standard', blanks: 'gap', series: [] };
+  // A funnel's bars nearly touch; the hierarchy charts and surfaces have no value gridlines of their own to draw.
+  if (s.type === 'funnel') Object.assign(appearance, { gapWidth: 6, gridlineStyles: {} });
+  if (s.type === 'treemap' || s.type === 'sunburst') appearance.gridlineStyles = {};
   return appearance;
 }
 
 /** The chart fields a subtype sets, over whatever else the chart keeps (its data, title and formatting). */
 export function subtypeFields(subtype) {
   const s = typeof subtype === 'string' ? chartSubtype(subtype) : subtype;
+  // The variant options are reset with every change of subtype: null drops what the old one set.
   return { type: s.type, stacked: !!s.stacked, stack100: !!s.stack100, secondaryAxis: !!s.secondaryAxis,
-    smooth: s.type === 'scatter' ? s.lines === 'smooth' : false };
+    smooth: s.type === 'scatter' ? s.lines === 'smooth' : false,
+    explosion: s.explosion || null,
+    ofPie: s.ofPie ? { kind: s.ofPie, split: 3, secondSize: 75, gap: 100 } : null,
+    stock: s.stock || null, surfaceView: s.surfaceView || null };
 }
 
 /** The default title: the series' name when one series is charted, else the placeholder "Chart title". */
 export function defaultChartTitle(data, type) {
   const series = data?.series || [];
-  if (['pie', 'donut', 'histogram', 'waterfall'].includes(type) || series.length === 1) {
+  if (['pie', 'donut', 'histogram', 'waterfall', 'treemap', 'sunburst', 'funnel'].includes(type) || series.length === 1) {
     const name = series[0]?.name;
     if (name && !/^Series ?\d+$/.test(name)) return name;
   }
@@ -172,6 +209,19 @@ export function newExcelChart(wb, sheetId, range, subtypeId = DEFAULT_SUBTYPE, {
   // A pie names its slices in the legend; a single series needs no legend of its name beside its title.
   chart.legend = ['pie', 'donut'].includes(chart.type) || data.series.length > 1;
   if (chart.type === 'histogram' || chart.type === 'waterfall') chart.legend = chart.type === 'waterfall';
+  // A hierarchy's legend names its top-level branches; its leaves carry their own names.
+  if (chart.type === 'treemap' || chart.type === 'sunburst') {
+    const branches = new Set((data.levels || []).map(path => path[0]).filter(Boolean));
+    chart.legend = (data.levels || []).some(path => path.length > 1) && branches.size <= 12;
+    chart.labels = true;
+    if (chart.type === 'treemap') chart.legendPos = 'top';
+  }
+  if (chart.type === 'funnel') Object.assign(chart, { legend: false, labels: true });
+  // A stock chart's legend names its price columns; a surface's, its value bands, beside the plot.
+  if (chart.type === 'stock') chart.legend = true;
+  if (chart.type === 'surface') Object.assign(chart, { legend: true, legendPos: 'right' });
+  if (chart.type === 'boxWhisker') chart.legend = data.series.length > 1;
+  if (chart.legendPos !== 'bottom' && chart.appearance) chart.appearance = { ...chart.appearance, legendPos: chart.legendPos };
   return chart;
 }
 
@@ -186,8 +236,10 @@ export function subtypeOf(chart) {
       const markers = line ? line.marker !== false : true;
       return `line${chart.stack100 ? 'Stacked100' : chart.stacked ? 'Stacked' : ''}${markers ? 'Markers' : ''}`;
     }
-    case 'pie': return 'pie';
-    case 'donut': return 'doughnut';
+    case 'pie': return chart.ofPie ? (chart.ofPie.kind === 'bar' ? 'barOfPie' : 'pieOfPie') : chart.explosion ? 'pieExploded' : 'pie';
+    case 'donut': return chart.explosion ? 'doughnutExploded' : 'doughnut';
+    case 'stock': return { ohlc: 'stockOhlc', vhlc: 'stockVhlc', vohlc: 'stockVohlc' }[chart.stock] || 'stockHlc';
+    case 'surface': return { wireframe3d: 'surfaceWireframe3d', contour: 'contour', wireframeContour: 'contourWireframe' }[chart.surfaceView] || 'surface3d';
     case 'scatter': {
       const visible = line ? line.visible !== false : false, markers = line ? line.marker !== false : true;
       const smooth = line?.smooth ?? chart.smooth;

@@ -11,7 +11,10 @@ import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } fro
 
 const PIE = new Set(['pie', 'donut']);
 const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
-const AXES = t => !PIE.has(t) && t !== 'radar';
+// Treemaps, sunbursts and funnels have no value axis; the other newer types draw their own kind of plot.
+const AXIS_FREE = new Set(['radar', 'treemap', 'sunburst', 'funnel']);
+const SPECIAL = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
+const AXES = t => !PIE.has(t) && !AXIS_FREE.has(t);
 export const isPieChart = chart => PIE.has(chart?.type);
 export const hasAxes = chart => AXES(chart?.type);
 /** Charts drawn in the default style carry an appearance; older app charts keep their own look and fewer options. */
@@ -84,7 +87,7 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
       return done({ labels: true, appearance: { valueLabels } });
     }
     case 'dataTable': {
-      if (!AXES(chart.type) || !styled || chart.type === 'scatter' || chart.type === 'bubble') return null;
+      if (!AXES(chart.type) || !styled || chart.type === 'scatter' || chart.type === 'bubble' || SPECIAL.has(chart.type)) return null;
       if (value === 'none') { delete a.dataTable; return { appearance: a }; }
       return done({ appearance: { dataTable: { horizontal: true, vertical: true, outline: true, keys: value === 'keys',
         style: labelStyle(a), fill: 'none', stroke: CHART_LINE_GREY, width: 1 } } });
@@ -101,7 +104,7 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
       if (value === 'none') return done({ legend: false });
       return done({ legend: true, legendPos: value, appearance: { legendPos: value, legend: null } });
     case 'trendline':
-      if (PIE.has(chart.type) || chart.stacked) return null;
+      if (PIE.has(chart.type) || chart.stacked || SPECIAL.has(chart.type)) return null;
       return done({ trendline: value === 'linear' });
     default: return null;
   }
@@ -136,7 +139,14 @@ const PIE_LAYOUTS = Object.freeze([
   { id: 4, label: 'Layout 4', steps: [['chartTitle', 'none'], ['legend', 'none'], ['dataLabels', 'ctr']] },
   { id: 5, label: 'Layout 5', steps: [['chartTitle', 'above'], ['legend', 'right'], ['dataLabels', 'outEnd']] },
 ]);
-export const quickLayoutsFor = chart => (PIE.has(chart.type) ? PIE_LAYOUTS : QUICK_LAYOUTS);
+// Charts that name their own parts (a treemap's boxes, a funnel's stages) arrange only the title, legend and labels.
+const PLAIN_LAYOUTS = Object.freeze([
+  { id: 1, label: 'Layout 1', steps: [['chartTitle', 'above'], ['legend', 'top'], ['dataLabels', 'show']] },
+  { id: 2, label: 'Layout 2', steps: [['chartTitle', 'above'], ['legend', 'none'], ['dataLabels', 'show']] },
+  { id: 3, label: 'Layout 3', steps: [['chartTitle', 'none'], ['legend', 'right'], ['dataLabels', 'show']] },
+  { id: 4, label: 'Layout 4', steps: [['chartTitle', 'above'], ['legend', 'bottom'], ['dataLabels', 'none']] },
+]);
+export const quickLayoutsFor = chart => (PIE.has(chart.type) ? PIE_LAYOUTS : AXIS_FREE.has(chart.type) && chart.type !== 'radar' ? PLAIN_LAYOUTS : QUICK_LAYOUTS);
 
 export function quickLayoutPatch(chart, id, options) {
   const layout = quickLayoutsFor(chart).find(l => l.id === id);
@@ -379,11 +389,26 @@ export function elementFormatPatch(chart, key, { fill, outline, outlineWidth, ef
  * side with numbers beside them make columns, lines and bars; one series also a pie; numbers alone in
  * two or three columns a scatter or bubble chart.
  */
-export function recommendedSubtypes(data) {
+export function recommendedSubtypes(data, { levels = 0 } = {}) {
   const series = data?.series || [], n = data?.categories?.length || 0;
   const named = (data?.categories || []).some((c, i) => c !== String(i + 1));
   const positive = series.every(s => s.values.every(v => v == null || v >= 0));
   const out = [];
+  // Columns headed High, Low and Close (after Open and Volume, when there) are prices.
+  const names = series.map(s => String(s.name).trim().toLowerCase());
+  const stock = ['hlc', 'ohlc', 'vhlc', 'vohlc'].find(kind => {
+    const want = { hlc: ['high', 'low', 'close'], ohlc: ['open', 'high', 'low', 'close'], vhlc: ['volume', 'high', 'low', 'close'], vohlc: ['volume', 'open', 'high', 'low', 'close'] }[kind];
+    return names.length === want.length && want.every((w, i) => names[i].startsWith(w));
+  });
+  if (stock) out.push({ hlc: 'stockHlc', ohlc: 'stockOhlc', vhlc: 'stockVhlc', vohlc: 'stockVohlc' }[stock]);
+  // Two or more label columns over one column of numbers are a hierarchy.
+  if (levels > 1 && series.length === 1 && positive) out.push('treemap', 'sunburst');
+  // A long single column of numbers is a distribution; categories that repeat group it into boxes.
+  const repeats = named && new Set(data.categories).size < n;
+  if (series.length >= 1 && n >= 10 && (!named || repeats)) out.push(...(series.length === 1 && !named ? ['histogram'] : []), 'boxWhisker');
+  // One series that falls stage by stage reads as a funnel.
+  const v = series[0]?.values || [];
+  if (series.length === 1 && named && n >= 3 && n <= 12 && positive && v.every((x, i) => x != null && (i === 0 || x <= v[i - 1]))) out.push('funnel');
   if (!named && series.length >= 2) out.push('scatter');
   if (!named && series.length === 3) out.push('bubble');
   out.push('columnClustered');

@@ -25,7 +25,9 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
   const range = changing ? chart.range : normalizeRange(ctx.dataRange?.(ctx.range()) || ctx.range());
   const font = themeChartFont(wb);
   const baseData = chartData(wb, sheetId, changing ? chart : newExcelChart(wb, sheetId, range, DEFAULT_SUBTYPE, { font }));
-  const recommended = changing ? [] : recommendedSubtypes(baseData);
+  // A treemap's reading of the range tells whether its label columns nest.
+  const levels = changing ? 0 : Math.max(0, ...(chartData(wb, sheetId, { ...newExcelChart(wb, sheetId, range, 'treemap', { font }) }).levels || []).map(path => path.length));
+  const recommended = changing ? [] : recommendedSubtypes(baseData, { levels });
   let tab = changing || mode === 'insert' ? 'all' : 'recommended';
   let chosen = changing ? subtypeOf(chart) : family ? CHART_FAMILIES.find(f => f.id === family)?.subtypes[0] || DEFAULT_SUBTYPE : recommended[0] || DEFAULT_SUBTYPE;
   if (!chartSubtype(chosen)) chosen = DEFAULT_SUBTYPE;

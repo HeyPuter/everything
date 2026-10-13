@@ -436,6 +436,44 @@ Object.assign(COMMAND_ICONS, {
   resetStyle: r(3.5, 3.5, 11, 11, 'of', 1) + p('M7 7a4 4 0 1 1-1 4', 'b') + p('M5 6.5l1.5 1.5L8 6.5', 'b'),
 });
 
+/* The pie variants and the newer chart types: hierarchies, statistics, funnels, prices and surfaces. */
+/** A ring sector about (cx, cy) from radius r0 to r1, between angles a0 and a1 (degrees clockwise from the top). */
+const sector = (cx, cy, r0, r1, a0, a1, c) => {
+  const pt = (rad, a) => { const t = (a * Math.PI) / 180; return `${+(cx + rad * Math.sin(t)).toFixed(2)} ${+(cy - rad * Math.cos(t)).toFixed(2)}`; };
+  const large = a1 - a0 > 180 ? 1 : 0;
+  return p(`M${pt(r1, a0)}A${r1} ${r1} 0 ${large} 1 ${pt(r1, a1)}${r0 ? `L${pt(r0, a1)}A${r0} ${r0} 0 ${large} 0 ${pt(r0, a0)}` : `L${cx} ${cy}`}z`, c);
+};
+/** A price period: its high-low line, and an open-close bar (`bar` solid when the price fell) or a close tick. */
+const candle = (x, hi, lo, open, close, c = 'bs') => p(`M${x} ${hi}V${lo}`, 'o') + (open == null ? p(`M${x} ${close}h1.8`, 'o thick') : r(x - 1, Math.min(open, close), 2, Math.abs(close - open), close < open ? 'of' : c, 0.3));
+/** The floor of a surface seen from above and to the side, as a mesh of `n` × `n` cells. */
+const meshFloor = (n, c) => {
+  const at = (u, v) => `${+(2.5 + u * 8 + v * 7).toFixed(2)} ${+(12 + u * 4.5 - v * 5).toFixed(2)}`;
+  let d = '';
+  for (let i = 0; i <= n; i++) d += `M${at(i / n, 0)}L${at(i / n, 1)}M${at(0, i / n)}L${at(1, i / n)}`;
+  return p(d, c);
+};
+Object.assign(COMMAND_ICONS, {
+  chartPieExploded: p('M9 4a6.5 6.5 0 1 0 6.5 6.5H9z', 'bs') + p('M11 2.5a6.5 6.5 0 0 1 6.5 6.5H11z', 'ns'),
+  chartDoughnutExploded: sector(9.5, 10.5, 3.6, 7, 90, 360, 'bs') + sector(10.5, 9.5, 3.6, 7, 0, 90, 'ns'),
+  chartPieOfPie: sector(6.5, 10, 0, 5, 50, 410, 'bs') + sector(6.5, 10, 0, 5, 50, 130, 'ns') + p('M10.4 6.8l4.6-1.6M10.4 13.2l4.6 1.6', 'o ln') + sector(15.5, 10, 0, 3, 0, 200, 'ns') + sector(15.5, 10, 0, 3, 200, 360, 'ys'),
+  chartBarOfPie: sector(6.5, 10, 0, 5, 50, 410, 'bs') + sector(6.5, 10, 0, 5, 50, 130, 'ns') + p('M10.4 6.8l4.1-2.8M10.4 13.2l4.1 2.8', 'o ln') + r(14.5, 4, 3, 7, 'ns', 0.3) + r(14.5, 11, 3, 5, 'ys', 0.3),
+  chartTreemap: r(2.5, 3.5, 7.5, 13, 'bs', 0.6) + r(10.75, 3.5, 6.75, 6.5, 'ns', 0.6) + r(10.75, 10.75, 3, 5.75, 'gs', 0.6) + r(14.5, 10.75, 3, 5.75, 'ys', 0.6),
+  chartSunburst: sector(10, 10, 2.6, 5, 0, 220, 'bs') + sector(10, 10, 2.6, 5, 220, 360, 'ns') + sector(10, 10, 5.6, 8, 0, 130, 'bf') + sector(10, 10, 5.6, 8, 130, 220, 'bf')
+    + sector(10, 10, 5.6, 8, 220, 300, 'nf'),
+  chartBoxWhisker: chartAxes + p('M7 4.5v3M7 13v2.5M6 4.5h2M6 15.5h2M13.5 6v2M13.5 12v2.5M12.5 6h2M12.5 14.5h2', 'o') + r(5.5, 7.5, 3, 5.5, 'bf', 0.5) + p('M5.5 10.5h3', 'b thick')
+    + r(12, 8, 3, 4, 'nf', 0.5) + p('M12 10h3', 'n thick') + ci(13.5, 3.8, 0.8, 'o'),
+  chartFunnel: r(2.5, 3, 15, 2.8, 'bs', 0.6) + r(4.5, 6.7, 11, 2.8, 'bs', 0.6) + r(6.5, 10.4, 7, 2.8, 'ns', 0.6) + r(8, 14.1, 4, 2.8, 'ns', 0.6),
+  chartStockHlc: chartAxes + candle(6.5, 6, 13, null, 10) + candle(10.5, 4, 11, null, 7) + candle(14.5, 7, 14.5, null, 12),
+  chartStockOhlc: chartAxes + candle(6.5, 5, 14, 12, 7) + candle(10.5, 3.5, 12, 6, 10) + candle(14.5, 6, 14.5, 13, 8),
+  chartStockVhlc: chartAxes + columns([[3, 'nf'], [4.5, 'nf'], [2.5, 'nf']], 5.2, 2.6, 1.4) + candle(6.5, 4, 10, null, 7) + candle(10.5, 3, 9, null, 5) + candle(14.5, 5, 11, null, 9),
+  chartStockVohlc: chartAxes + columns([[3, 'nf'], [4.5, 'nf'], [2.5, 'nf']], 5.2, 2.6, 1.4) + candle(6.5, 3.5, 11, 9.5, 5) + candle(10.5, 3, 10, 4.5, 8.5) + candle(14.5, 4.5, 11.5, 10, 6),
+  chartSurface: p('M2.5 12c2-3 4-1 6-3s3-4 5-3l4 1.5L11 10c-2 1-3 3.5-5 4z', 'ns') + p('M2.5 12l3.5 2c2-.5 3-3 5-4l6.5-2.5L10.5 16.5z', 'bs') + meshFloor(3, 'o ln'),
+  chartSurfaceWireframe: meshFloor(3, 'o ln') + p('M2.5 11c2-2 4-3 6-2.5s4-3 6-3.5l3 1.5M4.5 12.8c2-2 4-2 6-1.5s4-2.5 6-2.5M7 14.2c2-1.5 4-2 6-1s3-2 4.5-2', 'b')
+    + p('M2.5 11l8 4.5M6 9.4l7.5 4.6M10 8.5l6.5 3.5M14 6.6l3.5 1.9', 'n'),
+  chartContour: r(2.5, 3.5, 15, 13, 'bs', 1) + p('M5 15.5c-1-4 2-8 6-9s6 2 5 6-3 3-6 3.5S5.5 17 5 15.5z', 'ns') + p('M8.5 12c0-2 1.5-3.5 3.5-3.5s2.5 2 1.5 3.5-2 1.5-3.5 1.5-1.5-.5-1.5-1.5z', 'ys'),
+  chartContourWireframe: r(2.5, 3.5, 15, 13, 'o', 1) + p('M5 15.5c-1-4 2-8 6-9s6 2 5 6-3 3-6 3.5S5.5 17 5 15.5z', 'b') + p('M8.5 12c0-2 1.5-3.5 3.5-3.5s2.5 2 1.5 3.5-2 1.5-3.5 1.5-1.5-.5-1.5-1.5z', 'n'),
+});
+
 /** The icons drawn here with a larger canvas in mind are the same drawings; the ribbon shows them at 32px. */
 export function commandIcon(name, size) {
   const body = COMMAND_ICONS[name];

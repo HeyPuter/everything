@@ -11,7 +11,8 @@ import { renderChartSvg, seriesColor } from './chartsvg.js';
 import { CHART_DESCRIPTION_MAX_LENGTH, CHART_TYPES, chartData, chartTitles, defaultChart } from '../core/charts.js';
 import { parseRange, rangeName } from '../core/cell.js';
 
-const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble' };
+const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble',
+  treemap: 'chartTreemap', sunburst: 'chartSunburst', boxWhisker: 'chartBoxWhisker', funnel: 'chartFunnel', stock: 'chartStockOhlc', surface: 'chartSurface' };
 
 /** openChartDialog(ctx, { chart }) edits; openChartDialog(ctx, { range }) inserts. */
 export function openChartDialog(ctx, { chart = null, range = null, type = null } = {}) {
@@ -63,10 +64,11 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     axis2Field.hidden = draft.type !== 'combo';
     stackedField.hidden = stackedOnly.hidden && stack100Field.hidden && trendField.hidden && axis2Field.hidden;
     const pieLike = draft.type === 'pie' || draft.type === 'donut';
-    const radar = draft.type === 'radar';
+    // Radars, hierarchies and funnels have no axes to title or bound.
+    const radar = ['radar', 'treemap', 'sunburst', 'funnel'].includes(draft.type);
     axisRow.hidden = pieLike || radar;
     y2TitleField.hidden = draft.type !== 'combo' || !axis2Box.checked;
-    boundsRow.hidden = pieLike;
+    boundsRow.hidden = pieLike || radar && draft.type !== 'radar';
     binsField.hidden = draft.type !== 'histogram';
     labelsField.hidden = pieLike;
     gridField.hidden = pieLike || radar;

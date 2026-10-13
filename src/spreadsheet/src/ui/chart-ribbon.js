@@ -11,7 +11,7 @@ import { customColorRows } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
 import { activeChart, seriesCountOf } from './chart-actions.js';
 import { chartData } from '../core/charts.js';
-import { CHART_GALLERIES, CHART_SUBTYPES } from '../core/chart-subtypes.js';
+import { CHART_FAMILIES, CHART_GALLERIES } from '../core/chart-subtypes.js';
 import { CHART_STYLES, chartElementPatch, chartElementState, chartStylePatch, colorPalettes, dataLabelPositions, hasAxes, isPieChart,
   quickLayoutPatch, quickLayoutsFor } from '../core/chart-design.js';
 import { themedSeriesColors } from '../core/workbook-theme.js';
@@ -43,30 +43,23 @@ function tileGrid(label, tiles, { columns = 3, className = '' } = {}) {
 /** One Insert ▸ Charts button: its gallery of subtypes, then its More … chart types item. */
 function gallery(g) {
   return {
-    label: g.label, glyph: g.icon, ariaLabel: `Insert ${g.label.toLowerCase()} chart`,
+    label: g.label, glyph: g.icon, ariaLabel: g.id === 'other' ? 'Insert waterfall, funnel, stock, surface or radar chart' : `Insert ${g.label.toLowerCase()} chart`,
     resolve: (menus, ctx) => lazySubmenu({ label: g.label, disabled: cannotInsert(ctx) }, () => [
       ...g.groups.flatMap(group => [{ header: group.header }, { custom: tileGrid(group.header, group.items.map(item => ({
-        label: item.label, html: icon(item.icon, 32), onPick: () => run(ctx, { action: 'insert', subtype: item.id }) })), { columns: 3 }) }]),
+        label: item.label, html: icon(item.icon, 32), onPick: () => run(ctx, { action: 'insert', subtype: item.id }) })), { columns: Math.min(4, Math.max(3, group.items.length)) }) }]),
       { separator: true },
-      { label: g.more, icon: g.icon, cmd: 'chart', arg: { action: 'insertDialog', family: g.id } },
+      // Each family's own page of the All Charts list; the other charts open on the first of theirs.
+      { label: g.more, icon: g.icon, cmd: 'chart', arg: { action: 'insertDialog', family: CHART_FAMILIES.some(f => f.id === g.id) ? g.id : CHART_FAMILIES.find(f => f.subtypes.includes(g.groups[0].items[0].id))?.id } },
     ]),
   };
 }
 
-/** Insert ▸ Charts: Recommended Charts, a gallery per chart family, and the other families. */
+/** Insert ▸ Charts: Recommended Charts, then a gallery per chart family (the hierarchy, statistical, other and combo charts among them). */
 export function chartInsertGroup() {
-  const other = CHART_SUBTYPES.filter(s => ['radar', 'radarMarkers', 'radarFilled', 'histogram', 'waterfall', 'comboColumnLine', 'comboColumnLineSecondary'].includes(s.id));
   return ['Charts',
     { label: 'Recommended Charts', glyph: 'recommendedCharts', ariaLabel: 'Recommended Charts', large: true,
       resolve: (menus, ctx) => ({ label: 'Recommended Charts', cmd: 'chart', arg: { action: 'recommended' }, disabled: cannotInsert(ctx) }) },
     ...CHART_GALLERIES.map(gallery),
-    { label: 'Other Charts', glyph: 'chartCombo', ariaLabel: 'Other Charts',
-      resolve: (menus, ctx) => lazySubmenu({ label: 'Other Charts', disabled: cannotInsert(ctx) }, () => [
-        { header: 'Radar, histogram, waterfall and combo' },
-        { custom: tileGrid('Other Charts', other.map(item => ({ label: item.label, html: icon(item.icon, 32), onPick: () => run(ctx, { action: 'insert', subtype: item.id }) })), { columns: 4 }) },
-        { separator: true },
-        { label: 'More chart types…', icon: 'chartCombo', cmd: 'chart', arg: { action: 'insertDialog' } },
-      ]) },
   ];
 }
 

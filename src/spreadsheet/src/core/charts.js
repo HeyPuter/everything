@@ -5,7 +5,8 @@ import { linkedChartText, normalizeLinkedChartText } from './chart-linked-text.j
  * turns a range of cells into categories and series for drawing.
  *
  * chart = {
- *   id, type: 'column' | 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'scatter' | 'combo' | 'histogram' | 'waterfall' | 'radar' | 'bubble',
+ *   id, type: 'column' | 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'scatter' | 'combo' | 'histogram' | 'waterfall' | 'radar' | 'bubble'
+ *     | 'treemap' | 'sunburst' | 'boxWhisker' | 'funnel' | 'stock' | 'surface',
  *   range: { r1, c1, r2, c2 },       the cells charted (on the chart's own sheet)
  *   title: string,
  *   titleRef?, xTitleRef?, yTitleRef?, y2TitleRef?: string, live worksheet references for chart/axis titles
@@ -29,13 +30,25 @@ import { linkedChartText, normalizeLinkedChartText } from './chart-linked-text.j
  *                                    imported series with their own cross-sheet source references
  *   appearance?: object,             imported chart's DrawingML layout, fonts, axes and markers
  *   pareto?: boolean,                aggregate/sort the single imported source and derive its cumulative line
+ *   explosion?: number,              pie and doughnut: how far every slice is pulled out, in percent of the radius
+ *   ofPie?: { kind: 'pie' | 'bar', split, secondSize, gap },  pie of pie / bar of pie: the last `split`
+ *                                    values drawn again in a second, smaller plot beside an Other slice
+ *   box?: { quartiles: 'exclusive' | 'inclusive', meanMarkers, meanLine, innerPoints, outliers, gapWidth },
+ *   treemapLabels?: 'overlapping' | 'banner' | 'none',   where a treemap names its parents
+ *   stock?: 'hlc' | 'ohlc' | 'vhlc' | 'vohlc',          which price (and volume) columns follow the dates
+ *   surfaceView?: 'surface3d' | 'wireframe3d' | 'contour' | 'wireframeContour',
  * }
  * A combo chart draws every series but the last as columns and the last as a
  * line. A histogram counts every number in the range into equal bins. A
  * waterfall reads the first series as changes and floats each bar from the
  * running total, ending with a total bar. A radar chart draws each series as a
  * polygon around the categories. A bubble chart is a scatter chart whose
- * third numeric column sizes the points.
+ * third numeric column sizes the points. A treemap or sunburst reads its
+ * leading label columns as the levels of a hierarchy sized by the first numeric
+ * column after them; a box and whisker chart pools each series' values by
+ * category; a funnel draws one series as centred bars; a stock chart reads its
+ * columns as (volume,) (open,) high, low and close; a surface treats the range
+ * as a grid of heights (see chart-special.js).
  */
 import { normalizeScrollControl } from './scroll-control.js';
 import { normalizeSlicer } from './slicer.js';
@@ -44,6 +57,7 @@ import { normalizeNativeDrawing, validDrawingKey } from './drawingml-native.js';
 import { pictureRect } from './picture-geometry.js';
 
 import { normalizeRange } from './cell.js';
+import { HIERARCHY_TYPES, STOCK_KINDS, fillDownLevels } from './chart-special.js';
 import { externalWorkbookScope } from './external-workbooks.js';
 import { rebaseWorkbookTarget } from './workbook-location.js';
 import { MAX_ROW, MAX_COL, refToText } from './refs.js';
@@ -74,6 +88,12 @@ export const CHART_TYPES = [
   ['waterfall', 'Waterfall'],
   ['radar', 'Radar'],
   ['bubble', 'Bubble'],
+  ['treemap', 'Treemap'],
+  ['sunburst', 'Sunburst'],
+  ['boxWhisker', 'Box & Whisker'],
+  ['funnel', 'Funnel'],
+  ['stock', 'Stock'],
+  ['surface', 'Surface'],
 ];
 
 /** Authored charts reserve 20% of a category slot between clusters. DrawingML
@@ -320,6 +340,7 @@ export function normalizeChart(raw) {
     yMax: Number.isFinite(raw.yMax) && (!Number.isFinite(raw.yMin) || raw.yMin < raw.yMax) ? raw.yMax : null,
     bins: Number.isInteger(raw.bins) && raw.bins >= 2 && raw.bins <= 100 ? raw.bins : null,
     includeHidden: !!raw.includeHidden,
+    ...normalizeSpecialOptions(type, raw),
     ...(Array.isArray(raw.sourceRefs) && raw.sourceRefs.length ? {
       sourceRefs: raw.sourceRefs.slice(0, 60).map(s => ({ ...Object.fromEntries(
         ['name', 'nameRef', 'categories', 'values', 'sizes', 'labels', 'categoryFormat', 'valueFormat', 'sizeFormat', 'labelFormat', 'categoryMode'].map(k => [k, typeof s?.[k] === 'string' ? s[k].slice(0, k === 'name' ? 32767 : 8192) : ''])),
@@ -335,6 +356,27 @@ export function normalizeChart(raw) {
     } : {}),
     ...(raw.appearance ? { appearance: normalizeAppearance(raw.appearance) } : {}),
   };
+}
+
+/** The options of the pie variants and the newer chart types, kept only on the type they belong to. */
+function normalizeSpecialOptions(type, raw) {
+  const out = {};
+  const between = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
+  if ((type === 'pie' || type === 'donut') && between(raw.explosion, 0, 400) && raw.explosion > 0) out.explosion = raw.explosion;
+  if (type === 'pie' && raw.ofPie && typeof raw.ofPie === 'object') {
+    const o = raw.ofPie;
+    out.ofPie = { kind: o.kind === 'bar' ? 'bar' : 'pie', split: Number.isInteger(o.split) && o.split >= 1 && o.split <= 1000 ? o.split : 3,
+      secondSize: between(o.secondSize, 5, 200) ? o.secondSize : 75, gap: between(o.gap, 0, 500) ? o.gap : 100 };
+  }
+  if (type === 'boxWhisker') {
+    const b = raw.box && typeof raw.box === 'object' ? raw.box : {};
+    out.box = { quartiles: b.quartiles === 'inclusive' ? 'inclusive' : 'exclusive', meanMarkers: b.meanMarkers !== false, meanLine: !!b.meanLine,
+      innerPoints: !!b.innerPoints, outliers: b.outliers !== false, gapWidth: between(b.gapWidth, 0, 500) ? b.gapWidth : 100 };
+  }
+  if (type === 'treemap') out.treemapLabels = ['banner', 'none'].includes(raw.treemapLabels) ? raw.treemapLabels : 'overlapping';
+  if (type === 'stock') out.stock = Object.hasOwn(STOCK_KINDS, raw.stock) ? raw.stock : 'hlc';
+  if (type === 'surface') out.surfaceView = ['wireframe3d', 'contour', 'wireframeContour'].includes(raw.surfaceView) ? raw.surfaceView : 'surface3d';
+  return out;
 }
 
 function normalizeAppearance(raw) {
@@ -687,6 +729,27 @@ function chartIncludesHidden(chart) {
 }
 
 /**
+ * A treemap's or sunburst's range: its leading label columns are the levels, and the first numeric
+ * column after them sizes each row. Null when the first column is not labels.
+ */
+function hierarchyFromCells(cells, body, hasHeaders, C) {
+  const labelColumn = j => {
+    const filled = body.map(row => row[j]).filter(x => !isBlank(x.v));
+    return filled.length > 0 && filled.filter(x => !isNum(x.v) || x.dateLike).length >= filled.length / 2;
+  };
+  let levelCount = 0;
+  while (levelCount < C - 1 && labelColumn(levelCount)) levelCount++;
+  if (!levelCount) return null;
+  let column = levelCount;
+  while (column < C - 1 && !body.some(row => isNum(row[column].v))) column++;
+  const values = body.map(row => (isNum(row[column].v) ? row[column].v : null));
+  const header = hasHeaders ? cells[0][column] : null;
+  const levels = fillDownLevels(body.map(row => row.slice(0, levelCount).map(x => (isBlank(x.v) ? '' : x.text))));
+  return { levelCount, column, levels, categories: levels.map(path => path.at(-1) || ''),
+    series: [{ name: header && !isBlank(header.v) ? header.text : 'Series 1', values, style: columnStyle(body, column), ...mixedPointStyles(body.map(row => row[column])) }] };
+}
+
+/**
  * Categories and series for a chart, read from its range.
  *
  * Returns { categories: string[], series: [{ name, values: (number|null)[], style }],
@@ -696,6 +759,7 @@ function chartIncludesHidden(chart) {
  * `sizes` for bubble charts (the third). The styles are the number formats (a date,
  * currency or percent, or null) of a series' cells, of the values as a whole (the
  * first series with one, for the axis), of the x column and of the size column.
+ * A treemap or sunburst also has `levels`: each row's path of labels, outermost first.
  */
 export function chartData(wb, sheetId, chart) {
   const sheet = wb.sheet(sheetId);
@@ -703,6 +767,7 @@ export function chartData(wb, sheetId, chart) {
   if (!sheet) return empty;
   if (chart.titleRef || chart.xTitleRef || chart.yTitleRef || chart.y2TitleRef) empty.titles = chartTitles(wb, sheetId, chart);
   if (chart.sourceRefs?.length) {
+    if (HIERARCHY_TYPES.has(chart.type)) return referencedHierarchyData(wb, sheetId, chart, empty);
     const data = referencedChartData(wb, sheetId, chart, empty);
     return chart.pareto ? paretoChartData(data) : data;
   }
@@ -754,7 +819,9 @@ export function chartData(wb, sheetId, chart) {
   if (!cells.length || !cells[0].length) return empty;
   const rows = cells.length;
   const cols = cells[0].length;
-  const orientation = chart.seriesIn === 'rows' || chart.seriesIn === 'cols' ? chart.seriesIn : rows >= cols ? 'cols' : 'rows';
+  // Stock prices and a hierarchy's levels are columns by their nature, however few the rows.
+  const fieldColumns = chart.type === 'stock' || HIERARCHY_TYPES.has(chart.type);
+  const orientation = chart.seriesIn === 'rows' || chart.seriesIn === 'cols' ? chart.seriesIn : rows >= cols || fieldColumns ? 'cols' : 'rows';
   if (orientation === 'rows') cells = cells[0].map((_, j) => cells.map((row) => row[j]));
   const R = cells.length;
   const C = cells[0].length;
@@ -771,6 +838,17 @@ export function chartData(wb, sheetId, chart) {
   const body = hasHeaders ? cells.slice(1) : cells;
   if (!body.length) return { ...empty, hasHeaders, orientation };
 
+  const lineAt0 = orientation === 'rows' ? rowLines : columns, pointAt0 = orientation === 'rows' ? columns : rowLines;
+  if (HIERARCHY_TYPES.has(chart.type) && C >= 2) {
+    const hierarchy = hierarchyFromCells(cells, body, hasHeaders, C);
+    if (hierarchy) {
+      const { levelCount, column } = hierarchy;
+      return { ...empty, categories: hierarchy.categories, series: hierarchy.series, levels: hierarchy.levels, hasHeaders, orientation,
+        valueStyle: hierarchy.series[0]?.style || null,
+        sourceLayout: { orientation, categoryLine: lineAt0[0], levelLines: lineAt0.slice(0, levelCount), nameLine: hasHeaders ? pointAt0[0] : null,
+          points: pointAt0.slice(hasHeaders ? 1 : 0), xLine: null, sizeLine: null, lines: [lineAt0[column]] } };
+    }
+  }
   // A first column of text (or dates) names the categories.
   let categoryCol = false;
   if (C >= 2) {
@@ -842,6 +920,44 @@ function paretoChartData(data) {
     ...(data.categoryValues ? { categoryValues: categories.map(category => categoryValues.get(category)) } : {}),
     series: [{ ...source, categories, values, ...(source.pointStyles ? { pointStyles: categories.map(category => styles.get(category)) } : {}) },
     { name: 'Cumulative percent', categories, values: cumulative, style: { fmt: 'percent', dec: 0 } }] };
+}
+
+/**
+ * A treemap or sunburst whose source references were read from a file: its categories reference is
+ * a block of label columns (or rows), one per level, and its values reference one column beside it.
+ */
+function referencedHierarchyData(wb, sheetId, chart, empty) {
+  const source = chart.sourceRefs[0];
+  const cats = source.categories && wb.rangeFromText(sheetId, source.categories);
+  const vals = source.values && wb.rangeFromText(sheetId, source.values);
+  const all = chartIncludesHidden(chart);
+  const vertical = r => r.range.r2 - r.range.r1 >= r.range.c2 - r.range.c1;
+  const literalValues = source.literal?.values || [];
+  const count = vals ? Math.min(5000, vertical(vals) ? vals.range.r2 - vals.range.r1 + 1 : vals.range.c2 - vals.range.c1 + 1)
+    : cats ? Math.min(5000, vertical(cats) ? cats.range.r2 - cats.range.r1 + 1 : cats.range.c2 - cats.range.c1 + 1) : literalValues.length;
+  const cellAt = (ref, i, level = 0) => {
+    const down = vertical(ref), r = down ? ref.range.r1 + i : ref.range.r1 + level, c = down ? ref.range.c1 + level : ref.range.c1 + i;
+    const sheet = wb.sheet(ref.sheetId);
+    const hidden = !all && (sheet.hiddenCols.has(c) || wb.isRowHidden(ref.sheetId, r));
+    const v = wb.getValue(ref.sheetId, r, c);
+    return { hidden, v: isError(v) ? null : v, text: wb.getDisplay(ref.sheetId, r, c, v), style: wb.styleAt(ref.sheetId, r, c) };
+  };
+  const levelCount = cats ? (vertical(cats) ? cats.range.c2 - cats.range.c1 + 1 : cats.range.r2 - cats.range.r1 + 1) : 1;
+  const rows = [], values = [], styles = [];
+  for (let i = 0; i < count; i++) {
+    const value = vals ? cellAt(vals, i) : { v: literalValues[i] ?? null, hidden: false, style: null };
+    const labels = cats ? Array.from({ length: Math.min(levelCount, 32) }, (_, k) => cellAt(cats, i, k)) : [{ v: source.literal?.categories?.[i] ?? '', text: String(source.literal?.categories?.[i] ?? ''), hidden: false }];
+    if (value.hidden || labels.some(l => l.hidden)) continue;
+    rows.push(labels.map(l => (isBlank(l.v) ? '' : l.text)));
+    values.push(isNum(value.v) ? value.v : null);
+    styles.push(value.style);
+  }
+  const levels = fillDownLevels(rows);
+  const nameCell = source.nameRef && wb.rangeFromText(sheetId, source.nameRef);
+  const name = linkedChartText(wb, sheetId, chart, 'name:0', source.nameRef, nameCell ? wb.getDisplay(nameCell.sheetId, nameCell.range.r1, nameCell.range.c1) : undefined)
+    || source.name || 'Series1';
+  const style = source.valueFormat ? numFmtToStyle(source.valueFormat) : styles.find((st, i) => st && isNum(values[i])) || null;
+  return { ...empty, categories: levels.map(path => path.at(-1) || ''), levels, series: [{ name, values, style }], valueStyle: style };
 }
 
 function referencedChartData(wb, sheetId, chart, empty, sourceFormats = null) {

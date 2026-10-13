@@ -9,6 +9,7 @@ import { chartDateAxis } from '../core/chart-date-axis.js';
 import { authoredBarGapWidth, chartPointStyle, niceScale, axisLabel, histogramBins, waterfallSteps, dateKindOf, CHART_LINE_DASHES } from '../core/charts.js';
 import { formatValue, formatGeneral, fontStack, numFmtToStyle } from '../core/format.js';
 import { wrapLines } from '../core/textfit.js';
+import { SPECIAL_CHART_TYPES, renderSpecialChart } from './chartsvg-special.js';
 
 // The light theme's --series-* tokens in tokens.css, in order: every fill reads at 3:1 on white.
 export const SERIES_COLORS = ['#337bfc', '#eb6834', '#0f8f61', '#b57a00', '#c4417a', '#4a3aa7', '#0e7490', '#8a5a00', '#918f88'];
@@ -417,6 +418,7 @@ function renderChartContent(data, chart, width, height) {
   // The data snapshot owns resolved linked text; literal titles remain editable
   // without rereading the potentially large chart series.
   if (data.titles) chart = { ...chart, ...Object.fromEntries(Object.entries(data.titles).filter(([key]) => chart[`${key}Ref`])) };
+  if (SPECIAL_CHART_TYPES.has(chart.type)) return renderSpecialChart(data, chart, width, height);
   if (chart.type === 'radar' && chart.appearance?.radar) return renderNativeRadar(data, chart, width, height);
   if (['pie', 'donut'].includes(chart.type) && chart.appearance?.pie) return renderStyledPie(data, chart, width, height);
   if (['line', 'area', 'column', 'bar', 'combo', 'scatter', 'bubble'].includes(chart.type) && chart.appearance
@@ -2247,8 +2249,57 @@ function renderStyledPie(data, chart, width, height) {
   return out.join('');
 }
 
-function renderPie(data, chart, right, top, bottom, bounds = null) {
+/**
+ * Pie of pie and bar of pie: the last `split` values leave the main pie for one Other slice, turned to
+ * face a second, smaller pie (or a stacked bar) beside it that draws them again, joined by two lines.
+ */
+function renderOfPie(data, chart, right, top, bottom, bounds) {
+  const s = data.series[0], o = chart.ofPie, n = s.values.length;
+  const split = Math.min(Math.max(1, o.split), Math.max(1, n - 1));
+  const box = bounds || { x: 10, y: top, w: Math.max(20, right - 10), h: Math.max(20, bottom - top) };
+  const main = Array.from({ length: n - split }, (_, i) => i), rest = Array.from({ length: split }, (_, i) => n - split + i);
+  const magnitude = i => (Number.isFinite(s.values[i]) ? Math.abs(s.values[i]) : 0);
+  const restSum = rest.reduce((sum, i) => sum + magnitude(i), 0), total = main.reduce((sum, i) => sum + magnitude(i), 0) + restSum;
+  // The main pie, the gap and the second plot share the width; the second plot is `secondSize` percent of the first.
+  const k = o.secondSize / 100, gap = o.gap / 100, second = 2 * k * (o.kind === 'bar' ? .45 : 1);
+  const r = Math.max(10, Math.min(box.h / 2, box.w / (2 + gap + second)));
+  const cx = box.x + (box.w - r * (2 + gap + second)) / 2 + r, cy = box.y + box.h / 2;
+  const otherFrac = total ? restSum / total : 0;
+  const mainData = { ...data, categories: [...main.map(i => data.categories[i]), 'Other'],
+    series: [{ ...s, values: [...main.map(i => s.values[i]), restSum], pointStyles: s.pointStyles ? [...main.map(i => s.pointStyles[i]), null] : undefined }] };
+  // The Other slice is centred on the right, facing the second plot.
+  const startAngle = Math.PI * otherFrac;
+  const out = [renderPie(mainData, chart, right, top, bottom, bounds, { center: { cx, cy, r }, startAngle, indexMap: [...main, n], otherIndex: main.length })];
+  const r2 = r * k, x2 = cx + r + r * gap + (o.kind === 'bar' ? r2 * .45 : r2);
+  const ink = chart.appearance ? '#7f7f7f' : 'var(--ink-3)';
+  const edge = a => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const [ax, ay] = edge(-Math.PI * otherFrac), [bx, by] = edge(Math.PI * otherFrac);
+  if (o.kind === 'bar') {
+    const w = r2 * .9, h = r2 * 2, x = x2 - w / 2;
+    let y = cy - h / 2;
+    out.push(`<line class="chart-ofpie-connector" x1="${f(ax)}" y1="${f(ay)}" x2="${f(x)}" y2="${f(cy - h / 2)}" stroke="${ink}"/><line class="chart-ofpie-connector" x1="${f(bx)}" y1="${f(by)}" x2="${f(x)}" y2="${f(cy + h / 2)}" stroke="${ink}"/>`);
+    const colors = new Map((chart.appearance?.pointColors?.[0] || []).map(p => [p.index, p.color]));
+    for (const i of rest) {
+      const hh = restSum ? magnitude(i) / restSum * h : 0;
+      if (!hh) continue;
+      const paint = chart.appearance?.pie ? piePaint(chart, i, colors) : seriesPaint(chart, i);
+      out.push(`<rect class="chart-ofpie-bar" x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(hh)}" fill="${esc(paint)}" stroke="${esc(chart.appearance?.pie?.stroke ?? 'var(--surface)')}" data-el="series" data-series="0" data-point="${i}"><title>${esc(`${data.categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, data.valueStyle))}`)}</title></rect>`);
+      if (chart.labels || chart.appearance?.pie?.labels?.value) out.push(`<text class="chart-data-label" x="${f(x + w / 2)}" y="${f(y + hh / 2 + 4)}" text-anchor="middle" font-size="10" fill="${inkOn(seriesColor(chart, i))}">${esc(tipText(s.values[i], chartPointStyle(s, i, data.valueStyle)))}</text>`);
+      y += hh;
+    }
+  } else {
+    out.push(`<line class="chart-ofpie-connector" x1="${f(ax)}" y1="${f(ay)}" x2="${f(x2)}" y2="${f(cy - r2)}" stroke="${ink}"/><line class="chart-ofpie-connector" x1="${f(bx)}" y1="${f(by)}" x2="${f(x2)}" y2="${f(cy + r2)}" stroke="${ink}"/>`);
+    const restData = { ...data, categories: rest.map(i => data.categories[i]), series: [{ ...s, values: rest.map(i => s.values[i]), pointStyles: s.pointStyles ? rest.map(i => s.pointStyles[i]) : undefined }] };
+    const restFrac = rest.length ? magnitude(rest[0]) / (restSum || 1) : 0;
+    out.push(renderPie(restData, chart, right, top, bottom, bounds, { center: { cx: x2, cy, r: r2 }, startAngle: Math.PI - Math.PI * restFrac, indexMap: rest, noExplode: true }));
+  }
+  return out.join('');
+}
+
+function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
+  if (chart.ofPie && chart.type === 'pie' && !opts.center && data.series[0]?.values.length > 1) return renderOfPie(data, chart, right, top, bottom, bounds);
   const s = data.series[0];
+  const at = i => (opts.indexMap ? opts.indexMap[i] : i);
   // Slice areas use magnitudes but labels use signed values/percentages.
   // Keep source values intact for editing, tooltips and native export.
   let values = s.values.map(v => Number.isFinite(v) ? Math.abs(v) : 0);
@@ -2259,9 +2310,11 @@ function renderPie(data, chart, right, top, bottom, bounds = null) {
     values = values.map(v => v / scale);
     total = values.reduce((a, b) => a + b, 0);
   }
-  const cx = bounds ? bounds.x + bounds.w / 2 : right / 2;
-  const cy = bounds ? bounds.y + bounds.h / 2 : top + (bottom - top) / 2;
-  const r = Math.max(10, bounds ? Math.min(bounds.w, bounds.h) / 2 : Math.min(right, bottom - top) / 2 - 14);
+  const cx = opts.center ? opts.center.cx : bounds ? bounds.x + bounds.w / 2 : right / 2;
+  const cy = opts.center ? opts.center.cy : bounds ? bounds.y + bounds.h / 2 : top + (bottom - top) / 2;
+  // An exploded pie shrinks so its slices, pulled out along their middles, stay within the plot.
+  const explode = opts.noExplode ? 0 : (chart.explosion || 0) / 100;
+  const r = Math.max(10, opts.center ? opts.center.r : bounds ? Math.min(bounds.w, bounds.h) / 2 : Math.min(right, bottom - top) / 2 - 14) / (1 + explode);
   if (!total) return `<text x="${cx}" y="${cy}" text-anchor="middle" font-size="13" fill="var(--ink-3)">No nonzero numbers to chart</text>`;
   // Past a slice per pixel of the rim the smallest could not be seen: they gather into one Other slice,
   // drawn last, so the slices that can be told apart keep their places and the mark count stays bounded.
@@ -2277,7 +2330,7 @@ function renderPie(data, chart, right, top, bottom, bounds = null) {
   const colors = new Map((chart.appearance?.pointColors?.[0] || []).map(p => [p.index, p.color]));
   const pointLabels = new Map((pie?.labels.points || []).map(p => [p.index, p]));
   const pointBorders = new Map((pie?.points || []).map(p => [p.index, p]));
-  let angle = -Math.PI / 2 + (pie?.firstSliceAngle || 0) * Math.PI / 180;
+  let angle = opts.startAngle != null ? opts.startAngle : -Math.PI / 2 + (pie?.firstSliceAngle || 0) * Math.PI / 180;
   const inner = chart.type === 'donut' ? r * (pie ? pie.holeSize / 100 : .58) : 0;
   const slice = (v, color, tip, i) => {
     const frac = v / total;
@@ -2303,10 +2356,12 @@ function renderPie(data, chart, right, top, bottom, bounds = null) {
     }
     const signedFraction = i != null && s.values[i] < 0 ? -frac : frac;
     const pct = `${Math.round(signedFraction * 100)}%`;
-    const border = pointBorders.get(i);
-    out.push(`<path d="${d}" fill="${esc(color)}" stroke="${esc(border?.stroke ?? pie?.stroke ?? 'var(--surface)')}" stroke-width="${border?.strokeWidth ?? pie?.strokeWidth ?? 1.5}"${inner ? ' fill-rule="evenodd"' : ''}${i == null ? '' : ` data-el="series" data-series="0" data-point="${i}"`}${pie ? effectAttr(chart.appearance, 'series:0') : ''}><title>${esc(`${tip(v)} (${pct})`)}</title></path>`);
+    const border = pointBorders.get(at(i));
+    const shift = explode ? ` transform="translate(${f(r * explode * Math.cos((angle + a2) / 2))} ${f(r * explode * Math.sin((angle + a2) / 2))})"` : '';
+    out.push(`<path d="${d}" fill="${esc(color)}" stroke="${esc(border?.stroke ?? pie?.stroke ?? 'var(--surface)')}" stroke-width="${border?.strokeWidth ?? pie?.strokeWidth ?? 1.5}"${inner ? ' fill-rule="evenodd"' : ''}${shift}${i == null || at(i) == null || i === opts.otherIndex ? '' : ` data-el="series" data-series="0" data-point="${at(i)}"`}${pie ? effectAttr(chart.appearance, 'series:0') : ''}><title>${esc(`${tip(v)} (${pct})`)}</title></path>`);
+    const dxe = explode ? r * explode * Math.cos((angle + a2) / 2) : 0, dye = explode ? r * explode * Math.sin((angle + a2) / 2) : 0;
     if (pie && i != null) {
-      const l = pointLabels.get(i) || pie.labels, st = l.style;
+      const l = pointLabels.get(at(i)) || pie.labels, st = l.style;
       const valueStyle = l.numberFormat ? numFmtToStyle(l.numberFormat) : chartPointStyle(s, i, data.valueStyle || null);
       const fields = { category: data.categories[i] || '', value: formatValue(s.values[i], valueStyle),
         percent: l.numberFormat ? formatValue(signedFraction, valueStyle) : pct, series: s.name || '' };
@@ -2315,7 +2370,7 @@ function renderPie(data, chart, right, top, bottom, bounds = null) {
       if (!l.hidden && value) {
         const mid = (angle + a2) / 2, outside = l.position === 'outEnd';
         const lr = outside ? r + st.size : l.position === 'inEnd' ? r - st.size : inner ? (r + inner) / 2 : r * .68;
-        const x = cx + lr * Math.cos(mid) + (l.dx || 0) * bounds.W, y = cy + lr * Math.sin(mid) + (l.dy || 0) * bounds.H;
+        const x = cx + dxe + lr * Math.cos(mid) + (l.dx || 0) * bounds.W, y = cy + dye + lr * Math.sin(mid) + (l.dy || 0) * bounds.H;
         const lines = value.split(/\r?\n/), anchor = outside ? Math.cos(mid) >= 0 ? 'start' : 'end' : 'middle';
         if (outside && l.leaderLines) labelOut.push(`<path d="M ${f(cx + r * Math.cos(mid))} ${f(cy + r * Math.sin(mid))} L ${f(x)} ${f(y)}" fill="none" stroke="${esc(st.color)}"/>`);
         labelOut.push(`<text class="chart-data-label" x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(st.font))}" font-size="${st.size}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''} fill="${esc(st.color)}" data-el="dataLabels" data-series="0">${lines.map((line, j) => `<tspan x="${f(x)}" dy="${f(j ? st.size * 1.2 : st.size * .35 - (lines.length - 1) * st.size * .6)}">${esc(line)}</tspan>`).join('')}</text>`);
@@ -2323,12 +2378,17 @@ function renderPie(data, chart, right, top, bottom, bounds = null) {
     } else if (!pie && frac >= 0.06) {
       const mid = (angle + a2) / 2;
       const lr = inner ? (r + inner) / 2 : r * 0.68;
-      labelOut.push(`<text x="${f(cx + lr * Math.cos(mid))}" y="${f(cy + lr * Math.sin(mid) + 4)}" text-anchor="middle" font-size="11" font-weight="600" fill="${inkOn(color)}">${pct}</text>`);
+      labelOut.push(`<text x="${f(cx + dxe + lr * Math.cos(mid))}" y="${f(cy + dye + lr * Math.sin(mid) + 4)}" text-anchor="middle" font-size="11" font-weight="600" fill="${inkOn(color)}">${pct}</text>`);
     }
     angle = a2;
   };
   const style = seriesStyle(s, data.valueStyle || null);
-  values.forEach((v, i) => { if (v) slice(v, pie ? piePaint(chart, i, colors) : seriesPaint(chart, i), () => `${data.categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, style))}`, i); });
+  // The Other slice of a pie of pie takes the next colour after the slices of the main pie.
+  values.forEach((v, i) => { if (v) slice(v, pie ? piePaint(chart, at(i), colors) : seriesPaint(chart, at(i)), () => `${data.categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, style))}`, i); });
   if (other) slice(other.value, 'var(--ink-3)', (v) => `Other (${other.count.toLocaleString('en-US')} slices)${Number.isFinite(v * scale) ? `: ${(v * scale).toLocaleString('en-US')}` : ''}`);
   return out.join('') + labelOut.join('');
 }
+
+// The pieces of the chart frame the newer chart types (chartsvg-special.js) draw with too.
+export { esc as svgEsc, f as svgNum, tipText as chartTipText, layoutLegend, chartAreaRect, elementEffectDefs, effectAttr, textBox as chartTextBox,
+  legendBoxRect, axisTextWidth, wrapChartText, scaleTicks, chartMarker, categoryShortener, shade as shadeColor, PLOT_STYLE, MAX_LEGEND, MARK_BUDGET };
