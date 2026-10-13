@@ -221,6 +221,7 @@ export const MENUS = [
       },
       { label: 'Perspective', submenu: ['perspective.attach', 'perspective.release', 'perspective.movePlane', 'perspective.editText'] },
       { label: 'Paint Regions', submenu: ['paintRegions.make', 'paintRegions.merge', 'paintRegions.release', 'paintRegions.gapOptions', 'paintRegions.expand'] },
+      { label: 'Mockup', submenu: ['mockup.make', 'mockup.release', 'mockup.edit', '-', 'mockup.detect'] },
       { label: 'Trace Image', submenu: ['trace.make', 'trace.makeExpand', 'trace.release', 'trace.expand'] },
       { label: 'Text Wrap', submenu: ['textWrap.make', 'textWrap.release', 'textWrap.options'] },
       '-',

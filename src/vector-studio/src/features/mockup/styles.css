@@ -1,0 +1,96 @@
+/* Mockup, Match Font and Expand Image panels and dialogs. */
+
+.mockup-intro {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+
+.mockup-intro[hidden],
+.mockup-main[hidden],
+.mockup-group[hidden] {
+  display: none;
+}
+
+.mockup-intro-art {
+  color: var(--text-3);
+}
+
+.mockup-intro-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+
+.mockup-intro-text,
+.mockup-hint,
+.mockup-status {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs);
+  line-height: 1.45;
+}
+
+.mockup-status:empty {
+  display: none;
+}
+
+.mockup-group {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.mockup-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.mockup-row > .select {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.mockup-label {
+  min-width: 76px;
+  color: var(--text-2);
+  font-size: var(--fs);
+}
+
+.mockup-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs);
+  color: var(--text);
+}
+
+.mockup-fit .seg-btn {
+  padding: 0 12px;
+  font-size: var(--fs);
+}
+
+.mockup-actions {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: var(--space-4);
+}
+
+.mockup-intro .btn,
+.mockup-main .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .mockup-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -46,6 +46,7 @@ import { install as installLayers } from './features/layers/index.js';
 import { install as installPrepress } from './features/prepress/index.js';
 import { install as installGenerative } from './features/generative/index.js';
 import { install as installInterop } from './features/interop/index.js';
+import { install as installMockup } from './features/mockup/index.js';
 
 export function installFeatures(app) {
   installHome(app);
@@ -89,6 +90,7 @@ export function installFeatures(app) {
   installDimension(app);
   installCorners(app);
   installGenerative(app);
+  installMockup(app);
   installLiveShapes(app);
   installToolStrips(app);
   installDrawModes(app);
