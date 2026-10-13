@@ -180,7 +180,7 @@ Status: `[ ]` planned, `[x]` done.
 
 ## Portrait and restoration filters
 
-- [ ] Skin Smoothing, JPEG Artifact Removal, Photo Restoration, Colorize, Depth Blur, Style Transfer, Color Transfer and Scene Changer in one filter workspace with live previews, output as a new layer, a masked layer or a Live Filter
+- [x] Skin Smoothing, JPEG Artifact Removal, Photo Restoration, Colorize, Depth Blur, Style Transfer, Color Transfer and Scene Changer in one filter workspace with live previews, output as a new layer, a masked layer or a Live Filter
 
 ## Assets and provenance
 
