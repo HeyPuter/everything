@@ -1875,11 +1875,19 @@ export function createFeatures(api) {
         });
         const restored = plan();
         if (!restored) return;
+        // The record says how many objects the restoration changed, added
+        // or removed, not how many the board holds.
+        const before = new Map(api.board().items.map((i) => [i.id, i])),
+          after = new Map(restored.items.map((i) => [i.id, i]));
+        let changed = 0;
+        for (const [id, i] of before)
+          if (!after.has(id) || !sameObject(i, after.get(id))) changed++;
+        for (const id of after.keys()) if (!before.has(id)) changed++;
         api.restore(restored);
         shared?.note({
           at: onDevice ? null : at,
           scope: "board",
-          objects: restored.items.length,
+          objects: changed,
         });
         d.close();
         api.toast("Version restored.");

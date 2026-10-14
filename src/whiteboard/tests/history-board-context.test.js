@@ -789,3 +789,22 @@ for (const locale of ["en", "fr"])
         a.close();
       }
     });
+
+test("a shared restoration reports how many objects it changed", async () => {
+  const a = fixture("en", true);
+  try {
+    // The version differs from the board in one note's text only.
+    a.load(async () => ({
+      ...clone(a.original),
+      items: a.original.items.map((i) =>
+        i.id === "note" ? { ...clone(i), text: "Earlier note" } : clone(i),
+      ),
+    }));
+    await a.features.actions.history();
+    await a.row().querySelector("[data-shared]").onclick();
+    assert.equal(a.audit.at(-1).objects, 1);
+    assert.equal(a.audit.at(-1).scope, "board");
+  } finally {
+    a.close();
+  }
+});
