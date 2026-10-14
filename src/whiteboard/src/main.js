@@ -9161,8 +9161,10 @@ function modal(title, content, onReady) {
       document.activeElement === document.body ||
       d.contains(document.activeElement);
     d.remove();
+    // A dialog that opened with the page, as an invitation's Join dialog
+    // does, had nothing focused before it, so the canvas takes focus.
     if (restoreFocus) {
-      if (previous?.isConnected) previous.focus();
+      if (previous?.isConnected && previous !== document.body) previous.focus();
       else document.querySelector("#canvas")?.focus();
     }
   });

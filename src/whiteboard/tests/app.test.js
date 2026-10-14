@@ -2555,6 +2555,47 @@ test("commenters use the Comment tool and a comment-only selection toolbar", asy
   }
 });
 
+test("joining from an invitation link the page opened with puts the keyboard on the board", async () => {
+  const env = environment();
+  const initial = {
+    version: 1,
+    id: crypto.randomUUID(),
+    title: "Team canvas",
+    items: [item("note", 30, 30, { text: "Shared thought" })],
+  };
+  const seed = new SharedDocument();
+  seed.commit(initial);
+  await env.service.call(owner, {
+    op: "create",
+    room: initial.id,
+    update: encode(seed.update()),
+  });
+  seed.destroy();
+  const { token } = await env.service.call(owner, {
+    op: "invite",
+    room: initial.id,
+    role: "viewer",
+  });
+  const c = await setup(env.sdk(viewer), {
+    url: `https://whiteboard.test/#server=https%3A%2F%2Fwhiteboard-test.puter.work&board=${initial.id}&invite=${token}`,
+  });
+  try {
+    for (let n = 0; n < 200 && !c.doc.querySelector("#join-link"); n++)
+      await c.tick();
+    const form = c.doc.querySelector("#join-link").closest("form");
+    form.dispatchEvent(
+      new c.w.Event("submit", { bubbles: true, cancelable: true }),
+    );
+    for (let n = 0; n < 200 && c.doc.querySelector("#join-link"); n++)
+      await c.tick();
+    await c.tick();
+    assert.ok(c.doc.querySelector(".editor.shared-viewer"));
+    assert.equal(c.doc.activeElement.id, "canvas");
+  } finally {
+    await c.close();
+  }
+});
+
 test("failed sharing clears its progress status and leaves the personal board editable and retryable", async () => {
   const env = environment(),
     puter = env.sdk(owner);
