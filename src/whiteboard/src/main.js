@@ -2917,8 +2917,17 @@ document.addEventListener(
 );
 // A notification, with one action when there is something to do about
 // it; that one stays longer, as it asks to be read and acted on.
+// A notification whose action undoes an edit, such as a restoration, goes
+// once anything else changes the board, Undo is pressed, or the board is
+// left: its action would then undo something else.
+function dropEditToast() {
+  if (!toast.untilEdit) return;
+  toast.untilEdit = false;
+  toastElement.classList.remove("visible");
+}
 function toast(message, action) {
   const el = toastElement;
+  toast.untilEdit = !!action?.untilEdit;
   const host =
     [...document.querySelectorAll("dialog[open]")].at(-1) || document.body;
   if (el.parentNode !== host) host.append(el);
@@ -3259,6 +3268,7 @@ function mutate(
   { mindLayout = false, continues = false, titled = false } = {},
 ) {
   if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
+  dropEditToast();
   pointerUp();
   const future = history.future,
     recorded = !continues && !collaboration;
@@ -3352,6 +3362,7 @@ async function home({
   previews = true,
 } = {}) {
   const left = current?.id;
+  dropEditToast();
   flushNudgeSave();
   onboarding.close(false);
   tags.close();
@@ -4070,6 +4081,7 @@ function observeChrome() {
   }
 }
 function editor() {
+  dropEditToast();
   tags.close();
   objectLinks.close();
   comments.close(false);
@@ -13201,6 +13213,7 @@ async function action(a) {
     case "live":
       return liveUI.toggle();
     case "undo":
+      dropEditToast();
       if (collaboration) return sharedStep("undo");
       // Key repeat must not replace recovery versions with unchanged copies.
       if (isSharedReadOnly()) return toast("This board is read-only.");
@@ -13212,6 +13225,7 @@ async function action(a) {
       save({ outlined: true });
       return;
     case "redo":
+      dropEditToast();
       if (collaboration) return sharedStep("redo");
       if (isSharedReadOnly()) return toast("This board is read-only.");
       if (!history.future.length) return;

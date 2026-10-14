@@ -5995,6 +5995,33 @@ test("recovered objects are selected and the toast offers to undo the recovery",
     undo.click();
     await tick();
     assert.equal(count(), 0);
+    // Once something else changes the board, or the board is left, the
+    // notification's Undo would undo something else, so it goes.
+    const visible = () =>
+      doc.querySelector("#toast").classList.contains("visible");
+    for (const then of ["edit", "leave"]) {
+      await click('[data-action="more-tools"]');
+      await click('[data-feature="history"]');
+      for (let n = 0; n < 20 && !doc.querySelector(".revision-row"); n++)
+        await tick();
+      const again = [
+        ...doc.querySelectorAll("#local-revisions .revision-row"),
+      ].find((r) => r.textContent.includes("With the note"));
+      await again.querySelector("[data-revision-options]").onclick();
+      await click('[data-part="deleted"]');
+      for (let n = 0; n < 5; n++) await tick();
+      assert.ok(visible());
+      if (then === "edit") await click('[data-action="add-note"]');
+      else await click('[data-action="home"]');
+      assert.equal(visible(), false, then);
+      // The new note and the recovery are undone, so the note can be
+      // recovered again.
+      if (then === "edit") {
+        await click('[data-action="undo"]');
+        await click('[data-action="undo"]');
+        assert.equal(count(), 0);
+      }
+    }
   } finally {
     await app.close();
   }

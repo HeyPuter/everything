@@ -1978,7 +1978,7 @@ export function createFeatures(api) {
                 "{count} object restored.",
                 "{count} objects restored.",
               ),
-              { label: "Undo", run: () => api.undo?.() },
+              { label: "Undo", run: () => api.undo?.(), untilEdit: true },
             );
           } catch (error) {
             api.toast(error.message || "Could not restore this version.");
@@ -2050,6 +2050,7 @@ export function createFeatures(api) {
         api.toast("Version restored.", {
           label: "Undo",
           run: () => api.undo?.(),
+          untilEdit: true,
         });
       } catch {
         api.toast("Could not restore this version.");
