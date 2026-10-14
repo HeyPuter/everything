@@ -233,7 +233,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input')) return;
     const mac = MOD_KEY === 'Cmd';
     if (e.key === 'F7' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey || mac && e.metaKey && e.altKey && !e.shiftKey && e.code === 'KeyR') { e.preventDefault(); commands.thesaurus(); }
-    else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.code === 'KeyG') { e.preventDefault(); commands.wordCount(); }
+    else if (!mac && e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyG') { e.preventDefault(); commands.wordCount(); }
   }, { signal: keyAbort.signal });
 
   /** Items for the File menu: the read-only recommendation and protection. */

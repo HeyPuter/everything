@@ -135,6 +135,12 @@ export const COMMAND_ICONS = {
   rename: r(2.5, 6.5, 15, 7, 'of') + t(7.5, 12.3, 'ab', 6.5) + p('M13.5 8.3v3.4M12.6 8.3h1.8M12.6 11.7h1.8', 'b'),
   template: page(4.5, 2.5, 11, 15) + r(6.5, 6, 6, 3.5, 'bs', 0.8) + lines(6.5, 12, 7, 3, 2),
   info: ci(10, 10, 7.5, 'bs') + p('M10 9v5', 'wh thick') + ci(10, 6.4, 1, 'txw'),
+  // Three bars: the menus, folded into one button.
+  menus: p('M3.5 5.5h13M3.5 10h13M3.5 14.5h13', 'o thick'),
+  // A clock face with an arrow turning back around it: earlier versions of the file.
+  history: ci(10.5, 10.5, 6.5, 'bf') + p('M10.5 6.8v4l2.6 1.6', 'o thick') + p('M3.2 7.5A7.4 7.4 0 0 1 10.5 3M3.2 4.2v3.3h3.3', 'b thick'),
+  // Three sliders, each with its knob: settings that apply everywhere.
+  preferences: p('M3 5.5h14M3 10h14M3 14.5h14', 'o') + ci(7, 5.5, 1.9, 'bs') + ci(13, 10, 1.9, 'bs') + ci(9, 14.5, 1.9, 'bs'),
   keyboard: r(2.5, 5.5, 15, 9, 'of', 2) + p('M5 8.5h1M8 8.5h1M11 8.5h1M14 8.5h1M5 11.5h1M14 11.5h1', 'o thick') + r(7.5, 10.7, 5, 1.6, 'bs', 0.8),
   pdf: page(4.5, 2.5, 11, 15) + r(2.5, 10.5, 10, 5, 'rs', 1) + t(7.5, 14.5, 'PDF', 4.6, { weight: 700, c: 'txw' }),
 

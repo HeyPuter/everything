@@ -12,7 +12,7 @@ async function openEditor(page, width = 1200) {
 test('a rename that fails sizes the title back to the name it keeps', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Draft');
-  await (await fileCommand(page, 'Save to Puter')).click();
+  await (await fileCommand(page, 'Save')).click();
   await expect(page.locator('.canvas-save-status')).toHaveText('Saved to Puter');
   const width = await title(page).evaluate(el => el.style.width);
   await page.evaluate(() => { window.puter.fs.rename = async () => { throw new Error('A file with that name already exists'); }; });
