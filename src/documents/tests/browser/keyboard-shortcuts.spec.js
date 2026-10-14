@@ -65,12 +65,12 @@ test('Go To jumps to pages, headings and bookmarks, and the Breaks menu inserts 
   await expect(dialog).toHaveCount(0);
   expect(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 4))).toBe('Page');
   await expect(page.locator('.ed-statusbar')).toContainText('Page 3 of 3');
-  await input.press('ControlOrMeta+g');
+  await input.press('F5');
   await dialog.getByLabel('Enter page number').fill('-1');
   await dialog.getByRole('button', { name: 'Go To' }).click();
   await expect(page.locator('.ed-statusbar')).toContainText('Page 2 of 3');
   await expect(dialog).toHaveCount(0);
-  await input.press('ControlOrMeta+g');
+  await input.press('F5');
   await dialog.getByLabel('Enter page number').fill('9');
   await dialog.getByRole('button', { name: 'Go To' }).click();
   await expect(dialog.getByRole('alert')).toHaveText('This document has 3 pages.');

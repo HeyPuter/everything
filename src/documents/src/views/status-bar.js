@@ -17,7 +17,7 @@ export function languageName(tag, locale) {
 }
 
 export const STATUS_ITEMS = [
-  ['page', 'Page Number'], ['words', 'Word Count'], ['proofing', 'Spelling Check'], ['language', 'Language'], ['track', 'Track Changes'],
+  ['page', 'Page Number'], ['words', 'Word Count'], ['proofing', 'Spelling Check'], ['language', 'Language'], ['accessibility', 'Accessibility Checker'], ['track', 'Track Changes'],
   ['area', 'Editing Area'], ['textMode', 'Text Mode'], ['focus', 'Focus'], ['views', 'View Shortcuts'], ['zoomSlider', 'Zoom Slider'], ['zoom', 'Zoom'],
 ];
 const HIDDEN_BY_DEFAULT = ['track'];
@@ -34,10 +34,13 @@ function readHidden() {
 export function createStatusBar({ w, a, parts, help }) {
   const { stats, words, proofingButton, editingArea, textMode, focusButton, zoomOut, zoomSlider, zoomIn, zoomLabel } = parts;
   stats.className = ''; // its button carries the status-item look
-  const pageButton = el('button.ed-status-item.ed-page-count', { type: 'button', title: `Go To (${MOD_KEY}+G)`, onclick: () => (w.goTo ? w.goTo() : a.toggleNavigation?.()) }, stats);
+  const pageButton = el('button.ed-status-item.ed-page-count', { type: 'button', title: `Go To (${MOD_KEY === 'Cmd' ? 'Cmd+Option+G' : 'Ctrl+G'})`, onclick: () => (w.goTo ? w.goTo() : a.toggleNavigation?.()) }, stats);
   const wordsButton = el('button.ed-status-item.ed-word-count', { type: 'button', title: 'Word Count', onclick: () => w.wordCount?.() }, words);
   const languageLabel = el('span', {}, languageName('en-US'));
   const language = el('button.ed-status-item.ed-status-language', { type: 'button', title: 'Language', 'aria-haspopup': 'dialog', onclick: () => openLanguageDialog() }, languageLabel);
+  const accessibilityLabel = el('span', {}, 'Accessibility');
+  const accessibility = w.accessibilitySummary ? el('button.ed-status-item.ed-status-accessibility', { type: 'button', title: 'Check Accessibility',
+    onclick: () => (w.accessibilitySummary()?.open ? w.accessibilitySummary().open() : w.checkAccessibility?.()) }, commandIconEl('accessibility', 14), accessibilityLabel) : null;
   const trackLabel = el('span', {}, 'Track Changes: Off');
   const track = w.toggleTracking ? el('button.ed-status-item.ed-status-track', { type: 'button', title: `Track Changes (${MOD_KEY}+Shift+E)`, onclick: () => w.toggleTracking() }, commandIconEl('trackChanges', 14), trackLabel) : null;
   const views = el('div.ed-status-views', { role: 'group', 'aria-label': 'Views' });
@@ -55,12 +58,12 @@ export function createStatusBar({ w, a, parts, help }) {
     }));
   }
   const items = {
-    page: pageButton, words: wordsButton, proofing: proofingButton, language, track, area: editingArea,
+    page: pageButton, words: wordsButton, proofing: proofingButton, language, accessibility, track, area: editingArea,
     textMode, focus: focusButton, views, zoomSlider: el('div.ed-zoom-slider-wrap', {}, zoomOut, zoomSlider, zoomIn), zoom: zoomLabel,
   };
   for (const [id, node] of Object.entries(items)) node?.setAttribute('data-status-item', id);
   let hidden = new Set(readHidden());
-  const left = el('div.ed-status-left', {}, ...['page', 'words', 'proofing', 'language', 'track', 'area'].map(id => items[id]).filter(Boolean));
+  const left = el('div.ed-status-left', {}, ...['page', 'words', 'proofing', 'language', 'accessibility', 'track', 'area'].map(id => items[id]).filter(Boolean));
   const right = el('div.ed-status-right', {}, items.textMode, items.focus, items.views, el('div.ed-zoom', {}, items.zoomSlider, items.zoom));
   const footer = el('footer.canvas-statusbar.ed-statusbar', { 'aria-label': 'Status bar' }, left, right, help);
   footer.addEventListener('contextmenu', e => {
@@ -107,6 +110,13 @@ export function createStatusBar({ w, a, parts, help }) {
   }
 
   function refresh() {
+    if (accessibility) {
+      const summary = a.hasDocument?.() ? w.accessibilitySummary() : null;
+      const label = summary?.label || 'Accessibility: check';
+      if (accessibilityLabel.textContent !== label) { accessibilityLabel.textContent = label; accessibility.title = summary ? `${label}. Open the Accessibility pane.` : 'Check Accessibility'; }
+      accessibility.dataset.state = !summary ? 'unchecked' : summary.errors ? 'errors' : summary.warnings || summary.tips ? 'warnings' : 'clean';
+      accessibility.disabled = !a.hasDocument?.();
+    }
     const tag = w.currentLanguage?.();
     const name = tag === null ? 'Mixed languages' : languageName(tag || 'en-US');
     if (languageLabel.textContent !== name) { languageLabel.textContent = name; language.title = `Language: ${name}`; }

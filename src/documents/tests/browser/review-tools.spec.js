@@ -85,7 +85,8 @@ test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word 
   await pane.getByRole('button', { name: 'Look up', exact: true }).click();
   await expect(pane.locator('.rv-words').first()).toContainText('large');
   await select(input, 0);
-  await input.press('ControlOrMeta+Shift+g');
+  // Ctrl+Shift+G off the Mac; there Cmd+Shift+G is Find Previous, so the status bar's count opens it.
+  if (process.platform === 'darwin') await page.locator('.ed-word-count').click(); else await input.press('Control+Shift+g');
   const dialog = page.getByRole('dialog', { name: 'Word Count' });
   await expect(dialog.getByRole('row', { name: /^Words/ })).toContainText('6');
   await expect(dialog.getByRole('row', { name: /^Lines/ })).toContainText('1');

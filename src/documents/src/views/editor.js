@@ -996,7 +996,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const builtInChords = {
     'edit.copyFormat': ['Mod+Shift+C'], 'edit.pasteFormat': ['Mod+Shift+V'], 'edit.pasteMatch': ['Mod+Alt+Shift+V'],
     'edit.pasteSpecial': [IS_MAC ? 'Mod+Ctrl+V' : 'Mod+Alt+V'], 'edit.repeat': ['F4'], 'edit.redoOrRepeat': ['Mod+Y'],
-    'edit.findNext': ['Shift+F4'], 'edit.findPrevious': [IS_MAC ? 'Mod+Shift+F4' : 'Mod+Shift+F4'],
+    // On a Mac, Cmd+G and Cmd+Shift+G step through matches as in other Mac apps, and Go To moves to Cmd+Option+G.
+    'edit.findNext': IS_MAC ? ['Mod+G', 'Shift+F4'] : ['Shift+F4'], 'edit.findPrevious': IS_MAC ? ['Mod+Shift+G', 'Mod+Shift+F4'] : ['Mod+Shift+F4'],
     ...(IS_MAC ? { 'edit.goTo': ['Mod+Alt+G'], 'format.paragraph': ['Mod+Alt+M'], 'view.focus': ['Mod+Ctrl+Shift+F'] } : {}),
     'format.styles': ['Mod+Alt+Shift+S'], 'file.open': ['Mod+O'], ...(cloud ? { 'file.saveAs': ['Mod+Shift+S'] } : {}),
     'app.preferences': ['Mod+Comma'], 'app.search': [IS_MAC ? 'Mod+Alt+K' : 'Alt+Q'], 'view.ribbon': [IS_MAC ? 'Mod+Alt+R' : 'Mod+F1'],

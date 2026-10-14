@@ -198,7 +198,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const findSplit = split(findButton, { label: 'Find options', open: (anchor, e) => openMenu({ anchor, label: 'Find options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument([
     { label: 'Find', icon: 'search', shortcut: `${MOD_KEY}+F`, onSelect: () => a.openSearch?.() },
     { label: 'Advanced Find…', onSelect: () => c.find.click() },
-    { label: 'Go To…', shortcut: `${MOD_KEY}+G`, onSelect: () => w.goTo?.() }]) }) });
+    { label: 'Go To…', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+G' : 'Ctrl+G', onSelect: () => w.goTo?.() }]) }) });
   noFocusSteal(findButton);
   when(findButton, () => !c.find.disabled); when(findSplit.arrow, () => !c.find.disabled);
   const replace = command('Replace', 'replace', () => w.openReplace?.(), { text: 'Replace', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Shift+H' : 'Ctrl+H' });
