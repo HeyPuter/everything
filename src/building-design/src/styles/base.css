@@ -1,0 +1,344 @@
+/* Base: reset, typography, buttons, inputs, utilities. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--fg);
+  font: var(--fs-md) / 1.4 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Interface chrome is not selectable text, but fields and documents are. */
+input,
+textarea,
+[contenteditable],
+.cmd-history,
+.dialog-body p,
+.dialog-body dd,
+.dialog-body dt {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+kbd {
+  font: 500 var(--fs-xs) / 1 var(--font-ui);
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--fg-muted);
+  background: var(--bg-panel);
+  white-space: nowrap;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex: none;
+  display: block;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.grow {
+  flex: 1;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--bg-pressed);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+}
+
+.btn.primary {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-fg);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  filter: brightness(1.08);
+}
+
+.btn.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: transparent;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: var(--fs-sm);
+}
+
+.btn.big {
+  height: auto;
+  padding: 12px 14px;
+  justify-content: flex-start;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.btn.big span {
+  display: flex;
+  flex-direction: column;
+}
+
+.btn.big small {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--fg-muted);
+  text-decoration: none;
+  transition: background-color 0.12s, color 0.12s;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.icon-btn:active:not(:disabled) {
+  background: var(--bg-pressed);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+}
+
+.icon-btn.sm {
+  width: 24px;
+  height: 24px;
+}
+
+.icon-btn[aria-pressed='true'] {
+  color: var(--accent-text);
+}
+
+/* Inputs */
+
+.input {
+  height: 32px;
+  min-width: 0;
+  width: 100%;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-input);
+  color: var(--fg);
+}
+
+.input.sm {
+  height: 26px;
+  padding: 0 7px;
+  font-size: var(--fs-sm);
+  border-radius: var(--r-sm);
+}
+
+textarea.input {
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+select.input {
+  padding-right: 4px;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+input[type='color'].input {
+  padding: 2px;
+  width: 46px;
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+}
+
+.swatch.lg {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.check,
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.radio {
+  align-items: flex-start;
+}
+
+.radio input {
+  margin-top: 3px;
+}
+
+.radio span {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio small {
+  color: var(--fg-muted);
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

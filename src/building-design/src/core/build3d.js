@@ -173,7 +173,7 @@ function buildWall(ctx, w) {
 }
 
 /** Keep the parts of [u0, u1] outside the cut intervals. */
-function keepIntervals(u0, u1, cuts) {
+export function keepIntervals(u0, u1, cuts) {
   const out = [];
   let cur = u0;
   for (const [a, b] of cuts.slice().sort((x, y) => x[0] - y[0])) {
@@ -185,7 +185,8 @@ function keepIntervals(u0, u1, cuts) {
   return out;
 }
 
-function splitByCuts(poly, axis, cuts) {
+/** Split a wall outline across its axis, leaving out the cut intervals. */
+export function splitByCuts(poly, axis, cuts) {
   if (!cuts.length) return [poly];
   const us = poly.map((p) => axisParam(axis, p));
   const lo = Math.min(...us);
