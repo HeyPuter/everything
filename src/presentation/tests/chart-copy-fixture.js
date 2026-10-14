@@ -414,6 +414,10 @@ export function chartSeriesOutlineDeck() {
       series: [
         {
           ...chart.spec.series[0],
+          // The negative point is drawn in the series' own fill: these
+          // decks are about outlines, not the inverted fill an omitted
+          // invertIfNegative gives negative bars.
+          invertIfNegative: false,
           color: "#23916F",
           lineColor: i ? "#B63874" : null,
           lineWidthEmu: i ? 38100 : 0,
