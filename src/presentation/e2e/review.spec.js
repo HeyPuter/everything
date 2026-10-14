@@ -134,7 +134,10 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
   );
   await pane.getByRole("button", { name: "Resolve thread" }).click();
   await expect(pane.locator(".comment-thread.resolved")).toHaveCount(1);
-  // The marker moves where it is dragged.
+  // The marker moves where it is dragged. On a phone the pane is a sheet over
+  // the slide; it is put away to reach the marker, which stays.
+  if (await pane.evaluate((p) => getComputedStyle(p).position === "fixed"))
+    await pane.getByRole("button", { name: "Close pane" }).click();
   const marker = page.locator("#slide-canvas .comment-marker");
   const box = await marker.boundingBox();
   await page.mouse.move(box.x + 8, box.y + 8);
