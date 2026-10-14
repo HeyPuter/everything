@@ -107,7 +107,7 @@ export function openSeriesDialog(ctx) {
     ctx.grid.focus();
   };
   const content = el('form', { onsubmit: submit },
-    el('p.small.muted', {}, `Starts from ${rangeName({ ...range, r2: range.r1, c2: range.c1 })}${typeof first === 'number' ? ` (${ctx.wb.getDisplay(sheetId, range.r1, range.c1)})` : ''}.`),
+    el('p.modal-text', {}, `Starts from ${rangeName({ ...range, r2: range.r1, c2: range.c1 })}${typeof first === 'number' ? ` (${ctx.wb.getDisplay(sheetId, range.r1, range.c1)})` : ''}.`),
     el('div.names-fields', {},
       el('label.field', {}, el('span.field-label', {}, 'Series in'), el('div.select-wrap', {}, dirSelect)),
       el('label.field', {}, el('span.field-label', {}, 'Type'), el('div.select-wrap', {}, typeSelect))),
