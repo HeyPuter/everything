@@ -60,6 +60,12 @@ import {
 import { materializeDiagramText } from "../../pptx/src/api/fn/diagram-text.ts";
 import { diagramTextShape } from "../../pptx/src/api/fn/diagram-text-shape.ts";
 import { reflowShapeDiagram } from "../../pptx/src/api/fn/diagram-reflow.ts";
+import { fitTrendline, trendlineSamples } from "./chart-trendline.ts";
+import {
+  autoBubbleScale,
+  autoMajorUnit,
+  autoValueScale,
+} from "./chart-scale.ts";
 import { buildDiagramDrawing } from "../../pptx/src/api/fn/diagram-build.ts";
 // Per-slide SVG renderer for the playground.
 //
@@ -211,7 +217,7 @@ import {
   getShapeLineGradient,
   getShapePictureAdjustments,
 } from "../../pptx/src/api/fn/shape-paint-format.ts";
-import { getShapeStrokeWidth } from "../../pptx/src/index.ts";
+import { getShapeStrokeWidthInherited } from "../../pptx/src/api/fn/shape-stroke-width.ts";
 import { getShape3D } from "../../pptx/src/api/fn/shape-effect-format.ts";
 import {
   defaultMeasurer,
@@ -1489,6 +1495,8 @@ const paint = (
   bounds?: { w: number; h: number },
   allowCss = false,
   fillFrame?: { x: number; y: number; w: number; h: number },
+  /** The shape's box, for paint that must reach past it (gradient lines). */
+  shapeFrame?: { x: number; y: number; w: number; h: number },
 ): PaintResult => {
   let fillColor: string;
   let patternFill: PatternPaint | undefined;
@@ -1570,7 +1578,9 @@ const paint = (
     stroke = {
       kind: "solid",
       color: lineGradient.stops[0]!.color,
-      widthEmu: getShapeStrokeWidth(shape) ?? 12_700,
+      // The line's width, whatever its fill (a solid-line reading of the
+      // stroke has none for a gradient line).
+      widthEmu: getShapeStrokeWidthInherited(shape) ?? 12_700,
     };
   if (stroke.kind === "solid") {
     let resolved: string | null = null;
@@ -1582,7 +1592,22 @@ const paint = (
       );
     strokeColor = resolved ?? resolveColor(stroke.color, theme, "#9CA3AF");
     if (lineGradient) {
-      const built = gradientDef(lineGradient, theme, bounds, false, fillFrame);
+      // Paint the whole stroke, half of which lies outside the shape: a
+      // gradient tile of the shape's size would repeat across that half.
+      const grow = stroke.widthEmu ?? 12_700;
+      const frame = fillFrame ?? shapeFrame;
+      const built = gradientDef(
+        lineGradient,
+        theme,
+        bounds && { w: bounds.w + grow, h: bounds.h + grow },
+        false,
+        frame && {
+          x: frame.x - grow / 2,
+          y: frame.y - grow / 2,
+          w: frame.w + grow,
+          h: frame.h + grow,
+        },
+      );
       defs += built.defs;
       strokeColor = built.fillAttr;
     }
@@ -6841,10 +6866,9 @@ const renderColumnChart = (
   for (let s = 0; s < spec.series.length; s++) {
     const series = spec.series[s];
     if (!series?.trendline) continue;
-    const tlColor =
-      series.trendline.color ?? series.color ?? colors[s % colors.length];
     const xs: number[] = [];
     const ys: number[] = [];
+    const dataXs: number[] = [];
     const seriesValues = series.values.slice(0, N);
     for (let c = 0; c < N; c++) {
       const v = seriesValues[c];
@@ -6857,6 +6881,7 @@ const renderColumnChart = (
       );
       xs.push(cx);
       ys.push(v);
+      dataXs.push(c + 1);
     }
     if (xs.length < 2) continue;
     out.push(
@@ -6864,7 +6889,7 @@ const renderColumnChart = (
         xs,
         ys,
         series.trendline,
-        tlColor!,
+        undefined,
         spec.textStyle,
         ctx,
         (value) =>
@@ -6877,15 +6902,18 @@ const renderColumnChart = (
             value,
           ),
         clips.plot,
+        dataXs,
       ),
     );
   }
   return out.join("");
 };
 
-// Computes the trendline SVG path. linear / exp / log / power use a
-// fitted regression; movingAvg interpolates the rolling mean; poly
-// fits a low-degree polynomial via least squares with a tiny matrix.
+// Computes the trendline SVG path: a least-squares fit on the points' data
+// x values (`dataXs`; category charts number their categories 1, 2, 3...),
+// drawn through the pixel positions `xs` the data maps to. With no line
+// formatting of its own it is a thin solid dark line, and the equation and
+// R² sit at its end when asked for.
 const trendlinePath = (
   xs: ReadonlyArray<number>,
   ys: ReadonlyArray<number>,
@@ -6896,112 +6924,83 @@ const trendlinePath = (
     forward?: number;
     backward?: number;
     name?: string;
+    color?: string;
+    displayEquation?: boolean;
+    displayRSquared?: boolean;
   },
-  color: string,
+  color: string | undefined,
   style: ChartTextStyle | undefined,
   ctx: LayoutCtx,
   projectY?: (value: number) => number,
   clip = "",
+  dataXs: ReadonlyArray<number> = xs.map((_, i) => i + 1),
 ): string => {
   const n = xs.length;
-  // `<c:forward>` / `<c:backward>` extend the line N data-period steps
-  // outside the data range. Step is the average spacing between
-  // adjacent x values; we project the fit line N * step further along.
-  const stepX = n >= 2 ? (xs[n - 1]! - xs[0]!) / (n - 1) : 0;
-  const extendBefore = (tl.backward ?? 0) * stepX;
-  const extendAfter = (tl.forward ?? 0) * stepX;
-  let pts: Array<[number, number]> = [];
-  switch (tl.type) {
-    case "movingAvg": {
-      const period = Math.max(2, Math.min(n, tl.period ?? 3));
-      for (let i = period - 1; i < n; i++) {
-        let sum = 0;
-        for (let j = 0; j < period; j++) sum += ys[i - j]!;
-        pts.push([xs[i]!, sum / period]);
-      }
-      break;
-    }
-    case "log": {
-      // y = a + b * ln(x). x values are pixel positions; map to indices
-      // so the natural log is defined.
-      const ix = xs.map((_, i) => i + 1);
-      const sumLn = ix.reduce((a, x) => a + Math.log(x), 0);
-      const sumY = ys.reduce((a, y) => a + y, 0);
-      const sumLnY = ix.reduce((a, x, i) => a + Math.log(x) * ys[i]!, 0);
-      const sumLn2 = ix.reduce((a, x) => a + Math.log(x) ** 2, 0);
-      const b = (n * sumLnY - sumLn * sumY) / (n * sumLn2 - sumLn ** 2 || 1);
-      const a = (sumY - b * sumLn) / n;
-      pts = xs.map((x, i) => [x, a + b * Math.log(i + 1)]);
-      break;
-    }
-    case "exp": {
-      // y = a * e^(b * x_idx). Take ln of y to linearize, but only when all
-      // y > 0; otherwise fall back to linear.
-      if (ys.every((y) => y > 0)) {
-        const ix = xs.map((_, i) => i);
-        const lnY = ys.map((y) => Math.log(y));
-        const meanX = ix.reduce((a, b) => a + b, 0) / n;
-        const meanLnY = lnY.reduce((a, b) => a + b, 0) / n;
-        let num = 0;
-        let den = 0;
-        for (let i = 0; i < n; i++) {
-          num += (ix[i]! - meanX) * (lnY[i]! - meanLnY);
-          den += (ix[i]! - meanX) ** 2;
-        }
-        const b = den === 0 ? 0 : num / den;
-        const a = Math.exp(meanLnY - b * meanX);
-        pts = xs.map((x, i) => [x, a * Math.exp(b * i)]);
-      }
-      // Falls through to linear if y values include non-positive.
-      if (pts.length === 0) pts = linearFit(xs, ys, extendBefore, extendAfter);
-      break;
-    }
-    case "power":
-    case "poly":
-    case "linear":
-    default:
-      pts = linearFit(xs, ys, extendBefore, extendAfter);
-  }
+  if (n < 2) return "";
+  // Pixels per data unit along x, from the outermost points.
+  const x0 = dataXs[0]!,
+    x1 = dataXs[n - 1]!;
+  const scale = x1 === x0 ? 0 : (xs[n - 1]! - xs[0]!) / (x1 - x0);
+  const toPx = (x: number) => xs[0]! + (x - x0) * scale;
+  const fit = fitTrendline(tl.type, dataXs, ys, {
+    ...(tl.order !== undefined ? { order: tl.order } : {}),
+    ...(tl.period !== undefined ? { period: tl.period } : {}),
+  });
+  let pts: Array<[number, number]> = trendlineSamples(fit, dataXs, {
+    ...(tl.forward !== undefined ? { forward: tl.forward } : {}),
+    ...(tl.backward !== undefined ? { backward: tl.backward } : {}),
+  }).map(([x, y]) => [toPx(x), y]);
   if (pts.length < 2) return "";
   if (projectY) pts = pts.map(([x, y]) => [x, projectY(y)]);
   const d = pts
     .map(([x, y], i) => `${i === 0 ? "M" : "L"}${px(x)},${px(y)}`)
     .join(" ");
-  const path = `<path d="${d}"${clip} fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 3" stroke-linecap="round"/>`;
+  const stroke = tl.color ?? color ?? "#000000";
+  const path = `<path d="${d}"${clip} fill="none" stroke="${stroke}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const labels: string[] = [];
+  const [ex, ey] = pts[pts.length - 1]!;
+  const fontPx = 9 * PX_PER_PT;
+  const lines: Array<ReadonlyArray<{ text: string; sup?: boolean }>> = [];
+  if (tl.displayEquation && fit.equation.length) lines.push(fit.equation);
+  if (tl.displayRSquared && fit.rSquared !== null)
+    lines.push([{ text: `R² = ${fit.rSquared.toFixed(4)}` }]);
+  if (lines.length) {
+    // Centered above the line's end, the block's right edge near it.
+    const width = Math.max(
+      ...lines.map(
+        (l) =>
+          l.reduce(
+            (w, part) => w + part.text.length * (part.sup ? 0.7 : 1),
+            0,
+          ) *
+          fontPx *
+          0.5,
+      ),
+    );
+    const cx = ex - width / 2;
+    lines.forEach((line, i) => {
+      const y = ey + (i - lines.length / 2 + 0.75) * fontPx * 1.2;
+      const spans = line
+        .map((part) =>
+          part.sup
+            ? `<tspan baseline-shift="super" font-size="${px(fontPx * 0.7)}">${escapeXml(part.text)}</tspan>`
+            : escapeXml(part.text),
+        )
+        .join("");
+      labels.push(
+        `<text x="${px(cx)}" y="${px(y)}" text-anchor="middle" ${chartFontAttrs(style, 9 / PX_PER_PT, ctx)} fill="${style?.color ?? "#000000"}">${spans}</text>`,
+      );
+    });
+  }
   // Authored <c:trendline><c:name> shows as a small label at the
   // trendline's right endpoint. Only emit when the name is set; the
   // default look stays unchanged.
   if (tl.name !== undefined && tl.name.length > 0) {
-    const [lx, ly] = pts[pts.length - 1]!;
-    const label = `<text x="${px(lx + 4)}" y="${px(ly)}" dominant-baseline="middle" ${chartFontAttrs(style, 9 / PX_PER_PT, ctx)} fill="${style?.color ?? color}">${escapeXml(tl.name)}</text>`;
-    return path + label;
+    labels.push(
+      `<text x="${px(ex + 4)}" y="${px(ey)}" dominant-baseline="middle" ${chartFontAttrs(style, 9 / PX_PER_PT, ctx)} fill="${style?.color ?? stroke}">${escapeXml(tl.name)}</text>`,
+    );
   }
-  return path;
-};
-
-const linearFit = (
-  xs: ReadonlyArray<number>,
-  ys: ReadonlyArray<number>,
-  extendBefore = 0,
-  extendAfter = 0,
-): Array<[number, number]> => {
-  const n = xs.length;
-  const meanX = xs.reduce((a, b) => a + b, 0) / n;
-  const meanY = ys.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (xs[i]! - meanX) * (ys[i]! - meanY);
-    den += (xs[i]! - meanX) ** 2;
-  }
-  const slope = den === 0 ? 0 : num / den;
-  const intercept = meanY - slope * meanX;
-  const xStart = xs[0]! - extendBefore;
-  const xEnd = xs[n - 1]! + extendAfter;
-  return [
-    [xStart, intercept + slope * xStart],
-    [xEnd, intercept + slope * xEnd],
-  ];
+  return path + labels.join("");
 };
 
 // Emit an SVG path through `pts` with cubic Bézier control points
@@ -7883,20 +7882,21 @@ const renderLineChart = (
     if (!isStacked && series.trendline) {
       const finiteXs: number[] = [];
       const finiteYs: number[] = [];
+      const dataXs: number[] = [];
       for (let c = 0; c < ptsRaw.length; c++) {
         const point = ptsRaw[c];
         if (!point) continue;
         finiteXs.push(point[0]);
         finiteYs.push(series.values[c] ?? 0);
+        dataXs.push(c + 1);
       }
       if (finiteXs.length >= 2) {
-        const tlColor = series.trendline.color ?? color;
         out.push(
           trendlinePath(
             finiteXs,
             finiteYs,
             series.trendline,
-            tlColor,
+            undefined,
             spec.textStyle,
             ctx,
             (value) =>
@@ -7909,6 +7909,7 @@ const renderLineChart = (
                 value,
               ),
             clips.plot,
+            dataXs,
           ),
         );
       }
@@ -8167,7 +8168,7 @@ const renderPieChart = (
 // don't sit on the plot edge. Aligns the bounds to the niceTicks step.
 const scatterAxisBounds = (
   vals: ReadonlyArray<number>,
-): { min: number; max: number } => {
+): { min: number; max: number; unit?: number } => {
   let min = Infinity;
   let max = -Infinity;
   for (const v of vals) {
@@ -8177,13 +8178,22 @@ const scatterAxisBounds = (
     }
   }
   if (!Number.isFinite(min)) return { min: 0, max: 1 };
-  if (min === max) return { min: min - 1, max: max + 1 };
-  const ticks = niceTicks(min, max);
-  const step = ticks.length >= 2 ? ticks[1]! - ticks[0]! : (max - min) / 4 || 1;
-  return {
-    min: Math.floor(min / step) * step,
-    max: Math.ceil(max / step) * step,
-  };
+  return autoValueScale(min, max);
+};
+
+/** Applies authored limits to automatic XY bounds; the unit then follows
+ *  the authored span. */
+const authoredXYBounds = (
+  auto: { min: number; max: number; unit?: number },
+  min: number | undefined,
+  max: number | undefined,
+): { min: number; max: number; unit?: number } => {
+  if (min === undefined && max === undefined) return auto;
+  const lo = min ?? auto.min,
+    hi = max ?? auto.max;
+  return hi > lo
+    ? { min: lo, max: hi, unit: autoMajorUnit(lo, hi) }
+    : { min: lo, max: hi };
 };
 
 // Pairs a scatter / bubble series' x-channel (`xValues`, or the 1-based
@@ -8223,8 +8233,8 @@ const xyPoints = (
 const renderScatterAxes = (
   f: ChartFrame,
   spec: ChartSpec,
-  xB: { min: number; max: number },
-  yB: { min: number; max: number },
+  xB: { min: number; max: number; unit?: number },
+  yB: { min: number; max: number; unit?: number },
   ctx: LayoutCtx,
   paint: ChartPaintLayers,
 ): void => {
@@ -8232,7 +8242,9 @@ const renderScatterAxes = (
     role: "value",
     ...(paint.axisLinesMeta?.value.geometry?.majorUnit !== undefined
       ? { majorUnit: paint.axisLinesMeta.value.geometry.majorUnit }
-      : {}),
+      : yB.unit !== undefined
+        ? { majorUnit: yB.unit }
+        : {}),
     gridCrossing: axisPlacement(
       f,
       "horizontal",
@@ -8276,7 +8288,9 @@ const renderScatterAxes = (
     role: "category",
     ...(paint.axisLinesMeta?.category.geometry?.majorUnit !== undefined
       ? { majorUnit: paint.axisLinesMeta.category.geometry.majorUnit }
-      : {}),
+      : xB.unit !== undefined
+        ? { majorUnit: xB.unit }
+        : {}),
     gridCrossing: axisPlacement(
       f,
       "vertical",
@@ -8337,13 +8351,13 @@ const renderScatterChart = (
     }
   }
   if (allX.length === 0) return "";
-  const xB = scatterAxisBounds(allX);
   const xAxis = paint.axisLinesMeta?.category.geometry;
-  if (xAxis?.min !== undefined) xB.min = xAxis.min;
-  if (xAxis?.max !== undefined) xB.max = xAxis.max;
-  const yB = scatterAxisBounds(allY);
-  if (spec.valueAxis?.min !== undefined) yB.min = spec.valueAxis.min;
-  if (spec.valueAxis?.max !== undefined) yB.max = spec.valueAxis.max;
+  const xB = authoredXYBounds(scatterAxisBounds(allX), xAxis?.min, xAxis?.max);
+  const yB = authoredXYBounds(
+    scatterAxisBounds(allY),
+    spec.valueAxis?.min,
+    spec.valueAxis?.max,
+  );
   const projX = (x: number): number =>
     valueCoordinate(
       f,
@@ -8491,11 +8505,12 @@ const xyLabelsAndTrendline = (
           sorted.map((p) => projX(p.x)),
           sorted.map((p) => p.y),
           series.trendline,
-          series.trendline.color ?? color,
+          undefined,
           spec.textStyle,
           ctx,
           projY,
           paint.clips.plot,
+          sorted.map((p) => p.x),
         ),
       );
   }
@@ -8520,13 +8535,31 @@ const renderBubbleChart = (
     }
   }
   if (allX.length === 0) return "";
-  const xB = scatterAxisBounds(allX);
+  // Axes make room for the bubbles (a radius as a fraction of the plot's
+  // smaller side, applied to each axis's span).
+  const bubbleFraction = (0.125 * (spec.bubbleScale ?? 100)) / 100;
+  const sizeAt = perSeries.flat().map((p) => p.size);
+  const fractionAt = (i: number): number => {
+    const size = sizeAt[i] ?? 0;
+    if (maxSize <= 0 || size <= 0) return bubbleFraction * 0.15;
+    return (
+      bubbleFraction *
+      ((spec.bubbleSizeRepresents ?? "area") === "area"
+        ? Math.sqrt(size / maxSize)
+        : size / maxSize)
+    );
+  };
   const xAxis = paint.axisLinesMeta?.category.geometry;
-  if (xAxis?.min !== undefined) xB.min = xAxis.min;
-  if (xAxis?.max !== undefined) xB.max = xAxis.max;
-  const yB = scatterAxisBounds(allY);
-  if (spec.valueAxis?.min !== undefined) yB.min = spec.valueAxis.min;
-  if (spec.valueAxis?.max !== undefined) yB.max = spec.valueAxis.max;
+  const xB = authoredXYBounds(
+    autoBubbleScale(allX, fractionAt),
+    xAxis?.min,
+    xAxis?.max,
+  );
+  const yB = authoredXYBounds(
+    autoBubbleScale(allY, fractionAt),
+    spec.valueAxis?.min,
+    spec.valueAxis?.max,
+  );
   const projX = (x: number): number =>
     valueCoordinate(
       f,
@@ -11965,6 +11998,7 @@ const renderShape = (
       geometry.preset !== "rect"
       ? { x, y, w, h }
       : undefined,
+    { x, y, w, h },
   );
   // A shape filled with the slide background shows the background through
   // it, hiding whatever lies beneath.
@@ -12191,7 +12225,16 @@ const renderShape = (
   // primitive), so it's a duplicated, vertically mirrored copy of the raw
   // geometry masked by an opacity gradient — built from the un-filtered
   // geometry markup before the filter wraps it.
-  const reflection = buildReflection(effects, geomSvg, { x, y, w, h });
+  // The reflection mirrors the text too, unless the shape is flipped (its
+  // text stays upright then) or laid out by a diagram.
+  const reflection = buildReflection(
+    effects,
+    geomSvg,
+    { x, y, w, h },
+    textOverlay && !flip.horizontal && !flip.vertical && !diagramTextTransform
+      ? textOverlay
+      : "",
+  );
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
   geomSvg = `<g${filterAttr}>${geomSvg}</g>`;
@@ -12414,13 +12457,16 @@ const withPictureEffects = (
 };
 
 // Builds the reflection: a vertically mirrored copy of the shape's raw
-// geometry placed below its bottom edge, faded by a vertical opacity mask.
+// geometry (and, unflipped, its text) placed below its bottom edge, faded
+// by a vertical opacity mask that is strongest at the contact edge.
 // DrawingML encodes the mirror as a negative `sy`; `stA`/`endA` give the
-// alpha at the near (contact) and far edges, `dist` the gap below the shape.
+// alpha at the near (contact) and far edges, `endPos` where the fade ends,
+// `dist` the gap below the shape.
 const buildReflection = (
   effects: readonly ReturnType<typeof getShapeEffects>[number][],
   geomRaw: string,
   box: { x: number; y: number; w: number; h: number },
+  text = "",
 ): ReflectionResult | null => {
   const refl = effects.find((e) => e.kind === "reflection");
   if (!refl || refl.kind !== "reflection") return null;
@@ -12440,18 +12486,22 @@ const buildReflection = (
 
   const maskId = mintId();
   const gradId = mintId();
-  // objectBoundingBox: y=0 is the contact edge (top of the mirrored copy),
-  // y=1 the far edge. White luminance × stop-opacity becomes the alpha.
+  // The fade runs down the page from the contact edge, in the (unflipped)
+  // coordinates the mirrored copy is drawn into.
+  const top = contactPx + distPx;
+  const height = Math.max(1e-3, (box.h / EMU_PER_PX) * Math.abs(f));
+  const left = box.x / EMU_PER_PX - box.w / EMU_PER_PX;
+  const end = Math.max(0, Math.min(1, refl.endPos ?? 1));
   const defs =
-    `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">` +
+    `<defs><linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="0" y1="${top.toFixed(2)}" x2="0" y2="${(top + height).toFixed(2)}">` +
     `<stop offset="0" stop-color="#fff" stop-opacity="${startA.toFixed(3)}"/>` +
-    (refl.endPos !== undefined && refl.endPos < 1
-      ? `<stop offset="${Math.max(0, refl.endPos).toFixed(3)}" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>`
+    (end < 1
+      ? `<stop offset="${end.toFixed(3)}" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>`
       : `<stop offset="1" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/>`) +
     `</linearGradient>` +
-    `<mask id="${maskId}" maskContentUnits="objectBoundingBox">` +
-    `<rect width="1" height="1" fill="url(#${gradId})"/></mask></defs>`;
-  const svg = `<g transform="${transform}" mask="url(#${maskId})" data-pptx-reflection="1">${geomRaw}</g>`;
+    `<mask id="${maskId}" maskUnits="userSpaceOnUse" x="${left.toFixed(2)}" y="${top.toFixed(2)}" width="${((box.w / EMU_PER_PX) * 3).toFixed(2)}" height="${height.toFixed(2)}">` +
+    `<rect x="${left.toFixed(2)}" y="${top.toFixed(2)}" width="${((box.w / EMU_PER_PX) * 3).toFixed(2)}" height="${height.toFixed(2)}" fill="url(#${gradId})"/></mask></defs>`;
+  const svg = `<g mask="url(#${maskId})" data-pptx-reflection="1"><g transform="${transform}">${geomRaw}${text}</g></g>`;
   return { svg, defs };
 };
 

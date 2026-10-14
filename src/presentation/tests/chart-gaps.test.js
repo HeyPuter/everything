@@ -60,7 +60,11 @@ describe("XY data labels and trendlines", () => {
     expect(both).toContain(">2; 27</text>");
   });
   it("draws trendlines over bubbles and scatter points", () => {
-    const dashed = (svg) => (svg.match(/stroke-dasharray="6 3"/g) || []).length;
+    // With no line format of its own, a trendline is a thin solid dark line
+    // (as a desktop editor draws it).
+    const dashed = (svg) =>
+      (svg.match(/fill="none" stroke="#000000" stroke-width="1"/g) || [])
+        .length;
     expect(dashed(svgOf(deck(bubble({ trendline: { type: "linear" } }))))).toBe(
       1,
     );

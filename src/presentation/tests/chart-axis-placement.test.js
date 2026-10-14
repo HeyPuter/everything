@@ -1,5 +1,9 @@
 import { setChartAxisGridDeclarations } from "./chart-axis-grid-fixture.js";
 import { describe, it, expect } from "vitest";
+import {
+  autoBubbleScale,
+  autoValueScale,
+} from "../lib/pptx-preview/src/chart-scale.ts";
 import { P, createDeck, parseDeck } from "../src/model.js";
 import { renderSlideToSvg } from "../lib/pptx-preview/src/index.ts";
 import {
@@ -193,9 +197,20 @@ describe("native chart axis placement", () => {
                 (e) => e.name.localName === "circle" && attr(e, "fill") === S,
               );
             expect(points).toHaveLength(3);
+            // The X axis has no authored limits: it takes the automatic
+            // range desktop editors give XY data (from zero, with room
+            // for bubbles).
+            const xs = [1, 2, 4],
+              sizes = [1, 3, 2];
+            const xScale =
+              kind === "bubble"
+                ? autoBubbleScale(xs, (i) => 0.125 * Math.sqrt(sizes[i] / 3))
+                : autoValueScale(1, 4);
+            const xFraction = (x) =>
+              (x - xScale.min) / (xScale.max - xScale.min);
             for (const [i, point] of points.entries()) {
               expect((num(point, "cx") - r.plot.x) / r.plot.w).toBeCloseTo(
-                physical(([1, 2, 4][i] - 1) / 3, xDirection === "maxMin", true),
+                physical(xFraction(xs[i]), xDirection === "maxMin", true),
                 4,
               );
               expect((num(point, "cy") - r.plot.y) / r.plot.h).toBeCloseTo(
@@ -208,15 +223,19 @@ describe("native chart axis placement", () => {
               );
             }
             expect((num(r.spine(V), "x1") - r.plot.x) / r.plot.w).toBeCloseTo(
-              physical(1 / 3, xDirection === "maxMin", true),
+              physical(xFraction(2), xDirection === "maxMin", true),
               4,
             );
             expect((num(r.spine(C), "y1") - r.plot.y) / r.plot.h).toBeCloseTo(
               physical(7 / 12, yDirection === "maxMin", false),
               4,
             );
-            for (const color of [CL, VL])
-              expect(r.labels(color)).toHaveLength(mode === "none" ? 0 : 7);
+            expect(r.labels(VL)).toHaveLength(mode === "none" ? 0 : 7);
+            expect(r.labels(CL)).toHaveLength(
+              mode === "none"
+                ? 0
+                : Math.round((xScale.max - xScale.min) / xScale.unit) + 1,
+            );
           });
   for (const kind of ["column", "bar", "line", "area"])
     for (const direction of ["minMax", "maxMin"])

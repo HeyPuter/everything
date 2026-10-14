@@ -357,10 +357,17 @@ describe("native value-axis direction and crossing projection", () => {
           expect(b[i]).toBeCloseTo(i % 2 ? before.sum - n : n, 1),
         );
         if (type === "exp" && kind === "line") {
-          const data = before.elements.find(
-            (e) => e.name.localName === "path" && attr(e, "stroke") === color,
+          // An exact exponential: the sampled curve passes through each
+          // point (samples 0, 32 and 64 of 64 fall on them).
+          const data = points(
+            before.elements.find(
+              (e) => e.name.localName === "path" && attr(e, "stroke") === color,
+            ),
           );
-          expect(a).toEqual(points(data));
+          for (const [k, sample] of [0, 32, 64].entries()) {
+            expect(a[sample * 2]).toBeCloseTo(data[k * 2], 1);
+            expect(a[sample * 2 + 1]).toBeCloseTo(data[k * 2 + 1], 1);
+          }
         }
       });
   for (const kind of ["bar", "column"])

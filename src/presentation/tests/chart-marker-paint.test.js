@@ -122,7 +122,8 @@ describe("independent chart marker paint and point units", () => {
           const xs = attr(e, "points")
             .split(" ")
             .map((p) => Number(p.split(",")[0]));
-          return Math.max(...xs) - Math.min(...xs) === 32;
+          // Points are written to two decimals.
+          return Math.abs(Math.max(...xs) - Math.min(...xs) - 32) < 0.02;
         }),
       ).toHaveLength(3);
       expect(r.svg).not.toMatch(/NaN|Infinity/);

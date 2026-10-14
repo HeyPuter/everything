@@ -328,9 +328,11 @@ const trendlineElement = (
   if (tl.backward !== undefined)
     children.push(valNode(c("backward"), tl.backward));
   // CT_Trendline schema order: dispRSqr before dispEq, both after
-  // forward/backward and before trendlineLbl/extLst.
-  if (tl.displayRSquared) children.push(valNode(c("dispRSqr"), "1"));
-  if (tl.displayEquation) children.push(valNode(c("dispEq"), "1"));
+  // forward/backward and before trendlineLbl/extLst. Both are written even
+  // when off: desktop editors show the equation and R² when they are
+  // missing.
+  children.push(valNode(c("dispRSqr"), tl.displayRSquared ? "1" : "0"));
+  children.push(valNode(c("dispEq"), tl.displayEquation ? "1" : "0"));
   return elem(c("trendline"), { children });
 };
 
