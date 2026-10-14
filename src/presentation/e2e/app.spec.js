@@ -10,6 +10,7 @@ import {
   inspector,
   installAddTextNow,
   installMenuNow,
+  menuCommand,
   openNewSlideMenu,
   openShapeMenu,
   ribbonButton,
@@ -10034,7 +10035,7 @@ test("keyboard focus survives duplicating and deleting objects", async ({
   await page.keyboard.press("Enter");
   await expect(page.locator(".object-hit")).toHaveCount(1);
   expect(await focused()).toBe("inspector");
-  await expect(page.locator("#inspector h2")).toHaveText("Slide");
+  await expect(page.locator("#inspector h2")).toHaveText("Format Background");
   // The Delete key on the canvas moves focus to the object now in that place,
   // and to the workspace once the slide is empty.
   const closePanel = async () => {
@@ -10319,37 +10320,46 @@ test("a right-click menu offers clipboard, order, and delete actions for objects
   await expect(page.locator("#slide-count")).toHaveText("6");
 });
 
-test("the toolbar's text controls follow the selection and reach the file", async ({
+test("the ribbon's text controls follow the selection and reach the file", async ({
   page,
 }) => {
   await story(page);
-  const toolbar = page.locator(".toolbar");
-  const control = (name) => toolbar.getByRole("button", { name, exact: true });
-  const size = toolbar.getByRole("combobox", { name: "Font size" });
+  // A control's state, read where the ribbon keeps it even when its group
+  // is folded away; pressing one goes through the fold if need be.
+  const state = (id) =>
+    page
+      .locator(
+        `.ribbon-panel [data-command="${id}"], .ribbon-fold-panel [data-command="${id}"]`,
+      )
+      .first();
+  const press = async (id) => (await ribbonButton(page, "Home", id)).click();
+  const size = state("font-size");
   // Nothing selected: the text tools rest; a bold title wakes them.
-  await expect(control("Bold")).toBeDisabled();
+  await expect(state("bold")).toBeDisabled();
   await page.locator('[data-object="1"]').click();
-  await expect(control("Bold")).toHaveAttribute("aria-pressed", "true");
+  await expect(state("bold")).toHaveAttribute("aria-pressed", "true");
   await expect(size).toHaveValue("52");
   await page.locator('[data-object="2"]').click();
-  await expect(control("Bold")).toHaveAttribute("aria-pressed", "false");
+  await expect(state("bold")).toHaveAttribute("aria-pressed", "false");
   await expect(size).toHaveValue("21");
-  await control("Underline").click();
-  await expect(control("Underline")).toHaveAttribute("aria-pressed", "true");
-  await control("Strikethrough").click();
-  await control("Alignment").click();
-  await page.getByRole("menuitemcheckbox", { name: "Justify" }).click();
-  await control("Bulleted list").click();
-  await expect(control("Bulleted list")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await control("Line spacing").click();
+  await press("underline");
+  await expect(state("underline")).toHaveAttribute("aria-pressed", "true");
+  await press("strike");
+  await press("align-justify");
+  await press("bullets");
+  await expect(state("bullets")).toHaveAttribute("aria-pressed", "true");
+  await press("line-spacing");
   await page.getByRole("menuitemcheckbox", { name: "1.5" }).click();
-  await toolbar
-    .getByRole("combobox", { name: "Font", exact: true })
-    .selectOption("Georgia");
-  await size.selectOption("28");
+  await ribbonButton(page, "Home", "font-name");
+  const font = page.getByRole("combobox", { name: "Font", exact: true });
+  await font.fill("Georgia");
+  await font.press("Enter");
+  await ribbonButton(page, "Home", "font-size");
+  const sizeBox = page.getByRole("combobox", { name: "Font Size" });
+  await sizeBox.fill("28");
+  await sizeBox.press("Enter");
+  await expect(size).toHaveValue("28");
+  await page.keyboard.press("Escape");
   await inspector(page);
   const bottom = panel(page).getByRole("button", {
     name: "Align bottom",
@@ -10360,7 +10370,7 @@ test("the toolbar's text controls follow the selection and reach the file", asyn
   // Bold and a size step from the keyboard.
   await page.locator(".object-hit.selected").focus();
   await page.keyboard.press("Control+b");
-  await expect(control("Bold")).toHaveAttribute("aria-pressed", "true");
+  await expect(state("bold")).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Control+Shift+.");
   await expect(size).toHaveValue("32");
   // On a narrow screen Escape closes the panel laid over the canvas first;
@@ -10368,7 +10378,7 @@ test("the toolbar's text controls follow the selection and reach the file", asyn
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   await page.keyboard.press("Escape");
-  await expect(control("Bold")).toBeDisabled();
+  await expect(state("bold")).toBeDisabled();
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -11021,10 +11031,16 @@ test("the slide zooms from the footer, the keyboard, and the View menu, and fits
   const canvas = page.locator("#slide-canvas");
   const width = async () => Math.round((await canvas.boundingBox()).width);
   const level = page.getByRole("button", { name: "Zoom level" });
+  // Fitting is the Fit button's pressed state; the level shows the scale.
+  const fit = page.getByRole("button", {
+    name: "Fit slide to current window",
+  });
   const fitWidth = await width();
-  await expect(level).toHaveText(/^Fit · \d+%$/);
+  await expect(fit).toHaveAttribute("aria-pressed", "true");
+  await expect(level).toHaveText(/^\d+%$/);
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();
   await expect.poll(width).toBeGreaterThan(fitWidth);
+  await expect(fit).toHaveAttribute("aria-pressed", "false");
   await expect(level).toHaveText(/^\d+%$/);
   // At 100% an inch is 96 pixels, so a 16:9 slide is 1280 wide and the
   // area scrolls to reach the rest of it.
@@ -11046,7 +11062,7 @@ test("the slide zooms from the footer, the keyboard, and the View menu, and fits
   await expect.poll(width).toBeLessThan(1280);
   await page.keyboard.press("Control+0");
   await expect.poll(width).toBe(fitWidth);
-  await expect(level).toHaveText(/^Fit/);
+  await expect(fit).toHaveAttribute("aria-pressed", "true");
   const view = page.getByRole("menuitem", { name: "View", exact: true });
   if (await view.isVisible()) {
     await view.click();
@@ -11254,7 +11270,7 @@ test("tables are inserted, filled in cell by cell, reshaped, and resized with th
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   await expect(page.locator(".editor")).toBeVisible();
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("3");
@@ -11769,8 +11785,12 @@ test("part of a text box is formatted on its own while editing, and the file kee
   for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("Control+i");
-  const italic = page.locator('.toolbar [data-text-tool="italic"]');
-  const bold = page.locator('.toolbar [data-text-tool="bold"]');
+  const italic = page.locator(
+    '.ribbon-panel:not([hidden]) [data-command="italic"]',
+  );
+  const bold = page.locator(
+    '.ribbon-panel:not([hidden]) [data-command="bold"]',
+  );
   if (await bold.isVisible()) {
     // The toolbar reflects the selection and formats it without closing
     // the editor.
@@ -11918,7 +11938,7 @@ test("text formatting, alignment, and a fill apply to the current table cell", a
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("2");
@@ -12137,7 +12157,9 @@ test("alignment and lists apply to the paragraphs selected while editing", async
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+ArrowDown");
-  const bullets = page.locator('.toolbar [data-text-tool="list-bullet"]');
+  const bullets = page.locator(
+    '.ribbon-panel:not([hidden]) [data-command="bullets"]',
+  );
   if (await bullets.isVisible()) {
     await expect(bullets).toHaveAttribute("aria-pressed", "false");
     await bullets.click();
@@ -12351,7 +12373,7 @@ test("paragraph spacing and line spacing apply to the whole box, or to the caret
     "line-height",
     "normal",
   );
-  if (await close.isVisible()) await close.click();
+  // Back to the text (closing the panel would end the edit) to finish it.
   await editor.focus();
   await page.keyboard.press("Control+Enter");
   await expect(editor).toHaveCount(0);
@@ -12485,8 +12507,9 @@ test("the unsaved-work warning covers text still being typed on the canvas", asy
   await expect(input).toHaveCount(0);
   // The status read "Saved on this device" before the edit too; the edit has
   // landed once the object carries the typed text.
+  // AutoCorrect capitalizes the new sentence.
   await expect(page.locator('[data-object="1"]')).toHaveAccessibleName(
-    /and more/,
+    /and more/i,
   );
   await expect(page.locator("#save-status")).toHaveText("Saved on this device");
   expect(await warns()).toBe(false);
@@ -12819,14 +12842,14 @@ test("the slideshow's controls stay within the screen", async ({ page }) => {
 
 // The plain hover rule outranked the pressed rule, so a toggled Bold or
 // alignment button looked untoggled under the pointer.
-test("a pressed toolbar toggle keeps its pressed look under the pointer", async ({
+test("a pressed ribbon toggle keeps its pressed look under the pointer", async ({
   page,
 }) => {
   // The button's colors ease in; read them settled.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await story(page);
   await page.locator('[data-object="1"]').click();
-  const bold = page.locator('.toolbar [aria-label="Bold"]');
+  const bold = await ribbonButton(page, "Home", "bold");
   await expect(bold).toHaveAttribute("aria-pressed", "true");
   const rest = await bold.evaluate((node) => [
     getComputedStyle(node).backgroundColor,
@@ -13066,7 +13089,7 @@ test("a table grows with its rows and shares its width among its columns", async
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("3");
@@ -14020,14 +14043,10 @@ test("a merged cell is edited as the cell it merged into", async ({ page }) => {
   await expect(page.locator(".find-count")).toHaveText("No matches");
 });
 
-// The strip of tools scrolls sideways; its touch targets stand taller than
-// it, which let it scroll a pixel up and down as well.
-test("the toolbar strip does not scroll vertically", async ({ page }) => {
+// The ribbon's tabs scroll sideways on a narrow screen, and only sideways.
+test("the ribbon's tab strip does not scroll vertically", async ({ page }) => {
   await story(page);
-  await expect(page.locator(".toolbar-tools")).toHaveCSS(
-    "overflow-y",
-    "hidden",
-  );
+  await expect(page.locator(".ribbon-tabs")).toHaveCSS("overflow-y", "hidden");
 });
 
 // A rename finished after the editor was left did not reach the library.
@@ -14086,7 +14105,8 @@ test("the chrome keeps clear of a phone's safe areas", async ({ page }) => {
   );
   for (const selector of [
     ".editor-header",
-    ".toolbar",
+    ".ribbon-tab-row",
+    ".ribbon-body",
     ".editor-footer",
     ".presenter-controls",
     "#toast",
@@ -14158,38 +14178,47 @@ test("a link whose address is not a web, mail, or phone address gets no region w
 
 // The picker remembered the last color it applied and skipped a repeat of
 // it, so a color given to one object could not be given to the next.
-test("the toolbar's color picker applies a color already given to another object", async ({
+test("the ribbon's font color applies a color already given to another object", async ({
   page,
 }) => {
   await story(page);
-  const picker = page.locator('.toolbar input[aria-label="Text color"]');
   const textColor = () =>
     panel(page).locator('.color-field:has(input[aria-label="Text color"])');
   const close = page.getByRole("button", { name: "Close format panel" });
   const closePanel = async () => {
     if (await close.isVisible()) await close.click();
   };
-  const pick = async (object, color) => {
+  // The first time from the palette; after that the button's own press
+  // gives the color it shows.
+  const pick = async (object, fromPalette) => {
     await closePanel();
     await page.locator(`[data-object="${object}"]`).click();
-    await picker.scrollIntoViewIfNeeded();
-    await picker.fill(color);
+    await ribbonButton(page, "Home", "font-color");
+    if (fromPalette) {
+      await page
+        .getByRole("button", { name: "Font colors", exact: true })
+        .filter({ visible: true })
+        .click();
+      await page
+        .getByRole("menuitem", { name: "Dark Red", exact: true })
+        .click();
+    } else await (await ribbonButton(page, "Home", "font-color")).click();
     await inspector(page);
   };
-  await pick(1, "#cc0000");
-  await expect(textColor()).toHaveText("#CC0000");
+  await pick(1, true);
+  await expect(textColor()).toHaveText("#C00000");
   // The same color goes on a second object too.
-  await pick(2, "#cc0000");
-  await expect(textColor()).toHaveText("#CC0000");
+  await pick(2, false);
+  await expect(textColor()).toHaveText("#C00000");
   // And again after an undo took it off.
   await closePanel();
   await page.locator('[data-object="2"]').click();
   await page.keyboard.press("Control+z");
   await page.locator('[data-object="2"]').click();
   await inspector(page);
-  await expect(textColor()).not.toHaveText("#CC0000");
-  await pick(2, "#cc0000");
-  await expect(textColor()).toHaveText("#CC0000");
+  await expect(textColor()).not.toHaveText("#C00000");
+  await pick(2, false);
+  await expect(textColor()).toHaveText("#C00000");
 });
 
 // A form with two number fields and no submit button ignores Enter, so the
@@ -14198,7 +14227,7 @@ test("Enter in the table dialog's fields inserts the table", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   const columns = dialog.getByRole("spinbutton", { name: "Columns" });
@@ -14293,7 +14322,9 @@ test("text formatting from the toolbar applies to every selected object", async 
   await title.click();
   await body.click({ modifiers: ["Shift"] });
   await expect(page.locator(".object-hit.selected")).toHaveCount(2);
-  const italic = page.locator('.toolbar [data-text-tool="italic"]');
+  const italic = page.locator(
+    '.ribbon-panel:not([hidden]) [data-command="italic"]',
+  );
   const font = page.locator('.toolbar select[aria-label="Font"]');
   await italic.scrollIntoViewIfNeeded();
   await italic.click();
@@ -14337,7 +14368,7 @@ test("the panel's helper text stands clear of the field under it", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   await page
     .getByRole("dialog", { name: "Insert table" })
     .getByRole("button", { name: "Insert", exact: true })
@@ -14401,7 +14432,7 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await expect(panel(page)).toBeFocused();
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("button", { name: "Insert", exact: true }).click();
@@ -15271,7 +15302,7 @@ test("the toolbar follows text typed over several paragraphs", async ({
   await expect(editor).toHaveText("One line now");
   await editor.press("Control+i");
   await expect(
-    page.locator('.toolbar [data-text-tool="italic"]'),
+    page.locator('.ribbon-panel:not([hidden]) [data-command="italic"]'),
   ).toHaveAttribute("aria-pressed", "true");
   await editor.press("Control+Enter");
   await expect(page.locator('[data-object="1"]')).toHaveAccessibleName(
@@ -15532,13 +15563,13 @@ test("formatting chosen in an emptied editor applies to the text typed next", as
   await expect(editor).toHaveText("");
   await editor.press("Control+b");
   await expect(
-    page.locator('.toolbar [data-text-tool="bold"]'),
+    page.locator('.ribbon-panel:not([hidden]) [data-command="bold"]'),
   ).toHaveAttribute("aria-pressed", "true");
   await editor.pressSequentially("typed");
   await editor.press("Control+Enter");
   await expect(box).toHaveAccessibleName(/^typed/);
   await expect(
-    page.locator('.toolbar [data-text-tool="bold"]'),
+    page.locator('.ribbon-panel:not([hidden]) [data-command="bold"]'),
   ).toHaveAttribute("aria-pressed", "true");
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
@@ -15826,7 +15857,9 @@ test("the arrows move an object from the canvas, not from a tool button", async 
   const title = page.locator('[data-object="1"]');
   await title.click();
   const before = await title.getAttribute("style");
-  await page.locator('.toolbar [data-text-tool="bold"]').focus();
+  await page
+    .locator('.ribbon-panel:not([hidden]) [data-command="bold"]')
+    .focus();
   await page.keyboard.press("ArrowDown");
   await page.waitForTimeout(300);
   expect(await title.getAttribute("style")).toBe(before);
@@ -15853,7 +15886,7 @@ test("number fields take the nearest allowed value and the table dialog the leas
   );
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("99");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("0");
@@ -16545,7 +16578,7 @@ test("a slide's description covers the text in its tables", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await menuCommand(page, "Insert", "Table");
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("2");
