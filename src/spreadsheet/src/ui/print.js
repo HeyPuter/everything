@@ -43,7 +43,7 @@ import { readsRightToLeft } from '../core/bidi.js';
 import { isError } from '../core/formula/functions.js';
 import { chartData, isImage, isTextBox, textBoxStyle, textBoxText } from '../core/charts.js';
 import { smartArtSvg, smartArtAltText } from '../core/smartart.js';
-import { smartArtLook } from './smartart.js';
+import { smartArtLook, fallbackPicture } from './smartart.js';
 import { equationBody } from './equation-view.js';
 import { textBoxEffectCss } from '../core/theme-effects.js';
 import { renderChartSvg, renderSparklineSvg, chartCornerRadius } from './chartsvg.js';
@@ -1107,8 +1107,7 @@ function printObjectContent(node, wb, sheetId, obj, w, h) {
     // A SmartArt graphic prints as it shows, its empty items left blank.
     node.style.backgroundColor = 'transparent';
     node.classList.add('borderless');
-    if (obj.fallback) node.append(el('img', { src: obj.fallback.src, alt: '', style: { width: '100%', height: '100%' } }));
-    else node.innerHTML = smartArtSvg(obj, obj.w, obj.h, { ...smartArtLook(wb), idPrefix: `psa-${String(obj.id).replace(/[^\w-]/g, '')}`,
+    if (obj.fallback) { node.style.overflow = 'visible'; node.innerHTML = fallbackPicture(obj.fallback); } else node.innerHTML = smartArtSvg(obj, obj.w, obj.h, { ...smartArtLook(wb), idPrefix: `psa-${String(obj.id).replace(/[^\w-]/g, '')}`,
       label: obj.decorative ? '' : obj.description || smartArtAltText(obj) }).replace('<svg ', '<svg style="width:100%;height:100%" ');
     return true;
   }

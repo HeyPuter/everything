@@ -4,7 +4,7 @@
 .chart-box.smartart-box { background: transparent; }
 .chart-box.smartart-box .chart-body { overflow: visible; border-radius: 0; }
 .chart-box.smartart-box.selected .sa-shape[data-item] { cursor: pointer; }
-.chart-box.smartart-box .smartart-fallback { object-fit: fill; }
+.smartart-fallback, .print-object img.smartart-fallback { display: block; max-width: none; object-fit: fill; pointer-events: none; }
 
 /* Insert ▸ SmartArt and More Layouts: categories, layouts, and the one picked shown large. */
 .modal-panel.wide.sa-gallery-modal { width: min(960px, calc(100vw - 32px)); max-width: none; }
@@ -12,7 +12,7 @@
 .sa-gallery-cats { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding-right: 10px; border-right: 1px solid var(--hairline); }
 .sa-gallery-cat { padding: 7px 10px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .sa-gallery-cat:hover { background: var(--surface-2); }
-.sa-gallery-cat[aria-selected="true"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+.sa-gallery-cat[aria-selected="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
 .sa-gallery-cat:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sa-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); align-content: start; gap: 6px; overflow: auto; padding: 2px; }
 .sa-gallery-tile { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 4px 7px; border: 1px solid transparent; border-radius: 6px;

@@ -331,7 +331,7 @@ function segmentedCycle(roots, A) {
 function textCycle(roots, A) {
   const n = roots.length, cx = A.x + A.w / 2, cy = A.y + A.h / 2, S = Math.min(A.w, A.h);
   if (n === 1) return [shape('rect', A.x, A.y, A.w, A.h, { role: 'text', item: roots[0].i, ci: 0, paras: all(roots[0]) })];
-  const box = Math.min(S * 0.34, 2 * (S / 2) * Math.sin(Math.PI / n) * 0.8), R = S / 2 - box / 2;
+  const box = Math.min(S * 0.34, 2 * (S / 2) * Math.sin(Math.PI / n) * 0.8), R = Math.min(A.w / 2 - box * 0.65, A.h / 2 - box / 2);
   const angles = around(n), gapDeg = (Math.asin(Math.min(1, (box * 0.6) / R)) * 180) / Math.PI;
   const out = ringArrows(n, cx, cy, R, R * 0.07, gapDeg, angles);
   angles.forEach((a, i) => out.push(shape('rect', cx + R * Math.cos(rad(a)) - box * 0.65, cy + R * Math.sin(rad(a)) - box / 2, box * 1.3, box,
@@ -342,7 +342,7 @@ function textCycle(roots, A) {
 function blockCycle(roots, A) {
   const n = roots.length, cx = A.x + A.w / 2, cy = A.y + A.h / 2, S = Math.min(A.w, A.h);
   const bw = Math.min(S * 0.42, n > 1 ? 2 * (S / 2) * Math.sin(Math.PI / n) * 0.78 : S * 0.5), bh = bw * 0.6;
-  const R = S / 2 - bh / 2 - S * 0.02;
+  const R = Math.min(A.w / 2 - bw / 2, A.h / 2 - bh / 2) - S * 0.02;
   const angles = around(n), gapDeg = n > 1 ? (Math.asin(Math.min(1, (bw * 0.42) / R)) * 180) / Math.PI : 0;
   const out = n > 1 ? ringArrows(n, cx, cy, R, R * 0.24, gapDeg, angles, { role: 'deco' }) : [shape('ellipse', cx - R, cy - R, R * 2, R * 2, { role: 'ring', ci: 0 })];
   angles.forEach((a, i) => out.push(node('roundRect', cx + R * Math.cos(rad(a)) - bw / 2, cy + R * Math.sin(rad(a)) - bh / 2, bw, bh, roots[i], i, { adj: { r: 0.18 } })));

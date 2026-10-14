@@ -12,6 +12,7 @@ import { resolveDrawingStyle } from './drawingml-style.js';
 import { drawingDecorative } from './drawingml-accessibility.js';
 import { drawingIdentity, drawingBaseline } from './xlsx-drawing-reconcile.js';
 import { equationAnchor, readEquationShape } from './xlsx-equation.js';
+import { diagramOutline, diagramDrawingGroup, nearestLayout } from './xlsx-smartart.js';
 
 const decode = text => text.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (all, key) => {
   if (key[0] !== '#') return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[key.toLowerCase()];
@@ -136,7 +137,7 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
   // Most imports have no drawing parts. Do not parse their worksheet cells into an XML tree.
   if (!Object.keys(files).some(p => p.endsWith('.rels') && /\/drawing["']/.test(xmlOf(p)))) return new Map();
   // The preset catalogue is an optional chunk, never part of ordinary sheet startup.
-  const hasPresets = Object.keys(files).some(p => /\/drawings\/[^/]+\.xml$/.test(p) && /<(?:\w+:)?prstGeom\b/.test(xmlOf(p)));
+  const hasPresets = Object.keys(files).some(p => /\/(?:drawings|diagrams)\/[^/]+\.xml$/.test(p) && /<(?:\w+:)?prstGeom\b/.test(xmlOf(p)));
   const presets = hasPresets ? (await import('../vendor/drawingml-presets.js')).default : {};
   let drawShape, drawEmf;
   const imageCache = new Map();
@@ -922,6 +923,33 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
           const geometry = { ...placement, ...drawingLink(node, drawingPart), ...(scope ? { drawingKey: drawingNodeKey(node, scope) } : {}), xlsxDrawingIdentity: identity, ...(drawingDecorative(root) || drawingDecorative(node) ? { decorative: true } : {}) };
           const chartRef = node.name === 'graphicFrame' ? descendants(node, 'chart')[0] : null;
           const picture = node.name === 'pic' ? node : null, shape = ['sp', 'cxnSp'].includes(node.name) ? node : null, group = node.name === 'grpSp' ? node : null;
+          // A diagram another program made (SmartArt): its outline, and the shapes it drew for it, shown until it is changed.
+          const diagram = node.name === 'graphicFrame' && !chartRef && /\/diagram$/.test(path(node, 'graphic', 'graphicData')?.attrs.uri || '') ? descendants(node, 'relIds')[0] : null;
+          if (diagram) {
+            const dataPart = related(drawingPart, diagram.attrs['r:dm'], 'diagramData');
+            const layoutPart = related(drawingPart, diagram.attrs['r:lo'], 'diagramLayout');
+            const model = dataPart ? child(read(dataPart), 'dataModel') : null;
+            const docPoint = children(child(model, 'ptLst'), 'pt').find(p => p.attrs.type === 'doc');
+            const layoutId = (layoutPart && child(read(layoutPart), 'layoutDef')?.attrs.uniqueId) || child(docPoint, 'prSet')?.attrs.loTypeId || '';
+            const drawPart = related(drawingPart, descendants(model, 'dataModelExt')[0]?.attrs.relId, 'diagramDrawing');
+            const frame = path(node, 'xfrm', 'ext')?.attrs;
+            const fw = Number(frame?.cx) > 0 ? Number(frame.cx) : geometry.w * 9525, fh = Number(frame?.cy) > 0 ? Number(frame.cy) : geometry.h * 9525;
+            let fallback = null;
+            const group = drawPart ? diagramDrawingGroup(read(drawPart), fw, fh) : null;
+            if (group) {
+              drawShape ||= (await import('./xlsx-shapes.js')).drawingShapeImage;
+              let drawable = group;
+              try { drawable = resolveDrawingStyle(group, formatScheme); } catch { /* unresolved style links: the shapes' own colours */ }
+              const vector = drawShape(drawable, shapeFill, { presets, font, textSize });
+              const native = vector && nativeDrawing(drawable, vector.viewport, { fill: shapeFill, font, textSize, formatScheme, scope });
+              if (vector) fallback = { src: vector.src, pad: [vector.padding.x, vector.padding.y], ...(native ? { nativeDrawing: native } : {}) };
+            }
+            const props = path(node, 'nvGraphicFramePr', 'cNvPr');
+            charts.push({ type: 'smartart', ...geometry, nativeSize: true, layout: nearestLayout(layoutId), items: diagramOutline(model),
+              ...(layoutId ? { sourceLayout: layoutId } : {}), ...(fallback ? { fallback } : {}),
+              ...(props?.attrs.descr ? { description: props.attrs.descr } : {}) });
+            continue;
+          }
           if (picture) {
             // Use raster fallbacks for Office SVGs; decode supported native EMF
             // vectors for display while retaining their original export bytes.

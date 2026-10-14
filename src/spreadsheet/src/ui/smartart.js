@@ -33,6 +33,13 @@ export function smartArtLook(wb) {
   return { colors: theme.colors, fontFamily: fontStack(fontKeyFor(theme.minor, { literal: true })) || 'Calibri, Carlito, Arial, sans-serif' };
 }
 
+/** The picture another program drew for a diagram, placed over the object's box (its edges may reach past it). */
+export function fallbackPicture(fallback) {
+  const [px, py] = fallback.pad || [0, 0];
+  const pct = (n) => `${Math.round(n * 10000) / 100}%`;
+  return `<img class="smartart-fallback" alt="" draggable="false" src="${fallback.src}" style="position:absolute;left:${pct(-px)};top:${pct(-py)};width:${pct(1 + 2 * px)};height:${pct(1 + 2 * py)}">`;
+}
+
 /* ---------- The gallery (Insert ▸ SmartArt, and More Layouts) ---------- */
 
 const THUMB_W = 96, THUMB_H = 64;

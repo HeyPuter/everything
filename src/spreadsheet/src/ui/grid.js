@@ -60,7 +60,7 @@ import { renderChartSvg, renderSparklineSvg, chartCornerRadius, themeSeriesKey }
 import { equationBody } from './equation-view.js';
 import { textBoxEffectCss } from '../core/theme-effects.js';
 import { smartArtSvg, smartArtAltText, SMARTART_MIN } from '../core/smartart.js';
-import { smartArtLook } from './smartart.js';
+import { smartArtLook, fallbackPicture } from './smartart.js';
 import { paintCellFill } from './cell-fill.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { nativeFillOverridesNormal } from '../core/native-fill.js';
@@ -2088,7 +2088,7 @@ export function createGrid(opts) {
         box.el.classList.add('borderless');
         if (box.sig !== sig) {
           box.sig = sig;
-          box.body.innerHTML = ch.fallback ? `<img class="smartart-fallback" alt="" draggable="false" src="${ch.fallback.src}">`
+          box.body.innerHTML = ch.fallback ? fallbackPicture(ch.fallback)
             : smartArtSvg(ch, ch.w, ch.h, { ...look, placeholders: true, selected: picked, idPrefix: `sa-${String(ch.id).replace(/[^\w-]/g, '')}` });
           box.el.setAttribute('aria-label', ch.decorative ? 'Decorative SmartArt graphic' : `SmartArt graphic: ${(ch.description || smartArtAltText(ch)).slice(0, 300)}`);
         }

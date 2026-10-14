@@ -13,6 +13,7 @@
 import { SMARTART_LAYOUTS, layoutById, DEFAULT_LAYOUT } from './smartart-layouts.js';
 import { shapePath, pathData, connectorHead, DIRECTED, CHANGEABLE_SHAPES } from './smartart-geometry.js';
 import { DEFAULT_COLOR_PALETTE } from './font-color.js';
+import { normalizeNativeDrawing } from './drawingml-native.js';
 
 export { SMARTART_LAYOUTS, layoutById, DEFAULT_LAYOUT, CHANGEABLE_SHAPES };
 export { SMARTART_CATEGORIES } from './smartart-layouts.js';
@@ -66,7 +67,9 @@ export function normalizeSmartArt(raw) {
   // A diagram another program made, drawn as that program left it until someone changes it here.
   const fb = raw?.fallback;
   if (fb && typeof fb === 'object' && typeof fb.src === 'string' && fb.src.startsWith('data:image/svg+xml;base64,') && fb.src.length <= 8_000_000) {
-    out.fallback = { src: fb.src, ...(fb.nativeDrawing && typeof fb.nativeDrawing === 'object' ? { nativeDrawing: fb.nativeDrawing } : {}) };
+    const native = normalizeNativeDrawing(fb.nativeDrawing);
+    const pad = Array.isArray(fb.pad) && fb.pad.length === 2 && fb.pad.every((n) => Number.isFinite(n) && n >= 0 && n < 1) ? { pad: [...fb.pad] } : {};
+    out.fallback = { src: fb.src, ...pad, ...(native ? { nativeDrawing: native } : {}) };
   }
   if (typeof raw?.sourceLayout === 'string' && raw.sourceLayout.length <= 300) out.sourceLayout = raw.sourceLayout;
   return out;
@@ -348,18 +351,22 @@ function wrap(text, width, size) {
 
 const LINE_HEIGHT = 1.2;
 const PARA_GAP = 0.2;
-/** Paragraph sizes: sub-items under an item's own text a little smaller. */
-const paraSize = (paras, p, size) => (p.level > 0 && paras.some((q) => q.level === 0) ? size * 0.82 : size);
+/**
+ * A paragraph's text size and indents: sub-items under an item's own text a little smaller, and a bullet's
+ * text indented past its bullet, a level deeper further in. { size, indent, bulletX } (offsets from the box).
+ */
+export function smartArtParaMetrics(paras, p, size) {
+  const s = p.level > 0 && paras.some((q) => q.level === 0) ? size * 0.82 : size;
+  return { size: s, indent: p.bullet ? s * (0.9 + Math.max(0, p.level - 1) * 0.9) : 0, bulletX: p.bullet ? s * (0.15 + Math.max(0, p.level - 1) * 0.9) : null };
+}
 
 /** The text's lines at `size` in `box`: [{ text, x, y (baseline), size, bulletX }], its height, and whether it fits. */
 export function setText(paras, box, size, align = 'center', valign = 'middle') {
   const lines = [];
   let y = 0, broke = false;
   paras.forEach((p, k) => {
-    const s = paraSize(paras, p, size);
+    const { size: s, indent, bulletX } = smartArtParaMetrics(paras, p, size);
     if (k) y += s * PARA_GAP;
-    const indent = p.bullet ? s * (0.9 + Math.max(0, p.level - 1) * 0.9) : 0;
-    const bulletX = p.bullet ? s * (0.15 + Math.max(0, p.level - 1) * 0.9) : null;
     const w = wrap(p.text, Math.max(1, box.w - indent), s);
     broke ||= w.broke;
     w.lines.forEach((t, j) => {
