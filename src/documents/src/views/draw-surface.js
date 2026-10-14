@@ -33,7 +33,7 @@ export function createDrawSurface({ editor, handlers }) {
   let mode = null, touch = true, attached = null, frame = 0, current = null, penUntil = 0;
   const pending = new Map(), scenes = new Map();
   let lasso = null, selection = null, cursor = null, eraserRadius = 6, rulerState = null;
-  const layer = el('div.draw-layer', { 'aria-hidden': 'true' });
+  const layer = el('div.draw-layer');
   const overlays = new Map();
   const abort = new AbortController();
 
@@ -52,7 +52,7 @@ export function createDrawSurface({ editor, handlers }) {
   function overlay(page) {
     const ed = engine(), canvas = ed?.canvases?.[page]; if (!canvas) return null;
     let node = overlays.get(page);
-    if (!node) { node = el('canvas.draw-overlay'); overlays.set(page, node); layer.append(node); }
+    if (!node) { node = el('canvas.draw-overlay', { 'aria-hidden': 'true' }); overlays.set(page, node); layer.append(node); }
     const ratio = window.devicePixelRatio || 1, width = canvas.offsetWidth, height = canvas.offsetHeight;
     Object.assign(node.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${width}px`, height: `${height}px` });
     if (node.width !== Math.round(width * ratio) || node.height !== Math.round(height * ratio)) { node.width = Math.round(width * ratio); node.height = Math.round(height * ratio); }

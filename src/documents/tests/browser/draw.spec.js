@@ -56,12 +56,12 @@ test('pens draw with the mouse, undo per stroke, save as DrawingML groups and re
   await expect(pens).toHaveCount(5);
   await pens.first().click();
   await expect(pens.first()).toHaveAttribute('aria-pressed', 'true');
-  await draw(page, box, wave(140, 520));
+  await draw(page, box, wave(140, 360));
   await expect.poll(() => objects(input)).toBe(1);
-  await expect.poll(() => inkAt(page, 140 + 8 * 6, 520 + Math.sin(2) * 18)).toBeGreaterThan(0);
+  await expect.poll(() => inkAt(page, 140 + 8 * 6, 360 + Math.sin(2) * 18)).toBeGreaterThan(0);
   // A second pen, then the highlighter across the first line of text.
   await pens.nth(1).click();
-  await draw(page, box, wave(140, 600));
+  await draw(page, box, wave(140, 440));
   await expect.poll(() => objects(input)).toBe(2);
   await ribbon.locator('.draw-pen[data-tool="highlighter"]').click();
   await draw(page, box, [[96, 112], [400, 112]]);
@@ -89,11 +89,11 @@ test('pens draw with the mouse, undo per stroke, save as DrawingML groups and re
   const text = await input.inputValue();
   await reopenDocx(page, input, path, text, { timeout: 20000 });
   await onTab(page, 'draw');
-  await expect.poll(() => inkAt(page, 140 + 8 * 6, 520 + Math.sin(2) * 18)).toBeGreaterThan(0);
+  await expect.poll(() => inkAt(page, 140 + 8 * 6, 360 + Math.sin(2) * 18)).toBeGreaterThan(0);
   // Reopened ink is still ink: the lasso selects its strokes.
   await ribbon.getByRole('button', { name: 'Lasso Select', exact: true }).click();
   const reopened = await page.locator('canvas.canvas-page').first().boundingBox();
-  await draw(page, reopened, loop(120, 490, 230, 160));
+  await draw(page, reopened, loop(120, 330, 230, 160));
   await page.keyboard.press('Delete');
   await expect.poll(() => objects(input)).toBe(1);
   expect(errors).toEqual([]);
@@ -103,36 +103,36 @@ test('stroke and point erasers, erase all, and lasso move and delete', async ({ 
   test.setTimeout(120000);
   const { input, errors, ribbon, box } = await start(page);
   await ribbon.locator('.draw-pen').first().click();
-  await draw(page, box, wave(140, 520));
-  await draw(page, box, [[140, 620], [400, 620]]);
-  await draw(page, box, loop(500, 500, 120, 90));
+  await draw(page, box, wave(140, 360));
+  await draw(page, box, [[140, 460], [400, 460]]);
+  await draw(page, box, loop(500, 340, 120, 90));
   await expect.poll(() => objects(input)).toBe(3);
   await ribbon.getByRole('button', { name: 'Eraser', exact: true }).click();
   await expect.poll(() => objects(input)).toBe(1);
   // The stroke eraser takes the whole wave it touches.
-  await draw(page, box, [[180, 480], [184, 560]]);
-  await expect.poll(() => inkAt(page, 140 + 8 * 6, 520 + Math.sin(2) * 18, 4)).toBe(0);
-  await expect.poll(() => inkAt(page, 300, 620, 3)).toBeGreaterThan(0);
+  await draw(page, box, [[180, 320], [184, 400]]);
+  await expect.poll(() => inkAt(page, 140 + 8 * 6, 360 + Math.sin(2) * 18, 4)).toBe(0);
+  await expect.poll(() => inkAt(page, 300, 460, 3)).toBeGreaterThan(0);
   // The point eraser cuts a gap in the straight line and leaves both ends.
   await ribbon.getByRole('button', { name: 'Eraser options' }).click();
   await page.getByRole('menuitemradio', { name: 'Point Eraser' }).click();
-  await draw(page, box, [[270, 600], [270, 640]]);
-  await expect.poll(() => inkAt(page, 270, 620, 2)).toBe(0);
-  expect(await inkAt(page, 160, 620, 3)).toBeGreaterThan(0);
-  expect(await inkAt(page, 380, 620, 3)).toBeGreaterThan(0);
+  await draw(page, box, [[270, 440], [270, 480]]);
+  await expect.poll(() => inkAt(page, 270, 460, 2)).toBe(0);
+  expect(await inkAt(page, 160, 460, 3)).toBeGreaterThan(0);
+  expect(await inkAt(page, 380, 460, 3)).toBeGreaterThan(0);
   await shot(page, 'erased');
   // Undo restores what one sweep erased.
   await input.press('ControlOrMeta+z');
-  await expect.poll(() => inkAt(page, 270, 620, 2)).toBeGreaterThan(0);
+  await expect.poll(() => inkAt(page, 270, 460, 2)).toBeGreaterThan(0);
   // Lasso: select the square and drag it down; then delete it.
   await ribbon.getByRole('button', { name: 'Lasso Select', exact: true }).click();
-  await draw(page, box, loop(480, 480, 160, 130));
-  await draw(page, box, [[560, 545], [560, 600], [560, 645]]);
-  await expect.poll(() => inkAt(page, 500, 645, 3)).toBeGreaterThan(0);
-  await expect.poll(() => inkAt(page, 500, 520, 3)).toBe(0);
+  await draw(page, box, loop(480, 320, 160, 130));
+  await draw(page, box, [[560, 385], [560, 440], [560, 485]]);
+  await expect.poll(() => inkAt(page, 500, 485, 3)).toBeGreaterThan(0);
+  await expect.poll(() => inkAt(page, 500, 360, 3)).toBe(0);
   await shot(page, 'lasso-moved');
   await page.keyboard.press('Delete');
-  await expect.poll(() => inkAt(page, 500, 645, 3)).toBe(0);
+  await expect.poll(() => inkAt(page, 500, 485, 3)).toBe(0);
   // Erase All Ink in Document removes the rest.
   await ribbon.getByRole('button', { name: 'Eraser options' }).click();
   await page.getByRole('menuitem', { name: 'Erase All Ink in Document' }).click();
@@ -148,16 +148,16 @@ test('ink to shape turns drawn strokes into preset shapes', async ({ page }, inf
   await ribbon.locator('.draw-pen').nth(2).click();
   await ribbon.getByRole('button', { name: 'Ink to Shape', exact: true }).click();
   await expect(ribbon.getByRole('button', { name: 'Ink to Shape', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await draw(page, box, loop(140, 500, 180, 110), 12);
-  await draw(page, box, Array.from({ length: 49 }, (_, i) => [480 + 70 * Math.cos(i / 48 * 2.06 * Math.PI), 560 + 45 * Math.sin(i / 48 * 2.06 * Math.PI)]), 2);
-  await draw(page, box, [[140, 700], [400, 760]], 10);
+  await draw(page, box, loop(140, 300, 180, 100), 12);
+  await draw(page, box, Array.from({ length: 49 }, (_, i) => [480 + 70 * Math.cos(i / 48 * 2.06 * Math.PI), 350 + 45 * Math.sin(i / 48 * 2.06 * Math.PI)]), 2);
+  await draw(page, box, [[140, 450], [400, 500]], 10);
   await expect.poll(() => objects(input)).toBe(3);
   await ribbon.getByRole('button', { name: 'Ink to Shape', exact: true }).click();
   // A loop drawn as ink, then converted from the lasso selection.
-  await draw(page, box, [[560, 700], [640, 820], [480, 820], [560, 702]], 12);
+  await draw(page, box, [[560, 440], [640, 560], [480, 560], [560, 442]], 12);
   await expect.poll(() => objects(input)).toBe(4);
   await ribbon.getByRole('button', { name: 'Lasso Select', exact: true }).click();
-  await draw(page, box, loop(450, 680, 220, 170));
+  await draw(page, box, loop(450, 420, 220, 170));
   await ribbon.getByRole('button', { name: 'Ink to Shape', exact: true }).click();
   await expect.poll(() => page.locator('.draw-hint, .toast').count()).toBeGreaterThanOrEqual(0);
   await shot(page, 'shapes');
@@ -211,9 +211,12 @@ test('drawing canvas, ruler, hide ink, replay and the toggle drawing shortcut', 
   const { xml } = await save(page, info, 'canvas-ruler');
   expect(xml).toMatch(/<wp:inline [^>]*>.*name="Drawing Canvas \d+"/s);
   expect(xml).toMatch(/<pdi:canvas /);
-  const points = [...xml.matchAll(/points="([^"]+)"/g)].at(-1)[1].split(' ').map(Number);
-  const ys = points.filter((_, i) => i % 3 === 1);
-  expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(9525 * 0.6);
+  // The zigzag drawn beside the edge was laid along it: one stroke is straight and long.
+  const spans = [...xml.matchAll(/points="([^"]+)"/g)].map(m => {
+    const v = m[1].split(' ').map(Number), xs = v.filter((_, i) => i % 3 === 0), ys = v.filter((_, i) => i % 3 === 1);
+    return { dx: Math.max(...xs) - Math.min(...xs), dy: Math.max(...ys) - Math.min(...ys) };
+  });
+  expect(spans.some(s => s.dx > 9525 * 200 && s.dy < 9525 * 0.6)).toBe(true);
   await shot(page, 'ruler');
   // Toggle Drawing: the shortcut switches between the pen and typing.
   await ribbon.getByRole('button', { name: 'Select', exact: true }).click();
@@ -261,7 +264,7 @@ test('pen settings persist, pens can be added and removed, and Ink to Math inser
   const equation = page.getByRole('dialog', { name: 'Equation' });
   await expect(equation.getByRole('textbox', { name: 'Equation in linear format' })).toHaveValue('x^2+y^2=r^2');
   await equation.getByRole('button', { name: 'Insert' }).click();
-  await expect.poll(() => input.inputValue()).toContain('x');
+  await expect.poll(() => objects(input)).toBe(1);
   expect(box).toBeTruthy();
   expect(errors).toEqual([]);
 });

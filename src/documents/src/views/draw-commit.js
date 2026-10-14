@@ -167,8 +167,13 @@ export function createInkCommitter({ editor, pkg, onApplied = () => {}, onError 
         if (found) changed = true;
       }
       for (const b of built.filter(b => b.op.add || b.op.addXml)) {
-        const at = b.paragraphId != null ? paragraphStart(model, b.paragraphId) : caret;
+        let at = b.paragraphId != null ? paragraphStart(model, b.paragraphId) : caret;
         if (at < 0) throw new Error('The paragraph under the ink is gone. Try again.');
+        if (b.op.canvas) {
+          // A drawing canvas takes a paragraph of its own.
+          const text = model.text, lineStart = text.lastIndexOf('\n', at - 1) + 1, lineEnd = text.indexOf('\n', at) < 0 ? text.length : text.indexOf('\n', at);
+          if (text.slice(lineStart, lineEnd).replace(/\s/g, '')) { model.select(lineEnd, lineEnd); model.replace('\n', { checkpoint: false }); at = lineEnd + 1; if (lineEnd < caret) shift(lineEnd, 1); }
+        }
         const { assetId, id: _id, ...props } = b.fragment.image;
         model.select(at, at); model.insertImage(assetId, props); shift(at, 1); changed = true;
         b.inserted = at;

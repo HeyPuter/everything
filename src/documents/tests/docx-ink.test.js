@@ -4,6 +4,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { readDrawingFragment } from '../src/engine/inserted-drawings.js';
+import { recognizedShapeXml, triangleGeometry } from '../src/engine/ink-shapes.js';
 import { inkDrawingXml, inkStrokeXml, readInkDrawing, isInkImage, INK_EXTENSION_URI, readInkExtension } from '../src/engine/docx-ink.js';
 
 let dom;
@@ -103,5 +104,32 @@ describe('ink DOCX round trip', () => {
   it('treats groups with unmarked children as ordinary drawings', () => {
     expect(readInkDrawing('<w:drawing/>')).toBeNull();
     expect(isInkImage({ retainedDrawing: true, shell: '<w:drawing/>' })).toBe(false);
+  });
+});
+
+describe('ink to shape output', () => {
+  const anchor = { horizontal: 'page', vertical: 'page', x: 9525 * 100, y: 9525 * 200, wrap: 'none', behind: false, order: 1 };
+  it('writes recognised shapes as outlined presets that reopen as shapes', async () => {
+    const cases = [
+      [{ kind: 'rect', cx: 150, cy: 100, width: 120, height: 60, angle: 0 }, /<a:prstGeom prst="rect">.*<a:noFill\/>/],
+      [{ kind: 'ellipse', cx: 150, cy: 100, width: 80, height: 40, angle: Math.PI / 6 }, /<a:xfrm rot="1800000">.*prst="ellipse"/],
+      [{ kind: 'arrow', from: { x: 200, y: 50 }, to: { x: 100, y: 120 } }, /<a:xfrm flipH="1">.*prst="line".*<a:tailEnd type="triangle"\/>/],
+      [{ kind: 'triangle', vertices: [{ x: 50, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }] }, /prst="triangle"/],
+      [{ kind: 'triangle', vertices: [{ x: 0, y: 0 }, { x: 100, y: 30 }, { x: 40, y: 90 }] }, /<a:custGeom>/],
+    ];
+    for (const [shape, pattern] of cases) {
+      const { xml, bounds } = recognizedShapeXml(shape, { id: 4, anchor, color: '0070C0', widthPx: 2 });
+      expect(xml).toMatch(pattern);
+      expect(xml).toMatch(/<a:ln w="19050" cap="rnd"><a:solidFill><a:srgbClr val="0070C0"\/><\/a:solidFill><a:round\/>/);
+      expect(bounds.width).toBeGreaterThan(0);
+      const { reopened } = await roundTrip(xml);
+      expect(reopened.readOnly).toBeFalsy();
+      const image = images(reopened)[0];
+      expect(reopened.assets[image.assetId].scene.type).toBe('shape');
+    }
+  });
+  it('picks triangle presets and flips from the drawn corners', () => {
+    expect(triangleGeometry([{ x: 50, y: 80 }, { x: 0, y: 0 }, { x: 100, y: 0 }])).toEqual({ preset: 'triangle', flipV: true });
+    expect(triangleGeometry([{ x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }])).toEqual({ preset: 'rtTriangle', flipH: true, flipV: false });
   });
 });
