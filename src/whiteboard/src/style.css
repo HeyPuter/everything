@@ -3237,6 +3237,294 @@ dialog.rail-flyout.add-content-flyout {
   font-size: 11px;
   padding: 8px;
 }
+/* Version history: the chosen version, as the board was then, beside the
+   list of versions. The list scrolls on its own beside the preview. */
+dialog.history-dialog {
+  width: min(1120px, calc(100vw - 28px));
+  height: min(820px, calc(100dvh - 40px));
+}
+dialog.history-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.history-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 20px;
+}
+.history-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.history-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.history-preview-name {
+  flex: 1;
+  min-width: 0;
+}
+.history-preview-name strong,
+.history-preview-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-preview-name strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.history-preview-name small {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.history-zoom {
+  display: flex;
+  gap: 4px;
+}
+.history-stage {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+.history-stage canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.history-stage canvas.dragging {
+  cursor: grabbing;
+}
+.history-stage canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.history-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.history-changes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  min-height: 24px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Each kind of change is marked as it is outlined in the preview: deleted
+   objects dashed, changed ones solid. */
+.history-change[data-change="removed"]::before,
+.history-change[data-change="changed"]::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  margin-right: 6px;
+  border: 2px solid #9a5b00;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.history-change[data-change="removed"]::before {
+  border: 2px dashed #c42b1c;
+}
+:root[data-theme="dark"] .history-change[data-change="changed"]::before {
+  border-color: #f5c46b;
+}
+:root[data-theme="dark"] .history-change[data-change="removed"]::before {
+  border-color: #ff9b8f;
+}
+.history-highlight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--text);
+}
+.history-sidebar {
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 4px 2px 2px;
+}
+.history-sidebar h3 {
+  margin: 18px 0 8px;
+  font-size: 13px;
+}
+.history-sidebar .revision-list {
+  gap: 6px;
+  max-height: none;
+  overflow: visible;
+}
+.history-retention summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.history-retention .dialog-copy {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.checkpoint-details {
+  margin: 0 0 6px;
+}
+.checkpoint-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.checkpoint-details summary::-webkit-details-marker {
+  display: none;
+}
+.checkpoint-details summary svg {
+  width: 16px;
+  height: 16px;
+}
+.checkpoint-details summary:hover {
+  background: var(--hover);
+}
+.history-dialog .checkpoint-create {
+  margin: 4px 0 10px;
+}
+.history-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+  font-size: 12px;
+}
+.revision-day {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.history-dialog .revision-row {
+  gap: 4px;
+  padding: 4px 6px 4px 4px;
+}
+.history-dialog .revision-row.picked {
+  border-color: var(--accent);
+  background: var(--soft);
+}
+.history-dialog .revision-row > .revision-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.revision-pick {
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.revision-pick:hover {
+  background: var(--hover);
+}
+.history-dialog .revision-pick strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.revision-pick strong svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.history-dialog .revision-pick small {
+  margin-top: 3px;
+  font-size: 11px;
+}
+.history-dialog .revision-options {
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  /* On a phone the preview sits above the list and the two scroll as one. */
+  dialog.history-dialog {
+    height: calc(100dvh - 24px);
+    padding: 16px;
+  }
+  .history-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: auto;
+  }
+  .history-preview,
+  .history-sidebar {
+    flex: none;
+  }
+  /* The chosen version stays in sight while the list scrolls under it. */
+  .history-preview {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-bottom: 8px;
+    background: var(--surface);
+  }
+  .history-stage {
+    flex: none;
+    height: 32dvh;
+    min-height: 160px;
+  }
+  /* Until a version is chosen, only the hint takes room. */
+  .history-preview:has(canvas[hidden]) .history-stage {
+    height: auto;
+    min-height: 0;
+  }
+  .history-preview:has(canvas[hidden]) .history-empty {
+    position: static;
+    padding: 14px;
+  }
+  .history-preview:has(canvas[hidden]) :is(.history-zoom, .history-changes) {
+    display: none;
+  }
+  .history-sidebar {
+    overflow: visible;
+  }
+}
 .checkpoint-create {
   display: flex;
   align-items: center;

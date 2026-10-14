@@ -325,4 +325,13 @@ addTranslations({
   "That frame is no longer shown to you.": "Ce cadre ne vous est plus affiché.",
   "That frame is not in this version.":
     "Ce cadre ne figure pas dans cette version.",
+  "How long versions are kept": "Durée de conservation des versions",
+  "Versions of this board are saved on this device as you edit. Restoring one keeps the current version first, and Undo takes it back.":
+    "Les versions de ce tableau sont enregistrées sur cet appareil à mesure que vous le modifiez. Une restauration conserve d’abord la version actuelle, et Annuler la défait.",
+  "Name the current version": "Nommer la version actuelle",
+  "Named versions only": "Versions nommées seulement",
+  "No named versions yet.": "Aucune version nommée pour le moment.",
+  "Original version": "Version d’origine",
+  Today: "Aujourd’hui",
+  Yesterday: "Hier",
 });

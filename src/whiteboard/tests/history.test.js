@@ -1225,3 +1225,18 @@ test("version history names no one to participants on a board that takes anonymo
   // The owner, who runs the workshop, still does.
   assert.deepEqual(await authors(owner), ["Alice", "Bob", "Bob"]);
 });
+
+test("a version's changes since are the objects deleted, changed and added since", async () => {
+  const { versionChanges } = await import("../src/history/preview.js");
+  const a = item("note", 0, 0, { text: "Kept" }),
+    b = item("note", 200, 0, { text: "Changed" }),
+    c = item("note", 400, 0, { text: "Deleted" }),
+    d = item("note", 600, 0, { text: "Added" });
+  const changes = versionChanges(
+    [{ ...a }, { ...b, text: "Changed since" }, d],
+    [a, b, c],
+  );
+  assert.deepEqual([...changes.removed], [c.id]);
+  assert.deepEqual([...changes.changed], [b.id]);
+  assert.equal(changes.added, 1);
+});

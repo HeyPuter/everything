@@ -112,6 +112,8 @@ import {
   restoreBoard,
   withoutObjects,
 } from "./history/restore.js";
+import { createVersionPreview, versionChanges } from "./history/preview.js";
+import { keptRevision } from "./storage.js";
 import { readTableContent, pasteTable, tableHeight } from "./bulk-content.js";
 import { canSwitchShape, shapeKey, switchShape } from "./shapes.js";
 import { portableWorkshop, WORKSHOP_LIMITS } from "./facilitation/model.js";
@@ -1397,9 +1399,10 @@ export function createFeatures(api) {
     // Someone who cannot edit the board sees its versions and can open one
     // as a copy, but is not offered restoring.
     const readOnly = () => !!api.readOnly?.();
+    const retention = `<details class="history-retention"><summary>${t("How long versions are kept")}</summary><p class="dialog-copy">${t("The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.")}</p></details>`;
     const d = api.modal(
       "Version history",
-      `<p class="dialog-copy">${t(shared ? "Everyone's edits to this shared board are kept, so any earlier version can be restored. Restoring saves a new version and never removes history." : "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.")}</p>${readOnly() ? `<p class="dialog-copy">${t("You can view earlier versions and open one as a copy. Only people who can edit this board restore versions.")}</p>` : ""}<p id="history-status" class="dialog-copy" role="status" aria-live="polite" tabindex="-1" hidden></p>${shared ? `<h3>${t("Shared board history")}</h3><div class="revision-list" id="shared-revisions"><p>${t("Loading…")}</p></div><h3>${t("Versions on this device")}</h3>` : ""}<div class="checkpoint-create"><label class="field">Checkpoint name<input id="checkpoint-label" maxlength="120" value="${t("Checkpoint")}"></label><button class="primary" id="checkpoint-create">Create checkpoint</button></div><div class="revision-list" id="local-revisions"></div>`,
+      `<div class="history-layout"><section class="history-preview" aria-labelledby="history-preview-title"><div class="history-preview-head"><div class="history-preview-name"><strong id="history-preview-title">${t("Preview of the version")}</strong><small id="history-preview-meta"></small></div><div class="history-zoom" role="group" aria-label="${t("Preview of the version")}"><button type="button" class="icon-btn" data-preview-zoom="out" aria-label="${t("Zoom out of the preview")}" title="${t("Zoom out of the preview")}" disabled><i data-lucide="minus" aria-hidden="true"></i></button><button type="button" class="icon-btn" data-preview-zoom="fit" aria-label="${t("Fit the version in the preview")}" title="${t("Fit the version in the preview")}" disabled><i data-lucide="maximize" aria-hidden="true"></i></button><button type="button" class="icon-btn" data-preview-zoom="in" aria-label="${t("Zoom in on the preview")}" title="${t("Zoom in on the preview")}" disabled><i data-lucide="plus" aria-hidden="true"></i></button></div></div><div class="history-stage"><canvas id="history-preview-canvas" role="img" tabindex="0" aria-describedby="history-changes history-preview-help" hidden></canvas><p class="history-empty">${t("Choose a version to see the board as it was then, with what has changed since.")}</p></div><p id="history-preview-help" class="sr-only">${t("Drag to move around this version. Ctrl/Cmd + scroll, a pinch or the + and - keys zoom.")}</p><div class="history-changes" id="history-changes" role="status" aria-live="polite"></div></section><div class="history-sidebar"><p class="dialog-copy">${t(shared ? "Everyone's edits to this shared board are kept, so any earlier version can be restored. Restoring saves a new version and never removes history." : "Versions of this board are saved on this device as you edit. Restoring one keeps the current version first, and Undo takes it back.")}</p>${shared ? "" : retention}${readOnly() ? `<p class="dialog-copy">${t("You can view earlier versions and open one as a copy. Only people who can edit this board restore versions.")}</p>` : ""}<p id="history-status" class="dialog-copy" role="status" aria-live="polite" tabindex="-1" hidden></p>${shared ? `<h3>${t("Shared board history")}</h3><div class="revision-list" id="shared-revisions"><p>${t("Loading…")}</p></div>` : ""}<h3>${t("Versions on this device")}</h3>${shared ? retention : ""}<details class="checkpoint-details"><summary autofocus><i data-lucide="bookmark-plus" aria-hidden="true"></i>${t("Name the current version")}</summary><form class="checkpoint-create"><label class="field">Checkpoint name<input id="checkpoint-label" maxlength="120" value="${t("Checkpoint")}"></label><button class="primary" id="checkpoint-create">Create checkpoint</button></form></details><label class="history-filter"><input type="checkbox" id="history-named">${t("Named versions only")}</label><div class="revision-list" id="local-revisions"></div></div></div>`,
     );
     // A history dialog can stay open through address-bar navigation. Its
     // versions must never be restored into whichever board is now open.
@@ -1413,6 +1416,126 @@ export function createFeatures(api) {
       status.hidden = false;
       if (d.isConnected) status.focus();
       return false;
+    }
+    d.classList.add("history-dialog");
+    // The chosen version is shown beside the list, as the board was then,
+    // with what changed since pointed out.
+    const stage = d.querySelector(".history-stage"),
+      previewCanvas = stage.querySelector("canvas"),
+      previewer = createVersionPreview(stage),
+      changesNote = d.querySelector("#history-changes"),
+      highlight = () =>
+        d.querySelector("#history-highlight")?.checked !== false;
+    d.addEventListener("close", () => previewer.destroy(), { once: true });
+    d.querySelectorAll("[data-preview-zoom]").forEach((button) => {
+      const zoom = button.dataset.previewZoom;
+      button.onclick = () =>
+        zoom === "in"
+          ? previewer.zoomIn()
+          : zoom === "out"
+            ? previewer.zoomOut()
+            : previewer.fit();
+    });
+    // Each version is read once while the dialog is open to show it and to
+    // list its restore options; restoring reads it again.
+    const loaded = new Map();
+    const cachedLoad = (key, load) => {
+      if (!loaded.has(key)) {
+        let pending;
+        try {
+          pending = Promise.resolve(load());
+        } catch (error) {
+          pending = Promise.reject(error);
+        }
+        loaded.set(
+          key,
+          pending.catch((error) => {
+            loaded.delete(key);
+            throw error;
+          }),
+        );
+      }
+      return loaded.get(key);
+    };
+    // How each listed version is named and read, by its key ("l:" and the
+    // id of a version on this device, "s:" and the time of a shared one).
+    const sources = new Map();
+    let picked = null;
+    const markPicked = () =>
+      d.querySelectorAll("[data-pick]").forEach((button) => {
+        const on = button.dataset.pick === picked;
+        button.setAttribute("aria-pressed", String(on));
+        button.closest(".revision-row")?.classList.toggle("picked", on);
+      });
+    async function pick(key) {
+      const source = sources.get(key);
+      if (!source || !onBoard()) return;
+      picked = key;
+      markPicked();
+      d.querySelector("#history-preview-title").textContent = source.title;
+      d.querySelector("#history-preview-meta").textContent = source.meta;
+      changesNote.textContent = t("Loading this version…");
+      let version;
+      try {
+        version = await cachedLoad(key, source.load);
+      } catch (error) {
+        if (picked === key && d.isConnected)
+          changesNote.textContent = t(
+            error.message || "Could not load this version.",
+          );
+        return;
+      }
+      if (picked !== key || !d.isConnected || !onBoard()) return;
+      // Nothing the workshop hides from this person, then or now, is shown
+      // or counted.
+      const current = api.board(),
+        hidden = api.concealedIn
+          ? new Set([...api.concealedIn(version), ...api.concealedIn(current)])
+          : new Set(),
+        items = version.items.filter((i) => !hidden.has(i.id)),
+        changes = versionChanges(
+          current.items.filter((i) => !hidden.has(i.id)),
+          items,
+        );
+      previewCanvas.hidden = false;
+      stage.querySelector(".history-empty").hidden = true;
+      d.querySelectorAll("[data-preview-zoom]").forEach(
+        (button) => (button.disabled = false),
+      );
+      previewCanvas.setAttribute(
+        "aria-label",
+        `${t("Preview of the version")}: ${source.title}, ${source.meta}`,
+      );
+      previewer.show({
+        items,
+        tags: version.tags,
+        changes,
+        highlight: highlight(),
+      });
+      const counts = [
+        ["removed", changes.removed.size, "{count} deleted since"],
+        ["changed", changes.changed.size, "{count} changed since"],
+        ["added", changes.added, "{count} added since"],
+      ].filter(([, count]) => count);
+      changesNote.innerHTML = `<span>${plural(items.length, "{count} object", "{count} objects")}</span>${
+        counts.length
+          ? counts
+              .map(
+                ([kind, count, text]) =>
+                  `<span class="history-change" data-change="${kind}">${plural(count, text, text)}</span>`,
+              )
+              .join("")
+          : `<span>${t("Same as the board now.")}</span>`
+      }${
+        changes.removed.size || changes.changed.size
+          ? `<label class="history-highlight"><input type="checkbox" id="history-highlight" ${highlight() ? "checked" : ""}>${t("Highlight changes")}</label>`
+          : ""
+      }`;
+      changesNote
+        .querySelector("#history-highlight")
+        ?.addEventListener("change", (e) =>
+          previewer.highlight(e.currentTarget.checked),
+        );
     }
     // A restore can await both a shared version and its recovery backup.
     // Keep every history action from starting a competing restoration.
@@ -1474,14 +1597,64 @@ export function createFeatures(api) {
         for (const sync of restoreState.dialogs) sync();
       };
     }
-    const when = (at) =>
-      new Date(at).toLocaleString(language === "fr" ? "fr-CA" : "en-CA");
+    const locale = () => (language === "fr" ? "fr-CA" : "en-CA");
+    const when = (at) => new Date(at).toLocaleString(locale());
+    // Versions are listed under their day, at the minute they were saved;
+    // seconds tell apart neighbours saved in the same minute.
+    const clock = (at, seconds = false) =>
+      new Date(at).toLocaleTimeString(locale(), {
+        hour: "numeric",
+        minute: "2-digit",
+        ...(seconds ? { second: "2-digit" } : {}),
+      });
+    const clocks = (times) => {
+      const short = times.map((at) => clock(at));
+      return times.map((at, n) =>
+        short[n] === short[n - 1] || short[n] === short[n + 1]
+          ? clock(at, true)
+          : short[n],
+      );
+    };
+    function dayName(at) {
+      const date = new Date(at),
+        today = new Date(),
+        start = (x) =>
+          new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(),
+        days = Math.round((start(today) - start(date)) / 86400_000);
+      if (days === 0) return t("Today");
+      if (days === 1) return t("Yesterday");
+      return date.toLocaleDateString(locale(), {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        ...(date.getFullYear() !== today.getFullYear()
+          ? { year: "numeric" }
+          : {}),
+      });
+    }
+    // Rows, each under the heading of its day.
+    const byDay = (entries, row) => {
+      let day = null;
+      const times = clocks(entries.map((e) => e.at));
+      return entries
+        .map((e, n) => {
+          const name = dayName(e.at),
+            heading =
+              name === day
+                ? ""
+                : `<h4 class="revision-day">${escape(name)}</h4>`;
+          day = name;
+          return heading + row(e, times[n], name);
+        })
+        .join("");
+    };
     // Granular restore choices for one version, loaded on demand.
     // `onDevice` versions are this device's own; the audit log records a
     // restoration from them without a shared version's time.
-    async function options(button, load, at, onDevice = false) {
+    async function options(button, load, at, onDevice = false, key = null) {
       if (!onBoard() || restoreState.pending || button.disabled) return;
       const row = button.closest(".revision-row");
+      if (key && picked !== key) pick(key);
       const existing = row.nextElementSibling;
       if (existing?.classList.contains("revision-options")) {
         existing.remove();
@@ -1749,7 +1922,10 @@ export function createFeatures(api) {
         const options = retained.nextElementSibling;
         // Dates, labels and counts can follow the interface language without
         // replacing buttons that are focused or awaiting a response.
-        retained.firstElementChild.replaceWith(node.firstElementChild);
+        const name = retained.firstElementChild,
+          fresh = node.firstElementChild;
+        if (name.innerHTML !== fresh.innerHTML)
+          name.innerHTML = fresh.innerHTML;
         const labels = node.querySelectorAll(".revision-actions button");
         retained
           .querySelectorAll(".revision-actions button")
@@ -1801,12 +1977,22 @@ export function createFeatures(api) {
         showRevisionRows(
           list,
           rows.length
-            ? rows
-                .map(
-                  (v, n) =>
-                    `<div class="revision-row"><div><strong id="shared-version-${v.at}">${when(v.at)}</strong><small><span data-user-content>${escape(v.authors.map(String).join(", "))}</span> · ${v.edits} ${t(v.edits === 1 ? "edit" : "edits")}${n === 0 ? ` · ${t("Current version")}` : ""}</small></div><div class="revision-actions"><button class="secondary" data-shared="${v.at}" aria-describedby="shared-version-${v.at}" ${n === 0 || readOnly() ? "disabled" : ""}>${t("Restore version")}</button><button class="text-btn" data-shared-options="${v.at}" aria-describedby="shared-version-${v.at}" aria-expanded="false">${t("More options")}</button></div></div>`,
-                )
-                .join("") +
+            ? byDay(
+                rows.map((v, n) => ({ ...v, n })),
+                (v, time, day) => {
+                  const authors = `<span data-user-content>${escape(v.authors.map(String).join(", "))}</span>`,
+                    title = v.original ? t("Original version") : time,
+                    details = v.original
+                      ? `${time}${v.authors.length ? ` · ${authors}` : ""}`
+                      : `${authors} · ${v.edits} ${t(v.edits === 1 ? "edit" : "edits")}${v.n === 0 ? ` · ${t("Current version")}` : ""}`;
+                  sources.set(`s:${v.at}`, {
+                    title,
+                    meta: v.original ? `${day}, ${time}` : day,
+                    load: () => shared.load(v.at),
+                  });
+                  return `<div class="revision-row"><button type="button" class="revision-pick" id="shared-version-${v.at}" data-pick="s:${v.at}" aria-pressed="false"><strong>${escape(title)}</strong><small>${details}</small></button><div class="revision-actions"><button class="secondary" data-shared="${v.at}" aria-describedby="shared-version-${v.at}" ${v.n === 0 || readOnly() ? "disabled" : ""}>${t("Restore version")}</button><button class="text-btn" data-shared-options="${v.at}" aria-describedby="shared-version-${v.at}" aria-expanded="false">${t("More options")}</button></div></div>`;
+                },
+              ) +
                 (more === true
                   ? `<button class="text-btn" id="shared-older">${t("Show older versions")}</button>`
                   : "")
@@ -1828,8 +2014,19 @@ export function createFeatures(api) {
         });
         list.querySelectorAll("[data-shared-options]").forEach((btn) => {
           const at = Number(btn.dataset.sharedOptions);
-          btn.onclick = () => options(btn, () => shared.load(at), at);
+          btn.onclick = () =>
+            options(
+              btn,
+              () => cachedLoad(`s:${at}`, () => shared.load(at)),
+              at,
+              false,
+              `s:${at}`,
+            );
         });
+        list.querySelectorAll("[data-pick]").forEach((btn) => {
+          btn.onclick = () => pick(btn.dataset.pick);
+        });
+        markPicked();
         holdControls();
         api.refresh?.();
       } catch (error) {
@@ -1842,26 +2039,52 @@ export function createFeatures(api) {
         list.replaceChildren(alert);
       }
     };
+    // Versions on this device, newest first, read again after each change
+    // to them; the named-only filter shows them again without reading.
+    let revisions = [];
     const render = async () => {
       await api.waitForSaves();
       if (!d.isConnected || !onBoard()) return;
-      const revisions = (await api.local.revisions(boardId)).sort(
+      const read = (await api.local.revisions(boardId)).sort(
         (a, b) => b.created - a.created,
       );
       if (!d.isConnected || !onBoard()) return;
+      revisions = read;
+      showLocal();
+    };
+    // What the app names on its own, as opposed to what people name.
+    const SAFETY_LABELS = new Set([
+      "Before restoration",
+      "Before deletion",
+      "Unsaved changes from another tab",
+    ]);
+    function showLocal() {
+      const namedOnly = d.querySelector("#history-named").checked,
+        shown = namedOnly ? revisions.filter(keptRevision) : revisions;
       showRevisionRows(
         d.querySelector("#local-revisions"),
-        revisions.length
-          ? revisions
-              .map(
-                (r) =>
-                  `<div class="revision-row"><div id="local-version-${escape(r.id)}"><strong data-user-content>${escape(t(r.label))}</strong><small>${when(r.created)} · ${plural(r.board.items.length, "{count} object", "{count} objects")}</small></div><div class="revision-actions"><button class="secondary" data-revision="${r.id}" aria-describedby="local-version-${escape(r.id)}" ${readOnly() ? "disabled" : ""}>${t("Restore version")}</button><button class="text-btn" data-revision-options="${r.id}" aria-describedby="local-version-${escape(r.id)}" aria-expanded="false">${t("More options")}</button></div></div>`,
-              )
-              .join("")
-          : `<p>${t("No saved versions yet.")}</p>`,
+        shown.length
+          ? byDay(
+              shown.map((r) => ({ ...r, at: r.created })),
+              (r, time, day) => {
+                const named = keptRevision(r),
+                  label = escape(t(r.label)),
+                  count = plural(
+                    r.board.items.length,
+                    "{count} object",
+                    "{count} objects",
+                  );
+                sources.set(`l:${r.id}`, {
+                  title: named ? t(r.label) : time,
+                  meta: named ? `${day}, ${time}` : day,
+                  load: async () => find(r.id).board,
+                });
+                return `<div class="revision-row${named ? " named" : ""}"><button type="button" class="revision-pick" id="local-version-${escape(r.id)}" data-pick="l:${escape(r.id)}" aria-pressed="false"><strong>${named ? `<i data-lucide="${SAFETY_LABELS.has(r.label) ? "history" : "bookmark"}" aria-hidden="true"></i><span data-user-content>${label}</span>` : escape(time)}</strong><small>${named ? `${escape(time)} · ` : ""}${count}</small></button><div class="revision-actions"><button class="secondary" data-revision="${r.id}" aria-describedby="local-version-${escape(r.id)}" ${readOnly() ? "disabled" : ""}>${t("Restore version")}</button><button class="text-btn" data-revision-options="${r.id}" aria-describedby="local-version-${escape(r.id)}" aria-expanded="false">${t("More options")}</button></div></div>`;
+              },
+            )
+          : `<p>${t(namedOnly ? "No named versions yet." : "No saved versions yet.")}</p>`,
         "data-revision",
       );
-      const find = (id) => revisions.find((r) => r.id === id);
       d.querySelectorAll("[data-revision]").forEach(
         (btn) =>
           (btn.onclick = () =>
@@ -1880,12 +2103,21 @@ export function createFeatures(api) {
               async () => find(btn.dataset.revisionOptions).board,
               find(btn.dataset.revisionOptions).created,
               true,
+              `l:${btn.dataset.revisionOptions}`,
             )),
       );
+      d.querySelectorAll("#local-revisions [data-pick]").forEach((btn) => {
+        btn.onclick = () => pick(btn.dataset.pick);
+      });
+      markPicked();
       holdControls();
       api.refresh?.();
-    };
+    }
+    const find = (id) => revisions.find((r) => r.id === id);
+    d.querySelector("#history-named").onchange = showLocal;
     d.querySelector("#checkpoint-create").onclick = async (e) => {
+      // The form only lets Enter in the name field press this button.
+      e.preventDefault?.();
       // One checkpoint per press: a double click must not save two.
       const button = e.currentTarget;
       if (button.disabled || restoreState.pending || !onBoard()) return;

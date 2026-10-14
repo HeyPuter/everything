@@ -5909,6 +5909,61 @@ test("French controls preserve user content and switch back to English", async (
   }
 });
 
+test("version history previews a chosen version with what changed since, and filters named versions", async () => {
+  const app = await setup();
+  const { doc, click, tick } = app;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="history"]');
+    // The keyboard starts on naming a version, not in its field.
+    assert.equal(doc.activeElement.tagName, "SUMMARY");
+    doc.querySelector("#checkpoint-label").value = "One idea";
+    await click("#checkpoint-create");
+    await click("dialog .dialog-header button");
+    await click('[data-action="duplicate"]');
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="history"]');
+    for (let n = 0; n < 20 && !doc.querySelector(".revision-row"); n++)
+      await tick();
+    const row = [
+      ...doc.querySelectorAll("#local-revisions .revision-row"),
+    ].find((r) => r.textContent.includes("One idea"));
+    assert.ok(row.classList.contains("named"));
+    assert.ok(doc.querySelector("#local-revisions .revision-day"));
+    const canvas = doc.querySelector("#history-preview-canvas");
+    assert.equal(canvas.hidden, true);
+    row.querySelector("[data-pick]").click();
+    for (let n = 0; n < 5; n++) await tick();
+    assert.equal(canvas.hidden, false);
+    assert.equal(
+      row.querySelector("[data-pick]").getAttribute("aria-pressed"),
+      "true",
+    );
+    assert.equal(
+      doc.querySelector("#history-preview-title").textContent,
+      "One idea",
+    );
+    const changes = doc.querySelector("#history-changes").textContent;
+    assert.match(changes, /1 object/);
+    assert.match(changes, /1 added since/);
+    assert.match(canvas.getAttribute("aria-label"), /One idea/);
+    // Only named versions, when asked.
+    const named = doc.querySelector("#history-named");
+    named.checked = true;
+    named.dispatchEvent(new doc.defaultView.Event("change"));
+    const labels = [
+      ...doc.querySelectorAll("#local-revisions .revision-row"),
+    ].map((r) => r.classList.contains("named"));
+    assert.ok(labels.length >= 1);
+    assert.ok(labels.every(Boolean));
+    doc.querySelector("dialog[open]").close();
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;
@@ -5929,7 +5984,7 @@ test("checkpoints restore content and trash preserves boards for recovery", asyn
       r.textContent.includes("One idea"),
     );
     assert.ok(row);
-    row.querySelector("button").click();
+    row.querySelector("[data-revision]").click();
     await tick();
     assert.equal(count(), 1);
     // Restoring is one step: Undo takes it back, and the steps before it

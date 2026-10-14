@@ -883,12 +883,15 @@ export function paint(canvas, items, view, options = {}) {
     : [];
   if (options.frameLabels) frameLabelBoxes = labels;
   const labelled = new Set(labels.map((l) => l.id));
+  // Search matches, or the objects a preview points out, stand out from
+  // the rest, which are faded.
+  const emphasis = options.searchMatches || options.emphasis,
+    faded = options.searchMatches ? 0.25 : 0.35;
   for (const i of stackedItems(items)) {
     if (i.id === options.cropId) continue;
     const b = bounds([i]);
     if (!visible(b)) continue;
-    if (options.searchMatches)
-      ctx.globalAlpha = options.searchMatches.has(i.id) ? 1 : 0.25;
+    if (emphasis) ctx.globalAlpha = emphasis.has(i.id) ? 1 : faded;
     if (block(i, b)) {
       const w = Math.abs(i.w),
         h = Math.abs(i.h);
@@ -934,6 +937,7 @@ export function paint(canvas, items, view, options = {}) {
       options.authors?.get(i.id),
     );
   }
+  ctx.globalAlpha = 1;
   if (labels.length) {
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -941,8 +945,7 @@ export function paint(canvas, items, view, options = {}) {
     ctx.fillStyle = textColor;
     ctx.textBaseline = "middle";
     for (const l of labels) {
-      ctx.globalAlpha =
-        options.searchMatches && !options.searchMatches.has(l.id) ? 0.25 : 1;
+      ctx.globalAlpha = emphasis && !emphasis.has(l.id) ? faded : 1;
       ctx.fillText(l.text, l.x, l.y + l.h / 2);
     }
     ctx.restore();
