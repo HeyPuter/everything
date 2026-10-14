@@ -22,7 +22,7 @@ const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? 
 
 export function createAssistantPane({ editor, pkg, error, available = () => P.canUseAi(), chat = prompt => P.aiChat(prompt) }) {
   let scope = 'selection', history = [], busy = false, stopped = null;
-  const pane = sidePane({ title: 'Assistant', label: 'Assistant pane', className: 'as-pane', onOpen: () => { renderContext(); renderEmpty(); fab.setAttribute('aria-expanded', 'true'); }, onClose: () => { fab.setAttribute('aria-expanded', 'false'); editor()?.focus(); } });
+  const pane = sidePane({ title: 'Assistant', label: 'Assistant pane', className: 'as-pane', onOpen: () => { renderContext(); renderEmpty(); fab.setAttribute('aria-expanded', 'true'); titleButton.setAttribute('aria-pressed', 'true'); }, onClose: () => { fab.setAttribute('aria-expanded', 'false'); titleButton.setAttribute('aria-pressed', 'false'); editor()?.focus(); } });
   pane.heading.prepend(el('span.as-mark', { 'aria-hidden': 'true' }, commandIconEl('assistant', 16)));
   const newChat = el('button.btn.btn-ghost.btn-sm.as-new', { type: 'button', onclick: () => { history = []; log.replaceChildren(); renderEmpty(); input.focus(); } }, 'New chat');
   pane.heading.after(newChat);
@@ -43,6 +43,9 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   pane.body.append(log, form);
 
   // A small button at the edge of the pages opens the pane (where Puter's AI is available).
+  // In the title bar beside Comments, as the other apps' assistants sit in their top bars.
+  const titleButton = el('button.ed-pill.as-title-button', { type: 'button', 'aria-label': 'Assistant', title: `Assistant (${MOD_KEY}+Shift+I)`, 'aria-pressed': 'false', hidden: true, onclick: () => toggle() }, commandIconEl('assistant', 16));
+  titleButton.addEventListener('mousedown', e => e.preventDefault());
   const fab = el('button.as-fab', { type: 'button', 'aria-label': 'Assistant', title: `Assistant (${MOD_KEY}+Shift+I)`, 'aria-expanded': 'false', hidden: true, onclick: () => toggle() }, commandIconEl('assistant', 20));
   fab.addEventListener('mousedown', e => e.preventDefault());
   // Mod+Shift+I opens and closes the pane from anywhere in the editor.
@@ -178,25 +181,18 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   function toggle() { if (!available()) return; pane.toggle(); if (pane.isOpen) queueMicrotask(() => input.focus()); }
 
   return {
-    pane, fab,
+    pane, fab, titleButton,
     get available() { return available(); },
     open() { if (!available()) return; pane.open(); queueMicrotask(() => input.focus()); },
     toggle,
     /** The editor's selection moved: what goes with a message follows it. */
     refresh() {
-      fab.hidden = !available() || !editor();
+      fab.hidden = titleButton.hidden = !available() || !editor();
       if (pane.isOpen && !busy) { renderContext(); if (!log.querySelector('.as-message')) renderEmpty(); }
     },
     commands: {
       assistant: () => toggle(),
       assistantAvailable: () => available(),
-    },
-    extendTab(tabId, kit) {
-      if (tabId !== 'home' || !available()) return [];
-      const button = kit.command('Assistant', 'assistant', () => toggle(), { size: 'large', text: 'Assistant' });
-      button.addEventListener('mousedown', e => e.preventDefault());
-      kit.when(button, () => !!editor(), () => String(pane.isOpen));
-      return [{ id: 'assistant', label: 'Assistant', icon: 'assistant', priority: 6, after: 'editing', items: [button] }];
     },
     extendMenu(id) {
       if (!['tools', 'view'].includes(id) || !available()) return [];

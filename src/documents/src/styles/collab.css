@@ -110,9 +110,10 @@
 .as-disclaimer { margin: 0; font-size: 11px; color: var(--ed-ink-3); }
 .as-fab { position: absolute; right: 18px; bottom: 18px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--ed-line); background: var(--ed-card); box-shadow: 0 4px 14px rgba(0, 0, 0, .14); display: grid; place-items: center; cursor: pointer; z-index: 3; }
 .as-fab:hover, .as-fab:focus-visible { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
-.as-fab[aria-expanded='true'], .as-fab[hidden] { display: none; }
+.as-fab[aria-expanded='true'], .as-fab[hidden], .as-title-button[hidden] { display: none; }
 
 @media (max-width: 700px) {
+  .as-title-button { display: none; }
   .as-pane, .vh-pane { width: 100%; flex-basis: auto; }
   .vh-preview { position: absolute; inset: 0; z-index: 6; border-left: 0; }
   .as-fab { right: 12px; bottom: 12px; }

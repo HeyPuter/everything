@@ -8,7 +8,7 @@ word processors. The design is in [collaboration.md](../collaboration.md).
 **Share**
 - Share button in the title bar (menu: Invite People…, Copy Link, Manage Access…, then the chrome's
   publishing and send-a-copy items), File → Share → Invite People…, the File view's Share page,
-  Tools → Share…, Review → Collaborate → Share.
+  Tools → Share….
 - Share dialog: invite Puter usernames or email addresses as *Can edit*, *Can comment* or *Can
   view*, with a message; copy a link with a chosen role; turn off earlier links; people with access
   with role changes and removal (owner); pending invitations; who is in the document now; Stop
@@ -24,7 +24,7 @@ word processors. The design is in [collaboration.md](../collaboration.md).
   numbering definitions, page settings and header/footer/note stories as atomic registers; pictures
   and drawings added while shared are shared.
 - Others' carets and selections in their colors with name flags; avatars of who is here in the
-  title bar, a menu to go to someone's caret (Review → Co-authors, Tools → Co-authors).
+  title bar, with a menu to go to someone's caret (also Tools → Co-authors).
 - Per-person Undo/Redo: Undo takes back only your own changes.
 - Offline: changes queue (kept across reloads) and are sent when the connection returns; the title
   bar says *Offline · N waiting*.
@@ -35,8 +35,7 @@ word processors. The design is in [collaboration.md](../collaboration.md).
 - Local evaluation without an account: Share in `playground.html` links tabs of the same browser.
 
 **Version History**
-- Pane (Review → Collaborate → Version History, File → Browse Version History, the File view's Info page,
-  the title bar's document details) listing versions by day with who saved them;
+- Pane (File → Browse Version History, the File view's Info page, the title bar's document details) listing versions by day with who saved them;
   name/rename versions; Save a Version Now with a name.
 - Open a version read-only beside the current document (both fit their width).
 - Compare a version with the current document (the Review tab's Compare, run at once).
@@ -44,8 +43,8 @@ word processors. The design is in [collaboration.md](../collaboration.md).
   change that everyone receives.
 
 **Assistant**
-- Assistant pane (Home → Assistant, Tools/View → Assistant, Cmd/Ctrl+Shift+I, a floating button at
-  the page edge): ask questions about the document, draft, rewrite, summarize; suggestions for the
+- Assistant pane (title bar button beside Comments, Tools/View → Assistant, Cmd/Ctrl+Shift+I, a
+  floating button at the page edge): ask questions about the document, draft, rewrite, summarize; suggestions for the
   selection (improve, fix grammar, shorten, summarize) and for the whole document.
 - Explicit scope toggle (Selection / Whole document) with the word count of what is sent; nothing
   else is sent.

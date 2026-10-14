@@ -1,8 +1,7 @@
 /**
  * Live co-editing in the editor: the Share command and dialog, who is here
  * (avatars in the title bar, carets and selections on the pages), the notice
- * bar for roles and the single-editor fallback, and the Review tab's
- * Collaborate group. The co-editing engine (Yjs, the room client) loads only
+ * bar for roles and the single-editor fallback. The co-editing engine (Yjs, the room client) loads only
  * when a document is shared or opened from an invitation.
  *
  * Commands on the editor's command object: share(), collaborators(),
@@ -31,7 +30,7 @@ export function localGuest() {
 
 const MODE_REASONS = { 'content controls without text': 'form fields that are still empty', 'line feeds inside a run': 'text this editor keeps as a single run' };
 
-export function createCollaboration({ editor, pkg, doc, local, error, onChange = () => {}, documentName, user, saveFirst, exportDocx, exportPdf, signIn = async () => true, readOnly = () => false, versionHistory = null }) {
+export function createCollaboration({ editor, pkg, doc, local, error, onChange = () => {}, documentName, user, saveFirst, exportDocx, exportPdf, signIn = async () => true, readOnly = () => false }) {
   let live = null, starting = null, liveModule = null, dialog = null;
   const loadLive = () => (liveModule ||= import('../collab/live.js'));
 
@@ -178,23 +177,9 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   }
 
   /* ---- Ribbon and menus ---- */
-  function extendTab(tabId, kit) {
-    if (tabId !== 'review') return [];
-    const { command, when } = kit;
-    const shareButton = command('Share', 'invitePeople', () => share(), { size: 'large', text: 'Share' });
-    shareButton.addEventListener('mousedown', e => e.preventDefault());
-    when(shareButton, () => !!editor());
-    const coauthors = command('Co-authors', 'coauthors', e => peopleMenu(e?.currentTarget || coauthors, !!e?.detail), { size: 'large', text: 'Co-authors' });
-    when(coauthors, () => !!live);
-    const items = [shareButton, coauthors];
-    if (versionHistory?.()) {
-      const versions = command('Version History', 'history', () => versionHistory()?.(), { size: 'large', text: 'Version History' });
-      versions.addEventListener('mousedown', e => e.preventDefault());
-      when(versions, () => !!editor());
-      items.push(versions);
-    }
-    return [{ id: 'collaborate', label: 'Collaborate', icon: 'invitePeople', priority: 7, after: 'protect', items }];
-  }
+  /* ---- Menus ---- */
+  // Share and Version History sit in the title bar and the File menu; the Review tab is full already.
+  const extendTab = () => [];
   function extendMenu(id) {
     if (id === 'tools') return [{ separator: true }, { label: 'Share…', icon: 'share', disabled: !editor(), onSelect: share }, ...(live ? [{ label: 'Co-authors', icon: 'coauthors', items: people().map(p => ({ label: `${p.name}${p.me ? ' (you)' : ''}`, hint: roleLabel(p.role || 'editor'), disabled: p.me, onSelect: () => live?.follow(p.session) })) }] : [])];
     return [];

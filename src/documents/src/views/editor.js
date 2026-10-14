@@ -925,7 +925,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     return blob;
   };
   const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, local, error, onChange: () => update(), documentName: () => title.value, user: collabUser,
-    saveFirst: () => save(), exportDocx: exportDocxBlob, exportPdf: exportPdfBlob, signIn: async () => !session.signedOut || await session.signIn(), readOnly: () => !!pkg?.readOnly, versionHistory: () => editorCommands.versionHistory });
+    saveFirst: () => save(), exportDocx: exportDocxBlob, exportPdf: exportPdfBlob, signIn: async () => !session.signedOut || await session.signIn(), readOnly: () => !!pkg?.readOnly });
   const versionHistory = createVersionHistory({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, error, author: () => session.username, live: () => collab.live,
     restoreFile: version => restoreVersionFile(version, { confirm: false }), onChange: () => fitWidth(),
     // Side by side, both documents fit their width; the zoom comes back when the version closes.
@@ -939,7 +939,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const collabShareItems = editorCommands.shareItems;
   editorCommands.shareItems = () => [...collab.shareItems(), ...(collabShareItems?.() || [{ label: 'Download a Copy (.docx)', icon: 'download', disabled: !engine || failed, onSelect: download }])];
   const collabExtendTab = editorCommands.extendTab;
-  editorCommands.extendTab = (id, kit) => [...(collabExtendTab?.(id, kit) || []), ...collab.extendTab(id, kit), ...assistant.extendTab(id, kit)];
+  editorCommands.extendTab = (id, kit) => [...(collabExtendTab?.(id, kit) || []), ...collab.extendTab(id, kit)];
   const collabExtendMenu = editorCommands.extendMenu;
   editorCommands.extendMenu = (id, kit) => [...(collabExtendMenu?.(id, kit) || []), ...collab.extendMenu(id, kit), ...assistant.extendMenu(id, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
@@ -1038,6 +1038,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Who is here, beside Share in the title bar.
   const titleActions = chrome.header.querySelector('.canvas-title-actions');
   titleActions?.insertBefore(collab.avatars, titleActions.querySelector('.ed-share'));
+  titleActions?.insertBefore(assistant.titleButton, titleActions.querySelector('.ed-comments-button') || titleActions.querySelector('.ed-share'));
   // The chrome's own shortcuts and the user's bindings from Customize Keyboard; they run before the
   // document's built-in chords, so a binding of your own takes precedence.
   const builtInChords = {

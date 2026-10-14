@@ -122,8 +122,8 @@ test('restores a named version from Version History', async ({ page }) => {
   await text(page).fill('First version.');
   await text(page).press('ControlOrMeta+s');
   await expect(page.locator('.canvas-save-status')).toHaveAttribute('aria-label', 'Saved to Puter');
-  await page.getByRole('tab', { name: 'Review' }).click();
-  await page.getByRole('button', { name: 'Version History' }).click();
+  await page.locator('.ed-menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Browse Version History', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Version History pane' });
   await expect(pane).toBeVisible();
   await pane.getByRole('button', { name: 'Save a Version Now' }).click();
@@ -148,7 +148,7 @@ test('the Assistant rewrites the selection as one undoable change', async ({ pag
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
   await text(page).fill('This sentence is a little long winded.');
   await text(page).evaluate(el => { el.focus(); el.setSelectionRange(0, el.value.length); el.dispatchEvent(new Event('select')); });
-  await page.getByRole('button', { name: 'Assistant', exact: true }).first().click();
+  await page.locator('.as-title-button').click();
   const pane = page.getByRole('complementary', { name: 'Assistant pane' });
   await expect(pane).toBeVisible();
   await expect(pane.getByText(/Sends the 7 words you selected/)).toBeVisible();

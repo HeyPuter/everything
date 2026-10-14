@@ -19,7 +19,7 @@ deploys as a Puter Worker, signed requests, an outbox, presence and per-person U
 | `src/collab/server/service.js`, `server/auth.js`, `server/index.js` | The room service and the worker entry (`npm run build:worker` → `public/worker/documents-worker.js`) |
 | `src/collab/protocol.js`, `auth.js`, `api.js` | Roles, encodings, signatures, links, colors; signed requests and worker deployment |
 | `src/collab/live.js` | A live session for an open document: sharing, joining, presence painting, which tab saves, access management |
-| `src/views/collab.js`, `share-dialog.js` | Share dialog, avatars in the title bar, notices, the Review tab's Collaborate group |
+| `src/views/collab.js`, `share-dialog.js` | Share dialog, avatars in the title bar, notices |
 | `src/views/version-history.js` | Version History pane and the read-only version beside the document |
 | `src/views/assistant-pane.js`, `src/lib/assistant.js` | The Assistant pane |
 | `dev/collab-dev-server.mjs` | The same room service inside the Vite dev server for `/mock.html` and the browser tests |
@@ -146,7 +146,7 @@ When sharing stops or access is removed, the document stays open as the person's
 
 ## Share dialog
 
-Share (title bar, File menu, Tools menu, Review → Collaborate) opens one dialog:
+Share (title bar, File → Share → Invite People…, the File view's Share page, Tools menu) opens one dialog:
 
 - **Invite people**: Puter usernames (invitation by name: they open the link once signed in) or
   email addresses (a mail from the person's own Puter address with a link that admits them), with
@@ -164,7 +164,7 @@ must be saved to Puter first (the dialog saves it).
 
 ## Version History
 
-Review → Collaborate → Version History, File → Browse Version History, the File view's Info page or the title bar's document details
+File → Browse Version History, the File view's Info page or the title bar's document details
 open a pane listing the saved versions (`lib/versions.js`: one every ten minutes of editing, newest
 30 kept), grouped by day, each with the account that saved it and an optional name, kept beside the
 snapshot as `<snapshot>.json`. **Save a Version Now** asks for an optional name. A version opens
@@ -179,8 +179,8 @@ the revised one; **Restore**:
 
 ## Assistant
 
-The Assistant pane (Home → Assistant, Tools or View menu, Cmd/Ctrl+Shift+I, or the small button at
-the bottom right of the pages) is a conversation with Puter's AI about and for this document,
+The Assistant pane (its button in the title bar beside Comments, the Tools or View menu,
+Cmd/Ctrl+Shift+I, or the small button at the bottom right of the pages) is a conversation with Puter's AI about and for this document,
 consistent with the Spreadsheet and Presentation apps' assistant panels. Above the box the person
 chooses what goes with a message, *Selection* or *Whole document*, and the line under it says how
 many words that is; nothing else is sent. Suggestions in an empty conversation run the writing
