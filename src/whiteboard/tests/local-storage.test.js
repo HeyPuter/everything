@@ -192,3 +192,63 @@ test("a recovery version is measured without writing the board out as JSON, and 
   );
   assert.equal(latest.board.items[1].text, "Plain words");
 });
+
+test("named checkpoints and restoration backups outlast the versions edits leave", async (t) => {
+  globalThis.indexedDB = new IDBFactory();
+  const b = board("Planning board");
+  b.items.push(item("note", 0, 0, { text: "Idea" }));
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  await local.checkpoint(b, "Before the workshop", { kept: true });
+  await local.checkpoint(b, "Before restoration", { kept: true });
+  // A minute of quick edits, all in the same quarter hour.
+  for (let n = 0; n < 40; n++) await local.checkpoint(b, `Edit ${n}`);
+  let revisions = await local.revisions(b.id);
+  const labels = revisions.map((r) => r.label);
+  assert.ok(labels.includes("Before the workshop"));
+  assert.ok(labels.includes("Before restoration"));
+  // The named ones do not take the place of recent edits.
+  assert.equal(labels.filter((l) => l.startsWith("Edit ")).length, 30);
+  assert.ok(revisions.find((r) => r.label === "Before the workshop").kept);
+  // Past the newest 100, a named version is pruned like any other.
+  for (let n = 0; n < 100; n++)
+    await local.checkpoint(b, `Named ${n}`, { kept: true });
+  revisions = await local.revisions(b.id);
+  assert.equal(
+    revisions.filter((r) => r.label.startsWith("Named ")).length,
+    100,
+  );
+  assert.ok(!revisions.some((r) => r.label === "Before the workshop"));
+  assert.equal(revisions.filter((r) => r.label.startsWith("Edit ")).length, 30);
+});
+
+test("checkpoints named before they were marked as kept are kept too", async (t) => {
+  globalThis.indexedDB = new IDBFactory();
+  // Each page load has its own copy of the storage module and its cache.
+  const { local: before } = await import("../src/storage.js?load=1");
+  const { local: after } = await import("../src/storage.js?load=2");
+  const b = board("Older board");
+  b.items.push(item("note", 0, 0, { text: "Idea" }));
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  // As saved by an earlier version of the app, without the mark.
+  const named = await before.checkpoint(b, "Before the review");
+  delete named.kept;
+  await new Promise((resolve, reject) => {
+    const request = indexedDB.open("whiteboard-v1");
+    request.onsuccess = () => {
+      const tx = request.result.transaction("revisions", "readwrite");
+      tx.objectStore("revisions").put(named);
+      tx.oncomplete = () => {
+        request.result.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+  for (let n = 0; n < 40; n++) await after.checkpoint(b, "Board edit");
+  const labels = (await after.revisions(b.id)).map((r) => r.label);
+  assert.ok(labels.includes("Before the review"));
+  assert.equal(labels.filter((l) => l === "Board edit").length, 30);
+});

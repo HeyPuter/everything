@@ -12257,7 +12257,9 @@ function boardOptions(b) {
               button.disabled = true;
               // Trash keeps the board, so a version that cannot be saved,
               // as on a full device, does not stop it from being deleted.
-              await local.checkpoint(b, "Before deletion").catch(() => {});
+              await local
+                .checkpoint(b, "Before deletion", { kept: true })
+                .catch(() => {});
               b.deletedAt = Date.now();
               try {
                 await saveLibrary(b, "deletedAt");

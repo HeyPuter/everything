@@ -1399,7 +1399,7 @@ export function createFeatures(api) {
     const readOnly = () => !!api.readOnly?.();
     const d = api.modal(
       "Version history",
-      `<p class="dialog-copy">${t(shared ? "Everyone's edits to this shared board are kept, so any earlier version can be restored. Restoring saves a new version and never removes history." : "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Restoring preserves the current version first.")}</p>${readOnly() ? `<p class="dialog-copy">${t("You can view earlier versions and open one as a copy. Only people who can edit this board restore versions.")}</p>` : ""}<p id="history-status" class="dialog-copy" role="status" aria-live="polite" tabindex="-1" hidden></p>${shared ? `<h3>${t("Shared board history")}</h3><div class="revision-list" id="shared-revisions"><p>${t("Loading…")}</p></div><h3>${t("Versions on this device")}</h3>` : ""}<div class="checkpoint-create"><label class="field">Checkpoint name<input id="checkpoint-label" maxlength="120" value="${t("Checkpoint")}"></label><button class="primary" id="checkpoint-create">Create checkpoint</button></div><div class="revision-list" id="local-revisions"></div>`,
+      `<p class="dialog-copy">${t(shared ? "Everyone's edits to this shared board are kept, so any earlier version can be restored. Restoring saves a new version and never removes history." : "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.")}</p>${readOnly() ? `<p class="dialog-copy">${t("You can view earlier versions and open one as a copy. Only people who can edit this board restore versions.")}</p>` : ""}<p id="history-status" class="dialog-copy" role="status" aria-live="polite" tabindex="-1" hidden></p>${shared ? `<h3>${t("Shared board history")}</h3><div class="revision-list" id="shared-revisions"><p>${t("Loading…")}</p></div><h3>${t("Versions on this device")}</h3>` : ""}<div class="checkpoint-create"><label class="field">Checkpoint name<input id="checkpoint-label" maxlength="120" value="${t("Checkpoint")}"></label><button class="primary" id="checkpoint-create">Create checkpoint</button></div><div class="revision-list" id="local-revisions"></div>`,
     );
     // A history dialog can stay open through address-bar navigation. Its
     // versions must never be restored into whichever board is now open.
@@ -1624,7 +1624,9 @@ export function createFeatures(api) {
           if (!done) return;
           try {
             if (!plan()) return;
-            await api.local.checkpoint(api.board(), "Before restoration");
+            await api.local.checkpoint(api.board(), "Before restoration", {
+              kept: true,
+            });
             const checked = plan();
             if (!checked) return;
             const { source, covered } = checked;
@@ -1695,7 +1697,9 @@ export function createFeatures(api) {
           return restoreBoard(api.board(), version, hidden);
         };
         if (!plan()) return;
-        await api.local.checkpoint(api.board(), "Before restoration");
+        await api.local.checkpoint(api.board(), "Before restoration", {
+          kept: true,
+        });
         const restored = plan();
         if (!restored) return;
         api.restore(restored);
@@ -1890,6 +1894,7 @@ export function createFeatures(api) {
         await api.local.checkpoint(
           api.board(),
           d.querySelector("#checkpoint-label").value.trim() || "Checkpoint",
+          { kept: true },
         );
         api.toast("Checkpoint saved.");
         await render();

@@ -53,8 +53,16 @@ async function transaction(mode, fn, store = "boards") {
     tx.onabort = () => reject(tx.error);
   });
 }
-// Each board's recovery versions as { id, created, bytes }; see checkpoint.
+// Each board's recovery versions as { id, created, bytes, kept }; see
+// checkpoint.
 const revisionIndex = new Map();
+// What one board's versions may take: the ones each edit leaves, and
+// separately the ones people named.
+const REVISION_BYTES = 50 * 1024 * 1024;
+// Whether a version is kept apart from the ones each edit leaves. Versions
+// saved before they were marked are told by their label, as only the ones
+// edits leave are called "Board edit".
+export const keptRevision = (r) => r.kept ?? r.label !== "Board edit";
 // The `updated` stamp each board had when this tab last read or wrote it.
 // A save over a copy another tab wrote since is refused, so neither tab
 // silently loses the other's edits.
@@ -241,8 +249,14 @@ export const local = {
     );
   },
   // A caller that made `b` for this version alone says it is `owned`: it
-  // is kept as it is rather than copied again.
-  async checkpoint(b, label = "Board edit", { owned = false } = {}) {
+  // is kept as it is rather than copied again. A version someone named, or
+  // the one saved before a restoration, is `kept` until they delete it
+  // rather than pruned like the versions each edit leaves.
+  async checkpoint(
+    b,
+    label = "Board edit",
+    { owned = false, kept = false } = {},
+  ) {
     // Pruning needs each version's time and size, not its board: they are
     // read once and then kept here, since reading every version back on each
     // edit reads up to 50 MB per change. Another tab can add or remove
@@ -263,6 +277,7 @@ export const local = {
         id: r.id,
         created: r.created,
         bytes: r.bytes ?? JSON.stringify(r).length * 2,
+        kept: keptRevision(r),
       }));
       known = { list, ids: new Set(list.map((r) => r.id)) };
       revisionIndex.set(b.id, known);
@@ -279,33 +294,49 @@ export const local = {
         label,
         board: snapshot,
       };
+    revision.kept = kept;
     // Record the size once so pruning does not re-serialize every version.
     revision.bytes = jsonLength(revision) * 2;
     known.list.push({
       id: revision.id,
       created: revision.created,
       bytes: revision.bytes,
+      kept,
     });
     known.ids.add(revision.id);
     const all = known.list.sort((a, b) => b.created - a.created);
     // The newest 30 versions are kept, then one for each quarter hour of
     // the last 30 days (the latest in it), up to 200 more, so an earlier
     // stage of the work can still be restored after a burst of edits; all
-    // within 50 MB, newest first.
+    // within 50 MB, newest first. Named versions do not count among them:
+    // the newest 100 are kept, within 50 MB of their own, and any beyond
+    // that are pruned like the others.
     const over = () => {
       const quarter = (r) => Math.floor(r.created / (15 * 60_000)),
         since = revision.created - 30 * 86400_000,
         seen = new Set(),
         ids = [];
       let bytes = 0,
+        keptBytes = 0,
+        named = 0,
+        recent = 0,
         older = 0;
       for (const [index, r] of all.entries()) {
+        if (
+          r.kept &&
+          named < 100 &&
+          (index === 0 || keptBytes + r.bytes <= REVISION_BYTES)
+        ) {
+          named++;
+          keptBytes += r.bytes;
+          continue;
+        }
         let keep =
-          index < 30 ||
+          recent++ < 30 ||
           (r.created > since && !seen.has(quarter(r)) && older++ < 200);
         if (keep) {
           bytes += r.bytes;
-          if (index > 0 && bytes > 50 * 1024 * 1024) keep = false;
+          if (index > 0 && bytes > REVISION_BYTES) keep = false;
         }
         if (keep) seen.add(quarter(r));
         else ids.push(r.id);

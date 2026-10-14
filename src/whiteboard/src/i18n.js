@@ -1541,8 +1541,8 @@ const pairs = {
   "Board edit": "Modification du tableau",
   "Before deletion": "Avant la suppression",
   "No saved versions yet.": "Aucune version enregistrée pour le moment.",
-  "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Restoring preserves the current version first.":
-    "Les 30 versions les plus récentes sont conservées sur cet appareil, ainsi qu’une par quart d’heure des 30 derniers jours, dans une limite de 50 Mo. La version actuelle est conservée avant toute restauration.",
+  "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.":
+    "Les 30 versions les plus récentes sont conservées sur cet appareil, ainsi qu’une par quart d’heure des 30 derniers jours, dans une limite de 50 Mo. Les points de restauration nommés et la version enregistrée avant chaque restauration sont conservés à part : les 100 plus récents, dans une limite de 50 Mo supplémentaires.",
   "Version restored.": "Version restaurée.",
   "Checkpoint saved.": "Point de restauration enregistré.",
   "Could not save the checkpoint. Export a backup.":
