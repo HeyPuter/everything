@@ -9,6 +9,7 @@ import {
   insertImage,
   inspector,
   installAddTextNow,
+  installMenuNow,
   openNewSlideMenu,
   openShapeMenu,
   ribbonButton,
@@ -4565,7 +4566,7 @@ test("undo preserves a focused slide thumbnail through the navigator refresh", a
   await page.keyboard.press("Control+z");
   await expect(page.locator(".object-hit")).toHaveCount(7);
   await expect(thumbnail).toBeFocused();
-  await thumbnail.press("Enter");
+  await thumbnail.press("Space");
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
 });
 
@@ -5142,23 +5143,14 @@ for (const action of ["Text", "Rectangle", "Circle"]) {
     page,
   }) => {
     await story(page);
+    await installMenuNow(page);
     await page.evaluate((action) => {
       const notes = document.querySelector("#speaker-notes");
       notes.value = "Pending notes";
       notes.dispatchEvent(new Event("change", { bubbles: true }));
       document.querySelectorAll(".slide-thumb")[1].click();
-      const toolbarButton = [
-        ...document.querySelectorAll(".toolbar button"),
-      ].find(
-        (button) =>
-          button.getAttribute("aria-label") ===
-          (action === "Text" ? action : "Shape"),
-      );
-      toolbarButton.click();
-      if (action !== "Text")
-        [...document.querySelectorAll(".menu button")]
-          .find((button) => button.textContent.trim() === action)
-          .click();
+      if (action === "Text") window.__menuNow("Insert", "Text box");
+      else window.__menuNow("Insert", "Shape", action);
     }, action);
     await openFileMenu(page);
     const downloaded = page.waitForEvent("download");
@@ -5184,15 +5176,13 @@ test("new slides are inserted after the displayed slide while navigation is pend
   page,
 }) => {
   await story(page);
+  await installMenuNow(page);
   await page.evaluate(() => {
     const notes = document.querySelector("#speaker-notes");
     notes.value = "Pending notes";
     notes.dispatchEvent(new Event("change", { bubbles: true }));
     document.querySelectorAll(".slide-thumb")[1].click();
-    document.querySelector('button[aria-label="New slide"]').click();
-    [...document.querySelectorAll(".menu button")]
-      .find((button) => button.textContent.trim() === "Blank slide")
-      .click();
+    window.__menuNow("Insert", "New slide", "Blank slide");
   });
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
@@ -8145,7 +8135,7 @@ test("the format panel stays between the toolbar and the footer", async ({
     page.evaluate(() => {
       const rect = (selector) =>
         document.querySelector(selector).getBoundingClientRect();
-      const toolbar = rect(".toolbar"),
+      const toolbar = rect(".ribbon"),
         panel = rect("#inspector"),
         footer = rect(".editor-footer"),
         canvas = rect(".slide-canvas");
@@ -8427,7 +8417,9 @@ test("the shortcuts dialog documents every editor and presentation shortcut", as
     ["Ctrl / ⌘ + Enter", "Finish editing text"],
     ["Home / End in presentation", "First or last slide"],
   ]) {
-    const row = dialog.locator(".shortcuts > div", { hasText: action });
+    const row = dialog
+      .locator(".shortcuts > div")
+      .filter({ has: page.getByText(action, { exact: true }) });
     await expect(row.locator("kbd")).toHaveText(keys);
   }
   await page.getByRole("button", { name: "Done", exact: true }).click();
@@ -8615,7 +8607,9 @@ test("the slide canvas fits short windows without a scrollbar and keeps its aspe
         inside: c.top >= a.top && c.bottom <= a.bottom,
         width: Math.round(c.width),
         ratio: Math.round((c.width / c.height) * 100) / 100,
+        // The label above the slide, where the layout shows one.
         labelMatches:
+          !label.offsetWidth ||
           Math.abs(label.getBoundingClientRect().width - c.width) < 1,
         available: Math.round(area.clientWidth),
       };
@@ -9190,38 +9184,31 @@ test("long object labels end at a word with an ellipsis in the object list", asy
   );
 });
 
-test("the tool strip fades the edge that hides more tools", async ({
+test("a narrow ribbon folds its groups into drop-downs that keep their commands", async ({
   page,
 }) => {
   await story(page);
-  const tools = page.locator(".toolbar-tools");
-  const fades = () =>
-    tools.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return [
-        style.getPropertyValue("--fade-start").trim(),
-        style.getPropertyValue("--fade-end").trim(),
-      ];
-    });
-  const overflows = await tools.evaluate(
-    (node) => node.scrollWidth > node.clientWidth + 1,
+  const font = page.locator(
+    '.ribbon-panel:not([hidden]) [data-command="font-name"]',
   );
-  // The text tools take the strip past a phone's and a tablet's width.
-  expect(overflows).toBe(test.info().project.name !== "desktop");
-  if (!overflows) {
-    expect(await fades()).toEqual(["0px", "0px"]);
+  // A wide window shows the font controls in the ribbon itself.
+  if (test.info().project.name === "desktop") {
+    await expect(font).toBeVisible();
     return;
   }
-  expect(await fades()).toEqual(["0px", "24px"]);
-  await tools.evaluate((node) => {
-    node.scrollLeft = node.scrollWidth;
-  });
-  await expect.poll(fades).toEqual(["24px", "0px"]);
-  await tools.evaluate((node) => {
-    node.scrollLeft = 30;
-  });
-  await expect.poll(fades).toEqual(["24px", "24px"]);
-  // Tools under the fade still work.
+  await expect(font).toBeHidden();
+  await page
+    .locator(
+      '.ribbon-panel:not([hidden]) .ribbon-group:has([data-command="font-name"]) > .ribbon-fold',
+    )
+    .click();
+  const panel = page.locator(".ribbon-fold-panel");
+  await expect(
+    panel.getByRole("combobox", { name: "Font", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  // The menus still work beside a folded ribbon.
   await themeDialog(page);
   await expect(
     page.getByRole("heading", { name: "Presentation theme" }),
@@ -9554,7 +9541,11 @@ test("the format panel offers a fill only for shapes that can take one", async (
   // Grouped shapes and pictures keep their own fill and image controls.
   await select(page.getByRole("button", { name: /^Circle \d+\./ }));
   await expect(headings).toHaveText(shapeHeadings);
-  await select(page.getByRole("button", { name: "Text", exact: true }));
+  // A new text box takes a fill as well.
+  const close = page.getByRole("button", { name: "Close format panel" });
+  if (await close.isVisible()) await close.click();
+  await addText(page);
+  await inspector(page);
   await expect(headings).toHaveText(shapeHeadings);
 });
 

@@ -35,20 +35,29 @@ export const openNewSlideMenu = (page) =>
   openMenuPath(page, "Insert", "New slide");
 // Insert > Image: the file chooser for a picture.
 export const insertImage = (page) => menuCommand(page, "Insert", "Image");
-// Insert > Text box, pressed from within the page, for a step that has to
-// happen in the same task as the ones around it: window.__addTextNow().
-export async function installAddTextNow(page) {
+// A menu command pressed from within the page, for a step that has to
+// happen in the same task as the ones around it:
+// window.__menuNow("Insert", "Shape", "Rectangle"), and
+// window.__addTextNow() for Insert > Text box. The menu bar is pressed even
+// where a phone hides it.
+export async function installMenuNow(page) {
   await page.evaluate(() => {
-    window.__addTextNow = () => {
-      const named = (selector, name) =>
-        [...document.querySelectorAll(selector)].find(
-          (node) => node.textContent.trim() === name,
-        );
-      named('[role="menubar"] [role="menuitem"]', "Insert").click();
-      named('[role="menu"] [role="menuitem"]', "Text box").click();
+    const named = (nodes, name) =>
+      [...nodes].find((node) => node.textContent.trim() === name);
+    window.__menuNow = (menu, ...path) => {
+      named(
+        document.querySelectorAll('[role="menubar"] [role="menuitem"]'),
+        menu,
+      ).click();
+      for (const label of path) {
+        const open = [...document.querySelectorAll('[role="menu"]')].at(-1);
+        named(open.querySelectorAll('[role^="menuitem"]'), label).click();
+      }
     };
+    window.__addTextNow = () => window.__menuNow("Insert", "Text box");
   });
 }
+export const installAddTextNow = installMenuNow;
 // A ribbon command by its id, from the group a narrow ribbon folds it into
 // if need be.
 export async function ribbonButton(page, tab, id) {
