@@ -441,6 +441,8 @@ export class CanvasEditor {
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
     if (this.readOnly || this.composition) return;
+    // The host can keep history beyond this editor's (changes that reopened the package).
+    if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
       if (this.session[direction](() => { this.validateStory(); this.relayout(); })) this.onChange();
       this.focus(); this.revealCaret();
