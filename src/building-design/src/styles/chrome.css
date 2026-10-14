@@ -598,6 +598,21 @@ button.rb-panel-title:hover {
   background: var(--bg-app);
 }
 
+.main > .dock {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.main > .dock-resize {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.main > .viewarea {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .main.dock-hidden {
   grid-template-columns: 0 0 minmax(0, 1fr);
 }

@@ -97,10 +97,43 @@ export class PlanController {
         this.index(el.id, b);
       }
     }
+    // Underlay: the plan of another level, drawn in halftone and not selectable.
+    const under = this.underlayView(view);
+    if (under) {
+      const upc = planContext(scene.doc, under, scene.walls, scene.rooms);
+      for (const el of scene.planCandidates(under)) {
+        if (el.viewId || ['section', 'elevation', 'grid', 'room', 'roomSeparator'].includes(el.kind) || keep.has(el.id)) continue;
+        const g = scene.planOf(under, el, upc);
+        if (!g) continue;
+        const key = `u:${el.id}`;
+        keep.add(key);
+        this.layer.set(key, scene.indexOf(key), el.kind === 'wall' ? 'floor' : el.kind, g);
+      }
+    }
     this.layer.retain(keep);
     this.syncedVersion = scene.version;
     this.syncedView = view;
     this.featureCache.clear();
+  }
+
+  /** Plan view of the underlay level (view.underlay: 'below' | levelId | null). */
+  underlayView(view) {
+    const doc = this.app.doc;
+    let levelId = view.underlay;
+    if (!levelId) return null;
+    if (levelId === 'below') {
+      const lv = doc.levels();
+      const i = lv.findIndex((l) => l.id === view.levelId);
+      levelId = i > 0 ? lv[i - 1].id : null;
+    }
+    if (!levelId || levelId === view.levelId) return null;
+    const base = doc.all('plan').find((p) => p.levelId === levelId);
+    if (!base) return null;
+    // Same object while its inputs are unchanged, so cached graphics stay valid.
+    if (this._under?.base === base && this._under.view === view) return this._under.v;
+    const v = { ...base, id: `${view.id}:underlay`, hiddenIds: view.hiddenIds, hiddenCats: view.hiddenCats, scale: view.scale, detail: 'coarse' };
+    this._under = { base, view, v };
+    return v;
   }
 
   index(id, b) {

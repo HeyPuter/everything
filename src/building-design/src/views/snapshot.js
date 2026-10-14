@@ -36,7 +36,7 @@ export function renderViewImage(app, view, w, h, { fit = true, camera = null, tr
   c.vp = fake;
   if (camera) c.cam = structuredClone(camera);
   else if (fit || !c.cam) {
-    c.cam = null;
+    if (view.kind !== 'view3d') c.cam = null;
     if (isPlan) {
       c.sync();
       c.zoomExtents(false);

@@ -478,6 +478,12 @@ button.type-sel:hover:not(:disabled) {
   pointer-events: none;
 }
 
+@media (max-width: 760px) {
+  .toasts {
+    bottom: calc(64px + var(--viewbar-h) + env(safe-area-inset-bottom));
+  }
+}
+
 .toast {
   display: flex;
   align-items: center;

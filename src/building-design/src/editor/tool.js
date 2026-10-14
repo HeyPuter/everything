@@ -124,10 +124,9 @@ export class Tool {
     });
     wrap.append(box);
     this.inputBox = box;
-    requestAnimationFrame(() => {
-      input.focus();
-      if (!multiline) input.select();
-    });
+    // Focus now so keys typed right after the click land in the field.
+    input.focus();
+    if (!multiline) input.select();
     return input;
   }
 

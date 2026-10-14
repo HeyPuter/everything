@@ -19,7 +19,9 @@ import { createSampleProject } from './core/sample.js';
 import { isView, newId } from './core/doc.js';
 import { categoryOf, KIND_LABEL, TYPE_KIND, defaultTypeFor } from './core/catalog.js';
 import { describe as describeEl } from './core/props.js';
-import { formatArea, formatLength, scaleOptions } from './core/units.js';
+import { formatArea, formatLength, parseLength, scaleOptions } from './core/units.js';
+import { temporaryDimensions } from './editor/tempdims.js';
+import { drawTempDim } from './views/overlay.js';
 import { deleteElements, copyElements, translation, moveElements, uniqueName } from './core/ops.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
@@ -328,7 +330,7 @@ export class App {
               },
             },
             icon(KIND_ICON[v.kind] || 'file', 14),
-            h('span.vtab-name', v.name),
+            h('span.vtab-name', this.viewName(v)),
           ),
           h('button.icon-btn.sm.vtab-close', { type: 'button', tabindex: '-1', 'aria-hidden': 'true', title: `Close ${v.name}`, onClick: () => this.closeView(id) }, icon('x', 13)),
         ),
@@ -532,6 +534,7 @@ export class App {
 
   /** Flags for an element in the active view: selection, hover, hidden, isolate. */
   flagsOf(id) {
+    if (typeof id === 'string' && id.startsWith('u:')) return FLAG.dim;
     let f = 0;
     if (this.selection.has(id)) f |= FLAG.selected;
     if (this.hoverId === id) f |= FLAG.hover;
@@ -603,6 +606,10 @@ export class App {
 
   selectInstancesOfType(typeId) {
     this.select(this.doc.filter((e) => e.typeId === typeId).map((e) => e.id));
+  }
+
+  viewName(v) {
+    return v.kind === 'sheet' ? `${v.number || ''} - ${v.name}` : v.name;
   }
 
   describe(el) {
@@ -1167,7 +1174,7 @@ export class App {
     t.append(h('span.title-name', name));
     if (this.doc.modified) t.append(h('span.title-dot', { 'aria-label': 'Unsaved changes', role: 'img' }));
     const v = this.activeView;
-    if (v) t.append(h('span.title-view', `- ${v.name}`));
+    if (v) t.append(h('span.title-view', `- ${this.viewName(v)}`));
     document.title = `${this.doc.modified ? '* ' : ''}${name} - Building Design`;
     this.shell.undoBtn.disabled = !this.doc.canUndo;
     this.shell.redoBtn.disabled = !this.doc.canRedo;
@@ -1255,9 +1262,32 @@ export class App {
   // Selection overlay (temporary dimensions and room reference) -----------------------------------------
 
   drawSelectionOverlay(ctx, vc, vp) {
-    void ctx;
-    void vc;
-    void vp;
+    this.tempDims = [];
+    if (!vc?.is2D || this.selection.size !== 1 || !(this.tool instanceof SelectTool) || this.tool.drag?.started) return;
+    const el = this.doc.get([...this.selection][0]);
+    if (!el || el.pinned) return;
+    for (const d of temporaryDimensions(this.doc, el)) {
+      const rect = drawTempDim(ctx, vc.modelToScreen(d.a), vc.modelToScreen(d.b), formatLength(d.value, this.doc.units), vp.theme.selCss, vp.theme, d.offsetPx ?? 18);
+      if (rect) this.tempDims.push({ ...d, rect });
+    }
+  }
+
+  /** A click on a temporary dimension's value opens it for editing. */
+  tempDimAt(x, y) {
+    return (this.tempDims || []).find((d) => x >= d.rect.x && x <= d.rect.x + d.rect.w && y >= d.rect.y && y <= d.rect.y + d.rect.h) ?? null;
+  }
+
+  editTempDim(d, ev) {
+    this.tool.openInput(ev.x, ev.y, {
+      label: 'Distance',
+      value: formatLength(d.value, this.doc.units),
+      onSubmit: (v) => {
+        const mm = parseLength(v, this.doc.units);
+        if (!Number.isFinite(mm) || mm < 0) return false;
+        this.commit('Edit dimension', () => d.apply(this.doc, mm));
+        return true;
+      },
+    });
   }
 
   // Theme ----------------------------------------------------------------------------------------

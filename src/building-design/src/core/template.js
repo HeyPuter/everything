@@ -16,11 +16,13 @@ export const VIEW_DEFAULTS = {
 
 export function planView(doc, level, kind = 'plan') {
   const imp = doc.units.system === 'imperial';
+  const lowest = doc.levels().every((l) => l.elevation >= level.elevation);
   return {
     id: newId('v'),
     kind,
     name: level.name,
     levelId: level.id,
+    underlay: kind === 'plan' && !lowest ? 'below' : null,
     scale: imp ? 96 : 100,
     ...VIEW_DEFAULTS[kind],
     cutHeight: kind === 'plan' ? (imp ? 4 * MM_PER_FOOT : 1200) : imp ? 7.5 * MM_PER_FOOT : 2300,

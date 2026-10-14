@@ -56,6 +56,11 @@ export class SelectTool extends Tool {
   down(ev) {
     const vc = this.vc;
     if (!vc) return;
+    const td = this.app.tempDimAt(ev.x, ev.y);
+    if (td) {
+      this.app.editTempDim(td, ev);
+      return;
+    }
     const grip = this.gripAt(ev.x, ev.y);
     if (grip) {
       if (grip.click) {
@@ -197,6 +202,7 @@ export class SelectTool extends Tool {
     const d = this.drag;
     this.drag = null;
     if (!d) return;
+    this.app.requestRender();
     const vc = this.vc;
     if (d.kind === 'box') {
       if (!d.started) {

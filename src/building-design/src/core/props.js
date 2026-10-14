@@ -12,7 +12,7 @@ import { roofGeometry } from './build3d.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { scaleOptions } from './units.js';
 
-export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
+export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
 
 const P = (key, label, group, type, extra = {}) => ({ key, label, group, type, ...extra });
 
@@ -218,7 +218,16 @@ const viewDetail = P('detail', 'Detail Level', 'Graphics', 'select', { options: 
 const vis = P('vis', 'Visibility/Graphics', 'Graphics', 'button', { action: 'visibility', text: 'Edit...' });
 
 const VIEW = {
-  plan: [viewScale, viewDetail, vis, P('roomFill', 'Room Color Fill', 'Graphics', 'bool'), len('cutHeight', 'Cut Plane Height', 'Extents'), len('viewDepth', 'View Depth Offset', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
+  plan: [
+    viewScale,
+    viewDetail,
+    vis,
+    P('roomFill', 'Room Color Fill', 'Graphics', 'bool'),
+    P('underlay', 'Underlay', 'Underlay', 'select', {
+      get: (el) => el.underlay || '',
+      set: (el, v) => ({ underlay: v || null }),
+      options: (c) => [{ value: '', label: 'None' }, { value: 'below', label: 'Level below' }, ...c.doc.levels().map((l) => ({ value: l.id, label: l.name }))],
+    }), len('cutHeight', 'Cut Plane Height', 'Extents'), len('viewDepth', 'View Depth Offset', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
   ceilingPlan: [viewScale, viewDetail, vis, len('cutHeight', 'Cut Plane Height', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
   view3d: [
     P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES }),

@@ -125,7 +125,9 @@ export class SheetController extends PlanController {
         const { canvas } = renderViewImage(this.app, m.view, w, h, { fit: true });
         this.images.set(m.el.id, { key, canvas });
       } catch (err) {
+        // Remember the failure so it is not retried on every frame.
         console.warn(err);
+        this.images.set(m.el.id, { key, canvas: null });
       }
       this.rendering = false;
       this.vp.requestRender();
