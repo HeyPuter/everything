@@ -167,7 +167,7 @@ export function createMixer(app, host, ctl) {
 
   ctl.on('select', (i) => {
     render();
-    announce(`${trackLabel(store.project, i)} selected`);
+    if (app.activePanel === 'mixer') announce(`${trackLabel(store.project, i)} selected`);
   });
 
   // ---------------------------------------------------------------- rename
