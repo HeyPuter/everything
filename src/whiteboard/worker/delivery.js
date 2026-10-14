@@ -1,5 +1,6 @@
 import { DAY, administers, publicHost } from "./org.js";
 import { commentExcerpt } from "../src/comments.js";
+import { hash } from "../src/collaboration/protocol.js";
 // Outbound delivery for organization events: SIEM export, signed webhooks,
 // security alerts, and notification email. Every function here is best effort
 // and bounded; the caller has already made the change durable.
@@ -233,7 +234,9 @@ export async function retrySiem(org) {
 async function sentinelToken(org, config) {
   const secret = await org.secret("sentinel");
   if (!secret) throw Error("Add the Sentinel client secret.");
-  const key = `${config.tenantId}|${config.clientId}`;
+  // Tokens are kept per secret, so a replaced secret is tried at once,
+  // and a mistyped one fails its test rather than an hour later.
+  const key = `${config.tenantId}|${config.clientId}|${await hash(secret)}`;
   const cached = tokens.get(key);
   if (cached && cached.expires > org.now() + 60_000) return cached.token;
   const res = await org.fetcher(
@@ -255,6 +258,7 @@ async function sentinelToken(org, config) {
     throw Error(
       `Microsoft Entra sign-in failed (${res.status}): ${data.error || "no token"}`,
     );
+  if (tokens.size >= 100) tokens.delete(tokens.keys().next().value);
   tokens.set(key, {
     token: data.access_token,
     expires: org.now() + (Number(data.expires_in) || 3000) * 1000,

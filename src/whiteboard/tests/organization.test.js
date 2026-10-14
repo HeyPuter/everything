@@ -9048,3 +9048,35 @@ test("Sentinel calls stay under the ingestion API's 1 MB limit, so a large batch
   assert.equal(record.Details.truncated, true);
   assert.ok(new TextEncoder().encode(chunk).length < 1_000_000);
 });
+
+test("a replaced Sentinel client secret is used at once, so a wrong one fails its test", async () => {
+  const { call, org } = setup();
+  const base = org.fetcher;
+  org.fetcher = async (url, options) =>
+    String(url).includes("login.microsoftonline.com") &&
+    options.body.get("client_secret") !== "right-secret"
+      ? Response.json({ error: "invalid_client" }, { status: 401 })
+      : base(url, options);
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  const sentinel = (secret) =>
+    call(owner, {
+      op: "org.policy.set",
+      policy: {
+        siem: {
+          mode: "sentinel",
+          sentinel: {
+            tenantId: "11111111-2222-3333-4444-555555555555",
+            clientId: "11111111-2222-3333-4444-777777777777",
+            endpoint: "https://wb-abc.canadacentral-1.ingest.monitor.azure.com",
+            dcrId: "dcr-0123456789abcdef0123456789abcdef",
+            stream: "Custom-WhiteboardAudit",
+          },
+        },
+      },
+      secrets: { sentinel: secret },
+    });
+  await sentinel("right-secret");
+  assert.equal((await call(owner, { op: "org.siem.test" })).sent >= 1, true);
+  await sentinel("wrong-secret");
+  await assert.rejects(call(owner, { op: "org.siem.test" }), /invalid_client/);
+});
