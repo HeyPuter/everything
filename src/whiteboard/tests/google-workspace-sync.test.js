@@ -37,6 +37,9 @@ const page = (list, token, size) => {
 const logs = [];
 const context = vm.createContext({
   Logger: { log: (m) => logs.push(String(m)) },
+  LockService: {
+    getScriptLock: () => ({ tryLock: () => !directory.locked, releaseLock() {} }),
+  },
   PropertiesService: {
     getScriptProperties: () => ({ getProperties: () => properties }),
   },
@@ -154,6 +157,15 @@ async function setup() {
   return { org, boards, scim, sync, requests };
 }
 
+const NONE = {
+  created: 0,
+  updated: 0,
+  deactivated: 0,
+  removed: 0,
+  teams: 0,
+  conflicts: 0,
+  failed: 0,
+};
 const person = (id, email, orgUnitPath = "/Staff", extra = {}) => ({
   id,
   primaryEmail: email,
@@ -186,9 +198,8 @@ test("the Google Workspace sync provisions people, guests, and teams, and keeps 
   };
   const first = await sync(directory);
   assert.deepEqual(first.summary, {
+    ...NONE,
     created: 3,
-    updated: 0,
-    deactivated: 0,
     teams: 1,
   });
   const users = async () =>
@@ -218,12 +229,7 @@ test("the Google Workspace sync provisions people, guests, and teams, and keeps 
   const writes = () => requests.filter((r) => !r.startsWith("GET")).length;
   const before = writes();
   const quiet = await sync(directory);
-  assert.deepEqual(quiet.summary, {
-    created: 0,
-    updated: 0,
-    deactivated: 0,
-    teams: 0,
-  });
+  assert.deepEqual(quiet.summary, NONE);
   assert.equal(writes(), before);
   // Google renames Ann, suspends Bob, makes Cam staff, removes Dee, adds
   // Eve, and changes the group.
@@ -241,6 +247,7 @@ test("the Google Workspace sync provisions people, guests, and teams, and keeps 
   ];
   const changed = await sync(directory);
   assert.deepEqual(changed.summary, {
+    ...NONE,
     created: 1,
     updated: 2,
     deactivated: 1,
@@ -256,15 +263,16 @@ test("the Google Workspace sync provisions people, guests, and teams, and keeps 
     "Design",
     ["ann.lee@fabrikam.test", "eve@fabrikam.test"],
   ]);
-  // Someone who leaves the directory loses access; a dry run changes
-  // nothing and logs what it would do.
+  // Someone who leaves the directory is removed, which ends their access;
+  // a dry run changes nothing and logs what it would do.
   directory.users = directory.users.filter((u) => u.id !== "3");
   const dry = await sync(directory, { DRY_RUN: "true" });
-  assert.equal(dry.summary.deactivated, 1);
-  assert.ok(dry.logs.some((l) => /^PATCH .*\/Users\//.test(l)));
+  assert.equal(dry.summary.removed, 1);
+  assert.ok(dry.logs.some((l) => /^DELETE .*\/Users\//.test(l)));
   assert.match((await users())["cam@fabrikam.test"], /^active/);
-  await sync(directory);
-  assert.match((await users())["cam@fabrikam.test"], /^inactive/);
+  const removed = await sync(directory);
+  assert.equal(removed.summary.removed, 1);
+  assert.equal((await users())["cam@fabrikam.test"], undefined);
 });
 
 test("the Google Workspace sync leaves people it did not provision alone and keeps administrators' role", async () => {
@@ -308,11 +316,148 @@ test("the Google Workspace sync leaves people it did not provision alone and kee
     { users: [person("1", "ann@fabrikam.test")], groups: {} },
     { GROUPS: "" },
   );
-  assert.deepEqual(again.summary, {
-    created: 0,
-    updated: 0,
-    deactivated: 0,
-    teams: 0,
-  });
+  assert.deepEqual(again.summary, NONE);
   assert.equal((await org.freshUser(ann.id)).role, "admin");
+});
+
+async function verifyEmail(org, boards, identity, email) {
+  const sent = [];
+  org.puter.email = {
+    async sendTransactional(message) {
+      sent.push(message);
+      return { failed: [] };
+    },
+  };
+  await adminCall(org, boards, identity, { op: "email.start", email });
+  const code = /code is (\d{6})/.exec(sent.at(-1).text)[1];
+  return adminCall(org, boards, identity, { op: "email.confirm", code });
+}
+const bob = { uuid: "77777777-7777-4777-8777-777777777777", username: "bob" };
+const noGroups = { GROUPS: "" };
+
+test("an address Google gives to someone new never brings back its former owner's account", async () => {
+  const { org, boards, sync } = await setup();
+  const directory = { users: [person("2", "bob@fabrikam.test")], groups: {} };
+  await sync(directory, noGroups);
+  await verifyEmail(org, boards, bob, "bob@fabrikam.test");
+  assert.equal(await org.active(bob), true);
+  directory.users = [person("8", "ann@fabrikam.test")];
+  assert.equal((await sync(directory, noGroups)).summary.removed, 1);
+  assert.equal(await org.active(bob), false);
+  // The address goes to a new hire, another Google user.
+  directory.users.push(person("9", "bob@fabrikam.test"));
+  const hired = await sync(directory, noGroups);
+  assert.equal(hired.summary.created, 1);
+  assert.equal(await org.active(bob), false);
+  const newcomer = {
+    uuid: "88888888-8888-4888-8888-888888888888",
+    username: "robert",
+  };
+  await verifyEmail(org, boards, newcomer, "bob@fabrikam.test");
+  assert.equal(await org.role(newcomer), "member");
+  assert.equal(await org.active(bob), false);
+});
+
+test("a suspension goes through even when Google renames the person to an address Whiteboard refuses", async () => {
+  const { org, scim, sync } = await setup();
+  await sync(
+    {
+      users: [
+        person("1", "ann@fabrikam.test"),
+        person("2", "kim@fabrikam.test"),
+      ],
+      groups: {},
+    },
+    noGroups,
+  );
+  // Kim's address belongs to someone provisioned another way meanwhile;
+  // Google moves Ann to it and suspends her.
+  const kim = (await scim("Users")).Resources.find(
+    (u) => u.userName === "kim@fabrikam.test",
+  );
+  await org.updateUser(kim.id, { externalId: "other-tool:5" });
+  const result = await sync(
+    {
+      users: [
+        person("1", "kim@fabrikam.test", "/Staff", { suspended: true }),
+        person("3", "lee@fabrikam.test"),
+      ],
+      groups: {},
+    },
+    noGroups,
+  );
+  assert.equal(result.summary.deactivated, 1);
+  assert.equal(result.summary.failed, 1);
+  const ann = (await scim("Users")).Resources.find(
+    (u) => u.externalId === "google:1",
+  );
+  assert.equal(ann.active, false);
+  assert.equal(ann.userName, "ann@fabrikam.test");
+});
+
+test("the Google Workspace sync stops rather than remove everyone when the directory answers with no one or few", async () => {
+  const { scim, sync } = await setup();
+  const users = Array.from({ length: 30 }, (_, n) =>
+    person(String(n), `p${n}@fabrikam.test`),
+  );
+  await sync({ users, groups: {} }, noGroups);
+  await assert.rejects(
+    sync(
+      { users, groups: {} },
+      { ...noGroups, USER_QUERY: "orgUnitPath='/Nobody'" },
+    ),
+    /listed no users/,
+  );
+  // Twenty of thirty gone at once is held until confirmed.
+  const held = await sync({ users: users.slice(0, 10), groups: {} }, noGroups);
+  assert.equal(held.summary.removed, 0);
+  assert.equal(held.summary.conflicts, 20);
+  assert.equal((await scim("Users")).totalResults, 30);
+  const confirmed = await sync(
+    { users: users.slice(0, 10), groups: {} },
+    { ...noGroups, ALLOW_LARGE_REMOVALS: "true" },
+  );
+  assert.equal(confirmed.summary.removed, 20);
+  assert.equal((await scim("Users")).totalResults, 10);
+});
+
+test("the Google Workspace sync leaves another tool's person with the same address alone, counts group members once, and does not run twice at once", async () => {
+  const { org, scim, sync, requests } = await setup();
+  await sync(
+    { users: [person("1", "ann@fabrikam.test")], groups: {} },
+    noGroups,
+  );
+  const ann = (await scim("Users")).Resources[0];
+  await org.updateUser(ann.id, { externalId: "okta:42" });
+  const conflict = await sync(
+    { users: [person("1", "ann@fabrikam.test", "/Contractors")], groups: {} },
+    noGroups,
+  );
+  assert.equal(conflict.summary.conflicts, 1);
+  const kept = await scim(`Users/${ann.id}`);
+  assert.equal(kept.externalId, "okta:42");
+  assert.equal(kept.roles[0].value, "member");
+  // A person in a group twice, directly and through a nested group.
+  const directory = {
+    users: [person("2", "bo@fabrikam.test")],
+    groups: {
+      "design@fabrikam.test": {
+        id: "g1",
+        name: "Design",
+        members: [
+          { type: "USER", email: "bo@fabrikam.test" },
+          { type: "USER", email: "bo@fabrikam.test" },
+        ],
+      },
+    },
+  };
+  await sync(directory, { ALLOW_LARGE_REMOVALS: "true" });
+  const writes = () => requests.filter((r) => !r.startsWith("GET")).length;
+  const before = writes();
+  await sync(directory);
+  assert.equal(writes(), before);
+  directory.locked = true;
+  const skipped = await sync(directory);
+  assert.equal(skipped.summary, null);
+  assert.ok(skipped.logs.some((l) => /Another sync is running/.test(l)));
 });

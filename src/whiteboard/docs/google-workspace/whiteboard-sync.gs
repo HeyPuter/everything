@@ -22,6 +22,8 @@
 //   GROUPS               Optional Google group addresses to keep as teams,
 //                        comma separated
 //   DRY_RUN              "true" logs the changes without making them
+//   ALLOW_LARGE_REMOVALS "true" lets one run remove more than a fifth of
+//                        the people it provisioned
 
 var SCIM_TYPE = "application/scim+json";
 var PATCH_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
@@ -32,10 +34,38 @@ var BATCH = 20;
 var BUDGET_MS = 4.5 * 60 * 1000;
 
 function syncWhiteboard() {
-  var config = settings_();
+  // A run started by hand while the trigger's runs could otherwise both
+  // create the same people and teams.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log("Another sync is running; this one stops.");
+    return null;
+  }
+  try {
+    return sync_(settings_());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function sync_(config) {
   var started = Date.now();
-  var summary = { created: 0, updated: 0, deactivated: 0, teams: 0 };
+  var summary = {
+    created: 0,
+    updated: 0,
+    deactivated: 0,
+    removed: 0,
+    teams: 0,
+    conflicts: 0,
+    failed: 0,
+  };
   var people = googleUsers_(config);
+  // A search that matches no one, as when USER_QUERY is mistyped, would
+  // otherwise remove everyone the sync provisioned.
+  if (!people.length)
+    throw new Error(
+      "Google Workspace listed no users, so nothing was changed. Check USER_QUERY.",
+    );
   var known = scimUsers_(config);
   var byExternal = {},
     byName = {};
@@ -43,49 +73,85 @@ function syncWhiteboard() {
     if (u.externalId) byExternal[u.externalId] = u;
     byName[String(u.userName).toLowerCase()] = u;
   });
-  var requests = [],
+  var changes = [],
     seen = {};
+  var change = function (kind, method, path, body) {
+    changes.push({
+      kind: kind,
+      request: scimRequest_(config, method, path, body),
+    });
+  };
   people.forEach(function (person) {
     var externalId = EXTERNAL + person.id;
     seen[externalId] = true;
-    var existing = byExternal[externalId] || byName[person.email];
+    var existing = byExternal[externalId];
+    if (!existing && byName[person.email]) {
+      var holder = byName[person.email];
+      // Someone else's record, another Google user's or another tool's,
+      // is never taken over by its address; an administrator decides.
+      if (holder.externalId && holder.externalId !== externalId) {
+        Logger.log(
+          person.email +
+            " is held by another person in Whiteboard (" +
+            holder.externalId +
+            "); it was left as it is.",
+        );
+        summary.conflicts++;
+        return;
+      }
+      existing = holder;
+    }
     var wanted = userResource_(person, externalId);
     if (!existing) {
       // Suspended people are not provisioned only to be deactivated.
-      if (!person.active) return;
-      requests.push(scimRequest_(config, "post", "/Users", wanted));
-      summary.created++;
+      if (person.active) change("created", "post", "/Users", wanted);
       return;
     }
-    var operations = changes_(existing, wanted);
-    if (!operations.length) return;
-    requests.push(
-      scimRequest_(config, "patch", "/Users/" + existing.id, {
+    // A suspension goes on its own, first, so a change Whiteboard refuses,
+    // such as a new address another person holds, never keeps someone
+    // active.
+    if (!person.active && existing.active)
+      change("deactivated", "patch", "/Users/" + existing.id, {
+        schemas: [PATCH_SCHEMA],
+        Operations: [{ op: "replace", path: "active", value: false }],
+      });
+    var operations = changes_(existing, wanted).filter(function (op) {
+      return !(op.path === "active" && op.value === false);
+    });
+    if (operations.length)
+      change("updated", "patch", "/Users/" + existing.id, {
         schemas: [PATCH_SCHEMA],
         Operations: operations,
-      }),
+      });
+  });
+  // People this sync provisioned who left the directory, or its scope, are
+  // deleted from Whiteboard's directory: their access ends, and their
+  // address can be provisioned for someone new without reaching their
+  // account. Anyone provisioned another way is left alone. Unusually many
+  // at once wait for ALLOW_LARGE_REMOVALS, in case the directory answered
+  // only in part.
+  var leaving = known.filter(function (u) {
+    return (
+      String(u.externalId || "").indexOf(EXTERNAL) === 0 && !seen[u.externalId]
     );
-    if (!person.active && existing.active) summary.deactivated++;
-    else summary.updated++;
   });
-  // People this sync provisioned who left the directory, or its scope, lose
-  // access; anyone provisioned another way is left alone.
-  known.forEach(function (u) {
-    if (
-      u.active &&
-      String(u.externalId || "").indexOf(EXTERNAL) === 0 &&
-      !seen[u.externalId]
-    ) {
-      requests.push(
-        scimRequest_(config, "patch", "/Users/" + u.id, {
-          schemas: [PATCH_SCHEMA],
-          Operations: [{ op: "replace", path: "active", value: false }],
-        }),
-      );
-      summary.deactivated++;
-    }
-  });
-  var finished = send_(config, requests, started);
+  var provisioned = known.filter(function (u) {
+    return String(u.externalId || "").indexOf(EXTERNAL) === 0;
+  }).length;
+  if (
+    leaving.length > Math.max(10, provisioned / 5) &&
+    !config.allowLargeRemovals
+  ) {
+    Logger.log(
+      leaving.length +
+        " people left the directory or its scope; none were removed. If that is right, set ALLOW_LARGE_REMOVALS to true for one run.",
+    );
+    summary.conflicts += leaving.length;
+  } else
+    leaving.forEach(function (u) {
+      change("removed", "delete", "/Users/" + u.id);
+    });
+  var finished = send_(config, changes, started, summary);
   if (finished && config.groups.length) {
     // Group members are matched by the people as Whiteboard now lists them.
     var listed = {};
@@ -96,15 +162,14 @@ function syncWhiteboard() {
     scimGroups_(config).forEach(function (g) {
       if (g.externalId) teams[g.externalId] = g;
     });
-    var groupRequests = [];
+    var groupChanges = [];
     config.groups.forEach(function (address) {
       var group = AdminDirectory.Groups.get(address);
-      var members = groupMembers_(address)
-        .map(function (email) {
-          return listed[email];
-        })
-        .filter(Boolean)
-        .sort();
+      var unique = {};
+      groupMembers_(address).forEach(function (email) {
+        if (listed[email]) unique[listed[email]] = true;
+      });
+      var members = Object.keys(unique).sort();
       var externalId = EXTERNAL + group.id;
       var team = teams[externalId];
       var body = {
@@ -116,7 +181,10 @@ function syncWhiteboard() {
         }),
       };
       if (!team)
-        groupRequests.push(scimRequest_(config, "post", "/Groups", body));
+        groupChanges.push({
+          kind: "teams",
+          request: scimRequest_(config, "post", "/Groups", body),
+        });
       else if (
         team.displayName !== group.name ||
         JSON.stringify(
@@ -127,13 +195,12 @@ function syncWhiteboard() {
             .sort(),
         ) !== JSON.stringify(members)
       )
-        groupRequests.push(
-          scimRequest_(config, "put", "/Groups/" + team.id, body),
-        );
-      else return;
-      summary.teams++;
+        groupChanges.push({
+          kind: "teams",
+          request: scimRequest_(config, "put", "/Groups/" + team.id, body),
+        });
     });
-    finished = send_(config, groupRequests, started);
+    finished = send_(config, groupChanges, started, summary);
   }
   Logger.log(
     (config.dryRun ? "Dry run: " : "") +
@@ -170,6 +237,7 @@ function settings_() {
       return g.toLowerCase();
     }),
     dryRun: String(p.DRY_RUN).toLowerCase() === "true",
+    allowLargeRemovals: String(p.ALLOW_LARGE_REMOVALS).toLowerCase() === "true",
   };
 }
 
@@ -310,27 +378,40 @@ function scimRequest_(config, method, path, body) {
   return request;
 }
 
-// Sends changes a batch at a time, within the run's time; false when some
-// are left for the next run.
-function send_(config, requests, started) {
-  for (var n = 0; n < requests.length; n += BATCH) {
+// Sends changes a batch at a time, within the run's time, counting each
+// one Whiteboard accepted by its kind; false when some are left for the
+// next run. A dry run counts what it would send.
+function send_(config, changes, started, summary) {
+  for (var n = 0; n < changes.length; n += BATCH) {
     if (Date.now() - started > BUDGET_MS) return false;
-    var batch = requests.slice(n, n + BATCH);
+    var batch = changes.slice(n, n + BATCH);
     if (config.dryRun) {
-      batch.forEach(function (r) {
+      batch.forEach(function (c) {
         Logger.log(
-          r.method.toUpperCase() + " " + r.url + " " + (r.payload || ""),
+          c.request.method.toUpperCase() +
+            " " +
+            c.request.url +
+            " " +
+            (c.request.payload || ""),
         );
+        summary[c.kind]++;
       });
       continue;
     }
-    UrlFetchApp.fetchAll(batch).forEach(function (response, i) {
+    UrlFetchApp.fetchAll(
+      batch.map(function (c) {
+        return c.request;
+      }),
+    ).forEach(function (response, i) {
+      var request = batch[i].request;
       try {
-        check_(response, batch[i].method.toUpperCase() + " " + batch[i].url);
+        check_(response, request.method.toUpperCase() + " " + request.url);
+        summary[batch[i].kind]++;
       } catch (error) {
         // One refused change, such as an address another person holds, is
         // logged and the others go ahead.
-        Logger.log(error.message + " " + (batch[i].payload || ""));
+        Logger.log(error.message + " " + (request.payload || ""));
+        summary.failed++;
       }
     });
   }
