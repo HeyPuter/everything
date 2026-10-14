@@ -31,6 +31,7 @@ import { relatedPartPath } from './docx-relationships.js';
 import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
+import { readMailMerge, writeMailMerge } from './docx-mail-merge.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
@@ -44,8 +45,11 @@ import { hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, bookmarkInlineEvents } from './bookmarks.js';
 import { bookmarkReader, writeBookmark } from './docx-bookmarks.js';
 import { readComments, writeComments, readCommentMarker } from './docx-comments.js';
-import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd } from './docx-page-story-create.js';
-import { footnoteReferences, footnoteStoryPath, footnoteStoryId } from './footnotes.js';
+import { isPermissionElement, readPermissionMarker } from './docx-permissions.js';
+import { readReviewSettings, writeReviewSettings } from './docx-review-settings.js';
+import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd, writePageNumbering } from './docx-page-story-create.js';
+import { footnoteReferences, footnoteStoryPath, footnoteStoryId, noteReferences, NOTE_KINDS } from './footnotes.js';
+import { readNoteSettings, writeNoteSettings, createNotesPart, separatorIds, NOTE_DEFAULTS } from './docx-notes.js';
 import { isMathElement, linearMath } from './office-math.js';
 import { commentMarker } from './comments.js';
 import { readUnderline } from './docx-underlines.js';
@@ -186,7 +190,7 @@ function writeParagraphFormat(node, p, make, numbering) {
   const patch = p.shell || p.styleContext || p.paragraphPropertiesCleared ? { ...p.formatOverrides } : { ...paragraphFormat({ ...p, list: null }, numbering) };
   const writeList = p.listChanged || !p.shell && p.list && (!p.styleContext || p.list.direct);
   if (!p.shell && p.list) for (const key of ['indentLeft', 'indentRight', 'firstLine', 'tabs']) if (!(key in (p.formatOverrides || {}))) delete patch[key];
-  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared) return;
+  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared && !p.framePropertiesChanged) return;
   let pPr = child(node, 'pPr');
   if (!pPr) { pPr = make('pPr'); node.prepend(pPr); }
   if (p.paragraphPropertiesCleared) for (const property of children(pPr)) if (!retainedParagraphProperty(property)) property.remove();
@@ -200,6 +204,13 @@ function writeParagraphFormat(node, p, make, numbering) {
   };
   if (p.styleChanged) {
     if (p.styleId) ensure('pStyle').setAttributeNS(W, 'w:val', p.styleId); else child(pPr, 'pStyle')?.remove();
+  }
+  if (p.framePropertiesChanged) {
+    // §17.3.1.11: rewrite the paragraph's own (direct) frame declaration,
+    // attribute for attribute, as the reader produced it (e.g. drop caps).
+    child(pPr, 'framePr')?.remove();
+    const declared = p.styleContext ? p.styleContext.properties.frameProperties : p.frameProperties;
+    if (declared) { const frame = ensure('framePr'); for (const [name, v] of Object.entries(declared)) frame.setAttributeNS(W, `w:${name}`, String(v)); }
   }
   if (writeList) {
     const numPr = ensure('numPr'); numPr.replaceChildren();
@@ -747,7 +758,7 @@ export function createDocx(paragraphs = [paragraph()], pageSettings, numbering =
 let revisionIds = 0x3F000000;
 /** A w:ins or w:del element for a revision record (§17.13.5.18, §17.13.5.14). */
 function revisionElement(doc, revision) {
-  const node = doc.createElementNS(W, revision.type === 'del' ? 'w:del' : 'w:ins');
+  const node = doc.createElementNS(W, revision.move ? (revision.type === 'del' ? 'w:moveFrom' : 'w:moveTo') : revision.type === 'del' ? 'w:del' : 'w:ins');
   node.setAttributeNS(W, 'w:id', String(revisionIds++));
   node.setAttributeNS(W, 'w:author', revision.author || '');
   if (revision.date) node.setAttributeNS(W, 'w:date', revision.date);
@@ -764,8 +775,47 @@ function writeMarkRevision(node, revision, make) {
   rPr.prepend(revisionElement(node.ownerDocument, own));
   if (inserted) rPr.prepend(revisionElement(node.ownerDocument, { type: 'ins', ...inserted }));
 }
+const FORMAT_CHANGE_STRIP = ['rPrChange', 'ins', 'del', 'moveFrom', 'moveTo'];
+/** Append a regenerated rPrChange (§17.13.5.30) recording a run's former properties; it is the last child of rPr. */
+function writeRunChange(properties, revision, make, previousProperties) {
+  for (const n of children(properties)) if (n.namespaceURI === W && n.localName === 'rPrChange') n.remove();
+  if (!revision) return properties;
+  properties ||= make('rPr');
+  const former = previousProperties || make('rPr');
+  for (const n of children(former)) if (n.namespaceURI === W && FORMAT_CHANGE_STRIP.includes(n.localName)) n.remove();
+  const change = make('rPrChange');
+  change.setAttributeNS(W, 'w:id', revision.id || String(revisionIds++));
+  change.setAttributeNS(W, 'w:author', revision.author || '');
+  if (revision.date) change.setAttributeNS(W, 'w:date', revision.date);
+  change.append(former); properties.append(change);
+  return properties;
+}
+/** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
+function writeMoveRanges(node, names, counters, make) {
+  const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
+  for (const container of containers) {
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      const first = group[0], kind = first.localName, base = names.get(first) || 'move';
+      const key = `${kind}:${base}`, index = (counters.get(key) || 0) + 1; counters.set(key, index);
+      const id = String(revisionIds++);
+      const start = make(`${kind}RangeStart`); start.setAttributeNS(W, 'w:id', id); start.setAttributeNS(W, 'w:name', index > 1 ? `${base}_${index}` : base);
+      start.setAttributeNS(W, 'w:author', first.getAttributeNS(W, 'author') || ''); if (first.getAttributeNS(W, 'date')) start.setAttributeNS(W, 'w:date', first.getAttributeNS(W, 'date'));
+      const end = make(`${kind}RangeEnd`); end.setAttributeNS(W, 'w:id', id);
+      first.before(start); group.at(-1).after(end); group = [];
+    };
+    for (const n of children(container)) {
+      const move = n.namespaceURI === W && ['moveFrom', 'moveTo'].includes(n.localName);
+      if (move && (!group.length || group[0].localName === n.localName && names.get(group[0]) === names.get(n))) group.push(n);
+      else { flush(); if (move) group.push(n); }
+    }
+    flush();
+  }
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
+  const moveNames = new WeakMap(), moveCounters = new Map();
   return p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
@@ -795,6 +845,25 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         if (!old && updated) pPr.insertBefore(updated, child(pPr, 'sectPr') || null);
       }
       writeMarkRevision(node, p.markRevision, make);
+      {
+        // A recorded paragraph formatting change: pPrChange holds the former pPr (§17.13.5.29).
+        const pPr = child(node, 'pPr');
+        if (p.formatRevision?.previous) {
+          for (const n of children(pPr)) if (n.namespaceURI === W && n.localName === 'pPrChange') n.remove();
+          const previous = { ...p, ...p.formatRevision.previous };
+          const scratch = previous.shell ? doc.importNode(xml(previous.shell).documentElement, true) : make('p');
+          writeParagraphFormat(scratch, previous, make, numbering);
+          const former = child(scratch, 'pPr') || make('pPr');
+          for (const n of children(former)) if (n.namespaceURI === W && ['rPr', 'sectPr', 'pPrChange'].includes(n.localName)) n.remove();
+          const change = make('pPrChange');
+          change.setAttributeNS(W, 'w:id', p.formatRevision.id || String(revisionIds++));
+          change.setAttributeNS(W, 'w:author', p.formatRevision.author || '');
+          if (p.formatRevision.date) change.setAttributeNS(W, 'w:date', p.formatRevision.date);
+          change.append(former);
+          let target = pPr; if (!target) { target = make('pPr'); node.prepend(target); }
+          target.append(change);
+        }
+      }
       let linkId = null, parent = node, linkParent = node;
       const fieldContainers = [], fieldContainer = () => fieldContainers.at(-1)?.node || node;
       const writtenControls = new Map();
@@ -830,7 +899,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         return writtenControls.get(control.id);
       };
       // Tracked runs sit in w:ins/w:del wrappers; neighbours with the same revision share one.
-      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '');
+      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
       const place = (r, run) => {
         if (!run.revision) { parent.append(r); return; }
         const { inserted, ...revision } = run.revision;
@@ -843,6 +912,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         if (matches(host.lastElementChild, revision)) { host.lastElementChild.append(r); return; }
         const wrapper = revisionElement(doc, revision);
+        if (revision.move) moveNames.set(wrapper, revision.moveName || 'move');
         wrapper.append(r); host.append(wrapper);
       };
       for (let i = 0; i < events.length; i++) {
@@ -909,6 +979,13 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         let properties = run.properties ? doc.importNode(xml(run.properties).documentElement, true) : null;
         properties = writeRunFormat(properties, run.properties ? run.overrides || {} : run.styleManaged ? { ...run.directFormat, ...run.overrides } : runFormat(run), make, inheritedStrike(run.styleId), inheritedCaps(run.styleId));
         properties = writeRunStyle(properties, run.styleId, run.styleChanged || !run.properties && run.styleId, make);
+        if (run.formatRevision?.previous) {
+          const prev = run.formatRevision.previous;
+          let former = prev.properties ? doc.importNode(xml(prev.properties).documentElement, true) : null;
+          former = writeRunFormat(former, prev.properties ? prev.overrides || {} : prev.styleManaged ? { ...prev.directFormat, ...prev.overrides } : runFormat(prev), make, inheritedStrike(prev.styleId), inheritedCaps(prev.styleId));
+          former = writeRunStyle(former, prev.styleId, prev.styleChanged || !prev.properties && prev.styleId, make);
+          properties = writeRunChange(properties, run.formatRevision, make, former);
+        }
         if (properties) r.append(properties);
         if (run.math) {
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
@@ -931,9 +1008,10 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
           r.append(symbol);place(r, run);continue;
         }
         if(run.noteMark){
-          if(!['footnoteRef','endnoteRef','footnoteReference'].includes(run.noteMark.kind)||run.text!==run.noteMark.text)throw new Error('Invalid retained note mark.');
+          if(!['footnoteRef','endnoteRef','footnoteReference','endnoteReference'].includes(run.noteMark.kind)||run.text!==run.noteMark.text)throw new Error('Invalid retained note mark.');
           const mark=make(run.noteMark.kind);
-          if(run.noteMark.kind==='footnoteReference')mark.setAttributeNS(W,'w:id',run.noteMark.id);
+          if(run.noteMark.custom)mark.setAttributeNS(W,'w:customMarkFollows','1');
+          if(run.noteMark.kind.endsWith('Reference'))mark.setAttributeNS(W,'w:id',run.noteMark.id);
           r.append(mark);place(r, run);continue;
         }
         if (run.image) {
@@ -957,6 +1035,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         place(r, run);
       }
+      writeMoveRanges(node, moveNames, moveCounters, make);
     }
     return node;
   };
@@ -976,7 +1055,9 @@ function hasPageStoryControls(root) {
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
-    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.evenAndOdd = null;
+    this.reviewSettings = readReviewSettings(null); this.initialReviewSettings = readReviewSettings(null);
+    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
+    this.mailMerge = null; this.initialMailMerge = 'null';
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1051,9 +1132,6 @@ export class DocxPackage {
     if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name))) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
-    if (settings) {
-      if (settings.getElementsByTagNameNS(W, 'documentProtection').length) unsupported('document protection');
-    }
     const doc = xml(parts['word/document.xml']);
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
@@ -1140,10 +1218,34 @@ export class DocxPackage {
     let bodyInlineOrder = 0;
     const commentReferences = [];
     let currentRevision = null;
+    // Open move ranges (§17.13.5.22–.27) name the moveFrom/moveTo content they enclose.
+    const moveNames = { from: null, to: null };
+    const readMoveRange = node => {
+      const side = node.localName.startsWith('moveFrom') ? 'from' : 'to';
+      moveNames[side] = node.localName.endsWith('Start') ? node.getAttributeNS(W, 'name') || '' : null;
+    };
+    const isMoveRange = node => node.namespaceURI === W && ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd'].includes(node.localName);
     const readRevision = node => {
       for (const attr of [...node.attributes]) if (attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(attr.namespaceURI === W && ['id', 'author', 'date', 'name'].includes(attr.localName))) throw new UnsupportedDocumentError(`revision attribute ${attr.name}`);
       const type = ['ins', 'moveTo'].includes(node.localName) ? 'ins' : 'del';
-      return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '' };
+      const move = ['moveFrom', 'moveTo'].includes(node.localName);
+      return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '', ...(move ? { move: true, moveName: moveNames[node.localName === 'moveFrom' ? 'from' : 'to'] || '' } : {}) };
+    };
+    // A recorded formatting change keeps its former formatting for rejection (§17.13.5.29/.30).
+    const changeMeta = change => ({ type: 'format', author: change.getAttributeNS(W, 'author') || '', date: change.getAttributeNS(W, 'date') || '', ...(change.getAttributeNS(W, 'id') ? { id: change.getAttributeNS(W, 'id') } : {}) });
+    const readRunChange = rPr => {
+      const change = child(rPr, 'rPrChange'); if (!change) return null;
+      const inner = child(change, 'rPr');
+      return { ...changeMeta(change), previous: { styleId: readCharacterStyle(inner), directFormat: readDirectRun(inner), hasDirectProperties: hasDirectProperties(inner), styleManaged: true, properties: inner ? serialize(inner) : '', overrides: {} } };
+    };
+    const readParagraphChange = (pPr, shell, mark) => {
+      const change = child(pPr, 'pPrChange'); if (!change) return null;
+      const inner = child(change, 'pPr');
+      const previousShell = shell.cloneNode(true), target = child(previousShell, 'pPr');
+      for (const n of children(target)) if (!(n.namespaceURI === W && ['rPr', 'sectPr'].includes(n.localName))) n.remove();
+      for (const n of children(inner)) if (!(n.namespaceURI === W && ['rPr', 'sectPr', 'pPrChange'].includes(n.localName))) target.insertBefore(n.cloneNode(true), child(target, 'rPr') || child(target, 'sectPr') || null);
+      const styleContext = { ...recoverProperties(inner, candidate => ({ properties: paragraphProperties(candidate, {}, readColor), reference: numberingReference(candidate) })), numberingDirect: !!child(inner, 'numPr'), mark };
+      return { ...changeMeta(change), previous: { shell: serializeFragment(previousShell), styleId: value(child(inner, 'pStyle')), styleContext, hasDirectParagraphProperties: children(inner).some(n => !retainedParagraphProperty(n)) } };
     };
     const bodyFields = bodyFieldReader(()=>bodyInlineOrder++);
     const normalizeFields = (node, refreshFormatting = false) => {
@@ -1235,6 +1337,10 @@ export class DocxPackage {
           if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('bookmarks inside a body field instruction');
           bookmarks.push({ ...readBookmark(r, textPosition, link, context), ...(!context.drawingText&&!context.pageStory?{bodyOrder:bodyInlineOrder++}:{}) }); return;
         }
+        if (isPermissionElement(r) && !context.drawingText && !context.pageStory) {
+          if (bodyFields.inCode) throw new UnsupportedDocumentError('permission ranges inside a body field instruction');
+          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++)); return;
+        }
         if (r.namespaceURI === W && ['commentRangeStart', 'commentRangeEnd'].includes(r.localName)) {
           if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('comments outside the main body');
           if (bodyFields.inCode) throw new UnsupportedDocumentError('comments inside a body field instruction');
@@ -1253,6 +1359,7 @@ export class DocxPackage {
           return;
         }
         const rPr = child(r, 'rPr');
+        const formatRevision = rPr && !context.drawingText ? readRunChange(rPr) : null;
         const characterStyleId=readCharacterStyle(rPr),characterStyle=styles.definitions?.[characterStyleId];
         let text = '';
         const push = (image, positionalTab) => {
@@ -1265,7 +1372,7 @@ export class DocxPackage {
           if (/[\n\r]/.test(text)) throw new UnsupportedDocumentError('line breaks inside text runs');
           const tocHyperlink=tocHyperlinkRuns.has(r)||!context.drawingText&&!context.pageStory&&bodyFields.inToc&&characterStyle?.type==='character'&&characterStyle.name.toLowerCase()==='hyperlink';
           const resultLink=link||(!context.drawingText&&!context.pageStory?bodyFields.link:null);
-          if (text || image) runs.push({ text: image ? OBJECT : text, ...(currentRevision ? { revision: { ...currentRevision } } : {}), ...(image ? { image } : {}), ...(positionalTab ? { positionalTab } : {}), ...(fieldRuns.has(r) ? { field: fieldRuns.get(r) } : {}), ...(tocHyperlink ? { tocHyperlink: true } : {}), ...(resultLink ? { link:resultLink } : {}), styleId: characterStyleId, directFormat: readDirectRun(rPr), hasDirectProperties: hasDirectProperties(rPr), styleManaged: true, properties: rPr ? serialize(rPr) : '', overrides: {} });
+          if (text || image) runs.push({ text: image ? OBJECT : text, ...(currentRevision ? { revision: { ...currentRevision } } : {}), ...(formatRevision ? { formatRevision: structuredClone(formatRevision) } : {}), ...(image ? { image } : {}), ...(positionalTab ? { positionalTab } : {}), ...(fieldRuns.has(r) ? { field: fieldRuns.get(r) } : {}), ...(tocHyperlink ? { tocHyperlink: true } : {}), ...(resultLink ? { link:resultLink } : {}), styleId: characterStyleId, directFormat: readDirectRun(rPr), hasDirectProperties: hasDirectProperties(rPr), styleManaged: true, properties: rPr ? serialize(rPr) : '', overrides: {} });
           textPosition += image ? 1 : text.length;
           text = '';
         };
@@ -1290,7 +1397,7 @@ export class DocxPackage {
           if (!context.drawingText && !context.pageStory && t.namespaceURI === W && ['fldChar','instrText'].includes(t.localName)) {
             push();bodyFields.token(t,r,textPosition,fieldMarkers,link);continue;
           }
-          if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('visible content inside a body field instruction');
+          if (!context.drawingText && !context.pageStory && bodyFields.inCode) { if (bodyFields.absorb(t, r)) continue; throw new UnsupportedDocumentError('visible content inside a body field instruction'); }
           if (t.namespaceURI === W && t.localName === 't') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'delText' && currentRevision?.type === 'del') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'sym') {
@@ -1320,17 +1427,20 @@ export class DocxPackage {
             if (!/^[+-]?\d+$/.test(raw || '') || t.children.length) throw new UnsupportedDocumentError('an invalid comment reference');
             push(); commentReferences.push({ id: BigInt(raw).toString(), offset: textPosition, bookmarks });
           }
-          else if (t.namespaceURI === W && t.localName === 'footnoteReference') {
-            if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('footnote references outside the main body');
+          else if (t.namespaceURI === W && (t.localName === 'footnoteReference' || t.localName === 'endnoteReference')) {
+            const kind = t.localName === 'footnoteReference' ? 'footnote' : 'endnote';
+            if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError(`${kind} references outside the main body`);
             const raw = t.getAttributeNS(W, 'id');
-            if (!/^[+-]?\d+$/.test(raw || '') || t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError('an invalid footnote reference');
-            if (['1', 'true', 'on'].includes(t.getAttributeNS(W, 'customMarkFollows') || '')) throw new UnsupportedDocumentError('custom footnote reference marks');
+            if (!/^[+-]?\d+$/.test(raw || '') || t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError(`an invalid ${kind} reference`);
+            const custom = t.getAttributeNS(W, 'customMarkFollows') || '';
+            if (custom && !['0', '1', 'true', 'false', 'on', 'off'].includes(custom)) throw new UnsupportedDocumentError(`an invalid ${kind} custom mark flag`);
             push(); text = OBJECT; push();
-            runs.at(-1).noteMark = { kind: 'footnoteReference', id: BigInt(raw).toString(), text: OBJECT, display: '' };
+            // A custom mark (§17.11.14 customMarkFollows) is the run text that follows; the reference shows no number.
+            runs.at(-1).noteMark = { kind: t.localName, id: BigInt(raw).toString(), text: OBJECT, display: '', ...(['1', 'true', 'on'].includes(custom) ? { custom: true } : {}) };
           }
-          else if (t.namespaceURI === W && t.localName === 'footnoteRef' && context.noteStory) {
+          else if (t.namespaceURI === W && (t.localName === 'footnoteRef' || t.localName === 'endnoteRef') && context.noteStory === (t.localName === 'footnoteRef' ? 'footnote' : 'endnote')) {
             if (t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError('malformed note marks');
-            push(); text = OBJECT; push(); runs.at(-1).noteMark = { kind: 'footnoteRef', text: OBJECT, display: '' };
+            push(); text = OBJECT; push(); runs.at(-1).noteMark = { kind: t.localName, text: OBJECT, display: '' };
           }
           else if (t.namespaceURI === W && ['footnoteRef','endnoteRef'].includes(t.localName)) {
             // Ordinal one is displayed using the section's FOOTNOTE format
@@ -1408,7 +1518,7 @@ export class DocxPackage {
           finally { currentRevision = outer; }
           return;
         }
-        if (r.namespaceURI === W && ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd'].includes(r.localName)) return;
+        if (isMoveRange(r)) { readMoveRange(r); return; }
         if(macroPrompts.has(r)){
           if(controlDepth)throw new UnsupportedDocumentError('body fields inside inline content controls');
           bodyFields.prompt(macroPrompts.get(r),children(r),()=>textPosition,fieldMarkers,readRun);
@@ -1483,9 +1593,11 @@ export class DocxPackage {
       if (hyperlinkBoundaryChanges(runs).length) throw new UnsupportedDocumentError('hyperlink boundaries inside grapheme clusters');
       if (pPr) shell.append(pPr.cloneNode(true));
       const mark = child(pPr, 'rPr');
+      const paragraphChange = pPr && !context.drawingText ? readParagraphChange(pPr, shell, styleContext.mark) : null;
       const p = paragraph('', { ...context, runs, ...(bookmarks.length || commentReferences.at(-1)?.bookmarks === bookmarks ? { bookmarks } : {}), shell: serializeFragment(shell), ...(child(pPr, 'sectPr') ? { sectionEnd: readPageSettings(child(pPr, 'sectPr'), settings?.documentElement, readColor, attempt), sectionProperties: serializeFragment(child(pPr, 'sectPr')) } : {}), styleId, styleContext, hasDirectParagraphProperties: children(pPr).some(n => !retainedParagraphProperty(n)), markStyleId: readCharacterStyle(mark), markProperties: mark ? serialize(mark) : '', markHasDirectProperties: hasDirectProperties(mark) });
       if (p.sectionEnd && !context.drawingText && !context.pageStory) p.sectionSourceIndex = sectionSourceIndices.get(child(pPr, 'sectPr'));
       if (markRevision) p.markRevision = markRevision;
+      if (paragraphChange) p.formatRevision = paragraphChange;
       if(fieldMarkers.length)p.fieldMarkers=fieldMarkers;
       try {
         resolveStyledParagraph(p, styles, numbering, { displayOnly: preview, onNumberingError: preview ? error => recordPreviewIssue(issues, error) : undefined });
@@ -1507,7 +1619,10 @@ export class DocxPackage {
     const stylesRoot = stylesDoc?.documentElement;
     const readBlocks = (nodes, context = {}, depth = 0, blockTables = tables) => {
       if (depth > 12) throw new UnsupportedDocumentError('excessive block nesting');
-      const result = [], pending = [];
+      const result = [], pending = [], leading = [];
+      // A paragraph that received markers from between blocks cannot reuse its source XML, which lacks them.
+      const adopted = p => { const original = originals.get(p.id); if (original) original.blockMarkers = true; };
+      const takeLeading = paragraphs => { if (leading.length && paragraphs[0]) { paragraphs[0].bookmarks = [...leading.splice(0), ...(paragraphs[0].bookmarks || [])]; adopted(paragraphs[0]); } };
       const tableAt = p => {
         const owner = id => blockTables.find(t => t.rows.some(row => row.cells.some(cell => cell.id === id)));
         let table = p?.cellId && p.cellId !== context.cellId ? owner(p.cellId) : null;
@@ -1519,12 +1634,18 @@ export class DocxPackage {
         try {
           if (node.namespaceURI !== W) throw new UnsupportedDocumentError(node.localName);
           if (node.localName === 'sectPr' && !depth && !context.cellId) continue;
-          if (['commentRangeStart', 'commentRangeEnd'].includes(node.localName) && !context.drawingText && !context.pageStory) {
-            const previous = result.at(-1);
-            const marker = readCommentMarker(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
-            if (previous) (previous.bookmarks ||= []).push(marker); else pending.push(marker);
+          if (isPermissionElement(node) && node.localName === 'permStart' && !context.drawingText && !context.pageStory) {
+            // A range opening between blocks starts with the next paragraph.
+            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++));
             continue;
           }
+          if ((['commentRangeStart', 'commentRangeEnd'].includes(node.localName) || isPermissionElement(node)) && !context.drawingText && !context.pageStory) {
+            const previous = result.at(-1);
+            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
+            if (previous) { (previous.bookmarks ||= []).push(marker); adopted(previous); } else pending.push(marker);
+            continue;
+          }
+          if (isMoveRange(node) && !context.drawingText) { readMoveRange(node); continue; }
           if (['bookmarkStart', 'bookmarkEnd'].includes(node.localName)) {
             if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('bookmarks inside a body field instruction');
             const previous = result.at(-1);
@@ -1535,6 +1656,7 @@ export class DocxPackage {
           }
           if (node.localName === 'p') {
             const p = readParagraph(context.pageStory ? normalizeFields(node) : node, context);
+            takeLeading([p]);
             if (context.pageStory || context.drawingText) {
               if (p.sectionEnd) throw new UnsupportedDocumentError('section properties in a header/footer');
               p.storySource = serializeFragment(node);
@@ -1552,7 +1674,7 @@ export class DocxPackage {
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
             if (context.cellId) parsed.table.parentCellId = context.cellId;
             if (context.blockControls) parsed.table.blockControls = context.blockControls;
-            blockTables.push(parsed.table); result.push(...parsed.paragraphs);
+            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); result.push(...parsed.paragraphs);
           } else throw new UnsupportedDocumentError(node.localName);
         } catch (e) {
           if (!preview || context.drawingText || !(e instanceof UnsupportedDocumentError)) throw e;
@@ -1568,10 +1690,15 @@ export class DocxPackage {
           result.push(...recovered);
         }
       }
+      if (leading.length) {
+        if (!result.length) throw new UnsupportedDocumentError('permission ranges without paragraph content');
+        const last = result.at(-1); (last.bookmarks ||= []).push(...leading.splice(0).map(m => ({ ...m, offset: paragraphText(last).length }))); adopted(last);
+      }
       if (pending.length) {
         if (!result.length) throw new UnsupportedDocumentError('block bookmarks without paragraph content');
         const tableId = tableAt(result[0]); if (tableId) for (const marker of pending) marker.blockTableId = tableId;
         (result[0].bookmarks ||= []).push(...pending);
+        if (pending.some(m => m.comment || m.perm)) adopted(result[0]);
       }
       return result;
     };
@@ -1595,7 +1722,7 @@ export class DocxPackage {
     try { bodyFieldRanges(paragraphs); } catch(error) { throw new UnsupportedDocumentError(error.message); }
     for (const group of blockControlGroups(paragraphs)) group.control.signature = blockControlSignature(group.paragraphs, group.control);
     for (const p of paragraphs) {
-      const original = originals.get(p.id); if (original) original.signature = signature(p);
+      const original = originals.get(p.id); if (original && !original.blockMarkers) original.signature = signature(p);
     }
     documentBlocks(paragraphs, tables);
     try {
@@ -1614,9 +1741,12 @@ export class DocxPackage {
     checkMarkers(paragraphs);
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
+    pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
+    pkg.reviewSettings = attempt(() => readReviewSettings(settings?.documentElement, stylesDoc?.documentElement), () => readReviewSettings(null));
+    pkg.initialReviewSettings = { ...structuredClone(pkg.reviewSettings), hideSpellingErrors: pkg.hideSpellingErrors };
     pkg.savedSpelling = savedSpellingComplete ? bodySpellingCache(paragraphs, spellingAnchors) : null;
     pkg.initialProofingFingerprint = savedSpellingComplete || child(settings?.documentElement, 'proofState')?.getAttributeNS(W, 'grammar') === 'clean' ? proofingFingerprint(paragraphs) : null;
     if (activeNodes.some(n => n.namespaceURI === W && (['headerReference', 'footerReference', 'pgNumType'].includes(n.localName))) || Object.values(assets).some(a => a.scene && shapeHasFields(a.scene))) {
@@ -1657,42 +1787,44 @@ export class DocxPackage {
         });
       }
     }
-    const referencedNotes = footnoteReferences(paragraphs);
-    if (referencedNotes.length) attempt(() => {
-      const notesPath = relatedPartPath(parts, 'footnotes');
-      if (!notesPath) throw new UnsupportedDocumentError('a missing footnotes part');
-      const root = xml(parts[notesPath]).documentElement;
-      if (root.namespaceURI !== W || root.localName !== 'footnotes') throw new UnsupportedDocumentError('an invalid footnotes part');
-      const footnotePr = child(settings?.documentElement, 'footnotePr');
-      const restart = value(child(footnotePr, 'numRestart'));
-      if (restart && restart !== 'continuous') unsupported('footnote numbering that restarts each page or section; note numbers displayed continuously in read-only preview');
-      const startValue = value(child(footnotePr, 'numStart'));
-      const definition = pkg.pageStories ||= { sections: sectionSourceNodes.map(() => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
-      pkg.initialFootnotes = [...new Set(referencedNotes.map(r => r.id))];
-      definition.footnotes = { part: notesPath, format: value(child(footnotePr, 'numFmt')) || 'decimal', start: startValue && /^\d+$/.test(startValue) ? Number(startValue) : 1 };
-      try { formatPageNumber(1, definition.footnotes.format); }
-      catch {
-        unsupported(`footnote numbering format ${definition.footnotes.format}; note numbers displayed as decimal in read-only preview`);
-        definition.footnotes.format = 'decimal';
-      }
-      const wanted = new Set(referencedNotes.map(r => r.id));
-      for (const node of children(root)) {
-        if (node.namespaceURI !== W || node.localName !== 'footnote') continue;
-        const type = node.getAttributeNS(W, 'type');
-        const id = BigInt(node.getAttributeNS(W, 'id') || '0').toString();
-        if (type && type !== 'normal' || !wanted.has(id)) continue;
-        const noteTables = [];
-        const noteParagraphs = readBlocks(children(node), { pageStory: notesPath, noteStory: 'footnote' }, 0, noteTables);
-        documentBlocks(noteParagraphs, noteTables);
-        checkMarkers(noteParagraphs);
-        const path = footnoteStoryPath(notesPath, id);
-        const editable = !preview && !noteParagraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.sectionEnd) && !noteTables.length;
-        definition.stories[path] = { kind: 'footnote', noteId: id, paragraphs: noteParagraphs, tables: noteTables, editable };
-        pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])) });
-        wanted.delete(id);
-      }
-      if (wanted.size) throw new UnsupportedDocumentError('a missing footnote');
-    }, null);
+    pkg.initialNotes = {};
+    for (const kind of ['footnote', 'endnote']) {
+      const names = NOTE_KINDS[kind], referencedNotes = noteReferences(paragraphs, kind);
+      if (!referencedNotes.length) continue;
+      attempt(() => {
+        const notesPath = relatedPartPath(parts, names.part);
+        if (!notesPath) throw new UnsupportedDocumentError(`a missing ${names.part} part`);
+        const root = xml(parts[notesPath]).documentElement;
+        if (root.namespaceURI !== W || root.localName !== names.part) throw new UnsupportedDocumentError(`an invalid ${names.part} part`);
+        const definition = pkg.pageStories ||= { sections: sectionSourceNodes.map(() => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
+        pkg.initialNotes[kind] = [...new Set(referencedNotes.map(r => r.id))];
+        if (kind === 'footnote') pkg.initialFootnotes = pkg.initialNotes[kind];
+        const settingsKey = kind === 'footnote' ? 'footnotes' : 'endnotes';
+        definition[settingsKey] = { part: notesPath, ...readNoteSettings(child(settings?.documentElement, `${kind}Pr`), kind) };
+        try { formatPageNumber(1, definition[settingsKey].format); }
+        catch {
+          unsupported(`${kind} numbering format ${definition[settingsKey].format}; note numbers displayed as decimal in read-only preview`);
+          definition[settingsKey].format = 'decimal';
+        }
+        const wanted = new Set(referencedNotes.map(r => r.id));
+        for (const node of children(root)) {
+          if (node.namespaceURI !== W || node.localName !== names.element) continue;
+          const type = node.getAttributeNS(W, 'type');
+          const id = BigInt(node.getAttributeNS(W, 'id') || '0').toString();
+          if (type && type !== 'normal' || !wanted.has(id)) continue;
+          const noteTables = [];
+          const noteParagraphs = readBlocks(children(node), { pageStory: notesPath, noteStory: kind }, 0, noteTables);
+          documentBlocks(noteParagraphs, noteTables);
+          checkMarkers(noteParagraphs);
+          const path = footnoteStoryPath(notesPath, id);
+          const editable = !preview && !noteParagraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.sectionEnd) && !noteTables.length;
+          definition.stories[path] = { kind, noteId: id, paragraphs: noteParagraphs, tables: noteTables, editable };
+          pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])) });
+          wanted.delete(id);
+        }
+        if (wanted.size) throw new UnsupportedDocumentError(`a missing ${kind}`);
+      }, null);
+    }
     pkg.hasPlainTextControls = paragraphs.some(p => p.blockControls?.some(c => c.plainText) || p.runs.some(r => r.contentControl?.plainText));
     // Editing a plain drawing frame reuses the strict WML reader and the shape
     // renderer's feature checks, without reparsing or rasterizing the package.
@@ -1838,22 +1970,37 @@ export class DocxPackage {
   export(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
     const parts = this.exportBodyParts(paragraphs, pageSettings, numbering, styles, tables, assets, comments, trackRevisions);
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
+    // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
+    if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
     this.pruneFootnotes(parts, paragraphs);
+    this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });
   }
   /** Reserve a new footnote in the notes part (created if needed): { id, part, path, settings }. */
-  addFootnote() {
+  addFootnote() { return this.addNote('footnote'); }
+  /** Reserve a new endnote in the endnotes part (created if needed): { id, part, path, settings }. */
+  addEndnote() { return this.addNote('endnote'); }
+  addNote(kind) {
     if (this.readOnly) throw new Error('This document is open read-only.');
-    let part = this.pageStories?.footnotes?.part || relatedPartPath(this.parts, 'footnotes');
-    if (!part) part = createFootnotesPart(this.parts);
-    const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, 'footnote')].map(n => Number(n.getAttributeNS(W, 'id'))));
-    for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null) used.add(Number(id)); }
+    const names = NOTE_KINDS[kind], key = `${kind}s`;
+    this.notesParts ||= {};
+    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part);
+    if (!part) part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, names.element)].map(n => Number(n.getAttributeNS(W, 'id'))));
+    for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null && path.startsWith(`${part}#`)) used.add(Number(id)); }
     let id = 1; while (used.has(id)) id++;
     const path = footnoteStoryPath(part, String(id));
     this.storyOriginals.set(path, { signature: '', paragraphs: new Map() });
-    this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id));
-    return { id: String(id), part, path, settings: this.pageStories?.footnotes || { part, format: 'decimal', start: 1 } };
+    this.notesParts[kind] = part;
+    if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
+    ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
+    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.noteSettings?.[kind], ...this.pageStories?.[key], part } };
+  }
+  /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
+  setNoteSettings(kind, values) {
+    if (this.readOnly) throw new Error('This document is open read-only.');
+    (this.noteSettings ||= {})[kind] = { ...this.noteSettings[kind], ...values };
   }
   /** Add an empty header or footer story; its section reference is written on the next export. */
   addPageStory(kind, { variant = 'default', section = 0 } = {}) {
@@ -1871,15 +2018,16 @@ export class DocxPackage {
       if (!original || !edit || !Array.isArray(edit.paragraphs) || !Array.isArray(edit.tables)) throw new Error('Only parsed, existing page stories can be edited.');
       const { paragraphs, tables } = edit;
       if (JSON.stringify({ paragraphs, tables }) === original.signature) continue;
-      // A footnote story is one w:footnote inside its shared notes part.
+      // A note story is one w:footnote or w:endnote inside its shared notes part.
       const noteId = footnoteStoryId(path), part = noteId === null ? path : path.slice(0, path.lastIndexOf('#'));
       let doc, root;
       if (noteId === null) { doc = xml(this.parts[path]); root = doc.documentElement; }
       else {
         if (!noteDocs.has(part)) noteDocs.set(part, xml(parts[part]));
         doc = noteDocs.get(part);
-        root = children(doc.documentElement).find(n => n.namespaceURI === W && n.localName === 'footnote' && n.getAttributeNS(W, 'id') !== null && BigInt(n.getAttributeNS(W, 'id')).toString() === noteId);
-        if (!root) { root = doc.createElementNS(W, 'w:footnote'); root.setAttributeNS(W, 'w:id', noteId); doc.documentElement.append(root); }
+        const element = doc.documentElement.localName === 'endnotes' ? 'endnote' : 'footnote';
+        root = children(doc.documentElement).find(n => n.namespaceURI === W && n.localName === element && n.getAttributeNS(W, 'id') !== null && BigInt(n.getAttributeNS(W, 'id')).toString() === noteId);
+        if (!root) { root = doc.createElementNS(W, `w:${element}`); root.setAttributeNS(W, 'w:id', noteId); doc.documentElement.append(root); }
       }
       if (hasPageStoryControls(root)) throw new Error('Page stories containing content controls are retained without editing.');
       if (paragraphs.some(p => p.sectionEnd || p.bookmarks?.length || p.pageStory && p.pageStory !== part)) throw new Error('Invalid page-story paragraph scope.');
@@ -1899,22 +2047,39 @@ export class DocxPackage {
   }
   /** Different first page for a section (titlePg); written on the next export. */
   setTitlePage(section, on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.titlePages.set(section, !!on); }
+  /** A section's page number format and starting number (w:pgNumType); null removes both; written on the next export. */
+  setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
-  /** Remove footnotes whose body reference was deleted. */
+  /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {
-    const part = this.pageStories?.footnotes?.part || this.footnotesPart;
-    if (!part || !parts[part]) return;
-    const referenced = new Set(footnoteReferences(paragraphs).map(r => r.id));
-    const orphanCreated = [...this.createdFootnotes || []].some(id => !referenced.has(id));
-    if (!orphanCreated && JSON.stringify([...referenced].sort()) === JSON.stringify([...this.initialFootnotes || []].sort())) return;
-    const doc = xml(parts[part]);
-    let changed = false;
-    for (const node of children(doc.documentElement)) {
-      if (node.namespaceURI !== W || node.localName !== 'footnote' || (node.getAttributeNS(W, 'type') || 'normal') !== 'normal') continue;
-      if (!referenced.has(BigInt(node.getAttributeNS(W, 'id') || '0').toString())) { node.remove(); changed = true; }
+    for (const kind of ['footnote', 'endnote']) {
+      const names = NOTE_KINDS[kind];
+      const part = this.pageStories?.[`${kind}s`]?.part || this.notesParts?.[kind] || (kind === 'footnote' ? this.footnotesPart : null);
+      if (!part || !parts[part]) continue;
+      const referenced = new Set(noteReferences(paragraphs, kind).map(r => r.id));
+      const created = this.createdNotes?.[kind] || new Set(), initial = this.initialNotes?.[kind] || [];
+      const orphanCreated = [...created].some(id => !referenced.has(id));
+      if (!orphanCreated && JSON.stringify([...referenced].sort()) === JSON.stringify([...initial].sort())) continue;
+      const doc = xml(parts[part]);
+      let changed = false;
+      for (const node of children(doc.documentElement)) {
+        if (node.namespaceURI !== W || node.localName !== names.element || (node.getAttributeNS(W, 'type') || 'normal') !== 'normal') continue;
+        if (!referenced.has(BigInt(node.getAttributeNS(W, 'id') || '0').toString())) { node.remove(); changed = true; }
+      }
+      if (changed) parts[part] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
     }
-    if (changed) parts[part] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
+  }
+  /** Write changed note settings into settings.xml. */
+  writeNoteSettingsParts(parts) {
+    if (!this.noteSettings) return;
+    const { settings, related, path } = openSettings(parts);
+    let changed = false;
+    for (const [kind, values] of Object.entries(this.noteSettings)) {
+      const part = this.pageStories?.[`${kind}s`]?.part || this.notesParts?.[kind] || relatedPartPath(parts, NOTE_KINDS[kind].part);
+      changed = writeNoteSettings(settings, kind, values, separatorIds(parts, part, kind)) || changed;
+    }
+    if (changed) saveSettings(parts, settings, related, path);
   }
   exportBodyParts(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, comments = this.comments, trackRevisions = this.trackRevisions) {
     if (this.readOnly) throw new Error('This document is open read-only. Download the original file to preserve unsupported content.');
@@ -1932,6 +2097,7 @@ export class DocxPackage {
     const parts = { ...this.parts };
     if (comments) writeComments(parts, comments, this.initialComments ?? '[]');
     if (!!trackRevisions !== !!this.trackRevisions) writeTrackRevisions(parts, trackRevisions);
+    writeReviewSettings(parts, { ...this.reviewSettings, hideSpellingErrors: !!this.hideSpellingErrors }, this.initialReviewSettings);
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
     // Document-wide page layout settings (§17.15.1): gutter position, mirrored margins, booklets, two pages per sheet.
@@ -1941,7 +2107,7 @@ export class DocxPackage {
       if (pageFlags.map(key => writeSettingsFlag(settings, key, pageSettings[key])).some(Boolean)) saveSettings(parts, settings, related, path);
     }
     if (HYPHENATION_KEYS.some(key => pageSettings[key] !== this.initialPageSettings[key])) { const { settings, related, path } = openSettings(parts); if (writeHyphenationSettings(settings.documentElement, pageSettings, this.initialPageSettings)) saveSettings(parts, settings, related, path); }
-    if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(withoutHyphenation(pageSettings)) === JSON.stringify(withoutHyphenation(this.initialPageSettings)) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
+    if (!this.createdStories.length && !this.titlePages.size && !this.pageNumberings.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(withoutHyphenation(pageSettings)) === JSON.stringify(withoutHyphenation(this.initialPageSettings)) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
     let blocks = documentBlocks(paragraphs, tables);
     listMarkers(paragraphs, numbering);
     writeNumbering(parts, numbering);
@@ -2009,6 +2175,7 @@ export class DocxPackage {
     const outputSections = activeDescendants(doc.documentElement).filter(n => n.namespaceURI === W && n.localName === 'sectPr');
     if (this.createdStories.length) writeCreatedStoryReferences(outputSections, this.createdStories);
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
+    if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
     for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
     bindImageNamespaces(doc);

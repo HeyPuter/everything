@@ -55,7 +55,7 @@ of this audit. Source order lists/writer names alone are not behavior consumers.
 | `stylePaneFormatFilter` | Retained, no style-pane preference consumer. Implement applicable style listing/filter/sort behavior with named/latent style metadata. |
 | `stylePaneSortMethod` | Retained, no style-pane preference consumer. Implement applicable style listing/filter/sort behavior with named/latent style metadata. |
 | `documentType` | Retained metadata, no document-type workflow consumer. Verify applicability before classifying a visual failure. |
-| `mailMerge` | Retained, no settings-driven mail-merge workflow. Cached field text/ordinary field support does not implement merge data sources and output. |
+| `mailMerge` | Partial (§17.14): read and written by the Mailings tab. `mainDocumentType`, `viewMergedData`, `activeRecord`, `mailSubject` and `addressFieldName` are managed; `dataType` is added as `native` for new main documents; data source links, queries and ODSO mappings are preserved but not opened (the recipient list is embedded in a custom XML part instead). Normal Document removes the element. |
 | `revisionView` | Retained, no settings-defined revision-view initialization. App has separate view modes; verify stored visibility/author-filter combinations. |
 | `trackRevisions` | Partial: imported flag and editing/tracking toggle serialize. Text/paragraph revisions supported subsets; complete formatting/move/table/section revision semantics remain open. |
 | `doNotTrackMoves` | Retained, no independent switch consumer. Existing revision support is not proof that these tracking policies are honored. |

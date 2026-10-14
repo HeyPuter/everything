@@ -93,9 +93,9 @@ function cleanDirty(field) {
 }
 
 /** Recompute against actual pagination until field widths and bookmark pages settle. */
-export function refreshPageReferences(model, layoutOf, definition, { dirtyOnly = false, checkpoint = true } = {}) {
+export function refreshPageReferences(model, layoutOf, definition, { dirtyOnly = false, checkpoint = true, only = null } = {}) {
   if (!model.hasBodyFields) return { changed: 0, issues: [] };
-  const ids = new Set(bodyFieldRanges(model.paragraphs).filter(r => r.field.type === 'PAGEREF' && (!dirtyOnly || r.field.dirty)).map(r => r.field.id));
+  const ids = new Set(bodyFieldRanges(model.paragraphs).filter(r => r.field.type === 'PAGEREF' && (!dirtyOnly || r.field.dirty) && (!only || only.has(r.field.id))).map(r => r.field.id));
   if (!ids.size) return { changed: 0, issues: [] };
   const before = model.snapshot(), revision = model.revision, history = [...model.history], future = [...model.future];
   let anchor = before.selection.anchor, focus = before.selection.focus, recorded = false;

@@ -33,9 +33,10 @@ it('creates a separate Settings part without overwriting an unreferenced convent
  expect(out['word/settings1.xml']).toBeDefined();expect((await DocxPackage.open(zipSync(out))).pageSettings.defaultTabStop).toBe(1080);
 });
 it('honors documentProtection in the relocated part',async()=>{
- const parts=source();parts[path]=strToU8(`<w:settings xmlns:w="${W}"><w:documentProtection/></w:settings>`);
- await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow(/protection/);
- expect((await DocxPackage.open(zipSync(parts),{bestEffort:true})).readOnly).toBe(true);
+ const parts=source();parts[path]=strToU8(`<w:settings xmlns:w="${W}"><w:documentProtection w:edit="readOnly" w:enforcement="1"/></w:settings>`);
+ const p=await DocxPackage.open(zipSync(parts));
+ expect(p.readOnly).toBeFalsy();expect(p.reviewSettings.protection).toMatchObject({edit:'readOnly',enforcement:true,formatting:false});
+ expect(await save(p,model(p))).toEqual(parts);
 });
 it('honors trackRevisions in the relocated part',async()=>{
  const parts=source();parts[path]=strToU8(`<w:settings xmlns:w="${W}"><w:trackRevisions/></w:settings>`);

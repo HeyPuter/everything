@@ -238,14 +238,16 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const symbol = command('Symbol', 'symbol', () => w.insertSymbol?.(), { size: 'large' });
   for (const control of [dateTime, symbol]) when(control, engineReady);
   noFocusSteal(blankPage, c.pageBreak);
+  // Galleries and dialogs come from the editor's Insert commands (views/insert-tab.js); without them the basic commands remain.
+  const ins = w.insertRibbon?.({ command, menuButton, split, rows, divider, when, engineReady, focusEditor, inDocument, pageBreak: c.pageBreak }) || {};
   const insert = { id: 'insert', label: 'Insert', groups: [
-    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: [coverPage, blankPage, c.pageBreak] },
+    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: ins.pages || [coverPage, blankPage, c.pageBreak] },
     { id: 'tables', label: 'Tables', icon: 'table', priority: 9, items: [c.insertTable] },
-    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: [c.insertImage, shapesButton] },
+    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: ins.illustrations || [c.insertImage, shapesButton] },
     { id: 'links', label: 'Links', icon: 'link', priority: 7, items: [c.hyperlink, c.bookmarks] },
-    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: [headerButton, footerButton, pageNumber] },
-    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: [textBox, dateTime] },
-    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: [symbol] },
+    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: ins.headerFooter || [headerButton, footerButton, pageNumber] },
+    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: ins.text || [textBox, dateTime] },
+    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: ins.symbols || [symbol] },
   ] };
 
   /* ---- Design ---- */
@@ -300,23 +302,32 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- References ---- */
-  const toc = menuButton('Table of Contents', 'toc', () => w.tocItems?.() || [], { text: 'Table of Contents' });
-  const updateTable = command('Update Table', 'updateTable', () => w.updateFields?.(), { text: 'Update Table' });
-  when(toc, () => !!w.tocItems && engineReady()); when(updateTable, () => !!w.canUpdateFields?.());
-  const footnote = command('Insert Footnote', 'footnote', () => w.insertFootnote?.(), { size: 'large', text: 'Insert Footnote' });
-  when(footnote, () => !!w.insertFootnote && engineReady());
+  const toc = menuButton('Table of Contents', 'toc', () => w.tocItems?.(focusEditor) || [], { text: 'Table of Contents' });
+  const addText = menuButton('Add Text', 'addText', () => w.addTextItems?.() || [], { size: 'small', text: 'Add Text' });
+  const updateTable = command('Update Table', 'updateTable', () => (w.updateTocDialog ? w.updateTocDialog() : w.updateFields?.()), { text: 'Update Table' });
+  const updateFields = command('Update Fields', 'updateFields', () => w.updateAllFields?.(), { text: 'Update Fields', shortcut: 'F9' });
+  when(toc, () => !!w.tocItems && engineReady()); when(addText, () => !!w.addTextItems && engineReady()); when(updateTable, () => !!w.canUpdateFields?.()); when(updateFields, () => !!w.updateAllFields && engineReady());
+  const footnote = command('Insert Footnote', 'footnote', () => w.insertFootnote?.(), { size: 'large', text: 'Insert Footnote', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+F' : 'Ctrl+Alt+F' });
+  const endnote = command('Insert Endnote', 'endnote', () => w.insertEndnote?.(), { text: 'Insert Endnote', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+E' : 'Ctrl+Alt+D' });
+  const nextNote = menuButton('Next Footnote', 'nextFootnote', () => w.nextNoteItems?.() || [], { size: 'small', text: 'Next Footnote' });
+  const showNotes = command('Show Notes', 'showNotes', () => w.showNotes?.(), { text: 'Show Notes' });
+  const notesLauncher = command('Footnote and Endnote Settings', 'noteSettings', () => w.notesDialog?.());
+  when(footnote, () => !!w.insertFootnote && engineReady()); when(endnote, () => !!w.insertEndnote && engineReady()); when(nextNote, () => !!w.nextNoteItems && engineReady());
+  when(showNotes, () => !!w.showNotes && engineReady()); when(notesLauncher, () => !!w.notesDialog && engineReady());
+  noFocusSteal(updateFields, endnote, showNotes, notesLauncher);
   const references = { id: 'references', label: 'References', groups: [
-    { id: 'toc', label: 'Table of Contents', icon: 'toc', priority: 7, items: [toc, rows([updateTable])] },
-    { id: 'footnotes', label: 'Footnotes', icon: 'footnote', priority: 5, items: [footnote] },
+    { id: 'toc', label: 'Table of Contents', icon: 'toc', priority: 7, items: [toc, rows([addText], [updateTable], [updateFields])] },
+    { id: 'footnotes', label: 'Footnotes', icon: 'footnote', priority: 5, items: [footnote, rows([endnote], [nextNote], [showNotes]), el('div.ribbon-launcher', {}, notesLauncher)] },
   ] };
 
   /* ---- Review ---- */
-  const spellingButton = command('Spelling', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Spelling', shortcut: 'F7' });
+  const spellingButton = command('Editor', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Editor', shortcut: 'F7' });
   const spelling = split(spellingButton, { label: 'Spelling options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Spelling options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument(w.spellingItems?.() || []) }) });
   const wordCount = command('Word Count', 'wordCount', () => w.wordCount?.(), { size: 'large', text: 'Word Count' });
-  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.());
+  const thesaurus = command('Thesaurus', 'thesaurus', () => w.thesaurus?.(), { size: 'large', text: 'Thesaurus', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+R' : 'Shift+F7' });
+  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.()); when(thesaurus, () => !!w.thesaurus && !!a.hasDocument?.());
   const review = { id: 'review', label: 'Review', groups: [
-    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, wordCount] },
+    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, thesaurus, wordCount] },
   ] };
 
   /* ---- View ---- */
@@ -484,7 +495,10 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   // Feature modules add their own groups: w.extendTab(tabId, kit) returns groups, each optionally
   // placed `after` an existing group id (otherwise appended), or taking the place of the group it `replaces`.
   const kit = { command, menuButton, split, rows, divider, large, small, when, check, inDocument, engineReady, focusEditor, separator, commandIconEl };
-  for (const tab of [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat]) {
+  // Standard tabs from feature modules ({ id, label, groups, after }), placed after the tab named by `after`.
+  const standardTabs = [home, insert, design, layout, references, review, view];
+  for (const tab of w.extraTabs?.(kit) || []) { const at = standardTabs.findIndex(t => t.id === tab.after); standardTabs.splice(at < 0 ? standardTabs.length : at + 1, 0, tab); }
+  for (const tab of [...standardTabs, tableDesign, tableLayout, picture, shapeFormat]) {
     const placed = new Map();
     for (const group of w.extendTab?.(tab.id, kit) || []) {
       const replaced = group.replaces ? tab.groups.findIndex(g => g.id === group.replaces) : -1;
@@ -495,7 +509,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   }
   // Contextual tabs from feature modules: [{ id, label, contextual, groups }], shown by setContext's extra contexts.
   const moduleTabs = w.contextTabs?.(kit) || [];
-  const ribbon = createRibbon({ tabs: [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs], fileButton, focusEditor,
+  const ribbon = createRibbon({ tabs: [...standardTabs, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs], fileButton, focusEditor,
     onSelect: id => { if (!['tableDesign', 'tableLayout', 'picture', 'shapeFormat', ...moduleTabs.map(t => t.id)].includes(id)) rememberedTab = id; } });
   if (rememberedTab !== 'home') ribbon.select(rememberedTab);
 

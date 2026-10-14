@@ -23096,3 +23096,336 @@ and style sets are not shown; choices apply on click and undo in one step. Color
 outside theme references (direct RGB text colors, app table designs, inserted
 shapes with explicit colors) do not follow the theme. Theme `clrScheme` slots
 are written as `srgbClr` only; imported `sysClr` slots are replaced when colors change.
+## Review: protection, permissions, formatting revisions, moves, proofing languages and comparison (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.15.1.29 `documentProtection` (`edit`, `formatting`, `enforcement` and
+the password verifier attributes `algorithmName`, `hashValue`, `saltValue`, `spinCount`; the
+transitional `cryptAlgorithmSid`, `cryptSpinCount`, `hash` and `salt` are read for verification),
+§17.15.1 `writeProtection` (`recommended`), `hideSpellingErrors` (§17.15.1.52),
+`hideGrammaticalErrors`, `revisionView`, `doNotTrackMoves`, `doNotTrackFormatting`; §17.13.7 range
+permissions (`permStart` with `ed`/`edGrp`, `permEnd`); §17.13.5.29 `pPrChange`, §17.13.5.30
+`rPrChange`; §17.13.5.21/.25 `moveFrom`/`moveTo` and §17.13.5.22–.27 move range markers;
+§17.3.2.20 `lang`, §17.3.2.21 `noProof`; §17.7.5.1 `docDefaults` (`rPrDefault/rPr/lang`) and the
+style `locked` element (§17.7.4).
+
+Supported subset:
+
+- Documents with `documentProtection` now open for editing instead of read-only. Enforced
+  protection is applied by an editing guard on every transaction (typing, commands, undo and redo):
+  `readOnly` and `comments` allow changes only inside permission ranges that name everyone or the
+  current user (by name or e-mail, case-insensitive), `comments` also allows comments,
+  `trackedChanges` requires every text change to be a tracked revision (the text with insertions
+  removed and deletions kept must not change) and refuses accepting or rejecting, `forms` allows
+  edits only inside content controls and permission ranges. `formatting` refuses new direct
+  formatting, style edits and applying a `locked` style. Page setup and table structure are
+  protected under every restriction. Headers, footers and notes stay protected under `readOnly`,
+  `comments` and `forms`.
+- Start/Stop protection writes `documentProtection` with `enforcement` 1/0, keeping the chosen
+  restriction when stopped. A password writes `algorithmName="SHA-512"`, a 16-byte random
+  `saltValue` and `spinCount="100000"`. The hash input is the legacy-compatible 32-bit key derived
+  from the password (the specification's high-order/low-order word construction, at most 15
+  characters, each UTF-16 unit's low byte or else its high byte), written as eight hexadecimal
+  digits of its little-endian bytes and encoded as UTF-16LE; then H0 = H(salt ‖ input) and
+  H(n+1) = H(Hn ‖ n as a 32-bit little-endian integer). Verification accepts this and the
+  direct-password form, and SHA-1/256/384/512. The SHA implementations are original
+  (FIPS 180-4, constants derived at load) and checked against Node's crypto.
+- `permStart`/`permEnd` inside paragraphs and between blocks are read as zero-width markers that
+  move with edits (text typed at either edge of a range joins it); a range opening between blocks
+  starts at the next paragraph. Unchanged paragraphs keep their source XML; a paragraph that adopted
+  block-level comment or permission markers is rewritten so the markers are not lost. Range
+  permissions between table rows/cells (`colFirst`/`colLast`) still open read-only.
+- With Track Changes on, run and paragraph formatting changes record the formatting they replaced
+  (`rPrChange`/`pPrChange`, the former properties written with the same writer as current ones);
+  changing them back by hand drops the record; editing style definitions is not tracked.
+  Imported changes keep their former properties for rejection, so Reject restores formatting for
+  imported and new changes (formatting changes on the paragraph mark alone are still kept when
+  rejected).
+- Text cut and pasted while tracking becomes a move: `moveFrom`/`moveTo` wrappers with
+  `moveFromRangeStart/End` and `moveToRangeStart/End` named pairs per paragraph. Imported moves keep
+  their range names. Moves display in green with double strikethrough/underline and accept or reject
+  as deletions/insertions.
+- `revisionView` `insDel`/`formatting` are written from Show Markup; `doNotTrackMoves` and
+  `doNotTrackFormatting` from Tracking Options and honored while editing. `hideSpellingErrors` and
+  `hideGrammaticalErrors` are written from the Spelling menu. `writeProtection recommended="1"` is
+  written by Always Open Read-Only and offers a read-only session on opening (not saved).
+- Language marks selected runs with `lang` and `noProof`; Set As Default writes the docDefaults
+  `lang`. Spelling skips runs whose language is not English and, with detection on, words in
+  non-Latin scripts.
+- Compare/Combine produce a new package from the base document (revised for Compare, original for
+  Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
+
+Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
+`tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by
+`tools/review_fixture.py`, independently of the editor, including a protection hash computed with
+Python's hashlib) and `tests/browser/review-tools.spec.js`, whose exports pass
+`tools/check-docx-schema.py` (ECMA-376 transitional XSD).
+
+Gaps: interoperability of the password verifier with desktop applications was not checked against
+one (the algorithm follows the specification text; a file whose verifier this editor cannot
+reproduce simply cannot be unprotected here); table row/cell revisions (`trPrChange`, `cellIns`,
+etc.) and revisions in headers, footers and drawing text still open read-only; moves are detected
+only for cut-and-paste of the same text by the same author; section property changes are not
+tracked; Compare ignores headers, footers, notes and text boxes, flattens tables removed from the
+original into deleted paragraphs, does not detect moves, and copies text but not pictures or
+fields from the other document; locked styles are written for formatting restrictions but the style
+gallery is not filtered; `forms` protection treats content controls as the editable fields
+(legacy form fields are not supported). A schema pass is not full OOXML conformance.
+### Mailings: envelopes, labels and mail merge (2026-10-13)
+
+The Mailings tab stores mail merge as WordprocessingML that other word
+processors read, and keeps its recipient list inside the document.
+
+- **Merge fields** (Part 1 §17.16.5): MERGEFIELD (.35), ADDRESSBLOCK (.1),
+  GREETINGLINE (.24) and the rules ASK (.3), FILLIN (.19), IF (.26), MERGEREC
+  (.36), MERGESEQ (.37), NEXT (.38), NEXTIF (.39), SET (.57) and SKIPIF (.58)
+  are inserted as complex fields (§17.16.18 `fldChar`, §17.16.23 `instrText`)
+  whose cached result is the field's display text («City», «AddressBlock»,
+  «Next Record») or, while previewing, the current recipient's values. Rule
+  operands are nested MERGEFIELDs inside the outer instruction; the body reader
+  now accepts fields nested in an instruction and keeps them verbatim in the
+  outer envelope, so such documents stay editable and round-trip.
+- **Evaluation subset** (merge-fields.js): general switches `\*` Upper, Lower,
+  FirstCap, Caps, Ordinal and Arabic/roman/alphabetic (§17.16.4.3), `\#` numeric
+  pictures with digits, grouping, decimals, literal text and sections, and `\@`
+  date pictures with the common day/month/year/hour/minute/AM-PM tokens; MERGEFIELD
+  `\b`/`\f`; ADDRESSBLOCK `\f` group format, `\c`, `\e`; GREETINGLINE `\f`
+  with `_BEFORE_`/`_AFTER_` text and `\e`. IF/NEXTIF/SKIPIF compare numbers
+  numerically, text exactly, and `=`/`<>` with `*`/`?` wildcards. ADDRESSBLOCK
+  `\d` (country-specific layouts), `\l`, MERGEFIELD `\m`/`\v`, `\@` era/locale
+  tokens and IF formula operands are retained but not evaluated.
+- **Settings** (§17.14, CT_MailMerge in Part 4 wml.xsd): `w:mailMerge` carries
+  `mainDocumentType` (formLetters, email, envelopes, mailingLabels, catalog),
+  `dataType` (written as `native` for new main documents), `addressFieldName`,
+  `mailSubject`, `viewMergedData` and `activeRecord`, in schema order. Existing
+  `linkToQuery`, `connectString`, `query`, `dataSource`, `odso` and other
+  children are preserved unchanged when the type or preview state changes; the
+  settings part's relationships are untouched. Choosing Normal Document removes
+  the element. External data sources are never opened.
+- **Embedded recipient list**: a custom XML data storage part (Part 1 §15.2,
+  relationship `…/customXml` from the main document, with a `customXmlProps`
+  properties part and `ds:datastoreItem`) in namespace
+  `urn:puter-documents:mail-merge:1` holds columns, records (with
+  included/excluded flags), sort keys, filters, field matching and email
+  options. It is an application-defined part: other consumers keep it but do
+  not use it, and they will report the merge's data source as unavailable.
+- **Merged output**: Edit Individual Documents copies the saved body once per
+  output document, replaces every merge field (and its nested fields) with
+  plain result runs (line breaks as `w:br`), separates copies with next-page
+  section breaks cloned from the final `w:sectPr` (a directory runs copies
+  together), removes later copies' bookmarks and comment anchors, renumbers
+  `wp:docPr` ids, and drops `w:mailMerge` and the recipient part.
+- **Envelopes and labels**: an envelope is its own section with a page size
+  of the envelope (§17.6.13 `pgSz`, landscape `orient`), placed first, or the
+  whole page setup of an empty document. Label sheets are fixed-layout tables
+  (`tblLayout` fixed) with exact row heights (§17.4.80 `trHeight`), spacer
+  columns/rows for gaps, nil table borders and page margins from the sheet
+  measurements.
+
+Evidence: tests/merge-fields.test.js, tests/mail-merge-docx.test.js,
+tests/recipient-files.test.js and tests/browser/mail-merge.spec.js, with
+fixtures generated by tools/mail_merge_fixture.py (letter and label main
+documents written by hand from the specification, a workbook and a CSV). Merged
+documents, label sheets, envelopes and edited main documents pass
+tools/check-docx-schema.py; a schema pass is not merge-fidelity evidence.
+Gaps: fields in headers, footers and text boxes are not merged; per-record ASK
+prompts, country-aware address layouts, external data sources and fax output
+are not implemented.
+## References tab: notes, fields, citations and generated tables (2026-10-13)
+
+Commands on the References tab, the Insert menu (Bookmark, Cross-reference,
+Footnote, Caption, Index and Tables) and the document menu. Evidence:
+[endnotes.test.js](../tests/endnotes.test.js),
+[toc-options.test.js](../tests/toc-options.test.js),
+[citation-styles.test.js](../tests/citation-styles.test.js),
+[bibliography-fields.test.js](../tests/bibliography-fields.test.js),
+[index-authorities.test.js](../tests/index-authorities.test.js),
+[references-fixture.test.js](../tests/references-fixture.test.js) over the
+hand-written [references fixture](../tests/fixtures/references/references.docx)
+(from [references_fixture.py](../tools/references_fixture.py)) and
+[references.spec.js](../tests/browser/references.spec.js). Browser exports and
+the refreshed fixture pass `check-docx-schema.py`, which now also validates
+bibliography custom XML items against `shared-bibliography.xsd` and item
+properties against `shared-customXmlDataProperties.xsd`.
+
+### Footnotes and endnotes (Part 1 §17.11)
+
+| Clause | Supported subset |
+| --- | --- |
+| §17.11.4 `endnote`, §17.11.6 `endnotePr`, §17.11.7 `endnoteRef`, §17.11.8 `endnoteReference`, §17.11.15 `endnotes` | Body endnote references import as atomic note marks; referenced normal endnotes are editable stories; new documents get an endnotes part with separator and continuation separator notes and its relationship and content type. Unreferenced endnotes are pruned on save as footnotes are. |
+| §17.11.14 `@customMarkFollows` | Custom-marked footnote and endnote references import, edit and save; they show no number and take none, the following run holds the mark. |
+| §17.11.17 `numFmt` | decimal, lower/upper letter, lower/upper Roman and `chicago` (\*, †, ‡, §, doubled after four) for both kinds. Other formats keep the read-only decimal approximation. |
+| §17.11.19 `numRestart` | `continuous`, `eachSect` and (footnotes) `eachPage`. Page restarts renumber after the notes' pages are known and lay out once more. |
+| §17.11.20 `numStart` | Digits only, for both kinds. |
+| §17.11.21 `pos` | Footnotes: `pageBottom` and `beneathText` (the area starts after the page's last body line). Endnotes: `docEnd`; `sectEnd` is stored and saved but endnotes are still shown after the last section. |
+| §17.11.11/§17.11.12 settings | The Footnote and Endnote dialog writes `pos`, `numFmt`, `numStart` and `numRestart` in CT_FtnDocProps/CT_EdnDocProps order, referencing the part's separator notes when the element is new. Section-level `footnotePr`/`endnotePr` are not written ("whole document" only). |
+
+Endnotes lay out after the last body line, behind a short separator, and
+continue on added pages; each note stays whole on one page and authored
+separator or continuation-notice content is not drawn. Convert swaps reference
+kinds and moves note text to the other part (the reference keeps its place).
+Note setting changes apply immediately and are saved, but are not part of undo.
+
+### Fields (Part 1 §17.16)
+
+| Field | Clause | Supported subset |
+| --- | --- | --- |
+| `TOC` | §17.16.5.68 | Generated from `\o` ranges and `\u` outline levels, `\t` style-to-level lists, `\c`/`\a` caption sequences (tables of figures) and `\f`/`\l` TC entries, scoped by `\b`. `\h` links entries, `\n` omits page numbers (all or a level range), `\p` replaces the tab, `\z` is kept. Unknown switches are retained on rebuild. Leaders and right alignment are paragraph tab stops (§17.3.1.37). Only whole-paragraph results rebuild; others refresh page numbers only. |
+| `TC` | §17.16.5.63 | Hidden entry (no separator, no result); text, `\f`, `\l`, `\n` are read for tables of contents. |
+| `PAGEREF` | §17.16.5.45 | As before; Update Table can scope the refresh to one table's references. |
+| `SEQ` | §17.16.5.56 | Captions write `\* ARABIC|alphabetic|ALPHABETIC|roman|ROMAN`; labels with spaces use underscores in the identifier. Chapter numbers (`\s`) are not evaluated. |
+| `REF` | §17.16.5.51 | Cross-references to headings, bookmarks, whole captions, label and number, or caption text, optionally followed by a `\p` above/below reference. |
+| `NOTEREF` | §17.16.5.40 | New: evaluates the note number of the note reference inside its bookmark (`\h`, `\f`, `\p`). The formatted variant is inserted as superscript text. |
+| `CITATION` | §17.16.5.8 | Inline result generated from the bibliography part: tag, `\m` extra sources, `\p` pages, `\f` prefix, `\s` suffix, `\v` volume, `\n`/`\y`/`\t` suppression, `\l` kept. Style change refreshes every citation. |
+| `BIBLIOGRAPHY` | §17.16.5.7 | Block result listing the document's sources (placeholders omitted) in the chosen style, with a hanging indent; `\l` kept. Other switches are not evaluated. |
+| `XE` | §17.16.5.72 | Mark Entry writes main/sub/third levels (escaped colons), `\t` cross-references, `\r` page-range bookmarks, `\b`, `\i`, `\f`; new entries are written without a separator. |
+| `INDEX` | §17.16.5.29 | Generated with collation, three levels, indented or `\r` run-in, `\h` letter headings, `\e` (tab with right-aligned leader), `\l`, `\g`, `\k`, `\f`, `\b`, `\p`, `\z`; `\c` columns is stored but shown in one column (no section columns are created). |
+| `TA` | §17.16.5.62 | Mark Citation writes `\l`, `\s`, `\c` on the first mark and `\s` on later ones, `\b`, `\i`. |
+| `TOA` | §17.16.5.67 | One category per field with `\h` heading, `\p` passim (five or more pages), `\f`, `\e`, `\l`; "All" inserts one field per category in use. |
+
+Entry fields (XE, TA, TC) are hidden text: while formatting marks are shown,
+their codes are painted above the line without changing layout (an approximation
+of hidden-text display, which would reflow the line). Generated results are
+written untracked and as one undo step. Index and table-of-authorities page
+numbers come from the current layout and settle over up to four passes.
+
+### Bibliography sources (Part 1 §22.6, §22.5)
+
+Sources live in a custom XML item (`b:Sources`) found through the main
+document's `customXml` relationship; a new item gets `itemProps` (§22.5.2.1)
+with a schema reference to the bibliography namespace. `SelectedStyle` and
+`StyleName` record this editor's style identifier and name (no style sheet is
+referenced). Source types are all of ST_SourceType; the dialog edits the name
+roles and text fields listed in `bibliography.js`. Sources not edited are written
+back byte-for-byte; an edited source keeps elements this editor does not edit.
+DOI is entered as a URL (the schema has no DOI element). The master list is the
+account's own (device storage and Puter KV), not part of the document.
+
+Citation styles are original formatters of the public APA 7, MLA 9, Chicago
+author-date, IEEE and Harvard rules for the common source types; style manuals'
+long tail (translators in every style, series, multiple editions, legal
+citation forms beyond the basic case entry, non-English conventions) is not
+covered. A schema pass is not a check of citation correctness.
+## Insert tab (2026-10-13)
+
+The Insert tab writes ordinary WordprocessingML and DrawingML that this editor reads back through the
+same readers it uses for opened documents. Each feature is covered by unit round trips
+(`tests/cover-pages.test.js`, `field-results`, `header-footer-designs`, `text-designs`,
+`picture-insert`, `diagram-builder`, `chart-builder`, `insert-chart`, `insert-math`, `math-linear`,
+`drop-caps`, `preset-geometries-more`, `icon-library`), by the independently written fixture
+`tests/fixtures/insert-features/insert-features.docx` (generator and provenance beside it; it opens
+editable and exports byte-identical when unchanged) and by `tests/browser/insert-tab.spec.js`, whose
+browser exports (`test-results/insert-exports/*.docx`) pass `tools/check-docx-schema.py` against the
+ECMA-376 transitional schemas and the supported MS-ODRAWXML extension schemas. A schema pass is not a
+claim of full OOXML conformance or of layout fidelity with other consumers.
+
+### Pages
+
+- **Cover pages**: Normal-style paragraphs with direct formatting (§17.3.1 paragraph properties,
+  §17.3.2 run properties, `w:pBdr` §17.3.1.24, `w:shd` §17.3.1.31) ended by a page break
+  (`w:br w:type="page"`, §17.3.3.1). The cover is marked with the hidden bookmark `_CoverPage`
+  (§17.13.6.2; names starting with an underscore are hidden), so it can be replaced or removed after
+  reopening. Removal deletes the cover's whole paragraphs; a cover containing tables, sections,
+  fields or other bookmarks falls back to deleting its text range.
+- **Blank Page / Page Break**: page breaks as above.
+
+### Drawings inserted by the editor (§20.4 WordprocessingML drawing, §20.1 DrawingML)
+
+- New drawings are built as a `w:drawing` with `wp:inline` or `wp:anchor` (§20.4.2.8, §20.4.2.3),
+  read through the package reader in a minimal package, and inserted as retained drawings. Parts a
+  drawing references (media, chart parts) travel with its asset and are written with their
+  relationships and content-type overrides only while the drawing is in the story, so undoing an
+  insertion leaves no orphan parts. Insertions in the body only, except pictures.
+- **Pictures**: PNG/JPEG/TIFF as before; GIF, WebP and BMP are stored as PNG; SVG files and icons are
+  written as a PNG `a:blip` with an `asvg:svgBlip` companion (MS-ODRAWXML §2.3.7, extension URI
+  `{96DAC541-7B7A-43D3-8B79-37D633B846F1}`) and `a:picLocks noChangeAspect`. Screenshots use
+  `getDisplayMedia` and are inserted as PNG.
+- **Shapes** (`wps:wsp`, `a:prstGeom` §20.1.9.18 with ST_ShapeType §20.1.10.56): 133 presets in eight
+  categories. 121 presets were added to the geometry reader (`preset-geometries-more.js`) from the
+  standard's preset definitions: rectangles with snipped/rounded corners, basic shapes, block arrows,
+  equation shapes, all flowchart shapes, stars, seals, ribbons, waves, scrolls and callouts. Arcs are
+  approximated by cubic Béziers of at most 45°. Shaded faces (`lighten`, `lightenLess`, `darken`)
+  paint as plain fills; only `darkenLess` is honoured. Inserted at the caret (keyboard) or drawn by
+  click/drag on the page, anchored `relativeFrom="page"` to the paragraph under the pointer.
+  Adjustments (`a:avLst`) are read but not editable from the ribbon.
+- **Text boxes, WordArt and signature lines**: `wps:wsp` with `wps:txbx` / `w:txbxContent` and
+  `wps:bodyPr` (§20.1.2.1.1). Drawing text cannot carry paragraph borders, shading, tab stops or
+  underlines in this engine, so designs avoid them. WordArt is a no-fill, no-line text box whose runs
+  carry the w14 extensions `textOutline`, `textFill` and `shadow` (MS-DOCX §2.6), declared ignorable
+  with `mc:Ignorable="w14"` on the drawing (ECMA-376 Part 3 §10.2.1); warped text (`a:prstTxWarp`
+  other than `textNoShape`) is not produced. The signature line is a text box (an X over a rule of
+  low lines, signer, title, date line) with the instructions as alternative text; it is not a
+  digital-signature object.
+- **Diagrams**: an original approach rather than a diagram-definition (`dgm`) part. Eleven layouts
+  (list, process, timeline, cycle, hierarchy, Venn, radial, matrix, pyramid) are generated as one
+  `wpg:wgp` group (§20.4) of preset shapes with shape text, alpha fills (`a:alpha` §20.1.2.3.1) for
+  Venn circles and rotated arrows (`a:xfrm rot`). The outline that generated the diagram is stored as
+  the drawing's alternative text (`wp:docPr descr`, §20.4.2.5) in the form
+  `Diagram: <layout> (<colors>)` followed by the indented outline; Edit Diagram reads it back and
+  replaces the group in one undo step. Diagrams edited in another application keep their XML but
+  regenerate from their description when edited here.
+- **Charts** (§21.2 DrawingML charts): `c:chartSpace` parts with literal data (`c:strLit`,
+  `c:numLit`), explicit text properties and no external workbook. Column and bar
+  (`c:barChart`, `c:barDir` `col`/`bar`; clustered, stacked, percentStacked), line with or without
+  circle markers (`c:lineChart`, `c:marker`), area (standard, stacked), pie (`c:pieChart`), doughnut
+  (`c:doughnutChart`) and scatter (`c:scatterChart`, `c:crossBetween val="midCat"`) are written,
+  read and painted. Charts are inline and in the body only. Data labels, axis titles, secondary axes,
+  combined plots and non-Latin labels are not supported (the reader keeps such charts read-only);
+  without an embedded workbook other applications show the chart but cannot edit its data.
+
+### Header, footer and page numbers (§17.10)
+
+- Gallery designs are written into the section's header or footer story (created when missing) as
+  paragraphs with direct formatting, center/right tab stops (`w:tabs`, §17.3.1.37) and PAGE /
+  NUMPAGES fields (§17.16.5.44, §17.16.5.42) as page-field runs. Page Number → Top/Bottom appends a
+  paragraph; Current Position inserts field runs in a story or body fields in the body.
+- **Format Page Numbers** writes `w:pgNumType` (§17.6.12) `w:fmt` (decimal, decimalZero, upper/lower
+  letter and roman) and `w:start`, preserving other attributes. Chapter numbers (`w:chapStyle`,
+  `w:chapSep`) are not written and remain unsupported in layout. The setting is applied to the
+  section with the caret and is not part of undo history.
+- Remove Page Numbers deletes paragraphs holding a PAGE field from the current section's existing
+  header and footer stories.
+
+### Fields (§17.16)
+
+- Insert → Field, Date & Time and Document Property insert body fields (`w:fldSimple` /
+  complex fields on save) with their current result cached: DATE, TIME, CREATEDATE, SAVEDATE
+  (§17.16.5.13, .67, .11, .55) with the date-time picture switch `\@` (§17.16.4.1: M, d, y, h, H, m,
+  s, AM/PM, quoted literals), AUTHOR, TITLE, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, FILENAME
+  (`\p`), DOCPROPERTY (core and extended properties), NUMPAGES, NUMWORDS, NUMCHARS, PAGE, SEQ, REF,
+  USERNAME, USERINITIALS, with the general formatting switch `\*` (§17.16.4.3: Upper, Lower,
+  FirstCap, Caps, roman, ROMAN, alphabetic, ALPHABETIC, Ordinal, CardText, OrdText, Hex,
+  MERGEFORMAT). Update Fields (F9) recomputes these from the open document's properties; without a
+  document context only DATE and TIME refresh, so cached document information is never blanked.
+  The numeric picture switch `\#` and EDITTIME are not evaluated. Fields in headers and footers are
+  limited to PAGE and NUMPAGES; Date & Time inserts plain text there.
+- Document properties are read from `docProps/core.xml` and `docProps/app.xml`; this editor does not
+  write them, so a DOCPROPERTY for an empty property shows a bracketed placeholder until fields update.
+- Content controls bound to document properties (`w:dataBinding`) are not produced; the reader keeps
+  such controls read-only.
+
+### Drop caps (§17.3.1.11 framePr, §17.18.20 ST_DropCap)
+
+- The first character moves into its own preceding paragraph with `w:framePr w:dropCap` (`drop` or
+  `margin`), `w:lines`, `w:wrap="around"`, `w:vAnchor="text"`, `w:hAnchor` (`text` for drop, `page`
+  for margin) and `w:hSpace`, exact line spacing and a lowered (`w:position`) enlarged run. Layout
+  places the cap at the following paragraph's first line, spanning `lines` lines, with its baseline
+  on line `lines`; dropped caps indent those lines, margin caps sit left of the column. Ignored for
+  caps: x/y offsets and alignments. Gaps: indented paragraphs (the cap uses the column edge),
+  per-font cap heights, caps across pages or in section columns.
+
+### Equations (§22.1 Office Math)
+
+- Equations are typed in a UnicodeMath-like linear format and converted to OMML (`m:oMath`, or
+  `m:oMathPara` when displayed on its own line): fractions `m:f`, scripts `m:sSup`/`m:sSub`/
+  `m:sSubSup`/`m:sPre`, radicals `m:rad` (`m:degHide`), n-ary operators `m:nary` (`m:chr`,
+  `m:limLoc`, `m:subHide`/`m:supHide`), delimiters `m:d` (`m:begChr`/`m:endChr`), functions
+  `m:func`, limits `m:limLow`, accents `m:acc`, bars `m:bar`, matrices `m:m` and equation arrays
+  `m:eqArr`, with child elements in schema order. Equations are atomic objects: the canvas shows
+  their linear text; the editor dialog previews them as MathML. Gaps: alignment points in equation
+  arrays, delimiter separators, nested superscripts, two-dimensional canvas rendering.
+
+### Symbols
+
+- Symbols are ordinary characters; a symbol font choice is written as `w:rFonts` ascii/hAnsi on the
+  inserted run. Nonbreaking and optional hyphens are inserted as U+2011 and U+00AD (not
+  `w:noBreakHyphen` / `w:softHyphen` elements). `w:sym` (§17.3.3.30) is read but not written.

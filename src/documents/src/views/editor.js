@@ -55,7 +55,10 @@ import { autolinkEnabled, linkCandidateBefore } from '../lib/linkify.js';
 import { layoutTemplate } from '../lib/template-layout.js';
 import { createWordCommands } from './editor-commands.js';
 import { createReview } from './review.js';
+import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
+import { createMailings } from './mailings.js';
+import { createInsert } from './insert-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -182,8 +185,9 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       items.push({separator:true}, ...['addRow', 'addColumn'].map(tableItem), {separator:true}, ...['row', 'column', 'table'].map(tableItem),
         {separator:true}, ...['mergeCells', 'splitCell'].map(tableItem), {label:'Table properties…',onSelect:()=>tableProperties.click()});
     }
-    const commentItems = review.contextItems();
-    if (commentItems.length) items.push({separator:true}, ...commentItems);
+    // Feature modules contribute items for what was clicked (see editorCommands.contextMenuItems).
+    const moduleItems = editorCommands.contextMenuItems?.(image ? 'image' : engine.model.tableContext ? 'table' : engine.model.hyperlink ? 'link' : references.fieldAtCaret() ? 'field' : 'text', {}) || [];
+    if (moduleItems.length) items.push({separator:true}, ...moduleItems.filter((item, i) => !(item.separator && i === 0)));
     if (engine.session.path === null && engine.model.hasBodyFields) items.push({separator:true},{label:'Update page references',disabled:!editable,onSelect:()=>engine.updatePageReferences()});
     items.push({separator:true},{label:'Print / Save as PDF',onSelect:printDocument});
     const rect=engine.input.getBoundingClientRect();
@@ -687,8 +691,12 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     ],
   });
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
+    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+      openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
+  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...references.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...references.contextMenuItems(context, kit)];
   const baseContextTabs = editorCommands.contextTabs;
   editorCommands.contextTabs = kit => [...(baseContextTabs?.(kit) || []), ...references.contextTabs(kit)];
   const baseFileItems = editorCommands.fileItems;
@@ -702,17 +710,46 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       P.downloadBlob(await exportPdf(editor, { title: title.value || 'Untitled document' }), name);
     } catch (e) { if (!destroyed) error(e); }
   }
-  const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
+  const reviewHooks = {};
+  const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); }, hooks: reviewHooks });
+  // Insert tab: galleries, pictures, drawings, fields, equations and symbols (insert-tab.js).
+  const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (!local && session.signedIn ? session.username : ''), onChange: () => update(),
+    base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(),
+      link: () => editHyperlink(), bookmark: () => bookmarks.click(), comment: () => review.commands?.newComment?.() } });
+  const baseMenu = editorCommands.extendMenu, baseContextItems = editorCommands.contextMenuItems;
+  Object.assign(editorCommands, insert.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseMenu?.(id, kit) || []), ...insert.commands.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextItems?.(context, kit) || []), ...insert.commands.contextMenuItems(context, kit)];
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+  const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile,
+    print: capture => printPages({ host, signal: printAbort.signal, capture }), documentTitle: () => title?.value?.trim(), layoutChanged: () => { fitWidth(); rulers?.update(); } });
+  Object.assign(editorCommands, mailings.commands);
+  const baseExtraTabs = editorCommands.extraTabs;
+  editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
+  const referencesExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(referencesExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
+  // Review tools: Editor pane, Thesaurus, Accessibility, Language, Compare, Restrict Editing (review-tools.js).
+  const reviewTools = createReviewTools({ editor: () => engine, pkg: () => pkg, error, author: () => session.username, review, proofing, commands: editorCommands, documentName: () => title.value, openDocument: file => importFile?.(file),
+    currentBytes: async () => new Uint8Array(await (pkg.readOnly ? doc.blob : engine.export(pkg)).arrayBuffer()), onChange: () => update() });
+  Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
+  Object.assign(editorCommands, reviewTools.commands);
+  const reviewFileItems = editorCommands.fileItems;
+  editorCommands.fileItems = () => [...(reviewFileItems?.() || []), ...reviewTools.fileItems()];
+  const reviewExtendTab = editorCommands.extendTab;
+  editorCommands.extendTab = (id, kit) => [...(reviewExtendTab?.(id, kit) || []), ...reviewTools.extendTab(id, kit)];
+  const reviewExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(reviewExtendMenu?.(id, kit) || []), ...reviewTools.extendMenu(id, kit)];
+  const reviewContextItems = editorCommands.contextMenuItems;
+  editorCommands.contextMenuItems = (context, kit) => [...(reviewContextItems?.(context, kit) || []), ...reviewTools.contextMenuItems(context, kit)];
   // Design and Layout: each module adds commands, ribbon groups, menu-bar items and context-menu items.
   const pageModules = [createDesignTab, createLayoutTab, createLineNumbers, createHyphenation].map(create => create({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(), commands: editorCommands }));
   for (const module of pageModules) {
     Object.assign(editorCommands, module.commands);
-    const extendTab = editorCommands.extendTab, extendMenu = editorCommands.extendMenu, contextMenuItems = editorCommands.contextMenuItems;
-    editorCommands.extendTab = (id, kit) => [...(extendTab?.(id, kit) || []), ...module.extendTab(id, kit)];
-    editorCommands.extendMenu = (id, kit) => [...(extendMenu?.(id, kit) || []), ...module.extendMenu(id, kit)];
-    editorCommands.contextMenuItems = (context, kit) => [...(contextMenuItems?.(context, kit) || []), ...module.contextMenuItems(context, kit)];
+    const designExtendTab = editorCommands.extendTab, designExtendMenu = editorCommands.extendMenu, designContextItems = editorCommands.contextMenuItems;
+    editorCommands.extendTab = (id, kit) => [...(designExtendTab?.(id, kit) || []), ...module.extendTab(id, kit)];
+    editorCommands.extendMenu = (id, kit) => [...(designExtendMenu?.(id, kit) || []), ...module.extendMenu(id, kit)];
+    editorCommands.contextMenuItems = (context, kit) => [...(designContextItems?.(context, kit) || []), ...module.contextMenuItems(context, kit)];
   }
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
@@ -733,7 +770,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const printLayoutButton = el('button.icon-btn.ed-status-view', { type: 'button', 'aria-label': 'Print Layout', title: 'Print Layout', 'aria-pressed': 'true', onclick: () => engine?.focus() }, commandIconEl('printLayoutSolid', 16));
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, chrome.inspector)),
     el('footer.canvas-statusbar.ed-statusbar', {}, el('div.ed-status-left', {}, stats, wordCountButton, proofingButton, languageLabel, editingAreaLabel),
       el('div.ed-status-right', {},
         el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),
@@ -827,6 +864,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    mailings.refresh();
     if (pkg.readOnly) {
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) control.disabled = true;
       find.disabled = false; finder.refresh();
@@ -942,7 +980,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     lineSpacing.value = format.lineRule === 'auto' && [1, 1.15, 1.5, 2, 2.5, 3].includes(format.lineSpacing) ? String(format.lineSpacing) : '';
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
-    chrome.refresh(); review.refresh();
+    chrome.refresh(); review.refresh(); reviewTools.refresh();
     const total = engine.model.text.trim().split(/\s+/u).filter(Boolean).length;
     const [a, b] = engine.model.range;
     const chosen = a !== b ? engine.model.text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
@@ -1007,8 +1045,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       onContextMenu: openDocumentContextMenu,
       onUpdateFields: () => references.updateAllFields(),
       paragraphs: pkg.paragraphs, pageSettings: pkg.pageSettings, numbering: pkg.numbering, styles: pkg.styles, tables: pkg.tables, pageStories: pkg.pageStories, comments: pkg.comments, trackChanges: pkg.trackRevisions, assets: pkg.assets, drawingLayouts: pkg.drawingLayouts, images, readOnly: !!pkg.readOnly,
-      onChange: () => { if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } doc.changed(); update(); updateStatus(); proofing.changed(true); },
-      onSelection: () => { update(); proofing.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
+      onChange: () => { if (!reopening) { designVersions.redo = []; if (created.session.history.length >= 100) designVersions.undo = []; } doc.changed(); update(); updateStatus(); proofing.changed(true); reviewTools.changed(); },
+      onSelection: () => { update(); proofing.selectionChanged(); reviewTools.selectionChanged(); }, onSave: save, onError: error, onLink: editHyperlink,
       onOpenLink: target => window.open(checkedHyperlinkTarget(target), '_blank', 'noopener,noreferrer'),
       // The account menu's typing settings, read at each keystroke so a change applies at once.
       correctTyping: (before, typed, { list }) => (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed)) || null,
@@ -1047,6 +1085,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     engine.model.select(Math.min(range[0], length), Math.min(range[1], length));
     editorCommands.restoreMarks(engine);
     proofing.attach(engine);
+    reviewTools.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
     engine.relayout();
     host.scrollTop = scrollTop; host.scrollLeft = scrollLeft;
@@ -1123,6 +1162,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     }
     editorCommands.restoreMarks(engine);
     proofing.attach(engine);
+    reviewTools.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
     rulers = createCanvasRulers({ host, surface, editor: () => engine, openParagraph: () => paragraphGeometry.click(), openPage: () => pageSetup.click() });
     // In a tablet-sized or narrow window (under 1024px) a page wider than the view at 100% opens at Fit
@@ -1181,7 +1221,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

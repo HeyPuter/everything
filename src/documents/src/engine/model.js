@@ -45,7 +45,7 @@ import { validatePageSettings, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, runFormatChange, paragraphFormatChange, acceptFormatChange } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -1734,7 +1734,7 @@ export class TextDocument {
     if (checkpoint) this.checkpoint();
     const before = JSON.stringify(this.paragraphs);
     this.trackingInternal = true;
-    let caret;
+    let caret, deletionRevision = null;
     try {
       let removed = 0;
       if (start < end) {
@@ -1743,7 +1743,7 @@ export class TextDocument {
         const me = this.revisionAuthor || 'Author';
         const removals = revisionRanges(this.paragraphs).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
           .map(r => [Math.max(start, r.start), Math.min(end, r.end)]);
-        const deletion = this.newRevision('del');
+        const deletion = deletionRevision = this.newRevision('del');
         // A paragraph mark that ends a table cell (or sits before or after a table) cannot be deleted.
         const boundaries = new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id));
         const mark = revision => !revision ? { ...deletion } : revision.type === 'ins' && revision.author !== me ? { ...deletion, inserted: { author: revision.author, date: revision.date } } : revision;
@@ -1763,11 +1763,23 @@ export class TextDocument {
         const length = this.text.length;
         this.replaceUntracked(text, { ...rest, checkpoint: false });
         const inserted = this.text.length - length, insertion = this.newRevision('ins');
+        // Text deleted by this author and put back elsewhere is a move (§17.13.5.21/.25).
+        const moved = this.trackMoves !== false && this.lastTrackedDeletion?.text === text && /\p{L}/u.test(text) && text.trim().length >= 3 ? this.lastTrackedDeletion : null;
+        if (moved) {
+          const name = `move${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          const source = revisionRanges(this.paragraphs).find(r => r.type === 'del' && !r.move && r.author === moved.author && r.date === moved.date && documentText(this.paragraphs).slice(r.start, r.end) === text);
+          if (source) {
+            eachRevisionTarget(this.paragraphs, source.start, source.end, ({ paragraph, run, mark }) => { const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision'; if (target[key]?.type === 'del') target[key] = { ...target[key], move: true, moveName: name }; });
+            Object.assign(insertion, { move: true, moveName: name });
+          }
+        }
         eachRevisionTarget(this.paragraphs, insertAt, insertAt + inserted, ({ paragraph, run, mark }) => {
-          if (mark) paragraph.markRevision = { ...insertion }; else run.revision = { ...insertion };
+          if (mark) paragraph.markRevision = { ...insertion }; else { run.revision = { ...insertion }; delete run.formatRevision; }
         });
+        this.lastTrackedDeletion = null;
         caret = insertAt + inserted;
       } else caret = backward ? start : insertAt;
+      if (!text && deletionRevision) this.lastTrackedDeletion = { text: documentText(this.paragraphs).slice(start, end - removed), author: deletionRevision.author, date: deletionRevision.date };
     } finally { this.trackingInternal = false; }
     if (JSON.stringify(this.paragraphs) === before) {
       if (checkpoint) this.history.pop();
@@ -1791,11 +1803,25 @@ export class TextDocument {
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
-  /** Insert a footnote reference mark for note `id` at the caret (after any selection). */
-  insertFootnoteReference(id) {
+  /** Insert an Office Math object ({ xml, text }) as one object character at the caret, replacing a selection. */
+  insertMathRun(math) {
+    if (!math?.xml || typeof math.text !== 'string') throw new Error('An equation needs its Office Math XML.');
+    const [start, end] = this.range;
+    if (start !== end) { this.checkpoint(); this.replaceUntracked('', { checkpoint: false }); }
+    else this.checkpoint();
+    const at = this.range[0], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
+    const run = { text: OBJECT, math: { xml: math.xml, text: math.text }, styleId: null, directFormat: {}, hasDirectProperties: false, styleManaged: true, properties: '', overrides: {} };
+    p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
+    for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset) marker.offset++;
+    this.selection = { anchor: at + 1, focus: at + 1 };
+    this.didChange(); return true;
+  }
+  /** Insert a footnote (or endnote) reference mark for note `id` at the caret (after any selection); `custom` marks follow as text. */
+  insertFootnoteReference(id, kind = 'footnote', { custom = false } = {}) {
     this.checkpoint();
     const at = this.range[1], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
-    const run = footnoteReferenceRun(this.typingRun(at), id);
+    const run = footnoteReferenceRun(this.typingRun(at), id, kind);
+    if (custom) run.noteMark.custom = true;
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
     for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset || marker.offset === location.offset && marker.edge === 'end' && marker.comment) marker.offset++;
     this.hasNoteMarks = true;
@@ -1810,6 +1836,8 @@ export class TextDocument {
   /** Accept or reject the changes overlapping [start, end] (the whole document by default). */
   resolveRevisions(accept, start = 0, end = this.text.length + 1) {
     this.formatRejectSkipped = false;
+    // Resolving changes is not itself a tracked formatting change.
+    this.formatTrackingSuppressed = true;
     const targets = (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start))
       .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
     if (!targets.length) return false;
@@ -1819,14 +1847,16 @@ export class TextDocument {
     try {
       for (const r of targets.reverse()) {
         if (r.type === 'format') {
-          // Rejecting needs the recorded formatting re-applied, which is not supported yet.
-          if (!accept) { this.formatRejectSkipped = true; continue; }
+          // Rejecting re-applies the recorded former formatting; a change recorded without it is kept.
+          const resolve = (target, kind) => { if (accept) acceptFormatChange(target, kind); else if (!rejectFormatChange(target)) this.formatRejectSkipped = true; else if (kind === 'run') acceptFormatChange(target, 'run'); };
           let at = 0;
           for (const p of this.paragraphs) {
             const size = p.runs.reduce((n, run) => n + run.text.length, 0);
             if (at + size + 1 > r.start && at < r.end) {
-              if (paragraphFormatChange(p) && at >= r.start && at + size + 1 <= r.end + 1) acceptFormatChange(p, 'paragraph');
-              eachRevisionTarget(this.paragraphs, Math.max(r.start, at), Math.min(r.end, at + size), ({ run, mark }) => { if (!mark && runFormatChange(run)) acceptFormatChange(run, 'run'); });
+              let touched = false;
+              if (paragraphFormatChange(p) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
+              eachRevisionTarget(this.paragraphs, Math.max(r.start, at), Math.min(r.end, at + size), ({ run, mark }) => { if (!mark && runFormatChange(run)) { resolve(run, 'run'); touched = true; } });
+              if (touched && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
             }
             at += size + 1;
             if (at > r.end) break;

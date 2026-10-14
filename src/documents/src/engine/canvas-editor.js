@@ -1,3 +1,4 @@
+import { isNoteStoryKind } from './footnotes.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
@@ -240,16 +241,20 @@ export class CanvasEditor {
     this.findHighlights = matches; this.findRects = null; this.paint();
   }
   /** Tinted document ranges beneath the text, such as commented text: [{ start, end, fill }] in document order. */
-  setRangeTints(tints = []) {
+  setRangeTints(tints = [], layer = 'default') {
+    // Separate layers (comments, highlighted merge fields) combine without replacing each other.
+    this.tintLayers = { ...this.tintLayers, [layer]: tints };
+    tints = Object.values(this.tintLayers).flat().sort((a, b) => a.start - b.start || a.end - b.end);
     const current = this.rangeTints || [];
     if (tints.length === current.length && tints.every((t, i) => t.start === current[i].start && t.end === current[i].end && t.fill === current[i].fill)) return;
     this.rangeTints = tints; this.tintRects = null; this.paint();
   }
   /** Vertical bars in the left margin beside lines that touch the given ranges (tracked changes). */
-  setMarginBars(ranges = [], color = '#7a7a7a') {
-    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color]);
+  // side: 'left', 'right' or 'outside' (right on odd pages, left on even ones).
+  setMarginBars(ranges = [], color = '#7a7a7a', side = 'left') {
+    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
     if (key === this.marginBarKey) return;
-    this.marginBarKey = key; this.marginBars = { ranges, color }; this.paint();
+    this.marginBarKey = key; this.marginBars = { ranges, color, side }; this.paint();
   }
   rangeTintRects() {
     const tints = this.rangeTints, layout = this.session.path === null ? this.selectionLayout : null;
@@ -311,15 +316,21 @@ export class CanvasEditor {
     const current = this.session.definition || { sections: Array.from({ length: sections }, () => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
     const { variant = 'default', section: first = 0, story = {}, ...settings } = extra;
     this.session.definition = { ...current, ...settings, stories: { ...current.stories, [path]: { kind, paragraphs, tables: [], editable: true, ...story } },
-      sections: kind === 'footnote' ? current.sections : current.sections.map((section, i) => i < first || section[kind][variant] ? section : { ...section, [kind]: { ...section[kind], [variant]: path } }) };
+      sections: isNoteStoryKind(kind) ? current.sections : current.sections.map((section, i) => i < first || section[kind][variant] ? section : { ...section, [kind]: { ...section[kind], [variant]: path } }) };
     this.session.sectionRevision = undefined;
     this.relayout();
   }
   /** Different first page for a section, and different odd and even pages for the document (display only; the package writes them). */
-  setStoryOptions({ section, firstPageDifferent, evenAndOdd } = {}) {
+  setStoryOptions({ section, firstPageDifferent, evenAndOdd, pageNumbering } = {}) {
     const current = this.session.definition || { sections: Array.from({ length: this.session.body.paragraphs.filter(p => p.sectionEnd).length + 1 }, () => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
     this.session.definition = { ...current, ...(evenAndOdd !== undefined ? { evenAndOdd: !!evenAndOdd } : {}),
-      sections: current.sections.map((s, i) => i === section && firstPageDifferent !== undefined ? { ...s, firstPageDifferent: !!firstPageDifferent } : s) };
+      sections: current.sections.map((s, i) => {
+        if (i !== section) return s;
+        const next = firstPageDifferent !== undefined ? { ...s, firstPageDifferent: !!firstPageDifferent } : { ...s };
+        // Page numbering (format and restart) applies to this section's PAGE fields and page count.
+        if (pageNumbering !== undefined) { if (pageNumbering) next.pageNumbering = pageNumbering; else delete next.pageNumbering; }
+        return next;
+      }) };
     this.session.sectionRevision = undefined;
     if (this.session.path !== null) this.editStory(null); else this.relayout();
   }
@@ -475,7 +486,7 @@ export class CanvasEditor {
     // Section line numbers are labels beside the finished body lines (§17.6.8).
     this.lineNumbers = lineNumberLabels(this.layout, body.paragraphs, body.numbering, body.styles, this.measure);
     this.selectionLayout = this.session.path === null ? this.layout : pageStorySelectionLayout(this.layout, this.storyLayout, this.session.path, this.storyPage);
-    this.input.setAttribute('aria-label', this.inputLabel || (this.session.path === null ? 'Document text' : ({ header: 'Header text', footer: 'Footer text', footnote: 'Footnote text' }[this.pageStories.stories[this.session.path].kind] || 'Story text')));
+    this.input.setAttribute('aria-label', this.inputLabel || (this.session.path === null ? 'Document text' : ({ header: 'Header text', footer: 'Footer text', footnote: 'Footnote text', endnote: 'Endnote text' }[this.pageStories.stories[this.session.path].kind] || 'Story text')));
     this.drawingPageContexts = drawingPageContexts(this.layout, this.pageStories);
     while (this.pages.children.length > this.layout.pageCount) this.pages.lastChild.remove();
     while (this.pages.children.length < this.layout.pageCount) {
@@ -648,7 +659,8 @@ export class CanvasEditor {
         }
         if (!printing && !pageStory) for (const r of tinted) if (r.page === index) { ctx.fillStyle = r.fill; ctx.fillRect(r.x, r.y, r.width, r.height); }
         if (!printing && !pageStory && this.marginBars?.ranges.length) {
-          const bars = this.marginBars.ranges, x = Math.max(4, (geometry.left ?? 96) - 22);
+          const side = this.marginBars.side === 'outside' ? (index % 2 ? 'left' : 'right') : this.marginBars.side;
+          const bars = this.marginBars.ranges, x = side === 'right' ? Math.min(geometry.width - 5, geometry.width - (geometry.right ?? 96) + 20) : Math.max(4, (geometry.left ?? 96) - 22);
           ctx.fillStyle = this.marginBars.color;
           for (const line of pageLines) if (bars.some(r => r.start <= line.end && r.end > line.start)) ctx.fillRect(x, line.y, 1.25, line.height);
         }
@@ -853,11 +865,11 @@ export class CanvasEditor {
       const story = this.storyAtEvent(e);
       if (story && this.pageStories.stories[story.pageStory].editable && (story.pageStory !== this.session.path || story.page !== this.storyPage)) this.editStory(story.pageStory, story.page);
       // Footnotes are edited in place: a click back in the body leaves the note.
-      else if (!story && this.pageStories?.stories[this.session.path]?.kind === 'footnote' && !this.readOnly) this.editStory(null);
+      else if (!story && isNoteStoryKind(this.pageStories?.stories[this.session.path]?.kind) && !this.readOnly) this.editStory(null);
     } else if (!this.readOnly) {
       // A click in a footnote edits it directly.
       const story = this.storyAtEvent(e, true);
-      if (story && this.pageStories?.stories[story.pageStory]?.kind === 'footnote' && this.pageStories.stories[story.pageStory].editable) this.editStory(story.pageStory, story.page);
+      if (story && isNoteStoryKind(this.pageStories?.stories[story.pageStory]?.kind) && this.pageStories.stories[story.pageStory].editable) this.editStory(story.pageStory, story.page);
     }
     let position = this.point(e), restoredPromptSelection, restoredOutsideCaret, sameOffsetCaret;
     if ((e.ctrlKey || e.metaKey) && this.pointLink) { this.openHyperlink(this.pointLink.link); return; }
