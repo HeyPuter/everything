@@ -63,6 +63,17 @@ describe('sheetsToPdf', () => {
     expect(s).toContain('/F2 ');
   });
 
+  it('fills, borders and colours cells, and wraps text that asks to', () => {
+    const { wb, id } = book();
+    wb.applyStyle(id, { r1: 0, c1: 0, r2: 0, c2: 0 }, { bg: '#ffcc00', bb: true, color: '#1f4e79', wrap: true });
+    wb.setInput(id, 0, 0, 'A long heading that has to wrap inside its cell');
+    const s = text(sheetsToPdf(wb, [{ sheetId: id }]));
+    expect(s).toMatch(/q 1 0\.8 0 rg [\d.]+ [\d.]+ [\d.]+ [\d.]+ re f Q/);
+    expect(s).toMatch(/q 0 0 0 RG 0\.75 w [\d. ]+ m [\d. ]+ l S Q/);
+    expect(s).toContain('0.12 0.31 0.47 rg');
+    expect((s.match(/Tm \((A long|heading|has|wrap|inside|its|cell)[^)]*\) Tj/g) || []).length).toBeGreaterThan(1);
+  });
+
   it('splits a sheet too wide to scale onto several pages across', () => {
     const wb = new Workbook();
     const id = wb.activeSheetId;
