@@ -32,6 +32,8 @@ import { diffText } from './text-diff.js';
 
 export const SCHEMA = 1;
 export const MARK = '\n';
+/** The comments map's marker that the document has a comments part (possibly empty). */
+const PRESENT = '$part';
 /** Runs the editor never merges with their neighbours (see normalize() in model.js). */
 export const SEPARATE_RUNS = ['image', 'math', 'field', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear'];
 
@@ -211,14 +213,13 @@ export function encodeParts(state) {
   for (const [key, value] of Object.entries(state.pageSettings || {})) if (value !== undefined) out.set(`g:${key}`, json(value));
   for (const [path, story] of Object.entries(state.stories || {})) out.set(`x:${path}`, json({ paragraphs: story.paragraphs, tables: story.tables || [] }));
   if (state.trackChanges !== undefined) out.set('d:trackChanges', json(state.trackChanges));
-  out.set('d:comments', json(state.comments === null ? null : true));
   return out;
 }
 
 /** The parts registers as state fields; tables come back in body order. */
 export function readParts(parts, paragraphs) {
   const tables = [], definitions = {}, styles = {}, abstracts = {}, instances = {}, numbering = {}, pageSettings = {}, stories = {};
-  let stylesEnabled = false, trackChanges, commentsPart = true;
+  let stylesEnabled = false, trackChanges;
   for (const [key, text] of parts.entries()) {
     const value = decode(text);
     if (value === undefined) continue;
@@ -232,7 +233,6 @@ export function readParts(parts, paragraphs) {
     else if (kind === 'g') pageSettings[name] = value;
     else if (kind === 'x') stories[name] = value;
     else if (key === 'd:trackChanges') trackChanges = value;
-    else if (key === 'd:comments') commentsPart = value !== null;
   }
   // Tables follow the order their cells appear in the body; nested tables after their parents.
   const firstUse = new Map();
@@ -241,12 +241,12 @@ export function readParts(parts, paragraphs) {
   // Tables keep their recorded order; tables added concurrently fall back to where their cells are.
   tables.sort((a, b) => (a._order ?? 0) - (b._order ?? 0) || position(a) - position(b) || String(a.id).localeCompare(String(b.id)));
   for (const table of tables) delete table._order;
-  return { tables, styles: { ...styles, definitions }, stylesEnabled, numbering: { ...numbering, abstracts, instances }, pageSettings, stories, trackChanges, commentsPart };
+  return { tables, styles: { ...styles, definitions }, stylesEnabled, numbering: { ...numbering, abstracts, instances }, pageSettings, stories, trackChanges };
 }
 
 export function readComments(map) {
   const list = [];
-  for (const text of map.values()) { const value = decode(text); if (value) list.push(value); }
+  for (const [id, text] of map.entries()) { if (id === PRESENT) continue; const value = decode(text); if (value) list.push(value); }
   // Comments keep their document order: by the order they were recorded, then id.
   return list.sort((a, b) => (a._order ?? 0) - (b._order ?? 0) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true })).map(({ _order, ...c }) => c);
 }
@@ -255,7 +255,9 @@ export function readComments(map) {
 export function readState(ydoc) {
   const paragraphs = readBody(ydoc.getText('body'));
   const parts = readParts(ydoc.getMap('parts'), paragraphs);
-  const comments = parts.commentsPart ? readComments(ydoc.getMap('comments')) : null;
+  // A document without a comments part reads as null until someone comments (the part is then created).
+  const map = ydoc.getMap('comments');
+  const comments = map.size ? readComments(map) : null;
   return { paragraphs, ...parts, comments };
 }
 
@@ -375,6 +377,7 @@ export function writeState(ydoc, state, origin = null) {
     changed = writeBody(ydoc.getText('body'), before, state.paragraphs) || changed;
     changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state)) || changed;
     if (state.comments) {
+      if (!ydoc.getMap('comments').has(PRESENT)) ydoc.getMap('comments').set(PRESENT, 'true');
       // Comment order is recorded once; reordering alone is not a change.
       const map = ydoc.getMap('comments'), entries = encodeComments(state.comments);
       for (const [id, text] of entries) {
@@ -383,7 +386,7 @@ export function writeState(ydoc, state, origin = null) {
         const strip = t => { const { _order, ...rest } = JSON.parse(t); return json(rest); };
         if (strip(current) !== strip(text)) { map.set(id, json({ ...JSON.parse(text), _order: JSON.parse(current)._order })); changed = true; }
       }
-      for (const id of [...map.keys()]) if (!entries.has(id)) { map.delete(id); changed = true; }
+      for (const id of [...map.keys()]) if (id !== PRESENT && !entries.has(id)) { map.delete(id); changed = true; }
     }
     const meta = ydoc.getMap('meta');
     if (meta.get('schema') !== SCHEMA) meta.set('schema', SCHEMA);
