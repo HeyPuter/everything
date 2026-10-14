@@ -768,19 +768,23 @@ export function createPlaylistView(app, host) {
       V.setSource({ kind: 'auto', id: payload.id });
       V.placeAt(track, tick);
     } else if (payload.kind === 'preset' || payload.kind === 'instrument') {
-      // A new channel with a fresh pattern on the playlist, ready to write into.
-      const chId = app.addChannel({ type: payload.type, name: payload.name, params: payload.params });
-      const r = store.apply('New pattern', (q) => E.addPattern(q));
-      store.setPattern(r.id);
-      store.selectChannels([chId]);
-      V.setSource({ kind: 'pattern', id: r.id });
-      V.placeAt(track, tick);
+      // A new channel with a fresh pattern on the playlist, ready to write into (one undo step).
+      store.group(`Add ${payload.name || 'channel'}`, () => {
+        const chId = app.addChannel({ type: payload.type, name: payload.name, params: payload.params });
+        const r = store.apply('New pattern', (q) => E.addPattern(q));
+        store.setPattern(r.id);
+        store.selectChannels([chId]);
+        V.setSource({ kind: 'pattern', id: r.id });
+        V.placeAt(track, tick);
+      });
     } else if (payload.kind === 'sample' && p.samples[payload.id]) {
       // Reuse an audio channel that already plays this sample, else make one.
       const existing = p.channels.find((c) => c.type === 'audio' && c.sample === payload.id);
-      const id = existing?.id || app.addChannel({ type: 'audio', name: payload.name || p.samples[payload.id].name, sample: payload.id, select: false });
-      V.setSource({ kind: 'audio', id });
-      V.placeAt(track, tick);
+      store.group('Add audio clip', () => {
+        const id = existing?.id || app.addChannel({ type: 'audio', name: payload.name || p.samples[payload.id].name, sample: payload.id, select: false });
+        V.setSource({ kind: 'audio', id });
+        V.placeAt(track, tick);
+      });
     } else if (payload.kind === 'file') {
       if (!app.importAudio) {
         app.notify('Audio import is not available yet');
@@ -815,7 +819,8 @@ export function createPlaylistView(app, host) {
     const r = await app.importAudio(blob, { name: clean, path, as: 'audio' });
     if (!r?.channelId) return;
     const len = Math.max(1, Math.round(secondsToTicks(r.duration || 0, store.project.bpm))) || ticksPerBar(store.project.sig);
-    const out = store.apply('Add audio clip', (p) => C.placeClip(p, { kind: 'audio', id: r.channelId }, track, tick, len));
+    // Importing and placing the clip are one undo step.
+    const out = store.amend(() => store.apply('Add audio clip', (p) => C.placeClip(p, { kind: 'audio', id: r.channelId }, track, tick, len)));
     V.setSource({ kind: 'audio', id: r.channelId });
     V.selectClips([out.id], { announce: false });
     V.announceClip(store.project.clips.find((c) => c.id === out.id), 'Placed ');

@@ -785,7 +785,8 @@ export class RackView {
       const r = await app.importAudio(blob, { name: baseName(name), path, as: 'sampler' });
       if (r?.channelId) {
         const from = this.store.project.channels.findIndex((c) => c.id === r.channelId);
-        if (from >= 0 && index < this.store.project.channels.length - 1 && from !== index) this.actions.moveTo(r.channelId, index);
+        // Placing the new channel where it was dropped is part of the import's undo step.
+        if (from >= 0 && index < this.store.project.channels.length - 1 && from !== index) this.store.amend(() => this.actions.moveTo(r.channelId, index));
       }
       return true;
     } catch (err) {

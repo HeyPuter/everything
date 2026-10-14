@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as E from '../src/model/edits.js';
-import { createProject, createChannel, patternLength, songLength, channelAudible } from '../src/model/project.js';
+import { createProject, createChannel, patternLength, songLength, channelAudible, freeInsert } from '../src/model/project.js';
 import { newProject, demoProject } from '../src/model/demo.js';
 import { STEP, PPQ, formatBST, formatTime, snapTicks, gridTicks, ceilToBar } from '../src/model/time.js';
 
@@ -110,5 +110,20 @@ describe('edits', () => {
     expect(project.channels[1].id).toBe(id);
     expect(project.patterns[0].notes[id]).toHaveLength(p0.patterns[0].notes[kick].length);
     expect(createChannel().params.cutoff).toBeGreaterThan(0);
+  });
+});
+
+describe('free mixer inserts', () => {
+  it('skips inserts used by channels, send targets and inserts with effects', () => {
+    let p = newProject();
+    const used = p.channels.map((c) => c.mixer);
+    const first = freeInsert(p);
+    expect(used).not.toContain(first);
+    p = E.updateMixerTrack(p, first, { routes: { 0: 1, [first + 1]: 1 } });
+    p = E.updateMixerTrack(p, first + 2, { fx: [{ id: 'x', type: 'reverb', on: true, mix: 1, params: {} }] });
+    // `first` stays free (it only sends), the bus and the insert with effects are skipped.
+    expect(freeInsert(p)).toBe(first);
+    p = E.addChannel(p, createChannel({ mixer: first }), p.channels.length);
+    expect(freeInsert(p)).toBe(first + 3);
   });
 });

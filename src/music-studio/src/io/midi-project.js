@@ -13,7 +13,7 @@
 // to MIDI channel 10 with the General MIDI note for their drum kind.
 
 import { PPQ } from '../model/time.js';
-import { createChannel, createPattern, createClip, colorAt, patternById, patternLength } from '../model/project.js';
+import { createChannel, createPattern, createClip, colorAt, patternById, patternLength, busyInserts, freeInsert } from '../model/project.js';
 import * as E from '../model/edits.js';
 import { uid } from '../lib/util.js';
 import { synthPreset, drumPreset } from '../instruments/presets.js';
@@ -71,15 +71,11 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
   if (useTempo && midi.tempos.length) p = E.setProjectProps(p, { bpm: Math.round(midi.tempos[0].bpm * 100) / 100 });
   if (useTempo && midi.sigs.length && [1, 2, 4, 8, 16].includes(midi.sigs[0].den)) p = { ...p, sig: [Math.min(16, Math.max(1, midi.sigs[0].num)), midi.sigs[0].den] };
 
-  const usedInserts = new Set(p.channels.map((c) => c.mixer));
+  const usedInserts = busyInserts(p);
   const nextInsert = () => {
-    for (let i = 1; i < p.mixer.length; i++) {
-      if (!usedInserts.has(i)) {
-        usedInserts.add(i);
-        return i;
-      }
-    }
-    return 0;
+    const i = freeInsert(p, usedInserts);
+    if (i) usedInserts.add(i);
+    return i;
   };
   const firstTrack = p.clips.length ? Math.max(...p.clips.map((c) => c.track)) + 1 : 0;
   const channelIds = [];

@@ -3,6 +3,8 @@
 //
 //   store.apply('Add note', (p) => edits.addNotes(p, ...))   one undo step
 //   store.begin('Move notes'); store.preview(fn)...; store.commit()   drags
+//   store.group('Add Bass', () => { ...several applies })   one undo step
+//   store.amend(() => ...)   joins the last undo step (async follow-ups)
 //
 // Every change emits 'change' (project, previous, { label, source }) where
 // source is 'edit' | 'preview' | 'undo' | 'redo' | 'load'. Views compare
@@ -61,6 +63,39 @@ export class Store extends Emitter {
     this.#fixView();
     this.emit('change', next, prev, { label, source: 'edit' });
     return out;
+  }
+
+  /**
+   * Runs `fn()`, which may call apply any number of times (directly or
+   * through actions), and merges the steps it records into one undo step
+   * named `label` (default: the last one's). Synchronous only.
+   */
+  group(label, fn) {
+    if (this.gesture) this.commit();
+    const mark = this.undoStack.at(-1);
+    const out = fn();
+    this.#mergeFrom(mark ? this.undoStack.lastIndexOf(mark) + 1 : 0, label);
+    return out;
+  }
+
+  /**
+   * Like group, but the steps `fn()` records also join the last undo step:
+   * the follow-up of one user action that finished asynchronously (placing
+   * the clip of an imported file). Keeps the last step's label unless given.
+   */
+  amend(fn, label) {
+    if (this.gesture) this.commit();
+    const last = this.undoStack.at(-1);
+    const out = fn();
+    if (last) this.#mergeFrom(this.undoStack.lastIndexOf(last), label || last.label);
+    return out;
+  }
+
+  #mergeFrom(from, label) {
+    if (this.gesture) this.commit();
+    if (from < 0) return;
+    const steps = this.undoStack.splice(from);
+    if (steps.length) this.undoStack.push({ ...steps[0], label: label || steps.at(-1).label });
   }
 
   /** Starts a continuous gesture (drag): previews are merged into one undo step. */

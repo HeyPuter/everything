@@ -295,6 +295,19 @@ describe('storage feature in the app', () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it('asks for a name on the first signed-out save of an untitled project', async () => {
+    window.puter = fakePuter({ signedIn: false });
+    const { root, storage } = mount();
+    const app = new App(root, { storage });
+    app.start([{ install: (a) => install(a, { db: memoryDB() }) }]);
+    await app.restored;
+    app.store.load(newProject());
+    const saveAs = vi.spyOn(app.files, 'saveAs').mockResolvedValue(false);
+    await app.files.save();
+    expect(saveAs).toHaveBeenCalledTimes(1);
+    expect(app.file).toBe(null);
+  });
+
   it('imports audio as a sampler channel or into an existing channel in one undo step', async () => {
     window.puter = fakePuter({ signedIn: false });
     const { root, storage } = mount();
