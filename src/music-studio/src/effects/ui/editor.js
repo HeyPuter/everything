@@ -5,6 +5,9 @@
 // compressor and limiter (transfer curve) and delay (synced time readout),
 // grouped knobs and option switches for the rest.
 //
+// Below the title bar a preset strip (previous, the current preset or
+// "Custom", next, save) browses the built-in and saved presets.
+//
 // Windows follow the store: undo, automation and edits elsewhere update the
 // controls, and a window closes when its slot (or insert) is gone.
 
@@ -20,6 +23,8 @@ import { paramControl, groupParams } from './controls.js';
 import { createEqEditor } from './eq-editor.js';
 import { createDynamicsEditor } from './dynamics-editor.js';
 import { describeDelay } from './tempo.js';
+import { effectPresetController } from './presets.js';
+import { createPresetBar } from '../../ui/presets.js';
 import '../../styles/mixer.css';
 
 const MIX = { id: 'mix', label: 'Mix', min: 0, max: 1, def: 1, unit: '%' };
@@ -53,6 +58,8 @@ export function openEffectEditor(app, ctl, track, slotId) {
     contextMenu(
       { clientX: r.left, clientY: r.bottom, preventDefault() {} },
       [
+        { type: 'submenu', label: 'Presets', items: () => presets.menuItems() },
+        { type: 'sep' },
         { type: 'cmd', label: 'Reset parameters', run: () => ctl.resetEffect(track, slotId) },
         { type: 'cmd', label: 'Duplicate', run: () => ctl.duplicateEffect(track, slotId) },
         { type: 'sep' },
@@ -63,8 +70,11 @@ export function openEffectEditor(app, ctl, track, slotId) {
   });
   const toolbar = h('div.fxw-head', chip, h('span.fxw-spacer'), power, h('span.fxw-mix', { 'aria-hidden': 'true' }, 'Mix'), mix.el, more);
 
+  const presets = effectPresetController(app, ctl, track, slotId);
+  const presetBar = createPresetBar(presets, { label: `${def.label} preset`, className: 'fxw-presets' });
+
   const editor = buildEditor(ctx);
-  const body = h('div.fxw', { dataset: { type: slot.type } }, h('p.fxw-desc', def.description), editor.el);
+  const body = h('div.fxw', { dataset: { type: slot.type } }, presetBar.el, h('p.fxw-desc', def.description), editor.el);
 
   let off = () => {};
   const win = openWindow({
@@ -76,6 +86,7 @@ export function openEffectEditor(app, ctl, track, slotId) {
     toolbar,
     onClose: () => {
       off();
+      presetBar.destroy();
       editor.destroy?.();
     },
   });
@@ -108,6 +119,7 @@ export function openEffectEditor(app, ctl, track, slotId) {
       ctx.slot = slot;
       ctx.bpm = p.bpm;
       editor.update(slot, p);
+      presetBar.sync();
     }
   };
   off = store.on('change', sync);

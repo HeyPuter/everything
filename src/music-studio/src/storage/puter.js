@@ -219,6 +219,23 @@ export function setWindowTitle(title) {
   }
 }
 
+/**
+ * Inside the Puter desktop: `fn()` runs when the window's close button is
+ * pressed, and the window stays open until exitApp() is called. Returns
+ * whether the handler was installed (false on websites).
+ */
+export function onWindowClose(fn) {
+  const ui = sdk()?.ui;
+  if (env() !== 'app' || !ui?.onWindowClose) return false;
+  ui.onWindowClose(fn);
+  return true;
+}
+
+/** Inside the Puter desktop: closes the app window. */
+export function exitApp() {
+  sdk()?.exit?.();
+}
+
 /** Inside the Puter desktop: runs `fn(items)` when the app is opened with files. */
 export function onLaunchedWithItems(fn) {
   const ui = sdk()?.ui;

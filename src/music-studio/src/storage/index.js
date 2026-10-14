@@ -14,18 +14,23 @@ import * as puter from './puter.js';
 import { openDB } from './idb.js';
 import { Library } from './library.js';
 import { Autosave } from './autosave.js';
+import { claimTab, pickDraft } from './tabs.js';
 import { ProjectFiles, baseName } from './files.js';
 import { parseProject, serializeProject } from '../model/serialize.js';
 import { demoProject } from '../model/demo.js';
 import { FILE_EXT } from '../model/project.js';
 import { isAudioName } from '../io/wav.js';
 import { installDialogs } from '../dialogs/index.js';
+import { saveChangesDialog } from '../ui/dialog.js';
 import '../styles/dialogs.css';
+
+/** Longest the startup waits for the last session before showing the app. */
+export const RESTORE_WAIT_MS = 1500;
 
 /** Preference: autosave projects that live in the Puter cloud (default on). */
 export const cloudAutosaveOn = (prefs) => prefs.get('cloudAutosave') !== false;
 
-export function install(app, { db = openDB() } = {}) {
+export function install(app, { db = openDB(), tab = claimTab() } = {}) {
   const { store, prefs } = app;
   const lib = new Library({ db });
   const files = new ProjectFiles(app, lib);
@@ -72,7 +77,7 @@ export function install(app, { db = openDB() } = {}) {
 
   const autosave = new Autosave({
     store,
-    writeDraft: () => lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }),
+    writeDraft: async () => lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, (await tab).key),
     writeCloud: () => files.save({ auto: true }),
     cloudEnabled: () => Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
   });
@@ -83,7 +88,18 @@ export function install(app, { db = openDB() } = {}) {
   const startLoads = files.loads;
   const restore = async () => {
     try {
-      const draft = await lib.loadDraft();
+      // This tab's own draft (a reload), else the newest one no open tab owns.
+      const slot = await tab;
+      const picked = pickDraft(await lib.allDrafts(), { own: slot.key, live: await slot.liveKeys() });
+      for (const k of picked.remove) lib.clearDraft(k).catch(() => {});
+      const draft = picked.draft;
+      // Adopt another tab's leftover draft: copy it to this tab's slot first,
+      // so a crash in between never loses it, and no other tab restores it too.
+      if (draft && picked.key !== slot.key) {
+        await lib.saveDraft(draft, slot.key);
+        await lib.clearDraft(picked.key).catch(() => {});
+      }
+      if (picked.busy && !firstLaunch) app.notify('Your last session is open in another tab, so this tab started a new project.');
       // A file opened by the Puter desktop, a project opened meanwhile, or
       // edits made meanwhile win over the draft.
       if (!launched && draft?.json && !store.undoStack.length && files.loads === startLoads) {
@@ -103,6 +119,28 @@ export function install(app, { db = openDB() } = {}) {
     if (firstLaunch) autosave.scheduleDraft();
   };
   app.restored = new Promise((resolve) => app.once('started', () => restore().then(resolve)));
+
+  // Until the last session is back the workspace stays hidden, so the default
+  // project never flashes before it. A slow or stuck IndexedDB shows the app
+  // after RESTORE_WAIT_MS anyway (the draft still loads when it arrives).
+  if (!firstLaunch) {
+    const root = app.root;
+    let shown = false;
+    const reveal = () => {
+      if (shown) return;
+      shown = true;
+      root.classList.remove('is-restoring');
+      root.removeAttribute('aria-busy');
+    };
+    root.classList.add('is-restoring');
+    root.setAttribute('aria-busy', 'true');
+    setTimeout(reveal, RESTORE_WAIT_MS);
+    // One frame after the restore so the canvases have redrawn the restored project.
+    app.restored.then(() => {
+      requestAnimationFrame(reveal);
+      setTimeout(reveal, 100);
+    });
+  }
 
   // Inside the Puter desktop: open the file the app was launched with.
   launched = puter.onLaunchedWithItems(async (items) => {
@@ -127,6 +165,31 @@ export function install(app, { db = openDB() } = {}) {
   }, () => {
     persistent = false;
   });
+  // Inside the Puter desktop the close button asks about unsaved changes
+  // (beforeunload never fires there), then writes what is pending and exits.
+  let closing = false;
+  puter.onWindowClose(async () => {
+    if (closing) return;
+    closing = true;
+    try {
+      if (store.dirty) {
+        const choice = await saveChangesDialog(store.project.name);
+        if (choice === null) return;
+        if (choice === 'save') {
+          const saved = await files.save().catch((err) => {
+            app.reportError(err);
+            return false;
+          });
+          if (!saved || store.dirty) return;
+        }
+      }
+      await autosave.flushAll().catch(() => {});
+      puter.exitApp();
+    } finally {
+      closing = false;
+    }
+  });
+
   window.addEventListener('beforeunload', (e) => {
     if (!store.dirty) return;
     const unsaved = !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;

@@ -1,0 +1,37 @@
+/* Preset strip shared by effect editors (src/ui/presets.js). */
+
+.preset-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preset-btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  gap: 4px;
+}
+
+.preset-btn.custom .preset-name {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.preset-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* In an effect window: a strip under the title bar. */
+.fxw-presets {
+  margin: -10px -12px 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.float-win.fx-off .fxw > .fxw-presets {
+  opacity: 1;
+}

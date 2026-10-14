@@ -260,3 +260,28 @@ describe('markers', () => {
     expect(p.markers).toHaveLength(1);
   });
 });
+
+describe('marker navigation', () => {
+  it('finds the next and previous marker, skipping one just passed while playing', () => {
+    let p = createProject();
+    p = C.addMarker(p, { pos: PPQ * 8, name: 'Verse' }).project;
+    p = C.addMarker(p, { pos: 0, name: 'Intro' }).project;
+    p = C.addMarker(p, { pos: PPQ * 16, name: 'Chorus' }).project;
+    const ms = p.markers;
+    expect(ms.map((m) => m.name)).toEqual(['Intro', 'Verse', 'Chorus']);
+    expect(C.adjacentMarker(ms, 0, 1).name).toBe('Verse');
+    expect(C.adjacentMarker(ms, PPQ * 8, 1).name).toBe('Chorus');
+    expect(C.adjacentMarker(ms, PPQ * 16, 1)).toBe(null);
+    expect(C.adjacentMarker(ms, PPQ * 9, -1).name).toBe('Verse');
+    expect(C.adjacentMarker(ms, PPQ * 8 + 10, -1, PPQ).name).toBe('Intro');
+    expect(C.adjacentMarker(ms, 0, -1)).toBe(null);
+  });
+
+  it('moves a marker and keeps the list sorted', () => {
+    let p = createProject();
+    const a = C.addMarker(p, { pos: 0, name: 'A' });
+    p = C.addMarker(a.project, { pos: PPQ * 4, name: 'B' }).project;
+    p = C.updateMarker(p, a.id, { pos: PPQ * 8 });
+    expect(p.markers.map((m) => m.name)).toEqual(['B', 'A']);
+  });
+});

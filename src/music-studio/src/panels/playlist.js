@@ -5,6 +5,8 @@
 import { createPlaylistView, TOOLS } from '../playlist/view.js';
 import { addAutomationClip } from '../automation/create.js';
 import { announce } from '../lib/dom.js';
+import { adjacentMarker } from '../playlist/clips.js';
+import { ticksPerBeat } from '../model/time.js';
 
 export function install(app) {
   app.registerPanel({
@@ -23,6 +25,27 @@ export function install(app) {
     app.emit('tool', 'playlist', id);
     const v = view();
     if (v) v.setTool(id);
+  };
+
+  // Previous / next marker from the song position. While playing, "previous"
+  // skips a marker just passed (within a beat) so repeated presses walk back.
+  const jumpMarker = (dir) => {
+    const p = app.store.project;
+    const e = app.engine;
+    const pos = e.mode === 'song' ? e.position : 0;
+    const slack = e.playing ? ticksPerBeat(p.sig) : 0;
+    const m = adjacentMarker(p.markers, pos, dir, slack);
+    if (!m) {
+      announce(dir > 0 ? 'No marker after the song position' : 'No marker before the song position');
+      return;
+    }
+    const v = view();
+    if (v) v.jumpToMarker(m);
+    else {
+      app.setMode('song');
+      e.seek(m.pos);
+      announce(`Marker ${m.name}`);
+    }
   };
 
   app.commands.register(
@@ -54,6 +77,8 @@ export function install(app) {
         else app.shell.show('playlist');
       },
     },
+    { id: 'transport.prevMarker', label: 'Previous marker', keys: [','], enabled: () => app.store.project.markers.length > 0, run: () => jumpMarker(-1) },
+    { id: 'transport.nextMarker', label: 'Next marker', keys: ['.'], enabled: () => app.store.project.markers.length > 0, run: () => jumpMarker(1) },
     {
       id: 'add.automation',
       label: 'Add automation clip',

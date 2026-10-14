@@ -207,6 +207,15 @@ export class MixerController extends Emitter {
     this.store.apply('Reset effect', (p) => S.resetSlot(p, i, slotId));
   }
 
+  /** Loads a full parameter set (a preset) into a slot: one undo step. */
+  loadEffectPreset(i, slotId, params, name) {
+    const s = S.slotById(this.project, i, slotId);
+    if (!s) return;
+    const keys = new Set([...Object.keys(s.params), ...Object.keys(params)]);
+    if ([...keys].every((k) => s.params[k] === params[k])) return;
+    this.store.apply(`Load preset ${name}`, (p) => E.updateSlot(p, i, slotId, { params: { ...params } }));
+  }
+
   moveEffect(i, slotId, to) {
     this.store.apply('Move effect', (p) => E.moveSlot(p, i, slotId, to));
   }

@@ -231,9 +231,14 @@ export function moveTrack(project, from, to) {
   if (from === to || from < 0 || to < 0 || from >= project.tracks.length || to >= project.tracks.length) return project;
   const order = moveItem(project.tracks.map((_, i) => i), from, to);
   const newIndex = new Map(order.map((old, i) => [old, i]));
+  // Default names ("Track 3") follow the new position, as on insert and delete.
+  const tracks = order.map((old, i) => {
+    const t = project.tracks[old];
+    return /^Track \d+$/.test(t.name) && t.name !== `Track ${i + 1}` ? { ...t, name: `Track ${i + 1}` } : t;
+  });
   return {
     ...project,
-    tracks: order.map((i) => project.tracks[i]),
+    tracks,
     clips: project.clips.map((c) => patch(c, { track: newIndex.get(c.track) ?? c.track })),
   };
 }
