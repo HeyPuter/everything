@@ -716,9 +716,28 @@
   .show-console-side > h2:first-child {
     display: none;
   }
+  .presenter-stage.show-presenting {
+    padding-bottom: calc(var(--presenter-controls, 48px) + 26px);
+    gap: 10px;
+  }
   .show-console-tools {
-    left: 8px;
-    right: 8px;
+    position: static;
+    justify-content: center;
+    gap: 2px;
+  }
+  .show-console-top {
+    left: 12px;
+    right: 12px;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .show-console-time {
+    font-size: 18px;
+  }
+  .show-console-clock,
+  .show-console-clock + .show-console-sep,
+  .show-console-swap {
+    display: none;
   }
   .presenter-stage.show-studio {
     flex-direction: column;
