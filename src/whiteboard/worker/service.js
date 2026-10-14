@@ -2233,7 +2233,11 @@ export class BoardService {
       }
       return { ok: true };
     }
-    if (input.op === "history.list" || input.op === "history.state")
+    if (
+      input.op === "history.list" ||
+      input.op === "history.state" ||
+      input.op === "history.removed"
+    )
       this.perMinute(`history|${room}|${user.uuid}`, HISTORY_READ_LIMIT);
     if (input.op === "history.list") {
       // Edit records hold the edits themselves, but their keys name the time
@@ -2367,6 +2371,62 @@ export class BoardService {
       const { doc, count } = await this.loadAt(room, at);
       try {
         return { at, edits: count, update: encode(doc.update()) };
+      } finally {
+        doc.destroy();
+      }
+    }
+    // Objects that came and went within a version: added, or there at the
+    // version before (`after`), and removed by the version's time (`at`),
+    // each as it last stood. Neither version holds them, so recovering
+    // them needs the edits in between. A version spans at most a quarter
+    // of an hour, so no more than that is replayed whatever `after` says.
+    // Like a version's state, they come as a board's objects for the app
+    // to filter; those the workshop hid from this person when they were
+    // removed are left out here, since the board then is not sent.
+    if (input.op === "history.removed") {
+      const at = Number(input.at),
+        after = Number(input.after);
+      if (!Number.isFinite(at) || !Number.isFinite(after) || after >= at)
+        fail(400, "Choose a version.");
+      const from = Math.max(after, at - VERSION_SPAN - 1);
+      const { doc } = await this.loadAt(room, from);
+      try {
+        const removed = new Map(),
+          manager = canManage(member.role);
+        let tags = new Map();
+        doc.watchRemovals((items, before) => {
+          tags = before.tags;
+          let hidden = null;
+          if (before.workshop) {
+            const c = concealment(
+              { workshop: before.workshop, items: before.items },
+              user.uuid,
+              manager,
+            );
+            hidden = new Set([...c.notes, ...c.frames, ...c.hidden]);
+          }
+          for (const item of items)
+            if (hidden?.has(item.id)) removed.delete(item.id);
+            else removed.set(item.id, item);
+        });
+        const records = [
+          ...(await this.list(`wb:${room}:op:`)).map((r) => r.value),
+          ...(await this.logSince(room, from + 1, at)).map((r) => r.value),
+        ]
+          .filter((v) => v && v.at > from && v.at <= at)
+          .sort((a, b) => a.at - b.at);
+        for (const value of records) await this.applyRecord(doc, value);
+        const items = [...removed.values()]
+          .filter((i) => !doc.items.has(i.id))
+          .sort((a, b) => (a.z || 0) - (b.z || 0) || (a.id < b.id ? -1 : 1));
+        const used = new Set(items.flatMap((i) => i.tagIds || []));
+        // The tags they carried, as last seen, even ones deleted since.
+        return {
+          at,
+          after: from,
+          items,
+          tags: [...tags.values()].filter((t) => used.has(t.id)),
+        };
       } finally {
         doc.destroy();
       }

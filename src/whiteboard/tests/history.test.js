@@ -206,6 +206,130 @@ test("a board's starting content is a version, even when its first edit removed 
   assert.deepEqual(none.versions, []);
 });
 
+test("objects added and removed within one version can still be recovered", async () => {
+  const env = environment(),
+    boards = env.service;
+  const b = board("Decisions"),
+    doc = new SharedDocument();
+  b.items = [item("note", 0, 0, { text: "Seed" })];
+  doc.commit(b);
+  await boards.call(owner, {
+    op: "create",
+    room: b.id,
+    update: encode(doc.update()),
+  });
+  doc.destroy();
+  for (const [user, role] of [
+    [editor, "editor"],
+    [viewer, "viewer"],
+  ]) {
+    const { token } = await boards.call(owner, {
+      op: "invite",
+      room: b.id,
+      role,
+    });
+    await boards.call(user, { op: "join", room: b.id, token });
+  }
+  env.now += 60_000;
+  await commit(boards, owner, b.id, (s) => (s.items[0].text = "Seed v1"));
+  // Half an hour later, a decision is noted, tagged, and kept for four
+  // minutes; meanwhile the facilitator puts up an answer hidden from
+  // participants. Both go, with the tag, within the same version.
+  env.now += 30 * 60_000;
+  const decision = item("note", 100, 0, {
+    text: "Decision",
+    tagIds: ["urgent"],
+  });
+  await commit(boards, editor, b.id, (s) => {
+    s.tags = [{ id: "urgent", name: "Urgent", color: "#ff0000" }];
+    s.items.push(decision);
+  });
+  env.now += 60_000;
+  const answer = item("note", 300, 0, { text: "Answer" });
+  await commit(boards, owner, b.id, (s) => {
+    s.items.push(answer);
+    s.workshop = { settings: { hide: [answer.id] } };
+  });
+  env.now += 60_000;
+  await commit(boards, editor, b.id, (s) => {
+    s.items = s.items.filter((i) => i.id !== decision.id);
+    delete s.tags;
+  });
+  env.now += 2 * 60_000;
+  await commit(boards, owner, b.id, (s) => {
+    s.items = s.items.filter((i) => i.id !== answer.id);
+    delete s.workshop;
+  });
+  const { versions } = await boards.call(owner, {
+    op: "history.list",
+    room: b.id,
+  });
+  assert.deepEqual(
+    versions.map((v) => v.edits),
+    [4, 1, 0],
+  );
+  // Neither version holds them.
+  for (const v of versions) {
+    const { update } = await boards.call(owner, {
+      op: "history.state",
+      room: b.id,
+      at: v.at,
+    });
+    const then = new SharedDocument(decode(update));
+    assert.deepEqual(
+      then.snapshot().items.map((i) => i.text),
+      [v.original ? "Seed" : "Seed v1"],
+    );
+    then.destroy();
+  }
+  const removed = (user, after = versions[1].at) =>
+    boards.call(user, {
+      op: "history.removed",
+      room: b.id,
+      at: versions[0].at,
+      after,
+    });
+  // Each as it last stood, with the tag it carried.
+  const all = await removed(owner);
+  const text = (r) => r.items.map((i) => i.text).sort();
+  assert.deepEqual(text(all), ["Answer", "Decision"]);
+  assert.deepEqual(all.items.find((i) => i.id === decision.id).tagIds, [
+    "urgent",
+  ]);
+  assert.deepEqual(all.tags, [
+    { id: "urgent", name: "Urgent", color: "#ff0000" },
+  ]);
+  // What the workshop hid from participants then stays hidden from them.
+  for (const user of [editor, viewer])
+    assert.deepEqual(
+      (await removed(user)).items.map((i) => i.text),
+      ["Decision"],
+    );
+  // Nothing came and went in the version before, and asking from long
+  // before replays no more than a version's quarter of an hour.
+  assert.deepEqual(
+    (
+      await boards.call(owner, {
+        op: "history.removed",
+        room: b.id,
+        at: versions[1].at,
+        after: versions[2].at,
+      })
+    ).items,
+    [],
+  );
+  assert.deepEqual(text(await removed(owner, 0)), ["Answer", "Decision"]);
+  await assert.rejects(
+    boards.call(owner, {
+      op: "history.removed",
+      room: b.id,
+      at: versions[1].at,
+      after: versions[0].at,
+    }),
+    { status: 400 },
+  );
+});
+
 test("shared history arrives a page at a time so every version can be reached", async () => {
   const env = environment(),
     boards = env.service;

@@ -985,6 +985,8 @@ const features = createFeatures({
           before === undefined ? {} : { before },
         ),
       load: (at) => collaboration.versionBoard(at),
+      // `{ items, tags }` added or there at `after` and removed by `at`.
+      removed: (at, after) => collaboration.removedObjects(at, after),
       note: (details) =>
         collaboration.request("history.restored", details).catch(() => {}),
     },

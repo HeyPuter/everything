@@ -664,6 +664,64 @@ export class SharedDocument {
     this.arrivals = null;
     return arrived;
   }
+  // From the call on, hands `removed` the objects each change removes, as
+  // they last stood, with the board just before the change: its objects as
+  // last read, its workshop, and every tag seen. An object is gone once
+  // removed, so each one a change touches is read again after it, rather
+  // than the whole board after every change.
+  watchRemovals(removed) {
+    const last = new Map(),
+      tags = new Map();
+    for (const [id, entry] of this.items)
+      if (entry instanceof Y.Map) last.set(id, this.readItem(id, entry));
+    const readTags = () => {
+      for (const [id, tag] of this.tags) tags.set(id, structuredClone(tag));
+    };
+    const readWorkshop = () =>
+      this.workshop.size
+        ? Object.fromEntries(
+            [...this.workshop].map(([k, v]) => [k, structuredClone(v)]),
+          )
+        : undefined;
+    readTags();
+    let workshop = readWorkshop();
+    this.doc.on("afterTransaction", (transaction) => {
+      const touched = new Set();
+      for (const [type, keys] of transaction.changed) {
+        let root = type,
+          id = null;
+        while (root._item) {
+          id = root._item.parentSub;
+          root = root._item.parent;
+        }
+        if (root !== this.items) continue;
+        if (type === this.items) {
+          for (const key of keys) if (key !== null) touched.add(key);
+        } else if (id !== null) touched.add(id);
+      }
+      const gone = [...touched].filter(
+        (id) => last.has(id) && !(this.items.get(id) instanceof Y.Map),
+      );
+      if (gone.length)
+        removed(
+          gone.map((id) => last.get(id)),
+          {
+            workshop,
+            tags,
+            get items() {
+              return [...last.values()];
+            },
+          },
+        );
+      for (const id of touched) {
+        const entry = this.items.get(id);
+        if (entry instanceof Y.Map) last.set(id, this.readItem(id, entry));
+        else last.delete(id);
+      }
+      if (transaction.changed.has(this.tags)) readTags();
+      if (transaction.changed.has(this.workshop)) workshop = readWorkshop();
+    });
+  }
   // Writes the connectors attached to an object, and the objects at their
   // other ends, into `out` from index `n` while it has room, and returns
   // the index after them. The index of connectors by end is built when

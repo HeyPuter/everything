@@ -768,6 +768,19 @@ export class CollaborationSession {
     }
     return this.hydrate(board);
   }
+  // Objects added or there before and removed within a version, which
+  // neither it nor the version before holds (see history.removed), with
+  // their tags and shared media hydrated.
+  async removedObjects(at, after) {
+    const { items, tags } = await this.request("history.removed", {
+      at,
+      after,
+    });
+    return this.hydrate({
+      items: Array.isArray(items) ? items : [],
+      tags: Array.isArray(tags) ? tags : [],
+    });
+  }
   materialize() {
     return this.hydrate(this.shared.snapshot(this.room));
   }
