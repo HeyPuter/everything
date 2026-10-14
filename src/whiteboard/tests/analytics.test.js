@@ -44,10 +44,10 @@ test("the five value events are sent from where the value happens", () => {
   assert.match(main, /track\("Board exported", \{ format, scope \}\)/);
   assert.match(
     facilitation,
-    /if \(started\) track\("Workshop activity started", \{ kind: "vote" \}\)/,
+    /if \(started\) \{?\s*track\("Workshop activity started", \{ kind: "vote" \}\)/,
   );
   assert.match(
     facilitation,
-    /if \(started\) track\("Workshop activity started", \{ kind: "poll" \}\)/,
+    /if \(started\) \{?\s*track\("Workshop activity started", \{ kind: "poll" \}\)/,
   );
 });
