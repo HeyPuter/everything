@@ -16,6 +16,7 @@ import { openMenu } from './menu.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
 import { TABLE_STYLES } from '../core/tables.js';
+import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 
 export const MENU_TITLES = [
   ['file', 'File'], ['edit', 'Edit'], ['view', 'View'], ['insert', 'Insert'],
@@ -41,7 +42,8 @@ export const SPECIAL_KINDS = {
  * spans one row or one column, so there is nothing to merge vertically or
  * horizontally), away (the formula being typed is showing another sheet to
  * pick references on, so the items for the active sheet or cell wait),
- * canUndo, canRedo, style (the active cell's style), and
+ * canUndo, canRedo, style (the active cell's style), grouped (several sheets are
+ * grouped, so the commands for one sheet's objects wait), and
  * fns { shortcuts, locale, about }.
  */
 export function menubarMenus(f = {}) {
@@ -80,6 +82,7 @@ export function menubarMenus(f = {}) {
     i('Rename…', 'pencil', 'rename'),
     f.share && i('Share…', 'share', 'share'),
     i('Version history…', 'clock', 'versions'),
+    i('Show changes', 'showChanges', 'showChanges', null, { checked: !!f.changesPane }),
     i('Document details…', 'info', 'docInfo'),
     sep,
     sub(saving ? 'Export' : 'Download', 'fileDown', [
@@ -139,6 +142,7 @@ export function menubarMenus(f = {}) {
       i('Series…', 'series', 'fillSeries'),
       waits(i('Justify', 'alignLeft', 'fillJustify')),
       waits(i('Flash Fill', 'flashFill', 'flashFill', null, { shortcut: `${M}+E` })),
+      waits(i('Across Worksheets…', 'layers', 'fillAcrossSheets', null, f.grouped ? {} : { disabled: true, hint: 'Group sheets first: Shift-click or ' + (IS_MAC ? '⌘' : 'Ctrl') + '-click their tabs' })),
       sep,
       i('Today’s date', 'calendar', 'insertDate', null, { shortcut: `${M}+;` }),
       i('The current time', 'clock', 'insertTime', null, { shortcut: `${M}+Shift+;` }),
@@ -278,6 +282,9 @@ export function menubarMenus(f = {}) {
         i('Hide sheet', 'eyeOff', 'hideSheet', null, { disabled: !!f.sheet?.only }),
         i(f.sheet?.holdsWork ? 'Delete sheet…' : 'Delete sheet', 'trash', 'deleteSheet', null, { disabled: !!f.sheet?.only, danger: true }),
       ].map(home),
+      sep,
+      // Grouping: edits on the sheet in view reach every grouped sheet (Shift- or Ctrl-click the tabs to pick some).
+      f.grouped ? i('Ungroup sheets', 'layers', 'ungroupSheets') : i('Select all sheets', 'layers', 'selectAllSheets', null, { disabled: !!f.sheet?.only }),
     ]),
   ];
 
@@ -378,13 +385,28 @@ export function menubarMenus(f = {}) {
     sep,
     i('Conditional formatting…', 'highlighter', 'condFormat'),
     i('Alternating colors', 'rows', 'bands'),
-    sub('Cell styles', 'paint', CELL_STYLES.map((s) => i(s.label, null, 'cellStyle', s.key, {
-      // A sample of the style as it would look on the sheet: on paper, whatever the app's theme. A preset
-      // that names no ink or fill of its own shows the paper's, as the cell it makes will; the menu's own
-      // dark tokens made a Note sample near-white ink on its pale yellow fill, and a Heading navy on black.
-      paper: true,
-      style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', fontWeight: s.patch.bold ? '700' : '400', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--hairline)' },
-    }))),
+    sub('Cell styles', 'paint', [
+      ...CELL_STYLES.map((s) => i(s.label, null, 'cellStyle', s.key, {
+        // A sample of the style as it would look on the sheet: on paper, whatever the app's theme. A preset
+        // that names no ink or fill of its own shows the paper's, as the cell it makes will; the menu's own
+        // dark tokens made a Note sample near-white ink on its pale yellow fill, and a Heading navy on black.
+        paper: true,
+        style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', fontWeight: s.patch.bold ? '700' : '400', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--hairline)' },
+      })),
+      // The workbook's own styles, then the tools that make, change and bring in styles.
+      (f.customCellStyles || []).length && sep,
+      (f.customCellStyles || []).length && { header: 'Custom' },
+      ...(f.customCellStyles || []).map((name) => i(name, null, 'cellStyle', { custom: name })),
+      sep,
+      waits(i('New cell style…', 'plus', 'newCellStyle')),
+      sub('Modify a style', 'pencil', [
+        ...CELL_STYLES.map((s) => i(s.label, null, 'modifyCellStyle', s.key)),
+        ...(f.customCellStyles || []).map((name) => i(name, null, 'modifyCellStyle', { custom: name })),
+      ].map(waits)),
+      (f.customCellStyles || []).length > 1 && sub('Delete a style', 'trash', (f.customCellStyles || []).map((name) => i(name, null, 'deleteCellStyle', { custom: name })).map(waits)),
+      (f.customCellStyles || []).length === 1 && waits(i(`Delete style “${f.customCellStyles[0]}”`, 'trash', 'deleteCellStyle', { custom: f.customCellStyles[0] })),
+      waits(i('Merge styles…', 'paint', 'mergeCellStyles')),
+    ]),
     i('Paint format', 'paint', 'paintFormat'),
     sep,
     i('Format Cells…', 'formatCells', 'formatCells', null, { shortcut: `${M}+1` }),
@@ -422,6 +444,12 @@ export function menubarMenus(f = {}) {
       ...(item.submenu && { submenu: item.submenu.map(child => ({ ...child, disabled: editing || !!f.away || !!f.sheet?.protected })) }) }))),
     i('Pivot table…', 'pivot', 'pivot'),
     i('Subtotals…', 'sigma', 'subtotal'),
+    sub('Outline', 'group', [
+      i('Auto Outline', 'group', 'autoOutline'),
+      i('Clear Outline', 'eraser', 'clearOutline'),
+      sep,
+      i('Outline settings…', 'sliders', 'outlineSettings'),
+    ].map(waits)),
     i('Column stats…', 'chartColumn', 'columnStats'),
     i('Goal seek…', 'sliders', 'goalSeek'),
     i('Data table…', 'table', 'dataTable'),
@@ -430,6 +458,7 @@ export function menubarMenus(f = {}) {
     i('Solver…', 'solver', 'solver'),
     i('Data analysis…', 'dataAnalysis', 'dataAnalysis'),
     i('Advanced filter…', 'filterAdvanced', 'advancedFilter'),
+    i('Form…', 'dataForm', 'dataForm'),
     f.ai && i('Ask AI about this data…', 'sparkle', 'aiAsk'),
     sep,
     i('Data validation…', 'validation', 'validation'),
@@ -437,6 +466,7 @@ export function menubarMenus(f = {}) {
     i('Define name…', 'tag', 'defineName'),
     i('Create names from selection…', 'tag', 'createNames'),
     i('Protected ranges…', 'lock', 'protectRanges'),
+    i('Edit links…', 'editLinks', 'editLinks'),
     sep,
     sub('Data cleanup', 'dedupe', [
       i('Remove duplicate rows…', 'dedupe', 'dedupe'),
@@ -464,6 +494,9 @@ export function menubarMenus(f = {}) {
     f.ai && i('Write a formula with AI…', 'sparkle', 'aiFormula'),
     f.ai && i('Explain this formula (AI)…', 'sparkle', 'aiExplain', null, { disabled: !f.hasFormula }),
     sep,
+    i('Spelling…', 'spell', 'spelling', null, { shortcut: 'F7' }),
+    i('Thesaurus', 'thesaurus', 'thesaurus', null, { shortcut: 'Shift+F7', checked: f.languagePane === 'thesaurus' }),
+    i('Translate', 'translate', 'translatePane', null, { checked: f.languagePane === 'translate' }),
     sub('Automate', 'codeEditor', [
       i('Code Editor', 'codeEditor', 'scriptsPane', null, { checked: !!f.scriptsPane }),
       i('New script', 'newScript', 'newScript'),
@@ -473,6 +506,7 @@ export function menubarMenus(f = {}) {
       i('Script reference', 'scriptReference', 'scriptReference'),
     ]),
     i('Check spelling as you type', 'text', 'toggleSpellcheck', null, { checked: f.spell !== false }),
+    i('AutoCorrect Options…', 'autoCorrect', 'autoCorrectOptions'),
     fn('Regional format…', 'monitor', f.fns?.locale),
   ];
 
@@ -486,7 +520,9 @@ export function menubarMenus(f = {}) {
   const lists = { file, edit, view, insert, format, data, tools, help };
   const capabilities = items => items.map(item => item && (item.submenu
     ? { ...item, submenu: capabilities(item.submenu) }
-    : f.chartSheet && item.cmd && !chartSheetCommand(item.cmd) ? { ...item, disabled: true } : item));
+    : f.chartSheet && item.cmd && !chartSheetCommand(item.cmd) ? { ...item, disabled: true }
+      // Grouped sheets: a command for one sheet's objects waits, and says why.
+      : f.grouped && item.cmd && GROUP_BLOCKED_COMMANDS.has(item.cmd) ? { ...item, disabled: true, hint: GROUP_BLOCKED_HINT } : item));
   return MENU_TITLES.map(([id, label]) => ({ id, label, items: tidy(capabilities(lists[id])) }));
 }
 

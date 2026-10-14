@@ -1,4 +1,5 @@
 import { normalizeThemeInfo, themedTableLook } from './workbook-theme.js';
+import { normalizeCellStyles } from './custom-cell-styles.js';
 import { normalizeFillColor, fillColorCss, sameFillColor } from './fill-color.js';
 import { normalizeNativeFill, nativeFillPatch, packNativeFillState, unpackNativeFillState } from './native-fill.js';
 import { tableConversionStyle } from './table-conversion-style.js';
@@ -95,6 +96,8 @@ import { STYLE_KEYS, BORDER_STYLE_KEYS, GRID_RANGE, intersection, rowRuns, readS
 import { normalizeScenarios, copyScenarios, mapScenarioCells } from './scenarios.js';
 import { normalizeQueries, serializeQueries } from './queries.js';
 import { normalizeScripts, serializeScripts } from './scripts.js';
+import { installSheetGroups } from './sheet-group.js';
+import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-history.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
@@ -130,6 +133,8 @@ const SNAPSHOT_CELLS = 1_000_000;
 const CHANGE_LOG = 256;
 // Formulas that read other files or the web; a file from elsewhere may not run them until the user allows it.
 // Formulas that reach outside the file: the web and other files, and the AI service, which spends the account's quota on a foreign file's prompts.
+/** Edit Links ▸ Startup Prompt choices (see setLinkStartup). */
+export const LINK_STARTUP_MODES = ['ask', 'update', 'none'];
 const EXTERNAL_PROVIDERS = new Set(['IMPORTDATA', 'IMPORTHTML', 'IMPORTXML', 'IMPORTRANGE', 'WEBSERVICE', 'AI', 'TRANSLATE', 'DETECTLANGUAGE']);
 const DEEP_FRAMES = 16; // nested evaluations above this depth hand a stack overflow to a shallower frame
 // A bounded reference is read this far past the data (A1:A5000 on a sheet with
@@ -310,6 +315,25 @@ function shiftCalc(calc, c1, at, n, remove) {
     }
   }
   return out;
+}
+
+/**
+ * A sheet's outline settings, kept only where they differ from the defaults: summary rows below their detail and
+ * summary columns to its right (the outline buttons sit on the summary line), and automatic styles off.
+ */
+export function normalizeOutlineSettings(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  if (raw.summaryBelow === false) out.summaryBelow = false;
+  if (raw.summaryRight === false) out.summaryRight = false;
+  if (raw.autoStyles === true) out.autoStyles = true;
+  return Object.keys(out).length ? out : null;
+}
+
+/** The outline settings in force on a sheet, every field spelt out. */
+export function outlineSettingsOf(sheet) {
+  const s = sheet?.outlineSettings || {};
+  return { summaryBelow: s.summaryBelow !== false, summaryRight: s.summaryRight !== false, autoStyles: s.autoStyles === true };
 }
 
 /** Outline groups: { rows: [{ from, to, collapsed }], cols: [...] }, sorted, sane. */
@@ -591,7 +615,7 @@ function absoluteDrawingAnchor(sheet, chart) {
 /** The views a worksheet can be shown in (CT_SheetView's view: normal, pageLayout, pageBreakPreview). */
 export const SHEET_VIEW_MODES = ['normal', 'pageLayout', 'pageBreak'];
 
-export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, freshIds = false }) {
+export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, rowHeightModes, defaultColWidth, defaultRowHeight, nativeWidths, nativeDefaultHeight, colStyles, rowStyles, styleResets, ignoredErrors, cells, frozenRows, frozenCols, hiddenRows, hiddenCols, merges, notes, rules, validations, color, filter, otherFilters, filterHidden, hidden, veryHidden, charts, sparklineGroups, protected: locked, groups, gridlines, headers, rightToLeft, defaultVAlign, zeros, viewZoom, viewSelection, viewOrigin, frozenOrigin, split, viewMode, zoomToFit, printSettings, protectedRanges, tables, scenarios, outlineSettings, freshIds = false }) {
   // Optional metadata from a file may be malformed. An invalid collection
   // must not prevent the workbook's actual cell data from opening.
   const arrayOrEmpty = (value) => Array.isArray(value) ? value : [];
@@ -629,6 +653,7 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
     veryHidden: !!veryHidden,
     protected: !!locked,
     groups: normalizeGroups(groups),
+    ...(normalizeOutlineSettings(outlineSettings) ? { outlineSettings: normalizeOutlineSettings(outlineSettings) } : {}),
     gridlines: gridlines !== false,
     headers: headers !== false,
     rightToLeft: rightToLeft === true,
@@ -812,6 +837,7 @@ export function sheetShapeJSON(s) {
     ...(s.split ? { split: normalizeSplit(s.split) } : {}),
     printSettings: s.printSettings ? normalizePrintSettings(s.printSettings) : undefined,
     groups: s.groups.rows.length || s.groups.cols.length ? { rows: s.groups.rows.map((g) => ({ ...g })), cols: s.groups.cols.map((g) => ({ ...g })) } : undefined,
+    ...(s.outlineSettings ? { outlineSettings: { ...s.outlineSettings } } : {}),
     filter: s.filter ? { ...s.filter, range: { ...s.filter.range }, criteria: { ...s.filter.criteria }, ...(s.filter.hiddenButtons ? { hiddenButtons: [...s.filter.hiddenButtons] } : {}) } : null,
     ...(s.otherFilters?.length ? { otherFilters: s.otherFilters.map(copyFilter) } : {}),
     ...(sheetFilters(s).length ? { filterHidden: [...s.filterHidden] } : {}),
@@ -890,7 +916,8 @@ const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCac
 
 /** The workbook's settings beside its sheets and their active one (see bookState): what a file holds of the book itself. */
 export const BOOK_STATE_KEYS = ['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
-  'calculationCompatibility', 'colorPalette', 'fontTheme', 'themeInfo', 'normalFont', 'nativeNormalStyle', 'nativeNormalFill', 'nativeDefaultCellFormat', 'names'];
+  'calculationCompatibility', 'colorPalette', 'fontTheme', 'themeInfo', 'normalFont', 'nativeNormalStyle', 'nativeNormalFill', 'nativeDefaultCellFormat', 'names',
+  'scripts', 'cellStyles', 'linkStartup'];
 
 export class Workbook extends EventTarget {
   /** Async sources for functions like AI(): name → (text) => Promise<string>. Answers are cached per prompt. */
@@ -946,6 +973,10 @@ export class Workbook extends EventTarget {
   _load(json) {
     json = unpackNativeFillState(json);
     this._loadSettings(json);
+    // Show Changes: the record of recent edits (see change-history.js). It is no part of undo, nor of toJSON, which
+    // undo restores exactly: the draft and the file's sidecar carry it beside the book (drafts.js, io.js).
+    this.changeHistory = normalizeChangeHistory(json.changeHistory);
+    this._changeJoin = null;
     this.sheets = (json.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(makeSheet);
     this.workbookView = normalizeWorkbookView(json.workbookView);
     this._loadNames(json);
@@ -985,6 +1016,10 @@ export class Workbook extends EventTarget {
     this.queries = normalizeQueries(json.queries);
     // Automate: the scripts the workbook carries (see scripts.js).
     this.scripts = normalizeScripts(json.scripts);
+    // Edit Links ▸ Startup Prompt: what opening the book does about its links to other workbooks.
+    this.linkStartup = LINK_STARTUP_MODES.includes(json.linkStartup) ? json.linkStartup : 'ask';
+    // Named cell styles this workbook defines, and built-in ones it modified (see custom-cell-styles.js).
+    this.cellStyles = normalizeCellStyles(json.cellStyles);
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -1026,7 +1061,7 @@ export class Workbook extends EventTarget {
   bookState(keys = BOOK_STATE_KEYS) {
     const out = {};
     for (const key of keys) {
-      const value = key === 'queries' ? serializeQueries(this) : key === 'names' ? this.names.map((n) => ({ ...n })) : this[key];
+      const value = key === 'queries' ? serializeQueries(this) : key === 'scripts' ? serializeScripts(this) : key === 'names' ? this.names.map((n) => ({ ...n })) : this[key];
       out[key] = JSON.parse(JSON.stringify(value ?? null));
     }
     return out;
@@ -1068,8 +1103,10 @@ export class Workbook extends EventTarget {
       ...(this.iteration ? { iteration: { ...this.iteration } } : {}),
       ...(this.calcMode === 'manual' ? { calcMode: 'manual' } : {}),
       ...(this.structureProtected ? { structureProtected: true } : {}),
+      ...(this.linkStartup !== 'ask' ? { linkStartup: this.linkStartup } : {}),
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
       ...(this.scripts.length ? { scripts: serializeScripts(this) } : {}),
+      ...(this.cellStyles.length ? { cellStyles: normalizeCellStyles(this.cellStyles) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
       ...(this.colorPalette ? { colorPalette: normalizeColorPalette(this.colorPalette) } : {}),
@@ -2288,7 +2325,10 @@ export class Workbook extends EventTarget {
       this._changed('cells', live.id, { box, formula });
       if (bounds) this._cellBoundsCache.set(live.id, bounds);
     };
+    // Grouped sheets: the cells written on the active sheet are noted, to be written again on the rest of the group.
+    if (this._groupRecorder?.sheetId === sheetId) for (let i = 0; i < before.length; i++) this._groupRecorder.writes.push({ key: before[i].key, prev: before[i].cell, next: after[i].cell });
     apply(after, afterIgnored);
+    recordCellWrites(this, sheet, before, after, label, box);
     // The before-and-after pair the step closes over is the memory it costs, and a sort, fill, paste or
     // replace-all holds a clone of every cell it touched twice over. Weighed against the same budget as a
     // structural step's snapshots, so that a history of them cannot grow without end (see _evictSnapshots).
@@ -6891,6 +6931,44 @@ export class Workbook extends EventTarget {
       }
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
     });
+  }
+
+  /** Change a sheet's outline settings (see normalizeOutlineSettings); an undo step of its own. */
+  setOutlineSettings(sheetId, patch) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart') return false;
+    const prev = sheet.outlineSettings ? { ...sheet.outlineSettings } : null;
+    const next = normalizeOutlineSettings({ ...outlineSettingsOf(sheet), ...patch });
+    if (JSON.stringify(prev) === JSON.stringify(next)) return false;
+    const apply = (v) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      if (v) live.outlineSettings = { ...v }; else delete live.outlineSettings;
+      this._changed('layout', live.id);
+    };
+    apply(next);
+    this._push({ label: 'Outline settings', undo: () => apply(prev), redo: () => apply(next) });
+    return true;
+  }
+
+  /**
+   * Replace every outline group on an axis (or both, when axis is null) with `groups`, as one step: Auto Outline
+   * and Clear Outline. Lines a removed group had hidden come back; a new group starts expanded.
+   */
+  replaceGroups(sheetId, next, label = 'Outline') {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const wanted = normalizeGroups({ rows: next.rows ?? sheet.groups.rows, cols: next.cols ?? sheet.groups.cols });
+    if (JSON.stringify(wanted) === JSON.stringify(normalizeGroups(sheet.groups))) return false;
+    this._structural(label, () => {
+      for (const [key, hidden] of [['rows', sheet.hiddenRows], ['cols', sheet.hiddenCols]]) {
+        if (!next[key]) continue;
+        for (const g of sheet.groups[key]) if (g.collapsed) for (let i = g.from; i <= g.to; i++) hidden.delete(i);
+      }
+      sheet.groups = wanted;
+      if (sheetFilters(sheet).length) this._applyFilter(sheet);
+    });
+    return true;
   }
 
   /** Is line i inside some group that is (still) collapsed? */
@@ -11647,6 +11725,28 @@ export class Workbook extends EventTarget {
     this._announce('structure', null);
   }
 
+  /**
+   * Edit Links: put a new set of supporting-workbook links in place (fresh values, another source, a link
+   * dropped). One undo step; every formula is worked out again from the links' cached cells.
+   */
+  setExternalWorkbooks(next, label = 'Edit links') {
+    const prev = this.externalWorkbooks;
+    const value = next?.books?.length ? normalizeExternalWorkbooks(next) : null;
+    const apply = (v) => { this.externalWorkbooks = v; this._changed('structure'); };
+    apply(value);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(value) });
+  }
+
+  /** Edit Links ▸ Startup Prompt: 'ask' on opening whether to update the links, 'update' them without asking, or 'none'. Not an undoable edit. */
+  setLinkStartup(mode) {
+    const next = LINK_STARTUP_MODES.includes(mode) ? mode : 'ask';
+    if (next === this.linkStartup) return;
+    this.linkStartup = next;
+    this.dirty = true;
+    this.version++;
+    this._announce('settings', null);
+  }
+
   /** Watch Window: add cells to watch (once each), or remove watches; the list is saved with the workbook. */
   addWatches(sheetId, cells) {
     const before = this.watches.length;
@@ -11760,6 +11860,22 @@ export class Workbook extends EventTarget {
     this._tentative = []; // cells calculated while a circle was unsettled, dropped if it proves a cycle
   }
 
+  /* ---------- Named cell styles ---------- */
+
+  /**
+   * Replace the workbook's named cell styles (see custom-cell-styles.js) as an undo step. Inside a transaction the
+   * cells a modified style reformats join the same step.
+   */
+  setCellStyles(next, label = 'Cell styles') {
+    const prev = this.cellStyles;
+    const value = normalizeCellStyles(next);
+    if (JSON.stringify(prev) === JSON.stringify(value)) return false;
+    const apply = (v) => { this.cellStyles = v; this._changed('view'); };
+    apply(value);
+    this._push({ label, undo: () => apply(prev), redo: () => apply(value) });
+    return true;
+  }
+
   /* ---------- History ---------- */
 
   canUndo() { return this._history.length > 0; }
@@ -11810,6 +11926,7 @@ export class Workbook extends EventTarget {
     this._snapshotCells -= entry.snapshotCells || 0;
     this._coalesce(() => entry.undo()); // a transaction's step is announced once, as the transaction was
     this._future.push(entry);
+    recordStep(this, 'undo', entry.label);
     this._emit('history');
     return true;
   }
@@ -11819,6 +11936,7 @@ export class Workbook extends EventTarget {
     if (!entry) return false;
     this._coalesce(() => entry.redo());
     this._history.push(entry);
+    recordStep(this, 'redo', entry.label);
     this._snapshotCells += entry.snapshotCells || 0;
     // A redone structural step holds its after snapshot as well as its before: the oldest steps make way for it.
     this._evictSnapshots();
@@ -11900,6 +12018,7 @@ export class Workbook extends EventTarget {
 
   /** Run a structural edit with snapshots, for undo, of the sheets it changes (see _capture). */
   _structural(label, fn) {
+    recordStep(this, 'structure', label);
     if (this._group) {
       // Inside a transaction one pair of snapshots serves every structural step: the state
       // before the first step, and the state at the end of the transaction (captured when
@@ -12087,3 +12206,5 @@ export class Workbook extends EventTarget {
     this.dispatchEvent(new CustomEvent('change', { detail: { type, sheetId, ...(extra || {}) } }));
   }
 }
+
+installSheetGroups(Workbook);

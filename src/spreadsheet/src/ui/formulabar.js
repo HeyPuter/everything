@@ -200,9 +200,11 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
       syncing = false;
     }
   });
-  input.addEventListener('input', () => {
+  input.addEventListener('input', (e) => {
     if (syncing) return;
     if (!ensureEdit('')) return;
+    // AutoCorrect, as in the cell's own editor.
+    if (!isComposing(e) && e.inputType === 'insertText') ctx.autocorrect?.input?.(input, e.data);
     ctx.grid.setEditText(input.value);
   });
   // Text pasted here is outside content, as a paste onto the grid is: the editor puts a formula in it that

@@ -7684,7 +7684,7 @@ function correlation(s, correction = 0) {
  * distinct text and cached like AI(). Languages are codes ("fr") or names
  * ("French"); the target defaults to English.
  */
-function translatePrompt(text, source, target) {
+export function translatePrompt(text, source, target) {
   // Sheets' "auto" asks for the source language to be detected, as leaving it out does.
   const from = source && !/^auto$/i.test(source) ? `from ${source}` : 'from the language it is written in';
   return `Translate the text between the markers ${from} to ${target}. Reply with only the translation, no quotes, notes, or explanations.\n<<<\n${text}\n>>>`;

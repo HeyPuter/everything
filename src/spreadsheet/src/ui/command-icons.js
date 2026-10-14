@@ -310,6 +310,12 @@ export const COMMAND_ICONS = {
   hideDetail: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + ci(4, 10, 3, 'bs') + p('M2.6 10h2.8', 'wh'),
   group: cells(6.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M3.5 5v10h2', 'b') + ci(3.5, 10, 2.4, 'bs') + p('M2.4 10h2.2M3.5 8.9v2.2', 'wh'),
   ungroup: cells(6.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M3.5 5v10h2', 'b') + ci(3.5, 10, 2.4, 'bs') + p('M2.4 10h2.2', 'wh'),
+  // Auto Outline: a column of cells with nested bracket levels drawn beside it, and a spark for "worked out".
+  autoOutline: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + p('M3 4.5v11h2.5M5.2 8.5v3.8h1.3', 'b') + p('M3.5 1.2l.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6 1.3-.6z', 'ys'),
+  // Clear Outline: the bracket struck out.
+  clearOutline: cells(7.5, 3.5, 10, 13, 1, 4, { frame: 'of' }) + p('M3.5 4.5v11h2', 'o ln') + p('M1.5 8l4 4M5.5 8l-4 4', 'r thick'),
+  // Outline settings: the bracket over a pair of sliders.
+  outlineSettings: cells(7.5, 3.5, 10, 8, 1, 2, { frame: 'of' }) + p('M3.5 4.5v6.5h2', 'b') + p('M3 15h14M3 18h14', 'o ln') + ci(7, 15, 1.4, 'bs') + ci(13, 18, 1.4, 'bs'),
   subtotal: cells(2.5, 3.5, 11, 13, 1, 4, { frame: 'of' }) + p('M18 4.5h-5l3 3.2-3 3.3h5', 'b thick') + r(2.5, 13.25, 11, 3.25, 'bw'),
   columnStats: chartAxes + columns([[6, 'bf'], [11, 'bf'], [8, 'bf']]) + p('M4 6.5h13', 'r dash'),
   // Solver: a curve over the axes with its peak found (the dot) and the search's steps toward it.
@@ -321,6 +327,9 @@ export const COMMAND_ICONS = {
   fromText: page(4.5, 2.5, 11, 15) + lines(6.5, 8, 7, 4) + p('M9 7v8.5M11.5 7v8.5', 'g dash'),
   fromTable: cells(2.5, 4.5, 10, 11, 2, 3, { head: 'bw', frame: 'of' }) + arrowRight(12.5, 10, 5.5, 'g'),
   blankQuery: page(4.5, 2.5, 11, 15) + p('M7 9h6M7 11.5h6M7 14h4', 'o dash'),
+  // Data Form: a card of labelled fields with the record's arrows; Edit Links: a workbook joined to another by a chain link.
+  dataForm: r(2.5, 2.5, 15, 15, 'of', 1.6) + p('M4.5 6h3M4.5 10h3M4.5 14h3', 'o ln') + r(9, 4.75, 6.5, 2.5, 'bw', 0.6) + r(9, 8.75, 6.5, 2.5, 'bw', 0.6) + r(9, 12.75, 6.5, 2.5, 'gw', 0.6) + p('M9 4.75h6.5v2.5H9zM9 8.75h6.5v2.5H9zM9 12.75h6.5v2.5H9z', 'o ln'),
+  editLinks: cells(2.5, 2.5, 9, 10, 2, 3, { head: 'bw', frame: 'of' }) + r(10, 10, 8.5, 8, 'knock', 2) + p('M12 15.5l-.6.6a1.8 1.8 0 0 1-2.5-2.5l1.6-1.6a1.8 1.8 0 0 1 2.5 0', 'o thick') + p('M14.5 12.5l.6-.6a1.8 1.8 0 0 1 2.5 2.5L16 16a1.8 1.8 0 0 1-2.5 0', 'b thick'),
   queriesPane: r(2.5, 3.5, 15, 13, 'of', 1) + r(11.5, 3.5, 6, 13, 'bw') + p('M11.5 3.5v13', 'o') + p('M13 7h3M13 10h3M13 13h3', 'b thick') + p('M4.5 7h5M4.5 10h5M4.5 13h5', 'o ln'),
   closeLoad: cells(7.5, 7.5, 10, 10, 2, 3, { head: 'gw', frame: 'of' }) + r(2.5, 2.5, 7, 5, 'nf', 1) + p('M6 7.5v4.5h4M8.5 10l1.5 2-1.5 2', 'g'),
   chooseColumns: cells(2.5, 3.5, 15, 13, 3, 2) + r(2.5, 3.5, 5, 13, 'bw') + r(12.5, 3.5, 5, 13, 'bw') + cells(2.5, 3.5, 15, 13, 3, 2, { frame: 'o' }) + p('M8.5 9.5l1.5 1.5 2.5-3', 'g thick'),
@@ -332,6 +341,10 @@ export const COMMAND_ICONS = {
 
   /* Review */
   spell: t(8.5, 10, 'abc', 8.5) + p('M7 14l2.5 2.5 6-6', 'g thick'),
+  autoCorrect: t(7, 15.5, 'ab', 8.5) + p('M14.5 2.5 11 9.5h3l-1.5 6 5-8h-3l1.5-5z', 'ys'),
+  spellCheck: t(10, 9.5, 'abc', 9) + p('M5.5 13.5l3 3 6-6', 'g thick'),
+  thesaurus: p('M10 5.2C8 3.8 5.5 3.6 3 4.4v11.4c2.5-.8 5-.6 7 .8z', 'bf') + p('M10 5.2c2-1.4 4.5-1.6 7-.8v11.4c-2.5-.8-5-.6-7 .8z', 'of') + p('M12 8h3M12 10.5h3M12 13h2', 'o ln') + t(6.6, 12.2, 'A', 5.5, { serif: true, c: 'txb2' }),
+  translate: r(2.5, 2.5, 10, 9, 'bf', 1.6) + t(7.5, 9.5, 'A', 6.5, { weight: 600, c: 'txb2' }) + p('M5 11.5v3l2.5-3', 'bf') + r(8.5, 8.5, 9, 8, 'of', 1.6) + t(13, 14.8, 'a', 6.5, { serif: true }),
   stats: page(4.5, 2.5, 11, 15) + r(6.8, 10.5, 1.6, 4.5, 'bs', 0.5) + r(9.2, 7.5, 1.6, 7.5, 'bs', 0.5) + r(11.6, 9, 1.6, 6, 'ns', 0.5),
   deleteNote: p('M3.5 3.5h11v7l-4 4h-7z', 'yf') + badge(15, 15, 'x', 'r'),
   notes: p('M5.5 5.5h11v7l-4 4h-7z', 'yf') + p('M3.5 13V3.5h10', 'o'),
@@ -341,6 +354,8 @@ export const COMMAND_ICONS = {
   protectRanges: cells(2.5, 3.5, 13, 11, 2, 3, { frame: 'of' }) + r(2.5, 7.17, 13, 3.67, 'bw') + lock(10, 12.5),
   share: p('M3.5 9.5v7h13v-7', 'o') + p('M10 12.5v-10M7 5.5l3-3 3 3', 'b thick'),
   versions: p('M3.5 10a6.5 6.5 0 1 0 2-4.7', 'o') + p('M3 3v3h3', 'o') + p('M10 6v4l3 2', 'b'),
+  // A sheet with one changed cell picked out, and a clock over its corner: the edits made over time.
+  showChanges: cells(2.5, 2.5, 13, 12, 2, 3, { frame: 'of' }) + r(9, 6.5, 6.5, 4, 'yf', 0.6) + ci(14.5, 14.5, 4.9, 'knock') + ci(14.5, 14.5, 4, 'bw') + ci(14.5, 14.5, 4, 'o') + p('M14.5 12.3v2.4l1.6 1', 'b thick'),
   unprotect: page(2.5, 2.5, 10, 14) + p('M11 11.5v-2a2.5 2.5 0 0 1 5 0', 'o') + r(9.5, 11.5, 8, 6, 'nf', 1),
 
   /* View */

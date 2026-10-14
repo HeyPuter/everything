@@ -24,6 +24,7 @@ import { sheetFilters } from '../core/sheet-filters.js';
 
 import { Workbook, EXCEL_SHEET_DEFAULTS } from '../core/workbook.js';
 import { formulaReachesOut } from '../core/reaches-out.js';
+import { recordStep } from '../core/change-history.js';
 import { isRangeSource } from '../core/validation.js';
 import { workbookToXlsx, workbookToOds, workbookFromFile, sheetToCsv, sheetToTsv, sheetToHtml, stripExtension, XLSX_MIME, CSV_MIME, TSV_MIME, HTML_MIME } from '../core/io.js';
 import * as P from './puter.js';
@@ -691,7 +692,11 @@ export class Doc extends EventTarget {
     // it uploads. Those edits must remain available in the current workbook.
     if (this.wb.version !== version) throw new Error('The spreadsheet changed while preparing to restore. Your edits are intact; try restoring again.');
     if (distrust) this.distrustExternal();
+    // The record of edits (Show Changes) goes on through a restore, which is one more change to it.
+    const changeHistory = this.wb.changeHistory;
     this.wb.replaceWith(other.toJSON());
+    this.wb.changeHistory = changeHistory;
+    recordStep(this.wb, 'structure', 'Restore version');
     this._changed('cells');
     return true;
   }
@@ -850,12 +855,13 @@ export class Doc extends EventTarget {
     return null;
   }
 
+  /** A downloaded copy, to keep or hand on: without Show Changes' record of what cells used to hold. */
   async toXlsxBlob() {
-    return workbookToXlsx(this.wb);
+    return workbookToXlsx(this.wb, { history: false });
   }
 
   async toOdsBlob() {
-    return workbookToOds(this.wb);
+    return workbookToOds(this.wb, { history: false });
   }
 
   toCsvBlob(sheetId = this.wb.activeSheetId) {

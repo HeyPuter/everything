@@ -475,9 +475,12 @@ export class Replica extends EventTarget {
   }
 
   _withMode(mode, fn) {
-    const was = this.mode;
+    const was = this.mode, wasOff = this.wb._recordingOff;
     this.mode = mode;
-    try { return fn(); } finally { this.mode = was; }
+    // Taking this person's pending changes back and putting them on again is no new edit for Show Changes: each
+    // was recorded when it was made.
+    if (mode === 'rollback' || mode === 'replay') this.wb._recordingOff = true;
+    try { return fn(); } finally { this.mode = was; this.wb._recordingOff = wasOff; }
   }
 
   /* ---------- Receiving ---------- */
@@ -509,7 +512,7 @@ export class Replica extends EventTarget {
           if (this.pending[0]?.id === ch.id) {
             this.pending.shift();
             // Taken back for an earlier change: the room's copy is the one to apply.
-            if (rolled) this._applyRemote(ch.ops);
+            if (rolled) this._applyRemote(ch.ops, null, null, { quiet: true });
             continue;
           }
           if (!rolled && this.pending.length) { this._rollback(); rolled = true; }
@@ -519,7 +522,7 @@ export class Replica extends EventTarget {
             p.ops = mine;
             theirs = past;
           }
-          this._applyRemote(ch.ops);
+          this._applyRemote(ch.ops, rec.username, ch.label);
           for (const e of [...this.undoStack, ...this.redoStack]) e.ops = this._xform(e.ops, theirs, false)[0];
           applied = true;
           if (ch.ops.some((o) => isStructure(o) || o.t === 'put')) structural = true;
@@ -606,10 +609,19 @@ export class Replica extends EventTarget {
     });
   }
 
-  _applyRemote(ops) {
+  /**
+   * Someone else's change, shown in Show Changes as theirs (`who`, `label`); `quiet` for this person's own change put
+   * back after a rollback, which was recorded when it was made.
+   */
+  _applyRemote(ops, who = null, label = null, { quiet = false } = {}) {
     const wb = this.wb;
     const active = wb.activeSheetId;
-    this._withMode('remote', () => wb.transaction('Shared edit', () => applyOps(wb, ops)));
+    const author = wb.changeAuthor, off = wb._recordingOff;
+    if (who) wb.changeAuthor = who;
+    if (quiet) wb._recordingOff = true;
+    try {
+      this._withMode('remote', () => wb.transaction(label || 'Shared edit', () => applyOps(wb, ops, label || 'Shared edit')));
+    } finally { wb.changeAuthor = author; wb._recordingOff = off; }
     // Someone else adding a sheet does not take this person to it.
     if (wb.activeSheetId !== active && wb.sheet(active) && !wb.sheet(active).hidden) wb.activeSheetId = active;
   }

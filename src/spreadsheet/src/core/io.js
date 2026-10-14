@@ -80,9 +80,11 @@ import { normalizeNativeFill, packNativeFillState, unpackNativeFillState } from 
 import { readFontTheme, normalizeFontTheme } from './font-theme.js';
 import { isRangeSource, ruleFormulaBody } from './validation.js';
 import { parseScenariosXml } from './scenarios.js';
+import { readXlsxOutlineSettings } from './xlsx-outline.js';
 import { serializeQueries } from './queries.js';
 import { serializeScripts } from './scripts.js';
 import { readXlsxScripts } from './xlsx-scripts.js';
+import { serializeChangeHistory } from './change-history.js';
 
 export const META_SHEET = '_puter_meta';
 const META_CHUNK = 30000;
@@ -528,7 +530,7 @@ function tableFileFormulas(table, externalWorkbooks = null) {
 }
 
 /** The app's own state for the sidecar; `ods` adds what that format's writer and reader lose. */
-function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null } = {}) {
+function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null, history = true } = {}) {
   // Sheet names are user data; names such as __proto__ must be ordinary keys.
   const meta = { v: 1, format: 'puter-spreadsheet', ...(!ods ? { themeFonts: true } : {}), active: wb.activeSheet?.name || null, sheets: Object.create(null) };
   let any = structuredNames.length > 0;
@@ -544,6 +546,10 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
   if (wb.queries?.length) { meta.queries = serializeQueries(wb); any = true; }
   // An .xlsx carries the scripts in a part of their own (xlsx-scripts.js); an .ods in these settings.
   if (ods && wb.scripts?.length) { meta.scripts = serializeScripts(wb); any = true; }
+  if (wb.cellStyles?.length) { meta.cellStyles = wb.cellStyles; any = true; }
+  // Show Changes: the record of recent edits, which no file format has a place for. A copy downloaded to hand to
+  // someone leaves it out, as it holds what cells used to say (a value deleted on purpose among them).
+  if (history && wb.changeHistory?.length) { meta.changeHistory = serializeChangeHistory(wb); any = true; }
   const pivotSlicers = !ods && pivotSlicerSidecar(wb);
   if (pivotSlicers?.length) { meta.pivotSlicers = pivotSlicers; any = true; }
   if (structuredNames.length) meta.structuredNames = structuredNames;
@@ -755,7 +761,7 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null 
 }
 
 /** The SheetJS workbook for this document; `meta` adds the very-hidden styling sheet this app reads back. */
-function buildBook(X, wb, { meta = true, odsSettings = false, ods = false } = {}) {
+function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, history = true } = {}) {
   const book = { SheetNames: [], Sheets: Object.create(null), Workbook: { Sheets: [] } };
   for (const sheet of wb.sheets) {
     book.SheetNames.push(sheet.name);
@@ -801,7 +807,7 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false } = {}
     if (sheet.kind !== 'chart' && p.titleCols) titles.push(prefix + p.titleCols.map(c => `$${X.utils.encode_col(c)}`).join(':'));
     if (titles.length) (book.Workbook.Names ||= []).push({ Name: '_xlnm.Print_Titles', Ref: titles.join(','), Sheet: i });
   }
-  const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets }) : null;
+  const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets, history }) : null;
   if (extra && odsSettings) book.PuterSettings = extra;
   if (extra && meta) {
     // A user worksheet may have the usual sidecar name. Keep its name and
@@ -834,10 +840,10 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false } = {}
 }
 
 /** Serialize the workbook to an .xlsx Blob. */
-export async function workbookToXlsx(wb, { sourceWorkbook = null } = {}) {
+export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true } = {}) {
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
-  const book = buildBook(X, wb);
+  const book = buildBook(X, wb, { history });
   const data = await completeXlsx(X, wb, book, X.write(book, { bookType: 'xlsx', type: 'array' }), { sourceWorkbook });
   return new Blob([data], { type: XLSX_MIME });
 }
@@ -848,13 +854,13 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null } = {}) {
  * travel. Active filters also retain their app-specific criteria and dependent
  * styles, rules, and tables in standard ODF application settings.
  */
-export async function workbookToOds(wb, { settings = true } = {}) {
+export async function workbookToOds(wb, { settings = true, history = true } = {}) {
   const X = await XLSX();
   // The app's own settings (styles, frozen panes, tab colours, protection, rules, charts,
   // tables and filter criteria) ride along in a standard ODF settings block other readers
   // ignore. Without them the file is exactly what those readers see. The entries are
   // deflated as an .xlsx's are; the writer keeps the mimetype entry first and stored, as ODF asks.
-  const data = X.write(buildBook(X, wb, { meta: false, odsSettings: settings, ods: true }), { bookType: 'ods', type: 'array', compression: true });
+  const data = X.write(buildBook(X, wb, { meta: false, odsSettings: settings, ods: true, history }), { bookType: 'ods', type: 'array', compression: true });
   return new Blob([data], { type: ODS_MIME });
 }
 
@@ -1448,7 +1454,9 @@ function fileCellStyles(styles, native, includeDefaults = true) {
     // bottom even when the entire alignment element is absent (MS-OI29500
     // 2.1.693). Private sidecars own their app defaults, just as for fonts.
     const s = { ...byFont[Number.isInteger(xf?.fontId) ? xf.fontId : 0], ...native?.fills?.[xf?.fillId], ...xlsxAlignment(xf?.alignment || (includeDefaults ? {} : null)), ...native?.borders?.[xf?.borderId], ...(native?.shrink?.[i] ? { shrink: true } : null), ...(native?.protection?.[i]?.unlocked ? { locked: false } : null), ...(native?.protection?.[i]?.hidden ? { formulaHidden: true } : null),
-      ...(completeDefault ? numFmtToStyle(native?.formatCodes?.[xf?.numFmtId]) : null) };
+      ...(completeDefault ? numFmtToStyle(native?.formatCodes?.[xf?.numFmtId]) : null),
+      // The named cell style the format is linked to, so the cell follows the style when it is modified.
+      ...(native?.cellXfStyleNames?.[i] ? { cellStyle: native.cellXfStyleNames[i] } : null) };
     return Object.keys(s).length ? s : null;
   });
   if (completeDefault && byXf[0]) {
@@ -1950,6 +1958,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
+    outlineSettings: readXlsxOutlineSettings(partXml),
     gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
@@ -2420,12 +2429,16 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   const calcMode = String(book.Workbook?.CalcPr?.calcMode || '').toLowerCase() === 'manual' ? 'manual' : undefined;
   const workbookXml = (() => { const path = book.Directory?.workbooks?.[0]?.replace(/^\//, '') || 'xl/workbook.xml'; const part = book.files?.[path]?.content; return part ? new TextDecoder().decode(part) : ''; })();
   const structureProtected = ['1', 'true'].includes(xmlAttr(workbookXml.match(/<(?:\w+:)?workbookProtection\b[^>]*>/)?.[0], 'lockStructure') || '') || undefined;
-  const wb = new Workbook({ sheets, names, iteration, calcMode, structureProtected, calculationCompatibility, normalFont,
+  // Edit Links ▸ Startup Prompt, from workbookPr's updateLinks (userSet, the default, is to ask).
+  const linkStartup = { always: 'update', never: 'none' }[xmlAttr(workbookXml.match(/<(?:\w+:)?workbookPr\b[^>]*>/)?.[0], 'updateLinks') || ''];
+  const wb = new Workbook({ sheets, names, iteration, calcMode, structureProtected, linkStartup, calculationCompatibility, normalFont,
     nativeNormalStyle: book.bookType === 'xlsx' ? nativeStyles.nativeNormalStyle : normalizeNativeNormalStyle(meta?.nativeNormalStyle),
     nativeNormalFill: book.bookType === 'xlsx' ? nativeStyles.nativeNormalFill : meta?.nativeNormalFill,
     nativeDefaultCellFormat: book.bookType === 'xlsx' ? nativeStyles.nativeDefaultCellFormat : meta?.nativeDefaultCellFormat,
-    dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries,
+    dataModel, externalWorkbooks, colorPalette: nativeStyles.colorPalette, queries: meta?.queries, changeHistory: meta?.changeHistory,
     scripts: book.bookType === 'xlsx' ? readXlsxScripts(book.files) : meta?.scripts,
+    // The app's own record of its named styles, else the file's (another program's custom styles).
+    cellStyles: Array.isArray(meta?.cellStyles) ? meta.cellStyles : nativeStyles?.namedStyles,
     fontTheme: themePart ? readFontTheme(new TextDecoder().decode(themePart)) : normalizeFontTheme(meta?.fontTheme),
     themeInfo: importedThemeInfo(themePart ? readThemeInfo(new TextDecoder().decode(themePart)) : null, meta?.themeInfo, normalFont) });
   if (modelRels && /\/pivotCacheDefinition["']/.test(new TextDecoder().decode(modelRels)))

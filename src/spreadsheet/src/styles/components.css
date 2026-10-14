@@ -1217,3 +1217,87 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .cfq-row > .input { flex: 1 1 120px; min-width: 0; }
 .cfq-and, .cfq-with { font-size: 13px; color: var(--ink-2); }
 .cfq-row > .select-wrap { flex: 1 1 220px; }
+
+/* Tools ▸ AutoCorrect Options */
+.autocorrect-dialog { display: flex; flex-direction: column; gap: 14px; }
+.autocorrect-top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+.autocorrect-options { border: 0; padding: 0; margin: 0; gap: 6px; }
+.autocorrect-options legend { margin-bottom: 6px; }
+.autocorrect-replace { display: flex; flex-direction: column; gap: 8px; }
+.autocorrect-fields { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.autocorrect-fields .field { margin: 0; }
+.autocorrect-list { height: 180px; overflow: auto; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); }
+.autocorrect-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.autocorrect-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 2fr); gap: 4px; align-items: center; padding: 3px 10px; font-size: 13px; cursor: pointer; }
+.autocorrect-row:nth-child(even) { background: var(--surface-2); }
+.autocorrect-row[aria-selected="true"] { background: var(--accent-wash); }
+@media (hover: hover) { .autocorrect-row:hover { background: var(--surface-3); } }
+.autocorrect-from, .autocorrect-to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.autocorrect-arrow { color: var(--ink-3); text-align: center; }
+.autocorrect-actions { align-items: center; gap: 8px; flex-wrap: wrap; }
+.autocorrect-actions .spacer { flex: 1; }
+.autocorrect-exceptions { display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 600px) { .autocorrect-top { flex-direction: column; } .autocorrect-fields { grid-template-columns: 1fr; } .autocorrect-actions .spacer { flex-basis: 100%; height: 0; } }
+
+/* Review ▸ Spelling */
+.spell-dialog { display: flex; flex-direction: column; gap: 10px; }
+.spell-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.spell-sentence { min-height: 64px; max-height: 120px; overflow: auto; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.spell-word { background: transparent; color: var(--critical); font-weight: 600; text-decoration: underline wavy var(--critical); text-underline-offset: 3px; }
+.spell-main { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px; align-items: start; }
+.spell-left { display: flex; flex-direction: column; gap: 6px; }
+.spell-left .field { margin: 0; }
+.spell-suggestions { height: 150px; overflow: auto; border: 1px solid var(--hairline); border-radius: 6px; background: var(--surface); }
+.spell-suggestions:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.spell-suggestion { padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.spell-suggestion[aria-selected="true"] { background: var(--accent-wash); }
+@media (hover: hover) { .spell-suggestion:hover { background: var(--surface-3); } }
+.spell-none { padding: 6px 10px; font-size: 13px; }
+.spell-actions { display: flex; flex-direction: column; gap: 6px; padding-top: 20px; }
+.spell-actions > .btn, .spell-action-pair > .btn { width: 100%; justify-content: center; }
+.spell-action-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.spell-actions > .btn + .spell-action-pair { margin-top: 8px; }
+.spell-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.spell-lang { margin: 0; min-width: 220px; }
+.spell-options { font-size: 13px; }
+.spell-options > summary { cursor: pointer; color: var(--ink-2); padding: 4px 0; }
+.spell-options[open] { display: flex; flex-direction: column; gap: 6px; }
+.spell-status { min-height: 1em; margin: 0; color: var(--ink-2); }
+.spell-custom { width: 100%; font: inherit; }
+@media (max-width: 600px) { .spell-main { grid-template-columns: 1fr; } .spell-actions { padding-top: 0; } }
+
+/* Cell styles: the Style dialog (name, the parts a style holds, a sample) and Merge Styles' list of files. */
+.style-dialog .field { margin-bottom: 10px; }
+.style-parts { display: grid; gap: 2px; border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 6px 10px 8px; margin: 0 0 10px; }
+.style-parts legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.style-part { display: grid; grid-template-columns: auto minmax(84px, max-content) 1fr; align-items: baseline; gap: 4px 8px; padding: 3px 0; }
+.style-part input { margin: 0; align-self: center; }
+.style-part-name { font-size: 13px; font-weight: 600; }
+.style-part-summary { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.style-part-summary.muted { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--hairline); }
+.style-preview { display: flex; justify-content: center; padding: 10px; margin-bottom: 10px; background: var(--surface-2, var(--surface)); border-radius: var(--r-sm); }
+.style-preview .cell-style-sample { min-width: 160px; text-align: center; }
+.style-dialog-actions { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
+.style-dialog-actions .spacer { flex: 1; }
+.merge-styles-list {
+  height: 180px; overflow: auto; border: 1px solid var(--field-border); border-radius: var(--r-sm);
+  background: var(--surface); padding: 2px 0; font-size: 13px; margin: 6px 0 4px;
+}
+.merge-styles-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.merge-styles-file { padding: 4px 10px; cursor: default; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merge-styles-file[aria-selected="true"] { background: var(--accent-soft, var(--surface-3)); color: var(--ink); }
+/* Outline settings: each switch with its explanation under it. */
+.outline-settings fieldset { border: 1px solid var(--hairline); border-radius: var(--r-sm); padding: 6px 10px 8px; margin: 0 0 10px; }
+.outline-settings legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.outline-setting { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: center; padding: 4px 0; font-size: 13px; }
+.outline-setting input { margin: 0; }
+.outline-setting .field-hint { grid-column: 2; margin: 0; }
+@media (max-width: 640px) {
+  .style-part { grid-template-columns: auto 1fr; }
+  .style-part-summary { grid-column: 2; }
+}
+/* The Cell Styles gallery: samples four to a row, wide enough for the themed styles' six. */
+.menu:has(.cell-style-grid) { max-width: min(92vw, 620px); }
+.cell-style-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px 6px 6px; }
+.cell-style-grid .cell-style-item { padding: 2px; min-width: 0; }
+.cell-style-grid .cell-style-sample { min-width: 0; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 8px; }

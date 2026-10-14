@@ -349,6 +349,19 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   has not reached yet: a value typed, pasted or filled into a formatted column
   takes its format wherever it lands, and the column keeps it through inserted,
   deleted and moved lines until Clear formats takes it away.
+- **Cell styles**: a gallery of built-in styles (Title, Heading, Total,
+  Input, Good, Bad, Note and the rest), themed accent styles, and the
+  workbook's own named styles. New Cell Style… makes one by example from the
+  active cell; the Style dialog names it and chooses which parts of a format
+  it holds (number, alignment, font, border, fill, protection), each shown
+  with a summary, and Format… edits it in the Format Cells dialog. Applying a
+  style changes only the parts it holds. Right-click a style (or press the menu
+  key on it) to modify, duplicate or delete it; modifying a style reformats
+  every cell that uses it, in one undo step, and a built-in style can be
+  modified for one workbook and reset later. Merge Styles… copies the styles of
+  another spreadsheet (from the Spreadsheets folder, Puter, or this device) and
+  asks before replacing same-named ones. Named styles travel in .xlsx files as
+  the file's own cell styles, with cells linked to them.
 - **Conditional formatting**: highlight cells that are greater or less than,
   between, equal, contain, begin or end with text, are empty, are duplicates
   or unique, are in the top or bottom N, hold a date that is today, yesterday,
@@ -442,10 +455,34 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   clear messages; results (and their charts) go to a range, a new sheet or a
   new spreadsheet as one undo step, computed with the same statistics as the
   sheet functions (`LINEST`, `T.DIST`, `F.DIST`…).
+- **Data form** (Data → Form, or Data → Data Tools → Form): a list or table
+  one record at a time, its header row naming the fields and calculated
+  columns shown read-only. Step through records with the slider, the arrow
+  keys or Page Up/Down; edits are written when you move on (one undo step per
+  record) and Restore puts the record back; New adds a record under the list
+  (growing a table, carrying a plain list's formulas down), Delete removes one
+  after asking, and Criteria finds records by field (`>100`, `<>0`, `=Smith`,
+  text that begins with what you type, `*` and `?` wildcards) with Find Prev
+  and Find Next.
+- **Edit links** (Data → Edit links, or Data → Queries & Connections → Edit
+  Links): every link to another workbook with its source file, kind, update
+  mode and status. Update Values reads the source again from your Puter drive
+  and refreshes the cached cells the formulas read; Change Source points a
+  link at another file (picked on the drive), Open Source opens it, Check
+  Status looks for every source (and its sheets), and Break Link turns every
+  formula that reads a link into its current value, dropping the link and
+  renumbering the rest, in one undo step. Startup Prompt chooses whether
+  opening the book offers to update its links, updates them, or leaves them
+  (kept in the `.xlsx` as the workbook's update-links setting).
 - **Layout**: frozen rows and columns (from the menus, or by dragging the
   bars at the corner of the headers), hidden rows and columns, row and
   column groups with an outline gutter (collapse and expand one or all,
-  nested, Alt+Shift+Right/Left), column and row resizing (drag, double-click to fit,
+  nested, Alt+Shift+Right/Left); Auto Outline builds nested row and column
+  groups from the summary formulas (`SUM`, `SUBTOTAL`, `AVERAGE` and the like
+  beside the cells they total), Clear Outline removes them, and Outline
+  Settings puts summary rows above or below their detail and summary columns
+  left or right of it (saved in .xlsx files) and can set summary lines in bold
+  automatically (Data → Outline), column and row resizing (drag, double-click to fit,
   or an exact size), zoom from 50% to 200% (presets from the status bar),
   optional gridlines, zero values
   that can be hidden per sheet, notes on cells, and colored sheet tabs. The
@@ -474,6 +511,43 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   Protecting a sheet is an undo step of its own, as the
   gridlines and zero-value switches are, so Ctrl/Cmd+Z after one takes back
   that setting and not the edit before it.
+- **Grouped sheets**: Shift-click a sheet tab to group every sheet from the
+  one in view to it, Ctrl-click (⌘-click on a Mac) to add or drop one sheet,
+  or right-click a tab → Select All Sheets. The title shows **[Group]**, and
+  what you type, format, clear, fill or paste, the rows and columns you insert
+  or delete, and the column widths and row heights you set land on the same
+  cells of every grouped sheet, as one undo step (each sheet keeps its own
+  formatting when only values are typed). Edit → Fill → Across Worksheets
+  copies the selection to the other grouped sheets (all, contents only, or
+  formats only); Hide and Delete act on the whole group. Commands that belong
+  to one sheet (tables, charts, sorting, filters, conditional formatting,
+  validation, notes, freezing) are greyed out and say why until the sheets are
+  ungrouped, by clicking a tab outside the group or with Ungroup Sheets.
+- **AutoCorrect** (Tools → AutoCorrect Options, or Review → Proofing): as a
+  word ends in a cell or the formula bar (never in a formula), listed text is
+  replaced — (c) → ©, (tm) → ™, -- → –, -> → →, and common typos such as
+  teh → the, keeping the case it was typed in — TWo INitial CApitals and
+  words typed with caps lock on are fixed, days get a capital, and so does
+  the first word after a full stop (abbreviations such as e.g. and etc. are
+  exceptions you can edit, and the first word of a cell is left as typed).
+  Ctrl/Cmd+Z straight after a correction puts the word back; a last word
+  corrected as the entry is committed is an undo step of its own. The list,
+  the exceptions and an optional `\alpha` → α math-symbols rule are kept for
+  your account.
+- **Spelling, thesaurus and translation** (Review → Proofing and Language, or
+  the Tools menu): F7 checks the text cells of the selection, or of the whole
+  sheet from the active cell round to it, against English word lists from
+  SCOWL (American or British, loaded the first time they are needed). Each
+  word not in the dictionary is shown in its sentence with the nearest
+  suggestions, to Change or Change All (one undo step), Ignore Once or Ignore
+  All, Add to Dictionary (your own dictionary, kept for your account and
+  editable), or add to AutoCorrect; words in capitals, words with digits and
+  web, email and file addresses are skipped unless you say otherwise.
+  Shift+F7 opens the Thesaurus pane on the active cell's word: its meanings
+  with synonyms and antonyms from Puter's AI, a click to look any of them up,
+  and Insert to put one in place of the word. The Translator pane translates
+  typed text or the selected cells (as `TRANSLATE()` does) and puts the result
+  in the active cell or back into the cells it came from, in one step.
 - **Templates**: start from a monthly budget, an expense tracker with a
   donut chart, an invoice, a to-do list with checkboxes and priorities (the
   last three built on tables), a
@@ -609,6 +683,20 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   a file deleted or renamed outside the app before it was kept that way is set
   aside, its snapshots kept, when another file takes that name, so no file
   lists or restores a stranger's snapshots.
+- **Show Changes**: Review → Show Changes (also File → Show changes, and
+  Show Changes on the cell menu for the selected cells) opens a pane listing
+  the recent edits newest first: who made each one (the signed-in Puter
+  user), when, where, and what the cell held before and after, formulas shown
+  as formulas. A paste or fill is one card that opens onto the cells it
+  changed; rows and sheets inserted or deleted, and undo and redo, are listed
+  by name. A click selects the cells. The list narrows to the sheet shown and
+  to the selection or a typed range, and older edits load on demand. The
+  record keeps the last 1,000 edits (up to 100 cells listed each) and travels
+  with the file in the app's own sidecar part and in drafts, but not in a
+  downloaded or exported copy, so what cells used to say stays with the file
+  on your drive; it is not part of undo, and Clear empties it after asking.
+  In a shared workbook each person's edits are listed under their own name.
+  The pane links on to Version history.
 - **Nothing lost**: unsaved edits are also copied to the browser's local
   storage moments after they are made. If a tab closes while offline or a
   save fails, opening the file again offers to restore those changes (or
@@ -691,9 +779,12 @@ src/
     chart-special.js  hierarchies, box statistics, stock columns and surface bands for charts
     tables.js         tables and structured references (Table1[Column])
     subtotal.js       subtotal rows and their outline groups
+    auto-outline.js   Auto Outline, Clear Outline and outline styles from summary formulas
+    custom-cell-styles.js  the workbook's named cell styles: parts, applying, merging
     importrange.js    IMPORTRANGE, IMPORTDATA, IMPORTHTML, IMPORTXML helpers
     formula/query.js  the QUERY language: parser and executor
     aiformula.js      prompts for the AI formula helper and reading formulas from replies
+    change-history.js the record of recent edits behind Show Changes
     pivot.js          pivot tables as live formulas
     clipboard.js      HTML tables for and from the system clipboard
     selection.js      selection and keyboard navigation rules
@@ -718,6 +809,8 @@ src/
                       fill-series, sort, pivot, validation, and version-history dialogs
   views/              home (file list), editor, gate (SDK error, sign-in for a cloud file)
   vendor/xlsx.mjs     SheetJS Community Edition 0.20.3 (Apache-2.0), vendored
+  vendor/words-en.js  English word lists for the spelling checker, from SCOWL
+                      (MIT AND BSD; generated by dev/generate-word-lists.py)
 ```
 
 The grid is virtualized: only the cells in view exist in the DOM, headers
@@ -741,6 +834,7 @@ covers them.
 | KV `spreadsheet:settings:v1` | theme and regional format (this browser's storage without a session) | tiny, hot, one read at boot |
 | FS `Spreadsheets/Scripts/<name>.js` | My Scripts, the user's own scripts | plain files the user can see; usable in any workbook |
 | KV `spreadsheet:script-trust:v1:<sha256>` | scripts from files the user has agreed to run | asked once per script, on every device |
+| KV `spreadsheet:pref:<name>` | AutoCorrect settings, the custom dictionary, spelling and translation choices (also kept in this browser, per account) | follow the account to another device |
 
 Files are never stored in KV. The XLSX exporter supplements SheetJS Community
 Edition with native cell styles (fonts, colors, borders and alignment), blank

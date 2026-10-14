@@ -36,6 +36,7 @@ import { shapeSvg, iconSvg, svgDataUrl, openShapesMenu, openIconsDialog } from '
 import { flashFill } from '../core/flashfill.js';
 import { createWatchWindow } from '../ui/watchwindow.js';
 import { createAccessibilityPane } from '../ui/accessibility-pane.js';
+import { createChangesPane } from '../ui/changes-pane.js';
 import { openAltTextDialog } from '../ui/alttext.js';
 import { invalidCells } from '../core/validation-circles.js';
 import { openRecommendedPivots } from '../ui/recommended-pivots.js';
@@ -77,6 +78,8 @@ import { runChartAction, insertChart as insertExcelChart, insertChartSheet } fro
 import { createChartUi } from '../ui/chart-format-pane.js';
 import { openTemplatePicker } from '../ui/templates.js';
 import { openSubtotalDialog } from '../ui/subtotaldialog.js';
+import { openDataForm } from '../ui/dataform.js';
+import { openEditLinks, updateAllLinks } from '../ui/editlinks.js';
 import { openFormatCellsDialog } from '../ui/formatcells.js';
 import { openTableDialog } from '../ui/tabledialog.js';
 import { openAiDialog } from '../ui/aidialog.js';
@@ -105,12 +108,16 @@ import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
-import { CELL_STYLES, cellStyle } from '../core/cellstyles.js';
+import { cellStyle } from '../core/cellstyles.js';
+import { definitionFor, stylePatch, customStyleNamed, builtinOverride } from '../core/custom-cell-styles.js';
+import { openCellStylesGallery, openStyleDialog, openMergeStylesDialog, saveCellStyle, deleteCellStyle } from '../ui/cellstyles-ui.js';
+import { autoOutline, clearOutline, applyOutlineStyles } from '../core/auto-outline.js';
+import { openOutlineSettings } from '../ui/outline-settings.js';
 import { renderChartSvg, standaloneSvg, setThemeSeriesColors } from '../ui/chartsvg.js';
 import { openWordArtMenu } from '../ui/wordart.js';
 import { openEquationDialog, runInsertEquation } from '../ui/equation.js';
 import { openThemeEffectsMenu } from '../ui/theme-effects.js';
-import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu, themedCellStyleItems } from '../ui/themes.js';
+import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu } from '../ui/themes.js';
 import { themedPreset, themedCellStylePatch, themedSeriesColors } from '../core/workbook-theme.js';
 import { chartData } from '../core/charts.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
@@ -134,7 +141,7 @@ import { trackEvent } from '../lib/analytics.js';
 import { VIEW_ONLY, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
 import { parseRefText, MAX_ROW, MAX_COL } from '../core/refs.js';
-import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo } from '../core/format.js';
+import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText } from '../core/format.js';
 import { maxLineWidth, cellLayoutText } from '../core/textfit.js';
 import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
@@ -154,6 +161,13 @@ import { pasteOptions, legacyMode, pasteLabel, composePaste, cellsFromText } fro
 import { refill, autoFillChoices, defaultAutoFill, justifyLines } from '../core/autofill-options.js';
 import { openPasteSpecialDialog, openInsertPasteDialog, pasteGallery } from '../ui/pastespecialdialog.js';
 import { createOptionButton } from '../ui/option-button.js';
+import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
+import { openFillAcrossDialog } from '../ui/fillacross.js';
+import { createAutoCorrector, openAutoCorrectDialog, syncAutoCorrectSettings } from '../ui/autocorrect.js';
+import { isFormulaText } from '../core/autocorrect.js';
+import { openSpellingDialog } from '../ui/spelling.js';
+import { createLanguagePane } from '../ui/language-pane.js';
+import { translatePrompt } from '../core/formula/functions.js';
 
 const MAX_FORMAT_CELLS = 20000;
 // Clipboard height can exceed JavaScript's argument limit, even when the
@@ -170,8 +184,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   wb.addEventListener('change', syncChartTheme);
   // AI() formulas ask Puter's AI; without the SDK they show #N/A.
   wb.setAsyncProvider('AI', P.canAI() ? (text) => P.aiChat(text) : null);
-  // TRANSLATE and DETECTLANGUAGE: the same AI, with the reply tidied to just the answer.
-  wb.setAsyncProvider('TRANSLATE', P.canAI() ? async (text) => String(await P.aiChat(text, { feature: 'translate' })).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '') : null);
+  // TRANSLATE and DETECTLANGUAGE: the same AI, with the reply tidied to just the answer. Review ▸ Translate asks the same way.
+  const aiTranslate = async (prompt) => String(await P.aiChat(prompt, { feature: 'translate' })).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '');
+  wb.setAsyncProvider('TRANSLATE', P.canAI() ? aiTranslate : null);
   wb.setAsyncProvider('DETECTLANGUAGE', P.canAI() ? async (text) => { const m = /\b([a-z]{2,3})(?:-[A-Za-z]{2,4})?\b/i.exec(String(await P.aiChat(text, { feature: 'detect-language' })).trim()); return m ? m[1].toLowerCase() : { error: '#N/A' }; } : null);
   // A fetch that failed: too much data, or an address off the public internet (this computer, a
   // private network), is a #VALUE! that says so (the status bar shows the reason); anything else
@@ -288,9 +303,24 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!dialog) toast(v.message || 'That value is not allowed here', { icon: 'alert', duration: 3500 });
   };
 
+  // AutoCorrect: words fixed as they are typed into a cell or the formula bar (Tools ▸ AutoCorrect Options).
+  const autoCorrector = createAutoCorrector({ announce: (text) => statusBar?.announce(text) });
+  ctx.autocorrect = autoCorrector;
+  if (!session.signedOut) syncAutoCorrectSettings().catch(() => {});
+
   const grid = createGrid({
     wb,
     sheetId: wb.activeSheetId,
+    autocorrect: autoCorrector,
+    // The entry is written: its last word, corrected, is a step of its own, so Ctrl/Cmd+Z brings back what was typed.
+    afterCommit: ({ sheetId: sid, r, c, text }) => {
+      if (isFormulaText(text)) return;
+      const fixed = autoCorrector.tail(text);
+      if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
+      if (wb.validateInput(sid, r, c, fixed).ok === false) return;
+      wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
+      statusBar?.announce(`AutoCorrect changed the entry to ${fixed}. ${MOD_KEY}+Z puts back what was typed`);
+    },
     onSelection: notify,
     onEdit: (e) => { if (e.editing) { endCut(); optionButton?.hide(); } else entryPasted = false; notify(); }, // typing into a cell ends a cut
     onCommand: (cmd, arg) => run(cmd, arg),
@@ -1115,7 +1145,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
-      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, hasQueries: !!wb.queries?.length,
+      languagePane: languagePane?.open ? languagePane.mode : null,
+      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, changesPane: !!changesPane?.open, hasQueries: !!wb.queries?.length,
       // Automate: the Code Editor is open, actions are being recorded, a script is running.
       scriptsPane: !!automate?.paneOpen, recording: !!automate?.recording, scriptRunning: !!automate?.running,
       chartSheet: sheet?.kind === 'chart',
@@ -1139,6 +1170,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // active sheet" or "the active cell" have two candidates, and wait until the entry is home again.
       away: !!grid.editing && grid.editState.sheetId !== sheetId,
       canUndo: wb.canUndo(), canRedo: wb.canRedo(), style: styleTarget().style,
+      // Several sheets are grouped: edits reach each of them, and the commands for one sheet's objects wait.
+      grouped: !!wb.sheetGroup,
+      // The workbook's own cell styles, for the Format menu's Cell styles list.
+      customCellStyles: wb.cellStyles.filter((d) => !d.builtin).map((d) => d.name),
       // The active sheet among those on show, for the Sheet commands: the last one showing cannot be hidden or
       // deleted, an end one not moved past the end, and one holding work is asked about before it goes.
       sheet: sheetFlags(sheetId),
@@ -1236,6 +1271,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (ok) doc.allowExternal();
     return ok;
   }
+  /** What Edit Links needs from the editor: this book's path, and reading, picking and opening other files on the drive. */
+  function linkHost() {
+    return {
+      docPath: () => doc.path || null,
+      read: async (path) => workbookFromFile(await P.readFile(path), P.displayName(path)),
+      open: (path) => run('openFile', path),
+      pick: P.canPickFiles() ? () => P.pickFile() : null,
+      // A book from elsewhere reads no other file until allowed, as its IMPORTRANGE formulas wait.
+      allow: async () => {
+        if (wb.externalAllowed !== false) return true;
+        const ok = await confirmDialog({ title: 'Read linked workbooks', message: 'This workbook came from elsewhere, so it has not been allowed to read other files. Allow it to read the workbooks it links to?', confirmLabel: 'Allow', danger: false });
+        if (ok) doc.allowExternal();
+        return ok;
+      },
+    };
+  }
   async function run(cmd, arg) {
     // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
     if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
@@ -1245,6 +1296,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (REPEATABLE.has(cmd) && !(arg instanceof Event) && !(arg instanceof HTMLElement)) lastRepeatable = { cmd, arg };
     const chartSheet = wb.sheet(grid.sheetId)?.kind === 'chart';
     if (chartSheet && !chartSheetCommand(cmd) && !AUTOMATE_COMMANDS.has(cmd)) return;
+    // A command for one sheet's objects (a table, a chart, a rule, a sort) has no meaning across a group of sheets.
+    if (wb.sheetGroup && GROUP_BLOCKED_COMMANDS.has(cmd)) {
+      toast(GROUP_BLOCKED_REASON, { icon: 'layers', duration: 4000 });
+      statusBar?.announce(GROUP_BLOCKED_REASON);
+      return;
+    }
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
@@ -1566,23 +1623,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'cellStylesMenu': {
-        const anchor = arg instanceof HTMLElement ? arg : null;
-        // The samples are custom items, which the menu does not close on its own as it does its plain items: a picked style closes it here.
-        const menu = openMenu({
-          anchor, x: anchor ? null : (arg?.x ?? null), y: anchor ? null : (arg?.y ?? null), label: 'Cell styles', minWidth: 200,
-          items: CELL_STYLES.map((s) => ({
-            custom: el('button.menu-item.cell-style-item', { type: 'button', role: 'menuitem', tabindex: -1, onclick: () => { menu.close(); run('cellStyle', s.key); } },
-              // A preset that names no ink or fill of its own shows the sheet's, the paper's in every theme,
-              // as the cell it makes will; the menu's dark tokens made some samples unreadable in dark mode.
-              el('span.cell-style-sample.sheet-paper', { style: { color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', border: '1px solid var(--hairline)', fontWeight: s.patch.bold ? '700' : '400', fontSize: s.patch.size ? `${Math.min(s.patch.size, 16)}px` : '13px', borderBottom: (s.borders || []).some((b) => b.kind === 'bottom') ? `2px solid ${s.borders.find((b) => b.kind === 'bottom').color}` : 'none' } }, s.label)),
-          })).concat(themedCellStyleItems(wb, (key) => { menu.close(); run('cellStyle', key); })),
-          onClose: () => keepFocus(),
-        });
+      case 'cellStylesMenu':
+        // The gallery: built-in, custom and themed styles, with New Cell Style… and Merge Styles… (ui/cellstyles-ui.js).
+        openCellStylesGallery(ctx, arg);
         return;
-      }
       case 'cellStyle': {
-        const preset = themedPreset(cellStyle(arg), wb) || themedCellStylePatch(arg, wb);
+        // A custom style, or a built-in this workbook modified, applies its own definition's parts; a built-in as
+        // it comes applies its preset. Either way the cells keep the style's name, to follow it when it changes.
+        const own = definitionFor(wb, arg);
+        const builtIn = own ? null : themedPreset(cellStyle(arg), wb) || themedCellStylePatch(arg, wb);
+        const preset = own ? { label: own.name, ...stylePatch(own) } : builtIn && { ...builtIn, patch: { ...builtIn.patch, cellStyle: arg === 'normal' ? null : builtIn.label } };
         if (!preset) return;
         const borders = (preset.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' }));
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), preset.patch, borders,
@@ -2056,12 +2106,100 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
+      // Data ▸ Form: a record at a time over the list at the selection (see ui/dataform.js, core/data-form.js).
+      case 'dataForm': {
+        if (!committed()) return;
+        openDataForm(ctx);
+        return;
+      }
+      // Data ▸ Queries & Connections ▸ Edit Links: the book's links to other workbooks (see ui/editlinks.js, core/edit-links.js).
+      case 'editLinks': {
+        if (!committed()) return;
+        openEditLinks(ctx, linkHost());
+        return;
+      }
       case 'subtotal': {
         if (!committed()) return;
         if (!oneRange('add subtotals')) return;
         const range = dataRange();
         if (!range) { toast('Nothing to subtotal', { icon: 'info' }); return; }
         openSubtotalDialog(ctx, range);
+        return;
+      }
+      /* ---------- Cell styles management and outline tools ---------- */
+      case 'newCellStyle': if (!committed()) return; openStyleDialog(ctx, { mode: 'new' }); return;
+      case 'modifyCellStyle': case 'duplicateCellStyle': {
+        if (!committed()) return;
+        // From the menus a style comes by its name or preset key; from the gallery as { builtin } or { custom }.
+        const ref = typeof arg === 'string' ? (cellStyle(arg) ? { builtin: arg } : { custom: arg }) : arg;
+        openStyleDialog(ctx, { mode: cmd === 'modifyCellStyle' ? 'modify' : 'duplicate', ref });
+        return;
+      }
+      case 'saveCellStyle': {
+        if (!arg?.def) return;
+        const n = saveCellStyle(wb, arg);
+        toast(arg.oldName ? `Style ${arg.def.name} saved${n ? `; ${n} cell${n === 1 ? '' : 's'} updated` : ''}` : `Style ${arg.def.name} added to Cell Styles`, { icon: 'paint', duration: 2600 });
+        keepFocus();
+        return;
+      }
+      case 'deleteCellStyle': {
+        if (!committed()) return;
+        const ref = typeof arg === 'string' ? (cellStyle(arg) ? { builtin: arg } : { custom: arg }) : arg;
+        if (ref?.builtin) {
+          if (!builtinOverride(wb, ref.builtin)) { toast('Built-in styles stay in the gallery. Modify one to change it for this spreadsheet', { icon: 'info', duration: 3200 }); return; }
+          deleteCellStyle(wb, ref);
+          toast(`${cellStyle(ref.builtin).label} is as built in again`, { icon: 'check' });
+          keepFocus();
+          return;
+        }
+        if (!customStyleNamed(wb, ref?.custom)) return;
+        const ok = await confirmDialog({ title: `Delete style "${ref.custom}"?`, message: 'Cells formatted with it keep their formatting. You can undo this.', confirmLabel: 'Delete style' });
+        if (ok) deleteCellStyle(wb, ref);
+        keepFocus();
+        return;
+      }
+      case 'mergeCellStyles':
+        if (!committed()) return;
+        openMergeStylesDialog(ctx, {
+          listFiles: () => P.listFiles(), pickFile: P.canPickFiles() ? () => P.pickFile({ accept: ['.xlsx', '.xlsm', '.ods'] }) : null,
+          readFile: (path) => P.readFile(path), open: (bytes, name) => workbookFromFile(bytes, name), currentPath: doc.path,
+        });
+        return;
+      case 'autoOutline': {
+        if (!committed()) return;
+        if (refusedByProtection('outline rows and columns')) return;
+        // A single cell outlines the whole sheet; a selected block only what lies in it.
+        const rg = grid.range;
+        const n = autoOutline(wb, sheetId, rg.r1 === rg.r2 && rg.c1 === rg.c2 ? null : rg);
+        toast(n ? `Outline built: ${n} group${n === 1 ? '' : 's'} from the summary formulas` : 'No summary formulas (such as SUM or SUBTOTAL next to the cells they total) to build an outline from', { icon: n ? 'check' : 'info', duration: 3600 });
+        keepFocus();
+        return;
+      }
+      case 'clearOutline': {
+        if (!committed()) return;
+        if (refusedByProtection('clear the outline')) return;
+        const rg = grid.range;
+        const sheet = wb.sheet(sheetId);
+        const whole = (rg.r1 === rg.r2 && rg.c1 === rg.c2) || (rg.r1 === 0 && rg.c1 === 0 && rg.r2 >= sheet.rows - 1 && rg.c2 >= sheet.cols - 1);
+        toast(clearOutline(wb, sheetId, whole ? null : rg) ? 'Outline cleared' : 'No outline here to clear', { icon: 'info' });
+        keepFocus();
+        return;
+      }
+      case 'outlineSettings': {
+        if (!committed()) return;
+        if (!arg?.settings) { openOutlineSettings(ctx); return; }
+        // From the dialog: keep its settings, then Create or Apply Styles with them, as one step.
+        let made = 0;
+        let styled = true;
+        wb.transaction(arg.then === 'create' ? 'Auto Outline' : arg.then === 'styles' ? 'Apply outline styles' : 'Outline settings', () => {
+          wb.setOutlineSettings(sheetId, arg.settings);
+          if (arg.then === 'create') made = autoOutline(wb, sheetId);
+          if (arg.then === 'styles') styled = applyOutlineStyles(wb, sheetId);
+        });
+        if (arg.then === 'create') toast(made ? `Outline built: ${made} group${made === 1 ? '' : 's'}` : 'No summary formulas to build an outline from', { icon: made ? 'check' : 'info', duration: 3200 });
+        if (arg.then === 'styles' && !styled) toast('There is no outline to style yet', { icon: 'info' });
+        grid.refresh();
+        keepFocus();
         return;
       }
       case 'textCase': {
@@ -2199,6 +2337,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openDedupeDialog(ctx, range);
         return;
       }
+      /* ---------- Show Changes (Review ▸ Show Changes, the cell menu) ---------- */
+      // With 'selection' (the cell menu) the pane opens on the changes to the selected cells; alone it opens or closes.
+      case 'showChanges':
+        if (arg === 'selection') changesPane.show({ selection: true });
+        else changesPane.toggle();
+        notify();
+        return;
       case 'resizeCols': case 'resizeRows': {
         if (!committed()) return;
         const isCol = cmd === 'resizeCols';
@@ -2517,14 +2662,43 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'placeSheet':
         if (!committed() || !arg?.id) return false;
         return !!placeSheet(wb, arg.id, arg);
-      case 'showSheet': case 'hideSheet':
+      case 'showSheet': case 'hideSheet': {
         if (!committed()) return;
+        // Hiding a grouped sheet hides the whole group, as long as a sheet outside it stays on show.
+        const group = cmd === 'hideSheet' && wb.sheetGroup;
+        if (group && (!arg || group.includes(arg))) {
+          if (group.length >= wb.visibleSheets.length) { toast('At least one sheet must stay visible. Ungroup the sheets first', { icon: 'eyeOff', duration: 3500 }); return; }
+          wb.transaction('Hide sheets', () => { for (const id of group) wb.setSheetHidden(id, true); });
+          return;
+        }
         wb.setSheetHidden(arg || sheetId, cmd === 'hideSheet');
+        return;
+      }
+      case 'selectAllSheets':
+        if (!committed()) return;
+        wb.groupSheets(wb.visibleSheets.filter((s) => s.kind !== 'chart' || s.id === wb.activeSheetId).map((s) => s.id));
+        return;
+      case 'ungroupSheets':
+        wb.ungroupSheets();
+        keepFocus();
+        return;
+      case 'fillAcrossSheets':
+        if (!committed() || !wb.sheetGroup) return;
+        openFillAcrossDialog(ctx);
         return;
       case 'deleteSheet': {
         // From the tab menu, the Insert menu or the palette alike: the last sheet showing stays, and one
         // holding work is asked about first, through the tab strip's own question.
         if (!committed()) return;
+        const group = wb.sheetGroup;
+        if (group && (!arg || group.includes(arg))) {
+          // A grouped sheet goes with the rest of its group, in one step that one undo brings back.
+          if (group.length >= wb.visibleSheets.length) { toast('A spreadsheet needs at least one sheet. Ungroup the sheets first', { icon: 'trash', duration: 3500 }); return; }
+          const ok = await confirmDialog({ title: `Delete ${group.length} sheets?`, message: `${group.map((id) => wb.sheet(id)?.name).join(', ')} and everything on them will be removed. You can undo this.`, confirmLabel: 'Delete sheets' });
+          if (!ok || destroyed) return;
+          wb.transaction('Delete sheets', () => { for (const id of group) wb.deleteSheet(id); });
+          return;
+        }
         const sheet = wb.sheet(arg || sheetId);
         if (!sheet || wb.visibleSheets.length <= 1) return;
         if (sheetHoldsWork(sheet) && !await sheetTabs.confirmDelete(sheet)) return;
@@ -2645,6 +2819,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'toggleHeaders':
         grid.setShowHeaders(!grid.showHeaders);
         keepFocus();
+        return;
+      case 'spelling':
+        if (!committed()) return;
+        await openSpellingDialog(ctx);
+        return;
+      case 'thesaurus': case 'translatePane': {
+        const tool = cmd === 'thesaurus' ? 'thesaurus' : 'translate';
+        if (!languagePane) return;
+        if (languagePane.open && languagePane.mode === tool) { languagePane.hide(); return; }
+        languagePane.show(tool, { fromCell: true });
+        return;
+      }
+      case 'autoCorrectOptions':
+        if (!committed()) return;
+        openAutoCorrectDialog({ onClose: () => keepFocus() });
         return;
       case 'toggleSpellcheck':
         view.spell = view.spell === false;
@@ -5010,6 +5199,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const titleTip = () => `Rename "${doc.name}"`;
   // A name in a right-to-left script is laid out that way, its number at its own end, as a cell is.
   const titleBtn = el('button.doc-title', { type: 'button', dir: 'auto', title: titleTip(), onclick: () => run('rename') }, doc.name);
+  // Beside the name while several sheets are grouped: what is typed lands on all of them.
+  const groupBadge = el('span.doc-group-badge', { hidden: true, title: 'Several sheets are grouped: edits apply to each of them. Click a sheet outside the group, or right-click a tab, to ungroup.' }, '[Group]');
   // A plain status while signed in; without a session it is the button that starts the sign-in and the save.
   const status = el('button.save-status', { type: 'button', 'aria-live': 'polite', disabled: true, onclick: () => { if (session.signedOut) run('save'); } });
   const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': 'Search the menus', title: `Search the menus (${MOD_KEY}+Shift+P)`, onclick: () => run('palette') });
@@ -5041,7 +5232,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     el('span.brand-mark.desktop-only', { html: icon('brand', 16, 2.2), 'aria-hidden': 'true' }),
     quickAccess,
     el('div.topbar-menus', {}, menubar.el),
-    el('div.topbar-title-wrap', {}, titleBtn, status),
+    el('div.topbar-title-wrap', {}, titleBtn, groupBadge, status),
     el('div.topbar-actions', {}, searchBtn,
       // The Comments button beside Share: the sheet's comment threads in the Comments pane.
       el('button.icon-btn.desktop-only.topbar-comments', { type: 'button', html: icon('chat', 20), 'aria-label': 'Comments', title: 'Comments', onclick: () => run('toggleComments') }),
@@ -5097,16 +5288,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function refreshTitle() {
     titleBtn.textContent = doc.name;
     titleBtn.title = titleTip();
-    document.title = `${doc.name} · Spreadsheet`;
-    P.setWindowTitle(doc.name);
+    groupBadge.hidden = !wb.sheetGroup;
+    const group = wb.sheetGroup ? ' [Group]' : '';
+    document.title = `${doc.name}${group} · Spreadsheet`;
+    P.setWindowTitle(`${doc.name}${group}`);
     refreshStatus();
   }
 
   /* ---------- Assemble ---------- */
 
   let aiPanel = null;
+  let languagePane = null; // Review ▸ Thesaurus and Translate, made below
   let queriesPane = null; // Data ▸ Queries & Connections, made below
   let automate = null; // Automate: scripts, the Code Editor and Record Actions, made below
+  let changesPane = null; // Review ▸ Show Changes, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;
   const formulaBar = createFormulaBar(ctx, { fixedActions: true });
@@ -5114,12 +5309,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const statusBar = createStatusBar(ctx);
   const watchWindow = createWatchWindow({ ...ctx, run, docName: () => doc.name, goTo: (sid, r, c) => selectLocation(sid, { r1: r, c1: c, r2: r, c2: c }) });
   // Review ▸ Check Accessibility: a finding goes to its cells, or selects its object.
+  // Review ▸ Thesaurus and Translate, answered by Puter's AI.
+  languagePane = createLanguagePane({ ...ctx, run,
+    ai: P.canAI() ? (prompt) => P.aiChat(prompt, { feature: 'thesaurus' }) : null,
+    translate: P.canAI() ? (text, from, to) => aiTranslate(translatePrompt(text, from || '', to || 'English')) : null });
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
     if (obj) { selectLocation(item.sheetId, { r1: obj.anchor.r, c1: obj.anchor.c, r2: obj.anchor.r, c2: obj.anchor.c }); grid.selectChart(obj.id); return; }
     if (wb.sheet(item.sheetId) && !wb.sheet(item.sheetId).hidden) wb.setActiveSheet(item.sheetId);
   } });
+  // Review ▸ Show Changes: the recent edits, each with who made it; the signed-in user is the author of the edits made here.
+  changesPane = createChangesPane({ ...ctx, run, reveal: (sid, range) => selectLocation(sid, range), currentUser: () => session.user?.username || null });
+  const syncChangeAuthor = () => { wb.changeAuthor = session.user?.username || null; };
+  syncChangeAuthor();
   // Data ▸ Queries & Connections: the queries of the workbook, beside the sheet.
   ctx.autofitColumns = (sid, c1, c2) => autofitColumns(c1, c2, sid);
   queriesPane = createQueriesPane({ ...ctx, run, edit: (id) => editQuery(ctx, { queryId: id }), allowQuerySources });
@@ -5212,6 +5415,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         statusBar.el,
         watchWindow.el,
         accessibilityPane.el,
+        languagePane.el,
+        changesPane.el,
         errorTag.el,
         quickAnalysis.el,
         queriesPane.el),
@@ -5302,6 +5507,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   let lastProtectedKey = null;
   let trackedEdit = false;
   const onWbChange = (e) => {
+    if (e.detail?.type === 'sheet-group') { refreshTitle(); notify(); return; }
     abandoned = false;
     // One activation per editor session, including typing, pasting and AI-made data changes.
     if (!trackedEdit && e.detail?.type === 'cells' && wb.dirty) {
@@ -5414,6 +5620,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   doc.addEventListener('draft', refreshStatus); // whether this browser holds a copy of the edits changed
   doc.addEventListener('path', refreshTitle);
   const onSession = () => {
+    syncChangeAuthor();
     renderAccountButton(avatar);
     refreshStatus();
     // Edits made before signing in now have a place to go.
@@ -5601,6 +5808,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
   if (!session.signedOut) checkViewOnly();
 
+  // A saved book with links to other workbooks: its Startup Prompt says whether opening it updates them, offers to, or leaves them.
+  if (doc.path && wb.externalWorkbooks?.books?.some((b) => !b.kind) && wb.linkStartup !== 'none') {
+    setTimeout(() => {
+      if (destroyed) return;
+      const host = linkHost();
+      if (wb.linkStartup === 'update' && wb.externalAllowed !== false) { updateAllLinks(ctx, host); return; }
+      toast('This workbook reads values from other workbooks', { icon: 'link', duration: 9000,
+        action: { label: 'Update links', onClick: async () => { if (await host.allow()) updateAllLinks(ctx, host); } } });
+    }, 0);
+  }
+
   return {
     el: root,
     doc,
@@ -5610,6 +5828,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     dragOver,
     /** Select a "Sheet!A1:B2" range (from an address with ?range=), switching sheets if needed. */
     goTo(range) { return followInternalLink(`#${range}`); },
+    /** Run an editor command, as the menus and the palette do (tests and automation). */
+    run,
     destroy() {
       destroyed = true;
       palette?.close();
@@ -5656,6 +5876,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       statusBar.destroy();
       watchWindow.destroy();
       accessibilityPane.destroy();
+      languagePane.destroy();
+      changesPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();

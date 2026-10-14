@@ -17,6 +17,7 @@ import { queryForTable } from '../core/queries.js';
 import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { activeChart } from './chart-actions.js';
+import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -49,7 +50,12 @@ const a = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: ex
 const dyn = (label, glyph, build, extra = {}) => ({ label, glyph, ...extra, resolve: (menus, ctx) => lazySubmenu({ label }, () => build(menus, ctx)) });
 /** A command that is not in the menus: available unless a cell is being edited. */
 const direct = (label, glyph, cmd, arg, extra = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
-  resolve: (menus, ctx) => ({ label, cmd, arg, disabled: !!ctx?.flags?.()?.editing, checked: extra.isChecked?.(ctx) }) });
+  resolve: (menus, ctx) => {
+    const f = ctx?.flags?.() || {};
+    // Grouped sheets: a command for one sheet's objects waits, as the menus' does.
+    const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+    return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: extra.isChecked?.(ctx) };
+  } });
 const large = descriptor => ({ ...descriptor, large: true });
 /** A threaded-comment command (see ui/comments.js): greyed while a cell is edited, or without the thread `needs` names. */
 const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ...extra } = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
@@ -284,7 +290,7 @@ const groupsFor = name => ({
     ['Get & Transform Data', large(getDataMenu), direct('From Text/CSV', 'fromText', 'getDataText', null), direct('From Web', 'fromWeb', 'getDataWeb', null),
       direct('From Table/Range', 'fromTable', 'getDataTable', null)],
     ['Queries & Connections', large(split(direct('Refresh All', 'refresh', 'refreshAll', null), refreshMenu)),
-      direct('Queries & Connections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane })],
+      direct('Queries & Connections', 'queriesPane', 'queriesPane', null, { isChecked: ctx => !!ctx.flags?.()?.queriesPane }), c('Edit Links', 'editLinks', 'editLinks')],
     ['Sort & Filter', c('Sort A to Z', 'sortAsc', 'sort', 'asc'), c('Sort Z to A', 'sortDesc', 'sort', 'desc'), large(c('Sort', 'sortCustom', 'sortDialog')), large(c('Filter', 'filter', 'filter')),
       direct('Clear', 'filterClear', 'clearFilters', null, { ariaLabel: 'Clear filter' }), direct('Reapply', 'filterReapply', 'reapplyFilters', null), direct('Advanced', 'filterAdvanced', 'advancedFilter', null, { ariaLabel: 'Advanced filter' })],
     ['Data Tools', c('Text to Columns', 'textToColumns', 'splitText'), direct('Flash Fill', 'flashFill', 'flashFill', null, { shortcut: `${MOD_KEY}+E` }), c('Remove Duplicates', 'dedupe', 'dedupe'),
@@ -292,21 +298,25 @@ const groupsFor = name => ({
         { label: 'Data Validation…', icon: 'validation', cmd: 'validation' },
         { label: 'Circle Invalid Data', icon: 'validation', cmd: 'circleInvalid' },
         { label: 'Clear Validation Circles', cmd: 'clearCircles' },
-      ]), direct('Consolidate', 'consolidate', 'consolidate', null), m('Data Cleanup', 'clearFormat', 'data', 'Data cleanup')],
+      ]), direct('Consolidate', 'consolidate', 'consolidate', null), c('Form', 'dataForm', 'dataForm'), m('Data Cleanup', 'clearFormat', 'data', 'Data cleanup')],
     ['Forecast', large(dyn('What-If Analysis', 'whatIf', menus => [command('goalSeek')(menus) && { ...command('goalSeek')(menus), label: 'Goal Seek…' },
       command('scenarioManager')(menus) && { ...command('scenarioManager')(menus), label: 'Scenario Manager…' }, command('dataTable')(menus) && { ...command('dataTable')(menus), label: 'Data Table…' }].filter(Boolean))),
       c('Goal Seek', 'goalSeek', 'goalSeek'), large(direct('Forecast Sheet', 'forecast', 'forecastSheet', null)), c('Column Stats', 'columnStats', 'columnStats')],
     ['Analyze', large(c('Data Analysis', 'dataAnalysis', 'dataAnalysis')), large(c('Solver', 'solver', 'solver'))],
     ['Outline', m('Group', 'group', 'view', 'Group'), a('Ungroup Rows', 'ungroup', 'ungroup', 'row', { ariaLabel: 'Ungroup Rows' }), c('Subtotal', 'subtotal', 'subtotal'),
-      direct('Show Detail', 'showDetail', 'showDetail', null), direct('Hide Detail', 'hideDetail', 'hideDetail', null)],
+      direct('Show Detail', 'showDetail', 'showDetail', null), direct('Hide Detail', 'hideDetail', 'hideDetail', null),
+      c('Auto Outline', 'autoOutline', 'autoOutline'), c('Clear Outline', 'clearOutline', 'clearOutline'), c('Outline Settings', 'outlineSettings', 'outlineSettings')],
   ],
   Review: [
-    ['Proofing', c('Spelling as You Type', 'spell', 'toggleSpellcheck'), a('Workbook Statistics', 'stats', 'docInfo', null, { ariaLabel: 'Workbook Statistics' })],
+    ['Proofing', large(c('Spelling', 'spellCheck', 'spelling')), c('Thesaurus', 'thesaurus', 'thesaurus'), c('Spelling as You Type', 'spell', 'toggleSpellcheck'),
+      c('AutoCorrect Options', 'autoCorrect', 'autoCorrectOptions'), a('Workbook Statistics', 'stats', 'docInfo', null, { ariaLabel: 'Workbook Statistics' })],
+    ['Language', large(c('Translate', 'translate', 'translatePane'))],
     ['Accessibility', large(direct('Check Accessibility', 'accessibility', 'accessibility', null))],
     ['Comments', large(threadCmd('New Comment', 'comment', 'newComment', { shortcut: NEW_COMMENT_KEY })), threadCmd('Delete', 'deleteComment', 'deleteComment', { ariaLabel: 'Delete Comment', needs: 'hasComments' }),
       threadCmd('Previous Comment', 'prevComment', 'prevComment', { needs: 'hasComments' }), threadCmd('Next Comment', 'nextComment', 'nextComment', { needs: 'hasComments' }),
       large(threadCmd('Show Comments', 'showComments', 'toggleComments', { toggle: true }))],
     ['Notes', large(c('Note', 'note', 'note')), c('Delete Note', 'deleteNote', 'deleteNote'), a('Notes on This Sheet', 'notes', 'selectSpecial', 'notes', { ariaLabel: 'Select notes on this sheet' })],
+    ['Changes', large(direct('Show Changes', 'showChanges', 'showChanges', null, { isChecked: ctx => !!ctx.flags?.()?.changesPane }))],
     ['Protection', large(c('Protect Sheet', 'protectSheet', 'protectSheet')), direct('Protect Workbook', 'protectBook', 'protectWorkbook', null, { isChecked: ctx => !!ctx.wb.structureProtected }), c('Protected Ranges', 'protectRanges', 'protectRanges')],
     ['Collaboration', c('Share', 'share', 'share'), c('Version History', 'versions', 'versions')],
   ],
@@ -624,7 +634,8 @@ export function createRibbon(ctx) {
         button.setAttribute('aria-label', label);
       }
       button.disabled = descriptor.unsupported || !item || !!item.disabled || (button.closest('[data-table-panel]') && (!!flags.editing || !!flags.sheet?.protected));
-      button.title = descriptor.unsupported ? descriptor.reason || `${descriptor.label}: not supported yet` : !item ? `${descriptor.label}: unavailable in this session` : `${descriptor.label}${item.shortcut ? ` (${item.shortcut})` : ''}`;
+      button.title = descriptor.unsupported ? descriptor.reason || `${descriptor.label}: not supported yet` : !item ? `${descriptor.label}: unavailable in this session`
+        : item.disabled && item.hint ? `${descriptor.label}: ${item.hint}` : `${descriptor.label}${item.shortcut ? ` (${item.shortcut})` : ''}`;
       button.setAttribute('aria-keyshortcuts', ariaKeyShortcuts(item?.shortcut) || '');
       if ((item && 'submenu' in item) || MENU_COMMANDS.has(item?.cmd)) button.setAttribute('aria-haspopup', 'menu'); else button.removeAttribute('aria-haspopup');
       if ((item?.checked ?? descriptor.checked) !== undefined) button.setAttribute('aria-pressed', String(!!(item?.checked ?? descriptor.checked))); else button.removeAttribute('aria-pressed');

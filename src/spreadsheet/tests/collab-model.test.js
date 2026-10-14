@@ -10,7 +10,7 @@ class Room {
   commit(base, changes, user) {
     for (const ch of changes) validateChange(ch);
     if (base !== this.log.length) return { ok: false, records: this.since(base) };
-    this.log.push({ rev: base + 1, user, changes: JSON.parse(JSON.stringify(changes)) });
+    this.log.push({ rev: base + 1, user, username: user, changes: JSON.parse(JSON.stringify(changes)) });
     return { ok: true, records: this.since(base) };
   }
   join(name, options) { return new Client(this, name, options); }
@@ -586,4 +586,24 @@ describe('shared workbook model', () => {
       converged(room, ...people);
     });
   }
+});
+
+describe('Show Changes in a shared workbook', () => {
+  it('records someone else\'s edit under their name, and a rebase adds no entries of its own', () => {
+    const room = new Room();
+    const ana = room.join('ana'), ben = room.join('ben');
+    ana.wb.changeAuthor = 'ana';
+    ben.wb.changeAuthor = 'ben';
+    ana.set('A1', '1');
+    ben.set('B1', '2');
+    ana.push();
+    ben.push(); // refused at first: Ben's edit is taken back, Ana's applied, his put on again
+    ana.pull();
+    for (const c of [ana, ben]) {
+      const history = c.wb.changeHistory.filter((e) => e.kind !== 'structure');
+      expect(history.map((e) => e.kind)).toEqual(['cells', 'cells']);
+      expect(history.map((e) => e.author).sort()).toEqual(['ana', 'ben']);
+    }
+    expect(ben.wb.changeHistory.find((e) => e.author === 'ana').sheet).toBe('Sheet1');
+  });
 });
