@@ -1651,7 +1651,16 @@ export function createFeatures(api) {
     // Granular restore choices for one version, loaded on demand.
     // `onDevice` versions are this device's own; the audit log records a
     // restoration from them without a shared version's time.
-    async function options(button, load, at, onDevice = false, key = null) {
+    // `removed`, for a shared version, reads the objects that were added and
+    // deleted again within it, which no listed version holds.
+    async function options(
+      button,
+      load,
+      at,
+      onDevice = false,
+      key = null,
+      removed = null,
+    ) {
       if (!onBoard() || restoreState.pending || button.disabled) return;
       const row = button.closest(".revision-row");
       if (key && picked !== key) pick(key);
@@ -1662,9 +1671,12 @@ export function createFeatures(api) {
         return;
       }
       const done = busy(button);
-      let version;
+      let version, passing;
       try {
-        version = await load();
+        [version, passing] = await Promise.all([
+          load(),
+          removed ? removed().catch(() => null) : null,
+        ]);
       } catch (error) {
         api.toast(error.message || "Could not load this version.");
         return;
@@ -1674,16 +1686,37 @@ export function createFeatures(api) {
       }
       if (!row.isConnected || !d.isConnected || !onBoard()) return;
       const current = api.board();
+      // Objects deleted within the version can be recovered with those
+      // deleted since, behind what the version holds.
+      const held = new Set(version.items.map((i) => i.id)),
+        brief = (Array.isArray(passing?.items) ? passing.items : []).filter(
+          (i) => i && !held.has(i.id),
+        ),
+        known = new Set((version.tags || []).map((tag) => tag.id)),
+        everything = brief.length
+          ? {
+              ...version,
+              items: [...version.items, ...brief],
+              tags: [
+                ...(version.tags || []),
+                ...(passing.tags || []).filter((tag) => !known.has(tag?.id)),
+              ],
+            }
+          : version;
       // What the workshop hides from this person, then or now, is not
       // named or counted here.
       const hidden = api.concealedIn
-        ? new Set([...api.concealedIn(version), ...api.concealedIn(current)])
+        ? new Set([...api.concealedIn(everything), ...api.concealedIn(current)])
         : new Set();
       const shown = version.items.filter((i) => !hidden.has(i.id));
       const frames = shown.filter((i) => i.type === "frame");
       // Nothing hidden from this person is restored or recovered either.
-      const visible = { ...version, items: shown };
-      const missing = deletedSince(current, visible);
+      const visible = { ...version, items: shown },
+        recovering = {
+          ...everything,
+          items: everything.items.filter((i) => !hidden.has(i.id)),
+        };
+      const missing = deletedSince(current, recovering);
       // Deleted objects can be recovered one by one, as in Miro; a line
       // attached to them comes back with what it joins.
       const recoverable = missing.filter(
@@ -1777,10 +1810,11 @@ export function createFeatures(api) {
             const covered = api.concealedIn
               ? new Set([...hidden, ...api.concealedIn(api.board())])
               : hidden;
-            const source = {
-              ...visible,
-              items: visible.items.filter((i) => !covered.has(i.id)),
-            };
+            const from = part === "deleted" ? recovering : visible,
+              source = {
+                ...from,
+                items: from.items.filter((i) => !covered.has(i.id)),
+              };
             // The workshop may have hidden the frame since these options
             // opened.
             if (part === "frame" && !source.items.some((i) => i.id === frameId))
@@ -1959,15 +1993,17 @@ export function createFeatures(api) {
       }
     }
     // Shared versions arrive a page at a time, newest first.
-    let sharedRows = [];
+    let sharedRows = [],
+      sharedCreated = 0;
     const renderShared = async (older = false) => {
       if (!onBoard()) return;
       const list = d.querySelector("#shared-revisions"),
         focusedBeforeLoad = document.activeElement;
       try {
-        const { versions, more } = await shared.list(
+        const { versions, more, created } = await shared.list(
           older ? sharedRows.at(-1)?.at : undefined,
         );
+        if (Number.isSafeInteger(created)) sharedCreated = created;
         if (!d.isConnected || !onBoard()) return;
         // Only well-formed versions are shown; the list comes from the
         // board's worker and becomes markup.
@@ -2022,6 +2058,9 @@ export function createFeatures(api) {
         });
         list.querySelectorAll("[data-shared-options]").forEach((btn) => {
           const at = Number(btn.dataset.sharedOptions);
+          // A version's edits began after the one before it in the list.
+          const n = sharedRows.findIndex((v) => v.at === at),
+            after = sharedRows[n + 1]?.at ?? sharedCreated;
           btn.onclick = () =>
             options(
               btn,
@@ -2029,6 +2068,9 @@ export function createFeatures(api) {
               at,
               false,
               `s:${at}`,
+              shared.removed && !sharedRows[n]?.original
+                ? () => cachedLoad(`r:${at}`, () => shared.removed(at, after))
+                : null,
             );
         });
         list.querySelectorAll("[data-pick]").forEach((btn) => {

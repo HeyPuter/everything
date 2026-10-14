@@ -48,6 +48,8 @@ function fixture(locale, shared = false) {
     loads = 0,
     checkpointHandler = async () => {},
     loadHandler = async () => clone(version),
+    removedHandler = async () => null,
+    removedCalls = [],
     localRows = [
       {
         id: "saved",
@@ -105,6 +107,10 @@ function fixture(locale, shared = false) {
                 return loadHandler();
               },
               note: (details) => audit.push(details),
+              removed: (at, after) => {
+                removedCalls.push([at, after]);
+                return removedHandler();
+              },
             }
           : undefined,
       restore: (b) => {
@@ -136,6 +142,8 @@ function fixture(locale, shared = false) {
     navigate: (b) => (current = b),
     checkpoint: (fn) => (checkpointHandler = fn),
     load: (fn) => (loadHandler = fn),
+    removed: (fn) => (removedHandler = fn),
+    removedCalls: () => removedCalls,
     revisions: (rows) => (localRows = rows),
     list: (fn) => (sharedListHandler = fn),
     dialog: () => document.querySelector("dialog"),
@@ -789,6 +797,30 @@ for (const locale of ["en", "fr"])
         a.close();
       }
     });
+
+test("objects added and deleted again within a shared version can be recovered", async () => {
+  const a = fixture("en", true);
+  try {
+    a.removed(async () => ({
+      items: [item("note", 1200, 0, { id: "brief", text: "Brief note" })],
+      tags: [],
+    }));
+    await a.features.actions.history();
+    await a.row().querySelector("[data-shared-options]").onclick();
+    // The oldest listed version's edits began when the board did.
+    assert.deepEqual(a.removedCalls(), [[1, 0]]);
+    const recover = a.dialog().querySelector('[data-part="deleted"]');
+    assert.match(recover.textContent, /\(2\)/);
+    assert.ok(
+      a.dialog().querySelector('.deleted-choices input[value="brief"]'),
+    );
+    await recover.onclick();
+    assert.ok(a.original.items.some((i) => i.id === "brief"));
+    assert.ok(a.original.items.some((i) => i.id === "gone"));
+  } finally {
+    a.close();
+  }
+});
 
 test("a shared restoration reports how many objects it changed", async () => {
   const a = fixture("en", true);
