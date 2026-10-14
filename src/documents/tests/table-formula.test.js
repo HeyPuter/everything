@@ -60,6 +60,17 @@ it('evaluates directions, ranges and functions against the table', () => {
   expect(evaluateFormula(doc, '=SUM(LEFT)', cellAt(doc, 1, 2).id)).toBe('10');
   expect(evaluateFormula(doc, '=IF(B2>B3, 1, 0)+ROUND(2.345,2)', other)).toBe('3.35');
   expect(() => evaluateFormula(doc, '=1/0', other)).toThrow('Zero Divide');
+  expect(evaluateFormula(doc, '=R2C2+R3C2', other)).toBe('15');
+  expect(evaluateFormula(doc, '=SUM(R2C2:R3C2)', other)).toBe('15');
+});
+
+it('reads numbers from bookmarks', () => {
+  const { doc } = sheet();
+  doc.select(doc.text.length); doc.insertParagraph(); doc.replace('Rate 12.5');
+  const at = doc.text.lastIndexOf('12.5');
+  doc.select(at, at + 4); doc.addBookmark('Rate');
+  expect(evaluateFormula(doc, '=Rate*2', null)).toBe('25');
+  expect(() => evaluateFormula(doc, '=Missing+1', null)).toThrow('Undefined Bookmark');
 });
 
 it('inserts an = field with its result, updates it with Update Fields and round-trips', async () => {

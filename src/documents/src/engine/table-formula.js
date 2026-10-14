@@ -7,6 +7,7 @@ import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { paragraphText, locate } from './model.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { newBodyField } from './toc.js';
+import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 
 export const FORMULA_FUNCTIONS = Object.freeze(['ABS', 'AND', 'AVERAGE', 'COUNT', 'DEFINED', 'FALSE', 'IF', 'INT', 'MAX', 'MIN', 'MOD', 'NOT', 'OR', 'PRODUCT', 'ROUND', 'SIGN', 'SUM', 'TRUE']);
@@ -27,7 +28,7 @@ export function cellNumber(text) {
 /* ---- Parsing ---- */
 
 function tokenize(source) {
-  const tokens = [], pattern = /\s*(?:(\d+(?:\.\d*)?|\.\d+)|([A-Za-z]+\d+(?::[A-Za-z]+\d+)?)|([A-Za-z]+)|(<=|>=|<>|[-+*/^%(),;=<>:]))/y;
+  const tokens = [], pattern = /\s*(?:(\d+(?:\.\d*)?|\.\d+)|((?:R\d+C\d+|[A-Za-z]+\d+)(?::(?:R\d+C\d+|[A-Za-z]+\d+))?)(?![A-Za-z0-9_])|([A-Za-z_][A-Za-z0-9_]*)|(<=|>=|<>|[-+*/^%(),;=<>:]))/y;
   let at = 0;
   while (at < source.length) {
     pattern.lastIndex = at;
@@ -36,7 +37,7 @@ function tokenize(source) {
     at = pattern.lastIndex;
     if (m[1] !== undefined) tokens.push({ type: 'number', value: Number(m[1]) });
     else if (m[2] !== undefined) tokens.push({ type: 'ref', value: m[2].toUpperCase() });
-    else if (m[3] !== undefined) tokens.push({ type: 'name', value: m[3].toUpperCase() });
+    else if (m[3] !== undefined) tokens.push({ type: 'name', value: m[3].toUpperCase(), raw: m[3] });
     else if (m[4] !== undefined) tokens.push({ type: 'op', value: m[4] === ';' ? ',' : m[4] });
   }
   return tokens;
@@ -66,7 +67,12 @@ export function parseFormula(source) {
     if (t.type === 'name') {
       if (DIRECTIONS.includes(t.value)) return { type: 'direction', value: t.value };
       if (t.value === 'TRUE' || t.value === 'FALSE') { if (peek()?.value === '(') { take(); expect(')'); } return { type: 'number', value: t.value === 'TRUE' ? 1 : 0 }; }
-      if (!FORMULA_FUNCTIONS.includes(t.value)) throw new Error(`${t.value} is not a formula function.`);
+      // A name that is not a function is a bookmark holding a number.
+      if (!FORMULA_FUNCTIONS.includes(t.value) || peek()?.value !== '(') {
+        if (FORMULA_FUNCTIONS.includes(t.value)) throw new Error(`${t.value} needs parentheses.`);
+        if (peek()?.value === '(') throw new Error(`${t.value} is not a formula function.`);
+        return { type: 'bookmark', name: t.raw };
+      }
       expect('(');
       const args = [];
       if (peek()?.value !== ')') { do args.push(comparison()); while (peek()?.value === ',' && take()); }
@@ -88,6 +94,8 @@ export function parseFormula(source) {
 
 /** A1 → { row: 0, column: 0 } (column letters A–Z, AA…, rows from 1). */
 export function cellReference(text) {
+  const rc = /^R(\d+)C(\d+)$/.exec(text);
+  if (rc) return { row: Number(rc[1]) - 1, column: Number(rc[2]) - 1 };
   const m = /^([A-Z]+)(\d+)$/.exec(text);
   if (!m) throw new Error(`${text} is not a cell reference.`);
   const column = [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
@@ -163,6 +171,13 @@ function evaluate(node, context) {
       return values.reduce((a, b) => a + b, 0);
     }
     case 'direction': return directionValues(context, node.value).reduce((a, b) => a + b, 0);
+    case 'bookmark': {
+      const entry = bookmarkEntries(context.model.paragraphs, context.model.tables).find(b => b.name.toLowerCase() === node.name.toLowerCase());
+      if (!entry) throw new Error('!Undefined Bookmark');
+      const value = cellNumber(context.model.text.slice(entry.start, entry.end));
+      if (value === null) throw new Error('!Syntax Error');
+      return value;
+    }
     case 'binary': {
       const a = evaluate(node.left, context), b = evaluate(node.right, context);
       switch (node.op) {
@@ -266,9 +281,9 @@ export function buildInstruction(formula, picture) {
 export function evaluateFormula(model, instruction, cellId) {
   const { formula, picture } = formulaInstruction(instruction.startsWith(' ') || instruction.startsWith('=') ? instruction : '=' + instruction);
   const tree = parseFormula(formula);
-  const context = cellId ? (() => { const c = cellContext(model.tables, cellId); return { ...c, cellId, paragraphs: model.paragraphs }; })() : null;
+  const context = cellId ? (() => { const c = cellContext(model.tables, cellId); return { ...c, cellId, paragraphs: model.paragraphs, model }; })() : { model };
   const needsTable = node => node && (['range', 'direction'].includes(node.type) || (node.args || []).some(needsTable) || needsTable(node.left) || needsTable(node.right) || needsTable(node.operand));
-  if (!context && needsTable(tree)) throw new Error('Cell references work inside tables.');
+  if (!cellId && needsTable(tree)) throw new Error('Cell references work inside tables.');
   return formatFormulaNumber(evaluate(tree, context), picture);
 }
 /** Like evaluateFormula, but an error becomes the error text a field shows. */

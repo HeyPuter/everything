@@ -108,7 +108,7 @@ OOXML details and the supported subset are in
   look (borders, regional fills, borders and text), which approximates rules the
   editor does not author (second bands, corner cells, based-on chains).
 - Converting a table that contains nested tables to text.
-- Formula bookmarks, `R1C1` references and general (`\*`) formats.
+- General (`\*`) formats on formula results.
 - The rulers do not yet show table column markers; dragging uses an on-page guide.
 - Table cell spacing, right-to-left tables and tracked structural changes remain
   unsupported (see the table property coverage notes).
