@@ -652,8 +652,17 @@ async function inspector(page) {
     !(await page
       .getByRole("complementary", { name: "Format panel" })
       .isVisible())
-  )
-    await page.getByRole("button", { name: "Toggle format panel" }).click();
+  ) {
+    // The slide's own context menu opens the Format panel.
+    await page
+      .locator("#slide-canvas")
+      .click({ button: "right", position: { x: 3, y: 3 } });
+    // The menu can run past a phone's screen; the keyboard reaches it there.
+    await page
+      .getByRole("menuitem", { name: "Format Background…", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+  }
 }
 // The File menu is on the menu bar, or behind the File options button on a
 // phone, where the menu bar gives way.

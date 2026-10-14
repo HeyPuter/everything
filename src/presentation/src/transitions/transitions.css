@@ -173,3 +173,8 @@
 .transition-choice .ribbon-gallery-label {
   max-width: 72px;
 }
+/* One star marks a slide: the transition's, which also stands for any
+   animations the slide has. */
+.slide-item:has(> .slide-transition-mark) .slide-number::after {
+  visibility: hidden;
+}

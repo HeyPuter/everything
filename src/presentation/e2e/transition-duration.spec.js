@@ -5,6 +5,15 @@ import { NS } from "../lib/pptx/src/internal/xml/index.ts";
 import { fixture } from "../tests/slide-transition-fixture.js";
 import { presetTransition } from "../tests/preset-transition-fixture.js";
 
+// Undo and Redo: the toolbar's buttons, or their shortcuts where a phone's
+// toolbar leaves them out.
+async function history(page, name) {
+  const button = page.getByRole("button", { name, exact: true });
+  if (await button.isVisible()) return button.click();
+  await page.evaluate(() => document.activeElement?.blur());
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(name === "Undo" ? `${mod}+z` : `${mod}+Shift+z`);
+}
 async function load(page, pres) {
   await page.route("https://js.puter.com/v2/", (route) =>
     route.fulfill({
@@ -107,16 +116,20 @@ test("inherited custom duration survives effect editing, undo and download", asy
     exact: true,
   });
   if (!(await control.isVisible())) {
-    // The Format Pane, from the View tab, shows the slide's settings.
-    await page.getByRole("tab", { name: "View", exact: true }).click();
+    // The slide's own context menu opens the Format pane on its settings.
     await page
-      .locator('.ribbon-panel:not([hidden]) [data-command="view-format-pane"]')
-      .click();
+      .locator("#slide-canvas")
+      .click({ button: "right", position: { x: 3, y: 3 } });
+    // The menu can run past a phone's screen; the keyboard reaches it there.
+    await page
+      .getByRole("menuitem", { name: "Format Background…", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
   }
   await control.selectOption("push");
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await history(page, "Undo");
   await expect(control).toHaveValue("fade");
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await history(page, "Redo");
   await expect(control).toHaveValue("push");
   const exported = await download(page);
   expect(P.getSlideTransition(P.getSlides(exported)[0])).toMatchObject({

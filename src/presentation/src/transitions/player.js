@@ -144,9 +144,15 @@ export function playTransition({
     overlay.remove();
     done();
   }
+  // Ends at once: the overlay goes now, not when the animation's promise
+  // settles, so a transition started next is the only one in the frame.
   function cancel() {
-    if (clock) clock.finish();
-    else cleanup();
+    try {
+      clock?.finish();
+    } catch {
+      // An animation with no effect timing left to finish.
+    }
+    cleanup();
   }
 
   (async () => {
@@ -310,10 +316,18 @@ export function playTransition({
       duration,
       easing: "linear",
     });
+    // Paint once per displayed frame of the animation's own timeline. Frame
+    // callbacks that come faster than that (as a page's simulated clock can
+    // run them) have nothing new to show.
+    let painted = -Infinity;
     const tick = () => {
       if (stopped || !clock) return;
-      const time = Number(clock.currentTime) || 0;
-      paint(Math.min(1, Math.max(0, time / duration)));
+      const now = Number(document.timeline?.currentTime ?? painted + 16);
+      if (now - painted >= 8) {
+        painted = now;
+        const time = Number(clock.currentTime) || 0;
+        paint(Math.min(1, Math.max(0, time / duration)));
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);

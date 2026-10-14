@@ -52,6 +52,22 @@ const transition = (page, effect, direction = "forward") =>
     `.slide-transition[data-effect="${effect}"][data-direction="${direction}"]`,
   );
 const anyTransition = (page) => page.locator(".slide-transition");
+// The transition runs on real time while the page's timers are simulated.
+// Holding it shows that the dwell waits for the transition, however long the
+// simulated time; releasing it ends the transition at once.
+async function holdTransition(page) {
+  await page.waitForFunction(() => {
+    const clock = document
+      .querySelector(".slide-transition")
+      ?.getAnimations()[0];
+    clock?.pause();
+    return !!clock;
+  });
+}
+const releaseTransition = (page) =>
+  page.evaluate(() =>
+    document.querySelector(".slide-transition")?.getAnimations()[0]?.finish(),
+  );
 async function exported(page) {
   await page.keyboard.press("Escape");
   await page
@@ -187,8 +203,10 @@ test("the advance clock waits for the actual incoming transition to finish", asy
   );
   await page.getByRole("button", { name: "Next slide", exact: true }).click();
   await expect(transition(page, "fade")).toHaveCount(1);
+  await holdTransition(page);
   await page.clock.runFor(2000);
   await expect(counter(page)).toHaveText("2 / 3");
+  await releaseTransition(page);
   await expect(anyTransition(page)).toHaveCount(0);
   await page.clock.runFor(299);
   await expect(counter(page)).toHaveText("2 / 3");
@@ -212,11 +230,13 @@ test("Previous keeps the destination's click and dwell settings after the leavin
     .getByRole("button", { name: "Previous slide", exact: true })
     .click();
   await expect(transition(page, "fade", "backward")).toHaveCount(1);
+  await holdTransition(page);
   await image(page).click();
   await expect(counter(page)).toHaveText("1 / 3");
-  // The transition runs independently of the paused timer clock. Dwell
-  // starts only after the reverse animation has actually settled.
+  // Dwell starts only after the reverse transition has actually settled.
   await page.clock.runFor(2000);
+  await expect(counter(page)).toHaveText("1 / 3");
+  await releaseTransition(page);
   await expect(anyTransition(page)).toHaveCount(0);
   await expect(counter(page)).toHaveText("1 / 3");
   await page.clock.runFor(699);
