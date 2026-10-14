@@ -1,12 +1,12 @@
 // The main-thread engine facade without Web Audio (jsdom): graceful failure,
 // the fallback transport clock and the documented API surface.
 import { describe, it, expect } from 'vitest';
-import { Engine } from '../src/engine/engine.js';
+import { Engine, echoGap } from '../src/engine/engine.js';
 import { Store } from '../src/model/store.js';
 import { Prefs } from '../src/lib/prefs.js';
 import { newProject, demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
-import { createMixerTrack } from '../src/model/project.js';
+import { createMixerTrack, createSlot } from '../src/model/project.js';
 
 const mem = () => {
   const m = new Map();
@@ -65,6 +65,16 @@ describe('engine facade', () => {
     };
     engine.noteOn(store.project.channels[0].id, 60, 1);
     expect(starts).toBe(1);
+  });
+
+  it('lets render tails run through the gaps between long delay echoes', () => {
+    let p = { ...newProject(), bpm: 60 };
+    expect(echoGap(p)).toBe(0);
+    const slot = createSlot('delay');
+    p = E.updateMixerTrack(p, 1, { fx: [{ ...slot, params: { ...slot.params, sync: 1, division: 11 } }] }); // 2 beats
+    expect(echoGap(p)).toBeCloseTo(2, 6);
+    p = E.updateMixerTrack(p, 2, { fx: [{ ...slot, params: { ...slot.params, sync: 0, time: 2000 } }] });
+    expect(echoGap({ ...p, bpm: 120 })).toBeCloseTo(2, 6);
   });
 
   it('rejects an already aborted render', async () => {

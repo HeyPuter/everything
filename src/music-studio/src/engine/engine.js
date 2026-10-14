@@ -47,6 +47,7 @@ import { Emitter } from '../lib/emitter.js';
 import { patternById, patternLength, songLength } from '../model/project.js';
 import { ticksToSeconds, ticksPerBar, PPQ } from '../model/time.js';
 import { paramVector } from '../instruments/catalog.js';
+import { DIVISION_BEATS } from '../effects/catalog.js';
 import { compileChannel, compileMixer, compileSequence, compileTrack, instrumentIndex, mixerGains, trackOrder } from './compile.js';
 
 const SEQ_THROTTLE_MS = 30;
@@ -719,7 +720,7 @@ export class Engine extends Emitter {
           reject(err);
         },
       });
-      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), pitch: p.masterPitch || 0 });
+      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
     });
   }
 
@@ -753,6 +754,23 @@ export class Engine extends Emitter {
   seconds(ticks) {
     return ticksToSeconds(ticks, this.store.project.bpm);
   }
+}
+
+/**
+ * Longest silence between delay echoes in seconds: a render tail may only
+ * end after a quiet stretch longer than that, or echoes would be cut off.
+ */
+export function echoGap(project) {
+  let gap = 0;
+  for (const t of project.mixer) {
+    for (const s of t.fx || []) {
+      if (s.type !== 'delay' || s.on === false) continue;
+      const q = s.params || {};
+      const sec = q.sync ? ((DIVISION_BEATS[Math.round(q.division ?? 7)] || 0) * 60) / (project.bpm || 120) : (q.time ?? 350) / 1000;
+      if (sec > gap) gap = sec;
+    }
+  }
+  return gap;
 }
 
 function abortError() {

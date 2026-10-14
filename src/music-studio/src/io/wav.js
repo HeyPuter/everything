@@ -30,6 +30,8 @@ export function encodeWav({ channels, rate }, { bits = 16, dither = bits === 16,
   const fmtSize = float ? 18 : 16;
   const factBytes = float ? 12 : 0;
   const headerBytes = 12 + 8 + fmtSize + factBytes + 8;
+  // RIFF sizes are 32-bit: refuse rather than write a header that wraps.
+  if (headerBytes + dataBytes + 1 > 0xffffffff) throw new Error('The audio is too long for a WAV file (4 GB at most). Export a shorter range or a lower sample rate.');
   const buf = new ArrayBuffer(headerBytes + dataBytes + (dataBytes & 1));
   const dv = new DataView(buf);
   let o = 0;
