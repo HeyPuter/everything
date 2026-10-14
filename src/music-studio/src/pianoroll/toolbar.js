@@ -22,7 +22,6 @@ export const TOOLS = [
 
 export function buildToolbar(ed) {
   const app = ed.app;
-  const cmd = (id) => app.commands.menuItem(id);
 
   // ---------------------------------------------------------- channel picker
   const swatch = h('span.pr-swatch');

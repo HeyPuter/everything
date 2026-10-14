@@ -10,7 +10,7 @@ import { rgba } from '../render/gfx.js';
 import { drawRuler } from '../render/timeline.js';
 import { isBlackKey, keyName } from '../lib/util.js';
 import { ticksPerBar, ticksPerBeat } from '../model/time.js';
-import { rowY, keyAtY, NUM_KEYS } from './geometry.js';
+import { rowY, keyAtY } from './geometry.js';
 import { firstVisible } from './notes.js';
 
 let theme = null;
@@ -55,7 +55,7 @@ export function colors() {
     keyHover: c('--pr-key-hover'),
     keyText: cssVar('--pr-key-text'),
     keyTextC: cssVar('--pr-key-text-c'),
-    scaleMark: c('--accent', 0.7),
+    scaleMark: c('--accent', 0.45),
     rootMark: c('--accent'),
     laneBg: c('--pr-lane-bg'),
     laneGuide: c('--grid-line'),
@@ -333,7 +333,7 @@ function drawKeys(ed, d, C, kTop, kBot, chCol) {
     for (let k = kTop; k >= kBot; k--) {
       const pc = k % 12;
       if (!ed.scaleMask[pc]) continue;
-      d.rect(kw - 4, rowY(L, k, kh, sy) + 1, 3, kh - 2, pc === ed.scaleRoot ? C.rootMark : C.scaleMark, 1);
+      d.rect(kw - 4, rowY(L, k, kh, sy) + 2, 2, kh - 4, pc === ed.scaleRoot ? C.rootMark : C.scaleMark, 1);
     }
   }
   d.rect(kw - 1, gy, 1, L.gridH, C.border);
@@ -418,4 +418,3 @@ function drawScrollbars(ed, d, C) {
   d.rect(0, L.hsbY, L.keysW, L.sb, C.sbTrack);
 }
 
-export { NUM_KEYS };

@@ -847,9 +847,9 @@ export function installPointer(ed) {
       }
       const region = regionAt(ed.L, p.x, p.y);
       const zoomMod = e.ctrlKey || e.metaKey; // trackpad pinch arrives as Ctrl+wheel
-      if (zoomMod && region === 'keys') ed.zoomKeys(Math.exp(-dy * 0.004), p.y);
-      else if (zoomMod) ed.zoomTime(Math.exp(-dy * 0.004), clamp(p.x - ed.L.gridX, 0, ed.L.gridW));
-      else if (e.altKey) ed.zoomKeys(Math.exp(-(dy || dx) * 0.004), p.y);
+      if (zoomMod && region === 'keys') ed.zoomKeys(Math.exp(-dy * 0.0025), p.y);
+      else if (zoomMod) ed.zoomTime(Math.exp(-dy * 0.0025), clamp(p.x - ed.L.gridX, 0, ed.L.gridW));
+      else if (e.altKey) ed.zoomKeys(Math.exp(-(dy || dx) * 0.0025), p.y);
       else if (e.shiftKey) ed.vp.scrollBy(dx || dy);
       else {
         ed.scrollY += dy;

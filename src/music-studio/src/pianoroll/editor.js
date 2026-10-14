@@ -193,6 +193,8 @@ export class PianoRollEditor {
 
   /** Snap in ticks for the current zoom (0 = free). */
   get gridTicks() {
+    // "Line" follows the drawn grid, kept at least 18px apart so it never gets finicky.
+    if (this.snapId === 'line') return gridTicks(this.vp.pxPerTick, this.sig, 18);
     return snapTicks(this.snapId, this.vp.pxPerTick, this.sig);
   }
 
@@ -485,7 +487,6 @@ export class PianoRollEditor {
     const pat = this.pattern;
     if (!pat) return null;
     if (e.mode === 'pattern') return e.position;
-    if (!e.playing) return null;
     const clip = clipAt(e.position, pat.id, this.project.clips);
     if (!clip) return null;
     return patternTick(e.position, { mode: 'song', patternId: pat.id, patLen: this.patLen, clips: [clip] });
