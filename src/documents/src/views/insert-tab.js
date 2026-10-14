@@ -10,6 +10,7 @@ import { closeMenu, openMenu } from '../ui/menu.js';
 import { toast } from '../ui/toast.js';
 import { promptDialog, confirmDialog } from '../ui/modal.js';
 import { drawShapeThumbnail } from '../ui/shape-controls.js';
+import { small } from '../ui/ribbon.js';
 import * as P from '../lib/puter.js';
 import { imageFileFromSource } from '../lib/imagegen.js';
 import { galleryItems, pagePreview, textPreview } from './insert-gallery.js';
@@ -221,7 +222,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const items = groups.flatMap(group => [{ header: group }, { custom: el('div.menu-custom-grid.insert-shape-grid', { role: 'group', 'aria-label': group, dataset: { columns: '10' } },
       ...SHAPE_PRESETS.filter(([, , g]) => g === group).map(([preset, name]) => {
         const canvas = el('canvas', { 'aria-hidden': 'true' }); drawShapeThumbnail(canvas, preset);
-        return el('button.swatch.insert-shape-item', { type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': name, title: name, onclick: e => {
+        return el('button.swatch.shape-gallery-item.insert-shape-item', { type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': name, title: name, onclick: e => {
           closeMenu();
           // The keyboard inserts at the caret; the pointer draws the shape on the page.
           if (e.detail) drawOnPage(name, rect => insertShapeAt(preset, rect)); else insertShapeAt(preset);
@@ -587,6 +588,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
 
   /* ---- Ribbon ---- */
+  const asSmall = (control, icon, label) => { control.classList.remove('ribbon-large'); control.replaceChildren(); return small(control, { icon, label }); };
   function insertRibbon(kit) {
     const { command, menuButton, rows, when, engineReady } = kit;
     const can = () => engineReady() && !!ready();
@@ -594,7 +596,9 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     // Pages stack as small commands, leaving room for the larger galleries.
     const coverPage = menuButton('Cover Page', 'coverPage', coverPageItems, { size: 'small', text: 'Cover Page' });
     const blankPage = command('Blank Page', 'blankPage', () => { const engine = ready(); if (engine) { base.insertBlankPage?.(); onChange(); } }, { text: 'Blank Page' });
-    const pageBreak = command('Page Break', 'pageBreak', () => { const engine = ready(); if (engine) { engine.insertPageBreak(); onChange(); } }, { text: 'Page Break', shortcut: `${MOD_KEY}+Enter` });
+    // The editor's own page break control keeps its state and shortcut; here it is a small row command.
+    const pageBreak = kit.pageBreak ? asSmall(kit.pageBreak, 'pageBreak', 'Page Break')
+      : command('Page Break', 'pageBreak', () => { const engine = ready(); if (engine) { engine.insertPageBreak(); onChange(); } }, { text: 'Page Break', shortcut: `${MOD_KEY}+Enter` });
     const pictures = menuButton('Pictures', 'pictures', pictureItems, { text: 'Pictures' });
     const shapes = command('Shapes', 'shapes', e => openShapes(shapes, e), { size: 'large', caret: true, attrs: { 'aria-haspopup': 'menu' } });
     const icons = command('Icons', 'icons', () => insertIcons(), { text: 'Icons' });
@@ -615,8 +619,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const equationMain = command('Equation', 'equation', () => insertEquation(), { size: 'large', shortcut: equationShortcut });
     const equation = kit.split(equationMain, { label: 'Equation gallery', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Equations', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: equationItems() }) });
     const symbol = menuButton('Symbol', 'symbol', symbolItems, { size: 'small', text: 'Symbol' });
-    noSteal(blankPage, pageBreak, shapes, icons, chart, signature, dateTime, equationMain, ...(screenshotButton ? [screenshotButton] : []));
-    when(coverPage, can); when(blankPage, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId); when(pageBreak, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId);
+    noSteal(blankPage, shapes, icons, chart, signature, dateTime, equationMain, ...(screenshotButton ? [screenshotButton] : []));
+    when(coverPage, can); when(blankPage, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId); if (!kit.pageBreak) when(pageBreak, () => can() && !ready()?.model.selectedParagraphs[0]?.cellId);
     for (const control of [pictures, shapes, icons, diagram, chart, header, footer, pageNumber, textBox, quickParts, wordArt, dropCap, signature, dateTime, object, equationMain, equation.arrow, symbol, ...(screenshotButton ? [screenshotButton] : [])]) when(control, can);
     return {
       pages: [rows([coverPage], [blankPage], [pageBreak])],

@@ -50,7 +50,8 @@ test('related table, picture and shape commands have distinct icons', async ({ p
   await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.press('Enter');
   await tab(page, 'Insert').click();
   await page.getByRole('button', { name: 'Shapes', exact: true }).click();
-  await page.locator('.shape-gallery-item').first().click();
+  await page.locator('.shape-gallery-item').nth(2).click();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 200, y: 400 } });
   await tab(page, 'Shape Format').click();
   expect(await iconOf(page, 'Delete Shape')).not.toBe(deleteTable);
 });
@@ -77,6 +78,7 @@ test('the Header & Footer tab sets its position labels and close command without
   await openEditor(page);
   await tab(page, 'Insert').click();
   await page.getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
   await expect(tab(page, 'Header & Footer')).toHaveAttribute('aria-selected', 'true');
   const panel = page.locator('.ribbon-panel:not([hidden])');
   for (const label of ['Header from Top', 'Footer from Bottom']) {

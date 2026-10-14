@@ -212,8 +212,6 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- Insert ---- */
-  // Galleries and dialogs come from the editor's Insert commands (views/insert-tab.js); without them the basic commands remain.
-  const ins = w.insertRibbon?.({ command, menuButton, split, rows, divider, when, engineReady, focusEditor, inDocument }) || {};
   const coverPage = menuButton('Cover Page', 'coverPage', () => w.coverPageItems?.() || [], { text: 'Cover Page' });
   when(coverPage, () => engineReady() && !!w.coverPageItems);
   const blankPage = command('Blank Page', 'blankPage', () => w.insertBlankPage?.(), { size: 'large' });
@@ -239,6 +237,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const symbol = command('Symbol', 'symbol', () => w.insertSymbol?.(), { size: 'large' });
   for (const control of [dateTime, symbol]) when(control, engineReady);
   noFocusSteal(blankPage, c.pageBreak);
+  // Galleries and dialogs come from the editor's Insert commands (views/insert-tab.js); without them the basic commands remain.
+  const ins = w.insertRibbon?.({ command, menuButton, split, rows, divider, when, engineReady, focusEditor, inDocument, pageBreak: c.pageBreak }) || {};
   const insert = { id: 'insert', label: 'Insert', groups: [
     { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: ins.pages || [coverPage, blankPage, c.pageBreak] },
     { id: 'tables', label: 'Tables', icon: 'table', priority: 9, items: [c.insertTable] },
