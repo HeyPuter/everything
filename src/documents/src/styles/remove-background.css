@@ -1,0 +1,36 @@
+/* Picture Format → Remove Background (views/remove-background.js). */
+@media (min-width: 641px) { .modal-panel.wide.rb-dialog { width: 820px; max-width: calc(100vw - 40px); } }
+.rb-body { min-width: 0; }
+.rb-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rb-tool { display: inline-flex; align-items: center; gap: 8px; }
+.rb-tool[aria-pressed='true'] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.rb-swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--hairline-strong); flex: none; }
+.rb-tool[data-swatch='keep'] .rb-swatch { background: #00a046; }
+.rb-tool[data-swatch='remove'] .rb-swatch { background: #d71e28; }
+.rb-tool[data-swatch='erase'] .rb-swatch { background: var(--surface); border-style: dashed; border-color: var(--ink-3); }
+.rb-stage { display: flex; justify-content: center; align-items: center; min-height: 160px; padding: 12px; border-radius: var(--r-sm);
+  /* A checkerboard shows what will become transparent. */
+  background: repeating-conic-gradient(var(--surface-3) 0% 25%, var(--surface) 0% 50%) 50% / 16px 16px; }
+.rb-stage-inner { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.rb-canvas { display: block; max-width: 100%; max-height: min(58vh, 560px); width: auto; height: auto; touch-action: none; cursor: crosshair; }
+.rb-canvas[data-tool='erase'] { cursor: cell; }
+.rb-region { position: absolute; box-sizing: border-box; border: 2px dashed var(--accent); pointer-events: none; }
+.rb-move { position: absolute; left: 50%; top: -2px; transform: translate(-50%, -100%); pointer-events: auto; touch-action: none; cursor: move;
+  height: 22px; padding: 0 8px; border: 1px solid var(--accent); border-radius: var(--r-sm) var(--r-sm) 0 0; background: var(--accent); color: var(--accent-ink); font: 12px/20px var(--font); white-space: nowrap; }
+.rb-handle { position: absolute; width: 14px; height: 14px; padding: 0; border: 2px solid var(--accent); border-radius: 3px; background: var(--surface); pointer-events: auto; touch-action: none; }
+.rb-handle[data-corner='nw'] { left: -8px; top: -8px; cursor: nwse-resize; }
+.rb-handle[data-corner='ne'] { right: -8px; top: -8px; cursor: nesw-resize; }
+.rb-handle[data-corner='sw'] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.rb-handle[data-corner='se'] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.rb-handle:focus-visible, .rb-move:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.rb-settings { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.rb-slider { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }
+.rb-slider input { width: 180px; max-width: 45vw; }
+.rb-status { margin: 0; font-size: 13px; color: var(--ink-3); min-height: 1.4em; }
+@media (max-width: 640px) {
+  .rb-tool { flex: 1 1 calc(50% - 8px); justify-content: center; }
+  .rb-stage { padding: 20px 8px 8px; }
+  .rb-canvas { max-height: 44vh; }
+  .rb-slider { flex: 1 1 100%; justify-content: space-between; }
+  .rb-slider input { flex: 1; width: auto; max-width: none; }
+}

@@ -23687,3 +23687,138 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
   its paragraphs; new headings are empty paragraphs with the heading style.
 - Gaps: master documents and subdocuments (`w:subDoc`, the `masterPages` view) are not supported;
   outline numbering linked to headings follows the existing numbering support only.
+## Picture and shape effects, preset picture geometry and hidden drawings (2026-10-13)
+
+- **Effect lists** (§20.1.8.26 `a:effectLst`): members must follow CT_EffectList order without
+  duplicates. Top-level pictures (`pic:spPr`) and standalone shapes (`wps:spPr`, including effects
+  resolved from a theme `effectRef`) accept any subset of `a:glow`, `a:outerShdw`, `a:reflection`
+  and `a:softEdge`. `a:blur`, `a:fillOverlay`, `a:innerShdw` and `a:prstShdw`, and the new effects
+  on shapes or pictures inside groups, keep the document read-only as before. A list holding only
+  an outer shadow reads exactly as before.
+- **Glow** (§20.1.8.32): `rad` and one color (with alpha); painted behind the drawing as its
+  silhouette blurred over the radius and strengthened at the edge. A zero radius paints nothing.
+- **Soft edge** (§20.1.8.53): `rad`; the drawing's alpha ramps from zero on its silhouette's edge to
+  full at about the radius inside it (Gaussian of the silhouette remapped). Applied before the shadow
+  for pictures; for shapes the in-scene shadow is softened with the shape (approximation).
+- **Reflection** (§20.1.8.50): the supported form is a vertical mirror below the drawing —
+  `sx` 100%, `sy` −100%, `kx`/`ky` 0, `algn` `bl` or `b`, `fadeDir` 5400000 and, with a distance,
+  `dir` 5400000 — with `blurRad`, `stA`, `stPos`, `endA`, `endPos` and `dist`. The mirror image fades
+  linearly from `stA` to `endA` between `stPos` and `endPos` of the drawing's height and is clear
+  beyond `endPos`. Other reflection geometry is unsupported.
+- Effects add ink around the drawing only: the frame, `wp:effectExtent`, wrapping and layout are
+  unchanged, and the source XML is kept in the drawing for saving. Effect rasters keep the
+  4,096 px / 4 MP preview limits.
+- **Black and white** (§20.1.8.11 `a:biLevel`): `thresh` (0–100%) joins the ordered blip color
+  effects; pixels whose luminance (0.299 R + 0.587 G + 0.114 B) is at or above the threshold become
+  white and the rest black, keeping alpha. A missing or out-of-range threshold is unsupported.
+- **Preset geometry on pictures** (§20.1.9.18 `a:prstGeom` in `pic:spPr`): any preset the shape
+  reader evaluates (with `a:avLst` guide adjustments) now clips the picture, and its outline follows
+  the preset; `rect` keeps the unclipped picture path and still requires an empty `a:avLst`. 3D
+  pictures keep the rectangle/ellipse subset. The same applies to pictures inside groups.
+- **Rotated and flipped styled pictures**: pictures with a clip, outline, backing fill, shadow or
+  the effects above may now carry `a:xfrm` `rot`, `flipH` and `flipV` (§20.1.7.6); the scene paints
+  the unrotated frame and the page rotates it like an ordinary picture, so effect directions rotate
+  with the picture. Rotated 3D pictures and pictures whose fill does not rotate with the shape
+  (`rotWithShape="0"`) remain unsupported. Text-wrapped rotated pictures remain unsupported, as for
+  plain pictures.
+- **Hidden drawings** (§20.4.2.5 `wp:docPr@hidden`, and `pic:cNvPr@hidden` on a top-level picture):
+  `1`/`true`/`on` opens the drawing as hidden — it keeps its anchor run, position and XML, paints
+  nothing (on screen and in print), is skipped by hit-testing and does not take part in square or
+  top-and-bottom text exclusion or overlap resolution. An inline hidden drawing still reserves its
+  space in the line. Invalid values are unsupported.
+
+## Picture Format, Shape Format and Arrange (2026-10-13)
+
+Every command rewrites the drawing's DrawingML and reads it back through the document reader
+(`drawing-format.js`); the subset below is what the editor writes. Anything it reads is kept as authored.
+
+### Shape properties (§20.1.2.2.35 spPr, §20.1.2.2.20 grpSpPr)
+
+- Fills (§20.1.8): `a:noFill`, `a:solidFill` with `a:srgbClr` or `a:schemeClr` (§20.1.2.3.29) and the
+  `a:lumMod`/`a:lumOff`/`a:alpha` transforms (§20.1.2.3.20, .21, .1); `a:gradFill` with `a:gsLst`
+  stops and `a:lin` (`ang`, `scaled`) or `a:path` (`circle`, `rect`) with `a:fillToRect`; `a:pattFill`
+  (§20.1.8.47) with `a:fgClr`/`a:bgClr`; `a:blipFill` picture fills with `a:stretch`. Shape styles use
+  theme colours as `a:schemeClr` when the document has a theme, otherwise RGB values from an original
+  palette.
+- Outlines (§20.1.2.2.24 `a:ln`): `w`, `cmpd` (sng, dbl, thickThin, thinThick, tri), `cap`; fill,
+  `a:prstDash` (§20.1.10.48), joins (`a:round`, `a:bevel`, `a:miter lim`), `a:headEnd`/`a:tailEnd`
+  (§20.1.10.55 types, `w`, `len`). Children are written in schema order.
+- Effects (§20.1.8.26 `a:effectLst`) in schema order: `a:glow` (`rad`), `a:outerShdw` (`blurRad`,
+  `dist`, `dir`, optional `sx`/`sy`, `algn`, `rotWithShape="0"`), `a:reflection` (below the object:
+  `stA`, `stPos`, `endA`, `endPos`, `dist`, `dir="5400000"`, `sy="-100000"`, `algn="bl"`), `a:softEdge`
+  (`rad`). See "Picture and shape effects" for what the renderer paints.
+- 3-D (pictures only): `a:scene3d` with `a:camera` (orthographicFront, perspectiveLeft,
+  perspectiveRight) and `a:lightRig rig="threePt" dir="t"`, `a:sp3d` with `a:bevelT` (circle, angle).
+- Geometry: `a:prstGeom` (§20.1.9.18) with `a:avLst` guides for Change Shape and Crop to Shape;
+  transforms (§20.1.7.6 `a:xfrm`): `rot`, `flipH`, `flipV`; `a:ext` follows the frame size.
+
+### Pictures (§20.2 pic:pic, §20.1.8.13 a:blip)
+
+- Corrections and colour written as blip effects: `a:lum` (`bright`, `contrast`), `a:grayscl`,
+  `a:duotone` with two `a:srgbClr`, `a:biLevel thresh` (black and white), `a:clrChange` with a fully
+  transparent `a:clrTo` (Set Transparent Color), `a:alphaModFix amt` (transparency). Recolor presets
+  replace each other.
+- Pixel edits (Remove Background, Sharpen/Soften, Saturation, Color Tone, Artistic Effects) write a
+  processed PNG (or JPEG for opaque JPEG sources) as the main blip and keep the original in the
+  picture's original layer (MS-ODRAWXML `a14:imgProps`/`a14:imgLayer r:embed` in the blip's extension
+  list, extension URI `{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}`) with `a14:imgEffect` children:
+  `a14:backgroundRemoval` (`t`, `b`, `l`, `r` and `a14:foregroundMark`/`a14:backgroundMark` line
+  segments), `a14:sharpenSoften amount`, `a14:saturation sat`, `a14:colorTemperature colorTemp` and the
+  artistic effect element (no attributes). The reader shows the main blip and ignores the layer, as
+  that extension specifies. An SVG companion blip is removed when pixels are processed.
+- Crop (§20.1.8.55 `a:srcRect`, 1/1000 %), including negative values for Fit; Compress Pictures
+  resamples the blip and removes `a:srcRect` when cropped areas are deleted; media it replaces is
+  dropped from the package on save only when no relationship in any part still references it.
+- Change Picture replaces the blip relationship target with a new media part and crops it to fill the
+  existing extent.
+
+### Non-visual properties (§20.4.2.5 wp:docPr)
+
+`name`, `descr` (alt text), `title`, the decorative extension (`adec:decorative val="1"`, URI
+`{C183D7F6-B498-43B3-948B-1728B52AA6E4}`) and `hidden="1"` (Selection pane). Grouping copies each
+object's name and description to the child's `cNvPr`; ungrouping copies them back to `wp:docPr`.
+
+### Frames and wrapping (§20.4.2.3 wp:anchor, §20.4.2.8 wp:inline)
+
+- In line with text: `wp:inline` with `distT/B/L/R="0"`, extent, effect extent, properties and graphic
+  carried across.
+- Floating: `wp:anchor` with `simplePos="0"`, `relativeHeight`, `behindDoc`, `locked`, `layoutInCell`,
+  `allowOverlap`; `wp:positionH`/`wp:positionV` (§20.4.2.10, .11) with `wp:align` or `wp:posOffset`
+  and `relativeFrom` column/margin/page (horizontal) or paragraph/line/margin/page/topMargin/
+  bottomMargin (vertical); `wp:wrapNone`, `wp:wrapSquare` (§20.4.2.17), `wp:wrapTight` (§20.4.2.20) and
+  `wp:wrapThrough` (§20.4.2.18) with a rectangular `wp:wrapPolygon` (§20.4.2.16, `edited="0"`),
+  `wp:wrapTopAndBottom` (§20.4.2.20), with `wrapText` and distances. Children are written in schema
+  order and unknown children (relative sizes) are kept.
+- Supported subset (what the reader opens editable): square, tight and through wrapping use
+  column/paragraph offsets; top-and-bottom uses a paragraph offset; only wrapNone takes alignment,
+  page/margin bases, `allowOverlap="0"` and `layoutInCell="0"`. Tight and through wrap around the
+  object's rectangle (the polygon is kept, not used for layout).
+- Aspect lock: `a:graphicFrameLocks noChangeAspect` (§20.1.2.2.19) on `wp:cNvGraphicFramePr`, and
+  `a:picLocks noChangeAspect` for pictures.
+- Arrange (Bring Forward, Send Backward, to Front, to Back, Selection pane order) rewrites
+  `relativeHeight` densely within the behind-text and in-front layers; In Front of Text / Behind Text
+  set `behindDoc` (switching wrapped objects to wrapNone).
+
+### Groups (§20.4 wpg:wgp, §20.1.7.5 group transform)
+
+Group writes one `wp:anchor` (the first object's coordinates, wrapping and layer, offsets moved to the
+group's top-left) with `wpg:wgp` (`wpg:cNvGrpSpPr`, `wpg:grpSpPr` with `a:off`, `a:ext`, `a:chOff`,
+`a:chExt` equal to the group size) and the objects' own `wps:wsp`, `pic:pic` or nested `wpg:grpSp`,
+each with an `a:xfrm` at its page position. Ungroup maps each child through the group's child space,
+flips and rotation into its own floating drawing. Charts, diagrams and drawings with links are not
+grouped.
+
+### Text in shapes
+
+- Body properties (§20.1.2.1.1 `wps:bodyPr`): `anchor` (t, ctr, b), `lIns`/`tIns`/`rIns`/`bIns`, `wrap`
+  (square/none), `a:spAutoFit`/`a:noAutofit`.
+- WordArt Styles on shape text: run properties in `w:txbxContent` — `w:color` and the w14 effects
+  `w14:shadow`, `w14:textOutline`, `w14:textFill` (MS-DOCX §2.6) in CT_RPr order.
+
+### Validation
+
+`tests/drawing-xml.test.js` and `tests/drawing-format.test.js` write every edit, read it back through
+the reader, save and reopen the package editable. Browser exports from `tests/browser/pictures.spec.js`
+(`test-results/pictures-exports/`) and the independent fixture `tests/fixtures/pictures/pictures.docx`
+(`tests/fixtures/pictures/make_fixture.py`) validate with `tools/check-docx-schema.py`. Schema validity does not
+establish layout fidelity: effects, artistic filters and tight wrapping are approximations.

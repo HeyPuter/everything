@@ -19,6 +19,7 @@ import { C, readChart } from './docx-charts.js';
 import { readAnchor } from './docx-anchors.js';
 import { readPicture3d } from './docx-picture-3d.js';
 import { readPictureShadow } from './docx-picture-shadow.js';
+import { readDrawingEffects } from './docx-drawing-effects.js';
 import { pictureResolution } from './picture-resolution.js';
 import { readPictureTile } from './picture-tiles.js';
 import { DGM, readDiagramDrawing } from './docx-diagram-drawing.js';
@@ -129,6 +130,15 @@ function blipExtensions(blip, readSchemeColor) {
     if (effect.localName === 'duotone' && !extensionLists) {
       if (children(effect).length !== 2 || [...effect.attributes].some(a => a.namespaceURI !== XMLNS) || [...effect.childNodes].some(n => [3, 4].includes(n.nodeType) && n.textContent.trim())) fail('invalid duotone colors');
       duotone.push(children(effect).map(color => drawingEffectColor(color, readSchemeColor).rgb));
+      continue;
+    }
+    if (effect.localName === 'biLevel' && !extensionLists) {
+      // §20.1.8.11: pixels at or above the luminance threshold become white, the rest black.
+      if (children(effect).length || [...effect.childNodes].some(n => [3, 4].includes(n.nodeType) && n.textContent.trim()) || [...effect.attributes].some(a => a.namespaceURI !== XMLNS && (a.namespaceURI || a.localName !== 'thresh'))) fail('invalid black and white effect');
+      const raw = effect.getAttribute('thresh')?.trim() ?? '';
+      const value = /^\d+$/.test(raw) ? Number(raw) / 100000 : /^\d+(?:\.\d+)?%$/.test(raw) ? parseFloat(raw) / 100 : NaN;
+      if (!Number.isFinite(value) || value < 0 || value > 1) fail('invalid black and white threshold');
+      duotone.push({ type: 'biLevel', threshold: value });
       continue;
     }
     if (effect.localName === 'lum' && !extensionLists) {
@@ -244,7 +254,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     // with its clipping path, backing fill and outline.
     child(shape, A, 'effectLst')?.remove();
     const preset = child(shape, A, 'prstGeom');
-    const custom = child(shape, A, 'custGeom') || (preset?.getAttribute('prst') === 'ellipse' ? preset : null);
+    const custom = child(shape, A, 'custGeom') || (preset && preset.getAttribute('prst') !== 'rect' ? preset : null);
     if (custom) {
       const rect = doc.createElementNS(A, 'a:prstGeom'); rect.setAttribute('prst', 'rect');
       rect.append(doc.createElementNS(A, 'a:avLst')); custom.replaceWith(rect);
@@ -302,7 +312,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     // wp:inline distances are retained but have no effect on inline layout (§20.4.2.8).
     for (const name of ['distT', 'distB', 'distL', 'distR']) integer(inline, name);
     const allowed = new Set(['extent', 'effectExtent', 'docPr', 'cNvGraphicFramePr']);
-    if (anchor) for (const name of ['simplePos', 'positionH', 'positionV', 'wrapSquare', 'wrapTopAndBottom', 'wrapNone']) allowed.add(name);
+    if (anchor) for (const name of ['simplePos', 'positionH', 'positionV', 'wrapSquare', 'wrapTight', 'wrapThrough', 'wrapTopAndBottom', 'wrapNone']) allowed.add(name);
     const positionChildren = nodes => nodes.flatMap(c => {
       if (c.namespaceURI !== MC || c.localName !== 'AlternateContent') return [c];
       const selected = positionChildren(children(alternateBranch(c)));
@@ -316,7 +326,10 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     const width = integer(extent, 'cx', true), height = integer(extent, 'cy', true), id = integer(properties, 'id', true);
     if (id > 4294967295 || usedIds.has(id)) fail('invalid or duplicate drawing IDs'); usedIds.add(id);
     if (!properties.hasAttribute('name')) fail('missing drawing name');
-    if (properties.getAttribute('hidden') && !['0', 'false', 'off'].includes(properties.getAttribute('hidden'))) fail('hidden drawings');
+    // §20.4.2.5: a hidden drawing keeps its place in the story (and its XML) but is not shown.
+    const hiddenValue = properties.getAttribute('hidden')?.trim();
+    if (hiddenValue != null && !['0', '1', 'false', 'true', 'on', 'off'].includes(hiddenValue)) fail('invalid hidden flags');
+    const hidden = ['1', 'true', 'on'].includes(hiddenValue) ? { hidden: true } : {};
     const metadata = readDrawingMetadata(properties, node => readDrawingHyperlink(node, rels));
     const effects = child(inline, WP, 'effectExtent'); check(effects, WP, []);
     for (const a of [...(effects?.attributes || [])]) if (!a.namespaceURI && !['l', 't', 'r', 'b'].includes(a.localName)) fail('unsupported extra extent');
@@ -356,7 +369,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
       // rounding here would introduce anisotropic scaling before rotation.
       assets[assetId] = { scene, width: width / 9525, height: height / 9525, ...(anchor?.relativeSize ? {relativeFrame:true} : {}) };
       const frameRotation = compatibilityMode >= 14 && !anchor && !flatLine && !flatGroup ? scene.shapeRotation || scene.groupRotation || scene.lineRotation || 0 : 0;
-      return validateImage({ kind: 'drawing', retainedDrawing: true, assetId, width, height, ...(frameRotation ? { frameRotation } : {}), ...(flatLine ? { flatLine } : {}), ...(flatGroup ? { flatGroup } : {}), effectExtent, ...metadata, ...(anchor ? { anchor } : {}), id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', shell: serializeFragment(drawing) });
+      return validateImage({ kind: 'drawing', retainedDrawing: true, assetId, width, height, ...(frameRotation ? { frameRotation } : {}), ...(flatLine ? { flatLine } : {}), ...(flatGroup ? { flatGroup } : {}), effectExtent, ...metadata, ...hidden, ...(anchor ? { anchor } : {}), id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', shell: serializeFragment(drawing) });
     }
     if (data?.getAttribute('uri') === C) {
       if (sourcePart !== 'word/document.xml') fail('charts in headers or footers');
@@ -368,7 +381,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
       // that collides with the chart element's prefix (e.g. ns1).
       const attribute = reference.getAttributeNodeNS(R, 'id');
       reference.setAttributeNS(XMLNS, `xmlns:${attribute.prefix}`, R);
-      const result = validateImage({ kind: 'chart', assetId: path, relId, width, height, effectExtent, ...metadata, id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', shell: serializeFragment(drawing) });
+      const result = validateImage({ kind: 'chart', assetId: path, relId, width, height, effectExtent, ...metadata, ...hidden, id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', shell: serializeFragment(drawing) });
       assets[path] ||= { chart, width: Math.ceil(width / 9525), height: Math.ceil(height / 9525) };
       return result;
     }
@@ -379,7 +392,9 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     if (!nvPr || !nvPic || !nvPr.hasAttribute('name')) fail('missing non-visual picture properties');
     // Inner-picture links are retained, but only wp:docPr links are active.
     integer(nvPr, 'id', true); readDrawingMetadata(nvPr, node => readDrawingHyperlink(node, rels, { inactive: true })); check(nvPic, A, ['picLocks']); locks(child(nvPic, A, 'picLocks'));
-    if (nvPr?.getAttribute('hidden') && !['0', 'false', 'off'].includes(nvPr.getAttribute('hidden'))) fail('hidden pictures');
+    const pictureHidden = nvPr.getAttribute('hidden')?.trim();
+    if (pictureHidden != null && !['0', '1', 'false', 'true', 'on', 'off'].includes(pictureHidden)) fail('invalid hidden picture flags');
+    if (['1', 'true', 'on'].includes(pictureHidden)) hidden.hidden = true;
     const fill = child(pic, PIC, 'blipFill'); check(fill, A, ['blip', 'srcRect', 'stretch']);
     const rotateWithShape = !fill?.hasAttribute('rotWithShape') || boolean(fill, 'rotWithShape');
     const blip = child(fill, A, 'blip'), stretch = child(fill, A, 'stretch');
@@ -390,7 +405,8 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     const shape = child(pic, PIC, 'spPr'); if (!shape) fail('missing shape properties');
     if (shape.hasAttribute('bwMode') && !['auto', 'clr'].includes(shape.getAttribute('bwMode'))) fail('black-and-white transforms');
     check(shape, A, ['xfrm', 'prstGeom', 'custGeom', 'effectLst', 'noFill', 'solidFill', 'ln', 'extLst', 'scene3d', 'sp3d']); check(child(shape, A, 'noFill'), A, []);
-    const shadow = readPictureShadow(shape, readSchemeColor);
+    const shadow = readPictureShadow(shape, readSchemeColor, true);
+    const drawingEffects = readDrawingEffects(shape, readSchemeColor);
     const backingFill = readPictureBackingFill(shape, readSchemeColor);
     const threeD = readPicture3d(shape, readSchemeColor);
     readShapeExtensions(shape);
@@ -400,10 +416,15 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     if (flips.rotation && inner && (integer(inner, 'cx') !== width || integer(inner, 'cy') !== height)) fail('rotated pictures with differing inline and shape dimensions');
     const geom = child(shape, A, 'prstGeom');
     if (shadow?.obscured && (child(shape, A, 'custGeom') || threeD?.turn)) fail('shadow obscuration with custom or projected geometry');
-    const shadowProperties = shadow ? { shadow, shadowGeometry: geom?.getAttribute('prst') || 'rect' } : {};
-    const clipped = child(shape, A, 'custGeom') || !threeD && geom?.getAttribute('prst') === 'ellipse';
-    const clipPaths = clipped ? readShapeGeometry(shape, { width: inner ? integer(inner, 'cx') : width, height: inner ? integer(inner, 'cy') : height }, { preview }).paths : null;
-    if (!threeD && geom && !['rect', 'ellipse'].includes(geom.getAttribute('prst'))) fail('nonrectangular geometry'); check(geom, A, ['avLst']); check(child(geom, A, 'avLst'), A, []);
+    const shadowProperties = { ...(shadow ? { shadow, shadowGeometry: geom?.getAttribute('prst') || 'rect' } : {}), ...(drawingEffects ? { effects: drawingEffects } : {}) };
+    // Preset geometry other than a rectangle clips the picture (§20.1.9.18); its outline follows the preset.
+    const clipped = child(shape, A, 'custGeom') || !threeD && geom && geom.getAttribute('prst') !== 'rect';
+    let clipPaths = null;
+    if (clipped) {
+      try { clipPaths = readShapeGeometry(shape, { width: inner ? integer(inner, 'cx') : width, height: inner ? integer(inner, 'cy') : height }, { preview }).paths; }
+      catch (e) { if (e instanceof UnsupportedDocumentError) fail(`unsupported geometry (${e.message})`); throw e; }
+    }
+    if (threeD || geom?.getAttribute('prst') === 'rect') { check(geom, A, ['avLst']); check(child(geom, A, 'avLst'), A, []); }
     const readAsset = (reference, vector = false) => {
       const relId = reference.getAttributeNS(R, 'embed'), matches = [...(rels?.getElementsByTagNameNS(REL, 'Relationship') || [])].filter(n => n.getAttribute('Id') === relId);
       if (!relId || matches.length !== 1) fail('missing or ambiguous image relationships');
@@ -444,15 +465,16 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
     const aspectLocked = [child(frame, A, 'graphicFrameLocks'), child(nvPic, A, 'picLocks')].some(n => ['1', 'true', 'on'].includes(n?.getAttribute('noChangeAspect')));
     // Ordinary floating pictures retain crop/reflections on the image itself;
     // custom geometry below retains them inside its clipped picture scene.
-    const result = { assetId: path, ...(opacity !== 1 ? { opacity } : {}), ...(anchor?.relativeSize ? { retainedDrawing: true, relativeSizeFit: true } : {}), ...(vector ? { fallbackAssetId: raster.path, fallbackRelId: raster.relId } : {}), width, height, crop, effectExtent, rotateWithShape, ...flips, ...metadata, ...(anchor ? { anchor } : {}), id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', aspectLocked, relId, shell: serializeFragment(drawing) };
-    if (clipPaths || outline || (backingFill || shadow) && !threeD) {
-      if (threeD || flips.rotation || !rotateWithShape) fail('custom picture geometry with 3D or rotation');
+    const result = { assetId: path, ...hidden, ...(opacity !== 1 ? { opacity } : {}), ...(anchor?.relativeSize ? { retainedDrawing: true, relativeSizeFit: true } : {}), ...(vector ? { fallbackAssetId: raster.path, fallbackRelId: raster.relId } : {}), width, height, crop, effectExtent, rotateWithShape, ...flips, ...metadata, ...(anchor ? { anchor } : {}), id, name: properties.getAttribute('name'), alt: properties.getAttribute('descr') || '', aspectLocked, relId, shell: serializeFragment(drawing) };
+    if (clipPaths || outline || (backingFill || shadow || drawingEffects) && !threeD) {
+      // The scene paints the unrotated frame; the page rotates it like any picture (image.rotation).
+      if (threeD || !rotateWithShape) fail('custom picture geometry with 3D or nonrotating fills');
       const assetId = drawingAssetId(id);
       if (assets[assetId]) fail('duplicate drawing asset');
       const picture = { type: 'picture', width, height, ...(clipPaths ? { clipPaths } : {}), image: { assetId: path, crop, ...flips, ...(opacity !== 1 ? { opacity } : {}) } };
       assets[assetId] = { scene: pictureOutlineScene(picture, outline || backingFill ? readShapeGeometry(shape, { width, height }, { preview }).paths : [], outline, backingFill), width: width / 9525, height: height / 9525, ...shadowProperties };
       delete result.opacity; delete result.flipH; delete result.flipV; delete result.crop;
-      return validateImage({ ...result, kind: 'drawing', retainedDrawing: true, assetId });
+      try { return validateImage({ ...result, kind: 'drawing', retainedDrawing: true, assetId }); } catch (e) { fail(e.message); }
     }
     if (threeD) {
       if (flips.flipH || flips.flipV || flips.rotation || !rotateWithShape) fail('transformed 3D picture frames');
@@ -582,6 +604,7 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
             }
             continue;
           }
+          if (pair.type === 'biLevel') { make(A, 'a:biLevel', { thresh: Math.round(pair.threshold * 100000) }, blip); continue; }
           make(A, 'a:lum', { bright: percent(pair.brightness), contrast: percent(pair.contrast) }, blip); continue;
         }
         const effect = make(A, 'a:duotone', {}, blip);

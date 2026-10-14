@@ -9,7 +9,7 @@ const wrapChoice = async (page, name) => {
 };
 const checkedWrap = async page => {
   await page.locator('.ribbon-card').getByRole('button', { name: 'Wrap Text', exact: true }).click();
-  const name = await page.getByRole('menuitemradio', { checked: true }).textContent();
+  const name = await page.getByRole('menuitemradio', { checked: true }).first().textContent();
   await page.keyboard.press('Escape');
   return name.trim();
 };

@@ -24,12 +24,13 @@ test('inserts a shape, formats and resizes it, and saves editable DrawingML', as
   const frame = await page.locator('.canvas-image-frame').boundingBox(), surface = await page.locator('canvas.canvas-page').first().boundingBox();
   const inside = { x: frame.x - surface.x + frame.width / 2, y: frame.y - surface.y + frame.height * 0.8 };
   await expect.poll(() => pixel(page, inside.x, inside.y)).not.toEqual([255, 255, 255]);
-  await page.getByRole('button', { name: 'Shape Fill' }).click();
-  await page.getByRole('menuitemradio', { name: 'No Fill' }).click();
+  await page.getByRole('button', { name: 'Shape Fill', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'No Fill' }).click();
   await expect.poll(() => pixel(page, inside.x, inside.y)).toEqual([255, 255, 255]);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => pixel(page, inside.x, inside.y)).not.toEqual([255, 255, 255]);
-  await page.getByRole('button', { name: 'Weight', exact: true }).click();
+  await page.getByRole('button', { name: 'Shape Outline', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Weight' }).click();
   await page.getByRole('menuitemradio', { name: '3 pt', exact: true }).click();
   await width.fill('2'); await width.press('Enter');
   await expect(width).toHaveValue('2');
@@ -47,7 +48,8 @@ test('inserts a shape, formats and resizes it, and saves editable DrawingML', as
   await expect(page.getByRole('tab', { name: 'Shape Format' })).toBeVisible();
   await page.getByRole('tab', { name: 'Shape Format' }).click();
   await expect(page.getByRole('spinbutton', { name: 'Shape width (in)' })).toHaveValue(String(resized));
-  await page.getByRole('button', { name: 'Weight', exact: true }).click();
+  await page.getByRole('button', { name: 'Shape Outline', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Weight' }).click();
   await expect(page.getByRole('menuitemradio', { name: '3 pt', exact: true })).toHaveAttribute('aria-checked', 'true');
   expect(errors).toEqual([]);
 });
@@ -71,8 +73,8 @@ test('inserts a text box, edits its text, recolors it and saves its paragraphs',
   await expect(dialog).toHaveCount(0);
   await input.evaluate(el => { const at = el.value.indexOf('￼'); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
   await page.getByRole('tab', { name: 'Shape Format' }).click();
-  await page.getByRole('button', { name: 'Shape Fill' }).click();
-  await page.getByRole('menu', { name: 'Shape Fill' }).getByRole('menuitemradio').nth(18).click();
+  await page.getByRole('button', { name: 'Shape Fill', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Light Green', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit Text', exact: true })).toBeEnabled();
   const path = info.outputPath('text-box.docx');
   const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);

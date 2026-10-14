@@ -9,6 +9,7 @@ export function resolveDrawingCollisions(frames, pages) {
   if (!frames.some(f => f.image.anchor.allowOverlap === false)) return;
   const byPage = new Map();
   for (const frame of frames) {
+    if (frame.image.hidden) continue;
     const earlier = byPage.get(frame.page) || [];
     const obstacles = earlier.filter(other => frame.image.anchor.allowOverlap === false || other.image.anchor.allowOverlap === false);
     // Moving right or down is monotonic. Revisit earlier obstacles after each

@@ -1,4 +1,5 @@
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
+import { pruneReleasedMedia } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
 import { completedSpelling, bodySpellingCache, proofingFingerprint } from './docx-proofing-cache.js';
 import { retainSectionStoryReferences } from './section-story-edit.js';
@@ -1982,6 +1983,8 @@ export class DocxPackage {
     // The view the document was last shown in (docx-view-settings.js), only when the user changed it.
     if (this.documentView && this.documentView !== (this.initialDocumentView ?? 'print')) writeDocumentView(parts, this.documentView);
     this.pruneFootnotes(parts, paragraphs);
+    // Media that Compress Pictures replaced, once nothing in the package uses it (docx-media-release.js).
+    pruneReleasedMedia(parts, this.releasedMedia);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     this.writeCoreProperties(parts);

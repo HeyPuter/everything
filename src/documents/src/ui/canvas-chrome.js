@@ -521,6 +521,13 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   // Feature modules add their own groups: w.extendTab(tabId, kit) returns groups, each optionally
   // placed `after` an existing group id (otherwise appended), or taking the place of the group it `replaces`.
   const kit = { command, menuButton, split, rows, divider, large, small, when, check, inDocument, engineReady, focusEditor, separator, commandIconEl };
+  // Picture Format, Shape Format and the Layout tab's Arrange group from the drawing module (views/pictures.js).
+  const drawingTabs = w.drawingTabs?.(kit);
+  if (drawingTabs) {
+    picture.groups = drawingTabs.picture; shapeFormat.groups = drawingTabs.shape;
+    const at = layout.groups.findIndex(g => g.id === 'arrange');
+    if (at >= 0) layout.groups.splice(at, 1, drawingTabs.layoutArrange);
+  }
   // Standard tabs from feature modules ({ id, label, groups, after }), placed after the tab named by `after`.
   const standardTabs = [home, insert, design, layout, references, review, view];
   for (const tab of w.extraTabs?.(kit) || []) { const at = standardTabs.findIndex(t => t.id === tab.after); standardTabs.splice(at < 0 ? standardTabs.length : at + 1, 0, tab); }

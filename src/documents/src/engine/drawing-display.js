@@ -1,7 +1,7 @@
 // Native screen controls currently establish pixel placement for axis-aligned
 // solid vector scenes. Other content keeps its existing raster and origin.
 export function supportsDrawingDisplay(asset) {
-  if (asset.shadow) return false;
+  if (asset.shadow || asset.effects || asset.scene.effects) return false;
   let outlined = false;
   const visit = node => {
     if (!['shape','group'].includes(node.type) || node.text || node.shadow || node.flipH || node.flipV ||

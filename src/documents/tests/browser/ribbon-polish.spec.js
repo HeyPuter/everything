@@ -54,7 +54,8 @@ test('related table, picture and shape commands have distinct icons', async ({ p
   await page.locator('.shape-gallery-item').nth(2).click();
   await page.locator('canvas.canvas-page').first().click({ position: { x: 200, y: 400 } });
   await tab(page, 'Shape Format').click();
-  expect(await iconOf(page, 'Delete Shape')).not.toBe(deleteTable);
+  expect(await iconOf(page, 'Edit Shape')).not.toBe(deleteTable);
+  expect(await iconOf(page, 'Shape Fill')).not.toBe(await iconOf(page, 'Shape Effects'));
 });
 
 test('large commands, split buttons and titled fields fit inside their ribbon group', async ({ page }) => {

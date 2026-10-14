@@ -2,7 +2,8 @@ import { EMU_PER_PX, isSideWrappedImage } from './images.js';
 
 // §20.4.2.17: distances expand the drawing's rectangular exclusion area.
 export function squareExclusions(layout) {
-  return layout.floatingObjects.filter(f => isSideWrappedImage(f.image)).map(f => {
+  // Hidden drawings (§20.4.2.5) do not push text aside.
+  return layout.floatingObjects.filter(f => isSideWrappedImage(f.image) && !f.image.hidden).map(f => {
     const d = f.image.anchor.distances, e = f.image.effectExtent || {};
     return { page: f.page, left: f.x - ((d?.L || 0) + (e.left || 0)) / EMU_PER_PX,
       right: f.x + f.width + ((d?.R || 0) + (e.right || 0)) / EMU_PER_PX,

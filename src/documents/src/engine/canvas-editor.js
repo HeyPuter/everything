@@ -624,7 +624,8 @@ export class CanvasEditor {
       for (const pageStory of [true, false]) {
         const floatingObjects = pageStory ? this.storyLayout.floatingObjects : this.layout.floatingObjects || [];
         const paintFloating = behind => {
-          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind && !this.hiddenDrawing?.(f.image)) {
+          // A hidden drawing (§20.4.2.5) keeps its anchor and place but paints nothing; hidden ink likewise.
+          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind && !this.hiddenDrawing?.(f.image) && !f.image.hidden) {
             if (f.cellClip) { ctx.save(); ctx.beginPath(); ctx.rect(f.cellClip.left ?? 0, f.cellClip.top, (f.cellClip.right ?? geometry.width) - (f.cellClip.left ?? 0), f.cellClip.bottom - f.cellClip.top); ctx.clip(); }
             const angle = normalizedRotation(f.image.rotation);
             if (angle) {
@@ -748,7 +749,7 @@ export class CanvasEditor {
                 if (clipImage) { ctx.save(); ctx.beginPath(); ctx.rect(0, line.y, geometry.width, line.height); ctx.clip(); }
                 const upright = fragment.uprightImage;
                 if (upright) { ctx.save(); leaveCellText(ctx, physical.cellText.matrix); }
-                const bitmap = this.hiddenDrawing?.(fragment.image) ? null : this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
+                const bitmap = this.hiddenDrawing?.(fragment.image) || fragment.image.hidden ? null : this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
                 if (bitmap) {
                   if (fragment.image.opacity !== undefined) { ctx.save(); ctx.globalAlpha *= fragment.image.opacity; }
                   const { flipH, flipV } = fragment.image, angle = normalizedRotation(fragment.image.rotation), transformed = flipH || flipV || angle;
@@ -912,6 +913,8 @@ export class CanvasEditor {
     if (e.button !== 0 || this.composition) return;
     this.typingGroup = null; this.deleteGroup = null;
     e.preventDefault();
+    // Crop mode and Shift+click drawing selection take the press first (image-interaction.js).
+    if (this.imageInteraction.pointerDown(e)) return;
     if (this.session.path !== null) {
       const story = this.storyAtEvent(e);
       if (story && this.pageStories.stories[story.pageStory].editable && (story.pageStory !== this.session.path || story.page !== this.storyPage)) this.editStory(story.pageStory, story.page);
@@ -1226,6 +1229,7 @@ export class CanvasEditor {
   }
   keydown(e) {
     if (e.isComposing || this.composition || e.keyCode === 229) return;
+    if (this.imageInteraction.keydown(e)) return;
     if (e.key === 'F9' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       e.preventDefault(); if (this.onUpdateFields) this.onUpdateFields(); else this.updatePageReferences(); return;
     }

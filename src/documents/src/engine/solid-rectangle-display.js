@@ -17,7 +17,7 @@ export function rectanglePathBounds(path,width,height) {
 }
 
 export function supportsSolidRectangleDisplay(asset) {
-  if(asset.shadow || asset.scene.type==='picture3d')return false;
+  if(asset.shadow || asset.effects || asset.scene.effects || asset.scene.type==='picture3d')return false;
   let filled=false;
   const visit=node=>{
     if(!['shape','group'].includes(node.type) || node.text || node.shadow || node.outline || node.flipH || node.flipV ||
