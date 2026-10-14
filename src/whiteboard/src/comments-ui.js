@@ -16,7 +16,10 @@ import {
   mentions,
 } from "./comments.js";
 import { canonicalLanguage } from "./accessibility/language-tag.js";
-import { authoredTextHTML } from "./accessibility/object-content.js";
+import {
+  authoredTextHTML,
+  objectNameHTML,
+} from "./accessibility/object-content.js";
 import { keepReadingOrder } from "./accessibility/reading-order.js";
 import { formatTextRuns, replaceTextRuns, sliceTextRuns } from "./rich-text.js";
 import { keepPageFocus, keepPaginationFocus } from "./paging.js";
@@ -42,6 +45,21 @@ export function createCommentsUI(api) {
   let indexedItems,
     indexedLength = -1,
     itemIndex = new Map();
+  // Which object a discussion is on, for a screen reader that cannot see the
+  // pin sitting on it. An object hidden or face down is not named.
+  function attachedTo(c, byId = itemsById()) {
+    const s = state();
+    if (
+      !c?.anchorId ||
+      s.hidden?.has(c.anchorId) ||
+      s.concealed?.has(c.anchorId)
+    )
+      return "";
+    const anchor = byId.get(c.anchorId);
+    return anchor
+      ? escape(labelled(t("Attached to"), "")) + objectNameHTML(anchor, 80)
+      : "";
+  }
   function itemsById() {
     const items = state().board.items;
     if (items !== indexedItems || items.length !== indexedLength) {
@@ -958,6 +976,11 @@ export function createCommentsUI(api) {
           commentActivity(b) - commentActivity(a) || a.id.localeCompare(b.id),
       );
     page = Math.max(0, Math.min(page, Math.ceil(results.length / 50) - 1));
+    const byId = itemsById(),
+      on = (c) => {
+        const html = attachedTo(c, byId);
+        return html ? `<span class="sr-only">. ${html}</span>` : "";
+      };
     panel.querySelector("#comment-list").innerHTML =
       results
         .slice(page * 50, page * 50 + 50)
@@ -966,7 +989,7 @@ export function createCommentsUI(api) {
           // New messages from others are marked in words as well as with
           // the dot their pin has, for discussions whose pin is out of view.
           const fresh = unread(c);
-          return `<button class="comment-summary${fresh ? " is-unread" : ""}" data-thread="${escape(c.id)}" aria-pressed="${active === c.id}"><strong data-user-content>${escape(first?.authorId === s.author.id ? t("You") : first?.authorName || t("Deleted comment"))}</strong><span data-user-content>${first ? authoredTextHTML(first, commentExcerpt(first.text, 120)) : escape(t("Deleted comment"))}</span><small>${fresh ? `<b class="comment-new">${escape(t("New messages"))}</b> · ` : ""}${c.resolved ? t("Resolved") : t("Open")} · ${c.messages.filter((m) => !m.deleted).length}</small></button>`;
+          return `<button class="comment-summary${fresh ? " is-unread" : ""}" data-thread="${escape(c.id)}" aria-pressed="${active === c.id}"><strong data-user-content>${escape(first?.authorId === s.author.id ? t("You") : first?.authorName || t("Deleted comment"))}</strong><span data-user-content>${first ? authoredTextHTML(first, commentExcerpt(first.text, 120)) : escape(t("Deleted comment"))}</span><small>${fresh ? `<b class="comment-new">${escape(t("New messages"))}</b> · ` : ""}${c.resolved ? t("Resolved") : t("Open")} · ${c.messages.filter((m) => !m.deleted).length}</small>${on(c)}</button>`;
         })
         .join("") || `<p class="dialog-copy">${t("No comments to show.")}</p>`;
     for (const b of panel.querySelectorAll("[data-thread]"))
@@ -1165,7 +1188,10 @@ export function createCommentsUI(api) {
       const fresh = unread(c);
       if (pin.classList.contains("is-unread") !== fresh)
         pin.classList.toggle("is-unread", fresh);
-      const named = fresh ? `${name} · ${escape(t("New messages"))}` : name;
+      const on = attachedTo(c, byId);
+      const named = [name, fresh && escape(t("New messages")), on]
+        .filter(Boolean)
+        .join(" · ");
       if (pin.labelMarkup !== named) {
         label.innerHTML = named;
         pin.labelMarkup = named;

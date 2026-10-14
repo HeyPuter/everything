@@ -1075,6 +1075,7 @@ const pairs = {
   "Out of the frame": "Hors du cadre",
   Size: "Taille",
   "Connects to": "Relié à",
+  "Attached to": "Attaché à",
   "Connected from": "Relié depuis",
   "open discussion": "discussion ouverte",
   "open discussions": "discussions ouvertes",

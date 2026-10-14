@@ -46799,6 +46799,18 @@ test("a second comment added to an object gets a pin of its own beside the first
     assert.equal(pins.length, 2);
     const [[x1, y1], [x2, y2]] = pins;
     assert.ok(Math.hypot(x1 - x2, y1 - y2) >= 24, JSON.stringify(pins));
+    // Pins and the list both say which object a discussion is on.
+    for (const pin of doc.querySelectorAll(".comment-pin"))
+      assert.match(
+        pin.textContent,
+        /^Comment: (First|Second) thought · Attached to: Sticky note: Discussed$/,
+      );
+    await click('[data-action="comments"]');
+    for (const entry of doc.querySelectorAll(".comment-summary"))
+      assert.match(
+        entry.querySelector(".sr-only").textContent,
+        /^\. Attached to: Sticky note: Discussed$/,
+      );
   } finally {
     await app.close();
   }
