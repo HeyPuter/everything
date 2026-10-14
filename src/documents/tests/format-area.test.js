@@ -13,7 +13,8 @@ import { closeAllModals } from '../src/ui/modal.js';
 
 vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn(), announce: vi.fn() }));
 beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {} })); document.body.replaceChildren(el('div', 'app')); });
-afterEach(() => { closeAllModals(); document.body.replaceChildren(); vi.unstubAllGlobals(); });
+// Closing dialogs finishes after their exit animation; let those timers run before the DOM goes away.
+afterEach(async () => { closeAllModals(); await new Promise(resolve => setTimeout(resolve, 250)); document.body.replaceChildren(); vi.unstubAllGlobals(); });
 function el(tag, id) { const node = document.createElement(tag); if (id) node.id = id; return node; }
 
 // jsdom's typed arrays come from another realm, so these documents are built without a DOCX package.
