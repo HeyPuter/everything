@@ -127,6 +127,12 @@ export function createInsertFeatures(host) {
     actionButtonsMenu: actions.menuItems,
   });
 
+  /** Equations for other tools (Ink to Math): draw one, then place it. */
+  const equations = {
+    prepare: (source, color, pt) => equation.prepareEquation(source, color, pt),
+    place: (slide, prepared, at) => equation.placeEquation(slide, prepared, at),
+  };
+
   const tabs = () => [
     icons.tab(),
     media.playbackTab(),
@@ -226,6 +232,7 @@ export function createInsertFeatures(host) {
   return {
     contextItems,
     api,
+    equations,
     tabs,
     open,
     menuItems,

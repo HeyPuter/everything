@@ -509,10 +509,12 @@ export function createDrawTools({
     })();
     const lines = value.split("\n").length;
     const size = fittingFontSize(box.h, lines);
-    // An equation, where the editor can set one, from the LaTeX read.
+    // An equation object, where the editor can make one, from the LaTeX
+    // read; a text box of the LaTeX otherwise.
+    const equations = typeof equation === "function" ? equation() : equation;
     const prepared =
-      mode === "math" && equation?.prepare
-        ? await equation.prepare(value, color, size)
+      mode === "math" && equations?.prepare && equations?.place
+        ? await equations.prepare(value, color, size)
         : null;
     let made = null;
     await mutateSlide(target, (s) => {
@@ -521,7 +523,7 @@ export function createDrawTools({
         if (shape) P.removeShape(shape);
       }
       if (prepared) {
-        made = equation.place(s, prepared, { x: box.x, y: box.y });
+        made = equations.place(s, prepared, { x: box.x, y: box.y });
         return;
       }
       const width = Math.max(box.w, (size * PT * value.length) / lines / 1.9);

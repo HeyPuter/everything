@@ -3641,6 +3641,9 @@ const drawTools = createDrawTools({
   chat: () =>
     cloud.canAI() ? globalThis.puter.ai.chat.bind(globalThis.puter.ai) : null,
   aiModel: AI_MODEL,
+  // Ink to Math sets what it reads as an equation object (src/insert),
+  // looked up when used: the insert features are made after the Draw tab.
+  equation: () => insertFeatures?.equations || null,
   shapeLabels: Object.fromEntries(
     SHAPES.map(([preset, label]) => [preset, label]),
   ),

@@ -253,8 +253,8 @@ test("Ink to Text and Ink to Math ask the AI to read the ink", async ({
   expect(asked[0].options.model).toBeTruthy();
   let { shapes } = await download(page);
   expect(P.getShapeText(shapes[0])).toBe("Hello there");
-  // Math: the answer is set as an equation (LaTeX while the editor has no
-  // equation objects).
+  // Math: the answer becomes an equation object, opened again for editing
+  // by a double-click.
   await page.evaluate(() => {
     window.puter.ai.chat = async () => ({ message: { content: "$$x^2+1$$" } });
   });
@@ -262,10 +262,23 @@ test("Ink to Text and Ink to Math ask the AI to read the ink", async ({
   await stroke(page, wave(400, 330));
   await command(page, "draw-ink-to-math");
   await expect(page.locator("#toast")).toContainText("Ink converted to math");
+  await expect(hits(page)).toHaveCount(2);
   ({ shapes } = await download(page));
   expect(shapes).toHaveLength(2);
-  expect(P.getShapeText(shapes[1])).toBe("x^2+1");
+  expect(P.getShapeKind(shapes[1])).toBe("picture");
+  expect(P.getShapeObjectData(shapes[1])).toMatchObject({
+    type: "equation",
+    source: "x^2+1",
+  });
+  expect(P.getShapeDescription(shapes[1])).toBe("Equation: x^2+1");
   expect(P.getShapeName(shapes[1])).toMatch(/^Equation /);
+  await page.locator(".object-hit").nth(1).dblclick();
+  const edit = page.getByRole("dialog", { name: "Edit Equation" });
+  await expect(edit).toBeVisible();
+  await expect(edit.getByRole("textbox", { name: /Equation/ })).toHaveValue(
+    "x^2+1",
+  );
+  await page.keyboard.press("Escape");
 });
 
 test("Ink Replay plays the strokes back over the slide and closes with Escape", async ({

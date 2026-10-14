@@ -147,7 +147,8 @@ what is being added, and its status. Items are checked off as they land.
       assistant. (`src/start/deck-from-prompt.js`)
 - [x] Library screen: section rail (Home, New, Recent, Open), Themes strip,
       Recent / Pinned filter, pin to top, Last opened. (`src/start/`)
-- [ ] Ink to Math produces a LaTeX text box until equation objects land;
-      `createDrawTools({ equation: { prepare, place } })` is the seam.
+- [x] Ink to Math makes a real equation object (src/insert's
+      `equations.prepare/place`), re-editable by double-click; a LaTeX text
+      box only where that API is missing.
 - [ ] A Shared section in the rail, once Puter exposes files shared with
       the user.
