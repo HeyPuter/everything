@@ -984,7 +984,7 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .fc-preset:focus-visible .fc-preset-glyph { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fc-preset:disabled { opacity: .4; cursor: default; }
 @media (hover: hover) { .fc-preset:hover:not(:disabled) .fc-preset-glyph { border-color: var(--accent); } }
-.fc-diagram { display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; grid-template-rows: 150px 30px; gap: 8px; }
+.fc-diagram { display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; grid-template-rows: 190px 30px; gap: 8px; }
 .fc-diagram-rows { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; justify-content: space-between; }
 .fc-diagram-cols { grid-column: 2; grid-row: 2; display: flex; justify-content: space-between; }
 .fc-diagram-box { grid-column: 2; grid-row: 1; display: flex; min-width: 0; }
