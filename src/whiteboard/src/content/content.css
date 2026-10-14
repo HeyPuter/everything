@@ -30,7 +30,7 @@
   color: var(--text);
   flex: none;
 }
-.embed-live-header span {
+.embed-live-header > span {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -39,8 +39,17 @@
   font-weight: 600;
 }
 .embed-live-header a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent);
   white-space: nowrap;
+}
+.embed-live-header a svg {
+  display: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 .embed-live-header button {
   padding: 4px 8px;
@@ -187,9 +196,37 @@
 .content-choice {
   flex-wrap: wrap;
 }
+/* On narrow screens Open in new tab is an icon button, named by its
+   hidden words and titled with them. */
 @media (max-width: 560px) {
   .embed-live-header a {
-    display: none;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 6px;
+  }
+  .embed-live-header a:hover {
+    background: var(--hover);
+  }
+  .embed-live-header a svg {
+    display: block;
+  }
+  .embed-live-header a span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+@media (pointer: coarse) {
+  .embed-live-header a,
+  .embed-live-header button {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 /* On phones the drawing tools keep to two rows; Import document stays in

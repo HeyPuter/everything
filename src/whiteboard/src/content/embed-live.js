@@ -177,7 +177,13 @@ export function createLiveEmbeds(api) {
     link.href = i.url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.textContent = t("Open in new tab");
+    // On narrow screens only the icon shows; the words stay as its name.
+    link.title = t("Open in new tab");
+    const linkIcon = createElement(ExternalLink);
+    linkIcon.setAttribute("aria-hidden", "true");
+    const linkText = document.createElement("span");
+    linkText.textContent = t("Open in new tab");
+    link.append(linkIcon, linkText);
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "embed-close";
@@ -256,11 +262,32 @@ export function createLiveEmbeds(api) {
     const ox = rect.left - wrapRect.left,
       oy = rect.top - wrapRect.top;
     const selection = api.selection();
+    // A live embed covers its card, kept within the visible board and
+    // below the board's top controls, so its header and Close stay in
+    // reach when the card is partly off-screen or larger than a phone.
+    const margin = 8,
+      controls = live.size
+        ? [...layer.parentNode.querySelectorAll(".canvas-top > *")]
+            .map((control) => control.getBoundingClientRect())
+            .filter((box) => box.width && box.height)
+        : [];
     const place = (node, i) => {
-      node.style.left = `${ox + i.x * view.z + view.x}px`;
-      node.style.top = `${oy + i.y * view.z + view.y}px`;
-      node.style.width = `${Math.max(0, i.w * view.z)}px`;
-      node.style.height = `${Math.max(0, i.h * view.z)}px`;
+      const minX = ox + margin,
+        maxX = ox + rect.width - margin,
+        maxY = oy + rect.height - margin;
+      const w = Math.min(Math.max(0, i.w * view.z), Math.max(0, maxX - minX)),
+        x = Math.min(Math.max(ox + i.x * view.z + view.x, minX), maxX - w);
+      // The top controls only push down an embed that is under them.
+      let minY = oy + margin;
+      for (const box of controls)
+        if (x < box.right - wrapRect.left && x + w > box.left - wrapRect.left)
+          minY = Math.max(minY, box.bottom - wrapRect.top + margin);
+      const h = Math.min(Math.max(0, i.h * view.z), Math.max(0, maxY - minY)),
+        y = Math.min(Math.max(oy + i.y * view.z + view.y, minY), maxY - h);
+      node.style.left = `${x}px`;
+      node.style.top = `${y}px`;
+      node.style.width = `${w}px`;
+      node.style.height = `${h}px`;
     };
     for (const [id, entry] of live) {
       const i = board.items.find((x) => x.id === id);

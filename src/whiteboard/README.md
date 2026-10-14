@@ -123,7 +123,7 @@ On an organization board whose organization has enabled Jira (Organization setti
 
 ## Embeds, Google Workspace, and document import
 
-**Embed content** (More tools, command search, or pasting a supported link) adds a resizable embed object. On the board it is a lightweight preview card with the provider badge, title, and address, so large boards stay fast and every export (PNG, JPEG, PDF, SVG, PowerPoint) stays static. Select the card and choose **Open live**, press Enter, or double-click to load the interactive content in a sandboxed iframe placed over the canvas. Live embeds follow pan and zoom, and close when scrolled out of view, when another object is selected, or with Escape, so one is open at a time. **Object properties** edits the title or link.
+**Embed content** (More tools, command search, or pasting a supported link) adds a resizable embed object. On the board it is a lightweight preview card with the provider badge, title, and address, so large boards stay fast and every export (PNG, JPEG, PDF, SVG, PowerPoint) stays static. Select the card and choose **Open live**, press Enter, or double-click to load the interactive content in a sandboxed iframe placed over the canvas. Live embeds follow pan and zoom, and close when scrolled out of view, when another object is selected, or with Escape, so one is open at a time. A live embed stays within the visible board and below its top controls, shrinking to fit a phone screen, so its header's **Open in new tab** (an icon button on narrow screens) and **Close** stay in reach. **Object properties** edits the title or link.
 
 Supported services, each normalized to its official embed address:
 

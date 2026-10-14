@@ -2611,6 +2611,16 @@ test("built app: embeds, paste choice, live overlay, and document import are acc
   try {
     await click('[data-action="new"]');
     await until(() => doc.querySelector("#canvas"), "Board opened");
+    // The board's visible area, which jsdom does not lay out: live embeds
+    // stay within it.
+    doc.querySelector("#canvas").getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 1200,
+      bottom: 900,
+      width: 1200,
+      height: 900,
+    });
     await tick();
     // Entry points: toolbar, drop hint, More tools.
     const importButton = doc.querySelector(
@@ -4026,6 +4036,91 @@ test("a focused Open live button that hides hands focus to the canvas", async ()
     opener.click();
     assert.equal(opener.hidden, true);
     assert.equal(document.activeElement.className, "embed-close");
+  } finally {
+    Object.assign(globalThis, saved);
+    dom.window.close();
+  }
+});
+
+test("a live embed stays within the visible board, below its top controls, with Open in new tab named", async () => {
+  const dom = new JSDOM(
+    `<div class="canvas-wrap"><div class="canvas-top"><span class="board-tag"></span></div><canvas id="canvas" tabindex="0"></canvas></div>`,
+    { url: "https://whiteboard.puter.site/" },
+  );
+  const saved = {
+    document: globalThis.document,
+    location: globalThis.location,
+  };
+  Object.assign(globalThis, {
+    document: dom.window.document,
+    location: dom.window.location,
+  });
+  try {
+    const { createLiveEmbeds } = await import("../src/content/embed-live.js");
+    const embed = {
+      id: "e1",
+      type: "embed",
+      x: -60,
+      y: 30,
+      w: 480,
+      h: 300,
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      provider: "youtube",
+      text: "Answer key video",
+    };
+    let view = { x: 0, y: 0, z: 1 },
+      width = 390;
+    const live = createLiveEmbeds({
+      board: () => ({ items: [embed] }),
+      selection: () => new Set(["e1"]),
+      view: () => view,
+      allows: () => true,
+      toast() {},
+      hidden: () => false,
+    });
+    const box = (left, top, w, h) => ({
+      left,
+      top,
+      right: left + w,
+      bottom: top + h,
+      width: w,
+      height: h,
+    });
+    document.querySelector("#canvas").getBoundingClientRect = () =>
+      box(0, 0, width, 700);
+    document.querySelector(".canvas-wrap").getBoundingClientRect = () =>
+      box(0, 0, width, 700);
+    // The board's top controls, here the board tag over the left side.
+    document.querySelector(".board-tag").getBoundingClientRect = () =>
+      box(16, 16, 160, 40);
+    assert.equal(live.open(embed), true);
+    const node = document.querySelector(".embed-live");
+    const px = (value) => parseFloat(value);
+    // On a phone the embed, wider than the screen and partly off it, fits
+    // inside with a margin and sits below the board tag it would be under.
+    assert.equal(px(node.style.left), 8);
+    assert.equal(px(node.style.width), 374);
+    assert.equal(px(node.style.top), 64);
+    assert.equal(px(node.style.height), 300);
+    // Open in new tab stays, with its words as its name and tooltip.
+    const link = node.querySelector(".embed-live-header a");
+    assert.equal(link.textContent, "Open in new tab");
+    assert.equal(link.title, "Open in new tab");
+    assert.equal(link.querySelector("svg").getAttribute("aria-hidden"), "true");
+    // Taller than the board: it shrinks to fit.
+    embed.h = 900;
+    live.render();
+    assert.equal(px(node.style.top), 64);
+    assert.equal(px(node.style.height), 700 - 8 - 64);
+    // On a wide screen, an embed in full view keeps its card's place.
+    embed.h = 300;
+    width = 1280;
+    view = { x: 400, y: 200, z: 1 };
+    live.render();
+    assert.deepEqual(
+      [node.style.left, node.style.top, node.style.width, node.style.height],
+      ["340px", "230px", "480px", "300px"],
+    );
   } finally {
     Object.assign(globalThis, saved);
     dom.window.close();
