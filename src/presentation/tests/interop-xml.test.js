@@ -80,3 +80,36 @@ describe("media timing", () => {
     expect(P.getShapeMedia(shape).options.start).toBe("whenClicked");
   });
 });
+
+describe("rendering matches desktop readers", () => {
+  it("puts the first stop of a path gradient at its focus", async () => {
+    const { renderSlideToSvg } =
+      await import("../lib/pptx-preview/src/index.ts");
+    const pres = createDeck("title");
+    const slide = addLayoutSlide(pres, "blank");
+    const shape = P.addSlideShape(slide, {
+      preset: "ellipse",
+      x: 0,
+      y: 0,
+      w: 914400,
+      h: 914400,
+    });
+    P.setShapeGradientFill(shape, {
+      stops: [
+        { offset: 0, color: "#FFFFFF" },
+        { offset: 1, color: "#2F5597" },
+      ],
+      path: "circle",
+      focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 },
+    });
+    const svg = renderSlideToSvg(pres, slide);
+    expect(svg).toContain("<radialGradient");
+    // The radial progress runs from the focus (0) to the edge (1); the red
+    // channel's transfer gives the color at each: white at the focus.
+    const red = svg.match(
+      /<feFuncR[^>]*amplitude="([^"]+)"[^>]*offset="([^"]+)"/,
+    );
+    expect(Number(red[2])).toBeCloseTo(1, 5);
+    expect(Number(red[2]) + Number(red[1])).toBeCloseTo(0x2f / 255, 5);
+  });
+});

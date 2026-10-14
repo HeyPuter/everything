@@ -1110,17 +1110,13 @@ const gradientDef = (
     };
     const cx = (focus.left + focus.right) / 2;
     const cy = (focus.top + focus.bottom) / 2;
-    // ECMA-376 stops paint outward from the focus center; SVG's radial
-    // gradient paints from cx/cy out to r. Reverse the stops so the
-    // first-stop color sits at the center.
-    const reversed = paintStops
-      .slice()
-      .reverse()
-      .map((stop) => ({ ...stop, offset: 1 - stop.offset }));
+    // ECMA-376 stops paint outward from the focus: the first stop sits at
+    // the focus and the last at the edge (as desktop editors draw it), which
+    // is also how SVG's radial gradient runs from cx/cy out to r.
     return finish(
       "radialGradient",
       `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${Math.max(0.5, Math.max(cx, cy, 1 - cx, 1 - cy)).toFixed(4)}"`,
-      reversed,
+      paintStops,
     );
   }
   const angleRad = ((grad.angleDeg ?? 0) * Math.PI) / 180;
