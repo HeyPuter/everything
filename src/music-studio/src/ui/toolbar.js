@@ -177,9 +177,12 @@ export function createToolbar(app) {
   );
   timeMode = app.prefs.get('timeMode') || 'bst';
   let lastTimeText = '';
+  let lastPos = -1;
   const drawTime = (force) => {
     const p = app.store.project;
     const pos = app.engine.position;
+    if (!force && pos === lastPos) return;
+    lastPos = pos;
     const text = timeMode === 'bst' ? formatBST(pos, p.sig) : formatTime(pos, p.bpm);
     if (!force && text === lastTimeText) return;
     lastTimeText = text;
@@ -263,11 +266,27 @@ export function createToolbar(app) {
   const cpuText = h('span.cpu-text', '0%');
   const cpu = h('div.cpu', { role: 'meter', 'aria-label': 'Audio engine load', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', title: 'Audio engine load', dataset: { hint: 'Audio engine load: the share of real time the audio engine needs.' } }, h('span.cpu-bar', cpuFill), cpuText);
   let lastCpu = -1;
+  // Last drawn meter heights: the canvas is redrawn only when they change.
+  let lastL = -1;
+  let lastR = -1;
+  window.addEventListener('themechange', () => {
+    lastL = -1;
+  });
   const drawMeters = () => {
     const m = app.engine.meters;
     const c = meterCanvas.getContext('2d');
     const w = meterCanvas.width;
     const ht = meterCanvas.height;
+    const hl = Math.round(meterFrac(m[0]) * ht);
+    const hr = Math.round(meterFrac(m[1]) * ht);
+    if (c && (hl !== lastL || hr !== lastR)) {
+      lastL = hl;
+      lastR = hr;
+      drawMeterBars(c, w, ht, m);
+    }
+    drawCpu();
+  };
+  const drawMeterBars = (c, w, ht, m) => {
     c.clearRect(0, 0, w, ht);
     c.fillStyle = cssVar('--meter-bg');
     c.fillRect(0, 0, w, ht);
@@ -278,6 +297,8 @@ export function createToolbar(app) {
       c.fillStyle = cssVar(db > -1 ? '--meter-high' : db > -9 ? '--meter-mid' : '--meter-low');
       c.fillRect(ch * 4, ht - frac * ht, 3, frac * ht);
     }
+  };
+  const drawCpu = () => {
     const pct = Math.round((app.engine.cpu || 0) * 100);
     if (pct !== lastCpu) {
       lastCpu = pct;
@@ -326,4 +347,10 @@ export function createToolbar(app) {
   });
   sync();
   return { sync, menubar };
+}
+
+/** Meter bar height (0..1) for a linear peak on a 60 dB scale. */
+function meterFrac(peak) {
+  const p = Math.min(1, peak || 0);
+  return p > 0 ? clamp((20 * Math.log10(p) + 60) / 60, 0, 1) : 0;
 }

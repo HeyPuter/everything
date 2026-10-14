@@ -38,6 +38,7 @@
   --ok: #5cc98a;
   --warn: #e9b24c;
   --danger: #ef6b5f;
+  --danger-text: #16181b;
   --danger-soft: rgba(239, 107, 95, 0.16);
 
   /* Editor surfaces (read by canvas and WebGL renderers through cssVar). */
@@ -98,6 +99,7 @@
   --ok: #23955a;
   --warn: #b7791f;
   --danger: #cf3f33;
+  --danger-text: #ffffff;
   --danger-soft: rgba(207, 63, 51, 0.12);
 
   --grid-bg: #f4f5f7;
