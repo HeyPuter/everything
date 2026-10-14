@@ -19,7 +19,7 @@ export function bookmarkEntries(paragraphs, tables, onInvalid) {
   for (const p of paragraphs) {
     const size = length(p);
     for (const marker of sortedBookmarks(p)) {
-      if (marker.comment || invalid.has(marker.id)) continue;
+      if (marker.comment || marker.perm || invalid.has(marker.id)) continue;
       const limit = size + (marker.blockBoundary === 'after' ? 1 : 0);
       if (!Number.isInteger(marker.offset) || marker.offset < 0 || marker.offset > limit) { reject(marker.id, 'Invalid bookmark position.'); continue; }
       if (marker.edge === 'start') {
@@ -81,7 +81,8 @@ export function replaceBookmarkMarkers(oldParagraphs, replacements, start, end, 
     // not capture the inserted value; bookmarks extending outside it survive.
     if (discardedControl && marker.contentControlId === discardedControl && pos >= start && pos <= end) pos = marker.edge === 'start' ? end : start;
     if (start === end) {
-      if (pos > start || pos === start && (marker.edge === 'start' || pointIds.has(marker.id))) pos += inserted;
+      // Editing permissions grow with text typed at either edge; bookmarks keep it outside.
+      if (pos > start || pos === start && (marker.perm ? marker.edge === 'end' : marker.edge === 'start' || pointIds.has(marker.id))) pos += inserted;
     } else if (pos >= end) pos += inserted - (end - start);
     else if (pos > start) pos = start + (pointIds.has(marker.id) || marker.edge === 'end' ? inserted : 0);
     // A paragraph separator belongs to the preceding paragraph's end position.

@@ -215,6 +215,30 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
         { separator: true },
       ];
     },
+    /* ---- For the Editor pane ---- */
+    /** Misspellings found by the latest check of the current text: [{ start, end, word }]. */
+    async issues() {
+      const engine = engineReady(); if (!engine) return [];
+      rechecked = true;
+      speller ??= await loadSpeller();
+      await check();
+      return results.misspelled.filter(m => !ignoredOnce.has(`${m.start}:${m.word}`));
+    },
+    suggest(word) { return speller?.suggest(word) || []; },
+    change(m, text) { return replaceWord(m, text); },
+    changeAll(word, text) {
+      const engine = engineReady(); if (!engine || !editable()) return false;
+      const targets = results.misspelled.filter(m => m.word === word).reverse();
+      if (!targets.length) return false;
+      if (engine.session.path !== null) engine.editStory(null);
+      const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.start, m.end); engine.model.replace(text); } });
+      schedule(0); return ok;
+    },
+    ignoreOnce(m) { ignoredOnce.add(`${m.start}:${m.word}`); schedule(0); },
+    ignoreAll, addToDictionary,
+    /** Forget Ignore and Ignore All choices for this session (Reset Ignored Words). */
+    resetIgnored() { ignored.clear(); ignoredOnce.clear(); known.clear(); rechecked = true; schedule(0); onState(); },
+    get ignoredCount() { return ignored.size + ignoredOnce.size; },
     destroy() {
       clearTimeout(timer);
       const at = overlayEngine?.overlays.indexOf(overlay) ?? -1;
