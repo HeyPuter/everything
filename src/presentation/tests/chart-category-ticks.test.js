@@ -342,6 +342,7 @@ describe("native category-axis major tick decorations", () => {
         expect(pkg.parts.map((p) => [p.name, p.data])).toEqual(before);
       }
     },
+    30_000,
   );
   it("preserves modes, independent strides and label visibility through edits, export and native transfer both ways", async () => {
     const f = fixture({

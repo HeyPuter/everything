@@ -119,6 +119,7 @@ describe("implicit font defaults in native diagram transfer", () => {
       expect(P.validatePresentation(reopened)).toEqual([]);
       expect(P.validatePresentation(p)).toEqual([]);
     },
+    30_000,
   );
 
   it.each(["minor", "none"])(

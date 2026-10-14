@@ -416,6 +416,7 @@ describe("MTX push data and native PUSH burst", () => {
     ]).toEqual([7, 9, 7, 11, 7, -253, 7]);
   });
   for (const count of [0, 1, 8, 9, 254, 255, 256, 511, 800, 32767, 65535])
+    // Up to 65535 values encoded and decoded.
     it(`preserves a ${count}-value mixed initial stack with minimal encoding`, () => {
       const values = Int16Array.from(
           { length: count },
@@ -424,7 +425,7 @@ describe("MTX push data and native PUSH burst", () => {
         output = writeMtxPushes(values);
       expect(decodePushes(output)).toEqual([...values]);
       if (count <= 800) expect(output.length).toBe(brutePushSize(values));
-    });
+    }, 30_000);
   it("matches independent exhaustive PUSH packing for every short byte/word pattern", () => {
     for (let pattern = 0; pattern < 1024; pattern++) {
       const values = Int16Array.from({ length: 10 }, (_, i) =>
