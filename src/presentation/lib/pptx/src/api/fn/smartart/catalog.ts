@@ -1,6 +1,5 @@
 // The SmartArt layouts this engine authors, by category.
 import type { SmartArtItem } from "./model.ts";
-import type { LayoutFamily } from "./layout-def.ts";
 import type { LayoutFn } from "./kit.ts";
 import { FLOW_LAYOUTS } from "./layouts-flow.ts";
 import { STRUCTURE_LAYOUTS } from "./layouts-structure.ts";
@@ -41,7 +40,6 @@ export interface SmartArtLayoutInfo {
 }
 
 interface LayoutEntry extends SmartArtLayoutInfo {
-  readonly family: LayoutFamily;
   readonly fn: LayoutFn;
 }
 
@@ -75,7 +73,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Equal tiles that wrap into rows. Good for a set of peers with no order; sub-points appear inside each tile.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "snake", shape: "rect", aspect: 1.6 },
   },
   {
     id: "banner-list",
@@ -85,12 +82,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Full-width banners stacked top to bottom, each followed by its own sub-points. Suits topics with detail.",
     levels: 2,
     sample: nested(3, 1),
-    family: {
-      kind: "composite",
-      direction: "column",
-      head: "roundRect",
-      split: "above",
-    },
   },
   {
     id: "heading-columns",
@@ -100,12 +91,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Side-by-side columns, each with a colored heading over a panel of sub-points.",
     levels: 2,
     sample: nested(3, 2),
-    family: {
-      kind: "composite",
-      direction: "row",
-      head: "rect",
-      split: "above",
-    },
   },
   {
     id: "stacked-cards",
@@ -115,12 +100,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Rows with a colored tab for each heading and a light card for its sub-points.",
     levels: 2,
     sample: nested(3, 2),
-    family: {
-      kind: "composite",
-      direction: "column",
-      head: "roundRect",
-      split: "beside",
-    },
   },
   {
     id: "ruled-list",
@@ -130,12 +109,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Text separated by thin rules, headings on the left and details on the right. Light and text-focused.",
     levels: 2,
     sample: nested(3, 2),
-    family: {
-      kind: "composite",
-      direction: "column",
-      head: "rect",
-      split: "beside",
-    },
   },
   {
     id: "grouped-boxes",
@@ -145,12 +118,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Light panels that each gather a group of boxes under a shared heading.",
     levels: 3,
     sample: nested(3, 2),
-    family: {
-      kind: "composite",
-      direction: "row",
-      head: "roundRect",
-      split: "above",
-    },
   },
   // Processes
   {
@@ -161,13 +128,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Steps from left to right joined by arrows. Shows a sequence or the stages of a task.",
     levels: 2,
     sample: flat(3),
-    family: {
-      kind: "linear",
-      direction: "row",
-      shape: "roundRect",
-      aspect: 1.5,
-      arrow: "rightArrow",
-    },
   },
   {
     id: "chevrons",
@@ -177,13 +137,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Interlocking chevrons for stages that lead into each other, with details beneath each one.",
     levels: 2,
     sample: flat(4),
-    family: {
-      kind: "linear",
-      direction: "row",
-      shape: "chevron",
-      aspect: 2.5,
-      overlap: true,
-    },
   },
   {
     id: "downward-flow",
@@ -192,13 +145,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     description: "Steps from top to bottom joined by downward arrows.",
     levels: 2,
     sample: flat(3),
-    family: {
-      kind: "linear",
-      direction: "column",
-      shape: "roundRect",
-      aspect: 3,
-      arrow: "downArrow",
-    },
   },
   {
     id: "rising-steps",
@@ -208,7 +154,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Blocks that climb from left to right. Shows progress or growth through stages.",
     levels: 2,
     sample: flat(4),
-    family: { kind: "linear", direction: "row", shape: "rect", aspect: 0.8 },
   },
   {
     id: "timeline",
@@ -218,7 +163,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Markers along an arrow with labels alternating above and below. Use it for dates or milestones.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "linear", direction: "row", shape: "ellipse", aspect: 1 },
   },
   {
     id: "blocks-on-arrow",
@@ -228,12 +172,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Steps set on one broad arrow, for stages that move toward a goal.",
     levels: 2,
     sample: flat(3),
-    family: {
-      kind: "linear",
-      direction: "row",
-      shape: "roundRect",
-      aspect: 1.4,
-    },
   },
   // Cycles
   {
@@ -244,7 +182,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Circles around a ring joined by arrows. Shows stages that repeat.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "cycle", shape: "ellipse", arrows: true },
   },
   {
     id: "text-ring",
@@ -254,7 +191,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Text arranged in a circle with arrows between items. Keeps the focus on the words.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "cycle", shape: "rect", arrows: true },
   },
   {
     id: "block-ring",
@@ -264,7 +200,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Rounded blocks around a ring with arrows, for cycles with longer labels.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "cycle", shape: "roundRect", arrows: true },
   },
   {
     id: "wheel",
@@ -274,7 +209,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "A circle cut into equal slices. Shows parts of a whole or a repeating cycle.",
     levels: 2,
     sample: flat(4),
-    family: { kind: "cycle", shape: "pie", arrows: false },
   },
   {
     id: "hub-spokes",
@@ -287,7 +221,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       { text: T, level: 0 },
       ...flat(4).map((i) => ({ ...i, level: 1 })),
     ],
-    family: { kind: "cycle", shape: "ellipse", arrows: false, hub: true },
   },
   {
     id: "ring-track",
@@ -297,7 +230,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Labels riding on a continuous ring, for a loop without a start or end.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "cycle", shape: "roundRect", arrows: false },
   },
   // Hierarchies
   {
@@ -308,7 +240,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "A top-down tree with connecting lines. Shows reporting lines or any parent and child structure.",
     levels: 6,
     sample: orgSample,
-    family: { kind: "tree", shape: "rect" },
   },
   {
     id: "sideways-tree",
@@ -318,7 +249,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "A tree that grows from left to right, suited to decisions and breakdowns.",
     levels: 6,
     sample: orgSample,
-    family: { kind: "tree", shape: "rect", horizontal: true },
   },
   {
     id: "bubble-tree",
@@ -328,7 +258,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Circles linked from the top down. A softer take on a hierarchy.",
     levels: 6,
     sample: orgSample,
-    family: { kind: "tree", shape: "ellipse" },
   },
   {
     id: "layered-blocks",
@@ -337,7 +266,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     description: "Each item spans the items below it, like a layered table.",
     levels: 6,
     sample: orgSample,
-    family: { kind: "tree", shape: "rect" },
   },
   // Relationships
   {
@@ -348,7 +276,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Overlapping circles that show where ideas share common ground.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "cycle", shape: "ellipse", arrows: false, venn: true },
   },
   {
     id: "linked-circles",
@@ -358,13 +285,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "A row of overlapping circles for ideas that connect one to the next.",
     levels: 2,
     sample: flat(3),
-    family: {
-      kind: "linear",
-      direction: "row",
-      shape: "ellipse",
-      aspect: 1,
-      overlap: true,
-    },
   },
   {
     id: "nested-circles",
@@ -374,7 +294,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Circles inside one another, for ideas that contain or build on each other.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "cycle", shape: "ellipse", arrows: false, venn: true },
   },
   {
     id: "target",
@@ -384,7 +303,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Concentric rings with a label for each, from the outside in. Shows focus or containment.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "linear", direction: "column", shape: "rect", aspect: 4 },
   },
   {
     id: "counter-arrows",
@@ -394,12 +312,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Arrows that alternate direction, for opposing forces or a back and forth.",
     levels: 2,
     sample: flat(2),
-    family: {
-      kind: "linear",
-      direction: "column",
-      shape: "rightArrow",
-      aspect: 4,
-    },
   },
   {
     id: "converging-arrows",
@@ -409,7 +321,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Arrows from both sides pointing at a central idea. The first item is the center.",
     levels: 2,
     sample: flat(5),
-    family: { kind: "cycle", shape: "ellipse", arrows: false, hub: true },
   },
   {
     id: "equation",
@@ -419,13 +330,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Parts that add up to a result, joined by plus and equals signs.",
     levels: 2,
     sample: flat(3),
-    family: {
-      kind: "linear",
-      direction: "row",
-      shape: "ellipse",
-      aspect: 1,
-      arrow: "mathPlus",
-    },
   },
   // Matrices
   {
@@ -435,7 +339,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     description: "Four equal squares, for comparing items in a grid.",
     levels: 2,
     sample: flat(4),
-    family: { kind: "snake", shape: "roundRect", aspect: 1, columns: 2 },
   },
   {
     id: "centered-quadrants",
@@ -448,7 +351,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       { text: T, level: 0 },
       ...flat(4).map((i) => ({ ...i, level: 1 })),
     ],
-    family: { kind: "snake", shape: "rect", aspect: 1, columns: 2 },
   },
   {
     id: "header-grid",
@@ -457,12 +359,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     description: "Column headings with cells beneath, like a simple table.",
     levels: 2,
     sample: nested(3, 2),
-    family: {
-      kind: "composite",
-      direction: "row",
-      head: "rect",
-      split: "above",
-    },
   },
   {
     id: "petals",
@@ -472,7 +368,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Leaf-shaped quarters that face one another. A friendlier grid.",
     levels: 2,
     sample: flat(4),
-    family: { kind: "snake", shape: "round2DiagRect", aspect: 1, columns: 2 },
   },
   // Pyramids
   {
@@ -483,7 +378,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Levels that widen toward the base. Shows foundations or proportions.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "pyramid" },
   },
   {
     id: "inverted-pyramid",
@@ -493,7 +387,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "Levels that narrow toward the bottom, for filtering or narrowing down.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "pyramid", inverted: true },
   },
   {
     id: "pyramid-ledger",
@@ -503,7 +396,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
       "A pyramid backdrop with a labeled bar for each level beside it.",
     levels: 2,
     sample: flat(3),
-    family: { kind: "pyramid" },
   },
   {
     id: "stepped-pyramid",
@@ -512,7 +404,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     description: "Stacked blocks that grow wider downward, like terraces.",
     levels: 2,
     sample: flat(4),
-    family: { kind: "pyramid" },
   },
   // Pictures
   {
@@ -523,7 +414,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     levels: 2,
     sample: flat(3),
     picture: true,
-    family: { kind: "picture", direction: "row", frame: "rect" },
   },
   {
     id: "picture-tiles",
@@ -534,7 +424,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     levels: 2,
     sample: flat(4),
     picture: true,
-    family: { kind: "picture", direction: "row", frame: "rect" },
   },
   {
     id: "picture-bullets",
@@ -544,7 +433,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     levels: 2,
     sample: flat(3),
     picture: true,
-    family: { kind: "picture", direction: "column", frame: "ellipse" },
   },
   {
     id: "portrait-circles",
@@ -555,7 +443,6 @@ const entries: Array<Omit<LayoutEntry, "fn">> = [
     levels: 2,
     sample: flat(3),
     picture: true,
-    family: { kind: "picture", direction: "row", frame: "ellipse" },
   },
 ];
 
@@ -566,7 +453,7 @@ const LAYOUTS: LayoutEntry[] = entries.map((entry) => {
 });
 
 export const SMARTART_LAYOUTS: ReadonlyArray<SmartArtLayoutInfo> = LAYOUTS.map(
-  ({ family: _family, fn: _fn, ...info }) => info,
+  ({ fn: _fn, ...info }) => info,
 );
 
 export const layoutEntry = (id: string): LayoutEntry | null =>

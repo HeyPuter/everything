@@ -9,7 +9,20 @@ import {
   gridFor,
   nodeParas,
 } from "./kit.ts";
-import { polygon, polyline, shape } from "./layouts-flow.ts";
+import { polygon, polyline, shape, spoke } from "./layouts-flow.ts";
+import {
+  PYRAMID_BASE,
+  TARGET_TEXT_X,
+  TREE,
+  nestedCircle,
+  quadrantCell,
+  ringAngle,
+  ringCenterShift,
+  stepFraction,
+  targetRing,
+  vennSizes,
+  vennTextBox,
+} from "./geometry.ts";
 
 const textOf = (node: SmartArtNode, withChildren = true) => ({
   paras: nodeParas(node, withChildren),
@@ -18,47 +31,79 @@ const textOf = (node: SmartArtNode, withChildren = true) => ({
 
 // ---------------------------------------------------------------- Trees
 
-interface Placed {
+/**
+ * A tree laid out as the hierarchy algorithms do: nodes of a fixed size
+ * (fractions of the frame width), children side by side with a gap and
+ * packed level by level against their elder siblings' subtrees, each parent
+ * centered over its children, the whole scaled down if it overflows and
+ * centered. `horizontal` grows the tree to the right.
+ */
+interface Laid {
   node: SmartArtNode;
   depth: number;
-  /** Center along the breadth axis, in leaf units. */
+  /** Offset along the breadth axis, relative to the subtree's origin. */
   at: number;
-  /** Leaf span. */
-  from: number;
-  to: number;
-  children: Placed[];
+  children: Laid[];
+  /** Per depth below this node (0 = itself): [min, max] along the breadth. */
+  contour: Array<[number, number]>;
 }
-const placeForest = (nodes: ReadonlyArray<SmartArtNode>) => {
-  let leaf = 0;
-  const place = (node: SmartArtNode, depth: number): Placed => {
-    if (!node.children.length) {
-      const at = leaf + 0.5;
-      leaf++;
-      return { node, depth, at, from: at - 0.5, to: at + 0.5, children: [] };
+const layTree = (
+  node: SmartArtNode,
+  depth: number,
+  size: number,
+  gap: number,
+): Laid => {
+  const children = node.children.map((c) => layTree(c, depth + 1, size, gap));
+  // Place each child subtree as far left as its contour allows.
+  const offsets: number[] = [];
+  const merged: Array<[number, number]> = [];
+  children.forEach((child, i) => {
+    let off = 0;
+    if (i) {
+      off = -Infinity;
+      child.contour.forEach(([lo], d) => {
+        const right = merged[d]?.[1];
+        if (right !== undefined) off = Math.max(off, right + gap - lo);
+      });
+      if (!Number.isFinite(off)) off = 0;
     }
-    const children = node.children.map((c) => place(c, depth + 1));
-    const from = children[0]!.from,
-      to = children[children.length - 1]!.to;
-    return {
-      node,
-      depth,
-      at: (children[0]!.at + children[children.length - 1]!.at) / 2,
-      from,
-      to,
-      children,
-    };
+    offsets.push(off);
+    child.contour.forEach(([lo, hi], d) => {
+      const cur = merged[d];
+      merged[d] = cur
+        ? [Math.min(cur[0], lo + off), Math.max(cur[1], hi + off)]
+        : [lo + off, hi + off];
+    });
+  });
+  // The parent sits centered over its children's row.
+  let at = 0;
+  if (children.length) {
+    const first = offsets[0]! + children[0]!.at,
+      last = offsets[children.length - 1]! + children[children.length - 1]!.at;
+    at = (first + last) / 2;
+  }
+  children.forEach((c, i) => shift(c, offsets[i]!));
+  return {
+    node,
+    depth,
+    at,
+    children,
+    contour: [[at - size / 2, at + size / 2], ...merged],
   };
-  const roots = nodes.map((n) => place(n, 0));
-  return { roots, leaves: leaf, depth: smartArtDepth(nodes) };
 };
-const walk = (
-  list: Placed[],
-  fn: (p: Placed, parent: Placed | null) => void,
-  parent: Placed | null = null,
+const shift = (t: Laid, by: number) => {
+  t.at += by;
+  t.contour = t.contour.map(([a, b]) => [a + by, b + by]);
+  t.children.forEach((c) => shift(c, by));
+};
+const walkLaid = (
+  list: Laid[],
+  fn: (p: Laid, parent: Laid | null) => void,
+  parent: Laid | null = null,
 ) => {
   for (const p of list) {
     fn(p, parent);
-    walk(p.children, fn, p);
+    walkLaid(p.children, fn, p);
   }
 };
 
@@ -66,45 +111,53 @@ const tree =
   (opts: { horizontal?: boolean; round?: boolean }): LayoutFn =>
   ({ w, h, nodes }) => {
     if (!nodes.length) return [];
-    const { roots, leaves, depth } = placeForest(nodes);
-    const breadth = opts.horizontal ? h : w,
-      length = opts.horizontal ? w : h;
-    const unit = breadth / leaves;
-    const level = cells(length, depth, opts.horizontal ? 0.35 : 0.5);
-    let across = Math.min(
-      unit * 0.86,
-      opts.round ? level.cell : level.cell * 2.2,
-    );
-    let along = opts.round ? across : Math.min(level.cell, across * 0.75);
-    if (opts.horizontal && !opts.round) {
-      along = level.cell;
-      across = Math.min(unit * 0.86, along * 0.6);
-    }
-    const rect = (p: Placed) => {
-      const c = p.at * unit;
-      const start = level.at(p.depth) + (level.cell - along) / 2;
-      return opts.horizontal
-        ? { x: start, y: c - across / 2, w: along, h: across }
-        : { x: c - across / 2, y: start, w: across, h: along };
+    const nodeW = (opts.round ? TREE.round : TREE.w) * w,
+      nodeH = (opts.round ? TREE.round : TREE.h) * w;
+    const sibling = TREE.sibling * w,
+      level = TREE.level * w;
+    const horizontal = !!opts.horizontal;
+    // Breadth runs across the levels: x down a vertical tree.
+    const across = horizontal ? nodeH : nodeW,
+      along = horizontal ? nodeW : nodeH;
+    const roots = layTree(
+      { text: "", item: -1, children: [...nodes] },
+      -1,
+      across,
+      sibling,
+    ).children;
+    const all: Laid[] = [];
+    walkLaid(roots, (p) => all.push(p));
+    const depth = smartArtDepth(nodes);
+    const minB = Math.min(...all.map((p) => p.at - across / 2)),
+      maxB = Math.max(...all.map((p) => p.at + across / 2));
+    const spanB = maxB - minB,
+      spanL = depth * along + (depth - 1) * level;
+    const spanX = horizontal ? spanL : spanB,
+      spanY = horizontal ? spanB : spanL;
+    const k = Math.min(1, w / spanX, h / spanY);
+    const ox = (w - spanX * k) / 2,
+      oy = (h - spanY * k) / 2;
+    const rect = (p: Laid) => {
+      const b = (p.at - across / 2 - minB) * k,
+        l = p.depth * (along + level) * k;
+      return horizontal
+        ? { x: ox + l, y: oy + b, w: along * k, h: across * k }
+        : { x: ox + b, y: oy + l, w: across * k, h: along * k };
     };
     const out: ArtShape[] = [];
-    walk(roots, (p, parent) => {
+    walkLaid(roots, (p, parent) => {
       if (!parent) return;
       const a = rect(parent),
         b = rect(p);
       if (opts.round) {
-        out.push(
-          polyline(
-            [
-              [a.x + a.w / 2, a.y + a.h / 2],
-              [b.x + b.w / 2, b.y + b.h / 2],
-            ],
-            "line",
-            p.depth,
-            depth,
-          ),
+        const line = spoke(
+          { ...a, geom: "ellipse" } as ArtShape,
+          { ...b, geom: "ellipse" } as ArtShape,
+          p.depth,
+          depth,
         );
-      } else if (opts.horizontal) {
+        if (line) out.push(line);
+      } else if (horizontal) {
         const x0 = a.x + a.w,
           x1 = b.x,
           mid = (x0 + x1) / 2;
@@ -140,7 +193,7 @@ const tree =
         );
       }
     });
-    walk(roots, (p) =>
+    walkLaid(roots, (p) =>
       out.push(
         shape(
           opts.round ? "ellipse" : "rect",
@@ -148,40 +201,48 @@ const tree =
           p.depth ? "node" : "hub",
           p.depth,
           depth,
-          {
-            ...textOf(p.node, false),
-            group: "tree",
-          },
+          { ...textOf(p.node, false), group: "tree" },
         ),
       ),
     );
     return out;
   };
 
+/** Blocks in rows: each item spans its sub-items, which share its width
+ *  equally; leaves reach the bottom row. */
 const layeredBlocks: LayoutFn = ({ w, h, nodes }) => {
   if (!nodes.length) return [];
-  const { roots, leaves, depth } = placeForest(nodes);
-  const unit = w / leaves,
-    rowH = h / depth;
+  const depth = smartArtDepth(nodes);
+  const rowH = h / depth;
   const out: ArtShape[] = [];
-  walk(roots, (p) => {
-    const rows = p.children.length ? 1 : depth - p.depth;
-    out.push(
-      shape(
-        "rect",
-        {
-          x: p.from * unit,
-          y: p.depth * rowH,
-          w: (p.to - p.from) * unit,
-          h: rows * rowH,
-        },
-        p.depth ? "node" : "hub",
-        p.depth,
-        depth,
-        { ...textOf(p.node, false), group: "tree" },
-      ),
-    );
-  });
+  const place = (
+    list: ReadonlyArray<SmartArtNode>,
+    x: number,
+    width: number,
+    level: number,
+  ) => {
+    const cell = width / list.length;
+    list.forEach((node, i) => {
+      const left = x + i * cell;
+      out.push(
+        shape(
+          "rect",
+          {
+            x: left,
+            y: level * rowH,
+            w: cell,
+            h: node.children.length ? rowH : h - level * rowH,
+          },
+          level ? "node" : "hub",
+          level,
+          depth,
+          { ...textOf(node, false), group: "tree" },
+        ),
+      );
+      if (node.children.length) place(node.children, left, cell, level + 1);
+    });
+  };
+  place(nodes, 0, w, 0);
   return out;
 };
 
@@ -190,38 +251,21 @@ const layeredBlocks: LayoutFn = ({ w, h, nodes }) => {
 const venn: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
-  const m = Math.min(w, h);
-  if (n === 1)
-    return [
-      shape(
-        "ellipse",
-        { x: (w - m) / 2, y: (h - m) / 2, w: m, h: m },
-        "venn",
-        0,
-        1,
-        textOf(nodes[0]!),
-      ),
-    ];
-  const k = 0.31 / Math.sin(Math.PI / n);
-  const d = m / (1 + 2 * k);
-  const r = d * k;
+  const { d: df, diam } = vennSizes(n);
+  const d = df * h,
+    r = (diam / 2) * h;
+  const cy = h / 2 + r * ringCenterShift(n);
   return nodes.map((node, i) => {
-    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    const a = ringAngle(i, n);
     const cx = w / 2 + r * Math.cos(a),
-      cy = h / 2 + r * Math.sin(a);
-    const tx = cx + d * 0.17 * Math.cos(a),
-      ty = cy + d * 0.17 * Math.sin(a);
-    return shape(
-      "ellipse",
-      { x: cx - d / 2, y: cy - d / 2, w: d, h: d },
-      "venn",
-      i,
-      n,
-      {
-        ...textOf(node),
-        textBox: { x: tx - d * 0.3, y: ty - d * 0.22, w: d * 0.6, h: d * 0.44 },
-      },
-    );
+      ccy = cy + r * Math.sin(a);
+    const x = cx - d / 2,
+      y = ccy - d / 2;
+    const t = vennTextBox(i, n);
+    return shape("ellipse", { x, y, w: d, h: d }, "venn", i, n, {
+      ...textOf(node),
+      textBox: { x: x + t.x * d, y: y + t.y * d, w: t.w * d, h: t.h * d },
+    });
   });
 };
 
@@ -253,50 +297,35 @@ const linkedCircles: LayoutFn = ({ w, h, nodes }) => {
 const nestedCircles: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
-  const m = Math.min(w, h);
-  const step = m / n;
-  const bottom = (h + m) / 2;
   return nodes.map((node, i) => {
-    const d = m - i * step * 0.85;
-    const top = bottom - d;
-    const nextTop = i < n - 1 ? bottom - (m - (i + 1) * step * 0.85) : bottom;
-    const band = i < n - 1 ? nextTop - top : d;
-    return shape(
-      "ellipse",
-      { x: w / 2 - d / 2, y: top, w: d, h: d },
-      "venn",
-      i,
-      n,
-      {
-        ...textOf(node),
-        textBox:
-          i < n - 1
-            ? {
-                x: w / 2 - d * 0.32,
-                y: top + band * 0.08,
-                w: d * 0.64,
-                h: band * 0.84,
-              }
-            : {
-                x: w / 2 - d * 0.36,
-                y: top + d * 0.2,
-                w: d * 0.72,
-                h: d * 0.6,
-              },
+    const c = nestedCircle(i, n);
+    const d = c.d * h;
+    const x = w / 2 - d / 2,
+      y = h - d;
+    return shape("ellipse", { x, y, w: d, h: d }, "venn", i, n, {
+      ...textOf(node),
+      textBox: {
+        x: x + c.text.x * d,
+        y: y + c.text.y * d,
+        w: c.text.w * d,
+        h: c.text.h * d,
       },
-    );
+    });
   });
 };
 
+/** Concentric rings at the left; each ring's label on the right, level
+ *  with the middle of the ring's top band and joined to it by a leader. */
 const target: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
-  const D = Math.min(h, w * 0.45);
-  const cx = D / 2,
+  const D = h,
+    cx = D / 2,
     cy = h / 2;
   const out: ArtShape[] = [];
-  nodes.forEach((_, i) => {
-    const d = D * (1 - i / n);
+  nodes.forEach((node, i) => {
+    const t = targetRing(i, n);
+    const d = t.d * D;
     out.push(
       shape(
         "ellipse",
@@ -306,18 +335,12 @@ const target: LayoutFn = ({ w, h, nodes }) => {
         n,
       ),
     );
-  });
-  const textX = D * 1.12;
-  const rowH = h / n;
-  nodes.forEach((node, i) => {
-    const y = i * rowH + rowH / 2;
-    const ringY = cy - (D * (1 - i / n)) / 2 + (D / n) * 0.25;
+    const y = t.y * h,
+      textX = TARGET_TEXT_X * h;
     out.push(
       polyline(
         [
-          [cx, Math.min(ringY, cy)],
-          [D * 0.9, Math.min(ringY, cy)],
-          [D * 1.05, y],
+          [cx, y],
           [textX, y],
         ],
         "line",
@@ -328,14 +351,16 @@ const target: LayoutFn = ({ w, h, nodes }) => {
     out.push(
       shape(
         "rect",
-        { x: textX, y: i * rowH, w: w - textX, h: rowH },
+        {
+          x: textX,
+          y: y - (t.labelH * h) / 2,
+          w: Math.max(0, w - textX),
+          h: t.labelH * h,
+        },
         "text",
         i,
         n,
-        {
-          ...textOf(node),
-          align: "l",
-        },
+        { ...textOf(node), align: "l" },
       ),
     );
   });
@@ -355,10 +380,7 @@ const counterArrows: LayoutFn = ({ w, h, nodes }) => {
       n,
       {
         ...textOf(node),
-        adj: {
-          adj1: 70000,
-          adj2: Math.min(80000, (50000 * (w * 0.88)) / cell / 3),
-        },
+        adj: { adj1: 70000, adj2: 60000 },
       },
     ),
   );
@@ -374,14 +396,21 @@ const convergingArrows: LayoutFn = ({ w, h, nodes }) => {
     right = rest.filter((_, i) => i % 2 === 1);
   const side = (list: SmartArtNode[], onLeft: boolean) => {
     if (!list.length) return;
-    const slot = cells(h, list.length, 0.12);
+    // Equal slots down each side, each arrow centered in its slot.
+    const slot = h / list.length,
+      ah = slot / 1.12;
     list.forEach((node, j) => {
       const i = rest.indexOf(node);
-      const aw = (w - d) / 2 - w * 0.02;
+      const aw = w * 0.34;
       out.push(
         shape(
           onLeft ? "rightArrow" : "leftArrow",
-          { x: onLeft ? 0 : w - aw, y: slot.at(j), w: aw, h: slot.cell },
+          {
+            x: onLeft ? 0 : w - aw,
+            y: slot * j + (slot - ah) / 2,
+            w: aw,
+            h: ah,
+          },
           "node",
           i,
           rest.length,
@@ -537,8 +566,7 @@ const headerGrid: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
   const { cell, at } = cells(w, n, 0.04);
-  const maxKids = Math.max(1, ...nodes.map((x) => x.children.length));
-  const headH = (h / (maxKids + 1.4)) * 1.2;
+  const headH = h * 0.3;
   const out: ArtShape[] = [];
   nodes.forEach((node, i) => {
     out.push(
@@ -547,7 +575,10 @@ const headerGrid: LayoutFn = ({ w, h, nodes }) => {
         group: "head",
       }),
     );
-    const slot = cells(h - headH * 1.08, Math.max(1, maxKids), 0.05);
+    // Each column's cells share the space under its heading.
+    const k = node.children.length;
+    if (!k) return;
+    const slot = cells(h - headH * 1.08, k, 0.05);
     node.children.forEach((kid, j) =>
       out.push(
         shape(
@@ -592,8 +623,9 @@ const petals: LayoutFn = ({ w, h, nodes }) => {
       n,
       {
         ...textOf(node),
-        adj: { adj1: 45000, adj2: 0 },
-        ...((col + row) % 2 ? { flipH: true } : {}),
+        // Alternate quarters face the other way: the rounded corners swap.
+        adj:
+          (col + row) % 2 ? { adj1: 0, adj2: 45000 } : { adj1: 45000, adj2: 0 },
       },
     );
   });
@@ -609,7 +641,7 @@ const pyramidBands = (
   base: number,
   left: number,
 ) => {
-  const gap = h * 0.015;
+  const gap = 0;
   const band = (h - gap * (n - 1)) / n;
   const halfAt = (y: number) => {
     const t = inverted ? 1 - y / h : y / h;
@@ -654,7 +686,7 @@ const pyramid =
   ({ w, h, nodes }) => {
     const n = nodes.length;
     if (!n) return [];
-    const base = Math.min(w, h * 1.25);
+    const base = w * PYRAMID_BASE;
     return pyramidBands(w, h, n, inverted, base, (w - base) / 2).map((b, i) =>
       polygon(b.pts, "node", i, n, { ...textOf(nodes[i]!), textBox: b.text }),
     );
@@ -679,7 +711,7 @@ const pyramidLedger: LayoutFn = ({ w, h, nodes }) => {
   const { cell, at } = cells(h * 0.9, n, 0.15);
   nodes.forEach((node, i) => {
     const y = h * 0.1 + at(i);
-    const x = base * 0.5 + (base / 2) * ((y + cell / 2) / h) * 0.2;
+    const x = h * 0.66;
     out.push(
       shape("roundRect", { x, y, w: w - x, h: cell }, "node", i, n, {
         ...textOf(node),
@@ -695,7 +727,7 @@ const steppedPyramid: LayoutFn = ({ w, h, nodes }) => {
   if (!n) return [];
   const { cell, at } = cells(h, n, 0.04);
   return nodes.map((node, i) => {
-    const bw = w * (0.35 + (0.65 * (i + 1)) / n);
+    const bw = w * stepFraction(i, n);
     return shape(
       "rect",
       { x: (w - bw) / 2, y: at(i), w: bw, h: cell },
@@ -713,8 +745,10 @@ const captionedPictures: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
   const { cell, at } = cells(w, n, 0.1);
-  const picH = Math.min(h * 0.68, cell * 0.9);
-  const top = (h - picH / 0.68) / 2 > 0 ? (h - picH / 0.68) / 2 : 0;
+  // Each item is a picture over its caption, the picture 68% of it.
+  const itemH = Math.min(h, (cell * 0.9) / 0.68);
+  const top = (h - itemH) / 2,
+    picH = itemH * 0.68;
   const out: ArtShape[] = [];
   nodes.forEach((node, i) => {
     out.push(
@@ -725,7 +759,7 @@ const captionedPictures: LayoutFn = ({ w, h, nodes }) => {
     out.push(
       shape(
         "rect",
-        { x: at(i), y: top + picH, w: cell, h: h - top - picH },
+        { x: at(i), y: top + picH, w: cell, h: itemH - picH },
         "text",
         i,
         n,
@@ -809,8 +843,10 @@ const portraitCircles: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
   const { cell, at } = cells(w, n, 0.15);
-  const d = Math.min(cell, h * 0.62);
-  const top = (h - d / 0.62) / 2 > 0 ? (h - d / 0.62) / 2 : 0;
+  // Each item is a portrait over its name, the portrait 62% of it.
+  const itemH = Math.min(h, cell / 0.62);
+  const d = Math.min(cell, itemH * 0.62);
+  const top = (h - itemH) / 2;
   const out: ArtShape[] = [];
   nodes.forEach((node, i) => {
     out.push(
@@ -823,15 +859,11 @@ const portraitCircles: LayoutFn = ({ w, h, nodes }) => {
         { item: node.item },
       ),
     );
+    const capY = top + itemH * 0.62 * 1.04;
     out.push(
       shape(
         "rect",
-        {
-          x: at(i) - cell * 0.07,
-          y: top + d * 1.04,
-          w: cell * 1.14,
-          h: h - top - d * 1.04,
-        },
+        { x: at(i), y: capY, w: cell, h: top + itemH - capY },
         "text",
         i,
         n,

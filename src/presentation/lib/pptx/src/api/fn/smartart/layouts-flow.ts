@@ -2,6 +2,16 @@
 import type { Role } from "./paint.ts";
 import type { SmartArtNode } from "./model.ts";
 import {
+  ARROW_THICKNESS,
+  CONNECTOR_PAD,
+  edgeDistance,
+  hubSizes,
+  ringAngle,
+  ringNodeFraction,
+  ringTrackSizes,
+  wheelSlice,
+} from "./geometry.ts";
+import {
   type ArtShape,
   type LayoutFn,
   type Para,
@@ -161,9 +171,7 @@ const headingColumns: LayoutFn = ({ w, h, nodes }) => {
   if (!n) return [];
   const { cell, at } = cells(w, n, 0.08);
   const withBody = hasChildren(nodes);
-  const headH = withBody
-    ? Math.min(h * 0.26, cell * 0.5)
-    : Math.min(h, cell * 0.65);
+  const headH = withBody ? h * 0.26 : Math.min(h, cell * 0.65);
   const top = withBody ? 0 : (h - headH) / 2;
   const out: ArtShape[] = [];
   nodes.forEach((node, i) => {
@@ -356,7 +364,7 @@ const arrowSteps: LayoutFn = ({ w, h, nodes }) => {
     );
     if (i < n - 1) {
       const aw = gap * 0.7,
-        ah = Math.min(aw * 1.1, boxH * 0.5);
+        ah = aw * 1.1;
       out.push(
         shape(
           "rightArrow",
@@ -378,7 +386,7 @@ const chevrons: LayoutFn = ({ w, h, nodes }) => {
   const overlap = 0.12;
   const cw = w / (1 + (n - 1) * (1 - overlap));
   const withBody = hasChildren(nodes);
-  const ch = withBody ? Math.min(h * 0.3, cw * 0.45) : Math.min(h, cw * 0.45);
+  const ch = Math.min(withBody ? h * 0.3 : h, cw * 0.45);
   const y = withBody ? 0 : (h - ch) / 2;
   const out: ArtShape[] = [];
   nodes.forEach((node, i) => {
@@ -403,9 +411,9 @@ const chevrons: LayoutFn = ({ w, h, nodes }) => {
           "rect",
           {
             x: x + cw * 0.05,
-            y: ch * 1.1,
+            y: h * 0.33,
             w: cw * (1 - overlap) * 0.95,
-            h: h - ch * 1.1,
+            h: h * 0.67,
           },
           "text",
           i,
@@ -439,7 +447,7 @@ const downwardFlow: LayoutFn = ({ w, h, nodes }) => {
     );
     if (i < n - 1) {
       const ah = gap * 0.75,
-        aw = Math.min(ah * 1.1, boxW * 0.3);
+        aw = ah * 1.1;
       out.push(
         shape(
           "downArrow",
@@ -486,6 +494,8 @@ const timeline: LayoutFn = ({ w, h, nodes }) => {
   ];
   const slot = (w * 0.94) / n;
   const d = Math.min(barH * 1.6, slot * 0.4);
+  // Labels span their own slot, alternately above and below the bar.
+  const labelH = h / 2 - barH * 1.6 * 0.7;
   nodes.forEach((node, i) => {
     const cx = slot * (i + 0.5);
     out.push(
@@ -498,16 +508,10 @@ const timeline: LayoutFn = ({ w, h, nodes }) => {
       ),
     );
     const above = i % 2 === 0;
-    const tw = Math.min(slot * 1.8, w - Math.max(0, cx - slot * 0.9));
     out.push(
       shape(
         "rect",
-        {
-          x: clamp(cx - tw / 2, 0, w - tw),
-          y: above ? 0 : h / 2 + d * 0.7,
-          w: tw,
-          h: h / 2 - d * 0.7,
-        },
+        { x: slot * i, y: above ? 0 : h - labelH, w: slot, h: labelH },
         "text",
         i,
         n,
@@ -527,7 +531,7 @@ const blocksOnArrow: LayoutFn = ({ w, h, nodes }) => {
     }),
   ];
   const left = w * 0.03,
-    right = w - Math.min(h * 0.55, w * 0.18);
+    right = w * 0.82;
   const { cell, at } = cells(right - left, n, 0.06);
   const bh = h * 0.5;
   nodes.forEach((node, i) =>
@@ -549,266 +553,253 @@ const blocksOnArrow: LayoutFn = ({ w, h, nodes }) => {
 
 // ---------------------------------------------------------------- Cycles
 
-const ringPositions = (
+/** Where a cycle puts `n` nodes of `nodeW` x `nodeH` on a circle of
+ *  diameter `diam` (a cycle algorithm's terms): clockwise from the top, the
+ *  whole scaled down if it overflows the frame, its bounding box centered.
+ *  `center` is an optional shape of `centerSize` in the middle. */
+export const cycleLayout = (
   w: number,
   h: number,
   n: number,
-  ratio = 1,
-  fill = 0.38,
+  nodeW: number,
+  nodeH: number,
+  diam: number,
+  centerSize = 0,
 ) => {
-  const m = Math.min(w, h);
-  const s = Math.sin(Math.PI / Math.max(n, 2));
-  // Node size: neighbors keep a gap of 45% of a node between them.
-  const d = Math.min(m * fill, (m * s) / (1.45 * ratio + s));
-  const nodeW = d * ratio,
-    nodeH = d;
-  const rx = (w - nodeW) / 2,
-    ry = (h - nodeH) / 2;
-  const r = Math.min(rx, ry, (m - d) / 2);
-  const angle = (i: number) => -Math.PI / 2 + (2 * Math.PI * i) / n;
+  const r = n > 1 ? diam / 2 : 0;
+  const pts = Array.from({ length: n }, (_, i) => {
+    const a = ringAngle(i, n);
+    return [r * Math.cos(a), r * Math.sin(a)] as const;
+  });
+  const xs = pts.flatMap(([x]) => [x - nodeW / 2, x + nodeW / 2]);
+  const ys = pts.flatMap(([, y]) => [y - nodeH / 2, y + nodeH / 2]);
+  if (centerSize) {
+    xs.push(-centerSize / 2, centerSize / 2);
+    ys.push(-centerSize / 2, centerSize / 2);
+  }
+  const x0 = Math.min(...xs),
+    x1 = Math.max(...xs),
+    y0 = Math.min(...ys),
+    y1 = Math.max(...ys);
+  const k = Math.min(1, w / (x1 - x0 || 1), h / (y1 - y0 || 1));
+  const cx = w / 2 - ((x0 + x1) / 2) * k,
+    cy = h / 2 - ((y0 + y1) / 2) * k;
   return {
-    d,
-    nodeW,
-    nodeH,
-    r,
-    angle,
-    center: (i: number) =>
-      [w / 2 + r * Math.cos(angle(i)), h / 2 + r * Math.sin(angle(i))] as const,
+    scale: k,
+    nodeW: nodeW * k,
+    nodeH: nodeH * k,
+    center: [cx, cy] as const,
+    at: (i: number) => [cx + pts[i]![0] * k, cy + pts[i]![1] * k] as const,
   };
 };
-const ringArrows = (
-  w: number,
-  h: number,
-  n: number,
-  ring: ReturnType<typeof ringPositions>,
-  textOnly = false,
-): ArtShape[] => {
-  if (n < 2) return [];
-  const out: ArtShape[] = [];
-  const chord = 2 * ring.r * Math.sin(Math.PI / n);
-  // Arrows sit in the gap between neighbors; text-only rings leave more room.
-  const clearance = textOnly ? ring.nodeW * 0.55 : ring.nodeW * 0.95;
-  const len = Math.max(0, Math.min(chord - clearance, ring.d * 0.45));
-  if (len <= 0) return out;
-  const ah = len * 0.62;
-  for (let i = 0; i < n; i++) {
-    const a = ring.angle(i + 0.5);
-    const cx = w / 2 + ring.r * Math.cos(a),
-      cy = h / 2 + ring.r * Math.sin(a);
-    out.push(
-      shape(
-        "rightArrow",
-        { x: cx - len / 2, y: cy - ah / 2, w: len, h: ah },
-        "trans",
-        i,
-        n,
-        {
-          rot: ((a * 180) / Math.PI + 90 + 360) % 360,
-          adj: { adj1: 60000, adj2: 50000 },
-        },
-      ),
-    );
-  }
-  return out;
+
+/** An arrow from one shape to the next along the line between their
+ *  centers, from edge to edge less a pad at each end. */
+const connectorArrow = (
+  from: ArtShape,
+  to: ArtShape,
+  thickness: number,
+  index: number,
+  count: number,
+): ArtShape | null => {
+  const ax = from.x + from.w / 2,
+    ay = from.y + from.h / 2;
+  const bx = to.x + to.w / 2,
+    by = to.y + to.h / 2;
+  const dx = bx - ax,
+    dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  if (!len) return null;
+  const e0 = edgeDistance(from.geom, from.w, from.h, dx, dy),
+    e1 = edgeDistance(to.geom, to.w, to.h, dx, dy);
+  const dist = len - e0 - e1;
+  if (dist <= 0) return null;
+  const l = dist * (1 - 2 * CONNECTOR_PAD),
+    t = thickness;
+  const mid = (e0 + (len - e1)) / 2 / len;
+  const mx = ax + dx * mid,
+    my = ay + dy * mid;
+  return shape(
+    "rightArrow",
+    { x: mx - l / 2, y: my - t / 2, w: l, h: t },
+    "trans",
+    index,
+    count,
+    { rot: ((((Math.atan2(dy, dx) * 180) / Math.PI) % 360) + 360) % 360 },
+  );
 };
 
-const ring: LayoutFn = ({ w, h, nodes }) => {
-  const n = nodes.length;
-  if (!n) return [];
-  const rp = ringPositions(w, h, n);
-  return [
-    ...ringArrows(w, h, n, rp),
-    ...nodes.map((node, i) => {
-      const [cx, cy] = rp.center(i);
+const ringOf =
+  (
+    geom: string,
+    role: Role,
+    ratio: number,
+    fill: number,
+    arrows: boolean,
+  ): LayoutFn =>
+  ({ w, h, nodes }) => {
+    const n = nodes.length;
+    if (!n) return [];
+    const k = ringNodeFraction(n, ratio, fill);
+    const c = cycleLayout(w, h, n, k * h * ratio, k * h, (1 - k) * h);
+    const shapes = nodes.map((node, i) => {
+      const [x, y] = c.at(i);
       return shape(
-        "ellipse",
-        { x: cx - rp.d / 2, y: cy - rp.d / 2, w: rp.d, h: rp.d },
-        "node",
-        i,
-        n,
-        {
-          ...textOf(node),
-        },
-      );
-    }),
-  ];
-};
-
-const textRing: LayoutFn = ({ w, h, nodes }) => {
-  const n = nodes.length;
-  if (!n) return [];
-  const rp = ringPositions(w, h, n, 1.5);
-  return [
-    ...ringArrows(w, h, n, rp, true),
-    ...nodes.map((node, i) => {
-      const [cx, cy] = rp.center(i);
-      return shape(
-        "rect",
-        {
-          x: cx - rp.nodeW / 2,
-          y: cy - rp.nodeH / 2,
-          w: rp.nodeW,
-          h: rp.nodeH,
-        },
-        "text",
+        geom,
+        { x: x - c.nodeW / 2, y: y - c.nodeH / 2, w: c.nodeW, h: c.nodeH },
+        role,
         i,
         n,
         textOf(node),
       );
-    }),
-  ];
-};
+    });
+    const links: ArtShape[] = [];
+    if (arrows && n > 1)
+      for (let i = 0; i < n; i++) {
+        const a = connectorArrow(
+          shapes[i]!,
+          shapes[(i + 1) % n]!,
+          c.nodeH * ARROW_THICKNESS,
+          i,
+          n,
+        );
+        if (a) links.push(a);
+      }
+    return [...shapes.flatMap((s, i) => (links[i] ? [s, links[i]!] : [s]))];
+  };
 
-const blockRing: LayoutFn = ({ w, h, nodes }) => {
-  const n = nodes.length;
-  if (!n) return [];
-  const rp = ringPositions(w, h, n, 1.5, 0.3);
-  return [
-    ...ringArrows(w, h, n, rp),
-    ...nodes.map((node, i) => {
-      const [cx, cy] = rp.center(i);
-      return shape(
-        "roundRect",
-        {
-          x: cx - rp.nodeW / 2,
-          y: cy - rp.nodeH / 2,
-          w: rp.nodeW,
-          h: rp.nodeH,
-        },
-        "node",
-        i,
-        n,
-        textOf(node),
-      );
-    }),
-  ];
-};
+const ring = ringOf("ellipse", "node", 1, 0.38, true);
+const textRing = ringOf("rect", "text", 1.5, 0.38, true);
+const blockRing = ringOf("roundRect", "node", 1.5, 0.3, true);
 
 const wheel: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
-  const d = Math.min(w, h);
+  const d = h;
   const box = { x: (w - d) / 2, y: (h - d) / 2, w: d, h: d };
-  const r = d / 2;
   if (n === 1) return [shape("ellipse", box, "node", 0, 1, textOf(nodes[0]!))];
   return nodes.map((node, i) => {
-    const start = -90 + (360 * i) / n,
-      end = start + 360 / n;
-    const mid = (((start + end) / 2) * Math.PI) / 180;
-    const tr = r * (n === 2 ? 0.5 : 0.58);
-    const tw = Math.min(
-        r * 0.95,
-        2 * tr * Math.sin(Math.PI / n) * 0.95 + r * 0.25,
-      ),
-      th = r * 0.5;
-    const cx = w / 2 + tr * Math.cos(mid),
-      cy = h / 2 + tr * Math.sin(mid);
-    const norm = (deg: number) =>
-      Math.round((((deg % 360) + 360) % 360) * 60000);
+    const s = wheelSlice(i, n);
     return shape("pie", box, "node", i, n, {
       ...textOf(node),
-      adj: { adj1: norm(start), adj2: norm(end) },
-      textBox: { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th },
+      adj: {
+        adj1: Math.round(s.start * 60000),
+        adj2: Math.round(s.end * 60000),
+      },
+      textBox: {
+        x: box.x + s.text.x * d,
+        y: box.y + s.text.y * d,
+        w: s.text.w * d,
+        h: s.text.h * d,
+      },
     });
   });
 };
 
+/** The hub in the middle of the items around it. One top-level item is
+ *  the hub, its sub-items around it and joined to it; with several, the
+ *  first is the hub of the rest (no data joins them, so no spokes). */
 const hubAndSpokes: LayoutFn = ({ w, h, nodes }) => {
   if (!nodes.length) return [];
   const single = nodes.length === 1;
   const hub = nodes[0]!;
   const satellites = single ? hub.children : nodes.slice(1);
   const n = satellites.length;
-  const m = Math.min(w, h);
-  const hubD = n ? m * 0.34 : m * 0.6;
-  const out: ArtShape[] = [];
-  if (n) {
-    const s = Math.sin(Math.PI / Math.max(n, 2));
-    const d = Math.min(m * 0.3, ((m / 2) * 2 * s) / (1.2 + 2 * s));
-    const r = Math.min(w, h) / 2 - d / 2;
-    const center = (i: number) => {
-      const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-      return [w / 2 + r * Math.cos(a), h / 2 + r * Math.sin(a)] as const;
-    };
-    satellites.forEach((_, i) => {
-      const [cx, cy] = center(i);
-      out.push(
-        polyline(
-          [
-            [w / 2, h / 2],
-            [cx, cy],
-          ],
-          "line",
-          i,
-          n,
-        ),
-      );
-    });
-    satellites.forEach((node, i) => {
-      const [cx, cy] = center(i);
-      out.push(
-        shape(
-          "ellipse",
-          { x: cx - d / 2, y: cy - d / 2, w: d, h: d },
-          "node",
-          i,
-          n,
-          {
-            ...textOf(node),
-            group: "satellite",
-          },
-        ),
-      );
-    });
-  }
-  out.push(
-    shape(
-      "ellipse",
-      { x: w / 2 - hubD / 2, y: h / 2 - hubD / 2, w: hubD, h: hubD },
-      "hub",
-      0,
-      1,
-      {
-        ...textOf(hub, !single),
-      },
-    ),
+  const sizes = hubSizes(n);
+  const hubD = sizes.hub * h,
+    satD = sizes.sat * h;
+  const c = cycleLayout(w, h, n, satD, satD, n ? h - satD : 0, hubD);
+  const [hx, hy] = c.center;
+  const hd = hubD * c.scale;
+  const hubShape = shape(
+    "ellipse",
+    { x: hx - hd / 2, y: hy - hd / 2, w: hd, h: hd },
+    "hub",
+    0,
+    1,
+    textOf(hub, !single),
   );
+  const out: ArtShape[] = [hubShape];
+  satellites.forEach((node, i) => {
+    const [x, y] = c.at(i);
+    const sat = shape(
+      "ellipse",
+      { x: x - c.nodeW / 2, y: y - c.nodeH / 2, w: c.nodeW, h: c.nodeH },
+      "node",
+      i,
+      n,
+      { ...textOf(node), group: "satellite" },
+    );
+    if (single) {
+      const line = spoke(hubShape, sat, i, n);
+      if (line) out.push(line);
+    }
+    out.push(sat);
+  });
   return out;
+};
+
+/** A straight line between two shapes' edges, along their centers. */
+export const spoke = (
+  from: ArtShape,
+  to: ArtShape,
+  index: number,
+  count: number,
+): ArtShape | null => {
+  const ax = from.x + from.w / 2,
+    ay = from.y + from.h / 2;
+  const bx = to.x + to.w / 2,
+    by = to.y + to.h / 2;
+  const dx = bx - ax,
+    dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  if (!len) return null;
+  const e0 = edgeDistance(from.geom, from.w, from.h, dx, dy) / len,
+    e1 = edgeDistance(to.geom, to.w, to.h, dx, dy) / len;
+  if (e0 + e1 >= 1) return null;
+  return polyline(
+    [
+      [ax + dx * e0, ay + dy * e0],
+      [bx - dx * e1, by - dy * e1],
+    ],
+    "line",
+    index,
+    count,
+  );
 };
 
 const ringTrack: LayoutFn = ({ w, h, nodes }) => {
   const n = nodes.length;
   if (!n) return [];
-  const rp = ringPositions(w, h, n, 1.6, 0.28);
-  const D = 2 * rp.r + rp.nodeH * 0.45;
-  return [
-    shape(
-      "donut",
-      { x: w / 2 - D / 2, y: h / 2 - D / 2, w: D, h: D },
-      "bg",
-      0,
-      1,
-      {
-        adj: { adj: Math.round(((rp.nodeH * 0.45) / D) * 100000) },
-      },
-    ),
-    ...nodes.map((node, i) => {
-      const [cx, cy] = rp.center(i);
-      return shape(
-        "roundRect",
-        {
-          x: cx - rp.nodeW / 2,
-          y: cy - rp.nodeH / 2,
-          w: rp.nodeW,
-          h: rp.nodeH,
-        },
-        "node",
-        i,
-        n,
-        textOf(node),
-      );
-    }),
-  ];
+  const s = ringTrackSizes(n);
+  const c = cycleLayout(w, h, n, s.k * h * 1.6, s.k * h, 2 * s.r * h);
+  const D = s.track * h * c.scale;
+  const [cx, cy] = c.center;
+  const track = shape(
+    "donut",
+    { x: cx - D / 2, y: cy - D / 2, w: D, h: D },
+    "bg",
+    0,
+    1,
+    { adj: { adj: Math.round(((c.nodeH * 0.45) / D) * 100000) } },
+  );
+  const ring = nodes.map((node, i) => {
+    const [x, y] = c.at(i);
+    return shape(
+      "roundRect",
+      { x: x - c.nodeW / 2, y: y - c.nodeH / 2, w: c.nodeW, h: c.nodeH },
+      "node",
+      i,
+      n,
+      textOf(node),
+    );
+  });
+  // The track and the ring together are centered in the frame.
+  const all = [track, ...ring];
+  const top = Math.min(...all.map((r) => r.y)),
+    bottom = Math.max(...all.map((r) => r.y + r.h));
+  const dy = (h - (bottom - top)) / 2 - top;
+  return all.map((r) => ({ ...r, y: r.y + dy }));
 };
 
 export const FLOW_LAYOUTS: Record<string, LayoutFn> = {

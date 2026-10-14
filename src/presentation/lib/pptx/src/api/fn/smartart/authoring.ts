@@ -215,7 +215,6 @@ const partsFor = (
     name: entry.name,
     description: entry.description,
     category: entry.category,
-    family: entry.family,
     rightToLeft: !!model.rightToLeft,
   });
   return {
@@ -477,7 +476,7 @@ const withShapeNames = (
         : own.find(
             (o) =>
               !o.name.includes(":") &&
-              layoutNodeForRole(entry.family, o.role, item.level) === key,
+              !!layoutNodeForRole(layout, o.role)?.(key),
           );
       format[shape ? shape.name : key] = f;
     }

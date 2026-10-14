@@ -15,7 +15,7 @@ import {
   qname,
   serializeFragment,
 } from "../../../internal/xml/index.ts";
-import type { LayoutFamily } from "./layout-def.ts";
+
 import type { Role } from "./paint.ts";
 
 /** A data point of the outline as the tree walk sees it. */
@@ -66,6 +66,7 @@ interface Context {
   readonly kind: "doc" | "node" | "sibTrans" | "parTrans";
   readonly siblings: ReadonlyArray<PresDataNode>;
   readonly index: number;
+  readonly parent: Context | null;
 }
 
 const descendants = (node: PresDataNode): string[] =>
@@ -100,9 +101,6 @@ export const buildPresTree = (
     }
   };
   collect(def);
-  // Cycles close the ring: the last item has a transition back to the first.
-  const rootAlg = kids(rootNode).find((e) => local(e) === "alg");
-  const cyclic = rootAlg ? att(rootAlg, "type") === "cycle" : false;
 
   const points: PresPoint[] = [];
   const connections: PresConnection[] = [];
@@ -118,11 +116,148 @@ export const buildPresTree = (
       : "";
   };
 
+  const docContext: Context = {
+    id: docId,
+    node: null,
+    kind: "doc",
+    siblings: [],
+    index: 0,
+    parent: null,
+  };
   const nodeContext = (
     node: PresDataNode,
     siblings: ReadonlyArray<PresDataNode>,
     index: number,
-  ): Context => ({ id: node.id, node, kind: "node", siblings, index });
+    parent: Context,
+  ): Context => ({ id: node.id, node, kind: "node", siblings, index, parent });
+  const childrenOf = (ctx: Context): Context[] => {
+    const list =
+      ctx.kind === "doc"
+        ? roots
+        : ctx.kind === "node"
+          ? (ctx.node?.children ?? [])
+          : [];
+    return list.map((n, i) => nodeContext(n, list, i, ctx));
+  };
+  const nodeOf = (ctx: Context): Context | null =>
+    ctx.kind === "node" ? ctx : null;
+
+  /** One step of an axis from a context, for one point type. */
+  const step = (
+    ctx: Context,
+    axis: string,
+    ptType: string,
+    hideLast: boolean,
+  ): Context[] => {
+    const nodes = ptType === "node" || ptType === "all";
+    switch (axis) {
+      case "self":
+        return [ctx];
+      case "root":
+        return [docContext];
+      case "par":
+        return ctx.parent ? [ctx.parent] : [];
+      case "ch":
+        return nodes ? childrenOf(ctx) : [];
+      case "des": {
+        if (!nodes) return [];
+        const out: Context[] = [];
+        const walk = (c: Context) =>
+          childrenOf(c).forEach((k) => {
+            out.push(k);
+            walk(k);
+          });
+        walk(ctx);
+        return out;
+      }
+      case "followSib": {
+        const node = nodeOf(ctx);
+        if (!node?.node) return [];
+        if (ptType === "sibTrans") {
+          const last = node.index >= node.siblings.length - 1;
+          return last && hideLast
+            ? []
+            : [{ ...node, id: node.node.sibTrans, kind: "sibTrans" }];
+        }
+        return nodes
+          ? node.siblings
+              .slice(node.index + 1)
+              .map((n, i) =>
+                nodeContext(n, node.siblings, node.index + 1 + i, node.parent!),
+              )
+          : [];
+      }
+      case "precedSib": {
+        const node = nodeOf(ctx);
+        if (!node?.node) return [];
+        if (ptType === "parTrans")
+          return [{ ...node, id: node.node.parTrans, kind: "parTrans" }];
+        return nodes
+          ? node.siblings
+              .slice(0, node.index)
+              .map((n, i) => nodeContext(n, node.siblings, i, node.parent!))
+          : [];
+      }
+    }
+    return [];
+  };
+  /** An axis list ("ch ch") with its point types ("node node"); each
+   *  result with the point its last step started from. */
+  const alongFrom = (
+    ctx: Context,
+    axisAttr: string | null,
+    ptAttr: string | null,
+    hideLast = true,
+  ): Array<readonly [Context, Context]> => {
+    const axes = (axisAttr ?? "self").split(/\s+/).filter(Boolean);
+    const types = (ptAttr ?? "all").split(/\s+/).filter(Boolean);
+    let current: Array<readonly [Context, Context]> = [[ctx, ctx]];
+    axes.forEach((axis, i) => {
+      const type = types[Math.min(i, types.length - 1)] ?? "all";
+      current = current.flatMap(([c]) =>
+        step(c, axis, type, hideLast).map((r) => [r, c] as const),
+      );
+    });
+    return current;
+  };
+  const along = (
+    ctx: Context,
+    axisAttr: string | null,
+    ptAttr: string | null,
+    hideLast = true,
+  ): Context[] => alongFrom(ctx, axisAttr, ptAttr, hideLast).map(([c]) => c);
+  const depthOf = (ctx: Context): number =>
+    ctx.kind === "doc" ? 0 : ctx.node ? ctx.node.depth + 1 : 0;
+
+  const holds = (cond: XmlElement, ctx: Context): boolean => {
+    const set = alongFrom(ctx, att(cond, "axis"), att(cond, "ptType"));
+    const func = att(cond, "func");
+    // maxDepth counts levels below the point the axis's last step left.
+    const value =
+      func === "cnt"
+        ? set.length
+        : func === "maxDepth"
+          ? Math.max(0, ...set.map(([p, from]) => depthOf(p) - depthOf(from)))
+          : func === "depth" && att(cond, "axis") === "self"
+            ? depthOf(ctx)
+            : NaN;
+    const target = Number(att(cond, "val"));
+    switch (att(cond, "op")) {
+      case "equ":
+        return value === target;
+      case "neq":
+        return value !== target;
+      case "gt":
+        return value > target;
+      case "lt":
+        return value < target;
+      case "gte":
+        return value >= target;
+      case "lte":
+        return value <= target;
+    }
+    return false;
+  };
 
   const layoutNode = (
     ln: XmlElement,
@@ -184,44 +319,39 @@ export const buildPresTree = (
     const ref = att(fe, "ref");
     const body = ref ? named.get(ref) : fe;
     if (!body) return;
-    const axis = att(body, "axis") ?? "self";
-    const ptType = att(body, "ptType") ?? "all";
-    let contexts: Context[] = [];
-    if (axis === "ch" && (ptType === "node" || ptType === "all")) {
-      const list =
-        ctx.kind === "doc"
-          ? roots
-          : ctx.kind === "node"
-            ? (ctx.node?.children ?? [])
-            : [];
-      contexts = list.map((n, i) => nodeContext(n, list, i));
-    } else if (axis === "followSib" && ptType === "sibTrans") {
-      if (
-        ctx.kind === "node" &&
-        ctx.node &&
-        (cyclic || ctx.index < ctx.siblings.length - 1)
-      )
-        contexts = [{ ...ctx, id: ctx.node.sibTrans, kind: "sibTrans" }];
-    } else if (axis === "precedSib" && ptType === "parTrans") {
-      if (ctx.kind === "node" && ctx.node)
-        contexts = [{ ...ctx, id: ctx.node.parTrans, kind: "parTrans" }];
-    } else if (axis === "self") contexts = [ctx];
+    let contexts = along(
+      ctx,
+      att(body, "axis"),
+      att(body, "ptType"),
+      att(body, "hideLastTrans") !== "0" &&
+        att(body, "hideLastTrans") !== "false",
+    );
+    const st = Number(att(body, "st") ?? 1) || 1;
+    const stepBy = Math.max(1, Number(att(body, "step") ?? 1) || 1);
+    const start = st < 0 ? Math.max(0, contexts.length + st) : st - 1;
+    contexts = contexts.slice(start).filter((_, i) => i % stepBy === 0);
     const cnt = Number(att(body, "cnt") ?? 0);
     if (cnt > 0) contexts = contexts.slice(0, cnt);
     for (const c of contexts)
       for (const child of kids(body)) structural(child, c, parent);
   };
 
+  const chooseBranch = (ch: XmlElement, ctx: Context, parent: PresPoint) => {
+    for (const branch of kids(ch)) {
+      if (local(branch) === "if" && !holds(branch, ctx)) continue;
+      if (local(branch) !== "if" && local(branch) !== "else") continue;
+      for (const child of kids(branch)) structural(child, ctx, parent);
+      return;
+    }
+  };
+
   const structural = (e: XmlElement, ctx: Context, parent: PresPoint) => {
     if (local(e) === "layoutNode") layoutNode(e, ctx, parent);
     else if (local(e) === "forEach") forEach(e, ctx, parent);
+    else if (local(e) === "choose") chooseBranch(e, ctx, parent);
   };
 
-  layoutNode(
-    rootNode,
-    { id: docId, node: null, kind: "doc", siblings: [], index: 0 },
-    null,
-  );
+  layoutNode(rootNode, docContext, null);
 
   // Style index and count among the points sharing a style label.
   const totals = new Map<string, number>();
@@ -234,42 +364,61 @@ export const buildPresTree = (
   return { uniqueId, points, connections };
 };
 
+/** Layout node names that draw each kind of an item's shape, per layout. */
+const ROLE_NODES: Readonly<
+  Record<string, Readonly<Partial<Record<Role, RegExp>>>>
+> = {
+  tiles: { node: /^node$/ },
+  "banner-list": { node: /^head$/, text: /^body\d+$/ },
+  "heading-columns": { node: /^head(ing)?$/, child: /^body$/ },
+  "stacked-cards": { node: /^tab(Only)?$/, child: /^card$/ },
+  "ruled-list": { text: /^head(Only)?$/ },
+  "grouped-boxes": { bg: /^panel(Only)?$/, node: /^box$/ },
+  "arrow-steps": { node: /^step$/ },
+  chevrons: { node: /^(first|chevron)(Only)?$/, text: /^details$/ },
+  "downward-flow": { node: /^step$/ },
+  "rising-steps": { node: /^step\d+$/ },
+  timeline: { node: /^dot$/, text: /^(above|below)$/ },
+  "blocks-on-arrow": { node: /^block$/ },
+  ring: { node: /^node$/ },
+  "text-ring": { text: /^node$/ },
+  "block-ring": { node: /^node$/ },
+  wheel: { node: /^slice\d+_\d+$/ },
+  "hub-spokes": { hub: /^(hub|center)$/, node: /^(satellite|around)$/ },
+  "ring-track": { node: /^node$/ },
+  "org-chart": { hub: /^topText$/, node: /^memberText$/ },
+  "sideways-tree": { hub: /^topText$/, node: /^memberText$/ },
+  "bubble-tree": { hub: /^topText$/, node: /^memberText$/ },
+  "layered-blocks": { hub: /^top(Head|Leaf)$/, node: /^(head|leaf)$/ },
+  venn: { venn: /^circle\d+_\d+$/ },
+  "linked-circles": { venn: /^circle$/ },
+  "nested-circles": { venn: /^ring\d+_\d+$/ },
+  target: { node: /^ring\d+_\d+$/, text: /^label\d+_\d+$/ },
+  "counter-arrows": { node: /^(forth|back)$/ },
+  "converging-arrows": { hub: /^hub$/, node: /^(left|right)Arrow$/ },
+  equation: { node: /^(term|only)$/, hub: /^result$/ },
+  quadrants: { node: /^node$/ },
+  "centered-quadrants": { hub: /^(hub|center)$/, node: /^(sub|quad)\d+_\d+$/ },
+  "header-grid": { hub: /^head$/, child: /^cell$/ },
+  petals: { node: /^petal(Alt)?$/ },
+  pyramid: { node: /^level$/ },
+  "inverted-pyramid": { node: /^level$/ },
+  "pyramid-ledger": { node: /^bar$/ },
+  "stepped-pyramid": { node: /^step\d+$/ },
+  "captioned-pictures": { pic: /^image$/, text: /^caption$/ },
+  "picture-tiles": { pic: /^image$/, node: /^caption$/ },
+  "picture-bullets": { pic: /^image$/, node: /^bar$/ },
+  "portrait-circles": { pic: /^image$/, text: /^caption$/ },
+};
+
 /**
- * The layout node of `family` that draws an item's shape of `role`, or null
- * when the definition has no node of its own for it. `depth` is the item's
- * outline level (0 for top-level items).
+ * Whether the layout node `name` of `layout`'s definition draws an item's
+ * shape of `role` (null when the definition has no node of its own for it).
  */
 export const layoutNodeForRole = (
-  family: LayoutFamily,
+  layout: string,
   role: string,
-  depth: number,
-): string | null => {
-  const r = role as Role;
-  switch (family.kind) {
-    case "snake":
-    case "linear":
-    case "cycle":
-      return ["node", "hub", "venn", "text"].includes(r) ? "node" : null;
-    case "composite":
-      return ["node", "hub", "text"].includes(r)
-        ? "head"
-        : r === "child"
-          ? "body"
-          : null;
-    case "picture":
-      return r === "pic"
-        ? "image"
-        : ["node", "text", "hub"].includes(r)
-          ? "caption"
-          : null;
-    case "tree":
-      return ["node", "hub"].includes(r)
-        ? depth === 0
-          ? "topText"
-          : "memberText"
-        : null;
-    case "pyramid":
-      return ["node", "hub"].includes(r) ? "level" : null;
-  }
-  return null;
+): ((name: string) => boolean) | null => {
+  const pattern = ROLE_NODES[layout]?.[role as Role];
+  return pattern ? (name) => pattern.test(name) : null;
 };

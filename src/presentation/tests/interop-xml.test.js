@@ -205,12 +205,13 @@ describe("SmartArt shape formatting", () => {
       /^ppt\/diagrams\/data\d+\.xml$/.test(f),
     );
     const data = strFromU8(files[name]);
-    // Root, three nodes and the two arrows between them.
-    expect(data.match(/type="pres"/g)).toHaveLength(6);
-    expect(data.match(/type="presParOf"/g)).toHaveLength(5);
+    // Root, three steps, and between them two slots (each with its frame)
+    // holding the arrows.
+    expect(data.match(/type="pres"/g)).toHaveLength(10);
+    expect(data.match(/type="presParOf"/g)).toHaveLength(9);
     expect(data.match(/type="presOf"/g)).toHaveLength(3);
     expect(data).toMatch(
-      /presName="node" presStyleLbl="node1" presStyleIdx="1" presStyleCnt="3"><dgm:presLayoutVars><dgm:bulletEnabled val="1"\/><\/dgm:presLayoutVars><\/dgm:prSet><dgm:spPr><a:solidFill><a:srgbClr val="C00000"\/>/,
+      /presName="step" presStyleLbl="node1" presStyleIdx="1" presStyleCnt="3"><dgm:presLayoutVars><dgm:bulletEnabled val="1"\/><\/dgm:presLayoutVars><\/dgm:prSet><dgm:spPr><a:solidFill><a:srgbClr val="C00000"\/>/,
     );
     expect(data).toMatch(
       /presName="arrow" presStyleLbl="sibTrans2D1" presStyleIdx="1" presStyleCnt="2"\/>/,

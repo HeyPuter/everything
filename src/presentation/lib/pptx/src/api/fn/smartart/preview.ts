@@ -9,6 +9,8 @@ import {
   PT,
   adjustmentList,
   geometryTextRect,
+  headingAlignOf,
+  textAnchorOf,
   insetOf,
   paraPt,
 } from "./kit.ts";
@@ -209,15 +211,17 @@ export const smartArtPreviewSvg = (
         w: rect.w - 2 * inset,
         h: rect.h - 2 * inset,
       };
+      const anchor = textAnchorOf(s);
       let y =
-        s.anchor === "t"
+        anchor === "t"
           ? box.y
-          : s.anchor === "b"
+          : anchor === "b"
             ? box.y + box.h - total
             : box.y + (box.h - total) / 2;
       for (const line of lines) {
         y += line.size * PT;
-        const align = line.bullet ? "l" : (s.align ?? "ctr");
+        const heading = headingAlignOf(s);
+        const align = line.bullet ? (heading === "r" ? "r" : "l") : heading;
         const indent = line.bullet
           ? (line.level + 1) * line.size * PT * 0.9
           : 0;

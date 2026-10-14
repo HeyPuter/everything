@@ -152,17 +152,17 @@ export const dataModelXml = (
       ? buildPresTree(layoutDef, DOC_ID, roots, newPresId)
       : null;
   const onTree = new Map<string, { spPr: string; scale: string }>();
-  for (const { owner, item, depth, formats } of owned)
+  for (const { owner, item, formats } of owned)
     for (const [name, f] of Object.entries(formats ?? {})) {
       const x = formatXml(f);
       if (!x) continue;
       const target =
         tree && !name.includes(":") && itemShapes(item).has(name)
-          ? layoutNodeForRole(entry!.family, name, depth)
+          ? layoutNodeForRole(model.layout, name)
           : null;
       const point = target
         ? tree!.points.find(
-            (p) => p.assoc === owner && p.name === target && !onTree.has(p.id),
+            (p) => p.assoc === owner && target(p.name) && !onTree.has(p.id),
           )
         : undefined;
       if (point) onTree.set(point.id, x);
@@ -267,9 +267,22 @@ export const colorsDefXml = (schemeId: string): string => {
                   ]
                 : name === "alignImgPlace1"
                   ? [mains.map((c) => scheme.tint(c, 0.6)), [light], [dark]]
-                  : scheme.outline
-                    ? [[light], mains, [dark]]
-                    : [mains, [light], [light]];
+                  : name === "node0"
+                    ? // Hubs, roots and results: a shade darker.
+                      scheme.outline
+                      ? [
+                          [light],
+                          mains.map((c) => scheme.shade(c, 0.2)),
+                          [dark],
+                        ]
+                      : [
+                          mains.map((c) => scheme.shade(c, 0.2)),
+                          [light],
+                          [light],
+                        ]
+                    : scheme.outline
+                      ? [[light], mains, [dark]]
+                      : [mains, [light], [light]];
     return (
       `<dgm:styleLbl name="${name}">` +
       list("fillClrLst", fill as ColorRef[], meth) +
@@ -299,15 +312,18 @@ export const styleDefXml = (styleId: string): string => {
   const label = (name: string) => {
     const connector = name === "parChTrans1D2";
     const text = name === "revTx";
-    const line = text
-      ? 0
-      : style.line === "none"
+    // Arrows and backdrops have no outline (as the drawing paints them).
+    const bare = name === "sibTrans2D1" || name === "trBgShp";
+    const line =
+      text || bare
         ? 0
-        : style.line === "bold"
-          ? 3
-          : connector
-            ? 2
-            : 2;
+        : style.line === "none"
+          ? 0
+          : style.line === "bold"
+            ? 3
+            : connector
+              ? 2
+              : 2;
     const fill = text || connector ? 0 : style.gradient ? 3 : 1;
     const effect =
       text || connector

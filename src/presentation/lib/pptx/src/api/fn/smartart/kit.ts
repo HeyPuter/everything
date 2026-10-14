@@ -172,6 +172,13 @@ const linesFor = (text: string, pt: number, width: number): number => {
   return lines;
 };
 
+/** Text with sub-points starts at the top left, as layout engines set it;
+ *  other text is centered unless the layout says otherwise. */
+export const textAnchorOf = (shape: ArtShape): "t" | "ctr" | "b" =>
+  shape.anchor ?? (shape.paras?.some((p) => p.bullet) ? "t" : "ctr");
+export const headingAlignOf = (shape: ArtShape): "l" | "ctr" | "r" =>
+  shape.align ?? (shape.paras?.some((p) => p.bullet) ? "l" : "ctr");
+
 export const CHILD_SCALE = 0.78;
 export const paraPt = (para: Para, pt: number, shape: ArtShape): number =>
   para.level > 0 || (para.bullet && shape.paras?.[0]?.bullet === false)
@@ -291,10 +298,11 @@ export const gridFor = (n: number, w: number, h: number, ratio: number) => {
   let best = { cols: 1, rows: n, size: 0 };
   for (let cols = 1; cols <= Math.max(1, n); cols++) {
     const rows = Math.ceil(n / cols);
+    // Gaps are a tenth of a cell's width, across and down.
     const cw = w / (cols + (cols - 1) * 0.1);
-    const ch = h / (rows + (rows - 1) * 0.1);
-    const size = Math.min(cw, ch * ratio);
-    if (size > best.size) best = { cols, rows, size };
+    const size = Math.min(cw, h / (rows / ratio + (rows - 1) * 0.1));
+    // On a tie, more columns (as the snake algorithm settles it).
+    if (size >= best.size - 1e-6) best = { cols, rows, size };
   }
   return best;
 };
