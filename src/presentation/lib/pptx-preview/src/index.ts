@@ -17,6 +17,7 @@ export type { AuditTextLayoutOptions, TextAuditIssue } from "./audit.ts";
 
 export type {
   RenderSlideOptions,
+  SlideShapeLayerPart,
   TextLayoutMode,
   TextMeasurer,
   FontSpec,

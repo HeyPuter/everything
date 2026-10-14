@@ -198,6 +198,7 @@ import {
   type ParaInput,
   type PieceInput,
   type RenderSlideOptions,
+  type SlideShapeLayerPart,
   type TextBodyInput,
   type TextLayoutMode,
   type TextMeasurer,
@@ -669,6 +670,9 @@ const resolveColor = (
 // a local counter instead, retaining the same URL when their content is unchanged.
 const sharedDefinitionIds = { next: 0 };
 let activeDefinitionIds = sharedDefinitionIds;
+// The part of the top-level shape being drawn when a render asks for a layer
+// of the slide (RenderSlideOptions.layer); null draws shapes whole.
+let activeLayerPart: SlideShapeLayerPart | null = null;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
 
@@ -2024,7 +2028,15 @@ const measureParagraphPercentSpacing = (a: SvgTextArgs) =>
     : null;
 
 const buildAndLayoutSvgText = (a: SvgTextArgs): string =>
-  layoutTextSvg(buildSvgTextInput(a), a.measure);
+  layoutTextSvg(
+    activeLayerPart?.paragraphs
+      ? {
+          ...buildSvgTextInput(a),
+          visibleParagraphs: activeLayerPart.paragraphs,
+        }
+      : buildSvgTextInput(a),
+    a.measure,
+  );
 
 const breakPiece = (): PieceInput => ({
   text: "",
@@ -11578,7 +11590,10 @@ const renderShape = (
   // Apply the filter to the geometry only — text overlays use foreignObject
   // and react badly to feGaussianBlur (DOM gets rasterized).
   geomSvg = `<g${filterAttr}>${geomSvg}</g>`;
-  if (reflection) {
+  if (activeLayerPart && !activeLayerPart.body) {
+    geomSvg = "";
+    fxDefs = "";
+  } else if (reflection) {
     // Paint the reflection behind the shape; it sits below the bottom edge
     // so they don't overlap, but keeping it first gives the native z-order.
     geomSvg = reflection.svg + geomSvg;
@@ -11876,6 +11891,8 @@ export const renderSlideSvg = (
   const previousIds = activeDefinitionIds;
   const previousColorMap = activeColorMap;
   const previousTextColor = activeDeckTextColor;
+  const previousLayerPart = activeLayerPart;
+  activeLayerPart = null;
   activeDefinitionIds = opts.stableDefinitionIds
     ? { next: 0 }
     : sharedDefinitionIds;
@@ -11885,6 +11902,7 @@ export const renderSlideSvg = (
     activeDefinitionIds = previousIds;
     activeColorMap = previousColorMap;
     activeDeckTextColor = previousTextColor;
+    activeLayerPart = previousLayerPart;
   }
 };
 
@@ -12054,11 +12072,24 @@ const renderSlideSvgInContext = (
     }
   }
 
+  const layer = opts.layer;
   const shapesSvg = topLevelShapes(getSlideShapes(slide), {
     dropPlaceholders: false,
   })
-    .map((s) => renderShape(s, pres, theme, ctx))
+    .map((s) => {
+      if (!layer) return renderShape(s, pres, theme, ctx);
+      const part = layer.shape(s);
+      if (!part) return "";
+      const previousPart = activeLayerPart;
+      activeLayerPart = part === true ? null : part;
+      try {
+        return renderShape(s, pres, theme, ctx);
+      } finally {
+        activeLayerPart = previousPart;
+      }
+    })
     .join("");
+  const background = !layer || layer.background;
 
   // A viewBox alone supplies an aspect ratio, but no intrinsic dimensions.
   // Use the same CSS-pixel grid for the image's native size and its geometry
@@ -12067,16 +12098,18 @@ const renderSlideSvgInContext = (
     opts.preserveAspectRatio === "none" ? "none" : "xMidYMid meet";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${E(W)}" height="${E(H)}" viewBox="0 0 ${E(W)} ${E(H)}" preserveAspectRatio="${preserveAspectRatio}">`,
-    bgGradientDefs,
+    background ? bgGradientDefs : "",
     // A translucent slide background composites onto the white page, not
     // onto the editor chrome or the overridden layout/master background.
-    bgOpacity < 1
+    background && bgOpacity < 1
       ? `<rect width="${E(W)}" height="${E(H)}" fill="#FFFFFF"/>`
       : "",
-    `<rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"${bgOpacity < 1 ? ` fill-opacity="${bgOpacity}"` : ""}/>`,
-    bgGradient,
-    bgImage,
-    layoutBgShapes,
+    background
+      ? `<rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"${bgOpacity < 1 ? ` fill-opacity="${bgOpacity}"` : ""}/>`
+      : "",
+    background ? bgGradient : "",
+    background ? bgImage : "",
+    background ? layoutBgShapes : "",
     shapesSvg,
     "</svg>",
   ].join("");
