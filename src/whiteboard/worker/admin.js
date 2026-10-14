@@ -271,6 +271,29 @@ export async function linkEmail(org, identity, email, { onDeactivated } = {}) {
   }
   return user;
 }
+// The accounts a team change names. Members are people the organization
+// knows, by account or by the identifier their identity provider uses; an
+// unknown identifier would otherwise be kept as a member no one is. Members
+// a team already has are taken as they are, and people being removed need
+// not still exist.
+async function teamMembers(org, ids, known = true, current = []) {
+  const kept = new Set(current),
+    owner = (await org.accountOwner()).uuid;
+  const out = [];
+  for (let n = 0; n < ids.length; n += 50)
+    out.push(
+      ...(await Promise.all(
+        ids.slice(n, n + 50).map(async (member) => {
+          if (kept.has(member) || member === owner) return member;
+          const mapped = await org.kv.get("org:scimid:" + member);
+          if (mapped) return mapped;
+          if (!known || (await org.user(member))) return member;
+          fail(400, `Unknown team member: ${member}.`);
+        }),
+      )),
+    );
+  return out;
+}
 // Record a team's membership change on the people who joined or left it.
 export async function syncTeamMembers(org, teamId, before, after) {
   const prior = new Set(before),
@@ -2463,7 +2486,9 @@ export async function adminCall(org, boards, identity, input) {
         !Array.isArray(input.members) &&
         (Array.isArray(input.add) || Array.isArray(input.remove));
       const leaving = new Set(
-        changing && Array.isArray(input.remove) ? input.remove.map(id) : [],
+        changing && Array.isArray(input.remove)
+          ? await teamMembers(org, input.remove.map(id), false)
+          : [],
       );
       const members =
         op === "teams.delete"
@@ -2472,11 +2497,22 @@ export async function adminCall(org, boards, identity, input) {
             ? [
                 ...new Set([
                   ...existing.members.filter((uuid) => !leaving.has(uuid)),
-                  ...(Array.isArray(input.add) ? input.add.map(id) : []),
+                  ...(Array.isArray(input.add)
+                    ? await teamMembers(org, input.add.map(id))
+                    : []),
                 ]),
               ].slice(0, 5000)
             : Array.isArray(input.members)
-              ? [...new Set(input.members.map(id))].slice(0, 5000)
+              ? [
+                  ...new Set(
+                    await teamMembers(
+                      org,
+                      input.members.map(id),
+                      true,
+                      existing?.members,
+                    ),
+                  ),
+                ].slice(0, 5000)
               : existing?.members || [];
       // The record names the team as saved, not as typed: a blank name
       // keeps the one it had.

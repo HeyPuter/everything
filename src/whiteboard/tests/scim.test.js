@@ -1523,3 +1523,49 @@ test("a SCIM change written while the console deactivates someone keeps the deac
   assert.equal(stored.status, "deactivated");
   assert.equal(stored.givenName, "Pat");
 });
+
+test("REST team changes add and remove members one at a time, and only people the organization knows", async () => {
+  const { org, boards, scim } = await setup();
+  const { key } = await adminCall(org, boards, owner, {
+    op: "apikeys.create",
+    name: "Sync",
+    scopes: ["users:read", "users:write"],
+  });
+  const rest = async (path, method = "GET", body) => {
+    const response = await restRoute(
+      org,
+      boards,
+      new Request("https://w.puter.work/v1/" + path, {
+        method,
+        headers: { Authorization: `Bearer ${key}` },
+      }),
+      method,
+      path,
+      body,
+    );
+    return response.json();
+  };
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  await verifyEmail(org, boards, editor, "pat@example.ca");
+  const sam = await scim("Users", "POST", { userName: "sam@example.ca" });
+  await assert.rejects(
+    rest("teams", "POST", { name: "Ops", members: ["nobody"] }),
+    {
+      status: 400,
+    },
+  );
+  const { team } = await rest("teams", "POST", { name: "Ops", members: [] });
+  // An identity provider's id names the account it was linked to.
+  const added = await rest("teams/" + team.id, "PATCH", { add: [pat.id] });
+  assert.deepEqual(added.team.members, [editor.uuid]);
+  const both = await rest("teams/" + team.id, "PATCH", { add: [sam.id] });
+  assert.deepEqual(both.team.members, [editor.uuid, sam.id]);
+  const left = await rest("teams/" + team.id, "PATCH", { remove: [pat.id] });
+  assert.deepEqual(left.team.members, [sam.id]);
+  assert.deepEqual((await org.freshUser(editor.uuid)).teams, []);
+  await assert.rejects(
+    rest("teams/" + team.id, "PATCH", { add: ["not-a-user"] }),
+    { status: 400 },
+  );
+  assert.deepEqual((await org.kv.get("org:team:" + team.id)).members, [sam.id]);
+});

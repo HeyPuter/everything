@@ -1425,6 +1425,8 @@ export async function restRoute(org, boards, request, method, path, body) {
           id,
           name: body?.name,
           members: body?.members,
+          add: body?.add,
+          remove: body?.remove,
         }),
       );
     if (method === "DELETE" && id)
