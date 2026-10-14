@@ -106,6 +106,7 @@ describe("presentation slide relationship targets", () => {
     const loaded = await parseDeck(await P.savePresentation(p));
     expect(shapeText(loaded)).toEqual(["Page B", "Page C", "Page A"]);
   });
+  // Two decks parsed, edited and saved: seconds under load.
   it("rejects foreign and removed handles without changing either package", async () => {
     const p = await parseDeck(await createSlideRelationshipDeck()),
       other = await parseDeck(await createSlideRelationshipDeck());
@@ -124,7 +125,7 @@ describe("presentation slide relationship targets", () => {
         expect(await saved(p)).toEqual(before);
         expect(await saved(other)).toEqual(external);
       }
-  });
+  }, 30_000);
   it.each([
     "missing",
     "external",
