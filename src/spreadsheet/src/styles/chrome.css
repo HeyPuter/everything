@@ -357,6 +357,10 @@
 .a11y-pane { position: fixed; right: 12px; top: 200px; bottom: 64px; z-index: 40; width: min(320px, calc(100vw - 24px)); display: flex; flex-direction: column;
   background: var(--surface); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.1); font-size: 12.5px; }
 .a11y-pane[hidden] { display: none; }
+/* In the grid's area, a task pane docks at its right edge, from just under the formula bar to just over the sheet tabs. */
+.editor-grid > .a11y-pane, .editor-grid > .lang-pane, .editor-grid > .selpane { position: absolute; top: 8px; bottom: 8px; right: 12px; max-width: calc(100% - 24px); }
+/* Find and replace moves aside for an open task pane rather than sitting under it. */
+.editor-grid:has(> .a11y-pane:not([hidden]), > .lang-pane:not([hidden]), > .selpane:not([hidden])) > .find-panel { right: calc(min(340px, 100% - 24px) + 24px); }
 .a11y-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--hairline); }
 .a11y-title { font-weight: 600; font-size: 14px; }
 .a11y-body { overflow: auto; padding: 8px 14px 14px; flex: 1; }

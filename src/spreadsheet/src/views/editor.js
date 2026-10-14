@@ -5663,22 +5663,28 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         automate.notice,
         pivotNotice,
         // The page's main landmark: the grid (the panel the sheet tabs control) and the find bar over it.
-        el('main.editor-grid', {}, grid.el, findBar.el),
+        // The task panes (Accessibility, Thesaurus and Translate, Changes, Selection, Queries) dock at the grid's right
+        // edge, under the ribbon and beside whatever column is open to the right; one at a time (see taskPanes).
+        el('main.editor-grid', {}, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el),
         sheetTabs.el,
         statusBar.el,
         watchWindow.el,
-        accessibilityPane.el,
-        languagePane.el,
-        changesPane.el,
-        selectionPane.el,
         errorTag.el,
-        quickAnalysis.el,
-        queriesPane.el),
+        quickAnalysis.el),
       chartUi.pane,
       comments.el,
       automate.pane,
       aiPanel?.el,
       aiPanel?.rail));
+  // The task panes over the grid take turns: opening one closes whichever other was open, so none hides another.
+  const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane];
+  for (const pane of taskPanes) {
+    const show = pane.show.bind(pane);
+    pane.show = (...args) => {
+      for (const other of taskPanes) if (other !== pane && other.open) other.hide();
+      return show(...args);
+    };
+  }
   // Alt (or F10) shows key tips on the ribbon; they wait while an entry, a menu or a dialog has the keyboard.
   const keyTips = attachKeyTips({
     ribbon: toolbar.el, fileButton: () => menubar.el.querySelector('[data-menu="file"]'), openFile: () => menubar.open('file'),
