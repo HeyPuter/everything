@@ -639,6 +639,8 @@ export function autofitTable(model, mode) {
   table.width = mode === 'window' ? { type: 'pct', value: 5000 } : { type: 'auto', value: 0 }; table.widthChanged = true;
   for (const cell of tableCells(table)) if (cell.width?.type !== 'auto') { cell.width = { type: 'auto', value: 0 }; cell.widthChanged = true; }
   for (const row of table.rows) for (const side of ['Before', 'After']) if (row[`grid${side}`] && row[`width${side}`]?.type !== 'auto') { row[`width${side}`] = { type: 'auto', value: 0 }; row[`width${side}Changed`] = true; }
+  // Fitting the contents may widen a column past its old grid width: the grid stops being a cap.
+  if (mode === 'contents' && table.grid.some(w => w)) { table.grid = table.grid.map(() => 0); table.gridChanged = true; }
   model.didChange(); return true;
 }
 

@@ -254,6 +254,17 @@ describe('table commands', () => {
     expect(xml).toContain('w:hRule="exact"');
   });
 
+  it('AutoFit to contents lets columns grow past their old widths, and the zero grid saves', async () => {
+    const { pkg, doc } = tableDocument();
+    T.autofitTable(doc, 'contents');
+    expect(doc.tables[0]).toMatchObject({ layout: 'autofit', width: { type: 'auto', value: 0 }, grid: [0, 0, 0] });
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).toContain('<w:gridCol w:w="0"/>');
+    expect(reopened.tables[0].layout).toBe('autofit');
+    T.autofitTable(doc, 'window');
+    expect(doc.tables[0].width).toEqual({ type: 'pct', value: 5000 });
+  });
+
   it('sets text direction, alignment, wrap and preferred cell width and saves them', async () => {
     const { pkg, doc } = tableDocument();
     block(doc, 0, 0, 0, 2);
