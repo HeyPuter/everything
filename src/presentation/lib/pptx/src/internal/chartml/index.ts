@@ -7,6 +7,8 @@ export type {
   ChartAxisScaling,
   ChartDataLabelPosition,
   ChartDataLabels,
+  ChartDataTable,
+  ChartErrorBars,
   ChartGrouping,
   ChartKind,
   ChartSeries,
@@ -16,5 +18,10 @@ export type {
 } from "./types.ts";
 export { buildChartSpaceDoc } from "./chart-builder.ts";
 export { readChartSpec } from "./chart-reader.ts";
-export type { DataRow } from "./embedded-xlsx.ts";
-export { buildEmbeddedXlsx, cellAddr, cellRange } from "./embedded-xlsx.ts";
+export type { DataColumn, DataRow } from "./embedded-xlsx.ts";
+export {
+  buildEmbeddedXlsx,
+  buildEmbeddedXlsxColumns,
+  cellAddr,
+  cellRange,
+} from "./embedded-xlsx.ts";

@@ -15,6 +15,7 @@ import { validateChartAxisCrossings } from "./axis-crossing.ts";
 import { CHART_AUTO_ROTATION } from "./text-rotation.ts";
 import { chartStyleElement } from "./chart-style.ts";
 import { cellAddr, cellRange } from "./embedded-xlsx.ts";
+import { isXYChartKind, xyWorkbookPlan } from "./xy-workbook.ts";
 import {
   firstSliceAngle,
   gapAmountPercent,
@@ -34,6 +35,7 @@ import {
 } from "../xml/index.ts";
 import type {
   ChartAxisCrossing,
+  ChartErrorBars,
   ChartSeries,
   ChartSpec,
   ChartTextStyle,
@@ -332,17 +334,133 @@ const trendlineElement = (
   return elem(c("trendline"), { children });
 };
 
+const ERROR_BAR_TYPES = new Set(["both", "plus", "minus"]);
+const ERROR_VALUE_TYPES = new Set([
+  "fixedVal",
+  "percentage",
+  "stdDev",
+  "stdErr",
+]);
+
+/** Kinds whose series carry `<c:errBars>` (CT_BarSer/LineSer/AreaSer/ScatterSer/BubbleSer). */
+const errorBarKind = (kind: string): boolean =>
+  ["bar", "column", "line", "area", "scatter", "bubble"].includes(kind);
+
+/** Rejects error bars the schema cannot hold, before anything changes. */
+export const validateChartErrorBars = (spec: ChartSpec): void => {
+  spec.series.forEach((series, i) => {
+    const bars = series.errorBars;
+    if (bars === undefined) return;
+    const label = `series[${i}].errorBars`;
+    const kind = series.chartKind ?? spec.kind;
+    if (!errorBarKind(kind))
+      throw new TypeError(`${label}: ${kind} series have no error bars`);
+    if (!ERROR_BAR_TYPES.has(bars.type))
+      throw new RangeError(`${label}.type: expected both, plus or minus`);
+    if (!ERROR_VALUE_TYPES.has(bars.valueType))
+      throw new RangeError(
+        `${label}.valueType: expected fixedVal, percentage, stdDev or stdErr`,
+      );
+    if (bars.direction !== undefined) {
+      if (bars.direction !== "x" && bars.direction !== "y")
+        throw new RangeError(`${label}.direction: expected x or y`);
+      if (bars.direction === "x" && !isXYChartKind(kind))
+        throw new TypeError(
+          `${label}.direction: only scatter and bubble series have X error bars`,
+        );
+    }
+    if (
+      bars.value !== undefined &&
+      (typeof bars.value !== "number" ||
+        !Number.isFinite(bars.value) ||
+        bars.value < 0)
+    )
+      throw new RangeError(`${label}.value: expected a finite number >= 0`);
+    if (bars.noEndCap !== undefined && typeof bars.noEndCap !== "boolean")
+      throw new TypeError(`${label}.noEndCap: expected a boolean`);
+  });
+};
+
+/** Default amount of an error bar whose value was not given. */
+export const defaultErrorBarValue = (bars: ChartErrorBars): number =>
+  bars.valueType === "percentage" ? 5 : 1;
+
+// CT_ErrBars: errDir?, errBarType, errValType, noEndCap?, plus?, minus?,
+// val?, spPr?. The direction only exists for XY series.
+const errorBarsElement = (bars: ChartErrorBars, xy: boolean): XmlElement => {
+  const children: XmlElement[] = [];
+  if (xy) children.push(valNode(c("errDir"), bars.direction ?? "y"));
+  children.push(
+    valNode(c("errBarType"), bars.type),
+    valNode(c("errValType"), bars.valueType),
+    valNode(c("noEndCap"), bars.noEndCap ? "1" : "0"),
+  );
+  if (bars.valueType !== "stdErr")
+    children.push(valNode(c("val"), bars.value ?? defaultErrorBarValue(bars)));
+  if (bars.color !== undefined)
+    children.push(spPrChildren(undefined, bars.color));
+  return elem(c("errBars"), { children });
+};
+
+/** Scatter styles that draw no connecting line / no markers. */
+const scatterHidesLine = (style: ChartSpec["scatterStyle"]): boolean =>
+  style === "marker" || style === "none";
+const scatterHidesMarkers = (style: ChartSpec["scatterStyle"]): boolean =>
+  style === "line" || style === "smooth" || style === "none";
+const scatterSmooth = (style: ChartSpec["scatterStyle"]): boolean =>
+  style === "smooth" || style === "smoothMarker";
+
+/**
+ * Authored scatter / radar sub-types are carried by the series too: other
+ * editors draw a scatter series' line and markers from its own formatting
+ * and treat the group style as a hint. A hidden part is therefore written
+ * as `<a:ln><a:noFill/>` or `<c:symbol val="none"/>` unless the series
+ * says otherwise; the reader folds those implied values away again.
+ */
+const impliedSeriesStyle = (
+  spec: ChartSpec,
+  series: ChartSeries,
+  kind: string,
+): ChartSeries => {
+  if (kind === "scatter") {
+    const style = spec.scatterStyle ?? "marker";
+    return {
+      ...series,
+      ...(series.lineColor === undefined && scatterHidesLine(style)
+        ? { lineColor: null }
+        : {}),
+      ...(series.markerSymbol === undefined && scatterHidesMarkers(style)
+        ? { markerSymbol: "none" as const }
+        : {}),
+    };
+  }
+  if (kind === "radar") {
+    const style = spec.radarStyle ?? "standard";
+    return series.markerSymbol === undefined && style !== "marker"
+      ? { ...series, markerSymbol: "none" }
+      : series;
+  }
+  return series;
+};
+
 const seriesElement = (
   spec: ChartSpec,
   seriesIdx: number,
   sheet: string,
 ): XmlElement => {
-  const series = spec.series[seriesIdx];
-  if (!series) throw new Error("seriesElement: out of range");
+  const authored = spec.series[seriesIdx];
+  if (!authored) throw new Error("seriesElement: out of range");
   // Styling choices belong to this series' plot group, not the chart base kind.
-  const kind = series.chartKind ?? spec.kind;
+  const kind = authored.chartKind ?? spec.kind;
+  const series = impliedSeriesStyle(spec, authored, kind);
+  const xy = isXYChartKind(kind);
+  const xyColumns = xy ? xyWorkbookPlan(spec).series[seriesIdx]! : null;
 
-  const headerCellFormula = cellAddr(sheet, 0, seriesIdx + 1);
+  const headerCellFormula = cellAddr(
+    sheet,
+    0,
+    xyColumns ? xyColumns.y : seriesIdx + 1,
+  );
   const catRange = cellRange(sheet, 1, 0, spec.categories.length);
   const valueCount = series.values.length;
   const valRange = cellRange(sheet, 1, seriesIdx + 1, valueCount);
@@ -367,6 +485,8 @@ const seriesElement = (
   // An authored noFill remains independent of the series' solid fill.
   if (
     kind === "line" ||
+    kind === "scatter" ||
+    kind === "radar" ||
     series.lineColor !== undefined ||
     series.lineWidthEmu !== undefined ||
     series.lineDash !== undefined
@@ -414,6 +534,57 @@ const seriesElement = (
     kind !== "radar"
   ) {
     children.push(trendlineElement(series.trendline));
+  }
+  if (series.errorBars !== undefined && errorBarKind(kind))
+    children.push(errorBarsElement(series.errorBars, xy));
+  if (xyColumns) {
+    // CT_ScatterSer / CT_BubbleSer: xVal?, yVal?, then bubbleSize, smooth.
+    if (xyColumns.x !== null && series.xValues !== undefined)
+      children.push(
+        elem(c("xVal"), {
+          children: [
+            numRef(
+              cellRange(sheet, 1, xyColumns.x, series.xValues.length),
+              series.xValues,
+              series.xNumberFormat,
+            ),
+          ],
+        }),
+      );
+    children.push(
+      elem(c("yVal"), {
+        children: [
+          numRef(
+            cellRange(sheet, 1, xyColumns.y, series.values.length),
+            series.values,
+            series.numberFormat,
+          ),
+        ],
+      }),
+    );
+    if (kind === "bubble") {
+      const sizes = series.bubbleSizes ?? [];
+      children.push(
+        elem(c("bubbleSize"), {
+          children: [
+            numRef(
+              cellRange(sheet, 1, xyColumns.size!, sizes.length),
+              sizes,
+              series.bubbleSizeNumberFormat,
+            ),
+          ],
+        }),
+        valNode(c("bubble3D"), "0"),
+      );
+    } else {
+      children.push(
+        valNode(
+          c("smooth"),
+          (series.smooth ?? scatterSmooth(spec.scatterStyle)) ? "1" : "0",
+        ),
+      );
+    }
+    return elem(c("ser"), { children });
   }
   if (spec.categories.length > 0)
     children.push(
@@ -498,10 +669,8 @@ const effectiveSeriesKind = (spec: ChartSpec, seriesIdx: number): string =>
   spec.series[seriesIdx]?.chartKind ?? spec.kind;
 
 /**
- * Splits the series into plot groups keyed by (effective kind, axis).
- * Primary-axis groups come first so secondary overlays paint on top,
- * and bar groups precede line/area within each axis for the same reason
- * (the conventional combo emit order).
+ * Splits the series into plot groups keyed by (effective kind, axis), in
+ * the order of each group's first series.
  */
 const comboPlotGroups = (
   spec: ChartSpec,
@@ -518,9 +687,12 @@ const comboPlotGroups = (
     if (group) group.indices.push(i);
     else groups.set(key, { kind, secondary, indices: [i] });
   }
-  const paintOrder = (g: { kind: string; secondary: boolean }): number =>
-    (g.secondary ? 2 : 0) + (g.kind === "line" || g.kind === "area" ? 1 : 0);
-  return [...groups.values()].sort((a, b) => paintOrder(a) - paintOrder(b));
+  // Model positions follow native group/series order, so groups are written
+  // in the order of their first series: the spec's series order survives a
+  // read whenever each kind's series are contiguous, and the chart reads
+  // back with its first series' kind as the base kind. Renderers choose
+  // their own paint order (bars under lines) independently of XML order.
+  return [...groups.values()];
 };
 
 // Build a `<c:txPr>` block carrying axis tick-label font / color and an
@@ -852,6 +1024,16 @@ const buildLineChart = (
   ];
   if (spec.dropLines) children.push(elem(c("dropLines")));
   if (spec.hiLowLines) children.push(elem(c("hiLowLines")));
+  if (spec.upDownBars)
+    children.push(
+      elem(c("upDownBars"), {
+        children: [
+          valNode(c("gapWidth"), 150),
+          elem(c("upBars")),
+          elem(c("downBars")),
+        ],
+      }),
+    );
   // Retain the native flag without inventing an element for omission. Readers
   // ignore this flag for visibility; per-series symbol='none' hides markers.
   if (spec.lineMarkers !== undefined)
@@ -933,6 +1115,85 @@ const buildAreaChart = (
       valNode(c("axId"), axes.val),
     ],
   });
+};
+
+/** Data tables pair series with categories: category charts with axes only. */
+export const chartHasDataTableSlot = (kind: string): boolean =>
+  ["bar", "column", "line", "area"].includes(kind);
+
+const buildScatterChart = (spec: ChartSpec, sheet: string): XmlElement => {
+  const dl = dLblsElement(spec);
+  return elem(c("scatterChart"), {
+    children: [
+      valNode(c("scatterStyle"), spec.scatterStyle ?? "marker"),
+      valNode(c("varyColors"), spec.varyColors ? "1" : "0"),
+      ...spec.series.map((_, i) => seriesElement(spec, i, sheet)),
+      ...(dl ? [dl] : []),
+      valNode(c("axId"), CAT_AX_ID),
+      valNode(c("axId"), VAL_AX_ID),
+    ],
+  });
+};
+
+const buildBubbleChart = (spec: ChartSpec, sheet: string): XmlElement => {
+  const dl = dLblsElement(spec);
+  const children: XmlElement[] = [
+    valNode(c("varyColors"), spec.varyColors ? "1" : "0"),
+    ...spec.series.map((_, i) => seriesElement(spec, i, sheet)),
+    ...(dl ? [dl] : []),
+  ];
+  if (spec.bubbleScale !== undefined) {
+    const scale = spec.bubbleScale;
+    if (!Number.isInteger(scale) || scale < 0 || scale > 300)
+      throw new RangeError("bubbleScale: expected an integer from 0 to 300");
+    children.push(valNode(c("bubbleScale"), scale));
+  }
+  children.push(valNode(c("showNegBubbles"), "0"));
+  if (spec.bubbleSizeRepresents !== undefined)
+    children.push(
+      valNode(
+        c("sizeRepresents"),
+        spec.bubbleSizeRepresents === "width" ? "w" : "area",
+      ),
+    );
+  children.push(valNode(c("axId"), CAT_AX_ID), valNode(c("axId"), VAL_AX_ID));
+  return elem(c("bubbleChart"), { children });
+};
+
+const buildRadarChart = (spec: ChartSpec, sheet: string): XmlElement => {
+  const dl = dLblsElement(spec);
+  return elem(c("radarChart"), {
+    children: [
+      valNode(c("radarStyle"), spec.radarStyle ?? "standard"),
+      valNode(c("varyColors"), spec.varyColors ? "1" : "0"),
+      ...spec.series.map((_, i) => seriesElement(spec, i, sheet)),
+      ...(dl ? [dl] : []),
+      valNode(c("axId"), CAT_AX_ID),
+      valNode(c("axId"), VAL_AX_ID),
+    ],
+  });
+};
+
+/**
+ * The horizontal axis of an XY chart is a value axis carrying the
+ * category-axis fields: CT_ValAx shares CT_CatAx's leading sequence up to
+ * the crossings, then takes crossBetween instead of the label options.
+ */
+const xValueAxis = (spec: ChartSpec): XmlElement => {
+  const axis = catAxis(spec);
+  const crossAt = axis.children.findIndex(
+    (n) =>
+      n.kind === "element" &&
+      n.name.namespaceURI === NS_C &&
+      n.name.localName === "crossAx",
+  );
+  const crossings = axisCrossingElements(spec.categoryAxisCrosses).length;
+  axis.children = [
+    ...axis.children.slice(0, crossAt + 1 + crossings),
+    valNode(c("crossBetween"), "midCat"),
+  ];
+  axis.name = c("valAx");
+  return axis;
 };
 
 /** One combo plot group, dispatched by its effective kind. */
@@ -1144,6 +1405,7 @@ export const buildChartSpaceDoc = (
   validateChartLabelPositions(spec);
   validateChartAxisCrossings(spec);
   validateChartAxisTickLabelPositions(spec);
+  validateChartErrorBars(spec);
   const sheet = "Sheet1";
 
   const usesComboFields = spec.series.some(
@@ -1195,16 +1457,14 @@ export const buildChartSpaceDoc = (
       plottedGroups = [buildDoughnutChart(spec, sheet)];
       break;
     case "scatter":
-    case "radar":
+      plottedGroups = [buildScatterChart(spec, sheet)];
+      break;
     case "bubble":
-      // Read + render only (plan W4): the builder can't serialize the
-      // xy(z) tuple channels these kinds need, so reject rather than
-      // silently emit a malformed or wrong-kind chart. `readChartSpec`
-      // surfaces these kinds, but `addSlideChart` / `setChartSpec` won't
-      // write them.
-      throw new Error(
-        `chart kind '${spec.kind}' is read-only; authoring scatter / radar / bubble charts is not yet supported`,
-      );
+      plottedGroups = [buildBubbleChart(spec, sheet)];
+      break;
+    case "radar":
+      plottedGroups = [buildRadarChart(spec, sheet)];
+      break;
     default: {
       const exhaustive: never = spec.kind;
       throw new Error(`unsupported chart kind: ${String(exhaustive)}`);
@@ -1214,10 +1474,31 @@ export const buildChartSpaceDoc = (
   const axisless = spec.kind === "pie" || spec.kind === "doughnut";
   const plotAreaChildren: XmlElement[] = [elem(c("layout")), ...plottedGroups];
   if (!axisless) {
-    plotAreaChildren.push(catAxis(spec), valAxis(spec));
+    plotAreaChildren.push(
+      isXYChartKind(spec.kind) ? xValueAxis(spec) : catAxis(spec),
+      valAxis(spec),
+    );
     if (hasSecondary) {
       plotAreaChildren.push(secondaryValAxis(spec), secondaryCatAxis(spec));
     }
+  }
+  // CT_PlotArea: the data table follows the axes and precedes spPr.
+  if (spec.dataTable !== undefined && chartHasDataTableSlot(spec.kind)) {
+    const table = spec.dataTable;
+    plotAreaChildren.push(
+      elem(c("dTable"), {
+        children: (
+          [
+            ["showHorzBorder", table.showHorzBorder],
+            ["showVertBorder", table.showVertBorder],
+            ["showOutline", table.showOutline],
+            ["showKeys", table.showKeys],
+          ] as const
+        )
+          .filter(([, on]) => on !== undefined)
+          .map(([name, on]) => valNode(c(name), on ? "1" : "0")),
+      }),
+    );
   }
   // <c:plotArea><c:spPr><a:solidFill> + optional <a:ln><a:solidFill>.
   if (

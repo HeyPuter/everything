@@ -281,14 +281,9 @@ test("Alt Text, the accessibility checker, symbols and command search", async ({
     .getByRole("button", { name: "Done" })
     .click();
   await command(page, "check-accessibility").click();
-  await expect(
-    page.getByRole("dialog", { name: "Accessibility" }),
-  ).toContainText("Missing slide title");
-  await page
-    .getByRole("dialog", { name: "Accessibility" })
-    .getByRole("button", { name: "Close" })
-    .last()
-    .click();
+  const pane = page.getByRole("complementary", { name: "Accessibility" });
+  await expect(pane).toContainText("Missing slide title");
+  await pane.getByRole("button", { name: "Close pane" }).click();
   await page.locator(".object-hit").first().click();
   const search = page.getByRole("searchbox", { name: "Search for commands" });
   await search.fill("italic");
