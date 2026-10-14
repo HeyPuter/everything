@@ -105,6 +105,7 @@ export type {
   AnimationStart,
   SlideAnimation,
   SlideAnimationAfter,
+  SlideAnimationSound,
   SlideAnimationTextBuild,
 } from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
@@ -290,6 +291,8 @@ export {
   getShapeAnimation,
   getSlideAnimations,
   setSlideAnimations,
+  addSlideAnimationSound,
+  getSlideAnimationSoundData,
   pruneSlideAnimations,
   getShapeBuildParagraphs,
   motionPathFor,
@@ -735,6 +738,7 @@ export {
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
+export * from "./format.ts";
 
 // Threaded comments and document custom properties.
 export * from "./fn/comment-threads.ts";

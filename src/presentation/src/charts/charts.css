@@ -394,3 +394,8 @@ td > .chart-sheet-swatch + .chart-sheet-cell {
     grid-template-columns: 1fr;
   }
 }
+.chart-hint {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}

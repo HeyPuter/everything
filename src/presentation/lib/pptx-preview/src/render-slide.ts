@@ -204,6 +204,15 @@ import {
   type TableResolvedFill,
   type TextFormat,
 } from "../../pptx/src/index.ts";
+import { getParagraphLayout } from "../../pptx/src/api/fn/paragraph-format.ts";
+import {
+  getShapeBackgroundFill,
+  getShapeImageFillMode,
+  getShapeLineGradient,
+  getShapePictureAdjustments,
+} from "../../pptx/src/api/fn/shape-paint-format.ts";
+import { getShapeStrokeWidth } from "../../pptx/src/index.ts";
+import { getShape3D } from "../../pptx/src/api/fn/shape-effect-format.ts";
 import {
   defaultMeasurer,
   layoutCore,
@@ -324,6 +333,144 @@ const mimeFromPartName = (name: string | null): string | null => {
   return EXT_TO_MIME[ext] ?? null;
 };
 
+// Pixel size of a PNG, JPEG, GIF or BMP from its header, for tiling.
+const imagePixelSize = (bytes: Uint8Array): { w: number; h: number } | null => {
+  const u32 = (o: number) =>
+    ((bytes[o]! << 24) |
+      (bytes[o + 1]! << 16) |
+      (bytes[o + 2]! << 8) |
+      bytes[o + 3]!) >>>
+    0;
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes.length > 24)
+    return { w: u32(16), h: u32(20) };
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes.length > 10)
+    return { w: bytes[6]! | (bytes[7]! << 8), h: bytes[8]! | (bytes[9]! << 8) };
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d && bytes.length > 26)
+    return {
+      w: bytes[18]! | (bytes[19]! << 8),
+      h: Math.abs(
+        bytes[22]! |
+          (bytes[23]! << 8) |
+          (bytes[24]! << 16) |
+          (bytes[25]! << 24) |
+          0,
+      ),
+    };
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < bytes.length) {
+      if (bytes[o] !== 0xff) return null;
+      const marker = bytes[o + 1]!;
+      const length = (bytes[o + 2]! << 8) | bytes[o + 3]!;
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        ![0xc4, 0xc8, 0xcc].includes(marker)
+      )
+        return {
+          h: (bytes[o + 5]! << 8) | bytes[o + 6]!,
+          w: (bytes[o + 7]! << 8) | bytes[o + 8]!,
+        };
+      o += 2 + length;
+    }
+  }
+  return null;
+};
+
+// Picture-layer adjustments (saturation, temperature, sharpness and an
+// artistic effect) as SVG filter primitives, applied after the blip's own
+// color effects. The artistic effects are drawn as close relatives of the
+// named looks: blur, pencil and line drawings from an edge filter,
+// photocopy and cutout by posterizing, film grain from noise, and painted
+// looks by displacing the picture along a noise field.
+const pictureAdjustmentPrimitives = (shape: SlideShapeData): string[] => {
+  const adj = getShapePictureAdjustments(shape);
+  const prims: string[] = [];
+  if (adj.saturation !== null && adj.saturation !== 1)
+    prims.push(
+      `<feColorMatrix type="saturate" values="${Math.max(0, adj.saturation)}"/>`,
+    );
+  if (adj.temperature !== null && adj.temperature !== 6500) {
+    const t = Math.max(-1, Math.min(1, (adj.temperature - 6500) / 5000));
+    prims.push(
+      `<feComponentTransfer><feFuncR type="linear" slope="${(1 + 0.18 * t).toFixed(3)}"/><feFuncB type="linear" slope="${(1 - 0.18 * t).toFixed(3)}"/></feComponentTransfer>`,
+    );
+  }
+  if (adj.sharpness !== null && adj.sharpness > 0) {
+    const k = (adj.sharpness * 0.9).toFixed(3);
+    const c = (1 + 4 * adj.sharpness * 0.9).toFixed(3);
+    prims.push(
+      `<feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="0 -${k} 0 -${k} ${c} -${k} 0 -${k} 0"/>`,
+    );
+  } else if (adj.sharpness !== null && adj.sharpness < 0)
+    prims.push(
+      `<feGaussianBlur stdDeviation="${(-adj.sharpness * 2.5).toFixed(2)}"/>`,
+    );
+  const art = adj.artistic;
+  if (art) {
+    const amount = Math.max(0.05, art.amount);
+    const gray =
+      '<feColorMatrix type="matrix" values="0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0 0 0 1 0"/>';
+    const edges =
+      '<feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1"/>';
+    const invert =
+      '<feComponentTransfer><feFuncR type="table" tableValues="1 0"/><feFuncG type="table" tableValues="1 0"/><feFuncB type="table" tableValues="1 0"/></feComponentTransfer>';
+    const steps = (n: number) =>
+      Array.from({ length: n }, (_, i) => (i / (n - 1)).toFixed(3)).join(" ");
+    switch (art.effect) {
+      case "artisticBlur":
+        prims.push(
+          `<feGaussianBlur stdDeviation="${(amount * 6).toFixed(2)}"/>`,
+        );
+        break;
+      case "artisticPencilGrayscale":
+      case "artisticPencilSketch":
+      case "artisticLineDrawing":
+        prims.push(
+          gray,
+          edges,
+          invert,
+          `<feComponentTransfer><feFuncR type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/><feFuncG type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/><feFuncB type="gamma" exponent="${(2 + amount * 4).toFixed(2)}"/></feComponentTransfer>`,
+        );
+        break;
+      case "artisticGlowEdges":
+        prims.push(
+          edges,
+          `<feGaussianBlur stdDeviation="${(amount * 1.2).toFixed(2)}"/>`,
+        );
+        break;
+      case "artisticPhotocopy":
+        prims.push(
+          gray,
+          `<feComponentTransfer><feFuncR type="discrete" tableValues="0 0 1 1"/><feFuncG type="discrete" tableValues="0 0 1 1"/><feFuncB type="discrete" tableValues="0 0 1 1"/></feComponentTransfer>`,
+        );
+        break;
+      case "artisticCutout": {
+        const levels = steps(Math.max(2, Math.round(2 + amount * 4)));
+        prims.push(
+          `<feComponentTransfer><feFuncR type="discrete" tableValues="${levels}"/><feFuncG type="discrete" tableValues="${levels}"/><feFuncB type="discrete" tableValues="${levels}"/></feComponentTransfer>`,
+        );
+        break;
+      }
+      case "artisticFilmGrain":
+        prims.push(
+          '<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="grain"/>',
+          '<feColorMatrix in="grain" type="saturate" values="0" result="mono"/>',
+          `<feComposite in="SourceGraphic" in2="mono" operator="arithmetic" k1="0" k2="1" k3="${(amount * 0.35).toFixed(3)}" k4="${(-amount * 0.17).toFixed(3)}"/>`,
+        );
+        break;
+      default:
+        // Paint strokes, marker, watercolor and pastels: a painterly smear.
+        prims.push(
+          '<feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2" seed="7" result="field"/>',
+          `<feDisplacementMap in="SourceGraphic" in2="field" scale="${(4 + amount * 14).toFixed(1)}" xChannelSelector="R" yChannelSelector="G"/>`,
+          `<feGaussianBlur stdDeviation="${(0.4 + amount).toFixed(2)}"/>`,
+        );
+    }
+  }
+  return prims;
+};
+
 // Render the picture if @office-kit/pptx handed us bytes; fall back to a
 // labelled placeholder describing why nothing is drawn. EMF / WMF
 // pictures still won't display (no browser can decode them) but the
@@ -368,12 +515,28 @@ const renderPicture = (
           (p) => p.fill !== "none" && p.fill !== "norm",
         ));
     const crop = imagePaint?.crop;
-    let imgX = x,
-      imgY = y,
-      imgW = w,
-      imgH = h;
+    let fillMode: ReturnType<typeof getShapeImageFillMode> = null;
+    try {
+      fillMode = imageOverride ? null : getShapeImageFillMode(shape);
+    } catch {}
+    // Stretch offsets move the picture's edges in from (or out past) the
+    // shape's; the shape's outline still clips it.
+    const inset =
+      fillMode?.mode === "stretch" &&
+      (fillMode.left || fillMode.top || fillMode.right || fillMode.bottom)
+        ? fillMode
+        : null;
+    let imgX = inset ? x + w * inset.left : x,
+      imgY = inset ? y + h * inset.top : y,
+      imgW = inset ? w * Math.max(0.001, 1 - inset.left - inset.right) : w,
+      imgH = inset ? h * Math.max(0.001, 1 - inset.top - inset.bottom) : h;
     let clipDef = "";
     let clipAttr = "";
+    if (inset) {
+      const clipId = mintId();
+      clipDef = `<defs><clipPath id="${clipId}"><rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}"/></clipPath></defs>`;
+      clipAttr = ` clip-path="url(#${clipId})"`;
+    }
     const cropL = crop?.left ?? 0;
     const cropT = crop?.top ?? 0;
     const cropR = crop?.right ?? 0;
@@ -385,10 +548,12 @@ const renderPicture = (
       // to the shape's bounds.
       const scaleX = 1 / Math.max(0.001, 1 - cropL - cropR);
       const scaleY = 1 / Math.max(0.001, 1 - cropT - cropB);
-      imgW = w * scaleX;
-      imgH = h * scaleY;
-      imgX = x - imgW * cropL;
-      imgY = y - imgH * cropT;
+      const baseX = imgX,
+        baseY = imgY;
+      imgW = imgW * scaleX;
+      imgH = imgH * scaleY;
+      imgX = baseX - imgW * cropL;
+      imgY = baseY - imgH * cropT;
       const clipId = mintId();
       clipDef = `<defs><clipPath id="${clipId}"><rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}"/></clipPath></defs>`;
       clipAttr = ` clip-path="url(#${clipId})"`;
@@ -434,11 +599,16 @@ const renderPicture = (
     const biLevel = imagePaint?.biLevelThreshold ?? null;
     const duotone = imagePaint?.duotone ?? null;
     let filterAttr = "";
+    let adjustments: string[] = [];
+    try {
+      adjustments = pictureAdjustmentPrimitives(shape);
+    } catch {}
     if (
       brightness !== 0 ||
       contrast !== 1 ||
       grayscale ||
       biLevel !== null ||
+      adjustments.length > 0 ||
       (duotone && (duotone.firstColor || duotone.secondColor))
     ) {
       // SVG filter pipeline: contrast/brightness (linear), then optional
@@ -499,10 +669,64 @@ const renderPicture = (
           `<feComponentTransfer><feFuncR type="discrete" tableValues="${tableStr}"/><feFuncG type="discrete" tableValues="${tableStr}"/><feFuncB type="discrete" tableValues="${tableStr}"/></feComponentTransfer>`,
         );
       }
-      clipDef += `<defs><filter id="${fid}">${prims.join("")}</filter></defs>`;
+      prims.push(...adjustments);
+      clipDef += `<defs><filter id="${fid}"${adjustments.length ? ' x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB"' : ""}>${prims.join("")}</filter></defs>`;
       filterAttr = ` filter="url(#${fid})"`;
     }
     const opacityAttr = opacity !== 1 ? ` opacity="${opacity.toFixed(3)}"` : "";
+    const natural = fillMode?.mode === "tile" ? imagePixelSize(bytes) : null;
+    if (fillMode?.mode === "tile" && natural) {
+      // Tiles repeat the picture at its own size (96 dpi) times the scale,
+      // starting from the alignment corner plus the offsets.
+      const tw = Math.max(EMU_PER_PX, natural.w * EMU_PER_PX * fillMode.scaleX);
+      const th = Math.max(EMU_PER_PX, natural.h * EMU_PER_PX * fillMode.scaleY);
+      const al = fillMode.align;
+      const ox =
+        x +
+        fillMode.offsetX +
+        (al.endsWith("r")
+          ? w - tw
+          : al === "t" || al === "b" || al === "ctr"
+            ? (w - tw) / 2
+            : 0);
+      const oy =
+        y +
+        fillMode.offsetY +
+        (al.startsWith("b")
+          ? h - th
+          : al === "l" || al === "r" || al === "ctr"
+            ? (h - th) / 2
+            : 0);
+      const mirrorX = fillMode.mirror === "x" || fillMode.mirror === "xy";
+      const mirrorY = fillMode.mirror === "y" || fillMode.mirror === "xy";
+      const cell = (fx: boolean, fy: boolean, dx: number, dy: number) =>
+        `<image x="${E(dx)}" y="${E(dy)}" width="${E(tw)}" height="${E(th)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="none"${fx || fy ? ` transform="translate(${E(fx ? 2 * dx + tw : 0)} ${E(fy ? 2 * dy + th : 0)}) scale(${fx ? -1 : 1} ${fy ? -1 : 1})"` : ""}${filterAttr}/>`;
+      const patternId = mintId();
+      const pw = tw * (mirrorX ? 2 : 1),
+        ph = th * (mirrorY ? 2 : 1);
+      const cells = [
+        cell(false, false, 0, 0),
+        mirrorX ? cell(true, false, tw, 0) : "",
+        mirrorY ? cell(false, true, 0, th) : "",
+        mirrorX && mirrorY ? cell(true, true, tw, th) : "",
+      ].join("");
+      const pattern = `<defs><pattern id="${patternId}" patternUnits="userSpaceOnUse" x="${E(ox)}" y="${E(oy)}" width="${E(pw)}" height="${E(ph)}">${cells}</pattern></defs>`;
+      const area = geometry
+        ? shapeGeometryToSvg(geometry, x, y, w, h, {
+            fill: `url(#${patternId})`,
+            stroke: "none",
+            strokeWidth: 0,
+            defs: "",
+            strokeAttrs: "",
+            markerAttrs: "",
+          })
+        : `<rect x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" fill="url(#${patternId})"/>`;
+      const tileOutline =
+        stroke.kind === "solid"
+          ? paint(shape, { kind: "none" }, stroke, theme, false, pres)
+          : null;
+      return `${clipDef}${pattern}${tileOutline?.defs ?? ""}<g${transform}${opacityAttr}>${area}${tileOutline && tileOutline.stroke !== "none" && tileOutline.strokeWidth > 0 ? shapeGeometryToSvg(geometry, x, y, w, h, tileOutline) : ""}</g><g${transform}>${textOverlay}</g>`;
+    }
     const outlinePaint =
       stroke.kind === "solid"
         ? paint(shape, { kind: "none" }, stroke, theme, false, pres)
@@ -693,6 +917,8 @@ let activeDefinitionIds = sharedDefinitionIds;
 let activeLayerPart: SlideShapeLayerPart | null = null;
 const mintId = (): string =>
   `pkdef-${(activeDefinitionIds.next++).toString(36)}`;
+// The slide background as a paint server for shapes that fill with it.
+let activeBackgroundFill: { id: string; used: boolean } | null = null;
 
 // Effective color map (`<p:clrMap>` overlaid by `<p:clrMapOvr>`) for the slide
 // currently rendering. The slide tokens (`tx1`, `bg1`, …) remap to
@@ -1336,15 +1562,32 @@ const paint = (
   let strokeWidth = 0;
   const strokeAttrParts: string[] = [];
   let markerAttrs = "";
+  // A gradient line paints its stroke with a gradient; width, dashes, caps,
+  // joins and arrows are read as for a solid line.
+  let lineGradient: GradientFillOptions | null = null;
+  try {
+    lineGradient = shape && pres ? getShapeLineGradient(pres, shape) : null;
+  } catch {}
+  if (lineGradient && shape)
+    stroke = {
+      kind: "solid",
+      color: lineGradient.stops[0]!.color,
+      widthEmu: getShapeStrokeWidth(shape) ?? 12_700,
+    };
   if (stroke.kind === "solid") {
     let resolved: string | null = null;
-    if (shape && pres)
+    if (shape && pres && !lineGradient)
       resolved = getShapeStrokeColorResolvedEffective(
         pres,
         shape,
         activeColorMap,
       );
     strokeColor = resolved ?? resolveColor(stroke.color, theme, "#9CA3AF");
+    if (lineGradient) {
+      const built = gradientDef(lineGradient, theme, bounds, false, fillFrame);
+      defs += built.defs;
+      strokeColor = built.fillAttr;
+    }
     strokeWidth = stroke.widthEmu ?? 9_525; // 1pt
     if (shape) {
       const formatting = getShapeStrokeFormattingEffective(shape);
@@ -1574,6 +1817,16 @@ const formatAutoNum = (token: string, n: number): string => {
       return `(${toAlpha(n)})`;
     case "alphaLcParenBoth":
       return `(${toAlpha(n).toLowerCase()})`;
+    // Enclosed numbers: ①..⑳ in a circle, ❶..❿ white on a black circle.
+    case "circleNumDbPlain":
+    case "circleNumWdWhitePlain":
+      return n >= 1 && n <= 20
+        ? String.fromCodePoint(0x245f + n)
+        : `${arabic}.`;
+    case "circleNumWdBlackPlain":
+      return n >= 1 && n <= 10
+        ? String.fromCodePoint(0x2775 + n)
+        : `${arabic}.`;
     default:
       return `${arabic}.`;
   }
@@ -1782,6 +2035,7 @@ interface ParaData {
   readonly spcBefPct?: number;
   readonly spcAftPct?: number;
   readonly indent: ReturnType<typeof getParagraphIndent>;
+  readonly tabs?: ReturnType<typeof getParagraphLayout>;
 }
 
 // Collapses every ST_TextUnderlineType token onto the 3 styles the SVG text
@@ -1796,6 +2050,35 @@ const underlineStyleOf = (
   if (u === undefined || u === false || u === "none") return "none";
   if (typeof u === "string" && u.startsWith("wavy")) return "wavy";
   return "single";
+};
+// Underline color, double lines and the text outline, as the SVG text
+// engine draws them.
+const drawnTextDecorations = (
+  fmt: TextFormat | null,
+  theme: PresentationTheme | null,
+  sizePx: number,
+): Partial<PieceInput> => {
+  const out: {
+    underlineHex?: string;
+    underlineDouble?: boolean;
+    strikeDouble?: boolean;
+    strokeHex?: string;
+    strokeWidthPx?: number;
+    strokeOpacity?: number;
+  } = {};
+  if (fmt?.underlineColor)
+    out.underlineHex = resolveColor(fmt.underlineColor, theme, "#000000");
+  if (fmt?.underline === "dbl") out.underlineDouble = true;
+  if (fmt?.strike === "dblStrike") out.strikeDouble = true;
+  const outline = fmt?.outline;
+  if (outline && outline.widthEmu > 0) {
+    out.strokeHex = resolveColor(outline.color, theme, "#000000");
+    // Hairline outlines stay visible on small text.
+    out.strokeWidthPx = Math.max(0.5, outline.widthEmu / EMU_PER_PX);
+    if (outline.opacity !== undefined) out.strokeOpacity = outline.opacity;
+  }
+  void sizePx;
+  return out;
 };
 const hasStrikeFmt = (fmt: TextFormat | null): boolean => {
   const s = fmt?.strike;
@@ -1833,7 +2116,102 @@ export interface SvgTextArgs {
   readonly resolveFamily?: ((family: string | null) => string) | undefined;
   readonly resolveKerning?:
     RenderSlideOptions["resolveFontKerning"] | undefined;
+  /** Collects gradient definitions for gradient-filled text, keyed by the
+   * gradient; set only on the pass that emits SVG. */
+  readonly textGradients?: Map<string, { id: string; svg: string }>;
 }
+
+// Plain numbers for values already in SVG pixels (E() converts EMU).
+const PX = (n: number): string => (Math.round(n * 1000) / 1000).toString();
+
+// A gradient text fill as an SVG paint server, minted once per gradient.
+const textGradientFill = (
+  gradient: NonNullable<TextFormat["gradient"]>,
+  theme: PresentationTheme | null,
+  defs: Map<string, { id: string; svg: string }>,
+): string => {
+  const key = JSON.stringify(gradient);
+  let entry = defs.get(key);
+  if (!entry) {
+    const id = mintId();
+    const rad = (gradient.angleDeg * Math.PI) / 180;
+    const dx = Math.cos(rad) / 2,
+      dy = Math.sin(rad) / 2;
+    const stops = [...gradient.stops]
+      .sort((a, b) => a.offset - b.offset)
+      .map(
+        (stop) =>
+          `<stop offset="${PX(stop.offset)}" stop-color="${resolveColor(stop.color, theme, "#000000")}"${stop.opacity !== undefined && stop.opacity < 1 ? ` stop-opacity="${PX(stop.opacity)}"` : ""}/>`,
+      )
+      .join("");
+    entry = {
+      id,
+      svg: `<linearGradient id="${id}" x1="${PX(0.5 - dx)}" y1="${PX(0.5 - dy)}" x2="${PX(0.5 + dx)}" y2="${PX(0.5 + dy)}">${stops}</linearGradient>`,
+    };
+    defs.set(key, entry);
+  }
+  return `url(#${entry.id})`;
+};
+
+// Shadow, glow and reflection drawn with a shape's text: the first run that
+// carries effects speaks for the text body, as WordArt styles apply to all of it.
+const wrapTextEffects = (
+  svg: string,
+  paraData: readonly ParaData[],
+  theme: PresentationTheme | null,
+  box: { x: number; y: number; w: number; h: number },
+): string => {
+  const effects = paraData
+    .flatMap((p) => p.runs)
+    .find((run) => run.fmt?.effects)?.fmt?.effects;
+  if (
+    !effects ||
+    (!effects.shadow && !effects.glow && !effects.reflection) ||
+    !svg
+  )
+    return svg;
+  const px = (emu: number) => emu / EMU_PER_PX;
+  let defs = "";
+  let out = svg;
+  const layers: string[] = [];
+  if (effects.glow && effects.glow.radiusEmu > 0) {
+    const r = px(effects.glow.radiusEmu);
+    layers.push(
+      `<feMorphology in="SourceAlpha" operator="dilate" radius="${PX(r / 2)}" result="gd"/><feGaussianBlur in="gd" stdDeviation="${PX(r / 2)}" result="gb"/><feFlood flood-color="${resolveColor(effects.glow.color, theme, "#000000")}" flood-opacity="${PX(effects.glow.opacity ?? 1)}"/><feComposite in2="gb" operator="in" result="glow"/>`,
+    );
+  }
+  if (effects.shadow && !effects.shadow.inner) {
+    const rad = (effects.shadow.angleDeg * Math.PI) / 180;
+    const d = px(effects.shadow.distEmu);
+    layers.push(
+      `<feGaussianBlur in="SourceAlpha" stdDeviation="${PX(px(effects.shadow.blurEmu) / 2)}" result="sb"/><feOffset in="sb" dx="${PX(Math.cos(rad) * d)}" dy="${PX(Math.sin(rad) * d)}" result="so"/><feFlood flood-color="${resolveColor(effects.shadow.color, theme, "#000000")}" flood-opacity="${PX(effects.shadow.opacity ?? 1)}"/><feComposite in2="so" operator="in" result="shadow"/>`,
+    );
+  }
+  if (layers.length) {
+    const id = mintId();
+    const merge = [
+      effects.shadow && !effects.shadow.inner ? "shadow" : null,
+      effects.glow && effects.glow.radiusEmu > 0 ? "glow" : null,
+      "SourceGraphic",
+    ]
+      .filter(Boolean)
+      .map((name) => `<feMergeNode in="${name}"/>`)
+      .join("");
+    defs += `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">${layers.join("")}<feMerge>${merge}</feMerge></filter>`;
+    out = `<g filter="url(#${id})">${out}</g>`;
+  }
+  if (effects.reflection) {
+    const id = mintId(),
+      maskId = mintId(),
+      gradId = mintId();
+    const bottom = box.y + box.h;
+    const gap = px(effects.reflection.distEmu);
+    const size = box.h * Math.max(0.05, Math.min(1, effects.reflection.endPos));
+    defs += `<linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${PX(effects.reflection.startOpacity)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="${maskId}" maskUnits="userSpaceOnUse" x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}"><rect x="${PX(box.x - box.w)}" y="${PX(bottom + gap)}" width="${PX(box.w * 3)}" height="${PX(size)}" fill="url(#${gradId})"/></mask>`;
+    out = `<g id="${id}">${out}</g><g mask="url(#${maskId})" data-pptx-text-reflection="1"><use href="#${id}" transform="translate(0 ${PX(2 * bottom + gap)}) scale(1 -1)"/></g>`;
+  }
+  return `<defs>${defs}</defs>${out}`;
+};
 
 const alignOf = (a: string): ParaInput["align"] =>
   a === "center" || a === "right" || a === "justify" ? a : "left";
@@ -1916,9 +2294,13 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
       const effectivePt = autofitFontSizePt(run.sizePt, scale);
       const sizePx = effectivePt * PX_PER_PT;
       const fillHex =
-        fmt?.color !== undefined && fmt.color !== null
-          ? resolveColor(fmt.color, a.theme, "#000000")
-          : a.defaultColor;
+        fmt?.gradient && a.textGradients
+          ? textGradientFill(fmt.gradient, a.theme, a.textGradients)
+          : fmt?.gradient
+            ? resolveColor(fmt.gradient.stops[0]!.color, a.theme, "#000000")
+            : fmt?.color !== undefined && fmt.color !== null
+              ? resolveColor(fmt.color, a.theme, "#000000")
+              : a.defaultColor;
       const superSub: 0 | 1 | -1 =
         fmt?.baseline !== undefined && fmt.baseline !== 0
           ? fmt.baseline > 0
@@ -1941,6 +2323,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         fillOpacity: fmt?.colorOpacity ?? 1,
         underline: underlineStyleOf(fmt),
         strike: hasStrikeFmt(fmt),
+        ...drawnTextDecorations(fmt, a.theme, sizePx),
         superSub,
         href: run.href ?? null,
       });
@@ -1961,6 +2344,17 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
             const last = pieces[pieces.length - 1];
             if (last !== undefined && !last.isBreak) pieces.push(breakPiece());
             pieces.push({ ...base, text: g, isBreak: false });
+          }
+        } else if (fmt?.cap === "small") {
+          // Small capitals: lowercase letters become capitals drawn smaller.
+          for (const part of seg.match(/\p{Ll}+|[^\p{Ll}]+/gu) ?? []) {
+            const lower = /\p{Ll}/u.test(part);
+            pieces.push({
+              ...base,
+              ...(lower ? { sizePx: base.sizePx * 0.8 } : {}),
+              text: part.toUpperCase(),
+              isBreak: false,
+            });
           }
         } else {
           pieces.push({ ...base, text: segText, isBreak: false });
@@ -2020,6 +2414,17 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
         : {}),
       ...(para.emptyLineFormat
         ? { emptyLineFont: lineFont(para.emptyLineFormat) }
+        : {}),
+      ...(para.tabs
+        ? {
+            tabStops: para.tabs.tabs.map((t) => ({
+              posPx: t.pos / EMU_PER_PX,
+              align: t.align,
+            })),
+            ...(para.tabs.defaultTab
+              ? { defaultTabPx: para.tabs.defaultTab / EMU_PER_PX }
+              : {}),
+          }
         : {}),
     };
   });
@@ -2410,6 +2815,11 @@ export const resolveTextBodyModel = (
       if (spacing.beforePts !== null) spcBefPts = spacing.beforePts;
       if (spacing.afterPts !== null) spcAftPts = spacing.afterPts;
     } catch {}
+    let tabs: ReturnType<typeof getParagraphLayout> | undefined;
+    try {
+      const layout = getParagraphLayout(shape, p);
+      if (layout.tabs.length || layout.defaultTab !== null) tabs = layout;
+    } catch {}
     try {
       const lit = getParagraphIndent(shape, p);
       if (lit.leftEmu !== null) indent.leftEmu = lit.leftEmu;
@@ -2541,6 +2951,7 @@ export const resolveTextBodyModel = (
         ? { spcAftPct: effective.spcAftPct }
         : {}),
       indent,
+      ...(tabs ? { tabs } : {}),
     });
   }
   if (!hasAnyText) return null;
@@ -2932,9 +3343,19 @@ const renderTextBody = (
     };
     // Both render paths use the stored font scale, including its 100% default.
     const svgScale = authoredAutofit ? autoFitScale : 1;
-    const svgInner = buildAndLayoutSvgText({
+    const textGradients = new Map<string, { id: string; svg: string }>();
+    let svgInner = buildAndLayoutSvgText({
       ...svgArgsBase,
       autoFitScale: svgScale,
+      textGradients,
+    });
+    if (textGradients.size)
+      svgInner = `<defs>${[...textGradients.values()].map((g) => g.svg).join("")}</defs>${svgInner}`;
+    svgInner = wrapTextEffects(svgInner, paraData, theme, {
+      x: vInnerX / EMU_PER_PX,
+      y: vInnerY / EMU_PER_PX,
+      w: vInnerW / EMU_PER_PX,
+      h: vInnerH / EMU_PER_PX,
     });
     const bodyRotDegSvg = getShapeTextBodyRotationDeg(shape);
     if (bodyRotDegSvg !== null && bodyRotDegSvg !== 0) {
@@ -4408,6 +4829,8 @@ interface ErrorBarPoint {
   readonly center: number;
   /** The point's own value, for percentage amounts. */
   readonly own: number;
+  /** The point's index in its series, for custom amounts. */
+  readonly index?: number;
 }
 
 /** X and Y error bars of an XY (scatter / bubble) series. */
@@ -4415,7 +4838,11 @@ const xyErrorBars = (
   paint: ChartPaintLayers,
   spec: ChartSpec,
   series: ChartSeries,
-  pts: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+  pts: ReadonlyArray<{
+    readonly x: number;
+    readonly y: number;
+    readonly index?: number;
+  }>,
   projX: (x: number) => number,
   projY: (y: number) => number,
 ): void => {
@@ -4424,7 +4851,12 @@ const xyErrorBars = (
     paint,
     series,
     "y",
-    pts.map((p) => ({ at: projX(p.x), center: p.y, own: p.y })),
+    pts.map((p) => ({
+      at: projX(p.x),
+      center: p.y,
+      own: p.y,
+      ...(p.index !== undefined ? { index: p.index } : {}),
+    })),
     projY,
     true,
     spec.textStyle?.color,
@@ -4433,7 +4865,12 @@ const xyErrorBars = (
     paint,
     series,
     "x",
-    pts.map((p) => ({ at: projY(p.y), center: p.x, own: p.x })),
+    pts.map((p) => ({
+      at: projY(p.y),
+      center: p.x,
+      own: p.x,
+      ...(p.index !== undefined ? { index: p.index } : {}),
+    })),
     projX,
     false,
     spec.textStyle?.color,
@@ -4444,13 +4881,19 @@ const xyErrorBars = (
 /** Kinds whose data table this renderer lays out under the plot. */
 const showsChartDataTable = (spec: ChartSpec): boolean =>
   spec.dataTable !== undefined &&
-  (spec.kind === "column" || spec.kind === "line" || spec.kind === "area");
+  (spec.kind === "column" ||
+    spec.kind === "bar" ||
+    spec.kind === "line" ||
+    spec.kind === "area");
 
 interface ChartDataTableLayout {
   readonly font: FontSpec;
   readonly rowH: number;
   readonly nameW: number;
   readonly keyW: number;
+  /** Space between the plot and the table: a horizontal bar chart's
+   *  value labels stay under its plot, and the table goes below them. */
+  readonly offset: number;
   readonly height: number;
 }
 
@@ -4468,12 +4911,14 @@ const chartDataTableLayout = (
     ) +
     keyW +
     font.sizePx;
+  const offset = spec.kind === "bar" ? font.sizePx * 2.2 : 0;
   return {
     font,
     rowH,
     nameW,
     keyW,
-    height: rowH * (spec.series.length + 1),
+    offset,
+    height: offset + rowH * (spec.series.length + 1),
   };
 };
 
@@ -4493,11 +4938,11 @@ const renderChartDataTable = (
   const table = spec.dataTable!;
   const N = Math.max(1, pointCount(spec));
   const colW = f.plotW / N;
-  const top = f.plotY + f.plotH;
+  const top = f.plotY + f.plotH + layout.offset;
   const left = f.plotX - layout.nameW;
   const right = f.plotX + f.plotW;
   const { rowH } = layout;
-  const bottom = top + layout.height;
+  const bottom = top + layout.height - layout.offset;
   const color = spec.textStyle?.color ?? "#404040";
   const attrs = `${chartFontAttrs(spec.textStyle, 9, ctx)} fill="${color}"`;
   const baseline = (row: number) => top + row * rowH + rowH / 2;
@@ -4607,12 +5052,27 @@ const chartErrorBars = (
           : `M${px(b)},${px(at - cap)}V${px(at + cap)}`,
       );
   };
+  // Custom amounts are listed per point, separately for each side.
+  const custom = (
+    list: ReadonlyArray<number | null> | undefined,
+    i?: number,
+  ) => {
+    const v = i === undefined ? undefined : list?.[i];
+    return typeof v === "number" && Number.isFinite(v) ? Math.abs(v) : 0;
+  };
   for (const point of points) {
     const center = bars.valueType === "stdDev" ? mean : point.center;
-    const d = amount(point.own);
-    if (!(d > 0)) continue;
-    if (bars.type !== "minus") segment(point.at, center, center + d);
-    if (bars.type !== "plus") segment(point.at, center, center - d);
+    const up =
+      bars.valueType === "cust"
+        ? custom(bars.plus, point.index)
+        : amount(point.own);
+    const down =
+      bars.valueType === "cust"
+        ? custom(bars.minus, point.index)
+        : amount(point.own);
+    if (bars.type !== "minus" && up > 0) segment(point.at, center, center + up);
+    if (bars.type !== "plus" && down > 0)
+      segment(point.at, center, center - down);
   }
   if (!parts.length) return;
   (paint.errorBars ??= []).push(
@@ -6282,7 +6742,12 @@ const renderColumnChart = (
             `<text x="${px(x0 + barW / 2)}" y="${px(labelY)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
-        errorPoint(s, { at: x0 + barW / 2, center: stackedTop, own: v });
+        errorPoint(s, {
+          at: x0 + barW / 2,
+          center: stackedTop,
+          own: v,
+          index: c,
+        });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -6314,7 +6779,7 @@ const renderColumnChart = (
         );
         const y0 = Math.min(top, baseY);
         const h = Math.abs(top - baseY);
-        errorPoint(s, { at: x0 + barW / 2, center: v, own: v });
+        errorPoint(s, { at: x0 + barW / 2, center: v, own: v, index: c });
         // A zero-extent native bar has no painted outline, but keeps its label.
         if (point.paint && h > 0)
           out.push(
@@ -6987,7 +7452,12 @@ const renderBarChart = (
             `<text x="${px(labelX)}" y="${px(y0 + barH / 2 + 3)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
-        errorPoint(s, { at: y0 + barH / 2, center: stackedTop, own: v });
+        errorPoint(s, {
+          at: y0 + barH / 2,
+          center: stackedTop,
+          own: v,
+          index: c,
+        });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -7020,7 +7490,7 @@ const renderBarChart = (
         );
         const x0 = Math.min(tip, baseX);
         const w = Math.abs(tip - baseX);
-        errorPoint(s, { at: y0 + barH / 2, center: v, own: v });
+        errorPoint(s, { at: y0 + barH / 2, center: v, own: v, index: c });
         if (point.paint && w > 0)
           out.push(
             `<rect${clips.plot} x="${px(x0)}" y="${px(y0)}" width="${px(w)}" height="${px(barH)}" ${chartBarPaint(spec, s, c, v, colors, paint.fills, { x: x0, y: y0, w, h: barH }, seriesDisplays[s])}/>`,
@@ -7214,7 +7684,8 @@ const renderLineChart = (
             )
           : baseY;
       if (withinChartAxis(top, min, max)) markerPoints.push([xp, yp]);
-      if (series.errorBars) errorPoints.push({ at: xp, center: top, own: v });
+      if (series.errorBars)
+        errorPoints.push({ at: xp, center: top, own: v, index: c });
       ptsRaw.push([xp, yp]);
       basePtsRaw.push([xp, yBase]);
       if (isStacked) accumulated[c] = top;
@@ -7952,8 +8423,84 @@ const renderScatterChart = (
         out.push(`<g${paint.clips.markers}>${markers.join("")}</g>`);
     }
     xyErrorBars(paint, spec, series, pts, projX, projY);
+    xyLabelsAndTrendline(paint, spec, s, pts, projX, projY, color, ctx, out);
   }
   return out.join("");
+};
+
+// Data labels and trendlines of an XY (scatter / bubble) series. Labels
+// show the Y value, the X value (the "category" of an XY point) and the
+// series name, joined by the separator; a bubble's labels sit on it, a
+// scatter point's to its right, unless a position is authored. The
+// trendline fits the points in X order.
+const xyLabelsAndTrendline = (
+  paint: ChartPaintLayers,
+  spec: ChartSpec,
+  s: number,
+  pts: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+  projX: (x: number) => number,
+  projY: (y: number) => number,
+  color: string,
+  ctx: LayoutCtx,
+  out: string[],
+  radiusOf: (i: number) => number = () => 0,
+): void => {
+  const series = spec.series[s]!;
+  const labels = { ...spec.dataLabels, ...series.dataLabels };
+  const showValue = labels.showValue ?? false;
+  const showX = labels.showCategory ?? false;
+  const showName = labels.showSeriesName ?? false;
+  if (showValue || showX || showName) {
+    const bubble = spec.kind === "bubble";
+    const pos = labels.position ?? (bubble ? "ctr" : "r");
+    const separator = labels.separator ?? ", ";
+    pts.forEach((p, i) => {
+      const parts: string[] = [];
+      if (showName && series.name) parts.push(series.name);
+      if (showX)
+        parts.push(
+          series.xNumberFormat && series.xNumberFormat !== "General"
+            ? formatAxisLabel(p.x, series.xNumberFormat)
+            : formatChartValue(p.x),
+        );
+      if (showValue) parts.push(formatDataLabelValue(spec, s, p.y));
+      if (!parts.length) return;
+      const xp = projX(p.x),
+        yp = projY(p.y);
+      const r = radiusOf(i);
+      const at =
+        pos === "l"
+          ? { x: xp - r - 6, y: yp + 3, anchor: "end" }
+          : pos === "r"
+            ? { x: xp + r + 6, y: yp + 3, anchor: "start" }
+            : pos === "t"
+              ? { x: xp, y: yp - r - 5, anchor: "middle" }
+              : pos === "b"
+                ? { x: xp, y: yp + r + 13, anchor: "middle" }
+                : { x: xp, y: yp + 3, anchor: "middle" };
+      paint.dataLabels.push(
+        `<text x="${px(at.x)}" y="${px(at.y)}" text-anchor="${at.anchor}" ${dataLabelTextAttrs(spec, s, "#374151", ctx)}>${escapeXml(parts.join(separator))}</text>`,
+      );
+    });
+  }
+  if (series.trendline) {
+    const sorted = [...pts]
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      .sort((a, b) => a.x - b.x);
+    if (sorted.length >= 2)
+      out.push(
+        trendlinePath(
+          sorted.map((p) => projX(p.x)),
+          sorted.map((p) => p.y),
+          series.trendline,
+          series.trendline.color ?? color,
+          spec.textStyle,
+          ctx,
+          projY,
+          paint.clips.plot,
+        ),
+      );
+  }
 };
 
 const renderBubbleChart = (
@@ -8031,6 +8578,18 @@ const renderBubbleChart = (
       );
     }
     xyErrorBars(paint, spec, series, pts, projX, projY);
+    xyLabelsAndTrendline(
+      paint,
+      spec,
+      s,
+      pts,
+      projX,
+      projY,
+      color,
+      ctx,
+      out,
+      (i) => radiusFor(pts[i]!.size),
+    );
   }
   return out.join("");
 };
@@ -9372,7 +9931,10 @@ const renderChart = (
   }
   // A data table takes the category tick labels' place under the plot.
   const dataTableShown = showsChartDataTable(spec);
-  if (dataTableShown) spec = { ...spec, categoryAxisTickLabelPos: "none" };
+  // The table's header row names the categories under a vertical plot; a
+  // horizontal bar chart keeps them along its category axis.
+  if (dataTableShown && spec.kind !== "bar")
+    spec = { ...spec, categoryAxisTickLabelPos: "none" };
   let secondaryPair: ChartScaleSpec = resolveChartNumberFormats(
     resolveChartTextStyles(
       secondaryAxisSpec(nativeSpec, axisLines),
@@ -11184,7 +11746,7 @@ const renderShape = (
       : "";
 
   if (kind === "picture") {
-    return renderPicture(
+    const picture = renderPicture(
       shape,
       pres,
       x,
@@ -11196,6 +11758,12 @@ const renderShape = (
       stroke,
       theme,
     );
+    const solid = apply3D(
+      shape,
+      withPictureEffects(pres, shape, picture, { x, y, w, h }),
+      { x, y, w, h },
+    );
+    return solid.defs + solid.svg;
   }
 
   // Shapes with an image fill (`<p:sp>` + `<a:blipFill>` instead of a
@@ -11215,9 +11783,10 @@ const renderShape = (
       stroke,
       theme,
     );
+    const painted = withPictureEffects(pres, shape, picture, { x, y, w, h });
     return diagramTextTransform
-      ? `${picture}<g${textTransform}>${textOverlay}</g>`
-      : picture;
+      ? `${painted}<g${textTransform}>${textOverlay}</g>`
+      : painted;
   }
 
   if (kind === "connector") {
@@ -11384,7 +11953,7 @@ const renderShape = (
     effects.length === 0 &&
     (geometry === null ||
       (geometry.kind === "preset" && geometry.preset === "rect"));
-  const p = paint(
+  let p = paint(
     shape,
     fill,
     stroke,
@@ -11399,6 +11968,20 @@ const renderShape = (
       ? { x, y, w, h }
       : undefined,
   );
+  // A shape filled with the slide background shows the background through
+  // it, hiding whatever lies beneath.
+  if (
+    activeBackgroundFill &&
+    kind === "shape" &&
+    getShapeBackgroundFill(shape)
+  ) {
+    activeBackgroundFill.used = true;
+    p = {
+      ...p,
+      fill: `url(#${activeBackgroundFill.id})`,
+      cssGradient: undefined,
+    };
+  }
 
   if (kind === "graphicFrame") {
     let drawing = readDiagramDrawing(shape);
@@ -11623,6 +12206,9 @@ const renderShape = (
     geomSvg = reflection.svg + geomSvg;
     fxDefs += reflection.defs;
   }
+  const solid = apply3D(shape, geomSvg, { x, y, w, h });
+  geomSvg = solid.svg;
+  fxDefs += solid.defs;
 
   // B6 — Shape-level hyperlinks + slide-jump click actions. Wrap the
   // rendered shape in an SVG <a href> so the playground preview is
@@ -11665,7 +12251,11 @@ const renderShape = (
     : "";
   // Geometry carries rotation + flips; text carries rotation only so it stays
   // upright when the shape is flipped.
-  const placedText = textOverlay ? `<g${textTransform}>${textOverlay}</g>` : "";
+  const placedText = textOverlay
+    ? solid.projection
+      ? `<g transform="${solid.projection}"><g${textTransform}>${textOverlay}</g></g>`
+      : `<g${textTransform}>${textOverlay}</g>`
+    : "";
   const custGeomAttr = isCustGeom ? ' data-pptx-fallback="custGeom"' : "";
   const textRectAttr = invalidTextRectangle(geometry?.geometry?.textRect)
     ? ' data-pptx-text-rect="invalid"'
@@ -11710,6 +12300,121 @@ interface ReflectionResult {
   readonly defs: string;
 }
 
+// Camera presets as X/Y rotations of the face, for the flat projection.
+const CAMERA_ANGLES: Record<string, [number, number]> = {
+  isometricLeftDown: [45, 35],
+  isometricRightUp: [315, 35],
+  isometricTopUp: [315, 325],
+  isometricBottomDown: [45, 325],
+  isometricOffAxis1Left: [64, 18],
+  isometricOffAxis1Right: [334, 18],
+  isometricOffAxis2Left: [26, 18],
+  isometricOffAxis2Right: [296, 18],
+  perspectiveLeft: [20, 0],
+  perspectiveRight: [340, 0],
+  perspectiveAbove: [0, 340],
+  perspectiveBelow: [0, 20],
+  perspectiveRelaxed: [0, 309],
+  perspectiveHeroicExtremeLeftFacing: [34, 8],
+  perspectiveHeroicExtremeRightFacing: [326, 8],
+};
+
+// The 2-D matrix that shows a face turned by X (about the vertical axis),
+// Y (about the horizontal axis) and Z, seen straight on; oblique cameras
+// shear. Null when the face is not turned.
+const projectionMatrix = (
+  t: ReturnType<typeof getShape3D>,
+): [number, number, number, number] | null => {
+  if (t.camera.startsWith("oblique")) {
+    const k = 0.18;
+    return [
+      1,
+      t.camera.includes("Top") ? -k : k,
+      t.camera.includes("Left") ? -k : k,
+      1,
+    ];
+  }
+  const preset = CAMERA_ANGLES[t.camera] ?? [0, 0];
+  const ax = ((preset[0] + t.rotX) * Math.PI) / 180;
+  const ay = ((preset[1] + t.rotY) * Math.PI) / 180;
+  const az = (t.rotZ * Math.PI) / 180;
+  if (!Math.sin(ax) && !Math.sin(ay) && !Math.sin(az)) return null;
+  const ux = [Math.cos(ax), Math.sin(ay) * Math.sin(ax)];
+  const uy = [0, Math.cos(ay)];
+  const cz = Math.cos(az),
+    sz = Math.sin(az);
+  const rot = (v: number[]) => [
+    v[0]! * cz - v[1]! * sz,
+    v[0]! * sz + v[1]! * cz,
+  ];
+  const a = rot(ux),
+    b = rot(uy);
+  return [a[0]!, a[1]!, b[0]!, b[1]!];
+};
+
+// 3-D format as the slide can show it: a bevel lit along the shape's edge
+// (SVG lighting on the blurred outline) and a 3-D rotation as a flat
+// projection about the shape's center. The full setting stays in the file.
+const apply3D = (
+  shape: SlideShapeData,
+  svg: string,
+  box: { x: number; y: number; w: number; h: number },
+): { svg: string; defs: string; projection: string | null } => {
+  let t: ReturnType<typeof getShape3D>;
+  try {
+    t = getShape3D(shape);
+  } catch {
+    return { svg, defs: "", projection: null };
+  }
+  if (!t.present) return { svg, defs: "", projection: null };
+  let defs = "";
+  let out = svg;
+  const bevel = t.bevelTop;
+  if (bevel && bevel.widthEmu > 0 && bevel.heightEmu > 0) {
+    const id = mintId();
+    const depth = Math.max(0.6, Math.min(10, bevel.widthEmu / EMU_PER_PX / 2));
+    const inset = bevel.preset === "divot" || bevel.preset === "relaxedInset";
+    const surface =
+      (inset ? -1 : 1) * Math.min(6, bevel.heightEmu / EMU_PER_PX / 2 + 1);
+    defs += `<defs><filter id="${id}" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="${PX(depth)}" result="bump"/><feSpecularLighting in="bump" surfaceScale="${PX(surface)}" specularConstant="0.8" specularExponent="20" lighting-color="#ffffff" result="spec"><feDistantLight azimuth="225" elevation="35"/></feSpecularLighting><feComposite in="spec" in2="SourceAlpha" operator="in" result="lit"/><feDiffuseLighting in="bump" surfaceScale="${PX(surface)}" diffuseConstant="1.05" lighting-color="#ffffff" result="diff"><feDistantLight azimuth="225" elevation="50"/></feDiffuseLighting><feComposite in="SourceGraphic" in2="diff" operator="arithmetic" k1="1" result="shaded"/><feComposite in="shaded" in2="SourceAlpha" operator="in" result="body"/><feComposite in="lit" in2="body" operator="arithmetic" k2="0.6" k3="1"/></filter></defs>`;
+    out = `<g filter="url(#${id})">${out}</g>`;
+  }
+  const m = projectionMatrix(t);
+  let projection: string | null = null;
+  if (m) {
+    const cx = E(box.x + box.w / 2),
+      cy = E(box.y + box.h / 2);
+    projection = `translate(${cx} ${cy}) matrix(${m.map((n) => n.toFixed(4)).join(" ")} 0 0) translate(-${cx} -${cy})`;
+    out = `<g transform="${projection}">${out}</g>`;
+  }
+  return { svg: out, defs, projection };
+};
+
+// Shadows, glow, soft edges and reflections on a picture, as on any shape.
+const withPictureEffects = (
+  pres: PresentationData,
+  shape: SlideShapeData,
+  svg: string,
+  box: { x: number; y: number; w: number; h: number },
+): string => {
+  let effects: readonly ReturnType<typeof getShapeEffects>[number][] = [];
+  try {
+    effects = getShapeEffectsEffective(pres, shape, activeColorMap);
+  } catch {
+    return svg;
+  }
+  if (!effects.length) return svg;
+  const fx = buildEffectsFilter(effects);
+  let out = fx ? `<g filter="url(#${fx.id})">${svg}</g>` : svg;
+  let defs = fx ? fx.defs : "";
+  const reflection = buildReflection(effects, svg, box);
+  if (reflection) {
+    out = reflection.svg + out;
+    defs += reflection.defs;
+  }
+  return defs + out;
+};
+
 // Builds the reflection: a vertically mirrored copy of the shape's raw
 // geometry placed below its bottom edge, faded by a vertical opacity mask.
 // DrawingML encodes the mirror as a negative `sy`; `stA`/`endA` give the
@@ -11742,7 +12447,9 @@ const buildReflection = (
   const defs =
     `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">` +
     `<stop offset="0" stop-color="#fff" stop-opacity="${startA.toFixed(3)}"/>` +
-    `<stop offset="1" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/>` +
+    (refl.endPos !== undefined && refl.endPos < 1
+      ? `<stop offset="${Math.max(0, refl.endPos).toFixed(3)}" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>`
+      : `<stop offset="1" stop-color="#fff" stop-opacity="${endA.toFixed(3)}"/>`) +
     `</linearGradient>` +
     `<mask id="${maskId}" maskContentUnits="objectBoundingBox">` +
     `<rect width="1" height="1" fill="url(#${gradId})"/></mask></defs>`;
@@ -12227,24 +12934,33 @@ const renderSlideSvgInContext = (
         ? getPlaceholderPrompt
         : null;
   const layer = opts.layer;
-  const shapesSvg = topLevelShapes(getSlideShapes(slide), {
-    dropPlaceholders: false,
-  })
-    .map((s) => {
-      const prompt = promptFor?.(s);
-      const shape = prompt ? withPlaceholderPrompt(s, prompt) : s;
-      if (!layer) return renderShape(shape, pres, theme, ctx);
-      const part = layer.shape(s);
-      if (!part) return "";
-      const previousPart = activeLayerPart;
-      activeLayerPart = part === true ? null : part;
-      try {
-        return renderShape(shape, pres, theme, ctx);
-      } finally {
-        activeLayerPart = previousPart;
-      }
+  const previousBackgroundFill = activeBackgroundFill;
+  const backgroundFill = (activeBackgroundFill = { id: mintId(), used: false });
+  let shapesSvg: string;
+  try {
+    shapesSvg = topLevelShapes(getSlideShapes(slide), {
+      dropPlaceholders: false,
     })
-    .join("");
+      .map((s) => {
+        const prompt = promptFor?.(s);
+        const shape = prompt ? withPlaceholderPrompt(s, prompt) : s;
+        if (!layer) return renderShape(shape, pres, theme, ctx);
+        const part = layer.shape(s);
+        if (!part) return "";
+        const previousPart = activeLayerPart;
+        activeLayerPart = part === true ? null : part;
+        try {
+          return renderShape(shape, pres, theme, ctx);
+        } finally {
+          activeLayerPart = previousPart;
+        }
+      })
+      .join("");
+  } finally {
+    activeBackgroundFill = previousBackgroundFill;
+  }
+  if (backgroundFill.used)
+    bgGradientDefs += `<defs><pattern id="${backgroundFill.id}" patternUnits="userSpaceOnUse" x="0" y="0" width="${E(W)}" height="${E(H)}"><rect width="${E(W)}" height="${E(H)}" fill="${bgColor}"/>${bgGradient}${bgImage}</pattern></defs>`;
   const background = !layer || layer.background;
 
   // A viewBox alone supplies an aspect ratio, but no intrinsic dimensions.

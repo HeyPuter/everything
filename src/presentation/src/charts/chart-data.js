@@ -785,7 +785,7 @@ export function gridToSpec(grid, spec) {
       !categories.every((c) => c.trim() === "" || Number.isFinite(Number(c)))
     )
       delete out.categoryNumberFormat;
-    return cleanSpec(out);
+    return cleanSpec(refreshErrorRanges(out, grid));
   }
   const step = layout === "bubble" ? 2 : 1;
   const names = [];
@@ -813,8 +813,93 @@ export function gridToSpec(grid, spec) {
         : {}),
     });
   }
-  return cleanSpec({ ...spec, categories: [], series });
+  return cleanSpec(
+    refreshErrorRanges({ ...spec, categories: [], series }, grid),
+  );
 }
+/* ---------- Ranges of the data sheet ----------
+ * Custom error amounts may come from a range of the data sheet ("C2:C4",
+ * "=Sheet1!$C$2:$C$4"): one column or one row of the grid above, where
+ * row 1 is the header row and column A the first column.
+ */
+const RANGE =
+  /^=?\s*(?:(?:'[^']+'|[A-Za-z0-9_. ]+)!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?\s*$/i;
+const columnIndex = (letters) =>
+  [...letters.toUpperCase()].reduce(
+    (n, ch) => n * 26 + ch.charCodeAt(0) - 64,
+    0,
+  ) - 1;
+const columnLetters = (index) => {
+  let s = "";
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26))
+    s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+};
+/** The range as the chart file writes it ("Sheet1!$C$2:$C$4"), or null. */
+export function normalizeSheetRange(text) {
+  const m = RANGE.exec(String(text ?? ""));
+  if (!m) return null;
+  const [, c1, r1, c2 = c1, r2 = r1] = m;
+  const a = { c: columnIndex(c1), r: Number(r1) },
+    b = { c: columnIndex(c2), r: Number(r2) };
+  if (a.r < 1 || b.r < 1 || (a.c !== b.c && a.r !== b.r)) return null;
+  const cell = ({ c, r }) => `$${columnLetters(c)}$${r}`;
+  return `Sheet1!${cell(a)}:${cell(b)}`;
+}
+/** The numbers in a one-column or one-row range of the grid, or null. */
+export function sheetRangeValues(ref, grid) {
+  const m = RANGE.exec(String(ref ?? ""));
+  if (!m) return null;
+  const [, c1, r1, c2 = c1, r2 = r1] = m;
+  const ca = columnIndex(c1),
+    cb = columnIndex(c2),
+    ra = Number(r1),
+    rb = Number(r2);
+  if (ca !== cb && ra !== rb) return null;
+  const out = [];
+  if (ca === cb)
+    for (let r = Math.min(ra, rb); r <= Math.max(ra, rb); r++)
+      out.push(parseNumber(grid[r - 1]?.[ca]));
+  else
+    for (let c = Math.min(ca, cb); c <= Math.max(ca, cb); c++)
+      out.push(parseNumber(grid[ra - 1]?.[c]));
+  return out;
+}
+/**
+ * Custom error amounts typed as numbers ("1, 2.5, 3") or as a range of the
+ * data sheet. Returns `{ values, ref? }`, or null when unreadable.
+ */
+export function parseErrorAmounts(text, spec) {
+  const t = String(text ?? "").trim();
+  if (!t) return { values: [] };
+  const ref = normalizeSheetRange(t);
+  if (ref) return { values: sheetRangeValues(ref, specToGrid(spec)), ref };
+  const values = t
+    .replace(/^\{|\}$/g, "")
+    .split(/[,;\s]+/)
+    .filter(Boolean)
+    .map((v) => parseNumber(v));
+  return values.every((v) => v !== null) ? { values } : null;
+}
+/** Re-reads custom error amounts that come from data sheet ranges. */
+export function refreshErrorRanges(spec, grid = specToGrid(spec)) {
+  let changed = false;
+  const series = spec.series.map((s) => {
+    const bars = s.errorBars;
+    if (bars?.valueType !== "cust" || (!bars.plusRef && !bars.minusRef))
+      return s;
+    const next = { ...bars };
+    for (const side of ["plus", "minus"]) {
+      const ref = bars[`${side}Ref`];
+      const values = ref ? sheetRangeValues(ref, grid) : null;
+      if (values) next[side] = values;
+    }
+    changed = true;
+    return { ...s, errorBars: next };
+  });
+  return changed ? { ...spec, series } : spec;
+}
+
 function trimEmptyRows(rows) {
   let end = rows.length;
   while (end > 1 && rows[end - 1].every((v) => !String(v ?? "").trim())) end--;

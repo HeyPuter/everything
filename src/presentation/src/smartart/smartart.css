@@ -186,3 +186,49 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
 }
+
+/* Single shapes of a selected graphic: the picked one, and buttons that put
+   a picture into an empty picture shape. Editing marks only; never drawn
+   into the slide. */
+.smartart-parts {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+.smartart-part.picked {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, white 70%, transparent);
+}
+.smartart-picture-slot {
+  position: absolute;
+  display: grid;
+  place-items: center;
+}
+.smartart-picture-button {
+  pointer-events: auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, white 75%, transparent);
+  color: #4a5a66;
+}
+.smartart-picture-button:hover,
+.smartart-picture-button:focus-visible {
+  background: white;
+  border-color: #8aa0ae;
+  color: #1e5d86;
+  outline: none;
+}
+.smartart-picture-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+#slide-canvas:has(.inline-editor) .smartart-parts {
+  display: none;
+}

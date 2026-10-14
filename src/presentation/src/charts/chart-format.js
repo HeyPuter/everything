@@ -15,7 +15,7 @@ import {
   supportsTrendline,
   valueAxisVertical,
 } from "./chart-styles.js";
-import { cleanSpec, isXYKind } from "./chart-data.js";
+import { cleanSpec, isXYKind, parseErrorAmounts } from "./chart-data.js";
 
 const PT = 12700;
 const pies = (spec) => spec.kind === "pie" || spec.kind === "doughnut";
@@ -779,18 +779,127 @@ export function chartFormatSection({ spec, element, choose, update, h, ctx }) {
             (v) => (sp) => setTrendline(sp, v, i),
           ),
         );
-      if (supportsErrorBars(spec))
+      // Direction, end style and amount of the series' error bars; custom
+      // amounts are numbers or a range of the data sheet.
+      const errorBarOptions = (bars) => {
+        const setBars = (patch) => (sp) => {
+          const next = { ...sp.series[i].errorBars, ...patch };
+          for (const k of Object.keys(next))
+            if (next[k] === undefined) delete next[k];
+          return setSeries(i, { errorBars: next })(sp);
+        };
+        const out = [
+          select(
+            "Error direction",
+            bars.type,
+            [
+              ["both", "Both"],
+              ["minus", "Minus"],
+              ["plus", "Plus"],
+            ],
+            (v) => setBars({ type: v }),
+          ),
+          check("End caps", !bars.noEndCap, (on) =>
+            setBars({ noEndCap: on ? undefined : true }),
+          ),
+          select(
+            "Error amount",
+            bars.valueType,
+            [
+              ["fixedVal", "Fixed value"],
+              ["percentage", "Percentage"],
+              ["stdDev", "Standard deviation(s)"],
+              ["stdErr", "Standard error"],
+              ["cust", "Custom"],
+            ],
+            (v) =>
+              setBars({
+                valueType: v,
+                value: undefined,
+                ...(v === "cust"
+                  ? {
+                      plus: bars.plus ?? spec.series[i].values.map(() => 1),
+                      minus: bars.minus ?? spec.series[i].values.map(() => 1),
+                    }
+                  : {
+                      plus: undefined,
+                      minus: undefined,
+                      plusRef: undefined,
+                      minusRef: undefined,
+                    }),
+              }),
+          ),
+        ];
+        if (["fixedVal", "percentage", "stdDev"].includes(bars.valueType))
+          out.push(
+            h.numInput(
+              bars.valueType === "percentage"
+                ? "Percentage (%)"
+                : bars.valueType === "stdDev"
+                  ? "Standard deviations"
+                  : "Fixed value",
+              bars.value ?? (bars.valueType === "percentage" ? 5 : 1),
+              (n) =>
+                update(
+                  setBars({ value: Math.max(0, Number(n) || 0) }),
+                  key("eb"),
+                ),
+              0,
+              1e9,
+              bars.valueType === "percentage" ? 1 : 0.1,
+            ),
+          );
+        if (bars.valueType === "cust")
+          for (const [side, label] of [
+            ["plus", "Positive error values"],
+            ["minus", "Negative error values"],
+          ])
+            out.push(
+              text(
+                label,
+                bars[`${side}Ref`] ??
+                  (bars[side] ?? []).map((v) => v ?? "").join(", "),
+                (value) => (sp) => {
+                  const parsed = parseErrorAmounts(value, sp);
+                  if (!parsed) return sp;
+                  return setBars({
+                    [side]: parsed.values,
+                    [`${side}Ref`]: parsed.ref,
+                  })(sp);
+                },
+              ),
+            );
+        if (bars.valueType === "cust")
+          out.push(
+            el(
+              "p",
+              { class: "chart-hint" },
+              "Type numbers separated by commas, or a range of the data sheet such as C2:C4.",
+            ),
+          );
+        return out;
+      };
+      if (supportsErrorBars(spec)) {
         nodes.push(
           select(
             "Error bars",
             s.errorBars ? errorBarState({ series: [s] }) : "none",
-            [["none", "None"], ...ERROR_BARS.map(([id, label]) => [id, label])],
+            [
+              ["none", "None"],
+              ...ERROR_BARS.map(([id, label]) => [id, label]),
+              ...(s.errorBars && errorBarState({ series: [s] }) === "custom"
+                ? [["custom", "Custom"]]
+                : []),
+            ],
             (v) => (sp) => {
+              if (v === "custom") return sp;
               const all = setErrorBars(sp, v);
               return setSeries(i, { errorBars: all.series[i].errorBars })(sp);
             },
           ),
         );
+        if (s.errorBars) nodes.push(...errorBarOptions(s.errorBars));
+      }
     }
   }
   return nodes;

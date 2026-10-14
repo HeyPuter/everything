@@ -451,14 +451,59 @@ const readErrorBars = (
   const valueType: ChartErrorBars["valueType"] =
     rawValueType === "percentage" ||
     rawValueType === "stdDev" ||
-    rawValueType === "stdErr"
+    rawValueType === "stdErr" ||
+    rawValueType === "cust"
       ? rawValueType
       : "fixedVal";
+  // Custom amounts: the range's cached values, or literal values.
+  const custom = (side: "plus" | "minus") => {
+    const holder = firstChildElement(bars, qname("c", side, NS_C));
+    if (!holder) return {};
+    const ref = firstChildElement(holder, qname("c", "numRef", NS_C));
+    const data = ref
+      ? firstChildElement(ref, qname("c", "numCache", NS_C))
+      : firstChildElement(holder, qname("c", "numLit", NS_C));
+    const formula = ref && firstChildElement(ref, qname("c", "f", NS_C));
+    const count = Number(
+      (data &&
+        getAttrValue(
+          firstChildElement(data, qname("c", "ptCount", NS_C)) ?? data,
+          ATTR_VAL,
+        )) ??
+        0,
+    );
+    const values: (number | null)[] = Array.from(
+      { length: Number.isFinite(count) ? Math.min(count, 100000) : 0 },
+      () => null,
+    );
+    for (const pt of data
+      ? allChildElements(data, qname("c", "pt", NS_C))
+      : []) {
+      const idx = Number(getAttrValue(pt, qname("", "idx", "")));
+      const v = firstChildElement(pt, qname("c", "v", NS_C));
+      const n = Number(
+        v?.children.map((t) => (t.kind === "text" ? t.data : "")).join(""),
+      );
+      if (Number.isInteger(idx) && idx >= 0 && Number.isFinite(n)) {
+        while (values.length <= idx) values.push(null);
+        values[idx] = n;
+      }
+    }
+    const f = formula?.children
+      .map((t) => (t.kind === "text" ? t.data : ""))
+      .join("")
+      .trim();
+    return {
+      [side]: values,
+      ...(f ? { [`${side}Ref`]: f } : {}),
+    };
+  };
   const rawValue = token(bars, "val");
   const parsed = rawValue === null ? NaN : Number(rawValue);
   const defaultValue = valueType === "percentage" ? 5 : 1;
   const value =
     valueType !== "stdErr" &&
+    valueType !== "cust" &&
     Number.isFinite(parsed) &&
     parsed >= 0 &&
     parsed !== defaultValue
@@ -475,6 +520,7 @@ const readErrorBars = (
     type,
     valueType,
     ...(value !== undefined ? { value } : {}),
+    ...(valueType === "cust" ? { ...custom("plus"), ...custom("minus") } : {}),
     ...(noEndCap === true ? { noEndCap } : {}),
     ...(color !== undefined ? { color } : {}),
   };

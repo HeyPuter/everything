@@ -149,7 +149,7 @@ export function mergeWithPrevious(rows, i) {
 // paragraph's runs and properties, and giving a changed or new paragraph
 // the formatting of the paragraph it replaces or of its nearest neighbour
 // at the same level.
-function writeParagraphs(pres, shape, wanted) {
+export function writeParagraphs(pres, shape, wanted) {
   const old = shapeParagraphs(pres, shape);
   const lists = wanted.length ? wanted : [{ text: "", level: 0 }];
   const strip = (ppr) => {
@@ -188,7 +188,7 @@ function writeParagraphs(pres, shape, wanted) {
 const titleLines = (text) =>
   text.split("\n").map((t) => ({ text: t, level: 0 }));
 
-function createSlide(pres, after) {
+export function createSlide(pres, after) {
   // A new slide takes the layout of the slide before it when that layout
   // has a title and a body, and otherwise a title-and-content layout.
   const layoutOf = (slide) => {

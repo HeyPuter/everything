@@ -30,7 +30,12 @@ const glyph = (name, size) =>
 let uid = 0;
 const nextId = (prefix) => `${prefix}-${++uid}`;
 
-export function createRibbon({ tabs, initial = "home", onTabChange } = {}) {
+export function createRibbon({
+  tabs,
+  initial = "home",
+  onTabChange,
+  onCollapse,
+} = {}) {
   let active = initial;
   let collapsed = false;
   // Each control's sync, by the tab it is on: a refresh brings the visible
@@ -172,7 +177,9 @@ export function createRibbon({ tabs, initial = "home", onTabChange } = {}) {
     if (collapsed) flyout(true);
   }
   function setCollapsed(on) {
+    const changed = collapsed !== on;
     collapsed = on;
+    if (changed) onCollapse?.(on);
     root.classList.toggle("collapsed", on);
     root.classList.remove("flyout");
     collapse.setAttribute("aria-expanded", String(!on));

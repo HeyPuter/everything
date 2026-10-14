@@ -35,6 +35,17 @@ what is being added, and its status. Items are checked off as they land.
 - [x] Handout Master and Notes Master views: page orientation, header,
       footer, date, page number (and slide image and body on notes pages)
       placeholders, slides-per-page guides on the handout page.
+- [x] Reuse Slides (pick slides of another .pptx from thumbnails; keep
+      their source formatting, bringing their layouts, masters and themes,
+      or take this deck's matching layouts) and Slides from Outline (.txt,
+      .md, .rtf: top-level lines become titles, indented lines bullets), in
+      the New Slide menu and Insert > Slides from; Duplicate Slide
+      (Ctrl/Cmd+Shift+D) in the Insert menu (`src/layouts/slides-from.js`).
+- [x] Menu bar: Find Next / Find Previous (Ctrl/Cmd+G, +Shift+G),
+      Replace, Select Data for charts, Delete Slide and section commands in
+      Edit; Ribbon (Ctrl/Cmd+Alt+R, remembered) and Header and Footer in
+      View; Section, Comment, WordArt, Date and Time, Slide Number and
+      Symbol in Insert.
 - [x] Insert Placeholder draws the placeholder on the layout (drag, or click
       for a standard size); changing the slide size stretches masters and
       layouts with it.
@@ -75,15 +86,18 @@ what is being added, and its status. Items are checked off as they land.
       for effect, timing and text animation settings.
 - [x] Animations written to and read from the file's timing tree, previewed on
       the canvas, and played in slide shows.
-- [ ] Adding sounds to effects (sounds already in a file are kept).
+- [x] Sounds on effects (Effect Options: a built-in synthesized sound or an
+      audio file, embedded and written as the effect's `p:audio` /
+      `p:sndTgt` node, played as the effect starts), and the Hide After
+      Animation and Hide on Next Mouse Click after-effects.
 
 ### 4. Transitions
 
 - [x] The full transition set (subtle, exciting and dynamic content groups)
       with per-transition Effect Options, Duration, Sound, Preview, On Mouse
-      Click / After timing and Apply To All; morphing between slides
-      (objects; the Words and Characters options are saved and play as
-      objects).
+      Click / After timing and Apply To All; morphing between slides by
+      objects, words or characters (each word or letter travels to the same
+      text on the next slide; the rest fades out or in).
 
 ### 5. Slide Show and Record
 
@@ -150,10 +164,21 @@ what is being added, and its status. Items are checked off as they land.
 - [x] Insert Chart with every common chart type, a data sheet editor, and
       Chart Design / Format tabs (styles, colors, elements, layouts, switch
       row/column, change type).
+- [x] Data labels and trendlines on bubble and scatter charts, data tables
+      on horizontal bar charts, and error-bar amounts as a fixed value,
+      percentage, standard deviations, standard error or custom amounts
+      (typed, or a range of the data sheet that follows its edits; written
+      as `c:plus` / `c:minus`).
 - [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
       tab and Format pane section, and Convert to SmartArt for bulleted text.
-- [ ] SmartArt: pictures in picture layouts, per-shape formatting (a SmartArt
-      Format tab).
+- [x] SmartArt: pictures in picture layouts (buttons in empty picture
+      shapes; picture fills cropped to cover), and a SmartArt Format tab for
+      one shape picked on the canvas or from Select Shape: Change Shape,
+      Larger, Smaller, Reset Shape, shape fill, outline and effects, and
+      WordArt text styles, fill, outline and effects. Kept on presentation
+      points and text runs of the data model and drawn into the saved
+      drawing (`src/smartart/smartart-format.js`,
+      `lib/pptx/src/api/fn/smartart/format.ts`).
 
 ### 8. Views
 
@@ -189,12 +214,18 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 11. Format dialogs and panes
 
-- [ ] Font dialog, Paragraph dialog (indents, spacing, tabs), Bullets and
+- [x] Font dialog, Paragraph dialog (indents, spacing, tabs), Bullets and
       Numbering dialog (picture and symbol bullets, start at, size, color).
-- [ ] Format Shape pane parity: gradient, picture, pattern fills; line
+      Columns dialog; bullet and numbering galleries on the ribbon.
+- [x] Format Shape pane parity: gradient, picture, pattern fills; line
       compound and cap types; shadow, reflection, glow, soft edges, bevel and
       3-D rotation; text box options (autofit, margins, wrap).
-- [ ] Replace Fonts, Paste Special, Regroup, rotation and size dialogs.
+      Picture corrections, color, artistic effects, crop to shape and ratio;
+      text fill, outline and effects; alt text.
+- [x] Replace Fonts, Paste Special, Regroup, rotation and size dialogs.
+- [x] Shape, WordArt and picture style galleries; effect preset menus.
+- [x] Change Shape, Edit Points and Merge Shapes; Selection Pane rename,
+      reorder, show and hide all; Repeat; align to slide or to the selection.
 
 ### 12. Draw and assistant
 
