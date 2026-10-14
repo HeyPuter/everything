@@ -479,3 +479,40 @@ describe('app folder', () => {
     expect(window.puter.calls).not.toContain('getUser');
   });
 });
+
+describe('Puter desktop window close', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.querySelectorAll('.dialog-backdrop').forEach((n) => n.remove());
+  });
+
+  it('asks about unsaved changes and only exits once answered', async () => {
+    const fake = fakePuter();
+    fake.env = 'app';
+    let onClose = null;
+    fake.ui.onWindowClose = (fn) => (onClose = fn);
+    fake.exit = vi.fn();
+    window.puter = fake;
+    const app = new App(document.createElement('div'), { storage: null });
+    install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    expect(typeof onClose).toBe('function');
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+    const closing = onClose();
+    await new Promise((r) => setTimeout(r, 0));
+    const dialog = document.querySelector('.dialog-backdrop');
+    expect(dialog).toBeTruthy();
+    expect(fake.exit).not.toHaveBeenCalled();
+    dialog.querySelector('[data-value="discard"]').click();
+    await closing;
+    expect(fake.exit).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not installed on websites', () => {
+    const fake = fakePuter();
+    fake.ui.onWindowClose = vi.fn();
+    window.puter = fake;
+    const app = new App(document.createElement('div'), { storage: null });
+    install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    expect(fake.ui.onWindowClose).not.toHaveBeenCalled();
+  });
+});

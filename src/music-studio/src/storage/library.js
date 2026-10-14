@@ -191,19 +191,28 @@ export class Library {
 
   // ---------------------------------------------------------------- session draft
 
-  async saveDraft(draft) {
+  // Drafts are keyed per tab (storage/tabs.js); 'session' is the shared key
+  // used before tabs had their own, and where the Web Locks API is missing.
+
+  async saveDraft(draft, key = 'session') {
     const db = await this.db();
-    await db.put('drafts', 'session', { ...draft, at: this.now() });
+    await db.put('drafts', key, { ...draft, at: this.now() });
   }
 
-  async loadDraft() {
+  async loadDraft(key = 'session') {
     const db = await this.db();
-    return db.get('drafts', 'session');
+    return db.get('drafts', key);
   }
 
-  async clearDraft() {
+  async clearDraft(key = 'session') {
     const db = await this.db();
-    await db.delete('drafts', 'session');
+    await db.delete('drafts', key);
+  }
+
+  /** Every stored draft as [[key, draft], ...]. */
+  async allDrafts() {
+    const db = await this.db();
+    return db.all('drafts');
   }
 
   // ---------------------------------------------------------------- device files
