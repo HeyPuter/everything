@@ -30,7 +30,8 @@ The client secret is stored only in the organization's worker storage with shari
 
 - Every administrative, security, access, sharing, API, and (optionally) board content event is written to the audit log first, then exported. Export is at-least-once: each record carries a unique `EventId` for de-duplication.
 - The worker keeps an export cursor. If Sentinel is unreachable, the next request resumes from the cursor, so no events are skipped.
-- Records are sent in batches of up to 200 events.
+- Administrative, security, access, and sharing events are sent as they happen, with any events waiting. Board content events and API reads, which come in bursts, are sent at most every 10 seconds, with a request to the organization once that time has passed.
+- Each call to the ingestion API stays under its 1 MB limit. A record too large to send alone, which is rare, is sent without its `Details`, which stay in the audit log.
 
 ## Record format
 

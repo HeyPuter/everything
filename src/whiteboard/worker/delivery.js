@@ -57,13 +57,25 @@ export const bilingualSubject = (en, fr) => `${en} / ${fr}`;
 const bilingualPost = (en, fr) => `${en}\n\n${fr}`;
 export const bilingualBody = (en, fr) =>
   `(Le français suit.)\n\n${en}\n\n---\n\n${fr}`;
+// Board content edits and API reads come in bursts; the other categories,
+// such as a sharing, role, or security change, are few and are what a SIEM
+// watches for.
+const BURSTS = new Set(["content", "api"]);
 export async function deliver(org, policy, events, notifications) {
-  // Export at most every few seconds per worker instance; the cursor picks
-  // up anything written meanwhile, and retrySiem sends it if no other
-  // audited change comes along.
+  // Bursts are exported at most every few seconds per worker instance; the
+  // cursor picks up anything written meanwhile, and retrySiem sends it if
+  // no other audited change comes along. Any other exported event goes at
+  // once, with whatever is waiting, so the last change before the
+  // organization goes quiet is not held until it is next used.
   const exporting = policy.siem.mode !== "none";
   const exportNow =
-    exporting && org.now() - org.instance.siem >= org.siemInterval;
+    exporting &&
+    (org.now() - org.instance.siem >= org.siemInterval ||
+      events.some(
+        (e) =>
+          !BURSTS.has(e.category) &&
+          policy.siem.categories.includes(e.category),
+      ));
   if (exporting && !exportNow && events.length) org.instance.siemBacklog = true;
   await Promise.allSettled([
     exportNow ? exportAudit(org, policy) : null,

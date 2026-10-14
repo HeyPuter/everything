@@ -4905,7 +4905,13 @@ test("audit events an export missed reach the SIEM without another audited chang
   await call(owner, { op: "org.setup", name: "Fabrikam" });
   await call(owner, {
     op: "org.policy.set",
-    policy: { siem: { mode: "https", url: "https://siem.fabrikam.test/in" } },
+    policy: {
+      siem: {
+        mode: "https",
+        url: "https://siem.fabrikam.test/in",
+        categories: ["admin", "security", "access", "sharing", "content"],
+      },
+    },
   });
   const { input, room } = createInput("Board");
   await boards.call(owner, input);
@@ -4914,12 +4920,16 @@ test("audit events an export missed reach the SIEM without another audited chang
     fetched
       .filter((f) => f.url === "https://siem.fabrikam.test/in")
       .flatMap((f) => JSON.parse(f.options.body).events.map((e) => e.Action));
-  // An event just after an export waits for the interval to pass.
-  await call(owner, { op: "org.invite", role: "member" });
+  // A content event just after an export waits for the interval to pass.
+  await org.audit(owner, "board.export", { type: "board", id: room });
   await org.flush();
-  assert.ok(!exported().includes("user.invited"));
+  assert.ok(!exported().includes("board.export"));
   env.now += 15_000;
   await boards.call(owner, { op: "members", room });
+  assert.ok(exported().includes("board.export"), exported().join());
+  // A sharing, role, or administration change goes at once.
+  await call(owner, { op: "org.invite", role: "member" });
+  await org.flush();
   assert.ok(exported().includes("user.invited"), exported().join());
   // One the SIEM refused is sent again once it recovers.
   let down = true;
@@ -4951,30 +4961,49 @@ test("audit events an export missed reach the SIEM through organization and API 
     name: "Reports",
     scopes: ["reports:read"],
   });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {
+      siem: {
+        mode: "https",
+        url: "https://siem.fabrikam.test/in",
+        categories: ["admin", "security", "access", "sharing", "content"],
+      },
+    },
+  });
   await org.flush();
-  const invited = () =>
+  const exports = () =>
     fetched
       .filter((f) => f.url === "https://siem.fabrikam.test/in")
       .flatMap((f) => JSON.parse(f.options.body).events)
-      .filter((e) => e.Action === "user.invited")
-      .map((e) => e.Details.role);
+      .filter((e) => e.Action === "board.export")
+      .map((e) => e.Details.format);
   const ask = (input) => organizationRequest(org, boards, owner, input);
-  // An invitation just after an export waits for the interval to pass,
+  const exported = async (format) => {
+    await org.audit(
+      owner,
+      "board.export",
+      { type: "board", id: "b" },
+      { format },
+    );
+    await org.flush();
+  };
+  // A content event just after an export waits for the interval to pass,
   // then goes out with the next request to the console.
   env.now += 15_000;
-  await ask({ op: "org.invite", role: "member" });
+  await exported("pdf");
   env.now += 2_000;
-  await ask({ op: "org.invite", role: "guest" });
-  assert.deepEqual(invited(), ["member"]);
+  await exported("png");
+  assert.deepEqual(exports(), ["pdf"]);
   env.now += 15_000;
   await ask({ op: "org.info" });
-  assert.deepEqual(invited(), ["member", "guest"]);
+  assert.deepEqual(exports(), ["pdf", "png"]);
   // Likewise through the REST API.
   env.now += 15_000;
-  await ask({ op: "org.invite", role: "member" });
+  await exported("svg");
   env.now += 2_000;
-  await ask({ op: "org.invite", role: "admin" });
-  assert.deepEqual(invited(), ["member", "guest", "member"]);
+  await exported("pptx");
+  assert.deepEqual(exports(), ["pdf", "png", "svg"]);
   env.now += 15_000;
   await restRequest(
     org,
@@ -4986,7 +5015,7 @@ test("audit events an export missed reach the SIEM through organization and API 
     "reports",
     null,
   );
-  assert.deepEqual(invited(), ["member", "guest", "member", "admin"]);
+  assert.deepEqual(exports(), ["pdf", "png", "svg", "pptx"]);
 });
 
 test("an administrator invitation promotes an existing member", async () => {
