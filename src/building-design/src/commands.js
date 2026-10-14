@@ -66,6 +66,7 @@ export const COMMANDS = {
   },
   door: { label: 'Door', icon: 'door', keys: 'DR', run: tool(HostedTool, { kind: 'door' }), desc: 'Place doors in walls' },
   window: { label: 'Window', icon: 'window', keys: 'WN', run: tool(HostedTool, { kind: 'window' }), desc: 'Place windows in walls' },
+  shaft: { label: 'Shaft Opening', icon: 'shaft', run: tool(SketchTool, { kind: 'shaft' }), desc: 'Cut an opening through the floor above and the ceiling of this level' },
   opening: { label: 'Wall Opening', icon: 'opening', run: tool(HostedTool, { kind: 'opening' }), desc: 'Cut a rectangular opening in a wall' },
   component: { label: 'Component', icon: 'component', keys: 'CM', run: tool(ComponentTool, { kind: 'component' }), desc: 'Place furniture, fixtures and equipment' },
   column: { label: 'Column', icon: 'column', keys: 'CL', run: tool(ComponentTool, { kind: 'column' }) },

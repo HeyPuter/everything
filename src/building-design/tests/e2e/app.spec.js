@@ -18,8 +18,10 @@ test('walls, a door and a floor drawn with shortcuts and clicks, then undone', a
     c.cam = { cx: 4000, cy: 3000, zoom: 0.06 };
     c.userMoved = true;
   });
+  const toolIs = (name) => expect.poll(() => page.evaluate(() => window.bd.tool?.constructor.name)).toBe(name);
   await clickModel(page, -2000, -2000);
   await page.keyboard.type('wa');
+  await toolIs('WallTool');
   for (const [x, y] of [
     [0, 0],
     [8000, 0],
@@ -32,10 +34,12 @@ test('walls, a door and a floor drawn with shortcuts and clicks, then undone', a
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => window.bd.doc.count('wall'))).toBe(4);
   await page.keyboard.type('dr');
+  await toolIs('HostedTool');
   await clickModel(page, 4000, 200);
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => window.bd.doc.count('door'))).toBe(1);
   await page.keyboard.type('sb');
+  await toolIs('SketchTool');
   await clickModel(page, 4000, 6000);
   await page.getByRole('button', { name: 'Finish' }).click();
   expect(await page.evaluate(() => window.bd.doc.count('floor'))).toBe(1);

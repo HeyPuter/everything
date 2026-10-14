@@ -689,7 +689,7 @@ export class LineTool extends Tool {
 
 export class SketchTool extends Tool {
   get placingKind() {
-    return this.kind;
+    return this.kind === 'shaft' ? null : this.kind;
   }
 
   constructor(app, opts) {
@@ -700,12 +700,13 @@ export class SketchTool extends Tool {
     this.pts = el ? (el.boundary || el.path || []).slice() : [];
     this.closed = !!el && this.kind !== 'railing';
     this.cursor = null;
-    const defaults = { mode: this.kind === 'railing' ? 'polygon' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
+    const defaults = { mode: this.kind === 'railing' ? 'polygon' : this.kind === 'shaft' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
     this.o = app.toolOptions(`sketch-${this.kind}`, defaults);
     if (this.editId) this.o.mode = 'polygon';
   }
 
   get title() {
+    if (this.kind === 'shaft') return 'Shaft Opening';
     const n = { floor: 'Floor', ceiling: 'Ceiling', roof: 'Roof', railing: 'Railing' }[this.kind];
     return this.editId ? `Edit ${n} Boundary` : `Create ${n} ${this.kind === 'railing' ? 'Path' : 'Boundary'}`;
   }
@@ -864,6 +865,7 @@ export class SketchTool extends Tool {
       return this.app.cancelTool();
     }
     if (pts.length < 3 || Math.abs(signedArea(pts)) < 1000) return this.app.toast('The boundary needs at least three points enclosing an area.', { kind: 'error' });
+    if (this.kind === 'shaft') return this.finishShaft(pts);
     const type = this.app.currentType(this.kind);
     let levelId = this.app.activeLevelId();
     let baseOffset = 0;
@@ -884,6 +886,34 @@ export class SketchTool extends Tool {
         this.doc.add({ kind: 'ceiling', typeId: type?.id, levelId, boundary: pts, holes: this.holes || [], offset: this.o.offset });
       } else this.doc.add({ kind: 'floor', typeId: type?.id, levelId, boundary: pts, holes: this.holes || [], offset: 0 });
     });
+    this.app.cancelTool();
+  }
+
+  /** Cut the outline out of the floors of the level above and the ceilings of this level. */
+  finishShaft(pts) {
+    const doc = this.doc;
+    const levelId = this.app.activeLevelId();
+    const above = doc.levelAbove(levelId);
+    const c = pts.reduce((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length], [0, 0]);
+    const inside = (b) => {
+      let r = false;
+      for (let i = 0, j = b.length - 1; i < b.length; j = i++) {
+        const a = b[i];
+        const q = b[j];
+        if (a[1] > c[1] !== q[1] > c[1] && c[0] < ((q[0] - a[0]) * (c[1] - a[1])) / (q[1] - a[1]) + a[0]) r = !r;
+      }
+      return r;
+    };
+    let n = 0;
+    this.app.commit('Shaft opening', () => {
+      for (const el of doc.all('floor', 'ceiling')) {
+        const hit = (el.kind === 'floor' && el.levelId === above?.id) || (el.kind === 'ceiling' && el.levelId === levelId);
+        if (!hit || !inside(el.boundary)) continue;
+        doc.update(el.id, { holes: [...(el.holes || []), pts] });
+        n++;
+      }
+    });
+    this.app.toast(n ? `Cut the opening in ${n} floor${n === 1 ? '' : 's'} and ceiling${n === 1 ? '' : 's'}.` : 'No floor on the level above (or ceiling on this level) covers this outline.', { kind: n ? 'success' : 'error' });
     this.app.cancelTool();
   }
 

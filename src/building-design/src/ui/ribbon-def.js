@@ -33,7 +33,7 @@ export const RIBBON = [
       },
       { title: 'Circulation', items: [{ cmd: 'railing', size: 'lg' }, { cmd: 'stair', size: 'lg' }] },
       { title: 'Room', items: [{ cmd: 'room', size: 'lg' }, { cmd: 'roomSeparator', size: 'lg' }, { cmd: 'rooms-auto' }, { cmd: 'tag' }, { cmd: 'roomFill' }] },
-      { title: 'Opening', items: [{ cmd: 'opening', size: 'lg' }] },
+      { title: 'Opening', items: [{ cmd: 'opening', size: 'lg' }, { cmd: 'shaft', size: 'lg' }] },
       { title: 'Datum', items: [{ cmd: 'level', size: 'lg' }, { cmd: 'grid', size: 'lg' }] },
     ],
   },
