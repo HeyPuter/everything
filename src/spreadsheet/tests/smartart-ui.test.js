@@ -167,3 +167,20 @@ it('prints the diagram as it shows', async () => {
   expect(node.getAttribute('aria-label')).toMatch(/^Pyramid diagram: Vision/);
   expect(node.textContent).toContain('Strategy');
 });
+
+it('takes a new diagram\'s outline from the cells selected, a column further right a level deeper', async () => {
+  const { wb, id } = await mount();
+  [['Plan', ''], ['', 'Budget'], ['', 'People'], ['Ship', '']].forEach((row, r) => row.forEach((v, c) => { if (v) wb.setInput(id, r, c, v); }));
+  view.goTo('A1:B4'); await flush();
+  view.run('smartArt', { action: 'insert', layout: 'hierarchyList' }); await flush();
+  const obj = wb.sheet(id).charts[0];
+  expect(obj.items).toEqual([{ text: 'Plan', level: 0 }, { text: 'Budget', level: 1 }, { text: 'People', level: 1 }, { text: 'Ship', level: 0 }]);
+  expect(obj.anchor).toEqual({ r: 0, c: 0 });
+  // Alt text: left empty, it reads out the diagram's text, which the dialog offers to start from.
+  view.run('altText', obj.id); await flush();
+  const dialog = [...document.querySelectorAll('[role="dialog"]')].at(-1);
+  expect(dialog.querySelector('textarea').placeholder).toBe('Tree List diagram: Plan (Budget, People); Ship');
+  dialog.querySelector('.alt-text-fill').click();
+  dialog.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true })); await flush();
+  expect(wb.sheet(id).charts[0].description).toBe('Tree List diagram: Plan (Budget, People); Ship');
+});

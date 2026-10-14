@@ -1951,10 +1951,10 @@ export function createGrid(opts) {
         if (image) body.style.overflow = 'visible';
         const textBox = ch.type === 'text';
         const smartArt = ch.type === 'smartart';
-        const noun = ch.type === 'slicer' ? 'slicer' : ch.type === 'timeline' ? 'timeline' : ch.type === 'scroll' ? 'scroll bar' : image ? 'image' : textBox ? ch.equation ? 'equation' : 'text box' : smartArt ? 'SmartArt text' : 'chart';
+        const noun = ch.type === 'slicer' ? 'slicer' : ch.type === 'timeline' ? 'timeline' : ch.type === 'scroll' ? 'scroll bar' : image ? 'image' : textBox ? ch.equation ? 'equation' : 'text box' : smartArt ? 'SmartArt' : 'chart';
         const tools = el('div.chart-tools', {},
           el('button.chart-tool.chart-open-link', { type: 'button', title: 'Open link', 'aria-label': 'Open link', onclick: e => { e.stopPropagation(); if (safeLinkUrl(wb.chartById(sheetId, ch.id)?.hyperlink)) opts.onCommand?.('openDrawingLink', ch.id); } }, 'Open link'),
-          !image && el('button.chart-tool', { type: 'button', title: `Edit ${noun}`, 'aria-label': `Edit ${noun}`, onclick: (e) => { e.stopPropagation(); opts.onCommand?.('editChart', ch.id); } }, 'Edit'),
+          !image && el('button.chart-tool', { type: 'button', title: `Edit ${noun}${smartArt ? ' text' : ''}`, 'aria-label': `Edit ${noun}${smartArt ? ' text' : ''}`, onclick: (e) => { e.stopPropagation(); opts.onCommand?.('editChart', ch.id); } }, 'Edit'),
           el('button.chart-tool', { type: 'button', title: `Delete ${noun}`, 'aria-label': `Delete ${noun}`, onclick: (e) => { e.stopPropagation(); opts.onCommand?.('deleteChart', ch.id); } }, 'Delete'));
         const handle = el('div.chart-resize', { title: 'Resize' });
         const node = el('div.chart-box', { dataset: { chart: ch.id }, className: `chart-box${image ? ' image-box' : ''}${textBox ? ' text-box' : ''}${smartArt ? ' smartart-box' : ''}`, role: textBox ? 'note' : 'figure', tabindex: -1 }, body, tools, handle);
