@@ -92,3 +92,21 @@ export async function inspector(page) {
 export async function themeDialog(page) {
   await menuCommand(page, "Format", "Theme");
 }
+// A ribbon control's state, read where the ribbon keeps it even while its
+// group is folded away.
+export const ribbonControl = (page, id) =>
+  page
+    .locator(
+      `.ribbon-panel [data-command="${id}"], .ribbon-fold-panel [data-command="${id}"]`,
+    )
+    .first();
+// Types a font name into the Home tab's Font box.
+export async function setRibbonFont(page, name, label = "Font") {
+  const box = await ribbonButton(
+    page,
+    "Home",
+    label === "Font" ? "font-name" : "font-size",
+  );
+  await box.fill(String(name));
+  await box.press("Enter");
+}

@@ -14,6 +14,8 @@ import {
   openNewSlideMenu,
   openShapeMenu,
   ribbonButton,
+  ribbonControl,
+  setRibbonFont,
   themeDialog,
 } from "./editor-commands.js";
 import {
@@ -14268,7 +14270,9 @@ test("a wheel that counts in lines zooms one step per notch", async ({
   await notch(3);
   await expect.poll(width).toBeLessThan(zoomed);
   await page.keyboard.press("Control+0");
-  await expect(level).toHaveText(/^Fit/);
+  await expect(
+    page.getByRole("button", { name: "Fit slide to current window" }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 // A shortcut pressed while a toolbar or panel picker held the focus was left
@@ -14279,10 +14283,10 @@ test("undo and redo reach the presentation from a picker that has the focus", as
 }) => {
   await story(page);
   const title = page.locator('[data-object="1"]');
-  const font = page.locator('.toolbar select[aria-label="Font"]');
+  const font = ribbonControl(page, "font-name");
   await title.click();
-  await font.scrollIntoViewIfNeeded();
-  await font.selectOption("Georgia");
+  await setRibbonFont(page, "Georgia");
+  await expect(font).toHaveValue("Georgia");
   await font.focus();
   await page.keyboard.press("Control+z");
   // Undo clears the selection; the title reads Arial again once reselected.
@@ -14322,14 +14326,10 @@ test("text formatting from the toolbar applies to every selected object", async 
   await title.click();
   await body.click({ modifiers: ["Shift"] });
   await expect(page.locator(".object-hit.selected")).toHaveCount(2);
-  const italic = page.locator(
-    '.ribbon-panel:not([hidden]) [data-command="italic"]',
-  );
-  const font = page.locator('.toolbar select[aria-label="Font"]');
-  await italic.scrollIntoViewIfNeeded();
-  await italic.click();
-  await font.scrollIntoViewIfNeeded();
-  await font.selectOption("Georgia");
+  const italic = ribbonControl(page, "italic");
+  const font = ribbonControl(page, "font-name");
+  await (await ribbonButton(page, "Home", "italic")).click();
+  await setRibbonFont(page, "Georgia");
   // Both objects carry the italic and the font.
   await title.click();
   await expect(italic).toHaveAttribute("aria-pressed", "true");
@@ -14394,10 +14394,7 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await story(page);
   const title = page.locator('[data-object="1"]');
   await title.click();
-  await page
-    .getByRole("button", { name: "Italic", exact: true })
-    .first()
-    .click();
+  await (await ribbonButton(page, "Home", "italic")).click();
   // The last undo hands the focus to the workspace, where one press too many
   // does nothing, rather than to Redo, where it would take the step back.
   const undo = page.locator("#undo");
@@ -14411,9 +14408,8 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await expect(page.locator("#redo")).toBeEnabled();
   // A text control left without a selection hands it to the workspace.
   await title.click();
-  const font = page.locator('.toolbar select[aria-label="Font"]');
-  await font.scrollIntoViewIfNeeded();
-  await font.selectOption("Georgia");
+  const font = ribbonControl(page, "font-name");
+  await setRibbonFont(page, "Georgia");
   await font.focus();
   await page.keyboard.press("Control+z");
   await expect(font).toBeDisabled();
@@ -14479,7 +14475,9 @@ test("the zoom buttons and menu items switch off at the ends of the zoom ladder"
   await expect(zoomIn).toBeEnabled();
   await expect(page.locator("#main")).toBeFocused();
   await page.keyboard.press("Control+0");
-  await expect(level).toHaveText(/^Fit/);
+  await expect(
+    page.getByRole("button", { name: "Fit slide to current window" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(zoomIn).toBeEnabled();
   await expect(zoomOut).toBeEnabled();
 });
@@ -15778,7 +15776,6 @@ test("the phone layout keeps the chrome clear of the screen's insets", async ({
           for (const inner of rule.cssRules)
             for (const selector of [
               ".editor-header",
-              ".toolbar",
               ".editor-footer",
               ".presenter-controls",
               ".home-header",
@@ -15792,7 +15789,6 @@ test("the phone layout keeps the chrome clear of the screen's insets", async ({
     ".editor-header",
     ".home-header",
     ".presenter-controls",
-    ".toolbar",
   ]);
   for (const text of Object.values(declarations))
     expect(text).toContain("safe-area-inset");
@@ -15881,9 +15877,7 @@ test("number fields take the nearest allowed value and the table dialog the leas
   await size.fill("999");
   await size.press("Enter");
   await expect(size).toHaveValue("144");
-  await expect(page.locator('.toolbar [data-text-tool="size"]')).toHaveValue(
-    "144",
-  );
+  await expect(ribbonControl(page, "font-size")).toHaveValue("144");
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   await menuCommand(page, "Insert", "Table");
@@ -15944,14 +15938,15 @@ test("a library row's name is readable in full from its tooltip", async ({
   );
 });
 
-// The tool strip was a navigation landmark; it is a toolbar, as its roving
-// focus already had it behave.
-test("the editing tools are a toolbar, and a menu's heading is not an item", async ({
+// The tools are no navigation landmark: the ribbon's tabs are a tab list and
+// the quick commands a toolbar.
+test("the editing tools are a tab list and a toolbar, and a menu's heading is not an item", async ({
   page,
 }) => {
   await story(page);
+  await expect(page.getByRole("tablist").first()).toBeVisible();
   await expect(
-    page.getByRole("toolbar", { name: "Editing tools" }),
+    page.getByRole("toolbar", { name: "Quick Access Toolbar" }),
   ).toBeVisible();
   // The menu bar is a menubar, so no navigation landmark remains.
   expect(await page.getByRole("navigation").count()).toBe(0);
@@ -16329,10 +16324,9 @@ test("a web link followed while presenting withholds the referrer", async ({
   await expect(link).toHaveAttribute("target", "_blank");
 });
 
-// The toolbar's font and size lists kept every imported value they met, each
-// stacked on top of the list, so the sizes stopped reading in order and the
-// lists grew as the selection moved from object to object.
-test("the toolbar's font and size lists show an imported value in its own place", async ({
+// The font and size boxes show an imported value that is not on their lists,
+// and the next object's value replaces it.
+test("the ribbon's font and size boxes show an imported value", async ({
   page,
 }) => {
   await start(page);
@@ -16351,47 +16345,29 @@ test("the toolbar's font and size lists show an imported value in its own place"
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await expect(page.locator(".document-title")).toHaveText("Custom text");
-  const size = page.locator('.toolbar select[aria-label="Font size"]');
-  const font = page.locator('.toolbar select[aria-label="Font"]');
-  const values = (select) =>
-    select.evaluate((node) => [...node.options].map((option) => option.value));
-  const plainSizes = await values(size);
-  const plainFonts = await values(font);
+  const size = ribbonControl(page, "font-size");
+  const font = ribbonControl(page, "font-name");
   await page.locator('[data-object="1"]').click();
   await expect(size).toHaveValue("11.5");
   await expect(font).toHaveValue("Aptos Display");
-  expect((await values(size)).slice(0, 6)).toEqual([
-    "8",
-    "9",
-    "10",
-    "11",
-    "11.5",
-    "12",
-  ]);
-  expect((await values(font)).slice(0, 2)).toEqual(["Aptos Display", "Arial"]);
-  // The next object's value takes its place; the one before it goes.
   await page.locator('[data-object="2"]').click();
   await expect(size).toHaveValue("9.5");
   await expect(font).toHaveValue("Bahnschrift");
-  expect((await values(size)).slice(0, 6)).toEqual([
-    "8",
-    "9",
-    "9.5",
-    "10",
-    "11",
-    "12",
-  ]);
-  expect((await values(font)).slice(0, 3)).toEqual([
-    "Arial",
-    "Bahnschrift",
-    "Calibri",
-  ]);
-  expect(await values(size)).toHaveLength(plainSizes.length + 1);
-  expect(await values(font)).toHaveLength(plainFonts.length + 1);
-  // An object the lists already carry leaves them as they were built.
-  await page.locator('[data-object="0"]').click();
-  expect(await values(size)).toEqual(plainSizes);
-  expect(await values(font)).toEqual(plainFonts);
+  // The size list keeps to its own steps, in order.
+  await ribbonButton(page, "Home", "font-size");
+  await page
+    .getByRole("button", { name: "Font Size list" })
+    .filter({ visible: true })
+    .click();
+  const sizes = await page
+    .getByRole("menu", { name: "Font Size" })
+    .getByRole("menuitemcheckbox")
+    .allTextContents();
+  expect(sizes.map(Number)).toEqual(
+    [...sizes.map(Number)].sort((a, b) => a - b),
+  );
+  expect(sizes).not.toContain("9.5");
+  await page.keyboard.press("Escape");
 });
 
 // Tab from a cell a merge reaches across landed on the cell the merge hides,
@@ -16670,10 +16646,9 @@ test("the slide's object list gives each kind of object its own icon", async ({
       .evaluate((node) => node.innerHTML);
   const row = (name) =>
     drawing(panel(page).getByRole("button", { name, exact: true }));
-  const square = await drawing(page.locator('.toolbar [aria-label="Shape"]'));
-  const table = await drawing(page.locator('.toolbar [aria-label="Table"]'));
-  expect(await row("Rectangle 96")).toBe(square);
-  expect(await row("Table 98")).toBe(table);
+  const square = await row("Rectangle 96");
+  const table = await row("Table 98");
+  expect(square).not.toBe("");
   // Each kind is told apart from the others.
   expect(
     new Set([square, table, await row("Chart 97"), await row("Group 99")]).size,
@@ -16704,7 +16679,9 @@ test("a wheel turned the other way zooms without undoing the turn before it", as
     }, deltaY);
   // Most of a notch out leaves the zoom where it was.
   await wheel(30);
-  await expect(level).toHaveText(/^Fit/);
+  await expect(
+    page.getByRole("button", { name: "Fit slide to current window" }),
+  ).toHaveAttribute("aria-pressed", "true");
   // A whole notch the other way then zooms in, rather than being spent
   // undoing the movement before it.
   await wheel(-20);
