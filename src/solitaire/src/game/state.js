@@ -22,6 +22,12 @@ export function canRedeal(game) {
   return (game.redeals || 0) < redealLimit(game);
 }
 
+// A Vegas deal's id is what the bank remembers it by, so the same game can
+// only ever be paid into the bank once (see recordVegasResult).
+export function newGameId(random = Math.random) {
+  return random().toString(36).slice(2, 12) + Date.now().toString(36);
+}
+
 export function createGame(deck = newDeck(), { draw = 1, scoring = 'standard' } = {}) {
   const cards = deck.slice();
   const tableau = [[], [], [], [], [], [], []];
@@ -32,7 +38,7 @@ export function createGame(deck = newDeck(), { draw = 1, scoring = 'standard' } 
       tableau[j].push(c);
     }
   }
-  return {
+  const game = {
     kind: 'klondike',
     draw,
     scoring,
@@ -45,6 +51,8 @@ export function createGame(deck = newDeck(), { draw = 1, scoring = 'standard' } 
     redeals: 0,
     history: [],
   };
+  if (scoring === 'vegas') game.id = newGameId();
+  return game;
 }
 
 export function snapshot(game) {

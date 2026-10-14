@@ -104,15 +104,28 @@ describe('serialize / deserialize', () => {
   });
 
   it('rejects unknown draw counts and scoring', () => {
-    const save = serialize(createGame(), 1);
+    const save = serialize(createGame(newDeck(), { draw: 3 }), 1);
     expect(deserialize({ ...save, d: 2 })).toBe(null);
     expect(deserialize({ ...save, sc: 'macau' })).toBe(null);
   });
 
   it('stamps the version and timestamp', () => {
-    const save = serialize(createGame(), 12345);
+    const save = serialize(createGame(newDeck(), { draw: 3 }), 12345);
     expect(save.v).toBe(SAVE_VERSION);
     expect(save.ts).toBe(12345);
+  });
+
+  it('writes draw-one standard Klondike as v1, which older builds can resume', () => {
+    const save = serialize(createGame(), 1);
+    expect(save.v).toBe(1);
+    expect(Object.keys(save).sort()).toEqual(['f', 'm', 's', 't', 'ts', 'v', 'w']);
+    expect(serialize(createGame(newDeck(), { scoring: 'vegas' }), 1).v).toBe(SAVE_VERSION);
+  });
+
+  it('keeps a Vegas game\'s id across a save', () => {
+    const game = createGame(newDeck(), { scoring: 'vegas' });
+    expect(typeof game.id).toBe('string');
+    expect(deserialize(serialize(game, 1)).id).toBe(game.id);
   });
 
   it('stays well under 2 KB for a full board', () => {

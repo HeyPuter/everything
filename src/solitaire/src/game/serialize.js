@@ -1,9 +1,12 @@
 import { SUIT_COLOR, RANKS, SPIDER_SUITS } from './deck.js';
 import { SPIDER_COLUMNS, SPIDER_RUNS } from './spider.js';
+import { newGameId } from './state.js';
 
 // v2 added the game options (draw count, Vegas scoring and its running
-// score, redeals used). A v1 save is a draw-one, standard-scoring Klondike
-// game, which was the only game there was, so it still loads.
+// score, redeals used) and Spider. A v1 save is a draw-one,
+// standard-scoring Klondike game, which was the only game there was, and
+// that game is still written as v1 so an older build (a stale cached
+// bundle, another device) can keep resuming it instead of dealing over it.
 export const SAVE_VERSION = 2;
 
 const SUIT_CODE = { '♠': 'S', '♥': 'H', '♦': 'D', '♣': 'C' };
@@ -37,18 +40,23 @@ function decodePile(str) {
 }
 
 export function serialize(game, now) {
-  return {
-    v: SAVE_VERSION,
-    g: 'klondike',
-    d: game.draw === 3 ? 3 : 1,
-    sc: game.scoring === 'vegas' ? 'vegas' : 'standard',
+  const piles = {
     t: game.tableau.map(encodePile),
     f: game.foundations.map(encodePile),
     s: encodePile(game.stock),
     w: encodePile(game.waste),
     m: game.moves,
+  };
+  if (game.draw !== 3 && game.scoring !== 'vegas') return { v: 1, ...piles, ts: now };
+  return {
+    v: SAVE_VERSION,
+    g: 'klondike',
+    d: game.draw === 3 ? 3 : 1,
+    sc: game.scoring === 'vegas' ? 'vegas' : 'standard',
+    ...piles,
     $: game.score || 0,
     r: game.redeals || 0,
+    ...(game.id ? { id: game.id } : {}),
     ts: now,
   };
 }
@@ -78,7 +86,7 @@ export function deserialize(save) {
     if (all.length !== 52) return null;
     if (new Set(all.map(c => c.id)).size !== 52) return null;
 
-    return {
+    const game = {
       kind: 'klondike',
       draw,
       scoring,
@@ -91,6 +99,10 @@ export function deserialize(save) {
       redeals: Math.max(0, Math.floor(Number(save.r) || 0)),
       history: [],
     };
+    if (scoring === 'vegas') {
+      game.id = typeof save.id === 'string' && save.id ? save.id : newGameId();
+    }
+    return game;
   } catch {
     return null;
   }

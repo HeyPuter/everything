@@ -16,7 +16,7 @@ export function emptyStats() {
   return {
     v: STATS_VERSION, played: 0, won: 0, bestMoves: null, ts: 0,
     modes: {},
-    vegas: { bank: 0, ts: 0 },
+    vegas: { devices: {}, settled: [] },
   };
 }
 
@@ -33,14 +33,22 @@ function mergeCounters(a, b) {
   };
 }
 
-// The Vegas bank goes down as well as up, so max/min merging cannot work;
-// whichever side changed it last wins. Two devices settling different games
-// while offline from each other keep only the later device's total.
+// The Vegas bank goes down as well as up, so max/min merging cannot work,
+// and a single "latest wins" total would let one device's write erase
+// games another device settled. Instead each device keeps its own running
+// total, written only by that device, and the bank is their sum; a merge
+// keeps the newer entry per device. `settled` lists the ids of the most
+// recent games already paid in, from any device, so a game that comes back
+// (a cloud save, an undo after a win, a reload) is never paid in twice.
+export const SETTLED_KEEP = 100;
+
 function mergeVegas(a, b) {
-  const va = a?.vegas;
-  const vb = b?.vegas;
-  const pick = (vb?.ts || 0) > (va?.ts || 0) ? vb : va;
-  return { bank: Number(pick?.bank) || 0, ts: pick?.ts || 0 };
+  const devices = { ...(a?.vegas?.devices || {}) };
+  for (const [id, entry] of Object.entries(b?.vegas?.devices || {})) {
+    if (!devices[id] || (entry?.ts || 0) > (devices[id]?.ts || 0)) devices[id] = entry;
+  }
+  const settled = [...new Set([...(a?.vegas?.settled || []), ...(b?.vegas?.settled || [])])];
+  return { devices, settled: settled.slice(-SETTLED_KEEP) };
 }
 
 export function mergeStats(a, b) {
@@ -83,15 +91,27 @@ export function recordGameWon(stats, moves, now, mode = LEGACY_MODE) {
 }
 
 export function vegasBank(stats) {
-  return Number(stats?.vegas?.bank) || 0;
+  return Object.values(stats?.vegas?.devices || {})
+    .reduce((sum, d) => sum + (Number(d?.bank) || 0), 0);
 }
 
-// Adds a finished (won or abandoned) Vegas game's score to the bank.
-export function recordVegasResult(stats, score, now) {
+export function isVegasSettled(stats, gameId) {
+  return !!gameId && (stats?.vegas?.settled || []).includes(gameId);
+}
+
+// Adds a finished (won or abandoned) Vegas game's score to this device's
+// share of the bank, once per game id.
+export function recordVegasResult(stats, { gameId, score, deviceId, now }) {
+  if (isVegasSettled(stats, gameId)) return stats;
+  const devices = stats?.vegas?.devices || {};
+  const mine = Number(devices[deviceId]?.bank) || 0;
   return {
     ...stats,
     v: STATS_VERSION,
-    vegas: { bank: vegasBank(stats) + score, ts: now },
+    vegas: {
+      devices: { ...devices, [deviceId]: { bank: mine + score, ts: now } },
+      settled: [...(stats?.vegas?.settled || []), gameId].slice(-SETTLED_KEEP),
+    },
     ts: now,
   };
 }
@@ -137,6 +157,19 @@ export function clearLocalSave() {
   } catch {
     // Ignore.
   }
+}
+
+// A random id for this browser's share of the Vegas bank (see mergeVegas).
+// If storage is unavailable it lasts for the page's lifetime, which is all
+// that storage-less stats last for anyway.
+const DEVICE_KEY = 'solitaire.device';
+export function deviceId() {
+  let id = readJSON(DEVICE_KEY);
+  if (typeof id !== 'string' || !id) {
+    id = Math.random().toString(36).slice(2, 12);
+    writeJSON(DEVICE_KEY, id);
+  }
+  return id;
 }
 
 // The game the menu last picked, so a fresh deal after a reload (or after a

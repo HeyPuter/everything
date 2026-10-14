@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   emptyStats, mergeStats, recordGameStarted, recordGameWon,
   loadLocalStats, saveLocalStats, loadLocalSave, saveLocalSave, clearLocalSave,
-  STATS_VERSION, modeStats, recordVegasResult, vegasBank,
+  STATS_VERSION, modeStats, recordVegasResult, vegasBank, isVegasSettled, SETTLED_KEEP,
 } from './stats.js';
 
 // Minimal localStorage stand-in; vitest runs in the node environment.
@@ -116,23 +116,55 @@ describe('per-game stats', () => {
 });
 
 describe('Vegas bank', () => {
+  const settle = (stats, gameId, score, deviceId = 'dev-a', now = 1) =>
+    recordVegasResult(stats, { gameId, score, deviceId, now });
+
   it('starts at zero and adds each settled game', () => {
     let s = emptyStats();
     expect(vegasBank(s)).toBe(0);
-    s = recordVegasResult(s, -52, 1);
-    s = recordVegasResult(s, 208, 2);
+    s = settle(s, 'g1', -52);
+    s = settle(s, 'g2', 208);
     expect(vegasBank(s)).toBe(156);
   });
 
-  it('merges by whichever side changed it last', () => {
-    const a = recordVegasResult(emptyStats(), -52, 10);
-    const b = recordVegasResult(emptyStats(), 100, 20);
-    expect(vegasBank(mergeStats(a, b))).toBe(100);
-    expect(vegasBank(mergeStats(b, a))).toBe(100);
+  it('pays a game in only once', () => {
+    let s = settle(emptyStats(), 'g1', -52);
+    s = settle(s, 'g1', -52);
+    expect(vegasBank(s)).toBe(-52);
+    expect(isVegasSettled(s, 'g1')).toBe(true);
+    expect(isVegasSettled(s, 'g2')).toBe(false);
+  });
+
+  it('keeps games settled on two devices when they merge', () => {
+    const a = settle(emptyStats(), 'g1', -52, 'dev-a', 10);
+    const b = settle(emptyStats(), 'g2', 100, 'dev-b', 20);
+    expect(vegasBank(mergeStats(a, b))).toBe(48);
+    expect(vegasBank(mergeStats(b, a))).toBe(48);
+  });
+
+  it('takes the newer entry for the same device', () => {
+    const older = settle(emptyStats(), 'g1', -52, 'dev-a', 10);
+    const newer = settle(older, 'g2', 30, 'dev-a', 20);
+    expect(vegasBank(mergeStats(older, newer))).toBe(-22);
+    expect(vegasBank(mergeStats(newer, older))).toBe(-22);
+  });
+
+  it('does not pay in a game another device already settled', () => {
+    const a = settle(emptyStats(), 'g1', 60, 'dev-a', 10);
+    let b = mergeStats(emptyStats(), a);
+    b = settle(b, 'g1', 60, 'dev-b', 20);
+    expect(vegasBank(mergeStats(a, b))).toBe(60);
+  });
+
+  it('remembers only the most recent settled games', () => {
+    let s = emptyStats();
+    for (let i = 0; i < SETTLED_KEEP + 10; i++) s = settle(s, `g${i}`, 0);
+    expect(s.vegas.settled).toHaveLength(SETTLED_KEEP);
+    expect(isVegasSettled(s, `g${SETTLED_KEEP + 9}`)).toBe(true);
   });
 
   it('is kept when the other side has no bank at all', () => {
-    const a = recordVegasResult(emptyStats(), -104, 10);
+    const a = settle(emptyStats(), 'g1', -104);
     expect(vegasBank(mergeStats(a, { v: 1, played: 1, won: 0, bestMoves: null, ts: 50 }))).toBe(-104);
   });
 });

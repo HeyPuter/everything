@@ -25,7 +25,7 @@ import { createAnimator } from './ui/animate.js';
 import {
   loadLocalStats, saveLocalStats, recordGameStarted, recordGameWon, mergeStats,
   loadLocalSave, saveLocalSave, clearLocalSave, loadModePref, saveModePref,
-  modeStats, recordVegasResult, vegasBank,
+  modeStats, recordVegasResult, vegasBank, isVegasSettled, deviceId,
 } from './services/stats.js';
 import * as cloud from './services/puter-sync.js';
 import { shouldAdoptRemote } from './services/save-arbitration.js';
@@ -52,10 +52,8 @@ const modePref = loadModePref();
 let game = dealMode(findMode(modePref) ? modePref : DEFAULT_MODE);
 let stats = loadLocalStats();
 let countedThisGame = false;
-// A Vegas game's score goes into the bank exactly once: when it is won, or
-// when it is abandoned for a new deal. Until then the header shows the bank
-// as if it had already been settled.
-let vegasSettled = false;
+// This browser's share of the Vegas bank (see stats.js mergeVegas).
+const DEVICE_ID = deviceId();
 let signedIn = false;
 // True only once a load-time cloud pull of the save has actually succeeded.
 // A failed (or never-attempted) pull leaves this false, so we never push our
@@ -86,7 +84,10 @@ function updateStats() {
   bankStatEl.hidden = !vegas;
   if (vegas) {
     scoreEl.textContent = money(game.score);
-    bankEl.textContent = money(vegasBank(stats) + (vegasSettled ? 0 : game.score));
+    // Shown as if this game were already settled, so the bank never jumps
+    // when it is.
+    const pending = isVegasSettled(stats, game.id) ? 0 : game.score;
+    bankEl.textContent = money(vegasBank(stats) + pending);
   }
 }
 
@@ -190,13 +191,19 @@ window.addEventListener('beforeunload', () => {
   saveLocalSave(serialize(game, Date.now()));
 });
 
-// Puts a finished Vegas game's score into the bank. Only a game that was
-// actually played (see countGameOnce) costs its ante: dealing and walking
-// away is free, the same way it doesn't count as a game played.
+// Puts a finished Vegas game's score into the bank: when it is won, or
+// when it is abandoned for a new deal or replaced by a different cloud
+// save. Only a game that was actually played (see countGameOnce) costs its
+// ante: dealing and walking away is free, the same way it doesn't count as
+// a game played. The bank remembers settled game ids, so a game that comes
+// back (from the cloud, or a save written before it was settled) is never
+// paid in twice.
 function settleVegas() {
-  if (game.scoring !== 'vegas' || vegasSettled || !countedThisGame) return false;
-  vegasSettled = true;
-  stats = recordVegasResult(stats, game.score, Date.now());
+  if (game.scoring !== 'vegas' || !countedThisGame) return false;
+  if (isVegasSettled(stats, game.id)) return false;
+  stats = recordVegasResult(stats, {
+    gameId: game.id, score: game.score, deviceId: DEVICE_ID, now: Date.now(),
+  });
   saveLocalStats(stats);
   return true;
 }
@@ -286,7 +293,6 @@ function newGame(key = modeOf(game)) {
   game = dealMode(key);
   saveModePref(key);
   countedThisGame = false;
-  vegasSettled = false;
   // The player just dealt this board on purpose — it must never be
   // silently swapped out by a load-time cloud restore that is still
   // in flight. See the playerOwnsBoard declaration for why "owns", not
@@ -300,6 +306,9 @@ function newGame(key = modeOf(game)) {
 }
 
 function doUndo() {
+  // A won game is over: undoing out of it would let the same win (and, in
+  // Vegas, the same payout) be recorded again.
+  if (rules().isWon(game)) return;
   if (!rules().undo(game)) return;
   playerOwnsBoard = true;
   requestRender();
@@ -426,9 +435,11 @@ async function syncStats() {
 function adoptSave(save) {
   const restored = deserialize(save);
   if (!restored) return false;
+  // Replacing a different Vegas game in progress abandons it, which settles
+  // it (a no-op at boot, where `game` is an untouched fresh deal).
+  if (restored.id !== game.id && settleVegas() && signedIn) syncStats();
   game = restored;
   countedThisGame = true;
-  vegasSettled = false;
   saveModePref(modeOf(game));
   updateModeLabel();
   return true;
