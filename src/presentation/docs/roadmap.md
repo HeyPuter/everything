@@ -49,12 +49,39 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 5. Slide Show and Record
 
-- [ ] Set Up Slide Show dialog (presented by a speaker / browsed / kiosk, loop,
-      without narration or animation, slide range, pen and laser colors).
-- [ ] Custom Shows, Rehearse Timings, Use Timings, Play Narrations, Show Media
-      Controls, Presenter View, live subtitles.
-- [ ] Record tab: record the show with narration, camera and ink per slide,
-      clear recordings, export as video.
+- [x] Set Up Slide Show dialog (presented by a speaker / browsed in a window /
+      kiosk, loop, without narration or animation, media controls, slide range
+      or custom show, manual or timed advance, pen and laser colors), saved
+      in `presProps.xml` `p:showPr` (`src/show/setup-dialog.js`,
+      `lib/pptx/src/api/fn/slide-show-setup.ts`).
+- [x] Custom Shows dialog (new, edit, copy, remove, show; pick and order
+      slides) saved in `p:custShowLst`; deleting a slide drops it from every
+      custom show (`src/show/custom-shows.js`).
+- [x] Presenter View in this window or with the audience in a second window
+      (placed on another screen when the browser allows): current and next
+      slide or animation click, notes with text size, timer with pause and
+      restart, clock, counter, tools, all slides, zoom, black screen,
+      subtitles, end show (`src/show/session.js`, `src/show/audience.js`).
+- [x] During the show: right-click menu (next, previous, last viewed, see
+      all slides, zoom, custom show, screen, pointer options, subtitles,
+      presenter view, pause, help, end show); pen, highlighter, eraser,
+      laser and arrow options with the common shortcuts; ink kept as Ink
+      shapes when asked; kiosk mode; media controls on videos.
+- [x] Rehearse Timings toolbar (slide time, pause, repeat, total) that keeps
+      the timings as each slide's advance time; Use Timings, Play Narrations,
+      Show Media Controls; Always Use Subtitles and Subtitle Settings (spoken
+      language, position) with live subtitles from the browser's speech
+      recognition, and a notice where there is none.
+- [x] Record tab: Live Camera (a camera picture that shows the presenter's
+      camera in the show), Record from Beginning / Current Slide in a
+      recording studio (camera preview as a circle or rectangle, camera and
+      microphone choice, pause, retake, clear), narrations stored per slide
+      as media that plays by itself with the recording's timing; Clear
+      Recording, Reset to Camera, and Export to Video with the narrations as
+      the sound track.
+- [ ] Not yet: ink replayed with its timing in recordings (ink is kept as
+      shapes), subtitle translation, a narrated video's camera picture in the
+      exported video (its sound is included).
 
 ### 6. Insert
 

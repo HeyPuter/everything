@@ -647,6 +647,12 @@ async function shortcutsDialog() {
         ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
+        [
+          "Ctrl / ⌘ + Shift + Enter, Ctrl / ⌘ + Enter",
+          "Present from the first slide, or from the current one",
+        ],
+        ["Alt + F5, or Alt + Enter", "Presenter View"],
+        ["? during a slide show", "List the slide show's shortcuts"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
         ["Enter in the thumbnails pane", "New slide after the selected one"],
         ["Ctrl / ⌘ + L / E / R / J", "Align left, center, right, or justify"],
