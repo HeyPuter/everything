@@ -174,6 +174,54 @@ export interface ChartSeries {
    * `<c:ser><c:dLbls>`.
    */
   readonly dataLabels?: ChartDataLabels;
+  /**
+   * Error bars (`<c:errBars>`) drawn around each data point. Bar, column,
+   * line, area, scatter and bubble series carry them; pie, doughnut and
+   * radar series have no slot and reject them.
+   */
+  readonly errorBars?: ChartErrorBars;
+}
+
+/**
+ * Error bars for one series (`<c:errBars>`, ECMA-376 §21.2.2.58).
+ *
+ *   - `direction` — `'y'` (the default) measures along the value axis;
+ *     `'x'` is only meaningful for scatter / bubble series.
+ *   - `type` — draw the bar above and below (`'both'`), only above
+ *     (`'plus'`) or only below (`'minus'`) the point.
+ *   - `valueType` — the amount is a fixed value (`'fixedVal'`), a
+ *     percentage of each point (`'percentage'`), a multiple of the
+ *     series' standard deviation (`'stdDev'`), or its standard error
+ *     (`'stdErr'`, which takes no `value`).
+ *   - `value` — the amount for `fixedVal` / `percentage` / `stdDev`;
+ *     defaults to 1 for fixed values and standard deviations and 5 for
+ *     percentages.
+ *   - `noEndCap` — omit the short perpendicular caps.
+ *   - `color` — `#RRGGBB` line color (otherwise the text color).
+ */
+export interface ChartErrorBars {
+  readonly direction?: "x" | "y";
+  readonly type: "both" | "plus" | "minus";
+  readonly valueType: "fixedVal" | "percentage" | "stdDev" | "stdErr";
+  readonly value?: number;
+  readonly noEndCap?: boolean;
+  readonly color?: string;
+}
+
+/**
+ * A data table under the plot area (`<c:dTable>`, ECMA-376 §21.2.2.54):
+ * one row per series and one column per category. Each flag mirrors its
+ * native element and defaults to `false` when omitted.
+ */
+export interface ChartDataTable {
+  /** Rules between the series rows. */
+  readonly showHorzBorder?: boolean;
+  /** Rules between the category columns. */
+  readonly showVertBorder?: boolean;
+  /** A frame around the table. */
+  readonly showOutline?: boolean;
+  /** A legend key beside each series name. */
+  readonly showKeys?: boolean;
 }
 
 /** A single trendline overlay for a series. */
@@ -692,6 +740,17 @@ export interface ChartSpec {
    * charts and side-by-side line charts.
    */
   readonly hiLowLines?: boolean;
+  /**
+   * Up/down bars (`<c:upDownBars>`) on a line chart: between the first
+   * and last series at each category, light where the last series is
+   * higher and dark where it is lower.
+   */
+  readonly upDownBars?: boolean;
+  /**
+   * Data table under the plot area (`<c:dTable>`). Absent means no table.
+   * Only charts with axes (not pie / doughnut / radar) show one.
+   */
+  readonly dataTable?: ChartDataTable;
   /**
    * Native chart-level Show Marker flag (`<c:lineChart><c:marker
    * val="0|1"/>`). Retained for interoperability; readers ignore this

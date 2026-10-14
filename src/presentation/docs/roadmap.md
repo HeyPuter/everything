@@ -32,13 +32,14 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 3. Animations
 
-- [ ] Animations tab: entrance, emphasis, exit and motion path galleries,
+- [x] Animations tab: entrance, emphasis, exit and motion path galleries,
       Effect Options, Add Animation, Animation Painter, Trigger, Start,
       Duration, Delay, Reorder.
-- [ ] Animation Pane with a timeline, play from, drag reordering, and a dialog
+- [x] Animation Pane with a timeline, play from, drag reordering, and a dialog
       for effect, timing and text animation settings.
-- [ ] Animations written to and read from the file's timing tree, previewed on
+- [x] Animations written to and read from the file's timing tree, previewed on
       the canvas, and played in slide shows.
+- [ ] Adding sounds to effects (sounds already in a file are kept).
 
 ### 4. Transitions
 
@@ -82,11 +83,13 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 7. Charts and SmartArt
 
-- [ ] Insert Chart with every common chart type, a data sheet editor, and
+- [x] Insert Chart with every common chart type, a data sheet editor, and
       Chart Design / Format tabs (styles, colors, elements, layouts, switch
       row/column, change type).
-- [ ] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
-      and Format tabs, and Convert to SmartArt for bulleted text.
+- [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
+      tab and Format pane section, and Convert to SmartArt for bulleted text.
+- [ ] SmartArt: pictures in picture layouts, per-shape formatting (a SmartArt
+      Format tab).
 
 ### 8. Views
 
@@ -98,16 +101,27 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 9. Review
 
-- [ ] Comments pane with threaded replies, resolve, mentions, previous/next,
-      saved in the file.
-- [ ] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Comments pane with threaded replies, resolve, mentions, previous/next,
+      saved in the file (threaded comment parts; legacy comments read too),
+      draggable markers, thumbnail indicators and a status bar button.
+- [x] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Spelling pane, AutoCorrect while typing, Reading Order pane, and
+      Always Open Read-Only with Edit Anyway.
 
 ### 10. File, print and export
 
-- [ ] Export as PDF, PNG/JPEG, video, animated GIF, outline (RTF/text).
-- [ ] Print dialog with full-page slides, notes pages, outline and handouts
-      (1, 2, 3, 4, 6, 9 per page), frame, scale to fit.
-- [ ] Properties, Save as Template, Compress Pictures, Reduce File Size.
+- [x] Export as PDF (slides, notes pages, handouts, outline; searchable
+      text layer and bookmarks), PNG/JPEG, MP4/WebM video with transitions
+      and timings, animated GIF, outline (RTF/text), template (.potx).
+- [x] Print dialog with preview: full-page slides, notes pages, outline and
+      handouts (1, 2, 3 with lines, 4, 6, 9 per page, across or down),
+      paper and orientation, colour/grayscale/black and white, frame, scale
+      to fit, hidden slides, slide range, header and footer; Save as PDF.
+- [x] Properties (core and extended properties, statistics in app.xml),
+      Save as Template, Compress Pictures (resolution, delete cropped
+      areas, selected or all), File size summary with unused media removal.
+- [x] File menu: Open recent, Close, Page setup (slide size).
+- [ ] OpenDocument (.odp) export: not planned.
 
 ### 11. Format dialogs and panes
 

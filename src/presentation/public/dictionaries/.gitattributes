@@ -1,0 +1,4 @@
+# Preserve the exact reviewed dictionary and license bytes on every platform.
+en-US.aff -text
+en-US.dic -text
+en-US-LICENSE.txt -text
