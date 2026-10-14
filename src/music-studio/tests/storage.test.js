@@ -295,6 +295,24 @@ describe('storage feature in the app', () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it('reopens a saved cloud project from the cloud (it may be newer) instead of its clean draft', async () => {
+    const fake = fakePuter();
+    window.puter = fake;
+    const path = '/ada/MusicStudio/Projects/Song.msproj';
+    const elsewhere = { ...demoProject(), name: 'Song', bpm: 141 };
+    fake.files.set(path, new TextEncoder().encode(serializeProject(elsewhere)));
+    const db = memoryDB();
+    await db.put('drafts', 'session', { json: serializeProject({ ...elsewhere, bpm: 99 }), file: { path, name: 'Song' }, dirty: false, at: 1 });
+    const { root, storage } = mount();
+    storage.setItem('music-studio:prefs', JSON.stringify({ launched: true }));
+    const app = new App(root, { storage });
+    app.start([{ install: (a) => install(a, { db }) }]);
+    await app.restored;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(app.store.project.bpm).toBe(141);
+    expect(app.file.path).toBe(path);
+  });
+
   it('imports audio as a sampler channel or into an existing channel in one undo step', async () => {
     window.puter = fakePuter({ signedIn: false });
     const { root, storage } = mount();
