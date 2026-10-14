@@ -120,7 +120,7 @@ export async function openPreferences(app, { section = 'general' } = {}) {
 
   // ---------------------------------------------------------------- saving
   const signedIn = puter.isSignedIn();
-  const where = h('p.pref-note', signedIn ? 'Projects save to MusicStudio/Projects in your Puter cloud. Your current session is also kept in this browser, so a reload never loses work.' : 'You are not signed in, so projects save in this browser on this device. Your current session is kept automatically, so a reload never loses work.');
+  const where = h('p.pref-note', signedIn ? 'Projects save to your Puter cloud (Music Studio files, Projects). Your current session is also kept in this browser, so a reload never loses work.' : 'You are not signed in, so projects save in this browser on this device. Your current session is kept automatically, so a reload never loses work.');
   const saving = h(
     'div.pref-section',
     where,

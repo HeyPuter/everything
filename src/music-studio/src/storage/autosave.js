@@ -27,6 +27,7 @@ export class Autosave {
     this.writing = null; // the draft write in flight
     this.again = false;
     this.cloudWriting = null;
+    this.cloudAgain = false;
     this.lastError = null;
     this.offs = [];
   }
@@ -109,12 +110,21 @@ export class Autosave {
     this.timers.clearTimeout(this.cloudTimer);
     this.cloudTimer = null;
     this.cloudFirst = null;
-    if (!this.cloudEnabled() || !this.store.dirty || this.cloudWriting) return;
+    if (this.cloudWriting) {
+      // Edits that waited for this write get their own save after it.
+      this.cloudAgain = true;
+      return this.cloudWriting;
+    }
+    if (!this.cloudEnabled() || !this.store.dirty) return;
     this.cloudWriting = Promise.resolve()
       .then(() => this.writeCloud())
       .catch((err) => console.warn('Music Studio: cloud autosave failed.', err))
       .finally(() => {
         this.cloudWriting = null;
+        if (this.cloudAgain) {
+          this.cloudAgain = false;
+          if (this.store.dirty) this.scheduleCloud();
+        }
       });
     await this.cloudWriting;
   }

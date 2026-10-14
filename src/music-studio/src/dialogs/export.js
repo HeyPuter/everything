@@ -1,7 +1,7 @@
 // Audio export: the song or the current pattern to a WAV file, or one WAV
 // per mixer insert (stems) in a ZIP. Renders offline through
 // app.engine.render with a progress bar; closing the dialog cancels.
-// When signed in, a copy can also go to ~/MusicStudio/Exports.
+// When signed in, a copy can also go to Exports in the app's Puter folder.
 
 import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
@@ -13,6 +13,8 @@ import { formatTime } from '../model/time.js';
 import * as puter from '../storage/puter.js';
 
 export const EXPORT_RATES = [44100, 48000, 88200, 96000];
+/** Longest effect tail rendered after the end, in seconds (long reverbs decay up to 20 s). */
+export const TAIL_MAX = 30;
 export const EXPORT_BITS = [
   { bits: 16, label: '16-bit (dithered)' },
   { bits: 24, label: '24-bit' },
@@ -92,7 +94,7 @@ export async function openExportDialog(app, { stems = false } = {}) {
     range,
     h('div.form-grid', h('label', { for: rateId }, 'Sample rate'), rate, h('label', { for: bitsId }, 'Format'), bits),
     h('label.check', { for: tailId }, tail, h('span', 'Include effect tails (reverb and delay ring out)')),
-    signedIn ? h('label.check', { for: cloudId }, cloud, h('span', 'Also save a copy to MusicStudio/Exports in Puter')) : null,
+    signedIn ? h('label.check', { for: cloudId }, cloud, h('span', 'Also save a copy to Exports in your Puter cloud')) : null,
     progress,
     status,
   );
@@ -156,7 +158,8 @@ async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, 
       mode,
       patternId: store.view.pattern,
       rate,
-      tail,
+      // Seconds at most: the render ends early once the tails fall silent.
+      tail: tail ? TAIL_MAX : 0,
       isolate,
       signal,
       onProgress: (f) => setProgress((part + f) / parts),
@@ -189,7 +192,7 @@ async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, 
     setStatus('Saving a copy to Puter...');
     try {
       const item = await puter.writeNew(puter.joinPath(await puter.appSubdir('Exports'), filename), blob);
-      app.notify(`Exported ${filename} (a copy is in MusicStudio/Exports as ${item?.name || filename})`);
+      app.notify(`Exported ${filename} (a copy is in Exports in your Puter cloud as ${item?.name || filename})`);
     } catch (err) {
       app.notify(`Downloaded ${filename}, but the Puter copy failed: ${puter.errorMessage(err)}`, { error: true });
     }

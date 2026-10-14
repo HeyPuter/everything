@@ -80,13 +80,21 @@ export function install(app, { db = openDB() } = {}) {
   app.on('file', () => autosave.scheduleDraft());
 
   let launched = false;
+  const startLoads = files.loads;
   const restore = async () => {
     try {
       const draft = await lib.loadDraft();
-      // A file opened by the Puter desktop, or edits made meanwhile, win over the draft.
-      if (!launched && draft?.json && !store.undoStack.length) {
-        const project = parseProject(draft.json);
-        files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
+      // A file opened by the Puter desktop, a project opened meanwhile, or
+      // edits made meanwhile win over the draft.
+      if (!launched && draft?.json && !store.undoStack.length && files.loads === startLoads) {
+        let project = parseProject(draft.json);
+        // A saved cloud project may have been changed elsewhere since: open
+        // the file itself (the draft stays the fallback when it cannot be read).
+        if (!draft.dirty && draft.file?.path && puter.isSignedIn()) {
+          project = await lib.loadCloud(draft.file.path).catch(() => project);
+          if (files.loads !== startLoads || store.undoStack.length) project = null;
+        }
+        if (project) files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
       }
     } catch (err) {
       console.warn('Music Studio: the last session could not be restored.', err);
@@ -112,9 +120,16 @@ export function install(app, { db = openDB() } = {}) {
   });
 
   // ---------------------------------------------------------------- leaving
+  // Without IndexedDB the draft lives in memory only and a reload loses it.
+  let persistent = true;
+  Promise.resolve(lib.db()).then((d) => {
+    persistent = d?.persistent !== false;
+  }, () => {
+    persistent = false;
+  });
   window.addEventListener('beforeunload', (e) => {
     if (!store.dirty) return;
-    const unsaved = autosave.pending || autosave.lastError || !autosave.offs.length;
+    const unsaved = !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
     autosave.flushAll();
     if (unsaved) {
       e.preventDefault();
@@ -145,8 +160,13 @@ export function install(app, { db = openDB() } = {}) {
     if (k === 'hints') syncHints();
   });
   syncHints();
+  let wasSignedIn = puter.isSignedIn();
   app.on('account', () => {
-    if (!puter.isSignedIn()) puter.resetAccountCache();
+    const now = puter.isSignedIn();
+    if (!now) puter.resetAccountCache();
+    // Samples that were missing while signed out can load from the cloud now.
+    else if (!wasSignedIn) files.loadSamples(store.project, { quiet: true }).catch((err) => console.warn(err));
+    wasSignedIn = now;
   });
 
   // ---------------------------------------------------------------- drops

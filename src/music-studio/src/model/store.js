@@ -138,7 +138,12 @@ export class Store extends Emitter {
     this.gesture = null;
     const prev = this.project;
     this.project = g.start;
-    if (prev !== g.start) this.emit('change', g.start, prev, { label: g.label, source: 'undo' });
+    if (prev === g.start) return;
+    // The preview may have selected things the start state does not have.
+    const before = `${this.view.pattern}|${this.view.channel}`;
+    this.#fixView();
+    this.emit('change', g.start, prev, { label: g.label, source: 'undo' });
+    if (`${this.view.pattern}|${this.view.channel}` !== before) this.emit('view');
   }
 
   get canUndo() {

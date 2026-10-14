@@ -2,7 +2,7 @@
 
 import { h, announce } from '../lib/dom.js';
 import { openDialog, confirmDialog } from '../ui/dialog.js';
-import { openWindow } from '../ui/windows.js';
+import { openWindow, getWindow } from '../ui/windows.js';
 import * as E from '../model/edits.js';
 
 // ------------------------------------------------------------------ undo history
@@ -17,6 +17,13 @@ export function historyEntries(store) {
 }
 
 export function openHistory(app) {
+  // Already open: bring it forward (building another list would subscribe again).
+  const existing = getWindow('undo-history');
+  if (existing) {
+    existing.raise();
+    existing.focus();
+    return existing;
+  }
   const store = app.store;
   const list = h('div.history-list', { role: 'listbox', 'aria-label': 'Undo history', tabindex: '0' });
   let rows = [];

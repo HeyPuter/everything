@@ -79,9 +79,11 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
     const up = () => {
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
     };
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
   });
 
   const previous = document.activeElement;

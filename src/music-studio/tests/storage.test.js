@@ -9,6 +9,7 @@ import { demoProject, newProject } from '../src/model/demo.js';
 import { serializeProject } from '../src/model/serialize.js';
 import { App } from '../src/app.js';
 import { install } from '../src/storage/index.js';
+import { ProjectFiles } from '../src/storage/files.js';
 
 /** A fake Puter SDK with an in-memory file system. Every fs call is recorded. */
 function fakePuter({ signedIn = true, username = 'ada' } = {}) {
@@ -44,11 +45,12 @@ function fakePuter({ signedIn = true, username = 'ada' } = {}) {
         return new Blob([files.get(path)]);
       }),
       stat: rec('stat', async (path) => {
-        if (!files.has(path)) throw new Error('missing');
+        if (!files.has(path)) throw Object.assign(new Error('missing'), { code: 'subject_does_not_exist' });
         return { path };
       }),
       readdir: rec('readdir', async () => []),
-      mkdir: rec('mkdir', async () => ({})),
+      // Relative paths resolve into the app's AppData folder, as in Puter.
+      mkdir: rec('mkdir', async (path) => ({ path: path.startsWith('/') ? path : `/${username}/AppData/app-test/${path}` })),
     },
     ui: {},
   };
@@ -119,10 +121,10 @@ describe('samples', () => {
   it('downloads from Puter when signed in and caches the bytes', async () => {
     const fake = fakePuter();
     window.puter = fake;
-    fake.files.set('/ada/MusicStudio/Samples/s2.wav', new Uint8Array([9, 9]));
+    fake.files.set('/ada/AppData/app-test/Samples/s2.wav', new Uint8Array([9, 9]));
     const lib = new Library({ db: memoryDB(), decode: fakeDecode });
     const c = cache();
-    const ref = { id: 's2', name: 'snare.wav', path: '/ada/MusicStudio/Samples/s2.wav', local: null };
+    const ref = { id: 's2', name: 'snare.wav', path: '/ada/AppData/app-test/Samples/s2.wav', local: null };
     expect(await lib.loadSamples({ samples: { s2: ref } }, c)).toEqual({ loaded: 1, missing: [] });
     expect((await lib.sampleRecord('s2')).path).toBe(ref.path);
     fake.calls.length = 0;
@@ -132,7 +134,7 @@ describe('samples', () => {
 });
 
 describe('cloud projects', () => {
-  it('saves to ~/MusicStudio/Projects, uploads new samples once and opens again', async () => {
+  it('saves to Projects in the app folder, uploads new samples once and opens again', async () => {
     const fake = fakePuter();
     window.puter = fake;
     const lib = new Library({ db: memoryDB(), decode: fakeDecode });
@@ -140,12 +142,12 @@ describe('cloud projects', () => {
     await lib.putSample('smp1', { data: new Uint8Array([1, 2, 3, 4]).buffer, name: 'loop.wav', type: 'audio/wav' });
     p = E.addSample(p, { id: 'smp1', name: 'loop.wav', local: 'smp1', duration: 1 }).project;
     const path = await lib.cloudPathFor('My: Song');
-    expect(path).toBe('/ada/MusicStudio/Projects/My- Song.msproj');
+    expect(path).toBe('/ada/AppData/app-test/Projects/My- Song.msproj');
     const r = await lib.saveCloud(p, {}, { path });
     expect(r.path).toBe(path);
-    expect(fake.files.has('/ada/MusicStudio/Samples/smp1.wav')).toBe(true);
+    expect(fake.files.has('/ada/AppData/app-test/Samples/smp1.wav')).toBe(true);
     const json = JSON.parse(new TextDecoder().decode(fake.files.get(path)));
-    expect(json.samples.smp1.path).toBe('/ada/MusicStudio/Samples/smp1.wav');
+    expect(json.samples.smp1.path).toBe('/ada/AppData/app-test/Samples/smp1.wav');
 
     // A second save does not upload the sample again.
     fake.calls.length = 0;
@@ -154,7 +156,7 @@ describe('cloud projects', () => {
 
     const back = await lib.loadCloud(path);
     expect(back.name).toBe(p.name);
-    expect(back.samples.smp1.path).toBe('/ada/MusicStudio/Samples/smp1.wav');
+    expect(back.samples.smp1.path).toBe('/ada/AppData/app-test/Samples/smp1.wav');
     expect(back.patterns.map((x) => x.id)).toEqual(p.patterns.map((x) => x.id));
   });
 
@@ -308,6 +310,24 @@ describe('storage feature in the app', () => {
     expect(app.file).toBe(null);
   });
 
+  it('reopens a saved cloud project from the cloud (it may be newer) instead of its clean draft', async () => {
+    const fake = fakePuter();
+    window.puter = fake;
+    const path = '/ada/MusicStudio/Projects/Song.msproj';
+    const elsewhere = { ...demoProject(), name: 'Song', bpm: 141 };
+    fake.files.set(path, new TextEncoder().encode(serializeProject(elsewhere)));
+    const db = memoryDB();
+    await db.put('drafts', 'session', { json: serializeProject({ ...elsewhere, bpm: 99 }), file: { path, name: 'Song' }, dirty: false, at: 1 });
+    const { root, storage } = mount();
+    storage.setItem('music-studio:prefs', JSON.stringify({ launched: true }));
+    const app = new App(root, { storage });
+    app.start([{ install: (a) => install(a, { db }) }]);
+    await app.restored;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(app.store.project.bpm).toBe(141);
+    expect(app.file.path).toBe(path);
+  });
+
   it('imports audio as a sampler channel or into an existing channel in one undo step', async () => {
     window.puter = fakePuter({ signedIn: false });
     const { root, storage } = mount();
@@ -346,9 +366,107 @@ describe('storage feature in the app', () => {
   });
 });
 
+describe('save races', () => {
+  /** A minimal app and a library whose cloud saves wait for `release()`. */
+  function setup() {
+    const events = {};
+    const prefs = new Map();
+    const app = {
+      store: new Store(newProject()),
+      file: null,
+      saving: false,
+      engine: { stop() {} },
+      samples: { ids: () => [], delete() {} },
+      emit: (n) => (events[n] || []).slice().forEach((f) => f()),
+      on: (n, f) => {
+        (events[n] ||= []).push(f);
+        return () => (events[n] = events[n].filter((x) => x !== f));
+      },
+      prefs: { get: (k) => prefs.get(k), set: (k, v) => prefs.set(k, v) },
+      notify() {},
+    };
+    let release;
+    const saved = [];
+    const lib = {
+      saveCloud: async (project, _view, { path }) => {
+        saved.push(project);
+        await new Promise((r) => (release = r));
+        return { path, missing: [] };
+      },
+      loadSamples: async () => ({ loaded: 0, missing: [] }),
+    };
+    const files = new ProjectFiles(app, lib);
+    return { app, files, saved, release: () => release() };
+  }
+
+  it('a save that ends after another project opened leaves that project alone', async () => {
+    const { app, files, release } = setup();
+    app.file = { path: 'Projects/A.msproj', name: 'A' };
+    app.store.apply('Edit', (p) => E.setProjectProps(p, { name: 'A2' }));
+    const saving = files.saveCloudTo(app.file.path, { auto: true });
+    await Promise.resolve();
+    const b = newProject();
+    files.loadProject({ ...b, name: 'B' }, { path: 'Projects/B.msproj', name: 'B' }, { dirty: true });
+    release();
+    expect(await saving).toBe(true);
+    expect(app.file.path).toBe('Projects/B.msproj');
+    expect(app.store.dirty).toBe(true);
+  });
+
+  it('saves the drag start state while a drag is in progress', async () => {
+    const { app, files, saved, release } = setup();
+    const start = app.store.project;
+    app.store.begin('Tempo');
+    app.store.preview((p) => E.setProjectProps(p, { bpm: 90 }));
+    const saving = files.saveCloudTo('Projects/A.msproj');
+    release();
+    await saving;
+    expect(saved[0]).toBe(start);
+    app.store.commit();
+    expect(app.store.dirty).toBe(true);
+  });
+
+  it('cloud autosave runs again for edits that waited on a write in flight', async () => {
+    const store = new Store(newProject());
+    let release;
+    let writes = 0;
+    const pending = [];
+    const timers = { setTimeout: (f) => (pending.push(f), f), clearTimeout: (t) => pending.splice(pending.indexOf(t) >>> 0, 1) };
+    const a = new Autosave({ store, writeDraft: async () => {}, writeCloud: () => (writes++, new Promise((r) => (release = r))), cloudEnabled: () => true, timers });
+    a.start();
+    store.apply('One', (p) => E.setProjectProps(p, { name: 'one' }));
+    a.cloudTimer();
+    await new Promise((r) => setTimeout(r, 0));
+    store.apply('Two', (p) => E.setProjectProps(p, { name: 'two' }));
+    a.cloudTimer(); // fires while the first write is still running
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(a.cloudTimer).not.toBe(null);
+    a.cloudTimer();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writes).toBe(2);
+    a.stop();
+  });
+});
+
 describe('serialize helper', () => {
   it('serializes the view pattern', () => {
     const p = demoProject();
     expect(JSON.parse(serializeProject(p, { pattern: p.patterns[2].id })).ui.pattern).toBe(p.patterns[2].id);
+  });
+});
+
+describe('app folder', () => {
+  afterEach(() => {
+    delete window.puter;
+    puterApi.resetAccountCache();
+  });
+
+  it('lives in the app\'s AppData folder, never in the home folder', async () => {
+    window.puter = fakePuter();
+    puterApi.resetAccountCache();
+    expect(await puterApi.appDir()).toBe('/ada/AppData/app-test');
+    expect(await puterApi.appSubdir('Samples')).toBe('/ada/AppData/app-test/Samples');
+    expect(window.puter.calls).not.toContain('getUser');
   });
 });

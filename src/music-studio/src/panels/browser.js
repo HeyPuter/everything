@@ -8,7 +8,7 @@
 //                Enter adds to the selected insert.
 //   Project      patterns, channels, samples and automation of the open
 //                project, updated live (rebuilt only when what it shows changes).
-//   My files     signed in: ~/MusicStudio (Projects, Samples, Exports), the
+//   My files     signed in: the app's Puter folder (Projects, Samples, Exports), the
 //                home folder and folders picked with the Puter folder picker,
 //                listed lazily. Audio previews stream only on an explicit play
 //                (temporary read URLs are rate limited), projects open on
@@ -79,14 +79,16 @@ function createBrowser(app, host) {
   let dirs = null; // { music, home } once the username is known
   let localProjects = [];
   const playing = { path: null, audio: null };
-  const urls = new Map(); // path -> temporary read URL (they are rate limited: reuse)
+  const urls = new Map(); // path -> { url, at }: temporary read URLs (rate limited: reuse until near expiry)
+  const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
 
   const refreshAccount = async () => {
     dirs = null;
     folders.clear();
+    urls.clear();
     if (puter.isSignedIn()) {
       try {
-        dirs = { music: await puter.appDir(), home: await puter.homeDir() };
+        dirs = { music: await puter.appDir() };
       } catch {
         dirs = null;
       }
@@ -159,8 +161,7 @@ function createBrowser(app, host) {
     }
     if (!dirs) return [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
     return [
-      folderNode(dirs.music, 'MusicStudio', { root: true }),
-      folderNode(dirs.home, 'Home'),
+      folderNode(dirs.music, 'Music Studio files', { root: true }),
       ...extraRoots.map((p) => folderNode(p, p.slice(p.lastIndexOf('/') + 1) || p)),
       { id: 'files:pick', label: 'Browse another folder...', kind: 'action', icon: 'folder-search', data: { run: pickFolder } },
       { id: 'files:import', label: 'Import audio from this device...', kind: 'action', icon: 'upload', data: { run: () => app.commands.run('file.importAudio') } },
@@ -328,6 +329,11 @@ function createBrowser(app, host) {
       playing.audio.removeAttribute('src');
       playing.audio.load();
     }
+    // A downloaded fallback holds the whole file: release it.
+    if (playing.blobUrl) {
+      URL.revokeObjectURL(playing.blobUrl);
+      playing.blobUrl = null;
+    }
     if (playing.path) {
       playing.path = null;
       invalidate();
@@ -364,17 +370,24 @@ function createBrowser(app, host) {
     playing.path = data.path;
     invalidate();
     try {
-      let url = urls.get(data.path);
+      const cached = urls.get(data.path);
+      let url = cached && Date.now() - cached.at < URL_TTL ? cached.url : null;
+      let blobUrl = null;
       if (!url) {
+        urls.delete(data.path);
         try {
           url = await puter.readURL(data.path, '2h');
+          urls.set(data.path, { url, at: Date.now() });
         } catch {
-          // Read URLs are rate limited: fall back to downloading the file once.
-          url = URL.createObjectURL(await puter.readFile(data.path));
+          // Read URLs are rate limited: fall back to downloading the file.
+          url = blobUrl = URL.createObjectURL(await puter.readFile(data.path));
         }
-        urls.set(data.path, url);
       }
-      if (playing.path !== data.path) return;
+      if (playing.path !== data.path) {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      playing.blobUrl = blobUrl;
       playing.audio ||= new Audio();
       playing.audio.onended = () => {
         if (playing.path === data.path) stopPreview();
@@ -383,6 +396,7 @@ function createBrowser(app, host) {
       await playing.audio.play();
       announce(`Previewing ${data.name}`);
     } catch (err) {
+      urls.delete(data.path); // maybe expired or revoked: make a new one next time
       if (playing.path === data.path) stopPreview();
       app.notify(`${data.name} could not be previewed: ${puter.errorMessage(err)}`, { error: true });
     }
