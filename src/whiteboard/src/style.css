@@ -7551,4 +7551,22 @@ dialog::backdrop {
   .fill-chip {
     forced-color-adjust: none;
   }
+  /* Panels, menus, popovers, tooltips and dialogs stand out from the board
+     by a shadow or a tint, both of which forced colors remove, and primary
+     buttons by their fill: they take an outline of the text colour. */
+  :is(
+    .panel,
+    dialog,
+    .account-menu,
+    .preferences-menu,
+    .selection-menu,
+    .selection-popover,
+    .context-menu,
+    .ui-tooltip
+  ) {
+    border: 1px solid CanvasText !important;
+  }
+  button.primary {
+    border: 1px solid ButtonText !important;
+  }
 }

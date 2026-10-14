@@ -393,3 +393,26 @@ test("the keyboard object outline shows above the selection toolbar", () => {
   assert.ok(toolbar > 0);
   assert.ok(outline > toolbar, `${outline} > ${toolbar}`);
 });
+
+test("in forced colors, floating surfaces and primary buttons keep an edge", () => {
+  const at = css.lastIndexOf("@media (forced-colors: active) {");
+  const block = css.slice(at, css.indexOf("\n}\n", at));
+  // Their shadows and fills are removed there, which would leave panels,
+  // menus and dialogs without an edge and primary buttons as plain text.
+  for (const surface of [
+    ".panel",
+    "dialog",
+    ".account-menu",
+    ".preferences-menu",
+    ".selection-menu",
+    ".selection-popover",
+    ".context-menu",
+    ".ui-tooltip",
+  ])
+    assert.ok(block.includes(surface), surface);
+  assert.match(block, /border:\s*1px solid CanvasText !important/);
+  assert.match(
+    block,
+    /button\.primary\s*\{\s*border:\s*1px solid ButtonText !important/,
+  );
+});
