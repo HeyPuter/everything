@@ -335,3 +335,11 @@ test("a choice's box keeps its size beside a label long enough to wrap", () => {
   assert.match(label, /min-width:\s*0/);
   assert.match(label, /overflow-wrap:\s*anywhere/);
 });
+
+test("the chosen template category's count stays readable on its tint", () => {
+  // Plain muted text on the 8% tint measured 4.44:1 in the light theme.
+  assert.match(
+    rule('#library-panel .library-chip[aria-pressed="true"] span {'),
+    /color:\s*color-mix\(in srgb, var\(--muted\) 80%, var\(--text\)\)/,
+  );
+});

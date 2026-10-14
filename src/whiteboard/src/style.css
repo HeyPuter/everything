@@ -7401,8 +7401,9 @@ dialog::backdrop {
     color: var(--text);
     font-weight: 600;
   }
+  /* The chosen row's tint needs the darker muted text (5.3:1). */
   #library-panel .library-chip[aria-pressed="true"] span {
-    color: var(--muted);
+    color: color-mix(in srgb, var(--muted) 80%, var(--text));
   }
   #library-panel .template-library-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
