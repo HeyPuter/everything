@@ -16,6 +16,7 @@ import { PPQ } from '../model/time.js';
 import { createChannel, createPattern, createClip, colorAt, patternById, patternLength } from '../model/project.js';
 import * as E from '../model/edits.js';
 import { uid } from '../lib/util.js';
+import { trackAudible } from '../playlist/clips.js';
 import { synthPreset, drumPreset } from '../instruments/presets.js';
 
 /** General MIDI program (0..127) to a built-in synth preset name. */
@@ -167,9 +168,9 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     const pat = patternById(project, patternId) || project.patterns[0];
     for (const [cid, list] of Object.entries(pat.notes)) for (const n of list) push(cid, n, 0);
   } else {
-    const trackMuted = (i) => project.tracks[i]?.mute;
     for (const c of project.clips) {
-      if (c.kind !== 'pattern' || c.mute || trackMuted(c.track)) continue;
+      // Track mute and solo as playback applies them.
+      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track)) continue;
       const pat = patternById(project, c.ref);
       if (!pat) continue;
       for (const [cid, list] of Object.entries(pat.notes)) {

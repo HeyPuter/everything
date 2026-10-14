@@ -158,6 +158,15 @@ describe('midi reader', () => {
     expect((many[10] << 8) | many[11]).toBe(301);
   });
 
+  it('exports the song with playlist track solo as playback applies it', () => {
+    const p = demoProject();
+    const soloed = { ...p, tracks: p.tracks.map((t, i) => (i === p.clips[0].track ? { ...t, solo: true } : t)) };
+    const all = projectToMidi(p).tracks.reduce((n, t) => n + t.notes.length, 0);
+    const solo = projectToMidi(soloed).tracks.reduce((n, t) => n + t.notes.length, 0);
+    expect(solo).toBeGreaterThan(0);
+    expect(solo).toBeLessThan(all);
+  });
+
   it('rejects files that are not MIDI', () => {
     expect(() => readMidi(new Uint8Array(20).buffer)).toThrow(/not a Standard MIDI File/);
   });

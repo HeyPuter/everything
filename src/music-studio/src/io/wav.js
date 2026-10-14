@@ -69,7 +69,8 @@ export function encodeWav({ channels, rate }, { bits = 16, dither = bits === 16,
   if (float) {
     for (let i = 0; i < frames; i++) {
       for (let c = 0; c < numCh; c++) {
-        dv.setFloat32(o, channels[c][i], true);
+        const v = channels[c][i];
+        dv.setFloat32(o, Number.isFinite(v) ? v : 0, true); // never NaN or infinity in a file
         o += 4;
       }
     }
