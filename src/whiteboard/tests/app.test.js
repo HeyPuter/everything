@@ -48679,12 +48679,43 @@ test("Alt+F10 moves between the text being edited and its formatting toolbar", a
     assert.ok(doc.querySelector("#canvas-text-editor"), "Still editing");
     altF10(control);
     assert.equal(doc.activeElement, doc.querySelector("#canvas-text-editor"));
+    // From the board, the same keys reach the selection's toolbar, named
+    // as one, and come back to the board.
+    text.dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const canvas = doc.querySelector("#canvas");
+    canvas.focus();
+    assert.equal(doc.querySelector("#canvas-text-editor"), null);
+    const tools = doc.querySelector("#selection-tools");
+    assert.equal(tools.hidden, false);
+    assert.equal(tools.getAttribute("role"), "toolbar");
+    assert.equal(tools.getAttribute("aria-label"), "Selection tools");
+    altF10(canvas);
+    assert.ok(tools.contains(doc.activeElement));
+    altF10(doc.activeElement);
+    assert.equal(doc.activeElement, canvas);
+    // With nothing selected there is no toolbar to go to.
+    canvas.dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    assert.equal(tools.hidden, true);
+    altF10(canvas);
+    assert.equal(doc.activeElement, canvas);
     // The shortcut is listed.
     await click('[data-action="home"]');
     await click('[data-action="help"]');
     assert.match(
       doc.querySelector("dialog[open]").textContent,
-      /Move between the text and its formatting toolbar\s*Alt \+ F10/,
+      /Move between the selection or its text and its toolbar\s*Alt \+ F10/,
     );
   } finally {
     await app.close();

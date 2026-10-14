@@ -2275,6 +2275,17 @@ const contextMenu = createContextMenu({
 // What a right-click without a drag, the context menu key or Shift+F10
 // opens. A press on an object selects it first, as a left click would; a
 // press on the empty board drops the selection.
+// The first control the selection toolbar offers, where Alt+F10 goes.
+function selectionToolbarControl() {
+  const tools = document.querySelector("#selection-tools");
+  if (!tools || tools.hidden) return null;
+  return (
+    [...tools.querySelectorAll("button, select, input")].find(
+      (c) => !c.disabled && !c.closest("[hidden]"),
+    ) || null
+  );
+}
+
 function openContextMenu(e, keyboard = false) {
   // A right-click elsewhere on the board ends a text edit, keeping what was
   // typed, as a left click does, and opens the menu for what it is on.
@@ -4112,7 +4123,7 @@ function editor() {
   // controls in the order they are laid out: header, top row, rail, then the
   // zoom controls at the bottom. Comment pins and link badges, which can
   // number hundreds, come after all of them.
-  app.innerHTML = `<main class="editor"><h1 id="board-heading" class="sr-only" data-user-content>${escape(current.title)}</h1><p id="board-announcer" class="sr-only" role="status" aria-live="polite"></p><header class="editor-header"><div class="editor-heading">${button("arrow-left", "Back to boards", "home")}<span class="mini-brand">${brandImage}</span><div><input id="board-title" aria-label="Board name" maxlength="200" value="${escape(current.title)}"><span id="save-state" role="status" aria-live="polite" title="${saveState}"${saveTone ? ` data-tone="${saveTone}"` : ""}>${saveState}</span></div></div><div class="editor-actions">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}<details class="preferences"><summary class="icon-btn" aria-label="${t("Preferences")}" title="${t("Preferences")}">${icon("settings-2")}</summary><div class="preferences-menu" role="group" aria-label="${t("Preferences")}">${themeControl(true)}${current.shared ? `<label class="preferences-check"><input type="checkbox" id="show-authors" ${showAuthors ? "checked" : ""}><span>${t("Show sticky note authors")}</span></label>` : ""}</div></details>${button(boardStorage(current) === "cloud" ? "cloud-check" : "cloud-upload", cloudSaveLabel(current), "cloud-save", `data-storage="${boardStorage(current)}"`)}${button("history", "Version history (Ctrl/Cmd Alt/Option Shift H)", "history")}${button("download", "Export board", "export")}${button("ellipsis", "More tools", "more-tools")}<button class="primary share-button" data-action="share" aria-label="Share board">${icon("users")}<span>Share</span></button>${account.markup()}</div></header><div class="canvas-wrap"><canvas id="canvas" role="img" aria-label="Whiteboard canvas. Use Board objects to select and edit objects with the keyboard." tabindex="0"></canvas><div id="hover-outline" class="hover-outline" aria-hidden="true" hidden></div><div id="board-outline" class="sr-only" role="group" aria-label="Canvas objects" aria-describedby="board-outline-hint"></div><p id="board-outline-hint" class="sr-only">Arrow keys, Home and End move between objects. Page Down and Page Up move to the next or previous frame.</p><div class="canvas-top"><span class="board-tag" data-storage="${boardStorage(current)}" title="${escape(storageLabel(current))}">${storageTag(current)}</span><button class="participants" data-action="participants" hidden></button><div class="canvas-navigation"><button type="button" class="icon-btn live-access" data-action="live" aria-label="${t("Live reactions and raise hand")}" title="${t("Live reactions and raise hand")}" aria-haspopup="dialog" aria-controls="live-popover" aria-expanded="false" hidden>${icon("smile-plus")}</button>${button("tags", "Tags", "tags", 'id="tag-access" hidden')}${button("columns-3", "Table cells", "table-cells", 'id="table-cell-access" hidden')}${button("arrow-up-right", "Object link", "object-link", 'id="object-link-access" hidden')}${button("link", "Text links", "text-links", 'id="text-link-access" hidden')}<button type="button" class="icon-btn timer-access" data-action="timer" data-timer-access aria-label="${t("Timer")}" title="${t("Timer")}" aria-controls="workshop-timer" aria-expanded="false">${icon("timer")}<span class="timer-badge" hidden></span></button><button type="button" class="icon-btn facilitation-access" data-action="facilitation" aria-label="${t("Facilitation")}" title="${t("Facilitation")}" aria-controls="facilitation-panel" aria-expanded="false">${icon("vote")}</button>${button("sparkles", "AI assistant", "ai")}${button("message-square", "Comments", "comments", 'aria-expanded="false" aria-controls="comments-panel"')}${button("search", "Find on board (Ctrl/Cmd F)", "board-search", 'aria-expanded="false" aria-controls="board-search"')}${button("map", "Minimap (M)", "minimap", 'aria-controls="minimap" aria-expanded="false" aria-pressed="false"')}${button("scan", "Frames and navigation", "frames", 'aria-expanded="false" aria-controls="frames-panel"')}${button("list", "Board objects", "objects")}${button("presentation", "Presentation", "present")}</div></div><div class="left-rail"><div class="tools panel" role="toolbar" aria-label="Drawing tools">${tools.map(([key, ic, label, shortcut]) => button(ic, `${label} (${shortcut})`, `tool-${key}`, `aria-pressed="${tool === key}"`)).join("")}<span class="tool-divider"></span>${button("layout-template", "Templates", "templates")}${button("shapes", "Shapes (S)", "shapes")}${button("image-plus", "Add image", "image")}${button("circle-plus", "Add content", "add-content", 'aria-haspopup="dialog"')}</div><div class="panel history-tools">${button("undo-2", "Undo (Ctrl/Cmd Z)", "undo")}${button("redo-2", "Redo (Ctrl/Cmd Shift Z)", "redo")}${button("magnet", "Snap to objects", "toggle-snapping", `aria-pressed="${snapping}"`)}</div></div><div class="drop-hint" aria-hidden="true"><strong>Drop content here</strong><span>Images, files, text, and links</span></div><div id="selection-tools" class="selection-tools panel" hidden></div><div id="quick-ports" role="group" hidden></div><section id="minimap" class="minimap panel" hidden></section><div class="canvas-bottom"><span id="tool-hint" class="tool-hint">Select and move · Double-click to edit · Space to pan</span><div class="panel zoom-tools">${button("maximize", "Fit board to screen", "fit")}<span class="tool-divider"></span>${button("minus", "Zoom out", "zoom-out")}<button class="zoom-label" data-action="reset-zoom" title="Reset zoom to 100 percent">100%</button>${button("plus", "Zoom in", "zoom-in")}<span class="tool-divider"></span>${button("circle-help", "Help and training", "help-center")}</div></div><div id="object-link-badges" class="object-link-badges" role="group" aria-label="Object links"></div><div id="comment-pins" class="comment-pins" role="group" aria-label="Board comments"></div></div></main>`;
+  app.innerHTML = `<main class="editor"><h1 id="board-heading" class="sr-only" data-user-content>${escape(current.title)}</h1><p id="board-announcer" class="sr-only" role="status" aria-live="polite"></p><header class="editor-header"><div class="editor-heading">${button("arrow-left", "Back to boards", "home")}<span class="mini-brand">${brandImage}</span><div><input id="board-title" aria-label="Board name" maxlength="200" value="${escape(current.title)}"><span id="save-state" role="status" aria-live="polite" title="${saveState}"${saveTone ? ` data-tone="${saveTone}"` : ""}>${saveState}</span></div></div><div class="editor-actions">${button("command", "Command palette (Ctrl/Cmd K)", "commands")}<details class="preferences"><summary class="icon-btn" aria-label="${t("Preferences")}" title="${t("Preferences")}">${icon("settings-2")}</summary><div class="preferences-menu" role="group" aria-label="${t("Preferences")}">${themeControl(true)}${current.shared ? `<label class="preferences-check"><input type="checkbox" id="show-authors" ${showAuthors ? "checked" : ""}><span>${t("Show sticky note authors")}</span></label>` : ""}</div></details>${button(boardStorage(current) === "cloud" ? "cloud-check" : "cloud-upload", cloudSaveLabel(current), "cloud-save", `data-storage="${boardStorage(current)}"`)}${button("history", "Version history (Ctrl/Cmd Alt/Option Shift H)", "history")}${button("download", "Export board", "export")}${button("ellipsis", "More tools", "more-tools")}<button class="primary share-button" data-action="share" aria-label="Share board">${icon("users")}<span>Share</span></button>${account.markup()}</div></header><div class="canvas-wrap"><canvas id="canvas" role="img" aria-label="Whiteboard canvas. Use Board objects to select and edit objects with the keyboard." tabindex="0"></canvas><div id="hover-outline" class="hover-outline" aria-hidden="true" hidden></div><div id="board-outline" class="sr-only" role="group" aria-label="Canvas objects" aria-describedby="board-outline-hint"></div><p id="board-outline-hint" class="sr-only">Arrow keys, Home and End move between objects. Page Down and Page Up move to the next or previous frame.</p><div class="canvas-top"><span class="board-tag" data-storage="${boardStorage(current)}" title="${escape(storageLabel(current))}">${storageTag(current)}</span><button class="participants" data-action="participants" hidden></button><div class="canvas-navigation"><button type="button" class="icon-btn live-access" data-action="live" aria-label="${t("Live reactions and raise hand")}" title="${t("Live reactions and raise hand")}" aria-haspopup="dialog" aria-controls="live-popover" aria-expanded="false" hidden>${icon("smile-plus")}</button>${button("tags", "Tags", "tags", 'id="tag-access" hidden')}${button("columns-3", "Table cells", "table-cells", 'id="table-cell-access" hidden')}${button("arrow-up-right", "Object link", "object-link", 'id="object-link-access" hidden')}${button("link", "Text links", "text-links", 'id="text-link-access" hidden')}<button type="button" class="icon-btn timer-access" data-action="timer" data-timer-access aria-label="${t("Timer")}" title="${t("Timer")}" aria-controls="workshop-timer" aria-expanded="false">${icon("timer")}<span class="timer-badge" hidden></span></button><button type="button" class="icon-btn facilitation-access" data-action="facilitation" aria-label="${t("Facilitation")}" title="${t("Facilitation")}" aria-controls="facilitation-panel" aria-expanded="false">${icon("vote")}</button>${button("sparkles", "AI assistant", "ai")}${button("message-square", "Comments", "comments", 'aria-expanded="false" aria-controls="comments-panel"')}${button("search", "Find on board (Ctrl/Cmd F)", "board-search", 'aria-expanded="false" aria-controls="board-search"')}${button("map", "Minimap (M)", "minimap", 'aria-controls="minimap" aria-expanded="false" aria-pressed="false"')}${button("scan", "Frames and navigation", "frames", 'aria-expanded="false" aria-controls="frames-panel"')}${button("list", "Board objects", "objects")}${button("presentation", "Presentation", "present")}</div></div><div class="left-rail"><div class="tools panel" role="toolbar" aria-label="Drawing tools">${tools.map(([key, ic, label, shortcut]) => button(ic, `${label} (${shortcut})`, `tool-${key}`, `aria-pressed="${tool === key}"`)).join("")}<span class="tool-divider"></span>${button("layout-template", "Templates", "templates")}${button("shapes", "Shapes (S)", "shapes")}${button("image-plus", "Add image", "image")}${button("circle-plus", "Add content", "add-content", 'aria-haspopup="dialog"')}</div><div class="panel history-tools">${button("undo-2", "Undo (Ctrl/Cmd Z)", "undo")}${button("redo-2", "Redo (Ctrl/Cmd Shift Z)", "redo")}${button("magnet", "Snap to objects", "toggle-snapping", `aria-pressed="${snapping}"`)}</div></div><div class="drop-hint" aria-hidden="true"><strong>Drop content here</strong><span>Images, files, text, and links</span></div><div id="selection-tools" class="selection-tools panel" role="toolbar" aria-label="${t("Selection tools")}" hidden></div><div id="quick-ports" role="group" hidden></div><section id="minimap" class="minimap panel" hidden></section><div class="canvas-bottom"><span id="tool-hint" class="tool-hint">Select and move · Double-click to edit · Space to pan</span><div class="panel zoom-tools">${button("maximize", "Fit board to screen", "fit")}<span class="tool-divider"></span>${button("minus", "Zoom out", "zoom-out")}<button class="zoom-label" data-action="reset-zoom" title="Reset zoom to 100 percent">100%</button>${button("plus", "Zoom in", "zoom-in")}<span class="tool-divider"></span>${button("circle-help", "Help and training", "help-center")}</div></div><div id="object-link-badges" class="object-link-badges" role="group" aria-label="Object links"></div><div id="comment-pins" class="comment-pins" role="group" aria-label="Board comments"></div></div></main>`;
   bindShared();
   account.bind();
   workshopTimer.bind();
@@ -4153,13 +4164,15 @@ function editor() {
   document
     .querySelector("#selection-tools")
     .addEventListener("keydown", (e) => {
-      if (e.key !== "F10" || !e.altKey || e.ctrlKey || e.metaKey || !editing)
-        return;
-      const text = document.querySelector("#canvas-text-editor");
-      if (!text) return;
+      if (e.key !== "F10" || !e.altKey || e.ctrlKey || e.metaKey) return;
+      // Back to the text being edited, or to the board the selection is on.
+      const back = editing
+        ? document.querySelector("#canvas-text-editor")
+        : document.querySelector("#canvas");
+      if (!back) return;
       e.preventDefault();
       e.stopPropagation();
-      text.focus({ preventScroll: true });
+      back.focus({ preventScroll: true });
     });
   document.querySelector("#board-title").onchange = (e) => {
     checkpoint();
@@ -6840,11 +6853,7 @@ function beginTextEdit(i, { inheritLanguage = true, point } = {}) {
     } else if (e.key === "F10" && e.altKey && !e.ctrlKey && !e.metaKey) {
       // Alt+F10 goes to the formatting toolbar, as in other text editors;
       // the same keys there come back to the text.
-      const control = [
-        ...document.querySelectorAll(
-          "#selection-tools button, #selection-tools select, #selection-tools input",
-        ),
-      ].find((c) => !c.disabled && !c.closest("[hidden]"));
+      const control = selectionToolbarControl();
       if (control) {
         e.preventDefault();
         e.stopPropagation();
@@ -12625,7 +12634,7 @@ function help() {
       ["Enter", "Select a group member or edit the focused object"],
       ["Ctrl/Cmd + Shift + Down / Up", "Select a group member / whole group"],
       ["Tab / Shift + Tab", "Indent / outdent a list item"],
-      ["Alt + F10", "Move between the text and its formatting toolbar"],
+      ["Alt + F10", "Move between the selection or its text and its toolbar"],
       ["Shift + Enter", "Continue a list item on a new line"],
       ["Ctrl/Cmd + B / I / U", "Bold, italic, or underline while typing"],
       ["Ctrl/Cmd + Alt/Option + K", "Insert or edit text link"],
@@ -13435,6 +13444,24 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     openContextMenu(null, true);
     return;
+  }
+  // Alt+F10 goes from the board to the selection's toolbar, as it does
+  // from text being edited, rather than tabbing past every other tool.
+  if (
+    e.key === "F10" &&
+    e.altKey &&
+    !e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    e.target.id === "canvas" &&
+    !drag
+  ) {
+    const control = selectionToolbarControl();
+    if (control) {
+      e.preventDefault();
+      control.focus();
+      return;
+    }
   }
   if (!drag && mindMap.keydown(e)) return;
   if (

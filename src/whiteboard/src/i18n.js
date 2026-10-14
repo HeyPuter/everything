@@ -1049,8 +1049,9 @@ const pairs = {
     "Dans une liste, Tab change le retrait, Maj+Entrée continue un élément et Entrée sur un élément vide quitte la liste.",
   "Indent / outdent a list item":
     "Augmenter / diminuer le retrait d’un élément de liste",
-  "Move between the text and its formatting toolbar":
-    "Passer du texte à sa barre de mise en forme, et inversement",
+  "Move between the selection or its text and its toolbar":
+    "Passer de la sélection ou de son texte à sa barre d’outils, et inversement",
+  "Selection tools": "Outils de la sélection",
   "Continue a list item on a new line":
     "Continuer un élément de liste sur une nouvelle ligne",
   "Tab / Shift + Tab": "Tab / Maj + Tab",
