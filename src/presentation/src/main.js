@@ -3011,6 +3011,7 @@ function renderEditor() {
               role: "separator",
               "aria-orientation": "vertical",
               "aria-label": "Resize slide thumbnails",
+              "data-pane": "thumbnails",
               tabindex: 0,
               onpointerdown: (e) => resizePane(e, "thumbnails"),
               onkeydown: (e) => resizePaneKey(e, "thumbnails"),
@@ -3045,6 +3046,7 @@ function renderEditor() {
                 role: "separator",
                 "aria-orientation": "horizontal",
                 "aria-label": "Resize notes",
+                "data-pane": "notes",
                 tabindex: 0,
                 onpointerdown: (e) => resizePane(e, "notes"),
                 onkeydown: (e) => resizePaneKey(e, "notes"),
@@ -3543,6 +3545,13 @@ function applyPaneSizes() {
   if (!editor) return;
   editor.style.setProperty("--thumbnail-width", `${chrome.thumbnailWidth}px`);
   editor.style.setProperty("--notes-height", `${chrome.notesHeight}px`);
+  // A focusable separator says where it is between its limits.
+  for (const handle of editor.querySelectorAll(".pane-resize[data-pane]")) {
+    const [key, min, max] = PANE_LIMITS[handle.dataset.pane];
+    handle.setAttribute("aria-valuemin", String(min));
+    handle.setAttribute("aria-valuemax", String(max));
+    handle.setAttribute("aria-valuenow", String(chrome[key]));
+  }
   editor.classList.toggle("show-gridlines", !!chrome.gridlines);
   editor.classList.toggle("show-guides", !!chrome.guides);
   editor.classList.toggle("show-ruler", !!chrome.ruler);
