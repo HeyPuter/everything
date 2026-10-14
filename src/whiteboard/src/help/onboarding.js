@@ -10,12 +10,16 @@ export const EDITOR_TOUR = [
     edits: true,
     title: "Add sticky notes",
     text: "Press N, or choose Sticky note and click the board. Type right away; Tab goes on to the next note, and clicking outside finishes.",
+    touch:
+      "Choose Sticky note and tap the board. Type right away; tapping outside finishes.",
   },
   {
     target: '.tools [data-action="tool-select"]',
     edits: true,
     title: "Select, move, and connect",
     text: "Drag objects to move them. Hover a selected shape or note and use its blue handles to connect it to another object.",
+    touch:
+      "Drag objects to move them. Tap a shape or note, then tap one of its blue handles to add a connected object, or drag a handle onto another object to connect them.",
   },
   {
     target: '[data-action="tool-frame"]',
@@ -27,6 +31,8 @@ export const EDITOR_TOUR = [
     target: '[data-action="frames"]',
     title: "Navigate large boards",
     text: "Frames and navigation lists every section like a table of contents. The minimap (M) and Find on board (Ctrl/Cmd F) help too.",
+    touch:
+      "Frames and navigation lists every section like a table of contents. The minimap and Find on board, in the same row, help too.",
   },
   {
     target: '[data-action="comments"]',
@@ -50,6 +56,8 @@ export const EDITOR_TOUR = [
     target: '[data-action="commands"]',
     title: "Find any command",
     text: "Press Ctrl/Cmd K to search every tool, template, and setting. Open Help and training at any time for guides.",
+    touch:
+      "Tap the command palette to search every tool, template, and setting. Help and training has guides at any time, beside the zoom controls or under More tools on small screens.",
   },
 ];
 export const TIPS = {
@@ -124,8 +132,15 @@ export function createOnboarding({
     doc.querySelector(".tour-target")?.classList.remove("tour-target");
     const current = steps[step];
     const target = doc.querySelector(current.target);
+    // Touch screens are told to tap, not given keys and hovering.
+    const text = t(
+      (current.touch &&
+        doc.defaultView.matchMedia?.("(pointer: coarse)").matches &&
+        current.touch) ||
+        current.text,
+    );
     bubble.querySelector("#tour-title").textContent = t(current.title);
-    bubble.querySelector("#tour-text").textContent = t(current.text);
+    bubble.querySelector("#tour-text").textContent = text;
     bubble.querySelector("#tour-count").textContent =
       `${step + 1} / ${steps.length}`;
     bubble.querySelector("#tour-back").disabled = step === 0;
@@ -156,7 +171,7 @@ export function createOnboarding({
     // Focus stays on Next, so the new step is announced.
     if (announce)
       bubble.querySelector("#tour-live").textContent =
-        `${step + 1} / ${steps.length}. ${t(current.title)}. ${t(current.text)}`;
+        `${step + 1} / ${steps.length}. ${t(current.title)}. ${text}`;
   }
   const api = {
     get active() {
@@ -260,12 +275,18 @@ addTranslations({
   "Select, move, and connect": "Sélectionner, déplacer et relier",
   "Drag objects to move them. Hover a selected shape or note and use its blue handles to connect it to another object.":
     "Faites glisser les objets pour les déplacer. Survolez une forme ou une note sélectionnée et utilisez ses poignées bleues pour la relier à un autre objet.",
+  "Choose Sticky note and tap the board. Type right away; tapping outside finishes.":
+    "Choisissez Note adhésive et touchez le tableau. Écrivez tout de suite; touchez ailleurs pour terminer.",
+  "Drag objects to move them. Tap a shape or note, then tap one of its blue handles to add a connected object, or drag a handle onto another object to connect them.":
+    "Faites glisser les objets pour les déplacer. Touchez une forme ou une note, puis touchez l’une de ses poignées bleues pour ajouter un objet relié, ou faites glisser une poignée sur un autre objet pour les relier.",
   "Organize with frames": "Organiser avec des cadres",
   "Frames group content into sections. They power navigation, presentation, section links, and exports.":
     "Les cadres regroupent le contenu en sections. Ils servent à la navigation, à la présentation, aux liens de section et aux exportations.",
   "Navigate large boards": "Parcourir les grands tableaux",
   "Frames and navigation lists every section like a table of contents. The minimap (M) and Find on board (Ctrl/Cmd F) help too.":
     "Cadres et navigation énumère chaque section comme une table des matières. La mini-carte (M) et Rechercher dans le tableau (Ctrl/Cmd F) aident aussi.",
+  "Frames and navigation lists every section like a table of contents. The minimap and Find on board, in the same row, help too.":
+    "Cadres et navigation énumère chaque section comme une table des matières. La mini-carte et Rechercher dans le tableau, dans la même rangée, aident aussi.",
   "Discuss asynchronously": "Discuter en différé",
   "Pin comments to objects, reply in threads, and mention people with @name so they are notified.":
     "Épinglez des commentaires aux objets, répondez dans les fils et mentionnez des personnes avec @nom pour les aviser.",
@@ -288,6 +309,8 @@ addTranslations({
     "Astuce : cliquez sur un objet pour y épingler un commentaire, ou sur un espace vide pour un commentaire du tableau.",
   "Tip: text grows as you type. Select words to format them or add links.":
     "Astuce : le texte s’agrandit à mesure que vous tapez. Sélectionnez des mots pour les mettre en forme ou ajouter des liens.",
+  "Tap the command palette to search every tool, template, and setting. Help and training has guides at any time, beside the zoom controls or under More tools on small screens.":
+    "Touchez la palette de commandes pour chercher un outil, un modèle ou un paramètre. Aide et formation offre des guides en tout temps, à côté des commandes de zoom ou dans Autres outils sur les petits écrans.",
   "Skip tour": "Passer la visite",
   "Getting started": "Premiers pas",
   "New here?": "Nouveau ici?",

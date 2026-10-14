@@ -1440,3 +1440,39 @@ test("viewers and commenters take a tour of what they can do", () => {
     "Find any command",
   ]);
 });
+
+test("on touch screens the tour says to tap rather than press keys or hover", () => {
+  const dom = new JSDOM(
+    `<div class="tools"><button data-action="tool-select">V</button><button data-action="tool-note">N</button><button data-action="tool-frame">F</button></div><button data-action="frames">Frames</button><button data-action="comments">Comments</button><button data-action="share">Share</button><button data-timer-access>Timer</button><button data-action="commands">Commands</button><canvas id="canvas" tabindex="0"></canvas>`,
+    { pretendToBeVisual: true },
+  );
+  const doc = dom.window.document;
+  const texts = (coarse) => {
+    dom.window.matchMedia = (query) => ({
+      matches: coarse && query === "(pointer: coarse)",
+    });
+    const tour = createOnboarding({
+      root: () => doc,
+      storage: { getItem: () => null, setItem() {} },
+    });
+    tour.start();
+    const seen = [];
+    for (let n = 0; n < 20 && doc.querySelector(".tour-bubble"); n++) {
+      seen.push(doc.querySelector("#tour-text").textContent);
+      doc.querySelector("#tour-next").click();
+    }
+    return seen;
+  };
+  const mouse = texts(false);
+  assert.equal(mouse.length, EDITOR_TOUR.length);
+  assert.match(mouse.join(" "), /Press N|Hover|Ctrl\/Cmd/);
+  const touch = texts(true);
+  assert.equal(touch.length, EDITOR_TOUR.length);
+  for (const text of touch)
+    assert.doesNotMatch(
+      text,
+      /\bPress\b|\bHover|\bclick|Ctrl\/Cmd|\(M\)/,
+      text,
+    );
+  assert.match(touch.at(-1), /More tools/);
+});

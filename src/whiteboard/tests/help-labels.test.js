@@ -22,7 +22,7 @@ test("French help and tour name controls as the French interface labels them", a
     const pairs = [
       ...GUIDES.flatMap((g) => [g.title, g.body]),
       ...[
-        ...EDITOR_TOUR.flatMap((s) => [s.title, s.text]),
+        ...EDITOR_TOUR.flatMap((s) => [s.title, s.text, s.touch]),
         ...Object.values(TIPS).flatMap((v) =>
           typeof v === "string" ? [v] : Object.values(v),
         ),
