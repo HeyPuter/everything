@@ -7502,3 +7502,10 @@ dialog::backdrop {
     outline-offset: -2px;
   }
 }
+/* On a phone the header row keeps its room: Version history stays in More
+   tools and command search. */
+@media (max-width: 760px) {
+  .editor-actions [data-action="history"] {
+    display: none;
+  }
+}

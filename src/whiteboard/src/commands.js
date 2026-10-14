@@ -816,6 +816,7 @@ export function commandEntries({
       "Version history",
       "Board",
       "recovery restore versions restaurer",
+      "Ctrl/Cmd+Alt/Option+Shift+H",
     );
     add(
       "share",

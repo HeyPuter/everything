@@ -1072,6 +1072,9 @@ const pairs = {
   "Ctrl/Cmd + Shift + Down / Up": "Ctrl/Cmd + Maj + Bas / Haut",
   "Ctrl/Cmd + Alt/Option + Shift + K": "Ctrl/Cmd + Alt/Option + Maj + K",
   "Ctrl/Cmd + Alt/Option + Shift + C": "Ctrl/Cmd + Alt/Option + Maj + C",
+  "Ctrl/Cmd + Alt/Option + Shift + H": "Ctrl/Cmd + Alt/Option + Maj + H",
+  "Version history (Ctrl/Cmd Alt/Option Shift H)":
+    "Historique des versions (Ctrl/Cmd Alt/Option Maj H)",
   "Ctrl or Cmd + Z": "Ctrl ou Cmd + Z",
   "Ctrl or Cmd + D": "Ctrl ou Cmd + D",
   "Ctrl or Cmd + Shift + L": "Ctrl ou Cmd + Maj + L",

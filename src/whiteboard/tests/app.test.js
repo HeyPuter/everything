@@ -6043,6 +6043,36 @@ test("versions on this device can be named, renamed and deleted from their optio
   }
 });
 
+test("version history opens from the header and with Ctrl/Cmd+Alt/Option+Shift+H", async () => {
+  const app = await setup();
+  const { doc, w, click, tick } = app;
+  try {
+    await click('[data-action="new"]');
+    const open = () =>
+      doc.querySelector("dialog[open]")?.getAttribute("aria-label");
+    await click('.editor-actions [data-action="history"]');
+    assert.equal(open(), "Version history");
+    doc.querySelector("dialog[open]").close();
+    await tick();
+    doc.querySelector("#canvas").dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key: "H",
+        code: "KeyH",
+        ctrlKey: true,
+        altKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+    await tick();
+    assert.equal(open(), "Version history");
+    doc.querySelector("dialog[open]").close();
+    await tick();
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;
