@@ -317,7 +317,15 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- View ---- */
-  const printLayout = command('Print Layout', 'printLayout', () => focusEditor(), { size: 'large', attrs: { 'aria-pressed': 'true' } });
+  // The document views (views/document-views.js): each button shows whether it is the current view.
+  const viewButton = (label, icon, kind, size = 'large') => {
+    const button = command(label, icon, () => (w.setDocumentView ? w.setDocumentView(kind) : focusEditor()), { size, text: label, attrs: { 'aria-pressed': String(kind === 'print') } });
+    noFocusSteal(button);
+    when(button, () => kind === 'print' || (!!w.setDocumentView && !!a.hasDocument?.()), () => String((w.documentView?.() ?? 'print') === kind));
+    return button;
+  };
+  const readMode = viewButton('Read Mode', 'readMode', 'read'), printLayout = viewButton('Print Layout', 'printLayout', 'print'), webLayout = viewButton('Web Layout', 'webLayout', 'web');
+  const outlineView = viewButton('Outline', 'outlineView', 'outline', 'small'), draftView = viewButton('Draft', 'draft', 'draft', 'small');
   const focusMode = command('Focus', 'focus', () => w.focusMode?.(), { size: 'large' });
   when(focusMode, () => !!w.focusMode && !!a.hasDocument?.());
   const check = (label, get, set) => {
@@ -326,6 +334,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     return el('label.ribbon-check', {}, input, label);
   };
   const rulerCheck = check('Ruler', () => rulers?.visible ?? true, value => { if ((rulers?.visible ?? true) !== value) rulers?.toggle(); });
+  const gridCheck = check('Gridlines', () => !!w.gridlinesVisible?.(), value => w.setGridlines?.(value));
   small(c.outline, { icon: 'navigationPane', label: 'Navigation Pane' });
   c.outline.setAttribute('aria-label', 'Navigation Pane'); c.outline.title = `Navigation Pane (${MOD_KEY === 'Cmd' ? 'Cmd+Option+O' : 'Ctrl+Alt+O'})`;
   const paneToggle = command('Formatting Pane', 'formattingPane', () => setExpanded(!expandedTools), { text: 'Formatting Pane', attrs: { 'aria-pressed': String(expandedTools) } });
@@ -341,8 +350,9 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const fonts = command('Document Fonts', 'documentFonts', () => a.loadFontFiles?.(), { text: 'Document Fonts…' });
   when(fonts, () => !!a.hasDocument?.());
   const view = { id: 'view', label: 'View', groups: [
-    { id: 'views', label: 'Views', icon: 'printLayout', priority: 6, items: [printLayout, focusMode] },
-    { id: 'show', label: 'Show', icon: 'ruler', priority: 7, items: [rows([rulerCheck], [c.outline], [paneToggle])] },
+    { id: 'views', label: 'Views', icon: 'printLayout', priority: 6, items: [readMode, printLayout, webLayout, rows([outlineView], [draftView])] },
+    { id: 'immersive', label: 'Immersive', icon: 'focus', priority: 4, items: [focusMode] },
+    { id: 'show', label: 'Show', icon: 'ruler', priority: 7, items: [rows([rulerCheck], [gridCheck], [c.outline]), rows([paneToggle])] },
     { id: 'zoom', label: 'Zoom', icon: 'zoom', priority: 5, items: [zoomDialog, zoom100, rows([onePage], [multiplePages], [pageWidth])] },
     { id: 'options', label: 'Options', icon: 'units', priority: 3, items: [rows([units], [fonts])] },
   ] };

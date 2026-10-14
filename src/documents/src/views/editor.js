@@ -57,6 +57,7 @@ import { createWordCommands } from './editor-commands.js';
 import { createReview } from './review.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
+import { createDocumentViews } from './document-views.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -700,6 +701,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+  Object.assign(editorCommands, { readAloud: review.commands.readAloud, readAloudActive: review.commands.readAloudActive });
   const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile,
     print: capture => printPages({ host, signal: printAbort.signal, capture }), documentTitle: () => title?.value?.trim(), layoutChanged: () => { fitWidth(); rulers?.update(); } });
   Object.assign(editorCommands, mailings.commands);
@@ -707,6 +709,17 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
   const baseExtendMenu = editorCommands.extendMenu;
   editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
+  // View tab: document views (Read Mode, Web Layout, Outline, Draft), page movement, gridlines, zoom and windows.
+  const views = createDocumentViews({ editor: () => (failed ? null : engine), pkg: () => pkg, host, surface, root: () => root, error, commands: editorCommands,
+    toggleNavigation: () => toggleOutline(), navigationVisible: () => !outlinePanel.node.hidden, layoutChanged: () => { fitWidth(); rulers?.update(); },
+    rulers: { get visible() { return rulers?.visible ?? true; }, toggle: () => rulers?.toggle(), update: () => rulers?.update() },
+    exportDocument: async () => (pkg.readOnly ? doc.blob : engine.export(pkg)), documentTitle: () => title?.value?.trim(), onState: () => update() });
+  Object.assign(editorCommands, views.commands);
+  const viewsExtendTab = editorCommands.extendTab, viewsContextTabs = editorCommands.contextTabs, viewsExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendTab = (id, kit) => [...(viewsExtendTab?.(id, kit) || []), ...views.extendTab(id, kit)];
+  editorCommands.contextTabs = kit => [...(viewsContextTabs?.(kit) || []), ...views.contextTabs(kit)];
+  editorCommands.extendMenu = (id, kit) => [...(viewsExtendMenu?.(id, kit) || []), ...views.extendMenu(id, kit)];
+  editorCommands.extraContexts = () => views.extraContexts();
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -819,8 +832,9 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     const selectedArea = engine.session.path === null ? '' : JSON.stringify([engine.session.path, engine.storyPage]);
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
-    chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', [...(['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []), ...(editorCommands.extraContexts?.() || [])]);
     mailings.refresh();
+    views.refresh();
     if (pkg.readOnly) {
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) control.disabled = true;
       find.disabled = false; finder.refresh();
@@ -1102,7 +1116,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

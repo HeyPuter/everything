@@ -66,6 +66,8 @@ describe('screen layout', () => {
     // A wider measure means fewer lines.
     expect(web.lines.length).toBeLessThan(print.lines.length);
     expect(Math.max(...web.lines.map(l => l.stops.at(-1).x))).toBeLessThanOrEqual(1200);
+    // The view's own margins, not the authored inch.
+    expect(web.lines[0].stops[0].x).toBe(viewGeometry({ kind: 'web', width: 1200 })(pageGeometry()).left);
     expect(web.pageCount).toBe(1);
     const fitted = fitContinuousPages(web, null);
     expect(fitted.pages[0].height).toBeLessThan(STRIP_HEIGHT);

@@ -431,6 +431,28 @@ Object.assign(COMMAND_ICONS, {
   mergeWizard: page(3.5, 2.5, 13, 15) + numberedLines(6.3, 6, ['1', '2', '3'], 4) + lines(8.5, 6, 5, 3, 4),
 });
 
+/* ---- View: page movement, windows, reading tools and the Outlining tab ---- */
+Object.assign(COMMAND_ICONS, {
+  verticalMovement: sheet(3.5, 2, 9, 7) + sheet(3.5, 11, 9, 7, 'bf glassy') + arrowDown(16, 3.5, 13),
+  sideToSide: sheet(2, 3, 7, 9.5) + sheet(11, 3, 7, 9.5, 'bf glassy') + arrowRight(3, 16, 14),
+  thumbnails: [[2.5, 3], [11, 3], [2.5, 11], [11, 11]].map(([x, y], i) => sheet(x, y, 6.5, 6, i === 1 ? 'bf' : 'of')).join(''),
+  newWindow: r(2.5, 3.5, 13, 11, 'of', 1.6) + headBand(2.5, 3.5, 13, 2.8, 'bs', 1.6) + lines(4.5, 9, 9, 2, 2.5) + badge(15, 15, 'plus'),
+  split: r(2.5, 2.5, 15, 15, 'of') + lines(4.5, 5.5, 11, 2, 2.2) + p('M2.5 10h15', 'b thick') + lines(4.5, 13, 11, 2, 2.2),
+  promote: arrowLeft(3, 5.5, 9, 'g thick') + lines(7.5, 10.5, 10, 3, 2.7),
+  demote: arrowRight(3, 5.5, 9, 'b thick') + lines(7.5, 10.5, 10, 3, 2.7),
+  promoteHeading1: p('M8.5 2.5 5 5.5l3.5 3M13 2.5l-3.5 3 3.5 3', 'g thick') + t(15.5, 9, '1', 7, { weight: 700, c: 'txb' }) + lines(3.5, 12.5, 13, 3, 2.5),
+  demoteBody: p('M4.5 2.5 8 5.5l-3.5 3M9 2.5l3.5 3-3.5 3', 'b thick') + lines(3.5, 12.5, 13, 3, 2.5) + ci(16, 5.5, 1.3, 'bs'),
+  moveUp: arrowUp(15, 3, 13) + lines(3, 5.5, 8, 4, 3),
+  moveDown: arrowDown(15, 3, 13) + lines(3, 5.5, 8, 4, 3),
+  expand: ci(10, 10, 7, 'of') + plusMark(10, 10, 3.5, 'g thick'),
+  collapse: ci(10, 10, 7, 'of') + p('M6.5 10h7', 'r thick'),
+  showLevel: rows([[2.5, 12], [5.5, 9], [8.5, 6]], 5, 4.5, 'o') + p('M17 3v13M15 14l2 2 2-2', 'b'),
+  closeView: page(3.5, 2.5, 11, 14) + lines(5.5, 7.5, 6, 3, 2.5) + badge(14.5, 14.5, 'x', 'r'),
+  lineFocus: r(2.5, 3.5, 15, 13, 'of') + lines(4.5, 6, 11, 1) + r(2.5, 8.2, 15, 3.6, 'bs', 0) + p('M4.5 10h11', 'wh') + lines(4.5, 14, 11, 1),
+  textSpacing: t(10, 11.5, 'ab', 9) + p('M2.5 16h15M4.5 14l-2 2 2 2M15.5 14l2 2-2 2', 'b'),
+  styleArea: r(2.5, 3.5, 15, 13, 'of') + paneLeft(2.5, 3.5, 5.5, 13) + p('M8 3.5v13', 'o ln') + p('M3.8 6.5h3M3.8 11h3', 'b') + lines(10, 6.5, 5.5, 4, 2.5),
+});
+
 /** Aliases: the editor's existing control icon names that map onto a drawing above. */
 const ALIASES = {
   outline: 'navigationPane', search: 'find', image: 'pictures', clearFormat: 'clearFormat', paint: 'shading',

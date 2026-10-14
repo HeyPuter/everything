@@ -97,6 +97,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   }
 
   const commands = {
+    readAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
+    readAloudActive: () => readAloud.active,
     canComment() { const engine = ready(); return !!engine && engine.session.path === null; },
     newComment() {
       const engine = ready(); if (!engine) return;

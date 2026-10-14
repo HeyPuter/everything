@@ -160,7 +160,8 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);
-  page = { ...viewPage(page), allowOversizedLines: !!storyOptions.bestEffort, left: page.left ?? page.margin, right: page.right ?? page.margin, top: page.top ?? page.margin, bottom: page.bottom ?? page.margin };
+  page = viewPage(page);
+  page = { ...page, allowOversizedLines: !!storyOptions.bestEffort, left: page.left ?? page.margin, right: page.right ?? page.margin, top: page.top ?? page.margin, bottom: page.bottom ?? page.margin };
   const markers = listMarkers(paragraphs, numbering);
   // The initial recto/verso side is retained through later numbering restarts.
   const firstPageSideOffset = (pageStories?.sections[0]?.pageNumbering?.start ?? 1) - 1;
