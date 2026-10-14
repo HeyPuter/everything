@@ -17,7 +17,9 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Curtain walls with a regular grid of mullions and glass panels.
 - Doors (single, double, sliding, pocket, bifold, overhead, cased opening) and windows (fixed, casement, double hung, sliding, awning, picture) hosted in walls, with swing and facing controls. Rectangular wall openings.
 - Floors and ceilings from a picked room or building outline, a rectangle, or a sketched boundary. Footprint roofs with a slope per edge: hips, gables and shed roofs come out of the same model.
-- Columns, beams, straight stairs with automatic riser counts and handrails, and railings.
+- Walls can attach their tops to a roof and follow it when the roof changes.
+- Shaft openings that cut floors, ceilings and roofs through a range of levels.
+- Columns, beams, straight, L-shaped and U-shaped stairs with automatic riser counts, landings and handrails, and railings.
 - A library of furniture, casework, plumbing fixtures, appliances, planting and lighting. Furniture placed near a wall turns its back to it.
 - Rooms placed by clicking or automatically, bounded by walls, columns and room separation lines, with live area, perimeter and volume.
 - Levels and grids.
@@ -33,7 +35,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Floor and ceiling plans with cut plane, detail level, underlay of the level below, room color fill and per-view visibility of categories and elements.
 - 3D views with an orientation cube, orbit, perspective or orthographic projection, section box and five visual styles.
 - Elevations and sections drawn from the model with cut elements filled, levels and grids annotated.
-- Aligned dimensions that follow the walls they measure, text, tags and detail lines.
+- Aligned dimensions that follow the walls they measure, text, tags, detail lines and filled regions.
 - Schedules of doors, windows, rooms, walls, floors, furniture, columns and stairs, with field selection, sorting, grouping, totals, in-place editing and CSV export.
 - Sheets with a title block and placed views.
 - Temporary hide and isolate, reveal hidden elements, thin lines.
@@ -41,6 +43,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 **Files**
 - Projects (.bdp) saved to your Puter cloud storage or to your device; open projects are kept in the browser so work survives a reload.
 - Share projects with other Puter users for viewing or editing.
+- Import DXF drawings into a plan, section or sheet as detail lines and text, to trace over or annotate.
 - Export to IFC (IFC4, for other BIM software), glTF and OBJ (3D), DXF (plans), PDF, SVG and PNG (drawings and sheets), and CSV (schedules).
 
 **Interface**
