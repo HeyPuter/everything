@@ -23,7 +23,7 @@ import { tableBorderWidth } from './table-border-layout.js';
 import { layoutPageStories } from './page-story-layout.js';
 import { drawingPageContexts, drawingPageContext } from './shape-page-fields.js';
 import { paintParagraphBorder } from './canvas-paragraph-borders.js';
-import { paintTableBorder } from './canvas-table-borders.js';
+import { paintTableBorder, paintCellDiagonals } from './canvas-table-borders.js';
 import { deviceTableBorders, deviceTableFillRects } from './border-device-layout.js';
 import { paragraphBackgrounds, paintOnParagraphBackground } from './paragraph-backgrounds.js';
 import { paintParagraphBackgrounds } from './canvas-paragraph-backgrounds.js';
@@ -624,6 +624,7 @@ export class CanvasEditor {
         const paintedParagraphInk = paintParagraphBackgrounds(ctx, new Set([...backgrounds.values()].map(value => value.rect).filter(Boolean)), paragraphBorders);
         // Dashed gridlines mark borderless cell edges on screen (View Gridlines); they never print.
         for (const guide of printing || this.showTableGridlines === false ? [false] : [true, false]) for (const stroke of tableBorders) if (stroke.guide === guide) paintTableBorder(ctx, stroke);
+        paintCellDiagonals(ctx, paintedCells.filter(cell => cell.page === index && (cell.borders?.tl2br || cell.borders?.tr2bl)));
         for (const border of paragraphBorders) paintParagraphBorder(ctx, border, paintedParagraphInk.get(border));
         // Run backgrounds precede selection and glyphs, including repeated headers.
         const surfaceGeometry = geometry;

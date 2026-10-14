@@ -22882,3 +22882,103 @@ browser prototype regresses two formerly exact page samples and is rejected.
 The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
+
+### Table tools: structure, table styles and formulas (2026-10-13)
+
+Scope: Insert → Table (size grid, Insert Table, Draw Table, Convert Text to Table,
+Quick Tables), the Table Design and Table Layout tabs, the Table menu, table
+context-menu items and pointer tools. Engine code: `table-editing.js`,
+`table-selection.js`, `table-styles.js`, `docx-table-styles.js`,
+`table-formula.js`, `quick-tables.js`; serialization stays in `docx-tables.js`
+and `docx.js` (styles part). Regressions: `tests/table-editing.test.js`,
+`tests/table-styles.test.js`, `tests/table-formula.test.js`,
+`tests/table-tools-fixture.test.js`, `tests/table-export-fixture.test.js`,
+`tests/browser/table-tools.spec.js`, `tests/browser/table-pointer.spec.js`,
+`tests/browser/table-designs.spec.js`.
+
+**ECMA-376 Part 1 §17.4 (tables).** Structural commands edit `w:tbl`/`w:tr`/`w:tc`
+and rewrite only changed declarations; untouched rows and cells keep their source
+shells. Supported authoring subset:
+
+- Grid and spans: `w:tblGrid`/`w:gridCol` (§17.4.48/§17.4.16) are rewritten
+  after insert/delete/split of columns, cell splits and Draw Table lines;
+  `w:gridSpan` (§17.4.17) and `w:vMerge` restart/continue (§17.4.84) for
+  rectangular merges, splits into rows × columns, split table and Draw/Eraser.
+  Merging keeps each non-empty cell's paragraphs in reading order.
+- Rows that end early: Delete Cells → Shift cells left and Insert Cells → Shift
+  cells right write `w:gridAfter` (§17.4.14) with an automatic `w:wAfter`
+  (§17.4.85–86); shifting up/down moves cell content within unmerged columns.
+  Every structural edit is checked against the merge invariants afterwards and
+  refused (undo-safe) when a vertical merge would no longer line up.
+- Table properties: `w:tblW`, `w:jc`, `w:tblInd`, `w:tblLayout` (existing
+  subset), plus `w:tblCellMar` default margins (§17.4.42), `w:tblCaption` and
+  `w:tblDescription` alternative text (Transitional `CT_TblPr` children), and Text wrapping: creating/removing `w:tblpPr` (§17.4.57) with
+  text-relative anchors and 180-twip left/right distances (Around), or removing
+  it (None).
+- Rows: `w:trHeight` atLeast/exact (§17.4.80) from the Height spinner, row-border
+  dragging (at least) and Distribute Rows; `w:cantSplit` (§17.4.6, Allow row
+  to break) and `w:tblHeader` (§17.4.49, Repeat Header Rows).
+- Cells: `w:tcW` preferred widths (§17.4.71, auto/dxa/pct), `w:tcBorders`
+  (§17.4.66) from the Borders drop-down presets, the Border Painter and the
+  pen (style, `w:sz` in eighth-points, color), `w:shd` (§17.4.32) from Shading,
+  `w:vAlign` (§17.4.83) with paragraph `w:jc` from the 3 × 3 alignment grid,
+  `w:noWrap` (§17.4.29, written explicitly as on or `w:val="0"`), and
+  `w:textDirection` (§17.4.72) `lrTb`/`tbRl`/`btLr`, written only
+  when not horizontal.
+- Column resizing (border drags, Width spinner, Distribute Columns, Fixed
+  Column Width, the resize handle) writes a fixed `w:tblLayout` with matching
+  grid and `w:tcW` values; AutoFit Contents/Window writes `w:tblLayout`
+  autofit, `w:tblW` auto or 5000 pct, and automatic cell widths.
+
+Not implemented: diagonal cell borders (`w:tl2br`/`w:tr2bl` remain rejected on
+import), nonzero `w:tblCellSpacing`, `w:bidiVisual`, row/cell revision marks,
+`w:hidden` rows, `w:tcFitText`, splitting several selected cells without merging
+them first, converting text inside table cells, and moving floating tables.
+
+**ECMA-376 Part 1 §17.7.6 (table styles) and §17.4.55 (`w:tblLook`).** The
+library styles and New/Modify Table Style write a `w:style w:type="table"`
+(customStyle) whose formatting is regenerated from its description:
+`w:pPr` (spacing after 0, single line), optional whole-table `w:rPr`,
+`w:tblPr` with `w:tblStyleRowBandSize`/`w:tblStyleColBandSize` of 1 (§17.7.6.7,
+§17.7.6.5), `w:tblBorders`, `w:tblCellMar` (0/108/0/108 twips), optional
+whole-table `w:tcPr/w:shd`, and `w:tblStylePr` (§17.7.6.6) for `firstRow`,
+`lastRow`, `firstCol`, `lastCol`, `band1Horz` and `band1Vert` with `w:rPr`
+(bold, italic, color) and `w:tcPr` (`w:tcBorders`, `w:shd`). Applying a style
+writes `w:tblStyle`, removes the table's direct `w:tblBorders` and, unless
+"keep formatting" is chosen (Alt+click), removes direct cell borders and
+shading. Clear removes `w:tblStyle`. Table Style Options write `w:tblLook`
+with both the explicit attributes and the equivalent hexadecimal `w:val`, so
+readers that use either agree; Header Row/Total Row/First Column/Last Column map
+to `firstRow`/`lastRow`/`firstColumn`/`lastColumn` and Banded Rows/Columns to the
+inverse of `noHBand`/`noVBand`. Rows with their own `w:tblPrEx/w:tblLook` follow
+the table's new choice in the editor; their source exception is retained.
+
+Imported table styles remain readable and keep their regions; they are listed
+for neither Modify nor application to other tables (only library and documents'
+own spec-based styles are). Style region subsets beyond the six authored regions
+(`band2*`, corner cells) are read on import but not authored.
+
+**ECMA-376 Part 1 §17.16 (fields): the `=` formula field (formula syntax §17.16.3, numeric pictures §17.16.4.2).**
+Formula inserts a field whose instruction is `= <formula> [\# "<picture>"]` and
+whose cached result is computed at insertion; Update Fields (F9) recomputes it
+with the SEQ/REF refresh. Supported: numbers, `+ - * / ^ %`, comparisons
+(`= < > <= >= <>`), parentheses, cell references (`A1`, ranges `A1:C3`, by grid
+column and row), the directions `ABOVE`/`BELOW`/`LEFT`/`RIGHT` (the run of numeric
+cells next to the field's cell, stopping at the first cell without a leading
+number), and `SUM`, `AVERAGE`, `COUNT`, `MAX`, `MIN`, `PRODUCT`, `ABS`, `INT`,
+`MOD`, `ROUND`, `SIGN`, `IF`, `AND`, `OR`, `NOT`, `DEFINED`, `TRUE`, `FALSE`.
+Numeric pictures support `0`, `#`, `,` grouping, `.` decimals, literal text and
+`positive;negative;zero` sections; without a picture, results round to two
+decimals. Errors produce `!Syntax Error` or `!Zero Divide` as the cached result.
+Imported `=` fields are now recognized (previously an unsupported instruction)
+and keep their instruction and envelope. Not implemented: bookmark operands,
+`R1C1` references, `\* ` general formats on formula results, and list separators
+other than comma/semicolon.
+
+**Validation.** `test-results/table-features.docx` (generated by
+`tests/table-export-fixture.test.js`, covering every authored property above)
+and the handwritten `tests/fixtures/table-tools/table-tools.docx`
+(`tools/table_tools_fixture.py`, stdlib only) pass the ECMA-376 Transitional XSD
+check for `document.xml` and `styles.xml`. Browser exports from
+`table-designs.spec.js` are validated the same way. Schema validity is not a
+claim of layout fidelity with other word processors.

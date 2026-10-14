@@ -1,6 +1,8 @@
 import { checkedParagraphBorder, BORDER_STYLES } from './paragraph-borders.js';
 
 export const CELL_BORDER_SIDES = Object.freeze(['top', 'left', 'bottom', 'right']);
+// Diagonal strokes across a cell (§17.4.66 tl2br/tr2bl): ink only, no space or conflict resolution.
+export const CELL_DIAGONALS = Object.freeze(['tl2br', 'tr2bl']);
 export const CELL_BORDER_STYLES = Object.freeze({ nil: 'No border', ...Object.fromEntries(Object.entries(BORDER_STYLES).filter(([key]) => key !== 'none')), thick: 'Thick' });
 
 export function checkedCellBorder(value) {
@@ -12,7 +14,7 @@ export function checkedCellBorder(value) {
 }
 export function checkedCellBorders(patch) {
   if (patch === null) return Object.fromEntries(CELL_BORDER_SIDES.map(side => [side, null]));
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(side => !CELL_BORDER_SIDES.includes(side))) throw new Error('Choose top, left, bottom or right cell borders.');
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(side => !CELL_BORDER_SIDES.includes(side) && !CELL_DIAGONALS.includes(side))) throw new Error('Choose top, left, bottom, right or diagonal cell borders.');
   return Object.fromEntries(Object.entries(patch).map(([side, value]) => [side, value === null ? null : checkedCellBorder(value)]));
 }
 

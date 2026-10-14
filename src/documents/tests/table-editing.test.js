@@ -265,6 +265,19 @@ describe('table commands', () => {
     expect(cellAt(reopened, 2, 2).borders.top).toMatchObject({ style: 'double', size: 12, color: 'C00000' });
   });
 
+  it('draws diagonal borders across the selected cells and saves them', async () => {
+    const { pkg, doc } = tableDocument();
+    block(doc, 1, 1, 1, 3);
+    T.applyBorderPreset(doc, 'diagonalDown', { style: 'single', size: 8, color: '0000FF' });
+    T.applyBorderPreset(doc, 'diagonalUp', { style: 'dashed', size: 4, color: 'auto' });
+    expect(cellAt(doc, 1, 2).borders).toMatchObject({ tl2br: { style: 'single', color: '0000FF' }, tr2bl: { style: 'dashed' } });
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).toMatch(/<w:tl2br w:val="single" w:sz="8" w:color="0000FF"\/><w:tr2bl w:val="dashed"/);
+    expect(cellAt(reopened, 1, 1).borders.tl2br).toMatchObject({ style: 'single', size: 8 });
+    T.applyBorderPreset(doc, 'diagonalDown', { style: 'single', size: 8, color: '0000FF' });
+    expect(cellAt(doc, 1, 1).borders.tl2br.style).toBe('nil');
+  });
+
   it('saves alt text, text wrapping and default cell margins', async () => {
     const { pkg, doc } = tableDocument(2, 2, ['Lead']);
     T.setTableAltText(doc, { title: 'Prices', description: 'Prices by item' });

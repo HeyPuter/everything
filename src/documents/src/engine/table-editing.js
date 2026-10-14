@@ -726,7 +726,7 @@ function neighbourEdges(table, placement, side) {
     : p.column === placement.end && p.rowIndex <= placement.endRow && p.endRow >= placement.rowIndex).map(p => ({ cell: p.cell, side: opposite }));
 }
 
-export const BORDER_PRESETS = Object.freeze(['bottom', 'top', 'left', 'right', 'none', 'all', 'outside', 'inside', 'insideH', 'insideV']);
+export const BORDER_PRESETS = Object.freeze(['bottom', 'top', 'left', 'right', 'none', 'all', 'outside', 'inside', 'insideH', 'insideV', 'diagonalDown', 'diagonalUp']);
 const sameBorder = (a, b) => !!a && !!b && a.style === b.style && (a.size ?? 0) === (b.size ?? 0) && (a.color ?? 'auto') === (b.color ?? 'auto');
 
 /**
@@ -737,6 +737,13 @@ export function applyBorderPreset(model, preset, pen, { toggle = true } = {}) {
   if (!BORDER_PRESETS.includes(preset)) throw new Error('Choose which borders to change.');
   const block = requireBlock(model), table = block.table;
   const border = checkedCellBorder(pen), none = checkedCellBorder({ style: 'nil' });
+  if (preset === 'diagonalDown' || preset === 'diagonalUp') {
+    const side = preset === 'diagonalDown' ? 'tl2br' : 'tr2bl', cells = cellBlockPlacements(table, block).map(p => p.cell);
+    const on = cells.every(cell => sameBorder(cell.borders?.[side], border));
+    model.checkpoint();
+    for (const cell of cells) setDirectBorder(cell, side, toggle && on ? none : border);
+    model.didChange(); return true;
+  }
   const pick = {
     bottom: (side, kind) => side === 'bottom' && kind === 'outside', top: (side, kind) => side === 'top' && kind === 'outside',
     left: (side, kind) => side === 'left' && kind === 'outside', right: (side, kind) => side === 'right' && kind === 'outside',

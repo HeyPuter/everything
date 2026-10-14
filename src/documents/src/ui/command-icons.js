@@ -412,6 +412,8 @@ export const COMMAND_ICONS = {
   penColor: pencil(1.5, -2.5) + r(3, 16, 14, 2.5, 'rs', 0.6),
   borderPainter: borderIcon(['left', 'bottom']).replace(/o dash ln/g, 'o dash ln') + brush(0, -2),
   borderInsideH: borderIcon(['h']),
+  borderDiagonalDown: borderIcon([]) + p('M3.5 3.5l13 13', 'b thick'),
+  borderDiagonalUp: borderIcon([]) + p('M16.5 3.5l-13 13', 'b thick'),
   borderInsideV: borderIcon(['v']),
   // Select: the selected part of a table under a blue wash.
   selectTable: tableWith(2.5, 3.5, 15, 13, 3, 3, r(2.5, 3.5, 15, 13, 'bw')),

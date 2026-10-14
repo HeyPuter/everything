@@ -29,7 +29,6 @@ export function readTableBorders(parent, readColor, cell = false) {
     try {
       result[side] = checkedCellBorder({ style, size: style === 'nil' || !size ? 0 : Math.max(2, Math.min(96, size)), space, color, frame: flag(node, 'frame'), shadow: flag(node, 'shadow'), ...(Object.keys(theme).length ? { theme } : {}) });
     } catch (error) { fail(error.message); }
-    if (['tl2br', 'tr2bl'].includes(side) && !['none', 'nil'].includes(style)) fail('diagonal strokes');
   }
   // This editor supports LTR tables. Logical edges supersede legacy physical
   // edges within a declaration; both source elements survive unrelated edits.

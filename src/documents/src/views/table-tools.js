@@ -31,6 +31,7 @@ const BORDER_ITEMS = [
   ['bottom', 'Bottom Border', 'borderBottom'], ['top', 'Top Border', 'borderTop'], ['left', 'Left Border', 'borderLeft'], ['right', 'Right Border', 'borderRight'],
   null, ['none', 'No Border', 'borderNone'], ['all', 'All Borders', 'borderAll'], ['outside', 'Outside Borders', 'borderOuter'], ['inside', 'Inside Borders', 'borderInside'],
   null, ['insideH', 'Inside Horizontal Border', 'borderInsideH'], ['insideV', 'Inside Vertical Border', 'borderInsideV'],
+  null, ['diagonalDown', 'Diagonal Down Border', 'borderDiagonalDown'], ['diagonalUp', 'Diagonal Up Border', 'borderDiagonalUp'],
 ];
 const ALIGNMENTS = [['top', 'left'], ['top', 'center'], ['top', 'right'], ['center', 'left'], ['center', 'center'], ['center', 'right'], ['bottom', 'left'], ['bottom', 'center'], ['bottom', 'right']];
 const ALIGN_NAMES = { 'top-left': 'Align Top Left', 'top-center': 'Align Top Center', 'top-right': 'Align Top Right', 'center-left': 'Align Center Left', 'center-center': 'Align Center', 'center-right': 'Align Center Right', 'bottom-left': 'Align Bottom Left', 'bottom-center': 'Align Bottom Center', 'bottom-right': 'Align Bottom Right' };
@@ -366,13 +367,13 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const toText = button('Convert to Text', 'convertToText', cmd.convertToText, { text: 'Convert to Text' });
     const formula = button('Formula', 'formula', cmd.formula, { text: 'Formula' });
     const layout = [
-      { id: 'table', label: 'Table', icon: 'tableProperties', priority: 3, items: [rows([select], [gridlines], [c.tableProperties])] },
+      { id: 'table', label: 'Table', icon: 'tableProperties', priority: 7, items: [rows([select], [gridlines], [c.tableProperties])] },
       { id: 'draw', label: 'Draw', icon: 'drawTable', priority: 2, items: [rows([draw], [eraser])] },
       { id: 'rowsColumns', label: 'Rows & Columns', icon: 'insertBelow', priority: 8, items: [deleteMenu, insertAbove, rows([insertBelow], [insertLeft], [insertRight]), rows([paragraphBefore], [paragraphAfter]), el('div.ribbon-launcher', {}, insertCells)] },
       { id: 'merge', label: 'Merge', icon: 'mergeCells', priority: 6, items: [rows([merge], [splitCells], [splitTable])] },
       { id: 'cellSize', label: 'Cell Size', icon: 'rowHeight', priority: 7, items: [autofit, el('div.ribbon-spin-group', {}, sizeInput('height', 'Height'), sizeInput('width', 'Width')), rows([distributeRows, c.keepRow], [distributeColumns, c.rowHeight])] },
       { id: 'alignment', label: 'Alignment', icon: 'cellAlignment', priority: 5, items: [alignGrid, direction, c.cellMargins, el('div.ribbon-launcher', {}, c.cellAlignment)] },
-      { id: 'data', label: 'Data', icon: 'repeatHeader', priority: 4, items: [sort, rows([repeatHeader], [toText], [formula])] },
+      { id: 'data', label: 'Data', icon: 'repeatHeader', priority: 3, items: [sort, rows([repeatHeader], [toText], [formula])] },
     ];
     return {
       design, layout,
