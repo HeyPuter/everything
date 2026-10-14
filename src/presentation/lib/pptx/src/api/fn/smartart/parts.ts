@@ -19,6 +19,11 @@ import {
 } from "./model.ts";
 import { xmlAttr, xmlText } from "./xml.ts";
 import {
+  type PresDataNode,
+  buildPresTree,
+  layoutNodeForRole,
+} from "./pres-tree.ts";
+import {
   type SmartArtShapeFormat,
   type SmartArtTextStyle,
   formatSpPrXml,
@@ -67,36 +72,53 @@ const STYLE_CATEGORY: Record<string, string> = {
   intense: "3D",
 };
 
-/** The `dgm:dataModel` part: the outline as a tree of points. */
+/** The `dgm:dataModel` part: the outline as a tree of points. With the
+ *  layout definition, shapes' own formatting is written on presentation
+ *  points of the definition's tree (see pres-tree.ts). */
 export const dataModelXml = (
   model: SmartArtModel,
   drawingRelId: string,
   pictureRel: (part: string) => string | null = () => null,
+  layoutDef: string | null = null,
+  /** Names of the shapes the layout draws for the item at an index. */
+  itemShapes: (item: number) => ReadonlySet<string> = () => new Set(),
 ): string => {
   const entry = layoutEntry(model.layout);
   const points: string[] = [];
   const connections: string[] = [];
   let n = 0;
   let presCount = 0;
-  // A shape's own formatting: a presentation point tied to the data point.
-  const presPoints = (
-    owner: string,
-    formats: Readonly<Record<string, SmartArtShapeFormat>> | undefined,
-  ) => {
-    for (const [name, f] of Object.entries(formats ?? {})) {
-      const spPr = formatSpPrXml(f, pictureRel);
-      const scale =
-        f.scale && f.scale !== 1
-          ? ` custScaleX="${Math.round(f.scale * 100000)}" custScaleY="${Math.round(f.scale * 100000)}"`
-          : "";
-      if (!spPr && !scale) continue;
-      points.push(
-        `<dgm:pt modelId="${guid("3E000000", presCount++)}" type="pres"><dgm:prSet presAssocID="${owner}" presName="${xmlAttr(name)}" presStyleCnt="0"${scale}/><dgm:spPr>${spPr}</dgm:spPr></dgm:pt>`,
-      );
-    }
+  const newPresId = () => guid("3E000000", presCount++);
+  const owned: {
+    owner: string;
+    item: number;
+    depth: number;
+    formats: Readonly<Record<string, SmartArtShapeFormat>> | undefined;
+  }[] = [];
+  const formatXml = (f: SmartArtShapeFormat) => {
+    const spPr = formatSpPrXml(f, pictureRel);
+    const scale =
+      f.scale && f.scale !== 1
+        ? ` custScaleX="${Math.round(f.scale * 100000)}" custScaleY="${Math.round(f.scale * 100000)}"`
+        : "";
+    return spPr || scale ? { spPr, scale } : null;
   };
-  const visit = (nodes: ReadonlyArray<SmartArtNode>, parent: string) =>
-    nodes.forEach((node, order) => {
+  // A formatted shape with no place in the definition's tree: a free
+  // presentation point, which this app reads back.
+  const loosePoint = (
+    owner: string,
+    name: string,
+    x: { spPr: string; scale: string },
+  ) =>
+    points.push(
+      `<dgm:pt modelId="${newPresId()}" type="pres"><dgm:prSet presAssocID="${owner}" presName="${xmlAttr(name)}" presStyleCnt="0"${x.scale}/><dgm:spPr>${x.spPr}</dgm:spPr></dgm:pt>`,
+    );
+  const visit = (
+    nodes: ReadonlyArray<SmartArtNode>,
+    parent: string,
+    depth: number,
+  ): PresDataNode[] =>
+    nodes.map((node, order) => {
       const i = n++;
       const id = guid("1D000000", i),
         cxn = guid("C0000000", i),
@@ -110,11 +132,65 @@ export const dataModelXml = (
       connections.push(
         `<dgm:cxn modelId="${cxn}" srcId="${parent}" destId="${id}" srcOrd="${order}" destOrd="0" parTransId="${par}" sibTransId="${sib}"/>`,
       );
-      presPoints(id, node.format);
-      visit(node.children, id);
+      owned.push({ owner: id, item: node.item, depth, formats: node.format });
+      return {
+        id,
+        parTrans: par,
+        sibTrans: sib,
+        depth,
+        children: visit(node.children, id, depth + 1),
+      };
     });
-  visit(smartArtTree(model.items), DOC_ID);
-  presPoints(DOC_ID, model.format);
+  const roots = visit(smartArtTree(model.items), DOC_ID, 0);
+  // Item formatting goes on the definition's own points when it has one
+  // for the shape; the whole tree is written only when something needs it.
+  const formatted = owned.filter((o) =>
+    Object.values(o.formats ?? {}).some((f) => formatXml(f)),
+  );
+  const tree =
+    formatted.length && layoutDef && entry
+      ? buildPresTree(layoutDef, DOC_ID, roots, newPresId)
+      : null;
+  const onTree = new Map<string, { spPr: string; scale: string }>();
+  for (const { owner, item, depth, formats } of owned)
+    for (const [name, f] of Object.entries(formats ?? {})) {
+      const x = formatXml(f);
+      if (!x) continue;
+      const target =
+        tree && !name.includes(":") && itemShapes(item).has(name)
+          ? layoutNodeForRole(entry!.family, name, depth)
+          : null;
+      const point = target
+        ? tree!.points.find(
+            (p) => p.assoc === owner && p.name === target && !onTree.has(p.id),
+          )
+        : undefined;
+      if (point) onTree.set(point.id, x);
+      else loosePoint(owner, name, x);
+    }
+  for (const [name, f] of Object.entries(model.format ?? {})) {
+    const x = formatXml(f);
+    if (x) loosePoint(DOC_ID, name, x);
+  }
+  if (tree) {
+    for (const p of tree.points) {
+      const x = onTree.get(p.id);
+      const style = p.styleLbl
+        ? ` presStyleLbl="${xmlAttr(p.styleLbl)}" presStyleIdx="${p.styleIdx}" presStyleCnt="${p.styleCnt}"`
+        : ` presStyleCnt="0"`;
+      const vars = p.vars
+        ? `<dgm:presLayoutVars>${p.vars}</dgm:presLayoutVars>`
+        : "";
+      points.push(
+        `<dgm:pt modelId="${p.id}" type="pres"><dgm:prSet presAssocID="${p.assoc}" presName="${xmlAttr(p.name)}"${style}${x?.scale ?? ""}${vars ? `>${vars}</dgm:prSet>` : "/>"}${x?.spPr ? `<dgm:spPr>${x.spPr}</dgm:spPr>` : "<dgm:spPr/>"}</dgm:pt>`,
+      );
+    }
+    tree.connections.forEach((c, i) =>
+      connections.push(
+        `<dgm:cxn modelId="${guid("CE000000", i)}" type="${c.type}" srcId="${c.src}" destId="${c.dest}" srcOrd="${c.srcOrd}" destOrd="${c.destOrd}" presId="${xmlAttr(tree.uniqueId)}"/>`,
+      ),
+    );
+  }
   const doc =
     `<dgm:pt modelId="${DOC_ID}" type="doc">` +
     `<dgm:prSet loTypeId="${xmlAttr(LAYOUT_URN + model.layout)}" loCatId="${entry?.category ?? "list"}" ` +

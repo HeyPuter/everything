@@ -140,3 +140,52 @@ describe("rendering matches desktop readers", () => {
     expect(svg).toMatch(/<radialGradient\b[^>]*cx="0\.3000" cy="0\.2000"/);
   });
 });
+
+describe("SmartArt shape formatting", () => {
+  it("puts it on presentation points of the layout definition's tree", async () => {
+    const pres = createDeck("title");
+    const slide = addLayoutSlide(pres, "blank");
+    const frame = P.addSlideSmartArt(slide, {
+      model: {
+        layout: "arrow-steps",
+        colors: P.DEFAULT_SMARTART_COLORS,
+        style: P.DEFAULT_SMARTART_STYLE,
+        items: [
+          { text: "Plan", level: 0 },
+          { text: "Build", level: 0, format: { node: { fill: "#C00000" } } },
+          { text: "Ship", level: 0 },
+        ],
+      },
+      x: 0,
+      y: 0,
+      w: 7315200,
+      h: 2743200,
+    });
+    const { unzipSync, strFromU8 } = await import("fflate");
+    const files = unzipSync(await P.savePresentation(pres));
+    const name = Object.keys(files).find((f) =>
+      /^ppt\/diagrams\/data\d+\.xml$/.test(f),
+    );
+    const data = strFromU8(files[name]);
+    // Root, three nodes and the two arrows between them.
+    expect(data.match(/type="pres"/g)).toHaveLength(6);
+    expect(data.match(/type="presParOf"/g)).toHaveLength(5);
+    expect(data.match(/type="presOf"/g)).toHaveLength(3);
+    expect(data).toMatch(
+      /presName="node" presStyleLbl="node1" presStyleIdx="1" presStyleCnt="3"><dgm:presLayoutVars><dgm:bulletEnabled val="1"\/><\/dgm:presLayoutVars><\/dgm:prSet><dgm:spPr><a:solidFill><a:srgbClr val="C00000"\/>/,
+    );
+    expect(data).toMatch(
+      /presName="arrow" presStyleLbl="sibTrans2D1" presStyleIdx="1" presStyleCnt="2"\/>/,
+    );
+    // The drawing's shapes are not tied to those points: desktop editors
+    // would take a tied drawing's cached text boxes over the layout's.
+    const drawing = strFromU8(
+      files[name.replace("data", "drawing")] ??
+        files[Object.keys(files).find((f) => /drawing\d+\.xml$/.test(f))],
+    );
+    expect(drawing).toContain('modelId="{DA000000-');
+    expect(P.getShapeSmartArt(frame).items[1].format).toEqual({
+      node: { fill: "#C00000" },
+    });
+  });
+});

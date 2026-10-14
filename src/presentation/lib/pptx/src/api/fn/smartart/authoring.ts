@@ -62,7 +62,8 @@ import {
   type SmartArtCategory,
   layoutEntry,
 } from "./catalog.ts";
-import { layoutSmartArt } from "./compute.ts";
+import { layoutSmartArt, shapeFormatName } from "./compute.ts";
+import { layoutNodeForRole } from "./pres-tree.ts";
 import {
   type SmartArtShapeFormat,
   readShapeFormat,
@@ -209,17 +210,23 @@ const partsFor = (
     const cut = (1 - image / box) / 2;
     return { l: 0, t: cut, r: 0, b: cut };
   };
+  const lo = layoutDefXml({
+    id: entry.id,
+    name: entry.name,
+    description: entry.description,
+    category: entry.category,
+    family: entry.family,
+    rightToLeft: !!model.rightToLeft,
+  });
   return {
     pictures,
-    dm: dataModelXml(model, drawingRelId, relOf),
-    lo: layoutDefXml({
-      id: entry.id,
-      name: entry.name,
-      description: entry.description,
-      category: entry.category,
-      family: entry.family,
-      rightToLeft: !!model.rightToLeft,
+    dm: dataModelXml(model, drawingRelId, relOf, lo, (item) => {
+      const names = new Set<string>();
+      for (const s of shapes)
+        if (s.item === item && s.key) names.add(shapeFormatName(s.key));
+      return names;
     }),
+    lo,
     qs: styleDefXml(model.style),
     cs: colorsDefXml(model.colors),
     dr: drawingXml(model, shapes, { relOf, cropOf }),
@@ -437,6 +444,48 @@ const FOREIGN_COLORS: ReadonlyArray<[RegExp, string]> = [
 ];
 
 /**
+ * Formatting read from points of the layout definition's tree is named by
+ * layout node ("head", "image"...); the model names it by the shape it
+ * formats ("node", "pic"...). Renames the first to the second.
+ */
+const withShapeNames = (
+  items: SmartArtItem[],
+  layout: string,
+): SmartArtItem[] => {
+  const entry = layoutEntry(layout);
+  if (!entry || !items.some((i) => i.format)) return items;
+  const shapes = layoutSmartArt(
+    {
+      layout,
+      items: items.map(({ text, level }) => ({ text, level })),
+      colors: DEFAULT_SMARTART_COLORS,
+      style: DEFAULT_SMARTART_STYLE,
+    },
+    8_000_000,
+    4_500_000,
+  );
+  return items.map((item, index) => {
+    if (!item.format) return item;
+    const own = shapes
+      .filter((s) => s.item === index && s.key)
+      .map((s) => ({ role: s.role, name: shapeFormatName(s.key!) }));
+    const names = new Set(own.map((o) => o.name));
+    const format: Record<string, SmartArtShapeFormat> = {};
+    for (const [key, f] of Object.entries(item.format)) {
+      const shape = names.has(key)
+        ? null
+        : own.find(
+            (o) =>
+              !o.name.includes(":") &&
+              layoutNodeForRole(entry.family, o.role, item.level) === key,
+          );
+      format[shape ? shape.name : key] = f;
+    }
+    return { ...item, format };
+  });
+};
+
+/**
  * The editable model of any SmartArt frame. `layout` is "" when the diagram
  * uses a layout this engine does not author; its items, colors and style are
  * still read (colors and style approximated). Null for other shapes.
@@ -513,6 +562,7 @@ export const getShapeSmartArt = (
       LAYOUT_URN,
     ) ?? null;
   const layout = layoutId && layoutEntry(layoutId) ? layoutId : "";
+  if (layout) items = withShapeNames(items, layout);
   const colorsId =
     urnId(
       diagram.colors && getAttrValue(diagram.colors.root, A("uniqueId")),
