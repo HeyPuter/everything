@@ -89,7 +89,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   /** Changes shown under the current Show Markup choices (reviewers, kinds). */
   const shownChanges = list => list.filter(c => !revisionView.options.hiddenAuthors.includes(c.author) && (c.type === 'format' ? revisionView.options.showFormatting : revisionView.options.showInsDel));
   const locked = () => !!hooks.trackingLocked?.();
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && engine.model.comments ? engine : null; };
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
   const threads = () => { const engine = editor(); return engine?.model.comments ? commentThreads(engine.model.commentList) : []; };
 
@@ -224,6 +224,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     get shown() { return commentsShown; },
     hasComments() { return threads().length > 0; },
+    /* ---- Panes and speech, for the title bar, menus and command search ---- */
+    get paneShown() { return paneShown; },
+    togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !commentsShown) commentsShown = true; refresh(true); if (!paneShown) editor()?.focus(); },
+    toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
   };
 
   function threadAtCaret() {

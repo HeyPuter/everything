@@ -292,7 +292,7 @@ export class CanvasEditor {
     return count;
   }
   execute(action, onFailure, options, quiet = false) {
-    if (this.readOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly || this.composition) return;
     try {
       const revision = this.session.revision;
       this.session.run(() => action(), () => {
@@ -353,7 +353,7 @@ export class CanvasEditor {
   setImageProperties(patch) { return this.execute(() => this.model.setImageProperties(patch)); }
   async applyDrawingText(pkg, image, frame, paragraphs, { signal, tables } = {}) {
     this.finishComposition();
-    if (this.readOnly || this.destroyed || signal?.aborted) return false;
+    if (this.readOnly || this.viewOnly || this.destroyed || signal?.aborted) return false;
     const revision = this.session.revision, model = this.model;
     if (model.selectedImage !== image) throw new Error('Select the drawing again before editing its text.');
     const prepared = pkg.prepareDrawingTextEdit(image, frame, paragraphs, model.assets, model.styles, model.numbering, tables);
@@ -378,7 +378,19 @@ export class CanvasEditor {
       this.images.delete(id); delete model.assets[id]; preview.close(); throw error;
     }
   }
+  /**
+   * Viewing: the document stays editable underneath (layout, styles and saving are unchanged) while
+   * every edit path refuses, so switching back loses nothing. A read-only package stays read-only.
+   */
+  setViewOnly(on) {
+    this.finishComposition();
+    this.viewOnly = !!on;
+    this.input.readOnly = this.readOnly || this.viewOnly;
+    if (this.viewOnly && this.session.path !== null) this.editStory(null);
+    this.onSelection?.();
+  }
   async insertImageFile(file) {
+    if (this.readOnly || this.viewOnly) return false;
     if (file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
     this.finishComposition();
     const path = this.session.path, revision = this.session.revision, selection = { ...this.model.selection }, bytes = new Uint8Array(await file.arrayBuffer()), info = imageInfo(bytes), asset = { bytes, mime: info.mime };
@@ -451,7 +463,7 @@ export class CanvasEditor {
   insertSectionBreak(type) { const ok = this.execute(() => this.model.insertSectionBreak(type)); this.focus(); return ok; }
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
-    if (this.readOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly || this.composition) return;
     // The host can keep history beyond this editor's (changes that reopened the package).
     if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
@@ -1234,7 +1246,7 @@ export class CanvasEditor {
     }
   }
   beforeInput(e) {
-    if (this.readOnly) { e.preventDefault(); return; }
+    if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
     if (e.isComposing || this.composition || !e.cancelable) return;
     this.nativeSelection();
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
@@ -1335,7 +1347,7 @@ export class CanvasEditor {
     return this.model.replace(value.slice(start, tail), { checkpoint });
   }
   nativeInput() {
-    if (this.readOnly) { this.syncInput(); return; }
+    if (this.readOnly || this.viewOnly) { this.syncInput(); return; }
     try {
       const revision = this.session.revision;
       this.session.run(() => {
