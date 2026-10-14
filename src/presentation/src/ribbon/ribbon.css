@@ -1,11 +1,16 @@
-/* The ribbon: tabs on the window's grey, the commands on a white card. */
-.ribbon {
+/* The ribbon: tabs on the window's grey, the commands on a white card. Its
+   pop-up panels live outside it and take the same colours. */
+.ribbon,
+.ribbon-gallery-panel,
+.ribbon-fold-panel {
   --ribbon-ink: var(--chrome-ink, #262626);
   --ribbon-muted: var(--chrome-muted, #5f5f5f);
   --ribbon-hover: var(--chrome-hover, #ececec);
   --ribbon-pressed: var(--chrome-pressed, #dedede);
   --ribbon-card: var(--chrome-card, #fff);
   --ribbon-line: var(--chrome-line, #e1e1e1);
+}
+.ribbon {
   position: relative;
   z-index: 3;
   flex: none;

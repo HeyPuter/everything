@@ -46,6 +46,28 @@ async function load(page, pres) {
 const counter = (page) => page.locator(".presenter-counter");
 const image = (page) =>
   page.locator(".presenter-slide:not(.presenter-leaving)");
+// The transition playing over the show (see src/transitions/player.js).
+const transition = (page, effect, direction = "forward") =>
+  page.locator(
+    `.slide-transition[data-effect="${effect}"][data-direction="${direction}"]`,
+  );
+const anyTransition = (page) => page.locator(".slide-transition");
+// The transition runs on real time while the page's timers are simulated.
+// Holding it shows that the dwell waits for the transition, however long the
+// simulated time; releasing it ends the transition at once.
+async function holdTransition(page) {
+  await page.waitForFunction(() => {
+    const clock = document
+      .querySelector(".slide-transition")
+      ?.getAnimations()[0];
+    clock?.pause();
+    return !!clock;
+  });
+}
+const releaseTransition = (page) =>
+  page.evaluate(() =>
+    document.querySelector(".slide-transition")?.getAnimations()[0]?.finish(),
+  );
 async function exported(page) {
   await page.keyboard.press("Escape");
   await page
@@ -180,10 +202,12 @@ test("the advance clock waits for the actual incoming transition to finish", asy
     ]),
   );
   await page.getByRole("button", { name: "Next slide", exact: true }).click();
-  await expect(image(page)).toHaveClass(/entering fade/);
+  await expect(transition(page, "fade")).toHaveCount(1);
+  await holdTransition(page);
   await page.clock.runFor(2000);
   await expect(counter(page)).toHaveText("2 / 3");
-  await expect(image(page)).not.toHaveClass(/entering/);
+  await releaseTransition(page);
+  await expect(anyTransition(page)).toHaveCount(0);
   await page.clock.runFor(299);
   await expect(counter(page)).toHaveText("2 / 3");
   await page.clock.runFor(1);
@@ -205,13 +229,15 @@ test("Previous keeps the destination's click and dwell settings after the leavin
   await page
     .getByRole("button", { name: "Previous slide", exact: true })
     .click();
-  await expect(image(page)).toHaveClass(/entering fade backward/);
+  await expect(transition(page, "fade", "backward")).toHaveCount(1);
+  await holdTransition(page);
   await image(page).click();
   await expect(counter(page)).toHaveText("1 / 3");
-  // The CSS animation runs independently of the paused timer clock. Dwell
-  // starts only after the reverse animation has actually settled.
+  // Dwell starts only after the reverse transition has actually settled.
   await page.clock.runFor(2000);
-  await expect(image(page)).not.toHaveClass(/entering/);
+  await expect(counter(page)).toHaveText("1 / 3");
+  await releaseTransition(page);
+  await expect(anyTransition(page)).toHaveCount(0);
   await expect(counter(page)).toHaveText("1 / 3");
   await page.clock.runFor(699);
   await expect(counter(page)).toHaveText("1 / 3");
@@ -368,7 +394,7 @@ test("a zero timer advances asynchronously and huge timers do not overflow", asy
   );
   await page.clock.runFor(0);
   await expect(counter(page)).toHaveText("2 / 2");
-  await expect(image(page)).not.toHaveClass(/entering/);
+  await expect(anyTransition(page)).toHaveCount(0);
   await page.clock.runFor(10000);
   await expect(counter(page)).toHaveText("2 / 2");
 });
@@ -504,20 +530,19 @@ test("loop boundaries wrap in both directions and keep transition direction", as
   await expect(previous).toBeEnabled();
   const back = await previous.evaluate((button) => {
     button.click();
-    return document.querySelector(".presenter-slide:not(.presenter-leaving)")
-      .className;
+    const playing = document.querySelector(".slide-transition");
+    return `${playing?.dataset.effect} ${playing?.dataset.direction}`;
   });
-  expect(back).toMatch(/entering push backward/);
+  expect(back).toBe("push backward");
   await expect(counter(page)).toHaveText("2 / 2");
   const forward = await page
     .getByRole("button", { name: "Next slide", exact: true })
     .evaluate((button) => {
       button.click();
-      return document.querySelector(".presenter-slide:not(.presenter-leaving)")
-        .className;
+      const playing = document.querySelector(".slide-transition");
+      return `${playing?.dataset.effect} ${playing?.dataset.direction}`;
     });
-  expect(forward).toMatch(/entering push/);
-  expect(forward).not.toMatch(/backward/);
+  expect(forward).toBe("push forward");
   await expect(counter(page)).toHaveText("1 / 2");
 });
 
@@ -533,10 +558,10 @@ test("a one-slide loop replays its transition on each new pass", async ({
   );
   await page.clock.runFor(300);
   await expect(counter(page)).toHaveText("1 / 1");
-  await expect(image(page)).toHaveClass(/entering fade/);
+  await expect(transition(page, "fade")).toHaveCount(1);
   await page.clock.runFor(2000);
   await expect(counter(page)).toHaveText("1 / 1");
-  await expect(image(page)).not.toHaveClass(/entering/);
+  await expect(anyTransition(page)).toHaveCount(0);
   await page.clock.runFor(300);
-  await expect(image(page)).toHaveClass(/entering fade/);
+  await expect(transition(page, "fade")).toHaveCount(1);
 });

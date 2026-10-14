@@ -58,6 +58,7 @@ import {
   getSlideLayouts,
   getSlideLayoutPlaceholders,
 } from "./layouts.ts";
+import { pruneCustomShowReferences } from "./slide-show-setup.ts";
 import { getSlides } from "./slide-query.ts";
 import { readSlideEntries, requireUniqueSlideEntries } from "./slide-list.ts";
 import { setSlideBody, setSlideTitle } from "./embedded.ts";
@@ -371,20 +372,24 @@ export const removeSlide = (pres: PresentationData, slide: SlideData): void => {
   const { element, rel, part } = entryForSlide(context, slide);
   // Validate everything above before changing either relationship or slide data.
   list!.children = list!.children.filter((c) => c !== element);
+  const removedRels = new Set<string>();
   presRels.items = presRels.items.filter((r) => {
-    if (r.id === rel.id) return false;
+    if (r.id === rel.id) return !removedRels.add(r.id);
     if (r.type !== REL_TYPES.slide || r.targetMode === "External") return true;
     // Also remove unused aliases to this part, so deleting the slide does not
     // leave new dangling presentation relationships.
     try {
-      return (
+      const kept =
         resolveTarget(PRES_PART_NAME, r.target).toLowerCase() !==
-        part.name.toLowerCase()
-      );
+        part.name.toLowerCase();
+      if (!kept) removedRels.add(r.id);
+      return kept;
     } catch {
       return true; // Unrelated, unreferenced malformed relationships stay intact.
     }
   });
+  // Custom shows name slides by these relationships too.
+  pruneCustomShowReferences(presDoc.root, removedRels);
   presPart.data = encode(serializeXml(presDoc));
   pkg.setRels(PRES_PART_NAME, presRels);
   pkg.removePart(relsPartNameFor(part.name));

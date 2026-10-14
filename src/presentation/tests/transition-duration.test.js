@@ -81,7 +81,7 @@ describe("authored slide-transition duration", () => {
     expect(unzipSync(await P.savePresentation(f.pres))).toEqual(before);
   });
   it.each([
-    '<modern:warp dir="in"/>',
+    '<modern:sparkle dir="in"/>',
     "<modern:unknown/>",
     '<p:fade modern:future="1"/>',
   ])(
@@ -100,7 +100,7 @@ describe("authored slide-transition duration", () => {
   );
   it("selects the next understood choice without taking duration from an unsupported one", async () => {
     const f = await fixture(
-      `<mc:AlternateContent xmlns:mc="${NS.mc}" xmlns:modern="${NS.p14}"><mc:Choice Requires="modern"><p:transition modern:dur="9900"><modern:warp/></p:transition></mc:Choice><mc:Choice Requires="modern">${transition("1475", "push")}</mc:Choice><mc:Fallback><p:transition><p:zoom/></p:transition></mc:Fallback></mc:AlternateContent>`,
+      `<mc:AlternateContent xmlns:mc="${NS.mc}" xmlns:modern="${NS.p14}"><mc:Choice Requires="modern"><p:transition modern:dur="9900"><modern:sparkle/></p:transition></mc:Choice><mc:Choice Requires="modern">${transition("1475", "push")}</mc:Choice><mc:Fallback><p:transition><p:zoom/></p:transition></mc:Fallback></mc:AlternateContent>`,
     );
     expect(P.getSlideTransition(f.slide)).toEqual({
       effect: "push",

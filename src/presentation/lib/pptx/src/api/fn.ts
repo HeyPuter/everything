@@ -13,6 +13,7 @@ export * from "./fn/package-io.ts";
 export * from "./fn/text-fields.ts";
 export * from "./fn/sections.ts";
 export * from "./fn/layouts.ts";
+export * from "./fn/slide-masters.ts";
 export * from "./fn/template-import.ts";
 export * from "./fn/embedded-fonts.ts";
 export * from "./fn/theme.ts";
@@ -42,6 +43,7 @@ export * from "./fn/shape-gradient-read.ts";
 export * from "./fn/shape-fill-stroke.ts";
 export * from "./fn/shape-format-copy.ts";
 export * from "./fn/shape-freeform.ts";
+export * from "./fn/shape-ink.ts";
 export * from "./fn/shape-effects.ts";
 export * from "./fn/shape-text.ts";
 export * from "./fn/shape-runs.ts";
@@ -55,6 +57,14 @@ export * from "./fn/shape-click-action.ts";
 export * from "./fn/shape-image-effects.ts";
 export * from "./fn/shape-animation.ts";
 export * from "./fn/slide-animations.ts";
+
+// Inserted objects: media, vector pictures, actions, embeddings, footers
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
 
 // Slide features
 export * from "./fn/slide-background.ts";

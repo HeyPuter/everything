@@ -268,7 +268,16 @@ export const setShapeClickAction = (
   if (actionAttr !== null)
     attrs.push(attr(qname("", "action", ""), actionAttr));
 
-  cNvPr.children.push(
+  // The click action comes first among cNvPr's children (before any hover
+  // action and the extension list).
+  const at = cNvPr.children.findIndex(
+    (c) =>
+      c.kind === "element" &&
+      (c.name.localName === "hlinkHover" || c.name.localName === "extLst"),
+  );
+  cNvPr.children.splice(
+    at < 0 ? cNvPr.children.length : at,
+    0,
     elem(NAME_HLINK_CLICK_FN, {
       attrs,
     }),

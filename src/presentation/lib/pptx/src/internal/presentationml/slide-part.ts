@@ -185,9 +185,25 @@ export const readGroupChildren = (element: XmlElement): SlideShape[] => {
  * Exported so the sibling readers (`readSlideLayoutPart`,
  * `readSlideMasterPart`) can reuse it.
  */
+/** Root elements whose `<p:cSld>` holds a shape tree. */
+export type ShapeTreeRoot =
+  | "sld"
+  | "sldLayout"
+  | "sldMaster"
+  | "notesMaster"
+  | "handoutMaster"
+  | "notes";
+const TEMPLATE_ROOTS: ReadonlySet<ShapeTreeRoot> = new Set([
+  "sldLayout",
+  "sldMaster",
+  "notesMaster",
+  "handoutMaster",
+  "notes",
+]);
+
 export const readShapeTreeFromCsldRoot = (
   root: XmlElement,
-  expectedLocalName: "sld" | "sldLayout" | "sldMaster",
+  expectedLocalName: ShapeTreeRoot,
   options: { recurseIntoGroups?: boolean } = {},
 ): { shapes: SlideShape[]; cSld: XmlElement } => {
   if (
@@ -219,7 +235,12 @@ export const readSlidePart = (
   root: XmlElement,
   options: { recurseIntoGroups?: boolean } = {},
 ): SlidePart => {
-  const { shapes } = readShapeTreeFromCsldRoot(root, "sld", options);
+  // Layouts, masters and the notes / handout masters share the slide's
+  // `<p:cSld>` grammar, so an editing view over one reads the same way.
+  const kind = TEMPLATE_ROOTS.has(root.name.localName as ShapeTreeRoot)
+    ? (root.name.localName as ShapeTreeRoot)
+    : "sld";
+  const { shapes } = readShapeTreeFromCsldRoot(root, kind, options);
   return { shapes, root };
 };
 

@@ -51,7 +51,11 @@ export function createSlideAnimator({
 }) {
   let effects;
   try {
-    effects = P.getSlideAnimations(slide);
+    // Media start and pause steps belong to the show's media players
+    // (src/insert/show.js), which take their clicks after the animations'.
+    effects = P.getSlideAnimations(slide).filter(
+      (e) => e.presetClass !== "mediacall",
+    );
   } catch {
     effects = [];
   }

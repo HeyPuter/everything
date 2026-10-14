@@ -222,6 +222,9 @@ describe("native field identities during copying", () => {
       );
     const templateId = "{01369490-6323-4C60-9441-1AEC41729A4F}",
       masterId = "{53969266-3F9D-49AE-98B6-B14B53FD521D}",
+      // The layout and master carry their own date and number fields; the
+      // field added here is the last one in each.
+      layoutFields = partFields(part).length,
       master = pkg.getPart(P.getSlideMasterPartName(slide));
     part.data = new TextEncoder().encode(
       new TextDecoder()
@@ -242,10 +245,10 @@ describe("native field identities during copying", () => {
     const before = snapshot(p),
       [layout, repeated] = importSlideTemplates(p, [slide, slide]),
       copied = partFields(pkg.getPart(P.getSlideLayoutPartName(layout)));
-    expect(copied).toHaveLength(1);
-    expect(fieldToken(copied[0])).not.toBe(templateId);
-    validToken(fieldToken(copied[0]));
-    expect(normalized(copied[0])).toBe(normalized(partFields(part)[0]));
+    expect(copied).toHaveLength(layoutFields + 1);
+    expect(fieldToken(copied.at(-1))).not.toBe(templateId);
+    validToken(fieldToken(copied.at(-1)));
+    expect(normalized(copied.at(-1))).toBe(normalized(partFields(part).at(-1)));
     expect(tokens(nativeFields(layout[LAYOUT_PART].root))).toEqual(
       tokens(copied),
     );
@@ -256,11 +259,13 @@ describe("native field identities during copying", () => {
         preserveGeometry: false,
       }),
       masterCopy = partFields(pkg.getPart(P.getSlideMasterPartName(imported)));
-    expect(masterCopy).toHaveLength(1);
-    validToken(fieldToken(masterCopy[0]));
-    expect(fieldToken(masterCopy[0])).not.toBe(masterId);
-    expect(fieldToken(masterCopy[0])).not.toBe(fieldToken(copied[0]));
-    expect(normalized(masterCopy[0])).toBe(normalized(partFields(master)[0]));
+    expect(masterCopy).toHaveLength(partFields(master).length);
+    validToken(fieldToken(masterCopy.at(-1)));
+    expect(fieldToken(masterCopy.at(-1))).not.toBe(masterId);
+    expect(fieldToken(masterCopy.at(-1))).not.toBe(fieldToken(copied.at(-1)));
+    expect(normalized(masterCopy.at(-1))).toBe(
+      normalized(partFields(master).at(-1)),
+    );
     expect(part.data).toEqual(before.find(([name]) => name === layoutName)[1]);
   });
 });

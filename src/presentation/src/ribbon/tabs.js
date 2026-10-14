@@ -625,6 +625,17 @@ export function buildTabs(api) {
         visible: () => api.hasAssistant(),
         run: () => api.designIdeas(),
       },
+      {
+        type: "large",
+        id: "new-slide-prompt",
+        label: "Slide from\nPrompt",
+        icon: "newSlidePrompt",
+        title: "New Slide from Prompt",
+        description:
+          "Describe a slide and the AI assistant drafts it after the current one.",
+        visible: () => api.hasAssistant(),
+        run: () => api.newSlideFromPrompt(),
+      },
     ],
   };
 
@@ -701,6 +712,20 @@ export function buildTabs(api) {
           },
           {
             type: "large",
+            id: "screenshot",
+            label: "Screenshot",
+            icon: "screenshot",
+            title: "Screenshot",
+            description:
+              "Insert a picture of a window or screen, or of a part of it.",
+            visible: () => !!api.screenshot,
+            split: true,
+            run: () => api.screenshot?.(),
+            menu: () => api.screenshotMenu?.() ?? [],
+            menuLabel: "Screenshot options",
+          },
+          {
+            type: "large",
             id: "photo-album",
             label: "Photo\nAlbum",
             icon: "photoAlbum",
@@ -766,6 +791,17 @@ export function buildTabs(api) {
         items: [
           {
             type: "large",
+            id: "insert-zoom",
+            label: "Zoom",
+            icon: "zoomSlide",
+            title: "Zoom",
+            description:
+              "Jump to a slide or section in a slide show, and back.",
+            visible: () => !!api.insertZoomMenu,
+            menu: () => api.insertZoomMenu?.() ?? [],
+          },
+          {
+            type: "large",
             id: "link",
             label: "Link",
             icon: "link",
@@ -783,7 +819,17 @@ export function buildTabs(api) {
             description:
               "Make the selected object go to a slide or web page when clicked in a slide show.",
             enabled: () => api.canLink(),
-            menu: () => api.actionMenu(),
+            split: !!api.actionSettings,
+            run: () => api.actionSettings?.(),
+            menu: () => [
+              ...api.actionMenu(),
+              ...(api.actionButtonsMenu
+                ? [
+                    { separator: true },
+                    { label: "Action Buttons", items: api.actionButtonsMenu() },
+                  ]
+                : []),
+            ],
           },
         ],
       },
@@ -863,6 +909,16 @@ export function buildTabs(api) {
               },
             ],
           },
+          {
+            type: "large",
+            id: "object",
+            label: "Object",
+            icon: "object",
+            title: "Object",
+            description: "Embed a file in the presentation, shown as an icon.",
+            visible: () => !!api.insertObject,
+            run: () => api.insertObject?.(),
+          },
         ],
       },
       {
@@ -876,8 +932,12 @@ export function buildTabs(api) {
             label: "Equation",
             icon: "equation",
             title: "Equation",
+            description: "Write a math equation, or insert a common one.",
             visible: () => !!api.insertEquation,
+            split: true,
             run: () => api.insertEquation?.(),
+            menu: () => api.equationMenu?.() ?? [],
+            menuLabel: "Equations",
           },
           {
             type: "large",
@@ -903,7 +963,11 @@ export function buildTabs(api) {
             label: "Video",
             icon: "video",
             title: "Video",
+            description: "Insert a video from your device.",
+            split: true,
             run: () => api.insertVideo?.(),
+            menu: () => api.videoMenu?.() ?? [],
+            menuLabel: "Video sources",
           },
           {
             type: "large",
@@ -911,7 +975,11 @@ export function buildTabs(api) {
             label: "Audio",
             icon: "audio",
             title: "Audio",
+            description: "Insert sound from your device, or record it.",
+            split: true,
             run: () => api.insertAudio?.(),
+            menu: () => api.audioMenu?.() ?? [],
+            menuLabel: "Audio sources",
           },
         ],
       },
@@ -1075,7 +1143,11 @@ export function buildTabs(api) {
                 label: "Sound",
                 icon: "transitionSound",
                 title: "Transition Sound",
+                description:
+                  "Play a sound as the slide arrives, or stop the one playing.",
                 visible: () => !!api.transitionSoundMenu,
+                dynamicLabel: () => api.transitionSoundLabel?.() || "Sound",
+                menuWidth: 220,
                 menu: () => api.transitionSoundMenu?.(),
               },
               {
@@ -1100,6 +1172,7 @@ export function buildTabs(api) {
                 title: "Apply To All",
                 description:
                   "Use this slide's transition and timing for every slide.",
+                enabled: () => api.canApplyTransitionToAll?.() ?? true,
                 run: () => api.applyTransitionToAll(),
               },
             ],
@@ -1164,17 +1237,19 @@ export function buildTabs(api) {
           {
             type: "large",
             id: "play-from-start",
-            label: "From\nBeginning",
+            label: "Play from\nStart",
             icon: "playFromStart",
             title: "Play from Start (F5)",
+            description: "Start the slide show with the first slide.",
             run: () => api.present({ from: "beginning" }),
           },
           {
             type: "large",
             id: "play-from-current",
-            label: "From Current\nSlide",
+            label: "Play from\nCurrent Slide",
             icon: "playFromCurrent",
             title: "Play from Current Slide (Shift+F5)",
+            description: "Start the slide show with the slide you are on.",
             run: () => api.present({ from: "current" }),
           },
           {
@@ -1184,16 +1259,18 @@ export function buildTabs(api) {
             icon: "presenterView",
             title: "Presenter View (Alt+F5)",
             description:
-              "Present with your notes, the next slide, and a timer on your screen.",
+              "Present with your notes, the next slide, a timer and tools on your screen while the audience sees only the slide.",
             visible: () => !!api.presenterView,
             run: () => api.presenterView?.(),
           },
           {
             type: "large",
             id: "custom-show",
-            label: "Custom\nSlide Show",
+            label: "Custom\nShow",
             icon: "customShow",
             title: "Custom Slide Show",
+            description:
+              "Play a named selection of slides, or make and change custom shows.",
             visible: () => !!api.customShowMenu,
             menu: () => api.customShowMenu?.(),
           },
@@ -1210,6 +1287,8 @@ export function buildTabs(api) {
             label: "Set Up\nSlide Show",
             icon: "setUpShow",
             title: "Set Up Slide Show",
+            description:
+              "Choose how the show runs: presented, in a window or at a kiosk, which slides, and how it advances.",
             visible: () => !!api.setUpShow,
             run: () => api.setUpShow?.(),
           },
@@ -1230,12 +1309,36 @@ export function buildTabs(api) {
             label: "Rehearse\nTimings",
             icon: "rehearse",
             title: "Rehearse Timings",
+            description:
+              "Practise the show while a timer records how long you spend on each slide.",
             visible: () => !!api.rehearse,
             run: () => api.rehearse?.(),
           },
           {
+            type: "large",
+            id: "record-show",
+            label: "Record",
+            icon: "recordShow",
+            title: "Record Slide Show",
+            description:
+              "Record your narration, camera and ink as you present. Choose where to start, clear recordings, or export a video.",
+            visible: () => !!api.recordShowMenu,
+            split: true,
+            menuLabel: "Record options",
+            run: () => api.recordFromCurrent?.(),
+            menu: () => api.recordShowMenu?.(),
+          },
+          {
             type: "stack",
             items: [
+              {
+                type: "check",
+                id: "play-narrations",
+                label: "Play Narrations",
+                visible: () => !!api.setPlayNarrations,
+                checked: () => api.playNarrations?.() ?? true,
+                commit: (on) => api.setPlayNarrations?.(on),
+              },
               {
                 type: "check",
                 id: "use-timings",
@@ -1243,6 +1346,45 @@ export function buildTabs(api) {
                 visible: () => !!api.setUseTimings,
                 checked: () => api.useTimings?.() ?? true,
                 commit: (on) => api.setUseTimings?.(on),
+              },
+              {
+                type: "check",
+                id: "show-media-controls",
+                label: "Show Media Controls",
+                visible: () => !!api.setShowMediaControls,
+                checked: () => api.showMediaControls?.() ?? true,
+                commit: (on) => api.setShowMediaControls?.(on),
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "captions",
+        label: "Captions & Subtitles",
+        icon: "subtitles",
+        items: [
+          {
+            type: "stack",
+            items: [
+              {
+                type: "check",
+                id: "always-subtitles",
+                label: "Always Use Subtitles",
+                visible: () => !!api.setAlwaysSubtitles,
+                checked: () => api.alwaysSubtitles?.() ?? false,
+                commit: (on) => api.setAlwaysSubtitles?.(on),
+              },
+              {
+                type: "small",
+                id: "subtitle-settings",
+                label: "Subtitle Settings",
+                icon: "subtitleSettings",
+                title: "Subtitle Settings",
+                description:
+                  "Choose the language you speak and where live subtitles appear.",
+                visible: () => !!api.subtitleSettingsMenu,
+                menu: () => api.subtitleSettingsMenu?.(),
               },
             ],
           },
@@ -1407,7 +1549,28 @@ export function buildTabs(api) {
             label: "Slide\nMaster",
             icon: "slideMaster",
             title: "Slide Master",
+            description:
+              "Edit the slide master and its layouts, which every slide takes its look from.",
             run: () => api.masterView?.("slide"),
+          },
+          {
+            type: "large",
+            id: "handout-master",
+            label: "Handout\nMaster",
+            icon: "handoutMaster",
+            title: "Handout Master",
+            description:
+              "Edit the header, footer and layout of printed handouts.",
+            run: () => api.masterView?.("handout"),
+          },
+          {
+            type: "large",
+            id: "notes-master",
+            label: "Notes\nMaster",
+            icon: "notesMaster",
+            title: "Notes Master",
+            description: "Edit how notes pages look when they are printed.",
+            run: () => api.masterView?.("notes"),
           },
         ],
       },
@@ -1699,7 +1862,12 @@ export function buildTabs(api) {
     id: "shape-format",
     label: "Shape Format",
     contextual: true,
-    visible: () => shapeSel() || (some() && !pictureSel() && !tableSel()),
+    visible: () =>
+      shapeSel() ||
+      (some() &&
+        !pictureSel() &&
+        !tableSel() &&
+        !["chart", "smartart"].includes(api.selectionKind())),
     groups: [
       {
         id: "insert-shapes",

@@ -1,0 +1,279 @@
+/* The library screen: the rail of sections, the box that writes a deck from
+   a description, the theme strip, and the list's Recent / Pinned switch. */
+.home.with-rail {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+}
+.home.with-rail > .home-header,
+.home.with-rail > .home-footer {
+  grid-column: 1 / -1;
+}
+.home.with-rail > .home-main {
+  grid-column: 2;
+  min-width: 0;
+}
+.home-rail {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 24px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: calc(100dvh - 78px);
+  box-sizing: border-box;
+}
+.home-rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.home-rail-item:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.home-rail-item[aria-current="page"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.home-rail-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Describe your presentation. */
+.home-prompt {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 34px;
+  padding: 18px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 7%, var(--surface)),
+    var(--surface) 60%
+  );
+  box-shadow: 0 6px 24px #0000000d;
+}
+.home-prompt-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.home-prompt-label svg {
+  color: var(--accent);
+}
+.home-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.home-prompt-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.home-prompt-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.home-prompt-select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  padding: 0 8px;
+}
+.home-prompt-spacer {
+  flex: 1;
+}
+.home-prompt-status {
+  min-height: 1em;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.home-prompt-status:empty {
+  display: none;
+}
+.home-prompt.busy .home-prompt-status::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: home-prompt-spin 0.8s linear infinite;
+}
+@keyframes home-prompt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-prompt.busy .home-prompt-status::before {
+    animation: none;
+  }
+}
+
+/* Themes. */
+.home-themes {
+  margin-top: 40px;
+}
+.home-themes-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.home-themes-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 184px;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.home-theme {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.home-theme-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.home-theme-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.home-theme:hover .home-theme-preview,
+.home-theme:focus-visible .home-theme-preview {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.home-theme:focus-visible {
+  outline: none;
+}
+.home-theme-name {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+/* Recent / Pinned. */
+.library-heading {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.library-filter {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.library-filter-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.library-filter-btn[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px #0000001a;
+}
+.library-filter-btn:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.file-pin {
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-left: 6px;
+  color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  .home.with-rail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr auto;
+  }
+  .home.with-rail > .home-main {
+    grid-column: 1;
+  }
+  .home-rail {
+    grid-row: 2;
+    flex-direction: row;
+    justify-content: space-around;
+    min-height: 0;
+    padding: 6px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    position: static;
+  }
+  .home-rail-item {
+    flex: 1;
+    padding: 6px 2px;
+    font-size: 10px;
+  }
+  .home-prompt {
+    padding: 14px;
+  }
+  .home-themes-row {
+    grid-auto-columns: 140px;
+  }
+}

@@ -36,8 +36,15 @@ export { buildEmptyNotesSlide } from "./notes-slide-builder.ts";
 export type {
   TransitionEffect,
   TransitionOptions,
+  TransitionSound,
 } from "./transition-builder.ts";
-export { buildTransition } from "./transition-builder.ts";
+export {
+  buildTransition,
+  BASE_TRANSITION_EFFECTS,
+  P14_TRANSITION_EFFECTS,
+  P159_TRANSITION_EFFECTS,
+  PRESET_TRANSITION_EFFECTS,
+} from "./transition-builder.ts";
 export type { AnimationEffect, AnimationOptions } from "./animation-builder.ts";
 export { buildSingleEffectTiming } from "./animation-builder.ts";
 export type {

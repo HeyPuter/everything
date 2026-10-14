@@ -160,13 +160,13 @@ describe(".pptx interoperability", () => {
     expect(P.getShapeRunCount(subtitle, 0)).toBe(0);
     expect(P.getShapeRunFormatEffective(pres, subtitle, 0, 0)).toMatchObject({
       font: "Calibri",
-      size: 32,
+      size: 24,
     });
     expect(shapeIcon(subtitle)).toBe("Type");
     const loaded = await parseDeck(await P.savePresentation(pres));
     const reloaded = P.getSlideShapes(P.getSlides(loaded)[0])[1];
     expect(P.getShapeRunFormatEffective(loaded, reloaded, 0, 0)).toMatchObject({
-      size: 32,
+      size: 24,
     });
     expect(() => P.getShapeRunFormatEffective(loaded, reloaded, 0, 1)).toThrow(
       RangeError,

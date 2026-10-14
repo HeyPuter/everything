@@ -2031,7 +2031,7 @@ test("slides can be added and presentation mode is keyboard navigable", async ({
   await story(page);
   await openNewSlideMenu(page);
   await page
-    .getByRole("menuitem", { name: "Title and content", exact: true })
+    .getByRole("menuitem", { name: "Title and Content", exact: true })
     .click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 6");
   await page.getByRole("button", { name: "Present", exact: true }).click();
@@ -4949,9 +4949,7 @@ for (const action of [
   }) => {
     await story(page);
     await openNewSlideMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Blank slide", exact: true })
-      .click();
+    await page.getByRole("menuitem", { name: "Blank", exact: true }).click();
     await expect(page.locator("#slide-count")).toHaveText("6");
     await page
       .getByRole("button", { name: "Options for slide 3", exact: true })
@@ -5185,7 +5183,7 @@ test("new slides are inserted after the displayed slide while navigation is pend
     notes.value = "Pending notes";
     notes.dispatchEvent(new Event("change", { bubbles: true }));
     document.querySelectorAll(".slide-thumb")[1].click();
-    window.__menuNow("Insert", "New slide", "Blank slide");
+    window.__menuNow("Insert", "New slide", "Blank");
   });
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
@@ -5723,9 +5721,7 @@ for (const action of ["Undo", "Redo"]) {
   }) => {
     await story(page);
     await openNewSlideMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Blank slide", exact: true })
-      .click();
+    await page.getByRole("menuitem", { name: "Blank", exact: true }).click();
     await expect(page.locator("#slide-count")).toHaveText("6");
     if (action === "Redo") {
       await page.getByRole("button", { name: "Undo", exact: true }).click();
@@ -7955,9 +7951,7 @@ test("the slide navigator keeps the active slide in view when it changes", async
   await story(page);
   for (let i = 0; i < 10; i++) {
     await openNewSlideMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Blank slide", exact: true })
-      .click();
+    await page.getByRole("menuitem", { name: "Blank", exact: true }).click();
     await expect(page.locator("#slide-count")).toHaveText(String(6 + i));
   }
   const activeVisible = () =>
@@ -11362,15 +11356,15 @@ test("slides take a transition that plays as they arrive while presenting", asyn
   await page.getByRole("button", { name: "Present", exact: true }).click();
   const presenter = page.getByRole("dialog", { name: "Presentation mode" });
   const slide = presenter.locator(".presenter-slide:not(.presenter-leaving)");
+  const playing = presenter.locator(".slide-transition");
   await page.keyboard.press("ArrowRight");
-  await expect(slide).toHaveClass(/entering fade/);
-  await expect(presenter.locator(".presenter-leaving")).toHaveCount(1);
-  await expect(slide).not.toHaveClass(/entering/, { timeout: 3000 });
-  await expect(presenter.locator(".presenter-leaving")).toHaveCount(0);
+  await expect(playing).toHaveAttribute("data-effect", "fade");
+  await expect(playing).toHaveCount(0, { timeout: 3000 });
+  await expect(slide).toBeVisible();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  await expect(slide).toHaveClass(/entering push/);
-  await expect(slide).not.toHaveClass(/entering/, { timeout: 3000 });
+  await expect(playing).toHaveAttribute("data-effect", "push");
+  await expect(playing).toHaveCount(0, { timeout: 3000 });
   await page.keyboard.press("Escape");
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
@@ -12642,9 +12636,7 @@ test("a new slide arrives as the only selected slide", async ({ page }) => {
   await expect(page.locator("#slide-count")).toHaveText("2 of 5 selected");
   await openBarMenu(page, "Slide");
   await page.getByRole("menuitem", { name: "New slide", exact: true }).click();
-  await page
-    .getByRole("menuitem", { name: "Blank slide", exact: true })
-    .click();
+  await page.getByRole("menuitem", { name: "Blank", exact: true }).click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 6");
   await expect(page.locator("#slide-count")).toHaveText("6");
   await expect(page.locator(".slide-item.selected")).toHaveCount(0);

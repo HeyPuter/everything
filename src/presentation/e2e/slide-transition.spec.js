@@ -1,10 +1,18 @@
 import { test, expect } from "@playwright/test";
-import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck } from "../src/model.js";
 import { alternate, fixture } from "../tests/slide-transition-fixture.js";
 import { presetTransition } from "../tests/preset-transition-fixture.js";
 
+// Undo and Redo: the toolbar's buttons, or their shortcuts where a phone's
+// toolbar leaves them out.
+async function history(page, name) {
+  const button = page.getByRole("button", { name, exact: true });
+  if (await button.isVisible()) return button.click();
+  await page.evaluate(() => document.activeElement?.blur());
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.press(name === "Undo" ? `${mod}+z` : `${mod}+Shift+z`);
+}
 async function importDeck(page, pres) {
   await page.route("https://js.puter.com/v2/", (route) =>
     route.fulfill({
@@ -24,8 +32,40 @@ async function importDeck(page, pres) {
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await expect(page.locator(".slide-image")).toBeVisible();
-  await inspector(page);
+  if (
+    !(await page
+      .getByRole("combobox", { name: "Transition", exact: true })
+      .isVisible())
+  ) {
+    // The slide's own context menu opens the Format pane on its settings.
+    await page
+      .locator("#slide-canvas")
+      .click({ button: "right", position: { x: 3, y: 3 } });
+    // The menu can run past a phone's screen; the keyboard reaches it there.
+    await page
+      .getByRole("menuitem", { name: "Format Background…", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+  }
 }
+
+// The transition playing over the show (see src/transitions/player.js).
+async function playing(page) {
+  const handle = await page.waitForFunction(() => {
+    const node = document.querySelector(".slide-transition");
+    const clock = node?.getAnimations()[0];
+    return clock
+      ? {
+          effect: node.dataset.effect,
+          direction: node.dataset.direction,
+          duration: clock.effect.getTiming().duration,
+        }
+      : null;
+  });
+  return handle.jsonValue();
+}
+const settled = (page) =>
+  expect(page.locator(".slide-transition")).toHaveCount(0);
 
 async function downloadDeck(page) {
   await page
@@ -44,7 +84,7 @@ async function downloadDeck(page) {
 }
 
 for (const level of ["local", "layout"])
-  test(`an imported ${level} Page Curl remains distinct from its fallback through editing, undo and download`, async ({
+  test(`an imported ${level} Page Curl is recognized, plays, and survives editing, undo and download`, async ({
     page,
   }) => {
     const xml = presetTransition("pageCurlSingle", { inversion: 'invX="1"' });
@@ -58,7 +98,7 @@ for (const level of ["local", "layout"])
       name: "Transition",
       exact: true,
     });
-    await expect(transition).toHaveValue("other");
+    await expect(transition).toHaveValue("pageCurl");
     const expected = {
       effect: "pageCurlSingle",
       invertX: true,
@@ -82,26 +122,22 @@ for (const level of ["local", "layout"])
     expect(P.getEffectiveSlideTransition(P.getSlides(downloaded)[1])).toEqual(
       expected,
     );
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
-    await expect(transition).toHaveValue("other");
+    await history(page, "Undo");
+    await expect(transition).toHaveValue("pageCurl");
     downloaded = await downloadDeck(page);
     expect(P.getEffectiveSlideTransition(P.getSlides(downloaded)[0])).toEqual(
       expected,
     );
-    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await history(page, "Redo");
     await expect(transition).toHaveValue("fade");
-    // The presenter still plays the authored legacy alternative until native
-    // curl geometry is implemented; parsing a preset does not claim playback.
+    // The presenter plays the curl itself, with its authored duration.
     await page.getByRole("button", { name: "Present", exact: true }).click();
     await page.getByRole("button", { name: "Next slide", exact: true }).click();
-    await expect(page.locator(".presenter-leaving.fade")).toHaveCount(1);
-    expect(
-      await page
-        .locator(".presenter-slide.entering")
-        .evaluate(
-          (node) => node.getAnimations()[0]?.effect.getTiming().duration,
-        ),
-    ).toBe(750);
+    expect(await playing(page)).toEqual({
+      effect: "pageCurlSingle",
+      direction: "forward",
+      duration: 2450,
+    });
     await page.keyboard.press("Escape");
   });
 
@@ -118,7 +154,7 @@ test("alternative transitions play, preserve modern content, and override None o
   ).toHaveValue("fade");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await page.getByRole("button", { name: "Next slide", exact: true }).click();
-  await expect(page.locator(".presenter-leaving.fade")).toHaveCount(1);
+  expect(await playing(page)).toMatchObject({ effect: "fade" });
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("dialog", { name: "Presentation mode" }),
@@ -159,13 +195,13 @@ test("inherited transitions play and None remains explicit after undo, redo, and
   await expect(transition).toHaveValue("fade");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await page.getByRole("button", { name: "Next slide", exact: true }).click();
-  await expect(page.locator(".presenter-leaving.fade")).toHaveCount(1);
+  expect(await playing(page)).toMatchObject({ effect: "fade" });
   await page.keyboard.press("Escape");
   await transition.selectOption("none");
   await expect(transition).toHaveValue("none");
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await history(page, "Undo");
   await expect(transition).toHaveValue("fade");
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await history(page, "Redo");
   await expect(transition).toHaveValue("none");
   const downloaded = await downloadDeck(page);
   const [first, second] = P.getSlides(downloaded);
@@ -182,16 +218,16 @@ test("inherited transitions play and None remains explicit after undo, redo, and
   expect(P.getEffectiveSlideTransition(second)?.effect).toBe("fade");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await page.getByRole("button", { name: "Next slide", exact: true }).click();
-  await expect(page.locator(".presenter-leaving.fade")).toHaveCount(1);
-  await expect(page.locator(".presenter-leaving")).toHaveCount(0);
+  expect(await playing(page)).toMatchObject({ effect: "fade" });
+  await settled(page);
   // Previous reverses the leaving slide's inherited fade even though the
   // destination has an explicit None transition.
   await page
     .getByRole("button", { name: "Previous slide", exact: true })
     .click();
-  await expect(page.locator(".presenter-leaving.fade.backward")).toHaveCount(1);
-  await expect(
-    page.locator(".presenter-slide.entering.fade.backward"),
-  ).toHaveCount(1);
+  expect(await playing(page)).toMatchObject({
+    effect: "fade",
+    direction: "backward",
+  });
   await page.keyboard.press("Escape");
 });
