@@ -694,6 +694,36 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   code's section colors ([Red], [Blue], …) color the cell text.
 - **Image from URL**: Insert → Image from URL fetches a PNG, JPEG, GIF, WebP,
   or SVG through Puter and places it on the sheet like an uploaded picture.
+- **Pictures in cells**: Insert ▸ Image ▸ Place in Cell (from your device,
+  Puter or a URL) makes a picture the cell's value, fitted inside the cell in
+  proportion and aligned by the cell's alignment. It moves, sorts (after the
+  values), filters, copies and undoes with its cell; `=A1` shows it, `TYPE`
+  answers 128 and `ISNUMBER`/`ISTEXT` say no. Right-click ▸ Edit Alt Text… gives
+  it a description (`IMAGE(url, "alt text", sizing)` does the same for a
+  formula's picture), and Place over Cells lifts it out to float; a floating
+  picture's menu or Picture Format ▸ Place in Cell puts it back into the cell
+  under its corner. A pasted picture offers both in its Paste Options. In
+  .xlsx they are the standard in-cell rich values (local images with their alt
+  text, and `IMAGE()` results from the web as web images), so other programs
+  show them too. The accessibility check lists cell pictures with no alt text.
+- **Pictures of cells**: Paste Special ▸ Picture pastes a picture of the copied
+  range; Paste Special ▸ Linked Picture pastes one that keeps showing those
+  cells (values, number formats, fills, fonts, borders, merged cells and cell
+  pictures, without gridlines) as they change, follows inserted rows and
+  renamed sheets, and shows its reference (`=Sheet1!$A$1:$C$5`) in the formula
+  bar, where typing another range retargets it; double-click goes to the
+  cells. Saved to .xlsx as a picture of the cells naming its range, so it stays
+  linked elsewhere.
+- **Picture Format**: a selected picture brings its own tab. Corrections
+  (brightness and contrast presets previewed on the picture, or exact values
+  in Picture Corrections), Color (grayscale), Transparency, Reset Picture and
+  Reset Picture & Size; Picture Styles (white or black frames, a thin border,
+  drop shadow, rounded corners, oval); Alt Text; Arrange; and Size: Crop with
+  eight handles (drag or arrow keys) and aspect-ratio presets, the picture
+  staying where it is on the sheet, plus exact height and width with Lock
+  aspect ratio. All of it prints, copies, undoes and round trips through
+  .xlsx as DrawingML (brightness/contrast, grayscale, alpha, outline, preset
+  shape and shadow).
 - **CSV encodings**: imported text files are read as UTF-8 (with or without a
   BOM), as UTF-16 when a byte-order mark says so, and as Windows-1252 when the
   bytes are not valid UTF-8, so accented names survive files from older

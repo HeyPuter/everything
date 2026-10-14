@@ -108,7 +108,8 @@ import { createQueriesPane } from '../ui/queries-pane.js';
 import { createAutomate, AUTOMATE_COMMANDS, scriptOfLink } from '../ui/automate.js';
 import { createPictures, PICTURE_COMMANDS } from '../ui/pictures.js';
 import { isCellPicture } from '../core/cell-picture.js';
-import { linkedPictureTarget } from '../core/range-picture.js';
+import { pictureIsPlain } from '../core/picture-format.js';
+import { linkedPictureTarget, rangePicture } from '../core/range-picture.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
 import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.js';
 import { toggleDetail } from '../core/outline-detail.js';
@@ -3581,8 +3582,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         try {
           let blob;
           if (ch.type === 'image') {
-            const raw = await (await fetch(ch.src)).blob();
-            blob = raw.type === 'image/png' && !ch.flipH && !ch.flipV && !ch.srcRect && !ch.fillRect && !ch.rotation ? raw : await imageToPng(ch.src, ch);
+            const shown = linkedPictureNow(ch);
+            const raw = await (await fetch(shown.src)).blob();
+            blob = raw.type === 'image/png' && pictureIsPlain(shown) ? raw : await imageToPng(shown.src, shown);
           } else {
             const cs = getComputedStyle(grid.viewport);
             const svg = standaloneSvg(renderChartSvg(chartData(wb, sheetId, ch), ch, ch.w, ch.h), (n) => cs.getPropertyValue(n));
@@ -3604,8 +3606,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         try {
           let blob;
           let name;
-          if (ch.type === 'image') {
-            if (ch.flipH || ch.flipV || ch.srcRect || ch.fillRect || ch.rotation) blob = await imageToPng(ch.src, ch);
+          if (ch.type === 'image' && ch.pictureRef) {
+            const shown = linkedPictureNow(ch);
+            blob = await imageToPng(shown.src, shown);
+            name = `${P.sanitizeName(ch.title || 'picture') || 'picture'}.png`;
+          } else if (ch.type === 'image') {
+            if (!pictureIsPlain(ch)) blob = await imageToPng(ch.src, ch);
             else {
               const drawing = ch.drawingShape && await (await import('../core/drawingml-raster.js')).drawingRasterSource(ch.src, ch);
               blob = await (await fetch(drawing?.src || ch.src)).blob();
@@ -5334,6 +5340,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       keepFocus();
     },
   });
+  /** A linked picture as it shows now: the picture of its cells, drawn afresh (a static picture as it is). */
+  function linkedPictureNow(ch) {
+    const target = ch.pictureRef && linkedPictureTarget(wb, grid.sheetId, ch.pictureRef);
+    const live = target && rangePicture(wb, target.sheetId, target.range);
+    return live ? { ...ch, src: svgDataUrl(live.svg), srcRect: null, fillRect: null } : ch;
+  }
+
   /**
    * Put an image file on the sheet at the active cell, into the image being replaced, or with `inCell`
    * into the cell itself as its value. Resolves to what was made: 'floating', 'cell', or null.

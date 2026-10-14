@@ -79,6 +79,13 @@ export function checkAccessibility(wb) {
       const alt = obj.description || (obj.type === 'image' ? obj.title : '');
       if (!String(alt || '').trim()) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id });
     });
+    // Pictures placed in cells with no alt text of their own (an IMAGE formula gives its alt text as an argument).
+    for (const [key, cell] of sheet.cells) {
+      const v = cell?.v;
+      if (!v || typeof v !== 'object' || typeof v.image !== 'string' || String(v.alt || '').trim()) continue;
+      const [r, c] = key.split(',').map(Number);
+      add('altText', sheet, `Picture in ${rangeName({ r1: r, c1: c, r2: r, c2: c })} (${sheet.name})`, { range: { r1: r, c1: c, r2: r, c2: c } });
+    }
     for (const table of sheet.tables || []) {
       if (table.headerRow === false || table.headerRowCount === 0) add('tableHeader', sheet, `${table.name} (${sheet.name})`, { range: table.range });
     }

@@ -150,3 +150,14 @@ describe('floating and cell pictures convert into each other', () => {
     expect(cellPictureFromObject({ type: 'text', text: 'x' })).toBeNull();
   });
 });
+
+describe('the accessibility check', () => {
+  it('lists cell pictures without alt text, and not those described', async () => {
+    const { checkAccessibility } = await import('../src/core/accessibility-check.js');
+    const { wb, id } = book();
+    wb.setCells(id, [{ r: 5, c: 1, cell: { v: cellPicture(PNG) } }], 'No alt');
+    const found = checkAccessibility(wb).filter(f => f.rule === 'altText');
+    expect(found.map(f => f.label)).toEqual(['Picture in B6 (Sheet1)']);
+    expect(found[0].target).toEqual({ range: { r1: 5, c1: 1, r2: 5, c2: 1 } });
+  });
+});
