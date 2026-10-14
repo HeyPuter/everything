@@ -15,6 +15,7 @@ import { CHART_FAMILIES, CHART_GALLERIES } from '../core/chart-subtypes.js';
 import { CHART_STYLES, chartElementPatch, chartElementState, chartStylePatch, colorPalettes, dataLabelPositions, hasAxes, isPieChart,
   quickLayoutPatch, quickLayoutsFor } from '../core/chart-design.js';
 import { themedSeriesColors } from '../core/workbook-theme.js';
+import { arrangeGroup } from './arrange-ribbon.js';
 
 const run = (ctx, arg) => ctx.run('chart', arg);
 const flags = ctx => ctx?.flags?.() || {};
@@ -279,6 +280,7 @@ export function chartFormatGroups() {
       action('Reset to Match Style', 'resetStyle', { action: 'resetStyle' }, { unavailable: ctx => !activeChart(ctx)?.appearance })],
     ['Shape Styles', menu('Shape Fill', 'shapeFill', ctx => colorMenu(ctx, 'fill')), menu('Shape Outline', 'shapeOutline', ctx => colorMenu(ctx, 'outline')),
       menu('Shape Effects', 'shapeEffects', effectsMenu)],
+    arrangeGroup({ large: false }),
     ['Size', { label: 'Size', element: sizeFields }],
   ];
 }

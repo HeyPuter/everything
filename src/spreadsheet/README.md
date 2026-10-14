@@ -483,12 +483,59 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   Settings puts summary rows above or below their detail and summary columns
   left or right of it (saved in .xlsx files) and can set summary lines in bold
   automatically (Data → Outline), column and row resizing (drag, double-click to fit,
-  or an exact size), zoom from 50% to 200% (presets from the status bar),
+  or an exact size), zoom from 10% to 400% (presets from the status bar, or
+  View ▸ Zoom with 200%, 100%, 75%, 50%, 25%, Fit selection or a percentage of your own),
   optional gridlines, zero values
   that can be hidden per sheet, notes on cells, and colored sheet tabs. The
   row and column headers can be hidden, a focus mode hides the toolbar and
   formula bar, the app can go full screen (all in the View menu), and spelling
   is checked while typing text (never inside formulas; Tools menu).
+- **Page breaks**: Page Layout ▸ Breaks inserts a manual page break above and
+  left of the selected cell (whole rows or columns break on their own axis),
+  removes the one beside it, or resets them all, each an undo step; the cell
+  menu offers the same in Page Break Preview, where manual breaks are solid
+  lines and automatic ones dashed, a break drags to another row or column (an
+  automatic one dragged becomes manual, one dragged off the print area goes),
+  and the print area's edges drag to resize it. Printing and PDF start a new
+  page at every manual break (fit-to-pages settings decide the axis they
+  fit), breaks follow rows and columns as they are inserted, deleted or moved,
+  and they are saved as the worksheet's native row and column breaks. View ▸
+  Page Breaks (or a print preview) shows them in Normal view as dashed lines.
+- **Sheet background**: Page Layout ▸ Background tiles a picture behind the
+  cells on screen (a cell's fill covers it, and it never prints); Delete
+  Background takes it away. It is kept as the worksheet's native background
+  picture.
+- **Custom Views**: View ▸ Custom Views keeps the workbook's present view
+  under a name, with or without its page setup and its hidden rows, columns
+  and filters, and Show brings it back: each sheet's zoom, selection, scroll
+  position, frozen panes or split, Normal, Page Layout or Page Break Preview,
+  gridlines, headings and zeros, which sheets are hidden, and the sheet in
+  front, with the edits among those one undo step. Views are saved in the
+  file as native custom workbook and sheet views.
+- **Sheet views**: View ▸ Sheet View ▸ New starts a temporary view of the
+  sheet in which you filter for yourself while everyone else keeps the
+  default view (the headings take a tint and the sheet tab an eye); Keep
+  names it so it stays with the workbook, Exit goes back to the default
+  view, the Sheet View menu switches between the sheet's views, and Options
+  renames, duplicates or deletes them. Files and drafts always hold the
+  default view's filters with the named views beside them, the view you are
+  in is remembered on this device for that file, and sorting (which moves
+  the rows themselves) still applies to everyone.
+- **Arranging objects**: charts, pictures, shapes, text boxes, WordArt,
+  slicers, timelines and controls stack in an order of their own. Page
+  Layout ▸ Arrange (and a chart's Format tab, and the object menu) brings
+  them forward or to the front, sends them backward or to the back, aligns
+  them left, centre, right, top, middle or bottom, distributes three or more
+  evenly, groups, ungroups and regroups them (a group moves, orders and
+  aligns as one, and is saved as a native group), and rotates or flips
+  pictures, shapes and text boxes by quarter turns; Snap to Grid and Snap to
+  Shape line up objects as they are dragged (Alt places one freely).
+  Shift- or Cmd/Ctrl-click selects several objects, which then drag, nudge
+  with the arrow keys and delete together. The Selection Pane lists every
+  object on the sheet, front first and groups with their members, with an
+  eye to hide or show each (Show All, Hide All), a double-click or F2 to
+  rename one, and rows that drag to restack; hidden objects do not print,
+  and names, hidden state and order travel in the `.xlsx`.
 - **Multiple sheets**: add, rename, duplicate, reorder, color, hide, protect,
   and delete sheets from the tab bar, the Insert menu's Sheet submenu, or the
   palette, or copy one to another spreadsheet (a

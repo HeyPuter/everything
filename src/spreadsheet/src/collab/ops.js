@@ -42,14 +42,14 @@ export const LINE_PROPS = Object.freeze({
 export const SHEET_PROPS = Object.freeze(['kind', 'frozenRows', 'frozenCols', 'frozenOrigin', 'color', 'hidden', 'veryHidden', 'protected',
   'gridlines', 'headers', 'rightToLeft', 'defaultVAlign', 'zeros', 'printSettings', 'groups', 'filter', 'otherFilters', 'filterHidden',
   'merges', 'comments', 'rules', 'protectedRanges', 'scenarios', 'validations', 'sparklineGroups', 'charts', 'tables', 'nativeWidths',
-  'nativeDefaultHeight', 'defaultColWidth', 'defaultRowHeight', 'ignoredErrors', 'styleResets', 'outlineSettings']);
+  'nativeDefaultHeight', 'defaultColWidth', 'defaultRowHeight', 'ignoredErrors', 'styleResets', 'outlineSettings', 'background', 'sheetViews']);
 /** Never shared: one person's view of a sheet. */
-export const VIEW_PROPS = Object.freeze(['viewZoom', 'viewMode', 'viewSelection', 'viewOrigin', 'split', 'zoomToFit', 'rows', 'cols', 'id', 'name']);
+export const VIEW_PROPS = Object.freeze(['showPageBreaks', 'personalView', 'viewZoom', 'viewMode', 'viewSelection', 'viewOrigin', 'split', 'zoomToFit', 'rows', 'cols', 'id', 'name']);
 
 /** Workbook settings, one register each (the workbook's BOOK_STATE_KEYS; a test keeps the two lists alike). */
 export const BOOK_PROPS = Object.freeze(['dataModel', 'nativePivots', 'externalWorkbooks', 'iteration', 'calcMode', 'structureProtected', 'queries', 'watches',
   'calculationCompatibility', 'colorPalette', 'fontTheme', 'themeInfo', 'normalFont', 'nativeNormalStyle', 'nativeNormalFill', 'nativeDefaultCellFormat', 'names',
-  'scripts', 'cellStyles', 'linkStartup']);
+  'scripts', 'cellStyles', 'linkStartup', 'customViews']);
 
 export const STRUCTURE = new Set(['insert', 'delete', 'move', 'rename', 'drop', 'order', 'put']);
 export const isStructure = (op) => STRUCTURE.has(op.t) && op.t !== 'put';

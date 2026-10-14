@@ -11,7 +11,8 @@ export function drawingIdentity(node) {
   const props = child(nv, 'cNvPr');
   const ext = child(props, 'extLst')?.children.find(c => c.name === 'ext' && c.attrs.uri?.toUpperCase() === CREATION_URI);
   const key = child(ext, 'creationId')?.attrs.id;
-  return { key: GUID.test(key || '') ? key.toUpperCase() : null, name: props?.attrs.name || '', description: props?.attrs.descr };
+  return { key: GUID.test(key || '') ? key.toUpperCase() : null, name: props?.attrs.name || '', description: props?.attrs.descr,
+    ...(['1', 'true'].includes(props?.attrs.hidden) ? { hidden: true } : {}) };
 }
 
 /** MS-ODRAWXML CT_CreationId survives Office's renumbering of cNvPr IDs.

@@ -607,3 +607,23 @@ describe('Show Changes in a shared workbook', () => {
     expect(ben.wb.changeHistory.find((e) => e.author === 'ana').sheet).toBe('Sheet1');
   });
 });
+
+describe('layout settings in a shared workbook', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  it('shares a sheet background, kept sheet views and custom views, but not the view someone is in', () => {
+    const room = new Room();
+    const ana = room.join('ana'), ben = room.join('ben');
+    ana.wb.setSheetBackground(ana.sheet, PNG);
+    ana.wb.addCustomView('Summary');
+    ana.wb.newSheetView(ana.sheet);
+    ana.wb.keepSheetView(ana.sheet, 'Mine');
+    ana.sync();
+    ben.pull();
+    const sheet = ben.wb.sheet(ben.sheet);
+    expect(sheet.background?.src).toBe(PNG);
+    expect(ben.wb.customViews.map((v) => v.name)).toEqual(['Summary']);
+    expect(sheet.sheetViews.map((v) => v.name)).toEqual(['Mine']);
+    expect(sheet.personalView || null).toBeNull();
+    expect(ana.wb.sheet(ana.sheet).personalView).toBeTruthy();
+  });
+});

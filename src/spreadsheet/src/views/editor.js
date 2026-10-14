@@ -45,7 +45,7 @@ import { createQuickAnalysis } from '../ui/quick-analysis.js';
 import { quickTotalEntries } from '../core/quick-totals.js';
 import { createComments, COMMENT_COMMANDS } from '../ui/comments.js';
 import { copyThreads, pasteThreads } from '../core/comments.js';
-import { pageBreaks, pagesOf } from '../ui/pagebreaks.js';
+import { pageBreaks, pagesOf, insertBreaks, removeBreaks, hasBreakAt, moveBreak, moveAreaEdge } from '../ui/pagebreaks.js';
 import { createPageLayout } from '../ui/page-layout.js';
 import { consolidate } from '../core/consolidate.js';
 import { openConsolidateDialog } from '../ui/consolidatedialog.js';
@@ -96,6 +96,11 @@ import { openForecastSheet } from '../ui/forecast-sheet.js';
 import { openScenarioManager } from '../ui/scenario-manager.js';
 import { openSolver } from '../ui/solver.js';
 import { openDataAnalysis } from '../ui/analysis-tools.js';
+import { openCustomViews } from '../ui/customviews.js';
+import { openZoomDialog } from '../ui/zoomdialog.js';
+import { openSheetViewOptions, askViewName, nextViewName } from '../ui/sheetviews.js';
+import { createSelectionPane } from '../ui/selection-pane.js';
+import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
 import { openQueryEditor } from '../ui/query-editor.js';
@@ -344,6 +349,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onListOpen: ({ r, c, rule }) => openListPicker(r, c, rule),
     onDateOpen: ({ r, c }) => openDatePicker(ctx, r, c),
     onFilterOpen: ({ r, c }) => openFilterMenu(c, r),
+    // Page Break Preview: a page break or the print area's edge dragged to another line.
+    onPageBreakMove: (info) => run('movePageBreak', info),
+    onPrintAreaEdge: (info) => run('printAreaEdge', info),
+    // Arrange ▸ Align ▸ Snap to Grid and Snap to Shape, for objects dragged on the sheet.
+    snap: () => ({ grid: !!view.snapGrid, shape: !!view.snapShape }),
     // A header drag reordered rows or columns: the selection the user had before it joins the step, so
     // undoing the move puts it back, as undoing Insert or Delete rows does.
     rememberSelection: ({ sel, extras }) => rememberStepSelection({
@@ -366,6 +376,27 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   if (wb.sheet(wb.activeSheetId)?.viewZoom != null) grid.setZoom(wb.sheet(wb.activeSheetId).viewZoom, true);
 
   /* ---------- View options (remembered on this device) ---------- */
+
+  // Sheets shown in print preview this session draw their page breaks in Normal view afterwards, until
+  // View ▸ Page Breaks turns them off; the sheet's own setting (showPageBreaks) is the one saved.
+  const previewedSheets = new Set();
+  const pageBreakLinesOn = (id) => !!wb.sheet(id)?.showPageBreaks || previewedSheets.has(id);
+  let selectionPane = null; // made once the editor's commands exist (see below)
+  /*
+   * The sheet view each person is in is their own: remembered on this device for this file, never saved in
+   * it, and taken up again when the file opens here.
+   */
+  const sheetViewKey = () => (doc.path ? `spreadsheet:sheet-views:${doc.path}` : null);
+  function rememberSheetViews() {
+    const key = sheetViewKey();
+    if (!key) return;
+    const mine = Object.fromEntries(wb.sheets.filter((s) => s.personalView && !s.sheetViews?.find((v) => v.id === s.personalView.id)?.temporary).map((s) => [s.id, s.personalView.id]));
+    try { if (Object.keys(mine).length) localStorage.setItem(key, JSON.stringify(mine)); else localStorage.removeItem(key); } catch { /* no storage */ }
+  }
+  try {
+    const key = sheetViewKey(), mine = key ? JSON.parse(localStorage.getItem(key) || '{}') || {} : {};
+    for (const [sheetId, viewId] of Object.entries(mine)) wb.enterSheetView(sheetId, viewId, { undoable: false });
+  } catch { /* no storage, or nothing remembered */ }
 
   const view = { focus: false, spell: true };
   try { Object.assign(view, JSON.parse(localStorage.getItem('spreadsheet:view') || '{}') || {}); } catch { /* no storage */ }
@@ -1154,6 +1185,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       sparklines: !!sheet?.sparklineGroups?.length,
       chart: grid.selectedChart || (sheet?.kind === 'chart' ? sheet.charts[0]?.id : null), chartIsImage: wb.chartById(sheetId, grid.selectedChart)?.type === 'image',
       showFormulas: !!grid.showFormulas, gridlines: sheet?.gridlines !== false, zeros: sheet?.zeros !== false, viewMode: sheet?.viewMode || 'normal',
+      showPageBreaks: pageBreakLinesOn(sheetId), background: !!sheet?.background,
+      // Arrange: the Selection Pane, and snapping for objects dragged on the sheet.
+      selectionPane: !!selectionPane?.open, snapGrid: !!view.snapGrid, snapShape: !!view.snapShape,
+      // View ▸ Sheet View: the view this person is in, if any, and whether it is the temporary one.
+      sheetView: sheet?.personalView ? (sheet.sheetViews || []).find((v) => v.id === sheet.personalView.id) || null : null,
       headers: sheet?.headers !== false, focus: !!view.focus, spell: view.spell !== false,
       split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: view.formulaBar !== false,
       // While a cell is being edited the sheet behind it is off limits: undo, paste, fill and the like wait.
@@ -1842,6 +1878,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (refusedByProtection('sort')) return;
         if (!oneRange('sort')) return;
+        // In a sheet view the filters are one's own, but sorting moves the rows themselves, for everyone.
+        if (wb.sheet(sheetId)?.personalView) toast('Sorting reorders the rows for everyone; in a sheet view only the filters are your own', { icon: 'info', duration: 3500 });
         let range = grid.range;
         const single = S.isSingle(grid.selection);
         const sheet = wb.sheet(sheetId);
@@ -2854,13 +2892,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'zoomCustom': {
-        const text = await promptDialog({
-          title: 'Custom zoom', label: 'Zoom percentage', value: String(Math.round(grid.zoom * 100)), confirmLabel: 'Apply', inputMode: 'numeric',
-          hint: 'Enter a whole percentage from 10% to 400%.',
-          validate: (value) => /^\d+\s*%?$/.test(value) && parseInt(value, 10) >= 10 && parseInt(value, 10) <= 400 ? null : 'Enter a whole percentage from 10% to 400%.',
-        });
-        if (text != null) return run('zoomTo', parseInt(text, 10) / 100);
-        keepFocus();
+        // View ▸ Zoom: the presets, Fit selection (a chart sheet fits its window), or a percentage of one's own.
+        const chartSheet = wb.sheet(sheetId)?.kind === 'chart';
+        openZoomDialog({ zoom: grid.zoom, apply: (z) => run('zoomTo', z), fit: () => run(chartSheet ? 'zoomFit' : 'zoomSelection'), onClose: () => keepFocus() });
         return;
       }
       case 'zoomTo':
@@ -2956,11 +2990,65 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'orderObject': {
-        // Bring to Front / Send to Back: the object's place in the sheet's drawing order.
-        wb.orderChart(sheetId, arg?.id || grid.selectedChart, arg?.where);
-        keepFocus();
+        // Bring to Front, Bring Forward, Send Backward, Send to Back: the place in the sheet's drawing order of the
+        // object named, or of every object selected (whole groups).
+        const ids = arrangeTargets(ctx, arg?.id ? [arg.id] : null);
+        if (!ids.length) { toast('Select a chart, picture, shape or text box first', { icon: 'info', duration: 2500 }); return; }
+        if (wb.orderObjects(sheetId, ids, arg?.where)) statusBar?.announce({ front: 'Brought to front', forward: 'Brought forward', backward: 'Sent backward', back: 'Sent to back' }[arg?.where] || 'Order changed');
+        notify(); keepFocus();
         return;
       }
+      case 'alignObjects': {
+        const ids = arrangeTargets(ctx);
+        if (wb.alignObjects(sheetId, ids, arg)) statusBar?.announce(['horizontal', 'vertical'].includes(arg) ? `Distributed ${arg}ly` : `Aligned ${arg}`);
+        else if (ids.length < 2) toast('Select two or more objects to align (three to distribute)', { icon: 'info', duration: 2800 });
+        notify(); keepFocus();
+        return;
+      }
+      case 'groupObjects': {
+        // Arrange ▸ Group: Group, Regroup (the group last ungrouped) and Ungroup.
+        if (arg === 'regroup') {
+          const group = wb.regroupObjects(sheetId);
+          if (group) grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id));
+        } else if (arg === 'ungroup') {
+          if (wb.ungroupObjects(sheetId, arrangeTargets(ctx))) statusBar?.announce('Ungrouped');
+        } else {
+          const group = wb.groupObjects(sheetId, arrangeTargets(ctx));
+          if (group) { grid.selectCharts(wb.sheet(sheetId).charts.filter((o) => o.group === group).map((o) => o.id)); statusBar?.announce('Grouped'); }
+          else toast('Select two or more objects to group', { icon: 'info', duration: 2500 });
+        }
+        notify(); keepFocus();
+        return;
+      }
+      case 'rotateObjects':
+        if (!wb.rotateObjects(sheetId, arrangeTargets(ctx), arg)) toast('Pictures, shapes and text boxes can be rotated; charts and controls cannot', { icon: 'info', duration: 3000 });
+        notify(); keepFocus();
+        return;
+      case 'snapObjects': {
+        const key = arg === 'shape' ? 'snapShape' : 'snapGrid';
+        view[key] = !view[key];
+        applyView();
+        statusBar?.announce(`${arg === 'shape' ? 'Snap to shape' : 'Snap to grid'} ${view[key] ? 'on' : 'off'}`);
+        notify(); keepFocus();
+        return;
+      }
+      case 'selectionPane': selectionPane?.toggle(); notify(); return;
+      case 'objectsVisible':
+        if (arg?.ids?.length) wb.setObjectsHidden(sheetId, arg.ids, !!arg.hidden);
+        notify();
+        return;
+      case 'renameObject':
+        if (arg?.id) wb.renameObject(sheetId, arg.id, arg.name);
+        notify();
+        return;
+      case 'moveObjectInOrder':
+        if (arg?.id) wb.moveObjectInOrder(sheetId, arg.id, arg.to);
+        notify();
+        return;
+      case 'deleteObjects':
+        if (Array.isArray(arg) && wb.deleteObjects(sheetId, arg)) statusBar?.announce(`${arg.length} objects deleted`);
+        keepFocus();
+        return;
       case 'addWatch': {
         // Add Watch: the selected cells, as many as the Watch Window lists for a selection (the first 100).
         const cells = [];
@@ -3097,6 +3185,64 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
+      case 'pageBreak': {
+        // Page Layout ▸ Breaks: insert or remove a manual page break at the selection, or reset them all.
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (sheet.kind === 'chart') return;
+        const settings = sheet.printSettings || {};
+        const at = { active: grid.active, wholeRows: grid.range.c1 === 0 && grid.range.c2 >= MAX_COL, wholeCols: grid.range.r1 === 0 && grid.range.r2 >= MAX_ROW };
+        if (arg === 'reset') {
+          if (!settings.rowBreaks?.length && !settings.colBreaks?.length) { toast('This sheet has no manual page breaks', { icon: 'info' }); keepFocus(); return; }
+          wb.setPageBreaks(sheetId, { rows: [], cols: [] }, 'Reset all page breaks');
+          statusBar?.announce('All manual page breaks removed');
+        } else if (arg === 'remove') {
+          if (!hasBreakAt(settings, at)) { toast('There is no manual page break beside the selected cell', { icon: 'info' }); keepFocus(); return; }
+          wb.setPageBreaks(sheetId, removeBreaks(settings, at), 'Remove page break');
+          statusBar?.announce('Page break removed');
+        } else {
+          const next = insertBreaks(settings, at);
+          if (!wb.setPageBreaks(sheetId, next, 'Insert page break')) { toast('A page already starts at the selected cell', { icon: 'info' }); keepFocus(); return; }
+          statusBar?.announce('Page break inserted');
+        }
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'movePageBreak': {
+        if (!arg) return;
+        const sheet = wb.sheet(grid.sheetId), area = pageBreaks(wb, grid.sheetId)?.area;
+        if (!sheet || !area) return;
+        const list = moveBreak(sheet.printSettings, area, arg);
+        wb.setPageBreaks(grid.sheetId, arg.axis === 'row' ? { rows: list } : { cols: list }, 'Move page break');
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'printAreaEdge': {
+        // The print area's edge dragged in Page Break Preview: the area grows or shrinks to that line.
+        if (!arg) return;
+        const sheet = wb.sheet(grid.sheetId), area = pageBreaks(wb, grid.sheetId)?.area;
+        if (!sheet || !area) return;
+        const current = sheet.printSettings || normalizePrintSettings({});
+        const next = moveAreaEdge(area, arg.edge, arg.to);
+        wb.setPrintSettings(grid.sheetId, { ...current, areas: [next, ...current.areas.slice(1)] }, 'Print area');
+        statusBar?.announce(`Print area set to ${rangeName(next)}`);
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
+      case 'showPageBreaks': {
+        // View ▸ Page Breaks: Normal view's dashed lines where the pages break, kept with the sheet.
+        const sheet = wb.sheet(grid.sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        const on = arg == null ? !pageBreakLinesOn(grid.sheetId) : !!arg;
+        if (!on) previewedSheets.delete(grid.sheetId);
+        wb.setShowPageBreaks(grid.sheetId, on);
+        refreshPageView(true);
+        notify(); keepFocus();
+        return;
+      }
       case 'printArea': {
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
@@ -3189,6 +3335,62 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'scenarioManager': if (!committed()) return; openScenarioManager(ctx); return;
       case 'solver': if (!committed()) return; openSolver(ctx); return;
       case 'dataAnalysis': if (!committed()) return; openDataAnalysis(ctx); return;
+      case 'customViews': if (!committed()) return; openCustomViews(ctx); return;
+      case 'sheetView': {
+        // View ▸ Sheet View: New, Keep, Exit, switching views, and Options (rename, duplicate, delete).
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        const action = typeof arg === 'string' ? arg : arg?.action;
+        const views = sheet.sheetViews || [];
+        if (action === 'new') {
+          if (wb.newSheetView(sheetId)) toast('You are in a temporary sheet view: the filters you set stay yours. Keep it to give it a name', { icon: 'sheetView', duration: 4000 });
+        } else if (action === 'keep') {
+          const at = views.find((v) => v.id === sheet.personalView?.id);
+          if (!at) { toast('Choose New first: Keep names the temporary view you are in', { icon: 'info', duration: 3000 }); return; }
+          const name = await askViewName(views, { title: 'Keep View', value: at.temporary ? nextViewName(views) : at.name, except: at.id, confirmLabel: 'Keep' });
+          if (name != null && wb.keepSheetView(sheetId, name)) statusBar?.announce(`Sheet view ${name.trim()} kept`);
+        } else if (action === 'exit') {
+          if (wb.exitSheetView(sheetId)) statusBar?.announce('Back to the default view');
+        } else if (action === 'switch') {
+          if (arg?.id) wb.enterSheetView(sheetId, arg.id); else wb.exitSheetView(sheetId);
+        } else if (action === 'rename') wb.renameSheetView(sheetId, arg.id, arg.name);
+        else if (action === 'duplicate') wb.duplicateSheetView(sheetId, arg.id);
+        else if (action === 'delete') wb.deleteSheetView(sheetId, arg.id);
+        else if (action === 'options') { openSheetViewOptions(ctx); return; }
+        rememberSheetViews();
+        notify(); keepFocus();
+        return;
+      }
+      case 'addCustomView': {
+        // The zoom in force may be this device's, not yet the sheet's own: the view keeps what is on screen.
+        if (!committed() || !arg?.name) return;
+        if (wb.sheet(grid.sheetId)?.viewZoom == null && grid.zoom !== 1) wb.setSheetView(grid.sheetId, { viewZoom: grid.zoom });
+        if (wb.addCustomView(arg.name, { print: arg.print !== false, hidden: arg.hidden !== false })) {
+          statusBar?.announce(`View ${arg.name} added`);
+          toast(`View “${arg.name}” added`, { icon: 'customViews', duration: 1800 });
+        }
+        notify();
+        return;
+      }
+      case 'deleteCustomView':
+        if (wb.deleteCustomView(arg)) statusBar?.announce('View deleted');
+        notify();
+        return;
+      case 'showCustomView': {
+        // Show a view: the grid goes to the view's sheet first, so leaving this one does not record its place over the view's.
+        if (!committed()) return;
+        const view = wb.customViews.find((v) => v.id === arg);
+        if (!view) return;
+        const front = wb.sheet(view.activeSheetId);
+        if (front && !front.hidden && front.id !== wb.activeSheetId) wb.setActiveSheet(front.id);
+        wb.showCustomView(view.id);
+        grid.reloadSheetView();
+        refreshPageView(true);
+        statusBar?.announce(`View ${view.name} shown`);
+        notify(); keepFocus();
+        return;
+      }
       case 'advancedFilter': if (!committed()) return; if (refusedByProtection('filter the list')) return; openAdvancedFilter(ctx); return;
       // Data ▸ Get & Transform Data and Queries & Connections (see ui/get-data.js, ui/query-editor.js, core/queries.js).
       case 'getDataText': if (!committed()) return; getDataText(ctx, editQuery); return;
@@ -3421,6 +3623,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'insertImage': if (!committed()) return; replaceImageId = null; imageInput.click(); return;
+      case 'sheetBackground': {
+        if (!committed()) return;
+        const sheet = wb.sheet(sheetId);
+        if (!sheet || sheet.kind === 'chart') return;
+        if (arg === 'delete') {
+          if (wb.setSheetBackground(sheetId, null)) statusBar?.announce('Sheet background deleted');
+          else toast('This sheet has no background', { icon: 'info' });
+          keepFocus();
+          return;
+        }
+        if (refusedByProtection('change the background')) return;
+        backgroundSheet = sheetId;
+        backgroundInput.click();
+        return;
+      }
       case 'replaceImage': replaceImageId = arg || grid.selectedChart || null; if (replaceImageId) imageInput.click(); return;
       case 'insertImagePuter': {
         if (!P.canPickFiles() || !committed()) return;
@@ -3576,6 +3793,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'print':
         openPrintDialog(ctx);
+        if (wb.sheet(sheetId)?.kind !== 'chart') { previewedSheets.add(sheetId); refreshPageView(true); }
         return;
       case 'find': if (!committed()) return; findBar.open({ replace: arg === 'replace' }); return;
       case 'findNext': if (!committed()) return; findBar.findNext(); return;
@@ -5035,6 +5253,38 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (f) await insertImageFile(f, { replaceId });
     },
   });
+  // Page Layout ▸ Background: a picture tiled behind the cells of the sheet in view.
+  let backgroundSheet = null;
+  const backgroundInput = el('input', {
+    type: 'file', accept: 'image/png,image/jpeg,image/gif,image/bmp,image/webp,image/svg+xml', hidden: true, 'aria-hidden': 'true', tabindex: -1,
+    onchange: async () => {
+      const f = backgroundInput.files?.[0], sheetId = backgroundSheet;
+      backgroundInput.value = '';
+      backgroundSheet = null;
+      if (!f || destroyed || !wb.sheet(sheetId)) return;
+      try {
+        let { src, width, height } = await readImageFile(f);
+        // The file keeps a background as a PNG, JPEG, GIF or BMP picture: others are drawn into a PNG.
+        if (!/^data:image\/(png|jpeg|gif|bmp);/i.test(src)) {
+          const img = await new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = src; });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(width)); canvas.height = Math.max(1, Math.round(height));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          src = canvas.toDataURL('image/png');
+        }
+        if (destroyed) return;
+        if (wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it before changing its background', { icon: 'lock', duration: 3500 }); return; }
+        if (wb.setSheetBackground(sheetId, src)) {
+          toast('Background set. It shows behind the cells on screen and is not printed', { icon: 'image', duration: 3000 });
+          statusBar?.announce('Sheet background set');
+        } else toast('That picture is too large for a background', { icon: 'info', duration: 3000 });
+      } catch (e) {
+        if (destroyed) return;
+        toast(e?.code === 'too-large' ? `${f.name} is too large (over ${MAX_IMAGE_BYTES / (1024 * 1024)} MB)` : 'Could not read that image', { icon: 'alert', duration: 3500 });
+      }
+      keepFocus();
+    },
+  });
   /** Put an image file on the sheet at the active cell, or into the image being replaced. */
   async function insertImageFile(f, { sheetId = grid.sheetId, anchor = { ...grid.active }, replaceId = null } = {}) {
     if (destroyed) return;
@@ -5313,6 +5563,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   languagePane = createLanguagePane({ ...ctx, run,
     ai: P.canAI() ? (prompt) => P.aiChat(prompt, { feature: 'thesaurus' }) : null,
     translate: P.canAI() ? (text, from, to) => aiTranslate(translatePrompt(text, from || '', to || 'English')) : null });
+  // Page Layout ▸ Arrange ▸ Selection Pane: the sheet's drawing objects, front first.
+  selectionPane = createSelectionPane({ ...ctx, run, notify });
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
@@ -5400,6 +5652,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     fileInput,
     sheetsInput,
     imageInput,
+    backgroundInput,
     header,
     // The sheet's column, and the assistant beside it from under the title row down (a thin strip when collapsed).
     el('div.editor-body', {},
@@ -5417,6 +5670,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         accessibilityPane.el,
         languagePane.el,
         changesPane.el,
+        selectionPane.el,
         errorTag.el,
         quickAnalysis.el,
         queriesPane.el),
@@ -5461,6 +5715,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   });
   let pageViewKey = null;
   let pageLayoutKey = null;
+
   function refreshPageView(force = false) {
     const mode = sheetViewMode();
     const on = mode === 'pageBreak';
@@ -5474,11 +5729,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (!fresh && key !== pageLayoutKey) grid.refresh();
       pageLayoutKey = key;
     } else { grid.setPageLayout(null); pageLayoutKey = null; }
-    const key = on ? `${grid.sheetId}|${wb.version}` : null;
+    // Normal view can show where the pages break (View ▸ Page Breaks, or after a print preview), as dashed lines.
+    const lines = mode === 'normal' && pageBreakLinesOn(grid.sheetId);
+    const key = on || lines ? `${grid.sheetId}|${wb.version}|${on}` : null;
     if (!force && key === pageViewKey) return;
     pageViewKey = key;
-    const breaks = on ? pageBreaks(wb, grid.sheetId) : null;
-    grid.setPageView(on ? { area: breaks?.area || { r1: 0, c1: 0, r2: 0, c2: 0 }, pages: pagesOf(breaks) } : null);
+    const breaks = on || lines ? pageBreaks(wb, grid.sheetId) : null;
+    if (on) grid.setPageView({ area: breaks?.area || { r1: 0, c1: 0, r2: 0, c2: 0 }, pages: pagesOf(breaks), rowBreaks: breaks?.rowBreaks || [], colBreaks: breaks?.colBreaks || [] });
+    else grid.setPageView(lines && breaks ? { lines: true, area: breaks.area, rowBreaks: breaks.rowBreaks, colBreaks: breaks.colBreaks } : null);
   }
   ctx.viewMode = sheetViewMode;
   const unsubscribePageView = ctx.subscribe(() => refreshPageView());
@@ -5878,6 +6136,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       accessibilityPane.destroy();
       languagePane.destroy();
       changesPane.destroy();
+      selectionPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();

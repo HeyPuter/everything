@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { Doc } from '../src/lib/doc.js';
 import { memoryStorage } from './helpers/memory-storage.js';
+import { workbookToXlsx } from '../src/core/io.js';
 import { installMockPuter } from './helpers/mock-puter.js';
 
 let mock;
@@ -68,7 +69,7 @@ it('reads the file back before overwriting a same-size write made within the bas
   other.wb.setInput(other.wb.activeSheetId, 0, 0, 'thei'); // as long as "mine", so the file is the same size
   // The file carries the record of recent edits (Show Changes) too: the other tab's is the same, but for its sheet's id.
   other.wb.changeHistory = structuredClone(doc.wb.changeHistory);
-  const theirs = await other.toXlsxBlob();
+  const theirs = await workbookToXlsx(other.wb); // as the other tab's save writes it, the record included
   other.destroy();
   expect(theirs.size).toBe(doc.remoteSize);
   mock.fs.set(path, { blob: theirs, size: theirs.size, modified: mock.fs.get(path).modified, uid: mock.fs.get(path).uid });
@@ -96,7 +97,7 @@ it('reads the file back before overwriting a same-size write made in the second 
   other.wb.setInput(other.wb.activeSheetId, 0, 0, 'thei');
   // The file carries the record of recent edits (Show Changes) too: the other tab's is the same, but for its sheet's id.
   other.wb.changeHistory = structuredClone(doc.wb.changeHistory);
-  const theirs = await other.toXlsxBlob();
+  const theirs = await workbookToXlsx(other.wb); // as the other tab's save writes it, the record included
   other.destroy();
   expect(theirs.size).toBe(doc.remoteSize);
   mock.fs.set(path, { blob: theirs, size: theirs.size, modified: mock.fs.get(path).modified, uid: mock.fs.get(path).uid });

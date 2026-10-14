@@ -18,6 +18,7 @@ import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
 import { activeChart } from './chart-actions.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
+import { arrangeGroup } from './arrange-ribbon.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -123,6 +124,12 @@ const printOption = (label, key, glyph) => ({ label, glyph, ariaLabel: label, re
   return { label, cmd: 'pageSetup', arg: { [key]: !on }, disabled: !!ctx?.flags?.()?.editing, checked: on };
 } });
 const disabledItem = (label, reason) => ({ label, hint: reason, disabled: true });
+/** A View ▸ Sheet View button; `unavailable(flags)` greys it (Keep needs a temporary view, Exit any view). */
+const sheetViewButton = (label, glyph, action, unavailable) => ({ label, glyph, ariaLabel: `${label} sheet view`,
+  resolve: (menus, ctx) => {
+    const f = ctx?.flags?.() || {};
+    return { label, cmd: 'sheetView', arg: action, disabled: !!f.editing || !!f.chartSheet || unavailable(f) };
+  } });
 
 /** Home ▸ Cells ▸ Format: cell size, visibility, sheet organization and protection, then Format Cells. */
 const formatMenu = dyn('Format', 'formatCells', menus => {
@@ -258,9 +265,28 @@ const groupsFor = name => ({
         { label: 'Set Print Area', cmd: 'printArea', arg: 'set' },
         { label: 'Add to Print Area', cmd: 'printArea', arg: 'add' },
         { label: 'Clear Print Area', cmd: 'printArea', arg: 'clear' }])),
+      large(pageMenu('Breaks', 'breaks', ctx => {
+        const p = printSettingsOf(ctx) || {};
+        const any = !!(p.rowBreaks?.length || p.colBreaks?.length);
+        return [
+          { label: 'Insert Page Break', icon: 'breaks', cmd: 'pageBreak', arg: 'insert', hint: 'Above and left of the selected cell' },
+          { label: 'Remove Page Break', cmd: 'pageBreak', arg: 'remove' },
+          { label: 'Reset All Page Breaks', cmd: 'pageBreak', arg: 'reset', disabled: !any },
+          { separator: true },
+          { label: 'Page Break Preview', icon: 'pageBreak', cmd: 'viewMode', arg: 'pageBreak' },
+        ];
+      })),
+      large(dyn('Background', 'background', (menus, ctx) => {
+        const has = !!ctx.wb.sheet(ctx.sheetId())?.background, editing = !!ctx.flags?.()?.editing;
+        return [
+          { label: has ? 'Replace Background…' : 'Background Picture…', icon: 'background', cmd: 'sheetBackground', arg: 'pick', disabled: editing },
+          { label: 'Delete Background', icon: 'deleteItem', cmd: 'sheetBackground', arg: 'delete', disabled: editing || !has },
+        ];
+      }, { ariaLabel: 'Sheet Background' })),
       a('Print Titles', 'printTitles', 'print', null, { ariaLabel: 'Print Titles' }), c('Page Setup', 'pageSetup', 'print'), c('Export PDF', 'fileDown', 'exportPdf')],
     ['Scale to Fit', fitChoices('fitWidth', 'Width'), fitChoices('fitHeight', 'Height'), scaleChoices],
     ['Sheet Options', c('Gridlines', 'gridlines', 'gridlines'), printOption('Print Gridlines', 'gridlines', 'printGridlines'), c('Headings', 'headings', 'toggleHeaders'), printOption('Print Headings', 'headings', 'printHeadings')],
+    arrangeGroup(),
   ],
   Formulas: [
     ['Function Library', large({ ...c('Insert Function', 'fx', 'functionMenu'), ariaLabel: 'Insert function' }),
@@ -323,8 +349,25 @@ const groupsFor = name => ({
   View: [
     ['Workbook Views', large(direct('Normal', 'normalView', 'viewMode', 'normal', { ariaLabel: 'Normal view', isChecked: ctx => (ctx.viewMode?.() || 'normal') === 'normal' })),
       large(direct('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { isChecked: ctx => ctx.viewMode?.() === 'pageBreak' })),
-      large(direct('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'Page Layout view', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' }))],
-    ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas')],
+      large(direct('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { ariaLabel: 'Page Layout view', isChecked: ctx => ctx.viewMode?.() === 'pageLayout' })),
+      large(c('Custom Views', 'customViews', 'customViews'))],
+    ['Sheet View', large(dyn('Sheet View', 'sheetView', (menus, ctx) => {
+      const f = ctx.flags?.() || {}, sheet = ctx.wb.sheet(ctx.sheetId()), off = !!f.editing || !!f.chartSheet;
+      const views = (sheet?.sheetViews || []).filter((v) => !v.temporary || v.id === f.sheetView?.id);
+      return [
+        { label: 'Default', cmd: 'sheetView', arg: { action: 'switch', id: null }, radio: true, checked: !f.sheetView, disabled: off },
+        ...views.map((v) => ({ label: v.name, cmd: 'sheetView', arg: { action: 'switch', id: v.id }, radio: true, checked: f.sheetView?.id === v.id, disabled: off })),
+        { separator: true },
+        { label: 'New', icon: 'sheetView', cmd: 'sheetView', arg: 'new', disabled: off },
+        { label: 'Keep…', cmd: 'sheetView', arg: 'keep', disabled: off || !f.sheetView?.temporary },
+        { label: 'Exit', cmd: 'sheetView', arg: 'exit', disabled: off || !f.sheetView },
+        { label: 'Options…', icon: 'sliders', cmd: 'sheetView', arg: 'options', disabled: off },
+      ];
+    }, { ariaLabel: 'Sheet View' })),
+      sheetViewButton('New', 'filePlus', 'new', () => false), sheetViewButton('Keep', 'save', 'keep', f => !f.sheetView || !f.sheetView.temporary),
+      sheetViewButton('Exit', 'exitView', 'exit', f => !f.sheetView), sheetViewButton('Options', 'sliders', 'options', () => false)],
+    ['Show', c('Gridlines', 'gridlines', 'gridlines'), c('Formula Bar', 'fx', 'formulaBar'), c('Headings', 'headings', 'toggleHeaders'), c('Show Zeros', 'number', 'zeros'), c('Show Formulas', 'showFormulas', 'showFormulas'),
+      c('Page Breaks', 'pageBreak', 'showPageBreaks')],
     ['Zoom', large(c('Zoom', 'zoomIn', 'zoomCustom')), large(c('100%', 'zoom100', 'zoom', 'reset')), large(direct('Zoom to Selection', 'zoomSelection', 'zoomSelection', null))],
     ['Window', large(m('Freeze Panes', 'freeze', 'view', 'Freeze')), c('Split', 'split', 'split'),
       m('Hide & Unhide', 'hideEye', 'view', 'Hide and unhide'), c('Focus Mode', 'focus', 'focusMode'), c('Full Screen', 'fullscreen', 'fullscreen')],

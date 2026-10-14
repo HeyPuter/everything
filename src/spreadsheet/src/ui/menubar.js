@@ -101,6 +101,15 @@ export function menubarMenus(f = {}) {
       i('Add to print area', 'plus', 'printArea', 'add'),
       i('Clear print area', 'eraser', 'printArea', 'clear'),
     ].map(waits)),
+    sub('Page breaks', 'breaks', [
+      i('Insert page break', 'breaks', 'pageBreak', 'insert'),
+      i('Remove page break', 'eraser', 'pageBreak', 'remove'),
+      i('Reset all page breaks', 'reset', 'pageBreak', 'reset'),
+    ].map(waits)),
+    sub('Sheet background', 'background', [
+      i(f.background ? 'Replace background…' : 'Background picture…', 'background', 'sheetBackground', 'pick', { disabled: f.chartSheet }),
+      i('Delete background', 'deleteItem', 'sheetBackground', 'delete', { disabled: !f.background }),
+    ].map(waits)),
     sep,
     i('Back to all spreadsheets', 'back', 'home'),
   ];
@@ -175,12 +184,22 @@ export function menubarMenus(f = {}) {
     i('Normal', 'normalView', 'viewMode', 'normal', { checked: (f.viewMode || 'normal') === 'normal', disabled: f.chartSheet }),
     i('Page Layout', 'pageLayout', 'viewMode', 'pageLayout', { checked: f.viewMode === 'pageLayout', disabled: f.chartSheet }),
     i('Page Break Preview', 'pageBreak', 'viewMode', 'pageBreak', { checked: f.viewMode === 'pageBreak', disabled: f.chartSheet }),
+    waits(i('Custom views…', 'customViews', 'customViews')),
+    sub('Sheet view', 'sheetView', [
+      i('Default', null, 'sheetView', { action: 'switch', id: null }, { checked: !f.sheetView, disabled: f.chartSheet }),
+      sep,
+      i('New sheet view', 'sheetView', 'sheetView', 'new', { disabled: f.chartSheet }),
+      i('Keep…', 'save', 'sheetView', 'keep', { disabled: !f.sheetView?.temporary }),
+      i('Exit', 'exitView', 'sheetView', 'exit', { disabled: !f.sheetView }),
+      i('Options…', 'sliders', 'sheetView', 'options', { disabled: f.chartSheet }),
+    ].map(waits)),
     sep,
     i('Show formulas', 'fx', 'showFormulas', null, { shortcut: `${K}+\``, checked: !!f.showFormulas }),
     i('Gridlines', 'borders', 'gridlines', null, { checked: f.gridlines !== false }),
     i('Show zeros', 'eye', 'zeros', null, { checked: f.zeros !== false }),
     i('Row and column headers', 'borders', 'toggleHeaders', null, { checked: f.headers !== false }),
     i('Formula bar', 'fx', 'formulaBar', null, { checked: f.formulaBar !== false }),
+    i('Page breaks', 'pageBreak', 'showPageBreaks', null, { checked: !!f.showPageBreaks, disabled: f.chartSheet || (f.viewMode && f.viewMode !== 'normal') }),
     sep,
     sub('Freeze', 'pin', [
       i('First row', 'pin', 'freeze', { rows: 1 }),

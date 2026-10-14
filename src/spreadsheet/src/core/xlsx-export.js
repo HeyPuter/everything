@@ -20,6 +20,8 @@ import { writeThemeInfo } from './workbook-theme.js';
 import { parseFormula } from './formula/parser.js';
 import { writeXlsxPrint } from './xlsx-export-print.js';
 import { writeXlsxOutlineSettings } from './xlsx-outline.js';
+import { writeXlsxBackground } from './xlsx-background.js';
+import { writeXlsxSheetCustomViews, writeXlsxWorkbookCustomViews } from './xlsx-custom-views.js';
 import { richValueWriter } from './xlsx-rich-values.js';
 import { scenariosXml } from './scenarios.js';
 import { parseKey } from './cell.js';
@@ -177,6 +179,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     if (!drawingRecords.has(name)) drawingRecords.set(name, []);
     drawingRecords.get(name).push({ id, key });
   };
+  const groupRecords = new Map();
+  const recordGroup = (name, key) => { if (!groupRecords.has(name)) groupRecords.set(name, []); groupRecords.get(name).push(key); };
   let types = get('/[Content_Types].xml'), tableId = 0;
   const contentType = (path, type) => { types = types.replace('</Types>', xmlTag('Override', { PartName: path, ContentType: type }) + '</Types>'); };
   const richValues = richValueWriter({ get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
@@ -185,7 +189,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
     if (sheet.kind === 'chart') {
       const chartPath = `/xl/chartsheets/sheet${i + 1}.xml`;
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
       const views = xmlTag('sheetViews', {}, xmlTag('sheetView', {
         workbookViewId: 0, tabSelected: Number(wb.activeSheetId === sheet.id), zoomToFit: Number(!!sheet.zoomToFit),
         zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
@@ -284,7 +288,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
       let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
       const parts = [];
-      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, slicers });
+      const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType, recordDrawing, recordGroup, slicers });
       if (drawing) {
         rels = rels.replace('</Relationships>', xmlTag('Relationship', { Id: 'puterDrawing', Type: `${REL}drawing`, Target: drawing }) + '</Relationships>');
         // A DrawingML drawing precedes the VML drawing used by cell comments.
@@ -318,6 +322,13 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
       set(relPath, rels);
       if (parts.length) xml = xml.replace('</worksheet>', xmlTag('tableParts', { count: parts.length }, parts.join('')) + '</worksheet>');
     }
+    if (sheet.background) {
+      // Page Layout ▸ Background: the tiled picture, kept as the worksheet's <picture>.
+      const relPath = `/xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
+      let rels = get(relPath) || HEADER + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+      ({ xml, rels } = writeXlsxBackground(xml, rels, sheet.background, i + 1, { binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType }));
+      set(relPath, rels);
+    }
     const imageValues = new Map();
     for (const [key, cell] of sheet.cells) {
       if (!cell.f && !cell.v?.image) continue;
@@ -344,7 +355,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, richValues.sheet(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), imageValues));
+    set(path, richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues));
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');
@@ -383,6 +394,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     { get, set, binary: (path, data) => X.CFB.utils.cfb_add(zip, path, data), contentType });
   if (wb.nativePivots) workbook = (await import('./xlsx-pivots.js')).writeXlsxPivots(wb, workbook, { get, set, contentType, styles, pivotRulePriorities });
   if (wb.externalWorkbooks) workbook = writeXlsxExternalWorkbooks(rebaseExternalWorkbooks(wb.externalWorkbooks, sourceWorkbook), workbook, { get, set, contentType });
+  workbook = writeXlsxWorkbookCustomViews(workbook, wb.customViews || [], wb);
   set('/xl/workbook.xml', workbook);
   set('/xl/styles.xml', styles.xml());
   if (book.PuterExportMeta && conditionalRecords.size) {
@@ -408,7 +420,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   writeXlsxScripts(wb, { get, set, contentType });
   richValues.finish();
   set('/[Content_Types].xml', types);
-  if (drawingRecords.size) await updateDrawingMetadata(X, zip, book, wb, drawingRecords, { get, set });
+  if (drawingRecords.size) await updateDrawingMetadata(X, zip, book, wb, drawingRecords, { get, set, groups: groupRecords });
   if (book.PuterExportMeta) {
     book.PuterExportMeta.data.nativeFillBaseline = styles.fillBaseline();
     writeExportMetadata(X, book, { get, set });

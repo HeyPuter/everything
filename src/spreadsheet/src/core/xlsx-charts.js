@@ -130,7 +130,7 @@ function resolvePart(owner, target) {
 }
 
 /** Read through package relationships, rather than guessing chart/drawing part numbers. */
-export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
+export async function readXlsxCharts(book, sheets = [], inventory = new Map(), { splitGroups = () => null } = {}) {
   const cache = new Map(), files = book.files || {};
   const xmlOf = part => files[part]?.content ? new TextDecoder().decode(files[part].content) : '';
   // Most imports have no drawing parts. Do not parse their worksheet cells into an XML tree.
@@ -884,7 +884,9 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
       const drawingPart = related(part, drawing.attrs['r:id'], 'drawing');
       if (!drawingPart) continue;
       const scope = /<(?:\w+:)?(?:stCxn|endCxn)\b/.test(xmlOf(drawingPart)) ? (await drawingBaseline(`${drawingPart}\0${xmlOf(drawingPart)}`)).hash : null;
+      let anchorIndex = 0;
       for (const anchor of (child(read(drawingPart), 'wsDr')?.children || []).map(equationAnchor)) {
+        anchorIndex++;
         const root = anchor.children.find(n => ['sp', 'cxnSp', 'pic', 'grpSp', 'graphicFrame'].includes(n.name))
           || descendants(child(anchor, 'AlternateContent'), 'graphicFrame').find(n => descendants(n, 'chart').length);
         if (!root) continue;
@@ -904,10 +906,19 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
           const cellAnchor = from && to && normalizeCellAnchor({ from: marker(from), to: marker(to), editAs: anchor.attrs.editAs });
           if (cellAnchor) anchorGeometry.cellAnchor = cellAnchor;
         }
-        const split = descendants(root, 'chart').length || descendants(root, 'fld').some(f => f.attrs.type === 'TxLink');
+        // A group this app wrote of its own objects (named in its record) comes apart into them again, as one holding a chart does.
+        const split = descendants(root, 'chart').length || descendants(root, 'fld').some(f => f.attrs.type === 'TxLink')
+          || root.name === 'grpSp' && !!splitGroups(sheet.name)?.has(drawingIdentity(root).key);
         for (const { node, geometry: placement } of split ? groupedObjects(root, anchorGeometry) : [{ node: root, geometry: anchorGeometry }]) {
           const identity = drawingIdentity(node);
-          if (node !== root) { identity.parentKey = drawingIdentity(root).key; identities.push(identity); }
+          if (node !== root) {
+            const parent = drawingIdentity(root);
+            identity.parentKey = parent.key;
+            // The objects of a group that came apart stay a group (Arrange ▸ Group), keyed by the group's own identity.
+            identity.groupId = parent.key || `g${out.size}d${drawingTags.indexOf(tag)}a${anchorIndex}`;
+            if (parent.hidden) identity.parentHidden = true;
+            identities.push(identity);
+          }
           const geometry = { ...placement, ...drawingLink(node, drawingPart), ...(scope ? { drawingKey: drawingNodeKey(node, scope) } : {}), xlsxDrawingIdentity: identity, ...(drawingDecorative(root) || drawingDecorative(node) ? { decorative: true } : {}) };
           const chartRef = node.name === 'graphicFrame' ? descendants(node, 'chart')[0] : null;
           const picture = node.name === 'pic' ? node : null, shape = ['sp', 'cxnSp'].includes(node.name) ? node : null, group = node.name === 'grpSp' ? node : null;
@@ -1025,7 +1036,23 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map()) {
         }
       }
     }
+    for (const obj of charts) arrangeState(obj);
     if (charts.length) out.set(sheet.name, charts);
   }
   return out;
+}
+
+// cNvPr's own names for an object another program left unnamed (Chart 3, Text Box 2, Group 7): those are
+// the Selection Pane's defaults, not names anyone gave.
+const DEFAULT_NAME = /^[A-Za-z][A-Za-z ]*\s\d+$/;
+/**
+ * An object's Arrange state from its drawing: hidden (cNvPr@hidden, its group's too), a name someone gave it,
+ * and, for a group that came apart into its objects, the group they belong to.
+ */
+function arrangeState(obj) {
+  const identity = obj.xlsxDrawingIdentity;
+  if (!identity) return;
+  if (identity.hidden || identity.parentHidden) obj.hidden = true;
+  if (identity.name && !DEFAULT_NAME.test(identity.name) && identity.name !== obj.title) obj.name = identity.name.slice(0, 255);
+  if (identity.groupId) obj.group = identity.groupId;
 }
