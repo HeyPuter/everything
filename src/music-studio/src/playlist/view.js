@@ -31,7 +31,7 @@ import { createHeaders } from './headers.js';
 import { createPicker, listSources } from './picker.js';
 import { installPointer } from './pointer.js';
 import * as M from './menus.js';
-import { RULER_H, LOOP_STRIP_H, TITLE_H, PICKER_W, DEFAULT_PX_PER_TICK, DEFAULT_TRACK_H } from './constants.js';
+import { LOOP_STRIP_H, TITLE_H, PICKER_W, DEFAULT_PX_PER_TICK, DEFAULT_TRACK_H } from './constants.js';
 
 registerIcons({
   'pl-picker': [['rect', { x: '3', y: '4', width: '18', height: '16', rx: '1.5' }], ['path', { d: 'M9 4v16' }], ['path', { d: 'M5 8h2M5 11.5h2M5 15h2' }]],

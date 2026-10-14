@@ -63,6 +63,7 @@ export function colors() {
 export function resetColors() {
   C = null;
   palettes.clear();
+  infoProject = null;
 }
 
 /** Derived colors for one data color: title strip, body, notes, and their muted and selected forms. */
@@ -212,14 +213,35 @@ export function drawCanvas(V, d) {
   drawOverlays(V, d, c);
 }
 
+// Per-source draw info (palette, label, pattern), rebuilt when the project changes.
+let infoProject = null;
+const infoMap = new Map();
+function sourceInfo(p, clip) {
+  if (infoProject !== p) {
+    infoProject = p;
+    infoMap.clear();
+  }
+  let info = infoMap.get(clip.ref);
+  if (!info) {
+    const src = { kind: clip.kind, id: clip.ref };
+    info = {
+      pal: palette(sourceColor(p, src)),
+      name: sourceName(p, src),
+      pattern: clip.kind === 'pattern' ? p.patterns.find((x) => x.id === clip.ref) || null : null,
+    };
+    infoMap.set(clip.ref, info);
+  }
+  return info;
+}
+
 function drawClip(V, d, clip, y, h) {
   const p = V.store.project;
   const vp = V.vp;
   const W = d.w;
   const x0 = vp.x(clip.start);
   const w = clip.len * vp.pxPerTick;
-  const src = { kind: clip.kind, id: clip.ref };
-  const pal = palette(sourceColor(p, src));
+  const info = sourceInfo(p, clip);
+  const pal = info.pal;
   const muted = clip.mute;
   const selected = V.selection.has(clip.id);
   // Clamp huge clips to the view so coordinates stay small.
@@ -235,20 +257,18 @@ function drawClip(V, d, clip, y, h) {
   if (h > titleH + 2) d.rect(vx, y + titleH - r, vw, r, muted ? pal.mBody : selected ? pal.bodySel : pal.body);
   if (w > 14) {
     const lx = Math.max(x0, 0) + 4;
-    const label = `${clip.mute ? 'Muted: ' : ''}${sourceName(p, src)}`;
-    d.text(label, lx, y + titleH / 2 + 0.5, c.clipTextCss, { font: FONT_TITLE, maxWidth: Math.min(x0 + w, W) - lx - 3 });
+    d.text(clip.mute ? `Muted: ${info.name}` : info.name, lx, y + titleH / 2 + 0.5, c.clipTextCss, { font: FONT_TITLE, maxWidth: Math.min(x0 + w, W) - lx - 3 });
   }
   const cy = y + titleH + 1;
   const ch = h - titleH - 3;
   if (ch < 4 || w < 3) return;
-  if (clip.kind === 'pattern') drawPatternMini(V, d, clip, x0, w, cy, ch, muted ? pal.mNote : pal.note);
+  if (clip.kind === 'pattern') drawPatternMini(V, d, clip, info.pattern, x0, w, cy, ch, muted ? pal.mNote : pal.note);
   else if (clip.kind === 'audio') drawWave(V, d, clip, x0, w, cy, ch, muted ? pal.mNote : pal.wave);
   else if (clip.kind === 'auto') drawCurve(V, d, clip, x0, w, cy, ch, muted ? pal.mNote : pal.note, muted ? pal.mFill : pal.fill, h + 2 >= AUTO_EDIT_MIN_H);
 }
 
-function drawPatternMini(V, d, clip, x0, w, cy, ch, color) {
+function drawPatternMini(V, d, clip, pattern, x0, w, cy, ch, color) {
   const p = V.store.project;
-  const pattern = p.patterns.find((x) => x.id === clip.ref);
   if (!pattern) return;
   const geo = patternGeometry(p, pattern);
   if (!geo.count) return;

@@ -25,7 +25,12 @@
 // Track = { id, name, color|null, mute, solo, height (px, view only) }
 // Clip = { id, kind ('pattern'|'audio'|'auto'), track (index), start, len,
 //   offset (ticks into the source), ref (pattern id, channel id or automation id), mute }
-// Automation = { id, name, target, points: [{ t (ticks from clip start), v (0..1) }], tension? }
+//   A clip plays the window [offset, offset + len) of its source starting at
+//   `start`. Pattern clips play the notes whose pos is in that window and do
+//   not repeat the pattern when the clip is longer (see playlist/clips.js).
+// Automation = { id, name, target, points: [{ t, v (0..1) }], color?, tension? }
+//   t is in ticks of the automation's own timeline; a clip at song tick s
+//   reads it at s - clip.start + clip.offset (automation/evaluate.js).
 //   target = { kind: 'channel', id, param } | { kind: 'mixer', track, param: 'volume'|'pan' }
 //          | { kind: 'fx', track, slot, param } | { kind: 'tempo' }
 // MixerTrack = { id, name, color|null, volume (0..1.25), pan, width (0..2),
