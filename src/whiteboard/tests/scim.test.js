@@ -1643,3 +1643,33 @@ test("an API key the account owner made can deactivate an administrator through 
   await assert.rejects(adminKey("deactivated"), { status: 403 });
   assert.equal(await org.role(editor), "admin");
 });
+
+test("SCIM reads a user's address as identity providers send it", async () => {
+  const { scim } = await setup();
+  // The primary address, wherever it is in the list, trimmed.
+  const sam = await scim("Users", "POST", {
+    emails: [
+      { value: "sam@gmail.com", type: "home" },
+      { value: " Sam@Example.ca ", type: "work", primary: true },
+    ],
+  });
+  assert.equal(sam.userName, "sam@example.ca");
+  const trimmed = await scim("Users", "POST", { userName: " Kim@Example.ca " });
+  assert.equal(trimmed.userName, "kim@example.ca");
+  // Microsoft Entra ID's path-less patch names the work address by path.
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  const patched = await scim(`Users/${pat.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [
+      {
+        op: "Replace",
+        value: {
+          'emails[type eq "work"].value': "pat.lee@example.ca",
+          "name.givenName": "Pat",
+        },
+      },
+    ],
+  });
+  assert.equal(patched.userName, "pat.lee@example.ca");
+  assert.equal(patched.name.givenName, "Pat");
+});

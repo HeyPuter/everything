@@ -609,9 +609,10 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
     return listPage(url, rows, view);
   }
   if (method === "POST" && !id) {
-    const email = String(
-      body?.userName || body?.emails?.[0]?.value || "",
-    ).toLowerCase();
+    // The same address PUT and PATCH read: the userName, or else the
+    // primary or work email.
+    const email =
+      scimEmail({ ...body, userName: body?.userName || undefined }) || "";
     if (!validEmail(email))
       refuse(400, "userName must be the user's email address.", "invalidValue");
     const emailKey = "org:email:" + (await hash(email));
@@ -770,9 +771,16 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
         if (/^userName$/i.test(path) || renamed === undefined) renamed = value;
       } else if (!path && op.value && typeof op.value === "object") {
         applyAttributes(user, patchValue(op.value));
+        // Microsoft Entra ID names the work address by its value path:
+        // { "emails[type eq \"work\"].value": "pat@example.ca" }.
         const value = scimEmail(
           Object.fromEntries(
-            Object.entries(op.value).map(([k, v]) => [unqualified(k, CORE), v]),
+            Object.entries(op.value).map(([k, v]) => {
+              const key = unqualified(k, CORE);
+              return /^emails(\[.*\])?\.value$/i.test(key)
+                ? ["emails", [{ value: v, type: "work", primary: true }]]
+                : [key, v];
+            }),
           ),
         );
         if (value !== undefined) renamed = value;
