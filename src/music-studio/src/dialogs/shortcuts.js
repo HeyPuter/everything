@@ -19,7 +19,7 @@ export function shortcutGroups(commands, query = '') {
   for (const c of commands.all()) {
     if (!c.keys?.length) continue;
     const title = c.scope && c.scope !== 'global' ? SCOPES[c.scope] || c.scope : PREFIXES[c.id.split('.')[0]] || 'Other';
-    const label = commands.label(c.id);
+    const label = c.longLabel || commands.label(c.id);
     const keys = c.keys.map(formatKeys);
     const hay = `${label} ${title} ${keys.join(' ')} ${c.keys.join(' ')}`.toLowerCase();
     if (words.length && !words.every((w) => hay.includes(w))) continue;

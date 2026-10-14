@@ -27,8 +27,8 @@ export function installDialogs(app) {
     { id: 'view.history', label: 'Undo history', keys: ['Alt+Z'], run: () => openHistory(app) },
     { id: 'tools.tapTempo', label: 'Tap tempo...', run: run(() => openTapTempo(app)) },
     { id: 'tools.purgeUnused', label: 'Purge unused...', run: run(() => purgeCommand(app)) },
-    { id: 'file.exportWav', label: 'Audio (WAV)...', keys: ['Mod+R'], run: run(() => openExportDialog(app)) },
-    { id: 'file.exportStems', label: 'Mixer stems (ZIP of WAV files)...', run: run(() => openExportDialog(app, { stems: true })) },
+    { id: 'file.exportWav', label: 'Audio (WAV)...', longLabel: 'Export audio (WAV)...', keys: ['Mod+R'], run: run(() => openExportDialog(app)) },
+    { id: 'file.exportStems', label: 'Mixer stems (ZIP of WAV files)...', longLabel: 'Export mixer stems...', run: run(() => openExportDialog(app, { stems: true })) },
   );
   // The first-run alpha notice appears after start; offer the tour from it.
   app.once('ready', () => offerTourFromAlphaNotice(app));

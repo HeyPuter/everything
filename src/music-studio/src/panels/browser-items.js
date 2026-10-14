@@ -101,7 +101,7 @@ export function filterNodes(nodes, query) {
       const kids = n.children ? walk(n.children, `${context} ${norm(n.label)}`) : [];
       if (self && n.kind !== 'section' && n.kind !== 'group') out.push(n);
       else if (self && n.children && !kids.length) out.push({ ...n, children: n.children.filter((c) => c.kind !== 'note' && c.kind !== 'action') });
-      else if (kids.length) out.push({ ...n, children: kids });
+      else if (kids.length) out.push({ ...n, children: kids, ...(n.count !== undefined ? { count: kids.length } : {}) });
     }
     return out;
   };

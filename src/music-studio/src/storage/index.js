@@ -55,9 +55,9 @@ export function install(app, { db = openDB() } = {}) {
     { id: 'file.save', label: 'Save', keys: ['Mod+S'], enabled: () => !app.saving, run: run(() => files.save()) },
     { id: 'file.saveAs', label: 'Save as...', keys: ['Mod+Shift+S'], enabled: () => !app.saving, run: run(() => files.saveAs()) },
     { id: 'file.saveLocal', label: 'Save to your device', run: run(() => files.download()) },
-    { id: 'file.importAudio', label: 'Audio files...', run: run(() => files.importAudioCommand()) },
-    { id: 'file.importMidi', label: 'MIDI file...', run: run(() => files.importMidiCommand()) },
-    { id: 'file.exportMidi', label: 'MIDI file...', run: run(() => files.exportMidiCommand()) },
+    { id: 'file.importAudio', label: 'Audio files...', longLabel: 'Import audio files...', run: run(() => files.importAudioCommand()) },
+    { id: 'file.importMidi', label: 'MIDI file...', longLabel: 'Import MIDI file...', run: run(() => files.importMidiCommand()) },
+    { id: 'file.exportMidi', label: 'MIDI file...', longLabel: 'Export MIDI file...', run: run(() => files.exportMidiCommand()) },
   );
 
   installDialogs(app);

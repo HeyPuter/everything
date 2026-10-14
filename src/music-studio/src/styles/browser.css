@@ -72,11 +72,6 @@
   color: var(--text);
 }
 
-.br-row[aria-selected='true'] {
-  background: var(--raised);
-  color: var(--text);
-}
-
 .br-tree:focus-within .br-row[aria-selected='true'] {
   background: var(--accent-soft);
 }

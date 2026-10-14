@@ -60,6 +60,7 @@ let active = null;
 export function startTour(app) {
   active?.end();
   const previous = document.activeElement;
+  const phonePanel = app.prefs.get('mobilePanel');
   let index = 0;
   const titleId = 'tour-title';
   const ring = h('div.tour-ring', { 'aria-hidden': 'true' });
@@ -156,6 +157,8 @@ export function startTour(app) {
     ring.remove();
     window.removeEventListener('resize', place);
     active = null;
+    // Phones: return to the view the tour started from.
+    if (app.root.classList.contains('is-phone') && app.prefs.get('mobilePanel') !== phonePanel) app.shell?.showMobile?.(phonePanel);
     if (previous?.isConnected) previous.focus({ preventScroll: true });
   }
   active = { end };
