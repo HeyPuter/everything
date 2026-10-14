@@ -395,3 +395,64 @@ test('the context menu offers synonyms and translation for the word at the caret
   await synonyms.getByRole('menuitem').first().click();
   await expect(input).toHaveValue(`A ${first} test.`);
 });
+
+test('Tracking Options change how changes look, and Specific People hides a reviewer', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await openFixture(page, 'tracked.docx');
+  await expect(input).toHaveValue(/Centered by Ada/);
+  await onTab(page, 'review');
+  await page.locator('#ribbon-panel-review [aria-label="Tracking Options"]').evaluate(b => b.click());
+  const dialog = page.getByRole('dialog', { name: 'Tracking Options' });
+  await dialog.getByRole('combobox', { name: 'Deletion mark' }).selectOption('doubleStrikethrough');
+  await dialog.getByRole('combobox', { name: 'Change bar position' }).selectOption('right');
+  await dialog.getByRole('combobox', { name: 'Grace color' }).selectOption('2F8A3A');
+  await expect(dialog.locator('.rv-preview')).toContainText('deleted text');
+  await page.screenshot({ path: info.outputPath('tracking-options.png') });
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('tracking-applied.png') });
+  // Hide Grace's changes: her balloons and bars go, Ada's stay.
+  await review(page).getByRole('button', { name: 'Show Markup', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Specific People' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Grace' }).click();
+  await expect(page.locator('.ed-revision-card').filter({ hasText: 'Grace' })).toHaveCount(0);
+  await expect(page.locator('.ed-revision-card').filter({ hasText: 'Ada' }).first()).toBeVisible();
+  // Accept All Changes Shown leaves Grace's.
+  await page.locator('#ribbon-panel-review [aria-label="Accept options"]').evaluate(b => b.click());
+  await page.getByRole('menuitem', { name: 'Accept All Changes Shown' }).click();
+  await review(page).getByRole('button', { name: 'Show Markup', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Specific People' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'All Reviewers' }).click();
+  await review(page).getByRole('button', { name: 'Reviewing Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Reviewing Pane' });
+  await expect(pane).toContainText('Grace');
+  await expect(pane).not.toContainText('Ada');
+  expect(errors).toEqual([]);
+});
+
+test('Combine Documents adds the copy\'s differences to the original and the Reviewing Pane can sit below', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Placeholder.');
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Compare"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Combine…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Combine Documents' });
+  const [original, revised] = await dialog.locator('input[type="file"]').all();
+  await original.setInputFiles('tests/fixtures/review/original.docx');
+  await revised.setInputFiles('tests/fixtures/review/revised.docx');
+  await dialog.getByRole('textbox', { name: 'Label changes with' }).fill('Copy Editor');
+  await page.screenshot({ path: info.outputPath('combine-dialog.png') });
+  await dialog.getByRole('button', { name: 'Combine', exact: true }).click();
+  const result = page.getByRole('dialog', { name: 'Combined Document' });
+  await expect(result).toContainText('labeled “Copy Editor”');
+  page.once('dialog', d => d.accept());
+  await result.getByRole('button', { name: 'Open Document' }).click();
+  await expect(input).toHaveValue(/Sales grew by tentwelve percent/, { timeout: 20000 });
+  await page.locator('#ribbon-panel-review [aria-label="Reviewing Pane options"]').evaluate(b => b.click());
+  await page.getByRole('menuitemradio', { name: 'Reviewing Pane Horizontal' }).click();
+  const pane = page.getByRole('complementary', { name: 'Reviewing Pane' });
+  await expect(pane).toHaveAttribute('data-orientation', 'horizontal');
+  await expect(pane).toContainText('Copy Editor');
+  await page.screenshot({ path: info.outputPath('reviewing-horizontal.png') });
+  await exported(page, info, 'combined.docx');
+});

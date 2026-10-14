@@ -10,6 +10,7 @@ import { mergeDocuments, documentAuthor } from '../src/engine/compare.js';
 import { proofingText, wordsToCheck } from '../src/lib/spelling.js';
 import { checkAccessibility, summarize } from '../src/lib/accessibility.js';
 import { textStatistics } from '../src/lib/readability.js';
+import { describeFormatChange } from '../src/engine/revisions.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -43,6 +44,8 @@ describe('tracked fixture', () => {
     expect(model.revisions.map(r => [r.type, r.author])).toEqual([['format', 'Ada'], ['ins', 'Ada'], ['del', 'Grace'], ['del', 'Grace'], ['format', 'Grace'], ['ins', 'Grace']]);
     expect(model.revisions.filter(r => r.move).map(r => [r.type, r.moveName])).toEqual([['del', 'move1'], ['ins', 'move1']]);
     expect(model.revisions.filter(r => r.type === 'format').map(r => r.author)).toEqual(['Ada', 'Grace']);
+    expect(describeFormatChange(model.paragraphs[0])).toEqual(['Centered']);
+    expect(describeFormatChange(model.paragraphs[1].runs.find(r => r.text === 'Bolded by Grace.'))).toEqual(['Bold']);
     expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
     const french = model.paragraphs[3].runs.find(r => r.text.startsWith('un texte'));
     expect(french.fontLanguage).toBe('fr-FR');

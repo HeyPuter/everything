@@ -256,19 +256,28 @@ export function runRevisionDisplay(run) {
 
 /** Human-readable names of what a formatting revision changed, e.g. ['Bold', 'Font size 14 pt']. */
 export function describeFormatChange(target, previous = target.formatRevision?.previous) {
-  if (!previous) return ['Formatted'];
-  const now = target.styleManaged || target.formatOverrides ? { ...(target.directFormat || {}), ...(target.overrides || {}), ...(target.formatOverrides || {}) } : target;
-  const before = previous.styleManaged || previous.formatOverrides ? { ...(previous.directFormat || {}), ...(previous.overrides || {}), ...(previous.formatOverrides || {}) } : previous;
-  const names = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strikethrough: 'Strikethrough', fontSize: 'Font size', color: 'Font color', highlight: 'Highlight', fontAscii: 'Font', alignment: 'Alignment', indentLeft: 'Indent', firstLine: 'First line indent', spaceBefore: 'Space before', spaceAfter: 'Space after', lineSpacing: 'Line spacing', capitalization: 'Caps', verticalAlign: 'Position', fontLanguage: 'Language', noProof: 'No proofing' };
+  const paragraph = Array.isArray(target.runs);
+  const fallback = [paragraph ? 'Paragraph formatting' : 'Formatting'];
+  if (!previous) return fallback;
+  let now, before;
+  if (paragraph) {
+    // A change recorded here keeps the resolved format; an imported one, the direct properties.
+    if (previous.format) { now = target.format || {}; before = previous.format; }
+    else { now = { ...(target.styleContext?.properties || {}), ...(target.formatOverrides || {}) }; before = { ...(previous.styleContext?.properties || {}), ...(previous.formatOverrides || {}) }; }
+  } else if (Object.hasOwn(previous, 'fontSize')) { now = target; before = previous; }
+  else { now = { ...(target.directFormat || {}), ...(target.overrides || {}) }; before = { ...(previous.directFormat || {}), ...(previous.overrides || {}) }; }
+  const names = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strikethrough: 'Strikethrough', fontSize: 'Font size', color: 'Font color', highlight: 'Highlight', fontAscii: 'Font', alignment: 'Alignment', indentLeft: 'Indent', indentRight: 'Right indent', firstLine: 'First line indent', ind: 'Indent', spaceBefore: 'Space before', spaceAfter: 'Space after', spacing: 'Spacing', lineSpacing: 'Line spacing', capitalization: 'Caps', verticalAlign: 'Position', fontLanguage: 'Language', noProof: 'No proofing', keepNext: 'Keep with next', keepLines: 'Keep lines together', pageBreakBefore: 'Page break before', outlineLevel: 'Outline level', paragraphBorders: 'Borders', paragraphShading: 'Shading', tabs: 'Tabs' };
+  const alignments = { left: 'Left', center: 'Centered', right: 'Right', both: 'Justified', start: 'Left', end: 'Right' };
   const out = [];
   for (const key of new Set([...Object.keys(now), ...Object.keys(before)])) {
     if (JSON.stringify(now[key]) === JSON.stringify(before[key])) continue;
     const label = names[key]; if (!label) continue;
     const value = now[key];
-    out.push(typeof value === 'boolean' ? (value ? label : `Not ${label.toLowerCase()}`) : value === undefined ? `${label} removed` : key === 'fontSize' ? `${label} ${value} pt` : `${label}: ${value}`);
+    out.push(key === 'alignment' && value ? alignments[value] || value : typeof value === 'boolean' ? (value ? label : `Not ${label.toLowerCase()}`) : value === undefined ? `${label} removed` : key === 'fontSize' ? `${label} ${value} pt` : typeof value === 'object' ? label : `${label}: ${value}`);
   }
   if ((target.styleId || null) !== (previous.styleId || null)) out.push(`Style: ${target.styleId || 'Default'}`);
-  return out.length ? [...new Set(out)] : ['Formatted'];
+  if (paragraph && target.list?.numId !== previous.list?.numId) out.push(target.list ? 'List' : 'List removed');
+  return out.length ? [...new Set(out)] : fallback;
 }
 
 /**
