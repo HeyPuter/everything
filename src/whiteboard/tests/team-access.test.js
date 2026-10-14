@@ -610,3 +610,25 @@ test("opening a lesser invitation keeps a team member's access through the team,
   await boards.call(editor, { op: "join", room, token: editors.token });
   assert.equal(await opens(boards, editor, room), true);
 });
+
+test("someone removed from a team's board by name no longer finds it among the organization's boards", async () => {
+  const { boards, call, team } = await setup();
+  const room = await create(boards, owner, { team: team.id });
+  await settings(boards, room, { teamRole: "editor" });
+  await join(boards, editor, room);
+  const listed = async () => {
+    boards.access = new Map();
+    return (
+      await call(editor, { op: "org.boards", scope: "organization" })
+    ).boards.map((b) => b.room);
+  };
+  assert.ok((await listed()).includes(room));
+  await boards.call(owner, {
+    op: "role",
+    room,
+    uuid: editor.uuid,
+    role: "removed",
+  });
+  assert.equal(await opens(boards, editor, room), false);
+  assert.ok(!(await listed()).includes(room));
+});

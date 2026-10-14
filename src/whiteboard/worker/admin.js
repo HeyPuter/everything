@@ -1632,6 +1632,7 @@ export async function adminCall(org, boards, identity, input) {
     const scope = input.scope || "mine";
     let rows,
       total = null;
+    const teamOnly = new Set();
     if (scope === "all") {
       await admin();
       rows = (await org.list("org:board:")).map((r) => r.value);
@@ -1645,19 +1646,25 @@ export async function adminCall(org, boards, identity, input) {
       );
       const rooms = new Set(mine.keys());
       const role = scope === "organization" && (await org.role(identity));
+      const roomOf = (row) =>
+        (typeof row === "string" ? row : row.key).split(":").at(-1);
       if (role && role !== "guest") {
         for (const row of await org.list("org:visible:", { values: false }))
-          rooms.add(
-            (typeof row === "string" ? row : row.key).split(":").at(-1),
-          );
-        // So are the boards that give the person's teams a role.
-        for (const team of (await org.user(identity.uuid))?.teams || [])
-          for (const row of await org.list(`org:teamboard:${team}:`, {
-            values: false,
-          }))
-            rooms.add(
-              (typeof row === "string" ? row : row.key).split(":").at(-1),
-            );
+          rooms.add(roomOf(row));
+        // So are the boards that give the person's teams a role, read for
+        // every team at once. One found only that way, which the person's
+        // own list leaves out, as when they were removed from it by name,
+        // has its access checked below.
+        const lists = await Promise.all(
+          ((await org.user(identity.uuid))?.teams || []).map((team) =>
+            org.list(`org:teamboard:${team}:`, { values: false }),
+          ),
+        );
+        for (const row of lists.flat()) {
+          const room = roomOf(row);
+          if (!rooms.has(room)) teamOnly.add(room);
+          rooms.add(room);
+        }
       }
       const found = await boardRows(org, rooms, scope !== "mine");
       total = found.total;
@@ -1771,7 +1778,8 @@ export async function adminCall(org, boards, identity, input) {
             (teamGrants(b, account) && (!member || !!member.via))),
       );
     const doubtful = (b) =>
-      b.teamRole !== "none" && b.role && !teamGrants(b, account);
+      teamOnly.has(b.room) ||
+      (b.teamRole !== "none" && b.role && !teamGrants(b, account));
     const checked = administers
       ? []
       : searching || !insider
