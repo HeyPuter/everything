@@ -14187,11 +14187,13 @@ const BACKGROUND_LABELS = {
 // Ink drawn during a show stays on the slides only if the presenter says so.
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
+// A show on its way up (its inserted media still loading) counts as open.
+let presentOpening = false;
 async function present(options = {}) {
   // Before anything waits: a window for the audience needs the click.
   options = showFeatures.begin(options);
   await settled();
-  if (document.querySelector("dialog.presenter[open]")) {
+  if (presentOpening || document.querySelector("dialog.presenter[open]")) {
     options.audience?.close();
     return;
   }
@@ -15029,7 +15031,12 @@ async function present(options = {}) {
     },
     { passive: true },
   );
-  await showInserted.prepare();
+  presentOpening = true;
+  try {
+    await showInserted.prepare();
+  } finally {
+    presentOpening = false;
+  }
   const releaseFonts = retainDocumentFonts(pres);
   document.body.append(d);
   try {
