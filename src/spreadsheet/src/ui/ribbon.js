@@ -16,6 +16,7 @@ import { equationGalleryItems } from './equation.js';
 import { queryForTable } from '../core/queries.js';
 import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
+import { pictureFormatGroups, activePicture } from './picture-ribbon.js';
 import { activeChart } from './chart-actions.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
@@ -257,6 +258,7 @@ const groupsFor = name => ({
   Draw: drawRibbonGroups(),
   'Chart Design': chartDesignGroups(),
   Format: chartFormatGroups(),
+  'Picture Format': pictureFormatGroups(),
   'SmartArt Design': smartArtDesignGroups(),
   'SmartArt Format': smartArtFormatGroups(),
   'Page Layout': [
@@ -417,16 +419,19 @@ export function createRibbon(ctx) {
   const root = el('div.ribbon.toolbar');
   const id = fieldId('ribbon');
   const tabs = el('div.ribbon-tabs', { role: 'tablist', 'aria-label': 'Ribbon' });
-  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format', 'SmartArt Design', 'SmartArt Format'];
+  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format', 'SmartArt Design', 'SmartArt Format', 'Picture Format'];
   const CHART_TABS = ['Chart Design', 'Format'];
   // A selected SmartArt graphic offers its own two tabs; the second is called Format, as a chart's is.
   const SMARTART_TABS = ['SmartArt Design', 'SmartArt Format'];
+  // A selected picture offers Picture Format, as a selected chart offers its two tabs.
+  const PICTURE_TABS = ['Picture Format'];
   const tabLabel = name => (name === 'SmartArt Format' ? 'Format' : name);
-  const contextualTab = name => name === 'Table' || CHART_TABS.includes(name) || SMARTART_TABS.includes(name);
-  const CONTEXT_TABS = ['Table', ...CHART_TABS, ...SMARTART_TABS];
+  const contextualTab = name => name === 'Table' || CHART_TABS.includes(name) || SMARTART_TABS.includes(name) || PICTURE_TABS.includes(name);
+  const CONTEXT_TABS = ['Table', ...CHART_TABS, ...SMARTART_TABS, ...PICTURE_TABS];
   let userHidden = new Set(); // tabs the person hid (applyLayout)
   let chartId = null;
   let smartArtId = null;
+  let pictureId = null;
   const panels = [];
   const buttons = [];
   const dynamic = [];
@@ -577,8 +582,10 @@ export function createRibbon(ctx) {
       }
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
-    if (CHART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
+    if (CHART_TABS.includes(name) || PICTURE_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
     if (SMARTART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-smartart-tab');
+    // Its key tip is its own (J for the picture tools, then P), leaving Page Layout its single P.
+    if (PICTURE_TABS.includes(name)) tab.dataset.keytip = 'JP';
     buttons.push(tab); panels.push(panel); tabs.append(tab);
   }
   const toggle = el('button.ribbon-collapse', { type: 'button', 'aria-controls': `${id}-panels`, onclick: () => setCollapsed(!collapsed) });
@@ -652,7 +659,8 @@ export function createRibbon(ctx) {
   const enabled = panel => [...panel.querySelectorAll('.tb-btn, .ribbon-control')].filter(b => !b.disabled && !b.closest('[hidden], [inert]'));
   const rove = (panel, target) => { for (const b of panel.querySelectorAll('.tb-btn, .ribbon-control')) b.tabIndex = b === target ? 0 : -1; };
   function select(name, { expand = true } = {}) {
-    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId) || (SMARTART_TABS.includes(name) && !smartArtId)) return;
+    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId) || (SMARTART_TABS.includes(name) && !smartArtId)
+      || (PICTURE_TABS.includes(name) && !pictureId)) return;
     active = name;
     tableNameError.hidden = true;
     if (!contextualTab(name)) lastRegular = name;
@@ -687,6 +695,13 @@ export function createRibbon(ctx) {
       if (fresh && !collapsed && !flags.editing) active = 'Chart Design';
       else if (!chartId && CHART_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
     }
+    const nextPictureId = flags.editing ? pictureId : activePicture(ctx)?.id || null;
+    if (nextPictureId !== pictureId) {
+      const fresh = !pictureId && nextPictureId;
+      pictureId = nextPictureId;
+      if (fresh && !collapsed && !flags.editing) active = 'Picture Format';
+      else if (!pictureId && PICTURE_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
+    }
     for (const name of CHART_TABS) buttons[names.indexOf(name)].hidden = !chartId;
     // A selected SmartArt graphic offers SmartArt Design and Format, and opens on SmartArt Design.
     const nextSmartArtId = flags.editing ? smartArtId : activeSmartArt(ctx)?.id || null;
@@ -697,8 +712,9 @@ export function createRibbon(ctx) {
       else if (!smartArtId && SMARTART_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
     }
     for (const name of SMARTART_TABS) buttons[names.indexOf(name)].hidden = !smartArtId;
+    for (const name of PICTURE_TABS) buttons[names.indexOf(name)].hidden = !pictureId;
     const contextual = buttons[names.indexOf('Table')];
-    contextual.hidden = !tableId || !!chartId || !!smartArtId;
+    contextual.hidden = !tableId || !!chartId || !!smartArtId || !!pictureId;
     // Tabs the person hid (Options ▸ Customize Ribbon) stay hidden.
     for (let i = 0; i < names.length; i++) if (!CONTEXT_TABS.includes(names[i])) buttons[i].hidden = userHidden.has(names[i]);
     // A chart chosen over a collapsed ribbon hides the Table tab without opening Chart Design: never leave a hidden tab selected.

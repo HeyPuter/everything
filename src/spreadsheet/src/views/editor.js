@@ -109,6 +109,10 @@ import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as ge
 import { openQueryEditor } from '../ui/query-editor.js';
 import { createQueriesPane } from '../ui/queries-pane.js';
 import { createAutomate, AUTOMATE_COMMANDS, scriptOfLink } from '../ui/automate.js';
+import { createPictures, PICTURE_COMMANDS } from '../ui/pictures.js';
+import { isCellPicture } from '../core/cell-picture.js';
+import { pictureIsPlain } from '../core/picture-format.js';
+import { linkedPictureTarget, rangePicture } from '../core/range-picture.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
 import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.js';
 import { toggleDetail } from '../core/outline-detail.js';
@@ -1252,6 +1256,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // The sheet holds native sparklines, so the commands that edit, regroup or clear them have something to act on.
       sparklines: !!sheet?.sparklineGroups?.length,
       chart: grid.selectedChart || (sheet?.kind === 'chart' ? sheet.charts[0]?.id : null), chartIsImage: wb.chartById(sheetId, grid.selectedChart)?.type === 'image',
+      // A picture placed in the active cell (not an IMAGE result): Place over Cells and Alt Text act on it.
+      cellPicture: isCellPicture(cell?.v) && cell?.f == null,
       showFormulas: !!grid.showFormulas, gridlines: sheet?.gridlines !== false, zeros: sheet?.zeros !== false, viewMode: sheet?.viewMode || 'normal',
       showPageBreaks: pageBreakLinesOn(sheetId), background: !!sheet?.background,
       // Arrange: the Selection Pane, and snapping for objects dragged on the sheet.
@@ -1437,6 +1443,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       return;
     }
     if (COMMENT_COMMANDS.has(cmd)) { comments.run(cmd, arg); return; }
+    // Pictures in cells, Picture Format and pictures of cells (ui/pictures.js).
+    if (PICTURE_COMMANDS.has(cmd)) { if (grid.editing && !grid.commitEdit()) return; return pictures.run(cmd, arg); }
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
     if (chartSheet && ['editChart', 'deleteChart', 'duplicateChart'].includes(cmd) && !arg) arg = grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id;
@@ -3691,8 +3699,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           let blob;
           if (ch.type === 'smartart') blob = await svgToPng(smartArtPicture(ch), ch.w, ch.h);
           else if (ch.type === 'image') {
-            const raw = await (await fetch(ch.src)).blob();
-            blob = raw.type === 'image/png' && !ch.flipH && !ch.flipV && !ch.srcRect && !ch.fillRect && !ch.rotation ? raw : await imageToPng(ch.src, ch);
+            const shown = linkedPictureNow(ch);
+            const raw = await (await fetch(shown.src)).blob();
+            blob = raw.type === 'image/png' && pictureIsPlain(shown) ? raw : await imageToPng(shown.src, shown);
           } else {
             const cs = getComputedStyle(grid.viewport);
             const svg = standaloneSvg(renderChartSvg(chartData(wb, sheetId, ch), ch, ch.w, ch.h), (n) => cs.getPropertyValue(n));
@@ -3718,8 +3727,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             const format = arg?.format === 'svg' ? 'svg' : 'png', svg = smartArtPicture(ch);
             blob = format === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg, ch.w, ch.h);
             name = `${P.sanitizeName(ch.name || 'SmartArt') || 'SmartArt'}.${format}`;
+          } else if (ch.type === 'image' && ch.pictureRef) {
+            const shown = linkedPictureNow(ch);
+            blob = await imageToPng(shown.src, shown);
+            name = `${P.sanitizeName(ch.title || 'picture') || 'picture'}.png`;
           } else if (ch.type === 'image') {
-            if (ch.flipH || ch.flipV || ch.srcRect || ch.fillRect || ch.rotation) blob = await imageToPng(ch.src, ch);
+            if (!pictureIsPlain(ch)) blob = await imageToPng(ch.src, ch);
             else {
               const drawing = ch.drawingShape && await (await import('../core/drawingml-raster.js')).drawingRasterSource(ch.src, ch);
               blob = await (await fetch(drawing?.src || ch.src)).blob();
@@ -3743,7 +3756,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'insertImage': if (!committed()) return; replaceImageId = null; imageInput.click(); return;
+      // Insert ▸ Pictures: over the cells, or with 'cell' into the active cell as its value (Place in Cell).
+      case 'insertImage': if (!committed()) return; replaceImageId = null; imageIntoCell = arg === 'cell'; imageInput.click(); return;
       case 'sheetBackground': {
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
@@ -3759,12 +3773,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         backgroundInput.click();
         return;
       }
-      case 'replaceImage': replaceImageId = arg || grid.selectedChart || null; if (replaceImageId) imageInput.click(); return;
+      case 'replaceImage': {
+        const id = arg || grid.selectedChart || null;
+        // A linked picture's double-click (or Enter) goes to the cells it shows.
+        const linked = id && wb.chartById(sheetId, id)?.pictureRef;
+        if (linked) {
+          const target = linkedPictureTarget(wb, sheetId, linked);
+          if (target) { grid.selectChart(null); selectLocation(target.sheetId, target.range); }
+          else toast(`The cells this picture showed (${linked}) are gone`, { icon: 'info', duration: 3000 });
+          return;
+        }
+        replaceImageId = id; imageIntoCell = false; if (replaceImageId) imageInput.click(); return;
+      }
       case 'insertImagePuter': {
         if (!P.canPickFiles() || !committed()) return;
         if (refusedByProtection('insert images')) return;
         // The picker and file read may finish after the user has moved to another cell or sheet.
-        const target = { sheetId: grid.sheetId, anchor: { ...grid.active } };
+        const target = { sheetId: grid.sheetId, anchor: { ...grid.active }, inCell: arg === 'cell' };
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
         const picked = await P.pickFile({ accept: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'] });
         if (destroyed) return;
@@ -3789,12 +3814,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'insertImageUrl': {
         // A picture from the web, fetched through Puter so it lands in the file like an uploaded one.
         const url = await promptDialog({
-          title: 'Insert image from URL', label: 'Address of a PNG, JPEG, GIF, WebP, or SVG image', placeholder: 'https://example.com/logo.png', confirmLabel: 'Insert',
+          title: arg === 'cell' ? 'Place picture in cell from URL' : 'Insert image from URL', label: 'Address of a PNG, JPEG, GIF, WebP, or SVG image', placeholder: 'https://example.com/logo.png', confirmLabel: arg === 'cell' ? 'Place in Cell' : 'Insert',
           validate: urlProblem,
         });
         if (!url) { keepFocus(); return; }
         if (!committed()) return;
-        const target = { sheetId: grid.sheetId, anchor: { ...grid.active } };
+        const target = { sheetId: grid.sheetId, anchor: { ...grid.active }, inCell: arg === 'cell' };
         try {
           const bytes = await P.fetchBytes(url.trim());
           if (destroyed) return;
@@ -4455,9 +4480,31 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   /** A picture from the clipboard lands as a floating image at the active cell. */
-  function insertPastedImage(picture) {
+  /**
+   * A picture pasted while a cell is selected floats over the cells; the Paste Options button then offers
+   * it placed in the cell instead (or back over the cells), each choice the paste done again that way.
+   */
+  async function insertPastedImage(picture, { inCell = false } = {}) {
     replaceImageId = null;
-    insertImageFile(new File([picture], picture.name || `Pasted image.${picture.type.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') || 'png'}`, { type: picture.type }));
+    const file = new File([picture], picture.name || `Pasted image.${picture.type.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') || 'png'}`, { type: picture.type });
+    const from = { sheetId: grid.sheetId, active: { ...grid.active }, range: { ...grid.range } };
+    const before = wb.historyTop;
+    const made = await insertImageFile(file, { sheetId: from.sheetId, anchor: from.active, inCell });
+    const mark = wb.historyTop;
+    if (!made || !mark || mark === before || destroyed) return;
+    optionButton.show({
+      kind: 'paste', sheetId: from.sheetId, range: { r1: from.active.r, c1: from.active.c, r2: from.active.r, c2: from.active.c }, mark,
+      items: [{ header: 'Paste Picture' }, { key: 'floating', label: 'Place over Cells', icon: 'placeOverCells' }, { key: 'cell', label: 'Place in Cell', icon: 'placeInCell' }],
+      checked: made,
+      onPick: (item) => {
+        if (item.key === made || wb.historyTop !== mark || grid.sheetId !== from.sheetId) { optionButton.hide(); return; }
+        historyMove = 'undo';
+        try { wb.undo(); } finally { historyMove = 'push'; }
+        grid.selectChart(null);
+        grid.setSelection(S.fromRange(from.range, from.active), { scroll: false });
+        insertPastedImage(picture, { inCell: item.key === 'cell' });
+      },
+    });
   }
 
   /**
@@ -4926,6 +4973,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   async function pasteFromClipboard({ valuesOnly = false, mode = null, paste = null } = {}) {
     if (grid.editing) { document.execCommand?.('paste'); return; }
     if (!oneRange('paste into')) return; // said before the clipboard is read, which can wait on a permission prompt
+    // Paste Special ▸ Picture and Linked Picture: a picture of the cells copied here.
+    if (paste?.picture) {
+      if (!clip || clip.cut || clip.multi || !wb.sheet(clip.sheetId)) { toast('Copy a range of cells first, then paste it as a picture', { icon: 'info', duration: 3000 }); keepFocus(); return; }
+      pictures.run('pastePicture', { linked: paste.picture === 'linked', source: { sheetId: clip.sheetId, range: clip.range } });
+      return;
+    }
     const read = await readClipboard();
     if (!read) return;
     if (read.picture) { insertPastedImage(read.picture); return; }
@@ -4950,7 +5003,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!appOption('pasteOptionsButton')) { optionButton.hide(); return; } // turned off in the options
     optionButton.show({
       kind: 'paste', sheetId: grid.sheetId, range: { ...grid.range }, mark,
-      items: pasteGallery({ external: !internal }).map((item) => (item.header ? item : { ...item, key: JSON.stringify(pasteOptions(item.paste)) })),
+      // The pictures of the cells are pastes of their own, not another way of pasting these cells.
+      items: pasteGallery({ external: !internal }).filter((item) => !item.paste?.picture).map((item) => (item.header ? item : { ...item, key: JSON.stringify(pasteOptions(item.paste)) })),
       checked: JSON.stringify(lastPaste.paste),
       onPick: (item) => repasteWith(item.paste),
     });
@@ -5444,14 +5498,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   });
   // Images float over the sheet like charts and travel in the file as data URLs.
   let replaceImageId = null;
+  let imageIntoCell = false; // the picture chosen goes into the active cell (Insert ▸ Pictures ▸ Place in Cell)
   const imageInput = el('input', {
     type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml', hidden: true, 'aria-hidden': 'true', tabindex: -1,
     onchange: async () => {
       const f = imageInput.files?.[0];
       imageInput.value = '';
-      const replaceId = replaceImageId;
-      replaceImageId = null;
-      if (f) await insertImageFile(f, { replaceId });
+      const replaceId = replaceImageId, inCell = imageIntoCell;
+      replaceImageId = null; imageIntoCell = false;
+      if (f) await insertImageFile(f, { replaceId, inCell });
     },
   });
   // Page Layout ▸ Background: a picture tiled behind the cells of the sheet in view.
@@ -5486,18 +5541,36 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       keepFocus();
     },
   });
-  /** Put an image file on the sheet at the active cell, or into the image being replaced. */
-  async function insertImageFile(f, { sheetId = grid.sheetId, anchor = { ...grid.active }, replaceId = null } = {}) {
-    if (destroyed) return;
+  /** A linked picture as it shows now: the picture of its cells, drawn afresh (a static picture as it is). */
+  function linkedPictureNow(ch) {
+    const target = ch.pictureRef && linkedPictureTarget(wb, grid.sheetId, ch.pictureRef);
+    const live = target && rangePicture(wb, target.sheetId, target.range);
+    return live ? { ...ch, src: svgDataUrl(live.svg), srcRect: null, fillRect: null } : ch;
+  }
+
+  /**
+   * Put an image file on the sheet at the active cell, into the image being replaced, or with `inCell`
+   * into the cell itself as its value. Resolves to what was made: 'floating', 'cell', or null.
+   */
+  async function insertImageFile(f, { sheetId = grid.sheetId, anchor = { ...grid.active }, replaceId = null, inCell = false } = {}) {
+    if (destroyed) return null;
     const atDestination = () => grid.sheetId === sheetId && grid.active.r === anchor.r && grid.active.c === anchor.c && !grid.editing;
+    let made = null;
     try {
       const { src, width, height } = await readImageFile(f);
-      if (destroyed || !wb.sheet(sheetId)) return;
-      if (wb.isProtected(sheetId)) {
+      if (destroyed || !wb.sheet(sheetId)) return null;
+      if (wb.isProtected(sheetId) && !inCell) {
         toast('This sheet is protected. Unprotect it before inserting or replacing images', { icon: 'lock', duration: 3500 });
-        return;
+        return null;
       }
-      if (replaceId) {
+      if (inCell) {
+        // The picture is the cell's value: it moves, sorts and copies with the cell. Its file name is a first alt text.
+        const alt = f.name && !/^(?:pasted )?image(?:\.\w+)?$/i.test(f.name) ? f.name.replace(/\.[^.]+$/, '') : '';
+        if (await pictures.placeSourceInCell(src, { sheetId, at: anchor, alt })) {
+          made = 'cell';
+          statusBar?.announce(`Picture placed in ${cellName(anchor.r, anchor.c)}`);
+        }
+      } else if (replaceId) {
         if (!wb.chartById(sheetId, replaceId)) return;
         wb.updateChart(sheetId, replaceId, { src, title: f.name }, 'Replace image');
         toast('Image replaced', { icon: 'image', duration: 1600 });
@@ -5505,7 +5578,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Fit large pictures to a sensible on-sheet size; they keep their proportions.
         const scale = Math.min(1, 480 / width, 320 / height);
         const id = wb.addChart(sheetId, { type: 'image', src, title: f.name, anchor, dx: 4, dy: 4, w: Math.round(width * scale), h: Math.round(height * scale) });
-        if (!id) return;
+        if (!id) return null;
+        made = 'floating';
         if (atDestination()) grid.selectChart(id);
         toast('Image inserted. Drag to move, drag the corner to resize', { icon: 'image', duration: 2600 });
       }
@@ -5516,6 +5590,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       else { console.error(e); toast('Could not read that image', { icon: 'alert' }); }
     }
     if (atDestination()) keepFocus();
+    return made;
   }
   // Where the assistant is on screen, open or collapsed to its strip: a file dropped there goes with the next message.
   function overAssistant(x, y) {
@@ -5752,6 +5827,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   let languagePane = null; // Review ▸ Thesaurus and Translate, made below
   let queriesPane = null; // Data ▸ Queries & Connections, made below
   let automate = null; // Automate: scripts, the Code Editor and Record Actions, made below
+  // Pictures in cells, Picture Format, and pictures of copied cells (ui/pictures.js).
+  const pictures = createPictures(ctx, { keepFocus: () => keepFocus(), selectLocation: (sid, range) => selectLocation(sid, range) });
+  ctx.pictures = pictures;
   let changesPane = null; // Review ▸ Show Changes, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;

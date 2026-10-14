@@ -82,6 +82,25 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   ctx.grid.setFormulaInput(input);
   let syncing = false;
 
+  /**
+   * A linked picture selected (Paste Special ▸ Linked Picture): the bar shows the reference to the cells it
+   * draws, =Sheet1!$A$1:$C$5, and Enter there points the picture at the range typed instead.
+   */
+  function linkedPicture() {
+    const id = ctx.grid.selectedChart;
+    if (!id || ctx.grid.editing) return null;
+    const obj = ctx.wb.chartById(ctx.sheetId(), id);
+    return obj?.type === 'image' && obj.pictureRef ? obj : null;
+  }
+  function applyPictureRef(obj) {
+    const problem = ctx.run('linkedPictureRef', { id: obj.id, text: input.value });
+    Promise.resolve(problem).then((text) => {
+      if (text) { toast(text, { icon: 'alert' }); ctx.announce(text); input.select(); return; }
+      ctx.grid.focus();
+      refresh();
+    });
+  }
+
   function activeFormula() {
     const { r, c } = ctx.grid.selection.active;
     // A formula hidden by its cell's protection shows nothing while the sheet is protected.
@@ -111,6 +130,14 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     const chartSheet = ctx.wb.sheet(ctx.sheetId())?.kind === 'chart';
     root.hidden = chartSheet;
     if (chartSheet) return;
+    const picture = linkedPicture();
+    root.classList.toggle('object-formula', !!picture);
+    if (picture) {
+      if (document.activeElement !== nameBox) nameBox.value = picture.name || 'Linked picture';
+      editActions.hidden = !fixedActions;
+      if (document.activeElement !== input) input.value = `=${picture.pictureRef}`;
+      return;
+    }
     const sel = ctx.grid.selection;
     const range = ctx.grid.range;
     const table = (ctx.wb.tablesOn?.(ctx.sheetId()) || []).find((t) => t.range.r1 === range.r1 && t.range.c1 === range.c1 && t.range.r2 === range.r2 && t.range.c2 === range.c2);
@@ -192,6 +219,7 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   }
 
   input.addEventListener('focus', () => {
+    if (linkedPicture()) return; // the picture's reference is edited here, not a cell
     if (!ctx.grid.editing) {
       const { text } = activeFormula();
       if (!ensureEdit(text)) return;
@@ -201,7 +229,7 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     }
   });
   input.addEventListener('input', (e) => {
-    if (syncing) return;
+    if (syncing || linkedPicture()) return;
     if (!ensureEdit('')) return;
     // AutoCorrect, as in the cell's own editor.
     if (!isComposing(e) && e.inputType === 'insertText') ctx.autocorrect?.input?.(input, e.data);
@@ -209,12 +237,18 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   });
   // Text pasted here is outside content, as a paste onto the grid is: the editor puts a formula in it that
   // reaches out through the question a paste gets when the entry is committed, while typing it is consent.
-  input.addEventListener('paste', () => { if (ensureEdit('')) ctx.notePastedEntry?.(); });
+  input.addEventListener('paste', () => { if (!linkedPicture() && ensureEdit('')) ctx.notePastedEntry?.(); });
   // Text dropped here is outside content just the same. A drop carries no paste event — the browser inserts
   // the text itself — so the entry is noted here, or a formula reaching out would go live on a drag alone.
-  input.addEventListener('drop', () => { if (ensureEdit('')) ctx.notePastedEntry?.(); });
+  input.addEventListener('drop', () => { if (!linkedPicture() && ensureEdit('')) ctx.notePastedEntry?.(); });
   input.addEventListener('keydown', (e) => {
     if (isComposing(e)) return;
+    const picture = linkedPicture();
+    if (picture) {
+      if (e.key === 'Enter') { e.preventDefault(); applyPictureRef(picture); }
+      else if (e.key === 'Escape') { e.preventDefault(); input.value = `=${picture.pictureRef}`; ctx.grid.focus(); }
+      return;
+    }
     if (e.key === 'Enter' && e.altKey) {
       // Alt+Enter: a new line inside the cell, as in the grid's own editor.
       e.preventDefault();
@@ -234,6 +268,8 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   });
   input.addEventListener('click', () => ctx.grid.updateEditHints());
   input.addEventListener('blur', () => {
+    // A reference typed but not entered is let go, as an unentered cell edit would be cancelled.
+    if (linkedPicture()) { setTimeout(() => { if (document.activeElement !== input) refresh(); }, 0); return; }
     setTimeout(() => {
       const a = document.activeElement;
       if (!ctx.grid.editing) return;

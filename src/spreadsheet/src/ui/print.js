@@ -32,6 +32,9 @@ import { codeColor } from '../core/numfmt.js';
  */
 import { measureRows } from '../core/row-height.js';
 import { pictureNode } from './picture.js';
+import { pictureFrameCss, pictureStyled } from '../core/picture-format.js';
+import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-picture.js';
+import { cellPictureObjectPosition } from '../core/cell-picture.js';
 import { chartSheetBounds } from '../core/chartsheet.js';
 
 import { shrinkCellText } from '../core/shrink-text.js';
@@ -988,7 +991,8 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
           const fit = value.fit || 'contain';
           const room = Math.max(4, wb.rowHeight(sheetId, r) - 2);
           td.classList.add('image', `fit-${fit}`);
-          td.append(el('img', { src: value.image, alt: '', style: fit === 'stretch' ? { width: '100%', height: `${room}px` } : fit === 'original' ? null : { maxWidth: '100%', maxHeight: `${room}px` } }));
+          td.append(el('img', { src: value.image, alt: value.alt || '', style: fit === 'stretch' ? { width: '100%', height: `${room}px` } : fit === 'original' ? null
+            : { width: '100%', height: `${room}px`, objectFit: 'contain', objectPosition: cellPictureObjectPosition(st) } }));
         } else if (st.rot) {
           const rotated = el('span', {}, formatted || shown);
           rotated.style.display = 'inline-block';
@@ -1121,7 +1125,17 @@ function printObjectContent(node, wb, sheetId, obj, w, h) {
   if (isImage(obj) || obj.appearance?.background === 'none') node.style.backgroundColor = 'transparent';
   if (isImage(obj)) {
     node.style.overflow = 'visible';
-    if (obj.src) node.append(pictureNode(obj));
+    // A linked picture prints the cells it shows now; a styled picture prints its frame and shadow.
+    const target = obj.pictureRef && linkedPictureTarget(wb, sheetId, obj.pictureRef);
+    const live = target && rangePicture(wb, target.sheetId, target.range);
+    const shown = live ? { ...obj, src: svgDataUrl(live.svg), srcRect: null, fillRect: null } : obj;
+    if (pictureStyled(obj)) {
+      const frame = el('div', { style: { position: 'absolute', inset: '0', boxSizing: 'border-box', ...pictureFrameCss(obj) } });
+      if (obj.shape) frame.style.overflow = 'hidden';
+      if (shown.src) frame.append(pictureNode(shown));
+      node.style.border = 'none';
+      node.append(frame);
+    } else if (shown.src) node.append(pictureNode(shown));
   } else if (isTextBox(obj)) {
     node.classList.add('print-text');
     if (obj.style?.border === false) node.classList.add('borderless');

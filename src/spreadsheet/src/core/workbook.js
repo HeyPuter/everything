@@ -375,6 +375,9 @@ function sortComparator(caseSensitive) {
     if (isError(a) && isError(b)) return 0;
     if (isError(a)) return 1;
     if (isError(b)) return -1;
+    // Pictures in cells have no order of their own: they follow the values, before errors and blanks, in either direction.
+    const picture = (v) => !!v && typeof v === 'object' && typeof v.image === 'string';
+    if (picture(a) || picture(b)) return picture(a) === picture(b) ? 0 : picture(a) ? 1 : -1;
     const cmp = typeof a === 'string' && typeof b === 'string' ? collator.compare(a, b) : compareStoredValues(a, b);
     return ascending ? cmp : -cmp;
   };

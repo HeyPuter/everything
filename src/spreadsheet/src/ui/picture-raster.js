@@ -1,4 +1,5 @@
 import { drawPicture } from '../core/picture-geometry.js';
+import { applyPictureFilter } from '../core/picture-format.js';
 
 /** Rasterize the visible picture, including its outer DrawingML transform. */
 export async function imageToPng(src, obj = {}) {
@@ -40,6 +41,14 @@ export async function imageToPng(src, obj = {}) {
       }
       if (obj.srcRect || obj.fillRect) drawPicture(ctx, im, obj, drawWidth, drawHeight);
       else ctx.drawImage(im, 0, 0, drawWidth, drawHeight);
+      // Picture Format's corrections, grayscale and transparency, drawn into the pixels as the sheet shows them.
+      if (obj.adjust || obj.recolor || obj.transparency) {
+        try {
+          const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          applyPictureFilter(pixels.data, obj);
+          ctx.putImageData(pixels, 0, 0);
+        } catch { /* a canvas that cannot be read keeps the picture as drawn */ }
+      }
       canvas.toBlob(b => b ? resolve(b) : reject(new Error('no blob')), 'image/png');
     };
     im.onerror = () => reject(new Error('bad image'));

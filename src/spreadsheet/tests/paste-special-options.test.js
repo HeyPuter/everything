@@ -299,7 +299,7 @@ describe('the Paste gallery and the Paste Options button', () => {
     await vi.advanceTimersByTimeAsync(5);
     const labels = [...document.querySelectorAll('.menu [role^="menuitem"] .menu-label')].map((n) => n.firstChild?.textContent);
     expect(labels).toEqual(['Paste', 'Formulas', 'Formulas & Number Formatting', 'Keep Source Formatting', 'No Borders', 'Keep Source Column Widths', 'Transpose',
-      'Values', 'Values & Number Formatting', 'Values & Source Formatting', 'Formatting', 'Paste Link', 'Paste Special…']);
+      'Values', 'Values & Number Formatting', 'Values & Source Formatting', 'Formatting', 'Paste Link', 'Picture', 'Linked Picture', 'Paste Special…']);
     menuItem('Values & Number Formatting').click();
     await vi.advanceTimersByTimeAsync(5);
     expect(wb.getCell(id, 0, 2)).toMatchObject({ v: 0.5, f: null });

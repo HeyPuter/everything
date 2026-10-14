@@ -85,6 +85,33 @@ function anchoredShape(node, geometry) {
 const children = (node, name) => node?.children.filter(n => n.name === name) || [];
 const path = (node, ...names) => names.reduce(child, node);
 const descendants = (node, name) => (node?.children || []).flatMap(n => n.name === name ? [n] : descendants(n, name));
+/**
+ * A picture's Picture Format from DrawingML: a:lum (brightness and contrast), a:grayscl and
+ * a:alphaModFix on its blip; a rounded or oval preset outline, an RGB frame and an outer shadow on
+ * its shape; and the cells a linked picture shows (a14:cameraTool).
+ */
+function pictureFormatOf(picture) {
+  const out = {}, blip = path(picture, 'blipFill', 'blip'), fraction = v => Number(String(v).replace(/%$/, '')) / (String(v).endsWith('%') ? 100 : 100000);
+  const lum = child(blip, 'lum');
+  if (lum) {
+    const brightness = lum.attrs.bright != null ? fraction(lum.attrs.bright) : 0, contrast = lum.attrs.contrast != null ? fraction(lum.attrs.contrast) : 0;
+    if (Number.isFinite(brightness) && Number.isFinite(contrast) && (brightness || contrast)) out.adjust = { brightness, contrast };
+  }
+  if (child(blip, 'grayscl')) out.recolor = 'grayscale';
+  const alpha = child(blip, 'alphaModFix');
+  if (alpha) {
+    const amount = alpha.attrs.amt != null ? fraction(alpha.attrs.amt) : 1;
+    if (Number.isFinite(amount) && amount < 1) out.transparency = Math.max(0, 1 - amount);
+  }
+  const shape = path(picture, 'spPr', 'prstGeom')?.attrs.prst;
+  if (shape === 'roundRect' || shape === 'ellipse') out.shape = shape;
+  const line = path(picture, 'spPr', 'ln'), rgb = path(line, 'solidFill', 'srgbClr')?.attrs.val;
+  if (line && /^[\da-f]{6}$/i.test(rgb || '') && Number(line.attrs.w) > 0) out.outline = { width: Number(line.attrs.w) / 9525, color: `#${rgb.toLowerCase()}` };
+  if (path(picture, 'spPr', 'effectLst', 'outerShdw')) out.shadow = true;
+  const camera = descendants(path(picture, 'nvPicPr', 'cNvPicPr'), 'cameraTool')[0]?.attrs.cellRange;
+  if (typeof camera === 'string' && camera.trim()) out.pictureRef = camera.trim().replace(/^=/, '');
+  return out;
+}
 const val = (node, name) => child(node, name)?.attrs.val;
 const number = (node, name) => { const v = val(node, name); return v != null && Number.isFinite(Number(v)) ? Number(v) : null; };
 const text = node => node?.text || '';
@@ -961,7 +988,8 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
               srcRect: readPictureRect(path(picture, 'blipFill', 'srcRect')?.attrs),
               fillRect: readPictureRect(path(picture, 'blipFill', 'stretch', 'fillRect')?.attrs),
               rotation: Number(transform?.attrs.rot || 0) / 60000,
-              flipH: ['1', 'true'].includes(transform?.attrs.flipH), flipV: ['1', 'true'].includes(transform?.attrs.flipV) });
+              flipH: ['1', 'true'].includes(transform?.attrs.flipH), flipV: ['1', 'true'].includes(transform?.attrs.flipV),
+              ...pictureFormatOf(picture) });
           } else if (chartRef) {
             // cNvPr@descr belongs to the drawing, not c:chart/c:title. XML
             // entity decoding has already occurred; ST_Xstring escapes do not apply.

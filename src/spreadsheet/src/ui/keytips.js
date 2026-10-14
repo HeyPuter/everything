@@ -66,10 +66,14 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
   function showTabs() {
     const file = fileButton();
     // Every tab, shown or not, takes part, so a tab's tip stays the same as contextual tabs come and go.
-    const entries = [...(file ? [{ target: file, kind: 'file', name: 'File' }] : []),
-      ...[...ribbon.querySelectorAll('.ribbon-tab')].map(tab => ({ target: tab, kind: 'tab', name: tab.textContent }))];
+    // A tab may carry a fixed tip of its own (data-keytip): it stands apart from the rule, so a contextual tab
+    // that comes and goes never takes a letter, or a second key, from the tabs always there.
+    const all = [...(file ? [{ target: file, kind: 'file', name: 'File' }] : []),
+      ...[...ribbon.querySelectorAll('.ribbon-tab')].map(tab => ({ target: tab, kind: 'tab', name: tab.textContent, fixed: tab.dataset.keytip || null }))];
+    const entries = all.filter(t => !t.fixed);
     const assigned = assignTips(entries.map(t => t.name));
-    const tips = entries.map((t, i) => ({ ...t, tip: assigned[i] })).filter(t => t.tip && (t.kind === 'file' || !t.target.hidden));
+    const tips = [...entries.map((t, i) => ({ ...t, tip: assigned[i] })), ...all.filter(t => t.fixed).map(t => ({ ...t, tip: t.fixed }))]
+      .filter(t => t.tip && (t.kind === 'file' || !t.target.hidden));
     state = { level: 'tabs', typed: '', tips };
     ribbon.classList.add('keytips-on');
     render();

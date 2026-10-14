@@ -390,7 +390,7 @@ export const SIGNATURES = {
   DPRODUCT: ['database, field, criteria', 'Product of a column over matching rows.'],
   DSTDEV: ['database, field, criteria', 'Sample standard deviation over matching rows.'],
   DVAR: ['database, field, criteria', 'Sample variance over matching rows.'],
-  IMAGE: ['url, [mode]', 'Shows a picture in the cell: mode 1 fits, 2 stretches, 3 keeps the original size.'],
+  IMAGE: ['url, [mode or alt_text], [sizing]', 'Shows a picture in the cell: mode 1 fits, 2 stretches, 3 keeps the original size. With alt text second, sizing 0 fits, 1 fills, 2 keeps the original size.'],
   SUBTOTAL: ['function_code, range1, ...', 'Aggregates visible rows only: 9 = SUM, 1 = AVERAGE, 3 = COUNTA, 109 also skips hidden rows.'],
 };
 

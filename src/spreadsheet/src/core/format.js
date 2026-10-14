@@ -1138,6 +1138,8 @@ export function editText(cell) {
   // An error constant edits as its code, which a commit reads back as the error, as the formula bar shows
   // it; one a typed cell cannot spell (#SPILL!, #CYCLE!) needs a formula literal to stay an error, not text.
   if (typeof v === 'object' && v.error) return TYPED_ERRORS.has(v.error) ? v.error : `=${v.error}`;
+  // A picture placed in the cell has no text to edit; an entry left as it is keeps the picture.
+  if (typeof v === 'object' && typeof v.image === 'string') return '';
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   if (typeof v === 'string') {
     // A Plain text cell shows its text as it is; elsewhere an apostrophe marks

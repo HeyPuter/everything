@@ -402,6 +402,12 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
         { label: 'From this device…', icon: 'image', onSelect: () => ctx.run('insertImage') },
         ctx.flags?.()?.pick && { label: 'From Puter…', icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter') },
         { label: 'From a URL…', icon: 'external', onSelect: () => ctx.run('insertImageUrl') },
+        { separator: true },
+        { label: 'Place in Cell', icon: 'placeInCell', submenu: [
+          { label: 'From this device…', icon: 'image', onSelect: () => ctx.run('insertImage', 'cell') },
+          ctx.flags?.()?.pick && { label: 'From Puter…', icon: 'folderOpen', onSelect: () => ctx.run('insertImagePuter', 'cell') },
+          { label: 'From a URL…', icon: 'external', onSelect: () => ctx.run('insertImageUrl', 'cell') },
+        ].filter(Boolean) },
       ],
     }),
   });

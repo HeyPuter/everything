@@ -37,7 +37,7 @@ const EMPTY_KEEPS_DEFAULT = {
   REDUCE: [0], SCAN: [0], NUMBERVALUE: [1, 2], COMPLEX: [2], PROB: [3], 'BINOM.DIST.RANGE': [3],
   'BETA.DIST': [4, 5], 'BETA.INV': [3, 4], RATE: [5], IRR: [1], XIRR: [2], DDB: [4], DB: [4], VDB: [5],
   ACCRINT: [4], ACCRINTM: [3], TREND: [1, 2], GROWTH: [1, 2], LINEST: [1], LOGEST: [1],
-  NETWORKDAYS: [2], WORKDAY: [2], 'NETWORKDAYS.INTL': [2], 'WORKDAY.INTL': [2], ISBETWEEN: [2, 3], IMAGE: [1], EPOCHTODATE: [1],
+  NETWORKDAYS: [2], WORKDAY: [2], 'NETWORKDAYS.INTL': [2], 'WORKDAY.INTL': [2], ISBETWEEN: [2, 3], IMAGE: [1, 2], EPOCHTODATE: [1],
   DCOUNT: [1], DCOUNTA: [1], // DCOUNT(db,,criteria) counts every matching record, as documented
 };
 

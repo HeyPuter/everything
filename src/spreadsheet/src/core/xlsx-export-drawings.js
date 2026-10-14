@@ -10,6 +10,8 @@ import { identifyDrawing, drawingBaseline } from './xlsx-drawing-reconcile.js';
 import { readXlsxCharts } from './xlsx-charts.js';
 import { xlsxAttr } from './xlsx-styles.js';
 import { decorativeXml, drawingDescription } from './drawingml-accessibility.js';
+import { linkedPictureTarget, rangePicture, svgDataUrl } from './range-picture.js';
+import { roundedRadius } from './picture-format.js';
 import { equationAnchorXml, equationParagraphs } from './xlsx-equation.js';
 import { effectRefStyleXml } from './theme-effects.js';
 import { smartArtGroupXml } from './xlsx-smartart.js';
@@ -433,6 +435,25 @@ function chartXml(X, wb, sheet, ch) {
 }
 
 /** SVG shapes can contain HTML text; rasterize that text in the browser before giving it to Excel. */
+const CAMERA_URI = '{84589F7E-364E-4C9E-8A38-B11213B215E9}';
+const A14 = 'http://schemas.microsoft.com/office/drawing/2010/main';
+/**
+ * A picture's Picture Format in DrawingML: corrections as a:lum, grayscale as a:grayscl and
+ * transparency as a:alphaModFix inside the blip; a rounded or oval outline as the preset geometry,
+ * the frame as a:ln and the shadow as an outer shadow on the shape.
+ */
+export function pictureFormatXml(obj) {
+  const pct = n => Math.round(n * 100000);
+  const blip = (obj.transparency ? tag('a:alphaModFix', { amt: pct(1 - obj.transparency) }) : '')
+    + (obj.recolor === 'grayscale' ? tag('a:grayscl') : '')
+    + (obj.adjust ? tag('a:lum', { bright: obj.adjust.brightness ? pct(obj.adjust.brightness) : null, contrast: obj.adjust.contrast ? pct(obj.adjust.contrast) : null }) : '');
+  const radius = obj.shape === 'roundRect' ? Math.min(50000, Math.round(roundedRadius(obj.w, obj.h) / Math.max(1, Math.min(obj.w, obj.h)) * 100000)) : null;
+  const geometry = tag('a:prstGeom', { prst: obj.shape || 'rect' }, radius != null ? tag('a:avLst', {}, tag('a:gd', { name: 'adj', fmla: `val ${radius}` })) : tag('a:avLst'));
+  const line = obj.outline ? tag('a:ln', { w: Math.round(obj.outline.width * 9525) }, tag('a:solidFill', {}, tag('a:srgbClr', { val: obj.outline.color.slice(1).toUpperCase() }))) : '';
+  const shadow = obj.shadow ? tag('a:effectLst', {}, tag('a:outerShdw', { blurRad: 95250, dist: 38100, dir: 2700000, algn: 'tl', rotWithShape: 0 }, tag('a:srgbClr', { val: '000000' }, tag('a:alpha', { val: 38000 })))) : '';
+  return { blip, shape: geometry + line + shadow };
+}
+
 async function pictureBytes(src, width, height) {
   const match = /^data:image\/([a-z0-9.+-]+);base64,(.*)$/is.exec(src);
   if (!match) throw new Error('The workbook contains an unreadable picture');
@@ -547,6 +568,10 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
         + tag('a:graphic', {}, tag('a:graphicData', { uri: C }, tag('c:chart', { 'xmlns:c': C, 'r:id': relId }))));
     } else {
       let src = obj.nativeSrc || obj.src;
+      // A linked picture is saved as the picture of its cells as they are now.
+      const linked = obj.type === 'image' && obj.pictureRef ? linkedPictureTarget(wb, sheet.id, obj.pictureRef) : null;
+      const live = linked && rangePicture(wb, linked.sheetId, linked.range);
+      if (live) src = svgDataUrl(live.svg);
       if (obj.type !== 'image') {
         // Complex chart artwork uses the same renderer as the sheet. Keep the
         // editable chart in metadata, and its visible result in a native picture.
@@ -575,11 +600,15 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
             tag('asvg:svgBlip', { 'xmlns:asvg': 'http://schemas.microsoft.com/office/drawing/2016/SVG/main', 'r:embed': `${relId}Svg` })));
         }
       }
+      // Picture Format: corrections, grayscale and transparency go on the blip; style on the shape (pictureFormatXml).
+      const format = pictureFormatXml(obj);
+      // A linked picture names the cells it shows (MS-ODRAWXML cameraTool), so other programs keep it live.
+      const camera = obj.type === 'image' && obj.pictureRef ? tag('a:extLst', {}, tag('a:ext', { uri: CAMERA_URI }, tag('a14:cameraTool', { 'xmlns:a14': A14, cellRange: obj.pictureRef }))) : '';
       shape = tag('xdr:pic', {}, tag('xdr:nvPicPr', {}, tag('xdr:cNvPr', { id, name: obj.title || `Picture ${id}`, descr: drawingDescription(obj) },
-        decorativeXml(obj.decorative)) + tag('xdr:cNvPicPr'))
-        + tag('xdr:blipFill', {}, tag('a:blip', { 'r:embed': relId }, svgExtension || undefined) + (obj.srcRect ? tag('a:srcRect', pictureRectAttrs(obj.srcRect)) : '') + tag('a:stretch', {}, tag('a:fillRect', pictureRectAttrs(obj.fillRect))))
+        decorativeXml(obj.decorative)) + tag('xdr:cNvPicPr', {}, (obj.type === 'image' && obj.lockAspect !== false ? tag('a:picLocks', { noChangeAspect: 1 }) : '') + camera || undefined))
+        + tag('xdr:blipFill', {}, tag('a:blip', { 'r:embed': relId }, (format.blip + (svgExtension || '')) || undefined) + (obj.srcRect && !live ? tag('a:srcRect', pictureRectAttrs(obj.srcRect)) : '') + tag('a:stretch', {}, tag('a:fillRect', pictureRectAttrs(live ? null : obj.fillRect))))
         + tag('xdr:spPr', {}, tag('a:xfrm', { rot: Math.round((obj.rotation || 0) * 60000), flipH: Number(!!obj.flipH), flipV: Number(!!obj.flipV) }, tag('a:off', { x: 0, y: 0 }) + tag('a:ext', { cx: emu(placement.w), cy: emu(placement.h) }))
-          + tag('a:prstGeom', { prst: 'rect' }, tag('a:avLst'))));
+          + format.shape));
     }
     // The Selection Pane's name and eye: cNvPr@name and cNvPr@hidden of the object's own drawing.
     if (obj.name || obj.hidden) shape = shape.replace(/<xdr:cNvPr\b([^>]*?)(\/?)>/, (_, attrs, closed) =>

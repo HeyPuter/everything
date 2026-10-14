@@ -40,6 +40,9 @@ import { confirmDialog } from './modal.js';
 import { measureRows } from '../core/row-height.js';
 import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS, MAX_COLS, safeLinkUrl } from '../core/workbook.js';
 import { pictureNode } from './picture.js';
+import { pictureFrameCss, pictureStyled } from '../core/picture-format.js';
+import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-picture.js';
+import { cellPictureLabel, cellPictureObjectPosition } from '../core/cell-picture.js';
 import { AxisOffsets, MAX_CANVAS_EXTENT } from './axis-offsets.js';
 import { chartSheetLayout } from '../core/chartsheet.js';
 import { withGroups, snapRect } from '../core/arrange.js';
@@ -1440,8 +1443,10 @@ export function createGrid(opts) {
     let picture = false;
     if (value && typeof value === 'object' && value.image && !showFormulas) {
       node.classList.add('img-cell', `fit-${value.fit || 'contain'}`);
-      node.append(el('img', { src: value.image, alt: '', draggable: false, loading: 'lazy' }));
-      node.title = value.image.startsWith('data:') ? 'Image' : value.image;
+      // The picture sits against the sides the cell's alignment names (centred when it names none).
+      node.append(el('img', { src: value.image, alt: value.alt || '', draggable: false, loading: 'lazy', style: { objectPosition: cellPictureObjectPosition(st) } }));
+      node.title = value.alt || (value.image.startsWith('data:') ? 'Picture' : value.image);
+      node.setAttribute('aria-label', cellPictureLabel(value));
       picture = true;
     } else if (value && typeof value === 'object' && value.sparkline && !showFormulas) {
       node.classList.add('sparkline');
@@ -2106,15 +2111,51 @@ export function createGrid(opts) {
         continue;
       }
       if (ch.type === 'image') {
+        // Picture Format ▸ Picture Styles: a frame, rounded or oval outline and a shadow of the picture's own
+        // stand in for the box's plain border.
+        const frame = pictureFrameCss(ch, objectScale);
+        if (pictureStyled(ch)) box.el.classList.add('borderless');
+        const frameSig = JSON.stringify(frame);
+        if (box.frameSig !== frameSig) {
+          box.frameSig = frameSig;
+          Object.assign(box.body.style, { border: frame.border || '', borderRadius: frame.borderRadius || '', boxShadow: frame.boxShadow || '', boxSizing: 'border-box' });
+          box.body.style.overflow = frame.borderRadius ? 'hidden' : 'visible';
+          box.el.classList.toggle('picture-styled', pictureStyled(ch));
+        }
+        // A linked picture draws the cells its reference names, again whenever they change.
+        if (ch.pictureRef) {
+          const target = linkedPictureTarget(wb, sheetId, ch.pictureRef);
+          if (box.version !== wb.version || box.pictureRef !== ch.pictureRef || box.imageTransform !== JSON.stringify([imageTransform(ch), ch.adjust, ch.recolor, ch.transparency])) {
+            box.version = wb.version; box.pictureRef = ch.pictureRef;
+            box.imageTransform = JSON.stringify([imageTransform(ch), ch.adjust, ch.recolor, ch.transparency]);
+            const picture = target && rangePicture(wb, target.sheetId, target.range, { idPrefix: `lp${ch.id}-` });
+            const sig = picture ? picture.svg : `src:${ch.src}`;
+            if (box.sig !== sig || box.imageSrc !== null) {
+              box.sig = sig; box.imageSrc = null;
+              // Drawn inline the picture takes the page's fonts, as the cells do; corrections need the picture path.
+              if (picture && !ch.adjust && !ch.recolor) {
+                box.body.innerHTML = picture.svg;
+                const svg = box.body.firstElementChild;
+                svg.setAttribute('role', ch.decorative ? 'presentation' : 'img');
+                if (!ch.decorative) svg.setAttribute('aria-label', `Picture of ${ch.pictureRef}`);
+                svg.style.opacity = ch.transparency ? String(1 - ch.transparency) : '';
+                svg.style.transform = imageTransform(ch);
+              } else box.body.replaceChildren(pictureNode({ ...ch, src: picture ? svgDataUrl(picture.svg) : ch.src, srcRect: null, fillRect: null }));
+            }
+            box.el.setAttribute('aria-label', ch.decorative ? 'Decorative linked picture' : `Linked picture of ${ch.pictureRef}${target ? '' : ' (the cells it showed are gone)'}`);
+          }
+          continue;
+        }
         // Different pictures can have the same encoded length and file name.
         // Keep the source itself so replacements and undo always refresh it.
-        const transform = JSON.stringify([imageTransform(ch), ch.srcRect, ch.fillRect, ch.decorative]);
+        const transform = JSON.stringify([imageTransform(ch), ch.srcRect, ch.fillRect, ch.decorative, ch.description, ch.adjust, ch.recolor, ch.transparency]);
         if (box.imageSrc !== ch.src || box.imageTitle !== ch.title || box.imageTransform !== transform) {
           box.imageSrc = ch.src;
           box.imageTitle = ch.title;
           box.imageTransform = transform;
+          box.sig = null;
           box.body.replaceChildren(pictureNode(ch));
-          box.el.setAttribute('aria-label', ch.decorative ? 'Decorative image' : ch.title ? `Image: ${ch.title}` : 'Image');
+          box.el.setAttribute('aria-label', ch.decorative ? 'Decorative image' : ch.description ? `Image: ${ch.description}` : ch.title ? `Image: ${ch.title}` : 'Image');
         }
         continue;
       }
@@ -2392,8 +2433,8 @@ export function createGrid(opts) {
         const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_H) * objectScale;
         let width = Math.max(minW, drag.from.width + dx);
         let height = Math.max(minH, drag.from.height + dy);
-        // Images keep their proportions unless Shift is held.
-        if (ch.type === 'image' && !ev.shiftKey) {
+        // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
+        if (ch.type === 'image' && (ch.lockAspect !== false) !== ev.shiftKey) {
           const ratio = drag.from.width / drag.from.height;
           if (Math.abs(dx) >= Math.abs(dy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
         }

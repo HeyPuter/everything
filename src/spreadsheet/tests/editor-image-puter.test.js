@@ -146,7 +146,7 @@ it('reports a cloud read failure and rejects renamed non-image files without cha
 it('offers all sources from the image toolbar and omits the cloud choice when no picker exists', async () => {
   await setup(); const button = view.el.querySelector('.toolbar [aria-label="Pictures"]');
   expect(button.getAttribute('aria-haspopup')).toBe('menu'); button.click();
-  expect([...document.querySelectorAll('.menu-label')].map(b => b.textContent)).toEqual(['From this device…', 'From Puter…', 'From a URL…']);
+  expect([...document.querySelectorAll('.menu-label')].map(b => b.textContent)).toEqual(['From this device…', 'From Puter…', 'From a URL…', 'Place in Cell']);
   closeMenu(); P.canPickFiles.mockReturnValue(false); button.click();
-  expect([...document.querySelectorAll('.menu-label')].map(b => b.textContent)).toEqual(['From this device…', 'From a URL…']);
+  expect([...document.querySelectorAll('.menu-label')].map(b => b.textContent)).toEqual(['From this device…', 'From a URL…', 'Place in Cell']);
 });

@@ -333,7 +333,8 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
     for (const [key, cell] of sheet.cells) {
       if (!cell.f && !cell.v?.image) continue;
       const { r, c } = parseKey(key), value = wb.getValue(sheet.id, r, c);
-      if (value?.image) imageValues.set(X.utils.encode_cell({ r, c }), { ...value, computed: !!cell.f });
+      // A computed picture came from an IMAGE formula (origin 1) or from a reference to another cell's picture (4).
+      if (value?.image) imageValues.set(X.utils.encode_cell({ r, c }), { ...value, computed: !!cell.f, ...(cell.f ? { origin: /^\s*(?:_xlfn\.)?IMAGE\s*\(/i.test(cell.f) ? 1 : 4 } : {}) });
     }
     const ruleRecords = [];
     const pivotPriorities = new Map();

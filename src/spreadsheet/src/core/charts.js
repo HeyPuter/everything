@@ -55,6 +55,7 @@ import { normalizeSlicer } from './slicer.js';
 import { normalizeTimeline } from './timeline.js';
 import { normalizeNativeDrawing, validDrawingKey } from './drawingml-native.js';
 import { pictureRect } from './picture-geometry.js';
+import { normalizePictureFormat } from './picture-format.js';
 import { normalizeSmartArt, SMARTART_MIN } from './smartart.js';
 
 import { normalizeRange } from './cell.js';
@@ -288,6 +289,10 @@ function normalizeChartBody(raw) {
       ...(raw.flipV ? { flipV: true } : {}),
       ...(Number.isFinite(raw.rotation) && raw.rotation % 360 ? { rotation: ((raw.rotation % 360) + 360) % 360 } : {}),
       ...(raw.border === false ? { border: false } : {}),
+      // Picture Format: crop is srcRect above; corrections, colour, transparency, style and the size lock here.
+      ...normalizePictureFormat(raw),
+      // A linked picture (Paste Special ▸ Linked Picture) shows the cells this reference names, live; `src` is its last picture.
+      ...(typeof raw.pictureRef === 'string' && raw.pictureRef.trim() && raw.pictureRef.length <= 8192 ? { pictureRef: raw.pictureRef.trim().replace(/^=/, '') } : {}),
     };
   }
   if (raw.type === 'smartart') {
@@ -626,7 +631,7 @@ function normalizeAppearance(raw) {
 
 /** Keep imported chart sources following the same structural edits as cell formulas. */
 export function mapChartReferences(chart, rewrite) {
-  for (const key of ['tableRef', 'linkRef', 'textRef', 'titleRef', 'xTitleRef', 'yTitleRef', 'y2TitleRef']) if (chart[key]) {
+  for (const key of ['tableRef', 'linkRef', 'textRef', 'pictureRef', 'titleRef', 'xTitleRef', 'yTitleRef', 'y2TitleRef']) if (chart[key]) {
     const ref = rewrite(chart[key]);
     if (ref !== chart[key]) chart = { ...chart, [key]: ref };
   }

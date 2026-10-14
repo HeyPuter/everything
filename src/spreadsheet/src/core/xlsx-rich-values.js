@@ -1,6 +1,6 @@
 /** Excel rich values (in-cell pictures and modern errors), with a legacy #VALUE! fallback. */
 import { xlsxAttr as attr, xlsxElements as elements, xlsxText } from './xlsx-styles.js';
-import { xmlTag as tag } from './xlsx-export-styles.js';
+import { xmlTag as tag, xmlText } from './xlsx-export-styles.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const RICH = 'http://schemas.microsoft.com/office/spreadsheetml/2017/richdata';
@@ -60,8 +60,11 @@ export function readXlsxRichValues(book) {
       continue;
     }
     if (attr(structure, 't') !== '_localImage') continue;
-    const key = elements(structure, 'k').findIndex(k => attr(k, 'n') === '_rvRel:LocalImageIdentifier');
+    const keys = elements(structure, 'k'), key = keys.findIndex(k => attr(k, 'n') === '_rvRel:LocalImageIdentifier');
     if (key < 0) continue;
+    // The picture's alt text (Alt Text on the cell), when the structure carries one.
+    const textKey = keys.findIndex(k => attr(k, 'n') === 'Text');
+    const alt = textKey >= 0 ? body(elements(record, 'v')[textKey]).trim().slice(0, 2000) : '';
     const imageIndex = body(elements(record, 'v')[key]);
     if (!/^\d+$/.test(imageIndex)) continue;
     const link = links[Number(imageIndex)];
@@ -75,37 +78,59 @@ export function readXlsxRichValues(book) {
       for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
       cached.set(part, { image: `data:image/${mime};base64,${btoa(binary)}`, fit: 'contain' });
     }
-    values.set(index + 1, cached.get(part));
+    values.set(index + 1, alt ? { ...cached.get(part), alt } : cached.get(part));
   }
   return values;
 }
 
-/** Share one metadata/value index across pictures and modern errors. */
+/**
+ * Share one metadata/value index across pictures and modern errors. A picture held in the file is a
+ * local image; a picture IMAGE() reads from the web is a web image, kept by its address. Either can
+ * carry alt text. `value.origin` says where a computed picture came from: 1 an IMAGE formula, 4 a
+ * reference to another cell's picture.
+ */
 export function richValueWriter({ get, set, binary, contentType }) {
-  const recordsByValue = new Map(), media = new Map();
+  const recordsByValue = new Map(), media = new Map(), addresses = new Map(), structures = new Map();
+  const structure = (type, keys) => {
+    const key = `${type}|${keys.map(([n, t]) => `${n}:${t}`).join(',')}`;
+    if (!structures.has(key)) structures.set(key, { index: structures.size, xml: tag('s', { t: type }, keys.map(([n, t]) => tag('k', { n, t })).join('')) });
+    return structures.get(key).index;
+  };
+  const mark = (cell, index, typed) => cell.replace(/^<c\b[^>]*>/, head => head.replace(typed ? /\s(?:t|vm)="[^"]*"/g : /\svm="[^"]*"/g, '').replace(/>$/, `${typed ? ' t="e"' : ''} vm="${index + 1}">`));
   const sheet = (xml, values) => xml.replace(/<c\b[^>]*>[\s\S]*?<\/c>/g, cell => {
     const value = values.get(attr(cell, 'r'));
     const match = /^data:image\/(png|jpeg|gif|webp);base64,([a-z\d+/=]+)$/i.exec(value?.image || '');
+    const web = !match && /^https?:\/\/[^\s"<>]{1,2000}$/i.test(value?.image || '') ? value.image : null;
     const errorType = attr(cell, 't') === 'e' && ERROR_IDS.get(body(elements(cell, 'v')[0]));
     if (errorType) {
       const key = `error:${errorType}`;
-      if (!recordsByValue.has(key)) recordsByValue.set(key, { index: recordsByValue.size, errorType });
-      const index = recordsByValue.get(key).index;
-      return cell.replace(/^<c\b[^>]*>/, head => head.replace(/\svm="[^"]*"/g, '').replace(/>$/, ` vm="${index + 1}">`))
-        .replace(/<v\b[^>]*>[\s\S]*?<\/v>/, '<v>#VALUE!</v>');
+      if (!recordsByValue.has(key)) recordsByValue.set(key, { index: recordsByValue.size, structure: structure('_error', [['errorType', 'i']]), values: [String(errorType)] });
+      return mark(cell, recordsByValue.get(key).index, false).replace(/<v\b[^>]*>[\s\S]*?<\/v>/, '<v>#VALUE!</v>');
     }
-    if (!match || match[2].length > 22400000) return cell;
-    if (!media.has(value.image)) media.set(value.image, { index: media.size, mime: match[1], data: match[2] });
-    const origin = value.computed ? 4 : 5, key = `${origin}:${value.image}`;
-    if (!recordsByValue.has(key)) recordsByValue.set(key, { index: recordsByValue.size, mediaIndex: media.get(value.image).index, origin });
+    if ((!match || match[2].length > 22400000) && !web) return cell;
+    const alt = typeof value.alt === 'string' ? value.alt.slice(0, 2000) : '';
+    const origin = value.computed ? value.origin || 4 : 5;
+    let record;
+    if (web) {
+      if (!addresses.has(web)) addresses.set(web, addresses.size);
+      const sizing = { contain: 0, stretch: 1, original: 2 }[value.fit] ?? 0;
+      const keys = [['WebImageIdentifier', 'i'], ['CalcOrigin', 'i'], ['ComputedImage', 'b'], ['ImageSizing', 'i'], ...(alt ? [['Text', 's']] : [])];
+      record = { structure: structure('_webimage', keys), values: [String(addresses.get(web)), String(origin), value.computed ? '1' : '0', String(sizing), ...(alt ? [alt] : [])] };
+    } else {
+      if (!media.has(value.image)) media.set(value.image, { index: media.size, mime: match[1], data: match[2] });
+      const keys = [['_rvRel:LocalImageIdentifier', 'i'], ['CalcOrigin', 'i'], ...(alt ? [['Text', 's']] : [])];
+      record = { structure: structure('_localImage', keys), values: [String(media.get(value.image).index), String(origin), ...(alt ? [alt] : [])] };
+    }
+    const key = `${record.structure}:${JSON.stringify(record.values)}`;
+    if (!recordsByValue.has(key)) recordsByValue.set(key, { index: recordsByValue.size, ...record });
     const index = recordsByValue.get(key).index;
-    return cell.replace(/^<c\b[^>]*>/, head => head.replace(/\s(?:t|vm)="[^"]*"/g, '').replace(/>$/, ` t="e" vm="${index + 1}">`))
+    return mark(cell, index, true)
       .replace(/<v\b[^>]*>[\s\S]*?<\/v>|<is\b[^>]*>[\s\S]*?<\/is>/g, '').replace('</c>', '<v>#VALUE!</v></c>');
   });
   const finish = () => {
     if (!recordsByValue.size) return;
     const base = '/xl/richData/';
-    const records = [], links = [], rels = [];
+    const records = [], links = [], rels = [], webImages = [], webRels = [];
     for (const { index, mime, data } of media.values()) {
       const part = `/xl/media/cellImage${index + 1}.${mime === 'jpeg' ? 'jpg' : mime}`;
       binary(part, Uint8Array.from(atob(data), c => c.charCodeAt(0)));
@@ -113,17 +138,17 @@ export function richValueWriter({ get, set, binary, contentType }) {
       links.push(tag('rel', { 'r:id': `rId${index + 1}` }));
       rels.push(tag('Relationship', { Id: `rId${index + 1}`, Type: `${REL}image`, Target: `../media/${part.split('/').pop()}` }));
     }
-    const structures = [];
-    if (media.size) structures.push(tag('s', { t: '_localImage' }, tag('k', { n: '_rvRel:LocalImageIdentifier', t: 'i' }) + tag('k', { n: 'CalcOrigin', t: 'i' })));
-    const errorStructure = structures.length;
-    if ([...recordsByValue.values()].some(value => value.errorType)) structures.push(tag('s', { t: '_error' }, tag('k', { n: 'errorType', t: 'i' })));
-    for (const { mediaIndex, origin, errorType } of recordsByValue.values()) records.push(errorType
-      ? tag('rv', { s: errorStructure }, tag('v', {}, String(errorType)))
-      : tag('rv', { s: 0 }, tag('v', {}, String(mediaIndex)) + tag('v', {}, String(origin))));
+    for (const [address, index] of addresses) {
+      webImages.push(tag('webImageSrd', {}, tag('address', { 'r:id': `rId${index + 1}` })));
+      webRels.push(tag('Relationship', { Id: `rId${index + 1}`, Type: `${REL}hyperlink`, Target: address, TargetMode: 'External' }));
+    }
+    for (const { structure: s, values } of recordsByValue.values()) records.push(tag('rv', { s }, values.map(v => tag('v', {}, xmlText(v))).join('')));
+    const structureXml = [...structures.values()].sort((a, b) => a.index - b.index).map(s => s.xml);
     const parts = [
       ['rdrichvalue.xml', 'rdRichValue', 'application/vnd.ms-excel.rdrichvalue+xml', tag('rvData', { xmlns: RICH, count: recordsByValue.size }, records.join(''))],
-      ['rdrichvaluestructure.xml', 'rdRichValueStructure', 'application/vnd.ms-excel.rdrichvaluestructure+xml', tag('rvStructures', { xmlns: RICH, count: structures.length }, structures.join(''))],
+      ['rdrichvaluestructure.xml', 'rdRichValueStructure', 'application/vnd.ms-excel.rdrichvaluestructure+xml', tag('rvStructures', { xmlns: RICH, count: structureXml.length }, structureXml.join(''))],
       ['richValueRel.xml', 'richValueRel', 'application/vnd.ms-excel.richvaluerel+xml', tag('richValueRels', { xmlns: 'http://schemas.microsoft.com/office/spreadsheetml/2022/richvaluerel', 'xmlns:r': REL.slice(0, -1) }, links.join(''))],
+      ['rdRichValueWebImage.xml', 'rdRichValueWebImage', 'application/vnd.ms-excel.rdrichvaluewebimage+xml', tag('webImagesSrd', { xmlns: 'http://schemas.microsoft.com/office/spreadsheetml/2020/richdatawebimage', 'xmlns:r': REL.slice(0, -1) }, webImages.join(''))],
       ['rdRichValueTypes.xml', 'rdRichValueTypes', 'application/vnd.ms-excel.rdrichvaluetypes+xml', tag('rvTypesInfo', { xmlns: 'http://schemas.microsoft.com/office/spreadsheetml/2017/richdata2' },
         tag('global', {}, tag('keyFlags', {}, ['_Self', '_DisplayString', '_Flags', '_Format', '_SubLabel', '_Attribution', '_Icon', '_Display', '_CanonicalPropertyNames', '_ClassificationId']
           .map(name => tag('key', { name }, (name === '_Self' ? tag('flag', { name: 'ExcludeFromFile', value: 1 }) : '') + tag('flag', { name: 'ExcludeFromCalcComparison', value: 1 }))).join(''))))],
@@ -131,11 +156,13 @@ export function richValueWriter({ get, set, binary, contentType }) {
     let workbookRels = get('/xl/_rels/workbook.xml.rels');
     for (const [name, kind, type, xml] of parts) {
       if (kind === 'richValueRel' && !media.size) continue;
+      if (kind === 'rdRichValueWebImage' && !addresses.size) continue;
       set(base + name, HEADER + xml); contentType(base + name, type);
-      const year = kind === 'richValueRel' ? '2022/10' : '2017/06';
+      const year = kind === 'richValueRel' ? '2022/10' : kind === 'rdRichValueWebImage' ? '2020/07' : '2017/06';
       workbookRels = workbookRels.replace('</Relationships>', tag('Relationship', { Id: `puter_${kind}`, Type: `http://schemas.microsoft.com/office/${year}/relationships/${kind}`, Target: `richData/${name}` }) + '</Relationships>');
     }
     if (media.size) set(base + '_rels/richValueRel.xml.rels', HEADER + tag('Relationships', { xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships' }, rels.join('')));
+    if (addresses.size) set(base + '_rels/rdRichValueWebImage.xml.rels', HEADER + tag('Relationships', { xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships' }, webRels.join('')));
     let metadata = get('/xl/metadata.xml');
     if (!metadata) {
       metadata = HEADER + tag('metadata', { xmlns: MAIN }, tag('metadataTypes', { count: 0 }, ''));
