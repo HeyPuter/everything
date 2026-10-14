@@ -23,7 +23,9 @@ export function fitFan({ down, up, faceDown, faceUp, cardH, avail }) {
   const need = faceDown * down + faceUp * up + cardH;
   if (need <= avail) return { down, up };
   const minDown = Math.min(down, 4);
-  const minUp = Math.min(up, 16);
+  // The rank index on a rich card sits a little below the top edge, so the
+  // floor grows with the card.
+  const minUp = Math.min(up, Math.max(16, cardH * 0.17));
   let spare = avail - cardH - faceUp * up;
   if (faceDown && spare >= faceDown * minDown) {
     return { down: Math.min(down, spare / faceDown), up };

@@ -75,6 +75,8 @@ main {
   max-width: 980px;
   margin: 0 auto;
 }
+/* Ten columns need more width than seven to keep the cards readable. */
+#board[data-game="spider"] { max-width: 1240px; }
 
 .row {
   position: absolute;
@@ -112,6 +114,7 @@ main {
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Game menu: a popover under its header button. */

@@ -4,7 +4,12 @@ Klondike solitaire, built with Vite and plain JavaScript (ES modules, no
 framework). The game menu in the header picks draw-one or draw-three
 Klondike, either with Vegas scoring (a $52 ante, $5 per card played home,
 one pass through the deck when drawing one and three when drawing three, and
-a running bank across games). Desktop windows get realistic card art via a vendored SVG deck;
+a running bank across games), or Spider with one, two, or four suits.
+
+Each game lives behind the same rules adapter (`src/game/modes.js`): board,
+drag, and the save/stats plumbing call it instead of a specific game's
+rules. Klondike's rules are in `src/game/state.js` and `rules.js`, Spider's
+in `src/game/spider.js`. Desktop windows get realistic card art via a vendored SVG deck;
 small screens fall back to plain top-left rank-and-suit cards. Games and
 stats can optionally sync to Puter cloud storage.
 

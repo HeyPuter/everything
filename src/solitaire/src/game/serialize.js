@@ -1,4 +1,5 @@
-import { SUIT_COLOR, RANKS } from './deck.js';
+import { SUIT_COLOR, RANKS, SPIDER_SUITS } from './deck.js';
+import { SPIDER_COLUMNS, SPIDER_RUNS } from './spider.js';
 
 // v2 added the game options (draw count, Vegas scoring and its running
 // score, redeals used). A v1 save is a draw-one, standard-scoring Klondike
@@ -88,6 +89,68 @@ export function deserialize(save) {
       moves: Number(save.m) || 0, // deliberately lenient: non-numeric m coerces to 0 rather than rejecting the save
       score: scoring === 'vegas' ? Number(save.$) || 0 : 0,
       redeals: Math.max(0, Math.floor(Number(save.r) || 0)),
+      history: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Spider, same v2 envelope. Its two decks hold several copies of each card,
+// so ids are handed out again on load (the nth ♠A met is ♠A#n); nothing
+// keeps an id across a reload, so they only have to be unique. Completed
+// runs are stored as one suit letter each, since a run is always K..A.
+export function serializeSpider(game, now) {
+  return {
+    v: SAVE_VERSION,
+    g: 'spider',
+    n: game.suits,
+    t: game.tableau.map(encodePile),
+    f: game.foundations.map(run => SUIT_CODE[run[0].suit]).join(''),
+    s: encodePile(game.stock),
+    m: game.moves,
+    ts: now,
+  };
+}
+
+export function deserializeSpider(save) {
+  if (!save || save.v !== SAVE_VERSION || save.g !== 'spider') return null;
+  const suits = SPIDER_SUITS[save.n];
+  if (!suits) return null;
+  if (!Array.isArray(save.t) || save.t.length !== SPIDER_COLUMNS) return null;
+  if (typeof save.f !== 'string' || save.f.length > SPIDER_RUNS) return null;
+  try {
+    const tableau = save.t.map(decodePile);
+    const stock = decodePile(save.s);
+    const foundations = [...save.f].map(code => {
+      const suit = CODE_SUIT[code];
+      if (!suit) throw new Error('bad run');
+      return [...RANKS].reverse().map(rank => ({
+        suit, rank, color: SUIT_COLOR[suit], faceUp: true, id: suit + rank,
+      }));
+    });
+
+    // Exactly two decks' worth for this suit count: every card of every
+    // suit in play, 8 / suits.length times, and nothing else.
+    const all = [...tableau.flat(), ...stock, ...foundations.flat()];
+    if (all.length !== 104) return null;
+    const copies = 8 / suits.length;
+    const seen = new Map();
+    for (const c of all) {
+      if (!suits.includes(c.suit)) return null;
+      const n = seen.get(c.id) || 0;
+      if (n >= copies) return null;
+      seen.set(c.id, n + 1);
+      c.id = `${c.id}#${n}`;
+    }
+
+    return {
+      kind: 'spider',
+      suits: save.n,
+      tableau,
+      foundations,
+      stock,
+      moves: Number(save.m) || 0,
       history: [],
     };
   } catch {

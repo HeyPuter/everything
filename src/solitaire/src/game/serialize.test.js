@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { serialize, deserialize, SAVE_VERSION } from './serialize.js';
+import {
+  serialize, deserialize, SAVE_VERSION, serializeSpider, deserializeSpider,
+} from './serialize.js';
 import { createGame } from './state.js';
-import { newDeck, SUIT_COLOR } from './deck.js';
+import { createSpiderGame } from './spider.js';
+import { newDeck, newSpiderDeck, SUIT_COLOR } from './deck.js';
 
 const card = (suit, rank, faceUp = true) => ({
   suit, rank, color: SUIT_COLOR[suit], faceUp, id: suit + rank,
@@ -177,5 +180,54 @@ describe('serialize / deserialize', () => {
   it('accepts a full, legitimately dealt 52-card board', () => {
     const game = createGame(newDeck(() => 0.5));
     expect(deserialize(serialize(game, 1))).not.toBe(null);
+  });
+});
+
+describe('Spider saves', () => {
+  it.each([1, 2, 4])('round-trips a fresh %i-suit deal', suits => {
+    const game = createSpiderGame(newSpiderDeck(suits, () => 0.4), { suits });
+    const restored = deserializeSpider(serializeSpider(game, 3));
+    const strip = g => ({ ...stripHistory(g), tableau: g.tableau.map(c => c.map(({ id, ...x }) => x)),
+      stock: g.stock.map(({ id, ...x }) => x) });
+    expect(strip(restored)).toEqual(strip(game));
+    const ids = [...restored.tableau.flat(), ...restored.stock].map(c => c.id);
+    expect(new Set(ids).size).toBe(104);
+  });
+
+  it('round-trips completed runs', () => {
+    // One spade of each rank becomes a finished run; the other 91 cards
+    // stay on the table.
+    const deck = newSpiderDeck(1, () => 0.4);
+    const runCards = [];
+    for (const rank of ['K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2', 'A']) {
+      const i = deck.findIndex(c => c.rank === rank);
+      runCards.push({ ...deck.splice(i, 1)[0], faceUp: true });
+    }
+    const game = createSpiderGame(deck, { suits: 1 });
+    game.foundations = [runCards];
+    const restored = deserializeSpider(serializeSpider(game, 1));
+    expect(restored.foundations).toHaveLength(1);
+    expect(restored.foundations[0].map(c => c.rank).join(' ')).toBe('K Q J 10 9 8 7 6 5 4 3 2 A');
+    expect(restored.foundations[0].every(c => c.faceUp && c.suit === '♠')).toBe(true);
+  });
+
+  it('stays small', () => {
+    const save = serializeSpider(createSpiderGame(newSpiderDeck(4), { suits: 4 }), 1);
+    expect(JSON.stringify(save).length).toBeLessThan(2048);
+  });
+
+  it('rejects a board that is not exactly two decks for its suit count', () => {
+    const save = serializeSpider(createSpiderGame(newSpiderDeck(2, () => 0.4), { suits: 2 }), 1);
+    expect(deserializeSpider({ ...save, n: 1 })).toBe(null); // hearts in a one-suit game
+    expect(deserializeSpider({ ...save, n: 3 })).toBe(null);
+    expect(deserializeSpider({ ...save, s: save.s.slice(2) })).toBe(null); // 103 cards
+    expect(deserializeSpider({ ...save, t: save.t.slice(1) })).toBe(null); // nine columns
+    expect(deserializeSpider({ ...save, f: 'X' })).toBe(null);
+  });
+
+  it('is not loaded as Klondike, nor Klondike as Spider', () => {
+    const spiderSave = serializeSpider(createSpiderGame(newSpiderDeck(1), { suits: 1 }), 1);
+    expect(deserialize(spiderSave)).toBe(null);
+    expect(deserializeSpider(serialize(createGame(), 1))).toBe(null);
   });
 });

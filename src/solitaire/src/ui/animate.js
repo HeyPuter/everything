@@ -143,10 +143,7 @@ export function createAnimator({ boardEl }) {
   let pendingFlights = new Map();
   let celebration = null; // the active cascade's state, or null between/before runs
 
-  function applyFlight(el, card) {
-    const flight = pendingFlights.get(card.id);
-    if (!flight) return;
-    pendingFlights.delete(card.id);
+  function applyFlight(el, card, flight) {
     const src = flight.sourceRect;
 
     const destRect = el.getBoundingClientRect();
@@ -155,7 +152,7 @@ export function createAnimator({ boardEl }) {
     const originalStyle = el.getAttribute('style') || '';
 
     el.innerHTML = '';
-    el.className = 'card flying';
+    el.className = flight.slide ? 'card flying slide' : 'card flying';
     el.style.setProperty('--fly-dx', (src.left - destRect.left) + 'px');
     el.style.setProperty('--fly-dy', (src.top - destRect.top) + 'px');
     el.style.setProperty('--fly-delay', flight.delay + 'ms');
@@ -195,10 +192,12 @@ export function createAnimator({ boardEl }) {
   function afterCard(el, card) {
     if (!card) return;
     if (pendingFlips.length) applyFlip(el, card);
-    if (pendingFlights.has(card.id)) {
+    const flight = pendingFlights.get(card.id);
+    if (flight) {
+      pendingFlights.delete(card.id);
       // Defer until the pile is in the DOM, or getBoundingClientRect() on the
       // destination returns (0,0) and the card flies in from the viewport corner.
-      requestAnimationFrame(() => applyFlight(el, card));
+      requestAnimationFrame(() => applyFlight(el, card, flight));
     }
   }
 
@@ -416,9 +415,15 @@ export function createAnimator({ boardEl }) {
     afterCard,
     queueFlip: id => { if (id) pendingFlips.push(id); },
     queueFlips: ids => { for (const id of ids || []) if (id) pendingFlips.push(id); },
-    queueFlights: (ids, sourceRect, stagger = 70) => {
-      ids.forEach((id, i) => pendingFlights.set(id, { sourceRect, delay: i * stagger }));
+    // slide: the card is face up at both ends, so it travels without the
+    // back-to-front spin a card turned off the stock gets.
+    queueFlights: (ids, sourceRect, { stagger = 70, slide = false } = {}) => {
+      ids.forEach((id, i) => pendingFlights.set(id, { sourceRect, delay: i * stagger, slide }));
     },
+    // Called after each render: a flight no rendered card claimed (a dealt
+    // card swept straight into a finished Spider run) must not linger and
+    // fire later, when an undo brings that card back.
+    dropUnclaimed: () => pendingFlights.clear(),
     startCelebration,
     cancelCelebration,
   };

@@ -1,9 +1,13 @@
-import { newDeck } from './deck.js';
+import { newDeck, newSpiderDeck } from './deck.js';
 import {
   createGame, getMovingCards, applyMove, drawFromStock, undo, canRedeal,
 } from './state.js';
 import { canPlaceOnTableau, canPlaceOnFoundation, isWon } from './rules.js';
-import { serialize as serializeKlondike, deserialize as deserializeKlondike } from './serialize.js';
+import {
+  serialize as serializeKlondike, deserialize as deserializeKlondike,
+  serializeSpider, deserializeSpider,
+} from './serialize.js';
+import * as spider from './spider.js';
 
 // Every game the menu offers. `key` is what stats and the remembered choice
 // are filed under; klondike-1 is the original game and the default.
@@ -12,6 +16,9 @@ export const MODES = [
   { key: 'klondike-3', group: 'Klondike', label: 'Draw 3', game: 'klondike', opts: { draw: 3, scoring: 'standard' } },
   { key: 'vegas-1', group: 'Vegas', label: 'Draw 1', game: 'klondike', opts: { draw: 1, scoring: 'vegas' } },
   { key: 'vegas-3', group: 'Vegas', label: 'Draw 3', game: 'klondike', opts: { draw: 3, scoring: 'vegas' } },
+  { key: 'spider-1', group: 'Spider', label: '1 suit', game: 'spider', opts: { suits: 1 } },
+  { key: 'spider-2', group: 'Spider', label: '2 suits', game: 'spider', opts: { suits: 2 } },
+  { key: 'spider-4', group: 'Spider', label: '4 suits', game: 'spider', opts: { suits: 4 } },
 ];
 
 export const DEFAULT_MODE = 'klondike-1';
@@ -21,11 +28,15 @@ export function findMode(key) {
 }
 
 export function modeOf(game) {
+  if (game.kind === 'spider') return `spider-${game.suits}`;
   return (game.scoring === 'vegas' ? 'vegas-' : 'klondike-') + (game.draw === 3 ? 3 : 1);
 }
 
 export function dealMode(key, random = Math.random) {
   const mode = findMode(key) || findMode(DEFAULT_MODE);
+  if (mode.game === 'spider') {
+    return spider.createSpiderGame(newSpiderDeck(mode.opts.suits, random), mode.opts);
+  }
   return createGame(newDeck(random), mode.opts);
 }
 
@@ -68,8 +79,22 @@ const klondike = {
   serialize: serializeKlondike,
 };
 
+const spiderRules = {
+  columns: spider.SPIDER_COLUMNS,
+  getMovingCards: spider.getMovingCards,
+  canPickUp: spider.canPickUp,
+  canDrop: spider.canDrop,
+  autoTargets: spider.autoTargets,
+  applyMove: spider.applyMove,
+  draw: spider.dealRow,
+  canDraw: game => game.stock.length > 0,
+  undo: spider.undo,
+  isWon: spider.isWon,
+  serialize: serializeSpider,
+};
+
 export function rulesFor(game) {
-  return klondike;
+  return game.kind === 'spider' ? spiderRules : klondike;
 }
 
 export function serialize(game, now) {
@@ -77,5 +102,5 @@ export function serialize(game, now) {
 }
 
 export function deserialize(save) {
-  return deserializeKlondike(save);
+  return save?.g === 'spider' ? deserializeSpider(save) : deserializeKlondike(save);
 }

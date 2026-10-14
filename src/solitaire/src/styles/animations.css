@@ -114,6 +114,9 @@
    to be at 0deg and .face.back at 180deg. */
 .card.flying .face.front { transform: rotateY(0deg); }
 .card.flying .face.back  { transform: rotateY(180deg); }
+/* A card that is already face up (a finished Spider run's King heading
+   home) arcs across without the spin. */
+.card.flying.slide .flipper { animation: none; }
 .pile.drop-hover .slot,
 .pile.drop-hover > .card:last-child {
   box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(37,99,235,.35);

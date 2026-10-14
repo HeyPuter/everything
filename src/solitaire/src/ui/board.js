@@ -71,7 +71,53 @@ export function render(ctx) {
   const layout = { sizes, mode, hooks, availH };
 
   boardEl.innerHTML = '';
-  renderKlondike(boardEl, game, rules, layout);
+  if (game.kind === 'spider') renderSpider(boardEl, game, layout);
+  else renderKlondike(boardEl, game, rules, layout);
+}
+
+// Spider's top row, ten columns wide like its tableau: the stock (one back
+// per deal left, fanned so the deals can be counted at a glance), a gap,
+// then eight slots for completed runs, each showing its King.
+function renderSpider(boardEl, game, layout) {
+  const { sizes, mode, hooks } = layout;
+
+  const top = document.createElement('div');
+  top.className = 'row top';
+  boardEl.appendChild(top);
+
+  const stockPile = makePile('stock', 0);
+  const deals = Math.ceil(game.stock.length / 10);
+  if (!deals) {
+    stockPile.appendChild(slotEl('block'));
+  } else {
+    const fanX = Math.max(3, sizes.cardW * 0.06);
+    for (let d = 0; d < deals; d++) {
+      const c = game.stock[d * 10];
+      const e = cardEl({ ...c, faceUp: false }, mode);
+      e.style.left = (d * fanX) + 'px';
+      stockPile.appendChild(e);
+    }
+    stockPile.appendChild(stockCounter(deals === 1 ? '1 deal' : `${deals} deals`));
+  }
+  hooks.attachStockTap(stockPile);
+  top.appendChild(stockPile);
+
+  top.appendChild(document.createElement('div')); // spacer
+
+  for (let i = 0; i < 8; i++) {
+    const fp = makePile('foundation', i);
+    const run = game.foundations[i];
+    if (run) {
+      const e = cardEl(run[0], mode);
+      fp.appendChild(e);
+      hooks.afterCard(e, run[0]);
+    } else {
+      fp.appendChild(slotEl());
+    }
+    top.appendChild(fp);
+  }
+
+  renderTableau(boardEl, game, layout);
 }
 
 function renderKlondike(boardEl, game, rules, layout) {

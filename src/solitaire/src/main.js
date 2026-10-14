@@ -117,6 +117,7 @@ function requestRender() {
       afterCard: animator.afterCard,
     },
   });
+  animator.dropUnclaimed();
   updateStats();
 }
 
@@ -193,10 +194,11 @@ window.addEventListener('beforeunload', () => {
 // actually played (see countGameOnce) costs its ante: dealing and walking
 // away is free, the same way it doesn't count as a game played.
 function settleVegas() {
-  if (game.scoring !== 'vegas' || vegasSettled || !countedThisGame) return;
+  if (game.scoring !== 'vegas' || vegasSettled || !countedThisGame) return false;
   vegasSettled = true;
   stats = recordVegasResult(stats, game.score, Date.now());
   saveLocalStats(stats);
+  return true;
 }
 
 function showWin() {
@@ -232,17 +234,29 @@ const drag = createDragController({
   getGame: () => game,
   getRules: rules,
   requestRender,
-  onMoveApplied: ({ flipped }) => {
+  onMoveApplied: ({ flipped, completed }) => {
     playerOwnsBoard = true;
     countGameOnce();
     animator.queueFlips([].concat(flipped ?? []));
+    flyCompletedRuns(completed);
     checkWin();
     scheduleSave();
   },
 });
 
+// A finished Spider run leaves the tableau on its own, so fly its King from
+// where it sat to its foundation slot, or it would just vanish. Called
+// before the re-render, while the King is still in the old board's DOM.
+function flyCompletedRuns(kingIds) {
+  for (const id of kingIds || []) {
+    const el = boardEl.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+    if (el) animator.queueFlights([id], el.getBoundingClientRect(), { slide: true });
+  }
+}
+
 const REFUSED_DRAW = {
   'no-redeals': 'No passes left through the deck.',
+  'empty-column': 'Fill every empty column before dealing.',
 };
 
 function onStockTap() {
@@ -257,6 +271,7 @@ function onStockTap() {
   playerOwnsBoard = true;
   if (srcRect) animator.queueFlights(result.drawn, srcRect);
   animator.queueFlips(result.flipped);
+  flyCompletedRuns(result.completed);
   requestRender();
   checkWin();
   scheduleSave();
@@ -267,7 +282,7 @@ function onStockTap() {
 function newGame(key = modeOf(game)) {
   drag.cancelDrag();
   animator.cancelCelebration();
-  settleVegas();
+  const settled = settleVegas();
   game = dealMode(key);
   saveModePref(key);
   countedThisGame = false;
@@ -280,7 +295,7 @@ function newGame(key = modeOf(game)) {
   winEl.classList.remove('show');
   updateModeLabel();
   requestRender();
-  if (signedIn) syncStats(); // a settled Vegas game changed the bank
+  if (settled && signedIn) syncStats(); // the bank changed
   dropSave(); // a fresh deal replaces whatever was saved, so drop the old save
 }
 

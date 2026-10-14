@@ -85,6 +85,7 @@ describe('fitFan', () => {
     const f = fitFan({ ...base, faceDown: 5, faceUp: 20, avail: 500 });
     expect(f.down).toBe(4);
     expect(f.up).toBeCloseTo((500 - 100 - 20) / 20);
-    expect(fitFan({ ...base, faceDown: 5, faceUp: 40, avail: 300 }).up).toBe(16);
+    expect(fitFan({ ...base, faceDown: 5, faceUp: 40, avail: 300 }).up).toBe(17);
+    expect(fitFan({ ...base, cardH: 60, faceDown: 5, faceUp: 40, avail: 300 }).up).toBe(16);
   });
 });
