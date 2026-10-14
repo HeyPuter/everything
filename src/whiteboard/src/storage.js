@@ -519,8 +519,21 @@ export const local = {
     const hashes = found?.length
       ? await Promise.all(found.map((f) => mediaHash(f.data)))
       : [];
-    const replaced =
+    let replaced =
       replaces != null && known.list.find((r) => r.id === replaces);
+    // A version named since it was written, as someone may name the one
+    // holding refused edits, is kept as named: this one goes beside it.
+    if (replaced) {
+      const row = await transaction(
+        "readonly",
+        (s) => s.get(replaced.id),
+        "revisions",
+      );
+      if (row && row.label !== label) {
+        replaced.kept = keptRevision(row);
+        replaced = null;
+      }
+    }
     if (replaced) known.list = known.list.filter((r) => r !== replaced);
     // A version is stamped after every version before it, so two written
     // within one millisecond still list and prune in the order they were

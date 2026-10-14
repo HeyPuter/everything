@@ -524,3 +524,33 @@ test("a version named in another tab survives this tab's pruning", async (t) => 
     30,
   );
 });
+
+test("a version holding refused edits that someone named is not written over", async () => {
+  globalThis.indexedDB = new IDBFactory();
+  const { local: tab } = await import("../src/storage.js?refused=named");
+  const b = board("Refused");
+  b.items.push(item("note", 0, 0, { text: "draft A" }));
+  const label = "Unsaved changes from another tab";
+  const first = await tab.checkpoint(structuredClone(b), label, {
+    owned: true,
+    kept: true,
+  });
+  await tab.nameRevision(first.id, "Draft A to keep");
+  b.items[0].text = "draft B";
+  const second = await tab.checkpoint(structuredClone(b), label, {
+    owned: true,
+    kept: true,
+    replaces: first.id,
+  });
+  assert.notEqual(second.id, first.id);
+  const all = await tab.revisions(b.id);
+  assert.deepEqual(
+    all
+      .map((r) => [r.label, r.board.items[0].text])
+      .sort((a, c) => a[0].localeCompare(c[0])),
+    [
+      ["Draft A to keep", "draft A"],
+      [label, "draft B"],
+    ],
+  );
+});
