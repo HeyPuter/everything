@@ -1,4 +1,6 @@
 import { paintDoughnutChart } from './canvas-doughnut-charts.js';
+import { paintPieChart } from './canvas-pie-charts.js';
+import { paintXYChart } from './canvas-xy-charts.js';
 import { columnTitleLayout, paintColumnTitle } from './canvas-chart-titles.js';
 // Original cached-chart preview. Automatic axis bounds are an application layout
 // choice; OOXML leaves those bounds to the consumer when none are specified.
@@ -30,7 +32,7 @@ const metricStyle = style => ({ ...style, fontSize: metricSize, kerning: kerning
 // The automatic plot layout reserves text-sized axis bands inside fixed
 // chart-area padding. These are consumer layout defaults, not OOXML lengths.
 // Original chart-layout controls vary frame dimensions and declared font size.
-function axisMetrics(ctx, style, labels, fallbackSize) {
+export function axisMetrics(ctx, style, labels, fallbackSize) {
   const resolved = { fontAscii: 'Arial', fontSize: fallbackSize * .75, ...style };
   const natural = measureCanvasText(ctx, 'Mg', resolved);
   setCanvasTextStyle(ctx, metricStyle(resolved));
@@ -54,7 +56,7 @@ function axisMetrics(ctx, style, labels, fallbackSize) {
   return { labelBand, centerBaseline, boxHeight, ascent, descent, width };
 }
 
-function chartText(ctx, text, x, y, width, style) {
+export function chartText(ctx, text, x, y, width, style) {
   if (!style) { ctx.fillText(text, x, y, width); return; }
   const scale = style.fontSize / metricSize;
   ctx.save(); setCanvasTextStyle(ctx, metricStyle(style)); ctx.scale(scale, scale);
@@ -124,7 +126,10 @@ function paintBottomLegend(ctx, chart, box) {
   }
 }
 export function paintChart(ctx, chart, width, height) {
+  // Generated doughnut titles and legend-free doughnuts keep their native-referenced painter.
+  if (chart.type === 'pie' || chart.type === 'doughnut' && (chart.legend || chart.title?.paragraphs)) return paintPieChart(ctx, chart, width, height);
   if (chart.type === 'doughnut') return paintDoughnutChart(ctx,chart,width,height);
+  if (chart.type && chart.type !== 'column') return paintXYChart(ctx, chart, width, height);
   const { series, categoryAxis, valueAxis } = chart;
   let scale = chartScale(series, chart.grouping);
   const segments = chart.grouping && chart.grouping !== 'clustered' ? chartSegments(series, chart.grouping) : null;
@@ -206,7 +211,9 @@ export function paintChart(ctx, chart, width, height) {
   ctx.restore();
 }
 export async function decodeChart(asset, fontAlternatives) {
-  if (asset.chart.title?.style || asset.chart.text || asset.chart.categoryAxis?.text || asset.chart.valueAxis?.text || asset.chart.legendText) await loadCanvasFonts({ paragraphs: [], assets: { chart: asset }, styles: { fontAlternatives } });
+  // Scatter X axes are value axes; present them where the font collector looks.
+  const fonts = asset.chart.xAxis ? { ...asset, chart: { ...asset.chart, categoryAxis: asset.chart.xAxis } } : asset;
+  if (asset.chart.title?.style || asset.chart.text || fonts.chart.categoryAxis?.text || asset.chart.valueAxis?.text || asset.chart.legendText) await loadCanvasFonts({ paragraphs: [], assets: { chart: fonts }, styles: { fontAlternatives } });
   const canvas = new OffscreenCanvas(asset.width * 2, asset.height * 2), ctx = canvas.getContext('2d');
   setCanvasFontAlternatives(ctx, fontAlternatives);
   ctx.scale(2, 2); paintChart(ctx, asset.chart, asset.width, asset.height);

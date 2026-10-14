@@ -1,5 +1,9 @@
 import { inlineSegments } from './images.js';
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
+/** Fields without a visible result: index (XE), authority (TA) and contents (TC) entries. */
+export const ENTRY_FIELDS = new Set(['XE', 'TA', 'TC']);
+// An empty entry stays before text typed at its position instead of growing a result.
+const emptyEntry = r => ENTRY_FIELDS.has(r.field.type) && r.start === r.end;
 
 // Field boundaries are zero-width document markers, not metadata on result
 // runs. Empty results and results spanning paragraph marks retain both ends.
@@ -51,13 +55,13 @@ export function replacedBodyFields(ranges, start, end, inserted, discardContaine
   // every field against every empty result on each keystroke.
   if(start===end)for(let i=ranges.length-1;i>=0;i--){
     const r=ranges[i];
-    if(r.field.type!=='XE'&&(r.start===start&&r.end===start||growing.has(r.field.id))){
+    if(!emptyEntry(r)&&(r.start===start&&r.end===start||growing.has(r.field.id))){
       growing.add(r.field.id);if(r.parentId)growing.add(r.parentId);
     }
   }
   for (const r of ranges) {
     if (start === end) {
-      if(r.field.type==='XE'&&r.start===start)result.push(r);
+      if(emptyEntry(r)&&r.start===start)result.push(r);
       else if (growing.has(r.field.id)) result.push({ ...r, end: r.end+inserted });
       else if (start <= r.start) result.push({ ...r, start:r.start+inserted, end:r.end+inserted });
       else result.push(start < r.end ? { ...r, end:r.end+inserted } : r);

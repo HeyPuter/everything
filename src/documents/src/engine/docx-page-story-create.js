@@ -60,6 +60,23 @@ export function writeTitlePages(sectionNodes, flags, order) {
   }
 }
 
+/** Write each section's page numbering (§17.6.12 pgNumType): fmt and start, keeping other attributes. */
+export function writePageNumbering(sectionNodes, values, order) {
+  for (const [index, value] of values) {
+    const section = sectionNodes[index];
+    if (!section) continue;
+    let node = [...section.children].find(n => n.namespaceURI === W && n.localName === 'pgNumType');
+    if (!value) { if (node) { node.removeAttributeNS(W, 'fmt'); node.removeAttributeNS(W, 'start'); if (!node.attributes.length) node.remove(); } continue; }
+    if (!node) {
+      node = section.ownerDocument.createElementNS(W, 'w:pgNumType');
+      section.insertBefore(node, [...section.children].find(n => order.indexOf(n.localName) > order.indexOf('pgNumType')) || null);
+    }
+    if (value.format && value.format !== 'decimal') node.setAttributeNS(W, 'w:fmt', value.format); else node.removeAttributeNS(W, 'fmt');
+    if (Number.isInteger(value.start)) node.setAttributeNS(W, 'w:start', String(value.start)); else node.removeAttributeNS(W, 'start');
+    if (!node.attributes.length) node.remove();
+  }
+}
+
 // CT_Settings elements that precede evenAndOddHeaders (§17.15.1.35).
 const BEFORE_EVEN_ODD = ['writeProtection', 'view', 'zoom', 'removePersonalInformation', 'removeDateAndTime', 'doNotDisplayPageBoundaries', 'displayBackgroundShape', 'printPostScriptOverText', 'printFractionalCharacterWidth', 'printFormsData', 'embedTrueTypeFonts', 'embedSystemFonts', 'saveSubsetFonts', 'saveFormsData', 'mirrorMargins', 'alignBordersAndEdges', 'bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'gutterAtTop', 'hideSpellingErrors', 'hideGrammaticalErrors', 'activeWritingStyle', 'proofState', 'formsDesign', 'attachedTemplate', 'linkStyles', 'stylePaneFormatFilter', 'stylePaneSortMethod', 'documentType', 'mailMerge', 'revisionView', 'trackRevisions', 'doNotTrackMoves', 'doNotTrackFormatting', 'documentProtection', 'autoFormatOverride', 'styleLockTheme', 'styleLockQFSet', 'defaultTabStop', 'autoHyphenation', 'consecutiveHyphenLimit', 'hyphenationZone', 'doNotHyphenateCaps', 'showEnvelope', 'summaryLength', 'clickAndTypeStyle', 'defaultTableStyle'];
 /** Set or clear evenAndOddHeaders in a parsed settings document; returns whether it changed. */

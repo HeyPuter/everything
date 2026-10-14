@@ -210,6 +210,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
 
   /* ---- Document context menu ---- */
   function contextMenuItems(context) {
+    if (context === 'field') return review.contextItems();
     if (context !== 'text' && context !== 'table' && context !== 'list' && context !== 'link') return [];
     const engine = editor(); if (!engine) return [];
     const items = [];

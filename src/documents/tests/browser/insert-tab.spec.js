@@ -1,0 +1,268 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
+import { onTab, downloadDocx } from './helpers/editor-tools.js';
+import { reopenDocx } from './helpers/reopen-docx.js';
+
+const SHOTS = process.env.INSERT_SHOTS || '';
+const shot = (page, name) => SHOTS ? page.screenshot({ path: `${SHOTS}/${name}.png` }) : null;
+async function start(page, { text = 'First paragraph of the document.', width = 1440 } = {}) {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill(text);
+  await onTab(page, 'insert');
+  return { input, errors, ribbon: page.locator('#ribbon-panel-insert') };
+}
+/** Download the document, keep a copy for schema validation, and return its parts. */
+async function save(page, info, name) {
+  const path = info.outputPath(`${name}.docx`);
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  mkdirSync('test-results/insert-exports', { recursive: true }); copyFileSync(path, `test-results/insert-exports/${name}.docx`);
+  const parts = unzipSync(new Uint8Array(readFileSync(path)));
+  return { path, parts, xml: name => strFromU8(parts[name]) };
+}
+const undo = page => page.getByRole('button', { name: 'Undo', exact: true }).click();
+
+test('cover pages, headers, footers and page number formats', async ({ page }, info) => {
+  test.setTimeout(90000);
+  const { input, errors, ribbon } = await start(page);
+  await ribbon.getByRole('button', { name: 'Cover Page', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Sidebar' })).toBeVisible();
+  await shot(page, 'cover-gallery');
+  await page.getByRole('menuitem', { name: 'Block' }).click();
+  await expect.poll(() => input.inputValue()).toContain('Company name');
+  await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
+  // Choosing another design replaces the cover; removing it restores the document.
+  await ribbon.getByRole('button', { name: 'Cover Page', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Remove Current Cover Page' }).click();
+  await expect(input).toHaveValue('First paragraph of the document.');
+  await undo(page);
+  await expect.poll(() => input.inputValue()).toContain('Company name');
+
+  await ribbon.getByRole('button', { name: 'Header', exact: true }).click();
+  await shot(page, 'header-gallery');
+  await page.getByRole('menuitem', { name: /^Banded/ }).click();
+  await expect(page.getByRole('tab', { name: 'Header & Footer' })).toBeVisible();
+  await onTab(page, 'insert');
+  await ribbon.getByRole('button', { name: 'Footer', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Page X of Y/ }).click();
+  await onTab(page, 'insert');
+  await ribbon.getByRole('button', { name: 'Page Number', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Format Page Numbers…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Page Number Format' });
+  await dialog.getByRole('combobox', { name: 'Number format' }).selectOption('lowerRoman');
+  await dialog.getByRole('radio', { name: 'Start at' }).click();
+  await dialog.getByRole('spinbutton', { name: 'Start at' }).fill('3');
+  await shot(page, 'page-number-format');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  const { path, xml } = await save(page, info, 'headers-footers');
+  expect(xml('word/document.xml')).toMatch(/<w:pgNumType w:fmt="lowerRoman" w:start="3"\/>/);
+  const stories = Object.keys(unzipSync(new Uint8Array(readFileSync(path)))).filter(p => /word\/(header|footer)\d*\.xml/.test(p)).map(p => xml(p)).join('');
+  expect(stories).toMatch(/w:instr=" PAGE "/); expect(stories).toMatch(/w:instr=" NUMPAGES "/); expect(stories).toMatch(/<w:shd [^>]*w:fill="2F5597"/);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
+test('text boxes, WordArt, signature lines, drop caps, date fields and fields', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const { input, errors, ribbon } = await start(page, { text: 'Hello world, this paragraph begins with a large letter. '.repeat(4) });
+  // Drop cap: the first letter moves into its own framed paragraph, and None puts it back.
+  await ribbon.getByRole('button', { name: 'Drop Cap', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Dropped' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/^H\nello world/);
+  await ribbon.getByRole('button', { name: 'Drop Cap', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Dropped' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('menuitem', { name: 'Drop Cap Options…' }).click();
+  const cap = page.getByRole('dialog', { name: 'Drop Cap' });
+  await cap.getByRole('spinbutton', { name: 'Lines to drop' }).fill('2');
+  await shot(page, 'drop-cap-dialog');
+  await cap.getByRole('button', { name: 'OK' }).click();
+  await shot(page, 'drop-cap');
+  await input.press('ControlOrMeta+End');
+  // Text box from the gallery opens its text for editing.
+  await ribbon.getByRole('button', { name: 'Text Box', exact: true }).click();
+  await shot(page, 'text-box-gallery');
+  await page.getByRole('menuitem', { name: /^Sidebar/ }).click();
+  const drawingText = page.getByRole('dialog', { name: 'Edit drawing text' });
+  await expect(drawingText).toBeVisible();
+  await drawingText.getByRole('button', { name: 'Cancel' }).click();
+  await input.press('ControlOrMeta+End');
+  // WordArt
+  await ribbon.getByRole('button', { name: 'WordArt', exact: true }).click();
+  await shot(page, 'wordart-gallery');
+  await page.getByRole('menuitem', { name: 'Fill: White, Outline: Blue' }).click();
+  await expect(page.getByRole('dialog', { name: 'Edit drawing text' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Edit drawing text' }).getByRole('button', { name: 'Cancel' }).click();
+  await input.press('ControlOrMeta+End');
+  // Signature line
+  await ribbon.getByRole('button', { name: 'Signature Line', exact: true }).click();
+  const signature = page.getByRole('dialog', { name: 'Signature Line' });
+  await signature.getByRole('textbox', { name: 'Suggested signer', exact: true }).fill('Sam Lee');
+  await signature.getByRole('textbox', { name: 'Suggested signer’s title' }).fill('Director');
+  await signature.getByRole('button', { name: 'Insert' }).click();
+  await input.press('ControlOrMeta+End');
+  // Date and time as a field
+  await ribbon.getByRole('button', { name: 'Date & Time', exact: true }).click();
+  const date = page.getByRole('dialog', { name: 'Date and Time' });
+  await date.getByRole('option').nth(2).click();
+  await date.getByRole('checkbox', { name: 'Update automatically' }).check();
+  await shot(page, 'date-time');
+  await date.getByRole('button', { name: 'Insert' }).click();
+  // Field dialog: AUTHOR in uppercase
+  await input.press('ControlOrMeta+End'); await page.keyboard.type(' by ');
+  await ribbon.getByRole('button', { name: 'Quick Parts', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Field…' }).click();
+  const field = page.getByRole('dialog', { name: 'Field' });
+  await field.getByRole('listbox', { name: 'Field names' }).selectOption('FILENAME');
+  await field.getByRole('combobox', { name: 'Format' }).selectOption('Upper');
+  await expect(field.locator('.insert-field-code')).toHaveText('{ FILENAME \\* Upper \\* MERGEFORMAT }');
+  await shot(page, 'field-dialog');
+  await field.getByRole('button', { name: 'Insert' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/ by UNTITLED DOCUMENT\.DOCX$/);
+  // AutoText: save a selection, then insert it again.
+  await input.evaluate(el => { el.setSelectionRange(1, 12); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await ribbon.getByRole('button', { name: 'Quick Parts', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'AutoText' }).click();
+  await page.getByRole('menuitem', { name: 'Save Selection to AutoText Gallery…' }).click();
+  await page.getByRole('dialog', { name: 'Create New Building Block' }).getByRole('textbox').fill('Greeting');
+  await page.getByRole('dialog', { name: 'Create New Building Block' }).getByRole('button', { name: 'Save' }).click();
+  await input.press('ControlOrMeta+End');
+  await ribbon.getByRole('button', { name: 'Quick Parts', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'AutoText' }).click();
+  await page.getByRole('menuitem', { name: /^Greeting/ }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/ello world$/);
+  const { path, xml } = await save(page, info, 'text-group');
+  const body = xml('word/document.xml');
+  expect(body).toMatch(/<w:framePr [^>]*w:dropCap="drop"[^>]*w:lines="2"|<w:framePr [^>]*w:lines="2"[^>]*w:dropCap="drop"/);
+  expect(body.match(/<wps:txbx>/g)).toHaveLength(3);
+  expect(body).toMatch(/w14:textOutline/);
+  expect(body).toContain('Sam Lee');
+  expect(body).toMatch(/DATE \\@ "MMMM d, yyyy"/);
+  expect(body).toMatch(/FILENAME \\\* Upper/);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
+test('icons, diagrams, charts, drawn shapes and SVG pictures save as drawings and reopen editable', async ({ page }, info) => {
+  test.setTimeout(150000);
+  const { input, errors, ribbon } = await start(page, { text: 'Illustrations.' });
+  // Icons: search, choose two, recolor and insert.
+  await ribbon.getByRole('button', { name: 'Icons', exact: true }).click();
+  const icons = page.getByRole('dialog', { name: 'Icons' });
+  await icons.getByRole('searchbox', { name: 'Search icons' }).fill('light');
+  await icons.locator('.insert-icon').first().click();
+  await icons.getByRole('searchbox', { name: 'Search icons' }).fill('');
+  await icons.locator('.insert-icon').nth(3).click();
+  await shot(page, 'icons-dialog');
+  await icons.getByRole('button', { name: 'Insert (2)' }).click();
+  await expect.poll(() => input.inputValue()).toBe('Illustrations.￼￼');
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  // Diagram: an organization chart typed as an outline.
+  await ribbon.getByRole('button', { name: 'Diagram', exact: true }).click();
+  await shot(page, 'diagram-gallery');
+  await page.getByRole('menuitem', { name: /^Organization Chart/ }).click();
+  const diagram = page.getByRole('dialog', { name: 'Diagram' });
+  await diagram.getByRole('textbox', { name: 'Diagram text' }).fill('Director\n  Design\n  Engineering\n    Web\n    Mobile\n  Sales');
+  await shot(page, 'diagram-dialog');
+  await diagram.getByRole('button', { name: 'Insert' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/\n￼$/);
+  // Editing regenerates the same drawing with the new text, in one undo step.
+  await page.locator('canvas.canvas-page').first().click({ button: 'right', position: { x: 300, y: 260 } }).catch(() => {});
+  await page.keyboard.press('Escape');
+  await input.evaluate(el => { const at = el.value.lastIndexOf('￼'); el.setSelectionRange(at, at + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await onTab(page, 'insert');
+  await ribbon.getByRole('button', { name: 'Diagram', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Selected Diagram…' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Diagram' });
+  await expect(edit.getByRole('textbox', { name: 'Diagram text' })).toHaveValue('Director\n  Design\n  Engineering\n    Web\n    Mobile\n  Sales');
+  await edit.getByRole('option', { name: /^Basic Process/ }).click();
+  await edit.getByRole('button', { name: 'Update' }).click();
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  // Chart: a bar chart with edited data.
+  await ribbon.getByRole('button', { name: 'Chart', exact: true }).click();
+  const chart = page.getByRole('dialog', { name: 'Insert Chart' });
+  await chart.getByRole('option', { name: 'Clustered Bar' }).click().catch(async () => chart.getByRole('option').nth(3).click());
+  await chart.getByRole('textbox', { name: 'Chart title' }).fill('Quarterly sales');
+  await chart.getByRole('textbox', { name: 'Category 1', exact: true }).fill('North');
+  await shot(page, 'chart-dialog');
+  await chart.getByRole('button', { name: 'Insert' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/\n￼$/);
+  await shot(page, 'illustrations');
+  await onTab(page, 'insert');
+  // A shape drawn by dragging on the page takes the dragged size.
+  await ribbon.getByRole('button', { name: 'Shapes', exact: true }).click();
+  await shot(page, 'shapes-gallery');
+  await page.getByRole('menuitem', { name: 'Flowchart: Decision' }).click();
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const top = Math.max(box.y, 0) + 300; // A visible spot beside the chart.
+  await page.mouse.move(box.x + 640, top); await page.mouse.down(); await page.mouse.move(box.x + 736, top + 48, { steps: 4 }); await page.mouse.up();
+  await expect(page.getByRole('spinbutton', { name: 'Shape width (in)' })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Shape height (in)' })).toHaveValue('0.5');
+  await onTab(page, 'insert');
+  // An SVG picture is stored with a PNG fallback.
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'mark.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32" viewBox="0 0 64 32"><rect width="64" height="32" rx="6" fill="#2F5597"/></svg>') });
+  await expect.poll(async () => (await input.inputValue()).split('￼').length - 1).toBe(6);
+  const { path, parts, xml } = await save(page, info, 'illustrations');
+  const media = Object.keys(parts).filter(p => p.startsWith('word/media/'));
+  expect(media.filter(p => p.endsWith('.svg'))).toHaveLength(3);
+  expect(media.filter(p => p.endsWith('.png'))).toHaveLength(3);
+  expect(Object.keys(parts).filter(p => /^word\/charts\/.*\.xml$/.test(p))).toHaveLength(1);
+  const body = xml('word/document.xml');
+  expect(body).toMatch(/wpg:wgp/); expect(body).toContain('Diagram: Basic Process');
+  expect(body).toMatch(/prst="flowChartDecision"/);
+  expect(xml(Object.keys(parts).find(p => /^word\/charts\/.*\.xml$/.test(p)))).toMatch(/<c:barDir val="bar"\/>/);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 30000 });
+  await expect(page.locator('.canvas-message')).not.toContainText('read-only');
+  expect(errors).toEqual([]);
+});
+
+test('equations, symbols and text from a file', async ({ page }, info) => {
+  test.setTimeout(120000);
+  const { input, errors, ribbon } = await start(page, { text: 'Formula: ' });
+  await input.press('ControlOrMeta+End');
+  // Ctrl+= (Alt+= off the Mac) opens the equation editor with a live preview.
+  await page.keyboard.press(process.platform === 'darwin' ? 'Control+Equal' : 'Alt+Equal');
+  const equation = page.getByRole('dialog', { name: 'Equation' });
+  await equation.getByRole('textbox', { name: 'Equation in linear format' }).fill('x = (-b ± √(b^2 - 4ac))/2a');
+  await expect(equation.locator('.insert-equation-preview math mfrac')).toHaveCount(1);
+  await shot(page, 'equation-dialog');
+  await equation.getByRole('button', { name: 'Insert' }).click();
+  await expect.poll(() => input.inputValue()).toBe('Formula: ￼');
+  // Equation gallery
+  await page.getByRole('button', { name: 'Equation gallery' }).click();
+  await shot(page, 'equation-gallery');
+  await page.getByRole('menuitem', { name: /^Pythagorean/ }).click();
+  // Symbols: the More Symbols dialog stays open for several characters.
+  await input.press('ControlOrMeta+End');
+  await ribbon.getByRole('button', { name: 'Symbol', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'More Symbols…' }).click();
+  const symbols = page.getByRole('dialog', { name: 'Symbol' });
+  await symbols.getByRole('textbox', { name: 'Character code (hexadecimal)' }).fill('2603');
+  await symbols.getByRole('button', { name: 'Insert' }).click();
+  await symbols.getByRole('radio', { name: 'Special Characters' }).click();
+  await symbols.getByRole('option', { name: /Em Dash/ }).click();
+  await shot(page, 'symbol-dialog');
+  await symbols.getByRole('button', { name: 'Insert' }).click();
+  await symbols.getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(() => input.inputValue()).toMatch(/☃—$/);
+  // Recently used symbols lead the Symbol gallery.
+  await ribbon.getByRole('button', { name: 'Symbol', exact: true }).click();
+  await expect(page.getByRole('menuitem').first()).toHaveAccessibleName(/^—/);
+  await page.keyboard.press('Escape');
+  // Text from a Markdown file keeps its headings and emphasis.
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+  await (await chooser).setFiles({ name: 'notes.md', mimeType: 'text/markdown', buffer: Buffer.from('# Notes\n\nSome **bold** words.') });
+  await expect.poll(() => input.inputValue()).toMatch(/Notes\nSome bold words\.$/);
+  const { path, xml } = await save(page, info, 'equations-symbols');
+  const body = xml('word/document.xml');
+  expect(body.match(/<m:oMath[ >]/g)?.length).toBeGreaterThanOrEqual(2);
+  expect(body).toMatch(/<m:f>/); expect(body).toContain('☃');
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 20000 });
+  expect(errors).toEqual([]);
+});

@@ -375,9 +375,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const ranges = [];
     for (const t of list) if (t.start !== null && t.end > t.start && (!t.root.done || t.id === activeId)) ranges.push({ start: t.start, end: t.end, fill: t.id === activeId ? ACTIVE_TINT : TINT });
     if (draft && draft.end > draft.start) ranges.push({ start: draft.start, end: draft.end, fill: ACTIVE_TINT });
-    const all = [...(commentsShown ? ranges : []), ...(hooks.tints?.() || [])];
-    all.sort((a, b) => a.start - b.start);
-    engine.setRangeTints?.(all);
+    ranges.sort((a, b) => a.start - b.start);
+    engine.setRangeTints?.(commentsShown ? ranges : [], 'comments');
+    // Editable regions of a protected document are their own layer.
+    engine.setRangeTints?.(hooks.tints?.() || [], 'permissions');
   }
 
   /** Bring the column up to date; cheap when nothing changed. */

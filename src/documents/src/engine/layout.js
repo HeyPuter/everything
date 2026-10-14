@@ -40,7 +40,7 @@ import { floatingParagraph } from './floating-images.js';
 import { exactRowHeight, rowPadding } from './row-height.js';
 import { blockMinimumHeight } from './block-layout.js';
 import { sectionStoryBounds } from './story-clearance.js';
-import { footnotePlan, layoutWithFootnotes } from './footnote-layout.js';
+import { footnotePlan, endnotePlan, layoutWithFootnotes, pageRestartedNumbers, placeEndnotes } from './footnote-layout.js';
 import { numberedParagraphs } from './footnotes.js';
 import { pageBounds } from './page-bounds.js';
 import { alignPageBody } from './page-vertical-alignment.js';
@@ -121,12 +121,20 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
   paragraphs = fittedDrawingParagraphs(resolveEmptyTextFills(paragraphs), storyOptions.drawingLayouts);
   const totals = Object.values(pageStories?.stories || {}).some(s => s.paragraphs.some(p => p.runs.some(r => ['NUMPAGES', 'SECTIONPAGES'].includes(r.field?.type))));
   let counts = { pageCount: 1, sectionCounts: [] }, placed;
-  const notes = footnotePlan(pageStories, paragraphs);
-  if (notes) paragraphs = numberedParagraphs(paragraphs, notes.numbers);
+  const notes = footnotePlan(pageStories, paragraphs), endnotes = endnotePlan(pageStories, paragraphs), source = paragraphs;
+  const numberNotes = () => numberedParagraphs(source, { footnote: notes?.numbers || new Map(), endnote: endnotes?.numbers || new Map() });
+  if (notes || endnotes) paragraphs = numberNotes();
   for (let attempt = 0; attempt < MAX_PAGES; attempt++) {
-    placed = notes
+    const flow = () => notes
       ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts, noteReserve }), measureBase, numbering, storyOptions)
       : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts });
+    placed = flow();
+    // Footnotes numbered per page (§17.11.19 eachPage) need their pages first; renumber once and lay out again.
+    if (notes?.restart === 'eachPage') {
+      const renumbered = pageRestartedNumbers(notes, source, placed);
+      if ([...renumbered].some(([id, display]) => notes.numbers.get(id) !== display)) { notes.numbers = renumbered; paragraphs = numberNotes(); placed = flow(); }
+    }
+    if (endnotes) placed = placeEndnotes(endnotes, placed, measureBase, numbering, storyOptions);
     const aligned = () => {
       const result = alignPageBody(placed, paragraphs, tables);
       return finishRotatedCells(result === placed ? placed : { ...result, paragraphBorders: layoutParagraphBorders(result), tableBorders: layoutTableBorders(result.cells) });

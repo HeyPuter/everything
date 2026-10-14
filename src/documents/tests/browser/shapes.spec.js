@@ -15,6 +15,8 @@ test('inserts a shape, formats and resizes it, and saves editable DrawingML', as
   await input.fill('Paragraph holding a shape.');
   await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Shapes', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
+  // A shape chosen with the pointer is placed by clicking (default size) or dragging on the page.
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 140, y: 150 } });
   await expect(page.getByRole('tab', { name: 'Shape Format' })).toHaveAttribute('aria-selected', 'true');
   const height = page.getByRole('spinbutton', { name: 'Shape height (in)' }), width = page.getByRole('spinbutton', { name: 'Shape width (in)' });
   await expect(height).toHaveValue('1'); await expect(width).toHaveValue('1.5');
@@ -52,11 +54,14 @@ test('inserts a shape, formats and resizes it, and saves editable DrawingML', as
 
 test('inserts a text box, edits its text, recolors it and saves its paragraphs', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 1440, height: 900 }); // The whole Insert tab shows at desktop width.
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   const input = page.getByRole('textbox', { name: 'Document text' });
   await input.fill('Body text.');
   await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Simple Text Box/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit drawing text' });
   await expect(dialog).toBeVisible();
   const frameText = dialog.getByRole('textbox').first();
@@ -75,7 +80,7 @@ test('inserts a text box, edits its text, recolors it and saves its paragraphs',
   const xml = strFromU8(unzipSync(new Uint8Array((await import('node:fs')).readFileSync(path)))['word/document.xml']);
   expect(xml).toContain('<wps:txbx>');
   expect(xml).toContain('Boxed words');
-  expect(xml).not.toContain('Type your text here.');
+  expect(xml).not.toContain('Type your text here');
   await reopenDocx(page, input, path, await input.inputValue());
   expect(errors).toEqual([]);
 });

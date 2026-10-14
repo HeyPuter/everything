@@ -40,6 +40,13 @@ export function formatPageNumber(value, format = 'decimal') {
     }
     return format === 'lowerRoman' ? text.toLowerCase() : text;
   }
+  if (format === 'chicago') {
+    // Note symbols (§17.18.59 chicago): *, †, ‡, § and then doubled, tripled…
+    if (!value) return ' ';
+    const count = Math.floor((value - 1) / 4) + 1;
+    if (count > 128) throw new Error('This symbol number exceeds the preview limit.');
+    return ['*', '\u2020', '\u2021', '\u00a7'][(value - 1) % 4].repeat(count);
+  }
   throw new Error(`Unsupported page number format: ${format}.`);
 }
 

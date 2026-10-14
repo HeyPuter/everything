@@ -313,6 +313,23 @@ export async function saveFileAs(blob, suggestedName) {
   return { path: item.path, name: item.name || displayName(item.path) };
 }
 
+/* ---------- Small per-user settings ---------- */
+
+/** Whether Puter's key-value store is reachable (puter.kv). */
+export function canUseKv() {
+  return typeof sdk()?.kv?.get === 'function' && typeof sdk()?.kv?.set === 'function';
+}
+
+/** A per-user setting from Puter's key-value store, or null. */
+export async function kvGet(key) {
+  return canUseKv() ? sdk().kv.get(key) : null;
+}
+
+/** Save a per-user setting in Puter's key-value store. */
+export async function kvSet(key, value) {
+  if (canUseKv()) await sdk().kv.set(key, value);
+}
+
 /* ---------- AI ---------- */
 
 /** Whether Puter's AI is reachable (puter.ai.chat). */
