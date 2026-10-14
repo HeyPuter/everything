@@ -469,6 +469,12 @@ export function writeTable(block, doc, writeParagraph) {
   for (const row of block.rows) {
     appendBoundary(node, row.id, undefined, 'before');
     const tr = from(row.shell, 'tr');
+    if (row.styleLookCleared) {
+      // The table's Style Options replaced this row's own look exception.
+      const exceptions = child(tr, 'tblPrEx');
+      child(exceptions, 'tblLook')?.remove();
+      if (exceptions && !exceptions.children.length) exceptions.remove();
+    }
     const rowProperties = () => {
       let pr = child(tr, 'trPr');
       // A row's table-property exceptions precede its ordinary row properties.

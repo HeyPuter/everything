@@ -84,3 +84,15 @@ it('clips merged side segments to each physical page and uses the row outer bord
   expect(cut.every(b=>b.horizontal)).toBe(true);
  }
 });
+
+it('Table Style Options replace row look exceptions in the editor and in the saved rows', async () => {
+ const { setTableLook, tableLook } = await import('../src/engine/table-styles.js');
+ const p=await DocxPackage.open(source),d=model(p),t=d.tables[13];
+ expect(t.rows.some(row=>row.styleLook)).toBe(true);
+ d.selectCell(t.rows[1].cells[0].id);
+ expect(setTableLook(d,{noHBand:!tableLook(t).noHBand})).toBe(true);
+ expect(t.rows.some(row=>row.styleLook)).toBe(false);
+ const r=model(await DocxPackage.open(await save(p,d))).tables[13];
+ expect(r.rows.some(row=>row.styleLook)).toBe(false);
+ expect(r.rows.map(row=>row.cells[0].fill)).toEqual(t.rows.map(row=>row.cells[0].fill));
+});

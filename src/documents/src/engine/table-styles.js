@@ -210,7 +210,7 @@ export function setTableLook(model, patch) {
   if (table.conditionalStyle) {
     table.conditionalStyle = { ...table.conditionalStyle, settings: { ...table.conditionalStyle.settings, look } };
     // Rows with their own tblLook exceptions follow the table's new choice.
-    for (const row of table.rows) if (row.styleLook) delete row.styleLook;
+    for (const row of table.rows) if (row.styleLook) { delete row.styleLook; row.styleLookCleared = true; }
     M.refreshTableStyles(model, table);
   }
   model.didChange(); return true;
