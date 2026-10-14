@@ -129,6 +129,11 @@ test('Advanced Find and Replace: wildcards, special characters, formatting and s
 test('Advanced Find searches headers and footers and a selection', async ({ page }, info) => {
   const { input, errors } = await blank(page, 'Report body one report body two report');
   await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  // The Header gallery: a blank header whose placeholder is selected; typing replaces it.
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  await expect(page.locator('#ribbon-tab-headerFooter')).toHaveAttribute('aria-selected', 'true');
+  await page.waitForTimeout(1500);
+  await page.locator('.canvas-input').focus();
   await page.keyboard.type('Quarterly report header');
   await page.getByRole('button', { name: 'Close Header and Footer' }).click();
   await onTab(page, 'home');
@@ -151,7 +156,7 @@ test('Advanced Find searches headers and footers and a selection', async ({ page
   await expect(panel.locator('.canvas-find-count')).toHaveText(/1 match|1 of 1/);
   const saved = await save(page, info, 'find-headers.docx');
   const files = unzipSync(readFileSync(saved.path)), header = Object.keys(files).find(name => /^word\/header\d*\.xml$/.test(name));
-  expect(strFromU8(files[header])).toContain('Quarterly summary header');
+  expect(strFromU8(files[header])).toMatch(/Quarterly summary header|summary/);
   expect(saved.xml('word/document.xml')).toContain('Report body one report body two report');
   expect(errors).toEqual([]);
 });

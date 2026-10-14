@@ -11,7 +11,7 @@ import { checkedParagraphBorder } from '../engine/paragraph-borders.js';
 import { defineBullet, defineNumberFormat, adjustListIndents, defineMultilevelList, continueNumbering, previousList, currentListValue, selectedLevelDefinition, selectedListLevel } from '../engine/list-definitions.js';
 import { styleUsage, styleRanges, deleteStyle, styleDeletionBlocker, createStyleFromSelection } from '../engine/style-management.js';
 import { similarFormatCondition, similarFormattingRanges } from '../engine/format-inspection.js';
-import { advancedFind } from '../engine/advanced-search.js';
+import { advancedFind as findAdvanced } from '../engine/advanced-search.js';
 import { directParagraph, directRun } from '../engine/home-editing.js';
 import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-modes.js';
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
@@ -348,7 +348,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       const engine = editor(); if (!engine) return [];
       if (options.scope !== 'headers') return engine.model.findMatches(query, options);
       const body = engine.session.body || engine.model;
-      return searchStories(engine).flatMap(story => advancedFind(storyParagraphs(engine, story.path), query, { ...options, within: undefined }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
+      return searchStories(engine).flatMap(story => findAdvanced(storyParagraphs(engine, story.path), query, { ...options, within: undefined }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
     },
     select(match) {
       const engine = editor(); if (!engine) return;
@@ -363,7 +363,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
       let total = 0;
       for (const story of searchStories(engine)) {
-        const found = advancedFind(storyParagraphs(engine, story.path), query, options, { styles: engine.model.styles, numbering: engine.model.numbering });
+        const found = findAdvanced(storyParagraphs(engine, story.path), query, options, { styles: engine.model.styles, numbering: engine.model.numbering });
         if (!found.length) continue;
         if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
         total += engine.replaceMatches(query, text, options, true);
