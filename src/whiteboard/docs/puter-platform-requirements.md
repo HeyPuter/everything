@@ -6,6 +6,7 @@ Whiteboard uses Puter.js as its only backend. Most enterprise controls are imple
 
 | Capability                          | How it works                                                                                                                                                                                                                                               |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in with Google Workspace       | Puter's sign-in offers Sign in with Google (OpenID Connect), so people use their Google Workspace accounts, under the Workspace's own sign-in policies such as 2-Step Verification and session length.                                                     |
 | Organization with unlimited members | Every organization is one Puter worker owned by the account owner; membership is not limited by seats.                                                                                                                                                     |
 | Domain verification and capture     | Members verify a work email with a one-time code sent by the organization's worker. With domain capture on, verified addresses in the organization's domains join automatically.                                                                           |
 | Provisioning and deprovisioning     | SCIM 2.0 (`/scim/v2/Users`, `/scim/v2/Groups`) and a documented REST API authenticated with scoped API keys. Provisioned people are pending until they sign in and verify the same email; deactivation ends their access and live sessions on every board. |
@@ -16,6 +17,8 @@ Whiteboard uses Puter.js as its only backend. Most enterprise controls are imple
 ## Required from the Puter account platform
 
 ### 1. SAML 2.0 single sign-on with Google Workspace
+
+Sign in with Google already lets people use their Google Workspace accounts; it is not tied to the organization, so a person can still choose another way to sign in to Puter, and the worker still verifies their work email with a code.
 
 - Puter accounts must support signing in through a customer's SAML identity provider (Google Workspace as a custom SAML app), with IdP-initiated and SP-initiated flows.
 - The platform must bind an organization's verified domains to its IdP, so people with those addresses are redirected to Google Workspace instead of entering a Puter password.
@@ -44,6 +47,7 @@ How Whiteboard uses it: the verification-code flow remains as a fallback; when t
 
 | Capability                     | Status                                                                   |
 | ------------------------------ | ------------------------------------------------------------------------ |
+| Sign-in with Google Workspace  | Available (Sign in with Google)                                          |
 | SAML SSO with Google Workspace | Requires item 1                                                          |
 | Domain verification or capture | Available (email verification and domain capture); item 4 strengthens it |
 | Enforce MFA                    | Available (enforced by Puter sign-in)                                    |

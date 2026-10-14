@@ -351,8 +351,8 @@ addTranslations({
   "Policies saved.": "Politiques enregistrées.",
   "Allow Google Docs, Sheets, Slides, and Drive embeds and Sheets import":
     "Autoriser l’intégration de Google Docs, Sheets, Slides et Drive, et l’importation de Sheets",
-  "Google Workspace SAML single sign-on needs the Puter account platform and is not available yet; people sign in with Puter accounts. Provision users and groups from Google Workspace with the SCIM endpoint on the Security tab.":
-    "L’authentification unique SAML avec Google Workspace exige la plateforme de comptes Puter et n’est pas encore offerte; les personnes se connectent avec un compte Puter. Provisionnez les utilisateurs et les groupes à partir de Google Workspace avec le point de terminaison SCIM de l’onglet Sécurité.",
+  "People can sign in with their Google Workspace accounts, using Sign in with Google when they sign in to Puter. Google Workspace SAML single sign-on needs the Puter account platform and is not available yet. Provision users and groups from Google Workspace with the SCIM endpoint or the REST API on the Security tab.":
+    "Les personnes peuvent se connecter avec leur compte Google Workspace en choisissant « Se connecter avec Google » lorsqu’elles se connectent à Puter. L’authentification unique SAML avec Google Workspace exige la plateforme de comptes Puter et n’est pas encore offerte. Provisionnez les utilisateurs et les groupes à partir de Google Workspace avec le point de terminaison SCIM ou l’API REST de l’onglet Sécurité.",
   "Send notifications to Slack": "Envoyer des notifications à Slack",
   "Slack incoming webhook URL": "URL du webhook entrant Slack",
   Configured: "Configuré",
@@ -372,8 +372,8 @@ addTranslations({
   "Save integrations": "Enregistrer les intégrations",
   "Integrations saved.": "Intégrations enregistrées.",
   "Sign-in and identity": "Connexion et identité",
-  "People sign in with Puter accounts, and Puter enforces multifactor authentication at sign-in. Google Workspace SAML single sign-on is an account platform feature; this organization verifies email domains itself and supports SCIM provisioning today.":
-    "Les personnes se connectent avec un compte Puter, et Puter impose l’authentification multifacteur à la connexion. L’authentification unique SAML avec Google Workspace relève de la plateforme de comptes; cette organisation vérifie elle-même les domaines de courriel et prend en charge le provisionnement SCIM dès aujourd’hui.",
+  "People sign in with Puter accounts, including with Sign in with Google, so members can use their Google Workspace accounts under Google's sign-in policies, such as 2-Step Verification. Puter enforces multifactor authentication at sign-in. SAML single sign-on, and requiring Google sign-in for the organization's domains, are account platform features; this organization verifies email domains itself and supports SCIM provisioning today.":
+    "Les personnes se connectent avec un compte Puter, y compris avec « Se connecter avec Google »; les membres peuvent donc utiliser leur compte Google Workspace, selon les règles de connexion de Google, comme la validation en deux étapes. Puter impose l’authentification multifacteur à la connexion. L’authentification unique SAML et l’obligation de se connecter avec Google pour les domaines de l’organisation relèvent de la plateforme de comptes; cette organisation vérifie elle-même les domaines de courriel et prend en charge le provisionnement SCIM dès aujourd’hui.",
   "SCIM base URL": "URL de base SCIM",
   "REST API reference": "Référence de l’API REST",
   "SIEM export": "Exportation vers le SIEM",

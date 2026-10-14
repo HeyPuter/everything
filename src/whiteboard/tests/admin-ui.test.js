@@ -5187,6 +5187,8 @@ test("stored integration and SIEM secrets can be removed", async () => {
       d.textContent,
       /single sign-on needs the Puter account platform and is not available yet/,
     );
+    // Google Workspace accounts sign in through Puter's Sign in with Google.
+    assert.match(d.textContent, /Sign in with Google/);
     d.querySelector("#admin-tab-security").click();
     await settle();
     assert.match(
