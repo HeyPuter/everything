@@ -37,8 +37,10 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
   /* ---- The read-only preview beside the document ---- */
   const previewHost = el('div.vh-preview-host', { 'aria-label': 'Version pages' });
   const previewTitle = el('h2.vh-preview-title', {}, 'Version');
+  // The note is filled only while a version is shown, so a hidden pane never reads as the document's own "Read only" state.
+  const previewNote = el('p.vh-preview-note');
   const previewNode = el('aside.vh-preview', { hidden: true, 'aria-label': 'Earlier version (read only)' },
-    el('div.vh-preview-head', {}, el('div', {}, previewTitle, el('p.vh-preview-note', {}, 'Read only')),
+    el('div.vh-preview-head', {}, el('div', {}, previewTitle, previewNote),
       el('div.vh-preview-actions', {},
         el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => preview && compareWith(preview.version) }, 'Compare'),
         el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => preview && restore(preview.version) }, 'Restore'),
@@ -105,6 +107,7 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     const api = engineApi(); if (!api) return;
     closePreview();
     previewTitle.textContent = versionName(v);
+    previewNote.textContent = 'Read only';
     previewNode.hidden = false;
     previewHost.replaceChildren(el('p.rv-status', {}, 'Opening…'));
     const token = preview = { version: v, engine: null };
@@ -133,6 +136,7 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     preview.engine?.destroy();
     preview = null;
     previewNode.hidden = true;
+    previewNote.textContent = '';
     previewHost.replaceChildren();
     onPreview(false);
     render(); onChange();

@@ -26,7 +26,9 @@ test('matches native line-relative anchor origins through selection, body editin
  expect(unzipSync(readFileSync(await save('noedit')))).toEqual(unzipSync(bytes));
  const c=canvases.nth(1);await c.evaluate(el=>{const host=el.closest('.canvas-host');host.scrollTop=el.offsetTop+105*4/3-host.clientHeight/2;});const rect=await c.boundingBox();await page.mouse.click(rect.x+390/612*rect.width,rect.y+105/792*rect.height);
  await expect.poll(()=>input.evaluate(e=>e.value.slice(e.selectionStart,e.selectionEnd))).toBe('\ufffc');
- await input.press('Backspace');await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);await input.press('ArrowRight');await check();
+ await input.press('Backspace');await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);
+ // Arrow keys nudge a selected floating drawing (docs/parity/pictures.md); End leaves it in place and collapses the selection.
+ await input.press('End');await check();
  await input.press('ControlOrMeta+Home');await page.keyboard.insertText('Edited ');await check();const editedText=await input.inputValue(),edited=await save('edited');
  const parts=unzipSync(bytes);for(const[n,b]of Object.entries(unzipSync(readFileSync(edited))))if(n!=='word/document.xml')expect(b).toEqual(parts[n]);
  await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);expect(unzipSync(readFileSync(await save('undo')))).toEqual(parts);
