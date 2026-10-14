@@ -238,6 +238,7 @@ describe("transition inheritance and explicit no-effect overrides", () => {
     );
     expect(P.getSlideTransition(f.slide)).toEqual({
       effect: "none",
+      sound: { kind: "stop" },
       advanceOnClick: false,
       advanceAfterMs: 2300,
     });

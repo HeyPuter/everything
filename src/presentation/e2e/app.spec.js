@@ -652,8 +652,17 @@ async function inspector(page) {
     !(await page
       .getByRole("complementary", { name: "Format panel" })
       .isVisible())
-  )
-    await page.getByRole("button", { name: "Toggle format panel" }).click();
+  ) {
+    // The slide's own context menu opens the Format panel.
+    await page
+      .locator("#slide-canvas")
+      .click({ button: "right", position: { x: 3, y: 3 } });
+    // The menu can run past a phone's screen; the keyboard reaches it there.
+    await page
+      .getByRole("menuitem", { name: "Format Background…", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+  }
 }
 // The File menu is on the menu bar, or behind the File options button on a
 // phone, where the menu bar gives way.
@@ -11348,15 +11357,15 @@ test("slides take a transition that plays as they arrive while presenting", asyn
   await page.getByRole("button", { name: "Present", exact: true }).click();
   const presenter = page.getByRole("dialog", { name: "Presentation mode" });
   const slide = presenter.locator(".presenter-slide:not(.presenter-leaving)");
+  const playing = presenter.locator(".slide-transition");
   await page.keyboard.press("ArrowRight");
-  await expect(slide).toHaveClass(/entering fade/);
-  await expect(presenter.locator(".presenter-leaving")).toHaveCount(1);
-  await expect(slide).not.toHaveClass(/entering/, { timeout: 3000 });
-  await expect(presenter.locator(".presenter-leaving")).toHaveCount(0);
+  await expect(playing).toHaveAttribute("data-effect", "fade");
+  await expect(playing).toHaveCount(0, { timeout: 3000 });
+  await expect(slide).toBeVisible();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  await expect(slide).toHaveClass(/entering push/);
-  await expect(slide).not.toHaveClass(/entering/, { timeout: 3000 });
+  await expect(playing).toHaveAttribute("data-effect", "push");
+  await expect(playing).toHaveCount(0, { timeout: 3000 });
   await page.keyboard.press("Escape");
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");

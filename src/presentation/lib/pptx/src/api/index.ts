@@ -452,6 +452,10 @@ export {
   getSlideTitle,
   getSlideTransition,
   getEffectiveSlideTransition,
+  setSlideTransitionTiming,
+  addSlideTransitionSound,
+  shareSlideTransitionSound,
+  getSlideTransitionSoundData,
   getSlideXmlString,
   getSlides,
   getSlidesByLayout,
@@ -646,6 +650,7 @@ export type {
   PresetShape,
   TransitionEffect,
   TransitionOptions,
+  TransitionSound,
 } from "../internal/presentationml/index.ts";
 
 // Inserted objects: media, vector pictures, actions, embeddings, footers.
