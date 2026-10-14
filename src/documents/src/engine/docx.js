@@ -1,4 +1,5 @@
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
+import { pruneReleasedMedia } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
 import { completedSpelling, bodySpellingCache, proofingFingerprint } from './docx-proofing-cache.js';
 import { retainSectionStoryReferences } from './section-story-edit.js';
@@ -1812,6 +1813,8 @@ export class DocxPackage {
     // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
     if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
     this.pruneFootnotes(parts, paragraphs);
+    // Media that Compress Pictures replaced, once nothing in the package uses it (docx-media-release.js).
+    pruneReleasedMedia(parts, this.releasedMedia);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });

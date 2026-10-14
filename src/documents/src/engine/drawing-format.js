@@ -146,6 +146,8 @@ export async function formatDrawing(editor, image, edit, { label = 'drawing' } =
       return part.relId;
     },
     partBytes(relId) { return parts.get(relId)?.bytes || added.find(part => part.relId === relId)?.bytes || null; },
+    /** Let saving drop a package part this edit stops using, if nothing else in the document still uses it. */
+    release(relId) { const part = parts.get(relId); if (part?.existing && part.path) (pkg.releasedMedia ||= new Set()).add(part.path); },
   };
   const before = new XMLSerializer().serializeToString(drawing);
   const result = await edit(drawing, context);
@@ -187,3 +189,25 @@ export function frameAnchor(drawing) {
 }
 
 export { NS, W, WPS, WPG, A, WP, PIC, R, REL };
+
+/**
+ * Decode several drawing fragments and run `transaction(model)` (which places their images) as one
+ * editor transaction; the fragments' assets are registered only when it applies. Used where one
+ * command replaces several drawings at once (Group, Ungroup).
+ */
+export async function applyDrawingFragments(editor, fragments, transaction, { revision = editor.session.revision } = {}) {
+  const { decodeImages, validateImageAssets } = await import('./images.js');
+  const model = editor.model, pkg = editor.shapePackage?.();
+  const assets = Object.assign({}, ...fragments.map(f => f.assets));
+  for (const fragment of fragments) if (fragment.readers && pkg && !pkg.readDrawingTextBox) Object.assign(pkg, fragment.readers);
+  validateImageAssets({ ...model.assets, ...assets });
+  const bitmaps = await decodeImages(assets, model.styles.fontAlternatives, () => {});
+  const release = () => { for (const bitmap of bitmaps.values()) bitmap.close?.(); };
+  if (editor.destroyed || model !== editor.model || revision !== editor.session.revision) { release(); throw new Error('The document changed while the drawings were prepared. Try again.'); }
+  for (const [id, asset] of Object.entries(assets)) { model.assets[id] = asset; editor.images.set(id, bitmaps.get(id)); }
+  let failure = null;
+  const ok = editor.execute(() => transaction(model), e => { failure = e; }, undefined, true);
+  if (!ok) { for (const id of Object.keys(assets)) { delete model.assets[id]; editor.images.get(id)?.close?.(); editor.images.delete(id); } if (failure) throw failure; }
+  editor.focus(); editor.onSelection?.();
+  return ok;
+}
