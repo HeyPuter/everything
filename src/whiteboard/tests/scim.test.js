@@ -1490,3 +1490,36 @@ test("a provisioned person cannot verify an address their identity provider does
   // The address the provider set can still be verified again.
   await verifyEmail(org, boards, editor, "bob@example.ca");
 });
+
+test("a SCIM change written while the console deactivates someone keeps the deactivation", async () => {
+  const { org, boards, scim } = await setup();
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  await verifyEmail(org, boards, editor, "pat@example.ca");
+  // The provider's request reads Pat's record, then the console
+  // deactivates Pat before the request writes its change.
+  const read = org.freshUser.bind(org);
+  let resume;
+  org.freshUser = async (uuid) => {
+    const user = await read(uuid);
+    if (uuid === editor.uuid && !resume) {
+      org.freshUser = read;
+      await new Promise((r) => (resume = r));
+    }
+    return user;
+  };
+  const patched = scim(`Users/${pat.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [{ op: "replace", path: "name.givenName", value: "Pat" }],
+  });
+  while (!resume) await new Promise((r) => setTimeout(r, 1));
+  await adminCall(org, boards, owner, {
+    op: "org.users.update",
+    uuid: editor.uuid,
+    status: "deactivated",
+  });
+  resume();
+  await patched;
+  const stored = await org.freshUser(editor.uuid);
+  assert.equal(stored.status, "deactivated");
+  assert.equal(stored.givenName, "Pat");
+});

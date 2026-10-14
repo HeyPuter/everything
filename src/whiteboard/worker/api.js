@@ -336,6 +336,17 @@ async function findUser(org, scimId) {
   const user = await org.freshUser(mapped || scimId);
   return user && !user.scimDeleted ? user : null;
 }
+// Writes only what a request changed on a stored person, so a change saved
+// meanwhile, such as a deactivation in the console or a group membership
+// the provider sent at the same time, stands.
+async function saveChanges(org, before, user) {
+  const changed = {};
+  for (const key of new Set([...Object.keys(before), ...Object.keys(user)]))
+    if (JSON.stringify(before[key]) !== JSON.stringify(user[key]))
+      changed[key] = user[key];
+  if (Object.keys(changed).length)
+    await org.updateUser(user.uuid, changed, { access: true });
+}
 // Roles come as a list, but a single role, written as its value or as one
 // role object, is read the same way, as a patch of the roles path is.
 function roleFrom(body, fallback = "member") {
@@ -620,6 +631,7 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
       String(body.externalId) !== user.externalId
     )
       user = null;
+    const stored = user && structuredClone(user);
     if (!user) {
       // Never derived from the address: one given up, by a rename or a
       // deletion, must not lead back to the record that held it.
@@ -649,7 +661,8 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
     keepAdmin(user, was, wasRole, wasActive);
     if (was && was !== "pending" && user.role !== wasRole)
       user.roleChanged = user.modified;
-    await org.saveUser(user);
+    if (stored) await saveChanges(org, stored, user);
+    else await org.saveUser(user);
     await org.kv.set("org:scimid:" + user.scimId, user.uuid);
     // Provisioning an existing account as inactive ends its sessions, as
     // deactivating it does.
@@ -673,6 +686,7 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
   const user = id && (await findUser(org, id));
   if (!user) fail(404, "User not found.");
   if (method === "GET") return scim(view(user));
+  const stored = structuredClone(user);
   const before = user.status,
     role = user.role,
     active = user.active;
@@ -703,7 +717,7 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
       user.modified = org.now();
       user.scimDeleted = true;
       delete user.scimManaged;
-      await org.saveUser(user);
+      await saveChanges(org, stored, user);
       await org.kv.del("org:scimid:" + user.scimId);
       await boards.revokeSessions(user.uuid);
     }
@@ -828,7 +842,7 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
   const emailChanged = await renameUser(org, user, renamed);
   user.modified = org.now();
   if (user.role !== role) user.roleChanged = user.modified;
-  await org.saveUser(user);
+  await saveChanges(org, stored, user);
   if (before === "active" && user.status === "deactivated")
     await boards.revokeSessions(user.uuid);
   await org.audit(
