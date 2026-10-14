@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { onTab, downloadDocx } from './helpers/editor-tools.js';
+import { onTab, downloadDocx, menuBarMenu } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 
 const ribbon = page => page.locator('.ribbon-card');
@@ -202,4 +202,26 @@ test('the Page Setup and Columns dialogs fit a phone', async ({ page }, info) =>
     await page.screenshot({ path: info.outputPath('page-setup-phone.png') });
     await page.keyboard.press('Escape');
   }
+});
+
+test('the menu bar inserts section breaks and opens Page Setup and Columns', async ({ page }) => {
+  const input = await blank(page);
+  await page.keyboard.type('Menu bar');
+  let menu = await menuBarMenu(page, 'Insert');
+  await menu.getByRole('menuitem', { name: 'Break', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Section Break (Odd Page)', exact: true }).click();
+  await expect(canvases(page)).toHaveCount(3);
+  await input.press('ControlOrMeta+z');
+  await expect(canvases(page)).toHaveCount(1);
+  menu = await menuBarMenu(page, 'Format');
+  await menu.getByRole('menuitem', { name: 'Columns…', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Columns' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  menu = await menuBarMenu(page, 'Format');
+  await menu.getByRole('menuitem', { name: 'Document…', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Page setup' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  menu = await menuBarMenu(page, 'Tools');
+  await expect(menu.getByRole('menuitem', { name: 'Hyphenation…', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
 });
