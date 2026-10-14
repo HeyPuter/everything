@@ -347,7 +347,7 @@ button.rb-panel-title:hover {
   gap: 3px;
   min-width: 48px;
   max-width: 72px;
-  height: 64px;
+  height: 70px;
   padding: 5px 4px 3px;
   border: 1px solid transparent;
   border-radius: var(--r-md);
@@ -359,7 +359,7 @@ button.rb-panel-title:hover {
 }
 
 .rb-lg-wrap.split .rb-lg {
-  height: 52px;
+  height: 58px;
   border-radius: var(--r-md) var(--r-md) 0 0;
 }
 

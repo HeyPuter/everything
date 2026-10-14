@@ -36,6 +36,7 @@ import { strokeModel, fillModel, drawTempDim, drawTag } from '../views/overlay.j
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { newId } from '../core/doc.js';
+import { STAIR_SHAPES } from '../core/stairs.js';
 import { MM_PER_FOOT } from '../core/units.js';
 
 /** Draw plan graphics of a temporary element on the overlay. */
@@ -983,16 +984,44 @@ export class StairTool extends Tool {
   }
 
   options() {
-    const o = this.app.toolOptions('stair', {});
+    const o = this.app.toolOptions('stair', { shape: 'straight', turn: 'left' });
     const type = this.app.currentType('stair');
-    return [lengthField(this, 'Width', o.width ?? type?.width ?? 1100, (v) => (o.width = v)), h('div.ob-group', h('label', 'Top'), levelSelect(this.app, o.topLevelId ?? this.doc.levelAbove(this.app.activeLevelId())?.id ?? '', (v) => (o.topLevelId = v), { none: 'Unconnected (3000)' }))];
+    const rerender = () => (this.app.renderOptions(), this.app.requestRender());
+    return [
+      segmented(
+        STAIR_SHAPES.map((s) => ({ ...s })),
+        o.shape,
+        (v) => {
+          o.shape = v;
+          rerender();
+        },
+        'Stair shape',
+      ),
+      o.shape !== 'straight'
+        ? segmented(
+            [
+              { value: 'left', label: 'Turn left' },
+              { value: 'right', label: 'Turn right' },
+            ],
+            o.turn,
+            (v) => {
+              o.turn = v;
+              rerender();
+            },
+            'Turn direction',
+          )
+        : null,
+      h('span.ob-sep'),
+      lengthField(this, 'Width', o.width ?? type?.width ?? 1100, (v) => (o.width = v)),
+      h('div.ob-group', h('label', 'Top'), levelSelect(this.app, o.topLevelId ?? this.doc.levelAbove(this.app.activeLevelId())?.id ?? '', (v) => (o.topLevelId = v), { none: 'Unconnected (3000)' })),
+    ];
   }
 
   make(a, b) {
-    const o = this.app.toolOptions('stair', {});
+    const o = this.app.toolOptions('stair', { shape: 'straight', turn: 'left' });
     const levelId = this.app.activeLevelId();
     const type = this.app.currentType('stair');
-    const el = { kind: 'stair', typeId: type?.id, levelId, topLevelId: o.topLevelId ?? this.doc.levelAbove(levelId)?.id ?? null, baseOffset: 0, topOffset: 0, height: 3000, a, b, width: o.width ?? type?.width ?? 1100, railings: true };
+    const el = { kind: 'stair', typeId: type?.id, levelId, topLevelId: o.topLevelId ?? this.doc.levelAbove(levelId)?.id ?? null, baseOffset: 0, topOffset: 0, height: 3000, a, b, width: o.width ?? type?.width ?? 1100, railings: true, shape: o.shape, turn: o.turn };
     const lay = stairLayout(this.doc, el);
     const d = norm(sub(b, a));
     el.b = add(a, scale(len(d) ? d : [1, 0], lay.runLength));

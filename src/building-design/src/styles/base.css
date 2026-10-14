@@ -85,6 +85,34 @@ code {
   display: block;
 }
 
+/* Two-tone building icons: accent tint, soft neutral, solid and thin strokes. */
+.icon .a {
+  fill: var(--icon-accent);
+}
+
+.icon .s {
+  fill: var(--icon-soft);
+}
+
+.icon .f {
+  fill: currentColor;
+  stroke: none;
+}
+
+.icon .thin {
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.icon .thick {
+  stroke-width: 2.6;
+}
+
+.icon .thick-a {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

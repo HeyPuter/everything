@@ -1171,6 +1171,8 @@ export class App {
 
   renderBrowser() {
     this.browser?.render();
+    const t = this.shell?.root.querySelector('#browser-title');
+    if (t) t.textContent = this.doc ? `Project Browser - ${this.file?.name || this.doc.project.name}` : 'Project Browser';
   }
 
   updateTitle() {

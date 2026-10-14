@@ -11,6 +11,7 @@ import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
 import { buildFamily } from './families.js';
+import { stairFlights, flightOutline } from './stairs.js';
 
 export function materialColor(ctx, id, fallback = '#c8c8c8') {
   const m = id ? ctx.material(id) : null;
@@ -566,14 +567,26 @@ export function stairGeometry(doc, el) {
 
 function buildStair(ctx, el) {
   const type = ctx.doc.get(el.typeId) || {};
-  const g = stairGeometry(ctx.doc, el);
-  const { base, risers, riserHeight: rh, tread: td, width: W, dir, side } = g;
+  const g = stairFlights(ctx.doc, el);
   const th = +type.thickness || 150;
   const col = materialColor(ctx, type.materialId || 'mat-concrete');
   const b = new MeshBuilder();
-  const origin = add(el.a, scale(side, -W / 2));
-  const n = risers;
-  const sEnd = (n - 1) * td;
+  for (const f of g.flights) buildFlight(b, el, type, f, g, th, col, ctx);
+  for (const l of g.landings) b.prism(l.poly, [], l.z - (type.monolithic !== false ? th : 40), l.z, col);
+  return b.build();
+}
+
+function buildFlight(b, el, type, f, g, th, col, ctx) {
+  const { riserHeight: rh, tread: td, width: W } = g;
+  const { dir, side } = f;
+  const base = f.z0;
+  const origin = add(f.start, scale(side, -W / 2));
+  const n = f.risers;
+  const sEnd = f.run;
+  if (n < 2) {
+    b.prism(flightOutline({ ...f, run: Math.max(1, td * 0.2) }, W), [], base, base + rh, col);
+    return;
+  }
   if (type.monolithic !== false) {
     const prof = [[0, base]];
     for (let i = 0; i < n - 1; i++) {
@@ -634,7 +647,6 @@ function buildStair(ctx, el) {
       }
     }
   }
-  return b.build();
 }
 
 function buildRailing(ctx, el) {

@@ -11,6 +11,7 @@ import { typeThickness, KIND_LABEL } from './catalog.js';
 import { roofGeometry } from './build3d.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { scaleOptions } from './units.js';
+import { STAIR_SHAPES } from './stairs.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
 
@@ -129,6 +130,14 @@ const INSTANCE = {
     P('topLevelId', 'Top Level', 'Constraints', 'levelOpt', { none: 'Unconnected' }),
     len('topOffset', 'Top Offset', 'Constraints', { ro: (el) => !el.topLevelId }),
     len('height', 'Unconnected Height', 'Constraints', { ro: (el) => !!el.topLevelId }),
+    P('shape', 'Shape', 'Construction', 'select', { get: (el) => el.shape || 'straight', options: () => STAIR_SHAPES }),
+    P('turn', 'Turn', 'Construction', 'select', {
+      get: (el) => el.turn || 'left',
+      options: () => [
+        { value: 'left', label: 'Left' },
+        { value: 'right', label: 'Right' },
+      ],
+    }),
     len('width', 'Width', 'Dimensions', { get: (el, c) => stairLayout(c.doc, el).width }),
     P('risers', 'Number of Risers', 'Dimensions', 'number', { get: (el, c) => stairLayout(c.doc, el).risers, set: (el, v) => ({ risers: Math.max(2, Math.round(+v)) }) }),
     ro('riserHeight', 'Actual Riser Height', 'Dimensions', (el, c) => stairLayout(c.doc, el).riserHeight),

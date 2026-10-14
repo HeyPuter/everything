@@ -11,7 +11,8 @@
 import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf } from './geom.js';
 import { verticalExtent, openingSize, levelElevation, wallAxis } from './model.js';
 import { axisParam, facePoint, hubsOf } from './walls.js';
-import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid, stairGeometry } from './build3d.js';
+import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid } from './build3d.js';
+import { stairFlights, flightOutline, flightPoint } from './stairs.js';
 import { buildFamily } from './families.js';
 import { Frame } from './mesh.js';
 import { categoryOf } from './catalog.js';
@@ -527,50 +528,66 @@ function planStair(pc, el, b) {
   const atBase = el.levelId === pc.view.levelId;
   const atTop = el.topLevelId === pc.view.levelId;
   if ((!atBase && !atTop) || pc.ceiling) return;
-  const g = stairGeometry(pc.doc, el);
-  const { base, risers: n, riserHeight: rh, tread: td, width: Wd, dir, side } = g;
-  const origin = add(el.a, scale(side, -Wd / 2));
-  const S = (s, w) => add(add(origin, scale(dir, s)), scale(side, w));
-  const sEnd = (n - 1) * td;
-  const outline = [S(0, 0), S(sEnd, 0), S(sEnd, Wd), S(0, Wd)];
-  b.pick(outline);
-  // Where the cut plane crosses the run (in plan of the base level).
-  const cutStep = atBase ? Math.max(1, Math.min(n - 1, Math.floor((pc.cutZ - base) / rh))) : n;
-  const sCut = cutStep * td - td * 0.4;
-  for (let i = 0; i <= n - 1; i++) {
-    const s = i * td;
-    const above = atBase && s > sCut;
-    b.line(S(s, 0), S(s, Wd), W.thin, above ? 2 : 0);
+  const g = stairFlights(pc.doc, el);
+  const { riserHeight: rh, tread: td, width: Wd } = g;
+  const walk = [];
+  let stopped = false;
+  for (const [k, f] of g.flights.entries()) {
+    const n = f.risers;
+    const sEnd = f.run;
+    const S = (s, w) => flightPoint(f, Wd, s, w);
+    b.pick(flightOutline(f, Wd));
+    // Where the cut plane crosses this flight (in the plan of the base level).
+    const local = atBase ? Math.floor((pc.cutZ - f.z0) / rh) : n;
+    const sCut = local <= 0 ? -1 : local >= n ? Infinity : local * td - td * 0.4;
+    for (let i = 0; i <= n - 1; i++) {
+      const s = i * td;
+      b.line(S(s, 0), S(s, Wd), W.thin, s > sCut ? 2 : 0);
+    }
+    for (const w of [0, Wd]) {
+      if (sCut >= sEnd) b.line(S(0, w), S(sEnd, w), W.light);
+      else if (sCut < 0) b.line(S(0, w), S(sEnd, w), W.thin, 2);
+      else {
+        b.line(S(0, w), S(sCut, w), W.light);
+        b.line(S(sCut, w), S(sEnd, w), W.thin, 2);
+      }
+    }
+    if (sCut >= 0 && sCut < sEnd) {
+      // Break line: a slanted cut with a small zigzag.
+      const p0 = S(sCut - td * 0.6, 0);
+      const p1 = S(sCut + td * 0.6, Wd);
+      const m = mid(p0, p1);
+      const z = scale(f.dir, td * 0.3);
+      const zz = scale(f.side, Wd * 0.06);
+      b.poly([p0, sub(sub(m, zz), z), add(add(m, zz), z), p1], false, W.light);
+    }
+    // Walk line points.
+    if (!stopped) {
+      walk.push(S(k === 0 ? td * 0.4 : 0, Wd / 2));
+      if (sCut < sEnd) {
+        walk.push(S(Math.max(0, sCut - td * 0.3), Wd / 2));
+        stopped = true;
+      } else walk.push(S(sEnd - (k === g.flights.length - 1 ? td * 0.2 : 0), Wd / 2));
+      // Through the middle of the landing to the next flight.
+      if (g.landings[k] && !stopped) walk.push(add(S(sEnd, Wd / 2), scale(f.dir, Wd / 2)));
+    }
   }
-  const sideLine = (w) => {
-    if (atBase && sCut < sEnd) {
-      b.line(S(0, w), S(sCut, w), W.light);
-      b.line(S(sCut, w), S(sEnd, w), W.thin, 2);
-    } else b.line(S(0, w), S(sEnd, w), W.light);
-  };
-  sideLine(0);
-  sideLine(Wd);
-  if (atBase && sCut < sEnd) {
-    // Break line: a slanted cut with a small zigzag.
-    const p0 = S(sCut - td * 0.6, 0);
-    const p1 = S(sCut + td * 0.6, Wd);
-    const m = mid(p0, p1);
-    const z = scale(dir, td * 0.3);
-    const zz = scale(side, Wd * 0.06);
-    b.poly([p0, sub(sub(m, zz), z), add(add(m, zz), z), p1], false, W.light);
+  for (const l of g.landings) {
+    const above = atBase && l.z > pc.cutZ;
+    b.poly(l.poly, true, above ? W.thin : W.light, above ? 2 : 0);
+    b.pick(l.poly);
   }
-  // Walk line with arrow.
-  const sA = td * 0.4;
-  const sB = atBase ? Math.min(sEnd - td * 0.2, Math.max(sA + td, sCut - td * 0.3)) : sEnd - td * 0.2;
-  const c = Wd / 2;
-  b.line(S(sA, c), S(sB, c), W.thin);
-  b.circle(S(sA, c), P(pc, 0.8), W.thin);
-  const tip = S(sB, c);
-  const ah = P(pc, 2.2);
-  b.poly([add(add(tip, scale(dir, -ah)), scale(side, ah * 0.45)), tip, add(add(tip, scale(dir, -ah)), scale(side, -ah * 0.45))], false, W.thin);
-  const label = atBase ? 'UP' : 'DN';
-  const ang = angleOf(dir);
-  b.text(add(S(sA, c), scale(dir, -P(pc, 3))), label, { size: P(pc, 2.2), rot: readableAngle(ang - Math.PI / 2) });
+  if (walk.length >= 2) {
+    b.poly(walk, false, W.thin);
+    b.circle(walk[0], P(pc, 0.8), W.thin);
+    const tip = walk.at(-1);
+    const d = norm(sub(tip, walk.at(-2)));
+    const n2 = perp(d);
+    const ah = P(pc, 2.2);
+    b.poly([add(add(tip, scale(d, -ah)), scale(n2, ah * 0.45)), tip, add(add(tip, scale(d, -ah)), scale(n2, -ah * 0.45))], false, W.thin);
+    const f0 = g.flights[0];
+    b.text(add(walk[0], scale(f0.dir, -P(pc, 3))), atBase ? 'UP' : 'DN', { size: P(pc, 2.2), rot: readableAngle(angleOf(f0.dir) - Math.PI / 2) });
+  }
 }
 
 function planRailing(pc, el, b) {
