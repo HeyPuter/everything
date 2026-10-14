@@ -786,8 +786,8 @@ export function buildTabs(api) {
             title: "Zoom",
             description:
               "Jump to a slide or section in a slide show, and back.",
-            visible: () => !!api.zoomMenu,
-            menu: () => api.zoomMenu?.() ?? [],
+            visible: () => !!api.insertZoomMenu,
+            menu: () => api.insertZoomMenu?.() ?? [],
           },
           {
             type: "large",

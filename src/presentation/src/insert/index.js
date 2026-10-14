@@ -121,7 +121,7 @@ export function createInsertFeatures(host) {
     insertEquation: run(() => equation.insertEquation()),
     equationMenu: equation.menu,
     headerFooter: run(headerFooter.headerFooter),
-    zoomMenu: zoom.menu,
+    insertZoomMenu: zoom.menu,
     insertObject: run(object.insertObject),
     actionSettings: run(() => actions.actionSettings()),
     actionButtonsMenu: actions.menuItems,
