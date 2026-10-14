@@ -177,14 +177,57 @@ export const hasArrowhead = (obj) =>
       return false;
     }
   });
+// The layout each designed slide of the starter decks sits on.
+const DESIGN_LAYOUTS = {
+  title: "title",
+  content: "obj",
+  columns: "titleOnly",
+  section: "secHead",
+  blank: "blank",
+};
+// A designed slide on the layout its design follows (`onLayout`), or on the
+// Blank layout. Its text is its own: the layout's placeholders are left off.
+function designedSlideBase(pres, layout, onLayout) {
+  const target =
+    onLayout &&
+    P.findSlideLayoutByType(pres, DESIGN_LAYOUTS[layout] || "blank");
+  if (!target) return P.addBlankSlide(pres);
+  const slide = P.addSlide(pres, { layout: target });
+  for (const shape of [...P.getSlideShapes(slide)].reverse())
+    if (P.isShapePlaceholder(shape)) P.removeShape(shape);
+  return slide;
+}
+// A starter deck's master takes its palette, so the slides people add to it
+// match the designed ones: the background, and the title and text styles.
+export function stylePaletteMaster(pres, theme = "studio") {
+  const t = THEMES[theme] || THEMES.studio;
+  for (const master of P.getSlideMasters(pres)) {
+    const view = P.getTemplateSlide(pres, master.partName);
+    P.setSlideBackground(view, t.bg);
+    for (const shape of P.getSlideShapes(view)) {
+      const type = P.getShapePlaceholderType(shape);
+      if (!type || !P.hasShapeText(shape)) continue;
+      P.setShapeTextFormat(
+        shape,
+        type === "title"
+          ? { font: "Arial", color: t.ink, bold: true }
+          : type === "body"
+            ? { font: "Arial", color: t.muted }
+            : { font: "Arial", color: t.muted },
+      );
+    }
+    P.syncPlaceholderListStyles(view);
+  }
+}
 export function addDesignedSlide(
   pres,
   layout = "title",
   theme = "studio",
   content = {},
+  { onLayout = false } = {},
 ) {
   const t = THEMES[theme] || THEMES.studio;
-  const slide = P.addBlankSlide(pres);
+  const slide = designedSlideBase(pres, layout, onLayout);
   P.setSlideBackground(slide, t.bg);
   if (layout === "blank") return slide;
   text(
@@ -357,11 +400,12 @@ export function createDeck(template = "blank", theme = "studio") {
   if (template === "title") addLayoutSlide(pres, "title");
   else if (template === "blank") addDesignedSlide(pres, "blank", theme);
   else {
+    stylePaletteMaster(pres, theme);
+    const designed = (layout, content) =>
+      addDesignedSlide(pres, layout, theme, content, { onLayout: true });
     const pitch = template === "pitch";
-    addDesignedSlide(
-      pres,
+    designed(
       "title",
-      theme,
       pitch
         ? {
             kicker: "THE PITCH",
@@ -370,20 +414,20 @@ export function createDeck(template = "blank", theme = "studio") {
           }
         : {},
     );
-    addDesignedSlide(pres, "content", theme, {
+    designed("content", {
       kicker: pitch ? "01 / THE OPPORTUNITY" : "01 / THE CONTEXT",
       title: pitch ? "A problem worth solving." : "Where we are today.",
       body: pitch
         ? "Describe the problem in one clear sentence.\n\nWho experiences it?\nWhy does it matter now?"
         : "Share the context behind your idea.\n\nWhat have you learned?\nWhat could be different?",
     });
-    addDesignedSlide(pres, "columns", theme, { kicker: "02 / THE APPROACH" });
-    addDesignedSlide(pres, "content", theme, {
+    designed("columns", { kicker: "02 / THE APPROACH" });
+    designed("content", {
       kicker: "03 / THE PLAN",
       title: "From idea to impact.",
       body: "Set a direction people can follow.\n\n1. Start with the essentials\n2. Make the first step tangible\n3. Learn, refine, and keep moving",
     });
-    addDesignedSlide(pres, "section", theme, {
+    designed("section", {
       kicker: "LET’S MAKE IT HAPPEN",
       title: "The next chapter\nstarts here.",
       body: "Thank you. Let’s talk about what comes next.",

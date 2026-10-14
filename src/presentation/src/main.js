@@ -13381,7 +13381,13 @@ function recolorDeck(chosen) {
   if (chosen === theme || !THEMES[chosen]) return false;
   const before = THEMES[theme],
     after = THEMES[chosen];
-  for (const s of P.getSlides(doc.pres)) {
+  // Masters and layouts recolor too, so slides added later match.
+  const templates = P.getSlideMasters(doc.pres).flatMap((m) =>
+    [m.partName, ...m.layouts.map((l) => l.partName)].map((name) =>
+      P.getTemplateSlide(doc.pres, name),
+    ),
+  );
+  for (const s of [...P.getSlides(doc.pres), ...templates]) {
     const background = P.getSlideBackground(s);
     const onAccent =
       normalizeColor(background?.color) === normalizeColor(before.accent);
@@ -13418,6 +13424,7 @@ function recolorDeck(chosen) {
       }
     }
   }
+  for (const view of templates) P.syncPlaceholderListStyles(view);
   theme = chosen;
 }
 const normalizeColor = (c) =>
