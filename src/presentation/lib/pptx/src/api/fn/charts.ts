@@ -61,8 +61,13 @@ import {
   type ChartTextStyle,
   buildChartSpaceDoc,
   buildEmbeddedXlsx,
+  buildEmbeddedXlsxColumns,
   readChartSpec,
 } from "../../internal/chartml/index.ts";
+import {
+  isXYChartKind,
+  xyWorkbookPlan,
+} from "../../internal/chartml/xy-workbook.ts";
 import {
   NS,
   type XmlElement,
@@ -437,6 +442,10 @@ const validateChartSpec = (spec: ChartSpec): void => {
       series.trendline?.color,
       `addSlideChart: series[${i}].trendline.color`,
     );
+    checkChartColor(
+      series.errorBars?.color,
+      `addSlideChart: series[${i}].errorBars.color`,
+    );
     series.pointColors?.forEach((c, j) => {
       checkChartColor(c, `addSlideChart: series[${i}].pointColors[${j}]`);
     });
@@ -510,6 +519,10 @@ const withChartDefaultTextColor = (
 // The worksheet must back every cached point, including values beyond the
 // labelled categories. Reuse this layout for creation and subsequent edits.
 const chartWorkbook = (spec: ChartSpec): Uint8Array => {
+  if (isXYChartKind(spec.kind))
+    return buildEmbeddedXlsxColumns(xyWorkbookPlan(spec).columns, {
+      ...(spec.date1904 !== undefined ? { date1904: spec.date1904 } : {}),
+    });
   const count = spec.series.reduce(
     (length, series) => Math.max(length, series.values.length),
     spec.categories.length,
@@ -652,6 +665,25 @@ export const resolveChartPartName = (
   return { partName: partNameValue, rId };
 };
 
+const hasXYChannels = (root: XmlElement): boolean => {
+  let found = false;
+  const visit = (el: XmlElement): void => {
+    for (const node of el.children) {
+      if (found || node.kind !== "element") continue;
+      if (
+        node.name.namespaceURI === NS.chart &&
+        ["xVal", "yVal", "bubbleSize"].includes(node.name.localName)
+      ) {
+        found = true;
+        return;
+      }
+      visit(node);
+    }
+  };
+  visit(root);
+  return found;
+};
+
 /**
  * Replaces the chart definition on an existing graphic-frame chart
  * shape. Updates the inline `<c:strCache>` / `<c:numCache>` blocks so
@@ -738,10 +770,15 @@ export const setChartSpec = (chart: SlideChartData, spec: ChartSpec): void => {
   }
 
   const doc = buildChartSpaceDoc(spec, workbookId);
+  // XY channels (xVal / yVal / bubbleSize) have no categorical cell plan:
+  // moving to, from or between XY kinds rewrites the workbook from the spec.
+  const xyData = isXYChartKind(spec.kind) || hasXYChannels(original.root);
   const retainData =
-    !addWorkbook && preserveNativeChartData(original.root, doc.root, spec);
+    !addWorkbook &&
+    !xyData &&
+    preserveNativeChartData(original.root, doc.root, spec);
   const editedWorkbook =
-    workbook && !retainData
+    workbook && !retainData && !xyData
       ? updateNativeChartWorkbook(workbook.data, original.root, doc.root, spec)
       : null;
   preserveNativeChartStyle(original.root, doc.root, spec);

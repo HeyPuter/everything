@@ -4378,6 +4378,228 @@ type ChartPaintLayers = {
   axisLines: ChartLineSegment[];
   axisLabels: string[];
   dataLabels: string[];
+  /** Error bars, painted above the series and below the data labels. */
+  errorBars?: string[];
+};
+
+/** One plotted point that carries an error bar. */
+interface ErrorBarPoint {
+  /** Pixel coordinate across the bar (x for vertical bars). */
+  readonly at: number;
+  /** Data value the bar is centred on (a stack's cumulative top). */
+  readonly center: number;
+  /** The point's own value, for percentage amounts. */
+  readonly own: number;
+}
+
+/** X and Y error bars of an XY (scatter / bubble) series. */
+const xyErrorBars = (
+  paint: ChartPaintLayers,
+  spec: ChartSpec,
+  series: ChartSeries,
+  pts: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+  projX: (x: number) => number,
+  projY: (y: number) => number,
+): void => {
+  if (!series.errorBars) return;
+  chartErrorBars(
+    paint,
+    series,
+    "y",
+    pts.map((p) => ({ at: projX(p.x), center: p.y, own: p.y })),
+    projY,
+    true,
+    spec.textStyle?.color,
+  );
+  chartErrorBars(
+    paint,
+    series,
+    "x",
+    pts.map((p) => ({ at: projY(p.y), center: p.x, own: p.x })),
+    projX,
+    false,
+    spec.textStyle?.color,
+    series.xValues ?? pts.map((p) => p.x),
+  );
+};
+
+/** Kinds whose data table this renderer lays out under the plot. */
+const showsChartDataTable = (spec: ChartSpec): boolean =>
+  spec.dataTable !== undefined &&
+  (spec.kind === "column" || spec.kind === "line" || spec.kind === "area");
+
+interface ChartDataTableLayout {
+  readonly font: FontSpec;
+  readonly rowH: number;
+  readonly nameW: number;
+  readonly keyW: number;
+  readonly height: number;
+}
+
+const chartDataTableLayout = (
+  spec: ChartSpec,
+  ctx: LayoutCtx,
+): ChartDataTableLayout => {
+  const font = chartTextFont(spec.textStyle, 9);
+  const rowH = font.sizePx * 1.7;
+  const keyW = spec.dataTable?.showKeys ? font.sizePx * 1.4 : 0;
+  const nameW =
+    Math.max(
+      0,
+      ...spec.series.map((series) => ctx.measure(series.name, font).widthPx),
+    ) +
+    keyW +
+    font.sizePx;
+  return {
+    font,
+    rowH,
+    nameW,
+    keyW,
+    height: rowH * (spec.series.length + 1),
+  };
+};
+
+/**
+ * `<c:dTable>`: the chart's data as a grid under the plot area. The first
+ * row holds the category names (the category tick labels are hidden), one
+ * row per series follows with its name, optional legend key and values.
+ * Columns share the category slots of the plot above them.
+ */
+const renderChartDataTable = (
+  f: ChartFrame,
+  spec: ChartSpec,
+  layout: ChartDataTableLayout,
+  colors: ReadonlyArray<string>,
+  ctx: LayoutCtx,
+): string => {
+  const table = spec.dataTable!;
+  const N = Math.max(1, pointCount(spec));
+  const colW = f.plotW / N;
+  const top = f.plotY + f.plotH;
+  const left = f.plotX - layout.nameW;
+  const right = f.plotX + f.plotW;
+  const { rowH } = layout;
+  const bottom = top + layout.height;
+  const color = spec.textStyle?.color ?? "#404040";
+  const attrs = `${chartFontAttrs(spec.textStyle, 9, ctx)} fill="${color}"`;
+  const baseline = (row: number) => top + row * rowH + rowH / 2;
+  const out: string[] = [];
+  for (let c = 0; c < N; c++)
+    out.push(
+      `<text x="${px(f.plotX + (c + 0.5) * colW)}" y="${px(baseline(0))}" text-anchor="middle" dominant-baseline="central" ${attrs}>${escapeXml(spec.categories[c] ?? "")}</text>`,
+    );
+  spec.series.forEach((series, s) => {
+    const y = baseline(s + 1);
+    const seriesColor = series.color ?? colors[s % colors.length] ?? "#888";
+    if (table.showKeys) {
+      const k = layout.font.sizePx * 0.7;
+      const kind = series.chartKind ?? spec.kind;
+      out.push(
+        kind === "line"
+          ? `<line data-chart-table-key="${s}" x1="${px(left + 3)}" x2="${px(left + 3 + k * 1.4)}" y1="${px(y)}" y2="${px(y)}" stroke="${seriesColor}" stroke-width="2"/>`
+          : `<rect data-chart-table-key="${s}" x="${px(left + 4)}" y="${px(y - k / 2)}" width="${px(k)}" height="${px(k)}" fill="${seriesColor}"/>`,
+      );
+    }
+    out.push(
+      `<text x="${px(left + layout.keyW + layout.font.sizePx / 2)}" y="${px(y)}" dominant-baseline="central" ${attrs}>${escapeXml(series.name)}</text>`,
+    );
+    for (let c = 0; c < N; c++) {
+      const v = series.values[c];
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      out.push(
+        `<text x="${px(f.plotX + (c + 0.5) * colW)}" y="${px(y)}" text-anchor="middle" dominant-baseline="central" ${attrs}>${escapeXml(formatDataLabelValue(spec, s, v))}</text>`,
+      );
+    }
+  });
+  const rules: string[] = [];
+  if (table.showHorzBorder)
+    for (let row = 1; row <= spec.series.length; row++)
+      rules.push(`M${px(left)},${px(top + row * rowH)}H${px(right)}`);
+  if (table.showVertBorder)
+    for (let c = 0; c <= N; c++)
+      rules.push(`M${px(f.plotX + c * colW)},${px(top)}V${px(bottom)}`);
+  if (table.showOutline)
+    rules.push(
+      `M${px(f.plotX)},${px(top)}H${px(right)}V${px(bottom)}H${px(left)}V${px(top + rowH)}H${px(f.plotX)}Z`,
+    );
+  return `<g data-chart-data-table="1">${rules.length ? `<path d="${rules.join("")}" fill="none" stroke="#BFBFBF" stroke-width="0.75"/>` : ""}${out.join("")}</g>`;
+};
+
+const sampleDeviation = (values: ReadonlyArray<number>): number => {
+  const n = values.length;
+  if (n < 2) return 0;
+  const mean = values.reduce((a, v) => a + v, 0) / n;
+  return Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1));
+};
+
+/**
+ * Paints `<c:errBars>` for one series: a line from each point toward
+ * plus and/or minus by the authored amount, with short end caps.
+ * Standard-deviation bars are centred on the series mean, as desktop
+ * editors draw them; the other kinds are centred on each point.
+ */
+const chartErrorBars = (
+  paint: ChartPaintLayers,
+  series: ChartSeries,
+  direction: "x" | "y",
+  points: ReadonlyArray<ErrorBarPoint>,
+  project: (value: number) => number,
+  vertical: boolean,
+  textColor: string | undefined,
+  values: ReadonlyArray<number | null> = series.values,
+): void => {
+  const bars = series.errorBars;
+  if (!bars || (bars.direction ?? "y") !== direction || !points.length) return;
+  const finite = values.filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  const deviation = sampleDeviation(finite);
+  const mean = finite.length
+    ? finite.reduce((a, v) => a + v, 0) / finite.length
+    : 0;
+  const value = bars.value ?? (bars.valueType === "percentage" ? 5 : 1);
+  const amount = (own: number): number => {
+    switch (bars.valueType) {
+      case "percentage":
+        return (Math.abs(own) * value) / 100;
+      case "stdDev":
+        return value * deviation;
+      case "stdErr":
+        return finite.length ? deviation / Math.sqrt(finite.length) : 0;
+      default:
+        return value;
+    }
+  };
+  const color = bars.color ?? textColor ?? "#595959";
+  const cap = bars.noEndCap ? 0 : 3.5;
+  const parts: string[] = [];
+  const segment = (at: number, from: number, to: number): void => {
+    const a = project(from),
+      b = project(to);
+    if (![a, b, at].every(Number.isFinite)) return;
+    parts.push(
+      vertical
+        ? `M${px(at)},${px(a)}V${px(b)}`
+        : `M${px(a)},${px(at)}H${px(b)}`,
+    );
+    if (cap)
+      parts.push(
+        vertical
+          ? `M${px(at - cap)},${px(b)}H${px(at + cap)}`
+          : `M${px(b)},${px(at - cap)}V${px(at + cap)}`,
+      );
+  };
+  for (const point of points) {
+    const center = bars.valueType === "stdDev" ? mean : point.center;
+    const d = amount(point.own);
+    if (!(d > 0)) continue;
+    if (bars.type !== "minus") segment(point.at, center, center + d);
+    if (bars.type !== "plus") segment(point.at, center, center - d);
+  }
+  if (!parts.length) return;
+  (paint.errorBars ??= []).push(
+    `<path data-chart-error-bars="${direction}" d="${parts.join("")}" fill="none" stroke="${color}" stroke-width="1" stroke-linecap="butt"/>`,
+  );
 };
 
 // Native rectangular plots clip series bodies, including their outlines and
@@ -5985,6 +6207,13 @@ const renderColumnChart = (
     spec.dataLabels?.showValue ??
     false;
   const out: string[] = [];
+  const errorPoints = new Map<number, ErrorBarPoint[]>();
+  const errorPoint = (s: number, point: ErrorBarPoint): void => {
+    if (!spec.series[s]?.errorBars) return;
+    let list = errorPoints.get(s);
+    if (!list) errorPoints.set(s, (list = []));
+    list.push(point);
+  };
   for (let c = 0; c < N; c++) {
     if (isStacked) {
       let posAcc = 0;
@@ -6035,6 +6264,7 @@ const renderColumnChart = (
             `<text x="${px(x0 + barW / 2)}" y="${px(labelY)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
+        errorPoint(s, { at: x0 + barW / 2, center: stackedTop, own: v });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -6066,6 +6296,7 @@ const renderColumnChart = (
         );
         const y0 = Math.min(top, baseY);
         const h = Math.abs(top - baseY);
+        errorPoint(s, { at: x0 + barW / 2, center: v, own: v });
         // A zero-extent native bar has no painted outline, but keeps its label.
         if (point.paint && h > 0)
           out.push(
@@ -6107,6 +6338,24 @@ const renderColumnChart = (
       }
     }
   }
+  for (const [s, points] of errorPoints)
+    chartErrorBars(
+      paint,
+      spec.series[s]!,
+      "y",
+      points,
+      (value) =>
+        valueCoordinate(
+          f,
+          spec.valueAxisOrientation,
+          "vertical",
+          min,
+          max,
+          value,
+        ),
+      true,
+      spec.textStyle?.color,
+    );
   // Trendlines per series — overlay after bars so they sit on top.
   for (let s = 0; s < spec.series.length; s++) {
     const series = spec.series[s];
@@ -6662,6 +6911,13 @@ const renderBarChart = (
     spec.dataLabels?.showValue ??
     false;
   const out: string[] = [];
+  const errorPoints = new Map<number, ErrorBarPoint[]>();
+  const errorPoint = (s: number, point: ErrorBarPoint): void => {
+    if (!spec.series[s]?.errorBars) return;
+    let list = errorPoints.get(s);
+    if (!list) errorPoints.set(s, (list = []));
+    list.push(point);
+  };
   for (let c = 0; c < N; c++) {
     if (isStacked) {
       let posAcc = 0;
@@ -6713,6 +6969,7 @@ const renderBarChart = (
             `<text x="${px(labelX)}" y="${px(y0 + barH / 2 + 3)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
+        errorPoint(s, { at: y0 + barH / 2, center: stackedTop, own: v });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -6745,6 +7002,7 @@ const renderBarChart = (
         );
         const x0 = Math.min(tip, baseX);
         const w = Math.abs(tip - baseX);
+        errorPoint(s, { at: y0 + barH / 2, center: v, own: v });
         if (point.paint && w > 0)
           out.push(
             `<rect${clips.plot} x="${px(x0)}" y="${px(y0)}" width="${px(w)}" height="${px(barH)}" ${chartBarPaint(spec, s, c, v, colors, paint.fills, { x: x0, y: y0, w, h: barH }, seriesDisplays[s])}/>`,
@@ -6798,6 +7056,24 @@ const renderBarChart = (
       }
     }
   }
+  for (const [s, points] of errorPoints)
+    chartErrorBars(
+      paint,
+      spec.series[s]!,
+      "y",
+      points,
+      (value) =>
+        valueCoordinate(
+          f,
+          spec.valueAxisOrientation,
+          "horizontal",
+          min,
+          max,
+          value,
+        ),
+      false,
+      spec.textStyle?.color,
+    );
   return out.join("");
 };
 
@@ -6861,6 +7137,7 @@ const renderLineChart = (
     const ptsRaw: Pt[] = [];
     const basePtsRaw: Pt[] = [];
     const markerPoints: Array<[number, number]> = [];
+    const errorPoints: ErrorBarPoint[] = [];
     // Allocate the comparison values only for a series with affected labels.
     const labelValues: Array<number | null> | undefined =
       spec.showDataLabelsOverMaximum === false &&
@@ -6919,6 +7196,7 @@ const renderLineChart = (
             )
           : baseY;
       if (withinChartAxis(top, min, max)) markerPoints.push([xp, yp]);
+      if (series.errorBars) errorPoints.push({ at: xp, center: top, own: v });
       ptsRaw.push([xp, yp]);
       basePtsRaw.push([xp, yBase]);
       if (isStacked) accumulated[c] = top;
@@ -6969,6 +7247,23 @@ const renderLineChart = (
         areas.push(`${path} ${back} Z`);
       }
     }
+    chartErrorBars(
+      paint,
+      series,
+      "y",
+      errorPoints,
+      (value) =>
+        valueCoordinate(
+          f,
+          spec.valueAxisOrientation,
+          "vertical",
+          min,
+          max,
+          value,
+        ),
+      true,
+      spec.textStyle?.color,
+    );
     perSeries.push({
       s,
       series,
@@ -6986,6 +7281,24 @@ const renderLineChart = (
   // series behind it, fill AND outline. Stacked areas keep authored order,
   // including when a custom first-band baseline overlaps a later band.
   // Line charts (fill=false) also keep authored order.
+  // Up/down bars join the first and last series at each category: light
+  // where the last series ends higher, dark where it ends lower.
+  if (spec.upDownBars && !fill && perSeries.length >= 2) {
+    const first = perSeries[0]!,
+      last = perSeries[perSeries.length - 1]!;
+    const width = band / (1 + 1.5);
+    for (let c = 0; c < N; c++) {
+      const a = first.ptsRaw[c],
+        b = last.ptsRaw[c];
+      if (!a || !b) continue;
+      const up = (last.series.values[c] ?? 0) >= (first.series.values[c] ?? 0);
+      const y0 = Math.min(a[1], b[1]),
+        h = Math.abs(a[1] - b[1]);
+      out.push(
+        `<rect data-chart-up-down="${up ? "up" : "down"}"${clips.plot} x="${px(a[0] - width / 2)}" y="${px(y0)}" width="${px(width)}" height="${px(Math.max(h, 0.5))}" fill="${up ? "#FFFFFF" : "#404040"}" stroke="#404040" stroke-width="0.75"/>`,
+      );
+    }
+  }
   const paintOrder =
     fill && !isStacked ? perSeries.slice().reverse() : perSeries;
   if (fill) {
@@ -7620,6 +7933,7 @@ const renderScatterChart = (
       if (markers.length)
         out.push(`<g${paint.clips.markers}>${markers.join("")}</g>`);
     }
+    xyErrorBars(paint, spec, series, pts, projX, projY);
   }
   return out.join("");
 };
@@ -7698,6 +8012,7 @@ const renderBubbleChart = (
         `<circle${paint.clips.plot} cx="${px(cx)}" cy="${px(cy)}" r="${r.toFixed(2)}" ${chartSeriesFill(series, fill, paint.fills, { x: cx - r, y: cy - r, w: r * 2, h: r * 2 }, p.index, 0.55)}${chartPointStroke(series, p.index, paint.fills, { x: cx - r, y: cy - r, w: r * 2, h: r * 2 }, color, 0.75)}/>`,
       );
     }
+    xyErrorBars(paint, spec, series, pts, projX, projY);
   }
   return out.join("");
 };
@@ -9037,6 +9352,9 @@ const renderChart = (
     };
     return `<g${transform}>${chartSurface(frame, spec, areaPaint, shape, pres, theme, false, areaLine)}</g>`;
   }
+  // A data table takes the category tick labels' place under the plot.
+  const dataTableShown = showsChartDataTable(spec);
+  if (dataTableShown) spec = { ...spec, categoryAxisTickLabelPos: "none" };
   let secondaryPair: ChartScaleSpec = resolveChartNumberFormats(
     resolveChartTextStyles(
       secondaryAxisSpec(nativeSpec, axisLines),
@@ -9276,6 +9594,25 @@ const renderChart = (
     );
   }
 
+  let dataTableLayout: ChartDataTableLayout | null = null;
+  if (dataTableShown) {
+    dataTableLayout = chartDataTableLayout(spec, ctx);
+    // A category axis title moves below the table and keeps its own row.
+    const titleRow = spec.categoryAxisTitle
+      ? (spec.categoryAxisTitleStyle?.sizePt ?? 11) * PX_PER_PT * 1.5
+      : 0;
+    const bottom = axisArea.y + axisArea.h - titleRow;
+    const deficit = f.plotY + f.plotH + dataTableLayout.height - bottom;
+    if (deficit > 0) f = { ...f, plotH: Math.max(1, f.plotH - deficit) };
+    const shift = axisArea.x + dataTableLayout.nameW - f.plotX;
+    if (shift > 0)
+      f = {
+        ...f,
+        plotX: f.plotX + shift,
+        plotW: Math.max(1, f.plotW - shift),
+      };
+  }
+
   let plot = "";
   let filledPlot = "";
   const paint: ChartPaintLayers = {
@@ -9297,6 +9634,7 @@ const renderChart = (
     axisLines: [],
     axisLabels: [],
     dataLabels: [],
+    errorBars: [],
   };
   // Combo chart: per-series kind overrides and/or a secondary value
   // axis. Split the series into plot groups, bake palette colors by
@@ -9713,7 +10051,7 @@ const renderChart = (
   // its own ascent/descent plus the title's ascent need clearance below that so
   // the two text rows don't collide, hence +28 here rather than the tick row's
   // near-identical +16.
-  const catTitleCy =
+  let catTitleCy =
     isCartesian && spec.kind !== "bar"
       ? (paint.axisLayouts?.category?.placement.labelCoordinate ??
           categoryLabelCoordinate(f, spec)) +
@@ -9721,6 +10059,14 @@ const renderChart = (
           categoryLabelSide(spec)) *
           (f.categoryTitleOffset ?? 28)
       : f.plotY + f.plotH + (f.categoryTitleOffset ?? 28);
+  if (dataTableLayout) {
+    const row = (spec.categoryAxisTitleStyle?.sizePt ?? 11) * PX_PER_PT * 1.5;
+    catTitleCy =
+      f.plotY +
+      f.plotH +
+      dataTableLayout.height +
+      (f.categoryTitleOffset !== undefined ? row / 2 : row * 0.8);
+  }
   const catTitleTransform =
     catTitleRot !== 0
       ? ` transform="rotate(${catTitleRot} ${px(catTitleCx)} ${px(catTitleCy)})"`
@@ -9767,8 +10113,12 @@ const renderChart = (
     filledPlot,
     chartAxisStrokes(paint.axisLines, theme),
     plot,
+    (paint.errorBars ?? []).join(""),
     paint.dataLabels.join(""),
     paint.axisLabels.join(""),
+    dataTableLayout
+      ? renderChartDataTable(f, spec, dataTableLayout, colors, ctx)
+      : "",
     valueAxisTitleSvg,
     categoryAxisTitleSvg,
     legend.svg,

@@ -14,6 +14,7 @@ export {
   type DiagramTextEdit,
 } from "./fn/diagram-edit.ts";
 export { isDiagramShape } from "./fn/diagram-read.ts";
+export * from "./fn/smartart/index.ts";
 export {
   getEmbeddedFonts,
   embedFont,
@@ -74,6 +75,8 @@ export type {
   ChartAxisTickLabelPosition,
   ChartAxisScaling,
   ChartDataLabels,
+  ChartDataTable,
+  ChartErrorBars,
   ChartGrouping,
   ChartKind,
   ChartDataLabelPosition,
