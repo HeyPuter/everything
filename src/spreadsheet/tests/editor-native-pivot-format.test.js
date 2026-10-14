@@ -381,7 +381,7 @@ async function applyCombinedDialog() {
   const category = document.querySelector('select[aria-label="Category"]'); category.value = 'percent'; category.dispatchEvent(new Event('change'));
   const decimals = document.querySelector('input[aria-label="Decimal places"]'); decimals.value = '1'; decimals.dispatchEvent(new Event('input'));
   [...document.querySelectorAll('.modal-panel label')].find(el => el.textContent.trim() === 'Italic').querySelector('input').click();
-  const borders = document.querySelector('select[aria-label="Borders"]'); borders.value = 'outer'; borders.dispatchEvent(new Event('change'));
+  [...document.querySelectorAll('[aria-label="Border presets"] button')].find(b => b.textContent === 'Outline').click();
   document.querySelector('form.fc-form').dispatchEvent(new Event('submit', { cancelable: true }));
   await vi.advanceTimersByTimeAsync(5);
 }
