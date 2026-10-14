@@ -45,6 +45,8 @@ export async function menu(page, name, ...path) {
 
 /** A ribbon command by id, opening its folded group first when needed. */
 export async function command(page, id) {
+  const folded = page.locator(`.ribbon-fold-panel [data-command="${id}"]`);
+  if (await folded.first().isVisible()) return folded.first();
   const node = page.locator(
     `.ribbon-panel:not([hidden]) [data-command="${id}"]`,
   );
