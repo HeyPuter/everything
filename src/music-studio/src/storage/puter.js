@@ -142,15 +142,6 @@ export async function exists(path) {
   }
 }
 
-export async function mkdir(path) {
-  return sdk().fs.mkdir(path, { createMissingParents: true });
-}
-
-/** Reads `count` bytes at `offset` (for headers and durations). */
-export async function readRange(path, offset, count) {
-  return sdk().fs.read(path, { offset, byte_count: count });
-}
-
 /** A temporary URL that streams the file (for previews). */
 export async function readURL(path, expiresIn = '2h') {
   return sdk().fs.getReadURL(path, expiresIn);

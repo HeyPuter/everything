@@ -3,7 +3,7 @@
 // a cancel message is seen between slices.
 //
 // In:  { type: 'render', id, module, rate, channels, mixer, seq, samples: [{ index, channels, rate }],
-//        tail (max seconds), pitch (cents) }
+//        tail (max seconds), silence (seconds of silence that end the tail, default 0.25), pitch (cents) }
 //      { type: 'cancel', id }
 // Out: { type: 'progress', id, done (0..1) }
 //      { type: 'done', id, channels: [Float32Array, Float32Array], rate } (transferred)
@@ -15,7 +15,7 @@ import { Sequencer } from './sequencer.js';
 const cancelled = new Set();
 const SLICE_MS = 30;
 const SILENCE = 1e-4; // -80 dBFS
-const SILENT_FOR = 0.25; // seconds of silence that end the tail
+const SILENT_FOR = 0.25; // seconds of silence that end the tail (longer with long echoes)
 
 self.onmessage = (e) => {
   const m = e.data;
@@ -55,7 +55,7 @@ async function run(m) {
         let pk = 0;
         for (let i = 0; i < BLOCK; i++) pk = Math.max(pk, Math.abs(out.l[i]), Math.abs(out.r[i]));
         quiet = pk < SILENCE ? quiet + BLOCK : 0;
-        if (quiet >= SILENT_FOR * rate) {
+        if (quiet >= Math.max(SILENT_FOR, m.silence || 0) * rate) {
           end = Math.max(body, f + BLOCK - quiet);
           f = total;
           break;

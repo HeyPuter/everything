@@ -77,11 +77,14 @@ export class Sequencer {
     this.countIn = 0; // ticks of count-in left
     this.countLen = 0;
     this.nextId = SEQ_ID;
-    // Sounding sequenced notes: end tick, slot, id.
+    // Sounding sequenced notes: end tick, slot, id, kind, and the start tick
+    // and key of the event that started them (to match them in a new sequence).
     this.aEnd = new Float64Array(MAX_ACTIVE);
     this.aSlot = new Int32Array(MAX_ACTIVE);
     this.aId = new Uint32Array(MAX_ACTIVE);
     this.aKind = new Uint8Array(MAX_ACTIVE);
+    this.aStart = new Float64Array(MAX_ACTIVE);
+    this.aKey = new Uint8Array(MAX_ACTIVE);
     this.active = 0;
     this.lanes = [];
     this.tempo = new TempoMap(120);
@@ -117,7 +120,47 @@ export class Sequencer {
     this.lanes = seq.auto.map((l) => ({ ...l, applied: prev.get(laneKey(l))?.applied || false }));
     if (this.playing) {
       if (this.loop && this.pos >= seq.end && !this.countIn) this.#jump(seq.start, 0);
-      else this.cursor = lowerBound(seq.notes.start, seq.notes.count, this.pos);
+      else {
+        this.cursor = lowerBound(seq.notes.start, seq.notes.count, this.pos);
+        this.#reconcile(seq);
+      }
+    }
+  }
+
+  /**
+   * Keeps the sounding notes in step with an edited sequence: notes and audio
+   * clips that are gone (deleted, muted, moved) are released now instead of at
+   * their old end, the rest take their new end, and audio clips that now span
+   * the playhead (unmuted, moved under it) start from the middle.
+   */
+  #reconcile(seq) {
+    const n = seq.notes;
+    for (let i = 0; i < this.active; ) {
+      const j = findEvent(n, this.aStart[i], this.aSlot[i], this.aKind[i], this.aKey[i]);
+      if (j < 0) {
+        this.core.noteOff(this.aSlot[i], this.aId[i], 0);
+        this.#removeActive(i);
+        continue;
+      }
+      this.aEnd[i] = n.end[j];
+      i++;
+    }
+    if (this.countIn) return;
+    const pos = this.pos;
+    for (let k = 0; k < seq.audio.length; k++) {
+      const i = seq.audio[k];
+      if (!(n.start[i] < pos && n.end[i] > pos)) continue;
+      let sounding = false;
+      for (let a = 0; a < this.active; a++) {
+        if (this.aKind[a] === 1 && this.aSlot[a] === n.slot[i] && this.aStart[a] === n.start[i]) {
+          sounding = true;
+          break;
+        }
+      }
+      if (sounding) continue;
+      const id = this.nextId++ >>> 0;
+      this.core.audioOn(n.slot[i], id, n.offset[i] + this.tempo.duration(n.start[i], pos), n.vel[i], 0);
+      this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
     }
   }
 
@@ -167,12 +210,12 @@ export class Sequencer {
         const id = this.nextId++ >>> 0;
         const sec = n.offset[i] + this.tempo.duration(n.start[i], tick);
         this.core.audioOn(n.slot[i], id, sec, n.vel[i], offset);
-        this.#addActive(n.end[i], n.slot[i], id, 1);
+        this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
       }
     }
   }
 
-  #addActive(end, slot, id, kind) {
+  #addActive(end, slot, id, kind, start, key) {
     if (this.active >= MAX_ACTIVE) {
       // Too many sounding notes: release the oldest.
       this.core.noteOff(this.aSlot[0], this.aId[0], 0);
@@ -183,6 +226,8 @@ export class Sequencer {
     this.aSlot[a] = slot;
     this.aId[a] = id;
     this.aKind[a] = kind;
+    this.aStart[a] = start;
+    this.aKey[a] = key;
   }
 
   #removeActive(i) {
@@ -192,6 +237,8 @@ export class Sequencer {
       this.aSlot[i] = this.aSlot[last];
       this.aId[i] = this.aId[last];
       this.aKind[i] = this.aKind[last];
+      this.aStart[i] = this.aStart[last];
+      this.aKey[i] = this.aKey[last];
     }
   }
 
@@ -242,7 +289,7 @@ export class Sequencer {
       const ke = this.#frameOf(n.end[i], s0);
       // A note shorter than a frame still gets its note-off after the note-on.
       if (ke < frames && ke > k) this.core.noteOff(n.slot[i], id, f0 + ke);
-      else this.#addActive(n.end[i], n.slot[i], id, n.kind[i]);
+      else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i]);
     }
     if (this.metronome) this.#clicks(t0, frames, f0, s0);
   }
@@ -400,6 +447,14 @@ export class Sequencer {
       f = frames;
     }
   }
+}
+
+/** Index of the event that starts at `start` on `slot` with this kind and key, or -1. */
+function findEvent(n, start, slot, kind, key) {
+  for (let j = lowerBound(n.start, n.count, start); j < n.count && n.start[j] === start; j++) {
+    if (n.slot[j] === slot && n.kind[j] === kind && n.key[j] === key) return j;
+  }
+  return -1;
 }
 
 function laneKey(l) {

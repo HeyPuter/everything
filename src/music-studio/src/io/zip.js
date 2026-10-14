@@ -70,6 +70,8 @@ export function zipBytes(files, when = new Date()) {
     offset += 30 + name.length + data.length;
   }
   const cdSize = central.reduce((s, p) => s + p.length, 0);
+  // No ZIP64: offsets and sizes are 32-bit.
+  if (offset + cdSize > 0xffffffff || files.length > 0xffff) throw new Error('The files are too large for one ZIP archive (4 GB at most).');
   const end = new DataView(new ArrayBuffer(22));
   end.setUint32(0, 0x06054b50, true);
   end.setUint16(8, files.length, true);

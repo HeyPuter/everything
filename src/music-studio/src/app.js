@@ -37,6 +37,9 @@ import { openMenu, isMenuOpen } from './ui/menu.js';
 import { confirmDialog } from './ui/dialog.js';
 import { icon } from './ui/icons.js';
 
+// Browser shortcuts the app reuses (see installKeyboard).
+const BROWSER_KEYS = new Set(['F5', 'Mod+R', 'Mod+Shift+R', 'Mod+S', 'Mod+Shift+S', 'Mod+O', 'Mod+P']);
+
 export class App extends Emitter {
   constructor(root, { project, storage } = {}) {
     super();
@@ -176,8 +179,13 @@ export class App extends Emitter {
   installKeyboard() {
     document.addEventListener('keydown', (e) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (document.querySelector('.dialog-backdrop') || isMenuOpen()) return;
-      if (isTyping(e.target)) return;
+      if (document.querySelector('.dialog-backdrop') || isMenuOpen() || isTyping(e.target)) {
+        // App shortcuts that the browser would turn into a reload, save page,
+        // open or print do nothing here instead (a reload loses a running export).
+        const c = eventCombo(e);
+        if (BROWSER_KEYS.has(c) && this.commands.lookup(c, this.activePanel)) e.preventDefault();
+        return;
+      }
       // Typing keyboard to piano takes plain letter keys first.
       if (this.prefs.get('typingKeyboard') && !e.ctrlKey && !e.metaKey && !e.altKey && this.emitKeyboardNote?.(e, true)) {
         e.preventDefault();

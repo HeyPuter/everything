@@ -157,10 +157,16 @@ class ChannelEditor {
   afterOpen() {
     // The waveform needs layout to know its width.
     requestAnimationFrame(() => this.drawWave());
-    if (this.waveBox && typeof ResizeObserver !== 'undefined') {
-      this.ro = new ResizeObserver(() => this.drawWave());
-      this.ro.observe(this.waveBox);
-    }
+    this.opened = true;
+    this.observeWave();
+  }
+
+  /** Redraws the waveform when its box resizes (the box is rebuilt with the instrument). */
+  observeWave() {
+    this.ro?.disconnect();
+    if (!this.opened || !this.waveBox || typeof ResizeObserver === 'undefined') return;
+    this.ro ||= new ResizeObserver(() => this.drawWave());
+    this.ro.observe(this.waveBox);
   }
 
   showTab(id) {
@@ -643,6 +649,7 @@ class ChannelEditor {
     this.ch = ch;
     if (ch.type !== this.builtType) {
       this.buildInstrument();
+      this.observeWave();
       requestAnimationFrame(() => this.drawWave());
     } else if (ch !== prev) for (const c of this.inst) c.sync(ch);
     for (const c of this.chan) c.sync(ch);

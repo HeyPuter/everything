@@ -283,10 +283,12 @@ export class Shell {
         const up = () => {
           s.removeEventListener('pointermove', move);
           s.removeEventListener('pointerup', up);
+          s.removeEventListener('pointercancel', up);
           save();
         };
         s.addEventListener('pointermove', move);
         s.addEventListener('pointerup', up);
+        s.addEventListener('pointercancel', up);
       });
       s.addEventListener('keydown', (e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
