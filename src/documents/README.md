@@ -102,6 +102,7 @@ Older app-authored import/export helpers remain for later migration. They do not
 
 - Application and original canvas engine: [MIT](../../LICENSE).
 - ZIP codec `fflate`: MIT.
+- Real-time co-editing (CRDT) `yjs` and its `lib0` and `isomorphic.js` helpers: MIT.
 - Noto Sans: [OFL-1.1](public/fonts/OFL.txt), with [source provenance](public/fonts/PROVENANCE.md).
 - Other retained dependencies: [third-party notices](public/licenses/THIRD_PARTY.txt).
 
