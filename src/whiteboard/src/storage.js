@@ -625,18 +625,47 @@ export const local = {
         }
       return ids;
     };
+    // Each version is read back before it goes: one named in another tab
+    // since this tab read the list is kept, and the list learns it is.
     const drop = async (ids) => {
       if (!ids.length) return;
-      const gone = new Set(ids);
+      const listed = new Map(known.list.map((r) => [r.id, r])),
+        gone = new Set(),
+        named = new Set();
       await transaction(
         "readwrite",
         (s) => {
-          const last = ids.map((id) => s.delete(id)).at(-1);
-          releaseMedia(s, mediaOf(known.list.filter((r) => gone.has(r.id))));
-          return last;
+          const rows = [];
+          let read;
+          for (const id of ids) {
+            read = s.get(id);
+            const request = read;
+            request.onsuccess = () => {
+              rows.push([id, request.result]);
+              if (rows.length < ids.length) return;
+              // Pictures are let go in one pass, so versions sharing one
+              // do not each rewrite its list of users from the same read.
+              const dropped = [];
+              for (const [id, row] of rows) {
+                if (row && keptRevision(row) && !listed.get(id)?.kept) {
+                  named.add(id);
+                  continue;
+                }
+                s.delete(id);
+                gone.add(id);
+                dropped.push({
+                  id,
+                  media: row?.media ?? listed.get(id)?.media,
+                });
+              }
+              releaseMedia(s, mediaOf(dropped));
+            };
+          }
+          return read;
         },
         "revisions",
       );
+      for (const id of named) listed.get(id).kept = true;
       known.list = known.list.filter((r) => !gone.has(r.id));
       for (const id of gone) known.ids.delete(id);
     };

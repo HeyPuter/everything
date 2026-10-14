@@ -496,3 +496,31 @@ test("deleting one version lets go of a picture only it used, and pictures left 
   await local.removeRevisions(other.id);
   assert.deepEqual(await rawAll(), []);
 });
+
+test("a version named in another tab survives this tab's pruning", async (t) => {
+  globalThis.indexedDB = new IDBFactory();
+  const { local: tab1 } = await import("../src/storage.js?names=1");
+  const { local: tab2 } = await import("../src/storage.js?names=2");
+  let now = Date.now();
+  t.mock.method(Date, "now", () => ++now);
+  const b = board("Two tabs");
+  b.items.push(item("note", 0, 0, { text: "0" }));
+  for (let n = 1; n <= 5; n++) {
+    b.items[0].text = String(n);
+    await tab1.checkpoint(b);
+  }
+  const [oldest] = (await tab2.revisions(b.id)).sort(
+    (a, c) => a.created - c.created,
+  );
+  await tab2.nameRevision(oldest.id, "Client review");
+  for (let n = 6; n <= 40; n++) {
+    b.items[0].text = String(n);
+    await tab1.checkpoint(b);
+  }
+  const row = (await tab1.revisions(b.id)).find((r) => r.id === oldest.id);
+  assert.equal(row?.label, "Client review");
+  assert.equal(
+    (await tab1.revisions(b.id)).filter((r) => r.label === "Board edit").length,
+    30,
+  );
+});
