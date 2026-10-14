@@ -6073,6 +6073,34 @@ test("version history opens from the header and with Ctrl/Cmd+Alt/Option+Shift+H
   }
 });
 
+test("moving a board to the trash can be undone from the notification", async () => {
+  const app = await setup();
+  const { doc, click, tick } = app;
+  const cards = () => doc.querySelectorAll(".board-card").length;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="home"]');
+    await click('[data-action="new"]');
+    await click('[data-action="home"]');
+    assert.equal(cards(), 2);
+    const first = doc.querySelector("[data-more]").dataset.more;
+    await click(`[data-more="${first}"]`);
+    await click("#remove-board");
+    await click("#confirm-delete");
+    assert.equal(cards(), 1);
+    const undo = doc.querySelector("#toast .toast-action");
+    assert.match(doc.querySelector("#toast").textContent, /Moved to the trash/);
+    undo.click();
+    for (let n = 0; n < 5; n++) await tick();
+    assert.equal(cards(), 2);
+    assert.equal(doc.activeElement.dataset.more, first);
+    await click('[data-filter="trash"]');
+    assert.equal(cards(), 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;

@@ -12351,11 +12351,35 @@ function boardOptions(b) {
                 button.disabled = false;
                 return toast("Could not move this board to the trash.");
               }
-              if (!dialog.open || !dialog.isConnected)
-                return refreshLibraryKeepingFocus();
+              // The notification can take the board back out at once.
+              const undo = {
+                label: "Undo",
+                run: async () => {
+                  if (!b.deletedAt) return;
+                  const deletedAt = b.deletedAt;
+                  delete b.deletedAt;
+                  try {
+                    await saveLibrary(b, "deletedAt");
+                  } catch (error) {
+                    b.deletedAt = deletedAt;
+                    if (!(await followStore(b, error)))
+                      toast("Could not save this change on this device.");
+                    return refreshLibraryKeepingFocus();
+                  }
+                  if (current) return toast("Board restored.");
+                  refreshLibrary();
+                  focusLibraryCard(b.id);
+                  toast("Board restored.");
+                },
+              };
+              if (!dialog.open || !dialog.isConnected) {
+                refreshLibraryKeepingFocus();
+                return toast("Moved to the trash.", undo);
+              }
               dialog.close();
               await home();
               focusLibraryCard(b.id);
+              toast("Moved to the trash.", undo);
             };
           },
         );

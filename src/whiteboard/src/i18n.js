@@ -1073,6 +1073,7 @@ const pairs = {
   "Ctrl/Cmd + Alt/Option + Shift + K": "Ctrl/Cmd + Alt/Option + Maj + K",
   "Ctrl/Cmd + Alt/Option + Shift + C": "Ctrl/Cmd + Alt/Option + Maj + C",
   "Ctrl/Cmd + Alt/Option + Shift + H": "Ctrl/Cmd + Alt/Option + Maj + H",
+  "Moved to the trash.": "Placé dans la corbeille.",
   "Version history (Ctrl/Cmd Alt/Option Shift H)":
     "Historique des versions (Ctrl/Cmd Alt/Option Maj H)",
   "Ctrl or Cmd + Z": "Ctrl ou Cmd + Z",
