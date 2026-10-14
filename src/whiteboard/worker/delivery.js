@@ -62,23 +62,32 @@ export const bilingualBody = (en, fr) =>
 // someone may do on a board, are few and are what a SIEM watches for.
 // Content edits, API reads, and people joining boards come in bursts: a
 // workshop's start brings hundreds of joins.
+// AI use, people joining the organization, and an identity provider's
+// writes are administration too, but come in bursts as well, as when a
+// directory is first provisioned.
 const URGENT = new Set(["admin", "security", "sharing"]);
+const BURST = /^(ai\.|user\.joined$|scim\.)/;
 const urgent = (e) =>
-  URGENT.has(e.category) || e.action.startsWith("board.role.");
+  (URGENT.has(e.category) && !BURST.test(e.action)) ||
+  e.action.startsWith("board.role.");
 export async function deliver(org, policy, events, notifications) {
   // Bursts are exported at most every few seconds per worker instance; the
   // cursor picks up anything written meanwhile, and sendHeldAudit sends it
   // with the next request. An urgent event goes at once, with whatever is
   // waiting, so the last change before the organization goes quiet is not
   // held until it is next used.
+  // After a failed export, urgent events wait out the interval too, so
+  // requests do not each wait on an unreachable endpoint.
   const exporting = policy.siem.mode !== "none";
+  const exported = events.filter((e) =>
+    policy.siem.categories.includes(e.category),
+  );
   const exportNow =
     exporting &&
     (org.now() - org.instance.siem >= org.siemInterval ||
-      events.some(
-        (e) => urgent(e) && policy.siem.categories.includes(e.category),
-      ));
-  if (exporting && !exportNow && events.length) org.instance.siemBacklog = true;
+      (!org.instance.siemFailed && exported.some(urgent)));
+  if (exporting && !exportNow && exported.length)
+    org.instance.siemBacklog = true;
   await Promise.allSettled([
     exportNow ? exportAudit(org, policy) : null,
     webhooks(org, policy, events),

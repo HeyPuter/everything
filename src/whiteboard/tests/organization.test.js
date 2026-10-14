@@ -9414,3 +9414,60 @@ test("requests at the same moment export each audit record to the SIEM once", as
   assert.equal(ids.length, 10);
   assert.equal(new Set(ids).size, 10);
 });
+
+test("while the SIEM is unreachable, urgent events wait out the export interval instead of each request waiting on it", async () => {
+  const { env, boards, call, org } = setup();
+  org.now = () => env.now;
+  let calls = 0;
+  const base = org.fetcher;
+  org.fetcher = boards.fetcher = async (url, options) => {
+    if (String(url).startsWith("https://siem.fabrikam.test")) {
+      calls++;
+      throw Object.assign(Error("timed out"), { name: "TimeoutError" });
+    }
+    return base(url, options);
+  };
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { siem: { mode: "https", url: "https://siem.fabrikam.test/in" } },
+  });
+  await org.flush();
+  const first = calls;
+  for (let n = 0; n < 3; n++) {
+    env.now += 1000;
+    await organizationRequest(org, boards, owner, {
+      op: "org.invite",
+      role: "member",
+    });
+  }
+  assert.equal(calls, first);
+  env.now += 15_000;
+  await organizationRequest(org, boards, owner, { op: "org.info" });
+  assert.equal(calls, first + 1);
+});
+
+test("only events the SIEM exports, and not AI use or provisioning, keep an export waiting or send one at once", async () => {
+  const { env, call, org, fetched } = setup();
+  org.now = () => env.now;
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { siem: { mode: "https", url: "https://siem.fabrikam.test/in" } },
+  });
+  await org.flush();
+  const posts = () =>
+    fetched.filter((f) => f.url === "https://siem.fabrikam.test/in").length;
+  env.now += 1000;
+  // Board content is not among the exported categories by default.
+  await org.audit(owner, "board.export", { type: "board", id: "b" });
+  await org.flush();
+  assert.equal(org.instance.siemBacklog, false);
+  const before = posts();
+  for (const action of ["ai.used", "scim.user.created", "user.joined"]) {
+    await org.audit(owner, action, { type: "user", id: "u" });
+    await org.flush();
+  }
+  assert.equal(posts(), before);
+  assert.equal(org.instance.siemBacklog, true);
+});
