@@ -6096,6 +6096,16 @@ test("moving a board to the trash can be undone from the notification", async ()
     assert.equal(doc.activeElement.dataset.more, first);
     await click('[data-filter="trash"]');
     assert.equal(cards(), 0);
+    // A board in the trash says when it went there.
+    await click('[data-filter="all"]');
+    await click(`[data-more="${first}"]`);
+    await click("#remove-board");
+    await click("#confirm-delete");
+    await click('[data-filter="trash"]');
+    assert.match(
+      doc.querySelector(".board-card .meta-date").textContent,
+      /^Deleted /,
+    );
   } finally {
     await app.close();
   }
