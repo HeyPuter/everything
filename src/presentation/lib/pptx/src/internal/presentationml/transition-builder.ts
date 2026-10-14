@@ -332,11 +332,12 @@ const buildEffectElement = (opts: TransitionOptions): XmlElement | null => {
     return elem(qname("p15", "prstTrans", NS.p15), { attrs });
   }
   if (P159_TRANSITION_EFFECTS.has(opts.effect)) {
-    const option = opts.morphOption;
-    if (option !== undefined)
-      oneOf(option, ["byObject", "byWord", "byChar"], "morph option");
+    const option = opts.morphOption ?? "byObject";
+    oneOf(option, ["byObject", "byWord", "byChar"], "morph option");
+    // Desktop readers reject a morph element without its option (the file
+    // is offered for repair), so the default is always spelled out.
     return elem(qname("p159", "morph", NS.p159), {
-      attrs: option ? [attr(qname("", "option", ""), option)] : [],
+      attrs: [attr(qname("", "option", ""), option)],
     });
   }
   const extension = P14_TRANSITION_EFFECTS.has(opts.effect);
