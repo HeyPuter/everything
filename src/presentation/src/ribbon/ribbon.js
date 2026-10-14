@@ -267,6 +267,14 @@ export function createRibbon({
     pop.append(content);
     content.hidden = false;
     document.body.append(pop);
+    // A gallery in the drop-down narrows to the screen, as it would in place.
+    const room = document.documentElement.clientWidth - 8;
+    for (const g of [...content.querySelectorAll(".ribbon-gallery")]
+      .map((n) => n._fit)
+      .filter(Boolean)) {
+      g.set(g.full);
+      while (pop.offsetWidth > room && g.columns > g.min) g.set(g.columns - 1);
+    }
     const r = anchor.getBoundingClientRect();
     // Mobile layout overflow can inflate innerWidth beyond the visible screen.
     // Match menu placement so every command remains inside the client viewport.
@@ -280,6 +288,7 @@ export function createRibbon({
       node.insertBefore(content, node.firstChild);
       content.hidden = node._folded;
       pop.remove();
+      fit();
       anchor.setAttribute("aria-expanded", "false");
     };
     const onKey = (e) => {
@@ -730,7 +739,25 @@ export function createRibbon({
       strip,
     );
     let page = 0;
-    const columns = item.columns || 6;
+    // A gallery with `minColumns` gives up columns, down to that many, before
+    // the ribbon folds groups to fit (see fit()).
+    const fullColumns = item.columns || 6;
+    let columns = fullColumns;
+    if (item.minColumns)
+      node._fit = {
+        full: fullColumns,
+        min: Math.min(fullColumns, item.minColumns),
+        get columns() {
+          return columns;
+        },
+        set(n) {
+          if (n === columns) return;
+          page = Math.floor((page * columns) / n);
+          columns = n;
+          shown = null;
+          draw();
+        },
+      };
     const up = el(
       "button",
       {
@@ -893,7 +920,7 @@ export function createRibbon({
           class: "ribbon-gallery-grid",
           role: "listbox",
           "aria-label": section.label || item.label,
-          style: `grid-template-columns:repeat(${item.panelColumns || columns}, auto)`,
+          style: `grid-template-columns:repeat(${item.panelColumns || fullColumns}, auto)`,
         });
         for (const choice of section.items)
           grid.append(
@@ -913,15 +940,27 @@ export function createRibbon({
               type: "button",
               class: "ribbon-gallery-footer",
               disabled: extra.disabled || null,
+              "aria-haspopup": extra.menu ? "menu" : null,
               onclick: () => {
                 close();
-                extra.onSelect();
+                // A footer entry can open a menu of its own, from the
+                // gallery's More button.
+                if (extra.menu)
+                  openMenu({
+                    anchor: more,
+                    items: extra.menu(),
+                    label: extra.label,
+                  });
+                else extra.onSelect();
               },
             },
             extra.icon
               ? glyph(extra.icon, 16)
               : el("span", { class: "spacer" }),
             extra.label,
+            extra.menu
+              ? el("span", { class: "ribbon-caret", "aria-hidden": "true" })
+              : null,
           ),
         );
       }
@@ -962,6 +1001,23 @@ export function createRibbon({
     if (!panel || panel.hidden || !panel.isConnected) return;
     const groups = [...panel.querySelectorAll(":scope > .ribbon-group")];
     for (const group of groups) setFolded(group, false);
+    const galleries = [...panel.querySelectorAll(".ribbon-gallery")]
+      .map((node) => node._fit)
+      .filter(Boolean);
+    for (const g of galleries) g.set(g.full);
+    // Galleries narrow first, the widest a column at a time: to about half
+    // before any group folds, and to their least once groups have folded.
+    const narrow = (floor) => {
+      for (;;) {
+        if (panel.scrollWidth <= panel.clientWidth + 1) return true;
+        const widest = galleries
+          .filter((g) => g.columns > floor(g))
+          .sort((a, b) => b.columns - a.columns)[0];
+        if (!widest) return false;
+        widest.set(widest.columns - 1);
+      }
+    };
+    if (narrow((g) => Math.max(g.min, Math.ceil(g.full / 2)))) return;
     const order = groups
       .filter((g) => g._group.group.collapsible !== false && !g.hidden)
       .sort(
@@ -972,6 +1028,17 @@ export function createRibbon({
     for (const group of order) {
       if (panel.scrollWidth <= panel.clientWidth + 1) break;
       setFolded(group, true);
+    }
+    narrow((g) => g.min);
+    // Room a folded group left goes back to the galleries.
+    for (const g of galleries) {
+      while (g.columns < g.full) {
+        g.set(g.columns + 1);
+        if (panel.scrollWidth > panel.clientWidth + 1) {
+          g.set(g.columns - 1);
+          break;
+        }
+      }
     }
   }
   function setFolded(group, on) {

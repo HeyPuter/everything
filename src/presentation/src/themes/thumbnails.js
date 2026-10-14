@@ -5,9 +5,52 @@
 import { el } from "../ui.js";
 import { P, preview } from "../model.js";
 import { themeById } from "./catalog.js";
-import { applyTheme } from "./engine.js";
+import { applyColors, applyTheme } from "./engine.js";
 
 const pictures = new Map();
+
+/**
+ * A slide on `master`'s Title Slide layout (or its first layout with a
+ * title) carrying `title` and `subtitle`, drawn by the renderer. A title of
+ * "Aa" is a specimen of the heading font: a third of the slide tall.
+ */
+function specimen(pres, master, title, subtitle) {
+  const layouts =
+    P.getSlideMasters(pres).find((m) => m.partName === master)?.layouts || [];
+  const titled = (l) =>
+    P.getSlideShapes(P.getTemplateSlide(pres, l.partName)).some((s) =>
+      ["title", "ctrTitle"].includes(P.getShapePlaceholderType(s)),
+    );
+  const layout =
+    layouts.find((l) => l.type === "title") ||
+    layouts.find(titled) ||
+    layouts[0];
+  if (!layout) return null;
+  P.addSlide(pres, {
+    layout: P.findSlideLayoutByPartName(pres, layout.partName),
+  });
+  const slide = P.getSlides(pres).at(-1);
+  const height = Number(P.getSlideSize(pres)?.height ?? 6858000) / 12700;
+  for (const shape of [...P.getSlideShapes(slide)]) {
+    const type = P.getShapePlaceholderType(shape);
+    const value =
+      type === "ctrTitle" || type === "title"
+        ? title
+        : type === "subTitle"
+          ? subtitle
+          : "";
+    if (!value) {
+      P.removeShape(shape);
+      continue;
+    }
+    P.setShapeText(shape, value);
+    if (value === "Aa" && value === title) {
+      P.setShapeTextAutoFit(shape, "none");
+      P.setShapeTextFormat(shape, { size: Math.round(height * 0.32) });
+    }
+  }
+  return preview(pres, P.getSlides(pres).at(-1));
+}
 
 /**
  * The picture of `themeId` in `variant`: a Title Slide with `title` (and
@@ -20,36 +63,42 @@ export function themePicture(
 ) {
   const key = [themeId, variant, aspect, title, subtitle].join("|");
   if (pictures.has(key)) return pictures.get(key);
-  const theme = themeById(themeId);
-  if (!theme) return null;
+  if (!themeById(themeId)) return null;
   const pres = P.createPresentation({ size: aspect });
   const master = applyTheme(pres, themeId, { variant });
-  const layouts = P.getSlideMasters(pres).find(
-    (m) => m.partName === master,
-  ).layouts;
-  const layout = layouts.find((l) => l.type === "title") || layouts[0];
-  const slide = P.addSlide(pres, {
-    layout: P.findSlideLayoutByPartName(pres, layout.partName),
-  });
-  const fresh = P.getSlides(pres)[0] || slide;
-  for (const shape of [...P.getSlideShapes(fresh)]) {
-    const type = P.getShapePlaceholderType(shape);
-    const value =
-      type === "ctrTitle" || type === "title"
-        ? title
-        : type === "subTitle"
-          ? subtitle
-          : "";
-    if (value) {
-      P.setShapeText(shape, value);
-      // The gallery's "Aa" is drawn large, as a specimen of the heading font.
-      if (value === "Aa" && value === title)
-        P.setShapeTextFormat(shape, { size: 115 });
-    }
-    else P.removeShape(shape);
-  }
-  const src = preview(pres, P.getSlides(pres)[0]);
+  const src = specimen(pres, master, title, subtitle);
   pictures.set(key, src);
+  return src;
+}
+
+/**
+ * The same picture of a master of `pres` (an imported or customized theme):
+ * the master and its layouts are copied into a scratch presentation, given
+ * `colors` (and their light or dark mapping) when asked, and drawn there.
+ * `key` names the master's current state, for the cache.
+ */
+export function masterPicture(pres, master, key, { colors, dark } = {}) {
+  const cacheKey = `master|${key}|${colors ? JSON.stringify(colors) : ""}|${dark}`;
+  if (pictures.has(cacheKey)) return pictures.get(cacheKey);
+  let src = null;
+  try {
+    const size = P.getSlideSize(pres);
+    const scratch = P.createPresentation();
+    if (size)
+      P.setSlideSize(scratch, {
+        width: Number(size.width),
+        height: Number(size.height),
+      });
+    const copy = P.importSlideMasterFile(
+      scratch,
+      P.exportThemeFile(pres, master),
+    );
+    if (colors) applyColors(scratch, [copy], colors, { dark });
+    src = specimen(scratch, copy, "Aa", "");
+  } catch {
+    src = null;
+  }
+  pictures.set(cacheKey, src);
   return src;
 }
 

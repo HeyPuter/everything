@@ -6389,18 +6389,7 @@ function ribbonApi() {
     variantChoices: () => (doc ? themeTools.variantChoices() : []),
     currentVariant: () => themeTools.currentVariant(),
     applyVariant: (i) => themeTools.applyVariant(i),
-    variantFooter: () => [
-      {
-        label: "Customize Colors…",
-        icon: "o:colors",
-        onSelect: run(() => themeTools.customizeColors()),
-      },
-      {
-        label: "Customize Fonts…",
-        icon: "o:fonts",
-        onSelect: run(() => themeTools.customizeFonts()),
-      },
-    ],
+    variantFooter: () => themeTools.variantFooter(),
     themeColorsMenu: () => themeTools.colorsMenu(),
     themeFontsMenu: () => themeTools.fontsMenu(),
     themeEffectsMenu: () => themeTools.effectsMenu(),

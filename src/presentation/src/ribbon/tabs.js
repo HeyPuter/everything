@@ -1020,13 +1020,15 @@ export function buildTabs(api) {
         id: "themes",
         label: "Themes",
         icon: "themes",
-        collapsible: false,
+        // The gallery narrows first and folds last, on the narrowest screens.
+        priority: 10,
         items: [
           {
             type: "gallery",
             id: "themes",
             label: "Themes",
             columns: 7,
+            minColumns: 2,
             panelColumns: 4,
             itemClass: "theme-thumb",
             showLabels: false,
@@ -1052,6 +1054,7 @@ export function buildTabs(api) {
             id: "variants",
             label: "Variants",
             columns: 4,
+            minColumns: 2,
             itemClass: "variant-thumb",
             showLabels: false,
             items: () => api.variantChoices(),
