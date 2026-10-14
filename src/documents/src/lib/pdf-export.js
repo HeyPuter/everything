@@ -114,10 +114,12 @@ const jpegOf = canvas => new Promise((resolve, reject) => canvas.toBlob(blob => 
 export async function exportPdf(engine, { title } = {}) {
   await engine.fontRefresh;
   const sheets = engine.printSheets();
-  const lines = [...engine.layout.lines, ...(engine.layout.repeatedLines || []), ...(engine.storyLayout?.lines || [])];
+  // The authored pages printed, even when a screen view (web, draft, read) is showing.
+  const { layout, storyLayout } = engine.printedLayout || engine;
+  const lines = [...layout.lines, ...(layout.repeatedLines || []), ...(storyLayout?.lines || [])];
   const pages = [];
   for (const [index, canvas] of sheets.entries()) {
-    const geometry = engine.layout.pages[index] || engine.layout.page;
+    const geometry = layout.pages[index] || layout.page;
     pages.push({ widthPx: geometry.width, heightPx: geometry.height, jpeg: await jpegOf(canvas), imageWidth: canvas.width, imageHeight: canvas.height, fragments: pageFragments(lines, index) });
   }
   return new Blob([buildPdf(pages, { title })], { type: 'application/pdf' });

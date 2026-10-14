@@ -41,6 +41,7 @@ import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
+import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds } from './positioned-images.js';
@@ -67,6 +68,8 @@ export class CanvasEditor {
     this.onUpdateFields = onUpdateFields;
     this.onLink = onLink; this.onOpenLink = onOpenLink; this.visitedLinks = new Set();
     this.zoom = 1;
+    // The document view laid out on screen (document-views.js); null is Print Layout.
+    this.view = null;
     // Screen-only painters run over each page after its content: (context, pageIndex, geometry) => void.
     this.overlays = [];
     this.destroyed = false;
@@ -459,11 +462,33 @@ export class CanvasEditor {
     this.host.classList.toggle('accessible-editing', value);
     this.syncInput(); this.paint(); this.focus();
   }
+  /**
+   * Show the document in a screen view: { kind: 'web' | 'draft' | 'read', width, height, … } in layout
+   * pixels, or null for Print Layout. Only the display changes; the model and its pages are untouched.
+   */
+  setView(view) {
+    const next = view && usesScreenGeometry(view.kind) ? { ...view } : null;
+    if (JSON.stringify(next) === JSON.stringify(this.view)) return false;
+    this.finishComposition();
+    if (next && this.session.path !== null) { this.session.activate(null); this.caretPage = null; }
+    this.view = next;
+    this.relayout();
+    return true;
+  }
+  /** Lay the body and its page stories out for a view (null: the authored pages). */
+  computeLayout(view = this.view) {
+    const body = this.session.body;
+    const stories = view ? viewPageStories(this.pageStories, view.kind) : this.pageStories;
+    let layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, stories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}), ...(view ? { viewGeometry: viewGeometry(view) } : {}) });
+    const storyLayout = layoutPageStories(layout, stories, [...body.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), body.pageSettings], this.measure, this.model.numbering, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}) });
+    if (view && isContinuousView(view.kind)) layout = fitContinuousPages(layout, storyLayout);
+    // Draft shows text only: floating drawings stay in the document but are not drawn or hit.
+    if (view?.kind === 'draft') layout = { ...layout, floatingObjects: [] };
+    return { layout, storyLayout };
+  }
   relayout() {
     this.tablePaintCache = new Map();
-    const body = this.session.body;
-    this.layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, this.pageStories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}) });
-    this.storyLayout = layoutPageStories(this.layout, this.pageStories, [...body.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), body.pageSettings], this.measure, this.model.numbering, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}) });
+    ({ layout: this.layout, storyLayout: this.storyLayout } = this.computeLayout());
     if (this.session.path !== null) {
       this.storyPage = this.session.page;
       const occurrences = this.storyLayout.positions.filter(p => p.path === this.session.path);
@@ -522,6 +547,15 @@ export class CanvasEditor {
   }
   printSheets() {
     this.finishComposition();
+    // Printing always uses the authored pages, whatever view is on screen: lay them out privately and
+    // put the screen layout back afterwards, without touching the page canvases.
+    if (this.view) {
+      const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts };
+      const printed = this.computeLayout(null);
+      Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
+      try { return this.printSheets(); } finally { Object.assign(this, screen); }
+    }
+    this.printedLayout = { layout: this.layout, storyLayout: this.storyLayout };
     const sheets = this.layout.pages.map(geometry => {
       const canvas = document.createElement('canvas');
       canvas.className = 'document-page';

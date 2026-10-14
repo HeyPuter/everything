@@ -40,6 +40,7 @@ import { floatingParagraph } from './floating-images.js';
 import { exactRowHeight, rowPadding } from './row-height.js';
 import { blockMinimumHeight } from './block-layout.js';
 import { sectionStoryBounds } from './story-clearance.js';
+import { spacedFormat } from './document-views.js';
 import { footnotePlan, layoutWithFootnotes } from './footnote-layout.js';
 import { numberedParagraphs } from './footnotes.js';
 import { pageBounds } from './page-bounds.js';
@@ -157,7 +158,9 @@ function layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageSt
 function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStories, wrapHints, storyOptions) {
   const paginateParagraphs = createParagraphPaginator();
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
-  page = { ...page, allowOversizedLines: !!storyOptions.bestEffort, left: page.left ?? page.margin, right: page.right ?? page.margin, top: page.top ?? page.margin, bottom: page.bottom ?? page.margin };
+  // A screen view (web, draft, read) lays every section out on its own display geometry.
+  const viewPage = storyOptions.viewGeometry || (geometry => geometry);
+  page = { ...viewPage(page), allowOversizedLines: !!storyOptions.bestEffort, left: page.left ?? page.margin, right: page.right ?? page.margin, top: page.top ?? page.margin, bottom: page.bottom ?? page.margin };
   const markers = listMarkers(paragraphs, numbering);
   // The initial recto/verso side is retained through later numbering restarts.
   const firstPageSideOffset = (pageStories?.sections[0]?.pageNumbering?.start ?? 1) - 1;
@@ -166,7 +169,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const finalPage = page, sectionPages = new Map(); let sectionPage = page;
   for (let i = paragraphs.length - 1; i >= 0; i--) {
     if (paragraphs[i].sectionEnd && paragraphs[i].cellId) throw new Error('Section breaks inside tables are not supported.');
-    if (paragraphs[i].sectionEnd) sectionPage = { ...pageGeometry(paragraphs[i].sectionEnd), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, allowOversizedLines: !!storyOptions.bestEffort };
+    if (paragraphs[i].sectionEnd) sectionPage = { ...viewPage(pageGeometry(paragraphs[i].sectionEnd)), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, allowOversizedLines: !!storyOptions.bestEffort };
     sectionPages.set(paragraphs[i].id, sectionPage);
   }
   // A drawing in a different section does not participate in column flow.
@@ -692,7 +695,7 @@ function mergedRowGroups(rows) {
 }
 
 function measureParagraph(p, documentOffset, measure, page, listMarker, numbering, cellBounds, wrapHints, keepBoundaryLine = false) {
-  const lines = [], format = paragraphFormat(p, numbering), text = paragraphText(p);
+  const lines = [], format = spacedFormat(paragraphFormat(p, numbering), page.textSpacing), text = paragraphText(p);
   if (p.list) format.autoSpacingListId = numbering.instances[p.list.numId].abstractId;
   if (page.doNotUseHTMLParagraphAutoSpacing) format.addParagraphSpacing = true;
   for (const side of ['Before', 'After']) if (format['autoSpace' + side]) {
@@ -743,6 +746,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // grapheme, including one that crosses a source run boundary.
     if (styleIndex !== runIndex) {
       runStyle = bodySymbolStyle(p.runs[runIndex], runFormat(p.runs[runIndex]));
+      if (page.textSpacing?.character) runStyle.characterSpacing = (runStyle.characterSpacing || 0) + page.textSpacing.character;
       if (p.runs[runIndex]?.noteMark) runStyle.noteMark = true;
       const revision = p.runs[runIndex]?.revision;
       runHidden = !!p.runs[runIndex]?.vanish && !revisionView.showHidden;
