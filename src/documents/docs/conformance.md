@@ -22930,8 +22930,11 @@ shells. Supported authoring subset:
   grid and `w:tcW` values; AutoFit Contents/Window writes `w:tblLayout`
   autofit, `w:tblW` auto or 5000 pct, and automatic cell widths.
 
-Not implemented: diagonal cell borders (`w:tl2br`/`w:tr2bl` remain rejected on
-import), nonzero `w:tblCellSpacing`, `w:bidiVisual`, row/cell revision marks,
+Diagonal cell borders (`w:tl2br`/`w:tr2bl` in `w:tcBorders`, §17.4.66) are now
+imported, painted corner to corner inside each laid-out cell (screen and print),
+and written by Diagonal Down/Up; they take no part in edge conflict resolution.
+
+Not implemented: nonzero `w:tblCellSpacing`, `w:bidiVisual`, row/cell revision marks,
 `w:hidden` rows, `w:tcFitText`, splitting several selected cells without merging
 them first, converting text inside table cells, and moving floating tables.
 

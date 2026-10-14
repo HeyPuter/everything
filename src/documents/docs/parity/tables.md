@@ -32,7 +32,8 @@ OOXML details and the supported subset are in
 - Shading (palette on the arrow; the button opens the cell shading dialog).
 - Borders: Border Styles (ready pens), Line Style, Line Weight, Pen Color, the
   Borders drop-down (Bottom, Top, Left, Right, No Border, All, Outside, Inside,
-  Inside Horizontal, Inside Vertical, View Gridlines, Borders and Shading…), and
+  Inside Horizontal, Inside Vertical, Diagonal Down, Diagonal Up, View Gridlines,
+  Borders and Shading…), and
   the Border Painter (click cell edges to paint with the pen). Choosing an edge
   that already has the pen removes it, as in desktop word processors.
 
@@ -90,6 +91,8 @@ OOXML details and the supported subset are in
 - Shift cells left/right writes omitted grid cells (`gridAfter`); later column
   insertion in such tables is still refused by the existing engine rule.
 - The thumbnails draw borders without the full conflict resolution of the page.
+- Diagonal borders are drawn as a line of the border's width and color (dotted and
+  dashed patterns approximated); compound styles draw as one line.
 - Formula directions stop at the first cell without a leading number (a header
   such as "Q1" stops `ABOVE`); empty cells directly beside the formula are skipped.
 - Moving a table by its handle places it in the text flow; floating tables keep
@@ -97,8 +100,6 @@ OOXML details and the supported subset are in
 
 ## Gaps
 
-- Diagonal borders (Diagonal Down/Up) need diagonal stroke import, layout and
-  painting; the Borders menu does not offer them yet.
 - Modify Table Style edits library and document-made styles only; styles that came
   with an opened document can be applied to their own tables but are not offered
   for other tables or for editing.
