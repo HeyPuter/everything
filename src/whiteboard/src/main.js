@@ -4018,6 +4018,12 @@ const tools = [
   ["frame", "scan", "Frame", "F"],
   ["comment", "message-square", "Comment", "C"],
 ];
+// Tools that put one object down where the board is clicked. Chosen from
+// the keyboard, which has no board to click, they add it in the middle of
+// the view instead, as their letters do.
+const PLACING_TOOLS = ["note", "text", "rect", "ellipse", "frame"];
+// The tool button Enter or Space was pressed on, until its click.
+let keyedTool = null;
 const TOOL_HINTS = {
   select: "Select and move · Double-click to edit · Space to pan",
   hand: "Drag to move around your board",
@@ -4174,6 +4180,16 @@ function editor() {
       e.stopPropagation();
       back.focus({ preventScroll: true });
     });
+  const rail = document.querySelector(".tools");
+  rail.addEventListener("keydown", (e) => {
+    keyedTool =
+      (e.key === "Enter" || e.key === " ") && !e.repeat
+        ? e.target.closest('[data-action^="tool-"]')
+        : null;
+  });
+  // Enter clicks on its keydown and Space on its keyup, so the mark lasts
+  // until both have had their turn.
+  rail.addEventListener("keyup", () => setTimeout(() => (keyedTool = null)));
   document.querySelector("#board-title").onchange = (e) => {
     checkpoint();
     // The field's maxlength counts what the browser counts, which may be
@@ -13043,7 +13059,17 @@ async function action(a) {
   finishTextEdit();
   if (features.actions[a]) return features.actions[a]();
   if (planning.actions[a]) return planning.actions[a]();
-  if (a.startsWith("tool-")) return setTool(a.slice(5));
+  if (a.startsWith("tool-")) {
+    const keyed = keyedTool?.dataset.action === a;
+    keyedTool = null;
+    if (!keyed || !PLACING_TOOLS.includes(a.slice(5)))
+      return setTool(a.slice(5));
+    const made = addObject(a.slice(5));
+    // Notes and text open for typing; a shape or frame is moved and
+    // edited from the board.
+    if (made && !editing) document.querySelector("#canvas").focus();
+    return;
+  }
   switch (a) {
     case "toggle-authors":
       showAuthors = !showAuthors;
@@ -13825,8 +13851,7 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       // A held key adds one object, not a stack of them on each repeat.
       if (e.repeat) return;
-      if (["note", "text", "rect", "ellipse", "frame"].includes(t[0]))
-        addObject(t[0]);
+      if (PLACING_TOOLS.includes(t[0])) addObject(t[0]);
       else setTool(t[0]);
     }
     if (e.key === "?") help();

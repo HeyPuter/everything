@@ -45743,6 +45743,77 @@ test("Shift with a tool letter is not the tool's shortcut", async () => {
   }
 });
 
+test("a creation tool chosen from the keyboard adds its object, as its letter does", async () => {
+  const a = await setup();
+  try {
+    await a.click('[data-action="new"]');
+    const { doc, w } = a;
+    const count = () => doc.querySelectorAll("#board-outline [data-id]").length;
+    const press = (selector, key, up = key === " ") => {
+      const button = doc.querySelector(selector);
+      button.focus();
+      button.dispatchEvent(
+        new w.KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      if (!up) button.click();
+      button.dispatchEvent(
+        new w.KeyboardEvent("keyup", { key, bubbles: true, cancelable: true }),
+      );
+      if (up) button.click();
+    };
+    // A mouse click arms the tool for a click on the board.
+    await a.click('[data-action="tool-note"]');
+    assert.equal(count(), 0);
+    assert.equal(
+      doc
+        .querySelector('[data-action="tool-note"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    // Enter on Sticky note adds one and opens it for typing.
+    press('[data-action="tool-note"]', "Enter");
+    await a.tick();
+    assert.equal(count(), 1);
+    assert.equal(doc.activeElement, doc.querySelector("#canvas-text-editor"));
+    doc.querySelector("#canvas").focus();
+    await a.tick();
+    // Space on Rectangle adds one, selected, with the board focused so the
+    // arrow keys move it.
+    press('[data-action="tool-rect"]', " ");
+    await a.tick();
+    assert.equal(count(), 2);
+    assert.equal(doc.activeElement, doc.querySelector("#canvas"));
+    assert.equal(
+      doc
+        .querySelector('[data-action="tool-select"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    // Tools that draw between points are only chosen.
+    press('[data-action="tool-arrow"]', "Enter");
+    await a.tick();
+    assert.equal(count(), 2);
+    assert.equal(
+      doc
+        .querySelector('[data-action="tool-arrow"]')
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+    // A key pressed elsewhere does not make a later click the keyboard's.
+    press('[data-action="tool-select"]', "Enter");
+    await a.tick();
+    doc.querySelector('[data-action="tool-ellipse"]').click();
+    await a.tick();
+    assert.equal(count(), 2);
+  } finally {
+    await a.close();
+  }
+});
+
 // A board with one note, a measured canvas, and pointer helpers for
 // gesture tests. The view starts at (110, 85) at 100%.
 async function gestureBoard(a) {
