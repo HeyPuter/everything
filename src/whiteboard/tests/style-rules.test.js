@@ -364,3 +364,9 @@ test("in forced colors, pressed and chosen controls show the system highlight an
     /\.swatch,\s*\.fill-chip\s*\{\s*forced-color-adjust:\s*none/,
   );
 });
+
+test("a narrow, very short window scrolls the editor instead of stacking the tool rail under the canvas tools", () => {
+  const at = css.indexOf("@media (max-width: 460px) and (max-height: 359px) {");
+  assert.ok(at >= 0);
+  assert.match(rule(".editor {", at), /height:\s*360px/);
+});

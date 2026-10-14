@@ -2707,6 +2707,15 @@ kbd {
     gap: 4px;
   }
 }
+/* A narrow window under 360px tall (a laptop zoomed to 400%) has no room
+   for the header, the canvas rows, the tool rail and the bottom bars at
+   once: the editor keeps 360px and the page scrolls instead of stacking
+   the rail under the canvas tools. */
+@media (max-width: 460px) and (max-height: 359px) {
+  .editor {
+    height: 360px;
+  }
+}
 @media (min-width: 761px) and (max-width: 1000px) {
   .templates {
     grid-template-columns: repeat(2, minmax(0, 1fr));
