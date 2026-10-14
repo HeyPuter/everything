@@ -8,7 +8,7 @@
 //                Enter adds to the selected insert.
 //   Project      patterns, channels, samples and automation of the open
 //                project, updated live (rebuilt only when what it shows changes).
-//   My files     signed in: ~/MusicStudio (Projects, Samples, Exports), the
+//   My files     signed in: the app's Puter folder (Projects, Samples, Exports), the
 //                home folder and folders picked with the Puter folder picker,
 //                listed lazily. Audio previews stream only on an explicit play
 //                (temporary read URLs are rate limited), projects open on
@@ -86,7 +86,7 @@ function createBrowser(app, host) {
     folders.clear();
     if (puter.isSignedIn()) {
       try {
-        dirs = { music: await puter.appDir(), home: await puter.homeDir() };
+        dirs = { music: await puter.appDir() };
       } catch {
         dirs = null;
       }
@@ -159,8 +159,7 @@ function createBrowser(app, host) {
     }
     if (!dirs) return [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
     return [
-      folderNode(dirs.music, 'MusicStudio', { root: true }),
-      folderNode(dirs.home, 'Home'),
+      folderNode(dirs.music, 'Music Studio files', { root: true }),
       ...extraRoots.map((p) => folderNode(p, p.slice(p.lastIndexOf('/') + 1) || p)),
       { id: 'files:pick', label: 'Browse another folder...', kind: 'action', icon: 'folder-search', data: { run: pickFolder } },
       { id: 'files:import', label: 'Import audio from this device...', kind: 'action', icon: 'upload', data: { run: () => app.commands.run('file.importAudio') } },

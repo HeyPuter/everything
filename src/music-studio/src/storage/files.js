@@ -3,7 +3,7 @@
 //
 //   Signed out: Save keeps the project in this browser (IndexedDB, listed
 //   under Open) and offers a download; nothing touches Puter.
-//   Signed in: Save writes ~/MusicStudio/Projects/<name>.msproj (new samples
+//   Signed in: Save writes Projects/<name>.msproj in the app's Puter folder (new samples
 //   are uploaded once, on the first cloud save that needs them).
 //
 // Save state is shown through app.file ({ path?, local?, name }),
@@ -170,7 +170,7 @@ export class ProjectFiles {
     const cloud = this.signedIn();
     const name = await promptDialog({
       title: 'Save project as',
-      label: cloud ? 'Name (saved to MusicStudio/Projects in your Puter cloud)' : 'Name (saved in this browser)',
+      label: cloud ? 'Name (saved to your Puter cloud)' : 'Name (saved in this browser)',
       value: this.app.file?.name || this.store.project.name,
       confirm: 'Save',
       validate: (v) => (v.trim() ? '' : 'Enter a name.'),

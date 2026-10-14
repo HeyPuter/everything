@@ -1,7 +1,6 @@
 // Thin wrapper around Puter.js (the only backend). Every call degrades
 // gracefully when the SDK is missing (offline, blocked, tests).
 
-export const APP_DIR = 'MusicStudio';
 
 export function sdk() {
   return typeof window !== 'undefined' && window.puter ? window.puter : null;
@@ -97,11 +96,32 @@ export async function homeDir() {
 /** Forgets cached account details (after sign-in changes). */
 export function resetAccountCache() {
   cachedHome = null;
+  cachedAppDir = null;
 }
 
-/** Default folder for files the app writes: ~/MusicStudio. */
+let cachedAppDir = null;
+
+/**
+ * The app's own folder in the user's Puter cloud (~/AppData/<app id>/).
+ * Puter confines an app to this folder unless the user grants more, so every
+ * file the app writes on its own lives here; files the user picks elsewhere
+ * with the Puter file dialogs keep their own paths. Relative paths resolve
+ * here, but listings and stored references need the absolute path, which is
+ * read once from the FSItem of the Projects folder.
+ */
 export async function appDir() {
-  return `${await homeDir()}/${APP_DIR}`;
+  if (cachedAppDir) return cachedAppDir;
+  const fs = sdk().fs;
+  let item;
+  try {
+    item = await fs.stat('Projects');
+  } catch {
+    item = await fs.mkdir('Projects', { createMissingParents: true });
+  }
+  const path = item?.path || '';
+  // FSItem paths are absolute ('/user/AppData/app-.../Projects'); fall back to relative paths.
+  cachedAppDir = path.startsWith('/') ? dirname(path) : '.';
+  return cachedAppDir;
 }
 
 /** Lists a folder. Resolves FSItem[] (name, path, is_dir, size, modified). */
@@ -166,7 +186,7 @@ export function requireSignedIn() {
   if (!isSignedIn()) throw new Error('Sign in to use your Puter cloud storage.');
 }
 
-/** A folder under ~/MusicStudio ('Projects', 'Samples', 'Exports'). */
+/** A folder in the app's Puter folder ('Projects', 'Samples', 'Exports'). */
 export async function appSubdir(name) {
   return joinPath(await appDir(), name);
 }

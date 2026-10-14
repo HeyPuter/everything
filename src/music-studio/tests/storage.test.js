@@ -44,11 +44,12 @@ function fakePuter({ signedIn = true, username = 'ada' } = {}) {
         return new Blob([files.get(path)]);
       }),
       stat: rec('stat', async (path) => {
-        if (!files.has(path)) throw new Error('missing');
+        if (!files.has(path)) throw Object.assign(new Error('missing'), { code: 'subject_does_not_exist' });
         return { path };
       }),
       readdir: rec('readdir', async () => []),
-      mkdir: rec('mkdir', async () => ({})),
+      // Relative paths resolve into the app's AppData folder, as in Puter.
+      mkdir: rec('mkdir', async (path) => ({ path: path.startsWith('/') ? path : `/${username}/AppData/app-test/${path}` })),
     },
     ui: {},
   };
@@ -118,10 +119,10 @@ describe('samples', () => {
   it('downloads from Puter when signed in and caches the bytes', async () => {
     const fake = fakePuter();
     window.puter = fake;
-    fake.files.set('/ada/MusicStudio/Samples/s2.wav', new Uint8Array([9, 9]));
+    fake.files.set('/ada/AppData/app-test/Samples/s2.wav', new Uint8Array([9, 9]));
     const lib = new Library({ db: memoryDB(), decode: fakeDecode });
     const c = cache();
-    const ref = { id: 's2', name: 'snare.wav', path: '/ada/MusicStudio/Samples/s2.wav', local: null };
+    const ref = { id: 's2', name: 'snare.wav', path: '/ada/AppData/app-test/Samples/s2.wav', local: null };
     expect(await lib.loadSamples({ samples: { s2: ref } }, c)).toEqual({ loaded: 1, missing: [] });
     expect((await lib.sampleRecord('s2')).path).toBe(ref.path);
     fake.calls.length = 0;
@@ -131,7 +132,7 @@ describe('samples', () => {
 });
 
 describe('cloud projects', () => {
-  it('saves to ~/MusicStudio/Projects, uploads new samples once and opens again', async () => {
+  it('saves to Projects in the app folder, uploads new samples once and opens again', async () => {
     const fake = fakePuter();
     window.puter = fake;
     const lib = new Library({ db: memoryDB(), decode: fakeDecode });
@@ -139,12 +140,12 @@ describe('cloud projects', () => {
     await lib.putSample('smp1', { data: new Uint8Array([1, 2, 3, 4]).buffer, name: 'loop.wav', type: 'audio/wav' });
     p = E.addSample(p, { id: 'smp1', name: 'loop.wav', local: 'smp1', duration: 1 }).project;
     const path = await lib.cloudPathFor('My: Song');
-    expect(path).toBe('/ada/MusicStudio/Projects/My- Song.msproj');
+    expect(path).toBe('/ada/AppData/app-test/Projects/My- Song.msproj');
     const r = await lib.saveCloud(p, {}, { path });
     expect(r.path).toBe(path);
-    expect(fake.files.has('/ada/MusicStudio/Samples/smp1.wav')).toBe(true);
+    expect(fake.files.has('/ada/AppData/app-test/Samples/smp1.wav')).toBe(true);
     const json = JSON.parse(new TextDecoder().decode(fake.files.get(path)));
-    expect(json.samples.smp1.path).toBe('/ada/MusicStudio/Samples/smp1.wav');
+    expect(json.samples.smp1.path).toBe('/ada/AppData/app-test/Samples/smp1.wav');
 
     // A second save does not upload the sample again.
     fake.calls.length = 0;
@@ -153,7 +154,7 @@ describe('cloud projects', () => {
 
     const back = await lib.loadCloud(path);
     expect(back.name).toBe(p.name);
-    expect(back.samples.smp1.path).toBe('/ada/MusicStudio/Samples/smp1.wav');
+    expect(back.samples.smp1.path).toBe('/ada/AppData/app-test/Samples/smp1.wav');
     expect(back.patterns.map((x) => x.id)).toEqual(p.patterns.map((x) => x.id));
   });
 
@@ -336,5 +337,20 @@ describe('serialize helper', () => {
   it('serializes the view pattern', () => {
     const p = demoProject();
     expect(JSON.parse(serializeProject(p, { pattern: p.patterns[2].id })).ui.pattern).toBe(p.patterns[2].id);
+  });
+});
+
+describe('app folder', () => {
+  afterEach(() => {
+    delete window.puter;
+    puterApi.resetAccountCache();
+  });
+
+  it('lives in the app\'s AppData folder, never in the home folder', async () => {
+    window.puter = fakePuter();
+    puterApi.resetAccountCache();
+    expect(await puterApi.appDir()).toBe('/ada/AppData/app-test');
+    expect(await puterApi.appSubdir('Samples')).toBe('/ada/AppData/app-test/Samples');
+    expect(window.puter.calls).not.toContain('getUser');
   });
 });
