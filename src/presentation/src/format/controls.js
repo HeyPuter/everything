@@ -49,7 +49,10 @@ export function numberField({
       input.value = input.defaultValue;
       return;
     }
-    n = Math.max(min, Math.min(max, n));
+    // The range can change after the field is made (a unit switch).
+    const lo = input.min === "" ? -Infinity : Number(input.min);
+    const hi = input.max === "" ? Infinity : Number(input.max);
+    n = Math.max(lo, Math.min(hi, n));
     input.value = String(round(n, places));
     input.defaultValue = input.value;
     onCommit?.(n);
