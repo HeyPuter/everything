@@ -21,7 +21,7 @@ export function keyboardShortcuts({ editor, pkg, applyStyleLevel, focusFont, foc
     const ctrl = e.ctrlKey && !e.metaKey, mod = e.ctrlKey || e.metaKey, code = e.code || '';
     // Chords typed with Control everywhere; on Windows and Linux that is also the modifier.
     const control = MAC ? ctrl : e.ctrlKey;
-    if (e.key === 'F5' && !mod && !e.altKey && !e.shiftKey || mod && !e.altKey && !e.shiftKey && code === 'KeyG') return () => {
+    if (e.key === 'F5' && !mod && !e.altKey && !e.shiftKey || !MAC && mod && !e.altKey && !e.shiftKey && code === 'KeyG') return () => {
       const engine = editor(); if (!engine || goTo) return;
       engine.finishComposition();
       goTo = openGoTo(engine, { onClose: () => { goTo = null; queueMicrotask(() => editor()?.focus()); } });

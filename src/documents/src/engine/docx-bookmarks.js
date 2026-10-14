@@ -1,6 +1,7 @@
 import { parseXml } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { writeCommentMarker } from './docx-comments.js';
+import { writePermissionMarker } from './docx-permissions.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const serialize = n => new XMLSerializer().serializeToString(n);
 
@@ -27,6 +28,7 @@ export function bookmarkReader() {
 
 export function writeBookmark(marker, doc) {
   if (marker.comment) return writeCommentMarker(marker, doc);
+  if (marker.perm) return writePermissionMarker(marker, doc);
   const n = marker.shell ? doc.importNode(parseXml(marker.shell).documentElement, true) : doc.createElementNS(W, marker.edge === 'start' ? 'w:bookmarkStart' : 'w:bookmarkEnd');
   if (!marker.shell || BigInt(n.getAttributeNS(W, 'id')).toString() !== marker.id) n.setAttributeNS(W, 'w:id', marker.id);
   if (marker.edge === 'start') n.setAttributeNS(W, 'w:name', marker.name);
