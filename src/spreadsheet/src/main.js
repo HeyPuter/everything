@@ -16,6 +16,8 @@ import { homeView } from './views/home.js';
 import { editorView } from './views/editor.js';
 import { parseAppHash, editHash } from './lib/links.js';
 import { roomForFile, openRoom } from './collab/session.js';
+import { appOptions, appOption, syncAppOptions } from './lib/app-options.js';
+import { installAppOptions } from './lib/apply-options.js';
 
 const appRoot = document.getElementById('app');
 let current = null; // { kind: 'home' | 'editor' | 'gate', view }
@@ -200,11 +202,12 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
       P.setWindowTitle('Spreadsheet');
       return;
     }
-    if (r === 'new') { openEditor(Doc.blank({ excel: true })); return; }
+    // A new workbook starts as the options say: its font, how many sheets, its view and calculation.
+    if (r === 'new') { openEditor(Doc.blank({ excel: true, start: appOptions() })); return; }
     if (r === 'template') {
       const template = templateById(id);
       if (!template) { go(HOME); return; }
-      if (template.id === 'blank') { openEditor(Doc.blank({ excel: true })); return; }
+      if (template.id === 'blank') { openEditor(Doc.blank({ excel: true, start: appOptions() })); return; }
       const wb = template.build();
       const doc = new Doc({ wb, name: template.name });
       wb.dirty = true;
@@ -405,6 +408,11 @@ async function boot() {
   await session.init();
   // The SDK signs the user in on its own before an AI request; the views follow.
   P.onAuth((user) => session.signedInAs(user));
+  // The person's options (File ▸ Options), with the account's copy when it arrives quickly enough to matter.
+  installAppOptions();
+  if (session.signedIn) await Promise.race([syncAppOptions().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 800))]);
+  // Opened with no address, the app lands on a new workbook, or on the start screen when the options ask for it.
+  if (!launchedPath && appOption('startScreen') && /^#?\/?$/.test(location.hash)) history.replaceState(null, '', HOME);
   booted = true;
   window.addEventListener('hashchange', route);
   if (launchedPath) {

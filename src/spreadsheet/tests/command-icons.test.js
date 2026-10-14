@@ -103,14 +103,14 @@ it('puts Save, Undo and Redo in the title row and the menus beside them, as a de
   const { wb, id } = await mount();
   const header = view.el.querySelector('.editor-header');
   const qat = header.querySelector('.quick-access');
-  expect([...qat.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))).toEqual(['AutoSave', 'Save', 'Undo', 'Undo history', 'Redo']);
+  expect([...qat.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))).toEqual(['AutoSave', 'Save', 'Undo', 'Undo history', 'Redo', 'Customize Quick Access Toolbar']);
   expect(header.querySelector('.menubar [data-menu="file"]')).not.toBeNull();
   expect(view.el.querySelector('.ribbon-home [aria-label="Undo"]')).toBeNull();
   wb.setInput(id, 3, 0, 'Folder'); await flush();
   const undo = qat.querySelector('[aria-label="Undo"]');
   expect(undo.disabled).toBe(false);
   // Each is a tab stop, as AutoSave and Save are: the Home toolbar's roving tab stop does not reach this row.
-  expect([...qat.querySelectorAll('button')].map(b => b.tabIndex)).toEqual([0, 0, 0, 0, 0]);
+  expect([...qat.querySelectorAll('button')].map(b => b.tabIndex)).toEqual([0, 0, 0, 0, 0, 0]);
   view.el.querySelector('.ribbon-home .tb-btn:not([disabled])').focus();
   view.el.querySelector('.ribbon-home').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
   expect(undo.tabIndex).toBe(0);

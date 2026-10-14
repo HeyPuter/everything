@@ -19,6 +19,9 @@ import { numberFormatParts, measureFormatParts, layoutFormatParts, rotatedFormat
 import { formatLayoutNode } from './format-layout.js';
 import { richTextMeasure, largestRichTextSize } from '../core/rich-text-font.js';
 import { fontColorCss } from '../core/font-color.js';
+import { appOption } from '../lib/app-options.js';
+import { applyFixedDecimal } from '../core/entry-options.js';
+import { confirmDialog } from './modal.js';
 /**
  * The grid: a virtualized, keyboard-first spreadsheet surface.
  *
@@ -1015,7 +1018,8 @@ export function createGrid(opts) {
    * but it is meant for the frozen cell drawn over the handle.
    */
   function onFillHandle(clientX, clientY, target = null) {
-    if (edit || wb.isProtected(sheetId)) return false;
+    // The options can turn the fill handle (and dragging cells about) off.
+    if (edit || wb.isProtected(sheetId) || !appOption('fillHandle')) return false;
     const { range, vx, vy, hidden } = handlePlace();
     if (hidden) return false;
     // A press the browser reports on the handle itself has its whole hit area, but only where the
@@ -1073,6 +1077,11 @@ export function createGrid(opts) {
    * (it reports that itself): the rules of Workbook.moveRange, in its order.
    */
   function moveProblem(src, dst) {
+    return knownMoveProblem(src, dst) || 'Those cells cannot be moved there';
+  }
+
+  /** Why a move from `src` to `dst` will be refused, when it can be told beforehand; null otherwise. */
+  function knownMoveProblem(src, dst) {
     if ((src.r2 - src.r1 + 1) * (src.c2 - src.c1 + 1) > 200000) return 'Select at most 200,000 cells to move at once';
     const s = sheet();
     const overlaps = (a, b) => !(a.r2 < b.r1 || a.r1 > b.r2 || a.c2 < b.c1 || a.c1 > b.c2);
@@ -1088,7 +1097,7 @@ export function createGrid(opts) {
     const shifted = (m) => ({ r1: m.r1 + dr, c1: m.c1 + dc, r2: m.r2 + dr, c2: m.c2 + dc });
     const landing = s.tables.find((t) => inside(t.range, src) && s.tables.some((o) => !inside(o.range, src) && overlaps(shifted(t.range), o.range)));
     if (landing) return `Table ${landing.name} cannot be dropped on another table`;
-    return 'Those cells cannot be moved there';
+    return null;
   }
 
   function place(node, box) {
@@ -1271,9 +1280,11 @@ export function createGrid(opts) {
     node.style.width = `${w}px`;
     node.style.height = `${h}px`;
     const note = s.notes.get(cellKey(r, c));
-    if (note) { node.classList.add('has-note'); node.title = note; }
+    const noteMarks = appOption('commentIndicators');
+    // Comment indicators (the options): the corner mark, with the note as a tooltip only when hovering is wanted.
+    if (note && noteMarks !== 'none') { node.classList.add('has-note'); if (noteMarks === 'hover') node.title = note; }
     const thread = s.comments?.get(cellKey(r, c));
-    if (thread) node.classList.add('has-comment', ...(thread.done ? ['comment-done'] : []));
+    if (thread && noteMarks !== 'none') node.classList.add('has-comment', ...(thread.done ? ['comment-done'] : []));
     const filterHead = filterHeadAt(s, r, c);
     if (filterHead) {
       node.classList.add('filter-head');
@@ -2459,7 +2470,8 @@ export function createGrid(opts) {
   /** Ctrl+Alt+O: select the next floating object (Shift: the previous) in the sheet's order, bringing its anchor into view. */
   function selectNextChart(step) {
     const s = sheet();
-    const charts = s.charts;
+    // Objects hidden in the options cannot be picked from the keyboard either.
+    const charts = appOption('showObjects') ? s.charts : [];
     if (!charts.length) { opts.announce?.('No charts, images or text boxes on this sheet'); return; }
     const at = charts.findIndex((ch) => ch.id === selectedChart);
     const next = charts[at < 0 ? (step > 0 ? 0 : charts.length - 1) : (at + step + charts.length) % charts.length];
@@ -2689,7 +2701,7 @@ export function createGrid(opts) {
     const box = rangeBox(range);
     fillHandle.style.transform = `translate(${box.left + box.width - 4}px, ${box.top + box.height - 4}px)`;
     const handle = handlePlace(view);
-    fillHandle.hidden = !!edit || handle.gone;
+    fillHandle.hidden = !!edit || handle.gone || !appOption('fillHandle');
     // Scrolled under a frozen pane the handle is out of sight: it takes no press and shows no cursor through the pane.
     fillHandle.classList.toggle('under-pane', handle.hidden);
     if (fillPreview) { fillPreviewEl.hidden = false; place(fillPreviewEl, rangeBox(fillPreview)); }
@@ -2707,7 +2719,7 @@ export function createGrid(opts) {
       listButton.style.height = `${Math.min(28, activeBox.height)}px`;
       showPop(listButton, activeBox.width, 0);
     } else listButton.hidden = true;
-    const note = hideCellPopovers ? null : sheet().notes.get(cellKey(sel.active.r, sel.active.c));
+    const note = hideCellPopovers || appOption('commentIndicators') === 'none' ? null : sheet().notes.get(cellKey(sel.active.r, sel.active.c));
     if (note) { notePop.textContent = note; showPop(notePop, activeBox.width + (listButton.hidden ? 6 : 30), 0); } else notePop.hidden = true;
     // A validation rule's input message sits under the cell while it is selected.
     const promptRule = hideCellPopovers ? null : (sheet().validations.length ? wb.validationAt(sheetId, sel.active.r, sel.active.c) : null);
@@ -3196,7 +3208,10 @@ export function createGrid(opts) {
     if (!edit) return false;
     if (validationPending) return false;
     returnHome();
-    const { r, c, text, preserveRichText } = edit;
+    const { r, c, preserveRichText } = edit;
+    // A whole number typed without a decimal point gets one, when the options fix the decimal places.
+    const text = appOption('fixedDecimal') && !edit.arrayRange && !arrayEntry
+      ? applyFixedDecimal(edit.text, appOption('fixedDecimalPlaces'), localeInfo().decimal) : edit.text;
     // The cell was protected while its entry was being typed: the workbook would refuse the write in
     // silence, so the entry stays open (the workbook's notice says why) rather than being dropped.
     if (wb.lockedAt(sheetId, r, c)) { editor.focus({ preventScroll: true }); return false; }
@@ -3270,12 +3285,15 @@ export function createGrid(opts) {
         const sized = rowSizedByHand(r);
         wb.transaction('Edit cell', () => {
           wb.setInput(sheetId, r, c, text, { preserveRichText });
+          opts.extendEntry?.({ sheetId, r, c, text });
           if (multiline && !wraps) wb.applyStyle(sheetId, { r1: r, c1: c, r2: r, c2: c }, { wrap: true });
           autoFitRows(r, r, { grow: sized });
         });
       } else {
         wb.transaction('Edit cell', () => {
           wb.setInput(sheetId, r, c, text, { preserveRichText });
+          // A list's formatting and formulas carried on to the new row join the entry's step (the options).
+          opts.extendEntry?.({ sheetId, r, c, text });
           // A column widened for the entry has its rows of wrapped text fitted within the same step, as
           // a dragged column does, so Ctrl+Z takes the entry back rather than a row height first.
           const was = wb.colWidth(sheetId, c);
@@ -3439,6 +3457,20 @@ export function createGrid(opts) {
   }
 
   function enterDown(shift) {
+    // Where Enter moves is the person's choice (the options): down by default; right, up or left; or nowhere,
+    // though a range still walks its cells. Shift goes the other way.
+    const moves = appOption('enterMove');
+    const dir = appOption('enterDirection');
+    const single = S.isSingle(sel) && !extras.length;
+    if (!moves && single) { tabOrigin = null; schedule(); return; }
+    if (moves && (dir === 'right' || dir === 'left')) {
+      const back = (dir === 'left') !== !!shift;
+      tabOrigin = null;
+      if (back) tabStep(true); else tabStep(false);
+      tabOrigin = null;
+      return;
+    }
+    if (moves && dir === 'up') shift = !shift;
     const walked = stepAreas('down', shift);
     if (walked) { tabOrigin = null; setSelection(walked, { scrollActive: true, add: true }); return; }
     const next = stepSelection('down', shift);
@@ -3796,7 +3828,7 @@ export function createGrid(opts) {
     }
     handlePresses = 0;
     // Dragging the selection by its border moves it (Alt/Ctrl copies).
-    if (e.pointerType !== 'touch' && !e.shiftKey && onSelectionBorder(e.clientX, e.clientY)) {
+    if (e.pointerType !== 'touch' && !e.shiftKey && appOption('fillHandle') && onSelectionBorder(e.clientX, e.clientY)) {
       e.preventDefault();
       if (edit && !commitEdit()) return;
       const source = S.selRange(sel);
@@ -4046,28 +4078,18 @@ export function createGrid(opts) {
       const target = movePreview;
       movePreview = null;
       if (target && rangeName(target) !== rangeName(d.source)) {
-        // The workbook reports a protected cell in the way itself and writes nothing, for a copy as
-        // for a move; any other refusal of a move is explained here.
-        let locked = false;
-        const onProtected = (ev) => { if (ev.detail?.type === 'protected') locked = true; };
-        wb.addEventListener('change', onProtected);
-        let done;
-        if (d.copy) {
-          const rows = Array.from({ length: d.source.r2 - d.source.r1 + 1 }, (_, i) => d.source.r1 + i);
-          const cols = Array.from({ length: d.source.c2 - d.source.c1 + 1 }, (_, i) => d.source.c1 + i);
-          wb.pasteCells(sheetId, wb.copyRange(sheetId, d.source), target.r1, target.c1, { r: d.source.r1, c: d.source.c1 }, null,
-            { nativeSparklines: wb.copyNativeSparklines(sheetId, rows, cols) });
-          done = !locked;
-        }
-        else done = wb.moveRange(sheetId, d.source, target.r1, target.c1);
-        wb.removeEventListener('change', onProtected);
-        if (!done) {
-          if (!locked) { const message = moveProblem(d.source, target); opts.onInvalid?.({ message }); opts.announce?.(message); }
+        // Dropping onto cells that hold something asks first, when the options say to warn before overwriting.
+        // A move that will be refused anyway says why at once, without asking first.
+        if (appOption('overwriteAlert') && !(!d.copy && knownMoveProblem(d.source, target)) && dropOverwrites(d.source, target)) {
           schedule();
+          confirmDialog({
+            title: 'Replace the contents?',
+            message: `${rangeName(target)} already holds data. Replace it with the cells you are ${d.copy ? 'copying' : 'moving'}?`,
+            confirmLabel: 'Replace', danger: true,
+          }).then((ok) => { if (ok) dropMove(d, target); else viewport.focus({ preventScroll: true }); });
           return;
         }
-        setSelection(S.fromRange(target, { r: target.r1 + (sel.active.r - d.source.r1), c: target.c1 + (sel.active.c - d.source.c1) }));
-        opts.announce?.(`${d.copy ? 'Copied' : 'Moved'} to ${rangeName(target)}`);
+        dropMove(d, target);
       } else schedule();
       return;
     }
@@ -4128,6 +4150,42 @@ export function createGrid(opts) {
     }
   }
 
+  /** True when dropping `source` at `target` writes over a cell outside the source that holds something. */
+  function dropOverwrites(source, target) {
+    for (let r = target.r1; r <= target.r2; r++) for (let c = target.c1; c <= target.c2; c++) {
+      if (r >= source.r1 && r <= source.r2 && c >= source.c1 && c <= source.c2) continue;
+      const cell = wb.getCell(sheetId, r, c);
+      if (cell && (cell.f != null || (cell.v != null && cell.v !== ''))) return true;
+    }
+    return false;
+  }
+
+  /** The end of a drag that moves (or, with Alt or Ctrl, copies) the selection to `target`. */
+  function dropMove(d, target) {
+    // The workbook reports a protected cell in the way itself and writes nothing, for a copy as
+    // for a move; any other refusal of a move is explained here.
+    let locked = false;
+    const onProtected = (ev) => { if (ev.detail?.type === 'protected') locked = true; };
+    wb.addEventListener('change', onProtected);
+    let done;
+    if (d.copy) {
+      const rows = Array.from({ length: d.source.r2 - d.source.r1 + 1 }, (_, i) => d.source.r1 + i);
+      const cols = Array.from({ length: d.source.c2 - d.source.c1 + 1 }, (_, i) => d.source.c1 + i);
+      wb.pasteCells(sheetId, wb.copyRange(sheetId, d.source), target.r1, target.c1, { r: d.source.r1, c: d.source.c1 }, null,
+        { nativeSparklines: wb.copyNativeSparklines(sheetId, rows, cols) });
+      done = !locked;
+    }
+    else done = wb.moveRange(sheetId, d.source, target.r1, target.c1);
+    wb.removeEventListener('change', onProtected);
+    if (!done) {
+      if (!locked) { const message = moveProblem(d.source, target); opts.onInvalid?.({ message }); opts.announce?.(message); }
+      schedule();
+      return;
+    }
+    setSelection(S.fromRange(target, { r: target.r1 + (sel.active.r - d.source.r1), c: target.c1 + (sel.active.c - d.source.c1) }));
+    opts.announce?.(`${d.copy ? 'Copied' : 'Moved'} to ${rangeName(target)}`);
+  }
+
   function onDoubleClick(e) {
     if (sheet()?.kind === 'chart') return;
     if (onScrollbar(e)) return;
@@ -4166,6 +4224,7 @@ export function createGrid(opts) {
     if (wb.validationAt(sheetId, r, c)?.type === 'checkbox') return;
     // A date cell opens the calendar instead (F2 or typing still edits it).
     if (isDateCell(r, c) && wb.getCell(sheetId, r, c)?.f == null && opts.onDateOpen) { opts.onDateOpen({ r, c }); return; }
+    if (!appOption('editInCell') && opts.onEditInBar?.() === true) return;
     if (beginEdit({ mode: 'inplace' })) placeCaretAt(e.clientX);
   }
 
@@ -4741,6 +4800,8 @@ export function createGrid(opts) {
         e.preventDefault();
         if (mod && !e.shiftKey && !e.altKey) { opts.onCommand?.('print'); return; } // Ctrl+F2: print preview
         if (e.shiftKey) { opts.onCommand?.('note'); return; }
+        // With editing in cells turned off (the options), F2 edits in the formula bar.
+        if (!appOption('editInCell') && opts.onEditInBar?.() === true) return;
         beginEdit({ mode: 'inplace' });
         return;
       case 'F3':
@@ -5038,7 +5099,7 @@ export function createGrid(opts) {
    * on replaces it.
    */
   function completeFromColumn() {
-    if (!edit) return;
+    if (!edit || !appOption('autoComplete')) return;
     const text = editor.value;
     if (!text || text.startsWith('=') || text.startsWith("'") || /\n/.test(text)) return;
     if (editor.selectionStart !== text.length || editor.selectionEnd !== text.length) return;

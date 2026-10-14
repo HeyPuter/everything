@@ -863,6 +863,42 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   shortcut: type a few letters ("freeze", "pivot", "currency"), arrow to the
   one you mean, Enter runs it. Opened with nothing typed, the actions you used
   last come first.
+- **Options** (File → Options, Tools → Options, the account menu, or
+  Ctrl/Cmd+,): one dialog with a search box over its sections that finds any
+  option by a word of its name. General: theme, regional format, whether the
+  app opens on the start screen, and the font, size, sheet count and view a new
+  workbook starts with, and the name written on your comments and changes
+  (your Puter account's unless you choose another). Formulas: this workbook's
+  calculation mode and iterative calculation (saved with the workbook, and
+  labelled as such), how new workbooks calculate, and the error checking rules.
+  Editing: where Enter moves (down, right, up, left, or nowhere), a fixed
+  decimal point, editing in the cell or the formula bar, AutoComplete, Flash
+  Fill offered as you type, carrying a list's formats and formulas onto a new
+  row, how two-digit years are read, the fill handle and dragging cells, a
+  warning before a drag replaces data, the Paste and Auto Fill Options buttons,
+  and a warning before a command changes very many cells. View: formula bar,
+  status bar, sheet tabs, scroll bars, headers on new sheets, comment and note
+  indicators (with hover, without, or none) and showing or hiding all objects.
+  Proofing (AutoCorrect, spelling), Save (AutoSave by default, how soon unsaved
+  edits are copied into the browser), Accessibility (a stronger selection,
+  reduced motion) and Privacy (AI features on or off). Changes apply at once and
+  follow your Puter account to other devices.
+- **Quick Access Toolbar**: the row beside the title holds AutoSave, Save, Undo
+  and Redo, and any other command: right-click a ribbon button → Add to Quick
+  Access Toolbar, tick common commands in the toolbar's own arrow menu, or pick
+  from every command in File → Options → Quick Access Toolbar, where they can
+  be reordered. It can sit below the ribbon and show command names, and is kept
+  for your account.
+- **Customize the ribbon** (File → Options → Customize Ribbon, or right-click
+  the ribbon): show or hide tabs, rename and reorder them, and build tabs and
+  groups of your own holding any commands, on your own tabs or the built-in
+  ones; Restore Defaults puts the ribbon back.
+- **Keyboard shortcuts of your own** (File → Options → Keyboard Shortcuts):
+  every command with the keys that run it, searchable by name or keys. Press a
+  new combination to give a command a shortcut; the dialog says which command
+  it would be taken from and refuses chords the browser or typing needs. Built-in
+  shortcuts can be turned off or moved, and the menus, the palette and the
+  ribbon's tooltips show the keys in force.
 - **Accessibility**: the grid is a real `role="grid"` with the active cell
   exposed through `aria-activedescendant`, every selection change is
   announced through a live region, menus and dialogs trap focus and close on

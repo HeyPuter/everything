@@ -4,6 +4,7 @@ import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { closeAllModals } from '../src/ui/modal.js';
 import * as modal from '../src/ui/modal.js';
+import { appOption } from '../src/lib/app-options.js';
 
 let view;
 beforeEach(() => {
@@ -39,7 +40,8 @@ it('hides and shows the formula bar from View ▸ Show, remembers it, and Go To 
   toggle.click();
   await vi.advanceTimersByTimeAsync(10);
   expect(view.el.classList.contains('no-formula-bar')).toBe(true);
-  expect(JSON.parse(localStorage.getItem('spreadsheet:view')).formulaBar).toBe(false);
+  // Kept with the person's options (File ▸ Options ▸ View), which follow the account.
+  expect(appOption('showFormulaBar')).toBe(false);
   const prompt = vi.spyOn(modal, 'promptDialog').mockResolvedValue('C5');
   view.el.querySelector('.grid-viewport').dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
   await vi.advanceTimersByTimeAsync(10);

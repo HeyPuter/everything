@@ -10,6 +10,7 @@
  */
 import { el, isComposing, isMod, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
+import { appOption } from '../lib/app-options.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { attachMentionPicker, closeMentionPickers } from './mention-picker.js';
@@ -379,7 +380,8 @@ export function createComments(ctx, host) {
   };
 
   function onPointerMove(e) {
-    if (e.buttons || grid()?.editing) return;
+    // The options can keep comments from opening on hover (Options ▸ View ▸ Comments and notes).
+    if (e.buttons || grid()?.editing || appOption('commentIndicators') !== 'hover') return;
     const at = commentedCellAt(e);
     if (card && card.mode !== 'hover') return;
     clearTimeout(hoverTimer);

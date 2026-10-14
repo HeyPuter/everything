@@ -20,6 +20,10 @@ import { activeChart } from './chart-actions.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
 import { activeSmartArt, smartArtDesignGroups, smartArtFormatGroups } from './smartart.js';
+import { ribbonLayoutStore, parseCommandId } from '../lib/customize.js';
+import { tabsIn } from '../core/ribbon-layout.js';
+import { commandCatalog } from './command-catalog.js';
+import { ribbonButtonMenuItems } from './quick-access.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -67,7 +71,7 @@ const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ...extra }
   } });
 const NEW_COMMENT_KEY = `${MOD_KEY}+Shift+F2`;
 /** Commands that open a menu of their own, anchored on the button that ran them; those buttons announce the menu. */
-const MENU_COMMANDS = new Set(['functionMenu', 'cellStylesMenu', 'shapesMenu', 'formatAsTableMenu', 'themesMenu', 'themeColorsMenu', 'themeFontsMenu', 'themeEffectsMenu', 'wordArtMenu']);
+export const MENU_COMMANDS = new Set(['functionMenu', 'cellStylesMenu', 'shapesMenu', 'formatAsTableMenu', 'themesMenu', 'themeColorsMenu', 'themeFontsMenu', 'themeEffectsMenu', 'wordArtMenu']);
 /** A split button: the face runs the command, the arrow beside it opens related choices. */
 const split = (descriptor, menu) => ({ ...descriptor, split: menu });
 
@@ -419,6 +423,8 @@ export function createRibbon(ctx) {
   const SMARTART_TABS = ['SmartArt Design', 'SmartArt Format'];
   const tabLabel = name => (name === 'SmartArt Format' ? 'Format' : name);
   const contextualTab = name => name === 'Table' || CHART_TABS.includes(name) || SMARTART_TABS.includes(name);
+  const CONTEXT_TABS = ['Table', ...CHART_TABS, ...SMARTART_TABS];
+  let userHidden = new Set(); // tabs the person hid (applyLayout)
   let chartId = null;
   let smartArtId = null;
   const panels = [];
@@ -429,7 +435,8 @@ export function createRibbon(ctx) {
   let lastRegular = 'Home';
   let tableId = null;
   let contextualScrollPending = false;
-  const visibleTabs = () => buttons.filter(b => !b.hidden);
+  // In the order on screen, which the person's arrangement of the tabs decides (see applyLayout).
+  const visibleTabs = () => [...tabs.children].filter(b => !b.hidden);
   let collapsed = false;
   try { collapsed = localStorage.getItem('spreadsheet:ribbon') === 'collapsed'; } catch { /* optional storage */ }
   // A double-click's first click already expands a collapsed ribbon; the double-click then leaves it expanded.
@@ -510,7 +517,8 @@ export function createRibbon(ctx) {
       }
     },
   });
-  for (const name of names) {
+  /** A tab and its (empty) panel; `name` is the tab's id, a built-in tab's name or a custom tab's id. */
+  function makeTab(name, text = name) {
     const panelId = `${id}-${name.replaceAll(' ', '-').toLowerCase()}`;
     const tab = el('button.ribbon-tab', {
       type: 'button', role: 'tab', id: `${panelId}-tab`, 'aria-controls': panelId,
@@ -526,8 +534,28 @@ export function createRibbon(ctx) {
         if (next !== null) { e.preventDefault(); select(names[buttons.indexOf(list[next])], { expand: false }); list[next].focus(); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); setCollapsed(false); enabled(panels[names.indexOf(name)])[0]?.focus(); }
       },
-    }, tabLabel(name));
+    }, text === name ? tabLabel(name) : text);
     const panel = el('div.ribbon-panel', { id: panelId, role: 'tabpanel', 'aria-labelledby': tab.id, hidden: name !== active });
+    return { tab, panel };
+  }
+  /** A panel's row of groups, moved along by the arrows; Escape goes back up to the tab. */
+  function makeTools(name, panel, tab) {
+    const tools = el('div.ribbon-panel-tools', { role: 'toolbar', 'aria-label': `${name} commands` });
+    panel.append(tools);
+    tools.addEventListener('focusin', e => { if (enabled(panel).includes(e.target)) rove(panel, e.target); });
+    tools.addEventListener('keydown', e => {
+      if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.target === tableName) return;
+      const list = enabled(panel), at = list.indexOf(document.activeElement);
+      if (at < 0) return;
+      const next = e.key === 'ArrowRight' ? list[(at + 1) % list.length] : e.key === 'ArrowLeft' ? list[(at - 1 + list.length) % list.length] : e.key === 'Home' ? list[0] : e.key === 'End' ? list.at(-1) : null;
+      if (next) { e.preventDefault(); rove(panel, next); next.focus(); }
+      if (e.key === 'Escape') { e.preventDefault(); tab.focus(); }
+    });
+    return tools;
+  }
+  for (const name of names) {
+    const { tab, panel } = makeTab(name);
+    tab.dataset.builtinName = name;
     if (name === 'Home') {
       panel.append(toolbar.el);
       // Escape from a Home command goes back up to the Home tab, as it does from every other tab's commands.
@@ -536,7 +564,7 @@ export function createRibbon(ctx) {
         e.preventDefault(); tab.focus();
       });
     } else {
-      const tools = el('div.ribbon-panel-tools', { role: 'toolbar', 'aria-label': `${name} commands` });
+      const tools = makeTools(name, panel, tab);
       for (const [label, ...descriptors] of groupsFor(name)) {
         // A control built in place (a field, a picker) refreshes with the ribbon through its own `refresh`.
         const controls = el('div.ribbon-group-controls', {}, ...descriptors.map(d => (d.element ? (built => { builtControls.push(built); return built; })(d.element(ctx)) : makeButton(d))));
@@ -547,16 +575,6 @@ export function createRibbon(ctx) {
         if (name === 'Page Layout' && label === 'Sheet Options') controls.classList.add('ribbon-two-rows');
         tools.append(el('div.ribbon-group', { role: 'group', 'aria-label': label }, controls, el('span.ribbon-group-label', {}, label)));
       }
-      panel.append(tools);
-      tools.addEventListener('focusin', e => { if (enabled(panel).includes(e.target)) rove(panel, e.target); });
-      tools.addEventListener('keydown', e => {
-        if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.target === tableName) return;
-        const list = enabled(panel), at = list.indexOf(document.activeElement);
-        if (at < 0) return;
-        const next = e.key === 'ArrowRight' ? list[(at + 1) % list.length] : e.key === 'ArrowLeft' ? list[(at - 1 + list.length) % list.length] : e.key === 'Home' ? list[0] : e.key === 'End' ? list.at(-1) : null;
-        if (next) { e.preventDefault(); rove(panel, next); next.focus(); }
-        if (e.key === 'Escape') { e.preventDefault(); tab.focus(); }
-      });
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
     if (CHART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
@@ -681,8 +699,10 @@ export function createRibbon(ctx) {
     for (const name of SMARTART_TABS) buttons[names.indexOf(name)].hidden = !smartArtId;
     const contextual = buttons[names.indexOf('Table')];
     contextual.hidden = !tableId || !!chartId || !!smartArtId;
+    // Tabs the person hid (Options ▸ Customize Ribbon) stay hidden.
+    for (let i = 0; i < names.length; i++) if (!CONTEXT_TABS.includes(names[i])) buttons[i].hidden = userHidden.has(names[i]);
     // A chart chosen over a collapsed ribbon hides the Table tab without opening Chart Design: never leave a hidden tab selected.
-    if (buttons[names.indexOf(active)].hidden) active = lastRegular;
+    if (buttons[names.indexOf(active)].hidden) active = !buttons[names.indexOf(lastRegular)]?.hidden ? lastRegular : firstShown();
     if (contextualScrollPending && active === 'Table') {
       contextual.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
       contextualScrollPending = false;
@@ -706,6 +726,9 @@ export function createRibbon(ctx) {
       if ((item && 'submenu' in item) || MENU_COMMANDS.has(item?.cmd)) button.setAttribute('aria-haspopup', 'menu'); else button.removeAttribute('aria-haspopup');
       if ((item?.checked ?? descriptor.checked) !== undefined) button.setAttribute('aria-pressed', String(!!(item?.checked ?? descriptor.checked))); else button.removeAttribute('aria-pressed');
       if (item?.cmd) button.dataset.cmd = item.cmd;
+      // What the button runs, for Add to Quick Access Toolbar and the person's own tabs (see command-catalog.js).
+      button._command = item?.cmd && !('submenu' in item) && !descriptor.arrow
+        ? { cmd: item.cmd, arg: MENU_COMMANDS.has(item.cmd) ? null : item.arg ?? null, label: descriptor.label, glyph: descriptor.glyph } : null;
       descriptor.decorate?.(button, item, ctx);
     }
     for (const control of builtControls) control.refresh?.();
@@ -732,8 +755,102 @@ export function createRibbon(ctx) {
       (enabled(panels[names.indexOf(active)])[0] || buttons[names.indexOf(active)]).focus({ preventScroll: true });
     }
   }
+  /** The first tab shown that is not contextual. */
+  function firstShown() {
+    return names[buttons.indexOf(visibleTabs().find(b => !CONTEXT_TABS.includes(names[buttons.indexOf(b)])))] || 'Home';
+  }
+
+  /*
+   * The person's arrangement (Options ▸ Customize Ribbon, kept in lib/customize.js): tabs shown or hidden,
+   * renamed and reordered, tabs of their own, and groups of their own on any tab, each button running any
+   * command. Applied at start and again whenever it changes.
+   */
+  const customButtons = new Set();
+  const customTabs = new Set();
+  /** A button for a command by its id, named and drawn as the catalog has it. */
+  const customDescriptor = (commandId, entry) => {
+    const { cmd, arg } = parseCommandId(commandId);
+    const label = entry?.label || cmd;
+    return { label, glyph: entry?.icon || 'sliders', ariaLabel: label,
+      resolve: (menus, context) => {
+        const f = context?.flags?.() || {};
+        const item = command(cmd, arg === null ? undefined : arg)(menus);
+        if (item && JSON.stringify(item.arg ?? null) === JSON.stringify(arg)) return { ...item, label };
+        const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+        return { label, cmd, arg, disabled: !!f.editing || grouped, hint: grouped ? GROUP_BLOCKED_HINT : undefined };
+      } };
+  };
+  function customGroup(g, catalog) {
+    const made = g.commands.map(cid => makeButton(customDescriptor(cid, catalog.find(e => e.id === cid))));
+    for (const b of made) customButtons.add(b);
+    return el('div.ribbon-group.ribbon-custom-group', { role: 'group', 'aria-label': g.name, dataset: { customGroup: g.id } },
+      el('div.ribbon-group-controls', {}, ...(made.length ? made : [el('span.ribbon-group-empty', {}, 'No commands yet')])),
+      el('span.ribbon-group-label', {}, g.name));
+  }
+  function applyLayout(layout = ribbonLayoutStore.get()) {
+    // Take away what the last arrangement added.
+    for (const node of root.querySelectorAll('[data-custom-group]')) node.remove();
+    for (const name of customTabs) {
+      const at = names.indexOf(name);
+      if (at < 0) continue;
+      buttons[at].remove(); panels[at].remove();
+      names.splice(at, 1); buttons.splice(at, 1); panels.splice(at, 1);
+    }
+    customTabs.clear();
+    for (let i = dynamic.length - 1; i >= 0; i--) if (customButtons.has(dynamic[i].button)) dynamic.splice(i, 1);
+    customButtons.clear();
+    // The buttons on screen learn what they run as they refresh; the catalog reads it from them. Only a
+    // layout with groups of its own needs it, to name and draw their buttons.
+    const owned = Object.values(layout.groups).some(list => list.some(g => g.commands.length));
+    if (owned) refresh();
+    const catalog = owned ? commandCatalog(ctx.flags?.() || {}, root) : [];
+    for (const t of layout.tabs) {
+      const { tab, panel } = makeTab(t.id, t.name);
+      tab.classList.add('ribbon-custom-tab');
+      makeTools(t.name, panel, tab);
+      customTabs.add(t.id);
+      names.push(t.id); buttons.push(tab); panels.push(panel);
+      content.append(panel);
+      panel.querySelector('.ribbon-panel-tools')?.addEventListener('scroll', updateOverflow, { passive: true });
+      observer?.observe(panel);
+    }
+    for (const [tabId, groups] of Object.entries(layout.groups)) {
+      const at = names.indexOf(tabId);
+      if (at < 0) continue;
+      const tools = panels[at].querySelector('.ribbon-home, .ribbon-panel-tools');
+      for (const g of groups) tools?.append(customGroup(g, catalog));
+    }
+    // Order, names and visibility of the regular tabs; the contextual tabs keep their place at the end.
+    const order = tabsIn(layout, RIBBON_TABS);
+    for (const t of order) {
+      const at = names.indexOf(t.id);
+      if (at < 0) continue;
+      if (t.builtin) buttons[at].textContent = t.name;
+      tabs.append(buttons[at]);
+    }
+    for (const name of CONTEXT_TABS) tabs.append(buttons[names.indexOf(name)]);
+    userHidden = new Set(order.filter(t => t.hidden).map(t => t.id));
+    if (!names.includes(active)) active = firstShown();
+    if (!names.includes(lastRegular) || userHidden.has(lastRegular)) lastRegular = firstShown();
+    fitWidth = -1;
+    refresh();
+  }
+
+  // Right-click a command: put it on the Quick Access Toolbar (or take it off), or customize the ribbon.
+  root.addEventListener('contextmenu', e => {
+    if (e.defaultPrevented) return;
+    const target = e.target.closest?.('.tb-btn, .ribbon-tab');
+    if (!target || !root.contains(target)) return;
+    e.preventDefault();
+    const commandOf = target.classList.contains('ribbon-tab') ? null : target._command || null;
+    openMenu({ anchor: target, label: 'Ribbon', minWidth: 250,
+      items: ribbonButtonMenuItems(ctx, commandOf, { collapsed, toggleCollapsed: () => setCollapsed(!collapsed) }),
+      onClose: reason => { if (reason === 'select') ctx.grid?.focus?.(); } });
+  });
+
   const unsubscribe = ctx.subscribe(refresh);
-  refresh();
+  const unsubscribeLayout = ribbonLayoutStore.subscribe(layout => applyLayout(layout));
+  applyLayout();
   for (const span of root.querySelectorAll('.ribbon-large .ribbon-button-label')) twoLineLabel(span, span.textContent);
-  return { el: root, refresh, select, toggleCollapsed() { setCollapsed(!collapsed); }, destroy() { observer?.disconnect(); unsubscribe(); toolbar.destroy(); } };
+  return { el: root, refresh, select, applyLayout, toggleCollapsed() { setCollapsed(!collapsed); }, destroy() { observer?.disconnect(); unsubscribe(); unsubscribeLayout(); toolbar.destroy(); } };
 }

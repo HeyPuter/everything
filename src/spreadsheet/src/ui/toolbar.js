@@ -10,6 +10,7 @@ import { fillColorCss } from '../core/fill-color.js';
 import { el, fieldId } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu, ariaKeyShortcuts } from './menu.js';
+import { effectiveShortcut } from './custom-shortcuts.js';
 import { MOD_KEY } from './dom.js';
 import { cellName } from '../core/cell.js';
 import { RTL_LEAD } from '../core/bidi.js';
@@ -114,14 +115,24 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
   const root = el('div.toolbar', { role: 'toolbar', 'aria-label': 'Formatting', 'aria-orientation': 'horizontal' });
 
   // A button with a shortcut names it in its tooltip and, in the spelling aria-keyshortcuts takes, in that attribute, so it can be heard as well as read.
-  const btn = (name, label, cmd, arg, extra = {}) => el('button.tb-btn', {
-    type: 'button', html: icon(name, 18), 'aria-label': label, title: extra.title || (extra.shortcut ? `${label} (${extra.shortcut})` : label),
-    'aria-keyshortcuts': ariaKeyShortcuts(extra.shortcut),
-    'aria-pressed': extra.toggle ? 'false' : null, 'aria-haspopup': extra.menu ? 'menu' : null, tabindex: -1,
-    // An object argument (the Percent and Currency buttons' { fmt, toggle }) is named by its text values, so data-arg reads "percent", not "[object Object]".
-    dataset: { cmd, arg: arg != null && typeof arg === 'object' ? Object.values(arg).filter((v) => typeof v === 'string').join(' ') : arg ?? '' },
-    onclick: () => ctx.run(cmd, arg),
-  });
+  const btn = (name, label, cmd, arg, extra = {}) => {
+    const b = el('button.tb-btn', {
+      type: 'button', html: icon(name, 18), 'aria-label': label, title: extra.title || (extra.shortcut ? `${label} (${extra.shortcut})` : label),
+      'aria-keyshortcuts': ariaKeyShortcuts(extra.shortcut),
+      'aria-pressed': extra.toggle ? 'false' : null, 'aria-haspopup': extra.menu ? 'menu' : null, tabindex: -1,
+      // An object argument (the Percent and Currency buttons' { fmt, toggle }) is named by its text values, so data-arg reads "percent", not "[object Object]".
+      dataset: { cmd, arg: arg != null && typeof arg === 'object' ? Object.values(arg).filter((v) => typeof v === 'string').join(' ') : arg ?? '' },
+      onclick: () => ctx.run(cmd, arg),
+    });
+    // What the button runs, for the Quick Access Toolbar and the ribbon's own tabs (see command-catalog.js).
+    b._command = { cmd, arg: extra.menu ? null : arg ?? null, label, glyph: name };
+    // A shortcut of the person's own (Options ▸ Keyboard Shortcuts) is the one the tooltip names.
+    if (!extra.title) b.addEventListener('pointerenter', () => {
+      const keys = effectiveShortcut({ cmd, arg, shortcut: extra.shortcut });
+      b.title = keys ? `${label} (${keys})` : label;
+    });
+    return b;
+  };
   const sep = () => el('div.tb-sep', { role: 'separator', 'aria-orientation': 'vertical' });
   const group = (...kids) => el('div.tb-group', {}, ...kids);
 
@@ -520,7 +531,10 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     // There they are tab stops like AutoSave and Save beside them: this toolbar's roving tab stop no longer reaches them.
     if (ctx.quickAccess) {
       for (const b of [undoBtn, undoArrow, redoBtn]) b.tabIndex = 0;
-      undoBtn.classList.add('qat-btn'); redoBtn.classList.add('qat-btn'); ctx.quickAccess.append(undoBtn, undoArrow, redoBtn);
+      undoBtn.classList.add('qat-btn'); redoBtn.classList.add('qat-btn');
+      // The Quick Access Toolbar places them (ui/quick-access.js), with whatever else the person put there.
+      undoBtn.dataset.qat = 'undo'; undoArrow.dataset.qat = 'undo'; redoBtn.dataset.qat = 'redo';
+      ctx.quickAccess.append(undoBtn, undoArrow, redoBtn);
     }
     root.append(
       ...(ctx.quickAccess ? [] : [namedGroup('Undo', stack(undoBtn, redoBtn)), sep()]),

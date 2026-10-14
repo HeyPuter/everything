@@ -176,6 +176,15 @@ import { createOptionButton } from '../ui/option-button.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_REASON } from '../core/sheet-group.js';
 import { openFillAcrossDialog } from '../ui/fillacross.js';
 import { createAutoCorrector, openAutoCorrectDialog, syncAutoCorrectSettings } from '../ui/autocorrect.js';
+import { appOptions, appOption, setAppOptions, onAppOptions, syncAppOptions, displayUserName } from '../lib/app-options.js';
+import { installAppOptions } from '../lib/apply-options.js';
+import { syncCustomizations, keymapStore, parseCommandId } from '../lib/customize.js';
+import { chordFromEvent } from '../core/keymap.js';
+import { listExtension } from '../core/entry-options.js';
+import { openOptionsDialog } from '../ui/options-dialog.js';
+import { createQuickAccess } from '../ui/quick-access.js';
+import { withCustomShortcuts } from '../ui/custom-shortcuts.js';
+import { syncErrorChecking } from '../ui/error-smarttag.js';
 import { isFormulaText } from '../core/autocorrect.js';
 import { openSpellingDialog } from '../ui/spelling.js';
 import { createLanguagePane } from '../ui/language-pane.js';
@@ -194,12 +203,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const syncChartTheme = () => setThemeSeriesColors(themedSeriesColors(wb));
   syncChartTheme();
   wb.addEventListener('change', syncChartTheme);
-  // AI() formulas ask Puter's AI; without the SDK they show #N/A.
-  wb.setAsyncProvider('AI', P.canAI() ? (text) => P.aiChat(text) : null);
+  // The app's options (File ▸ Options): applied before anything reads them, AI features among them.
+  installAppOptions();
+  // AI() formulas ask Puter's AI; without the SDK, or with AI features turned off in the options, they show #N/A.
   // TRANSLATE and DETECTLANGUAGE: the same AI, with the reply tidied to just the answer. Review ▸ Translate asks the same way.
   const aiTranslate = async (prompt) => String(await P.aiChat(prompt, { feature: 'translate' })).trim().replace(/^["'\u201c\u2018]+|["'\u201d\u2019]+$/g, '');
-  wb.setAsyncProvider('TRANSLATE', P.canAI() ? aiTranslate : null);
-  wb.setAsyncProvider('DETECTLANGUAGE', P.canAI() ? async (text) => { const m = /\b([a-z]{2,3})(?:-[A-Za-z]{2,4})?\b/i.exec(String(await P.aiChat(text, { feature: 'detect-language' })).trim()); return m ? m[1].toLowerCase() : { error: '#N/A' }; } : null);
+  const setAiProviders = () => {
+    wb.setAsyncProvider('AI', P.canAI() ? (text) => P.aiChat(text) : null);
+    wb.setAsyncProvider('TRANSLATE', P.canAI() ? aiTranslate : null);
+    wb.setAsyncProvider('DETECTLANGUAGE', P.canAI() ? async (text) => { const m = /\b([a-z]{2,3})(?:-[A-Za-z]{2,4})?\b/i.exec(String(await P.aiChat(text, { feature: 'detect-language' })).trim()); return m ? m[1].toLowerCase() : { error: '#N/A' }; } : null);
+  };
+  setAiProviders();
   // A fetch that failed: too much data, or an address off the public internet (this computer, a
   // private network), is a #VALUE! that says so (the status bar shows the reason); anything else
   // (offline, a missing page) stays #N/A, with the reason as well. The fetch helpers mark both
@@ -330,11 +344,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // The entry is written: its last word, corrected, is a step of its own, so Ctrl/Cmd+Z brings back what was typed.
     afterCommit: ({ sheetId: sid, r, c, text }) => {
       if (isFormulaText(text)) return;
+      queueMicrotask(() => offerFlashFill(sid, r, c)); // after AutoCorrect's own step, if it takes one
       const fixed = autoCorrector.tail(text);
       if (fixed === text || editText(wb.getCell(sid, r, c)) !== text) return;
       if (wb.validateInput(sid, r, c, fixed).ok === false) return;
       wb.setInput(sid, r, c, fixed, { label: 'AutoCorrect' });
       statusBar?.announce(`AutoCorrect changed the entry to ${fixed}. ${MOD_KEY}+Z puts back what was typed`);
+    },
+    // Editing in cells turned off (the options): F2 and a double-click put the caret in the formula bar.
+    // (Not while the formula bar is hidden: there the cell is the only place to edit.)
+    onEditInBar: () => { if (!appOption('showFormulaBar') || view.focus) return false; formulaBar.focusInput(); return true; },
+    // A row typed at the foot of a list takes on the list's formats and formulas (the options), in the entry's step.
+    extendEntry: ({ sheetId: sid, r, c }) => {
+      if (!appOption('extendLists')) return;
+      const { style, formulas } = listExtension(wb, sid, r, c);
+      if (style) wb.applyStyle(sid, { r1: r, c1: c, r2: r, c2: c }, style);
+      for (const f of formulas) wb.setInput(sid, r, f.c, f.input);
     },
     onSelection: notify,
     onEdit: (e) => { if (e.editing) { endCut(); optionButton?.hide(); } else entryPasted = false; notify(); }, // typing into a cell ends a cut
@@ -418,9 +443,27 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   try { Object.assign(view, JSON.parse(localStorage.getItem('spreadsheet:view') || '{}') || {}); } catch { /* no storage */ }
   // Header visibility now follows the saved worksheet view, not a device-wide override.
   delete view.headers;
+  // The formula bar's switch moved into the person's options (View ▸ Formula bar is the same switch); a device
+  // that had it off keeps it off.
+  if (view.formulaBar === false && appOption('showFormulaBar')) setAppOptions({ showFormulaBar: false });
+  delete view.formulaBar;
+  // A sheet added here starts the way the options say: in the chosen view, with or without headers.
+  const syncNewSheetDefaults = () => {
+    const o = appOptions();
+    wb.newSheetDefaults = { ...(o.newView !== 'normal' ? { viewMode: o.newView } : {}), ...(o.showHeaders ? {} : { headers: false }) };
+  };
+  syncNewSheetDefaults();
   function applyView() {
+    const o = appOptions();
     root.classList.toggle('focus-mode', !!view.focus);
-    root.classList.toggle('no-formula-bar', view.formulaBar === false); // View ▸ Show ▸ Formula Bar
+    // What the window shows around the sheet: View ▸ Formula bar and the options' View page.
+    root.classList.toggle('no-formula-bar', !o.showFormulaBar);
+    root.classList.toggle('no-status-bar', !o.showStatusBar);
+    root.classList.toggle('no-sheet-tabs', !o.showSheetTabs);
+    root.classList.toggle('no-hscroll', !o.showHScroll);
+    root.classList.toggle('no-vscroll', !o.showVScroll);
+    root.classList.toggle('no-objects', !o.showObjects);
+    root.classList.toggle('no-comment-marks', o.commentIndicators === 'none');
     grid.setSpellcheck(view.spell !== false);
     try { localStorage.setItem('spreadsheet:view', JSON.stringify(view)); } catch { /* no storage */ }
   }
@@ -1216,7 +1259,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       // View ▸ Sheet View: the view this person is in, if any, and whether it is the temporary one.
       sheetView: sheet?.personalView ? (sheet.sheetViews || []).find((v) => v.id === sheet.personalView.id) || null : null,
       headers: sheet?.headers !== false, focus: !!view.focus, spell: view.spell !== false,
-      split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: view.formulaBar !== false,
+      split: !!sheet?.split && !sheet.frozenRows && !sheet.frozenCols, formulaBar: appOption('showFormulaBar'),
       // While a cell is being edited the sheet behind it is off limits: undo, paste, fill and the like wait.
       editing: !!grid.editing,
       // Cells copied here wait on the clipboard: Insert Copied Cells has something to insert.
@@ -1348,6 +1391,36 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       },
     };
   }
+  /** Commands that may touch every selected cell, which the long-operation alert counts first. */
+  const LONG_COMMANDS = new Set(['clear', 'clearAll', 'clearFormat', 'fillDown', 'fillRight', 'toValues', 'textCase', 'sort']);
+  /**
+   * How many cells `cmd` would change: the selected cells that hold something (the used range), or every
+   * selected cell for a fill, which writes them all.
+   */
+  function affectedCells(cmd) {
+    const used = wb.usedRange(grid.sheetId);
+    let n = 0;
+    for (const rg of grid.ranges) {
+      const box = cmd === 'fillDown' || cmd === 'fillRight' || !used ? rg
+        : { r1: Math.max(rg.r1, used.r1), c1: Math.max(rg.c1, used.c1), r2: Math.min(rg.r2, used.r2), c2: Math.min(rg.c2, used.c2) };
+      if (box.r2 >= box.r1 && box.c2 >= box.c1) n += (box.r2 - box.r1 + 1) * (box.c2 - box.c1 + 1);
+    }
+    return n;
+  }
+
+  /** File ▸ Options…, on `section`. */
+  function openOptions(section) {
+    return openOptionsDialog({
+      wb, run, flags: commandFlags, ribbon: toolbar, docName: () => doc.name,
+      accountName: () => session.user?.username || '',
+      openLocale: openLocaleDialog,
+      setAutoSave: (on) => { doc.setAutoSave?.(on); autoSaveSwitch.setAttribute('aria-checked', String(on)); },
+      afterCalcChange: () => { grid.refresh(); notify(); },
+      afterErrorChecking: () => { grid.redraw(); errorTag.sync(); },
+      onOptionsClosed: () => keepFocus(),
+    }, { section });
+  }
+
   async function run(cmd, arg) {
     // While a script runs the workbook is its alone; one Undo takes back everything it did once it ends.
     if (automate?.running && !AUTOMATE_COMMANDS.has(cmd)) { toast('A script is running. Wait for it to finish, or stop it in the Code Editor', { icon: 'info' }); return; }
@@ -1378,7 +1451,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       sheetId = grid.sheetId;
       return true;
     };
+    // A command that would change a great many cells asks first, when the options say to (Editing ▸ Long operations).
+    if (LONG_COMMANDS.has(cmd) && !grid.editing && appOption('longOperationAlert')) {
+      const cells = affectedCells(cmd);
+      if (cells > appOption('longOperationCells') * 1000) {
+        const ok = await confirmDialog({
+          title: 'This may take a while',
+          message: `This changes about ${cells.toLocaleString()} cells, which can take some time. Go ahead?`,
+          confirmLabel: 'Continue', danger: false,
+        });
+        if (!ok || destroyed) { keepFocus(); return; }
+      }
+    }
     switch (cmd) {
+      case 'options':
+        if (grid.editing && !grid.commitEdit()) return;
+        openOptions(typeof arg === 'string' ? arg : 'general');
+        return;
       case 'bold': case 'italic': case 'underline': case 'strike': {
         // Decide once from the active cell, so every range (and every run of shown rows) gets the same state.
         const on = !ctx.style()[cmd];
@@ -2056,7 +2145,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'aiExplain': if (!committed()) return; openAiDialog(ctx, { mode: 'explain' }); return;
       case 'aiAsk': if (!committed()) return; openAiDialog(ctx, { mode: 'ask' }); return;
       case 'aiPanel':
-        if (!aiPanel) { toast('AI is not available here', { icon: 'info' }); return; }
+        if (!aiPanel || !P.canAI()) { toast(appOption('aiFeatures') ? 'AI is not available here' : 'AI features are turned off in Options ▸ Privacy', { icon: 'info' }); return; }
         // Opened from the keyboard mid-entry, the panel leaves the focus on the cell being typed into.
         if (arg === false || (arg == null && aiPanel.isOpen)) aiPanel.close();
         else aiPanel.open({ focus: !grid.editing, prompt: typeof arg === 'string' ? arg : null });
@@ -2669,7 +2758,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Every menu action by name: Ctrl/Cmd+Shift+P, Alt+/, or the Search button.
         if (!committed()) return;
         palette?.close();
-        palette = openCommandPalette({ commands: paletteCommands(commandFlags()), run, onClose: () => { palette = null; keepFocus(); } });
+        palette = openCommandPalette({ commands: withCustomShortcuts(paletteCommands(commandFlags())), run, onClose: () => { palette = null; keepFocus(); } });
         return;
       }
       case 'insertFunction': insertFunction(arg); return;
@@ -2889,8 +2978,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'formulaBar':
         // View ▸ Show ▸ Formula Bar, remembered on this device.
-        view.formulaBar = view.formulaBar === false;
-        applyView();
+        setAppOptions({ showFormulaBar: !appOption('showFormulaBar') }); // the options' listener applies it
         notify();
         keepFocus();
         return;
@@ -3103,21 +3191,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // column within the data around them are filled the same way, as one undo step.
         if (!committed()) return;
         const { r, c } = grid.active;
-        const region = wb.dataRegion(sheetId, r, c) || { r1: r, c1: c, r2: r, c2: c };
-        const area = { r1: region.r1, r2: region.r2, c1: Math.min(region.c1, c - 1 >= 0 ? c - 1 : c), c2: Math.max(region.c2, c) };
-        const cols = [];
-        for (let cc = area.c1; cc <= area.c2; cc++) if (cc !== c) cols.push(cc);
-        const shown = (rr, cc) => { const v = wb.getValue(sheetId, rr, cc); return v == null || (typeof v === 'object') ? null : wb.getDisplay(sheetId, rr, cc); };
-        const rows = [];
-        for (let rr = area.r1; rr <= area.r2; rr++) {
-          const target = wb.getCell(sheetId, rr, c);
-          rows.push({ r: rr, sources: cols.map((cc) => shown(rr, cc)), target: target?.v != null || target?.f != null ? shown(rr, c) : null });
-        }
-        // A header above the examples fits no pattern: try again without the first row before giving up.
-        let filled = flashFill(rows), from = 0;
-        if (!filled && rows.length > 1) { filled = flashFill(rows.slice(1)); from = 1; }
-        const entries = [];
-        if (filled) filled.forEach((text, i) => { const row = rows[i + from]; if (text != null && text !== '' && row.sources.some((v) => v != null)) entries.push({ r: row.r, c, cell: { v: text, f: null, s: wb.getCell(sheetId, row.r, c)?.s } }); });
+        const { entries } = flashFillPlan(sheetId, r, c);
         if (!entries.length) { toast('Flash Fill found no pattern to fill. Type an example or two, then try again', { icon: 'info', duration: 3200 }); keepFocus(); return; }
         if (wb.setCells(sheetId, entries, 'Flash Fill')) toast(`Flash Fill changed ${entries.length} cell${entries.length === 1 ? '' : 's'}`, { icon: 'flashFill', duration: 2200 });
         keepFocus();
@@ -4873,6 +4947,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const mark = wb.historyTop;
     if (moving || !mark || mark === before) { optionButton.hide(); return; }
     lastPaste = { text, html, paste: pasteOptions(paste), from, mark, external: !internal };
+    if (!appOption('pasteOptionsButton')) { optionButton.hide(); return; } // turned off in the options
     optionButton.show({
       kind: 'paste', sheetId: grid.sheetId, range: { ...grid.range }, mark,
       items: pasteGallery({ external: !internal }).map((item) => (item.header ? item : { ...item, key: JSON.stringify(pasteOptions(item.paste)) })),
@@ -4892,12 +4967,64 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     grid.focus();
   }
 
+  /**
+   * What Flash Fill would write in column `c` around row `r`: the examples typed in the column teach the pattern
+   * from the cells beside them. { entries, examples, rows }: the cells to fill, how many examples taught it, and
+   * the rows looked at ({ r, target }).
+   */
+  function flashFillPlan(sheetId, r, c) {
+    const region = wb.dataRegion(sheetId, r, c) || { r1: r, c1: c, r2: r, c2: c };
+    const area = { r1: region.r1, r2: region.r2, c1: Math.min(region.c1, c - 1 >= 0 ? c - 1 : c), c2: Math.max(region.c2, c) };
+    const cols = [];
+    for (let cc = area.c1; cc <= area.c2; cc++) if (cc !== c) cols.push(cc);
+    const shown = (rr, cc) => { const v = wb.getValue(sheetId, rr, cc); return v == null || (typeof v === 'object') ? null : wb.getDisplay(sheetId, rr, cc); };
+    const rows = [];
+    for (let rr = area.r1; rr <= area.r2; rr++) {
+      const target = wb.getCell(sheetId, rr, c);
+      rows.push({ r: rr, sources: cols.map((cc) => shown(rr, cc)), target: target?.v != null || target?.f != null ? shown(rr, c) : null });
+    }
+    // A header above the examples fits no pattern: try again without the first row before giving up.
+    let filled = flashFill(rows), from = 0;
+    if (!filled && rows.length > 1) { filled = flashFill(rows.slice(1)); from = 1; }
+    const entries = [];
+    if (filled) filled.forEach((text, i) => { const row = rows[i + from]; if (text != null && text !== '' && row.sources.some((v) => v != null)) entries.push({ r: row.r, c, cell: { v: text, f: null, s: wb.getCell(sheetId, row.r, c)?.s } }); });
+    return { entries, examples: filled ? rows.slice(from).filter((row) => row.target != null && row.target !== '').length : 0, rows: rows.slice(from) };
+  }
+
+  /**
+   * Flash Fill as you type (the options): once a second example in a row follows a pattern from the cells beside
+   * it, and the column below is still empty, a notice offers to fill the rest the same way.
+   */
+  let flashOffer = null;
+  function offerFlashFill(sheetId, r, c) {
+    flashOffer?.dismiss?.();
+    flashOffer = null;
+    if (!appOption('autoFlashFill') || grid.sheetId !== sheetId || r < 1) return;
+    const above = wb.getCell(sheetId, r - 1, c);
+    if (above?.v == null || above.f != null || typeof wb.getValue(sheetId, r, c) !== 'string') return;
+    const { entries, examples, rows } = flashFillPlan(sheetId, r, c);
+    // The examples must be the column's first entries, the one just typed the last of them, with only blanks below.
+    const typed = rows.filter((row) => row.target != null && row.target !== '').map((row) => row.r);
+    if (examples < 2 || !entries.length || typed.at(-1) !== r || typed.some((rr, i) => i && rr !== typed[i - 1] + 1) || entries.some((e) => e.r < r)) return;
+    const mark = wb.historyTop;
+    flashOffer = toast(`Flash Fill can fill ${entries.length} more cell${entries.length === 1 ? '' : 's'} in this column the same way`, {
+      icon: 'flashFill', duration: 8000,
+      action: { label: 'Fill', onClick: () => {
+        // Only while the sheet is as it was when offered: an edit since may have changed the pattern.
+        if (destroyed || wb.historyTop !== mark || grid.editing) return;
+        if (wb.setCells(sheetId, entries, 'Flash Fill')) statusBar?.announce(`Flash Fill changed ${entries.length} cells`);
+        keepFocus();
+      } },
+    });
+  }
+
   /** After a fill-handle drag: the Auto Fill Options button, to fill the same cells again another way. */
   function offerAutoFill({ source, target, inverted = false }, kind = null) {
     const mark = wb.historyTop;
     if (!mark) return;
     const sheetId = grid.sheetId;
     lastFill = { sheetId, source: normalizeRange(source), target: normalizeRange(target), mark, kind: kind || defaultAutoFill(wb, sheetId, source, target, inverted) };
+    if (!appOption('fillOptionsButton')) { optionButton.hide(); return; } // turned off in the options
     optionButton.show({
       kind: 'fill', sheetId, range: lastFill.target, mark,
       items: autoFillChoices(wb, sheetId, source, target).map(([key, label]) => ({ key, label })),
@@ -5530,7 +5657,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const searchBtn = el('button.icon-btn.desktop-only', { type: 'button', html: icon('search', 20), 'aria-label': 'Search the menus', title: `Search the menus (${MOD_KEY}+Shift+P)`, onclick: () => run('palette') });
   const avatar = el('button.icon-btn.user-btn', {
     type: 'button', 'aria-label': 'Account menu', 'aria-haspopup': 'menu',
-    onclick: (e) => openAppMenu(e.currentTarget),
+    onclick: (e) => openAppMenu(e.currentTarget, { onOptions: () => run('options') }),
   });
   renderAccountButton(avatar);
 
@@ -5628,6 +5755,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   let changesPane = null; // Review ▸ Show Changes, made below
   const toolbar = createRibbon(ctx);
   ctx.ribbon = toolbar;
+  // The Quick Access Toolbar holds what the person keeps there (ui/quick-access.js): in the title row, or in a
+  // row of its own under the ribbon.
+  const qatBar = el('div.quick-access-bar', { hidden: true });
+  const qatHome = { parent: quickAccess.parentNode, next: quickAccess.nextSibling };
+  const qat = createQuickAccess(ctx, { root: quickAccess, place: (below) => {
+    if (below) { qatBar.append(quickAccess); qatBar.hidden = false; }
+    else if (quickAccess.parentNode !== qatHome.parent) { qatHome.parent.insertBefore(quickAccess, qatHome.next); qatBar.hidden = true; }
+  } });
+  ctx.subscribe(() => qat.refresh());
   const formulaBar = createFormulaBar(ctx, { fixedActions: true });
   const sheetTabs = createSheetTabs(ctx, { excelLayout: true });
   const statusBar = createStatusBar(ctx);
@@ -5649,7 +5785,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   } });
   // Review ▸ Show Changes: the recent edits, each with who made it; the signed-in user is the author of the edits made here.
   changesPane = createChangesPane({ ...ctx, run, reveal: (sid, range) => selectLocation(sid, range), currentUser: () => session.user?.username || null });
-  const syncChangeAuthor = () => { wb.changeAuthor = session.user?.username || null; };
+  const syncChangeAuthor = () => { wb.changeAuthor = displayUserName(session.user?.username) || null; };
   syncChangeAuthor();
   // Data ▸ Queries & Connections: the queries of the workbook, beside the sheet.
   ctx.autofitColumns = (sid, c1, c2) => autofitColumns(c1, c2, sid);
@@ -5682,7 +5818,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   // @mentions: the people a comment can name, telling them when it is posted, and telling the user when a
   // comment names them (ui/mention-notify.js).
   const mentionNotifier = createMentionNotifier({ doc, wb, mailer, me: () => session.user });
-  const comments = createComments(ctx, { author: () => session.user?.username || 'You', keepFocus: () => keepFocus(),
+  const comments = createComments(ctx, { author: () => displayUserName(session.user?.username) || 'You', keepFocus: () => keepFocus(),
     refused: (what) => refusedByProtection(what), onPaneToggle: () => notify(),
     mentionPeople: () => mentionNotifier.candidates(),
     onMentioned: (posted) => { mentionNotifier.notify(posted).catch((e) => console.error(e)); } });
@@ -5744,6 +5880,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     el('div.editor-body', {},
       el('div.editor-main', {},
         toolbar.el,
+        qatBar,
         formulaBar.el,
         externalNotice,
         automate.notice,
@@ -6074,12 +6211,50 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     else if (k === 'o' && P.canPickFiles()) { e.preventDefault(); run('open'); }
     else if (k === 'g' && !e.shiftKey) { e.preventDefault(); run('goTo'); }
     else if ((k === 'j' || e.code === 'KeyJ') && !e.shiftKey && !e.altKey && aiPanel) { e.preventDefault(); run('aiPanel'); }
+    // Ctrl/Cmd+, opens the options, as preferences open in desktop apps.
+    else if ((k === ',' || e.code === 'Comma') && !e.shiftKey && !e.altKey) { e.preventDefault(); run('options'); }
     else if (e.key === 'Backspace' && !grid.editing && !e.target.closest?.('input, textarea')) { e.preventDefault(); run('scrollToActive'); }
     else if (k === 'z' && !grid.editing && !e.target.closest?.('input, textarea')) { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); }
     // Bold, italic and underline apply to the cell mid-edit too; the grid takes them when nothing is being edited.
     else if ((k === 'b' || k === 'i' || k === 'u') && grid.editing && !e.shiftKey && !e.altKey) { e.preventDefault(); run({ b: 'bold', i: 'italic', u: 'underline' }[k]); }
   };
   root.addEventListener('keydown', onKey);
+  // Shortcuts of the person's own (Options ▸ Keyboard Shortcuts) come before the built-in ones, on the sheet and in
+  // the window around it; a built-in shortcut turned off there does nothing. Typing into a field keeps its keys.
+  const onCustomKey = (e) => {
+    if (isComposing(e) || e.defaultPrevented || grid.editing) return;
+    const keymap = keymapStore.get();
+    if (!Object.keys(keymap).length || e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const chord = chordFromEvent(e, IS_MAC);
+    if (!chord || !Object.hasOwn(keymap, chord)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!keymap[chord]) return;
+    const { cmd, arg } = parseCommandId(keymap[chord]);
+    run(cmd, arg);
+  };
+  root.addEventListener('keydown', onCustomKey, true);
+  // Options changed (here, in another editor, or brought in from the account): the editor follows at once.
+  const offOptions = onAppOptions((options, keys) => {
+    if (destroyed) return;
+    applyView();
+    syncNewSheetDefaults();
+    syncChangeAuthor();
+    if (keys.includes('aiFeatures')) {
+      setAiProviders();
+      if (!options.aiFeatures && aiPanel?.isOpen) aiPanel.close();
+      if (aiPanel) { aiPanel.el.hidden = !options.aiFeatures; if (aiPanel.rail) aiPanel.rail.hidden = !options.aiFeatures; }
+    }
+    if (keys.some((k) => ['commentIndicators', 'fillHandle', 'showObjects'].includes(k))) grid.refresh();
+    notify();
+  });
+  const offKeymap = keymapStore.subscribe(() => notify());
+  // The account's copies of the options and customizations, when another device changed them.
+  if (!session.signedOut) {
+    syncAppOptions().catch(() => {});
+    syncCustomizations();
+    syncErrorChecking().then(() => { if (!destroyed) { grid.redraw(); errorTag.sync(); } }).catch(() => {});
+  }
   // Focus can fall back to the page itself while a cell is being edited (the
   // button that opened a menu was re-rendered away, say). Those keys are the
   // cell's too; the page has nothing else to do with them.
@@ -6191,6 +6366,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       stopSheetFonts();
       document.removeEventListener('keydown', onStrayKey);
       document.removeEventListener('keydown', onChromeKey);
+      offOptions();
+      offKeymap();
+      qat.destroy();
+      flashOffer?.dismiss?.();
       document.removeEventListener('copy', onNativeCopy);
       document.removeEventListener('cut', onNativeCut);
       document.removeEventListener('paste', onPasteEvent);

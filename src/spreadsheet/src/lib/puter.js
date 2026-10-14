@@ -14,6 +14,7 @@
  * move, share, or open with any other app.
  */
 
+import { optionState } from './option-state.js';
 import { trackEvent, trackExport } from './analytics.js';
 
 export const FOLDER = 'Spreadsheets';
@@ -569,9 +570,9 @@ function shareError(e) {
 
 /* ---------- Desktop integration ---------- */
 
-/** Is Puter's AI available here (an AI() formula can be answered)? */
+/** Is Puter's AI available here (an AI() formula can be answered), and wanted (the options' Privacy page)? */
 export function canAI() {
-  return !!window.puter?.ai?.chat;
+  return optionState.aiFeatures !== false && !!window.puter?.ai?.chat;
 }
 
 /** How much a web address may serve to a formula or a picture: plenty for any sheet the cell budgets allow, not enough to fill memory. */

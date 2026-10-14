@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { openModal, confirmDialog } from './modal.js';
 import { openShortcuts } from './shortcuts.js';
+import { openOptionsDialog } from './options-dialog.js';
 import { currentTheme } from './theme.js';
 import { session } from '../lib/session.js';
 import { toast } from './toast.js';
@@ -26,7 +27,8 @@ import unicodeLicenseUrl from '../vendor/UNICODE-LICENSE.txt?url&no-inline';
 import xmldomLicenseUrl from '../vendor/XMLDOM-LICENSE.txt?url&no-inline';
 import { version as APP_VERSION } from '../../package.json';
 
-export function openAppMenu(anchor) {
+/** `onOptions` opens File ▸ Options from the editor, which knows the workbook; elsewhere the options open on their own. */
+export function openAppMenu(anchor, { onOptions = null } = {}) {
   const theme = currentTheme();
   // Three radios in a row are a radio group, named, so a screen reader announces one choice of three
   // and not three loose radios; the menu moves between them with Left and Right as well as Up and Down.
@@ -49,6 +51,7 @@ export function openAppMenu(anchor) {
     { custom: themeRow },
     { separator: true },
     { label: 'Regional format…', icon: 'monitor', shortcut: localeName, ariaLabel: `Regional format, ${localeName}`, onSelect: openLocaleDialog },
+    { label: 'Options…', icon: 'options', onSelect: () => (onOptions ? onOptions() : openOptionsDialog({ accountName: () => session.user?.username || '', openLocale: openLocaleDialog })) },
     // Both open a dialog, which the ellipsis says, as it does on the same two items in the Help menu.
     { label: 'Keyboard shortcuts…', icon: 'keyboard', onSelect: openShortcuts },
     { label: 'About…', icon: 'info', onSelect: openAbout },
