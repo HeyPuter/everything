@@ -9934,7 +9934,8 @@ test("the print and save shortcuts work while presenting", async ({ page }) => {
   await page.getByRole("button", { name: "Present", exact: true }).click();
   const presenter = page.getByRole("dialog", { name: "Presentation mode" });
   await expect(presenter).toBeVisible();
-  await page.keyboard.press("Control+p");
+  // In a show Ctrl+P picks up the pen; Cmd+P prints.
+  await page.keyboard.press("Meta+p");
   await page
     .getByRole("dialog", { name: "Print" })
     .getByRole("button", { name: "Print", exact: true })
