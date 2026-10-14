@@ -631,9 +631,10 @@ export function textBox(shape, readParagraph, defaults, readTextBlocks) {
   if (!paragraphs.length || paragraphs.some(p => p.list || p.runs.some(r => r.image?.anchor || r.link) || p.bookmarks || p.sectionEnd || p.runs.some(r => /[\f\u000e]/.test(r.text)))) fail('complex text box contents');
   for (const p of paragraphs) {
     // Positional tab stops have no effect until a tab character uses them.
-    // The paragraph reader still validates their types and values (including
-    // rejecting bar tabs); preserve dormant declarations in the source XML.
-    const activeTabs = p.format.tabs.length && p.runs.some(r => r.text.includes('\t'));
+    // The paragraph reader still validates their types and values; preserve
+    // dormant declarations in the source XML.
+    // Bar tabs draw a rule without any tab character; the shape painter does not draw them.
+    const activeTabs = p.format.tabs.some(t => t.alignment === 'bar') || p.format.tabs.length && p.runs.some(r => r.text.includes('\t'));
     if (p.format.paragraphShading !== 'auto' || Object.values(p.format.paragraphBorders).some(b => !['nil', 'none'].includes(b.style)) || activeTabs) fail('decorated text box paragraphs');
     // Script, position and width transforms share body text's measurement and
     // glyph painter. Decorations still need their own retained-shape painter.
