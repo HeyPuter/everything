@@ -64,8 +64,9 @@ export function uncroppedSize(obj) {
 
 /** A crop rectangle kept within the picture and at least CROP_MIN of it across and down. */
 export function clampCrop(crop) {
-  const w = clamp(finite(crop.w) ? crop.w : 1, CROP_MIN, 1), h = clamp(finite(crop.h) ? crop.h : 1, CROP_MIN, 1);
-  return { x: clamp(finite(crop.x) ? crop.x : 0, 0, 1 - w), y: clamp(finite(crop.y) ? crop.y : 0, 0, 1 - h), w, h };
+  // Six places is far finer than a pixel of any picture, and keeps 0.2 from reading 0.19999999999999996.
+  const w = round(clamp(finite(crop.w) ? crop.w : 1, CROP_MIN, 1), 6), h = round(clamp(finite(crop.h) ? crop.h : 1, CROP_MIN, 1), 6);
+  return { x: round(clamp(finite(crop.x) ? crop.x : 0, 0, 1 - w), 6), y: round(clamp(finite(crop.y) ? crop.y : 0, 0, 1 - h), 6), w, h };
 }
 
 /**
