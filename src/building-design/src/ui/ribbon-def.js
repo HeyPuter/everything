@@ -49,6 +49,7 @@ export const RIBBON = [
     id: 'insert',
     label: 'Insert',
     panels: [
+      { title: 'Import', items: [{ cmd: 'importDxf', size: 'lg' }] },
       { title: 'Project', items: [{ cmd: 'open', size: 'lg' }, { cmd: 'sample', size: 'lg' }] },
       { title: 'Library', items: [{ cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
     ],

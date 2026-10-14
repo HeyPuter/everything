@@ -23,6 +23,7 @@ export const COMMANDS = {
   home: { label: 'Home', icon: 'house', run: (app) => app.showHome() },
   sample: { label: 'Open Sample Project', icon: 'house', run: (app) => app.openSample() },
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
+  importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
   sharedWithMe: { label: 'Shared With Me', icon: 'users', run: (app) => app.openDialog('shared') },
 
   // Edit

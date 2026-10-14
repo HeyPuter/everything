@@ -1513,6 +1513,9 @@ export class App {
   exportSchedule(id) {
     return files.exportScheduleCSV(this, id);
   }
+  importDXF() {
+    return files.importDXF(this);
+  }
   scheduleFieldsDialog(id) {
     return dialogs.scheduleFieldsDialog(this, id);
   }

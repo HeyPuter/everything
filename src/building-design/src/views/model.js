@@ -206,7 +206,27 @@ export class ModelController {
   }
 
   drawOverlay(ctx, vp) {
-    if (!this.is3D) drawLayerTexts(ctx, this.annot, (p) => this.modelToScreen(p), this.cam.zoom, vp.theme, (id) => this.app.flagsOf(id));
+    if (!this.is3D) {
+      drawLayerTexts(ctx, this.annot, (p) => this.modelToScreen(p), this.cam.zoom, vp.theme, (id) => this.app.flagsOf(id));
+      return;
+    }
+    const sb = this.view?.sectionBox;
+    if (!sb) return;
+    // Outline of the section box.
+    const P = (i) => this.project3([i & 1 ? sb.max[0] : sb.min[0], i & 2 ? sb.max[1] : sb.min[1], i & 4 ? sb.max[2] : sb.min[2]]);
+    const pts = [0, 1, 2, 3, 4, 5, 6, 7].map(P);
+    if (pts.some((p) => p.z < -1 || p.z > 1)) return;
+    ctx.save();
+    ctx.strokeStyle = vp.theme.selCss;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    for (const [a, b] of [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]]) {
+      ctx.moveTo(pts[a].x, pts[a].y);
+      ctx.lineTo(pts[b].x, pts[b].y);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Coordinates ----------------------------------------------------------------------------

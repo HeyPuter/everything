@@ -292,6 +292,49 @@ export async function saveAs(app) {
   return writeCloud(app, path, safeFileName(name));
 }
 
+// Import ---------------------------------------------------------------------------------------
+
+/** Pick a local file; resolves to a File or null. */
+export function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.addEventListener('change', () => resolve(input.files?.[0] ?? null));
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+
+/** Import a DXF drawing into the active view as detail lines and text. */
+export async function importDXF(app) {
+  const view = app.activeView;
+  if (!view || !['plan', 'ceilingPlan', 'elevation', 'section', 'sheet'].includes(view.kind)) {
+    if (!app.requirePlan()) return;
+  }
+  const target = app.activeView;
+  const file = await pickFile('.dxf');
+  if (!file) return;
+  const { parseDXF } = await import('./dxf.js');
+  let parsed;
+  try {
+    parsed = parseDXF(await file.text(), app.doc.units.system === 'imperial' ? 25.4 : 1);
+  } catch (err) {
+    return toast(`Could not read the DXF file: ${err.message || err}`, { kind: 'error' });
+  }
+  const { lines, texts } = parsed;
+  if (!lines.length && !texts.length) return toast('The file has no lines or text in model space.', { kind: 'error' });
+  const scale = target.kind === 'sheet' ? 1 : +target.scale || 100;
+  const ids = [];
+  app.commit('Import DXF', () => {
+    for (const [a, b] of lines) ids.push(app.doc.add({ kind: 'detailLine', viewId: target.id, a, b, style: 'thin' }).id);
+    for (const t of texts) ids.push(app.doc.add({ kind: 'text', viewId: target.id, at: t.at, text: t.text, size: Math.max(1, Math.round((t.height / scale) * 10) / 10 || 2.5), rotation: t.rotation, align: 'left' }).id);
+  });
+  app.select(ids);
+  app.vc?.zoomExtents?.(true, new Set(ids));
+  toast(`Imported ${lines.length} lines and ${texts.length} texts into ${target.name}. They are selected: move them into place with Move (MV).`);
+}
+
 // Exports --------------------------------------------------------------------------------------
 
 export function exportScheduleCSV(app, id) {

@@ -95,6 +95,33 @@ test('the project browser works from the keyboard', async ({ page }) => {
   await expect(page.locator('.vtab.active')).toContainText('Level 1');
 });
 
+test('text is typed in place and the section box resizes from its handles', async ({ page }) => {
+  await openApp(page, '?sample');
+  await clickModel(page, 3000, 9000);
+  await page.keyboard.type('tx');
+  await clickModel(page, 3000, 9000);
+  await page.keyboard.type('Living area');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.bd.doc.all('text').map((t) => t.text))).toEqual(['Living area']);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    window.bd.open3D();
+    window.bd.toggleSectionBox();
+  });
+  const [x, y, before] = await page.evaluate(() => {
+    const bd = window.bd;
+    const sb = bd.activeView.sectionBox;
+    const s = bd.vc.project3([(sb.min[0] + sb.max[0]) / 2, (sb.min[1] + sb.max[1]) / 2, sb.max[2]]);
+    const r = bd.shell.overlay.getBoundingClientRect();
+    return [r.left + s.x, r.top + s.y, sb.max[2]];
+  });
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 60, { steps: 5 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.bd.activeView.sectionBox.max[2])).toBeLessThan(before - 500);
+});
+
 test('the theme follows the user choice', async ({ page }) => {
   await openApp(page, '?sample');
   await page.getByRole('button', { name: 'Theme' }).click();

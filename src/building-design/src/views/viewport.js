@@ -153,7 +153,10 @@ export class Viewport {
     let tapStart = null;
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('pointerdown', (e) => {
+      // Focus explicitly; the default mousedown focus would otherwise take it
+      // back from inputs a tool opens during this event.
       el.focus({ preventScroll: true });
+      e.preventDefault();
       const c = this.controller;
       if (!c) return;
       this.pointers.set(e.pointerId, this.local(e));

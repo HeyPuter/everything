@@ -37,11 +37,13 @@ export class SelectTool extends Tool {
 
   grips() {
     const vc = this.vc;
-    if (!vc || this.app.selection.size !== 1) return [];
+    if (!vc) return [];
+    const out = sectionBoxGrips(this.app, vc);
+    if (this.app.selection.size !== 1) return out;
     const id = [...this.app.selection][0];
     const el = this.doc.get(id);
-    if (!el || el.pinned) return [];
-    return gripsFor(this.app, el, vc).filter((g) => g.at);
+    if (!el || el.pinned) return out;
+    return out.concat(gripsFor(this.app, el, vc).filter((g) => g.at));
   }
 
   gripAt(x, y) {
@@ -106,7 +108,11 @@ export class SelectTool extends Tool {
       this.app.setPrompt(this.prompt);
       this.app.requestRender();
     } else if (d.kind === 'move') this.updateMove(ev);
-    else if (d.kind === 'grip') {
+    else if (d.kind === 'grip' && d.grip.drag3d) {
+      d.grip.drag3d(ev, d);
+      this.doc.flush();
+      this.app.requestRender();
+    } else if (d.kind === 'grip') {
       const p = d.grip.noSnap || !vc.is2D ? ev.p : this.snap(ev, null, { exclude: new Set(d.grip.exclude || []) });
       if (!p) return;
       try {
@@ -310,6 +316,44 @@ export class SelectTool extends Tool {
     }
     this.drawSnap(ctx, vc, vp);
   }
+}
+
+/** Face handles of a 3D view's section box: drag along the face normal. */
+function sectionBoxGrips(app, vc) {
+  if (!vc.is3D) return [];
+  const view = vc.view;
+  const sb = view?.sectionBox;
+  if (!sb) return [];
+  const c = [(sb.min[0] + sb.max[0]) / 2, (sb.min[1] + sb.max[1]) / 2, (sb.min[2] + sb.max[2]) / 2];
+  const out = [];
+  for (let axis = 0; axis < 3; axis++)
+    for (const side of ['min', 'max']) {
+      const at = c.slice();
+      at[axis] = sb[side][axis];
+      out.push({
+        at,
+        shape: 'diamond',
+        title: 'Drag to resize the section box',
+        drag3d: (ev, d) => {
+          if (!d.box) {
+            d.box = structuredClone(sb);
+            const s0 = vc.project3(at);
+            const tip = at.slice();
+            tip[axis] += 1000;
+            const s1 = vc.project3(tip);
+            const len = Math.hypot(s1.x - s0.x, s1.y - s0.y) || 1;
+            d.axisDir = [(s1.x - s0.x) / len, (s1.y - s0.y) / len];
+            d.pxPerMm = len / 1000;
+          }
+          const delta = ((ev.x - d.x) * d.axisDir[0] + (ev.y - d.y) * d.axisDir[1]) / d.pxPerMm;
+          const box = structuredClone(d.box);
+          box[side][axis] = d.box[side][axis] + delta;
+          if (box.max[axis] - box.min[axis] < 100) return;
+          app.doc.update(view.id, { sectionBox: box });
+        },
+      });
+    }
+  return out;
 }
 
 export { dist };
