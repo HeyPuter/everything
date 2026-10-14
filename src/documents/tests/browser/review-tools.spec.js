@@ -80,6 +80,7 @@ test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word 
   await expect(input).toHaveValue(`${expected} people smile. A big dog.`);
   await page.screenshot({ path: info.outputPath('thesaurus.png') });
   // Look up another word from the pane, and find antonyms.
+  await expect(pane).not.toContainText('null');
   await pane.getByRole('searchbox', { name: 'Look up a word' }).fill('big');
   await pane.getByRole('button', { name: 'Look up', exact: true }).click();
   await expect(pane.locator('.rv-words').first()).toContainText('large');
@@ -88,6 +89,7 @@ test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word 
   const dialog = page.getByRole('dialog', { name: 'Word Count' });
   await expect(dialog.getByRole('row', { name: /^Words/ })).toContainText('6');
   await expect(dialog.getByRole('row', { name: /^Lines/ })).toContainText('1');
+  await page.screenshot({ path: info.outputPath('word-count.png') });
   await dialog.getByRole('button', { name: 'Close', exact: true }).first().click();
 });
 
@@ -130,6 +132,7 @@ test('Language marks text and Set As Default updates the document default', asyn
   await dialog.getByRole('searchbox', { name: 'Find a language' }).fill('fr-FR');
   await dialog.getByRole('option').first().click();
   await dialog.getByRole('checkbox', { name: 'Do not check spelling or grammar' }).check();
+  await page.screenshot({ path: info.outputPath('language-dialog.png') });
   await dialog.getByRole('button', { name: 'OK', exact: true }).click();
   const { parts } = await exported(page, info, 'language.docx');
   const xml = strFromU8(parts['word/document.xml']);
@@ -220,6 +223,7 @@ test('Compare Documents shows both sources beside the result and opens it with t
   const [original, revised] = await dialog.locator('input[type="file"]').all();
   await original.setInputFiles('tests/fixtures/review/original.docx');
   await revised.setInputFiles('tests/fixtures/review/revised.docx');
+  await page.screenshot({ path: info.outputPath('compare-dialog.png') });
   await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
   const result = page.getByRole('dialog', { name: 'Compared Document' });
   await expect(result.locator('.rv-compare-column')).toHaveCount(3);
@@ -267,6 +271,13 @@ test('comments mention reviewers, list in the Comments pane and filter by author
 test('Review panes fit a phone screen', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const input = await newDocument(page, 'Phones review too. Teh end.');
+  await onTab(page, 'review');
+  await page.locator('#ribbon-panel-review [aria-label="Restrict Editing"]').evaluate(b => b.click());
+  await expect(page.getByRole('complementary', { name: 'Restrict Editing pane' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('phone-restrict.png') });
+  await page.locator('#ribbon-panel-review [aria-label="Editor"]').evaluate(b => b.click());
+  await expect(page.getByRole('complementary', { name: 'Editor pane' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('phone-editor.png') });
   await select(input, 0, 6);
   await input.press('Shift+F7');
   const pane = page.getByRole('complementary', { name: 'Thesaurus pane' });

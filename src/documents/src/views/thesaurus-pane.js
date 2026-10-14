@@ -53,12 +53,13 @@ export function createThesaurusPane({ editor, pkg, error }) {
     if (results.dataset.word !== word) return;
     const found = lookupWord(data, word);
     if (!found) { results.replaceChildren(el('p.rv-empty', {}, `No results for “${word}”.`), hint('Check the spelling, or try a simpler form of the word.')); return; }
-    results.replaceChildren(
+    results.replaceChildren(...[
       found.lemma.toLowerCase() !== word.toLowerCase() ? el('p.rv-status', {}, `Showing results for “${found.lemma}”.`) : null,
       ...found.senses.map(sense => el('section.rv-sense', {},
-        el('h3.rv-sense-head', {}, el('span.rv-pos', {}, POS_LABEL[sense.pos] || sense.pos), sense.gloss ? el('span.rv-gloss', {}, sense.gloss) : null),
+        el('h3.rv-sense-head', {}, el('span.rv-pos', {}, POS_LABEL[sense.pos] || sense.pos), sense.lemma ? el('span.rv-pos', {}, `(${sense.lemma})`) : null, sense.gloss ? el('span.rv-gloss', {}, sense.gloss) : null),
         sense.synonyms.length ? el('div.rv-words', { role: 'list', 'aria-label': 'Synonyms' }, ...sense.synonyms.map(w => chip(w))) : null,
-        sense.antonyms.length ? el('div.rv-antonyms', {}, el('span.rv-label', {}, 'Antonyms'), el('div.rv-words', { role: 'list', 'aria-label': 'Antonyms' }, ...sense.antonyms.map(w => chip(w, true)))) : null)));
+        sense.antonyms.length ? el('div.rv-antonyms', {}, el('span.rv-label', {}, 'Antonyms'), el('div.rv-words', { role: 'list', 'aria-label': 'Antonyms' }, ...sense.antonyms.map(w => chip(w, true)))) : null)),
+    ].filter(Boolean));
   }
   function chip(word, antonym = false) {
     const node = el(`button.rv-word${antonym ? '.is-antonym' : ''}`, { type: 'button', role: 'listitem', title: `Insert “${word}”, or open its menu for more`,

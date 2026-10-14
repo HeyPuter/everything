@@ -388,7 +388,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (layer.parentNode !== scroller) { scroller.append(layer); resize.disconnect(); resize.observe(scroller); }
     if (scroller.parentElement && readAloud.bar.parentNode !== scroller.parentElement) scroller.parentElement.append(readAloud.bar);
     renderPane();
-    const list = threads();
+    // Reviewers hidden in Show Markup › Specific People have their comments hidden too.
+    const list = threads().filter(t => !revisionView.options.hiddenAuthors.includes(t.root.author));
     // Follow the caret into a thread unless the user picked a card (until the selection moves).
     if (pinned && activeId !== 'draft' && engine.model.range.join() !== pinnedRange && !layer.contains(document.activeElement)) pinned = false;
     if (!pinned || !list.some(t => t.id === activeId)) {
