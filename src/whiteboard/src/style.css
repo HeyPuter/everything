@@ -3480,6 +3480,18 @@ dialog.history-dialog[open] {
   border-radius: 8px;
   font-size: 13px;
 }
+.revision-manage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.revision-rename,
+.revision-delete {
+  margin-top: 10px;
+}
 @media (max-width: 760px) {
   /* On a phone the preview sits above the list and the two scroll as one. */
   dialog.history-dialog {

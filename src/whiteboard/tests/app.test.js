@@ -6000,6 +6000,49 @@ test("recovered objects are selected and the toast offers to undo the recovery",
   }
 });
 
+test("versions on this device can be named, renamed and deleted from their options", async () => {
+  const app = await setup();
+  const { doc, click, tick } = app;
+  const rows = () =>
+    [...doc.querySelectorAll("#local-revisions .revision-pick")].map((r) =>
+      r.textContent.trim(),
+    );
+  const settle = async () => {
+    for (let n = 0; n < 10; n++) await tick();
+  };
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="history"]');
+    await settle();
+    const id = doc.querySelector("[data-revision-options]").dataset
+      .revisionOptions;
+    await doc.querySelector(`[data-revision-options="${id}"]`).onclick();
+    // An automatic version has no name to delete it by, only to give it.
+    assert.equal(doc.querySelector('[data-manage="delete"]'), null);
+    await click('[data-manage="name"]');
+    const name = doc.querySelector(".revision-rename input");
+    assert.equal(doc.activeElement, name);
+    name.value = "Kickoff";
+    doc
+      .querySelector(".revision-rename")
+      .dispatchEvent(new doc.defaultView.Event("submit", { cancelable: true }));
+    await settle();
+    assert.ok(rows()[0].startsWith("Kickoff"));
+    assert.equal(doc.activeElement.dataset.revisionOptions, id);
+    await doc.querySelector(`[data-revision-options="${id}"]`).onclick();
+    await click('[data-manage="delete"]');
+    assert.equal(doc.querySelector(".revision-delete").hidden, false);
+    await click('[data-manage="confirm"]');
+    await settle();
+    assert.ok(!rows().some((r) => r.startsWith("Kickoff")));
+    assert.equal(doc.querySelector(`[data-revision-options="${id}"]`), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;

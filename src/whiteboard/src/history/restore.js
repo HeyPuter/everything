@@ -332,6 +332,18 @@ addTranslations({
   "Named versions only": "Versions nommées seulement",
   "No named versions yet.": "Aucune version nommée pour le moment.",
   "Original version": "Version d’origine",
+  Rename: "Renommer",
+  "Name this version": "Nommer cette version",
+  "Delete version": "Supprimer la version",
+  "Version name": "Nom de la version",
+  "Save name": "Enregistrer le nom",
+  "This version is removed from this device for good.":
+    "Cette version est supprimée définitivement de cet appareil.",
+  "Keep version": "Conserver la version",
+  "Version named.": "Version nommée.",
+  "Version deleted.": "Version supprimée.",
+  "Could not name this version.": "Impossible de nommer cette version.",
+  "Could not delete this version.": "Impossible de supprimer cette version.",
   Today: "Aujourd’hui",
   Yesterday: "Hier",
 });

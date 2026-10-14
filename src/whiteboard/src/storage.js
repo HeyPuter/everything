@@ -388,6 +388,41 @@ export const local = {
       ["revisions", "media"],
     );
   },
+  // Names one version, which keeps it apart from those each edit leaves.
+  nameRevision: (id, label) => {
+    // Pruning reads whether a version is kept from what it last read.
+    for (const known of revisionIndex.values()) {
+      const entry = known.list.find((r) => r.id === id);
+      if (entry) entry.kept = true;
+    }
+    return transaction(
+      "readwrite",
+      (s) => {
+        const get = s.get(id);
+        get.onsuccess = () => {
+          if (get.result) s.put({ ...get.result, label, kept: true });
+        };
+        return get;
+      },
+      "revisions",
+    );
+  },
+  // One version, and the pictures only it used.
+  removeRevision: (id) =>
+    transaction(
+      "readwrite",
+      (tx) => {
+        const s = tx.objectStore("revisions"),
+          get = s.get(id);
+        get.onsuccess = () => {
+          if (!get.result) return;
+          s.delete(id);
+          dropUnusedMedia(tx, new Set(get.result.media || []));
+        };
+        return get;
+      },
+      ["revisions", "media"],
+    ),
   // A caller that made `b` for this version alone says it is `owned`: it
   // is kept as it is rather than copied again. A version someone named, or
   // the one saved before a restoration, is `kept` until they delete it

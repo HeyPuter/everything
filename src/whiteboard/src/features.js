@@ -1537,6 +1537,22 @@ export function createFeatures(api) {
           previewer.highlight(e.currentTarget.checked),
         );
     }
+    // The preview goes back to its hint, as when a shown version is deleted.
+    function unpick() {
+      picked = null;
+      previewer.clear();
+      previewCanvas.hidden = true;
+      stage.querySelector(".history-empty").hidden = false;
+      changesNote.textContent = "";
+      d.querySelector("#history-preview-title").textContent = t(
+        "Preview of the version",
+      );
+      d.querySelector("#history-preview-meta").textContent = "";
+      d.querySelectorAll("[data-preview-zoom]").forEach(
+        (button) => (button.disabled = true),
+      );
+      markPicked();
+    }
     // A restore can await both a shared version and its recovery backup.
     // Keep every history action from starting a competing restoration.
     const restoreState = historyRestores.get(openedBoard) || {
@@ -1651,6 +1667,87 @@ export function createFeatures(api) {
     // Granular restore choices for one version, loaded on demand.
     // `onDevice` versions are this device's own; the audit log records a
     // restoration from them without a shared version's time.
+    function manageHTML(id) {
+      const r = id && find(id);
+      if (!r) return "";
+      const named = keptRevision(r);
+      return `<div class="revision-manage"><button type="button" class="text-btn" data-manage="name">${t(named ? "Rename" : "Name this version")}</button>${named ? `<button type="button" class="text-btn danger" data-manage="delete">${t("Delete version")}</button>` : ""}</div><form class="revision-rename" hidden><label class="field">${t("Version name")}<input maxlength="120" required></label><div class="dialog-footer"><button type="button" class="secondary" data-manage="cancel">${t("Cancel")}</button><button class="primary">${t("Save name")}</button></div></form><div class="revision-delete" role="group" aria-label="${t("Delete version")}" hidden><p class="dialog-copy">${t("This version is removed from this device for good.")}</p><div class="dialog-footer"><button type="button" class="secondary" data-manage="keep">${t("Keep version")}</button><button type="button" class="primary danger-fill" data-manage="confirm">${t("Delete version")}</button></div></div>`;
+    }
+    // Naming, renaming and deleting a version on this device, from its
+    // restore options. Deleting asks first, in place.
+    function manage(panel, id) {
+      const actions = panel.querySelector(".revision-manage"),
+        form = panel.querySelector(".revision-rename"),
+        input = form.querySelector("input"),
+        confirm = panel.querySelector(".revision-delete"),
+        options = panel.previousElementSibling?.querySelector(
+          "[data-revision-options]",
+        );
+      const show = (part) => {
+        actions.hidden = part !== actions;
+        form.hidden = part !== form;
+        confirm.hidden = part !== confirm;
+      };
+      // Once the list shows the change, the keyboard goes back to the row.
+      const finish = async (message) => {
+        panel.remove();
+        options?.setAttribute("aria-expanded", "false");
+        await render();
+        api.toast(message);
+        const row = d.querySelector(`[data-revision-options="${id}"]`);
+        (
+          row || d.querySelector("#local-revisions [data-revision-options]")
+        )?.focus({ preventScroll: true });
+      };
+      panel.querySelector('[data-manage="name"]').onclick = () => {
+        const r = find(id);
+        input.value = r && keptRevision(r) ? t(r.label) : "";
+        show(form);
+        input.focus();
+      };
+      panel
+        .querySelector('[data-manage="delete"]')
+        ?.addEventListener("click", () => {
+          show(confirm);
+          confirm.querySelector('[data-manage="keep"]').focus();
+        });
+      for (const back of panel.querySelectorAll(
+        '[data-manage="cancel"], [data-manage="keep"]',
+      ))
+        back.onclick = () => {
+          show(actions);
+          actions.querySelector("button").focus();
+        };
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const label = input.value.trim();
+        if (!label || !onBoard()) return;
+        const done = busy(form.querySelector(".primary"));
+        try {
+          await api.local.nameRevision(id, label);
+          if (picked === `l:${id}`)
+            d.querySelector("#history-preview-title").textContent = label;
+          await finish("Version named.");
+        } catch {
+          api.toast("Could not name this version.");
+        } finally {
+          done();
+        }
+      };
+      confirm.querySelector('[data-manage="confirm"]').onclick = async (e) => {
+        if (!onBoard()) return;
+        const done = busy(e.currentTarget);
+        try {
+          await api.local.removeRevision(id);
+          if (picked === `l:${id}`) unpick();
+          await finish("Version deleted.");
+        } catch {
+          api.toast("Could not delete this version.");
+        } finally {
+          done();
+        }
+      };
+    }
     // `removed`, for a shared version, reads the objects that were added and
     // deleted again within it, which no listed version holds.
     async function options(
@@ -1664,6 +1761,8 @@ export function createFeatures(api) {
       if (!onBoard() || restoreState.pending || button.disabled) return;
       const row = button.closest(".revision-row");
       if (key && picked !== key) pick(key);
+      // A version on this device can be named, renamed or deleted.
+      const localId = onDevice && key?.startsWith("l:") ? key.slice(2) : null;
       const existing = row.nextElementSibling;
       if (existing?.classList.contains("revision-options")) {
         existing.remove();
@@ -1733,8 +1832,9 @@ export function createFeatures(api) {
         recoverable.length > 1
           ? `<details class="connection-choices deleted-choices"><summary>${t("Choose deleted objects")}</summary><fieldset class="frame-choices"><legend class="sr-only">${t("Deleted objects")}</legend><div class="slide-choices">${listed.map((i) => `<label><input type="checkbox" value="${escape(i.id)}" checked><span>${objectNameHTML(i, 120)}</span></label>`).join("")}</div>${unlisted.length ? `<p class="dialog-copy">${t("The first {shown} are listed; the other {rest} are recovered with them.").replace("{shown}", listed.length).replace("{rest}", unlisted.length)}</p>` : ""}</fieldset></details>`
           : ""
-      }${frames.length ? `${frameChoicesHTML(frames, "restore-frame", "Frame")}<button class="secondary" data-part="frame" ${readOnly() ? "disabled" : ""}>${t("Restore this frame")}</button>` : ""}`;
+      }${frames.length ? `${frameChoicesHTML(frames, "restore-frame", "Frame")}<button class="secondary" data-part="frame" ${readOnly() ? "disabled" : ""}>${t("Restore this frame")}</button>` : ""}${manageHTML(localId)}`;
       row.after(panel);
+      if (localId) manage(panel, localId);
       button.setAttribute("aria-expanded", "true");
       const chosenDeleted = () =>
         new Set([

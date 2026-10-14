@@ -436,3 +436,23 @@ test("a version that replaces another takes its place and lets go of pictures on
   assert.equal((await local.revisions(b.id)).length, 1);
   assert.notEqual(third.id, first.id);
 });
+
+test("a version named later is kept, and a deleted one takes only its own pictures", async (t) => {
+  globalThis.indexedDB = new IDBFactory();
+  const { local: tab } = await import("../src/storage.js?named=later");
+  const b = board("Named later");
+  b.items.push(item("note", 0, 0, { text: "Idea" }));
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  const first = await tab.checkpoint(b, "Board edit");
+  await tab.nameRevision(first.id, "Kickoff");
+  for (let n = 0; n < 40; n++) await tab.checkpoint(b, "Board edit");
+  let revisions = await tab.revisions(b.id);
+  const named = revisions.find((r) => r.id === first.id);
+  assert.equal(named?.label, "Kickoff");
+  assert.equal(named.kept, true);
+  await tab.removeRevision(first.id);
+  revisions = await tab.revisions(b.id);
+  assert.ok(!revisions.some((r) => r.id === first.id));
+  assert.equal(revisions.length, 30);
+});
