@@ -32,3 +32,18 @@ approximated, and what remains. OOXML clauses and the supported subset for each 
 - Paper source and printer settings are kept but not editable; there is no printer-specific paper list.
 - Page Setup does not offer the document grid (character and line pitch).
 - Line numbering and hyphenation gaps are listed in their sections below.
+
+## Line numbers
+
+### Implemented
+
+- Layout → Line Numbers: None, Continuous, Restart Each Page, Restart Each Section, Suppress for Current Paragraph and Line Numbering Options… (start at, from text — automatic or a distance, count by, numbering restart). Also Format → Line Numbers, a "Suppress Line Numbers" document context-menu item when the section is numbered, and Page Setup → Layout → Line Numbers….
+- Per-section `w:lnNumType` read, edited (this section or the whole document) and written; per-paragraph and style `w:suppressLineNumbers`.
+- Numbers are painted right-aligned in the margin at the chosen distance (automatic is a quarter inch), on each line's baseline, in the "line number" character style when the document has one. Every count-by line is labelled; counting restarts per page, per section or runs on, column by column.
+
+### Approximated and remaining gaps
+
+- Only body lines count: table cells, framed paragraphs, headers, footers, footnotes and text boxes are neither counted nor labelled.
+- The label font does not change line height; right-to-left, vertical and document-grid sections get no special handling.
+- The PDF text layer omits line numbers (they appear in the page images).
+- The paragraph style dialog has no suppress control.
