@@ -1,0 +1,19 @@
+{
+  "name": "Music Studio",
+  "short_name": "Music Studio",
+  "description": "Pattern-based music production in your browser: step sequencer, piano roll, playlist arrangement and mixer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16181b",
+  "theme_color": "#16181b",
+  "orientation": "any",
+  "icons": [
+    { "src": "favicon-48x48.png", "sizes": "48x48", "type": "image/png" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "categories": ["music", "entertainment", "productivity"],
+  "lang": "en"
+}
