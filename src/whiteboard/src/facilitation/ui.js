@@ -719,7 +719,10 @@ export function createFacilitationUI(api) {
           endsAt: minutes ? stamp + minutes * 60000 : 0,
         };
       });
-      if (started) track("Workshop activity started", { kind: "vote" });
+      if (started) {
+        track("Workshop activity started", { kind: "vote" });
+        landOn();
+      }
       if (started && minutes && checked("#fac-vote-timer") && api.canEdit())
         api.setTimer(
           changeTimer(board().timer, "start", {
@@ -788,7 +791,24 @@ export function createFacilitationUI(api) {
   }
   function endSession(kind) {
     const vote = kind === "vote" && board().workshop?.vote;
-    if (change((w, b) => finish(w, b, kind)) && vote) stopVoteTimer(vote);
+    const ended = change((w, b) => finish(w, b, kind));
+    if (ended && vote) stopVoteTimer(vote);
+    if (ended) landOn();
+  }
+  // Starting, ending or clearing a vote or poll draws its section anew: the
+  // keyboard goes to the section's heading, or to the first field of a new
+  // one, with the heading in view, rather than to whichever control now
+  // sits where the pressed one was.
+  function landOn(field) {
+    const content = panel?.querySelector("#fac-tabpanel"),
+      heading = content?.querySelector("h3"),
+      active = document.activeElement;
+    if (!heading || !(panel.contains(active) || active === document.body))
+      return;
+    const target = (field && content.querySelector(field)) || heading;
+    if (target === heading) heading.tabIndex = -1;
+    heading.scrollIntoView?.({ block: "nearest" });
+    target.focus({ preventScroll: true });
   }
   // A vote ended early takes its time limit off the board timer, which
   // would otherwise ring for a vote already over; a timer started by hand,
@@ -880,7 +900,10 @@ export function createFacilitationUI(api) {
           startedAt: now(),
         };
       });
-      if (started) track("Workshop activity started", { kind: "poll" });
+      if (started) {
+        track("Workshop activity started", { kind: "poll" });
+        landOn();
+      }
     } catch (error) {
       showError(error.message);
     }
@@ -1903,7 +1926,7 @@ export function createFacilitationUI(api) {
           for (const key of Object.keys(x))
             if (keyKind(key) === "v") delete x[key];
           delete x.vote;
-        }),
+        }) && landOn("#fac-vote-title"),
       "vote-top": () => {
         const n = Math.max(1, +panel.querySelector("#fac-top").value || 1);
         // Results this person cannot see are not selected for them.
@@ -1945,7 +1968,7 @@ export function createFacilitationUI(api) {
           for (const key of Object.keys(x))
             if (keyKind(key) === "a") delete x[key];
           delete x.poll;
-        }),
+        }) && landOn("#fac-poll-question"),
       "poll-csv": () => download(currentRecord("poll"), "csv"),
       "poll-json": () => download(currentRecord("poll"), "json"),
       "agenda-start": () => goToStep(0, true),

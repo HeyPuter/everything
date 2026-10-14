@@ -5174,6 +5174,51 @@ test("starting the agenda starts a session without earlier attendance", () => {
   }
 });
 
+test("starting, ending and clearing a vote or poll moves focus to its heading or first field", () => {
+  const b = { ...newBoard("Workshop"), items: notes() };
+  const ui = stubUI(b, { role: "owner", me: owner });
+  const submit = (form) => {
+    form.querySelector('[type="submit"]').focus();
+    form.dispatchEvent(
+      new ui.doc.defaultView.Event("submit", { cancelable: true }),
+    );
+  };
+  const press = (action) => {
+    const button = ui.doc.querySelector(`[data-fac="${action}"]`);
+    button.focus();
+    button.click();
+  };
+  const focused = () => ui.doc.activeElement;
+  try {
+    ui.api.open("vote");
+    submit(ui.doc.querySelector("#fac-vote-form"));
+    assert.equal(b.workshop.vote.state, "active");
+    // The new vote's heading, above how many votes are left, rather than
+    // the control drawn where the start button was.
+    assert.equal(focused().tagName, "H3");
+    assert.equal(focused().textContent, "Dot vote");
+    assert.equal(focused().tabIndex, -1);
+    press("vote-end");
+    assert.equal(b.workshop.vote.state, "ended");
+    assert.equal(focused().tagName, "H3");
+    press("vote-clear");
+    assert.equal(focused().id, "fac-vote-title", "a new vote starts at Title");
+    ui.api.open("poll");
+    ui.doc.querySelector("#fac-poll-question").value = "Keep the format?";
+    ui.doc.querySelector("#fac-poll-options").value = "Yes\nNo";
+    submit(ui.doc.querySelector("#fac-poll-form"));
+    assert.equal(b.workshop.poll.state, "open");
+    assert.equal(focused().tagName, "H3");
+    assert.equal(focused().textContent, "Keep the format?");
+    press("poll-close");
+    assert.equal(focused().tagName, "H3");
+    press("poll-clear");
+    assert.equal(focused().id, "fac-poll-question");
+  } finally {
+    ui.close();
+  }
+});
+
 test("facilitation actions keep keyboard focus and open sections in the panel", () => {
   const b = { ...newBoard("Workshop"), items: notes() };
   const ui = stubUI(b, { role: "owner", me: owner });
