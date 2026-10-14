@@ -93,6 +93,7 @@ import { prefersReducedMotion } from "./transitions/player.js";
 import { createLayoutCommands } from "./layouts/slide-layouts.js";
 import { createMasterView } from "./layouts/master-view.js";
 import { decoratePlaceholders, fitInto } from "./layouts/placeholders.js";
+import { createSlidesFrom } from "./layouts/slides-from.js";
 import {
   libraryMeta,
   homeRail,
@@ -675,6 +676,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + O", "Open from Puter"],
         ["Ctrl / ⌘ + P", "Print"],
         ["Ctrl / ⌘ + F or H", "Find, or find and replace"],
+        ["Ctrl / ⌘ + G or Shift + G", "Find next or previous"],
         ["Ctrl / ⌘ + = or -", "Zoom in or out"],
         ["Ctrl / ⌘ + 0", "Fit the slide to the window"],
         ["Ctrl / ⌘ + Z", "Undo"],
@@ -682,6 +684,8 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + B / I / U", "Bold, italic, or underline"],
         ["Ctrl / ⌘ + Shift + > or <", "Larger or smaller text"],
         ["Ctrl / ⌘ + D", "Duplicate selected object"],
+        ["Ctrl / ⌘ + Shift + D", "Duplicate slide"],
+        ["Ctrl / ⌘ + Alt + R", "Show or hide the ribbon"],
         ["Ctrl / ⌘ + C / X / V", "Copy, cut, or paste objects"],
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
@@ -3570,6 +3574,24 @@ const layoutCommands = createLayoutCommands({
     slideExtras.clear();
   },
 });
+// Reuse Slides and Slides from Outline (New Slide menu, Insert menu).
+const slidesFrom = createSlidesFrom({
+  pres: () => doc.pres,
+  current: () => slide(),
+  mutate: (fn) => mutate(fn),
+  commitText: () => commitText(),
+  available: () => !!doc && !masterView.active && !readOnlyDocument(),
+  chooseFile: (accept) =>
+    new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
+  parseDeck: (bytes) => parseDeck(bytes),
+  preview: (pres, s) => preview(pres, s),
+  fail: (e) => fail(e),
+  afterAdd: (position) => {
+    if (position >= 0) index = position;
+    clearSelection();
+    slideExtras.clear();
+  },
+});
 // Slide Master, Notes Master and Handout Master views.
 const masterView = createMasterView({
   pres: () => doc.pres,
@@ -3990,6 +4012,10 @@ function editorRibbon() {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
       animationTools.setTabActive(id === "animations");
+    },
+    onCollapse: (on) => {
+      chrome.ribbonCollapsed = on;
+      saveChrome();
     },
   });
   ribbon.onError(fail);
@@ -5930,6 +5956,7 @@ function ribbonApi() {
         icon: "o:duplicate",
         onSelect: () => duplicateSlides(actionSlides(slide())),
       },
+      ...slidesFrom.menuItems(),
       ...(assistant
         ? [
             {
@@ -7221,6 +7248,30 @@ function editItems() {
       onSelect: () => openFind(),
     },
     {
+      label: "Find next",
+      icon: "ChevronDown",
+      shortcut: `${M}+G`,
+      onSelect: () => findAgain(1),
+    },
+    {
+      label: "Find previous",
+      icon: "ChevronUp",
+      shortcut: `${M}+Shift+G`,
+      onSelect: () => findAgain(-1),
+    },
+    {
+      label: "Replace…",
+      icon: "o:replace",
+      shortcut: `${M}+H`,
+      onSelect: () => openFind({ replace: true }),
+    },
+    {
+      label: "Select data…",
+      icon: "o:selectData",
+      disabled: !obj || !chartTools.isChart(obj) || readOnlyDocument(),
+      onSelect: () => chartTools.selectData(obj),
+    },
+    {
       label: "Duplicate",
       icon: "CopyPlus",
       shortcut: `${M}+D`,
@@ -7234,6 +7285,20 @@ function editItems() {
       disabled: !obj,
       onSelect: deleteObject,
     },
+    {
+      label: "Delete slide",
+      icon: "o:deleteSlide",
+      disabled:
+        !doc ||
+        masterView.active ||
+        readOnlyDocument() ||
+        P.getSlides(doc.pres).length <= actionSlides(slide()).length,
+      onSelect: () => deleteSlides(actionSlides(slide())),
+    },
+    // Rename Section and Remove Section, for the current slide's section.
+    ...sectionMenu().filter((item) =>
+      ["Rename Section", "Remove Section"].includes(item.label),
+    ),
     { separator: true },
     ...formatTools.editMenuItems(),
   ];
@@ -7261,6 +7326,13 @@ function viewItems() {
       shortcut: `${M}+J`,
       checked: !!assistant?.isOpen,
       onSelect: () => toggleAssistant(),
+    },
+    {
+      label: "Ribbon",
+      icon: "PanelTop",
+      shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+R`,
+      checked: !!ribbon && !ribbon.collapsed,
+      onSelect: toggleRibbon,
     },
     { separator: true },
     {
@@ -7313,6 +7385,12 @@ function viewItems() {
       onSelect: () => setView("normal"),
     },
     { separator: true },
+    {
+      label: "Header and Footer…",
+      icon: "o:headerFooter",
+      onSelect: () => ribbonCommands().headerFooter?.(),
+    },
+    { separator: true },
     { label: "Present", icon: "Play", onSelect: run(present) },
     { separator: true },
     { label: "Appearance", icon: "Monitor", onSelect: appearanceDialog },
@@ -7341,6 +7419,45 @@ function insertItems() {
     },
     { separator: true },
     { label: "New slide", icon: "Plus", items: layoutItems(slide()) },
+    {
+      label: "Duplicate slide",
+      icon: "o:duplicate",
+      shortcut: `${M}+Shift+D`,
+      disabled: !doc || masterView.active || readOnlyDocument(),
+      onSelect: () => duplicateSlides(actionSlides(slide())),
+    },
+    {
+      label: "Slides from",
+      icon: "o:reuseSlides",
+      items: slidesFrom.menuItems(),
+    },
+    { label: "Section", icon: "o:section", items: sectionMenu() },
+    {
+      label: "Comment",
+      icon: "o:newComment",
+      shortcut: `${M}+Shift+M`,
+      onSelect: () => review.newComment(),
+    },
+    { separator: true },
+    { label: "WordArt", icon: "o:wordArt", items: wordArtMenu() },
+    {
+      label: "Date and time",
+      icon: "o:dateTime",
+      disabled: !ribbonCommands().canInsertField(),
+      items: dateTimeMenu(),
+    },
+    {
+      label: "Slide number",
+      icon: "o:slideNumber",
+      disabled: !ribbonCommands().canInsertField(),
+      onSelect: insertSlideNumber,
+    },
+    {
+      label: "Symbol…",
+      icon: "o:symbol",
+      disabled: !ribbonCommands().canInsertField(),
+      onSelect: () => insertSymbol().catch(fail),
+    },
     { separator: true },
     ...insertFeatures.menuItems(),
   ];
@@ -12486,6 +12603,19 @@ function openFind({ replace = false } = {}) {
     .focus();
   if (!replace) input.select();
 }
+// Find Next / Find Previous: the next match of the last search, or the
+// find bar when there is no search yet.
+function findAgain(step) {
+  const bar = document.querySelector(".findbar");
+  if (!bar || bar.hidden || !find.query) return openFind();
+  moveMatch(step).catch(fail);
+}
+// View > Ribbon: shows or hides the ribbon's commands (its tabs stay).
+function toggleRibbon() {
+  if (!ribbon) return;
+  ribbon.setCollapsed(!ribbon.collapsed);
+  syncToolbar();
+}
 function closeFind() {
   const bar = document.querySelector(".findbar");
   if (!bar || bar.hidden) return;
@@ -15323,6 +15453,18 @@ document.addEventListener("keydown", (e) => {
     openFind({ replace: e.key.toLowerCase() === "h" });
     return;
   }
+  // Find Next / Find Previous, also from the find bar.
+  if (mod && !e.altKey && e.code === "KeyG") {
+    e.preventDefault();
+    findAgain(e.shiftKey ? -1 : 1);
+    return;
+  }
+  // The ribbon folds away and comes back.
+  if (mod && e.altKey && !e.shiftKey && e.code === "KeyR") {
+    e.preventDefault();
+    toggleRibbon();
+    return;
+  }
   // The slide zooms in place of the page.
   if (mod && !e.altKey && ["=", "+", "-", "0"].includes(e.key)) {
     e.preventDefault();
@@ -15389,6 +15531,13 @@ document.addEventListener("keydown", (e) => {
   ) {
     e.preventDefault();
     addSlideAfter(slide());
+    return;
+  }
+  // Duplicate Slide.
+  if (mod && e.shiftKey && !e.altKey && e.code === "KeyD") {
+    e.preventDefault();
+    if (!masterView.active && !readOnlyDocument())
+      duplicateSlides(actionSlides(slide()));
     return;
   }
   if (mod && e.key.toLowerCase() === "d" && currentShape()) {

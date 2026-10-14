@@ -35,6 +35,17 @@ what is being added, and its status. Items are checked off as they land.
 - [x] Handout Master and Notes Master views: page orientation, header,
       footer, date, page number (and slide image and body on notes pages)
       placeholders, slides-per-page guides on the handout page.
+- [x] Reuse Slides (pick slides of another .pptx from thumbnails; keep
+      their source formatting, bringing their layouts, masters and themes,
+      or take this deck's matching layouts) and Slides from Outline (.txt,
+      .md, .rtf: top-level lines become titles, indented lines bullets), in
+      the New Slide menu and Insert > Slides from; Duplicate Slide
+      (Ctrl/Cmd+Shift+D) in the Insert menu (`src/layouts/slides-from.js`).
+- [x] Menu bar: Find Next / Find Previous (Ctrl/Cmd+G, +Shift+G),
+      Replace, Select Data for charts, Delete Slide and section commands in
+      Edit; Ribbon (Ctrl/Cmd+Alt+R, remembered) and Header and Footer in
+      View; Section, Comment, WordArt, Date and Time, Slide Number and
+      Symbol in Insert.
 - [x] Insert Placeholder draws the placeholder on the layout (drag, or click
       for a standard size); changing the slide size stretches masters and
       layouts with it.

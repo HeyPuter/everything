@@ -1158,6 +1158,7 @@ export function createChartTools(h) {
     isChart,
     insert,
     editData,
+    selectData: (obj) => selectData(obj),
     changeType,
     tabs,
     inspector,
