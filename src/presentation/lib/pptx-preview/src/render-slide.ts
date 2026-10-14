@@ -41,7 +41,16 @@ import { PATTERN_CELL_PERIOD, nativePatternPaths } from "./pattern-cells.ts";
 import { resolveGeometryArc } from "../../pptx/src/internal/drawingml/geometry-arc.ts";
 import { bytesToBase64 } from "./base64.ts";
 import { getShapeEmbeddedObjectPreview } from "../../pptx/src/api/fn/ole-object.ts";
-import { detectImageFormat as detectImageFormatLocal } from "../../pptx/src/internal/opc/image-format.ts";
+import {
+  detectImageFormat as detectImageFormatLocal,
+  readImagePixelSize,
+} from "../../pptx/src/internal/opc/image-format.ts";
+import {
+  getSlideBackgroundPictureFill,
+  getSlideLayoutBackgroundPictureFill,
+  getSlideMasterBackgroundPictureFill,
+  type SlideBackgroundPictureFill,
+} from "../../pptx/src/api/fn/slide-background-fill.ts";
 import { isShapeHidden } from "../../pptx/src/index.ts";
 import { templateShapes } from "./template-shapes.ts";
 import {
@@ -11928,6 +11937,59 @@ const showsMasterArtwork = (slide: SlideData): boolean => {
   return !/\bshowMasterSp="(0|false)"/.test(root);
 };
 
+// A picture background: stretched over the slide (inset by its fill
+// rectangle), or tiled as a texture from its alignment corner, offset and
+// scaled, mirrored when asked; drawn at its transparency.
+const bgGradientDefsId = (slide: SlideData): string =>
+  `bgpic-${getSlidePartName(slide).replace(/[^A-Za-z0-9]/g, "")}`;
+const backgroundPictureSvg = (
+  dataUrl: string,
+  bytes: Uint8Array,
+  fill: SlideBackgroundPictureFill | null,
+  W: number,
+  H: number,
+  id: string,
+): string => {
+  const transparency = fill?.transparency ?? 0;
+  const opacity =
+    transparency > 0
+      ? ` opacity="${Math.max(0, 1 - transparency).toFixed(3)}"`
+      : "";
+  const href = `href="${dataUrl}" xlink:href="${dataUrl}"`;
+  const size = fill?.tile ? readImagePixelSize(bytes) : null;
+  if (fill?.tile && size) {
+    const t = fill.tile;
+    const tw = Math.max(1, size.width * EMU_PER_PX * t.scaleX);
+    const th = Math.max(1, size.height * EMU_PER_PX * t.scaleY);
+    const col = t.align === "ctr" ? "" : t.align.replace(/^[tb]/, "");
+    const row = t.align === "ctr" ? "" : t.align.replace(/[lr]$/, "");
+    const ax = col === "l" ? 0 : col === "r" ? W - tw : (W - tw) / 2;
+    const ay = row === "t" ? 0 : row === "b" ? H - th : (H - th) / 2;
+    const x = ax + t.offsetX,
+      y = ay + t.offsetY;
+    const fx = t.flip === "x" || t.flip === "xy";
+    const fy = t.flip === "y" || t.flip === "xy";
+    const cw = fx ? tw * 2 : tw,
+      ch = fy ? th * 2 : th;
+    const cell = (mx: boolean, my: boolean) =>
+      `<image x="0" y="0" width="${E(tw)}" height="${E(th)}" ${href} preserveAspectRatio="none" transform="translate(${mx ? E(tw * 2) : 0} ${my ? E(th * 2) : 0}) scale(${mx ? -1 : 1} ${my ? -1 : 1})"/>`;
+    const cells = [cell(false, false)];
+    if (fx) cells.push(cell(true, false));
+    if (fy) cells.push(cell(false, true));
+    if (fx && fy) cells.push(cell(true, true));
+    return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" x="${E(x)}" y="${E(y)}" width="${E(cw)}" height="${E(ch)}">${cells.join("")}</pattern></defs><rect width="${E(W)}" height="${E(H)}" fill="url(#${id})"${opacity}/>`;
+  }
+  const s = fill?.stretch;
+  if (s && (s.left || s.top || s.right || s.bottom)) {
+    const x = s.left * W,
+      y = s.top * H;
+    const w = Math.max(1, W * (1 - s.left - s.right)),
+      h = Math.max(1, H * (1 - s.top - s.bottom));
+    return `<image x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" ${href} preserveAspectRatio="none"${opacity}/>`;
+  }
+  return `<image x="0" y="0" width="${E(W)}" height="${E(H)}" ${href} preserveAspectRatio="xMidYMid slice"${opacity}/>`;
+};
+
 const renderSlideSvgInContext = (
   pres: PresentationData,
   slide: SlideData,
@@ -12077,20 +12139,38 @@ const renderSlideSvgInContext = (
   let bgImage = "";
   if (bg.kind === "image") {
     let bytes = getSlideBackgroundImageBytes(slide);
-    if (!bytes && viewLayout)
+    let pictureFill: SlideBackgroundPictureFill | null = bytes
+      ? getSlideBackgroundPictureFill(slide)
+      : null;
+    if (!bytes && viewLayout) {
       bytes = getSlideMasterBackgroundImageBytes(pres, viewLayout);
+      if (bytes)
+        pictureFill = getSlideMasterBackgroundPictureFill(pres, viewLayout);
+    }
     if (!bytes && pres) {
       const layout = getSlideLayout(slide);
       if (layout) {
         bytes = getSlideLayoutBackgroundImageBytes(pres, layout);
-        if (!bytes) bytes = getSlideMasterBackgroundImageBytes(pres, layout);
+        if (bytes) pictureFill = getSlideLayoutBackgroundPictureFill(layout);
+        else {
+          bytes = getSlideMasterBackgroundImageBytes(pres, layout);
+          if (bytes)
+            pictureFill = getSlideMasterBackgroundPictureFill(pres, layout);
+        }
       }
     }
     if (bytes) {
       const fmt = detectImageFormatLocal(bytes);
       const mime = fmt ? (imageMime[fmt] ?? "image/png") : "image/png";
       const dataUrl = `data:${mime};base64,${bytesToBase64(bytes)}`;
-      bgImage = `<image x="0" y="0" width="${E(W)}" height="${E(H)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="xMidYMid slice"/>`;
+      bgImage = backgroundPictureSvg(
+        dataUrl,
+        bytes,
+        pictureFill,
+        W,
+        H,
+        bgGradientDefsId(slide),
+      );
     }
   }
 

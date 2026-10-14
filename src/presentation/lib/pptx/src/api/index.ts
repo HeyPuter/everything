@@ -740,3 +740,8 @@ export const VERSION = "0.12.0";
 export * from "./fn/comment-threads.ts";
 export * from "./fn/custom-properties.ts";
 export * from "./fn/shape-decorative.ts";
+// Themes: the theme part behind each master, master designs, theme files
+// (.thmx), and gradient, pattern and picture backgrounds.
+export * from "./fn/theme-design.ts";
+export * from "./fn/theme-file.ts";
+export * from "./fn/slide-background-fill.ts";

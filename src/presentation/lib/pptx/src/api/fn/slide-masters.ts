@@ -2522,3 +2522,28 @@ export const scaleTemplates = (
     writeDoc(pkg, name, doc);
   }
 };
+
+/**
+ * @internal Lists a master part already in the package (copied in with its
+ * layouts and theme) in the presentation, after `after` or at the end, and
+ * gives the master and its layouts ids no other template uses.
+ */
+export const _registerSlideMaster = (
+  pres: PresentationData,
+  masterPartName: string,
+  after: string | null = null,
+): void => {
+  const pkg = pkgOf(pres);
+  const doc = readDoc(pkg, masterPartName);
+  const list = firstChildElement(doc.root, pq("sldLayoutIdLst"));
+  // Reserve every other template's ids first, then renumber this master's.
+  const used = usedTemplateIds(pkg);
+  for (const entry of list ? children(list, "sldLayoutId") : [])
+    setAttr(entry, "id", "0");
+  writeDoc(pkg, masterPartName, doc);
+  addPresentationMaster(pkg, masterPartName, after);
+  for (const id of usedTemplateIds(pkg)) used.add(id);
+  for (const entry of list ? children(list, "sldLayoutId") : [])
+    setAttr(entry, "id", String(allocateId(used)));
+  writeDoc(pkg, masterPartName, doc);
+};
