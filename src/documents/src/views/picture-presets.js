@@ -18,9 +18,8 @@ export const STANDARD_COLORS = [['Dark Red', 'A61B1B'], ['Red', 'E02424'], ['Ora
 export function resolveColor(color, theme = FALLBACK_THEME) {
   if (!color) return null;
   if (typeof color === 'string') return color.replace(/^#/, '').toUpperCase();
-  if (color.rgb) return color.rgb;
   const alias = { tx1: 'dk1', bg1: 'lt1', tx2: 'dk2', bg2: 'lt2' };
-  const base = theme[alias[color.scheme] || color.scheme] || FALLBACK_THEME[alias[color.scheme] || color.scheme] || '000000';
+  const base = color.rgb ? color.rgb.toUpperCase() : theme[alias[color.scheme] || color.scheme] || FALLBACK_THEME[alias[color.scheme] || color.scheme] || '000000';
   const mod = (color.lumMod ?? 100000) / 100000, off = (color.lumOff ?? 0) / 100000;
   if (mod === 1 && !off) return base;
   // Luminance modulation in HSL, as the colour transforms define it.

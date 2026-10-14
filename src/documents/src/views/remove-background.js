@@ -1,3 +1,4 @@
+import '../styles/remove-background.css';
 import { el, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { removeBackground, downsample } from '../engine/picture-processing.js';

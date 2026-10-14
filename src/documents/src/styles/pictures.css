@@ -8,10 +8,9 @@
 :is(.ribbon-card, .ribbon-flyout) button.pic-style-item:hover:not(:disabled) { border-color: var(--ed-line); background: var(--ed-hover); }
 :is(.ribbon-card, .ribbon-flyout) button.pic-style-item:disabled { opacity: .45; }
 :is(.ribbon-card, .ribbon-flyout) button.pic-shape-style {
-  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 27px; padding: 0;
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 54px; padding: 0;
   border: 1px solid transparent; border-radius: 4px; background: transparent;
 }
-.pic-shape-gallery { flex-wrap: wrap; align-content: flex-start; height: 54px; row-gap: 0; }
 :is(.ribbon-card, .ribbon-flyout) button.pic-shape-style:hover:not(:disabled) { border-color: var(--ed-line); background: var(--ed-hover); }
 :is(.ribbon-card, .ribbon-flyout) button.pic-shape-style:disabled { opacity: .45; }
 

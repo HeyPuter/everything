@@ -5,6 +5,7 @@
  * DrawingML through drawing-format.js (one transaction, so it undoes in one step and saves as shown).
  */
 import '../styles/pictures.css';
+import '../styles/drawing-handles.css';
 import { el, isComposing } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { openMenu, closeMenu } from '../ui/menu.js';
@@ -735,9 +736,10 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const arrangeGroup = (id, priority) => {
       const position = menuButton('Position', 'position', positionItems);
       const wrap = menuButton('Wrap Text', 'wrapText', wrapItems);
-      const forwardMain = command('Bring Forward', 'bringForward', () => arrange('forward'), { size: 'large', text: 'Bring Forward' });
-      const backwardMain = command('Send Backward', 'sendBackward', () => arrange('backward'), { size: 'large', text: 'Send Backward' });
-      const forward = splitMenu(forwardMain, 'Bring Forward options', forwardItems), backward = splitMenu(backwardMain, 'Send Backward options', backwardItems);
+      const forwardMain = command('Bring Forward', 'bringForward', () => arrange('forward'), { text: 'Bring Forward' });
+      const backwardMain = command('Send Backward', 'sendBackward', () => arrange('backward'), { text: 'Send Backward' });
+      const smallSplit = (main, label, items) => split(main, { label, size: 'small', open: (anchor, e) => openMenu({ anchor, label, items: kit.inDocument(items()), minWidth: 220, pointer: !!e?.detail, onClose: e?.detail ? kit.focusEditor : null }) });
+      const forward = smallSplit(forwardMain, 'Bring Forward options', forwardItems), backward = smallSplit(backwardMain, 'Send Backward options', backwardItems);
       const pane = command('Selection Pane', 'selectionPane', () => openPane('selection'), { size: 'small', text: 'Selection Pane' });
       const alignButton = menuButton('Align', 'objAlignLeft', alignItems, { size: 'small', text: 'Align' });
       const groupButton = menuButton('Group', 'groupObjects', groupItems, { size: 'small', text: 'Group' });
@@ -746,7 +748,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       track(forwardMain, floating); track(backwardMain, floating); track(forward.arrow, has); track(backward.arrow, has);
       track(pane, () => !!ready() && engineReady()); track(alignButton, () => selection().length > 0 && editable()); track(groupButton, () => editable() && (selection().length > 1 || kind(selected()) === 'group' || !!lastGroup));
       track(rotate, () => has() && selected()?.kind !== 'chart');
-      return { id, label: 'Arrange', icon: 'wrapText', priority, items: [position, wrap, forward, backward, rows([pane], [alignButton], [groupButton, rotate])] };
+      return { id, label: 'Arrange', icon: 'wrapText', priority, items: [position, wrap, rows([forward], [backward], [pane]), rows([alignButton], [groupButton], [rotate])] };
     };
     const sizeGroup = (id, priority, { crop = false } = {}) => {
       const spin = (key, label) => {
@@ -755,7 +757,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
           onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
         states.push(input);
         sizeInputs.push({ input, key });
-        return el('label.ribbon-spin', { title: label }, kit.commandIconEl(key === 'height' ? 'shapeHeight' : 'shapeWidth', 16), el('span.ribbon-spin-label', {}, label), input, el('span.ribbon-spin-unit', {}, 'in'));
+        return el('label.ribbon-spin', { title: label }, kit.commandIconEl(key === 'height' ? 'shapeHeight' : 'shapeWidth', 16), el('span.ribbon-spin-label.visually-hidden', {}, label), input, el('span.ribbon-spin-unit', {}, 'in'));
       };
       const launcher = command('Size and Position…', 'pageSetup', () => openSizePosition('size'));
       track(launcher, has);
@@ -776,7 +778,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const corrections = menuButton('Corrections', 'corrections', correctionItems);
     const color = menuButton('Color', 'pictureColor', colorMenuItems);
     const artistic = menuButton('Artistic Effects', 'artisticEffects', artisticItems, { text: 'Artistic Effects' });
-    const transparency = menuButton('Transparency', 'transparency', transparencyItems);
+    const transparency = menuButton('Transparency', 'transparency', transparencyItems, { size: 'small', text: null });
     const compress = command('Compress Pictures', 'compressPictures', compressPictures, { text: null });
     const change = menuButton('Change Picture', 'changePicture', changePictureItems, { size: 'small', text: null });
     const reset = menuButton('Reset Picture', 'resetPicture', resetItems, { size: 'small', text: null });
@@ -802,10 +804,10 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const pictureLauncher = command('Format Picture', 'formattingPane', () => openPane('format'));
     track(pictureLauncher, has);
     const picture = [
-      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 7, items: [removeBg, corrections, color, artistic, transparency, rows([compress], [change], [reset])] },
-      { id: 'pictureStyles', label: 'Picture Styles', icon: 'pictureBorder', priority: 8, items: [el('div.ribbon-gallery-frame', {}, pictureGallery, pictureStylesMore), rows([border], [effects], [pictureLayout]), el('div.ribbon-launcher', {}, pictureLauncher)] },
+      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 6, items: [removeBg, corrections, color, artistic, rows([transparency], [compress], [change]), rows([reset])] },
+      { id: 'pictureStyles', label: 'Picture Styles', icon: 'pictureBorder', priority: 7, items: [el('div.ribbon-gallery-frame', {}, pictureGallery, pictureStylesMore), rows([border], [effects], [pictureLayout]), el('div.ribbon-launcher', {}, pictureLauncher)] },
       { id: 'pictureAccessibility', label: 'Accessibility', icon: 'altText', priority: 4, items: [altText()] },
-      arrangeGroup('pictureArrange', 6),
+      arrangeGroup('pictureArrange', 8),
       sizeGroup('size', 5, { crop: true }),
     ];
 
@@ -822,7 +824,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       const pal = palette();
       shapeStyleButtons.length = 0;
       shapeGallery.replaceChildren(...quickShapeStyles().slice(0, 12).map(style => {
-        const button = el('button.pic-shape-style', { type: 'button', role: 'option', title: style.name, 'aria-label': style.name, onclick: () => commands.shapeStyle(style) }, shapeStyleThumb(style, pal, { width: 30, height: 24, text: 'Abc' }));
+        const button = el('button.pic-shape-style', { type: 'button', role: 'option', title: style.name, 'aria-label': style.name, onclick: () => commands.shapeStyle(style) }, shapeStyleThumb(style, pal, { width: 42, height: 34, text: 'Abc' }));
         button.addEventListener('mousedown', e => e.preventDefault());
         shapeStyleButtons.push(button);
         return button;
@@ -853,7 +855,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       { id: 'wordArtStyles', label: 'WordArt Styles', icon: 'wordArt', priority: 4, items: [wordArtQuick, rows([textFill], [textOutline], [textEffects])] },
       { id: 'shapeText', label: 'Text', icon: 'alignMiddleCenter', priority: 3, items: [rows([alignText])] },
       { id: 'shapeAccessibility', label: 'Accessibility', icon: 'altText', priority: 2, items: [altText()] },
-      arrangeGroup('shapeArrange', 6),
+      arrangeGroup('shapeArrange', 7),
       sizeGroup('shapeSize', 5),
     ];
     const layoutArrange = arrangeGroup('arrange', 3);
@@ -915,7 +917,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   }
 
   return {
-    commands: { drawingTabs, drawingContext, openFormatPane: section => openPane('format', section), openSelectionPane: () => openPane('selection'), editAltText: () => openPane('altText'), openSizePosition, drawingWrapItems: wrapItems },
+    commands: { drawingTabs, drawingContext, openFormatPane: section => openPane('format', section), openSelectionPane: () => openPane('selection'), editAltText: () => openPane('altText'), openSizePosition, drawingWrapItems: wrapItems,
+      // The shared context menu and older callers use these names for wrapping and stacking.
+      wrapItems, arrange, canArrange: () => floating(), canWrap: () => !!selected() && editable() },
     extendMenu, contextMenuItems, drawingContext,
     pane: paneHost, inputs: [pictureInput, fillPictureInput],
     refresh() { refreshRibbon(); pane?.refresh?.(); },
@@ -923,23 +927,64 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     closePane,
     destroy() { transparentPick?.(); closePane(); },
     /** Canvas gestures the engine hands over: rotation of drawings it cannot rotate itself, layout options. */
+    /** Canvas gestures the engine hands over (image-interaction.js): rotation, crop and group moves of drawings, layout options. */
+    attach(engine) {
+      const crop = async (image, { crop, width, height, anchor }) => apply('Crop', async drawing => {
+        const parts = drawingParts(drawing);
+        if (!parts.blipFill) throw new Error('Only pictures can be cropped.');
+        setCrop(parts.blipFill, crop);
+        if (width && height) resizeFrame(parts.frame, parts.properties, width, height);
+        if (anchor && image.anchor) {
+          const frame = readFrame(drawing);
+          writeFrame(drawing, { ...(anchor.x !== undefined ? { horizontal: { relativeFrom: frame.horizontal.relativeFrom, offset: anchor.x } } : {}), ...(anchor.y !== undefined ? { vertical: { relativeFrom: frame.vertical.relativeFrom, offset: anchor.y } } : {}) });
+        }
+      }, image);
+      engine.onDrawingGesture = payload => {
+        const { type, image } = payload;
+        if (type === 'moveMany') { engine.finishComposition(); const ok = engine.execute(() => moveDrawings(engine.model, payload.moves.map(m => ({ image: m.image, x: Math.round(m.x), y: Math.round(m.y) })))); refreshPanes(); return ok || true; }
+        if (!image || !pkg() || pkg().readOnly) return false;
+        if (type === 'rotate' && (image.retainedDrawing || image.shell) && formattable(image)) {
+          const current = describe(image)?.transform?.rotation || 0;
+          return apply('Rotate', props(sp => setTransform(sp, { rotation: current + (payload.delta ?? 0) / 60000 })), image);
+        }
+        if (type === 'crop' && isPicture(image) && formattable(image) && (image.shell || image.aspectLocked)) return crop(image, payload);
+        return false;
+      };
+      engine.canRotateDrawing = image => !!image && image.kind !== 'chart' && !image.flatLine && !image.flatGroup && !image.anchor?.relativeSize
+        && (!image.anchor || isPositionedImage(image)) && (!image.retainedDrawing && !image.shell || formattable(image));
+      engine.canCropDrawing = image => isPicture(image) && formattable(image) && engine.session.path === null && !(describe(image)?.transform?.rotation);
+      engine.cropInfo = image => {
+        const info = describe(image) || {};
+        // The decoded picture under a styled frame: the scene's picture node.
+        const find = node => !node ? null : node.type === 'picture' && node.image?.assetId ? node.image.assetId : (node.children || []).map(find).find(Boolean) || null;
+        const assetId = image.retainedDrawing ? find(engine.model.assets[image.assetId]?.scene) || image.assetId : image.assetId;
+        return { crop: { left: 0, top: 0, right: 0, bottom: 0, ...(info.crop || image.crop || {}) }, flipH: !!(info.transform?.flipH ?? image.flipH), flipV: !!(info.transform?.flipV ?? image.flipV), assetId };
+      };
+      engine.onLayoutOptions = button => layoutOptions(button);
+      // Resizing on the page: simple shapes keep their own editor; every other picture, shape and group
+      // drawing resizes by rewriting its frame (extent, shape transform and, from the top or left, its offsets).
+      const shapes = engine.drawingEditor;
+      engine.drawingEditor = {
+        canResize: image => !!shapes?.canResize(image) || formattable(image) && !!image.retainedDrawing,
+        resize: patch => {
+          const image = selected();
+          if (shapes?.canResize(image)) return shapes.resize(patch);
+          return apply('Size', async drawing => {
+            const parts = drawingParts(drawing);
+            if (patch.width && patch.height) resizeFrame(parts.frame, parts.properties, patch.width, patch.height);
+            if (patch.anchor && image?.anchor) {
+              const frame = readFrame(drawing);
+              writeFrame(drawing, { ...(patch.anchor.x !== undefined ? { horizontal: { relativeFrom: frame.horizontal.relativeFrom, offset: patch.anchor.x } } : {}), ...(patch.anchor.y !== undefined ? { vertical: { relativeFrom: frame.vertical.relativeFrom, offset: patch.anchor.y } } : {}) });
+            }
+          }, image);
+        },
+      };
+    },
     gestures: {
-      canRotate: image => !!image && image.kind !== 'chart' && (!image.retainedDrawing || formattable(image)),
-      async rotate(image, rotation) {
-        if (!image.retainedDrawing && !image.shell) return false;
-        return apply('Rotate', props(sp => setTransform(sp, { rotation: rotation / 60000 })), image);
-      },
-      async crop(image, { crop, width, height, anchor }) {
-        if (!image.shell || !image.retainedDrawing) return false;
-        return apply('Crop', async drawing => {
-          const parts = drawingParts(drawing);
-          if (!parts.blipFill) throw new Error('Only pictures can be cropped.');
-          setCrop(parts.blipFill, crop);
-          if (width && height) resizeFrame(parts.frame, parts.properties, width, height);
-          if (anchor && image.anchor) writeFrame(drawing, { ...(anchor.x !== undefined ? { horizontal: { relativeFrom: readFrame(drawing).horizontal.relativeFrom, offset: anchor.x } } : {}), ...(anchor.y !== undefined ? { vertical: { relativeFrom: readFrame(drawing).vertical.relativeFrom, offset: anchor.y } } : {}) });
-        }, image);
-      },
-      layoutOptions(anchor) {
+      layoutOptions: anchor => layoutOptions(anchor),
+    },
+  };
+  function layoutOptions(anchor) {
         const image = selected(); if (!image) return;
         const mode = wrapModeOf(image);
         const icons = [['In Line with Text', 'inline', 'wrapInline'], ['Square', 'square', 'wrapSquare'], ['Tight', 'tight', 'wrapTight'], ['Through', 'through', 'wrapThrough'], ['Top and Bottom', 'topAndBottom', 'wrapTopBottom'], ['Behind Text', 'behind', 'behindText'], ['In Front of Text', 'front', 'inFront']];
@@ -950,7 +995,5 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
           { label: 'Move with Text', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom !== 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },
           { label: 'Fix Position on Page', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom === 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(false) },
           { separator: true }, { label: 'See more…', onSelect: () => openSizePosition('position') }], onClose: () => editor()?.focus() });
-      },
-    },
-  };
+  }
 }

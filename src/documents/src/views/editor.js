@@ -59,6 +59,7 @@ import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createInsert } from './insert-tab.js';
+import { createPictures } from './pictures.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -902,6 +903,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendMenu = (id, kit) => [...(reviewExtendMenu?.(id, kit) || []), ...reviewTools.extendMenu(id, kit)];
   const reviewContextItems = editorCommands.contextMenuItems;
   editorCommands.contextMenuItems = (context, kit) => [...(reviewContextItems?.(context, kit) || []), ...reviewTools.contextMenuItems(context, kit)];
+  // Picture Format, Shape Format and Arrange (pictures.js): contextual tabs, panes and drawing commands.
+  const pictures = createPictures({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(),
+    base: { openShapes: (anchor, e) => editorCommands.openShapes?.(anchor, e), insertTextBox: () => editorCommands.insertTextBox?.() } });
+  Object.assign(editorCommands, pictures.commands);
+  const picturesExtendMenu = editorCommands.extendMenu, picturesContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.extendMenu = (id, kit) => [...(picturesExtendMenu?.(id, kit) || []), ...pictures.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(picturesContextMenuItems?.(context, kit) || []), ...pictures.contextMenuItems(context, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -987,9 +995,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   });
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, chrome.inspector)),
     statusBar.el, backstage.el,
-    openInput, imageInput, fontSizes);
+    openInput, imageInput, ...pictures.inputs, fontSizes);
   chrome.attach(root);
   // The chrome's own shortcuts and the user's bindings from Customize Keyboard; they run before the
   // document's built-in chords, so a binding of your own takes precedence.
@@ -1119,8 +1127,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const selectedArea = engine.session.path === null ? '' : JSON.stringify([engine.session.path, engine.storyPage]);
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
-    chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
-    mailings.refresh();
+    chrome.setContext(pictures.drawingContext(engine) || (engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph'), ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    mailings.refresh(); pictures.refresh();
     if (pkg.readOnly || engine.viewOnly) {
       // Read-only files and Viewing mode: the commands that change the document stay off.
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
@@ -1355,6 +1363,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     proofing.attach(engine);
     reviewTools.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
+    pictures.attach(engine);
     rulers = createCanvasRulers({ host, surface, editor: () => engine, openParagraph: () => paragraphGeometry.click(), openPage: () => pageSetup.click() });
     // In a tablet-sized or narrow window (under 1024px) a page wider than the view at 100% opens at Fit
     // width, as on phones; desktop windows keep 100% and scroll.
@@ -1421,7 +1430,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

@@ -44,23 +44,24 @@ export function createPane(context) {
     if (additive && engine.setDrawingSelection) {
       const current = (engine.drawingSelection?.length ? engine.drawingSelection : engine.model.selectedImage ? [engine.model.selectedImage] : []).filter(i => all.includes(i));
       const next = current.some(i => i.id === image.id) ? current.filter(i => i.id !== image.id) : [...current, image];
-      engine.setDrawingSelection(next);
-      if (next.length) focusImage(engine, next.at(-1), false);
-    } else { engine.setDrawingSelection?.([]); focusImage(engine, image, true); }
+      if (next.length) engine.setDrawingSelection(next);
+    } else if (!engine.setDrawingSelection?.([image])) focusImage(engine, image);
     refresh(true);
   }
-  function focusImage(engine, image, scroll) {
+  function focusImage(engine, image) {
     let offset = 0;
     for (const [index, p] of engine.model.paragraphs.entries()) {
-      for (const run of p.runs) { if (run.image === image) { if (scroll) engine.selectMatch({ start: offset, end: offset + 1 }); else { engine.model.select(offset, offset + 1); engine.syncInput(); engine.paint(); engine.onSelection(); } return; } offset += run.text.length; }
+      for (const run of p.runs) { if (run.image === image) { engine.selectMatch({ start: offset, end: offset + 1 }); return; } offset += run.text.length; }
       if (index < engine.model.paragraphs.length - 1) offset += 1;
     }
   }
   function rename(row, image) {
     const label = row.querySelector('.pic-selection-name');
     const input = el('input.input.pic-selection-rename', { type: 'text', value: image.name, 'aria-label': `Rename ${image.name}`, maxLength: 255 });
+    let finished = false;
     const finish = commit => {
-      if (!input.isConnected) return;
+      if (finished || !input.isConnected) return;
+      finished = true;
       const value = input.value.trim();
       input.replaceWith(label);
       if (commit && value && value !== image.name) commands.rename(image, value).then(() => refresh(true));
@@ -93,6 +94,11 @@ export function createPane(context) {
     restack(next);
   }
 
+  // Double-click renames; the list may have been redrawn by the first click, so look the row up here.
+  list.addEventListener('dblclick', e => {
+    const row = e.target.closest('li'), image = row && ordered().find(i => String(i.id) === row.dataset.id);
+    if (image && ready()) rename(row, image);
+  });
   let dragging = null, signature = '';
   function refresh(force = false) {
     const items = ordered(), ids = selectedSet();
@@ -102,7 +108,7 @@ export function createPane(context) {
     const focused = list.contains(document.activeElement) ? document.activeElement.closest('li')?.dataset.id : null;
     list.replaceChildren(...items.map(image => {
       const kind = drawingKind(image), floating = isPositionedImage(image);
-      const name = el('button.pic-selection-name', { type: 'button', title: image.name, onclick: e => select(image, e.shiftKey || e.ctrlKey || e.metaKey), ondblclick: () => rename(row, image),
+      const name = el('button.pic-selection-name', { type: 'button', title: image.name, onclick: e => { if (e.detail < 2) select(image, e.shiftKey || e.ctrlKey || e.metaKey); },
         onkeydown: e => {
           if (isComposing(e)) return;
           if (e.key === 'F2') { e.preventDefault(); rename(row, image); }

@@ -28,17 +28,15 @@ async function insertPicture(page, input) {
   await expect(page.locator('#ribbon-tab-picture')).toHaveAttribute('aria-selected', 'true');
   return page.locator('#ribbon-panel-picture');
 }
-async function insertShape(page, name = 'Rectangle') {
+async function insertShape(page, name = 'Rectangle', at = { x: 420, y: 380 }) {
   await onTab(page, 'insert');
   await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Shapes', exact: true }).click();
   await page.getByRole('menuitem', { name, exact: true }).click();
-  // A shape gallery click inserts at the caret (or starts a drag on the page in some galleries).
-  const canvas = page.locator('canvas.canvas-page').first();
-  if (!await page.locator('#ribbon-tab-shapeFormat').isVisible()) {
-    const box = await canvas.boundingBox();
-    await page.mouse.move(box.x + 420, box.y + 380); await page.mouse.down(); await page.mouse.move(box.x + 540, box.y + 450, { steps: 4 }); await page.mouse.up();
-  }
+  // The gallery starts drawing: drag on the page to place the shape.
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.move(box.x + at.x, box.y + at.y); await page.mouse.down(); await page.mouse.move(box.x + at.x + 120, box.y + at.y + 70, { steps: 4 }); await page.mouse.up();
   await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+  await onTab(page, 'shapeFormat');
   return page.locator('#ribbon-panel-shapeFormat');
 }
 async function save(page, info, name) {
@@ -56,7 +54,7 @@ test('picture styles, border, effects, corrections, color, transparency and alt 
   const ribbon = await insertPicture(page, input);
   await shot(page, 'picture-format');
   // Picture Styles gallery: a white frame with a shadow.
-  await ribbon.getByRole('option', { name: 'White Frame' }).click();
+  await ribbon.getByRole('option', { name: 'White Frame', exact: true }).click();
   await expect(undoButton(page)).toBeEnabled();
   // Picture Border: a theme color and a weight.
   await ribbon.getByRole('button', { name: 'Picture Border', exact: true }).click();
@@ -68,7 +66,7 @@ test('picture styles, border, effects, corrections, color, transparency and alt 
   // Picture Effects → Shadow.
   await ribbon.getByRole('button', { name: 'Picture Effects', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Shadow' }).click();
-  await page.getByRole('menuitemradio', { name: 'Offset: Bottom' }).click();
+  await page.getByRole('menuitemradio', { name: 'Offset: Bottom', exact: true }).click();
   // Corrections: brightness/contrast; Color: grayscale; Transparency.
   await ribbon.getByRole('button', { name: 'Corrections', exact: true }).click();
   await shot(page, 'corrections');
@@ -156,7 +154,7 @@ test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ p
   await ribbon.getByRole('button', { name: 'Format Shape', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Format pane' });
   await expect(pane.getByRole('heading', { name: 'Format Shape' })).toBeVisible();
-  await pane.getByLabel('Width').fill('2.5'); await pane.getByLabel('Width').press('Enter');
+  await pane.getByRole('spinbutton', { name: 'Width' }).fill('2.5'); await pane.getByRole('spinbutton', { name: 'Width' }).press('Enter');
   await shot(page, 'format-pane');
   await pane.getByRole('button', { name: 'Close Format pane' }).click();
   const { path, xml } = await save(page, info, 'shape-format');
@@ -173,9 +171,8 @@ test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ p
 test('selection pane, align, group and ungroup', async ({ page }, info) => {
   test.setTimeout(180000);
   const { input, errors } = await start(page);
-  await insertShape(page, 'Oval');
-  await input.press('ArrowRight');
-  const ribbon = await insertShape(page, 'Rectangle');
+  await insertShape(page, 'Oval', { x: 160, y: 420 });
+  const ribbon = await insertShape(page, 'Rectangle', { x: 460, y: 470 });
   await ribbon.getByRole('button', { name: 'Selection Pane', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Selection pane' });
   await expect(pane.getByRole('option')).toHaveCount(2);

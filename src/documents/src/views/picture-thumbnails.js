@@ -17,7 +17,10 @@ export function thumbCanvas(width = 64, height = 48) {
 
 /** The picture's pixels as a drawable source: an ImageBitmap/canvas from the editor's decoded images. */
 export function pictureSource(editor, image) {
-  const entry = editor?.images?.get(image?.assetId);
+  // A styled picture is a drawing scene: preview the picture inside it, not the framed result.
+  const find = node => !node ? null : node.type === 'picture' && node.image?.assetId ? node.image.assetId : (node.children || []).map(find).find(Boolean) || null;
+  const id = image?.retainedDrawing ? find(editor?.model?.assets[image.assetId]?.scene) || image.assetId : image?.assetId;
+  const entry = editor?.images?.get(id);
   const source = entry?.bitmap || entry;
   if (!source || source.previewPlaceholder || !(source.width > 0)) return null;
   return source;

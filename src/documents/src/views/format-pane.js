@@ -35,7 +35,12 @@ export function createPane(context) {
   });
 
   /* ---- Form helpers ---- */
-  const field = (label, control, hint) => { const id = control.id || `pic-field-${++ids}`; control.id = id; return el('div.pic-field', {}, el('label', { htmlFor: id }, label), control, hint ? el('span.pic-hint', {}, hint) : null); };
+  const field = (label, control, hint) => {
+    // The label names the field itself, also when it sits in a wrapper with its unit.
+    const target = control.matches('input, select, textarea, button') ? control : control.querySelector('input, select, textarea, button') || control;
+    const id = target.id || `pic-field-${++ids}`; target.id = id;
+    return el('div.pic-field', {}, el('label', { htmlFor: id }, label), control, hint ? el('span.pic-hint', {}, hint) : null);
+  };
   const number = (value, { min, max, step = 1, unit = '', onCommit }) => {
     const input = el('input.input.pic-number', { type: 'number', min, max, step, value: value ?? '', onchange: () => { if (input.value === '' || !input.checkValidity()) { input.reportValidity(); return; } onCommit(Number(input.value)); } });
     return unit ? el('span.pic-number-wrap', {}, input, el('span.pic-unit', {}, unit)) : input;
