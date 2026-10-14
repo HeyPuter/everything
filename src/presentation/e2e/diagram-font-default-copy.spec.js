@@ -49,6 +49,8 @@ for (const cached of [false, true])
         mimeType: MIME,
         buffer: Buffer.from(bytes),
       });
+      // The editor, not the library it was opened from, before counting.
+      await expect(page.locator("#slide-position")).toBeVisible();
       await expect(back).toBeVisible();
       await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
       await expect(objects).toHaveCount(count);

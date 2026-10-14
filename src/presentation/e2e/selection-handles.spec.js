@@ -43,6 +43,8 @@ async function load(page, p, count = 1) {
     mimeType: MIME,
     buffer: Buffer.from(await P.savePresentation(p)),
   });
+  // The editor, not the library it was opened from, before counting.
+  await expect(page.locator("#slide-position")).toBeVisible();
   const object = page.locator(".object-hit");
   await expect(object).toHaveCount(count);
   await object.first().click();

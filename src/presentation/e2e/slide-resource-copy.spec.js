@@ -37,6 +37,8 @@ test("shared pictures remain editable through clipboard both ways, undo, redo an
       mimeType: MIME,
       buffer: bytes,
     });
+    // The editor, not the library it was opened from, before counting.
+    await expect(page.locator("#slide-position")).toBeVisible();
     await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
     await expect(objects).toHaveCount(count);
   };

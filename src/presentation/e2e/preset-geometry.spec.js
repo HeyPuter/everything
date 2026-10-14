@@ -37,6 +37,8 @@ async function load(page, bytes, count = 6) {
     mimeType: MIME,
     buffer: Buffer.from(bytes),
   });
+  // The editor, not the library it was opened from, before counting.
+  await expect(page.locator("#slide-position")).toBeVisible();
   await expect(page.locator(".object-hit")).toHaveCount(count);
 }
 async function download(page) {

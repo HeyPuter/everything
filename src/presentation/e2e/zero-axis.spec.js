@@ -41,6 +41,8 @@ test("zero-axis shape strokes paint in canvas and slideshow, move without changi
       mimeType: MIME,
       buffer: Buffer.from(bytes),
     });
+    // The editor, not the library it was opened from, before counting.
+    await expect(page.locator("#slide-position")).toBeVisible();
     // An empty deck also has zero hits while import is still on the home
     // screen. Wait for the editor before sending clipboard shortcuts.
     await expect(back).toBeVisible();

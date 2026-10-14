@@ -56,6 +56,8 @@ for (const [cached, image, index] of [
         mimeType: MIME,
         buffer: Buffer.from(bytes),
       });
+      // The editor, not the library it was opened from, before counting.
+      await expect(page.locator("#slide-position")).toBeVisible();
       // A blank deck and the import screen both have zero objects. Wait for
       // the loaded editor before sending canvas clipboard shortcuts.
       await expect(back).toBeVisible();

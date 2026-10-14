@@ -46,6 +46,8 @@ test("graphemes and their run formatting survive actual clipboard transfer, retu
       mimeType: MIME,
       buffer: bytes,
     });
+    // The editor, not the library it was opened from, before counting.
+    await expect(page.locator("#slide-position")).toBeVisible();
     await expect(objects).toHaveCount(n);
   };
   const download = async () => {
