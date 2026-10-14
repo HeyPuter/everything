@@ -44,7 +44,7 @@ test('a right-click in a table offers its row and column commands', async ({ pag
   const shape = () => page.evaluate(() => window.__docs.current.view.engine.model.tables.map(t => [t.rows.length, t.rows[0].cells.length]));
   expect(await shape()).toEqual([[2, 2]]);
   const canvas = page.locator('canvas.canvas-page').first(), menu = page.getByRole('menu', { name: 'Document menu' });
-  const choose = async (...path) => { await canvas.click({ button: 'right', position: { x: 120, y: 150 } }); for (const name of path) await page.getByRole('menuitem', { name, exact: true }).click(); };
+  const choose = async (first, ...path) => { await canvas.click({ button: 'right', position: { x: 120, y: 150 } }); await menu.getByRole('menuitem', { name: first, exact: true }).click(); for (const name of path) await page.getByRole('menu').getByRole('menuitem', { name, exact: true }).click(); };
   await canvas.click({ button: 'right', position: { x: 120, y: 150 } });
   await expect(menu.getByRole('menuitem', { name: 'Merge Cells', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');

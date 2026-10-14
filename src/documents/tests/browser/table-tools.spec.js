@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { onTab } from './helpers/editor-tools.js';
+import { onTab, menuBarMenu } from './helpers/editor-tools.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
 const model = page => page.evaluate(() => {
@@ -187,4 +187,15 @@ test('the Table menu and context menu offer the table commands', async ({ page }
   });
   for (const name of ['Draw Table', 'Insert', 'Columns to the Left', 'Rows Below', 'Cells…', 'Delete', 'Select', 'Merge Cells', 'Split Cells…', 'Split Table', 'AutoFit and Distribute', 'Distribute Rows Evenly', 'Repeat Header Rows', 'Convert Text to Table…', 'Convert Table to Text…', 'Sort…', 'Formula…', 'View Gridlines', 'Table Properties…']) expect(labels.menu, name).toContain(name);
   for (const name of ['Insert Rows Above', 'Delete Cells…', 'Merge Cells', 'Split Cells…', 'Borders', 'Cell Alignment', 'AutoFit', 'Text Direction', 'Table Properties…']) expect(labels.context, name).toContain(name);
+});
+
+test('the menu bar Table menu runs the table commands', async ({ page }) => {
+  await newTable(page, 2, 2, ['A', 'B', 'C', 'D']);
+  await goToCell(page, 0, 0);
+  const menu = await menuBarMenu(page, 'Table');
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Draw Table', exact: true })).toBeVisible();
+  for (const name of ['Insert', 'Delete', 'Select', 'Merge Cells', 'Split Cells…', 'Split Table', 'Sort…', 'Formula…', 'Table Properties…']) await expect(menu.getByRole('menuitem', { name, exact: true }).first()).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Insert', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rows Below', exact: true }).click();
+  expect((await model(page)).tables[0].rows).toHaveLength(3);
 });
