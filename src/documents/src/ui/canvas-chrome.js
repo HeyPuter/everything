@@ -4,6 +4,7 @@ import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
 import { createRibbon, large, small, split, command, rows, divider, commandIconEl, setControlIcon } from './ribbon.js';
 import { openListLibrary } from './list-library-menu.js';
+import { recallUnit } from '../lib/units.js';
 import { classicMenus } from '../views/classic-menus.js';
 import { createTitleBar } from '../views/title-bar.js';
 import { ribbonEntries, menuEntries } from './command-index.js';
@@ -292,14 +293,16 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   small(c.pageSetup, { icon: 'pageSetup' });
   const spin = (label, icon, input, unit) => el('label.ribbon-spin', { title: label }, commandIconEl(icon, 16), el('span.ribbon-spin-label', {}, label), input, el('span.ribbon-spin-unit', {}, unit));
   c.spaceBefore.classList.add('ribbon-number'); c.spaceAfter.classList.add('ribbon-number');
+  // Indents follow the measurement unit chosen on the View tab.
   const indentInput = (key, label) => {
-    const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.1, min: -22, max: 22, disabled: true, 'aria-label': label, placeholder: 'Mixed',
-      onchange: () => { if (input.value === '' || !input.checkValidity()) { input.reportValidity(); refresh(); return; } w.setIndent?.(key, Number(input.value)); },
+    const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.1, min: -56, max: 56, disabled: true, 'aria-label': `${label} (${recallUnit()})`, placeholder: 'Mixed',
+      // The arrows step by tenths; any typed value in range is kept (2.54 cm is an inch).
+      onchange: () => { const v = input.validity; if (input.value === '' || v.badInput || v.rangeOverflow || v.rangeUnderflow) { input.reportValidity(); refresh(); return; } w.setIndent?.(key, Number(input.value), recallUnit()); },
       onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); focusEditor(); } } });
-    states.push({ control: input, enabled: () => engineReady() && !!w.setIndent, value: () => w.indentValue?.(key) });
+    states.push({ control: input, enabled: () => engineReady() && !!w.setIndent, value: () => w.indentValue?.(key, recallUnit()), unit: label });
     return input;
   };
-  const indentLeft = indentInput('indentLeft', 'Indent left (in)'), indentRight = indentInput('indentRight', 'Indent right (in)');
+  const indentLeft = indentInput('indentLeft', 'Indent left'), indentRight = indentInput('indentRight', 'Indent right');
   const wrapText = menuButton('Wrap Text', 'wrapText', () => w.wrapItems?.() || []);
   const forward = command('Bring Forward', 'bringForward', () => w.arrange?.('forward'), { size: 'large' });
   const backward = command('Send Backward', 'sendBackward', () => w.arrange?.('backward'), { size: 'large' });
@@ -307,7 +310,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const layout = { id: 'layout', label: 'Layout', groups: [
     { id: 'pageSetup', label: 'Page Setup', icon: 'margins', priority: 9, items: [margins, orientation, size, columns, breaks, el('div.ribbon-launcher', {}, c.pageSetup)] },
     { id: 'layoutParagraph', label: 'Paragraph', icon: 'paragraphDialog', priority: 6, items: [
-      el('div.ribbon-spin-group', {}, el('span.ribbon-spin-title', {}, 'Indent'), spin('Left', 'indentLeft', indentLeft, 'in'), spin('Right', 'indentRight', indentRight, 'in')),
+      el('div.ribbon-spin-group', {}, el('span.ribbon-spin-title', {}, 'Indent'), spin('Left', 'indentLeft', indentLeft, recallUnit()), spin('Right', 'indentRight', indentRight, recallUnit())),
       divider(),
       el('div.ribbon-spin-group', {}, el('span.ribbon-spin-title', {}, 'Spacing'), spin('Before', 'spaceBefore', c.spaceBefore, 'pt'), spin('After', 'spaceAfter', c.spaceAfter, 'pt'))] },
     { id: 'arrange', label: 'Arrange', icon: 'wrapText', priority: 3, items: [wrapText, forward, backward] },
@@ -516,7 +519,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   fileButton.addEventListener('mousedown', e => { if (document.activeElement?.matches?.('.canvas-input')) e.preventDefault(); });
 
   // Feature modules add their own groups: w.extendTab(tabId, kit) returns groups, each optionally
-  // placed `after` an existing group id (otherwise appended).
+  // placed `after` an existing group id (otherwise appended), or taking the place of the group it `replaces`.
   const kit = { command, menuButton, split, rows, divider, large, small, when, check, inDocument, engineReady, focusEditor, separator, commandIconEl };
   // Standard tabs from feature modules ({ id, label, groups, after }), placed after the tab named by `after`.
   const standardTabs = [home, insert, design, layout, references, review, view];
@@ -524,6 +527,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   for (const tab of [...standardTabs, tableDesign, tableLayout, picture, shapeFormat]) {
     const placed = new Map();
     for (const group of w.extendTab?.(tab.id, kit) || []) {
+      const replaced = group.replaces ? tab.groups.findIndex(g => g.id === group.replaces) : -1;
+      if (replaced >= 0) { tab.groups[replaced] = group; continue; }
       const at = group.after ? tab.groups.findIndex(g => g.id === (placed.get(group.after) ?? group.after)) : -1;
       if (at >= 0) { tab.groups.splice(at + 1, 0, group); placed.set(group.after, group.id); } else tab.groups.push(group);
     }
@@ -581,8 +586,12 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   }
 
   function refresh() {
-    for (const { control, enabled, pressed, checked, value } of states) {
+    for (const { control, enabled, pressed, checked, value, unit } of states) {
       const disabled = !enabled();
+      if (unit && control.getAttribute('aria-label') !== `${unit} (${recallUnit()})`) {
+        control.setAttribute('aria-label', `${unit} (${recallUnit()})`);
+        const label = control.closest('.ribbon-spin')?.querySelector('.ribbon-spin-unit'); if (label) label.textContent = recallUnit();
+      }
       if (control.disabled !== disabled) control.disabled = disabled;
       if (pressed) { const state = pressed(); if (control.getAttribute('aria-pressed') !== state) control.setAttribute('aria-pressed', state); }
       if (checked) control.checked = !!checked();

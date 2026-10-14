@@ -30,7 +30,7 @@ it('pins independent reference inputs and preserves section alignments through e
  expect(createHash('sha256').update(readFileSync(folder+'native.pdf')).digest('hex')).toBe(ref.pdfSha256);
  const p=await DocxPackage.open(bytes),d=model(p),before=layout(d);
  expect(before.pageCount).toBe(29);same(unzipSync(await save(p,d)),p.parts);
- expect(()=>d.setPageSettings({verticalAlignment:'bottom'})).toThrow(/multiple sections/);
+ expect(d.setPageSettings({verticalAlignment:'bottom'})).toBe(true);d.undo();
  d.select(0);d.replace('Edited ');
  const out=await save(p,d),again=await DocxPackage.open(out);
  expect(again.pageSettings.verticalAlignment).toBe('both');expect(model(again).text).toBe(d.text);

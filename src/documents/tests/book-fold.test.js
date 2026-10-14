@@ -45,6 +45,10 @@ it('recomputes booklet margins after page setup edits and preserves print metada
   const out=await save(p,d),again=await DocxPackage.open(out);
   expect(again.pageSettings).toEqual(d.pageSettings);
   expect(unzipSync(out)['word/settings.xml']).toEqual(p.parts['word/settings.xml']);
-  expect(()=>d.setPageSettings({bookFoldPrinting:false})).toThrow('retained');
-  d.undo();expect(unzipSync(await save(p,d))).toEqual(p.parts);
+  // Turning booklet printing off is a document setting: it is written to the settings part and undone in one step.
+  expect(d.setPageSettings({bookFoldPrinting:false})).toBe(true);
+  const unfolded=await save(p,d);
+  expect(new TextDecoder().decode(unzipSync(unfolded)['word/settings.xml'])).not.toContain('bookFoldPrinting');
+  expect((await DocxPackage.open(unfolded)).pageSettings.bookFoldPrinting).toBe(false);
+  d.undo();d.undo();expect(unzipSync(await save(p,d))).toEqual(p.parts);
 });

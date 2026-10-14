@@ -42,8 +42,8 @@ export function openDocumentMenu({ event, behind, selectBehind, engine, pkg, w, 
   const group = list => { const clean = list.filter(Boolean); if (clean.length) add(sep, ...clean); };
 
   if (has('text')) add(...x.spellingItems(engine.model.selection.focus));
-  add({ label: 'Undo', shortcut: `${MOD_KEY}+Z`, disabled: !editable || !engine.session.history.length, onSelect: () => engine.undo() },
-    { label: 'Redo', shortcut: `${MOD_KEY}+Shift+Z`, disabled: !editable || !engine.session.future.length, onSelect: () => engine.redo() });
+  add({ label: 'Undo', shortcut: `${MOD_KEY}+Z`, disabled: !editable || !engine.session.history.length && !w.packageHistory?.().undo, onSelect: () => engine.undo() },
+    { label: 'Redo', shortcut: `${MOD_KEY}+Shift+Z`, disabled: !editable || !engine.session.future.length && !w.packageHistory?.().redo, onSelect: () => engine.redo() });
   group([
     { label: 'Cut', shortcut: `${MOD_KEY}+X`, icon: 'cut', disabled: !clipboard.cut, onSelect: () => x.cut() },
     { label: 'Copy', shortcut: `${MOD_KEY}+C`, icon: 'copy', disabled: !clipboard.copy, onSelect: () => x.copy() },

@@ -41,6 +41,7 @@ import { cellContext } from './tables.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
+import { lineNumberLabels } from './line-numbers.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects } from './layout.js';
@@ -461,10 +462,13 @@ export class CanvasEditor {
   restartNumbering() { this.execute(() => this.model.restartNumbering()); this.focus(); }
   adjustIndent(delta) { this.execute(() => this.model.adjustIndent(delta)); this.focus(); }
   insertTab() { this.execute(() => this.model.replace('\t')); this.focus(); }
-  setPageSettings(patch) { return this.execute(() => this.model.setPageSettings(patch)); }
+  setPageSettings(patch, options) { return this.execute(() => this.model.setPageSettings(patch, options)); }
+  insertSectionBreak(type) { const ok = this.execute(() => this.model.insertSectionBreak(type)); this.focus(); return ok; }
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
     if (this.readOnly || this.viewOnly || this.composition) return;
+    // The host can keep history beyond this editor's (changes that reopened the package).
+    if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
       if (this.session[direction](() => { this.validateStory(); this.relayout(); })) this.onChange();
       this.focus(); this.revealCaret();
@@ -516,6 +520,9 @@ export class CanvasEditor {
       if (this.storyPage === undefined) this.session.activate(null);
       else this.session.page = this.storyPage;
     }
+    // Section line numbers are labels beside the finished body lines (§17.6.8); views without pages show none.
+    const body = this.session.body;
+    this.lineNumbers = this.view ? [] : lineNumberLabels(this.layout, body.paragraphs, body.numbering, body.styles, this.measure);
     this.selectionLayout = this.session.path === null ? this.layout : pageStorySelectionLayout(this.layout, this.storyLayout, this.session.path, this.storyPage);
     this.input.setAttribute('aria-label', this.inputLabel || (this.session.path === null ? 'Document text' : ({ header: 'Header text', footer: 'Footer text', footnote: 'Footnote text', endnote: 'Endnote text' }[this.pageStories.stories[this.session.path].kind] || 'Story text')));
     this.drawingPageContexts = drawingPageContexts(this.layout, this.pageStories);
@@ -791,6 +798,10 @@ export class CanvasEditor {
           });
         }
         paintFloating(false);
+      }
+      for (const label of this.lineNumbers || []) if (label.page === index) {
+        ctx.save(); ctx.fillStyle = paintColor(label.style.color, geometry.background || '#FFFFFF'); setCanvasTextStyle(ctx, label.style);
+        paintText(ctx, { ...label.style, text: label.text, x: label.x, width: label.width }, label.baseline); ctx.restore();
       }
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
       if (!printing && this.pageStories) {

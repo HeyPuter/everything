@@ -14,6 +14,9 @@
  */
 
 import { ICON_GLYPHS } from './icon-glyphs.js';
+import { designIcons } from './icons/design-icons.js';
+import { layoutIcons } from './icons/layout-icons.js';
+import { textFlowIcons } from './icons/text-flow-icons.js';
 
 const p = (d, c = 'o') => `<path class="${c}" d="${d}"/>`;
 /** Outlined rectangles (frames, sheets, tiles) get softly rounded corners unless `rx` says otherwise; fills laid inside a frame stay square. */
@@ -470,6 +473,9 @@ Object.assign(COMMAND_ICONS, {
   finishMerge: page(6.5, 2.5, 10, 12, 2.5) + page(3.5, 5.5, 10, 12, 2.5) + arrowRight(9, 12, 9, 'g thick'),
   mergeWizard: page(3.5, 2.5, 13, 15) + numberedLines(6.3, 6, ['1', '2', '3'], 4) + lines(8.5, 6, 5, 3, 4),
 });
+/* Feature areas draw their own icons in src/ui/icons/, with the same helpers and classes. */
+const HELPERS = { p, r, ci, t, cells, page, lines, arrowDown, arrowRight, arrowUp, arrowLeft, badge, n, sheet, tintedPage, headBand, footBand, rows, pencil, settingsBadge, corners, picture, ROUND };
+for (const icons of [designIcons, layoutIcons, textFlowIcons]) Object.assign(COMMAND_ICONS, icons(HELPERS));
 
 /* ---- View: page movement, windows, reading tools and the Outlining tab ---- */
 Object.assign(COMMAND_ICONS, {

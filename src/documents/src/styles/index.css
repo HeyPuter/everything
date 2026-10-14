@@ -10,6 +10,8 @@
 @import './app-chrome.css';
 @import './review.css';
 @import './format.css';
+@import './page-layout.css';
+@import './line-numbers.css';
 @import './print.css';
 @import './references.css';
 @import './insert.css';

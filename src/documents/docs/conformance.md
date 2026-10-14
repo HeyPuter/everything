@@ -22883,6 +22883,219 @@ The native owned picture retains source alpha exactly; this does not establish
 the native reference's shadow preparation. ECMA-376 Part 1 §20.1.8.45 remains the relevant
 property definition, not a prescribed filter algorithm. No production change.
 
+### Layout tab: section breaks, per-section page setup, columns and page arrangement (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.6.17–18 `sectPr`, §17.6.22 `type`, §17.6.13 `pgSz`,
+§17.6.11 `pgMar`, §17.6.3–4 `col`/`cols`, §17.6.23 `vAlign`, §17.6.19 `titlePg`,
+§17.3.3.1 `br` (`clear`), and the document settings of §17.15.1: `mirrorMargins`
+(§17.15.1.57), `gutterAtTop`, `printTwoOnOne`, `bookFoldPrinting`/`bookFoldRevPrinting`
+(§17.15.1.11–13) and `evenAndOddHeaders`.
+
+Supported subset:
+
+| Feature | Behavior |
+| --- | --- |
+| Insert section break | Next page, continuous, even page and odd page. The text before the caret ends a section whose `sectPr` copies the split section's properties (including header/footer references); the following section keeps the original `sectPr` and takes the chosen `type`. One undo step. Not allowed in tables or headers/footers. |
+| Section types on open | `nextPage`, `continuous`, `evenPage` and `oddPage` sections now open for editing. Odd/even sections start on the next page of that parity: an empty page is laid out between, numbered unless the section restarts numbering. `nextColumn` sections still open read-only. |
+| Page settings scope | Whole document, this section, this point forward (a new next-page or, for columns, continuous section starts at the caret unless it already starts one) and selected text (continuous breaks before and after). Only changed properties are applied; document-wide settings always reach every section. Each section's changes are written over its own source `sectPr`, leaving other children untouched. |
+| Page Setup dialog | Paper size and custom width/height, orientation, top/bottom/left/right (inside/outside when mirrored) margins, gutter and gutter position, multiple pages (normal, mirror margins, two pages per sheet, book fold, reverse book fold), section start, different first page and odd/even headers, header/footer distances, vertical alignment, a live preview and Set As Default (stored on this device for new documents). |
+| Mirror margins | Read, edited and written (`w:mirrorMargins` in settings). Even pages swap left and right margins; the gutter stays inside. Headers and footers follow the reading page's margins. |
+| Two pages per sheet | `w:printTwoOnOne` is read, edited and written. Display approximation: each reading page is the sheet halved across its longer side; print imposition is not performed. |
+| Columns | Presets (one, two, three, left, right), a dialog for 1–12 columns with per-column widths/spacing, equal widths and a line between; selected text gets its own continuous section. |
+| Text-wrapping break | Inserted as `w:br w:clear="all"`; the plain Shift+Enter line break is unchanged. |
+| Section marks | Show/Hide ¶ labels each break with its kind. |
+
+Gaps: header/footer option changes (first page, odd/even) are applied when chosen and
+are not part of undo; `nextColumn` breaks are not created or edited; vertical alignment
+combined with columns or continuous sections remains a read-only approximation (an
+edit that needs it is rolled back with a message); booklet and two-per-sheet printing
+show reading pages, not imposed sheets; paper source and printer settings are retained
+but not editable. Sources of evidence: `tests/section-setup.test.js`, the
+independently generated `public/fixtures/section-layout.docx`
+(`tools/section_layout_fixture.py`, which also checks browser exports) and
+`tests/browser/page-layout.spec.js`; exports validate against the transitional schemas.
+This is schema and behavioral conformance for the subset above, not layout fidelity.
+### Section line numbering and paragraph suppression (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.6.8 `lnNumType` (section line numbering) and
+§17.3.1.34 `suppressLineNumbers` (paragraph property, `ST_OnOff`), with the
+section-property order of §17.6.17 and the `pPr` order of §17.3.1.26.
+
+Supported subset:
+
+- `lnNumType` is read per section into the `lineNumbers` page setting
+  `{ countBy, start, distance, restart }`. `countBy` 1–100, `start` 0–32766,
+  `distance` as `ST_TwipsMeasure` (absent = automatic), `restart`
+  `newPage` (default), `newSection` or `continuous`. A declaration without a
+  positive `countBy` shows no numbers and stays in the retained section XML; an
+  out-of-range declaration does the same in previews and is recorded as an issue.
+- Editing writes `w:lnNumType` after `pgBorders`/before `pgNumType` with
+  `countBy`, `restart` and only non-default `start`/`distance`; choosing None
+  removes the element. Untouched sections keep their source bytes.
+- `start` is treated as the offset stored by common desktop producers: the first
+  number after a restart is `start + 1` (the dialog's "Start at" shows that
+  number). The clause names it the starting value; this compatibility reading is
+  a declared discrepancy.
+- Body text lines of numbered sections are counted in reading order (page,
+  section region, column, then top to bottom). Every `countBy`-th count is
+  labeled. `newPage` resets on each page, `newSection` at each section start,
+  `continuous` carries the count across pages and into following continuous
+  sections; sections without numbering are skipped without resetting it.
+- Empty paragraphs count as one line. Lines in table cells (including repeated
+  header rows), framed paragraphs, headers, footers, footnotes, text boxes and
+  virtual section-boundary lines are neither labeled nor counted — the usual
+  convention for numbered drafts and a declared choice where the clause is silent.
+- Labels are right-aligned at `distance` left of the line's column (automatic:
+  0.25 in; in multi-column sections at most half the column gap, minimum
+  0.0625 in), on the line's baseline, in the "line number" character style over
+  the default paragraph style (else the document defaults). They paint on screen,
+  in print and in the rasterized PDF pages.
+- `suppressLineNumbers` is resolved through paragraph styles and direct
+  formatting (an explicit off restores numbering), exposed as a paragraph format
+  key, written in `pPr` order, and cleared by Clear direct paragraph formatting.
+
+Fixture: `public/fixtures/line-numbers.docx`, written from scratch by
+`tools/line_numbers_fixture.py` (standard library only) with two sections
+(restart per page; two columns counting by five restarting at 10), direct and
+style suppression, an explicit unsuppression and a table. Tests:
+`tests/line-numbers.test.js`, `tests/browser/line-numbers.spec.js`; exports pass
+`tools/check-docx-schema.py`.
+
+Gaps: the label style's font metrics do not affect line height; right-to-left
+sections place numbers on the left; the PDF text layer omits line numbers; bidi
+and vertical sections, `docGrid` interactions and native label placement within
+column gaps are not verified against a native reference. The HWP converter still
+writes its own margin text boxes instead of `lnNumType`.
+### Hyphenation: automatic, manual and options (2026-10-13)
+
+Clauses (ECMA-376 Part 1): §17.15.1.10 `autoHyphenation`, §17.15.1.22
+`consecutiveHyphenLimit`, §17.15.1.37 `doNotHyphenateCaps`, §17.15.1
+`hyphenationZone` (settings part), §17.3.1.34 `suppressAutoHyphens` (paragraph and
+paragraph-style properties), §17.3.3.29 `softHyphen` and §17.3.3.18 `noBreakHyphen`.
+
+Supported subset:
+- The four settings are read with the specification's defaults for omitted
+  elements (off, off, 360 twips, no limit). `hyphenationZone` accepts plain twips
+  and universal measures. Malformed values fall back to the default; the element
+  is only rewritten when that setting is changed. Changes are written in
+  CT_Settings order (after `defaultTabStop`), switched-off on/off settings are
+  removed, and a missing settings part is created with its relationship and
+  content type. Every other part, including the rest of settings.xml, is
+  unchanged; a settings-only edit leaves document.xml byte-identical. The
+  settings are document-wide, so they can change in multi-section documents
+  whose section geometry is otherwise retained.
+- `suppressAutoHyphens` is read from direct and style paragraph properties
+  (on/off values) and written as `w:val="1"`/`"0"` when set from the editor.
+- Layout (original implementation, `src/engine/hyphenation*.js`): when a line
+  overflows inside a plain word, the word is split at the last break point whose
+  first part and a hyphen fit. The hyphen is display-only: the text, carets,
+  copy and export are unchanged, and the break's caret sits before the hyphen.
+  Interpretation of the zone: the word is split only when ending the line before
+  it would leave more than the zone free at the trailing margin; a word that
+  starts the line is always eligible. The consecutive limit counts lines ending
+  in an automatic or manual (soft) hyphen within a paragraph; only automatic
+  breaks are suppressed when it is reached. Words written entirely in capitals
+  are skipped with `doNotHyphenateCaps`. Text whose `w:lang` is not English, words
+  with digits, symbols, inner punctuation (URLs, addresses), mixed case after the
+  first letter, or existing soft/explicit hyphens are never split.
+- Break points come from an original rule-based English syllabifier (vowel
+  nuclei, consonant-cluster division with maximal permissible onsets, common
+  prefixes/suffixes, silent final e, and a short hand-written exception list).
+  No third-party hyphenation patterns or dictionaries are used. Two letters must
+  precede and three follow a break.
+- Manual hyphenation proposes, word by word, the break automatic hyphenation
+  would use; an accepted break is inserted as a soft hyphen (`w:softHyphen`), one
+  undo step per hyphen. Soft and nonbreaking hyphens keep their existing
+  rendering and round trip.
+
+Independent fixture: `public/fixtures/hyphenation.docx`, written by
+`tools/hyphenation_fixture.py` from the clauses above (schema-valid). Tests:
+`tests/hyphenation.test.js`, `tests/browser/hyphenation.spec.js`.
+
+Gaps: break points are a heuristic, not a dictionary; ambiguous English
+divisions (stress-dependent single consonants) may differ from desktop word
+processors, and only English is hyphenated. Table AutoFit minimum widths ignore
+automatic break points. Line positions of hyphenated text are not claimed to match
+any other renderer. The East Asian `w:kinsoku`-style line rules and
+`w:hyphenationZone` interaction with justification compression are not
+modeled.
+## Design tab: themes, style sets, watermarks and page fill effects (2026-10-13)
+
+**Clauses.** ECMA-376 Part 1 §20.1.6 (theme part: `theme`, `themeElements`,
+`objectDefaults`, `extraClrSchemeLst`), §20.1.4.1 (`clrScheme` and its twelve
+slots, `fontScheme` with `majorFont`/`minorFont` `latin`/`ea`/`cs`, `fmtScheme`
+with `fillStyleLst`, `lnStyleLst`, `effectStyleLst`, `bgFillStyleLst`);
+WordprocessingML §17.3.2.6 (`color` with `themeColor`/`themeTint`/`themeShade`),
+§17.3.2.26 (`rFonts` `asciiTheme`/`hAnsiTheme`), §17.7.4.17 (`style`),
+§17.7.5 (`docDefaults`), §17.10.1 (`evenAndOddHeaders`), §17.10.5
+(`headerReference`), §17.10.6 (`titlePg`), §20.4.2.3 (`anchor`, `behindDoc`,
+`wrapNone`, `positionH`/`positionV` with `align`), §17.2.1 (`background`), §17.15.1
+(`displayBackgroundShape`), Part 4 VML `background`/`fill` (the representation
+§17.2.1 permits for fill effects). Text watermarks use the WordprocessingML shape
+(`wps:wsp` with `wps:txbx`) from MS-ODRAWXML, already read by the engine.
+
+**Supported subset.**
+- Themes rewrite only the theme part. A theme, color scheme, font scheme or
+  effect scheme replaces `clrScheme` (twelve `srgbClr` slots), the Latin typefaces
+  of `fontScheme` (supplemental script fonts and other font attributes are kept) or
+  `fmtScheme`; `objectDefaults`, extension lists and every other part stay byte-
+  for-byte unchanged. A document without a theme part gets `word/theme/theme1.xml`,
+  a main-document relationship and a content-type override. `.thmx` packages and
+  `.xml` theme files must have an `a:theme` root with all three schemes.
+- Theme-referenced fonts and colors are resolved when the package is read, so a
+  theme change reopens the changed package in place. Display therefore follows
+  exactly what other readers see. The `w:val` beside a `themeColor` in the styles
+  part is refreshed to the new resolved value (readers prefer the theme reference).
+- A new app document (body text in the app default font and no theme part) is
+  linked to the theme on its first theme or style-set change: `docDefaults`
+  `rFonts` becomes `minorHAnsi` and the Default style set is applied. Documents that
+  name explicit fonts keep them; only theme references follow the theme.
+- Style sets manage `pBdr`, `spacing`, `ind`, `jc` and `rFonts`, `b`, `bCs`, `i`,
+  `iCs`, `caps`, `color`, `spacing`, `sz`, `szCs` of Normal, Title, Subtitle,
+  Heading 1–3 and Quote; other properties of those styles are left alone. Missing
+  built-in styles are created with their conventional names (`heading 1`…),
+  `basedOn`/`next` Normal, `qFormat`, and for headings `keepNext`/`keepLines` and
+  `outlineLvl`. Fonts are written as theme references and colors as theme colors.
+- Watermarks are behind-text anchored drawings in the header parts that every
+  page shows: each section's default header, plus first-page headers when
+  `titlePg` is on and even-page headers with `evenAndOddHeaders`. A kind the first
+  section lacks gets a new header part (with relationship and content-type
+  override); later sections inherit missing kinds as §17.10.5 describes. The drawing
+  is centered on the margins (`positionH`/`positionV` `align="center"` relative to
+  `margin`), `wrapNone`, `behindDoc="1"`. Text uses a rotated (315°) or horizontal
+  text box with no fill or line; pictures use `pic:pic` with an optional `a:lum`
+  washout (bright 70%, contrast −70%). The drawing's `docPr` is named
+  `Document Watermark`, and its `descr` records the settings for the dialog.
+- Fill effects are written as `w:background` with a VML `background`/`fill
+  type="tile"` referencing a PNG part, and `displayBackgroundShape` is turned on.
+  Gradients, textures and patterns are rendered to that PNG (the gradient as one
+  page-sized tile at a quarter of the resolution, declared by its `pHYs` chunk);
+  pictures are stored as chosen.
+
+**Undo.** A package change records the bytes before and after it. Undo past the
+editor's own history reopens the earlier package; Redo reopens the later one.
+New edits after an undone change clear its redo. Typing history from before a
+package change is not kept across it.
+
+**Validation.** `tests/design-themes.test.js` checks theme creation, partial
+scheme changes, untouched parts, explicit-font preservation, every style set,
+saved style sets, effect schemes on theme-styled shapes, watermarks on default,
+first and even headers with replacement and removal, picture watermarks, fill
+effects and `.thmx` import, and the independently authored fixture
+`public/fixtures/design-theme.docx` (`tools/design_theme_fixture.py`, Python
+standard library only). `tests/browser/design-themes.spec.js` exports schema-valid
+documents (ECMA-376 transitional XSD and the supported MS-ODRAWXML schemas, via
+`tools/check-docx-schema.py`).
+
+**Gaps.** Gradient, texture and pattern fills are stored as pictures, not as VML
+gradient or pattern fills, and a picture fill tiles at its own resolution (no
+stretched single-picture mode). Semitransparent text watermarks use a color blended
+halfway to white rather than an alpha channel. Watermarks written by other
+producers as VML text paths are not recognized or removed. Hover previews of themes
+and style sets are not shown; choices apply on click and undo in one step. Colors
+outside theme references (direct RGB text colors, app table designs, inserted
+shapes with explicit colors) do not follow the theme. Theme `clrScheme` slots
+are written as `srgbClr` only; imported `sysClr` slots are replaced when colors change.
 ## Review: protection, permissions, formatting revisions, moves, proofing languages and comparison (2026-10-13)
 
 Clauses: ECMA-376 Part 1 §17.15.1.29 `documentProtection` (`edit`, `formatting`, `enforcement` and

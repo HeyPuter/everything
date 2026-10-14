@@ -1,0 +1,22 @@
+/* Hyphenation dialogs */
+.ed-hyphenation { display: grid; gap: 12px; min-width: min(380px, 86vw); }
+.ed-hyphenation .field-hint { display: block; margin-top: 4px; }
+.ed-hyphenation .row-end { flex-wrap: wrap; }
+.ed-hyphenation .row-end > :first-child { margin-right: auto; }
+.ed-hyphenation-manual { display: grid; gap: 10px; min-width: min(380px, 86vw); }
+.ed-hyphen-word {
+  display: flex; flex-wrap: wrap; align-items: baseline; min-height: 44px; padding: 8px 12px;
+  border: 1px solid var(--hairline-strong); border-radius: 8px; background: var(--surface, transparent);
+  font-size: 22px; letter-spacing: .01em; color: var(--ink); overflow-wrap: anywhere;
+}
+.ed-hyphen-part { white-space: pre; }
+.ed-hyphen-point {
+  min-width: 20px; min-height: 32px; padding: 0 3px; margin: 0 1px; border: 1px dashed transparent; border-radius: 4px;
+  background: none; color: var(--ink-3, #888); font: inherit; line-height: 1; cursor: pointer;
+}
+.ed-hyphen-point:hover { border-color: var(--hairline-strong); color: var(--ink); }
+.ed-hyphen-point[aria-checked="true"] { color: var(--accent, #2563eb); border-color: var(--accent, #2563eb); border-style: solid; font-weight: 700; }
+.ed-hyphen-point:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
+@media (max-width: 700px) {
+  .ed-hyphen-point { min-width: 28px; min-height: 44px; }
+}

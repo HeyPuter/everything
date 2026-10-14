@@ -42,7 +42,7 @@ import { cellContext, tableCells, editableCells, verticalMerges, headerRowCount,
 import { emptyStyles, resolveStyledParagraph, effectiveStyleId, editedStyle, resolveCharacterRun, paragraphRunStyle } from './styles.js';
 import { emptyNumbering, levelFor, listKind, listGeometry, listMarkers, newList, restartList } from './numbering.js';
 import { INDENT_KEYS, validateIndent, normalizeTabStops, sameValue } from './paragraph-geometry.js';
-import { validatePageSettings } from './page-settings.js';
+import { validatePageSettings, DOCUMENT_PAGE_KEYS, SECTION_TYPES } from './page-settings.js';
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
@@ -232,6 +232,8 @@ export class TextDocument {
     documentBlocks(this.paragraphs, this.tables);
     this.hasColumnBookmarks = bookmarkEntries(this.paragraphs, this.tables).some(entry => entry.columnRange);
     this.pageSettings = validatePageSettings(pageSettings);
+    // Section breaks inserted later copy the source section they split (see insertSectionBreakAt).
+    this.sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;
     this.selection = { anchor: 0, focus: 0 };
     // Null means the source has no managed comments part (page stories, plain imports).
     this.comments = comments ? copy(comments) : null;
@@ -356,7 +358,8 @@ export class TextDocument {
     patch = { ...patch };
     if ('underlineColor' in patch && !('underline' in patch)) throw new Error('Set underline and its color together.');
     for (const [key, value] of Object.entries(patch)) {
-      if (!(key in PARAGRAPH_FORMAT)) throw new Error('Unknown paragraph property.');
+      // suppressAutoHyphens (§17.3.1.34) is optional: absent means hyphenation is allowed.
+      if (!(key in PARAGRAPH_FORMAT) && key !== 'suppressAutoHyphens') throw new Error('Unknown paragraph property.');
       if (key === 'paragraphBorders') {
         patch.paragraphBorders = checkedParagraphBorders(value);
       } else if (key === 'paragraphShading') {
@@ -523,17 +526,119 @@ export class TextDocument {
     }
     return changed;
   }
-  setPageSettings(patch) {
-    for (const key of ['bookFoldPrinting', 'bookFoldRevPrinting']) if (key in patch && patch[key] !== this.pageSettings[key]) throw new Error('Booklet print settings are retained from the document.');
-    if ('sectionType' in patch && patch.sectionType !== this.pageSettings.sectionType) throw new Error('Section type is retained from the document.');
-    if (this.paragraphs.some(p => p.sectionEnd)) throw new Error('Page settings for documents with multiple sections are retained from the source.');
-    for (const key of ['compatibilityMode', 'gutterAtTop', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (key in patch && patch[key] !== this.pageSettings[key]) throw new Error('Page compatibility settings are retained from the document.');
+  /** The number of sections: one per section break, plus the final section. */
+  get sectionCount() { return this.paragraphs.reduce((n, p) => n + (p.sectionEnd ? 1 : 0), 1); }
+  /** The index of the section holding a text position; a section break belongs to the section it ends. */
+  sectionIndexAt(position = this.range[0]) {
+    const at = locate(this.paragraphs, position).index;
+    let index = 0;
+    for (let i = 0; i < at; i++) if (this.paragraphs[i].sectionEnd) index++;
+    return index;
+  }
+  /** Every section's page settings, in document order; the final section's are the document's own. */
+  get sectionSettings() { return [...this.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), this.pageSettings]; }
+  /**
+   * Change page settings. Section settings apply by `scope`: 'document' (every section), 'section' (the
+   * caret's section, or `section`), 'forward' (from the caret on: a section break of `breakType` starts
+   * a new section there unless the caret already starts one) or 'selection' (the selected text becomes
+   * its own section between two breaks). Document-wide settings always apply to every section. With one
+   * section the default scope is the document; with several, the caret's section.
+   */
+  setPageSettings(patch, { scope, section, breakType = 'nextPage' } = {}) {
+    for (const key of ['compatibilityMode', 'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing']) if (key in patch && patch[key] !== this.pageSettings[key]) throw new Error('Page compatibility settings are retained from the document.');
     if ('backgroundPicture' in patch && patch.backgroundPicture !== null && JSON.stringify(patch.backgroundPicture) !== JSON.stringify(this.pageSettings.backgroundPicture)) throw new Error('Creating a picture page background is not supported.');
-    const next = validatePageSettings({ ...this.pageSettings, ...patch, ...('background' in patch && patch.background !== this.pageSettings.background ? { backgroundPicture: null } : {}) });
-    if (Object.keys(next).every(key => next[key] === this.pageSettings[key])) return false;
-    this.checkpoint(); this.pageSettings = next; this.didChange(); return true;
+    scope ??= this.sectionCount > 1 ? 'section' : 'document';
+    if (!['document', 'section', 'forward', 'selection'].includes(scope)) throw new Error('Unknown page settings scope.');
+    const documentPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => DOCUMENT_PAGE_KEYS.includes(key)));
+    if ('background' in patch && patch.background !== this.pageSettings.background) documentPatch.backgroundPicture = null;
+    const sectionPatch = Object.fromEntries(Object.entries(patch).filter(([key]) => !DOCUMENT_PAGE_KEYS.includes(key)));
+    const plan = (first, last) => this.sectionSettings.map((settings, i) => validatePageSettings({ ...settings, ...documentPatch, ...(i >= first && i <= last ? sectionPatch : {}) }));
+    const apply = next => {
+      const ends = this.paragraphs.filter(p => p.sectionEnd);
+      next.forEach((settings, i) => { if (i < ends.length) ends[i].sectionEnd = settings; else this.pageSettings = settings; });
+    };
+    const changed = next => next.some((settings, i) => Object.keys(settings).some(key => JSON.stringify(settings[key]) !== JSON.stringify(this.sectionSettings[i][key])));
+    if (scope === 'document' || scope === 'section') {
+      const at = scope === 'document' ? 0 : section ?? this.sectionIndexAt(this.range[0]);
+      if (!Number.isInteger(at) || at < 0 || at >= this.sectionCount) throw new Error('There is no such section.');
+      const next = plan(at, scope === 'document' ? this.sectionCount - 1 : at);
+      if (!changed(next)) return false;
+      this.checkpoint(); apply(next); this.didChange(); return true;
+    }
+    // A new section: validate the result before changing anything, so a failure leaves the document as it was.
+    const [start, end] = this.range;
+    if (scope === 'selection' && start === end) throw new Error('Select the text to give its own settings.');
+    this.checkpoint();
+    let caret = start;
+    if (scope === 'selection' && !this.startsSection(end)) this.insertSectionBreakAt(end, breakType);
+    if (!this.startsSection(start)) { this.insertSectionBreakAt(start, breakType); caret = start + 1; }
+    const first = this.sectionIndexAt(caret);
+    // A selection that already crossed section breaks gives its settings to every section it covers.
+    const last = scope === 'selection' ? this.sectionIndexAt(Math.max(caret, end - 1 + (caret - start))) : this.sectionCount - 1;
+    apply(plan(first, last));
+    if (scope === 'selection') this.select(this.sectionRange(first).start, Math.max(this.sectionRange(first).start, this.sectionRange(last).end - 1));
+    this.didChange(); return true;
+  }
+  /** Whether a position is the first in its section (the document start or just after a section break). */
+  startsSection(position) {
+    const at = locate(this.paragraphs, position);
+    return at.offset === 0 && (at.index === 0 || !!this.paragraphs[at.index - 1].sectionEnd);
+  }
+  /** The text range of a section: from its first position to its section mark. */
+  sectionRange(index) {
+    let start = 0, at = 0, section = 0;
+    for (const p of this.paragraphs) {
+      const length = paragraphText(p).length;
+      if (section === index && p.sectionEnd) return { start, end: at + length + 1 };
+      at += length + 1;
+      if (p.sectionEnd) { section++; if (section === index) start = at; }
+    }
+    return { start, end: this.text.length };
+  }
+  /**
+   * Insert a section break (§17.6.17) at the caret, or replacing the selection: the text before it ends a
+   * section with a copy of the current section's settings, and the section after it starts by `type`.
+   */
+  insertSectionBreak(type = 'nextPage') {
+    const [start, end] = this.range;
+    this.checkpoint();
+    if (start !== end) { this.replace(''); }
+    this.insertSectionBreakAt(this.range[0], type);
+    this.didChange(); return true;
+  }
+  insertSectionBreakAt(position, type) {
+    if (!SECTION_TYPES.includes(type)) throw new Error('Choose a next page, continuous, even page or odd page section break.');
+    const at = locate(this.paragraphs, position);
+    if (this.paragraphs[at.index].cellId) throw new Error('Section breaks cannot be inserted in a table.');
+    const index = this.sectionIndexAt(position);
+    const owner = this.paragraphs.filter(p => p.sectionEnd)[index];
+    const settings = owner ? owner.sectionEnd : this.pageSettings;
+    this.select(position);
+    this.replace('\n');
+    const mark = this.paragraphs[at.index];
+    mark.sectionEnd = copy(settings);
+    mark.sectionProperties = owner ? owner.sectionProperties : null;
+    mark.sectionSourceIndex = owner ? owner.sectionSourceIndex ?? index : this.sourceSectionCount - 1;
+    const following = this.paragraphs.filter(p => p.sectionEnd)[index + 1];
+    if (following) following.sectionEnd = validatePageSettings({ ...following.sectionEnd, sectionType: type });
+    else this.pageSettings = validatePageSettings({ ...this.pageSettings, sectionType: type });
   }
   insertPageBreak() { return this.replace('\f'); }
+  /**
+   * A text-wrapping break (§17.3.3.1 br with clear): the line ends here and the text continues below
+   * any floating objects beside it (clear 'all'), or a plain line break with clear 'none'.
+   */
+  insertTextWrappingBreak(clear = 'all') {
+    if (!['none', 'left', 'right', 'all'].includes(clear)) throw new Error('Invalid text-wrapping break.');
+    const start = this.range[0];
+    if (!this.replace('\v')) return false;
+    const at = locate(this.paragraphs, start), p = this.paragraphs[at.index];
+    let offset = 0;
+    const run = p.runs.find(r => { const inside = at.offset >= offset && at.offset < offset + r.text.length; offset += r.text.length; return inside; });
+    if (!run || run.text[at.offset - (offset - run.text.length)] !== '\v' || run.image || run.contentControl) return true;
+    p.runs = [...sliceRuns(p.runs, 0, at.offset), { ...run, text: '\v', breakClear: clear }, ...sliceRuns(p.runs, at.offset + 1)];
+    this.didChange(); return true;
+  }
   insertColumnBreak() { return this.replace('\u000e'); }
   get tableContext() { return cellContext(this.tables, this.paragraphs[locate(this.paragraphs, this.selection.focus).index].cellId); }
   get selectedTableCells() {

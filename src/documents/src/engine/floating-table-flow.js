@@ -40,7 +40,7 @@ export function paginateFloatingFlow(floating, page, maxPages, cursor, paginate,
   if (probe.pageCount === 1) return null;
   // Keep the prior safe fallback until these combinations have native geometry
   // and editing coverage. Their single-page behavior stays on the existing path.
-  if (floating.flowCount > 1 && floating.flowCollisionRestricted || page.bookFold || page.storyKind || position.tblpYSpec) {
+  if (floating.flowCount > 1 && floating.flowCollisionRestricted || page.bookFold || page.mirror || page.storyKind || position.tblpYSpec) {
     throw new UnsupportedFloatingTableFlowError('Multi-page floating tables with aligned positions, prohibited table overlap, booklet pages or header/footer anchors are not supported yet.', floating.table.id);
   }
   const modern = (page.compatibilityMode ?? 12) >= 15;

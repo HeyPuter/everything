@@ -54,12 +54,21 @@ it.each(types)('ignores first-section %s while preserving a later next-page tran
   doc.undo(); expect(await save(pkg, doc)).toEqual(parts);
 });
 
-it.each(types.slice(1).filter(type => type !== 'continuous'))('still rejects a later %s section before editing', async type => {
+const laterSection = type => {
   const parts = fixture('nextPage', true);
   const xml = new DOMParser().parseFromString(strFromU8(parts['word/document.xml']), 'application/xml');
   [...xml.getElementsByTagNameNS(W, 'type')].at(-1).setAttributeNS(W, 'w:val', type);
   parts['word/document.xml'] = strToU8(new XMLSerializer().serializeToString(xml));
-  await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow('section breaks other than nextPage');
+  return parts;
+};
+it('still rejects a later nextColumn section before editing', async () => {
+  await expect(DocxPackage.open(zipSync(laterSection('nextColumn')))).rejects.toThrow('next-column section breaks');
+});
+it.each(['evenPage', 'oddPage'])('opens a later %s section for editing and keeps its type', async type => {
+  const parts = laterSection(type), pkg = await DocxPackage.open(zipSync(parts));
+  expect(pkg.readOnly).not.toBe(true);
+  expect(pkg.pageSettings.sectionType).toBe(type);
+  expect(await save(pkg, model(pkg))).toEqual(parts);
 });
 
 it.each(['<w:type/>', '<w:type w:val=""/>', '<w:type w:val="bogus"/>', '<w:type w:val="continuous"/><w:type w:val="nextPage"/>'])('rejects malformed first-section markup %s', async markup => {
