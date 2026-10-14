@@ -4,19 +4,22 @@
  * thread on the sheet. Review ▸ Comments and Insert ▸ Comment drive them through `run`.
  *
  * The card shows each comment with its author, time and text; a "…" menu edits or deletes it (deleting the
- * first comment deletes the thread); the thread resolves and reopens; the reply box adds to it. Mentions are
- * plain text, set off where they start with @.
+ * first comment deletes the thread); the thread resolves and reopens; the reply box adds to it. Typing @ in a
+ * comment box lists people to mention (mention-picker.js); a posted comment keeps whom it mentions, shows them
+ * set off in its text, and hands them to `host.onMentioned` to be told.
  */
 import { el, isComposing, isMod, IS_MAC } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
+import { attachMentionPicker, closeMentionPickers } from './mention-picker.js';
 import { cellName, cellKey } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import {
   getThread, addComment, replyToThread, editThreadItem, deleteThreadItem, setThreadResolved, adjacentThread,
-  deleteThreadsWhere, threadCells, authorInitials, MAX_COMMENT_TEXT,
+  deleteThreadsWhere, threadCells, authorInitials, lastThreadItem, MAX_COMMENT_TEXT,
 } from '../core/comments.js';
+import { findMentions, mentionRuns, mentionedPeople } from '../core/mentions.js';
 
 export const COMMENT_COMMANDS = new Set(['newComment', 'replyComment', 'deleteComment', 'prevComment', 'nextComment', 'toggleComments', 'showComment']);
 
@@ -35,8 +38,15 @@ export function commentTime(iso) {
   return Number.isFinite(d.getTime()) ? (timeFormat ? timeFormat.format(d) : d.toLocaleString()) : '';
 }
 
-/** Comment text with each @mention set off; the text stays plain, as typed. */
-function textWithMentions(text) {
+/** A comment's text with the people it mentions set off (each named in full on hover). */
+function textWithMentions(item) {
+  const { text } = item;
+  if (item.mentions?.length) {
+    return mentionRuns(text, item.mentions).map((run) => (run.mention
+      ? el('span.cmt-mention', { title: run.mention.email || (run.mention.user ? `Puter user ${run.mention.user}` : run.mention.name) }, run.text)
+      : run.text));
+  }
+  // A comment without stored mentions (an older file's) still shows its @words set off.
   const out = [];
   let last = 0;
   for (const m of text.matchAll(/(^|[\s(])(@[\p{L}\p{N}_.'-]+(?: [\p{Lu}][\p{L}'-]+)?)/gu)) {
@@ -51,12 +61,30 @@ function textWithMentions(text) {
 
 /**
  * ctx: the editor's ctx (wb, grid, run, flags, ...). host: { author(): the signed-in name or "You",
- * keepFocus(), refused(what): a protected sheet says so and returns true, onPaneToggle(open) }.
+ * keepFocus(), refused(what): a protected sheet says so and returns true, onPaneToggle(open),
+ * mentionPeople(): the people who can be @mentioned, onMentioned({ sheetId, r, c, item, people }): tell the
+ * people a just-posted comment mentions }.
  */
 export function createComments(ctx, host) {
   const { wb } = ctx;
   const grid = () => ctx.grid;
   const author = () => host.author?.() || 'You';
+  // Each box's picker, so a redrawn box takes over the people picked in the one it replaces.
+  const pickers = new WeakMap();
+  const picker = (area) => {
+    const pick = attachMentionPicker(area, { people: () => host.mentionPeople?.() || [] });
+    pickers.set(area, pick);
+    return pick;
+  };
+  const pickedIn = (area) => (area && pickers.get(area)?.picked.slice()) || [];
+  const carryPicked = (area, people) => { if (area && people.length) pickers.get(area)?.picked.push(...people); };
+  /** After a post: the people the comment now mentions that it did not before are told. */
+  const told = (sheetId, r, c, item, before = []) => {
+    if (!item?.mentions?.length || !host.onMentioned) return;
+    const had = new Set(mentionedPeople(before).map((p) => p.user || p.email || p.name));
+    const people = mentionedPeople(item.mentions).filter((p) => !had.has(p.user || p.email || p.name));
+    if (people.length) host.onMentioned({ sheetId, r, c, item, people });
+  };
   let card = null; // { node, sheetId, r, c, mode: 'hover' | 'pinned' | 'compose', editing: id | null, draft: '' }
   let hoverTimer = 0;
   let leaveTimer = 0;
@@ -90,7 +118,13 @@ export function createComments(ctx, host) {
       let body;
       if (editing === item.id) {
         const area = el('textarea.input.cmt-input', { rows: 3, maxlength: MAX_COMMENT_TEXT, 'aria-label': 'Edit comment', value: item.text });
-        const save = () => { if (area.value.trim()) editThreadItem(wb, sheetId, r, c, item.id, area.value); onEditing(null); };
+        const pick = picker(area);
+        const save = () => {
+          if (area.value.trim() && editThreadItem(wb, sheetId, r, c, item.id, area.value, { picked: pick.picked })) {
+            told(sheetId, r, c, getThread(wb, sheetId, r, c)?.items.find((i) => i.id === item.id), item.mentions);
+          }
+          onEditing(null);
+        };
         area.addEventListener('keydown', (e) => {
           if (isComposing(e)) return;
           if (e.key === 'Enter' && isMod(e)) { e.preventDefault(); save(); }
@@ -100,7 +134,7 @@ export function createComments(ctx, host) {
           el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => onEditing(null) }, 'Cancel'),
           el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: save }, 'Save')));
         queueMicrotask(() => { area.focus({ preventScroll: true }); area.setSelectionRange(area.value.length, area.value.length); });
-      } else body = el('div.cmt-text', {}, ...textWithMentions(item.text));
+      } else body = el('div.cmt-text', {}, ...textWithMentions(item));
       return el(`div.cmt-item${root ? '.cmt-root' : ''}`, { dataset: { id: item.id } }, head, body);
     });
     box.append(...items);
@@ -108,11 +142,17 @@ export function createComments(ctx, host) {
       box.append(el('div.cmt-resolved', {}, el('span', {}, 'Resolved'),
         el('button.btn.btn-sm', { type: 'button', onclick: (e) => { e.stopPropagation(); setThreadResolved(wb, sheetId, r, c, false); } }, 'Reopen')));
     } else {
-      const reply = el('textarea.input.cmt-input.cmt-reply', { rows: 1, maxlength: MAX_COMMENT_TEXT, placeholder: 'Reply…', 'aria-label': `Reply to the thread on ${cellName(r, c)}` });
+      const reply = el('textarea.input.cmt-input.cmt-reply', { rows: 1, maxlength: MAX_COMMENT_TEXT, placeholder: 'Reply… (@ to mention someone)', 'aria-label': `Reply to the thread on ${cellName(r, c)}` });
+      const pick = picker(reply);
       const post = el('button.icon-btn.cmt-post', { type: 'button', 'aria-label': 'Post reply', title: `Post (${IS_MAC ? '⌘' : 'Ctrl'}+Enter)`, html: icon('send', 16), disabled: true });
       const send = () => {
         if (!reply.value.trim()) return;
-        if (replyToThread(wb, sheetId, r, c, reply.value, author())) reply.value = '';
+        const text = reply.value;
+        if (replyToThread(wb, sheetId, r, c, text, author(), null, { mentions: findMentions(text, pick.picked) })) {
+          reply.value = '';
+          pick.picked.length = 0;
+          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c));
+        }
       };
       reply.addEventListener('input', () => { post.disabled = !reply.value.trim(); reply.rows = Math.min(6, Math.max(1, reply.value.split('\n').length)); });
       reply.addEventListener('keydown', (e) => {
@@ -135,20 +175,32 @@ export function createComments(ctx, host) {
     clearTimeout(hoverTimer);
     clearTimeout(leaveTimer);
     if (!card) return;
+    closeMentionPickers(card.node);
     card.node.remove();
     card = null;
   }
 
   function renderCard({ focusReply = false } = {}) {
     if (!card) return;
+    closeMentionPickers(card.node);
     const { sheetId, r, c } = card;
     let content;
     if (card.mode === 'compose') {
-      const area = el('textarea.input.cmt-input', { rows: 3, maxlength: MAX_COMMENT_TEXT, placeholder: 'Start a conversation', 'aria-label': `New comment on ${cellName(r, c)}`, value: card.draft || '' });
+      const area = el('textarea.input.cmt-input', { rows: 3, maxlength: MAX_COMMENT_TEXT, placeholder: 'Start a conversation. Type @ to mention someone', 'aria-label': `New comment on ${cellName(r, c)}`, value: card.draft || '' });
+      // The people picked survive a redraw of the card with its draft.
+      card.picked ??= [];
+      const pick = picker(area);
+      pick.picked.push(...card.picked);
+      card.picked = pick.picked;
       const post = el('button.btn.btn-sm.btn-primary', { type: 'button', disabled: !area.value.trim() }, 'Post');
       const send = () => {
         if (!area.value.trim()) return;
-        if (addComment(wb, sheetId, r, c, area.value, author())) { card.mode = 'pinned'; card.draft = ''; renderCard(); }
+        const text = area.value;
+        if (addComment(wb, sheetId, r, c, text, author(), null, { mentions: findMentions(text, pick.picked) })) {
+          card.mode = 'pinned'; card.draft = ''; card.picked = [];
+          renderCard();
+          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c));
+        }
       };
       area.addEventListener('input', () => { card.draft = area.value; post.disabled = !area.value.trim(); });
       area.addEventListener('keydown', (e) => {
@@ -240,7 +292,8 @@ export function createComments(ctx, host) {
     const active = g.active;
     // Typing in a reply box survives a refresh of the list: its text and focus come back.
     const focused = document.activeElement && list.contains(document.activeElement) ? document.activeElement : null;
-    const keep = focused?.classList.contains('cmt-reply') ? { key: focused.closest('.cmt-thread')?.dataset.cell, value: focused.value, at: focused.selectionStart } : null;
+    const keep = focused?.classList.contains('cmt-reply') ? { key: focused.closest('.cmt-thread')?.dataset.cell, value: focused.value, at: focused.selectionStart, picked: pickedIn(focused) } : null;
+    closeMentionPickers(list);
     list.replaceChildren(...cells.map(({ r, c }) => {
       const key = cellKey(r, c);
       const view = threadView(sheetId, r, c, { inPane: true, editing: paneEditing.key === key ? paneEditing.id : null,
@@ -250,7 +303,7 @@ export function createComments(ctx, host) {
     }).filter(Boolean));
     if (keep?.key) {
       const box = list.querySelector(`.cmt-thread[data-cell="${keep.key}"] .cmt-reply`);
-      if (box) { box.value = keep.value; box.dispatchEvent(new Event('input')); box.focus({ preventScroll: true }); box.setSelectionRange(keep.at, keep.at); }
+      if (box) { carryPicked(box, keep.picked); box.value = keep.value; box.focus({ preventScroll: true }); box.setSelectionRange(keep.at, keep.at); box.dispatchEvent(new Event('input')); }
     }
   }
 
@@ -341,8 +394,9 @@ export function createComments(ctx, host) {
       else if (!card.node.contains(document.activeElement) || card.editing == null) {
         const reply = card.node.querySelector('.cmt-reply');
         const keep = reply && document.activeElement === reply ? reply.value : null;
+        const picked = pickedIn(reply);
         renderCard({ focusReply: keep != null });
-        if (keep) { const next = card?.node.querySelector('.cmt-reply'); if (next) { next.value = keep; next.dispatchEvent(new Event('input')); } }
+        if (keep) { const next = card?.node.querySelector('.cmt-reply'); if (next) { carryPicked(next, picked); next.value = keep; next.dispatchEvent(new Event('input')); } }
       }
     }
     renderPane();

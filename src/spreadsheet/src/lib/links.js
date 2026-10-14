@@ -3,7 +3,8 @@
  * ?range=Sheet!A1:B9 opens the file with those cells selected, which is what
  * "Copy link to this range" hands out. #/file/<uid> opens a file by its id,
  * which is what a shared spreadsheet's link hands out: the people it is shared
- * with reach it at an address of their own, not at the owner's path.
+ * with reach it at an address of their own, not at the owner's path; with
+ * ?range= it opens at those cells (a comment's link in a mention email).
  */
 
 import { quoteSheet } from '../core/refs.js';
@@ -34,7 +35,7 @@ export function parseAppHash(hash) {
     }
     if (base.startsWith('file/')) {
       const id = decodeURIComponent(base.slice(5));
-      if (id) return { route: 'file', id };
+      if (id) return { route: 'file', id, range: params.get('range') || null };
     }
   } catch { /* An incomplete or malformed encoded address falls back to the home screen. */ }
   return { route: 'home' };
@@ -50,7 +51,10 @@ export function rangeLink({ origin, pathname }, path, sheetName, range) {
   return `${origin}${pathname}${editHash(path, `${quoteSheet(sheetName)}!${rangeName(range)}`)}`;
 }
 
-/** A full address that opens the file with this id, wherever the drive of whoever follows it shows it. */
-export function fileLink({ origin, pathname }, uid) {
-  return `${origin}${pathname}#/file/${encodeURIComponent(uid)}`;
+/**
+ * A full address that opens the file with this id, wherever the drive of whoever follows it shows it; with
+ * `range` ("Sheet1!B4"), at those cells.
+ */
+export function fileLink({ origin, pathname }, uid, range = null) {
+  return `${origin}${pathname}#/file/${encodeURIComponent(uid)}${range ? `?range=${encodeURIComponent(range)}` : ''}`;
 }

@@ -144,6 +144,9 @@ function escapeBlock(v) {
 
 /* ---- Request validation --------------------------------------------------- */
 
+/** Origins a development harness adds (dev/email-mock.js runs this file in the page); none when deployed. */
+const DEV_ORIGINS = [];
+
 /** The Puter hosts a link in a mail may point at: the app's own pages and Puter itself. */
 function puterHost(hostname) {
   return /^(?:[a-z0-9-]+\.)*(?:puter\.com|puter\.site|puter\.app)$/i.test(hostname);
@@ -162,10 +165,11 @@ function workbookLink(value) {
   } catch {
     return '';
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.port) return '';
-  if (!puterHost(url.hostname)) return '';
+  const dev = DEV_ORIGINS.includes(url.origin);
+  if (!dev && (url.protocol !== 'https:' || url.port || !puterHost(url.hostname))) return '';
+  if (url.username || url.password) return '';
   const hash = url.hash;
-  if (hash && !/^#\/(?:file|edit|live)\/[^\s<>"'`]+$/.test(hash)) return '';
+  if (hash && !/^#\/(?:file|edit|live)\/[^\s<>"`]+$/.test(hash)) return '';
   return url.href;
 }
 

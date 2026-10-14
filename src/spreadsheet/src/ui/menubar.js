@@ -32,7 +32,7 @@ export const SPECIAL_KINDS = {
 
 /**
  * The menus for a given editor state. `f` carries the flags the menus depend
- * on: templates, pick, saving, share (the host can share files), ai, fullscreen, isFullscreen, filter,
+ * on: templates, pick, saving, share (the host can share files), mail (email can be sent from here), ai, fullscreen, isFullscreen, filter,
  * aiPanel (the AI assistant is open), hasFormula, hasTable, hasNote, hasLink, sparklines (the sheet holds native
  * sparklines), showFormulas, gridlines, zeros,
  * headers, focus, spell, editing (a cell is being edited, so the commands
@@ -80,7 +80,11 @@ export function menubarMenus(f = {}) {
     i('Save', 'save', 'save', null, { shortcut: `${M}+S` }),
     i('Save a copy…', 'duplicate', 'saveAs'),
     i('Rename…', 'pencil', 'rename'),
-    f.share && i('Share…', 'share', 'share'),
+    (f.share || f.mail) && sub('Share', 'share', [
+      f.share && i('Share with people…', 'share', 'share'),
+      f.mail && i('Send a copy…', 'sendCopy', 'sendCopy'),
+      f.mail && f.share && i('Send a link…', 'sendLink', 'sendLink'),
+    ]),
     i('Version history…', 'clock', 'versions'),
     i('Show changes', 'showChanges', 'showChanges', null, { checked: !!f.changesPane }),
     i('Document details…', 'info', 'docInfo'),

@@ -147,6 +147,7 @@ describe('email worker: /links', () => {
       expect((await w.call('POST', '/links', { json: body({ link }) })).data.error).toBe('invalid_link');
     }
     expect((await w.call('POST', '/links', { json: body({ link: 'https://puter.com/app/spreadsheet?file=abc' }) })).data.sent).toBe(1);
+    expect((await w.call('POST', '/links', { json: body({ link: "https://spreadsheet.puter.com/#/file/u1?range='Q3%20plan'!B4" }) })).data.sent).toBe(1);
     // Markup in a link arrives percent-encoded, never as markup.
     await w.call('POST', '/links', { json: body({ link: 'https://spreadsheet.puter.com/#/file/x"><script>' }) });
     expect(w.sent.at(-1).html).not.toContain('<script>');

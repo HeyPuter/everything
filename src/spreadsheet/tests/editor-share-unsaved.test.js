@@ -34,6 +34,13 @@ beforeEach(() => {
 });
 afterEach(() => { closeMenu(); closeAllModals(); view?.destroy(); view = null; vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
+/** File ▸ Share ▸ Share with people…. */
+function openShareFromFileMenu() {
+  const item = (label) => [...document.querySelectorAll('.menu-item')].find((n) => n.querySelector('.menu-label')?.textContent === label);
+  item('Share').click();
+  item('Share with people…').click();
+}
+
 it('saves a blank, never-changed spreadsheet and opens the share dialog for it', async () => {
   const doc = Doc.blank();
   const save = vi.spyOn(doc, 'save').mockImplementation(async () => { doc.path = 'Spreadsheets/Untitled spreadsheet.xlsx'; doc.uid = 'u-1'; return true; });
@@ -41,7 +48,7 @@ it('saves a blank, never-changed spreadsheet and opens the share dialog for it',
   document.querySelector('#app').append(view.el);
   await vi.advanceTimersByTimeAsync(5);
   view.el.querySelector('[data-menu="file"]').click();
-  [...document.querySelectorAll('.menu-item')].find((n) => n.querySelector('.menu-label')?.textContent === 'Share…').click();
+  openShareFromFileMenu();
   await vi.advanceTimersByTimeAsync(5);
   expect(save).toHaveBeenCalled();
   expect(document.querySelector('.modal-title')?.textContent).toBe(`Share "${doc.name}"`);
@@ -54,7 +61,7 @@ it('shares a .csv as the .xlsx its edits are saved to, not as the .csv', async (
   document.querySelector('#app').append(view.el);
   await vi.advanceTimersByTimeAsync(5);
   view.el.querySelector('[data-menu="file"]').click();
-  [...document.querySelectorAll('.menu-item')].find((n) => n.querySelector('.menu-label')?.textContent === 'Share…').click();
+  openShareFromFileMenu();
   await vi.advanceTimersByTimeAsync(5);
   expect(save).toHaveBeenCalled();
   expect(P.shareAccess).toHaveBeenCalledWith('Spreadsheets/data.xlsx');

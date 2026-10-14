@@ -137,6 +137,9 @@ import { createMenubar, SPECIAL_KINDS } from '../ui/menubar.js';
 import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
 import { openShareDialog } from '../ui/share.js';
+import { openSendCopyDialog, openSendLinkDialog } from '../ui/send-mail.js';
+import { createMentionNotifier, createMentionAlerts } from '../ui/mention-notify.js';
+import { createMailer } from '../lib/mail.js';
 import { createPeopleBar, peopleHere, roomStatus } from '../ui/coauthor.js';
 import { mapLine, mapGap } from '../collab/ops.js';
 import { openShortcuts } from '../ui/shortcuts.js';
@@ -271,6 +274,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       try { for (const fn of listeners) fn(); } finally { dispatching = false; flagsMemo = null; }
     });
   };
+
+  // Email from this workbook: Send a copy, Send a link, and @mention notes (lib/mail.js).
+  const mailer = createMailer();
 
   /* ---------- Context shared by the components ---------- */
 
@@ -1172,7 +1178,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const cell = wb.getCell(sheetId, r, c);
     const sheet = wb.sheet(sheetId);
     return {
-      templates: !!templateDoc, pick: P.canPickFiles(), share: P.canShare(), ai: P.canAI(), aiPanel: !!aiPanel?.isOpen, saving: P.isApp() && P.canSaveFiles(),
+      templates: !!templateDoc, pick: P.canPickFiles(), share: P.canShare(), mail: mailer.available(), ai: P.canAI(), aiPanel: !!aiPanel?.isOpen, saving: P.isApp() && P.canSaveFiles(),
       fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
@@ -2563,20 +2569,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openVersionHistory(doc, { onRestored: () => { grid.refresh(); keepFocus(); } });
         return;
       }
-      case 'share': {
-        // Sharing hands out a file: an unsaved spreadsheet is saved first, as for a link to a range.
+      case 'sendCopy': {
+        // Email the workbook as it is now, from the signed-in user (ui/send-mail.js).
         if (!committed()) return;
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
-        // Saved by hand, not flushed: a flush has nothing to write for a blank book that was never changed. A
-        // file that is not an .xlsx (a .csv opened from the drive) is saved as one first, where its edits go
-        // from now on: shared as it was, it would never see them.
-        if (!doc.path || !doc.isXlsxPath) {
-          try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return; }
-          if (destroyed) return;
-        }
-        if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return; }
+        openSendCopyDialog({ doc, sheetId: grid.sheetId, range: S.isSingle(grid.selection) ? null : { ...grid.range }, mailer, user: session.user, onClose: () => keepFocus() });
+        return;
+      }
+      case 'sendLink': {
+        if (!await savedForSharing()) return;
+        openSendLinkDialog({ doc, mailer, user: session.user, onClose: () => keepFocus() });
+        return;
+      }
+      case 'share': {
+        if (!await savedForSharing()) return;
         openShareDialog({
           path: doc.path, name: doc.name, uid: doc.uid, doc: openLive ? doc : null,
+          onEmailLink: mailer.available() ? () => run('sendLink') : null,
           // Editing together started (or stopped): the workbook opens again as the room's (or as the file).
           onLive: async (room) => {
             if (destroyed) return;
@@ -5199,6 +5208,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     else refreshTitle();
   }
 
+  /**
+   * Sharing hands out a file: an unsaved spreadsheet is saved first, as for a link to a range. Saved by hand,
+   * not flushed: a flush has nothing to write for a blank book that was never changed. A file that is not an
+   * .xlsx (a .csv opened from the drive) is saved as one first, where its edits go from now on: shared as it
+   * was, it would never see them. Resolves whether there is a file to share now.
+   */
+  async function savedForSharing() {
+    if (grid.editing && !grid.commitEdit()) return false;
+    if (session.signedOut && (!await session.signIn() || destroyed)) return false;
+    if (!doc.path || !doc.isXlsxPath) {
+      try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return false; }
+      if (destroyed) return false;
+    }
+    if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return false; }
+    return true;
+  }
+
   async function saveAs() {
     if (grid.editing && !grid.commitEdit()) return;
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
@@ -5603,8 +5629,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const quickAnalysis = createQuickAnalysis({ ...ctx, run });
   const errorTag = createErrorSmartTag({ ...ctx, run, focusFormulaBar: () => formulaBar.focusInput(), refreshErrorTag: () => errorTag.sync() });
   // Threaded comments: the card beside a cell and the Comments pane (Review ▸ Comments).
+  // @mentions: the people a comment can name, telling them when it is posted, and telling the user when a
+  // comment names them (ui/mention-notify.js).
+  const mentionNotifier = createMentionNotifier({ doc, wb, mailer, me: () => session.user });
   const comments = createComments(ctx, { author: () => session.user?.username || 'You', keepFocus: () => keepFocus(),
-    refused: (what) => refusedByProtection(what), onPaneToggle: () => notify() });
+    refused: (what) => refusedByProtection(what), onPaneToggle: () => notify(),
+    mentionPeople: () => mentionNotifier.candidates(),
+    onMentioned: (posted) => { mentionNotifier.notify(posted).catch((e) => console.error(e)); } });
+  const mentionAlerts = createMentionAlerts({
+    wb, me: () => session.user, fileKey: () => doc.uid || doc.path,
+    goTo: (sheetId, r, c) => { if (destroyed) return; if (selectLocation(sheetId, { r1: r, c1: c, r2: r, c2: c })) comments.run('showComment'); },
+  });
+  mentionAlerts.start();
   comments.attach();
   ctx.comments = comments;
   ctx.subscribe(() => comments.sync());
@@ -6149,6 +6185,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       automate?.destroy();
       chartUi.destroy();
       comments.destroy();
+      mentionAlerts.stop();
       findBar.destroy();
       aiPanel?.destroy();
       grid.destroy();

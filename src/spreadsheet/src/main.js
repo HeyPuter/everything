@@ -14,7 +14,7 @@ import { rememberRecent, forgetRecent } from './lib/recent.js';
 import { errorView, signInView } from './views/gate.js';
 import { homeView } from './views/home.js';
 import { editorView } from './views/editor.js';
-import { parseAppHash } from './lib/links.js';
+import { parseAppHash, editHash } from './lib/links.js';
 import { roomForFile, openRoom } from './collab/session.js';
 
 const appRoot = document.getElementById('app');
@@ -264,7 +264,7 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
         return;
       }
       // Through the route queue, so that a navigation made while the id was looked up wins.
-      pendingRoute ??= { hash: `#/edit/${encodeURIComponent(found.path)}` };
+      pendingRoute ??= { hash: editHash(found.path, range) };
       return;
     }
     showLoading();
