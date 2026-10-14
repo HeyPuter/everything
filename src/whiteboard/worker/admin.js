@@ -1082,39 +1082,64 @@ async function jira(org, identity, input, boards) {
     if (!/^[A-Z][A-Z0-9_]+$/.test(config.project))
       fail(403, "Jira is not set up for your organization.");
     // Board editors can read only the organization's project, not every
-    // issue the integration account can see.
-    const jql = `project = "${config.project}" AND key in (${keys.join(",")})`;
-    // Jira answers in pages; every page is read.
+    // issue the integration account can see. Jira refuses a whole search
+    // that names an issue it no longer has; the issues its refusal names
+    // are left out and the rest searched again.
+    let asked = keys;
     const found = [];
-    let token = null;
-    do {
-      const query = new URLSearchParams({
-        jql,
-        fields: "status,assignee,duedate,summary",
-        maxResults: "100",
-        ...(token ? { nextPageToken: token } : {}),
-      });
-      const res = await org.fetcher(`${base}/rest/api/3/search/jql?${query}`, {
-        headers: { Authorization: auth, Accept: "application/json" },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) {
-        // Jira's own reason goes back beside the message, as for creation,
-        // so the person or an administrator can fix it.
-        const reason = jiraReason(await res.json().catch(() => ({})));
-        throw Object.assign(
-          Error(
-            [401, 403].includes(res.status)
-              ? "Jira refused the integration account. Check its email and API token in Organization settings."
-              : "Jira did not accept the request.",
-          ),
-          { status: 502, ...(reason ? { detail: reason } : {}) },
+    for (let attempt = 0; asked.length && attempt < 5; attempt++) {
+      const jql = `project = "${config.project}" AND key in (${asked.join(",")})`;
+      // Jira answers in pages; every page is read.
+      let token = null,
+        gone = null;
+      found.length = 0;
+      do {
+        const query = new URLSearchParams({
+          jql,
+          fields: "status,assignee,duedate,summary",
+          maxResults: "100",
+          ...(token ? { nextPageToken: token } : {}),
+        });
+        const res = await org.fetcher(
+          `${base}/rest/api/3/search/jql?${query}`,
+          {
+            headers: { Authorization: auth, Accept: "application/json" },
+            signal: AbortSignal.timeout(10000),
+          },
         );
-      }
-      const data = await res.json();
-      found.push(...(data.issues || []));
-      token = data.nextPageToken || null;
-    } while (token && found.length < keys.length);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const named =
+            res.status === 400
+              ? asked.filter((key) =>
+                  (data.errorMessages || []).some(
+                    (m) => typeof m === "string" && m.includes(`'${key}'`),
+                  ),
+                )
+              : [];
+          if (named.length) {
+            gone = new Set(named);
+            break;
+          }
+          // Jira's own reason goes back beside the message, as for
+          // creation, so the person or an administrator can fix it.
+          const reason = jiraReason(data);
+          throw Object.assign(
+            Error(
+              [401, 403].includes(res.status)
+                ? "Jira refused the integration account. Check its email and API token in Organization settings."
+                : "Jira did not accept the request.",
+            ),
+            { status: 502, ...(reason ? { detail: reason } : {}) },
+          );
+        }
+        const data = await res.json();
+        found.push(...(data.issues || []));
+        token = data.nextPageToken || null;
+      } while (token && found.length < asked.length);
+      if (!gone) break;
+      asked = asked.filter((key) => !gone.has(key));
+    }
     return {
       issues: found.map((i) => ({
         key: i.key,

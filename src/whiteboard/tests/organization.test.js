@@ -9553,3 +9553,56 @@ test("a passing Slack failure is reported but does not tell the board's owner to
     "Slack refused the message (404): no_service",
   );
 });
+
+test("a Jira status refresh leaves out issues Jira no longer has rather than failing", async () => {
+  const { boards, call, org } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {
+      integrations: {
+        jira: {
+          enabled: true,
+          site: "fabrikam.atlassian.net",
+          email: "svc@fabrikam.test",
+          project: "WB",
+        },
+      },
+    },
+    secrets: { jira: "token" },
+  });
+  const { input, room } = createInput("Plan");
+  await boards.call(owner, input);
+  const asked = [];
+  org.fetcher = async (target) => {
+    const jql = new URL(target).searchParams.get("jql");
+    asked.push(jql);
+    // As Jira answers a search naming an issue that was deleted.
+    if (jql.includes("WB-9"))
+      return Response.json(
+        {
+          errorMessages: [
+            "An issue with key 'WB-9' does not exist for field 'key'.",
+          ],
+        },
+        { status: 400 },
+      );
+    return Response.json({
+      issues: ["WB-1", "WB-2"].map((key) => ({
+        key,
+        fields: { status: { name: "Done", statusCategory: { key: "done" } } },
+      })),
+    });
+  };
+  const { issues } = await call(owner, {
+    op: "org.jira.status",
+    room,
+    keys: ["WB-1", "WB-9", "WB-2"],
+  });
+  assert.deepEqual(
+    issues.map((i) => i.key),
+    ["WB-1", "WB-2"],
+  );
+  assert.equal(asked.length, 2);
+  assert.ok(!asked[1].includes("WB-9"));
+});
