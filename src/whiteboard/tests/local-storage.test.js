@@ -404,3 +404,35 @@ test("on a board too large for every version, a burst of edits leaves the latest
     "Day 1 at 12",
   ]);
 });
+
+test("a version that replaces another takes its place and lets go of pictures only it used", async (t) => {
+  const local = await fresh();
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  const b = board("Refused edits");
+  b.items.push(item("image", 0, 0, { src: picture("A", 100_000) }));
+  const first = await local.checkpoint(b, "Unsaved changes", { kept: true });
+  b.items[0].src = picture("B", 100_000);
+  b.items.push(item("note", 0, 0, { text: "More" }));
+  const second = await local.checkpoint(b, "Unsaved changes", {
+    kept: true,
+    replaces: first.id,
+  });
+  assert.equal(second.id, first.id);
+  const versions = await local.revisions(b.id);
+  assert.equal(versions.length, 1);
+  assert.equal(versions[0].board.items.length, 2);
+  assert.ok(versions[0].created > first.created);
+  assert.deepEqual(
+    (await rawRows("media")).map((m) => m.data[23]),
+    ["B"],
+  );
+  // One that is gone, as when it was deleted, is made again.
+  await local.removeRevisions(b.id);
+  const third = await local.checkpoint(b, "Unsaved changes", {
+    kept: true,
+    replaces: first.id,
+  });
+  assert.equal((await local.revisions(b.id)).length, 1);
+  assert.notEqual(third.id, first.id);
+});

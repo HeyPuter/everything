@@ -447,6 +447,10 @@ const pairs = {
   "Could not copy the text.": "Impossible de copier le texte.",
   "This board changed in another tab. Reload to see the latest copy.":
     "Ce tableau a changé dans un autre onglet. Rechargez pour voir la dernière copie.",
+  "This board changed in another tab. Your changes here are kept in Version history. Reload to see the latest copy.":
+    "Ce tableau a changé dans un autre onglet. Vos modifications ici sont conservées dans l’historique des versions. Rechargez pour voir la dernière copie.",
+  "Unsaved changes from another tab":
+    "Modifications non enregistrées d’un autre onglet",
   "This board was deleted in another tab.":
     "Ce tableau a été supprimé dans un autre onglet.",
   "Not saved": "Non enregistré",

@@ -391,11 +391,13 @@ export const local = {
   // A caller that made `b` for this version alone says it is `owned`: it
   // is kept as it is rather than copied again. A version someone named, or
   // the one saved before a restoration, is `kept` until they delete it
-  // rather than pruned like the versions each edit leaves.
+  // rather than pruned like the versions each edit leaves. A version that
+  // `replaces` another, as one holding the latest of edits still coming
+  // does, takes its place under its id.
   async checkpoint(
     b,
     label = "Board edit",
-    { owned = false, kept = false } = {},
+    { owned = false, kept = false, replaces = null } = {},
   ) {
     // Pruning needs each version's time and size, not its board: they are
     // read once and then kept here, since reading every version back on each
@@ -433,12 +435,15 @@ export const local = {
     const hashes = found?.length
       ? await Promise.all(found.map((f) => mediaHash(f.data)))
       : [];
+    const replaced =
+      replaces != null && known.list.find((r) => r.id === replaces);
+    if (replaced) known.list = known.list.filter((r) => r !== replaced);
     // A version is stamped after every version before it, so two written
     // within one millisecond still list and prune in the order they were
     // made, the newest kept.
     const latest = Math.max(0, ...known.list.map((r) => r.created));
     const revision = {
-      id: crypto.randomUUID(),
+      id: replaced ? replaced.id : crypto.randomUUID(),
       boardId: b.id,
       created: Math.max(Date.now(), latest + 1),
       label,
@@ -578,13 +583,20 @@ export const local = {
                 media.put({ id, data: found.find((f) => f.hash === id).data });
             };
           });
+          if (replaced?.media)
+            dropUnusedMedia(
+              tx,
+              replaced.media.filter((id) => !written.media?.includes(id)),
+            );
           return put;
         },
         ["revisions", "media"],
       );
     } catch (error) {
+      // A version this one was to replace is still there.
       known.list = known.list.filter((r) => r.id !== written.id);
-      known.ids.delete(written.id);
+      if (replaced) known.list.push(replaced);
+      else known.ids.delete(written.id);
       throw error;
     }
     await drop(over().filter((id) => id === previous));

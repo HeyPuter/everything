@@ -25373,7 +25373,7 @@ test("a board open in two tabs refuses a save over the other tab's edits instead
     assert.equal((await stored()).items.length, 2, "The newer copy stays");
     assert.equal(
       first.doc.querySelector("#toast").textContent,
-      "This board changed in another tab. Reload to see the latest copy.",
+      "This board changed in another tab. Your changes here are kept in Version history. Reload to see the latest copy.",
     );
     assert.equal(
       first.doc.querySelector("#save-state").textContent,
@@ -25382,6 +25382,84 @@ test("a board open in two tabs refuses a save over the other tab's edits instead
   } finally {
     await second?.close();
     await first.close();
+  }
+});
+
+test("edits a save refused for another tab's copy are kept as one version that a reload can restore", async () => {
+  const indexedDB = new IDBFactory();
+  const first = await setup(undefined, { indexedDB });
+  let second, reloaded;
+  try {
+    const addNote = async (app) => {
+      const canvas = app.doc.querySelector("#canvas");
+      canvas.focus();
+      canvas.dispatchEvent(
+        new app.w.KeyboardEvent("keydown", { key: "n", bubbles: true }),
+      );
+      await app.tick();
+      app.doc
+        .querySelector("#canvas-text-editor")
+        .dispatchEvent(
+          new app.w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      await app.tick();
+      await new Promise((r) => setTimeout(r, 100));
+    };
+    const rows = async (store) => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("whiteboard-v1");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const result = await new Promise((resolve, reject) => {
+        const request = db.transaction(store).objectStore(store).getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return result;
+    };
+    const refused = async () =>
+      (await rows("revisions")).filter(
+        (r) => r.label === "Unsaved changes from another tab",
+      );
+    await first.click('[data-action="new"]');
+    await addNote(first);
+    const id = (await rows("boards"))[0].id;
+    second = await setup(undefined, { indexedDB });
+    await second.click(`[data-open="${id}"]`);
+    await addNote(second);
+    // The first tab goes on editing its older copy: each save is refused,
+    // and one version holds the latest of what it refused.
+    await addNote(first);
+    await addNote(first);
+    await addNote(first);
+    assert.equal((await rows("boards"))[0].items.length, 2);
+    let kept = await refused();
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].board.items.length, 4);
+    assert.equal(kept[0].kept, true);
+    assert.equal(
+      first.doc.querySelector("#toast").textContent,
+      "This board changed in another tab. Your changes here are kept in Version history. Reload to see the latest copy.",
+    );
+    // Reloaded, the tab shows the other tab's copy, and its own edits are
+    // in Version history.
+    await first.close();
+    reloaded = await setup(undefined, { indexedDB });
+    await reloaded.click(`[data-open="${id}"]`);
+    await reloaded.click('[data-action="more-tools"]');
+    await reloaded.click('[data-feature="history"]');
+    const row = () =>
+      [...reloaded.doc.querySelectorAll("#local-revisions .revision-row")].find(
+        (r) => r.textContent.includes("Unsaved changes from another tab"),
+      );
+    for (let n = 0; n < 40 && !row(); n++) await reloaded.tick();
+    assert.match(row()?.textContent || "", /4 objects/);
+  } finally {
+    await reloaded?.close();
+    await second?.close();
+    await first.close().catch(() => {});
   }
 });
 

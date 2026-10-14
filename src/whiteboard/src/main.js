@@ -593,6 +593,8 @@ let boards = [],
   // behind a version write would only start after it, which a closing tab
   // may not wait for.
   revisionChain = Promise.resolve(),
+  // See keepRefusedEdits.
+  refusedVersion = null,
   // See storeShared.
   queuedShared = null,
   space = false,
@@ -2739,6 +2741,31 @@ function checkpoint(label = "Board edit", snapshot = undoCopy(current)) {
     .then(() => local.checkpoint(snapshot, label, { owned: true }))
     .catch(() => toast("Could not save a recovery version. Export a backup."));
 }
+// A save refused because another tab saved the board since leaves this
+// tab's edits in no stored copy, and reloading shows the other tab's. They
+// are kept as a version instead, one for as long as saves keep being
+// refused, updated with each, so they can be restored after the reload.
+function keepRefusedEdits(snapshot, error) {
+  revisionChain = revisionChain
+    .catch(() => {})
+    .then(() =>
+      local.checkpoint(snapshot, "Unsaved changes from another tab", {
+        owned: true,
+        kept: true,
+        replaces:
+          refusedVersion?.boardId === snapshot.id ? refusedVersion.id : null,
+      }),
+    )
+    .then(
+      (revision) => {
+        refusedVersion = { boardId: snapshot.id, id: revision.id };
+        toast(
+          "This board changed in another tab. Your changes here are kept in Version history. Reload to see the latest copy.",
+        );
+      },
+      () => toast(error.message),
+    );
+}
 function focusRegion(a, searchPanel, avoidSelection = false) {
   attention.stop();
   const r = document.querySelector("#canvas").getBoundingClientRect();
@@ -3107,6 +3134,9 @@ function save({ outlined = false } = {}) {
     .then(() => local.save(snapshot))
     .then((saved) => {
       unsavedLocal.delete(saved.id);
+      // A save that goes through ends a run of refused ones: edits refused
+      // after it are kept in a version of their own.
+      if (refusedVersion?.boardId === saved.id) refusedVersion = null;
       // Another tab's library choice, carried by the save, shows here too.
       const b = boards.find((b) => b.id === saved.id);
       for (const key of ["favorite", "deletedAt"])
@@ -3131,6 +3161,8 @@ function save({ outlined = false } = {}) {
         unsavedLocal.add(snapshot.id);
       if (["StaleBoardError", "DeletedBoardError"].includes(error?.name)) {
         if (current?.id === snapshot.id) status("Not saved");
+        if (error.name === "StaleBoardError")
+          return keepRefusedEdits(snapshot, error);
         return toast(error.message);
       }
       if (current?.id === snapshot.id) status("Storage full");
