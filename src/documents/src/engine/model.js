@@ -1823,6 +1823,10 @@ export class TextDocument {
       const insertAt = end - removed;
       if (text) {
         this.selection = { anchor: insertAt, focus: insertAt };
+        // Typing that continues the author's own insertion from moments ago extends it, so one burst of
+        // typing is one change even when it crosses a clock second.
+        const me = this.revisionAuthor || 'Author', now = Date.now();
+        const continued = revisionRanges(this.paragraphs).find(r => r.type === 'ins' && !r.move && r.author === me && r.end === insertAt && now - Date.parse(r.date) < 60000);
         const length = this.text.length;
         this.replaceUntracked(text, { ...rest, checkpoint: false });
         const inserted = this.text.length - length, insertion = this.newRevision('ins');
@@ -1836,6 +1840,7 @@ export class TextDocument {
             Object.assign(insertion, { move: true, moveName: name });
           }
         }
+        if (continued && !insertion.move) insertion.date = continued.date;
         eachRevisionTarget(this.paragraphs, insertAt, insertAt + inserted, ({ paragraph, run, mark }) => {
           if (mark) paragraph.markRevision = { ...insertion }; else { run.revision = { ...insertion }; delete run.formatRevision; }
         });
