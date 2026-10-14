@@ -1960,7 +1960,13 @@ ${!managesAdmins ? `<p id="admin-permissions" class="dialog-copy">${t("Only the 
           await saveIntegrations();
           try {
             await request("org.slack.test");
-            toast("Test message posted to Slack.");
+            // A test posts while notifications are off, so the channel can
+            // be checked before turning them on.
+            toast(
+              v("i-slack").checked
+                ? "Test message posted to Slack."
+                : "Test message posted to Slack. Slack notifications are off in Integrations, so nothing else is posted yet.",
+            );
           } finally {
             reload("integrations");
           }

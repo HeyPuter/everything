@@ -7760,3 +7760,24 @@ test("board settings say when Slack stopped taking the board's posts", async () 
     for (const key of keys) delete globalThis[key];
   }
 });
+
+test("a Slack test message says when Slack notifications are off", async () => {
+  const { normalizePolicy } = await import("../worker/org.js");
+  const policy = normalizePolicy({ name: "Fabrikam" });
+  const toasts = [];
+  await withConsole(
+    (op) =>
+      op === "org.policy.get"
+        ? { policy, secrets: { slack: true }, slack: null, owner: null }
+        : { ok: true },
+    "integrations",
+    async ({ d, settle }) => {
+      d.querySelector("#i-slack-test").click();
+      await settle();
+    },
+    { console: { toast: (message) => toasts.push(message) } },
+  );
+  assert.deepEqual(toasts, [
+    "Test message posted to Slack. Slack notifications are off in Integrations, so nothing else is posted yet.",
+  ]);
+});

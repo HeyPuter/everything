@@ -525,4 +525,6 @@ addTranslations({
   "Nothing posted yet.": "Rien n’a encore été publié.",
   "Send test message": "Envoyer un message d’essai",
   "Test message posted to Slack.": "Message d’essai publié dans Slack.",
+  "Test message posted to Slack. Slack notifications are off in Integrations, so nothing else is posted yet.":
+    "Message d’essai publié dans Slack. Les notifications Slack sont désactivées dans Intégrations; rien d’autre n’est donc encore publié.",
 });
