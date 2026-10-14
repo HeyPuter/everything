@@ -31,6 +31,7 @@ import { SheetController } from './views/sheet.js';
 import { SelectTool } from './editor/select.js';
 import { SketchTool, createLevel } from './editor/draw.js';
 import { FLAG } from './render/gl.js';
+import { pointInPolygon as insidePolygon } from './core/geom.js';
 import * as dialogs from './ui/dialogs.js';
 import * as files from './io/files.js';
 import {
@@ -835,6 +836,35 @@ export class App {
     this.select([]);
     this.setTool(new SketchTool(this, { kind: el.kind, editId: el.id }), 'editBoundary');
     this.toast('Redraw the boundary, then click Finish. Tip: to adjust a few corners, select the element and drag its vertex grips instead.');
+  }
+
+  /** Attach (or detach) the tops of the selected walls to the roof above each. */
+  attachTop(attach) {
+    const doc = this.doc;
+    const walls = [...this.selection].map((id) => doc.get(id)).filter((el) => el?.kind === 'wall');
+    if (!walls.length) return this.toast('Select walls first.', { kind: 'error' });
+    let n = 0;
+    this.commit(attach ? 'Attach top' : 'Detach top', () => {
+      for (const w of walls) {
+        if (!attach) {
+          if (w.attachTopId) {
+            doc.update(w.id, { attachTopId: null });
+            n++;
+          }
+          continue;
+        }
+        const m = [(w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2];
+        const baseZ = (doc.get(w.levelId)?.elevation ?? 0) + (+w.baseOffset || 0);
+        const roof = doc
+          .all('roof')
+          .filter((r) => (doc.get(r.levelId)?.elevation ?? 0) + (+r.baseOffset || 0) > baseZ && insidePolygon(m, r.boundary))
+          .sort((a, b) => (doc.get(a.levelId)?.elevation ?? 0) - (doc.get(b.levelId)?.elevation ?? 0))[0];
+        if (!roof) continue;
+        doc.update(w.id, { attachTopId: roof.id });
+        n++;
+      }
+    });
+    if (attach) this.toast(n ? `Attached ${n} wall${n === 1 ? '' : 's'} to the roof.` : 'No roof was found above the selected walls.', { kind: n ? 'success' : 'error' });
   }
 
   flipSelection() {

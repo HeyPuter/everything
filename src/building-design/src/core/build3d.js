@@ -98,6 +98,13 @@ function buildWall(ctx, w) {
 
   const P = (u, side, z) => [axis.a[0] + dir[0] * u + n[0] * side * half, axis.a[1] + dir[1] * u + n[1] * side * half, z];
 
+  const roofTop = attachedTop(ctx.doc, w, base);
+  if (roofTop) {
+    buildAttachedWall(b, { g, axis, base, top, ops, P, roofTop, leftCol, rightCol, core, uL0, uL1, uR0, uR1 });
+    for (const hub of hubsOf(ctx.walls.level(w.levelId), w.id)) b.prism(hub.poly, [], hub.base, hub.top, core, { edges: false });
+    return b.build();
+  }
+
   // Side faces.
   const right = faceLoops(uR0, uR1, base, top, ops);
   const left = faceLoops(uL0, uL1, base, top, ops);
@@ -167,6 +174,104 @@ function buildWall(ctx, w) {
     }
   }
   return b.build();
+}
+
+/**
+ * Top of a wall attached to a roof: a function of the plan point giving the
+ * roof underside (or null when the wall is not attached).
+ */
+export function attachedTop(doc, w, base) {
+  if (!w.attachTopId) return null;
+  const roof = doc.get(w.attachTopId);
+  if (!roof || roof.kind !== 'roof' || !roof.boundary?.length) return null;
+  const g = roofGeometry(doc, roof);
+  return (p) => {
+    const inside = pointInPoly(p, g.poly);
+    if (!inside) return null;
+    const z = g.base + (g.planes.length ? roofHeightAt(g.planes, p) : 0);
+    return z > base + 10 ? z : null;
+  };
+}
+
+function pointInPoly(p, poly) {
+  let r = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const c = poly[j];
+    if (a[1] > p[1] !== c[1] > p[1] && p[0] < ((c[0] - a[0]) * (p[1] - a[1])) / (c[1] - a[1]) + a[0]) r = !r;
+  }
+  return r;
+}
+
+/** Side faces sampled along the wall so their tops follow the roof. */
+function buildAttachedWall(b, { g, axis, base, top, ops, P, roofTop, leftCol, rightCol, core, uL0, uL1, uR0, uR1 }) {
+  const step = 150;
+  const zAt = (u, side) => {
+    const p = P(u, side, 0);
+    return roofTop([p[0], p[1]]) ?? top;
+  };
+  const samples = (u0, u1) => {
+    const out = [];
+    const n = Math.max(1, Math.ceil((u1 - u0) / step));
+    for (let i = 0; i <= n; i++) out.push(u0 + ((u1 - u0) * i) / n);
+    return out;
+  };
+  const face = (side, u0, u1, col) => {
+    const us = samples(u0, u1);
+    const bottom = ops.filter((o) => o.z0 <= base + 0.5).sort((x, y) => x.u0 - y.u0);
+    const outer = [[u0, base]];
+    for (const o of bottom) outer.push([o.u0, base], [o.u0, o.z1], [o.u1, o.z1], [o.u1, base]);
+    outer.push([u1, base]);
+    for (let i = us.length - 1; i >= 0; i--) outer.push([us[i], zAt(us[i], side)]);
+    const holes = ops
+      .filter((o) => o.z0 > base + 0.5)
+      .map((o) => [
+        [o.u0, o.z0],
+        [o.u1, o.z0],
+        [o.u1, o.z1],
+        [o.u0, o.z1],
+      ]);
+    const origin = P(0, side, 0);
+    if (side < 0) b.planar(origin, [axis.dir[0], axis.dir[1], 0], [0, 0, 1], dedupe(outer), holes, col);
+    else b.planar(origin, [-axis.dir[0], -axis.dir[1], 0], [0, 0, 1], dedupe(outer).map((q) => [-q[0], q[1]]), holes.map((hh) => hh.map((q) => [-q[0], q[1]])), col);
+    for (let i = 0; i + 1 < us.length; i++) b.edge(P(us[i], side, zAt(us[i], side)), P(us[i + 1], side, zAt(us[i + 1], side)));
+    b.edge(P(u0, side, base), P(u1, side, base));
+    b.edge(P(u0, side, base), P(u0, side, zAt(u0, side)));
+    b.edge(P(u1, side, base), P(u1, side, zAt(u1, side)));
+    for (const o of ops) {
+      if (o.z0 > base + 0.5) b.edge(P(o.u0, side, o.z0), P(o.u1, side, o.z0));
+      b.edge(P(o.u0, side, o.z1), P(o.u1, side, o.z1));
+      b.edge(P(o.u0, side, o.z0), P(o.u0, side, o.z1));
+      b.edge(P(o.u1, side, o.z0), P(o.u1, side, o.z1));
+    }
+  };
+  face(-1, uR0, uR1, rightCol);
+  face(1, uL0, uL1, leftCol);
+  // Reveals.
+  for (const o of ops) {
+    b.quad(P(o.u0, -1, o.z0), P(o.u0, 1, o.z0), P(o.u0, 1, o.z1), P(o.u0, -1, o.z1), core);
+    b.quad(P(o.u1, 1, o.z0), P(o.u1, -1, o.z0), P(o.u1, -1, o.z1), P(o.u1, 1, o.z1), core);
+    b.quad(P(o.u0, -1, o.z1), P(o.u0, 1, o.z1), P(o.u1, 1, o.z1), P(o.u1, -1, o.z1), core);
+    if (o.z0 > base + 0.5) b.quad(P(o.u0, -1, o.z0), P(o.u1, -1, o.z0), P(o.u1, 1, o.z0), P(o.u0, 1, o.z0), core);
+  }
+  // Top: a strip between the two faces.
+  const lo = Math.min(uL0, uR0);
+  const hi = Math.max(uL1, uR1);
+  const us = samples(lo, hi);
+  const clampL = (u) => Math.max(uL0, Math.min(uL1, u));
+  const clampR = (u) => Math.max(uR0, Math.min(uR1, u));
+  for (let i = 0; i + 1 < us.length; i++) {
+    const a0 = clampR(us[i]);
+    const a1 = clampR(us[i + 1]);
+    const c0 = clampL(us[i]);
+    const c1 = clampL(us[i + 1]);
+    b.quad(P(a0, -1, zAt(a0, -1)), P(a1, -1, zAt(a1, -1)), P(c1, 1, zAt(c1, 1)), P(c0, 1, zAt(c0, 1)), core);
+  }
+  // Bottom.
+  b.horizontal([g.R0, g.R1, g.L1, g.L0], [], base, false, core);
+  // Square ends.
+  if (g.ends[0].kind === 'free') b.quad([g.L0[0], g.L0[1], base], [g.R0[0], g.R0[1], base], [g.R0[0], g.R0[1], zAt(uR0, -1)], [g.L0[0], g.L0[1], zAt(uL0, 1)], core);
+  if (g.ends[1].kind === 'free') b.quad([g.R1[0], g.R1[1], base], [g.L1[0], g.L1[1], base], [g.L1[0], g.L1[1], zAt(uL1, 1)], [g.R1[0], g.R1[1], zAt(uR1, -1)], core);
 }
 
 /** Keep the parts of [u0, u1] outside the cut intervals. */

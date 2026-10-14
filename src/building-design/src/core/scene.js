@@ -106,6 +106,10 @@ export class Scene {
     const doc = this.doc;
     const d = [el, doc.get(el.typeId), doc.get(el.levelId), doc.get(el.topLevelId)];
     if (el.kind === 'wall') {
+      if (el.attachTopId) {
+        const roof = doc.get(el.attachTopId);
+        d.push(roof, roof && doc.get(roof.typeId), roof && doc.get(roof.levelId));
+      }
       const g = this.walls.wall(el.id);
       d.push(g ? wallSignature(g) : null);
       for (const h of hostedBy(doc, el.id)) d.push(h, doc.get(h.typeId));

@@ -44,6 +44,36 @@ describe('sample project', () => {
   });
 });
 
+describe('walls attached to roofs', () => {
+  it('raise a gable end wall to the roof underside and follow roof edits', () => {
+    const { doc, wall, add, L1, L2 } = project();
+    const w = wall([0, 0], [0, 6000]);
+    const roof = add({
+      kind: 'roof',
+      typeId: 'rt-generic',
+      levelId: L2.id,
+      boundary: [
+        [-500, 0],
+        [8000, 0],
+        [8000, 6000],
+        [-500, 6000],
+      ],
+      slopes: [30, null, 30, null],
+      baseOffset: 0,
+    });
+    const scene = new Scene(doc);
+    const plain = scene.mesh(doc.get(w.id)).bounds.max[2];
+    doc.transact('Attach', () => doc.update(w.id, { attachTopId: roof.id }));
+    const attached = scene.mesh(doc.get(w.id)).bounds.max[2];
+    expect(plain).toBeCloseTo(3000);
+    // Ridge at the middle: 3000 above the eave times tan(30 degrees).
+    expect(attached).toBeGreaterThan(3000 + 3000 * Math.tan(Math.PI / 6) - 100);
+    doc.transact('Steeper', () => doc.update(roof.id, { slopes: [45, null, 45, null] }));
+    expect(scene.mesh(doc.get(w.id)).bounds.max[2]).toBeGreaterThan(attached + 500);
+    void L1;
+  });
+});
+
 describe('scene invalidation', () => {
   it('re-solves joins when a neighbor wall moves', () => {
     const { doc, wall } = project();

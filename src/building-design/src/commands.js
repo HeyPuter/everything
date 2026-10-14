@@ -133,6 +133,8 @@ export const COMMANDS = {
   measure: { label: 'Measure', icon: 'measure', keys: 'ME', run: tool(MeasureTool) },
   matchType: { label: 'Match Type', icon: 'matchType', keys: 'MA', run: tool(MatchTypeTool) },
   flip: { label: 'Flip', icon: 'flip', enabled: hasSel, run: (app) => app.flipSelection() },
+  attachTop: { label: 'Attach Top to Roof', icon: 'roof', enabled: hasSel, run: (app) => app.attachTop(true), desc: 'Extend the selected walls up to the underside of the roof above them' },
+  detachTop: { label: 'Detach Top', icon: 'wall', enabled: hasSel, run: (app) => app.attachTop(false) },
   editType: { label: 'Edit Type', icon: 'types', run: (app) => app.editTypeDialog() },
   editBoundary: { label: 'Edit Boundary', icon: 'boundary', run: (app) => app.editBoundary() },
   selectSimilar: { label: 'Select All Instances', icon: 'pointer', keys: 'SA', enabled: hasSel, run: (app, args) => app.selectSimilar(args?.scope || 'view') },

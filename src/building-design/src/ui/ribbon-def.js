@@ -139,7 +139,8 @@ export function MODIFY_PANEL() {
 export function contextualPanels(kinds) {
   const panels = [{ title: 'Properties', items: [{ cmd: 'editType', size: 'lg' }] }, MODIFY_PANEL()];
   const k = kinds.length === 1 ? kinds[0] : null;
-  if (k === 'wall' || k === 'door' || k === 'window') panels.push({ title: k === 'wall' ? 'Wall' : 'Opening', items: [{ cmd: 'flip', size: 'lg' }] });
+  if (k === 'wall') panels.push({ title: 'Wall', items: [{ cmd: 'flip', size: 'lg' }, { cmd: 'attachTop', size: 'lg' }, { cmd: 'detachTop', size: 'lg' }] });
+  if (k === 'door' || k === 'window') panels.push({ title: 'Opening', items: [{ cmd: 'flip', size: 'lg' }] });
   if (k === 'floor' || k === 'roof' || k === 'ceiling' || k === 'railing') panels.push({ title: 'Mode', items: [{ cmd: 'editBoundary', size: 'lg' }] });
   panels.push({ title: 'View', items: [{ cmd: 'hideEl' }, { cmd: 'hideCat' }, { cmd: 'tempIsolate' }, { cmd: 'tempHide' }, { cmd: 'selectSimilar' }] });
   return panels;
