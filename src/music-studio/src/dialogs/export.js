@@ -10,6 +10,7 @@ import { zipBytes } from '../io/zip.js';
 import { downloadBlob, safeFileName } from '../io/download.js';
 import { songLength, patternLength } from '../model/project.js';
 import { formatTime } from '../model/time.js';
+import { tempoMap } from '../engine/compile.js';
 import * as puter from '../storage/puter.js';
 
 export const EXPORT_RATES = [44100, 48000, 88200, 96000];
@@ -59,13 +60,13 @@ export async function openExportDialog(app, { stems = false } = {}) {
     const rid = id(name);
     return h('label.exp-radio', { for: rid }, h('input', { type: 'radio', id: rid, name, value, checked }), h('span', label), detail ? h('span.faint', detail) : null);
   };
-  const lenText = (ticks) => formatTime(ticks, p.bpm).replace(/:\d\d$/, '');
+  const lenText = (ticks, mode = 'song') => formatTime(ticks, tempoMap(p, mode)).replace(/:\d\d$/, '');
   const groupName = id('range');
   const range = h(
     'fieldset.exp-field',
     h('legend', 'Range'),
     radio(groupName, 'song', 'Song', hasSong, hasSong ? lenText(songLength(p)) : 'empty'),
-    radio(groupName, 'pattern', `Pattern: ${store.pattern.name}`, !hasSong, lenText(patternLength(store.pattern, p.sig))),
+    radio(groupName, 'pattern', `Pattern: ${store.pattern.name}`, !hasSong, lenText(patternLength(store.pattern, p.sig), 'pattern')),
   );
   if (!hasSong) range.querySelector('input[value="song"]').disabled = true;
 

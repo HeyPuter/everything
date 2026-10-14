@@ -21,7 +21,7 @@ import { openMenu, contextMenu, isContextKey } from '../ui/menu.js';
 import { setDragData, getDragData, dragHasPayload } from '../lib/dnd.js';
 import { RackRow, COL, PHONE_HIDDEN } from './row.js';
 import { channelActions, channelMenuItems } from './actions.js';
-import { stepCount, stepsPerBeat, stepStates, paintSteps, setStepVelocity, editChannelNotes, resizedBars, copyNotes, fitsSteps, MAX_BARS } from './steps.js';
+import { stepCount, stepsPerBeat, stepStates, paintSteps, setStepVelocity, editChannelNotes, resizedBars, copyNotes, fitsSteps, songStepAt, MAX_BARS } from './steps.js';
 
 const SWING = { id: 'swing', label: 'Swing', min: 0, max: 1, def: 0, unit: '%' };
 const GAP = 2; // px between steps
@@ -301,7 +301,9 @@ export class RackView {
   frame() {
     if (!this.visible) return;
     const e = this.app.engine;
-    const s = e.playing && e.mode === 'pattern' ? Math.floor(e.position / STEP) : -1;
+    // Song mode: the selected pattern's step under the song playhead, when one of its clips plays.
+    let s = -1;
+    if (e.playing) s = e.mode === 'pattern' ? Math.floor(e.position / STEP) : songStepAt(this.store.project, this.store.view.pattern, e.position);
     if (s === this.playStep) return;
     const old = this.playStep;
     this.playStep = s;

@@ -11,6 +11,7 @@
 import { INSTRUMENTS, paramDef } from '../instruments/catalog.js';
 import { EFFECTS, effectParamDef } from '../effects/catalog.js';
 import { toNorm } from '../lib/params.js';
+import { TEMPO_MIN, TEMPO_MAX } from '../engine/tempo.js';
 
 /** Parameter definitions for the values every channel and mixer track has. */
 export const CHANNEL_PARAMS = {
@@ -24,7 +25,13 @@ export const MIXER_PARAMS = {
   pan: { id: 'pan', label: 'Pan', min: -1, max: 1, def: 0, unit: '%' },
 };
 
-export const TEMPO_PARAM = { id: 'tempo', label: 'Tempo', min: 10, max: 522, def: 130, unit: '' };
+/**
+ * Tempo automation range: 20 to 300 BPM, linear, so a clip's height maps
+ * evenly to tempo (about 2.8 BPM per percent). Outside tempo clips the song
+ * plays at project.bpm (which may lie outside this range); the engine reads
+ * tempo clips through engine/tempo.js.
+ */
+export const TEMPO_PARAM = { id: 'tempo', label: 'Tempo', min: TEMPO_MIN, max: TEMPO_MAX, def: 130, unit: 'bpm' };
 
 function findSlot(track, slot) {
   if (!track) return null;
@@ -61,7 +68,8 @@ export function resolveTarget(project, target) {
     return { def, value, norm: toNorm(def, value), label: `${t.name} ${EFFECTS[slot.type]?.label || slot.type} ${def.label.toLowerCase()}`, color: t.color };
   }
   if (target.kind === 'tempo') {
-    return { def: TEMPO_PARAM, value: project.bpm, norm: toNorm(TEMPO_PARAM, project.bpm), label: 'Tempo', color: null };
+    const def = project.bpm === TEMPO_PARAM.def ? TEMPO_PARAM : { ...TEMPO_PARAM, def: project.bpm };
+    return { def, value: project.bpm, norm: toNorm(def, project.bpm), label: 'Tempo', color: null };
   }
   return null;
 }

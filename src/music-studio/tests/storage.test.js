@@ -8,7 +8,7 @@ import * as E from '../src/model/edits.js';
 import { demoProject, newProject } from '../src/model/demo.js';
 import { serializeProject } from '../src/model/serialize.js';
 import { App } from '../src/app.js';
-import { install } from '../src/storage/index.js';
+import { install, RESTORE_WAIT_MS } from '../src/storage/index.js';
 import { ProjectFiles } from '../src/storage/files.js';
 
 /** A fake Puter SDK with an in-memory file system. Every fs call is recorded. */
@@ -289,7 +289,12 @@ describe('storage feature in the app', () => {
     const { root: root2 } = mount();
     const app2 = new App(root2, { storage });
     app2.start([{ install: (a) => install(a, { db }) }]);
+    // The workspace stays hidden until the session is back (no flash of the default project).
+    expect(root2.classList.contains('is-restoring')).toBe(true);
     await app2.restored;
+    await new Promise((r) => setTimeout(r, 120));
+    expect(root2.classList.contains('is-restoring')).toBe(false);
+    expect(root.classList.contains('is-restoring')).toBe(false); // first launch never hides
     expect(app2.store.project.bpm).toBe(77);
     expect(app2.store.dirty).toBe(true);
     expect(app2.file?.local).toBe(app.file.local);
@@ -308,6 +313,24 @@ describe('storage feature in the app', () => {
     await app.files.save();
     expect(saveAs).toHaveBeenCalledTimes(1);
     expect(app.file).toBe(null);
+  });
+
+  it('shows the app after a timeout when the draft store never answers', async () => {
+    window.puter = fakePuter({ signedIn: false });
+    vi.useFakeTimers();
+    try {
+      const { root, storage } = mount();
+      storage.setItem('music-studio:prefs', JSON.stringify({ launched: true }));
+      const stuck = { get: () => new Promise(() => {}), put: () => new Promise(() => {}), delete: () => new Promise(() => {}), keys: () => new Promise(() => {}), getAll: () => new Promise(() => {}) };
+      const app = new App(root, { storage });
+      app.start([{ install: (a) => install(a, { db: Promise.resolve(stuck) }) }]);
+      expect(root.classList.contains('is-restoring')).toBe(true);
+      vi.advanceTimersByTime(RESTORE_WAIT_MS + 10);
+      expect(root.classList.contains('is-restoring')).toBe(false);
+      expect(root.hasAttribute('aria-busy')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reopens a saved cloud project from the cloud (it may be newer) instead of its clean draft', async () => {
@@ -468,5 +491,42 @@ describe('app folder', () => {
     expect(await puterApi.appDir()).toBe('/ada/AppData/app-test');
     expect(await puterApi.appSubdir('Samples')).toBe('/ada/AppData/app-test/Samples');
     expect(window.puter.calls).not.toContain('getUser');
+  });
+});
+
+describe('Puter desktop window close', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.querySelectorAll('.dialog-backdrop').forEach((n) => n.remove());
+  });
+
+  it('asks about unsaved changes and only exits once answered', async () => {
+    const fake = fakePuter();
+    fake.env = 'app';
+    let onClose = null;
+    fake.ui.onWindowClose = (fn) => (onClose = fn);
+    fake.exit = vi.fn();
+    window.puter = fake;
+    const app = new App(document.createElement('div'), { storage: null });
+    install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    expect(typeof onClose).toBe('function');
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+    const closing = onClose();
+    await new Promise((r) => setTimeout(r, 0));
+    const dialog = document.querySelector('.dialog-backdrop');
+    expect(dialog).toBeTruthy();
+    expect(fake.exit).not.toHaveBeenCalled();
+    dialog.querySelector('[data-value="discard"]').click();
+    await closing;
+    expect(fake.exit).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not installed on websites', () => {
+    const fake = fakePuter();
+    fake.ui.onWindowClose = vi.fn();
+    window.puter = fake;
+    const app = new App(document.createElement('div'), { storage: null });
+    install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    expect(fake.ui.onWindowClose).not.toHaveBeenCalled();
   });
 });

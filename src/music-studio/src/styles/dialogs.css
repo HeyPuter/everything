@@ -658,3 +658,8 @@
     height: 40px;
   }
 }
+
+/* Startup: hidden until the last session is restored (storage/index.js). */
+.app.is-restoring > * {
+  visibility: hidden;
+}

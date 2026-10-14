@@ -79,7 +79,14 @@ export function createToolbar(app) {
   });
   const tempoValue = h('span.tempo-value');
   tempo.append(tempoValue, h('span.tempo-unit', 'BPM'));
-  const setBpm = (bpm, label = 'Change tempo') => app.setTempo(clamp(bpm, 10, 522), label);
+  // Tempo edits make the tempo the last tweaked control (Add > Automation clip automates it).
+  const tweaked = () => {
+    app.lastTweaked = { label: 'Tempo', target: { kind: 'tempo' } };
+  };
+  const setBpm = (bpm, label = 'Change tempo') => {
+    tweaked();
+    app.setTempo(clamp(bpm, 10, 522), label);
+  };
   tempo.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.detail > 1) return;
     e.preventDefault();
@@ -87,6 +94,7 @@ export function createToolbar(app) {
     tempo.setPointerCapture(e.pointerId);
     let last = e.clientY;
     let acc = app.store.project.bpm;
+    tweaked();
     app.store.begin('Change tempo');
     const move = (ev) => {
       const dy = last - ev.clientY;
@@ -147,9 +155,22 @@ export function createToolbar(app) {
     });
     input.addEventListener('blur', () => close(true));
   }
+  // While the song plays through tempo automation the display follows the
+  // live tempo (the control still edits project.bpm, used outside tempo clips).
+  let shownTempo = '';
+  const drawTempo = () => {
+    const e = app.engine;
+    const live = e.playing && e.mode === 'song' && e.tempo && !e.tempo.constant;
+    const text = (live ? e.bpmAt(e.position) : app.store.project.bpm).toFixed(3);
+    if (text === shownTempo) return;
+    shownTempo = text;
+    tempoValue.textContent = text;
+    tempo.classList.toggle('is-automated', Boolean(live));
+  };
   const syncTempo = () => {
     const b = app.store.project.bpm;
-    tempoValue.textContent = b.toFixed(3);
+    shownTempo = '';
+    drawTempo();
     tempo.setAttribute('aria-valuenow', String(b));
     tempo.setAttribute('aria-valuetext', `${b} BPM`);
   };
@@ -183,7 +204,7 @@ export function createToolbar(app) {
     const pos = app.engine.position;
     if (!force && pos === lastPos) return;
     lastPos = pos;
-    const text = timeMode === 'bst' ? formatBST(pos, p.sig) : formatTime(pos, p.bpm);
+    const text = timeMode === 'bst' ? formatBST(pos, p.sig) : formatTime(pos, app.engine.tempo || p.bpm);
     if (!force && text === lastTimeText) return;
     lastTimeText = text;
     timeMain.textContent = text;
@@ -343,6 +364,7 @@ export function createToolbar(app) {
   app.prefs.on('change', sync);
   app.on('frame', () => {
     drawTime(false);
+    drawTempo();
     drawMeters();
   });
   sync();

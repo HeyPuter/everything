@@ -18,10 +18,13 @@
 // by one; the master is always audible. Mute always wins.
 //
 // Sequence: { mode, bpm, sig, start, end (the loop range in ticks), notes,
-//   audio (indices of audio events), auto (automation lanes) } where notes is
+//   audio (indices of audio events), auto (automation lanes), tempo (tempo
+//   map pieces, engine/tempo.js: song mode follows tempo automation clips,
+//   pattern mode always plays at project.bpm) } where notes is
 //   a struct of typed arrays sorted by start: start, end (ticks), slot, key,
 //   vel, pan, kind (0 note, 1 audio clip), offset (audio: seconds into the
-//   sample). Swing delays odd sixteenths by up to half a step (swing 1) and
+//   sample; under a tempo map, the time from the clip's virtual start
+//   (start - offset ticks) to its start). Swing delays odd sixteenths by up to half a step (swing 1) and
 //   is applied in pattern time; note ends are warped too so back-to-back
 //   steps never overlap. Notes are cut at the end of the loop range so every
 //   note gets its note-off before playback wraps.
@@ -39,6 +42,7 @@ import { channelAudible, patternById, patternLength, songLength } from '../model
 import { STEP, ticksPerBar, ticksToSeconds } from '../model/time.js';
 import { mixerAudible } from '../mixer/routing.js';
 import { trackAudible as playlistTrackAudible } from '../playlist/clips.js';
+import { TempoMap, tempoPieces } from './tempo.js';
 
 export const NOTE = 0;
 export const AUDIO = 1;
@@ -225,6 +229,8 @@ function trackAudible(project) {
  */
 export function compileSequence(project, { mode = 'pattern', patternId = null, slotOf = () => -1, range = null, cut = true } = {}) {
   const r = range || playRange(project, mode, patternId);
+  const tempo = compileTempo(project, mode);
+  const map = tempo.tick.length > 1 ? new TempoMap(tempo) : null;
   const ev = [];
   const swing = project.swing || 0;
   const chans = new Map(project.channels.map((c) => [c.id, c]));
@@ -277,7 +283,9 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         if (s < 0) continue;
         let end = ce;
         if (cut && cs < r.end && end > r.end) end = r.end;
-        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset: ticksToSeconds(c.offset || 0, project.bpm) });
+        const off = c.offset || 0;
+        const offset = map ? map.seconds(cs) - map.seconds(cs - off) : ticksToSeconds(off, project.bpm);
+        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset });
       }
     }
   }
@@ -317,7 +325,40 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     notes,
     audio: Int32Array.from(audio),
     auto: mode === 'song' ? compileAutomation(project, slot) : [],
+    tempo,
   };
+}
+
+// ------------------------------------------------------------------ tempo
+
+/** Tempo automation clips as tempoPieces() input (audible, unmuted, with points). */
+export function tempoClips(project) {
+  const audible = trackAudible(project);
+  const out = [];
+  for (const c of project.clips) {
+    if (c.kind !== 'auto' || c.mute || audible[c.track] === false) continue;
+    const a = project.automation[c.ref];
+    if (!a || a.target?.kind !== 'tempo' || !a.points?.length) continue;
+    out.push({ start: c.start, end: c.start + c.len, offset: c.offset || 0, points: a.points });
+  }
+  return out;
+}
+
+/** Tempo map pieces for a play mode: song mode follows tempo clips, pattern mode keeps project.bpm. */
+export function compileTempo(project, mode = 'song') {
+  return tempoPieces(project.bpm, mode === 'song' ? tempoClips(project) : []);
+}
+
+const tempoCache = new WeakMap();
+
+/**
+ * The project's TempoMap for a mode (cached per project object, so the UI
+ * can call it every frame). Use it for tick <-> time conversions.
+ */
+export function tempoMap(project, mode = 'song') {
+  let e = tempoCache.get(project);
+  if (!e) tempoCache.set(project, (e = {}));
+  return (e[mode] ||= new TempoMap(compileTempo(project, mode === 'song' ? 'song' : 'pattern')));
 }
 
 /** Resolves an automation target to an engine address and value range (null if unsupported). */
@@ -350,7 +391,7 @@ export function resolveTarget(project, target, slotOf) {
     if (index < 0) return null;
     return { target: { kind: 'fx', track: target.track, fx: fxi, index }, def: pickDef(list[index]) };
   }
-  return null; // tempo automation is not supported by the engine
+  return null; // tempo automation drives the tempo map (compileTempo), not a lane
 }
 
 function pickDef(p) {
@@ -375,11 +416,13 @@ export function compileAutomation(project, slotOf) {
     if (!lane) lanes.set(key, (lane = { target: res.target, def: res.def, segs: [] }));
     const off = c.offset || 0;
     const pts = new Float64Array(a.points.length * 2);
+    let cs = null;
     a.points.forEach((p, i) => {
       pts[i * 2] = c.start + p.t - off;
       pts[i * 2 + 1] = p.v;
+      if (p.c) (cs ||= new Float64Array(a.points.length))[i] = p.c;
     });
-    lane.segs.push({ start: c.start, end: c.start + c.len, pts });
+    lane.segs.push({ start: c.start, end: c.start + c.len, pts, cs });
   }
   const out = [...lanes.values()];
   for (const l of out) l.segs.sort((a, b) => a.start - b.start);

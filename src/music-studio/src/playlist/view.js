@@ -30,6 +30,7 @@ import { drawCanvas, drawRulerLayer, resetColors, AUTO_EDIT_MIN_H } from './rend
 import { createHeaders } from './headers.js';
 import { createPicker, listSources } from './picker.js';
 import { installPointer } from './pointer.js';
+import { installCurves } from './curves.js';
 import * as M from './menus.js';
 import { LOOP_STRIP_H, TITLE_H, PICKER_W, DEFAULT_PX_PER_TICK, DEFAULT_TRACK_H } from './constants.js';
 
@@ -92,7 +93,7 @@ export function createPlaylistView(app, host) {
     tabindex: '0',
     'aria-label': 'Song position',
     'aria-valuemin': '0',
-    dataset: { hint: 'Click or drag to set the song position. Drag the top strip (or Shift+drag) to set the loop; double-click clears it. Right-click for markers.' },
+    dataset: { hint: 'Click or drag to set the song position. Drag the top strip (or Shift+drag) to set the loop; double-click clears it. Drag a marker to move it, double-click it to rename, right-click for marker options. Comma and period jump between markers.' },
   });
   const rulerHead = h('div.pl-ruler-head', { 'aria-hidden': 'true' });
   rulerHost.append(rulerHead);
@@ -128,6 +129,23 @@ export function createPlaylistView(app, host) {
 
   // ---------------------------------------------------------------- toolbar
 
+  // Following the playhead: 'page' jumps a screen at a time; 'continuous'
+  // keeps the playhead at a fixed spot and scrolls the song under it (falls
+  // back to paging when the system asks for reduced motion).
+  const motionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const reducedMotion = () => Boolean(motionQuery?.matches);
+  function followMode(effective = true) {
+    const m = prefs.get('followMode') === 'continuous' ? 'continuous' : 'page';
+    return effective && m === 'continuous' && reducedMotion() ? 'page' : m;
+  }
+  function setFollowMode(mode) {
+    prefs.set('followMode', mode);
+    if (!prefs.get('autoScroll')) prefs.set('autoScroll', true);
+    announce(mode === 'continuous' ? (reducedMotion() ? 'Continuous follow, paging while reduced motion is on' : 'Continuous follow') : 'Page by page follow');
+  }
+  const FOLLOW_AT = 0.35; // continuous: playhead position in the view
+
+
   const toolBtns = new Map();
   const toolGroup = h('div.pl-tool-group', { role: 'toolbar', 'aria-label': 'Playlist tools' });
   for (const t of TOOLS) {
@@ -161,15 +179,30 @@ export function createPlaylistView(app, host) {
   });
   const snapWrap = h('label.pl-snap-wrap', { title: 'Snap to grid' }, icon('snap-grid', 14), snapSel);
   const followBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Follow playhead', 'aria-pressed': 'false', title: 'Follow the playhead while playing', onclick: () => prefs.toggle('autoScroll') }, icon('pl-follow', 15));
+  const followMenuBtn = h('button.icon-btn.xs.pl-follow-more', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Follow options', title: 'How the view follows the playhead' }, icon('chevron-down', 12));
+  followMenuBtn.addEventListener('click', () => {
+    const mode = followMode(false);
+    openMenu(
+      [
+        { type: 'check', label: 'Follow playhead', checked: Boolean(prefs.get('autoScroll')), run: () => prefs.toggle('autoScroll') },
+        { type: 'sep' },
+        { type: 'radio', label: 'Page by page', checked: mode === 'page', run: () => setFollowMode('page') },
+        { type: 'radio', label: reducedMotion() ? 'Continuous (off with reduced motion)' : 'Continuous', checked: mode === 'continuous', run: () => setFollowMode('continuous') },
+      ],
+      { anchor: followMenuBtn, label: 'Follow options' },
+    );
+  });
+  const followWrap = h('span.pl-follow', followBtn, followMenuBtn);
   const zoomOutBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (-)', onclick: () => V.zoomAt(1 / 1.5) }, icon('zoom-out', 15));
   const zoomInBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (=)', onclick: () => V.zoomAt(1.5) }, icon('zoom-in', 15));
   const fitBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom to fit song', title: 'Zoom to fit the song', onclick: () => V.zoomFit() }, icon('pl-fit', 15));
-  const toolbar = h('div.pl-toolbar', pickerBtn, sourceBtn, h('span.tool-sep'), toolGroup, h('span.tool-sep'), snapWrap, followBtn, h('span.tool-sep'), zoomOutBtn, zoomInBtn, fitBtn);
+  const toolbar = h('div.pl-toolbar', pickerBtn, sourceBtn, h('span.tool-sep'), toolGroup, h('span.tool-sep'), snapWrap, followWrap, h('span.tool-sep'), zoomOutBtn, zoomInBtn, fitBtn);
 
   function syncToolbar() {
     for (const [id, b] of toolBtns) b.setAttribute('aria-pressed', String(V.tool() === id));
     snapSel.value = prefs.get('snap').playlist || 'line';
     followBtn.setAttribute('aria-pressed', String(Boolean(prefs.get('autoScroll'))));
+    followBtn.title = `Follow the playhead while playing (${followMode(false) === 'continuous' ? 'continuous' : 'page by page'})`;
     const showPicker = ui(app).picker !== false;
     pickerBtn.setAttribute('aria-pressed', String(showPicker));
     root.classList.toggle('no-picker', !showPicker);
@@ -343,7 +376,7 @@ export function createPlaylistView(app, host) {
     }
   };
 
-  V.clipMenu = (clip, at) => M.clipMenu(V, clip, at);
+  V.clipMenu = (clip, at, opts) => M.clipMenu(V, clip, at, opts);
   V.emptyMenu = (pt, at) => M.emptyMenu(V, pt, at);
   V.trackMenu = (i, at) => M.trackMenu(V, i, at);
   V.sourceMenu = (src, at) => M.sourceMenu(V, src, at);
@@ -538,7 +571,7 @@ export function createPlaylistView(app, host) {
     const x = e.clientX - r.left;
     const tick = Math.max(0, V.vp.tick(x));
     if (e.button === 2) {
-      M.rulerMenu(V, tick, { x: e.clientX, y: e.clientY });
+      M.rulerMenu(V, tick, { x: e.clientX, y: e.clientY }, V.markerAt(x, e.clientY - r.top));
       return;
     }
     if (e.button !== 0) return;
@@ -550,6 +583,11 @@ export function createPlaylistView(app, host) {
       // The pointer may already be gone.
     }
     const loopMode = e.shiftKey || e.clientY - r.top < LOOP_STRIP_H + 1;
+    const marker = loopMode ? null : V.markerAt(x, e.clientY - r.top);
+    if (marker) {
+      dragMarker(e, marker, x);
+      return;
+    }
     let move;
     if (loopMode) {
       const a = V.snapRound(tick, e);
@@ -577,7 +615,87 @@ export function createPlaylistView(app, host) {
     rulerHost.addEventListener('pointerup', up);
     rulerHost.addEventListener('pointercancel', up);
   });
-  rulerHost.addEventListener('dblclick', () => {
+  // Markers: drag to move (snapped, one undo step), click to jump, double-click to rename.
+  const measure = typeof document !== 'undefined' ? document.createElement('canvas').getContext?.('2d') : null;
+  if (measure) measure.font = '10px system-ui, -apple-system, sans-serif';
+  /** The marker whose line or label is at ruler point (x, y), or null. */
+  V.markerAt = (x, y) => {
+    if (y < LOOP_STRIP_H + 1) return null;
+    const pad = matchMedia('(pointer: coarse)').matches ? 10 : 4;
+    let best = null;
+    let bestD = Infinity;
+    for (const m of store.project.markers) {
+      const mx = V.vp.x(m.pos);
+      const w = Math.min(120, measure ? measure.measureText(m.name).width : m.name.length * 6) + 4;
+      if (x < mx - pad || x > mx + w + pad) continue;
+      const d = Math.abs(x - mx);
+      if (d < bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    return best;
+  };
+  V.jumpToMarker = (m) => {
+    if (!m) return;
+    if (engine.mode !== 'song') app.setMode('song');
+    engine.seek(m.pos);
+    V.revealTick(m.pos);
+    syncRulerAria();
+    announce(`Marker ${m.name}, bar ${formatBST(m.pos, store.project.sig)}`);
+  };
+  V.renameMarker = async (m) => {
+    const v = await promptDialog({ title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
+    if (v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
+  };
+  V.deleteMarker = (m) => {
+    store.apply('Delete marker', (q) => C.removeMarker(q, m.id));
+    announce(`Deleted marker ${m.name}`);
+  };
+  function dragMarker(e, m, x0) {
+    const r = rulerHost.getBoundingClientRect();
+    const grab = V.vp.tick(x0) - m.pos;
+    let moved = false;
+    rulerHost.classList.add('marker-drag');
+    const move = (ev) => {
+      const x = ev.clientX - r.left;
+      if (!moved && Math.abs(x - x0) < 4) return;
+      if (!moved) {
+        moved = true;
+        store.begin('Move marker');
+      }
+      const pos = V.snapRound(Math.max(0, V.vp.tick(x) - grab), ev);
+      store.preview((p) => C.updateMarker(p, m.id, { pos }));
+    };
+    const up = (ev) => {
+      rulerHost.removeEventListener('pointermove', move);
+      rulerHost.removeEventListener('pointerup', up);
+      rulerHost.removeEventListener('pointercancel', up);
+      rulerHost.classList.remove('marker-drag');
+      if (moved) {
+        store.commit();
+        const now = store.project.markers.find((k) => k.id === m.id);
+        if (now) announce(`Marker ${now.name} moved to bar ${formatBST(now.pos, store.project.sig)}`);
+      } else if (ev.type === 'pointerup') V.jumpToMarker(m);
+    };
+    rulerHost.addEventListener('pointermove', move);
+    rulerHost.addEventListener('pointerup', up);
+    rulerHost.addEventListener('pointercancel', up);
+  }
+  rulerHost.addEventListener('pointermove', (e) => {
+    if (e.buttons) return;
+    const r = rulerHost.getBoundingClientRect();
+    rulerHost.classList.toggle('on-marker', Boolean(V.markerAt(e.clientX - r.left, e.clientY - r.top)));
+  });
+  rulerHost.addEventListener('pointerleave', () => rulerHost.classList.remove('on-marker'));
+
+  rulerHost.addEventListener('dblclick', (e) => {
+    const r = rulerHost.getBoundingClientRect();
+    const m = V.markerAt(e.clientX - r.left, e.clientY - r.top);
+    if (m) {
+      V.renameMarker(m);
+      return;
+    }
     if (!store.project.loop) return;
     store.apply('Clear loop', (p) => E.setLoop(p, null));
     announce('Loop cleared');
@@ -616,6 +734,7 @@ export function createPlaylistView(app, host) {
   // ---------------------------------------------------------------- canvas pointer and keyboard
 
   installPointer(V, scroller);
+  installCurves(V);
 
   scroller.addEventListener(
     'pointerdown',
@@ -715,7 +834,10 @@ export function createPlaylistView(app, host) {
       const sel = p.clips.find((c) => V.selection.has(c.id)) || clipUnderCursor();
       const x = r.left + clamp(V.vp.x(sel ? sel.start : V.cursor.tick), 0, V.vp.width) + 8;
       const y = r.top + trackTop(V.layout, sel ? sel.track : V.cursor.track) - V.scrollY + 18;
-      if (sel) V.clipMenu(sel, { x, y });
+      const ap = V.activePoint;
+      const pointClip = ap && p.clips.find((c) => c.id === ap.clip);
+      if (pointClip && (!sel || sel.id === pointClip.id)) V.clipMenu(pointClip, { x, y }, { curve: ap.index });
+      else if (sel) V.clipMenu(sel, { x, y });
       else V.emptyMenu({ track: V.cursor.track, tick: V.cursor.tick }, { x, y });
     }
   });
@@ -870,7 +992,7 @@ export function createPlaylistView(app, host) {
   });
   app.samples.on('change', () => V.markDirty());
   prefs.on('change', (k) => {
-    if (k === 'snap' || k === 'autoScroll' || k === 'playlistUi') {
+    if (k === 'snap' || k === 'autoScroll' || k === 'playlistUi' || k === 'followMode') {
       syncToolbar();
       if (k === 'playlistUi') requestAnimationFrame(() => resize());
     }
@@ -886,13 +1008,17 @@ export function createPlaylistView(app, host) {
 
   // ---------------------------------------------------------------- frame
 
+
   let lastHeadX = NaN;
   function updatePlayhead() {
     const song = engine.mode === 'song';
     const pos = engine.position;
     if (song && engine.playing && prefs.get('autoScroll') && !V.hasGesture?.()) {
       const span = V.vp.width / V.vp.pxPerTick;
-      if (pos > V.vp.scroll + span * 0.96 || pos < V.vp.scroll) V.setScroll(pos - span * 0.02, V.scrollY);
+      if (followMode() === 'continuous') {
+        const target = Math.max(0, pos - span * FOLLOW_AT);
+        if (Math.abs(target - V.vp.scroll) * V.vp.pxPerTick >= 0.5) V.setScroll(target, V.scrollY);
+      } else if (pos > V.vp.scroll + span * 0.96 || pos < V.vp.scroll) V.setScroll(pos - span * 0.02, V.scrollY);
     }
     const x = song ? Math.round(V.vp.x(pos)) : -10;
     if (x === lastHeadX) return;
@@ -969,6 +1095,11 @@ export function createPlaylistView(app, host) {
     },
     deselect() {
       if (V.cancelGesture()) return;
+      if (V.activePoint) {
+        V.activePoint = null;
+        V.markDirty();
+        return;
+      }
       if (V.selection.size) V.selectClips([]);
     },
     duplicate() {

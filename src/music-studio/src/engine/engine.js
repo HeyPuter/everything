@@ -11,6 +11,10 @@
 //   engine.play() / stop() / togglePlay() / seek(ticks)
 //   engine.mode = 'pattern' | 'song'
 //   engine.playing, engine.position (ticks, interpolated for drawing)
+//   engine.tempo                    TempoMap (engine/tempo.js) of the current mode: song mode
+//                                   follows tempo automation clips, pattern mode plays at project.bpm
+//   engine.ticksToSeconds(tick) / secondsToTicks(sec)   song position <-> time through that map
+//   engine.bpmAt(tick)              tempo at a position (project.bpm outside tempo clips)
 //   engine.countingIn               true during the count-in bar before recording
 //   engine.noteOn(channelId, key, vel) / noteOff(channelId, key) / allNotesOff({ hard = true })
 //   engine.meters        Float32Array, [peakL, peakR] per mixer track, updated ~30x/s
@@ -45,10 +49,10 @@
 
 import { Emitter } from '../lib/emitter.js';
 import { patternById, patternLength, songLength } from '../model/project.js';
-import { ticksToSeconds, ticksPerBar, PPQ } from '../model/time.js';
+import { ticksPerBar } from '../model/time.js';
 import { paramVector } from '../instruments/catalog.js';
 import { DIVISION_BEATS } from '../effects/catalog.js';
-import { compileChannel, compileMixer, compileSequence, compileTrack, instrumentIndex, mixerGains, trackOrder } from './compile.js';
+import { compileChannel, compileMixer, compileSequence, compileTrack, instrumentIndex, mixerGains, tempoMap, trackOrder } from './compile.js';
 
 const SEQ_THROTTLE_MS = 30;
 const AUDITION_SLOTS = 2;
@@ -399,14 +403,31 @@ export class Engine extends Emitter {
       this._startTime = performance.now() / 1000;
       this._wrapsAtPlay = this._wraps;
       // Show the new position right away; worklet reports take over.
-      this._anchor = { tick: this._pausedAt + this.latency * this.#tps(), perf: performance.now(), counting: false };
+      const map = this.tempo;
+      this._anchor = { tick: map.ticks(map.seconds(this._pausedAt) + this.latency), perf: performance.now(), counting: false };
       this.#post({ type: 'seek', tick: this._pausedAt });
     }
     this.emit('state');
   }
 
-  #tps() {
-    return (this.store.project.bpm * PPQ) / 60;
+  /** Tempo map of the current mode (cached per project state). */
+  get tempo() {
+    return tempoMap(this.store.project, this._mode);
+  }
+
+  /** Seconds from the start of the song (or pattern) to `tick`, following tempo automation. */
+  ticksToSeconds(tick) {
+    return this.tempo.seconds(tick);
+  }
+
+  /** Song position in ticks reached after `sec` seconds. */
+  secondsToTicks(sec) {
+    return this.tempo.ticks(sec);
+  }
+
+  /** Tempo in BPM at a position. */
+  bpmAt(tick) {
+    return this.tempo.bpmAt(tick);
   }
 
   /** Current position in ticks (wrapped into the play range). */
@@ -419,12 +440,14 @@ export class Engine extends Emitter {
       const a = this._anchor;
       if (!a) return this._startTick;
       if (a.counting) return a.tick;
-      t = a.tick + ((performance.now() - a.perf) / 1000 - this.latency) * this.#tps();
+      const map = this.tempo;
+      t = map.ticks(map.seconds(a.tick) + (performance.now() - a.perf) / 1000 - this.latency);
       if (t < start) t = this._wraps > this._wrapsAtPlay ? t + len : Math.max(t, Math.min(this._startTick, start));
       if (t < this._startTick && this._wraps === this._wrapsAtPlay) t = this._startTick;
     } else {
       const elapsed = performance.now() / 1000 - this._startTime;
-      t = this._startTick + elapsed * this.#tps();
+      const map = this.tempo;
+      t = map.ticks(map.seconds(this._startTick) + elapsed);
     }
     if (t < end) return t;
     return start + ((t - start) % len);
@@ -527,6 +550,7 @@ export class Engine extends Emitter {
       this.#sendSeq();
       return;
     }
+    if (this.playing && (p.bpm !== prev.bpm || p.clips !== prev.clips || p.automation !== prev.automation || p.tracks !== prev.tracks)) this.#keepPosition(prev);
     const channelsChanged = p.channels !== prev.channels;
     if (channelsChanged) this.#syncChannels(p);
     if (p.mixer !== prev.mixer) this.#syncMixer(p);
@@ -543,6 +567,22 @@ export class Engine extends Emitter {
       ((channelsChanged || p.mixer !== prev.mixer) && this.#structureKey(p) !== this._structure)
     ) {
       this.#scheduleSeq();
+    }
+  }
+
+  /**
+   * A tempo change while playing keeps the musical position: the clock is
+   * re-anchored at the position the previous tempo map had reached.
+   */
+  #keepPosition(prev) {
+    const old = tempoMap(prev, this._mode);
+    const now = performance.now();
+    if (this._anchor && !this._anchor.counting) {
+      const a = this._anchor;
+      this._anchor = { tick: old.ticks(old.seconds(a.tick) + (now - a.perf) / 1000), perf: now, counting: false };
+    } else if (!this.node) {
+      this._startTick = old.ticks(old.seconds(this._startTick) + now / 1000 - this._startTime);
+      this._startTime = now / 1000;
     }
   }
 
@@ -650,7 +690,11 @@ export class Engine extends Emitter {
     const seq = compileSequence(p, { mode: this._mode, patternId: this.store.view.pattern, slotOf: this.#slotOf });
     const n = seq.notes;
     const transfer = [n.start.buffer, n.end.buffer, n.slot.buffer, n.key.buffer, n.vel.buffer, n.pan.buffer, n.kind.buffer, n.offset.buffer, seq.audio.buffer];
-    for (const lane of seq.auto) for (const s of lane.segs) transfer.push(s.pts.buffer);
+    for (const lane of seq.auto) for (const s of lane.segs) {
+      transfer.push(s.pts.buffer);
+      if (s.cs) transfer.push(s.cs.buffer);
+    }
+    transfer.push(seq.tempo.tick.buffer, seq.tempo.b0.buffer, seq.tempo.b1.buffer);
     this.#post({ type: 'seq', seq }, transfer);
   }
 
@@ -750,9 +794,9 @@ export class Engine extends Emitter {
     return w;
   }
 
-  /** Seconds of audio for a tick span at the project tempo. */
-  seconds(ticks) {
-    return ticksToSeconds(ticks, this.store.project.bpm);
+  /** Seconds of audio for a tick span starting at `from` (tick 0 by default), following the tempo map. */
+  seconds(ticks, from = 0) {
+    return this.tempo.duration(from, from + ticks);
   }
 }
 
@@ -762,11 +806,15 @@ export class Engine extends Emitter {
  */
 export function echoGap(project) {
   let gap = 0;
+  // Synced delays are longest at the slowest tempo the song reaches.
+  const map = tempoMap(project);
+  let bpm = project.bpm || 120;
+  for (let i = 0; i < map.n; i++) bpm = Math.min(bpm, map.B0[i], map.B1[i]);
   for (const t of project.mixer) {
     for (const s of t.fx || []) {
       if (s.type !== 'delay' || s.on === false) continue;
       const q = s.params || {};
-      const sec = q.sync ? ((DIVISION_BEATS[Math.round(q.division ?? 7)] || 0) * 60) / (project.bpm || 120) : (q.time ?? 350) / 1000;
+      const sec = q.sync ? ((DIVISION_BEATS[Math.round(q.division ?? 7)] || 0) * 60) / bpm : (q.time ?? 350) / 1000;
       if (sec > gap) gap = sec;
     }
   }

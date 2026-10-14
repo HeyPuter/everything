@@ -42,9 +42,13 @@ export function formatBST(ticks, sig = [4, 4]) {
   return `${b + 1}:${pad(s + 1)}:${pad(inBar - s * STEP)}`;
 }
 
-/** Minutes:seconds:centiseconds for a position at `bpm`. */
+/**
+ * Minutes:seconds:centiseconds for a position at `bpm`, or through a tempo
+ * map (anything with seconds(tick), e.g. engine.tempo) so tempo automation
+ * is followed.
+ */
 export function formatTime(ticks, bpm) {
-  const sec = Math.max(0, ticksToSeconds(ticks, bpm));
+  const sec = Math.max(0, typeof bpm === 'number' ? ticksToSeconds(ticks, bpm) : bpm.seconds(ticks));
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec - m * 60);
   const cs = Math.floor((sec - Math.floor(sec)) * 100);

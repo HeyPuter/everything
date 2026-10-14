@@ -1,10 +1,12 @@
-// Playlist panel: the song arrangement. Registers the panel, its tool and
-// zoom commands (scope 'playlist'), and the Add menu's marker and automation
-// clip commands. The view itself lives in playlist/view.js.
+// Playlist panel: the song arrangement. Registers the panel, its tool, zoom
+// and automation point / curve commands (scope 'playlist'), and the Add
+// menu's marker and automation clip commands. The view itself lives in playlist/view.js.
 
 import { createPlaylistView, TOOLS } from '../playlist/view.js';
 import { addAutomationClip } from '../automation/create.js';
 import { announce } from '../lib/dom.js';
+import { adjacentMarker } from '../playlist/clips.js';
+import { ticksPerBeat } from '../model/time.js';
 
 export function install(app) {
   app.registerPanel({
@@ -25,6 +27,27 @@ export function install(app) {
     if (v) v.setTool(id);
   };
 
+  // Previous / next marker from the song position. While playing, "previous"
+  // skips a marker just passed (within a beat) so repeated presses walk back.
+  const jumpMarker = (dir) => {
+    const p = app.store.project;
+    const e = app.engine;
+    const pos = e.mode === 'song' ? e.position : 0;
+    const slack = e.playing ? ticksPerBeat(p.sig) : 0;
+    const m = adjacentMarker(p.markers, pos, dir, slack);
+    if (!m) {
+      announce(dir > 0 ? 'No marker after the song position' : 'No marker before the song position');
+      return;
+    }
+    const v = view();
+    if (v) v.jumpToMarker(m);
+    else {
+      app.setMode('song');
+      e.seek(m.pos);
+      announce(`Marker ${m.name}`);
+    }
+  };
+
   app.commands.register(
     ...TOOLS.map((t) => ({
       id: `playlist.tool.${t.id}`,
@@ -37,6 +60,12 @@ export function install(app) {
     { id: 'playlist.zoomIn', label: 'Zoom in', keys: ['=', '+'], scope: 'playlist', run: () => view()?.zoomAt(1.5) },
     { id: 'playlist.zoomOut', label: 'Zoom out', keys: ['-'], scope: 'playlist', run: () => view()?.zoomAt(1 / 1.5) },
     { id: 'playlist.zoomFit', label: 'Zoom to fit song', keys: ['Shift+F'], scope: 'playlist', run: () => view()?.zoomFit() },
+    // Automation points and curves from the keyboard (playlist/curves.js).
+    { id: 'playlist.pointPrev', label: 'Previous automation point', keys: [','], scope: 'playlist', run: () => view()?.stepPoint?.(-1) },
+    { id: 'playlist.pointNext', label: 'Next automation point', keys: ['.'], scope: 'playlist', run: () => view()?.stepPoint?.(1) },
+    { id: 'playlist.curveDown', label: 'Bend automation curve down', keys: ['['], scope: 'playlist', run: () => view()?.bendCurve?.(-1) },
+    { id: 'playlist.curveUp', label: 'Bend automation curve up', keys: [']'], scope: 'playlist', run: () => view()?.bendCurve?.(1) },
+    { id: 'playlist.curveReset', label: 'Make automation curve linear', keys: ['\\'], scope: 'playlist', run: () => view()?.resetCurve?.() },
     {
       id: 'add.marker',
       label: 'Add marker...',
@@ -48,6 +77,8 @@ export function install(app) {
         else app.shell.show('playlist');
       },
     },
+    { id: 'transport.prevMarker', label: 'Previous marker', keys: [','], enabled: () => app.store.project.markers.length > 0, run: () => jumpMarker(-1) },
+    { id: 'transport.nextMarker', label: 'Next marker', keys: ['.'], enabled: () => app.store.project.markers.length > 0, run: () => jumpMarker(1) },
     {
       id: 'add.automation',
       label: 'Add automation clip',

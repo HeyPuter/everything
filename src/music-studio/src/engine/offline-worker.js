@@ -35,8 +35,8 @@ async function run(m) {
   const seq = new Sequencer(core, rate, { loop: false });
   seq.setSequence(m.seq);
   seq.play(m.seq.start);
-  const tpf = seq.tpf;
-  const body = Math.max(1, Math.ceil((m.seq.end - m.seq.start) / tpf));
+  // The range's length follows the tempo map (tempo automation).
+  const body = Math.max(1, Math.ceil(seq.framesBetween(m.seq.start, m.seq.end) - 1e-6));
   const tailMax = Math.max(0, Math.round((m.tail ?? 2) * rate));
   const total = body + tailMax;
   const L = new Float32Array(total + BLOCK);

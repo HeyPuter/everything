@@ -12,7 +12,8 @@
 //   projectData  key -> JSON string                          local project files
 //   samples      id  -> { id, name, type, size, data: ArrayBuffer, path }
 //                      imported audio bytes (path: its Puter copy, once uploaded)
-//   drafts       'session' -> { json, file, dirty, at }       autosaved session
+//   drafts       'tab:<slot>' -> { json, file, dirty, at }    autosaved session per tab
+//                (storage/tabs.js; 'session' is the shared key of older versions)
 
 export const DB_NAME = 'music-studio';
 export const DB_VERSION = 1;

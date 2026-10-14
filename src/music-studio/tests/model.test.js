@@ -73,6 +73,18 @@ describe('edits', () => {
     expect(p.clips.find((c) => c.id === lead.id).track).toBe(0);
   });
 
+  it('renumbers default track names when moving a track', () => {
+    let p = demoProject();
+    const names = p.tracks.map((t) => t.name);
+    const at = names.indexOf('Track 5');
+    expect(at).toBe(4);
+    p = E.moveTrack(p, 4, 1);
+    // The moved default-named track takes its new number; named tracks keep their names.
+    expect(p.tracks[1].name).toBe('Track 2');
+    expect(p.tracks.slice(0, 5).map((t) => t.name)).toEqual([names[0], 'Track 2', names[1], names[2], names[3]]);
+    expect(p.tracks.every((t, i) => !/^Track \d+$/.test(t.name) || t.name === `Track ${i + 1}`)).toBe(true);
+  });
+
   it('refuses routing loops', () => {
     let p = createProject();
     p = E.setRoute(p, 1, 2, 1);

@@ -100,7 +100,8 @@ export function sourceMenu(V, src, at) {
 
 // ------------------------------------------------------------------ clips
 
-export function clipMenu(V, clip, at) {
+/** Clip options. `opts.curve`: on an automation clip, the point index whose segment gets a Curve submenu. */
+export function clipMenu(V, clip, at, opts = {}) {
   const { store, app } = V;
   const p = store.project;
   if (!V.selection.has(clip.id)) V.selectClips([clip.id]);
@@ -113,6 +114,8 @@ export function clipMenu(V, clip, at) {
     [
       pattern ? { type: 'cmd', label: 'Open pattern', run: () => V.openClip(clip) } : null,
       clip.kind === 'audio' ? { type: 'cmd', label: 'Open channel settings', enabled: Boolean(app.openChannelEditor), run: () => app.openChannelEditor?.(clip.ref) } : null,
+      clip.kind === 'auto' && Number.isInteger(opts.curve) && V.curveItems ? { type: 'submenu', label: 'Curve', items: () => V.curveItems(clip, opts.curve) } : null,
+      clip.kind === 'auto' && Number.isInteger(opts.curve) && V.curveItems ? { type: 'sep' } : null,
       { type: 'cmd', label: `Rename ${KIND_LABEL[clip.kind]}...`, run: () => renameSource(V, src) },
       { type: 'submenu', label: 'Color', items: () => colorItems(V, src) },
       { type: 'cmd', label: 'Make unique', run: () => V.makeUnique(clip.id) },
@@ -194,20 +197,20 @@ export function trackMenu(V, i, at) {
 
 // ------------------------------------------------------------------ ruler
 
-export function rulerMenu(V, tick, at) {
+export function rulerMenu(V, tick, at, marker = null) {
   const { store } = V;
   const p = store.project;
-  const near = p.markers.find((m) => Math.abs(V.vp.x(m.pos) - V.vp.x(tick)) < 6);
+  const near = marker || p.markers.find((m) => Math.abs(V.vp.x(m.pos) - V.vp.x(tick)) < 6);
   const bar = V.barTicks();
   const barStart = Math.floor(tick / bar) * bar;
   openMenu(
     [
+      near ? { type: 'heading', label: `Marker "${near.name}"` } : null,
+      near ? { type: 'cmd', label: 'Jump to marker', run: () => V.jumpToMarker(near) } : null,
+      near ? { type: 'cmd', label: 'Rename marker...', run: () => V.renameMarker(near) } : null,
+      near ? { type: 'cmd', label: 'Delete marker', run: () => V.deleteMarker(near) } : null,
+      near ? { type: 'sep' } : null,
       { type: 'cmd', label: `Add marker at ${formatBST(V.snapFloor(tick), p.sig)}`, run: () => V.addMarker(V.snapFloor(tick)) },
-      near ? { type: 'cmd', label: `Rename "${near.name}"...`, run: async () => {
-        const v = await promptDialog({ title: 'Rename marker', label: 'Name', value: near.name, confirm: 'Rename', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
-        if (v) store.apply('Rename marker', (q) => C.updateMarker(q, near.id, { name: v.trim().slice(0, 60) }));
-      } } : null,
-      near ? { type: 'cmd', label: `Delete "${near.name}"`, run: () => store.apply('Delete marker', (q) => C.removeMarker(q, near.id)) } : null,
       { type: 'sep' },
       { type: 'cmd', label: 'Loop this bar', run: () => store.apply('Set loop', (q) => E.setLoop(q, { start: barStart, end: barStart + bar })) },
       { type: 'cmd', label: 'Loop selected clips', enabled: V.selection.size > 0, run: () => V.loopSelection() },

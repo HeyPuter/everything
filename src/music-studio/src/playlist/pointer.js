@@ -1,6 +1,7 @@
 // Pointer interaction on the playlist clip canvas: the tools (draw, paint,
 // delete, mute, slice, select, zoom, playback), clip move / duplicate /
-// resize, marquee selection, automation point editing, hover feedback,
+// resize, marquee selection, automation point editing (Alt+drag on a
+// segment bends its curve, see curves.js), hover feedback,
 // touch long-press menus and two-finger pan and pinch zoom. Every edit runs
 // as one store gesture (begin / preview / commit) so a drag is one undo step
 // and Escape cancels it.
@@ -8,7 +9,8 @@
 import * as E from '../model/edits.js';
 import { announce } from '../lib/dom.js';
 import { clamp } from '../lib/util.js';
-import { addPoint, movePoint, removePoint } from '../automation/points.js';
+import { addPoint, movePoint, removePoint, segmentAt, setCurve, dragCurve } from '../automation/points.js';
+import { describeCurve } from './curves.js';
 import { resolveTarget } from '../automation/targets.js';
 import { formatParam, fromNorm } from '../lib/params.js';
 import { snapRound } from '../model/time.js';
@@ -310,6 +312,7 @@ export function installPointer(V, el) {
     store.begin(adding ? 'Add automation point' : 'Move automation point');
     if (adding) store.preview((p) => E.updateAutomation(p, a.id, { points }));
     V.hoverPoint = { clip: clip.id, index };
+    V.activePoint = { clip: clip.id, index };
     const say = () => {
       const pts = store.project.automation[a.id]?.points;
       const q = pts?.[index];
@@ -333,6 +336,49 @@ export function installPointer(V, el) {
     };
   }
 
+  /** The curved segment under the pointer: { a, index } (index of its first point) or null. */
+  function segmentHit(pt, hit) {
+    if (!hit?.auto || hit.auto.index >= 0) return null;
+    const a = hit.auto.a;
+    const local = hit.clip.offset + (pt.x - hit.x0) / V.vp.pxPerTick;
+    let index = segmentAt(a.points, local);
+    if (index < 0) return null;
+    // A step (two points at one time) has no curve: use the segment after it.
+    while (index + 1 < a.points.length && a.points[index + 1].t === a.points[index].t) index++;
+    return index + 1 < a.points.length ? { a, index } : null;
+  }
+
+  /** Alt+drag on a segment: up bends the curve up, down bends it down (one undo step). */
+  function curveGesture(pt, hit, seg) {
+    const { a, index } = seg;
+    const p0 = a.points[index];
+    const p1 = a.points[index + 1];
+    if (p0.v === p1.v) {
+      app.hint('This segment is flat: give its points different values to curve it.');
+      return null;
+    }
+    // About 75 px of travel bends a straight segment fully, whatever the track height.
+    const ch = 150;
+    const c0 = p0.c || 0;
+    const y0 = pt.y;
+    let c = c0;
+    V.activePoint = { clip: hit.clip.id, index };
+    store.begin('Change curve');
+    const say = () => app.hint(`${a.name}: curve ${describeCurve(c)}`);
+    say();
+    return {
+      move(p2) {
+        c = Math.round(dragCurve(c0, p0.v, p1.v, (y0 - p2.y) / ch) * 1000) / 1000;
+        store.preview((p) => E.updateAutomation(p, a.id, { points: setCurve(a.points, index, c) }));
+        say();
+      },
+      up() {
+        store.commit();
+        announce(`${a.name} curve ${describeCurve(c)}`);
+      },
+    };
+  }
+
   // ---------------------------------------------------------------- dispatch
 
   function start(e) {
@@ -348,12 +394,21 @@ export function installPointer(V, el) {
         return null;
       }
       if (hit?.auto && hit.auto.index >= 0) return deletePoint(hit);
+      // On an automation line the menu offers curve presets (the rest of the clip still deletes).
+      if (hit?.auto?.onLine && segmentHit(pt, hit)) {
+        openContext(e, pt, hit);
+        return null;
+      }
       return deleteGesture(pt);
     }
     if (e.button !== 0) return null;
     if (e.ctrlKey || e.metaKey) return marqueeGesture(pt, e);
     // Automation points work with the editing tools.
     if (hit?.auto && ['draw', 'paint', 'select'].includes(tool)) {
+      if (e.altKey && hit.auto.onLine) {
+        const seg = segmentHit(pt, hit);
+        if (seg) return curveGesture(pt, hit, seg);
+      }
       if (hit.auto.index >= 0) return pointGesture(pt, hit, e, false);
       if (hit.auto.onLine || tool === 'draw') return pointGesture(pt, hit, e, true);
     }
@@ -392,7 +447,9 @@ export function installPointer(V, el) {
 
   function openContext(e, pt, hit) {
     const at = { x: e.clientX, y: e.clientY };
-    if (hit?.clip) V.clipMenu(hit.clip, at);
+    const seg = segmentHit(pt, hit);
+    if (seg) V.activePoint = { clip: hit.clip.id, index: seg.index };
+    if (hit?.clip) V.clipMenu(hit.clip, at, seg ? { curve: seg.index } : undefined);
     else V.emptyMenu(pt, at);
   }
 
@@ -522,10 +579,13 @@ export function installPointer(V, el) {
       if (hit.auto.index >= 0) {
         hp = { clip: hit.clip.id, index: hit.auto.index };
         cursor = 'move';
-        hint = 'Drag the point (time snaps, Alt for free time). Right-click deletes it.';
+        hint = 'Drag the point (time snaps, Alt for free time). Right-click deletes it. [ and ] bend the curve after it.';
+      } else if (hit.auto.onLine && e.altKey && segmentHit(pt, hit)) {
+        cursor = 'ns-resize';
+        hint = 'Drag up or down to bend the curve.';
       } else {
         cursor = 'copy';
-        hint = 'Click to add an automation point and drag it.';
+        hint = hit.auto.onLine ? 'Click to add an automation point and drag it. Alt+drag bends the curve; right-click for curve presets.' : 'Click to add an automation point and drag it.';
       }
     } else if (hit && ['draw', 'paint', 'select'].includes(tool)) {
       if (hit.zone !== 'body') {

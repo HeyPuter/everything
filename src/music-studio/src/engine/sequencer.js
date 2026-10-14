@@ -4,6 +4,13 @@
 // notes when playback wraps, evaluates automation once per block, plays the
 // metronome and a count-in bar, then renders the block.
 //
+// Time runs through the sequence's tempo map (engine/tempo.js): every event
+// tick is converted to seconds and then to a frame, so notes, audio clip
+// offsets, loop wraps, metronome clicks and the playhead follow tempo
+// automation exactly. The core's tempo (tempo-synced delay times) is set to
+// the tempo at the start of each block. The count-in bar plays at the tempo
+// of the play position.
+//
 //   const seq = new Sequencer(core, sampleRate)
 //   seq.setSequence(compiled); seq.play(tick, { countIn }); seq.block(128)
 //   seq.pos (ticks), seq.playing, seq.counting, seq.wraps (count of loop wraps)
@@ -13,13 +20,19 @@
 // tails.
 
 import { fromNorm } from '../lib/params.js';
+import { curveShape } from '../automation/evaluate.js';
+import { TempoMap } from './tempo.js';
 
 const PPQ = 96;
 const MAX_ACTIVE = 4096;
 const SEQ_ID = 1;
 
-/** Linear interpolation of automation points (Float64Array [tick, v, ...]) at `tick`. */
-export function automationValue(pts, tick) {
+/**
+ * Automation points (Float64Array [tick, v, ...]) at `tick`, with optional
+ * per-point segment curves `cs` (Float64Array, one tension per point; see
+ * automation/evaluate.js, which this matches exactly).
+ */
+export function automationValue(pts, tick, cs = null) {
   const n = pts.length >> 1;
   if (!n) return 0;
   if (tick <= pts[0]) return pts[1];
@@ -35,7 +48,7 @@ export function automationValue(pts, tick) {
   const t1 = pts[hi * 2];
   const v0 = pts[lo * 2 + 1];
   const v1 = pts[hi * 2 + 1];
-  return t1 > t0 ? v0 + ((v1 - v0) * (tick - t0)) / (t1 - t0) : v1;
+  return t1 > t0 ? v0 + (v1 - v0) * curveShape((tick - t0) / (t1 - t0), cs ? cs[lo] : 0) : v1;
 }
 
 function lowerBound(arr, n, v) {
@@ -74,24 +87,32 @@ export class Sequencer {
     this.aKey = new Uint8Array(MAX_ACTIVE);
     this.active = 0;
     this.lanes = [];
+    this.tempo = new TempoMap(120);
   }
 
   get counting() {
     return this.countIn > 0;
   }
 
+  /** Tempo at the play position. */
   get bpm() {
-    return this.seq?.bpm || 120;
+    return this.tempo.bpmAt(this.pos);
   }
 
-  /** Ticks per frame at the sequence tempo. */
+  /** Ticks per frame at the play position's tempo. */
   get tpf() {
     return (this.bpm * PPQ) / 60 / this.rate;
   }
 
+  /** Frames between two ticks under the tempo map (fractional). */
+  framesBetween(a, b) {
+    return this.tempo.duration(a, b) * this.rate;
+  }
+
   setSequence(seq) {
     this.seq = seq;
-    this.core.setTempo(seq.bpm);
+    this.tempo = new TempoMap(seq.tempo || seq.bpm || 120);
+    this.core.setTempo(this.tempo.bpmAt(this.pos));
     // Lanes that disappear restore their parameters.
     const keep = new Set(seq.auto.map(laneKey));
     for (const l of this.lanes) if (l.applied && !keep.has(laneKey(l))) this.#restore(l);
@@ -138,7 +159,7 @@ export class Sequencer {
       }
       if (sounding) continue;
       const id = this.nextId++ >>> 0;
-      this.core.audioOn(n.slot[i], id, n.offset[i] + ((pos - n.start[i]) * 60) / (this.bpm * PPQ), n.vel[i], 0);
+      this.core.audioOn(n.slot[i], id, n.offset[i] + this.tempo.duration(n.start[i], pos), n.vel[i], 0);
       this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
     }
   }
@@ -187,7 +208,7 @@ export class Sequencer {
       const i = s.audio[k];
       if (n.start[i] < tick && n.end[i] > tick) {
         const id = this.nextId++ >>> 0;
-        const sec = n.offset[i] + ((tick - n.start[i]) * 60) / (this.bpm * PPQ);
+        const sec = n.offset[i] + this.tempo.duration(n.start[i], tick);
         this.core.audioOn(n.slot[i], id, sec, n.vel[i], offset);
         this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
       }
@@ -233,17 +254,23 @@ export class Sequencer {
     this.#resumeAudio(tick, offset);
   }
 
+  /** Frame (from the frame at seconds s0) of the first frame at or after tick t. */
+  #frameOf(t, s0) {
+    const k = Math.ceil((this.tempo.seconds(t) - s0) * this.rate - 1e-6);
+    return k > 0 ? k : 0;
+  }
+
   /**
    * Queues the events of the `frames` frames starting at tick t0 (frame f0
-   * in the block). An event lands on the first frame at or after its tick;
-   * events that fall past the last frame wait for the next call.
+   * in the block, s0 = tempo.seconds(t0)). An event lands on the first frame
+   * at or after its tick; events that fall past the last frame wait for the
+   * next call.
    */
-  #events(t0, frames, f0, tpf) {
+  #events(t0, frames, f0, s0) {
     const n = this.seq.notes;
-    const at = (t) => Math.max(0, Math.ceil((t - t0) / tpf - 1e-6));
     // Note-offs first so a retriggered key never cuts its successor.
     for (let i = 0; i < this.active; ) {
-      const k = at(this.aEnd[i]);
+      const k = this.#frameOf(this.aEnd[i], s0);
       if (k < frames) {
         this.core.noteOff(this.aSlot[i], this.aId[i], f0 + k);
         this.#removeActive(i);
@@ -251,7 +278,7 @@ export class Sequencer {
     }
     while (this.cursor < n.count) {
       const i = this.cursor;
-      const k = at(n.start[i]);
+      const k = this.#frameOf(n.start[i], s0);
       if (k >= frames) break;
       this.cursor++;
       const off = f0 + k;
@@ -259,15 +286,29 @@ export class Sequencer {
       if (this.nextId > 0x7fffffff) this.nextId = SEQ_ID;
       if (n.kind[i] === 1) this.core.audioOn(n.slot[i], id, n.offset[i], n.vel[i], off);
       else this.core.noteOn(n.slot[i], id, n.key[i], n.vel[i], n.pan[i], off);
-      const ke = at(n.end[i]);
+      const ke = this.#frameOf(n.end[i], s0);
       // A note shorter than a frame still gets its note-off after the note-on.
       if (ke < frames && ke > k) this.core.noteOff(n.slot[i], id, f0 + ke);
       else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i]);
     }
-    if (this.metronome) this.#clicks(t0, frames, f0, tpf);
+    if (this.metronome) this.#clicks(t0, frames, f0, s0);
   }
 
-  #clicks(t0, frames, f0, tpf) {
+  /** Metronome clicks on the beats in the frames after tick t0 (at seconds s0). */
+  #clicks(t0, frames, f0, s0) {
+    const sig = this.seq.sig || [4, 4];
+    const beat = (PPQ * 4) / sig[1];
+    const bar = beat * sig[0];
+    for (let b = Math.ceil(t0 / beat - 1e-6) * beat; ; b += beat) {
+      const k = this.#frameOf(b, s0);
+      if (k >= frames) break;
+      const inBar = ((b % bar) + bar) % bar;
+      this.core.click(inBar < 1e-6 || bar - inBar < 1e-6, f0 + k);
+    }
+  }
+
+  /** Count-in clicks: count-in ticks at a constant tpf (ticks per frame). */
+  #countClicks(t0, frames, f0, tpf) {
     const sig = this.seq.sig || [4, 4];
     const beat = (PPQ * 4) / sig[1];
     const bar = beat * sig[0];
@@ -293,7 +334,7 @@ export class Sequencer {
         if (l.applied) this.#restore(l);
         continue;
       }
-      const v = fromNorm(l.def, automationValue(seg.pts, tick));
+      const v = fromNorm(l.def, automationValue(seg.pts, tick, seg.cs));
       this.#apply(l.target, v);
       l.applied = true;
     }
@@ -350,20 +391,23 @@ export class Sequencer {
   }
 
   #advance(frames) {
-    const tpf = this.tpf;
+    const map = this.tempo;
+    const rate = this.rate;
     let f = 0;
     // Count-in: clicks only, the playhead waits.
     if (this.countIn > 0) {
+      const tpf = this.tpf;
       const c0 = this.countLen - this.countIn;
       const need = Math.max(0, Math.ceil(this.countIn / tpf - 1e-6));
       const fr = Math.min(frames, need);
-      this.#clicks(c0, fr, 0, tpf);
+      this.#countClicks(c0, fr, 0, tpf);
       this.countIn = fr === need ? 0 : this.countIn - fr * tpf;
       if (this.countIn > 0) return;
       f = fr;
       this.#resumeAudio(this.pos, Math.min(f, frames - 1));
       if (f >= frames) return;
     }
+    this.core.setTempo(map.bpmAt(this.pos));
     this.#automate(this.pos);
     const s = this.seq;
     let guard = 0;
@@ -384,10 +428,11 @@ export class Sequencer {
         this.ended = true;
         return;
       }
-      const toEnd = Math.ceil((s.end - t0) / tpf - 1e-6);
+      const s0 = map.seconds(t0);
+      const toEnd = Math.ceil((map.seconds(s.end) - s0) * rate - 1e-6);
       if (toEnd <= left) {
         // The range ends inside this block.
-        this.#events(t0, toEnd, f, tpf);
+        this.#events(t0, toEnd, f, s0);
         f += toEnd;
         this.pos = s.end;
         if (f >= frames && this.loop) {
@@ -396,8 +441,9 @@ export class Sequencer {
         }
         continue;
       }
-      this.#events(t0, left, f, tpf);
-      this.pos = t0 + left * tpf;
+      this.#events(t0, left, f, s0);
+      const t1 = map.ticks(s0 + left / rate);
+      this.pos = t1 > t0 ? t1 : t0;
       f = frames;
     }
   }

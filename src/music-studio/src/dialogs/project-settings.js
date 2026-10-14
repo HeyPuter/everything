@@ -6,6 +6,7 @@ import { clamp } from '../lib/util.js';
 import { openDialog } from '../ui/dialog.js';
 import { songLength } from '../model/project.js';
 import { ticksPerBar, formatTime } from '../model/time.js';
+import { tempoMap } from '../engine/compile.js';
 
 export const BEAT_UNITS = [1, 2, 4, 8, 16];
 
@@ -46,7 +47,7 @@ export function projectInfo(project) {
     samples: Object.keys(project.samples).length,
     automation: Object.keys(project.automation).length,
     bars,
-    duration: formatTime(len, project.bpm).replace(/:\d\d$/, ''),
+    duration: formatTime(len, tempoMap(project)).replace(/:\d\d$/, ''),
   };
 }
 
