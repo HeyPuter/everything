@@ -6955,7 +6955,9 @@ test("built collaborators: links, comment pins, and the frame list respect conte
         (p) => p.getAttribute("aria-label") || p.textContent,
       );
     await app.until(() => pins().length, "Comment pins are shown");
-    assert.deepEqual(pins(), ["Comment: About the question"]);
+    assert.deepEqual(pins(), [
+      "Comment: About the question · Attached to: Sticky note: Question",
+    ]);
     // Opening the other thread from the list leaves the view where it is.
     const pin = app.doc.querySelector("#comment-pins > *");
     const where = [pin.style.left, pin.style.top];
