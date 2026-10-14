@@ -1946,3 +1946,69 @@ test("a loaded board's whole state is encoded once until it changes", () => {
   // Asked for what a vector lacks, it encodes just that.
   assert.ok(live.update(other.vector()).length < live.update().length);
 });
+
+test("activity held back while due activity is written keeps its own due time", async () => {
+  const env = environment();
+  const A = env.service;
+  const make = async (title) => {
+    const b = board(title);
+    b.items = [item("note", 0, 0, { text: "Hi" })];
+    const seed = new SharedDocument();
+    seed.commit(b);
+    await A.call(owner, {
+      op: "create",
+      room: b.id,
+      update: encode(seed.update()),
+    });
+    seed.destroy();
+    return b.id;
+  };
+  const records = (room) =>
+    [...env.data].filter(
+      ([k, v]) =>
+        k.startsWith(`org:bact:${room}:`) &&
+        v.action === "board.content.updated",
+    ).length;
+  const commit = async (room, x) => {
+    const { doc } = await A.load(room);
+    const before = doc.vector(),
+      next = doc.snapshot();
+    next.items.push(item("note", x, 100));
+    doc.commit(next);
+    const update = doc.update(before);
+    doc.destroy();
+    return A.call(owner, {
+      op: "commit",
+      room,
+      id: await hash(update),
+      update: encode(update),
+    });
+  };
+  const X = await make("X"),
+    Y = await make("Y");
+  env.now += 5 * 60_000;
+  await commit(X, 0);
+  await commit(Y, 0);
+  env.now += 10_000;
+  // Held back: the board's minute is not over.
+  await commit(X, 200);
+  env.now += 61_000;
+  // While another request writes X's held activity, Y is edited twice and
+  // its second edit is held back in turn.
+  const write = A.writeHeldActivity.bind(A);
+  let once = false;
+  A.writeHeldActivity = async (room, entry, load) => {
+    if (room === X && !once) {
+      once = true;
+      await commit(Y, 300);
+      await commit(Y, 400);
+    }
+    return write(room, entry, load);
+  };
+  await A.call(owner, { op: "members", room: X });
+  const held = records(Y);
+  env.now += 5 * 60_000;
+  await A.call(owner, { op: "members", room: X });
+  assert.equal(records(Y), held + 1, "Y's held edit is written once due");
+  assert.equal(A.org.instance.activity.get(Y)?.editor ?? null, null);
+});

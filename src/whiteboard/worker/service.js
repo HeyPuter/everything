@@ -3432,13 +3432,16 @@ export class BoardService {
     const instance = this.org.instance,
       now = this.now();
     if (!(now >= instance.activityDue)) return;
+    // Activity held back while this writes sets its own due time, which is
+    // kept: the time is worked out afresh here, not written over it.
+    instance.activityDue = Infinity;
     let due = Infinity;
     for (const [room, entry] of [...instance.activity])
       if (!entry.editor) continue;
       else if (now - entry.at >= 60_000)
         await this.writeHeldActivity(room, entry).catch(() => {});
       else due = Math.min(due, entry.at + 60_000);
-    instance.activityDue = due;
+    instance.activityDue = Math.min(instance.activityDue, due);
   }
   // Writes a board's held-back activity from the board as this instance
   // has it, loading it if `load` and it is not kept. Otherwise, or if it
