@@ -5,6 +5,8 @@
 // function comes from the caller, so tests can answer for the model.
 import { P, createDeck, addDesignedSlide, cleanName } from "../model.js";
 import { runTool, NO_CHANGE } from "../assistant-tools.js";
+import { LEGACY_IDS, themeById } from "../themes/catalog.js";
+import { themedDeck } from "../themes/engine.js";
 
 export const SLIDE_COUNTS = [3, 5, 8, 10, 12];
 export const DEFAULT_SLIDE_COUNT = 5;
@@ -217,6 +219,8 @@ export async function generateDeck(
 
 /** A new deck in `theme`: a title slide to write over. */
 export function themeDeck(theme = "studio") {
+  // A designed theme starts on its own Title Slide layout.
+  if (themeById(theme) && !LEGACY_IDS.has(theme)) return themedDeck(theme);
   const pres = createDeck("blank", theme);
   const blank = P.getSlides(pres)[0];
   addDesignedSlide(pres, "title", theme, {

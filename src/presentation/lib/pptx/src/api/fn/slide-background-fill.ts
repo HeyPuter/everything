@@ -8,7 +8,12 @@ import {
   setGradientFill,
   setPatternFill,
 } from "../../internal/drawingml/index.ts";
-import { partName, resolveTarget } from "../../internal/opc/index.ts";
+import {
+  emptyRels,
+  nextRelId,
+  partName,
+  resolveTarget,
+} from "../../internal/opc/index.ts";
 import { REL_TYPES } from "../../internal/presentationml/index.ts";
 import { readOnlyPartRoot } from "../../internal/parts/read-only-xml.ts";
 import {
@@ -26,6 +31,7 @@ import {
   LAYOUT_PART_NAME,
   type PresentationData,
   SLIDE_DOCUMENT,
+  SLIDE_PART_NAME,
   type SlideData,
   type SlideLayoutData,
 } from "../_internal-symbols.ts";
@@ -288,4 +294,75 @@ export const getSlideMasterBackgroundPictureFill = (
     ?.items.find((r) => r.type === REL_TYPES.slideMaster);
   const master = rel && pkg.getPart(resolveTarget(layoutName, rel.target));
   return master ? readPictureFill(readOnlyPartRoot(master)) : null;
+};
+
+const relTarget = (from: string, to: string): string => {
+  const a = from.split("/").slice(1, -1);
+  const b = to.split("/").slice(1);
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return [...a.slice(i).map(() => ".."), ...b.slice(i)].join("/");
+};
+
+const cloneElement = (el: XmlElement): XmlElement => ({
+  ...el,
+  attrs: el.attrs.map((a) => ({ ...a })),
+  prefixDecls: new Map(el.prefixDecls),
+  children: el.children.map((c) =>
+    c.kind === "element" ? cloneElement(c) : { ...c },
+  ),
+});
+
+/**
+ * Gives `target` the background of `source` (slides or template views of
+ * the same presentation), or makes it inherit when `source` has none. A
+ * picture background shares the picture already in the file.
+ */
+export const copySlideBackground = (
+  source: SlideData,
+  target: SlideData,
+): void => {
+  const from = firstChildElement(source[SLIDE_DOCUMENT].root, NAME_CSLD);
+  const to = firstChildElement(target[SLIDE_DOCUMENT].root, NAME_CSLD);
+  if (!from || !to) throw new Error("slide has no <p:cSld>");
+  const bg = firstChildElement(from, pq("bg"));
+  to.children = to.children.filter(
+    (c) => !(c.kind === "element" && c.name.localName === "bg"),
+  );
+  if (bg) {
+    const copy = cloneElement(bg);
+    const pkg = target[INTERNAL_PACKAGE];
+    const sourceRels = pkg.getRels(source[SLIDE_PART_NAME])?.items ?? [];
+    const rels = pkg.getRels(target[SLIDE_PART_NAME]) ?? emptyRels();
+    const remap = (el: XmlElement): void => {
+      el.attrs.forEach((a, index) => {
+        if (a.name.namespaceURI !== NS.officeDocRels) return;
+        const rel = sourceRels.find((r) => r.id === a.value);
+        if (!rel) return;
+        const target =
+          rel.targetMode === "External"
+            ? rel.target
+            : relTarget(
+                target_name,
+                resolveTarget(source[SLIDE_PART_NAME], rel.target),
+              );
+        const existing = rels.items.find(
+          (r) =>
+            r.type === rel.type &&
+            r.targetMode === rel.targetMode &&
+            r.target === target,
+        );
+        const id = existing?.id ?? nextRelId(rels.items.map((r) => r.id));
+        if (!existing) rels.items.push({ ...rel, id, target });
+        el.attrs[index] = attr(a.name, id);
+      });
+      el.children.forEach((c) => c.kind === "element" && remap(c));
+    };
+    const target_name = target[SLIDE_PART_NAME];
+    remap(copy);
+    pkg.setRels(target[SLIDE_PART_NAME], rels);
+    to.children.unshift(copy);
+  }
+  commitSlideData(target);
+  refreshSlideData(target);
 };

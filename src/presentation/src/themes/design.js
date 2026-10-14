@@ -2,7 +2,13 @@
 // artwork and text styles, and what each layout adds or changes, sized to the
 // presentation's slides. The result is what `P.addDesignedSlideMaster` and
 // `P.applySlideMasterDesign` take.
-import { backgroundXml, colorXml, esc, fillXml, themeXml } from "./theme-xml.js";
+import {
+  backgroundXml,
+  colorXml,
+  esc,
+  fillXml,
+  themeXml,
+} from "./theme-xml.js";
 
 const DARK_MAP = { bg1: "dk1", tx1: "lt1", bg2: "dk2", tx2: "lt2" };
 const LIGHT_MAP = { bg1: "lt1", tx1: "dk1", bg2: "lt2", tx2: "dk2" };
@@ -61,10 +67,20 @@ function customGeometry(path, w, h) {
 }
 
 export const shapesXml = (g, list) =>
-  (list || []).filter(Boolean).map((s) => shapeXml(g, s)).join("");
+  (list || [])
+    .filter(Boolean)
+    .map((s) => shapeXml(g, s))
+    .join("");
 
 // Shape helpers for the catalog.
-export const rect = (x, y, w, h, fill, more = {}) => ({ x, y, w, h, fill, ...more });
+export const rect = (x, y, w, h, fill, more = {}) => ({
+  x,
+  y,
+  w,
+  h,
+  fill,
+  ...more,
+});
 export const ellipse = (x, y, w, h, fill, more = {}) => ({
   x,
   y,

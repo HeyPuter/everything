@@ -100,6 +100,8 @@ import {
   libraryFilter,
 } from "./start/start-screen.js";
 import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
+import { createThemeTools, themeStartPicture } from "./themes/design-tab.js";
+import { createBackgroundPane } from "./themes/format-background.js";
 import { lucide } from "./draw/draw-icons.js";
 import { SHOW_PEN_COLORS } from "./draw/show-ink.js";
 import { createReview } from "./review/index.js";
@@ -1119,6 +1121,8 @@ function deckThemes() {
 let promptTheme = "studio";
 function themePreview(key) {
   const cacheKey = `theme:${key}`;
+  const designed = themeStartPicture(key);
+  if (designed) return designed;
   if (!templatePreviews.has(cacheKey)) {
     const pres = themeDeck(key);
     templatePreviews.set(cacheKey, preview(pres, P.getSlides(pres)[0]));
@@ -3588,6 +3592,85 @@ const masterView = createMasterView({
   ribbon: () => ribbon,
 });
 
+// Themes: the Design tab's gallery, variants, colors, fonts, effects and
+// background styles (themes/).
+const themeTools = createThemeTools({
+  pres: () => doc.pres,
+  slide: () =>
+    masterView.active ? P.getSlides(doc.pres)[index] || null : slide(),
+  selectedSlides: () =>
+    masterView.active ? P.getSlides(doc.pres) : selectedSlides(),
+  masterView: () => masterView.active,
+  mutate: (fn, options) => {
+    commitText();
+    return mutate(fn, options);
+  },
+  skip: SKIP_MUTATION,
+  palette: () => theme,
+  setPalette: (key) => {
+    if (THEMES[key]) theme = key;
+  },
+  preview: (view) => preview(doc.pres, view),
+  formatBackground: () => ribbonApi().formatBackground(),
+  pickFile: (accept, handle) => pickLocalFile(accept, handle),
+  download: async (blob, name, message) =>
+    reportExport(await cloud.downloadBlob(blob, name), message),
+  fontList: () => FONTS,
+  docName: () => doc?.name || "",
+});
+// The Format Background pane, shown in the format panel when nothing on the
+// slide is selected.
+const backgroundPane = createBackgroundPane({
+  pres: () => doc.pres,
+  target: () => slide(),
+  slides: () => P.getSlides(doc.pres),
+  mutateTarget: (fn, options) => mutateSlide(slide(), fn, options),
+  mutateDeck: (fn) => mutate(fn),
+  skip: SKIP_MUTATION,
+  fail,
+  rerender: () => renderInspector(),
+  resolved: (target) => slideBackground(target),
+  colorInput: (label, value, onchange, options) =>
+    colorInput(label, value, onchange, options),
+  colorField: (target) =>
+    colorInput(
+      "Background color",
+      slideBackground(target).color,
+      (c) =>
+        mutateSlide(target, (s) => P.setSlideBackground(s, c), {
+          coalesce: coalesceKey("background", target),
+        }),
+      {
+        empty: BACKGROUND_LABELS[slideBackground(target).kind] || null,
+        fallback: THEMES[theme].bg,
+      },
+    ),
+  imageButtons: (target) =>
+    el(
+      "div",
+      { class: "arrange-buttons" },
+      button(
+        slideBackground(target).kind === "image"
+          ? "Change background image"
+          : "Background image",
+        "Image",
+        () => pickImage(setBackgroundImage),
+        "secondary",
+      ),
+      slideBackground(target).kind === "image" &&
+        button(
+          "Remove background image",
+          null,
+          removeBackgroundImage,
+          "secondary",
+        ),
+    ),
+  afterPicture: (target) => {
+    doc.previews.delete(P.getSlidePartName(target));
+    pruneUnusedMedia(doc.pres, target);
+    dedupeSlideMedia(doc.pres, target);
+  },
+});
 // Comments, proofing, accessibility, compare and the read-only mark
 // (review/). It reaches the editor through this surface.
 const review = createReview({
@@ -6199,33 +6282,40 @@ function ribbonApi() {
     insertSlideNumber,
     insertSymbol: () => insertSymbol().catch(fail),
     // Design
-    themeChoices: () =>
-      Object.entries(THEMES).map(([id, t]) => ({
-        id,
-        label: t.name,
-        render: () =>
-          el(
-            "span",
-            {
-              class: "theme-swatch-thumb",
-              style: `background:${t.bg};color:${t.ink}`,
-            },
-            el("span", { class: "theme-aa" }, "Aa"),
-            el("span", { class: "theme-bar", style: `background:${t.accent}` }),
-            el("span", { class: "theme-bar", style: `background:${t.panel}` }),
-            el("span", { class: "theme-bar", style: `background:${t.muted}` }),
-          ),
-      })),
-    currentTheme: () => theme,
-    applyTheme: (id) =>
-      mutate(() => (recolorDeck(id) === false ? SKIP_MUTATION : undefined)),
+    themeChoices: () => themeTools.themeChoices(),
+    themeSections: (choices) => themeTools.themeSections(choices),
+    currentTheme: () => themeTools.currentTheme(),
+    chooseTheme: (id) => themeTools.chooseTheme(id),
+    applyTheme: (id) => themeTools.chooseTheme(id),
+    themeContextMenu: (choice) => themeTools.themeContextMenu(choice),
     themeGalleryFooter: () => [
+      ...themeTools.themeGalleryFooter(),
+      { separator: true },
       { label: "Theme Options…", icon: "o:themes", onSelect: run(themeDialog) },
     ],
-    variantChoices: () => [],
-    currentVariant: () => null,
-    applyVariant: () => {},
-    variantFooter: () => [],
+    variantChoices: () => (doc ? themeTools.variantChoices() : []),
+    currentVariant: () => themeTools.currentVariant(),
+    applyVariant: (i) => themeTools.applyVariant(i),
+    variantFooter: () => [
+      {
+        label: "Customize Colors…",
+        icon: "o:colors",
+        onSelect: run(() => themeTools.customizeColors()),
+      },
+      {
+        label: "Customize Fonts…",
+        icon: "o:fonts",
+        onSelect: run(() => themeTools.customizeFonts()),
+      },
+    ],
+    colorsMenu: () => themeTools.colorsMenu(),
+    fontsMenu: () => themeTools.fontsMenu(),
+    effectsMenu: () => themeTools.effectsMenu(),
+    backgroundStylesMenu: () => themeTools.backgroundStylesMenu(),
+    backgroundGraphicsHidden: () =>
+      !!doc && themeTools.backgroundGraphicsHidden(),
+    setBackgroundGraphicsHidden: (on) =>
+      themeTools.setBackgroundGraphicsHidden(on),
     slideSizeMenu: () => [
       ...SLIDE_SIZES.map(([key, label, cx, cy]) => ({
         label,
@@ -11270,19 +11360,7 @@ function renderInspectorContents(panel, obj) {
       el(
         "div",
         { class: "inspector-content" },
-        el("h3", {}, "Slide design"),
-        colorInput(
-          "Background color",
-          slideBackground(slide()).color,
-          (c) =>
-            mutateSlide(slide(), (target) => P.setSlideBackground(target, c), {
-              coalesce: coalesceKey("background", slide()),
-            }),
-          {
-            empty: BACKGROUND_LABELS[slideBackground(slide()).kind] || null,
-            fallback: THEMES[theme].bg,
-          },
-        ),
+        backgroundPane.render(),
         el("h3", {}, "Transition"),
         field(
           "Transition",
@@ -11327,26 +11405,6 @@ function renderInspectorContents(panel, obj) {
                   "This slide's transition came with the file. Choose one of the transitions above to apply it to every slide.",
               }
             : {},
-        ),
-        el("h3", {}, "Background"),
-        el(
-          "div",
-          { class: "arrange-buttons" },
-          button(
-            slideBackground(slide()).kind === "image"
-              ? "Change background image"
-              : "Background image",
-            "Image",
-            () => pickImage(setBackgroundImage),
-            "secondary",
-          ),
-          slideBackground(slide()).kind === "image" &&
-            button(
-              "Remove background image",
-              null,
-              removeBackgroundImage,
-              "secondary",
-            ),
         ),
         el(
           "p",
@@ -14053,54 +14111,9 @@ async function themeDialog() {
 // current palette's colors takes the new one's, and custom colors and
 // imported artwork stay. False when the deck already uses it.
 function recolorDeck(chosen) {
-  if (chosen === theme || !THEMES[chosen]) return false;
-  const before = THEMES[theme],
-    after = THEMES[chosen];
-  // Masters and layouts recolor too, so slides added later match.
-  const templates = P.getSlideMasters(doc.pres).flatMap((m) =>
-    [m.partName, ...m.layouts.map((l) => l.partName)].map((name) =>
-      P.getTemplateSlide(doc.pres, name),
-    ),
-  );
-  for (const s of [...P.getSlides(doc.pres), ...templates]) {
-    const background = P.getSlideBackground(s);
-    const onAccent =
-      normalizeColor(background?.color) === normalizeColor(before.accent);
-    for (const key of Object.keys(before).filter((k) => k !== "name")) {
-      if (normalizeColor(background?.color) === normalizeColor(before[key]))
-        P.setSlideBackground(s, after[key]);
-    }
-    for (const obj of P.getSlideShapes(s)) {
-      const fill = P.getShapeFillColor(obj);
-      for (const key of Object.keys(before).filter((k) => k !== "name")) {
-        if (normalizeColor(fill) === normalizeColor(before[key]))
-          P.setShapeFill(obj, after[key]);
-      }
-      if (!hasTextBody(obj)) continue;
-      for (let pi = 0; pi < P.getShapeParagraphCount(obj); pi++) {
-        for (let ri = 0; ri < P.getShapeRunCount(obj, pi); ri++) {
-          const fmt = P.getShapeRunFormat(obj, pi, ri) || {};
-          if (
-            onAccent &&
-            [sectionTextColor(theme), before.muted].some(
-              (color) => normalizeColor(fmt.color) === normalizeColor(color),
-            )
-          ) {
-            P.setShapeRunFormat(obj, pi, ri, {
-              color: sectionTextColor(chosen),
-            });
-            continue;
-          }
-          for (const key of Object.keys(before).filter((k) => k !== "name")) {
-            if (normalizeColor(fmt.color) === normalizeColor(before[key]))
-              P.setShapeRunFormat(obj, pi, ri, { color: after[key] });
-          }
-        }
-      }
-    }
-  }
-  for (const view of templates) P.syncPlaceholderListStyles(view);
-  theme = chosen;
+  // The theme's master comes in, and what the slides paint in the current
+  // palette's colors takes the new one's (themes/engine.js).
+  return themeTools.applyPalette(chosen);
 }
 const normalizeColor = (c) =>
   String(c || "")

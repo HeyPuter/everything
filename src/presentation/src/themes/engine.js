@@ -62,7 +62,9 @@ export function masterInfo(pres, master) {
     ? theme.variants.findIndex(
         (v) =>
           v.name === info.colorName &&
-          Object.entries(v.colors).every(([slot, hex]) => info.colors[slot] === hex),
+          Object.entries(v.colors).every(
+            ([slot, hex]) => info.colors[slot] === hex,
+          ),
       )
     : -1;
   const map = P.getSlideMasters(pres).length
@@ -187,7 +189,12 @@ const PALETTE_KEYS = ["bg", "ink", "accent", "muted", "panel"];
  * page color is cleared instead when `clearBackground`, so the master's own
  * background (gradients, artwork) shows. Other colors stay.
  */
-export function recolorSlides(slides, from, to, { clearBackground = false } = {}) {
+export function recolorSlides(
+  slides,
+  from,
+  to,
+  { clearBackground = false } = {},
+) {
   if (!from || !to) return;
   const keys = PALETTE_KEYS.filter((k) => from[k] && to[k]);
   const swap = (color) => {
@@ -226,7 +233,9 @@ export function recolorSlides(slides, from, to, { clearBackground = false } = {}
           if (!fmt.color) continue;
           if (
             onAccent &&
-            [from.onAccent, from.muted].some((c) => c && norm(fmt.color) === norm(c))
+            [from.onAccent, from.muted].some(
+              (c) => c && norm(fmt.color) === norm(c),
+            )
           ) {
             P.setShapeRunFormat(obj, pi, ri, { color: to.onAccent });
             continue;
@@ -251,7 +260,10 @@ const freshSlides = (pres, slides) => {
 
 const sizeOf = (pres) => {
   const size = P.getSlideSize(pres);
-  return { width: Number(size?.width ?? 12192000), height: Number(size?.height ?? 6858000) };
+  return {
+    width: Number(size?.width ?? 12192000),
+    height: Number(size?.height ?? 6858000),
+  };
 };
 
 /** The design for a built-in theme in a variant, sized to `pres`. */
@@ -264,19 +276,36 @@ export const designFor = (pres, themeId, variant = 0, override) =>
  * unused. Starter-slide colors move from `from` to the theme's palette.
  * Returns the new master's part name.
  */
-export function applyTheme(pres, themeId, { variant = 0, slides, from, override } = {}) {
+export function applyTheme(
+  pres,
+  themeId,
+  { variant = 0, slides, from, override } = {},
+) {
   const theme = themeById(themeId);
   if (!theme) throw new Error(`No theme ${themeId}`);
   const targets = slides || P.getSlides(pres);
-  const before = targets.length ? mastersOf(pres, targets) : P.getSlideMasters(pres).map((m) => m.partName);
+  const before = targets.length
+    ? mastersOf(pres, targets)
+    : P.getSlideMasters(pres).map((m) => m.partName);
   const masters = P.getSlideMasters(pres).map((m) => m.partName);
-  const after = before.length ? before[before.length - 1] : masters[masters.length - 1] || null;
-  const master = P.addDesignedSlideMaster(pres, designFor(pres, themeId, variant, override), { after });
+  const after = before.length
+    ? before[before.length - 1]
+    : masters[masters.length - 1] || null;
+  const master = P.addDesignedSlideMaster(
+    pres,
+    designFor(pres, themeId, variant, override),
+    { after },
+  );
   const moving = freshSlides(pres, targets);
   for (const slide of moving) moveSlideToMaster(pres, slide, master);
-  recolorSlides(freshSlides(pres, targets), from, variantPalette(theme, variant), {
-    clearBackground: !LEGACY_IDS.has(themeId),
-  });
+  recolorSlides(
+    freshSlides(pres, targets),
+    from,
+    variantPalette(theme, variant),
+    {
+      clearBackground: !LEGACY_IDS.has(themeId),
+    },
+  );
   dropUnusedMasters(pres, slides ? before : masters);
   return master;
 }
@@ -391,15 +420,24 @@ export const libColor = (spec) => {
  * `{ pattern, fg, bg }`.
  */
 export function setBackgroundFill(target, spec) {
-  if (typeof spec === "string") return P.setSlideBackground(target, libColor(spec));
+  if (typeof spec === "string")
+    return P.setSlideBackground(target, libColor(spec));
   if (spec.grad) {
     const focus = spec.focus || [0.5, 0.5];
     return P.setSlideBackgroundGradient(target, {
-      stops: spec.grad.map(([offset, color]) => ({ offset, color: libColor(color) })),
+      stops: spec.grad.map(([offset, color]) => ({
+        offset,
+        color: libColor(color),
+      })),
       ...(spec.path
         ? {
             path: spec.path,
-            focus: { left: focus[0], top: focus[1], right: 1 - focus[0], bottom: 1 - focus[1] },
+            focus: {
+              left: focus[0],
+              top: focus[1],
+              right: 1 - focus[0],
+              bottom: 1 - focus[1],
+            },
           }
         : { angleDeg: spec.angle ?? 90 }),
     });
@@ -414,3 +452,19 @@ export function setBackgroundFill(target, spec) {
 }
 
 export { CATALOG };
+
+/**
+ * A new presentation in a built-in theme: its master, and one slide on the
+ * Title Slide layout with the title and subtitle waiting to be typed into.
+ */
+export function themedDeck(themeId, { variant = 0, size = "16:9" } = {}) {
+  const pres = P.createPresentation({ size });
+  const master = applyTheme(pres, themeId, { variant });
+  const entry = P.getSlideMasters(pres).find((m) => m.partName === master);
+  const title =
+    entry.layouts.find((l) => l.type === "title") || entry.layouts[0];
+  P.addSlide(pres, {
+    layout: P.findSlideLayoutByPartName(pres, title.partName),
+  });
+  return pres;
+}

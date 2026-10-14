@@ -147,9 +147,7 @@ export const EFFECT_SCHEMES = [
     fills: flatFills,
     lines: line(9525) + line(12700) + line(19050),
     effects:
-      effectStyle() +
-      effectStyle() +
-      effectStyle(shadow(57150, 19050, 63000)),
+      effectStyle() + effectStyle() + effectStyle(shadow(57150, 19050, 63000)),
   },
   {
     id: "lifted",
@@ -193,7 +191,9 @@ export const EFFECT_SCHEMES = [
     effects:
       effectStyle() +
       effectStyle(shadow(40000, 23000, 35000)) +
-      effectStyle(shadow(40000, 23000, 35000)) /* softened corners drawn by fills */,
+      effectStyle(
+        shadow(40000, 23000, 35000),
+      ) /* softened corners drawn by fills */,
   },
 ];
 export const effectScheme = (id) =>
@@ -209,23 +209,54 @@ export const effectScheme = (id) =>
 export const BACKGROUND_STYLE_SETS = {
   calm: (c) => [
     c,
-    { grad: [[0, `${c}/tint=92000`], [1, `${c}/shade=94000`]], angle: 90 },
     {
-      grad: [[0, `${c}/tint=80000`], [1, `${c}/shade=78000`]],
+      grad: [
+        [0, `${c}/tint=92000`],
+        [1, `${c}/shade=94000`],
+      ],
+      angle: 90,
+    },
+    {
+      grad: [
+        [0, `${c}/tint=80000`],
+        [1, `${c}/shade=78000`],
+      ],
       path: "circle",
       focus: [0.5, 0.3],
     },
   ],
   bold: (c) => [
     c,
-    { grad: [[0, c], [1, `${c}/shade=85000`]], angle: 45 },
-    { grad: [[0, `${c}/lumMod=95000`], [0.5, c], [1, `${c}/shade=70000`]], angle: 90 },
+    {
+      grad: [
+        [0, c],
+        [1, `${c}/shade=85000`],
+      ],
+      angle: 45,
+    },
+    {
+      grad: [
+        [0, `${c}/lumMod=95000`],
+        [0.5, c],
+        [1, `${c}/shade=70000`],
+      ],
+      angle: 90,
+    },
   ],
   airy: (c) => [
     c,
-    { grad: [[0, `${c}/tint=96000`], [1, `${c}/tint=84000`]], angle: 0 },
     {
-      grad: [[0, `${c}/tint=96000`], [1, `${c}/shade=88000`]],
+      grad: [
+        [0, `${c}/tint=96000`],
+        [1, `${c}/tint=84000`],
+      ],
+      angle: 0,
+    },
+    {
+      grad: [
+        [0, `${c}/tint=96000`],
+        [1, `${c}/shade=88000`],
+      ],
       path: "rect",
       focus: [0.5, 0.5],
     },
@@ -305,16 +336,24 @@ export function readThemeXml(xml) {
   if (!xml) return null;
   const p = "(?:[A-Za-z0-9_]+:)?";
   const root = new RegExp(`<${p}theme\\b[^>]*>`).exec(xml)?.[0] || "";
-  const clr = new RegExp(`<${p}clrScheme\\b[^>]*>([\\s\\S]*?)</${p}clrScheme>`).exec(xml);
+  const clr = new RegExp(
+    `<${p}clrScheme\\b[^>]*>([\\s\\S]*?)</${p}clrScheme>`,
+  ).exec(xml);
   const colors = {};
   if (clr) {
     for (const slot of SCHEME_SLOTS) {
-      const m = new RegExp(`<${p}${slot}>([\\s\\S]*?)</${p}${slot}>`).exec(clr[1]);
-      const val = m && (/lastClr="([0-9A-Fa-f]{6})"/.exec(m[1]) || /val="([0-9A-Fa-f]{6})"/.exec(m[1]));
+      const m = new RegExp(`<${p}${slot}>([\\s\\S]*?)</${p}${slot}>`).exec(
+        clr[1],
+      );
+      const val =
+        m &&
+        (/lastClr="([0-9A-Fa-f]{6})"/.exec(m[1]) ||
+          /val="([0-9A-Fa-f]{6})"/.exec(m[1]));
       colors[slot] = val ? `#${val[1].toLowerCase()}` : null;
     }
   }
-  const fontScheme = new RegExp(`<${p}fontScheme\\b[^>]*>`).exec(xml)?.[0] || "";
+  const fontScheme =
+    new RegExp(`<${p}fontScheme\\b[^>]*>`).exec(xml)?.[0] || "";
   const face = (which) => {
     const m = new RegExp(`<${p}${which}Font>\\s*<${p}latin\\b[^>]*>`).exec(xml);
     return m ? unesc(attrOf(m[0], "typeface")) : null;
@@ -357,7 +396,9 @@ export function withFonts(xml, fonts) {
     ["minor", fonts.minor],
   ])
     out = out.replace(
-      new RegExp(`(<${p}${which}Font>\\s*<${p}latin\\b[^>]*?)\\stypeface="[^"]*"`),
+      new RegExp(
+        `(<${p}${which}Font>\\s*<${p}latin\\b[^>]*?)\\stypeface="[^"]*"`,
+      ),
       `$1 typeface="${esc(face)}"`,
     );
   return out;
