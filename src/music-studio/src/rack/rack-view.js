@@ -752,6 +752,10 @@ export class RackView {
       await this.importFile(null, data, index);
       return;
     }
+    if (data?.kind === 'sample' && this.store.project.samples[data.id]) {
+      app.addChannel({ type: 'sampler', name: data.name || this.store.project.samples[data.id].name, sample: data.id, index });
+      return;
+    }
     const files = [...(e.dataTransfer?.files || [])].filter(isAudioFile);
     if (!files.length) {
       if (e.dataTransfer?.files?.length) app.notify('Only audio files can be dropped on the rack.', { error: true });

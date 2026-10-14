@@ -769,6 +769,12 @@ export function createPlaylistView(app, host) {
       store.selectChannels([chId]);
       V.setSource({ kind: 'pattern', id: r.id });
       V.placeAt(track, tick);
+    } else if (payload.kind === 'sample' && p.samples[payload.id]) {
+      // Reuse an audio channel that already plays this sample, else make one.
+      const existing = p.channels.find((c) => c.type === 'audio' && c.sample === payload.id);
+      const id = existing?.id || app.addChannel({ type: 'audio', name: payload.name || p.samples[payload.id].name, sample: payload.id, select: false });
+      V.setSource({ kind: 'audio', id });
+      V.placeAt(track, tick);
     } else if (payload.kind === 'file') {
       if (!app.importAudio) {
         app.notify('Audio import is not available yet');
