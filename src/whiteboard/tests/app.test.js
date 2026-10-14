@@ -2516,6 +2516,10 @@ test("commenters use the Comment tool and a comment-only selection toolbar", asy
   const c = await setup(env.sdk(viewer));
   try {
     await c.click('[data-action="join-shared"]');
+    assert.equal(
+      c.doc.querySelector("dialog .dialog-copy").textContent,
+      "Paste the link you were given to open the board.",
+    );
     c.doc.querySelector("#join-link").value =
       `https://whiteboard.test/#server=https%3A%2F%2Fwhiteboard-test.puter.work&board=${initial.id}&invite=${token}`;
     c.doc
@@ -2583,6 +2587,11 @@ test("joining from an invitation link the page opened with puts the keyboard on 
     for (let n = 0; n < 200 && !c.doc.querySelector("#join-link"); n++)
       await c.tick();
     const form = c.doc.querySelector("#join-link").closest("form");
+    // The link is filled in, so the dialog says what it is for.
+    assert.equal(
+      form.querySelector(".dialog-copy").textContent,
+      "You were invited to a shared board. Choose Join board to open it.",
+    );
     form.dispatchEvent(
       new c.w.Event("submit", { bubbles: true, cancelable: true }),
     );

@@ -11488,9 +11488,19 @@ async function fetchSharedMedia(copy, source, missing) {
     );
 }
 function joinDialog(link = "") {
+  // A link that opened the app is already filled in, so the dialog says
+  // what it is rather than asking for it.
+  const invited = /[#&]invite=[^&]/.test(link);
+  const guidance = !window.puter?.auth?.isSignedIn?.()
+    ? "Sign in with Puter to join this board."
+    : invited
+      ? "You were invited to a shared board. Choose Join board to open it."
+      : link
+        ? "Choose Join board to open this shared board."
+        : "Paste the link you were given to open the board.";
   modal(
     "Join shared board",
-    `<form><label class="field">${t("Board link")}<input id="join-link" type="url" required value="${escape(link)}" placeholder="https://…" aria-label="${t("Board link")}"></label><p class="dialog-copy">${t(window.puter?.auth?.isSignedIn?.() ? "Paste the link you were given to open the board." : "Sign in with Puter to join this board.")}</p><p id="join-error" class="dialog-status" role="status"></p><div class="dialog-footer"><button class="primary" type="submit">${t("Join board")}</button></div></form>`,
+    `<form><label class="field">${t("Board link")}<input id="join-link" type="url" required value="${escape(link)}" placeholder="https://…" aria-label="${t("Board link")}"></label><p class="dialog-copy">${t(guidance)}</p><p id="join-error" class="dialog-status" role="status"></p><div class="dialog-footer"><button class="primary" type="submit">${t("Join board")}</button></div></form>`,
     (d) => {
       d.querySelector("form").onsubmit = async (event) => {
         event.preventDefault();

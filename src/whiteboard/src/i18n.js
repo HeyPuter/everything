@@ -864,6 +864,10 @@ const pairs = {
     "Connectez-vous à Puter pour rejoindre ce tableau.",
   "Paste the link you were given to open the board.":
     "Collez le lien que vous avez reçu pour ouvrir le tableau.",
+  "You were invited to a shared board. Choose Join board to open it.":
+    "Vous avez reçu une invitation à un tableau partagé. Choisissez Rejoindre le tableau pour l’ouvrir.",
+  "Choose Join board to open this shared board.":
+    "Choisissez Rejoindre le tableau pour ouvrir ce tableau partagé.",
   "Can edit": "Peut modifier",
   "Can view": "Peut consulter",
   "View only": "Lecture seule",
