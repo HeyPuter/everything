@@ -10,6 +10,7 @@ import { ENCRYPTION_MATRIX, legacyPasswordKey, legacyKeyText, iteratedHash, byte
 import { permissionMarker } from '../src/engine/docx-permissions.js';
 import { addPermissionRange, removePermissionRanges } from '../src/engine/permission-edits.js';
 import { contentControlRanges } from '../src/engine/content-controls.js';
+import { readFileSync } from 'node:fs';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -188,6 +189,19 @@ describe('enforcement', () => {
     const { s } = await session({ edit: 'none', formatting: true, enforcement: true });
     expect(tryEdit(s, m => { m.select(0); m.replace('Typed '); })).toBe(true);
     expect(tryEdit(s, m => { m.select(0, 5); m.setRunFormat({ italic: true }); })).toBe(false);
+  });
+
+  it('allows only form fields (content controls) to change under a forms restriction', async () => {
+    const pkg = await DocxPackage.open(readFileSync('tests/fixtures/adjacent-control-selection/control.docx'));
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    const s = new StorySession(model, null);
+    s.guard = protectionGuard({ edit: 'forms', enforcement: true }, {}, { contentControlRanges });
+    const control = contentControlRanges(model.paragraphs)[0];
+    expect(model.text).toBe('ABCEFD');
+    expect(tryEdit(s, m => { m.select(control.start + 1, control.end); m.replace('Z'); })).toBe(true);
+    expect(model.text).toBe('ABZEFD');
+    expect(tryEdit(s, m => { m.select(0); m.replace('outside'); })).toBe(false);
+    expect(tryEdit(s, m => { m.select(m.text.length); m.replace('!'); })).toBe(false);
   });
 
   it('is inert when protection is not enforced', () => {

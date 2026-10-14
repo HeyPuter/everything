@@ -173,6 +173,11 @@ test('Restrict Editing enforces read-only with an editable region and a password
   await onTab(page, 'review');
   await review(page).getByRole('button', { name: 'Restrict Editing', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await pane.getByRole('checkbox', { name: 'Limit formatting to a selection of styles' }).check();
+  await pane.getByRole('button', { name: 'Choose styles…' }).click();
+  const styles = page.getByRole('dialog', { name: 'Formatting Restrictions' });
+  await styles.getByRole('checkbox', { name: 'Title', exact: true }).uncheck();
+  await styles.getByRole('button', { name: 'OK', exact: true }).click();
   await pane.getByRole('checkbox', { name: 'Allow only this type of editing in the document:' }).check();
   await expect(pane.getByRole('combobox', { name: 'Type of editing allowed' })).toHaveValue('readOnly');
   await select(input, 13, 23);
@@ -194,7 +199,8 @@ test('Restrict Editing enforces read-only with an editable region and a password
   await input.pressSequentially('!');
   await expect(input).toHaveValue('Locked text. Open text.!');
   const { parts, path } = await exported(page, info, 'protected.docx');
-  expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:documentProtection w:edit="readOnly" w:enforcement="1" w:algorithmName="SHA-512" w:hashValue="[^"]+" w:saltValue="[^"]+" w:spinCount="100000"\/>/);
+  expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:documentProtection w:edit="readOnly" w:formatting="1" w:enforcement="1" w:algorithmName="SHA-512" w:hashValue="[^"]+" w:saltValue="[^"]+" w:spinCount="100000"\/>/);
+  expect(strFromU8(parts['word/styles.xml'])).toMatch(/w:styleId="Title"><w:name w:val="Title"\/><w:basedOn w:val="Normal"\/><w:next w:val="Normal"\/><w:qFormat\/><w:locked\/>/);
   expect(strFromU8(parts['word/document.xml'])).toMatch(/<w:permStart w:id="1" w:edGrp="everyone"\/>/);
   void path;
   // Stopping needs the password.
