@@ -37,6 +37,8 @@ import { INSTRUMENT_TYPES, INSTRUMENTS, paramVector } from '../instruments/catal
 import { EFFECT_TYPES, EFFECTS, effectParamVector } from '../effects/catalog.js';
 import { channelAudible, patternById, patternLength, songLength } from '../model/project.js';
 import { STEP, ticksPerBar, ticksToSeconds } from '../model/time.js';
+import { mixerAudible } from '../mixer/routing.js';
+import { trackAudible as playlistTrackAudible } from '../playlist/clips.js';
 
 export const NOTE = 0;
 export const AUDIO = 1;
@@ -146,20 +148,9 @@ export function upDown(project, i, { zero = false } = {}) {
   return { up, down };
 }
 
-/** Audible gain (0 or 1) per mixer track from mute and solo (same rule as mixer/routing.js mixerAudible). */
+/** Audible gain (0 or 1) per mixer track from mute and solo (the mixer's rule, mixer/routing.js). */
 export function mixerGains(project) {
-  const m = project.mixer;
-  const gains = m.map((t, i) => (i > 0 && t.mute ? 0 : 1));
-  const soloed = m.map((t, i) => (i > 0 && t.solo ? i : -1)).filter((i) => i > 0);
-  if (!soloed.length) return gains;
-  const keep = new Set([0]);
-  for (const s of soloed) {
-    keep.add(s);
-    const { up, down } = upDown(project, s, { zero: true });
-    for (const k of up) keep.add(k);
-    for (const k of down) keep.add(k);
-  }
-  return gains.map((g, i) => (keep.has(i) ? g : 0));
+  return project.mixer.map((_, i) => (mixerAudible(project, i) ? 1 : 0));
 }
 
 export function compileTrack(project, i, gain = 1, routes = trackRoutes(project, i)) {
@@ -221,9 +212,9 @@ export function playRange(project, mode, patternId) {
   return { start: 0, end: Math.max(bar, Math.ceil(songLength(project) / bar) * bar) };
 }
 
+/** Playlist track audibility (playlist/clips.js trackAudible), per track index. */
 function trackAudible(project) {
-  const anySolo = project.tracks.some((t) => t.solo);
-  return project.tracks.map((t) => !t.mute && (!anySolo || t.solo));
+  return project.tracks.map((_, i) => playlistTrackAudible(project, i));
 }
 
 /**

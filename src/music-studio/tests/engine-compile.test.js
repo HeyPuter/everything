@@ -229,6 +229,13 @@ describe('automation', () => {
     expect(compileSequence(p, { mode: 'pattern', slotOf }).auto).toEqual([]);
   });
 
+  it('evaluates exactly like the playlist automation helpers', async () => {
+    const { evaluateAutomation } = await import('../src/automation/evaluate.js');
+    const points = [{ t: 0, v: 0.2 }, { t: 50, v: 0.9 }, { t: 50, v: 0.1 }, { t: 300, v: 0.6 }];
+    const pts = Float64Array.from(points.flatMap((p) => [p.t, p.v]));
+    for (let t = -20; t < 340; t += 7) expect(automationValue(pts, t)).toBeCloseTo(evaluateAutomation(points, t), 12);
+  });
+
   it('interpolates linearly and holds the ends', () => {
     const pts = Float64Array.from([10, 0, 20, 1, 40, 0]);
     expect(automationValue(pts, 0)).toBe(0);
