@@ -57,6 +57,7 @@ export function classicMenus(ctx) {
     sep,
     opt(w.versionHistory, 'Browse Version History', { icon: 'history' }),
     sub('Share', [
+      opt(w.share, 'Invite People…', { icon: 'invitePeople', disabled: !ready() }),
       opt(w.publishWeb, 'Publish to the Web…', { icon: 'share', disabled: !ready() }),
       opt(w.sendCopy, 'Send a Copy (.docx)', { disabled: !ready() }),
       opt(w.savePdf, 'Send as PDF', { icon: 'pdf', disabled: !ready() }),

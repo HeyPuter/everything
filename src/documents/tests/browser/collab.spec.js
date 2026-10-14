@@ -53,6 +53,9 @@ test('two people typing at once in a shared document converge', async ({ context
   await expect.poll(() => editorText(ann)).toContain('Ann: Shared draft.');
   await shot(ann, 'coediting-ann');
   await shot(bob, 'coediting-bob');
+  // The co-edited document exports as a DOCX (validated against the schemas by check:conformance).
+  const [download] = await Promise.all([bob.waitForEvent('download'), bob.getByRole('button', { name: 'Download .docx' }).first().click()]);
+  await download.saveAs('test-results/collab-coedited.docx');
 });
 
 test('a view-only link keeps the document read-only', async ({ context }) => {

@@ -48,7 +48,7 @@
 .sh-dialog .modal-actions { justify-content: space-between; }
 .sh-stop { color: var(--critical); }
 .sh-stop[hidden] { display: none; }
-.sh-stop + .btn-primary { margin-left: auto; }
+.sh-dialog .modal-actions .btn-primary { margin-left: auto; }
 
 /* ---- Version History ---- */
 .vh-actions { display: flex; gap: 8px; }

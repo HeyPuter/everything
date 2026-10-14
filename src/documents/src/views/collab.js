@@ -196,7 +196,6 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     return [{ id: 'collaborate', label: 'Collaborate', icon: 'invitePeople', priority: 7, after: 'protect', items }];
   }
   function extendMenu(id) {
-    if (id === 'file') return [{ separator: true }, { label: 'Share…', icon: 'share', disabled: !editor(), onSelect: share }];
     if (id === 'tools') return [{ separator: true }, { label: 'Share…', icon: 'share', disabled: !editor(), onSelect: share }, ...(live ? [{ label: 'Co-authors', icon: 'coauthors', items: people().map(p => ({ label: `${p.name}${p.me ? ' (you)' : ''}`, hint: roleLabel(p.role || 'editor'), disabled: p.me, onSelect: () => live?.follow(p.session) })) }] : [])];
     return [];
   }

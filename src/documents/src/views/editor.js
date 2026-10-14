@@ -941,8 +941,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const collabExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(collabExtendTab?.(id, kit) || []), ...collab.extendTab(id, kit), ...assistant.extendTab(id, kit)];
   const collabExtendMenu = editorCommands.extendMenu;
-  editorCommands.extendMenu = (id, kit) => [...(collabExtendMenu?.(id, kit) || []), ...collab.extendMenu(id, kit), ...assistant.extendMenu(id, kit),
-    ...(id === 'file' && cloud && versioning.enabled ? [{ label: 'Version History…', icon: 'history', disabled: !engine || failed, onSelect: () => versionHistory.open() }] : [])];
+  editorCommands.extendMenu = (id, kit) => [...(collabExtendMenu?.(id, kit) || []), ...collab.extendMenu(id, kit), ...assistant.extendMenu(id, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -1002,7 +1001,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
         return el('figure.bs-page', {}, thumb, el('figcaption', {}, `Page ${i + 1}`));
       }), ...(sheets.length > max ? [el('p.bs-muted', {}, `and ${sheets.length - max} more`)] : []));
     },
-    shareAvailable: () => cloud,
+    shareAvailable: () => true,
+    shareWithPeople: () => collab.share(),
+    openVersionHistory: cloud && versioning.enabled ? () => versionHistory.open() : null,
     publish: canPublish() || (cloud && publishing.enabled && P.canHost()) ? async () => {
       await ready; if (!engine || failed) throw new Error('The document is not open.');
       if (!doc.path) { await save(); if (!doc.path) throw new Error('Save the document first.'); }
