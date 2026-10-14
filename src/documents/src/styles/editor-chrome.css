@@ -219,6 +219,8 @@
 
 /* Collapsed groups. */
 .ribbon-card button.ribbon-collapsed { max-width: 90px; }
+/* A folded group is one button: it needs less room around it than a group of commands does. */
+.ribbon-group.is-collapsed { padding: 0 2px; }
 .ribbon-flyout {
   position: fixed; z-index: 60; display: flex; padding: 6px 8px; border-radius: 8px; background: var(--ed-card); color: var(--ed-ink);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.18);

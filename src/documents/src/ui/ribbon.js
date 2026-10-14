@@ -199,9 +199,15 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
     // Folding in priority order can go too far: a later fold may free room for an earlier group, and a
     // group whose drop-down button is wider than its commands gains nothing folded. Reopen every
     // folded group that fits again, the most important first.
-    for (const g of folded.reverse()) {
-      setCollapsed(g, false);
-      if (overflows()) setCollapsed(g, true);
+    // Reopening a group whose button was wider than its commands frees room, so repeat until nothing changes.
+    let still = folded.reverse();
+    for (let changed = true; changed && still.length;) {
+      changed = false;
+      for (const g of still) {
+        setCollapsed(g, false);
+        if (overflows()) setCollapsed(g, true); else changed = true;
+      }
+      still = still.filter(g => g.classList.contains('is-collapsed'));
     }
     finish();
     // Folding hides controls, so the card's one tab stop may need to move to one still shown.

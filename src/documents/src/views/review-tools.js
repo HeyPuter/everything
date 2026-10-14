@@ -157,15 +157,15 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     // One-command groups fold to a button as wide as the command, so they never fold; groups that
     // gain room by folding (Language, and the comment and change groups) fold instead.
     const groups = [
-      { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', priority: 8, after: 'speech', items: [accessibilityButton] },
+      { id: 'accessibility', label: 'Accessibility', icon: 'accessibility', priority: 3, after: 'speech', items: [accessibilityButton] },
       { id: 'language', label: 'Language', icon: 'language', priority: 2.5, after: 'speech', items: [translate, language] },
-      { id: 'compare', label: 'Compare', icon: 'compare', priority: 8, after: 'changes', items: [compare] },
-      { id: 'protect', label: 'Protect', icon: 'protect', priority: 8, after: 'changes', items: [protect] },
+      { id: 'compare', label: 'Compare', icon: 'compare', priority: 3.5, after: 'changes', items: [compare] },
+      { id: 'protect', label: 'Protect', icon: 'protect', priority: 3, after: 'changes', items: [protect] },
     ];
     if (w.toggleInk) {
       const ink = quiet(command('Hide Ink', 'hideInk', () => w.toggleInk(), { size: 'large', text: 'Hide Ink' }));
       when(ink, () => !!editor(), () => String(!!w.inkHidden?.()));
-      groups.push({ id: 'ink', label: 'Ink', icon: 'hideInk', priority: 8, after: 'changes', items: [ink] });
+      groups.push({ id: 'ink', label: 'Ink', icon: 'hideInk', priority: 1, after: 'changes', items: [ink] });
     }
     void split; void rows;
     return groups;

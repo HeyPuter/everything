@@ -517,9 +517,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(reviewing, () => !!editor(), () => String(paneShown));
     when(reviewingSplit.arrow, () => !!editor());
     return [{ id: 'speech', label: 'Speech', icon: 'readAloud', priority: 2, after: 'proofing', items: [speak] },
-      { id: 'comments', label: 'Comments', icon: 'comment', priority: 6, after: 'proofing', items: [add, removeSplit, rows([previous], [next], [resolve]), showSplit] },
+      { id: 'comments', label: 'Comments', icon: 'comment', priority: 8, after: 'proofing', items: [add, removeSplit, rows([previous], [next], [resolve]), showSplit] },
       { id: 'tracking', label: 'Tracking', icon: 'trackChanges', priority: 7, after: 'proofing', items: [trackSplit, rows([markup], [showMarkup], [reviewingSplit]), el('div.ribbon-launcher', {}, options)] },
-      { id: 'changes', label: 'Changes', icon: 'accept', priority: 5, after: 'proofing', items: [acceptSplit, rejectSplit, rows([previousChange], [nextChange])] }];
+      { id: 'changes', label: 'Changes', icon: 'accept', priority: 8, after: 'proofing', items: [acceptSplit, rejectSplit, rows([previousChange], [nextChange])] }];
   }
 
   /** Context-menu entries for the document menu. */

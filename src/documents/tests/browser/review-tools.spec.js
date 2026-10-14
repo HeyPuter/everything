@@ -347,6 +347,7 @@ test('Translate puts the selection\'s translation in a pane to insert', async ({
 
 test('Lock Tracking keeps Track Changes on until unlocked with the password', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
   const input = await newDocument(page, 'Draft text.');
   await onTab(page, 'review');
   await page.locator('#ribbon-panel-review [aria-label="Track Changes options"]').evaluate(b => b.click());

@@ -36,9 +36,9 @@ test('the ribbon reopens a folded group once there is room for it again', async 
         // Try each folded group open: none may fit without the strip overflowing.
         for (const group of panel.querySelectorAll('.ribbon-group.is-collapsed')) {
           const body = group.querySelector('.ribbon-group-body'), button = group.querySelector('.ribbon-collapsed');
-          body.hidden = false; button.hidden = true;
+          body.hidden = false; button.hidden = true; group.classList.remove('is-collapsed');
           if (panel.scrollWidth <= panel.clientWidth + 1) fits.push(group.dataset.group);
-          body.hidden = true; button.hidden = false;
+          body.hidden = true; button.hidden = false; group.classList.add('is-collapsed');
         }
         return { overflow, fits };
       });
