@@ -1166,3 +1166,36 @@ export function splitEachCell(model, { rows = 1, columns = 2, widths } = {}) {
   model.selectCell(ids.at(-1));
   return true;
 }
+
+const ANCHORS = ['margin', 'page', 'text'];
+const X_SPECS = ['left', 'center', 'right', 'inside', 'outside'];
+const Y_SPECS = ['top', 'center', 'bottom', 'inside', 'outside', 'inline'];
+/**
+ * Positioning of a table that text wraps around (w:tblpPr): horizontal and vertical position
+ * (a twip offset or an alignment) relative to the margin, page or text, distances from the
+ * surrounding text, and whether other floating tables may overlap it (w:tblOverlap).
+ */
+export function setTablePositioning(model, patch) {
+  const table = requireBlock(model).table;
+  if (!table.floating) throw new Error('Set Text wrapping to Around first.');
+  const next = { ...table.floating };
+  const offset = value => { if (!Number.isInteger(value) || Math.abs(value) > 31680) throw new Error('Enter a position within 22 inches.'); return value; };
+  const distance = value => { if (!Number.isInteger(value) || value < 0 || value > 31680) throw new Error('Enter distances from 0 to 22 inches.'); return value; };
+  if ('horzAnchor' in patch) { if (!ANCHORS.includes(patch.horzAnchor)) throw new Error('Choose margin, page or column.'); next.horzAnchor = patch.horzAnchor; }
+  if ('vertAnchor' in patch) { if (!ANCHORS.includes(patch.vertAnchor)) throw new Error('Choose margin, page or paragraph.'); next.vertAnchor = patch.vertAnchor; }
+  if ('x' in patch) {
+    if (typeof patch.x === 'string') { if (!X_SPECS.includes(patch.x)) throw new Error('Choose a horizontal alignment.'); next.tblpXSpec = patch.x; next.tblpX = 0; }
+    else { delete next.tblpXSpec; next.tblpX = offset(patch.x); }
+  }
+  if ('y' in patch) {
+    if (typeof patch.y === 'string') { if (!Y_SPECS.includes(patch.y)) throw new Error('Choose a vertical alignment.'); next.tblpYSpec = patch.y; next.tblpY = 0; }
+    else { delete next.tblpYSpec; next.tblpY = offset(patch.y); }
+  }
+  for (const key of ['leftFromText', 'rightFromText', 'topFromText', 'bottomFromText']) if (key in patch) next[key] = distance(patch[key]);
+  const overlap = 'overlap' in patch ? (patch.overlap ? 'overlap' : 'never') : table.overlap;
+  if (JSON.stringify(next) === JSON.stringify(table.floating) && overlap === table.overlap) return false;
+  model.checkpoint();
+  table.floating = next; table.floatingChanged = true; table.floatingRewrite = true;
+  if (overlap !== table.overlap) { table.overlap = overlap; table.overlapChanged = true; }
+  model.didChange(); return true;
+}

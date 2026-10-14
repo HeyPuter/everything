@@ -45,6 +45,8 @@ it('exports every table feature into one valid package', async () => {
   insertQuickTable(doc, 'calendar', (r, c) => doc.insertTable(r, c), { date: new Date(2024, 1, 1) });
   doc.select(doc.text.length);
   doc.insertTable(2, 2); T.setTableWrapping(doc, 'around');
+  T.setTablePositioning(doc, { x: 'right', horzAnchor: 'margin', y: 360, vertAnchor: 'text', bottomFromText: 144, overlap: false });
+  doc.select(doc.text.length); doc.insertTable(1, 1); T.autofitTable(doc, 'contents');
   const bytes = new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables).arrayBuffer());
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/table-features.docx', bytes);

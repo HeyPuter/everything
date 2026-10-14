@@ -206,6 +206,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
         const model = engine.model;
         if (changes.table && Object.keys(changes.table).length) model.setTableProperties(changes.table);
         if (changes.wrap) T.setTableWrapping(model, changes.wrap);
+        if (changes.positioning) T.setTablePositioning(model, changes.positioning);
         if (changes.margins) T.setTableCellMargins(model, changes.margins);
         if (changes.altText) T.setTableAltText(model, changes.altText);
         if (changes.rowHeight) T.setSelectedRowHeight(model, changes.rowHeight.value, changes.rowHeight.rule);

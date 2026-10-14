@@ -22914,7 +22914,9 @@ shells. Supported authoring subset:
   subset), plus `w:tblCellMar` default margins (§17.4.42), `w:tblCaption` and
   `w:tblDescription` alternative text (Transitional `CT_TblPr` children), and Text wrapping: creating/removing `w:tblpPr` (§17.4.57) with
   text-relative anchors and 180-twip left/right distances (Around), or removing
-  it (None).
+  it (None). Positioning rewrites `w:tblpPr` whole: `w:tblpX`/`w:tblpXSpec`,
+  `w:tblpY`/`w:tblpYSpec`, `w:horzAnchor`/`w:vertAnchor` (margin, page, text)
+  and the four `*FromText` distances, plus `w:tblOverlap` (§17.4.56).
 - Rows: `w:trHeight` atLeast/exact (§17.4.80) from the Height spinner, row-border
   dragging (at least) and Distribute Rows; `w:cantSplit` (§17.4.6, Allow row
   to break) and `w:tblHeader` (§17.4.49, Repeat Header Rows).

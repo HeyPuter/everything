@@ -455,9 +455,10 @@ export function writeTable(block, doc, writeParagraph) {
     const margins = make('tblCellMar'); for (const side of ['top', 'left', 'bottom', 'right']) margins.append(prop(side, { type: 'dxa', w: table.margins[side] ?? 0 }));
     setTableProperty('tblCellMar', margins);
   }
-  if (table.floatingCreated || table.floatingRemoved) {
+  if (table.overlapChanged) setTableProperty('tblOverlap', table.overlap ? prop('tblOverlap', { val: table.overlap }) : null);
+  if (table.floatingCreated || table.floatingRemoved || table.floatingRewrite) {
     const position = table.floating;
-    setTableProperty('tblpPr', position ? prop('tblpPr', Object.fromEntries(['leftFromText', 'rightFromText', 'topFromText', 'bottomFromText', 'vertAnchor', 'horzAnchor', 'tblpXSpec', 'tblpX', 'tblpYSpec', 'tblpY'].filter(k => position[k] !== undefined && !(k === 'tblpX' && position.tblpXSpec)).map(k => [k, position[k]]))) : null);
+    setTableProperty('tblpPr', position ? prop('tblpPr', Object.fromEntries(['leftFromText', 'rightFromText', 'topFromText', 'bottomFromText', 'vertAnchor', 'horzAnchor', 'tblpXSpec', 'tblpX', 'tblpYSpec', 'tblpY'].filter(k => position[k] !== undefined && !(k === 'tblpX' && position.tblpXSpec) && !(k === 'tblpY' && position.tblpYSpec)).map(k => [k, position[k]]))) : null);
   } else if (table.floatingChanged) {
     const positioning = child(child(node,'tblPr'),'tblpPr');
     if (!positioning) throw new Error('Missing retained floating-table positioning.');

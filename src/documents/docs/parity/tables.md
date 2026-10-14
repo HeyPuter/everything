@@ -56,7 +56,9 @@ OOXML details and the supported subset are in
   row, case sensitivity), Repeat Header Rows, Convert to Text…, Formula… (live
   result preview, number formats, paste function).
 - Table Properties: one dialog with Table, Row, Column, Cell and Alt Text
-  sections (preferred widths, alignment, indent, text wrapping None/Around,
+  sections (preferred widths, alignment, indent, text wrapping None/Around with
+  positioning — horizontal/vertical position and anchor, distance from text,
+  overlap —
   default cell margins, row height exactly/at least, allow row to break, repeat
   header, column width with previous/next, cell width, vertical alignment, wrap
   text, title and description); Apply is one undo step.

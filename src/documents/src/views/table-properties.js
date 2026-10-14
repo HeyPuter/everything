@@ -32,6 +32,27 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
   alignment.addEventListener('change', () => { indent.disabled = alignment.value !== 'left'; });
   const wrap = select('Text wrapping', [['none', 'None'], ['around', 'Around']], context.wrap || (table.floating ? 'around' : 'none'));
   if (table.parentCellId || context.wrap === undefined) wrap.disabled = true;
+  wrap.addEventListener('change', () => syncPositioning());
+  // Positioning, for a table that text wraps around.
+  const floating = table.floating || { horzAnchor: 'text', vertAnchor: 'text', tblpX: 0, tblpY: 0, leftFromText: 180, rightFromText: 180, topFromText: 0, bottomFromText: 0 };
+  const xChoice = select('Horizontal position', [['at', 'At offset'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['inside', 'Inside'], ['outside', 'Outside']], floating.tblpXSpec || 'at');
+  const xAt = el('input.input', { type: 'number', step: 'any', min: -22, max: 22, value: decimal((floating.tblpX || 0) / 1440), 'aria-label': 'Horizontal offset (in)' });
+  const xRelative = select('Horizontal position relative to', [['margin', 'Margin'], ['page', 'Page'], ['text', 'Column']], floating.horzAnchor || 'margin');
+  const yChoice = select('Vertical position', [['at', 'At offset'], ['top', 'Top'], ['center', 'Center'], ['bottom', 'Bottom'], ['inside', 'Inside'], ['outside', 'Outside']], floating.tblpYSpec && floating.tblpYSpec !== 'inline' ? floating.tblpYSpec : 'at');
+  const yAt = el('input.input', { type: 'number', step: 'any', min: -22, max: 22, value: decimal((floating.tblpY || 0) / 1440), 'aria-label': 'Vertical offset (in)' });
+  const yRelative = select('Vertical position relative to', [['text', 'Paragraph'], ['margin', 'Margin'], ['page', 'Page']], floating.vertAnchor || 'margin');
+  const fromText = Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side => [side, el('input.input', { type: 'number', step: 'any', min: 0, max: 22, value: decimal((floating[`${side}FromText`] || 0) / 1440), 'aria-label': `Distance from text, ${side} (in)` })]));
+  const overlap = check('Allow overlap with other floating tables', table.overlap !== 'never');
+  const positionFields = () => JSON.stringify([xChoice.value, xAt.value, xRelative.value, yChoice.value, yAt.value, yRelative.value, ...Object.values(fromText).map(i => i.value), overlap.input.checked]);
+  const positionOriginal = positionFields();
+  const positioning = el('div.table-positioning', {}, el('div.table-properties-subhead', {}, 'Positioning'),
+    el('div.canvas-page-fields', {}, field('Horizontal', xChoice), field('Offset (in)', xAt), field('Relative to', xRelative), el('span'),
+      field('Vertical', yChoice), field('Offset (in)', yAt), field('Relative to', yRelative), el('span')),
+    el('div.table-properties-subhead', {}, 'Distance from text (in)'),
+    el('div.canvas-page-fields.table-margin-fields', {}, ...Object.entries(fromText).map(([side, input]) => field(side[0].toUpperCase() + side.slice(1), input))), overlap.node);
+  const syncPositioning = () => { positioning.hidden = wrap.value !== 'around'; xAt.disabled = xChoice.value !== 'at'; yAt.disabled = yChoice.value !== 'at'; };
+  for (const control of [xChoice, yChoice]) control.addEventListener('change', syncPositioning);
+  syncPositioning();
   const margins = context.margins || table.margins || {};
   const margin = side => el('input.input', { type: 'number', step: 'any', min: 0, max: 22, required: true, value: decimal((margins[side] || 0) / 1440), 'aria-label': `Default ${side} cell margin (in)` });
   const marginInputs = Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side => [side, margin(side)]));
@@ -72,6 +93,7 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
 
   const sections = [
     ['table', 'Table', [el('div.canvas-page-fields', {}, field('Width unit', type), field('Preferred width', width), field('Alignment', alignment), field('Indent (in)', indent), field('Layout', layout), field('Text wrapping', wrap)),
+      positioning,
       el('div.table-properties-subhead', {}, 'Default cell margins (in)'),
       el('div.canvas-page-fields.table-margin-fields', {}, ...Object.entries(marginInputs).map(([side, input]) => field(side[0].toUpperCase() + side.slice(1), input))),
       context.onBorders && el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => context.onBorders() }, 'Borders and Shading…')]],
@@ -101,6 +123,11 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
     }
     const changes = { table: patch };
     if (!wrap.disabled && wrap.value !== (context.wrap || 'none')) changes.wrap = wrap.value;
+    if (!wrap.disabled && wrap.value === 'around' && (positionFields() !== positionOriginal || changes.wrap)) {
+      const twips = input => Math.round(Number(input.value) * 1440);
+      changes.positioning = { x: xChoice.value === 'at' ? twips(xAt) : xChoice.value, horzAnchor: xRelative.value, y: yChoice.value === 'at' ? twips(yAt) : yChoice.value, vertAnchor: yRelative.value,
+        ...Object.fromEntries(Object.entries(fromText).map(([side, input]) => [`${side}FromText`, twips(input)])), overlap: overlap.input.checked };
+    }
     if (JSON.stringify(Object.values(marginInputs).map(i => i.value)) !== marginOriginal) changes.margins = Object.fromEntries(Object.entries(marginInputs).map(([side, input]) => [side, Math.round(Number(input.value) * 1440)]));
     if (context.rows) {
       const original = rows.height === null ? 'mixed' : rows.height?.rule || 'auto';

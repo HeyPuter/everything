@@ -323,6 +323,11 @@ describe('table commands', () => {
     expect(xml).toMatch(/<w:tblpPr [^>]*w:horzAnchor="text"/);
     const table = reopened.tables[0];
     expect([table.caption, table.description, !!table.floating, table.margins.left]).toEqual(['Prices', 'Prices by item', true, 200]);
+    T.setTablePositioning(doc, { x: 'center', horzAnchor: 'page', y: 720, vertAnchor: 'margin', topFromText: 120, overlap: false });
+    const positioned = await roundTrip(pkg, doc);
+    expect(positioned.xml).toMatch(/<w:tblpPr [^>]*w:vertAnchor="margin" w:horzAnchor="page" w:tblpXSpec="center" w:tblpY="720"\/>/);
+    expect(positioned.xml).toContain('<w:tblOverlap w:val="never"/>');
+    expect(positioned.reopened.tables[0].floating).toMatchObject({ tblpXSpec: 'center', horzAnchor: 'page', tblpY: 720, topFromText: 120 });
     T.setTableWrapping(doc, 'none');
     expect((await roundTrip(pkg, doc)).xml).not.toContain('tblpPr');
   });
