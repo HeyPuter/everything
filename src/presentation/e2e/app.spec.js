@@ -17987,7 +17987,7 @@ test("percentage paragraph spacing survives inline editing, partial spacing edit
   await inspector(page);
   await after.fill("50");
   await after.press("Enter");
-  if (await close.isVisible()) await close.click();
+  // Back to the text (closing the panel would end the edit) to finish it.
   await editor.focus();
   await editor.press("Control+Enter");
   await expect(editor).toHaveCount(0);
