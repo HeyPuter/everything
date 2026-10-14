@@ -18,7 +18,6 @@ import {
   type Rect,
   cells,
   childParas,
-  clamp,
   gridFor,
   nodeParas,
 } from "./kit.ts";

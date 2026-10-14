@@ -29,7 +29,6 @@ import {
   ARROW_THICKNESS,
   CONNECTOR_PAD,
   MAX_COUNTED,
-  PYRAMID_BASE,
   TARGET_TEXT_X,
   hubSizes,
   nestedCircle,

@@ -516,31 +516,26 @@ const centeredQuadrants: LayoutFn = ({ w, h, nodes }) => {
   const hub = nodes[0]!;
   const quads = single ? hub.children : nodes.slice(1);
   const n = quads.length;
-  const m = Math.min(w, h);
-  const x0 = (w - m) / 2,
-    y0 = (h - m) / 2;
+  const m = h;
+  const x0 = (w - m) / 2;
   const out: ArtShape[] = [];
-  const rows = Math.max(1, Math.ceil(n / 2));
-  const cellH = m / rows,
-    gap = m * 0.02;
   quads.forEach((node, i) => {
-    const col = i % 2,
-      row = Math.floor(i / 2);
-    const cw = (n === 1 ? m : m / 2) - gap;
-    const x = x0 + col * (m / 2) + gap / 2,
-      y = y0 + row * cellH + gap / 2;
-    const ch = cellH - gap;
+    const q = quadrantCell(i, n);
+    const x = x0 + q.x * m,
+      y = q.y * m,
+      cw = q.w * m,
+      ch = q.h * m;
     out.push(
       shape("rect", { x, y, w: cw, h: ch }, "node", i, n, {
         ...textOf(node),
         textBox: {
-          x: col ? x + cw * 0.3 : x,
-          y: row === 0 ? y : y + ch * 0.3,
-          w: cw * 0.7,
-          h: ch * 0.7,
+          x: x + q.text.x * cw,
+          y: y + q.text.y * ch,
+          w: q.text.w * cw,
+          h: q.text.h * ch,
         },
-        align: col ? "r" : "l",
-        anchor: row === 0 && rows > 1 ? "t" : "b",
+        align: q.col ? "r" : "l",
+        anchor: q.top ? "t" : "b",
         group: "quad",
       }),
     );
