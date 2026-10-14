@@ -89,7 +89,8 @@ function askToShare(people, { unsaved }) {
       el('div.row.mention-share-mode', {}, el('span.field-label', {}, 'Give them'), mode),
       el('div.row.row-end', {},
         el('button.btn.btn-ghost', { type: 'button', onclick: () => done(null) }, 'Don’t notify'),
-        el('button.btn.btn-outline', { type: 'button', onclick: () => done({ action: 'notify' }) }, 'Notify without sharing'),
+        // An unsaved spreadsheet opens for nobody else: telling them without sharing would send a link to nothing.
+        !unsaved && el('button.btn.btn-outline', { type: 'button', onclick: () => done({ action: 'notify' }) }, 'Notify without sharing'),
         el('button.btn.btn-primary', { type: 'button', onclick: () => done({ action: 'share', mode: mode.value }) }, unsaved ? 'Save, share and notify' : 'Share and notify')));
     const modal = openModal({ title: 'Share with the people you mentioned?', content, onClose: () => resolve(answer) });
     modal.panel.classList.add('share-panel');
@@ -200,6 +201,7 @@ const SEEN_MAX = 500;
  */
 export function createMentionAlerts({ wb, me, fileKey, goTo, storage = globalThis.localStorage, delay = 400 }) {
   let timer = 0;
+  let lookTimer = 0;
   let first = true;
   const keyOf = () => {
     const user = me();
@@ -247,9 +249,15 @@ export function createMentionAlerts({ wb, me, fileKey, goTo, storage = globalThi
     clearTimeout(timer);
     timer = setTimeout(check, delay);
   };
+  // The first look waits for the session to say who the user is (it may arrive after the workbook opens).
+  let tries = 0;
+  const firstLook = () => {
+    if (!keyOf() && ++tries < 40) { lookTimer = setTimeout(firstLook, 1500); return; }
+    check();
+  };
   return {
     check,
-    start() { wb.addEventListener('change', onChange); timer = setTimeout(check, delay); },
-    stop() { clearTimeout(timer); wb.removeEventListener('change', onChange); },
+    start() { wb.addEventListener('change', onChange); lookTimer = setTimeout(firstLook, delay); },
+    stop() { clearTimeout(timer); clearTimeout(lookTimer); wb.removeEventListener('change', onChange); },
   };
 }
