@@ -23473,6 +23473,65 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   inserted run. Nonbreaking and optional hyphens are inserted as U+2011 and U+00AD (not
   `w:noBreakHyphen` / `w:softHyphen` elements). `w:sym` (§17.3.3.30) is read but not written.
 
+## Draw tab: ink, drawing canvases and ink to shape (2026-10-13)
+
+Ink is saved as ordinary DrawingML so every reader shows it; nothing depends on InkML content parts
+(`w14:contentPart` is neither written nor read). Writer: [docx-ink.js](../src/engine/docx-ink.js),
+[ink-shapes.js](../src/engine/ink-shapes.js); extension reader:
+[docx-ink-extension.js](../src/engine/docx-ink-extension.js); placement:
+[draw-commit.js](../src/views/draw-commit.js).
+
+### Floating ink (Part 1 §20.4.2.3 anchor, §20.4.3 positions, Part 4 wpg/wps)
+
+- Each inking session's strokes on a page are one `wp:anchor` holding a `wpg:wgp` group
+  (`wpg:cNvGrpSpPr`, `wpg:grpSpPr` with `a:xfrm` off/ext/chOff/chExt equal, so child coordinates are
+  EMU in the frame). `wp:docPr` is named `Ink n` with a description; `wp:wrapNone`,
+  `allowOverlap="1"`, `relativeHeight` above existing drawings. Pen and pencil ink is in front of
+  the text (`behindDoc="0"`); highlighter ink is a separate group behind it (`behindDoc="1"`).
+- Position: `wp:positionH relativeFrom="page"` and `wp:positionV relativeFrom="paragraph"` with
+  `wp:posOffset`, relative to the paragraph that starts on the page at or above the ink (the run
+  carrying the drawing is inserted at that paragraph's start), so ink moves with its text. Editing a
+  group keeps its anchor paragraph and shifts the offsets; groups authored with `wp:align` or
+  percentage offsets are rewritten with page-relative offsets when edited. Pages on which no body
+  paragraph starts (one paragraph spanning the whole page, or a page of table) cannot take new ink.
+- Each stroke is a `wps:wsp` whose `a:custGeom` (§20.1.9.8) has one `a:path` (§20.1.9.15) tracing the
+  stroke's filled outline with `a:moveTo`/`a:lnTo`/`a:close` in a 1/16-pixel path grid
+  (`w`/`h`), empty `avLst`/`gdLst`/`ahLst`/`cxnLst`, `a:rect l t r b`, and `a:ln` with `a:noFill`.
+  Fills: pen `a:solidFill`; highlighter `a:solidFill` with `a:alpha val="50000"` (§20.1.2.3.1);
+  pencil `a:pattFill prst="pct75"` (§20.1.8.47) whose background is the same colour at 35% alpha.
+  Pressure is baked into the outline's width, so all readers draw the same shape.
+- Every stroke's `wps:cNvPr` carries `a:extLst/a:ext uri="{3582A2A6-0F3C-4AC8-9E1A-D2DA59872D4E}"`
+  (§20.1.2.2.15) with one `pdi:stroke` element in this app's namespace
+  `http://schemas.puter.com/documents/2026/ink` (tool, colour, nominal width, centre line as
+  EMU/pressure triples). It has no rendering effect; readers that do not know it ignore it (the
+  extension list is the schema's preservation mechanism; the content validates as lax wildcard
+  content, so no `mc:Ignorable` is needed). The reader accepts this extension only in that exact
+  shape; a group is editable as ink only when every child carries it and the group is unrotated and
+  unflipped, otherwise it remains an ordinary retained drawing.
+
+### Drawing canvas
+
+- An inline (`wp:inline`) `wpg:wgp` named `Drawing Canvas n` (6 in × 3 in or the text width), in a
+  paragraph of its own. Its first child is a `prstGeom rect` frame with `a:noFill` and a 0.5 pt light
+  grey outline marked by a `pdi:canvas` extension; ink drawn inside it is added to the group, clipped
+  to the frame. This is a group, not a `wpc:wpc` canvas (the Word 2010 canvas element is not written).
+
+### Ink to Shape (§20.1.9.18 prstGeom)
+
+- Recognised strokes become `wps:wsp` shapes anchored like ink: `line` (with `flipH`/`flipV` for
+  direction) and arrows as `line` with `a:tailEnd type="triangle"`; `rect` and `ellipse` (with
+  `a:xfrm rot` when drawn at an angle of more than 10°); `triangle` (isosceles, `flipV` when the apex is
+  down), `rtTriangle` (flips put the right angle where it was drawn), or a three-point `a:custGeom`.
+  No fill; `a:ln` in the pen's colour and width with `cap="rnd"` and `a:round`.
+
+### Remaining gaps
+
+- InkML (`w14:contentPart`, `inkml:ink`) ink from other processors is not read as ink; such drawings
+  open as before (retained or approximated). Ink drawn here is DrawingML only, so other processors
+  show it but cannot erase it stroke by stroke.
+- Strokes in a session are committed as individual groups and gathered into one group when the
+  session ends (tool change); a file saved in the middle of a session holds one group per stroke.
+- Ink in headers, footers and table cells is not supported (ink is placed on the body layer).
 ## Format area (2026-10-13)
 
 Font, Paragraph, Tabs, Borders and Shading, Bullets and Numbering, Text Effects, Change Case and Style

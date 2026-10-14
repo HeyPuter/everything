@@ -1,0 +1,66 @@
+/* ---- Draw tab ---- */
+
+/* The pen gallery: tall pen buttons in their own colours. */
+.draw-pen-gallery { display: inline-flex; align-items: stretch; gap: 1px; padding: 0 2px; flex: none; }
+:is(.ribbon-card, .ribbon-flyout) button.draw-pen {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 66px; padding: 0; flex: none;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ed-ink-2); --draw-pen-body: var(--ed-surface, #fff);
+}
+:is(.ribbon-card, .ribbon-flyout) button.draw-pen:hover:not(:disabled) { background: var(--ed-hover, rgb(0 0 0 / .05)); }
+:is(.ribbon-card, .ribbon-flyout) button.draw-pen[aria-pressed="true"] { background: var(--ed-press); box-shadow: inset 0 -3px 0 var(--accent); color: var(--ed-ink); }
+:is(.ribbon-card, .ribbon-flyout) button.draw-pen:disabled { opacity: .45; }
+.draw-pen-icon { display: block; overflow: visible; }
+
+/* Pen settings menu: thickness previews in the pen's colour. */
+.draw-pen-menu .draw-width-item { display: flex; align-items: center; width: 100%; }
+.draw-pen-menu .draw-width-item .menu-label { flex: none; min-width: 64px; }
+.draw-width-preview { display: block; flex: 1; min-width: 60px; max-width: 110px; margin-left: 8px; border-radius: 999px; }
+.draw-pen-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface, #fff), 0 0 0 4px var(--accent); }
+
+/* Drawing over the pages: the cursor names the tool, and touch draws instead of scrolling. */
+.canvas-pages.is-inking, .canvas-pages.is-inking canvas.canvas-page { cursor: crosshair; }
+.canvas-pages.is-erasing, .canvas-pages.is-erasing canvas.canvas-page { cursor: cell; }
+.canvas-pages.is-lassoing, .canvas-pages.is-lassoing canvas.canvas-page { cursor: default; }
+.canvas-pages.draws-with-touch { touch-action: none; }
+
+/* Live ink paints on overlays laid exactly over the page canvases, inside the scrolling host. */
+.draw-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 2; }
+.draw-overlay { position: absolute; pointer-events: none; }
+/* Highlighter ink darkens what is under it, as it will once committed behind the text. */
+.draw-overlay.has-highlighter { mix-blend-mode: multiply; }
+
+/* The ruler: a translucent straightedge that turns about its centre. */
+.draw-ruler {
+  position: absolute; pointer-events: auto; touch-action: none; cursor: grab; transform-origin: 50% 50%;
+  border-radius: 6px; background: rgb(250 250 247 / .82); border: 1px solid rgb(32 33 36 / .35);
+  box-shadow: 0 2px 10px rgb(0 0 0 / .18); backdrop-filter: blur(1px);
+}
+.draw-ruler:active { cursor: grabbing; }
+.draw-ruler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.draw-ruler[hidden] { display: none; }
+.draw-ruler-scale { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.draw-ruler-angle { position: absolute; left: 50%; top: 50%; padding: 2px 8px; border-radius: 999px; background: rgb(32 33 36 / .8); color: #fff; font: 600 12px/1.4 system-ui, sans-serif; pointer-events: none; }
+
+/* The tool reminder and the replay control float above the status bar. */
+.draw-hint, .draw-replay-chip {
+  position: fixed; z-index: 30; left: 50%; bottom: calc(var(--statusbar-h, 28px) + 16px); transform: translateX(-50%); max-width: calc(100vw - 32px);
+  padding: 6px 14px; border-radius: var(--r-full, 999px); background: var(--ink, #202124); color: var(--surface, #fff); font-size: 13px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / .2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.draw-hint { pointer-events: none; opacity: .92; }
+.draw-hint[hidden] { display: none; }
+.draw-replay-chip { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px 4px 14px; }
+.draw-replay-chip .btn { color: inherit; background: rgb(255 255 255 / .16); border-color: transparent; }
+
+/* Ink to Math */
+.draw-math-pad-wrap { overflow: auto; border: 1px solid var(--hairline-strong, #c7c7c7); border-radius: 8px; background: #fff; }
+.draw-math-pad { display: block; width: 520px; max-width: 100%; height: auto; aspect-ratio: 520 / 200; touch-action: none; cursor: crosshair; }
+.draw-math-tools { align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+.draw-math-input { width: 100%; font-family: var(--font-mono, ui-monospace, monospace); }
+.draw-math-preview { min-height: 44px; }
+
+@media (max-width: 640px) {
+  :is(.ribbon-card, .ribbon-flyout) button.draw-pen { width: 30px; height: 56px; }
+  .draw-hint { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .draw-ruler { backdrop-filter: none; } }

@@ -60,6 +60,7 @@ import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
 import { createInsert } from './insert-tab.js';
+import { createDraw } from './draw-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -938,6 +939,15 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     editorCommands.extendMenu = (id, kit) => [...(designExtendMenu?.(id, kit) || []), ...module.extendMenu(id, kit)];
     editorCommands.contextMenuItems = (context, kit) => [...(designContextItems?.(context, kit) || []), ...module.contextMenuItems(context, kit)];
   }
+  // Draw tab: pens, eraser, lasso, ruler, ink conversion, replay and drawing canvases (draw-tab.js).
+  const draw = createDraw({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), commands: () => editorCommands });
+  Object.assign(editorCommands, draw.commands);
+  const drawExtraTabs = editorCommands.extraTabs;
+  editorCommands.extraTabs = kit => [...(drawExtraTabs?.(kit) || []), ...draw.extraTabs(kit)];
+  const drawExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(drawExtendMenu?.(id, kit) || []), ...draw.extendMenu(id, kit)];
+  const drawContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.contextMenuItems = (context, kit) => [...(drawContextMenuItems?.(context, kit) || []), ...draw.contextMenuItems(context, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -1158,6 +1168,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', [...(['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []), ...(editorCommands.extraContexts?.() || [])]);
     mailings.refresh();
     views.refresh();
+    draw.update();
     if (pkg.readOnly || engine.viewOnly) {
       // Read-only files and Viewing mode: the commands that change the document stay off.
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
@@ -1535,7 +1546,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); draw.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

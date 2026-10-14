@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { INK_EXTENSION_URI, readInkExtension } from './docx-ink-extension.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const DECORATIVE = 'http://schemas.microsoft.com/office/drawing/2017/decorative';
@@ -43,7 +44,7 @@ export function readDrawingMetadata(properties, readHyperlink) {
   for (const extension of children(lists[0])) {
     content(extension, ['uri']);
     const uri = extension.getAttribute('uri')?.toUpperCase();
-    if (extension.namespaceURI !== A || extension.localName !== 'ext' || ![URI, CREATION_URI].includes(uri)) fail('unsupported nonvisual extensions');
+    if (extension.namespaceURI !== A || extension.localName !== 'ext' || ![URI, CREATION_URI, INK_EXTENSION_URI].includes(uri)) fail('unsupported nonvisual extensions');
     if (seen.has(uri)) fail('duplicate nonvisual extensions');
     seen.add(uri);
     const contents = children(extension), flag = contents[0];
@@ -51,6 +52,8 @@ export function readDrawingMetadata(properties, readHyperlink) {
       readDrawingCreationId(extension);
       continue;
     }
+    // The editor's own ink data (docx-ink.js): no rendering effect; the shape's path carries the ink.
+    if (uri === INK_EXTENSION_URI) { readInkExtension(extension); continue; }
     if (contents.length !== 1 || flag.namespaceURI !== DECORATIVE || flag.localName !== 'decorative') fail('invalid decorative extensions');
     content(flag, ['val']);
     if (children(flag).length) fail('invalid decorative properties');

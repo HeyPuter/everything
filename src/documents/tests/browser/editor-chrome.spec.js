@@ -12,7 +12,7 @@ async function openEditor(page) {
 
 test('opens on the Home tab of a word-processor ribbon with every everyday command in view', async ({ page }, info) => {
   await openEditor(page);
-  await expect(page.getByRole('tablist', { name: 'Ribbon tabs' }).getByRole('tab')).toHaveText(['Home', 'Insert', 'Design', 'Layout', 'References', 'Mailings', 'Review', 'View']);
+  await expect(page.getByRole('tablist', { name: 'Ribbon tabs' }).getByRole('tab')).toHaveText(['Home', 'Insert', 'Draw', 'Design', 'Layout', 'References', 'Mailings', 'Review', 'View']);
   await expect(tab(page, 'Home')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: 'File', exact: true })).toBeVisible();
   for (const name of ['Paste', 'Cut', 'Copy', 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Superscript', 'Subscript', 'Text color', 'Text highlight',

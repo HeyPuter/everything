@@ -59,7 +59,7 @@ test('related table, picture and shape commands have distinct icons', async ({ p
 
 test('large commands, split buttons and titled fields fit inside their ribbon group', async ({ page }) => {
   await openEditor(page);
-  for (const name of ['Home', 'Insert', 'Layout', 'References', 'Mailings', 'Review', 'View']) {
+  for (const name of ['Home', 'Insert', 'Draw', 'Layout', 'References', 'Mailings', 'Review', 'View']) {
     await tab(page, name).click();
     const overflow = await page.evaluate(() => {
       const panel = document.querySelector('.ribbon-panel:not([hidden])'), bad = [];
