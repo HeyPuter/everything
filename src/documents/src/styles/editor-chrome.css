@@ -218,7 +218,7 @@
 .ribbon-gallery-more svg.ico { transform: rotate(90deg); width: 12px; height: 12px; }
 
 /* Collapsed groups. */
-.ribbon-card button.ribbon-collapsed { max-width: 90px; }
+.ribbon-card button.ribbon-collapsed { max-width: 90px; padding-left: 2px; padding-right: 2px; }
 /* A folded group is one button: it needs less room around it than a group of commands does. */
 .ribbon-group.is-collapsed { padding: 0 2px; }
 .ribbon-flyout {
