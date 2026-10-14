@@ -99,7 +99,8 @@ it('pastes copied cells as a linked picture that follows them and is retargeted 
   view.goTo('Sheet1!E2'); await view.run('pasteWith', { picture: 'linked' }); await settle();
   const [obj] = wb.sheet(id).charts;
   expect(obj).toMatchObject({ type: 'image', pictureRef: 'Sheet1!$A$1:$B$2', anchor: { r: 1, c: 4 } });
-  const svgText = () => decodeURIComponent(escape(atob(box(obj.id).querySelector('img').getAttribute('src').split(',')[1])));
+  // Drawn inline, so the cells' fonts apply to it as they do on the sheet.
+  const svgText = () => box(obj.id).querySelector('.chart-body > svg').outerHTML;
   expect(svgText()).toContain('>12<');
   wb.setInput(id, 1, 1, '99'); await settle();
   expect(svgText()).toContain('>99<');

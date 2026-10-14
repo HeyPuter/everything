@@ -2117,11 +2117,19 @@ export function createGrid(opts) {
           if (box.version !== wb.version || box.pictureRef !== ch.pictureRef || box.imageTransform !== JSON.stringify([imageTransform(ch), ch.adjust, ch.recolor, ch.transparency])) {
             box.version = wb.version; box.pictureRef = ch.pictureRef;
             box.imageTransform = JSON.stringify([imageTransform(ch), ch.adjust, ch.recolor, ch.transparency]);
-            const picture = target && rangePicture(wb, target.sheetId, target.range);
+            const picture = target && rangePicture(wb, target.sheetId, target.range, { idPrefix: `lp${ch.id}-` });
             const sig = picture ? picture.svg : `src:${ch.src}`;
             if (box.sig !== sig || box.imageSrc !== null) {
               box.sig = sig; box.imageSrc = null;
-              box.body.replaceChildren(pictureNode({ ...ch, src: picture ? svgDataUrl(picture.svg) : ch.src, srcRect: null, fillRect: null }));
+              // Drawn inline the picture takes the page's fonts, as the cells do; corrections need the picture path.
+              if (picture && !ch.adjust && !ch.recolor) {
+                box.body.innerHTML = picture.svg;
+                const svg = box.body.firstElementChild;
+                svg.setAttribute('role', ch.decorative ? 'presentation' : 'img');
+                if (!ch.decorative) svg.setAttribute('aria-label', `Picture of ${ch.pictureRef}`);
+                svg.style.opacity = ch.transparency ? String(1 - ch.transparency) : '';
+                svg.style.transform = imageTransform(ch);
+              } else box.body.replaceChildren(pictureNode({ ...ch, src: picture ? svgDataUrl(picture.svg) : ch.src, srcRect: null, fillRect: null }));
             }
             box.el.setAttribute('aria-label', ch.decorative ? 'Decorative linked picture' : `Linked picture of ${ch.pictureRef}${target ? '' : ' (the cells it showed are gone)'}`);
           }

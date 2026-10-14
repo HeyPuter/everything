@@ -47,9 +47,10 @@ export function rangePictureSize(wb, sheetId, range) {
 
 /**
  * The picture of `range` on `sheetId`: { svg, w, h }, or null when the range shows nothing (all of it
- * hidden) or is too large to draw. `fontFamily` stands in for cells with no font of their own.
+ * hidden) or is too large to draw. `fontFamily` stands in for cells with no font of their own; `idPrefix`
+ * keeps the picture's clip ids apart from another's drawn into the same page.
  */
-export function rangePicture(wb, sheetId, range, { fontFamily = DEFAULT_FONT, background = '#ffffff' } = {}) {
+export function rangePicture(wb, sheetId, range, { fontFamily = DEFAULT_FONT, background = '#ffffff', idPrefix = 'rp' } = {}) {
   const sheet = wb.sheet(sheetId);
   if (!sheet || sheet.kind === 'chart') return null;
   const n = normalizeRange(range);
@@ -87,7 +88,7 @@ export function rangePicture(wb, sheetId, range, { fontFamily = DEFAULT_FONT, ba
   const fills = [], texts = [], lines = [], pictures = [], clips = [];
   let clipId = 0;
   const clipFor = (x, y, w, h) => {
-    const id = `rp${clipId++}`;
+    const id = `${idPrefix}${clipId++}`;
     clips.push(`<clipPath id="${id}"><rect x="${px(x)}" y="${px(y)}" width="${px(w)}" height="${px(h)}"/></clipPath>`);
     return id;
   };
@@ -146,7 +147,7 @@ export function rangePicture(wb, sheetId, range, { fontFamily = DEFAULT_FONT, ba
     }
   }
   const back = background ? `<rect width="${px(W)}" height="${px(H)}" fill="${esc(background)}"/>` : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${px(W)}" height="${px(H)}" viewBox="0 0 ${px(W)} ${px(H)}">`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${px(W)}" height="${px(H)}" viewBox="0 0 ${px(W)} ${px(H)}" preserveAspectRatio="none">`
     + (clips.length ? `<defs>${clips.join('')}</defs>` : '') + back + fills.join('') + pictures.join('') + texts.join('') + lines.join('') + '</svg>';
   return { svg, w: W, h: H };
 }
