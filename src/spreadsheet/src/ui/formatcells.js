@@ -22,6 +22,22 @@ const PANELS = [['number', 'Number'], ['align', 'Alignment'], ['font', 'Font'], 
 const CATEGORIES = FORMATS.filter((f) => f.value !== 'date-medium');
 // The day the number-format menu samples too, so the two controls for the same setting show the same date.
 const SAMPLE_DAY = FORMATS.find((f) => f.value === 'date').sample;
+/** A line under the Number tab's options saying what the chosen category does. */
+const CATEGORY_NOTES = {
+  general: 'No particular format: numbers, dates and text show as they were entered.',
+  number: 'Plain numbers, with a set count of decimals, an optional thousands separator and a style for negatives.',
+  currency: 'Amounts with a currency label beside the digits.',
+  accounting: 'Amounts with the currency label at the left edge of the cell, so the decimals line up down a column.',
+  date: 'Day numbers shown as calendar dates. The style follows the regional format.',
+  time: 'The time of day a value holds.',
+  percent: 'The value multiplied by 100, with a percent sign.',
+  fraction: 'Decimals shown as the closest simple fraction.',
+  scientific: 'Numbers as a value between 1 and 10 times a power of ten, such as 1.23E+04.',
+  text: 'Entries are kept exactly as typed, even ones that look like numbers or dates.',
+  duration: 'Elapsed time in hours, minutes and seconds, counting on past 24 hours.',
+  datetime: 'A calendar date and a time of day together.',
+  custom: 'Write a format code of your own; the preview follows as you type.',
+};
 const DATE_STYLE_NAMES = [['iso', 'year first'], ['medium', 'written out'], ['long', 'written out in full']];
 /**
  * The date styles, each shown as the date it produces. Built when the dialog opens, so the samples read
@@ -185,6 +201,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     negField.hidden = !['number', 'currency'].includes(c);
     dateField.hidden = c !== 'date' && c !== 'datetime';
     codeField.hidden = c !== 'custom';
+    categoryNote.textContent = CATEGORY_NOTES[c] || '';
     const patch = numberPatch(state);
     let text;
     try { text = c === 'custom' && formatCodeError(state.code) ? '' : formatValue(sample, { ...style, ...patch }); } catch { text = ''; }
@@ -197,8 +214,9 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       option.style.color = red ? '#ff0000' : 'var(--ink)';
     }
   }
+  const categoryNote = el('p.fc-category-note');
   const numberPanel = el('div.fc-panel.fc-number', {}, categorySel,
-    el('div.fc-number-options', {}, preview, decField, curField, groupField, negField, dateField, codeField));
+    el('div.fc-number-options', {}, preview, decField, curField, groupField, negField, dateField, codeField, categoryNote));
 
   /* ---- Alignment ---- */
   const align = { align: style.align || '', valign: style.valign || 'middle', wrap: style.wrap ? 'wrap' : style.clip ? 'clip' : 'overflow', indent: style.indent || 0, rot: style.rot || 0, shrink: !!style.shrink };

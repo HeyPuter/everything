@@ -956,7 +956,7 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .fc-orientation { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .fc-orientation .field { align-self: stretch; }
 .fc-align > .fc-preview { grid-column: 1 / -1; }
-.fc-orientation-dial { width: 100px; height: 180px; max-width: 100%; touch-action: none; cursor: crosshair; border-radius: 6px; background: var(--surface-2); }
+.fc-orientation-dial { width: 84px; height: 151px; max-width: 100%; touch-action: none; cursor: crosshair; border-radius: 6px; background: var(--surface-2); }
 .fc-orientation-dial:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fc-orientation-dial svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .fc-angle-arc, .fc-angle-tick { stroke: var(--ink-3); fill: none; stroke-width: 1; }
@@ -1023,18 +1023,24 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .fc-border-hit-vertical { left: calc(50% - 10px); }
 
 .fc-number-options { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.fc-category-note { margin: auto 0 0; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
 .fc-list .select { background-image: none; padding: 4px; font-size: 13px; }
 .fc-list option { padding: 5px 7px; border-radius: 3px; }
 .fc-category .select { height: 348px; }
 .format-cells .numfmt-preview { margin: 0; padding: 16px 12px; font-family: var(--font); font-size: 16px; overflow-wrap: anywhere; }
 .fc-preview { margin: 6px 0 0; padding: 12px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); min-width: 0; }
 .fc-preview legend { padding: 0 6px; font-size: 13px; color: var(--ink-2); }
-.fc-appearance { display: flex; position: relative; padding: 14px; height: 112px; overflow: hidden; }
+.fc-appearance { display: flex; position: relative; padding: 14px; height: 100px; overflow: hidden; }
 .fc-preview-text { position: relative; z-index: 1; max-width: 100%; transform-origin: center; }
 .fc-preview-inside-rows::before, .fc-preview-inside-cols::after { content: ''; position: absolute; pointer-events: none; }
 .fc-preview-inside-rows::before { top: 50%; left: 0; right: 0; border-top: var(--preview-horizontal, var(--preview-inside)); }
 .fc-preview-inside-cols::after { left: 50%; top: 0; bottom: 0; border-left: var(--preview-vertical, var(--preview-inside)); }
 @media (min-width: 640px) {
+  /* Every tab keeps the dialog the same size, so switching tabs never moves OK and Cancel. */
+  .format-cells .fc-panel { min-height: 480px; }
+  .fc-align-fields > .field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; }
+  .fc-font-choices .select { height: 160px; }
+  .format-cells .fc-category .select { height: 437px; }
   .fc-number-options > .field:not([hidden]):not(.fc-list):not(.fc-code) { display: grid; grid-template-columns: 105px minmax(0, 1fr); align-items: center; gap: 12px; }
   .fc-number-options input[type="number"] { max-width: 90px; }
 }
