@@ -1550,8 +1550,8 @@ const pairs = {
   "Board edit": "Modification du tableau",
   "Before deletion": "Avant la suppression",
   "No saved versions yet.": "Aucune version enregistrée pour le moment.",
-  "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days, within 50 MB; when space runs short, the last version of each day is kept before the others. Pictures shared by several versions are stored once. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.":
-    "Les 30 versions les plus récentes sont conservées sur cet appareil, ainsi qu’une par quart d’heure des 30 derniers jours, dans une limite de 50 Mo ; quand la place manque, la dernière version de chaque jour est conservée avant les autres. Les images communes à plusieurs versions ne sont stockées qu’une fois. Les points de restauration nommés et la version enregistrée avant chaque restauration sont conservés à part : les 100 plus récents, dans une limite de 50 Mo supplémentaires.",
+  "The 30 most recent versions are kept on this device, and one for each quarter hour of the last 30 days (up to 200 more), within 50 MB; when space runs short, the last version of each day is kept before the others. Pictures shared by several versions are stored once. Named checkpoints and the version saved before each restoration are kept apart from these: the newest 100, within another 50 MB.":
+    "Les 30 versions les plus récentes sont conservées sur cet appareil, ainsi qu’une par quart d’heure des 30 derniers jours (jusqu’à 200 de plus), dans une limite de 50 Mo ; quand la place manque, la dernière version de chaque jour est conservée avant les autres. Les images communes à plusieurs versions ne sont stockées qu’une fois. Les points de restauration nommés et la version enregistrée avant chaque restauration sont conservés à part : les 100 plus récents, dans une limite de 50 Mo supplémentaires.",
   "Version restored.": "Version restaurée.",
   "Checkpoint saved.": "Point de restauration enregistré.",
   "Could not save the checkpoint. Export a backup.":
