@@ -5932,6 +5932,17 @@ test("checkpoints restore content and trash preserves boards for recovery", asyn
     row.querySelector("button").click();
     await tick();
     assert.equal(count(), 1);
+    // Restoring is one step: Undo takes it back, and the steps before it
+    // are still there.
+    assert.equal(doc.querySelector('[data-action="undo"]').disabled, false);
+    await click('[data-action="undo"]');
+    assert.equal(count(), 2);
+    await click('[data-action="undo"]');
+    assert.equal(count(), 1);
+    await click('[data-action="redo"]');
+    assert.equal(count(), 2);
+    await click('[data-action="redo"]');
+    assert.equal(count(), 1);
     await click('[data-action="home"]');
     await click("[data-more]");
     await click("#remove-board");

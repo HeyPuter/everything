@@ -996,15 +996,25 @@ const features = createFeatures({
   restore: (b) => {
     // Throw so the caller cannot report a restoration that did not happen.
     if (isSharedReadOnly()) throw Error("This board is read-only.");
-    current.title = b.title;
-    current.items = validateBoard(b).items;
-    current.tags = b.tags && clone(b.tags);
-    history = new History();
-    selection.clear();
-    updateConnectors(current.items);
-    editor();
+    const { items } = validateBoard(b);
+    // One step, like any other edit: Undo takes the board back to what it
+    // was, and the steps before it stay.
+    mutate(
+      () => {
+        current.title = b.title;
+        current.items = items;
+        if (b.tags?.length) current.tags = clone(b.tags);
+        else delete current.tags;
+        selection.clear();
+      },
+      // The version's mind maps keep their own layout settings, rather than
+      // being read as moved by hand from where they are now.
+      { titled: true, mindLayout: true },
+    );
+    const title = document.querySelector("#board-title");
+    if (title && document.activeElement !== title) title.value = current.title;
+    showBoardTitle(current.title);
     fit();
-    save();
   },
   addBoard: adoptBoard,
 });
@@ -3180,10 +3190,27 @@ function restoreUndoState(state) {
   Object.assign(current, state);
   if (!current.tags?.length) delete current.tags;
   if (!current.planning) delete current.planning;
+  if ("title" in state) {
+    const title = document.querySelector("#board-title");
+    if (title && document.activeElement !== title) title.value = current.title;
+    showBoardTitle(current.title);
+  }
+}
+// The state to keep for the other direction of an undo or redo step. A step
+// that changed the title, as restoring a version does, keeps it both ways;
+// other steps leave the title as it is.
+function undoStateFor(step) {
+  return step && "title" in step
+    ? { ...undoState(), title: current.title }
+    : undoState();
 }
 // A change that continues the one before it, as a held arrow key does,
-// records no undo step or recovery version of its own.
-function mutate(fn, { mindLayout = false, continues = false } = {}) {
+// records no undo step or recovery version of its own. One that may change
+// the board's title says so, and its undo step takes the title back too.
+function mutate(
+  fn,
+  { mindLayout = false, continues = false, titled = false } = {},
+) {
   if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
   pointerUp();
   const future = history.future,
@@ -3191,7 +3218,10 @@ function mutate(fn, { mindLayout = false, continues = false } = {}) {
   // The recovery version of the board as it was is written once the change
   // has gone through: a refused change leaves none.
   const before = continues ? null : undoCopy(current);
-  if (recorded) history.push(undoState());
+  if (recorded)
+    history.push(
+      titled ? { ...undoState(), title: current.title } : undoState(),
+    );
   const priorMind = mindLayout
     ? []
     : current.items
@@ -13104,7 +13134,7 @@ async function action(a) {
       if (isSharedReadOnly()) return toast("This board is read-only.");
       if (!history.past.length) return;
       checkpoint();
-      restoreUndoState(history.undo(undoState()));
+      restoreUndoState(history.undo(undoStateFor(history.past.at(-1))));
       selection.clear();
       draw();
       save({ outlined: true });
@@ -13114,7 +13144,7 @@ async function action(a) {
       if (isSharedReadOnly()) return toast("This board is read-only.");
       if (!history.future.length) return;
       checkpoint();
-      restoreUndoState(history.redo(undoState()));
+      restoreUndoState(history.redo(undoStateFor(history.future.at(-1))));
       selection.clear();
       draw();
       save({ outlined: true });
