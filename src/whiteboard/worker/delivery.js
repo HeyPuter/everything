@@ -58,24 +58,25 @@ export const bilingualSubject = (en, fr) => `${en} / ${fr}`;
 const bilingualPost = (en, fr) => `${en}\n\n${fr}`;
 export const bilingualBody = (en, fr) =>
   `(Le français suit.)\n\n${en}\n\n---\n\n${fr}`;
-// Board content edits and API reads come in bursts; the other categories,
-// such as a sharing, role, or security change, are few and are what a SIEM
-// watches for.
-const BURSTS = new Set(["content", "api"]);
+// Administration, security, and sharing changes, and changes to what
+// someone may do on a board, are few and are what a SIEM watches for.
+// Content edits, API reads, and people joining boards come in bursts: a
+// workshop's start brings hundreds of joins.
+const URGENT = new Set(["admin", "security", "sharing"]);
+const urgent = (e) =>
+  URGENT.has(e.category) || e.action.startsWith("board.role.");
 export async function deliver(org, policy, events, notifications) {
   // Bursts are exported at most every few seconds per worker instance; the
-  // cursor picks up anything written meanwhile, and retrySiem sends it if
-  // no other audited change comes along. Any other exported event goes at
-  // once, with whatever is waiting, so the last change before the
-  // organization goes quiet is not held until it is next used.
+  // cursor picks up anything written meanwhile, and sendHeldAudit sends it
+  // with the next request. An urgent event goes at once, with whatever is
+  // waiting, so the last change before the organization goes quiet is not
+  // held until it is next used.
   const exporting = policy.siem.mode !== "none";
   const exportNow =
     exporting &&
     (org.now() - org.instance.siem >= org.siemInterval ||
       events.some(
-        (e) =>
-          !BURSTS.has(e.category) &&
-          policy.siem.categories.includes(e.category),
+        (e) => urgent(e) && policy.siem.categories.includes(e.category),
       ));
   if (exporting && !exportNow && events.length) org.instance.siemBacklog = true;
   await Promise.allSettled([
@@ -217,6 +218,24 @@ async function exportAudit(org, policy) {
   org.instance.siem = org.now();
   const result = await siem(org, policy).catch((error) => ({ error }));
   org.instance.siemBacklog = !!(result.error || result.more);
+  org.instance.siemFailed = !!result.error;
+}
+// Records an export held back go out with this instance's next request of
+// any kind once the interval has passed, such as a board's synchronization
+// or check-in, rather than waiting for a request that does scheduled work.
+// Nothing is read unless some are known to be waiting, and a SIEM that
+// just failed is tried again by scheduled work, so editing never waits on
+// an unreachable endpoint.
+export async function sendHeldAudit(org) {
+  if (
+    !org.instance.siemBacklog ||
+    org.instance.siemFailed ||
+    org.now() - org.instance.siem < org.siemInterval
+  )
+    return;
+  const policy = await org.policy();
+  if (policy.siem.mode !== "none") await exportAudit(org, policy);
+  else org.instance.siemBacklog = false;
 }
 // Audit records an export did not send, because they came within the export
 // interval or the SIEM was unreachable, are sent even when no new audited

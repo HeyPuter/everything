@@ -2,6 +2,7 @@ import { hash } from "../src/collaboration/protocol.js";
 import {
   deliver,
   retrySiem,
+  sendHeldAudit,
   retryWebhooks,
   sendHeldAlerts,
 } from "./delivery.js";
@@ -1135,7 +1136,8 @@ export class OrgService {
     await this.retryUnsaved();
     const events = this.pending.splice(0);
     const notifications = (this.pendingNotifications || []).splice(0);
-    if (!events.length && !notifications.length) return;
+    if (!events.length && !notifications.length)
+      return sendHeldAudit(this).catch(() => {});
     let policy;
     try {
       policy = await this.policy();

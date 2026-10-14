@@ -9314,3 +9314,58 @@ test("the REST board directory searches content only when asked, and pages with 
   const names = spec.paths["/v1/boards"].get.parameters.map((p) => p.name);
   assert.ok(names.includes("after") && names.includes("content"));
 });
+
+test("people joining a board in a burst are exported to the SIEM together, and what waits goes with the next request", async () => {
+  const { env, boards, call, org, fetched } = setup();
+  org.now = () => env.now;
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { siem: { mode: "https", url: "https://siem.fabrikam.test/in" } },
+  });
+  const { input, room } = createInput("Workshop");
+  await boards.call(owner, input);
+  await boards.call(owner, {
+    op: "settings",
+    room,
+    visibility: "organization",
+  });
+  await org.flush();
+  const posts = () =>
+    fetched.filter((f) => f.url === "https://siem.fabrikam.test/in");
+  const exported = () =>
+    posts().flatMap((f) =>
+      JSON.parse(f.options.body).events.map((e) => e.Action),
+    );
+  env.now += 15_000;
+  const before = posts().length;
+  // Thirty members open the board within three seconds.
+  for (let n = 0; n < 30; n++) {
+    const person = {
+      uuid: `66666666-6666-4666-8666-${String(n).padStart(12, "0")}`,
+      username: "member" + n,
+    };
+    await org.saveUser({
+      ...person,
+      role: "member",
+      status: "active",
+      license: "full",
+      created: env.now,
+      teams: [],
+    });
+    await boards.call(person, { op: "join", room });
+    env.now += 100;
+  }
+  assert.ok(posts().length - before <= 1, `${posts().length - before}`);
+  const joins = () => exported().filter((a) => a === "board.joined").length;
+  assert.ok(joins() < 30);
+  // The rest go with the next request once the interval has passed, of
+  // whatever kind, such as a synchronization that audits nothing.
+  env.now += 15_000;
+  await org.flush();
+  assert.equal(joins(), 30);
+  // A change to what someone may do on a board goes at once.
+  await org.audit(owner, "board.role.changed", { type: "board", id: room });
+  await org.flush();
+  assert.equal(exported().at(-1), "board.role.changed");
+});
