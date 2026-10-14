@@ -609,7 +609,9 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
     if (user?.scimManaged)
       refuse(409, "A user with this userName already exists.", "uniqueness");
     if (!user) {
-      const pendingId = "pending-" + (await hash(email)).slice(0, 24);
+      // Never derived from the address: one given up, by a rename or a
+      // deletion, must not lead back to the record that held it.
+      const pendingId = "pending-" + crypto.randomUUID().replaceAll("-", "");
       user = {
         uuid: pendingId,
         scimId: pendingId,

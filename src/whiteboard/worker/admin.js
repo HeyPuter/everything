@@ -169,6 +169,16 @@ export const WEBHOOK_EVENTS = [
   "vote",
 ];
 
+// An identity provider that manages a person's account also manages their
+// address: verifying another one would hide them from its lookups, and its
+// deprovisioning would miss them.
+function managedAddress(user, email) {
+  if (user?.scimManaged && user.email && user.email !== email)
+    fail(
+      409,
+      "Your identity provider manages your email address. Ask your administrator to change it.",
+    );
+}
 // Link a verified email to an account. SCIM may already have provisioned a
 // pending record for that address; the account then inherits its role,
 // teams, and status, and keeps the SCIM identifier the IdP knows.
@@ -177,6 +187,7 @@ export async function linkEmail(org, identity, email, { onDeactivated } = {}) {
   const emailKey = "org:email:" + (await hash(email));
   const linked = await org.kv.get(emailKey);
   let user = await org.freshUser(identity.uuid);
+  managedAddress(user, email);
   const wasActive = !user || user.status === "active";
   if (linked && linked !== identity.uuid) {
     const other = await org.freshUser(linked);
@@ -366,7 +377,7 @@ export async function accountForEmail(org, email, { name, guest, source }) {
   const linked = await org.kv.get("org:email:" + (await hash(email)));
   const existing = linked && (await org.user(linked));
   if (existing) return existing;
-  const uuid = "pending-" + (await hash(email)).slice(0, 24);
+  const uuid = "pending-" + crypto.randomUUID().replaceAll("-", "");
   const user = {
     uuid,
     scimId: uuid,
@@ -1294,6 +1305,7 @@ export async function adminCall(org, boards, identity, input) {
   if (op === "email.start") {
     const email = text(input.email, 254).toLowerCase();
     if (!validEmail(email)) fail(400, "Enter a valid email address.");
+    managedAddress(await org.freshUser(identity.uuid), email);
     // Whether another account holds the address is said only once its code
     // proves the mailbox is theirs: told before, anyone could ask about any
     // address in the domains.

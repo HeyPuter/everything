@@ -1399,3 +1399,49 @@ test("concurrent SCIM group changes keep every member", async () => {
   }
   assert.equal(await org.kv.get("org:teamclaim:" + group.id), null);
 });
+
+test("an address given up by a rename never leads back to the record that held it", async () => {
+  const { org, boards, scim, request } = await setup();
+  const ann = await scim("Users", "POST", {
+    userName: "ann@example.ca",
+    externalId: "idp-ann",
+  });
+  await verifyEmail(org, boards, editor, "ann@example.ca");
+  await scim(`Users/${ann.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [
+      { op: "replace", path: "userName", value: "ann.lee@example.ca" },
+    ],
+  });
+  const annette = await scim("Users", "POST", {
+    userName: "ann@example.ca",
+    externalId: "idp-annette",
+  });
+  assert.notEqual(annette.id, ann.id);
+  assert.equal((await scim(`Users/${ann.id}`)).userName, "ann.lee@example.ca");
+  // Offboarding Ann reaches her account, not the newcomer's record.
+  await scim(`Users/${ann.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [{ op: "replace", path: "active", value: false }],
+  });
+  assert.equal(await org.active(editor), false);
+  assert.equal((await scim(`Users/${annette.id}`)).active, true);
+  assert.equal((await request(`Users/${annette.id}`)).status, 200);
+});
+
+test("a provisioned person cannot verify an address their identity provider does not manage", async () => {
+  const { org, boards, scim } = await setup();
+  const bob = await scim("Users", "POST", { userName: "bob@example.ca" });
+  await verifyEmail(org, boards, editor, "bob@example.ca");
+  await assert.rejects(
+    verifyEmail(org, boards, editor, "bob.private@example.org"),
+    { status: 409, message: /identity provider manages your email/ },
+  );
+  const found = await scim(
+    `Users?filter=${encodeURIComponent('userName eq "bob@example.ca"')}`,
+  );
+  assert.equal(found.totalResults, 1);
+  assert.equal(found.Resources[0].id, bob.id);
+  // The address the provider set can still be verified again.
+  await verifyEmail(org, boards, editor, "bob@example.ca");
+});

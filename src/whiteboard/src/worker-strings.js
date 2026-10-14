@@ -155,6 +155,8 @@ addTranslations({
     "Trop de courriels de vérification. Réessayez dans une heure.",
   "This email address is already linked to another account.":
     "Cette adresse courriel est déjà liée à un autre compte.",
+  "Your identity provider manages your email address. Ask your administrator to change it.":
+    "Votre fournisseur d’identité gère votre adresse courriel. Demandez à votre administrateur de la modifier.",
   "The verification email could not be sent. Ask your administrator to check the organization's Puter plan.":
     "Le courriel de vérification n’a pas pu être envoyé. Demandez à votre administrateur de vérifier l’abonnement Puter de l’organisation.",
   "Use an email address in your organization's domain, or ask an administrator for an invitation.":
