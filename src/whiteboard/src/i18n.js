@@ -1750,6 +1750,8 @@ const pairs = {
   "results|Top": "Premiers",
   "Invite people to edit, comment on, or view this board. Invitation links expire after seven days.":
     "Invitez des personnes à modifier, commenter ou consulter ce tableau. Les liens d’invitation expirent après sept jours.",
+  "Copy the board's link to send it to people who already have access to it.":
+    "Copiez le lien du tableau pour l’envoyer à des personnes qui y ont déjà accès.",
   "Creating link…": "Création du lien…",
   "Reset link": "Réinitialiser le lien",
   "The link now gives the chosen access. Links copied earlier keep the access they had.":

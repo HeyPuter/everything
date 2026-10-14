@@ -29478,6 +29478,15 @@ test("participants who cannot invite see the board link without invitation contr
       "The Share dialog opens",
     );
     assert.equal(b.doc.querySelector("#share-role").disabled, true);
+    // No link access to choose, and the dialog says what their link does.
+    assert.equal(
+      b.doc.querySelector("#share-role").closest("label").hidden,
+      true,
+    );
+    assert.equal(
+      b.doc.querySelector("#share-intro").textContent,
+      "Copy the board's link to send it to people who already have access to it.",
+    );
     assert.equal(b.doc.querySelector("#revoke-invites").hidden, true);
     assert.equal(
       b.doc.querySelector("#share-message").textContent,
@@ -29500,6 +29509,14 @@ test("participants who cannot invite see the board link without invitation contr
       "The promotion enables invitations",
     );
     assert.equal(b.doc.querySelector("#revoke-invites").hidden, false);
+    assert.equal(
+      b.doc.querySelector("#share-role").closest("label").hidden,
+      false,
+    );
+    assert.match(
+      b.doc.querySelector("#share-intro").textContent,
+      /^Invite people to edit, comment on, or view this board/,
+    );
     // A manager's link is an invitation, made without any press.
     await shared.until(
       () => /invite=/.test(b.doc.querySelector("#share-link").value),

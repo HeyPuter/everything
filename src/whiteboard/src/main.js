@@ -11127,7 +11127,7 @@ async function shareBoard() {
       return toast("Sharing is ready. Select Share board to invite people.");
     modal(
       "Share board",
-      `<p class="dialog-copy">${t("Invite people to edit, comment on, or view this board. Invitation links expire after seven days.")}</p><label class="field">${t("Link access")}<select id="share-role">${boardAccess.roleOptions(collaboration.role === "facilitator" ? "facilitator" : "owner")}</select></label>${boardAccess.shareControls()}<div class="share-link-row"><label class="field">${t("Board link")}<input id="share-link" readonly aria-label="${t("Board link")}"></label><button class="primary" id="copy-share">${icon("link")}${t("Copy link")}</button></div><p id="share-message" class="dialog-status" role="status"></p><div class="dialog-footer"><button class="secondary" id="board-settings-open">${icon("settings")}${t("Board settings")}</button><button class="text-btn" id="revoke-invites">${icon("refresh-cw")}${t("Reset link")}</button></div>`,
+      `<p class="dialog-copy" id="share-intro"></p><label class="field">${t("Link access")}<select id="share-role">${boardAccess.roleOptions(collaboration.role === "facilitator" ? "facilitator" : "owner")}</select></label>${boardAccess.shareControls()}<div class="share-link-row"><label class="field">${t("Board link")}<input id="share-link" readonly aria-label="${t("Board link")}"></label><button class="primary" id="copy-share">${icon("link")}${t("Copy link")}</button></div><p id="share-message" class="dialog-status" role="status"></p><div class="dialog-footer"><button class="secondary" id="board-settings-open">${icon("settings")}${t("Board settings")}</button><button class="text-btn" id="revoke-invites">${icon("refresh-cw")}${t("Reset link")}</button></div>`,
       (d) => {
         const field = d.querySelector("#share-link"),
           message = d.querySelector("#share-message"),
@@ -11228,10 +11228,19 @@ async function shareBoard() {
           if ([...role.options].some((o) => o.value === chosen))
             role.value = chosen;
           d.querySelector("#board-settings-open").hidden = !manager;
+          // Others are not offered the access a link gives, which only an
+          // invitation sets; they are told what the board's link does.
+          d.querySelector("#share-intro").textContent = t(
+            manager
+              ? "Invite people to edit, comment on, or view this board. Invitation links expire after seven days."
+              : "Copy the board's link to send it to people who already have access to it.",
+          );
           for (const control of d.querySelectorAll(
             "#share-role, #share-members",
-          ))
+          )) {
             control.disabled = !manager;
+            control.closest("label").hidden = !manager;
+          }
           d.querySelector("#revoke-invites").hidden = !manager;
           const refused = t(
             "Only the owner or a facilitator can invite new participants.",
