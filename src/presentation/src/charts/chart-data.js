@@ -560,7 +560,7 @@ export function sampleSpec(typeId) {
     title: "Chart Title",
     legend: { position: type.family === "pie" ? "r" : "b" },
   };
-  return cleanSpec(type.apply(spec));
+  return cleanSpec(withBarDefaults(null, type.apply(spec)));
 }
 
 // The type a chart definition is, as near as the catalogue has it.
@@ -633,16 +633,35 @@ export function detectChartType(spec) {
   }
 }
 
+// A bar series without an invertIfNegative setting draws its negative bars
+// inverted (white), as desktop editors do with files that omit it, so bars
+// this editor makes say "not inverted" as those editors write it. A series
+// that was already a bar keeps whatever it had.
+const BAR_LIKE = new Set(["bar", "column"]);
+export function withBarDefaults(prev, next) {
+  return {
+    ...next,
+    series: next.series.map((s, i) => {
+      if (s.invertIfNegative !== undefined) return s;
+      if (!BAR_LIKE.has(s.chartKind || next.kind)) return s;
+      const before =
+        prev?.series.find((x) => x.name === s.name) ?? prev?.series[i];
+      if (before && BAR_LIKE.has(before.chartKind || prev.kind)) return s;
+      return { ...s, invertIfNegative: false };
+    }),
+  };
+}
+
 // Turns a chart into another type, keeping its data and the formatting that
 // still applies.
 export function convertChart(spec, typeId) {
   const type = chartType(typeId);
   if (!type) return spec;
-  return cleanSpec(type.apply(spec));
+  return cleanSpec(withBarDefaults(spec, type.apply(spec)));
 }
 // Custom combinations: the kind and axis of each series, by index.
 export function comboSpec(spec, choices) {
-  return cleanSpec(withKinds(spec, choices));
+  return cleanSpec(withBarDefaults(spec, withKinds(spec, choices)));
 }
 // Data label positions a kind of chart allows; area, doughnut and radar
 // charts take none. A position the chart can no longer have is dropped.
@@ -785,7 +804,7 @@ export function gridToSpec(grid, spec) {
       !categories.every((c) => c.trim() === "" || Number.isFinite(Number(c)))
     )
       delete out.categoryNumberFormat;
-    return cleanSpec(refreshErrorRanges(out, grid));
+    return cleanSpec(withBarDefaults(spec, refreshErrorRanges(out, grid)));
   }
   const step = layout === "bubble" ? 2 : 1;
   const names = [];
@@ -944,7 +963,7 @@ export function switchRowColumn(spec) {
   const out = { ...spec, categories, series };
   delete out.categoryNumberFormat;
   if (spec.kind === "pie") out.series = out.series.slice(0, 1);
-  return cleanSpec(out);
+  return cleanSpec(withBarDefaults(spec, out));
 }
 
 // Tab-separated text, as spreadsheets put on the clipboard, into rows.
