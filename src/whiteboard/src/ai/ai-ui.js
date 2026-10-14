@@ -729,6 +729,8 @@ export function createAI({
       });
     },
     async generate(d) {
+      // Ideas are only worth asking for when they can be added.
+      if (!onBoard(d) || !canEdit(new Set())) return;
       const work = replaceWork(
         d,
         `<form id="ai-generate"><label class="field">${t("What should the ideas be about?")}<textarea id="ai-prompt" rows="3" required maxlength="2000"></textarea></label><label class="field">${t("How many sticky notes")}<input id="ai-count" type="number" min="1" max="40" value="12"></label><div class="dialog-footer"><button class="primary">${t("Generate")}</button></div></form>`,

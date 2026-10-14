@@ -10449,7 +10449,7 @@ function renderParticipants() {
   const title = document.querySelector("#board-title");
   if (title) title.disabled = readOnly;
   for (const button of document.querySelectorAll(
-    '[data-action^="tool-"], [data-action="shapes"], .left-rail [data-action="templates"], .left-rail [data-action="add-content"]',
+    '[data-action^="tool-"], [data-action="shapes"], .left-rail [data-action="templates"], .left-rail [data-action="image"], .left-rail [data-action="add-content"]',
   ))
     button.disabled =
       readOnly &&
@@ -13179,6 +13179,7 @@ async function action(a) {
     case "import":
       return fileInput(".json", importBoard);
     case "image":
+      if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
       return imageInput();
     case "crop-image":
       if (selection.size !== 1 || !canEditSelection()) return;

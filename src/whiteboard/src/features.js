@@ -3815,15 +3815,18 @@ export function createFeatures(api) {
       },
     );
   }
+  // Adding content is refused as these open, with the reason, rather than
+  // after someone has filled them in or picked a file.
+  const adding = (open) => () => api.canEdit(new Set()) && open();
   const actions = {
     commands: () => api.commands(),
     "mind-map": () => api.mindMap(),
     shapes: () => shapeLibrary(),
     "change-shape": () => shapeLibrary(true),
-    link: () => linkDialog(),
-    table: () => tableDialog(),
+    link: adding(() => linkDialog()),
+    table: adding(() => tableDialog()),
     "bulk-notes": () => api.bulkNotes(),
-    file: () => attachFile(),
+    file: adding(() => attachFile()),
     organize,
     "filter-selection": () => openSelectionFilter(api),
     cluster: () => openClusters(api),
@@ -3843,9 +3846,11 @@ export function createFeatures(api) {
     dimensions: () => api.dimensions(),
     present: presentationSetup,
     history: versions,
-    templates: () => templateLibrary("templates"),
-    components: () => templateLibrary("components"),
-    icons: () => templateLibrary("icons"),
+    // Away from a board, templates only start new boards.
+    templates: () =>
+      (!api.board() || api.canEdit(new Set())) && templateLibrary("templates"),
+    components: adding(() => templateLibrary("components")),
+    icons: adding(() => templateLibrary("icons")),
     "save-snippet": saveSnippet,
     "more-tools": more,
     "add-content": addContent,

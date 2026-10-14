@@ -29857,6 +29857,55 @@ test("viewers see no drop target and cannot drop content onto a shared board", a
   }
 });
 
+test("viewers are refused as insert tools open, not after filling them in", async () => {
+  const room = "viewer-insert-refusals";
+  const shared = await sharedEditors(room, [item("note", 0, 0, { text: "A" })]);
+  const [, b] = shared.apps;
+  try {
+    await shared.env.service.call(owner, {
+      op: "role",
+      room,
+      uuid: collaborator.uuid,
+      role: "viewer",
+    });
+    b.w.dispatchEvent(new b.w.Event("online"));
+    await shared.until(
+      () => b.doc.querySelector(".editor").classList.contains("shared-viewer"),
+      "Bob becomes a viewer",
+    );
+    let picked = 0;
+    const nativeClick = b.w.HTMLInputElement.prototype.click;
+    b.w.HTMLInputElement.prototype.click = function () {
+      if (this.type === "file") picked++;
+      else nativeClick.call(this);
+    };
+    for (const feature of ["link", "table", "components", "icons", "file"]) {
+      b.doc.querySelector("#toast").textContent = "";
+      await b.click('[data-action="more-tools"]');
+      await b.click(`dialog[open] [data-feature="${feature}"]`);
+      assert.equal(b.doc.querySelector("dialog[open]"), null, feature);
+      assert.match(b.doc.querySelector("#toast").textContent, /read-only/);
+    }
+    assert.equal(picked, 0, "no file picker opens");
+    // Add image in the tool rail is unavailable, like the other insert tools.
+    const image = b.doc.querySelector('.left-rail [data-action="image"]');
+    assert.equal(image.disabled, true);
+    image.disabled = false;
+    await b.click('.left-rail [data-action="image"]');
+    assert.equal(picked, 0, "Add image refuses before the file picker");
+    // Ideas are not generated when they could not be added.
+    b.doc.querySelector("#toast").textContent = "";
+    await b.click('[data-action="ai"]');
+    b.doc.querySelector('[data-ai="generate"]').disabled = false;
+    await b.click('[data-ai="generate"]');
+    assert.equal(b.doc.querySelector("#ai-generate"), null);
+    assert.match(b.doc.querySelector("#toast").textContent, /read-only/);
+    await new Promise((r) => setTimeout(r, 500));
+  } finally {
+    await shared.close();
+  }
+});
+
 test("moving many drawings at once shows the move live to others", async () => {
   const strokes = Array.from({ length: 8 }, (_, n) =>
     item("pen", 100, 100 + n * 20, {
