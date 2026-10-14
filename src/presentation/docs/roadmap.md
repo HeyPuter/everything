@@ -42,9 +42,11 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 4. Transitions
 
-- [ ] The full transition set (subtle, exciting and dynamic content groups)
+- [x] The full transition set (subtle, exciting and dynamic content groups)
       with per-transition Effect Options, Duration, Sound, Preview, On Mouse
-      Click / After timing and Apply To All; morphing between slides.
+      Click / After timing and Apply To All; morphing between slides
+      (objects; the Words and Characters options are saved and play as
+      objects).
 
 ### 5. Slide Show and Record
 

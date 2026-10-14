@@ -109,9 +109,10 @@ export function createTransitionTools({
   // Apply To All: the effect, its options, duration, sound and advance
   // timing of this slide go to every slide.
   function applyToAll(source = slide()) {
-    const t = details(source);
     if (identify(source).id === "other") return;
-    mutateSlide(source, (from) => {
+    return mutateSlide(source, (from) => {
+      // Read in the edit, after any change still being applied.
+      const t = details(from);
       let changed = false;
       for (const s of P.getSlides(pres())) {
         if (s === from) continue;
