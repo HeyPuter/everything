@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { onTab, downloadDocx } from './helpers/editor-tools.js';
+import { onTab, downloadDocx, menuBarMenu } from './helpers/editor-tools.js';
 
 async function newDocument(page, text) {
   await page.goto('/playground.html');
@@ -75,7 +75,7 @@ test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word 
   await expect(chip).toBeVisible({ timeout: 20000 });
   const word = (await chip.textContent()).trim();
   await chip.click();
-  await page.getByRole('menuitem', { name: /^Insert/ }).click();
+  await page.getByRole('menuitem', { name: /^Insert “/ }).click();
   const expected = word[0].toUpperCase() + word.slice(1);
   await expect(input).toHaveValue(`${expected} people smile. A big dog.`);
   await page.screenshot({ path: info.outputPath('thesaurus.png') });
@@ -376,8 +376,7 @@ test('Lock Tracking keeps Track Changes on until unlocked with the password', as
 
 test('a document marked Always Open Read-Only offers to open read-only', async ({ page }, info) => {
   const input = await newDocument(page, 'Recommend reading.');
-  await page.getByRole('button', { name: 'File', exact: true }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Always Open Read-Only' }).click();
+  await (await menuBarMenu(page, 'File')).getByRole('menuitemcheckbox', { name: 'Always Open Read-Only' }).click();
   const { path, parts } = await exported(page, info, 'read-only-recommended.docx');
   expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:settings[^>]*><w:writeProtection w:recommended="1"\/>/);
   const previous = await input.elementHandle();

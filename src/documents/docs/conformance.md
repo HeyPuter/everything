@@ -22957,6 +22957,49 @@ original into deleted paragraphs, does not detect moves, and copies text but not
 fields from the other document; locked styles are written for formatting restrictions but the style
 gallery is not filtered; `forms` protection treats content controls as the editable fields
 (legacy form fields are not supported). A schema pass is not full OOXML conformance.
+## Document properties, proofing language and the view-only lock (2026-10-13)
+
+**Core properties (ECMA-376 Part 2 §11, OPC core properties; §9.3 package relationships).**
+File > Info reads `dc:title`, `dc:subject`, `dc:creator`, `cp:keywords`, `dc:description`,
+`cp:category`, `cp:contentStatus`, `cp:lastModifiedBy`, `cp:revision`, `dcterms:created` and
+`dcterms:modified` from the part named by the package relationship of type
+`…/package/2006/relationships/metadata/core-properties` (usually `docProps/core.xml`). A missing or
+unreadable part reads as empty properties and never fails the document.
+
+Supported subset and behaviour:
+- Editing a property writes only the changed elements; every other element, attribute and namespace
+  declaration of the part is kept. An emptied property removes its element. Values are stripped of
+  XML-invalid control characters and capped at 4,096 characters.
+- With any property edited, `dcterms:modified` is stamped (W3CDTF to the second, with
+  `xsi:type="dcterms:W3CDTF"` per §11.1) and `cp:lastModifiedBy` is set to the signed-in user when
+  known. A package without a core part gets one (`docProps/core.xml`), with its relationship in
+  `_rels/.rels` and an Override content type `application/vnd.openxmlformats-package.core-properties+xml`;
+  `dcterms:created` and `dc:creator` are then filled too.
+- Content edits alone do **not** touch the core part, so unedited and undone documents keep it byte
+  for byte. Consequently `dcterms:modified` and `cp:revision` are not advanced by ordinary saves (a
+  deliberate deviation from desktop word processors, which stamp every save). The extended
+  properties part (`docProps/app.xml`: page/word counts, company) is preserved unchanged and is not
+  recomputed.
+- Property edits are document metadata, not text edits: they are not undo steps.
+
+Tests: `tests/core-properties.test.js` with the independently written fixture
+`tests/fixtures/core-properties/properties.docx` (`tools/core_properties_fixture.py`), and the browser
+round trip in `tests/browser/app-chrome.spec.js`.
+
+**Proofing language (§17.3.2.20 `w:lang`, §17.3.2.23 `w:noProof`).** The status bar's language
+picker applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
+engine's run formatting, so it is one undo step and round-trips. East Asian and complex-script
+language attributes (`w:eastAsia`, `w:bidi`) are preserved but not offered in the picker. The spelling
+checker itself checks English; other languages are marked for other editors.
+
+**Viewing (no OOXML representation).** The Editing / Reviewing / Viewing switch is an editor state.
+Reviewing toggles `w:trackRevisions` (§17.15.1.90) through the existing Track Changes command.
+Viewing blocks every edit path in the editor (`CanvasEditor.setViewOnly`) without changing the
+package, layout or read-only status; it is not written to the file (it is not `w:documentProtection`).
+
+**Exports.** Web page, Markdown and plain-text exports are readable approximations of the body
+(headings, paragraphs, lists, tables, links, bold/italic/underline/strike/super/subscript); headers,
+footers, notes, comments, pictures and page layout are omitted. They are not OOXML output.
 ### Mailings: envelopes, labels and mail merge (2026-10-13)
 
 The Mailings tab stores mail merge as WordprocessingML that other word

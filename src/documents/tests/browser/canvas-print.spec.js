@@ -20,7 +20,7 @@ test('File print and Ctrl/Cmd+P capture physical pages without altering the edit
   await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.print-stage')).toHaveCount(0);
   expect(await input.inputValue()).toBe(text);
-  await (await fileCommand(page,/Print \/ Save as PDF/)).click();
+  await (await fileCommand(page,'Print…')).click();
   await expect.poll(() => page.evaluate(() => window.printCalls)).toBe(2);
   await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.print-stage')).toHaveCount(0);

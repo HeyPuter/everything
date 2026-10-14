@@ -250,7 +250,7 @@ test('equations, symbols and text from a file', async ({ page }, info) => {
   await expect.poll(() => input.inputValue()).toMatch(/☃—$/);
   // Recently used symbols lead the Symbol gallery.
   await ribbon.getByRole('button', { name: 'Symbol', exact: true }).click();
-  await expect(page.getByRole('menuitem').first()).toHaveAccessibleName(/^—/);
+  await expect(page.getByRole('menu').getByRole('menuitem').first()).toHaveAccessibleName(/^—/);
   await page.keyboard.press('Escape');
   // Text from a Markdown file keeps its headings and emphasis.
   await input.press('ControlOrMeta+End'); await input.press('Enter');
