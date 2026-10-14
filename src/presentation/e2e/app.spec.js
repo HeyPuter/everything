@@ -5424,11 +5424,14 @@ for (const dimension of ["width", "height"]) {
     const canvas = await page.locator("#slide-canvas").boundingBox();
     const startX = handle.x + handle.width / 2;
     const startY = handle.y + handle.height / 2;
+    // A short drag, so the edge stays clear of the slide's middle, where the
+    // smart guides would snap it.
+    const step = 10;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
     await page.mouse.move(
-      startX + (dimension === "height" ? 25 : 0),
-      startY + (dimension === "width" ? 25 : 0),
+      startX + (dimension === "height" ? step : 0),
+      startY + (dimension === "width" ? step : 0),
     );
     await page.mouse.up();
     await openFileMenu(page);
@@ -5449,10 +5452,10 @@ for (const dimension of ["width", "height"]) {
       x,
       y,
       w: Math.round(
-        w + (dimension === "height" ? (25 / canvas.width) * size.width : 0),
+        w + (dimension === "height" ? (step / canvas.width) * size.width : 0),
       ),
       h: Math.round(
-        h + (dimension === "width" ? (25 / canvas.height) * size.height : 0),
+        h + (dimension === "width" ? (step / canvas.height) * size.height : 0),
       ),
     });
   });
@@ -18007,6 +18010,7 @@ test("percentage paragraph spacing survives inline editing, partial spacing edit
   await editor.focus();
   await editor.press("Control+Enter");
   await expect(editor).toHaveCount(0);
+  if (await close.isVisible()) await close.click();
   await objects.click();
   await page.keyboard.press("Control+c");
   await page.keyboard.press("Control+v");
