@@ -343,6 +343,12 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
   listen(engine.input, 'keydown', e => {
     if (e.isComposing || engine.composition) return;
     if (e.key === 'Escape' && mode) { e.preventDefault(); e.stopPropagation(); mode = null; setCursor(null); onModeEnd(); repaint(); return; }
+    // Command+Control+X deletes the selected rows (the Table menu's shortcut on the Mac).
+    if (!readOnly() && e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyX') {
+      let block = null; try { block = T.selectionBlock(engine.model); } catch { /* not in a table */ }
+      if (block) { e.preventDefault(); e.stopPropagation(); commit(m => T.deleteRows(m)); }
+      return;
+    }
     if (readOnly() || e.ctrlKey || e.metaKey || e.altKey || !['Delete', 'Backspace'].includes(e.key)) return;
     const block = engine.model.activeCellBlock;
     if (!block) return;
