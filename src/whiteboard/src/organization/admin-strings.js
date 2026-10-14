@@ -448,6 +448,8 @@ addTranslations({
   "Copy this signing secret now. It will not be shown again.":
     "Copiez ce secret de signature maintenant. Il ne sera plus affiché.",
   "Webhook test delivered.": "Essai du webhook envoyé.",
+  "Webhook test delivered. Webhooks are off in Integrations, so events are not sent yet.":
+    "Essai du webhook envoyé. Les webhooks sont désactivés dans Intégrations; les événements ne sont donc pas encore envoyés.",
   "Remove the stored API token": "Supprimer le jeton d’API enregistré",
   "Remove the stored client secret": "Supprimer le secret client enregistré",
   "Remove the stored bearer token": "Supprimer le jeton du porteur enregistré",

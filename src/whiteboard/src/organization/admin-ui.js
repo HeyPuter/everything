@@ -2108,7 +2108,13 @@ ${!managesAdmins ? `<p id="admin-permissions" class="dialog-copy">${t("Only the 
           el.onclick = () =>
             guarded(el, async () => {
               await request("webhooks.test", { id: el.dataset.testHook });
-              toast("Webhook test delivered.");
+              // A test reaches the endpoint even while deliveries are off,
+              // so the endpoint can be checked before turning them on.
+              toast(
+                data.policy.integrations.webhooks.enabled
+                  ? "Webhook test delivered."
+                  : "Webhook test delivered. Webhooks are off in Integrations, so events are not sent yet.",
+              );
             });
         });
       panel()

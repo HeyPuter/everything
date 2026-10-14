@@ -7611,3 +7611,42 @@ test("a notification another server garbled does not hide the others", async () 
     dom.window.close();
   }
 });
+
+test("a webhook test says when webhooks are off, so the endpoint can be checked before turning them on", async () => {
+  const { normalizePolicy } = await import("../worker/org.js");
+  for (const enabled of [false, true]) {
+    const policy = normalizePolicy({ name: "Fabrikam" });
+    policy.integrations.webhooks.enabled = enabled;
+    const toasts = [];
+    await withConsole(
+      (op) =>
+        op === "org.policy.get"
+          ? { policy, secrets: {}, siem: null, owner: null }
+          : op === "apikeys.list"
+            ? { keys: [], scopes: [] }
+            : op === "webhooks.list"
+              ? {
+                  webhooks: [
+                    {
+                      id: "h1",
+                      url: "https://hooks.example.ca/wb",
+                      events: ["*"],
+                    },
+                  ],
+                  events: ["*"],
+                }
+              : { ok: true },
+      "security",
+      async ({ d, settle }) => {
+        d.querySelector('[data-test-hook="h1"]').click();
+        await settle();
+      },
+      { console: { toast: (message) => toasts.push(message) } },
+    );
+    assert.deepEqual(toasts, [
+      enabled
+        ? "Webhook test delivered."
+        : "Webhook test delivered. Webhooks are off in Integrations, so events are not sent yet.",
+    ]);
+  }
+});
