@@ -8,7 +8,7 @@ import { openMenu, closeMenu } from '../ui/menu.js';
 import { PX_PER_MM } from '../engine/ink-geometry.js';
 import { icon } from '../ui/icons.js';
 
-const CHECK = icon('check', 16, 2.2);
+const check = () => icon('check', 16, 2.2);
 
 const STORAGE_KEY = 'documents.draw.pens.v1';
 const MAX_PENS = 12;
@@ -85,7 +85,7 @@ export function openPenSettings({ anchor, pen, canRemove, onChange, onRemove, po
   return openMenu({ anchor, label: `${TOOL_LABELS[pen.tool]} settings`, className: 'draw-pen-menu', pointer, minWidth: 240, items: [
     { header: 'Thickness' },
     ...PEN_WIDTHS[pen.tool].map(width => ({ custom: el('button.menu-item.draw-width-item', { type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(pen.width === width),
-      onclick: () => { closeMenu(); onChange({ width }); } }, el('span.menu-icon', { 'aria-hidden': 'true', html: pen.width === width ? CHECK : '' }), el('span.menu-label', {}, `${width} mm`), preview(width)) })),
+      onclick: () => { closeMenu(); onChange({ width }); } }, el('span.menu-icon', { 'aria-hidden': 'true', html: pen.width === width ? check() : '' }), el('span.menu-label', {}, `${width} mm`), preview(width)) })),
     { separator: true }, { header: 'Color' }, { custom: grid },
     { label: 'More Colors…', onSelect: () => { document.body.append(picker); picker.click(); } },
     { separator: true },
