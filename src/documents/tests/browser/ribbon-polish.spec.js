@@ -32,7 +32,7 @@ test('menus opened from the ribbon draw every icon from the ribbon\'s own set', 
   await expect(icons).toHaveCount(2);
   expect(await icons.evaluateAll(list => list.map(svg => svg.classList.contains('ico')))).toEqual([true, true]);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'File', exact: true }).click();
   const fileIcons = page.getByRole('menu', { name: 'File' }).locator('.menu-icon svg');
   expect(await fileIcons.evaluateAll(list => list.every(svg => svg.classList.contains('ico')))).toBe(true);
 });

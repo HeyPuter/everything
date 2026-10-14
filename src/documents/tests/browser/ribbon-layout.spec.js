@@ -210,7 +210,7 @@ test('the Shapes gallery\'s lines stand out from a dark menu', async ({ page }) 
 test('a ribbon menu the mouse opens starts with no item chosen; one the keyboard opens starts on its first item', async ({ page }) => {
   await openEditor(page);
   const focusedItem = () => page.evaluate(() => document.activeElement.closest('.menu') && document.activeElement !== document.activeElement.closest('.menu') ? document.activeElement.textContent.trim() : null);
-  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'File', exact: true }).click();
   await expect(page.getByRole('menu', { name: 'File' })).toBeVisible();
   expect(await focusedItem()).toBeNull();
   await page.keyboard.press('ArrowDown');
@@ -332,7 +332,7 @@ test('Replace starts in Find when there is nothing to find yet, and in Replace w
 
 test('the Navigation Pane is a full-width sheet on phones and a side pane on wider screens', async ({ page }) => {
   await openEditor(page, 600);
-  await page.getByRole('button', { name: 'Search in document' }).click();
+  await page.locator('#ribbon-panel-home').getByRole('button', { name: 'Find', exact: true }).click();
   const pane = page.locator('.nav-pane');
   await expect(pane).toBeVisible();
   expect(Math.round((await pane.boundingBox()).width)).toBeGreaterThanOrEqual(598);

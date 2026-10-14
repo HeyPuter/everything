@@ -22988,6 +22988,123 @@ and the handwritten `tests/fixtures/table-tools/table-tools.docx`
 check for `document.xml` and `styles.xml`. Browser exports from
 `table-designs.spec.js` are validated the same way. Schema validity is not a
 claim of layout fidelity with other word processors.
+## Review: protection, permissions, formatting revisions, moves, proofing languages and comparison (2026-10-13)
+
+Clauses: ECMA-376 Part 1 §17.15.1.29 `documentProtection` (`edit`, `formatting`, `enforcement` and
+the password verifier attributes `algorithmName`, `hashValue`, `saltValue`, `spinCount`; the
+transitional `cryptAlgorithmSid`, `cryptSpinCount`, `hash` and `salt` are read for verification),
+§17.15.1 `writeProtection` (`recommended`), `hideSpellingErrors` (§17.15.1.52),
+`hideGrammaticalErrors`, `revisionView`, `doNotTrackMoves`, `doNotTrackFormatting`; §17.13.7 range
+permissions (`permStart` with `ed`/`edGrp`, `permEnd`); §17.13.5.29 `pPrChange`, §17.13.5.30
+`rPrChange`; §17.13.5.21/.25 `moveFrom`/`moveTo` and §17.13.5.22–.27 move range markers;
+§17.3.2.20 `lang`, §17.3.2.21 `noProof`; §17.7.5.1 `docDefaults` (`rPrDefault/rPr/lang`) and the
+style `locked` element (§17.7.4).
+
+Supported subset:
+
+- Documents with `documentProtection` now open for editing instead of read-only. Enforced
+  protection is applied by an editing guard on every transaction (typing, commands, undo and redo):
+  `readOnly` and `comments` allow changes only inside permission ranges that name everyone or the
+  current user (by name or e-mail, case-insensitive), `comments` also allows comments,
+  `trackedChanges` requires every text change to be a tracked revision (the text with insertions
+  removed and deletions kept must not change) and refuses accepting or rejecting, `forms` allows
+  edits only inside content controls and permission ranges. `formatting` refuses new direct
+  formatting, style edits and applying a `locked` style. Page setup and table structure are
+  protected under every restriction. Headers, footers and notes stay protected under `readOnly`,
+  `comments` and `forms`.
+- Start/Stop protection writes `documentProtection` with `enforcement` 1/0, keeping the chosen
+  restriction when stopped. A password writes `algorithmName="SHA-512"`, a 16-byte random
+  `saltValue` and `spinCount="100000"`. The hash input is the legacy-compatible 32-bit key derived
+  from the password (the specification's high-order/low-order word construction, at most 15
+  characters, each UTF-16 unit's low byte or else its high byte), written as eight hexadecimal
+  digits of its little-endian bytes and encoded as UTF-16LE; then H0 = H(salt ‖ input) and
+  H(n+1) = H(Hn ‖ n as a 32-bit little-endian integer). Verification accepts this and the
+  direct-password form, and SHA-1/256/384/512. The SHA implementations are original
+  (FIPS 180-4, constants derived at load) and checked against Node's crypto.
+- `permStart`/`permEnd` inside paragraphs and between blocks are read as zero-width markers that
+  move with edits (text typed at either edge of a range joins it); a range opening between blocks
+  starts at the next paragraph. Unchanged paragraphs keep their source XML; a paragraph that adopted
+  block-level comment or permission markers is rewritten so the markers are not lost. Range
+  permissions between table rows/cells (`colFirst`/`colLast`) still open read-only.
+- With Track Changes on, run and paragraph formatting changes record the formatting they replaced
+  (`rPrChange`/`pPrChange`, the former properties written with the same writer as current ones);
+  changing them back by hand drops the record; editing style definitions is not tracked.
+  Imported changes keep their former properties for rejection, so Reject restores formatting for
+  imported and new changes (formatting changes on the paragraph mark alone are still kept when
+  rejected).
+- Text cut and pasted while tracking becomes a move: `moveFrom`/`moveTo` wrappers with
+  `moveFromRangeStart/End` and `moveToRangeStart/End` named pairs per paragraph. Imported moves keep
+  their range names. Moves display in green with double strikethrough/underline and accept or reject
+  as deletions/insertions.
+- `revisionView` `insDel`/`formatting` are written from Show Markup; `doNotTrackMoves` and
+  `doNotTrackFormatting` from Tracking Options and honored while editing. `hideSpellingErrors` and
+  `hideGrammaticalErrors` are written from the Spelling menu. `writeProtection recommended="1"` is
+  written by Always Open Read-Only and offers a read-only session on opening (not saved).
+- Language marks selected runs with `lang` and `noProof`; Set As Default writes the docDefaults
+  `lang`. Spelling skips runs whose language is not English and, with detection on, words in
+  non-Latin scripts.
+- Compare/Combine produce a new package from the base document (revised for Compare, original for
+  Combine) with `ins`/`del` and `rPrChange`/`pPrChange` revisions authored by the chosen label.
+
+Validation: `tests/document-protection.test.js`, `tests/tracked-formatting.test.js`,
+`tests/compare-documents.test.js`, `tests/review-fixtures.test.js` (fixtures written by
+`tools/review_fixture.py`, independently of the editor, including a protection hash computed with
+Python's hashlib) and `tests/browser/review-tools.spec.js`, whose exports pass
+`tools/check-docx-schema.py` (ECMA-376 transitional XSD).
+
+Gaps: interoperability of the password verifier with desktop applications was not checked against
+one (the algorithm follows the specification text; a file whose verifier this editor cannot
+reproduce simply cannot be unprotected here); table row/cell revisions (`trPrChange`, `cellIns`,
+etc.) and revisions in headers, footers and drawing text still open read-only; moves are detected
+only for cut-and-paste of the same text by the same author; section property changes are not
+tracked; Compare ignores headers, footers, notes and text boxes, flattens tables removed from the
+original into deleted paragraphs, does not detect moves, and copies text but not pictures or
+fields from the other document; locked styles are written for formatting restrictions but the style
+gallery is not filtered; `forms` protection treats content controls as the editable fields
+(legacy form fields are not supported). A schema pass is not full OOXML conformance.
+## Document properties, proofing language and the view-only lock (2026-10-13)
+
+**Core properties (ECMA-376 Part 2 §11, OPC core properties; §9.3 package relationships).**
+File > Info reads `dc:title`, `dc:subject`, `dc:creator`, `cp:keywords`, `dc:description`,
+`cp:category`, `cp:contentStatus`, `cp:lastModifiedBy`, `cp:revision`, `dcterms:created` and
+`dcterms:modified` from the part named by the package relationship of type
+`…/package/2006/relationships/metadata/core-properties` (usually `docProps/core.xml`). A missing or
+unreadable part reads as empty properties and never fails the document.
+
+Supported subset and behaviour:
+- Editing a property writes only the changed elements; every other element, attribute and namespace
+  declaration of the part is kept. An emptied property removes its element. Values are stripped of
+  XML-invalid control characters and capped at 4,096 characters.
+- With any property edited, `dcterms:modified` is stamped (W3CDTF to the second, with
+  `xsi:type="dcterms:W3CDTF"` per §11.1) and `cp:lastModifiedBy` is set to the signed-in user when
+  known. A package without a core part gets one (`docProps/core.xml`), with its relationship in
+  `_rels/.rels` and an Override content type `application/vnd.openxmlformats-package.core-properties+xml`;
+  `dcterms:created` and `dc:creator` are then filled too.
+- Content edits alone do **not** touch the core part, so unedited and undone documents keep it byte
+  for byte. Consequently `dcterms:modified` and `cp:revision` are not advanced by ordinary saves (a
+  deliberate deviation from desktop word processors, which stamp every save). The extended
+  properties part (`docProps/app.xml`: page/word counts, company) is preserved unchanged and is not
+  recomputed.
+- Property edits are document metadata, not text edits: they are not undo steps.
+
+Tests: `tests/core-properties.test.js` with the independently written fixture
+`tests/fixtures/core-properties/properties.docx` (`tools/core_properties_fixture.py`), and the browser
+round trip in `tests/browser/app-chrome.spec.js`.
+
+**Proofing language (§17.3.2.20 `w:lang`, §17.3.2.23 `w:noProof`).** The status bar's language
+picker applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
+engine's run formatting, so it is one undo step and round-trips. East Asian and complex-script
+language attributes (`w:eastAsia`, `w:bidi`) are preserved but not offered in the picker. The spelling
+checker itself checks English; other languages are marked for other editors.
+
+**Viewing (no OOXML representation).** The Editing / Reviewing / Viewing switch is an editor state.
+Reviewing toggles `w:trackRevisions` (§17.15.1.90) through the existing Track Changes command.
+Viewing blocks every edit path in the editor (`CanvasEditor.setViewOnly`) without changing the
+package, layout or read-only status; it is not written to the file (it is not `w:documentProtection`).
+
+**Exports.** Web page, Markdown and plain-text exports are readable approximations of the body
+(headings, paragraphs, lists, tables, links, bold/italic/underline/strike/super/subscript); headers,
+footers, notes, comments, pictures and page layout are omitted. They are not OOXML output.
 ### Mailings: envelopes, labels and mail merge (2026-10-13)
 
 The Mailings tab stores mail merge as WordprocessingML that other word
