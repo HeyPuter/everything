@@ -6,7 +6,11 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import {
   addText,
+  insertImage,
   inspector,
+  installAddTextNow,
+  openNewSlideMenu,
+  openShapeMenu,
   ribbonButton,
   themeDialog,
 } from "./editor-commands.js";
@@ -907,8 +911,10 @@ for (const label of ["Text", "Undo", "Redo"]) {
       await page.getByRole("button", { name: "Undo", exact: true }).click();
       await expect(page.locator(".object-hit")).toHaveCount(7);
     }
+    await installAddTextNow(page);
     const warned = await page.evaluate((label) => {
-      document.querySelector(`button[aria-label="${label}"]`).click();
+      if (label === "Text") window.__addTextNow();
+      else document.querySelector(`button[aria-label="${label}"]`).click();
       const event = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(event);
       return event.defaultPrevented;
@@ -2019,7 +2025,7 @@ test("slides can be added and presentation mode is keyboard navigable", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "New slide", exact: true }).click();
+  await openNewSlideMenu(page);
   await page
     .getByRole("menuitem", { name: "Title and content", exact: true })
     .click();
@@ -2329,7 +2335,7 @@ test("images retain alternative text and can be resized", async ({ page }) => {
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (
     await chooser
   ).setFiles({
@@ -2380,7 +2386,7 @@ test("a deleted image leaves the saved file and returns with undo", async ({
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (
     await chooser
   ).setFiles({
@@ -2532,16 +2538,20 @@ test("buttons that open menus announce the menu and whether it is open", async (
 }) => {
   await story(page);
   const openers = [
-    page.getByRole("button", { name: "New slide", exact: true }),
-    page.getByRole("button", { name: "Shape", exact: true }),
+    page.getByRole("button", { name: "New Slide layouts" }),
+    page
+      .getByRole("menubar")
+      .getByRole("menuitem", { name: "Insert", exact: true }),
     page.getByRole("button", { name: "File options" }),
     page.getByRole("button", { name: "Account and settings" }),
     page.getByRole("button", { name: "Options for slide 2" }),
-    page.getByRole("button", { name: "Add slide", exact: true }),
   ];
+  const shown = [];
   for (const opener of openers) {
-    // Phones hide the account button and the sidebar's Add slide button.
+    // Phones hide the menu bar and the account button, and fold the ribbon's
+    // New Slide into its group; the desktop has no File options button.
     if (!(await opener.isVisible())) continue;
+    shown.push(opener);
     await expect(opener).toHaveAttribute("aria-haspopup", "menu");
     await expect(opener).toHaveAttribute("aria-expanded", "false");
     await opener.click();
@@ -2553,14 +2563,14 @@ test("buttons that open menus announce the menu and whether it is open", async (
     await expect(opener).toBeFocused();
   }
   // Opening one menu from another moves the state along with it.
-  await openers[0].click();
-  await openers[1].click();
-  await expect(openers[0]).toHaveAttribute("aria-expanded", "false");
-  await expect(openers[1]).toHaveAttribute("aria-expanded", "true");
+  await shown[0].click();
+  await shown[1].click();
+  await expect(shown[0]).toHaveAttribute("aria-expanded", "false");
+  await expect(shown[1]).toHaveAttribute("aria-expanded", "true");
   await page.keyboard.press("Escape");
   // Buttons without a menu stay as they are.
   await expect(
-    page.getByRole("button", { name: "Text", exact: true }),
+    page.getByRole("button", { name: "Present", exact: true }),
   ).not.toHaveAttribute("aria-haspopup");
   await page.getByRole("button", { name: "Back to presentations" }).click();
   const fileOptions = page.getByRole("button", {
@@ -2584,7 +2594,7 @@ test("keyboard activation respects toolbar buttons and open menus", async ({
     page.getByRole("dialog", { name: "Presentation mode" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(page.locator(".object-hit")).toHaveCount(8);
@@ -3210,10 +3220,10 @@ for (const shortcut of ["Escape", "Control+Enter", "Meta+Enter"]) {
     await expect(hit).toBeFocused();
     await hit.press("Enter");
     await expect(input).toBeFocused();
-    await expect(input).toHaveText(
-      shortcut === "Escape" ? original : "Continue keyboard editing",
-      { useInnerText: true },
-    );
+    // Each of them keeps what was typed; undo takes it back.
+    await expect(input).toHaveText("Continue keyboard editing", {
+      useInnerText: true,
+    });
     await input.press("Escape");
     await expect(hit).toBeFocused();
     await openFileMenu(page);
@@ -3228,7 +3238,12 @@ for (const shortcut of ["Escape", "Control+Enter", "Meta+Enter"]) {
       new Uint8Array(await readFile(await (await downloaded).path())),
     );
     expect(P.getShapeText(P.getSlideShapes(P.getSlides(loaded)[0])[1])).toBe(
-      shortcut === "Escape" ? original : "Continue keyboard editing",
+      "Continue keyboard editing",
+    );
+    await hit.press("ControlOrMeta+z");
+    await expect(hit).not.toHaveAccessibleName(/Continue keyboard editing/);
+    await expect(hit).toHaveAccessibleName(
+      new RegExp(original.trim().split(/\s+/)[0]),
     );
   });
 }
@@ -3361,7 +3376,8 @@ test("slide navigation retains keyboard focus and reuses unchanged thumbnails", 
   });
   const second = page.getByRole("button", { name: /^Slide 2:/ });
   await second.focus();
-  await page.keyboard.press("Enter");
+  // Space opens the slide (Enter there adds one after it).
+  await page.keyboard.press("Space");
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 5");
   await expect(second).toBeFocused();
   expect(
@@ -3374,6 +3390,10 @@ test("slide navigation retains keyboard focus and reuses unchanged thumbnails", 
   await expect(
     page.getByRole("button", { name: /^Slide 1:/ }),
   ).not.toHaveAttribute("aria-current", "true");
+  // Enter on a thumbnail adds a slide after that one, current or not.
+  await page.getByRole("button", { name: /^Slide 4:/ }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 5 of 6");
 });
 
 test("duplicating at the slide limit keeps the recovery draft loadable", async ({
@@ -3419,9 +3439,10 @@ test("an edit immediately after undo keeps both operations in order", async ({
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(2);
+  await installAddTextNow(page);
   await page.evaluate(() => {
     document.querySelector("#undo").click();
-    document.querySelector('button[aria-label="Text"]').click();
+    window.__addTextNow();
   });
   await expect(page.locator(".object-hit")).toHaveCount(2);
   await expect(page.locator("#redo")).toBeDisabled();
@@ -4228,10 +4249,10 @@ test("inserted geometry is named readably on the canvas and in the object list",
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Circle", exact: true }).click();
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(2);
@@ -4256,7 +4277,7 @@ test("the Circle tool inserts a circle rather than an oval", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Circle", exact: true }).click();
   await expect(page.locator(".object-hit.selected")).toHaveCount(1);
   await inspector(page);
@@ -4654,7 +4675,10 @@ test("reopening a menu cleans up its previous outside-click listener", async ({
       return remove(type, handler, options);
     };
   });
-  const shape = page.getByRole("button", { name: "Shape", exact: true });
+  const shape = page.getByRole("button", {
+    name: "Options for slide 1",
+    exact: true,
+  });
   for (let i = 0; i < 3; i++) {
     await shape.click();
     // Clicking the open menu's button closes it; the next click opens it
@@ -4693,7 +4717,7 @@ for (const destination of [
         });
     });
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Image", exact: true }).click();
+    await insertImage(page);
     await (
       await chooser
     ).setFiles({
@@ -4920,7 +4944,7 @@ for (const action of [
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "New slide", exact: true }).click();
+    await openNewSlideMenu(page);
     await page
       .getByRole("menuitem", { name: "Blank slide", exact: true })
       .click();
@@ -5705,7 +5729,7 @@ for (const action of ["Undo", "Redo"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "New slide", exact: true }).click();
+    await openNewSlideMenu(page);
     await page
       .getByRole("menuitem", { name: "Blank slide", exact: true })
       .click();
@@ -7901,13 +7925,13 @@ test("new text and shapes stay legible on dark and accent slide backgrounds", as
   await page.getByRole("button", { name: "Midnight", exact: true }).click();
   await page.getByRole("button", { name: "Apply theme", exact: true }).click();
   await addText(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(9);
   await page.getByRole("button", { name: /^Slide 5:/ }).click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 5 of 5");
   await addText(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(7);
   await openFileMenu(page);
@@ -7937,7 +7961,7 @@ test("the slide navigator keeps the active slide in view when it changes", async
 }) => {
   await story(page);
   for (let i = 0; i < 10; i++) {
-    await page.getByRole("button", { name: "New slide", exact: true }).click();
+    await openNewSlideMenu(page);
     await page
       .getByRole("menuitem", { name: "Blank slide", exact: true })
       .click();
@@ -7989,7 +8013,7 @@ test("adjusting a color picker is one undo step and keeps the picker input in pl
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await inspector(page);
@@ -8197,7 +8221,7 @@ test("the fill field says when a shape has no fill instead of showing a fallback
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await inspector(page);
@@ -9061,7 +9085,7 @@ test("resizing an image by its handle keeps its proportions unless Shift is held
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (
     await chooser
   ).setFiles({
@@ -10384,7 +10408,7 @@ test("a plain shape takes text from a double-click or the format panel", async (
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(1);
@@ -10404,7 +10428,7 @@ test("a plain shape takes text from a double-click or the format panel", async (
   expect(svg).toContain("Inside");
   expect(svg).toMatch(/fill="#ffffff"/i);
   // The panel's content field types into a shape too.
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Circle", exact: true }).click();
   await expect(objects).toHaveCount(2);
   await inspector(page);
@@ -10437,7 +10461,7 @@ test("shapes, lines, and arrows of many kinds are inserted with readable names",
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const shapeMenu = async (...path) => {
-    await page.getByRole("button", { name: "Shape", exact: true }).click();
+    await openShapeMenu(page);
     for (const label of path)
       await page.getByRole("menuitem", { name: label, exact: true }).click();
   };
@@ -10518,7 +10542,7 @@ test("borders, line styles, and arrowheads are edited in the format panel", asyn
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await inspector(page);
   const format = panel(page);
@@ -10549,7 +10573,7 @@ test("borders, line styles, and arrowheads are edited in the format panel", asyn
   // A line offers arrowheads at either end.
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Arrow", exact: true }).click();
   await inspector(page);
   await expect(format.locator("h3").first()).toHaveText("Line");
@@ -10702,7 +10726,7 @@ test("dragged objects snap to the slide's center and other objects' edges unless
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   const rect = page.locator(".object-hit");
   await expect(rect).toHaveCount(1);
@@ -11157,7 +11181,7 @@ test("a slide takes a background image, and pictures are replaced, faded, croppe
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await chooser).setFiles(png(PIXEL_PNG));
   const picture = page.locator(".object-hit");
   await expect(picture).toHaveAccessibleName(
@@ -11675,7 +11699,7 @@ test("shapes take a drop shadow from the format panel or the Format menu and kee
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await inspector(page);
@@ -12248,7 +12272,7 @@ test("a rounded rectangle's corner radius follows the panel slider", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page
     .getByRole("menuitem", { name: "Rounded rectangle", exact: true })
     .click();
@@ -12716,7 +12740,7 @@ test("replacing a picture with a same-named file shows the new picture", async (
       ),
     );
   let chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await chooser).setFiles(png(PIXEL_PNG));
   const picture = page.locator(".object-hit");
   await expect(picture).toHaveAccessibleName(
@@ -12953,7 +12977,7 @@ test("opposite crop sides leave some of the picture", async ({ page }) => {
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await chooser).setFiles(png(PIXEL_PNG));
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await inspector(page);
@@ -14574,7 +14598,7 @@ test("a newly inserted or pasted object is selected on its own", async ({
   await expect(chosen).toHaveAccessibleName("Pasted words. Select to edit");
   await selectPanels();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await chooser).setFiles(png(PIXEL_PNG));
   await expect(objects).toHaveCount(10);
   await expect(chosen).toHaveCount(1);
@@ -14593,7 +14617,7 @@ test("an inserted picture that cannot be read is refused in plain words", async 
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (
     await chooser
   ).setFiles({
@@ -14653,7 +14677,7 @@ test("arrow keys move several selected objects together, or not at all", async (
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Shape", exact: true }).click();
+  await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await addText(page);
   const objects = page.locator(".object-hit");
@@ -14687,7 +14711,7 @@ test("objects dragged together do not snap to each other", async ({ page }) => {
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   for (let i = 0; i < 2; i++) {
-    await page.getByRole("button", { name: "Shape", exact: true }).click();
+    await openShapeMenu(page);
     await page
       .getByRole("menuitem", { name: "Rectangle", exact: true })
       .click();
@@ -14806,7 +14830,7 @@ test("a grouped object turned by its handle keeps the group's turn out of its ow
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   for (let i = 0; i < 2; i++) {
-    await page.getByRole("button", { name: "Shape", exact: true }).click();
+    await openShapeMenu(page);
     await page
       .getByRole("menuitem", { name: "Rectangle", exact: true })
       .click();
@@ -15087,7 +15111,7 @@ test("a picture is inserted on a slide whose file holds an odd image target", as
   });
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
   const image = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await image).setFiles(png(PIXEL_PNG));
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await expect(page.locator(".object-hit")).toHaveAccessibleName(/^Image/);
@@ -15120,7 +15144,7 @@ test("an edit that fails part-way leaves the presentation as it was", async ({
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   const image = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (await image).setFiles(png(PIXEL_PNG));
   await expect(page.locator("#toast")).toHaveText("The media check failed.");
   await expect(page.locator(".object-hit")).toHaveCount(1);
@@ -15978,7 +16002,7 @@ test("a very large picture is scaled down as it is inserted", async ({
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Image", exact: true }).click();
+  await insertImage(page);
   await (
     await chooser
   ).setFiles({
