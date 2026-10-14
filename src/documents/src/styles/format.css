@@ -1,7 +1,11 @@
 /* Format area: Paragraph, Tabs, Borders and Shading, Bullets and Numbering, Style and Paste dialogs,
    the Styles pane, the paste options chip and the dictation banner. */
 
-.fmt-dialog { min-width: min(560px, 86vw); gap: 12px; }
+.fmt-dialog { min-width: 0; gap: 12px; }
+@media (width > 640px) {
+  .modal-panel.wide.fmt-dialog-panel { width: 700px; max-width: calc(100vw - 40px); }
+  .modal-panel.fmt-dialog-panel:not(.wide) { width: 500px; }
+}
 .fmt-dialog .ed-font-panel { gap: 10px; }
 .fmt-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .fmt-footer-start { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -15,7 +19,7 @@
 .fmt-dialog .ed-font-field .input, .fmt-dialog .ed-font-field select { width: 100%; min-width: 0; }
 
 /* Paragraph preview: a miniature page with grey neighbours around the sample. */
-.fmt-preview { height: 132px; overflow: hidden; padding: 8px 14px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: #fff; color: #000; font-size: 7px; line-height: 1.2; }
+.fmt-preview { height: 132px; overflow: hidden; padding: 10px max(14px, 18%); border: 1px solid var(--hairline-strong); border-radius: 6px; background: #fff; color: #000; font-size: 7px; line-height: 1.2; }
 .fmt-preview p { margin: 0 0 4px; }
 .fmt-preview-ghost { color: #b3b3b3; }
 .fmt-preview-sample { color: #222; }

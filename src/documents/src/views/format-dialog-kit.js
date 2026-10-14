@@ -106,9 +106,9 @@ export function openFormatDialog({ title, body, submit, extra = [], okLabel = 'O
 
 /** A small page-like preview: grey neighbour paragraphs around the sample, styled by `apply(node)`. */
 export function paragraphPreview() {
-  const before = el('p.fmt-preview-ghost', {}, 'Previous paragraph previous paragraph previous paragraph previous paragraph');
-  const sample = el('p.fmt-preview-sample', {}, 'Sample text sample text sample text sample text sample text sample text sample text sample text sample text sample text');
-  const after = el('p.fmt-preview-ghost', {}, 'Following paragraph following paragraph following paragraph following paragraph');
+  const before = el('p.fmt-preview-ghost', {}, 'Previous paragraph '.repeat(10).trim());
+  const sample = el('p.fmt-preview-sample', {}, 'Sample text '.repeat(36).trim());
+  const after = el('p.fmt-preview-ghost', {}, 'Following paragraph '.repeat(10).trim());
   const node = el('div.fmt-preview', { 'aria-hidden': 'true' }, before, sample, after);
   return { node, sample, before, after };
 }
