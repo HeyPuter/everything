@@ -103,9 +103,10 @@ OOXML details and the supported subset are in
 
 ## Gaps
 
-- Modify Table Style edits library and document-made styles only; styles that came
-  with an opened document can be applied to their own tables but are not offered
-  for other tables or for editing.
+- Modify Table Style edits library and document-made styles only. For a style that
+  came with an opened document, New Table Style starts from an editable copy of its
+  look (borders, regional fills, borders and text), which approximates rules the
+  editor does not author (second bands, corner cells, based-on chains).
 - Converting a table that contains nested tables to text.
 - Formula bookmarks, `R1C1` references and general (`\*`) formats.
 - The rulers do not yet show table column markers; dragging uses an on-page guide.

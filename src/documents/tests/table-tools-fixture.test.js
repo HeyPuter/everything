@@ -7,7 +7,7 @@ import { TextDocument, paragraphText, runFormat } from '../src/engine/model.js';
 import { rowGrid } from '../src/engine/tables.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
 import { updateSequenceFields } from '../src/engine/field-update.js';
-import { tableLook, setTableLook, applyTableStyle } from '../src/engine/table-styles.js';
+import { tableLook, setTableLook, applyTableStyle, specFromTable, saveTableStyle } from '../src/engine/table-styles.js';
 import * as T from '../src/engine/table-editing.js';
 
 // Handwritten by tools/table_tools_fixture.py (no application serializer).
@@ -63,4 +63,18 @@ it('recomputes formulas, edits the look and structure, and keeps the rest of the
   // Applying a library style replaces the document's style reference but keeps its definition.
   reopened.selectCell(cellAt(reopened.tables[0], 0, 0).id); applyTableStyle(reopened, 'DocsTablePlainGrid');
   expect(reopened.styles.definitions.Ledger).toBeTruthy();
+});
+
+it('derives an editable copy of a style that came with the document', async () => {
+  const pkg = await DocxPackage.open(source), doc = open(pkg), ledger = doc.tables[0];
+  const spec = specFromTable(doc.styles, ledger);
+  expect(spec.name).toBe('Ledger');
+  expect(spec.regions.firstRow).toMatchObject({ fill: '1F4E79', bold: true, color: 'FFFFFF' });
+  expect(spec.regions.band1Horz).toMatchObject({ fill: 'DDEBF7' });
+  expect(spec.borders.top).toMatchObject({ style: 'single', size: 8, color: '1F4E79' });
+  doc.selectCell(cellAt(ledger, 0, 0).id);
+  saveTableStyle(doc, { ...spec, id: 'LedgerCopy', name: 'Ledger Copy' });
+  expect(ledger.styleId).toBe('LedgerCopy');
+  expect(cellAt(ledger, 0, 0).shading).toBe('1F4E79');
+  expect(cellAt(ledger, 1, 0).shading).toBe('DDEBF7');
 });

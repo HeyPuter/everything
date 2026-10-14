@@ -22959,9 +22959,9 @@ inverse of `noHBand`/`noVBand`. Rows with their own `w:tblPrEx/w:tblLook` (§17.
 the table's new choice: the row exception is removed from the saved row, and an
 emptied `w:tblPrEx` is dropped.
 
-Imported table styles remain readable and keep their regions; they are listed
-for neither Modify nor application to other tables (only library and documents'
-own spec-based styles are). Style region subsets beyond the six authored regions
+Imported table styles remain readable and keep their regions; Modify is not
+offered for them (it would rewrite rules outside the authored subset). New Table
+Style can start from an approximation of an imported style's resolved look. Style region subsets beyond the six authored regions
 (`band2*`, corner cells) are read on import but not authored.
 
 **ECMA-376 Part 1 §17.16 (fields): the `=` formula field (formula syntax §17.16.3, numeric pictures §17.16.4.2).**

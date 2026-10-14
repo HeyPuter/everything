@@ -9,7 +9,7 @@ import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
 import * as T from '../engine/table-editing.js';
 import { blockFor, cellBlockPlacements, wholeRows, wholeColumns } from '../engine/table-selection.js';
-import { applyTableStyle, setTableLook, clearTableStyle, saveTableStyle, tableLook, availableTableStyles, tableStyleSpec, newTableStyleId, DEFAULT_LOOK } from '../engine/table-styles.js';
+import { applyTableStyle, setTableLook, clearTableStyle, saveTableStyle, tableLook, availableTableStyles, tableStyleSpec, newTableStyleId, specFromTable, DEFAULT_LOOK } from '../engine/table-styles.js';
 import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NUMBER_FORMATS, buildInstruction } from '../engine/table-formula.js';
 import { QUICK_TABLES, insertQuickTable } from '../engine/quick-tables.js';
 import { headerRowCount, rowGrid, verticalMerges } from '../engine/tables.js';
@@ -146,9 +146,10 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function styleDialog(mode) {
     const b = block(); if (!b) return;
     const styles = model().styles, current = tableStyleSpec(styles, b.table.styleId);
-    const base = current || tableStyleSpec(styles, 'DocsTablePlainGrid');
-    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: 'Table Style', family: 'custom', basedOn: base.id } : structuredClone(current);
-    if (mode === 'modify' && !current) { error(new Error('This table’s style came with the document; New Table Style makes an editable copy of a library style.')); return; }
+    // A new style starts from the table's current look, including a style that came with the document.
+    const base = current || (b.table.styleId && styles.definitions[b.table.styleId] ? specFromTable(styles, b.table) : tableStyleSpec(styles, 'DocsTablePlainGrid'));
+    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: `${base.name || 'Table'} Copy`.slice(0, 100), family: 'custom' } : structuredClone(current);
+    if (mode === 'modify' && !current) { error(new Error('This table’s style came with the document. Use New Table Style to make an editable copy of it.')); return; }
     openTableStyleDialog({ title: mode === 'new' ? 'New Table Style' : 'Modify Table Style', spec, look: tableLook(b.table),
       nameTaken: name => Object.values(model().styles.definitions).some(s => s.type === 'table' && s.name.toLowerCase() === name.toLowerCase() && s.id !== (mode === 'modify' ? spec.id : null)) },
     edited => {

@@ -263,3 +263,30 @@ export function saveTableStyle(model, input, { apply = true } = {}) {
   }
   model.didChange(); return true;
 }
+
+/**
+ * A spec that approximates a table's current style (for New Table Style based on a style that came
+ * with the document): its borders, the regional fills and borders it resolves, and regional text.
+ */
+export function specFromTable(styles, table) {
+  const own = tableStyleSpec(styles, table.styleId);
+  if (own) return structuredClone(own);
+  const definition = styles.definitions[table.styleId] || {};
+  const regions = {};
+  const plain = value => value && { style: value.style, size: value.size ?? 4, color: value.color || 'auto' };
+  for (const name of STYLE_REGIONS) {
+    const merged = Object.assign({}, ...(table.conditionalStyle?.chain || []).map(style => style.conditionals?.[name]?.cell || {}));
+    const run = definition.conditionals?.[name]?.run || {};
+    const region = {};
+    if (merged.shading && merged.shading !== 'auto' && merged.shading !== 'foreground') region.fill = merged.shading;
+    const borders = Object.fromEntries(Object.entries(merged.borders || {}).filter(([side]) => ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].includes(side)).map(([side, b]) => [side, ['nil', 'none'].includes(b.style) ? 'nil' : plain(b)]));
+    if (Object.keys(borders).length) region.borders = borders;
+    if (run.bold) region.bold = true;
+    if (run.italic) region.italic = true;
+    if (run.color && run.color !== 'auto') region.color = run.color;
+    if (Object.keys(region).length || table.conditionalStyle?.settings.definedRegions.includes(name)) regions[name] = region;
+  }
+  const borders = Object.fromEntries(Object.entries(table.borders || {}).filter(([side]) => ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].includes(side)).map(([side, b]) => [side, ['nil', 'none'].includes(b.style) ? 'nil' : plain(b)]));
+  const whole = table.conditionalStyle?.cell?.shading && table.conditionalStyle.cell.shading !== 'auto' ? { fill: table.conditionalStyle.cell.shading } : undefined;
+  return { id: '', name: definition.name || 'Table Style', family: 'custom', borders, regions, ...(whole ? { whole } : {}), rowBands: 1, columnBands: 1 };
+}
