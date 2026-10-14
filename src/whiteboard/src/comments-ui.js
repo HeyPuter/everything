@@ -353,7 +353,7 @@ export function createCommentsUI(api) {
     panel.setAttribute("aria-label", t("Comments"));
     panel.innerHTML = `<header><h2 tabindex="-1">Comments</h2><button class="icon-btn" id="comments-close" aria-label="Close comments">${api.icon("x")}</button></header>
       <div class="comment-filters"><label class="sr-only" for="comment-search">Search comments</label><input id="comment-search" type="search" placeholder="Search comments"><label class="sr-only" for="comment-filter">Show comments</label><select id="comment-filter"><option value="open">Open comments</option><option value="unread">Unread comments</option><option value="resolved">Resolved comments</option><option value="all">All comments</option></select></div>
-      <div class="comment-list-actions"><button id="comment-new" class="text-btn">New comment</button><label><input id="comment-pins-visible" type="checkbox">Show pins</label></div>
+      <div class="comment-list-actions"><button id="comment-new" class="text-btn">New comment</button><label><input id="comment-pins-visible" type="checkbox">Show pins</label></div><p id="comment-access" hidden></p>
       <div id="comment-list"></div><p id="comments-results" class="sr-only" role="status"></p><p id="comment-said" class="sr-only" role="status"></p><div class="comment-pages"><button class="text-btn" id="comments-previous">Previous</button><span id="comments-count"></span><button class="text-btn" id="comments-next">Next</button></div>
       <section id="comment-thread" hidden><header><h3 tabindex="-1">Discussion</h3><button class="text-btn" id="comment-resolve"></button></header><button class="text-btn" id="comment-move" aria-expanded="false" aria-controls="comment-position">Move pin</button><form id="comment-position" hidden><p class="dialog-copy" id="comment-position-help">Set the pin position in board pixels.</p><div class="field-row"><label class="field">Horizontal position<input id="comment-x" type="number" step="any" min="-1000000" max="1000000" required aria-describedby="comment-position-help comment-position-error"></label><label class="field">Vertical position<input id="comment-y" type="number" step="any" min="-1000000" max="1000000" required aria-describedby="comment-position-help comment-position-error"></label></div><p id="comment-position-error" role="alert" hidden></p><div class="dialog-footer"><button class="text-btn" type="button" id="comment-move-cancel">Cancel</button><button class="primary" type="submit">Apply move</button></div></form><div id="comment-messages"></div></section>
       <form id="comment-form" hidden><label class="sr-only" for="comment-text">Write a comment</label><textarea id="comment-text" maxlength="4000" rows="3" placeholder="Write a reply" aria-describedby="comment-help comment-error"></textarea><p id="comment-help">Enter to post · Shift+Enter for a new line</p><p id="comment-error" role="alert" hidden></p><div class="comment-form-actions"><button type="button" class="text-btn" id="comment-edit-cancel" hidden>Cancel edit</button><button class="primary" type="submit">Post comment</button></div></form>`;
@@ -597,8 +597,10 @@ export function createCommentsUI(api) {
       p = { ...p, x: p.x - reach };
     return p;
   }
+  const readOnlyReason = () =>
+    api.readOnlyReason?.() || "This board is read-only.";
   function compose(point, anchor, { avoidPins = false } = {}) {
-    if (state().readOnly) return api.toast("This board is read-only.");
+    if (state().readOnly) return api.toast(readOnlyReason());
     if (avoidPins) point = freePoint(point);
     remember();
     skeleton();
@@ -640,7 +642,7 @@ export function createCommentsUI(api) {
   }
   function change(fn) {
     if (state().readOnly) {
-      api.toast("This board is read-only.");
+      api.toast(readOnlyReason());
       return false;
     }
     try {
@@ -1020,6 +1022,11 @@ export function createCommentsUI(api) {
     );
     panel.classList.toggle("has-discussion", !!c);
     panel.querySelector("#comment-new").disabled = s.readOnly;
+    // Beside the unavailable New comment, why, and what to ask for.
+    const access = panel.querySelector("#comment-access"),
+      reason = s.readOnly ? t(readOnlyReason()) : "";
+    if (access.textContent !== reason) access.textContent = reason;
+    access.hidden = !reason;
     panel.querySelector("#comment-thread").hidden = !c;
     panel.querySelector("#comment-resolve").textContent = t(
       c?.resolved ? "Reopen discussion" : "Resolve discussion",

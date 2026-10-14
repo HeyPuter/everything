@@ -56,7 +56,9 @@ export function installTooltips(root = document) {
     hidden = performance.now();
   }
   function show(el) {
-    if (!el.isConnected || el.disabled) return;
+    // An unavailable button says why only when it was given a reason.
+    const reason = el.disabled ? el.dataset.disabledReason : "";
+    if (!el.isConnected || (el.disabled && !reason)) return;
     const text = el.getAttribute("title") || el.getAttribute("aria-label");
     if (!text) return;
     target = el;
@@ -66,9 +68,9 @@ export function installTooltips(root = document) {
     }
     const { label, shortcut } = tooltipParts(text);
     const box = element();
-    box.firstElementChild.textContent = label;
+    box.firstElementChild.textContent = reason ? `${label}. ${reason}` : label;
     box.lastElementChild.textContent = shortcut;
-    box.lastElementChild.hidden = !shortcut;
+    box.lastElementChild.hidden = !shortcut || !!reason;
     box.hidden = false;
     const r = el.getBoundingClientRect(),
       size = box.getBoundingClientRect(),

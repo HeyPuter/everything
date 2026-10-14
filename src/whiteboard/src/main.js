@@ -1245,6 +1245,7 @@ const comments = createCommentsUI({
       : { id: commentIdentity, name: "Local author" },
   }),
   canvas: () => document.querySelector("#canvas"),
+  readOnlyReason: sharedReadOnlyReason,
   now: () => collaboration?.now() ?? Date.now(),
   icon,
   draw,
@@ -2639,12 +2640,18 @@ function isSharedReadOnly() {
     (!!current?.shared && !collaboration)
   );
 }
-// Why the board takes no content edits right now.
+// Why the board takes no content edits right now, and for someone whose
+// role is the reason, what they can do instead.
 function sharedReadOnlyReason() {
-  return collaborationBusy
-    ? "Still connecting to the shared board. Try again in a moment."
-    : reconnecting && reconnecting === current
-      ? "Cannot reach the shared board. It is view only until it reconnects."
+  if (collaborationBusy)
+    return "Still connecting to the shared board. Try again in a moment.";
+  if (reconnecting && reconnecting === current)
+    return "Cannot reach the shared board. It is view only until it reconnects.";
+  if (collaboration?.archived) return "This board is archived and read-only.";
+  return collaboration?.access === "view"
+    ? "This board is read-only for you. Ask the owner or a facilitator for access to edit or comment."
+    : collaboration?.access === "comment"
+      ? "This board's content is read-only for you. Choose Comment (C) to discuss it."
       : "This board is read-only.";
 }
 // Commenters cannot change content but can still discuss it.
@@ -7217,7 +7224,7 @@ function setTool(value) {
     // Commenters discuss content they cannot change.
     !(value === "comment" && !isCommentReadOnly())
   )
-    return;
+    return toast(sharedReadOnlyReason());
   canvasNavigation.finish();
   pointerUp();
   tool = value;
@@ -7454,7 +7461,7 @@ function reframeResized(plan, skip = facilitation.concealedIds()) {
   );
 }
 function addObject(type, p, extra = {}, event, after) {
-  if (isSharedReadOnly()) return toast("This board is read-only.");
+  if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
   if (current.items.length >= MAX_OBJECTS)
     return toast("A board can contain at most 5,000 objects.");
   p ??= openSpot(
@@ -8118,16 +8125,21 @@ function pointerDown(
       if (hasLocked(current.items, selection) || isSharedReadOnly()) {
         // Nothing here can be dragged, so the editor opens at once.
         if (editOnRelease) return editObject(linkedItem, false, p);
-        drag = link
-          ? {
-              kind: "link",
-              id,
-              link,
-              linkText: linkedItem.text,
-              linkRuns: linkedItem.textRuns,
-              start: p,
-            }
-          : null;
+        // A press is held as a link's is, so trying to drag on a board
+        // this person cannot change says why rather than doing nothing.
+        const refused = isSharedReadOnly();
+        drag =
+          link || refused
+            ? {
+                kind: "link",
+                id,
+                link,
+                linkText: linkedItem.text,
+                linkRuns: linkedItem.textRuns,
+                start: p,
+                refused,
+              }
+            : null;
         draw();
         return;
       }
@@ -8506,8 +8518,10 @@ function pointerMove(e) {
   }
   const p = canvasPoint(e);
   if (drag.kind === "link") {
-    if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) * view.z > 3)
+    if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) * view.z > 3) {
+      if (drag.refused && !drag.active) toast(sharedReadOnlyReason());
       drag.active = true;
+    }
     return;
   }
   if (drag.kind === "pan") {
@@ -10452,11 +10466,16 @@ function renderParticipants() {
   if (title) title.disabled = readOnly;
   for (const button of document.querySelectorAll(
     '[data-action^="tool-"], [data-action="shapes"], .left-rail [data-action="templates"], .left-rail [data-action="image"], .left-rail [data-action="add-content"]',
-  ))
+  )) {
     button.disabled =
       readOnly &&
       !["tool-select", "tool-hand"].includes(button.dataset.action) &&
       !(button.dataset.action === "tool-comment" && canComment);
+    // Its tooltip says why it is unavailable.
+    if (button.disabled)
+      button.dataset.disabledReason = t(sharedReadOnlyReason());
+    else delete button.dataset.disabledReason;
+  }
 }
 // The board's members, offered for @mentions. Fetched on joining and again
 // whenever comments open, so people who joined since can be mentioned; a
@@ -12977,7 +12996,7 @@ function objectsDialog() {
 }
 function duplicate(direction) {
   if (!selection.size) return;
-  if (isSharedReadOnly()) return toast("This board is read-only.");
+  if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
   // A copy would show hidden content to everyone.
   const hidden = facilitation.concealedIds();
   if ([...selection].some((id) => hidden.has(id)))

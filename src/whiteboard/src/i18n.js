@@ -886,6 +886,10 @@ const pairs = {
   "Link copied.": "Lien copié.",
   "Copy the selected link.": "Copiez le lien sélectionné.",
   "This board is read-only.": "Ce tableau est en lecture seule.",
+  "This board is read-only for you. Ask the owner or a facilitator for access to edit or comment.":
+    "Ce tableau est en lecture seule pour vous. Demandez au propriétaire ou à un animateur l’accès pour le modifier ou le commenter.",
+  "This board's content is read-only for you. Choose Comment (C) to discuss it.":
+    "Le contenu de ce tableau est en lecture seule pour vous. Choisissez Commentaire (C) pour en discuter.",
   "Only the owner or a facilitator can invite new participants.":
     "Seuls le propriétaire du tableau ou un animateur peuvent inviter de nouveaux participants.",
   "Anyone signed in with this invitation can join.":

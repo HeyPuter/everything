@@ -5281,6 +5281,12 @@ dialog.history-dialog[open] {
   color: var(--text);
   font: inherit;
 }
+#comment-access {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .comment-list-actions label {
   display: flex;
   gap: 6px;

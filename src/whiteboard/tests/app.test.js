@@ -29947,6 +29947,98 @@ test("viewers are refused as insert tools open, not after filling them in", asyn
   }
 });
 
+test("refusals tell viewers and commenters why and what they can do instead", async () => {
+  const note = item("note", 100, 100, { w: 200, h: 200, text: "A" });
+  const viewerReason =
+    "This board is read-only for you. Ask the owner or a facilitator for access to edit or comment.";
+  const commenterReason =
+    "This board's content is read-only for you. Choose Comment (C) to discuss it.";
+  // Each role is given once, on a board of its own.
+  const as = async (role, className, check) => {
+    const room = `role-aware-refusals-${role}`;
+    const shared = await sharedEditors(room, [note]);
+    const [, b] = shared.apps;
+    try {
+      await shared.env.service.call(owner, {
+        op: "role",
+        room,
+        uuid: collaborator.uuid,
+        role,
+      });
+      b.w.dispatchEvent(new b.w.Event("online"));
+      await shared.until(
+        () => b.doc.querySelector(`.editor.${className}`),
+        `Bob becomes a ${role}`,
+      );
+      const toast = () => b.doc.querySelector("#toast").textContent;
+      const press = async (key) => {
+        b.doc.querySelector("#toast").textContent = "";
+        b.doc
+          .querySelector("#canvas")
+          .dispatchEvent(
+            new b.w.KeyboardEvent("keydown", { key, bubbles: true }),
+          );
+        await b.tick();
+        return toast();
+      };
+      await check(b, press, toast);
+      await new Promise((r) => setTimeout(r, 500));
+    } finally {
+      await shared.close();
+    }
+  };
+  await as("viewer", "shared-viewer", async (b, press, toast) => {
+    // A tool key that cannot be used says why rather than nothing.
+    assert.equal(await press("n"), viewerReason);
+    assert.equal(await press("c"), viewerReason);
+    // So does trying to drag an object.
+    b.doc.querySelector("#toast").textContent = "";
+    const v = renderedView(b);
+    const at = (x, y) => [v.x + x * v.z, v.y + y * v.z];
+    for (const [type, x] of [
+      ["pointerdown", 200],
+      ["pointermove", 240],
+      ["pointerup", 240],
+    ])
+      canvasPointer(b, type, 1, ...at(x, x), { pointerType: "mouse" });
+    await b.tick();
+    assert.equal(toast(), viewerReason);
+    // Unavailable tools carry the reason for their tooltips.
+    const noteTool = b.doc.querySelector('[data-action="tool-note"]');
+    assert.equal(noteTool.disabled, true);
+    assert.equal(noteTool.dataset.disabledReason, viewerReason);
+    const over = new b.w.MouseEvent("pointerover", { bubbles: true });
+    Object.defineProperty(over, "pointerType", { value: "mouse" });
+    noteTool.dispatchEvent(over);
+    await new Promise((r) => setTimeout(r, 350));
+    const tip = b.doc.querySelector(".ui-tooltip");
+    assert.equal(tip.hidden, false);
+    assert.equal(
+      tip.querySelector("span").textContent,
+      `Sticky note. ${viewerReason}`,
+    );
+    assert.equal(tip.querySelector("kbd").hidden, true);
+    // Comments say why there is no New comment.
+    await b.click('[data-action="comments"]');
+    const access = b.doc.querySelector("#comment-access");
+    assert.equal(b.doc.querySelector("#comment-new").disabled, true);
+    assert.equal(access.hidden, false);
+    assert.equal(access.textContent, viewerReason);
+  });
+  await as("commenter", "shared-commenter", async (b, press) => {
+    const noteTool = b.doc.querySelector('[data-action="tool-note"]');
+    assert.equal(noteTool.dataset.disabledReason, commenterReason);
+    assert.equal(
+      b.doc.querySelector('[data-action="tool-comment"]').dataset
+        .disabledReason,
+      undefined,
+    );
+    assert.equal(await press("n"), commenterReason);
+    await b.click('[data-action="comments"]');
+    assert.equal(b.doc.querySelector("#comment-access").hidden, true);
+  });
+});
+
 test("moving many drawings at once shows the move live to others", async () => {
   const strokes = Array.from({ length: 8 }, (_, n) =>
     item("pen", 100, 100 + n * 20, {
