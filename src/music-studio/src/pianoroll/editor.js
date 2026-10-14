@@ -66,6 +66,7 @@ export class PianoRollEditor {
       tabindex: '0',
       role: 'application',
       'aria-roledescription': 'piano roll',
+      'aria-label': 'Piano roll',
       'aria-describedby': this.helpId,
     });
     this.help = h(
@@ -526,7 +527,11 @@ export class PianoRollEditor {
       drawPianoRoll(this, d);
       if (!this.notes.length && this.channel && !this.gesture) {
         const L = this.L;
-        d.text(this.app.tools.pianoRoll === 'draw' || this.app.tools.pianoRoll === 'paint' ? 'Click to add notes. Drag to set their length; right-click deletes.' : 'No notes in this pattern yet. Press P for the draw tool.', L.gridX + L.gridW / 2, L.gridY + 18, this.emptyHintColor(), { align: 'center', maxWidth: L.gridW - 20 });
+        const drawing = this.app.tools.pianoRoll === 'draw' || this.app.tools.pianoRoll === 'paint';
+        // Narrow views (phones) get the short form instead of a clipped sentence (about 6.5 px per character).
+        const roomy = L.gridW - 20 >= 66 * 6.5;
+        const hint = drawing ? (roomy ? 'Click to add notes. Drag to set their length; right-click deletes.' : 'Tap or click to add notes') : roomy ? 'No notes in this pattern yet. Press P for the draw tool.' : 'No notes yet. Pick the draw tool.';
+        d.text(hint, L.gridX + L.gridW / 2, L.gridY + 18, this.emptyHintColor(), { align: 'center', maxWidth: L.gridW - 20 });
       }
     });
   }

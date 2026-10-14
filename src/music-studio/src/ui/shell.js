@@ -26,6 +26,9 @@ export class Shell {
     this.panels = new Map(); // id -> { def, host, impl, visible }
     this.phone = matchMedia(PHONE);
     this.build();
+    // Tablets start without the browser so the editors get the room (only
+    // before the user has a layout of their own).
+    if (!('layout' in app.prefs.values) && !this.phone.matches && window.innerWidth < 1100) app.prefs.merge('layout', { browserOpen: false });
     this.phone.addEventListener('change', () => this.layout());
     new ResizeObserver(() => this.resized()).observe(this.workspace);
   }
