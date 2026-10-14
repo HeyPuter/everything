@@ -209,6 +209,8 @@ test("a board's starting content is a version, even when its first edit removed 
 test("objects added and removed within one version can still be recovered", async () => {
   const env = environment(),
     boards = env.service;
+  // On the hour, so the edits below share a quarter of an hour.
+  env.now = Date.parse("2026-03-02T09:00:00Z");
   const b = board("Decisions"),
     doc = new SharedDocument();
   b.items = [item("note", 0, 0, { text: "Seed" })];
@@ -1399,6 +1401,122 @@ test("listing a history of long working sessions reads only as far back as the p
   }
   assert.deepEqual(shown, expected, "every version, as before");
   assert.ok(first < all.length / 2, `the first page read ${first} keys`);
+});
+
+test("each page of a history with no pauses reads about what it shows", async () => {
+  const env = environment();
+  env.now = Date.parse("2025-12-31T00:00:00Z");
+  const b = board("Busy");
+  b.items = [item("note", 0, 0)];
+  const seed = new SharedDocument();
+  seed.commit(b);
+  await env.service.call(owner, {
+    op: "create",
+    room: b.id,
+    update: encode(seed.update()),
+  });
+  seed.destroy();
+  // A save every two minutes for four weeks, never pausing for five.
+  const all = [];
+  let t = Date.parse("2026-01-01T00:00:00Z");
+  const add = (n) => {
+    const iso = new Date(t).toISOString();
+    env.data.set(
+      `wb:${b.id}:log:${iso}:${owner.uuid}:${n.toString(16).padStart(64, "0")}`,
+      { at: t, author: owner.uuid, update: "" },
+    );
+    all.push({ at: t, author: owner.uuid, username: "Alice" });
+    t += 120_000;
+  };
+  for (let n = 0; n < 20_000; n++) add(n);
+  // Puter's listing position, here an offset from the newest key, which
+  // records added or removed since move.
+  let keys;
+  const sorted = () => (keys = [...env.data.keys()].sort());
+  sorted();
+  let lists = 0;
+  env.service.kv.list = async ({
+    pattern,
+    cursor,
+    limit,
+    reverse,
+    returnValues,
+  }) => {
+    const p = pattern.replace(/\*$/, "");
+    if (p.includes(":log:")) lists++;
+    let found = keys.filter((k) => k.startsWith(p));
+    if (reverse) found = found.reverse();
+    const at = Number(cursor || 0),
+      end = at + limit;
+    return {
+      items: found
+        .slice(at, end)
+        .map((key) =>
+          returnValues
+            ? { key, value: structuredClone(env.data.get(key)) }
+            : key,
+        ),
+      cursor: end < found.length ? String(end) : undefined,
+    };
+  };
+  const original = {
+    start: env.now,
+    until: env.now,
+    edits: 0,
+    authors: ["Alice"],
+    at: env.now,
+    original: true,
+  };
+  const pages = async (expected, changes = () => {}) => {
+    const shown = [],
+      read = [];
+    let before, next;
+    for (let page = 0; page < 20; page++) {
+      lists = 0;
+      const r = await env.service.call(owner, {
+        op: "history.list",
+        room: b.id,
+        ...(before ? { before, cursor: next } : {}),
+      });
+      read.push(lists);
+      shown.push(...r.versions);
+      before = r.versions.at(-1)?.at;
+      next = r.next;
+      if (!r.more) break;
+      changes(page);
+    }
+    assert.deepEqual(shown, expected, "every version once, in order");
+    return read;
+  };
+  const expected = [...historyVersions(all, undefined, Infinity), original];
+  // Versions end with each quarter of an hour, so a page stops reading at
+  // the version after the 300 it shows, and the next starts where it
+  // ended: 300 versions of seven or eight saves are about 12 requests.
+  const read = await pages(expected);
+  assert.ok(read.length >= 9, `${read.length} pages`);
+  assert.ok(
+    read.every((n) => n <= 13),
+    `requests per page: ${read}`,
+  );
+  // Saves arriving between pages move the position on; nothing is shown
+  // twice.
+  let now = [...historyVersions(all, undefined, Infinity), original];
+  await pages(now, (page) => {
+    if (page) return;
+    for (let n = 0; n < 3; n++) add(20_000 + n);
+    sorted();
+  });
+  // Records going, as when a board's newest edits are removed, move it
+  // back past older records; it is then not used, and that page is read
+  // from the newest edit rather than passing them over.
+  now = [...historyVersions(all, undefined, Infinity), original];
+  const reread = await pages(now, (page) => {
+    if (page) return;
+    for (const key of keys.filter((k) => k.includes(":log:")).slice(-400))
+      env.data.delete(key);
+    sorted();
+  });
+  assert.ok(reread[1] > read[1], `requests per page: ${reread}`);
 });
 
 test("restoring a board breaks a mind map loop on a restored object, not a kept one", async () => {

@@ -380,11 +380,14 @@ export function boardSummary(board) {
     content: all.join("\n"),
   };
 }
-// Edits form one version until a pause of five minutes, or until the
-// version has run a quarter of an hour, so a long session leaves points to
-// go back to inside it.
+// Edits form one version until a pause of five minutes, and a version ends
+// with each quarter of an hour by the clock, so a long session leaves
+// points to go back to inside it. Where versions split then depends only
+// on the edits on either side, not on where the session began, so a page
+// of versions is read without reading back to its session's start.
 const VERSION_GAP = 5 * 60_000,
   VERSION_SPAN = 15 * 60_000;
+const quarter = (at) => Math.floor(at / VERSION_SPAN);
 // Group the edit log, oldest first, into versions, newest first.
 export function historyVersions(records, gap = VERSION_GAP, limit = 300) {
   const versions = [];
@@ -393,7 +396,7 @@ export function historyVersions(records, gap = VERSION_GAP, limit = 300) {
     if (
       !current ||
       r.at - current.until > gap ||
-      r.at - current.start > VERSION_SPAN
+      quarter(r.at) !== quarter(current.start)
     ) {
       current = { start: r.at, until: r.at, edits: 0, authors: [] };
       versions.push(current);
@@ -2267,30 +2270,29 @@ export class BoardService {
         };
       };
       // Keys are read newest first, a page at a time, until the versions
-      // this page shows, and the one after them for `more`, are complete.
-      // A pause ends a session, which holds one version or, once it runs
-      // long, several; where those split depends on where the session
-      // began, so a session's versions are counted once it is complete.
-      // Older edits are not read, however long the board's history.
+      // this page shows, and the one after them for `more`, are complete:
+      // a version is once an older edit is read before a pause or in an
+      // earlier quarter of an hour. Older edits are not read, however long
+      // the board's history.
       const legacy = (await this.list(`${prefix}op:`)).map((r) => ({
         at: after(r.value.at),
         author: r.value.author,
         username: r.value.username,
       }));
-      const logged = [];
-      let cursor,
-        complete = 0,
-        session = [],
-        last = null;
-      const close = () => {
-        complete += historyVersions(
-          session.reverse(),
-          undefined,
-          Infinity,
-        ).filter((v) => !Number.isFinite(before) || v.at < before).length;
-        session = [];
-      };
-      do {
+      // A page with `more` also gives `next`, which the app hands back with
+      // the next page's `before` so that page is read from where this one
+      // ended rather than from the newest edit. Puter's listing position
+      // says nothing sure once records are added or removed, so it is used
+      // only if the first key it gives is no older than `before`: nothing
+      // older can then have been passed over. Otherwise, or if Puter
+      // refuses it, the page is read from the newest edit.
+      const resume =
+        Number.isFinite(before) &&
+        typeof input.cursor === "string" &&
+        input.cursor.length <= 4096
+          ? input.cursor
+          : undefined;
+      const read = async (cursor) => {
         const page = await this.listPage({
           pattern: `${prefix}log:`,
           returnValues: false,
@@ -2298,11 +2300,52 @@ export class BoardService {
           reverse: true,
           ...(cursor ? { cursor } : {}),
         });
-        for (const row of Array.isArray(page) ? page : page.items) {
+        return { rows: Array.isArray(page) ? page : page.items, page };
+      };
+      const logged = [],
+        starts = new Map();
+      let cursor = resume,
+        resumed = resume !== undefined,
+        complete = 0,
+        session = [],
+        start,
+        last = null;
+      const close = () => {
+        const versions = historyVersions(
+          session.reverse(),
+          undefined,
+          Infinity,
+        );
+        if (versions.length) starts.set(versions[0].at, start);
+        complete += versions.filter(
+          (v) => !Number.isFinite(before) || v.at < before,
+        ).length;
+        session = [];
+      };
+      do {
+        let found = resumed ? await read(cursor).catch(() => null) : null;
+        if (
+          resumed &&
+          !(found?.rows.length && record(found.rows[0]).at >= before)
+        )
+          found = null;
+        if (!found) {
+          if (resumed) cursor = undefined;
+          found = await read(cursor);
+        }
+        resumed = false;
+        const { rows, page } = found;
+        for (const row of rows) {
           const r = record(row);
           if (!Number.isFinite(r.at)) continue;
-          // A pause closes the session holding the newer edits.
-          if (last !== null && last - r.at > VERSION_GAP) close();
+          // A pause, or the quarter of an hour before, closes the version
+          // holding the newer edits.
+          if (
+            last !== null &&
+            (last - r.at > VERSION_GAP || quarter(last) !== quarter(r.at))
+          )
+            close();
+          if (!session.length) start = cursor;
           session.push(r);
           last = r.at;
           logged.push(r);
@@ -2360,10 +2403,13 @@ export class BoardService {
             ]
           : []),
       ].filter((v) => !Number.isFinite(before) || v.at < before);
+      const versions = older.slice(0, 300),
+        next = older.length > 300 && starts.get(versions.at(-1).at);
       return {
         created: meta.created,
-        versions: older.slice(0, 300),
+        versions,
         more: older.length > 300,
+        ...(next ? { next } : {}),
       };
     }
     if (input.op === "history.state") {
@@ -2379,7 +2425,7 @@ export class BoardService {
     // Objects that came and went within a version: added, or there at the
     // version before (`after`), and removed by the version's time (`at`),
     // each as it last stood. Neither version holds them, so recovering
-    // them needs the edits in between. A version spans at most a quarter
+    // them needs the edits in between. A version lies within one quarter
     // of an hour, so no more than that is replayed whatever `after` says.
     // Like a version's state, they come as a board's objects for the app
     // to filter; those the workshop hid from this person when they were
@@ -2389,7 +2435,7 @@ export class BoardService {
         after = Number(input.after);
       if (!Number.isFinite(at) || !Number.isFinite(after) || after >= at)
         fail(400, "Choose a version.");
-      const from = Math.max(after, at - VERSION_SPAN - 1);
+      const from = Math.max(after, quarter(at) * VERSION_SPAN - 1);
       const { doc } = await this.loadAt(room, from);
       try {
         const removed = new Map(),

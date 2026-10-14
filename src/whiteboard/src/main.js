@@ -977,19 +977,31 @@ const features = createFeatures({
     track("Board exported", { format, scope });
     collaboration?.request("export", { format, scope }).catch(() => {});
   },
-  sharedHistory: () =>
-    collaboration && {
-      list: (before) =>
-        collaboration.request(
+  sharedHistory: () => {
+    if (!collaboration) return collaboration;
+    // Where each page of versions ended, so the worker reads the next page
+    // from there rather than from the newest edit (see history.list).
+    const ends = new Map();
+    return {
+      list: async (before) => {
+        const page = await collaboration.request(
           "history.list",
-          before === undefined ? {} : { before },
-        ),
+          before === undefined
+            ? {}
+            : { before, ...(ends.has(before) && { cursor: ends.get(before) }) },
+        );
+        const last = page?.versions?.at?.(-1)?.at;
+        if (typeof page?.next === "string" && last !== undefined)
+          ends.set(last, page.next);
+        return page;
+      },
       load: (at) => collaboration.versionBoard(at),
       // `{ items, tags }` added or there at `after` and removed by `at`.
       removed: (at, after) => collaboration.removedObjects(at, after),
       note: (details) =>
         collaboration.request("history.restored", details).catch(() => {}),
-    },
+    };
+  },
   replaceItems: (items) =>
     mutate(() => {
       current.items = validateBoard({ ...current, items }).items;
