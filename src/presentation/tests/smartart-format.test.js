@@ -68,9 +68,13 @@ describe("SmartArt shape formatting", () => {
     expect(decode(diagram.drawing.part.data)).toContain(
       '<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdPic1"/>',
     );
-    expect(decode(diagram.data.part.data)).toMatch(
-      /type="pres"><dgm:prSet presAssocID="[^"]+" presName="pic"/,
+    // On the picture node of the layout definition's tree, where desktop
+    // editors look for it.
+    const data = decode(diagram.data.part.data);
+    expect(data).toMatch(
+      /type="pres"><dgm:prSet presAssocID="[^"]+" presName="image" presStyleLbl="alignImgPlace1" presStyleIdx="1" presStyleCnt="3"\/><dgm:spPr><a:blipFill/,
     );
+    expect(data).toContain('type="presParOf"');
     const back = await reload(pres);
     const frame2 = firstDiagram(back);
     const read = P.getShapeSmartArt(frame2);

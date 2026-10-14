@@ -1108,19 +1108,17 @@ const gradientDef = (
       right: 0.5,
       bottom: 0.5,
     };
-    const cx = (focus.left + focus.right) / 2;
-    const cy = (focus.top + focus.bottom) / 2;
-    // ECMA-376 stops paint outward from the focus center; SVG's radial
-    // gradient paints from cx/cy out to r. Reverse the stops so the
-    // first-stop color sits at the center.
-    const reversed = paintStops
-      .slice()
-      .reverse()
-      .map((stop) => ({ ...stop, offset: 1 - stop.offset }));
+    // `<a:fillToRect>` gives insets from each edge, so the focus rectangle
+    // runs from left to 1 - right and from top to 1 - bottom.
+    const cx = (focus.left + 1 - focus.right) / 2;
+    const cy = (focus.top + 1 - focus.bottom) / 2;
+    // ECMA-376 stops paint outward from the focus: the first stop sits at
+    // the focus and the last at the edge (as desktop editors draw it), which
+    // is also how SVG's radial gradient runs from cx/cy out to r.
     return finish(
       "radialGradient",
       `cx="${cx.toFixed(4)}" cy="${cy.toFixed(4)}" r="${Math.max(0.5, Math.max(cx, cy, 1 - cx, 1 - cy)).toFixed(4)}"`,
-      reversed,
+      paintStops,
     );
   }
   const angleRad = ((grad.angleDeg ?? 0) * Math.PI) / 180;
@@ -8549,11 +8547,11 @@ const renderBubbleChart = (
     );
   renderScatterAxes(f, spec, xB, yB, ctx, paint);
   const out: string[] = [];
-  // The largest bubble's diameter is bubbleScale% (default 25%) of the
-  // plot's smaller dimension. Per-point radius scales with sqrt(size) for
-  // the default area mode (sizeRepresents='area'), linearly for 'width'.
-  const scaleFraction =
-    spec.bubbleScale !== undefined ? spec.bubbleScale / 100 : 0.25;
+  // The largest bubble's diameter is a quarter of the plot's smaller
+  // dimension, scaled by bubbleScale (a percentage of that default size,
+  // 100 when absent). Per-point radius scales with sqrt(size) for the
+  // default area mode (sizeRepresents='area'), linearly for 'width'.
+  const scaleFraction = (0.25 * (spec.bubbleScale ?? 100)) / 100;
   const maxRadiusPx = Math.max(
     2,
     scaleFraction * Math.min(f.plotW, f.plotH) * 0.5,

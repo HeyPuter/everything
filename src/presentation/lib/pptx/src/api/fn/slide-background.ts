@@ -1,5 +1,5 @@
 import { type PatternFillData, readPatternFill } from "./pattern-fill-read.ts";
-import { readGradientStops, readGradientTile } from "./shape-gradient-read.ts";
+import { parseGradFill } from "./shape-gradient-read.ts";
 import { resolveBlipImage } from "./blip-image.ts";
 import {
   readOnlyPartRoot,
@@ -68,7 +68,6 @@ import { themeForPart, themeForSlide } from "./shape-theme.ts";
 import { resolveDrawingOpacity } from "./shape-color.ts";
 import {
   NAME_A_GRAD_FILL,
-  NAME_A_LIN,
   type ShapeBounds,
   resolveDrawingColor,
 } from "./shapes.ts";
@@ -536,35 +535,8 @@ export const getSlideLayoutBackgroundGradientFill = (
   if (!bgPr) return null;
   const gradFill = firstChildElement(bgPr, NAME_A_GRAD_FILL);
   if (!gradFill) return null;
-  const stops = readGradientStops(gradFill, context);
-  if (stops.length === 0) return null;
-  let angleDeg = 0;
-  const lin = firstChildElement(gradFill, NAME_A_LIN);
-  if (lin) {
-    const angRaw = getAttrValue(lin, qname("", "ang", ""));
-    if (angRaw !== null) {
-      const ang = Number.parseInt(angRaw, 10);
-      if (Number.isFinite(ang)) angleDeg = ang / 60_000;
-    }
-  }
-  const pathEl = firstChildElement(gradFill, qname("a", "path", NS.dml));
-  if (pathEl) {
-    const p = getAttrValue(pathEl, qname("", "path", ""));
-    const pathVal: "circle" | "rect" | "shape" | null =
-      p === "circle" || p === "rect" || p === "shape" ? p : null;
-    if (pathVal)
-      return { stops, angleDeg, path: pathVal, ...readGradientTile(gradFill) };
-  }
-  return {
-    stops,
-    angleDeg,
-    ...readGradientTile(gradFill),
-    ...(["1", "true"].includes(
-      lin ? (getAttrValue(lin, qname("", "scaled", "")) ?? "") : "",
-    )
-      ? { scaled: true }
-      : {}),
-  };
+  // Shared with shapes, so the path focus (fillToRect) is kept too.
+  return parseGradFill(gradFill, context);
 };
 
 /**
@@ -600,35 +572,8 @@ export const getSlideMasterBackgroundGradientFill = (
   if (!bgPr) return null;
   const gradFill = firstChildElement(bgPr, NAME_A_GRAD_FILL);
   if (!gradFill) return null;
-  const stops = readGradientStops(gradFill, context);
-  if (stops.length === 0) return null;
-  let angleDeg = 0;
-  const lin = firstChildElement(gradFill, NAME_A_LIN);
-  if (lin) {
-    const angRaw = getAttrValue(lin, qname("", "ang", ""));
-    if (angRaw !== null) {
-      const ang = Number.parseInt(angRaw, 10);
-      if (Number.isFinite(ang)) angleDeg = ang / 60_000;
-    }
-  }
-  const pathEl = firstChildElement(gradFill, qname("a", "path", NS.dml));
-  if (pathEl) {
-    const p = getAttrValue(pathEl, qname("", "path", ""));
-    const pathVal: "circle" | "rect" | "shape" | null =
-      p === "circle" || p === "rect" || p === "shape" ? p : null;
-    if (pathVal)
-      return { stops, angleDeg, path: pathVal, ...readGradientTile(gradFill) };
-  }
-  return {
-    stops,
-    angleDeg,
-    ...readGradientTile(gradFill),
-    ...(["1", "true"].includes(
-      lin ? (getAttrValue(lin, qname("", "scaled", "")) ?? "") : "",
-    )
-      ? { scaled: true }
-      : {}),
-  };
+  // Shared with shapes, so the path focus (fillToRect) is kept too.
+  return parseGradFill(gradFill, context);
 };
 
 /**
@@ -687,35 +632,8 @@ export const getSlideBackgroundGradientFill = (
   if (!gradFill) return null;
   // Reuse the same algorithm `getShapeGradientFill` does. The gradFill
   // element shape is identical between shape and slide backgrounds.
-  const stops = readGradientStops(gradFill, context);
-  if (stops.length === 0) return null;
-  let angleDeg = 0;
-  const lin = firstChildElement(gradFill, NAME_A_LIN);
-  if (lin) {
-    const angRaw = getAttrValue(lin, qname("", "ang", ""));
-    if (angRaw !== null) {
-      const ang = Number.parseInt(angRaw, 10);
-      if (Number.isFinite(ang)) angleDeg = ang / 60_000;
-    }
-  }
-  const pathEl = firstChildElement(gradFill, qname("a", "path", NS.dml));
-  if (pathEl) {
-    const p = getAttrValue(pathEl, qname("", "path", ""));
-    const pathVal: "circle" | "rect" | "shape" | null =
-      p === "circle" || p === "rect" || p === "shape" ? p : null;
-    if (pathVal)
-      return { stops, angleDeg, path: pathVal, ...readGradientTile(gradFill) };
-  }
-  return {
-    stops,
-    angleDeg,
-    ...readGradientTile(gradFill),
-    ...(["1", "true"].includes(
-      lin ? (getAttrValue(lin, qname("", "scaled", "")) ?? "") : "",
-    )
-      ? { scaled: true }
-      : {}),
-  };
+  // Shared with shapes, so the path focus (fillToRect) is kept too.
+  return parseGradFill(gradFill, context);
 };
 
 /**

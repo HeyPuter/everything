@@ -549,6 +549,16 @@ const writeTiming = (
     if (par) removePruning(list, par, stop);
     else break;
   }
+  // A main sequence this object's effect was the last step of goes too: an
+  // empty one is invalid, and desktop readers offer to repair the file.
+  list.children = list.children.filter((c) => {
+    if (c.kind !== "element" || !isNamed(c, NS.pml, "seq")) return true;
+    const seqTn = firstChildElement(c, qname("p", "cTn", NS.pml));
+    if (attrOf(seqTn, "nodeType") !== "mainSeq") return true;
+    const steps =
+      seqTn && firstChildElement(seqTn, qname("p", "childTnLst", NS.pml));
+    return !!steps?.children.some((x) => x.kind === "element");
+  });
   let id = maxId(timing);
   const seconds = (o.trimStart / 1000).toFixed(1);
   const dur = Math.max(1, Math.round(durationMs ?? 0)) || 1;
