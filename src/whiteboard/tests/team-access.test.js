@@ -584,3 +584,29 @@ test("a team change that fails partway leaves no access the team does not show, 
   assert.deepEqual((await org.freshUser(editor.uuid)).teams, []);
   assert.equal(await opens(boards, editor, room), false);
 });
+
+test("opening a lesser invitation keeps a team member's access through the team, so leaving it still ends it", async () => {
+  const { boards, org, call, team } = await setup();
+  const room = await create(boards, owner, { team: team.id });
+  await settings(boards, room, { teamRole: "editor" });
+  await join(boards, editor, room);
+  const invite = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "viewer",
+  });
+  await boards.call(editor, { op: "join", room, token: invite.token });
+  const record = await org.kv.get(`wb:${room}:member:${editor.uuid}`);
+  assert.equal(record.via, "team");
+  assert.equal(record.role, "editor");
+  await call(owner, { op: "teams.update", id: team.id, remove: [editor.uuid] });
+  assert.equal(await opens(boards, editor, room), false);
+  // A greater invitation still makes them a member by name.
+  const editors = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await boards.call(editor, { op: "join", room, token: editors.token });
+  assert.equal(await opens(boards, editor, room), true);
+});

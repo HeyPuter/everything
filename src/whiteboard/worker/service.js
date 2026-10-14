@@ -3116,14 +3116,23 @@ export class BoardService {
           "This link is only for members of the organization. Ask the person who shared it for a guest invitation.",
         );
       role = invite.role;
-      // Never lower than what the board's sharing already gave them.
-      if (
+      const higher =
         prior?.via &&
         !lapsed &&
         BOARD_ROLES.indexOf(prior.role) >= 0 &&
-        BOARD_ROLES.indexOf(prior.role) < BOARD_ROLES.indexOf(role)
+        BOARD_ROLES.indexOf(prior.role) < BOARD_ROLES.indexOf(role);
+      // Someone the board's team gives more than the invitation stays a
+      // member through the team, so leaving it, as the identity provider
+      // decides, still ends that access; a named copy of the team's role
+      // would outlast it.
+      if (
+        higher &&
+        prior.via === "team" &&
+        sharedAccess(prior, meta, await this.org.user(user.uuid))
       )
-        role = prior.role;
+        return;
+      // Never lower than what the board's sharing already gave them.
+      if (higher) role = prior.role;
       // On an organization's board, whether someone is a guest is whether
       // they are outside it; a member who opens a guest link is a member.
       guest = configured ? !insider : invite.guest === true;
