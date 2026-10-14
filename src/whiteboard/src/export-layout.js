@@ -11,6 +11,7 @@ import { tagFooter } from "./tags.js";
 import { fontFamily, fontStack } from "./fonts.js";
 import { linkColor, inkOver } from "./text-link-data.js";
 import { fileDetails } from "./file-details.js";
+import { linkCardFooter } from "./content/link-label.js";
 import { connectorPath, connectorLabel } from "./connectors.js";
 import { imageLayout } from "./image-crop.js";
 import { SHAPE_COLORS, shapeBorder } from "./shape-specs.js";
@@ -461,14 +462,14 @@ export function cardLayout(i, ctx) {
   const lines = cachedWrapText(ctx, i.text || i.fileName || i.url || "", w - 32)
     .slice(0, 3)
     .map((text, n) => ({ text, x: 16, y: 16 + (n * labelSize * 4) / 3 }));
-  let host = i.type === "file" ? fileDetails(i) : "";
-  if (i.type === "link")
-    try {
-      host = new URL(i.url).hostname;
-    } catch {
-      host = "";
-    }
   const small = (labelSize * 2) / 3;
+  ctx.font = `400 ${small}px ${fontStack(family)}`;
+  const host =
+    i.type === "file"
+      ? fileDetails(i)
+      : i.type === "link"
+        ? linkCardFooter(i, ctx, w - 32)
+        : "";
   return {
     clip: { x: 12, y: 12, w: w - 24, h: h - 24 },
     label,

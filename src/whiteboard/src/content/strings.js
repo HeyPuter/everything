@@ -72,6 +72,20 @@ addTranslations({
   "Microsoft Office viewer": "Visionneuse Microsoft Office",
   "Google Calendar": "Google Agenda",
   "Google Drawings": "Google Dessins",
+  // Link card titles; brand names stay as they are.
+  "Zoom meeting": "Réunion Zoom",
+  "Zoom recording": "Enregistrement Zoom",
+  "Microsoft Teams meeting": "Réunion Microsoft Teams",
+  "Jira issue": "Ticket Jira",
+  "Trello board": "Tableau Trello",
+  "Trello card": "Carte Trello",
+  "Linear issue": "Ticket Linear",
+  "GitHub issue": "Ticket GitHub",
+  "GitHub pull request": "Demande de tirage GitHub",
+  "GitLab issue": "Ticket GitLab",
+  "GitLab merge request": "Demande de fusion GitLab",
+  "Google Drive file": "Fichier Google Drive",
+  "Google Drive folder": "Dossier Google Drive",
   // Import dialog
   "Add the content of a PDF, PowerPoint (.pptx), Word (.docx), Excel (.xlsx), CSV, text, or Markdown file as editable objects in a new frame.":
     "Ajoutez le contenu d’un fichier PDF, PowerPoint (.pptx), Word (.docx), Excel (.xlsx), CSV, texte ou Markdown sous forme d’objets modifiables dans un nouveau cadre.",

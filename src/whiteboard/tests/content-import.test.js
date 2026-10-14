@@ -49,6 +49,11 @@ import { embedCardLayout, drawEmbedCard } from "../src/content/embed-card.js";
 import { exportSVG } from "../src/export-svg.js";
 import { exportPDF, exportRegions } from "../src/export.js";
 import { drawObject } from "../src/render.js";
+import {
+  linkService,
+  linkCardTitle,
+  linkCardFooter,
+} from "../src/content/link-label.js";
 
 globalThis.DOMParser ??= new JSDOM("").window.DOMParser;
 const measure = createCanvas(10, 10).getContext("2d");
@@ -279,6 +284,222 @@ test("chat, meeting, project and file tools that refuse framing are known, and t
   const old = normalizeEmbed("https://github.com/fabrikam/platform");
   assert.equal(old.provider, "web");
   assert.ok(validEmbed({ type: "embed", ...old }));
+});
+
+test("new link cards are named after the service they link to, in the interface language", async () => {
+  const { language, setLanguage } = await import("../src/i18n.js");
+  const previous = language;
+  const cases = [
+    ["https://meet.google.com/abc-defg-hij", "Google Meet", "Google Meet"],
+    [
+      "https://us02web.zoom.us/j/81234567890?pwd=abc",
+      "Zoom meeting",
+      "Réunion Zoom",
+    ],
+    ["https://zoom.us/rec/share/abc", "Zoom recording", "Enregistrement Zoom"],
+    [
+      "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0",
+      "Microsoft Teams meeting",
+      "Réunion Microsoft Teams",
+    ],
+    [
+      "https://teams.microsoft.com/meet/2915?p=abc",
+      "Microsoft Teams meeting",
+      "Réunion Microsoft Teams",
+    ],
+    [
+      "https://teams.microsoft.com/l/channel/19%3a1/General",
+      "Microsoft Teams",
+      "Microsoft Teams",
+    ],
+    ["https://app.slack.com/client/T012/C034", "Slack", "Slack"],
+    ["https://fabrikam.slack.com/archives/C034/p1", "Slack", "Slack"],
+    [
+      "https://fabrikam.atlassian.net/browse/PS-12",
+      "Jira issue PS-12",
+      "Ticket Jira PS-12",
+    ],
+    [
+      "https://fabrikam.atlassian.net/jira/software/projects/PS/boards/1?selectedIssue=PS-7",
+      "Jira issue PS-7",
+      "Ticket Jira PS-7",
+    ],
+    [
+      "https://fabrikam.atlassian.net/wiki/spaces/PS/overview",
+      "Confluence",
+      "Confluence",
+    ],
+    ["https://www.notion.so/team/Roadmap-0123", "Notion", "Notion"],
+    ["https://fabrikam.notion.site/Plan-0123", "Notion", "Notion"],
+    ["https://trello.com/b/abc123/board", "Trello board", "Tableau Trello"],
+    ["https://trello.com/c/abc123/card", "Trello card", "Carte Trello"],
+    ["https://app.asana.com/0/123/456", "Asana", "Asana"],
+    [
+      "https://linear.app/fabrikam/issue/ENG-42/fix-login",
+      "Linear issue ENG-42",
+      "Ticket Linear ENG-42",
+    ],
+    [
+      "https://github.com/fabrikam/platform/issues/12",
+      "GitHub issue #12",
+      "Ticket GitHub #12",
+    ],
+    [
+      "https://github.com/fabrikam/platform/pull/481",
+      "GitHub pull request #481",
+      "Demande de tirage GitHub #481",
+    ],
+    ["https://github.com/fabrikam/platform", "GitHub", "GitHub"],
+    [
+      "https://gitlab.com/fabrikam/platform/-/issues/9",
+      "GitLab issue #9",
+      "Ticket GitLab #9",
+    ],
+    [
+      "https://gitlab.com/fabrikam/platform/-/merge_requests/31",
+      "GitLab merge request !31",
+      "Demande de fusion GitLab !31",
+    ],
+    ["https://www.dropbox.com/s/abc/file.pdf", "Dropbox", "Dropbox"],
+    ["https://app.box.com/s/abc", "Box", "Box"],
+    ["https://1drv.ms/w/s!abc", "OneDrive", "OneDrive"],
+    [
+      "https://fabrikam-my.sharepoint.com/:w:/g/personal/a/abc",
+      "OneDrive",
+      "OneDrive",
+    ],
+    [
+      "https://fabrikam.sharepoint.com/sites/Team/Shared%20Documents",
+      "SharePoint",
+      "SharePoint",
+    ],
+    [
+      `https://drive.google.com/file/d/${DOC_ID}/view`,
+      "Google Drive file",
+      "Fichier Google Drive",
+    ],
+    [
+      `https://drive.google.com/drive/folders/${DOC_ID}`,
+      "Google Drive folder",
+      "Dossier Google Drive",
+    ],
+    [
+      `https://docs.google.com/spreadsheets/d/${DOC_ID}/edit`,
+      "Google Sheets",
+      "Google Sheets",
+    ],
+    [
+      `http://docs.google.com/document/u/1/d/${DOC_ID}/edit`,
+      "Google Docs",
+      "Google Docs",
+    ],
+    // Providers that could have been embedded, as when embeds are off.
+    ["https://vimeo.com/76979871", "Vimeo", "Vimeo"],
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "YouTube", "YouTube"],
+    // Anything else keeps its host name.
+    [
+      "https://www.northwind.example/plan",
+      "www.northwind.example",
+      "www.northwind.example",
+    ],
+    ["https://münchen.de/straße", "münchen.de", "münchen.de"],
+    ["https://notgithub.com/a/b/issues/1", "notgithub.com", "notgithub.com"],
+  ];
+  try {
+    for (const [ui, column] of [
+      ["en", 1],
+      ["fr", 2],
+    ]) {
+      globalThis.document = { documentElement: {} };
+      setLanguage(ui);
+      for (const row of cases)
+        assert.equal(linkCardTitle(row[0]), row[column], `${ui} ${row[0]}`);
+      // The paste chooser's provider names the card.
+      assert.equal(
+        linkCardTitle(
+          `https://drive.google.com/file/d/${DOC_ID}/view`,
+          "google-drive",
+        ),
+        "Google Drive",
+      );
+      assert.equal(
+        linkCardTitle(
+          "https://calendar.google.com/calendar/embed?src=a%40b.c",
+          "google-calendar",
+        ),
+        ui === "fr" ? "Google Agenda" : "Google Calendar",
+      );
+    }
+    assert.equal(linkService("ftp://github.com/a/b/issues/1"), null);
+    assert.equal(linkService("not a link"), null);
+  } finally {
+    setLanguage(previous);
+    delete globalThis.document;
+  }
+});
+
+test("a stored link card titled with its host shows the service or address below, not the host again", () => {
+  const ctx = createCanvas(10, 10).getContext("2d");
+  ctx.font = "12px sans-serif";
+  const card = (text, url) => item("link", 0, 0, { w: 320, h: 115, text, url });
+  const teams =
+    "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0";
+  assert.equal(
+    linkCardFooter(card("teams.microsoft.com", teams), ctx, 288),
+    "Microsoft Teams meeting",
+  );
+  assert.equal(
+    linkCardFooter(card("Weekly sync", teams), ctx, 288),
+    "teams.microsoft.com",
+  );
+  assert.equal(
+    linkCardFooter(
+      card("www.northwind.example", "https://www.northwind.example/plan/q3"),
+      ctx,
+      288,
+    ),
+    "www.northwind.example/plan/q3",
+  );
+  // An internationalized host matches its Unicode title.
+  assert.equal(
+    linkCardFooter(
+      card("münchen.de", "https://xn--mnchen-3ya.de/stra%C3%9Fe"),
+      ctx,
+      288,
+    ),
+    "xn--mnchen-3ya.de/straße",
+  );
+  // Nothing more to say keeps the host; a long address is shortened.
+  assert.equal(
+    linkCardFooter(card("example.org", "https://example.org/"), ctx, 288),
+    "example.org",
+  );
+  const long = linkCardFooter(
+    card("example.org", `https://example.org/${"a".repeat(400)}`),
+    ctx,
+    120,
+  );
+  assert.match(long, /^example\.org\/a+…$/);
+  assert.ok(ctx.measureText(long).width <= 120);
+  // The canvas draws that line rather than the host twice.
+  const drawn = [];
+  const recorder = new Proxy(createCanvas(400, 200).getContext("2d"), {
+    get(target, key) {
+      if (key === "fillText") return (text) => drawn.push(text);
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set(target, key, value) {
+      target[key] = value;
+      return true;
+    },
+  });
+  drawObject(recorder, card("teams.microsoft.com", teams));
+  assert.ok(drawn.includes("Microsoft Teams meeting"), drawn.join(" | "));
+  assert.equal(
+    drawn.filter((text) => text === "teams.microsoft.com").length,
+    1,
+  );
 });
 
 test("disallowed, local, and malformed embed URLs are rejected", () => {
@@ -2278,7 +2499,8 @@ test("built app: links pasted without their scheme or over plain HTTP are still 
     }
     await until(() => outline().length === 5, "Everything pasted");
     const labels = outline();
-    assert.equal(labels.filter((l) => /youtube\.com/.test(l)).length, 2);
+    // Link cards for a recognized service are named after it.
+    assert.equal(labels.filter((l) => /YouTube/.test(l)).length, 2);
     assert.ok(
       labels.some((l) => /example\.com/.test(l)),
       labels.join(" | "),

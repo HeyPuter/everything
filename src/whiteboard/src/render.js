@@ -54,6 +54,7 @@ import {
 } from "./connectors.js";
 import { imageLayout } from "./image-crop.js";
 import { drawEmbedCard } from "./content/embed-card.js";
+import { linkCardFooter } from "./content/link-label.js";
 import { fileDetails } from "./file-details.js";
 
 const previews = new Map();
@@ -363,7 +364,7 @@ export function drawObject(
     ctx.font = `400 ${(labelSize * 2) / 3}px ${fontStack(fontFamily(i))}`;
     ctx.fillStyle = "#52624b";
     ctx.fillText(
-      i.type === "link" ? new URL(i.url).hostname : fileDetails(i),
+      i.type === "link" ? linkCardFooter(i, ctx, w - 32) : fileDetails(i),
       16,
       h - 30,
     );

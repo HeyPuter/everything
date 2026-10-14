@@ -1,5 +1,5 @@
-import { toUnicode } from "./idn.js";
 import { IMAGE_BYTES } from "./content/binary.js";
+import { linkCardTitle } from "./content/link-label.js";
 import { referencedTags, importTags } from "./tags.js";
 import { trimMindMap } from "./mind-map.js";
 import { assertUnlocked } from "./locking.js";
@@ -175,7 +175,7 @@ export function textObject(text, point, ctx) {
         w: 320,
         h: 115,
         url,
-        text: toUnicode(new URL(url).hostname),
+        text: linkCardTitle(url),
         color: "#dce5f7",
       }),
     ])[0];

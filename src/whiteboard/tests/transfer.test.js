@@ -438,6 +438,22 @@ test("a link card to an internationalised domain is titled with the name, not it
   assert.equal(card.url, "https://xn--mnchen-3ya.de/stra%C3%9Fe");
 });
 
+test("a pasted meeting or issue link becomes a card named after its service", () => {
+  const ctx = createCanvas(10, 10).getContext("2d");
+  const card = (text) => textObject(text, { x: 0, y: 0 }, ctx);
+  assert.equal(
+    card(
+      "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0",
+    ).text,
+    "Microsoft Teams meeting",
+  );
+  assert.equal(
+    card("https://fabrikam.atlassian.net/browse/PS-12").text,
+    "Jira issue PS-12",
+  );
+  assert.equal(card("www.example.com/plan").text, "www.example.com");
+});
+
 test("copy and cut leave text selected in a panel to the browser", async () => {
   const { JSDOM } = await import("jsdom");
   const dom = new JSDOM(

@@ -1,4 +1,3 @@
-import { toUnicode } from "../idn.js";
 // Embeds, Google Workspace imports, and document import ("paste and
 // extract"). Everything the editor provides arrives through `api`, so this
 // module never reaches into main.js state.
@@ -31,6 +30,7 @@ import {
   sheetSourceURL,
 } from "./providers.js";
 import { createLiveEmbeds } from "./embed-live.js";
+import { linkCardTitle } from "./link-label.js";
 import { createGoogle } from "./google.js";
 import { layoutDocument } from "./layout.js";
 import {
@@ -131,13 +131,15 @@ export function createContentTools(api) {
       color: "#ffffff",
     });
   }
-  function linkItem(url, point) {
+  // A new link card is titled with the service, as the paste chooser
+  // recognized it or as its address shows.
+  function linkItem(url, point, provider) {
     const at = spot(point, 320, 115);
     return item("link", at.x, at.y, {
       w: 320,
       h: 115,
       url,
-      text: toUnicode(new URL(url).hostname),
+      text: linkCardTitle(url, provider),
       color: "#dce5f7",
     });
   }
@@ -251,7 +253,8 @@ export function createContentTools(api) {
               return;
             }
             try {
-              if (insert([linkItem(url.href, point)], target)) d.close();
+              if (insert([linkItem(url.href, point, result?.provider)], target))
+                d.close();
             } catch (e) {
               error.textContent = t(e.message);
             }
@@ -372,7 +375,7 @@ export function createContentTools(api) {
               const object =
                 choice === "embed"
                   ? embedItem(result, "", point)
-                  : linkItem(url, point);
+                  : linkItem(url, point, result.provider);
               if (insert([object], target)) d.close();
             } catch (e) {
               error.textContent = t(e.message);
