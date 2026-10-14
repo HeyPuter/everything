@@ -179,3 +179,35 @@ export async function playSound(bytes, { loop = false } = {}) {
     if (playing === source) playing = null;
   };
 }
+
+// Effect sounds (animations) play alongside each other and the transition
+// sound; they stop together when the slide's player goes away.
+const effectSources = new Set();
+
+/** Plays audio bytes for an animation effect. */
+export async function playEffectSound(bytes) {
+  const ctx = audio();
+  if (!ctx || !bytes?.length) return;
+  try {
+    const buffer = await ctx.decodeAudioData(bytes.slice().buffer);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start();
+    effectSources.add(source);
+    source.onended = () => effectSources.delete(source);
+  } catch {
+    // Audio the browser cannot decode stays silent.
+  }
+}
+
+/** Stops every animation effect sound that is playing. */
+export function stopEffectSounds() {
+  for (const source of effectSources)
+    try {
+      source.stop();
+    } catch {
+      // Already stopped.
+    }
+  effectSources.clear();
+}

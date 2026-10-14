@@ -57,7 +57,10 @@ what is being added, and its status. Items are checked off as they land.
       for effect, timing and text animation settings.
 - [x] Animations written to and read from the file's timing tree, previewed on
       the canvas, and played in slide shows.
-- [ ] Adding sounds to effects (sounds already in a file are kept).
+- [x] Sounds on effects (Effect Options: a built-in synthesized sound or an
+      audio file, embedded and written as the effect's `p:audio` /
+      `p:sndTgt` node, played as the effect starts), and the Hide After
+      Animation and Hide on Next Mouse Click after-effects.
 
 ### 4. Transitions
 

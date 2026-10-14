@@ -13,6 +13,7 @@
 
 import { P, groupParents, slideBounds, slideRotation } from "../model.js";
 import { entryFor } from "./catalog.js";
+import { playEffectSound, stopEffectSounds } from "../transitions/sounds.js";
 
 export const prefersReducedMotion = () =>
   typeof matchMedia === "function" &&
@@ -852,7 +853,8 @@ function planItem(item, state, piece, frame, reduced) {
   }
   if (effect.after) {
     if (effect.after.kind === "hide") next.visible = false;
-    else next.dim = `#${effect.after.color}`;
+    else if (effect.after.kind === "dim") next.dim = `#${effect.after.color}`;
+    // "hideOnClick" hides when the next click group starts (see hideAfter).
   }
   if (effect.rewind) return { animations: out, end: { ...state } };
   return { animations: out, end: next };
@@ -900,6 +902,7 @@ export function createAnimationPlayer({
   effects = P.getSlideAnimations(slide),
   reducedMotion = prefersReducedMotion(),
   onChange = null,
+  sounds = true,
 }) {
   const mainEffects = effects.filter((e) => e.trigger === undefined);
   const mainItems = expandItems(slide, mainEffects);
@@ -1021,7 +1024,11 @@ export function createAnimationPlayer({
     dim.style.backgroundColor = s.dim || "transparent";
     underline.style.transform = s.underline ? "scaleX(1)" : "scaleX(0)";
   };
+  // Bumped on every reset, so effects finishing late (after a seek) do not
+  // put their end state over the new one.
+  let epoch = 0;
   const reset = () => {
+    epoch++;
     for (const p of pieces) {
       p.state = { ...p.initial };
       apply(p);
@@ -1062,6 +1069,19 @@ export function createAnimationPlayer({
       }
       return Promise.resolve();
     }
+    // Effect sounds start with their effect (once per effect).
+    for (const item of items)
+      if (item.effect.sound && item.sub === 0 && sounds) {
+        const id = setTimeout(() => {
+          soundTimers.delete(id);
+          let data = null;
+          try {
+            data = P.getSlideAnimationSoundData(slide, item.effect.sound.relId);
+          } catch {}
+          if (data && alive) playEffectSound(data.bytes);
+        }, item.at);
+        soundTimers.add(id);
+      }
     const entries = scheduled.map(({ item, piece, plan }) => {
       const effect = item.effect;
       const iterations =
@@ -1081,7 +1101,11 @@ export function createAnimationPlayer({
           fill: "both",
         }),
       );
+      const born = epoch;
+      let settled = false;
       const settle = () => {
+        if (born !== epoch || settled) return;
+        settled = true;
         piece.state = plan.end;
         apply(piece);
         for (const a of animations) a.cancel();
@@ -1152,6 +1176,23 @@ export function createAnimationPlayer({
     running = [];
   }
 
+  // Shapes set to hide on the next click hide as the next group starts.
+  function hideAfter(group) {
+    if (!group) return;
+    for (const item of group.items)
+      if (item.effect.after?.kind === "hideOnClick" && !item.effect.rewind)
+        for (const piece of piecesFor(item)) {
+          piece.state = { ...piece.state, visible: false };
+          apply(piece);
+        }
+  }
+  const soundTimers = new Set();
+  const stopSounds = () => {
+    for (const id of soundTimers) clearTimeout(id);
+    soundTimers.clear();
+    stopEffectSounds();
+  };
+
   const autoStart = groups[0]?.auto ? 1 : 0;
   const api = {
     /** Click steps (the main sequence's groups after any automatic one). */
@@ -1193,6 +1234,7 @@ export function createAnimationPlayer({
       const index = step + autoStart;
       if (index >= groups.length) return false;
       step++;
+      hideAfter(groups[index - 1]);
       playGroup(groups[index]);
       return true;
     },
@@ -1204,12 +1246,15 @@ export function createAnimationPlayer({
     },
     /** Shows the state after `n` click steps at once. */
     seek(n) {
+      stopSounds();
       finishRunning();
       stopLasting();
       reset();
       step = Math.max(0, Math.min(n, api.steps));
-      for (let i = 0; i < step + autoStart; i++)
+      for (let i = 0; i < step + autoStart; i++) {
+        hideAfter(groups[i - 1]);
         playGroup(groups[i], { instant: true });
+      }
     },
     finish() {
       api.seek(api.steps);
@@ -1228,6 +1273,7 @@ export function createAnimationPlayer({
       let i = 0;
       for (const group of groups) {
         if (!alive) return;
+        hideAfter(groups[i - 1]);
         if (i++ < from) {
           await playGroup(group, { instant: true });
           continue;
@@ -1269,6 +1315,7 @@ export function createAnimationPlayer({
     },
     destroy() {
       alive = false;
+      stopSounds();
       stopLasting();
       for (const entry of running) {
         clearTimeout(entry.timer);

@@ -8,7 +8,14 @@
 // the tree. Presets it does not know get a plain fade so the file still plays
 // in any reader.
 
-import { NS, type XmlElement, attr, elem, qname } from "../xml/index.ts";
+import {
+  NS,
+  type XmlElement,
+  attr,
+  elem,
+  firstChildElement,
+  qname,
+} from "../xml/index.ts";
 
 const p = (local: string) => qname("p", local, NS.pml);
 const a = (local: string) => qname("a", local, NS.dml);
@@ -634,15 +641,36 @@ export const presetBehaviors = (
   return [];
 };
 
-/** Behaviors that run when an effect ends: dim to a color or hide. */
+/** Behaviors that run when an effect ends: dim to a color or hide (when it
+ *  ends, or at the next click). */
 export const afterBehaviors = (
   target: AnimationTarget,
-  after: { kind: "dim"; color: string } | { kind: "hide" },
+  after:
+    { kind: "dim"; color: string } | { kind: "hide" } | { kind: "hideOnClick" },
   durationMs: number,
   hasText: boolean,
 ): XmlElement[] => {
   const delay = Math.max(0, Math.round(durationMs));
   if (after.kind === "hide") return [visibility(target, false, delay, true)];
+  if (after.kind === "hideOnClick") {
+    const set = visibility(target, false, 0, true);
+    // The hide waits for the next advance of the show, not for a time.
+    const time = firstChildElement(
+      firstChildElement(set, p("cBhvr"))!,
+      p("cTn"),
+    )!;
+    time.children = [
+      elem(p("stCondLst"), {
+        children: [
+          elem(p("cond"), {
+            attrs: [at("evt", "onNext"), at("delay", 0)],
+            children: [elem(p("tgtEl"), { children: [elem(p("sldTgt"))] })],
+          }),
+        ],
+      }),
+    ];
+    return [set];
+  }
   const rgb = hexColor(after.color, "808080");
   return [
     animColor(

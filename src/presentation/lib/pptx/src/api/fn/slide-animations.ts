@@ -18,12 +18,19 @@ import {
 } from "../_internal-symbols.ts";
 import { SHAPE_ELEMENT, SHAPE_SNAPSHOT } from "../_internal-symbols.ts";
 import { commitSlideData, refreshSlideData } from "./_helpers.ts";
+import { INTERNAL_PACKAGE, SLIDE_PART_NAME } from "../_internal-symbols.ts";
+import { resolveTarget } from "../../internal/opc/index.ts";
+import {
+  addSlideTransitionSound,
+  pruneSoundRelationships,
+} from "./slide-transition.ts";
 
 export type {
   AnimationPresetClass,
   AnimationStart,
   SlideAnimation,
   SlideAnimationAfter,
+  SlideAnimationSound,
   SlideAnimationTextBuild,
 } from "../../internal/presentationml/animation-timing.ts";
 export { motionPathFor } from "../../internal/presentationml/animation-presets.ts";
@@ -125,6 +132,9 @@ export const setSlideAnimations = (
 ): void => {
   const lookup = shapeLookup(slide);
   const read = readSlide(slide);
+  const sounds = new Set(
+    read.effects.flatMap((e) => (e.sound ? [e.sound.relId] : [])),
+  );
   const timing = writeTiming(
     effects
       .filter((e) => lookup(e.shapeId) !== null)
@@ -149,6 +159,33 @@ export const setSlideAnimations = (
   }
   commitSlideData(slide);
   refreshSlideData(slide);
+  pruneSoundRelationships(slide, sounds);
+};
+
+/**
+ * Embeds audio for an effect's sound on the slide and returns the
+ * relationship id to use as `sound.relId`. The animations are not changed;
+ * a sound no effect uses is removed the next time they are set.
+ */
+export const addSlideAnimationSound = (
+  slide: SlideData,
+  bytes: Uint8Array,
+  name = "sound.wav",
+): string => addSlideTransitionSound(slide, bytes, name);
+
+/** The audio of an effect sound (relationship `relId`), or null. */
+export const getSlideAnimationSoundData = (
+  slide: SlideData,
+  relId: string,
+): { bytes: Uint8Array; contentType: string } | null => {
+  const pkg = slide[INTERNAL_PACKAGE];
+  const owner = slide[SLIDE_PART_NAME];
+  const rel = pkg
+    .getRels(owner)
+    ?.items.find((r) => r.id === relId && r.targetMode !== "External");
+  if (!rel) return null;
+  const part = pkg.getPart(resolveTarget(owner, rel.target));
+  return part ? { bytes: part.data, contentType: part.contentType } : null;
 };
 
 /** Removes the animations of shapes that are no longer on the slide. */

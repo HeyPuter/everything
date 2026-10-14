@@ -447,7 +447,7 @@ const referencesRelationship = (element: XmlElement, id: string): boolean =>
 
 // A sound the slide no longer uses loses its relationship, and its media part
 // when nothing else in the package refers to it.
-const pruneSoundRelationships = (
+export const pruneSoundRelationships = (
   slide: SlideData,
   ids: ReadonlySet<string>,
 ): void => {

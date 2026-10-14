@@ -54,8 +54,19 @@ export interface SlideAnimationTextBuild {
   readonly autoAfterMs?: number;
 }
 
+/** What happens to a shape after its effect: dim to a color, hide when the
+ *  effect ends, or hide at the next click. */
 export type SlideAnimationAfter =
-  { readonly kind: "dim"; readonly color: string } | { readonly kind: "hide" };
+  | { readonly kind: "dim"; readonly color: string }
+  | { readonly kind: "hide" }
+  | { readonly kind: "hideOnClick" };
+
+/** A sound played as the effect starts: embedded audio (a slide
+ *  relationship, see addSlideAnimationSound) and its display name. */
+export interface SlideAnimationSound {
+  readonly relId: string;
+  readonly name?: string;
+}
 
 export interface SlideAnimation {
   /** Identifies the markup this effect was read from (opaque). */
@@ -99,6 +110,7 @@ export interface SlideAnimation {
     readonly delayPercent: number;
   };
   readonly after?: SlideAnimationAfter;
+  readonly sound?: SlideAnimationSound;
 }
 
 /** What the timing writer needs to know about a shape on the slide. */
@@ -329,7 +341,11 @@ const detailsOf = (
     if (attrOf(t, "afterEffect") === "1") {
       if (name === "set") {
         const to = attrOf(child(child(b, "to"), "strVal"), "val");
-        if (to === "hidden") out.after = { kind: "hide" };
+        const onNext = kids(child(t, "stCondLst"), "cond").some(
+          (c) => attrOf(c, "evt") === "onNext",
+        );
+        if (to === "hidden")
+          out.after = onNext ? { kind: "hideOnClick" } : { kind: "hide" };
       } else if (name === "animClr") {
         out.after = { kind: "dim", color: srgbOf(child(b, "to")) ?? "808080" };
       }
@@ -363,6 +379,20 @@ const detailsOf = (
 };
 const textOf = (e: XmlElement) =>
   e.children.map((c) => (c.kind === "text" ? c.data : "")).join("");
+
+const R_EMBED = qname("r", "embed", NS.officeDocRels);
+// p:subTnLst / p:audio / p:cMediaNode / p:tgtEl / p:sndTgt: a sound that
+// starts with the effect.
+const soundOf = (cTn: XmlElement): SlideAnimationSound | undefined => {
+  for (const audio of kids(child(cTn, "subTnLst"), "audio")) {
+    const target = child(child(child(audio, "cMediaNode"), "tgtEl"), "sndTgt");
+    const relId = target ? getAttrValue(target, R_EMBED)?.trim() : undefined;
+    if (!relId) continue;
+    const name = attrOf(target, "name");
+    return { relId, ...(name ? { name } : {}) };
+  }
+  return undefined;
+};
 
 const fraction = (cTn: XmlElement, local: string) => {
   const v = intAttr(cTn, local);
@@ -425,6 +455,7 @@ const effectOf = (item: RawItem): SlideAnimation | null => {
         }
       : {}),
     ...(details.after ? { after: details.after } : {}),
+    ...(soundOf(cTn) ? { sound: soundOf(cTn)! } : {}),
   };
 };
 
@@ -451,6 +482,7 @@ export const animationFingerprint = (e: SlideAnimation): string =>
     !!e.background,
     e.iterate ?? null,
     e.after ?? null,
+    e.sound?.relId ?? null,
   ]);
 
 // Paragraph groups of a shape's text for a build at `level` (1-based): a
@@ -664,6 +696,7 @@ const freshPar = (
   target: AnimationTarget,
   info: AnimationShapeInfo | null,
   grpId: number,
+  withSound = true,
 ): XmlElement => {
   const behaviors = presetBehaviors(target, {
     presetClass: e.presetClass,
@@ -730,8 +763,45 @@ const freshPar = (
       }),
     );
   children.push(elem(p("childTnLst"), { children: behaviors }));
+  if (e.sound && withSound) children.push(soundNode(e.sound));
   return elem(p("par"), { children: [elem(p("cTn"), { attrs, children })] });
 };
+
+const soundNode = (sound: SlideAnimationSound) =>
+  elem(p("subTnLst"), {
+    children: [
+      elem(p("audio"), {
+        children: [
+          elem(p("cMediaNode"), {
+            children: [
+              elem(p("cTn"), {
+                attrs: [
+                  at("id", 0),
+                  at("display", 0),
+                  at("masterRel", "sameClick"),
+                ],
+                children: [
+                  elem(p("stCondLst"), {
+                    children: [elem(p("cond"), { attrs: [at("delay", 0)] })],
+                  }),
+                ],
+              }),
+              elem(p("tgtEl"), {
+                children: [
+                  elem(p("sndTgt"), {
+                    attrs: [
+                      attr(R_EMBED, sound.relId),
+                      ...(sound.name ? [at("name", sound.name)] : []),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
 
 /** The targets an effect plays on, in order, with the start of each. */
 const expandTargets = (
@@ -1011,7 +1081,7 @@ export const writeTiming = (
             if (cTn) setAttrOf(cTn, "grpId", String(grpId));
             return copy;
           })
-        : targets.map((t) => freshPar(e, t.target, info, grpId));
+        : targets.map((t, i) => freshPar(e, t.target, info, grpId, i === 0));
     const list = e.trigger
       ? (triggered.get(e.trigger) ??
         (triggered.set(e.trigger, []), triggered.get(e.trigger)!))

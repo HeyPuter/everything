@@ -3975,6 +3975,8 @@ const animationTools = createAnimationTools({
   canvas: () => document.querySelector("#slide-canvas"),
   editorBody: () => document.querySelector(".editor-body"),
   refresh: () => syncToolbar(),
+  chooseFile: (accept) =>
+    new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
 });
 
 function editorRibbon() {

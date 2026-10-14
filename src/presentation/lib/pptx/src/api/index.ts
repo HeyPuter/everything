@@ -105,6 +105,7 @@ export type {
   AnimationStart,
   SlideAnimation,
   SlideAnimationAfter,
+  SlideAnimationSound,
   SlideAnimationTextBuild,
 } from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
@@ -290,6 +291,8 @@ export {
   getShapeAnimation,
   getSlideAnimations,
   setSlideAnimations,
+  addSlideAnimationSound,
+  getSlideAnimationSoundData,
   pruneSlideAnimations,
   getShapeBuildParagraphs,
   motionPathFor,

@@ -1130,7 +1130,36 @@ export function createAnimationTools(ctx) {
         tab: tabName,
         tools: api,
         ctx,
-      }).then((change) => change && update(() => change));
+      }).then((change) => {
+        if (!change) return;
+        const added = change.sound?.bytes ? change.sound : null;
+        if (!added) return update(() => change);
+        // A new sound: embed its audio and point the effects at it, as one
+        // undoable step.
+        const list = effects();
+        const targets = current();
+        const target = slide();
+        if (!target || !targets.length) return;
+        return ctx
+          .mutateSlide(target, (s) => {
+            const relId = P.addSlideAnimationSound(s, added.bytes, added.name);
+            P.setSlideAnimations(
+              s,
+              list.map((e, i) =>
+                targets.some((t) => t.index === i)
+                  ? { ...e, ...change, sound: { relId, name: added.name } }
+                  : e,
+              ),
+            );
+          })
+          .then((done) => {
+            if (done) {
+              chosen = targets.map((t) => t.index);
+              chosenFor = [...selectedIds()].sort().join(",");
+            }
+            ctx.refresh();
+          });
+      });
     },
     startPainter,
     get painting() {
