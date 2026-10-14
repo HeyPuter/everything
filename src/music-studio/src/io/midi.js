@@ -56,13 +56,16 @@ class Reader {
   }
 }
 
+// Text events are UTF-8 or Latin-1; only the start of a long one is kept.
 const latin1 = (r, n) => {
-  const bytes = r.b.subarray(r.p, r.p + n);
+  const bytes = r.b.subarray(r.p, Math.min(r.end, r.p + n, r.p + 1024));
   r.p += n;
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    return String.fromCharCode(...bytes);
+    let s = '';
+    for (const c of bytes) s += String.fromCharCode(c);
+    return s;
   }
 };
 
@@ -103,10 +106,13 @@ function readTrack(r, tempos, sigs) {
   const open = new Map(); // (ch << 7 | key) -> [{ tick, vel }]
   let tick = 0;
   let status = 0;
+  // Each queue is { items, head }: a head index instead of shift() keeps
+  // thousands of stacked note-ons on one key linear.
   const close = (ch, key, at) => {
-    const list = open.get((ch << 7) | key);
-    const n = list?.shift();
-    if (n) track.notes.push({ ch, key, tick: n.tick, len: Math.max(1, at - n.tick), vel: n.vel });
+    const q = open.get((ch << 7) | key);
+    if (!q || q.head >= q.items.length) return;
+    const n = q.items[q.head++];
+    track.notes.push({ ch, key, tick: n.tick, len: Math.max(1, at - n.tick), vel: n.vel });
   };
   while (!r.done) {
     tick += r.vlq();
@@ -116,14 +122,18 @@ function readTrack(r, tempos, sigs) {
       const len = r.vlq();
       const at = r.p;
       if (type === 0x03 && !track.name) track.name = latin1(r, len).trim();
-      else if (type === 0x51 && len >= 3) tempos.push({ tick, bpm: 60000000 / ((r.u8() << 16) | (r.u8() << 8) | r.u8()) });
+      else if (type === 0x51 && len >= 3) {
+        const us = (r.u8() << 16) | (r.u8() << 8) | r.u8();
+        if (us > 0) tempos.push({ tick, bpm: 60000000 / us });
+      }
       else if (type === 0x58 && len >= 2) sigs.push({ tick, num: r.u8(), den: 2 ** r.u8() });
       r.p = at + len;
       if (type === 0x2f) break;
       continue;
     }
     if (b === 0xf0 || b === 0xf7) {
-      r.p += r.vlq();
+      const len = r.vlq();
+      r.p += len;
       continue;
     }
     if (b & 0x80) {
@@ -142,15 +152,15 @@ function readTrack(r, tempos, sigs) {
     const d2 = r.u8();
     if (type === 0x90 && d2 > 0) {
       const k = (ch << 7) | (b & 0x7f);
-      if (!open.has(k)) open.set(k, []);
-      open.get(k).push({ tick, vel: d2 });
+      if (!open.has(k)) open.set(k, { items: [], head: 0 });
+      open.get(k).items.push({ tick, vel: d2 });
     } else if (type === 0x80 || type === 0x90) {
       close(ch, b & 0x7f, tick);
     }
     // 0xa0 aftertouch, 0xb0 controllers, 0xe0 pitch bend: skipped.
   }
   // Notes still held at the end of the track end there.
-  for (const [k, list] of open) for (let i = list.length; i > 0; i--) close(k >> 7, k & 0x7f, tick);
+  for (const [k, q] of open) while (q.head < q.items.length) close(k >> 7, k & 0x7f, tick);
   track.notes.sort((a, b) => a.tick - b.tick || a.key - b.key);
   return track;
 }
@@ -192,20 +202,22 @@ class Writer {
     const enc = new TextEncoder().encode(s);
     this.u8(0xff, type);
     this.vlq(enc.length);
-    this.u8(...enc);
+    for (const x of enc) this.bytes.push(x);
   }
 }
 
 function chunk(w, id, body) {
   w.str(id);
   w.u32(body.length);
-  w.u8(...body);
+  // A loop, not a spread: tracks can be far longer than the argument limit.
+  for (const x of body) w.bytes.push(x & 0xff);
 }
 
 /** Writes a format 1 file: a tempo track, then one track per entry of `tracks`. */
 export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks = [] }) {
   const out = new Writer();
-  chunk(out, 'MThd', [0, 1, 0, tracks.length + 1, (ppq >> 8) & 0xff, ppq & 0xff]);
+  const ntrks = Math.min(0xffff, tracks.length + 1);
+  chunk(out, 'MThd', [0, 1, (ntrks >> 8) & 0xff, ntrks & 0xff, (ppq >> 8) & 0xff, ppq & 0xff]);
 
   const meta = new Writer();
   meta.u8(0);

@@ -133,6 +133,31 @@ describe('midi reader', () => {
     expect(ch.mixer).toBe(1);
   });
 
+  it('skips sysex events exactly (a GM reset before the first note)', () => {
+    const t = [
+      0x00, 0xf0, 0x05, 0x7e, 0x7f, 0x09, 0x01, 0xf7, // GM System On
+      0x00, 0x90, 0x3c, 0x64,
+      0x83, 0x60, 0x80, 0x3c, 0x40,
+      0x00, 0x90, 0x40, 0x64,
+      0x83, 0x60, 0x80, 0x40, 0x40,
+      0x00, 0xff, 0x2f, 0x00,
+    ];
+    const f = new Uint8Array([...ascii('MThd'), 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xe0, ...ascii('MTrk'), 0, 0, 0, t.length, ...t]);
+    expect(readMidi(f).tracks[0].notes.map((n) => [n.key, n.tick, n.len])).toEqual([[60, 0, 480], [64, 480, 480]]);
+  });
+
+  it('writes large tracks and uses the tempo in effect at the start', () => {
+    const notes = Array.from({ length: 40000 }, (_, i) => ({ key: 60 + (i % 12), tick: i * 10, len: 5, vel: 100 }));
+    const out = writeMidi({ ppq: 96, bpm: 140, tracks: [{ name: 'Big', channel: 0, notes }] });
+    const m = readMidi(out);
+    expect(m.tracks[1].notes).toHaveLength(40000);
+    // A tempo change after the start does not become the project tempo.
+    expect(importMidi(createProject(), { ...m, tempos: [{ tick: 960, bpm: 200 }] }).project.bpm).toBe(120);
+    expect(importMidi(createProject(), m).project.bpm).toBe(140);
+    const many = writeMidi({ tracks: Array.from({ length: 300 }, () => ({ channel: 0, notes: [] })) });
+    expect((many[10] << 8) | many[11]).toBe(301);
+  });
+
   it('rejects files that are not MIDI', () => {
     expect(() => readMidi(new Uint8Array(20).buffer)).toThrow(/not a Standard MIDI File/);
   });
