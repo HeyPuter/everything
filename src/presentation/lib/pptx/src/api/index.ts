@@ -57,6 +57,17 @@ export {
   type SlideShowLaserColor,
 } from "./fn.ts";
 export {
+  getSlideShowSetup,
+  setSlideShowSetup,
+  getCustomShows,
+  setCustomShows,
+  DEFAULT_SLIDE_SHOW_SETUP,
+  type SlideShowSetup,
+  type SlideShowSetupSelection,
+  type SlideShowType,
+  type CustomShow,
+} from "./fn/slide-show-setup.ts";
+export {
   getViewProperties,
   setViewProperties,
   getNotesPageSize,

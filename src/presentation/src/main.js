@@ -88,7 +88,6 @@ import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createTransitionTools } from "./transitions/editor.js";
 import { prefersReducedMotion } from "./transitions/player.js";
-import { createInsertFeatures } from "./insert/index.js";
 import {
   libraryMeta,
   homeRail,
@@ -98,12 +97,13 @@ import {
 } from "./start/start-screen.js";
 import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
 import { lucide } from "./draw/draw-icons.js";
-import { createShowInk, addShowInk, SHOW_PEN_COLORS } from "./draw/show-ink.js";
-import { addInkStroke, MM as INK_MM } from "./draw/ink-model.js";
+import { SHOW_PEN_COLORS } from "./draw/show-ink.js";
 import { createReview } from "./review/index.js";
 import { createChartTools } from "./charts/chart-tools.js";
 import { createSmartArtTools } from "./smartart/smartart-tools.js";
 import { createFileTools } from "./export/file-tools.js";
+import { createInsertFeatures } from "./insert/index.js";
+import { createShowFeatures } from "./show/index.js";
 import { createAnimationTools } from "./animations/editor.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
@@ -662,6 +662,12 @@ async function shortcutsDialog() {
         ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
+        [
+          "Ctrl / ⌘ + Shift + Enter, Ctrl / ⌘ + Enter",
+          "Present from the first slide, or from the current one",
+        ],
+        ["Alt + F5, or Alt + Enter", "Presenter View"],
+        ["? during a slide show", "List the slide show's shortcuts"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
         ["Enter in the thumbnails pane", "New slide after the selected one"],
         ["Ctrl / ⌘ + L / E / R / J", "Align left, center, right, or justify"],
@@ -3454,6 +3460,8 @@ function commandSearch() {
 const fileTools = createFileTools({
   P,
   doc: () => doc,
+  // Recorded narrations go into exported videos (src/show/narration.js).
+  narrationOf: (s) => showFeatures.narrationOf(s),
   settled,
   mutate,
   SKIP: SKIP_MUTATION,
@@ -3493,6 +3501,7 @@ const extraTabProviders = [
   () => chartTools.tabs(),
   () => smartArtTools.tabs(),
   () => [animationTools.tab()],
+  () => [showFeatures.recordTab()],
 ];
 // Comments, proofing, accessibility, compare and the read-only mark
 // (review/). It reaches the editor through this surface.
@@ -3747,6 +3756,27 @@ const insertFeatures = createInsertFeatures({
   normalizeUrl: (value) => normalizeUrl(value),
   startDrawing: (preset) => startDrawing(preset),
   refreshCanvas: () => renderSelection(),
+});
+// Slide Show and Record: presenter view, custom shows, set up, rehearsal,
+// recording, subtitles and the in-show tools (src/show).
+const showFeatures = createShowFeatures({
+  P,
+  doc: () => doc,
+  slide: () => slide(),
+  present: (options) => present(options),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  SKIP: SKIP_MUTATION,
+  fail: (e) => fail(e),
+  slideBounds: (pres, shape) => slideBounds(pres, shape),
+  picture: (s) => cachedPreview(doc.previews, doc.pres, s),
+  title: (s) =>
+    slideTitle(s, doc.pres) ||
+    slideDescription(s, doc.pres).split("\n")[0] ||
+    "",
+  currentSize: () => currentSize(),
+  select: (ids) => selectIds(ids),
+  exportVideo: () => fileTools.openExportDialog("video"),
 });
 // The Animations tab, the Animation Pane and animation previews.
 const animationTools = createAnimationTools({
@@ -4401,6 +4431,8 @@ const slideShowMenuItems = () => [
     icon: "o:previewTransition",
     items: transitionItems(slide()),
   },
+  ...showFeatures.menuItems(),
+  { separator: true },
   {
     label: P.isSlideHidden(slide()) ? "Show Slide" : "Hide Slide",
     icon: "o:hideSlide",
@@ -6132,6 +6164,7 @@ function ribbonApi() {
     },
     // Slide Show
     present: (options) => present(options),
+    ...showFeatures.ribbonApi(),
     slideHidden: () => P.isSlideHidden(slide()),
     toggleHideSlide: () =>
       setSlidesHidden(actionSlides(slide()), !P.isSlideHidden(slide())),
@@ -13883,35 +13916,23 @@ const BACKGROUND_LABELS = {
   inherit: "From layout",
 };
 // Ink drawn during a show stays on the slides only if the presenter says so.
-async function keepShowInk(pres, strokes) {
-  const count = [...strokes.values()].reduce((n, list) => n + list.length, 0);
-  const keep = await dialog({
-    title: "Keep your ink?",
-    body: el(
-      "p",
-      { class: "dialog-body" },
-      `You drew ${count} ink stroke${count === 1 ? "" : "s"} during the slide show. Keep ${count === 1 ? "it" : "them"} on the slides?`,
-    ),
-    actions: [
-      { label: "Discard", value: false },
-      { label: "Keep Ink", value: true, kind: "primary" },
-    ],
-  });
-  if (!keep || doc?.pres !== pres) return;
-  await mutate(() => {
-    addShowInk(P, doc.pres, strokes, addInkStroke, INK_MM);
-  });
-}
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
 async function present(options = {}) {
-  const reading = !!options?.reading;
+  // Before anything waits: a window for the audience needs the click.
+  options = showFeatures.begin(options);
   await settled();
-  if (document.querySelector("dialog.presenter[open]")) return;
+  if (document.querySelector("dialog.presenter[open]")) {
+    options.audience?.close();
+    return;
+  }
   const pres = doc.pres;
   const previews = doc.previews;
   const slides = P.getSlides(pres);
-  const selection = P.getSlideShowSelection(pres);
+  // The file's Set Up Show choices, and a custom show asked for by name.
+  const plan = showFeatures.plan(pres, options);
+  const reading = plan.reading;
+  const selection = plan.selection ?? P.getSlideShowSelection(pres);
   let all;
   if (selection.kind === "custom") {
     const byName = new Map(
@@ -13942,16 +13963,18 @@ async function present(options = {}) {
     );
     return;
   }
-  const showTiming = P.getSlideShowTimingOptions(pres);
+  const showTiming = plan.timing(P.getSlideShowTimingOptions(pres));
   const refreshDates = slides.some((s) => slideHasDateFields(pres, s));
   if (refreshDates) P.refreshPresentationFields(pres);
   const start = slides.slice(index).find((s) => !P.isSlideHidden(s));
   let n =
-    selection.kind === "all"
-      ? start
-        ? all.indexOf(start)
-        : all.length - 1
-      : 0;
+    options.from === "beginning"
+      ? 0
+      : selection.kind === "all"
+        ? start
+          ? all.indexOf(start)
+          : all.length - 1
+        : 0;
   const before = document.activeElement;
   const d = el("dialog", {
     class: "presenter",
@@ -13988,11 +14011,19 @@ async function present(options = {}) {
     status.textContent = error.message;
     stage.classList.add("has-status");
   }
-  // The presenter's pen: ink kept per slide while the show runs, which may
-  // be kept on the slides when it ends.
-  const showInk = createShowInk(frame, {
-    slideKey: () => P.getSlidePartName(all[n]),
-  });
+  // The presenter's pen: the show's ink (src/show/ink.js), kept per slide
+  // while the show runs and offered to keep on the slides when it ends.
+  const showInk = {
+    get enabled() {
+      return session?.inkTool() === "pen";
+    },
+    setEnabled: (on) => session?.setInkTool(on ? "pen" : null),
+    get color() {
+      return session?.inkColor();
+    },
+    setColor: (value) => session?.setInkColor(value),
+    clearSlide: () => session?.clearInk(),
+  };
   const inkButton = iconButton("Pen", "Pencil", () => toggleInk(), {
     "aria-pressed": "false",
     title: "Pen (I). E erases the ink on this slide.",
@@ -14050,11 +14081,14 @@ async function present(options = {}) {
   }
   const size = P.getSlideSize(pres) || { width: 12192000, height: 6858000 };
   // Media, zooms and action settings (src/insert/show.js).
+  // The show's tools and views beside it (src/show/session.js).
+  let session = null;
   const showInserted = insertFeatures.slideShow({
     pres,
     all,
     frame,
     size,
+    skipMedia: (shape) => !!session?.skipMedia(shape),
     show: (i) => show(i),
     close: () => close(),
   });
@@ -14223,7 +14257,10 @@ async function present(options = {}) {
   // before the show moves on.
   let animator = null;
   function advance() {
-    if (!ended && animator?.next()) return;
+    if (!ended && animator?.next()) {
+      session?.stepped(1);
+      return;
+    }
     show(n + 1);
   }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
@@ -14265,7 +14302,10 @@ async function present(options = {}) {
     typed = "";
   }
   function showPrevious() {
-    if (!ended && animator?.previous()) return;
+    if (!ended && animator?.previous()) {
+      session?.stepped(-1);
+      return;
+    }
     show(ended ? n : n - 1, { backward: true });
   }
   // The transition playing over the frame (see src/transitions/player.js).
@@ -14302,6 +14342,7 @@ async function present(options = {}) {
         upcoming.hidden = true;
         upcomingLabel.textContent = "End of presentation.";
         endMessage.focus();
+        session?.ended();
         return;
       }
     }
@@ -14358,7 +14399,8 @@ async function present(options = {}) {
     image.src = arriving;
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
     animator = createSlideAnimator({ pres, slide: all[n], frame, image });
-    if (backward) animator.finish();
+    // Set Up Show can show every slide without its animations.
+    if (backward || !plan.setup.showAnimation) animator.finish();
     else {
       const playing = animator;
       Promise.resolve(readiness).then(() => {
@@ -14367,7 +14409,6 @@ async function present(options = {}) {
     }
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
-    showInk.show();
     placeTriggers();
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
@@ -14400,15 +14441,16 @@ async function present(options = {}) {
       readiness,
     );
     syncPause();
+    session?.shown(n);
   }
   function close() {
+    if (!d.isConnected) return;
+    session?.dispose();
     showInserted.dispose();
     animator?.destroy();
     animator = null;
     transitionTools.stopSound();
     laser.dispose();
-    const inkDrawn = showInk.hasInk ? showInk.strokes() : null;
-    showInk.dispose();
     releaseFonts();
     advanceClock.dispose();
     clearTransition();
@@ -14421,7 +14463,6 @@ async function present(options = {}) {
     d.close();
     d.remove();
     if (refreshDates && doc?.pres === pres) renderSlideArea();
-    if (inkDrawn) keepShowInk(pres, inkDrawn).catch(fail);
     if (before?.isConnected) before.focus();
     else if (before?.matches(".object-hit"))
       document
@@ -14503,6 +14544,43 @@ async function present(options = {}) {
   controlsObserver.observe(controls);
   stage.append(slideArea, notes, status, controls);
   d.append(stage);
+  session = showFeatures.session({
+    pres,
+    all,
+    options,
+    setup: plan.setup,
+    reading,
+    dialog: d,
+    stage,
+    frame,
+    slideArea,
+    controls,
+    status,
+    size,
+    current: () => n,
+    isEnded: () => ended,
+    go: (i) => show(i, { backward: i < n }),
+    next: () => next.click(),
+    previous: () => previous.click(),
+    close: () => close(),
+    fit: () => fitFrame(),
+    focus: () => (ended ? endMessage : image).focus(),
+    setPaused: (on) => {
+      restoreBlank();
+      setPaused(on);
+    },
+    paused: () => advanceClock.paused,
+    autoAdvance: !pauseButton.hidden,
+    toggleLaser: () => toggleLaser(),
+    laserEnabled: () => laser.enabled,
+    picture: (s) => cachedPreview(previews, pres, s),
+    title: (s) => slideTitle(s, pres),
+    // Click steps of the slide's animations, and whether it opened on its
+    // last one (reached by going back, or shown without animation).
+    animationSteps: () => animator?.steps ?? 0,
+    inkChanged: () =>
+      inkButton.setAttribute("aria-pressed", String(showInk.enabled)),
+  });
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (laser.enabled) toggleLaser();
@@ -14512,6 +14590,7 @@ async function present(options = {}) {
   d.addEventListener("keydown", (e) => {
     // Composition keys belong to the input method, including its Escape.
     if (e.isComposing) return;
+    if (session?.keydown(e)) return;
     // Native presentation tools leave pointing mode before ending the show.
     if (e.key === "Escape" && laser.enabled) {
       e.preventDefault();
@@ -14717,6 +14796,11 @@ document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (review.keydown(e)) return;
   if (!typing && animationTools.onKey(e)) return;
+  // Presenter View (Alt+F5) and the show's Enter shortcuts.
+  if (showFeatures.onKey(e, { typing })) {
+    if (editing) e.target.blur();
+    return;
+  }
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();

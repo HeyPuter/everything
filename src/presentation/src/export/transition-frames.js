@@ -160,9 +160,11 @@ export function transitionDuration(transition) {
 
 // The show as a timeline: for each slide, when its transition starts, how
 // long it plays, and how long the slide then stays.
+// `minimumHoldMs[i]`, when given, keeps slide i up at least that long (a
+// recorded narration plays to its end).
 export function showTimeline(
   transitions,
-  { secondsPerSlide = 5, useTimings = true } = {},
+  { secondsPerSlide = 5, useTimings = true, minimumHoldMs = [] } = {},
 ) {
   let at = 0;
   return transitions.map((transition, i) => {
@@ -170,6 +172,7 @@ export function showTimeline(
     const timed = useTimings && Number.isFinite(transition?.advanceAfterMs);
     const hold = Math.max(
       timed ? transition.advanceAfterMs : secondsPerSlide * 1000,
+      minimumHoldMs[i] || 0,
       100,
     );
     const entry = { start: at, transition: duration, hold };

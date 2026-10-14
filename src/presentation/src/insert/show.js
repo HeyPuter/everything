@@ -347,6 +347,8 @@ export function createShowExtras(ctx, show) {
     const autoplay = [];
     for (const shape of visibleSlideShapes(slide)) {
       if (P.getShapeMediaKind(shape)) {
+        // Narrations stay silent when the show is set to play without them.
+        if (show.skipMedia?.(shape)) continue;
         const player = mediaPlayer(shape, parents);
         if (!player) continue;
         layer.append(player.node);
