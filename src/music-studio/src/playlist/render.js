@@ -9,6 +9,7 @@ import { mix } from '../render/gfx.js';
 import { cssVar, parseColor } from '../ui/theme.js';
 import { ticksToSeconds } from '../model/time.js';
 import { evaluateAutomation } from '../automation/evaluate.js';
+import { tempoMap } from '../engine/compile.js';
 import { sourceColor, sourceName } from './clips.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
@@ -317,10 +318,22 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
   const k = perSecond * ticksToSeconds(1, bpm);
+  // Under tempo automation the audio (not stretched) runs in seconds from
+  // the clip's virtual start (start - offset), like the engine plays it.
+  const map = tempoMap(p);
+  const s0 = map.constant ? 0 : map.seconds(clip.start - clip.offset);
   for (let x = a; x < b; x++) {
     const t = clip.offset + (x - x0) / ppt;
-    let i0 = Math.floor(t * k);
-    let i1 = Math.floor((t + 1 / ppt) * k);
+    let i0;
+    let i1;
+    if (map.constant) {
+      i0 = Math.floor(t * k);
+      i1 = Math.floor((t + 1 / ppt) * k);
+    } else {
+      const song = clip.start + (x - x0) / ppt;
+      i0 = Math.floor((map.seconds(song) - s0) * perSecond);
+      i1 = Math.floor((map.seconds(song + 1 / ppt) - s0) * perSecond);
+    }
     if (i0 >= nPeaks) break;
     if (i1 <= i0) i1 = i0 + 1;
     if (i1 > nPeaks) i1 = nPeaks;
