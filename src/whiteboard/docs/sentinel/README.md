@@ -10,13 +10,16 @@ A Whiteboard organization exports its audit log to Microsoft Sentinel in near re
 ## Push setup
 
 1. Register an application in Microsoft Entra ID and create a client secret. Note the tenant ID and the application (client) ID, and the object ID of its enterprise application (service principal).
-2. Deploy [`whiteboard-sentinel.json`](whiteboard-sentinel.json) to the resource group of the Log Analytics workspace that Sentinel uses:
+2. Deploy [`whiteboard-sentinel.json`](whiteboard-sentinel.json) to the resource group of the Log Analytics workspace that Sentinel uses, in the workspace's region (the data collection endpoint and rule must be in the same region as the workspace, which can differ from the resource group's):
 
    ```sh
    az deployment group create \
      --resource-group <resource-group> \
      --template-file docs/sentinel/whiteboard-sentinel.json \
-     --parameters workspaceName=<workspace> servicePrincipalObjectId=<object-id>
+     --parameters workspaceName=<workspace> servicePrincipalObjectId=<object-id> \
+       location=$(az monitor log-analytics workspace show \
+         --resource-group <resource-group> --workspace-name <workspace> \
+         --query location --output tsv)
    ```
 
    The template creates the `WhiteboardAudit_CL` table, a data collection endpoint, a data collection rule with the `Custom-WhiteboardAudit` stream, and grants the application the Monitoring Metrics Publisher role on the rule. Its outputs are the logs ingestion endpoint and the rule's immutable ID.

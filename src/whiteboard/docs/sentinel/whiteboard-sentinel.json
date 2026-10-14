@@ -13,7 +13,10 @@
     },
     "location": {
       "type": "string",
-      "defaultValue": "[resourceGroup().location]"
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Region of the Log Analytics workspace. The data collection endpoint and rule must be in the workspace's region, which can differ from the resource group's."
+      }
     },
     "servicePrincipalObjectId": {
       "type": "string",
