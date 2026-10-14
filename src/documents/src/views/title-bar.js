@@ -216,6 +216,9 @@ export function createTitleBar({ w, c, a, local, title, status, account, menus, 
   renderQuick();
 
   function refresh() {
+    const searchKey = keymapShortcut('app.search');
+    const searchTitle = searchKey ? `Search for commands or text (${searchKey})` : 'Search for commands or text';
+    if (search.title !== searchTitle) search.title = searchTitle;
     undoArrow.disabled = c.undo.disabled;
     refreshQuickStop();
     const mode = w.editingMode?.() || 'editing';

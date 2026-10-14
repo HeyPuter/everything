@@ -35,7 +35,8 @@ export function createBackstage(api) {
   const footer = el('div.bs-nav-footer', {},
     el('button.bs-tab', { type: 'button', onclick: () => { close(); api.goHome?.(); } }, commandIconEl('close', 18), el('span', {}, 'Close')),
     api.preferences ? el('button.bs-tab', { type: 'button', onclick: () => { close(); api.preferences(); } }, commandIconEl('preferences', 18), el('span', {}, 'Preferences')) : null);
-  const root = el('div.backstage', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'File', hidden: true },
+  // A dialog only while it is open: closed, it is an empty shell nothing should find.
+  const root = el('div.backstage', { 'aria-label': 'File', hidden: true },
     el('aside.bs-side', {}, back, nav, footer), el('main.bs-main', {}, panel));
   let current = 'info', opener = null, token = 0;
 
@@ -270,7 +271,7 @@ export function createBackstage(api) {
   const builders = { new: newPage, open: openPage, info: infoPage, save: savePage, print: printPage, share: sharePage, export: exportPage };
 
   function open(id = 'info', { scrollTo } = {}) {
-    if (root.hidden) { opener = document.activeElement; window.addEventListener('keydown', onEscape, true); }
+    if (root.hidden) { opener = document.activeElement; window.addEventListener('keydown', onEscape, true); root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); }
     root.hidden = false;
     document.body.classList.add('has-backstage');
     api.onOpen?.();
@@ -280,6 +281,7 @@ export function createBackstage(api) {
   function close({ focus = true } = {}) {
     if (root.hidden) return;
     root.hidden = true; token++;
+    root.removeAttribute('role'); root.removeAttribute('aria-modal');
     window.removeEventListener('keydown', onEscape, true);
     panel.replaceChildren();
     document.body.classList.remove('has-backstage');
