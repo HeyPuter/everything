@@ -1692,3 +1692,16 @@ test('SCIM takes a primary flag sent as the string "False" as not primary', asyn
   });
   assert.equal(sam.userName, "sam@example.ca");
 });
+
+test("SCIM endpoints the service does not offer answer 501 Not Implemented", async () => {
+  const { request, scim } = await setup();
+  for (const [path, method] of [
+    ["Me", "GET"],
+    ["Bulk", "POST"],
+    [".search", "POST"],
+  ])
+    await assert.rejects(request(path, method, {}), { status: 501 });
+  const config = await scim("ServiceProviderConfig");
+  assert.equal(config.bulk.supported, false);
+  await assert.rejects(request("Nothing"), { status: 404 });
+});
