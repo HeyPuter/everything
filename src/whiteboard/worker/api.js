@@ -1,6 +1,7 @@
 import { hash } from "../src/collaboration/protocol.js";
 import { adminCall, apiKey, lockTeam, syncTeamMembers } from "./admin.js";
 import {
+  TEAM_ROLES,
   fail,
   listedBoard,
   memberChanges,
@@ -1499,11 +1500,20 @@ export async function restRoute(org, boards, request, method, path, body) {
         !["private", "organization", "link"].includes(body.visibility)
       )
         fail(400, "Invalid visibility.");
-      const [meta, policy] = await Promise.all([
+      if (
+        body?.teamRole !== undefined &&
+        !TEAM_ROLES.includes(body.teamRole ?? "none")
+      )
+        fail(400, "Invalid team role.");
+      const [meta, policy, record] = await Promise.all([
         org.kv.get(`wb:${id}:meta`),
         org.policy(),
+        org.kv.get("org:board:" + id),
       ]);
       if (!meta) fail(404, "Board not found.");
+      // A role for the members of the board's team needs a team to give it.
+      if ((body?.teamRole ?? "none") !== "none" && !(meta.team || record?.team))
+        fail(400, "Choose a team for this board first.");
       if (
         body?.visibility === "link" &&
         meta.visibility !== "link" &&
@@ -1513,18 +1523,19 @@ export async function restRoute(org, boards, request, method, path, body) {
       const held =
         body?.legalHold !== undefined
           ? !!body.legalHold
-          : !!(
-              meta.legalHold || (await org.kv.get("org:board:" + id))?.legalHold
-            );
+          : !!(meta.legalHold || record?.legalHold);
       if (body?.deleted === true && (held || policy.retention.legalHold))
         fail(409, "This board is under a legal hold and cannot be deleted.");
       if (body?.owner)
         await boards.transfer(id, identity, body.owner, { admin: true });
-      if (body?.visibility)
+      if (body?.visibility || body?.teamRole !== undefined)
         await boards.call(identity, {
           op: "settings",
           room: id,
-          visibility: body.visibility,
+          ...(body.visibility ? { visibility: body.visibility } : {}),
+          ...(body.teamRole !== undefined
+            ? { teamRole: body.teamRole ?? "none" }
+            : {}),
         });
       // Restoring from the trash also unarchives, so it goes before an
       // archive asked for in the same request, and only for a deleted board.
@@ -1538,7 +1549,8 @@ export async function restRoute(org, boards, request, method, path, body) {
           await boards.call(identity, { op, room: id, enabled: !!body[key] });
       if (body?.deleted === true)
         await boards.call(identity, { op: "delete", room: id });
-      return json({ board: await org.kv.get("org:board:" + id) });
+      const board = await org.kv.get("org:board:" + id);
+      return json({ board: { ...board, teamRole: board.teamRole || "none" } });
     }
   }
   if (resource === "reports" && method === "GET") {
@@ -1772,7 +1784,7 @@ export function openAPI(base) {
       "/v1/boards": {
         get: secured(
           "boards:read",
-          "Board directory with filters",
+          "Board directory with filters; each board includes its teamRole",
           query(
             "query",
             "owner",
@@ -1800,10 +1812,13 @@ export function openAPI(base) {
         get: secured("boards:read", "Boards that look duplicated"),
       },
       "/v1/boards/{room}": {
-        get: secured("boards:read", "Board metadata and members"),
+        get: secured(
+          "boards:read",
+          "Board metadata, including teamRole, and members",
+        ),
         patch: secured(
           "boards:write",
-          "Transfer ownership, archive, restore, delete, legal hold, or visibility",
+          "Transfer ownership, archive, restore, delete, legal hold, visibility, or teamRole: the role (none, editor, commenter, viewer) the board gives the members of the team it is filed under",
         ),
       },
       "/v1/boards/{room}/activity": {

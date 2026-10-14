@@ -624,7 +624,11 @@ export function createOrganizationHome({
       const card = (b, n) => {
         const role = t(
           ROLE_LABEL[b.role] ||
-            (b.visibility === "organization" ? "Open to the organization" : ""),
+            (b.visibility === "organization"
+              ? "Open to the organization"
+              : b.teamRole && b.teamRole !== "none"
+                ? "Open to its team"
+                : ""),
         );
         // The name is the title alone; the owner, activity, role, and
         // archived state are read as the description.
@@ -1124,6 +1128,7 @@ addTranslations({
   "Can comment": "Peut commenter",
   "Can view": "Peut consulter",
   "Open to the organization": "Ouvert à l’organisation",
+  "Open to its team": "Ouvert à son équipe",
   "No boards found": "Aucun tableau trouvé",
   "Try other filters, or search all organization boards.":
     "Essayez d’autres filtres ou cherchez dans tous les tableaux de l’organisation.",

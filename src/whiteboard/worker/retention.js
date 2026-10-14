@@ -200,6 +200,9 @@ export async function destroyBoard(org, room, budget = Infinity) {
     });
     if (rest.length || acts.length) return { done: false, used };
   }
+  // The board leaves the list of boards its team can open.
+  const team = (await org.kv.get("org:board:" + room))?.team;
+  if (team) await org.kv.del(`org:teamboard:${team}:${room}`);
   await org.kv.del("org:board:" + room);
   await org.kv.del("org:visible:" + room);
   await org.kv.del("org:idx:" + room);

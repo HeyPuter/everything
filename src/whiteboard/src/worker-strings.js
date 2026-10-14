@@ -64,6 +64,8 @@ addTranslations({
     "Seuls les membres de l’organisation peuvent classer des tableaux dans des espaces.",
   "Choose a space or team that exists.":
     "Choisissez un espace ou une équipe qui existe.",
+  "Choose a team for this board first.":
+    "Choisissez d’abord une équipe pour ce tableau.",
   "Member not found.": "Membre introuvable.",
   "Your organization does not let guests facilitate boards.":
     "Votre organisation ne permet pas aux invités d’animer des tableaux.",

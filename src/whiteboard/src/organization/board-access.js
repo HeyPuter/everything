@@ -141,6 +141,7 @@ export function createBoardAccess({
         visibility: "private",
         orgRole: "editor",
         linkRole: "viewer",
+        teamRole: "none",
       };
       // Only send the space and team when their current values and choices
       // are known, so saving other settings never clears them.
@@ -150,6 +151,7 @@ export function createBoardAccess({
         visibility: current.visibility,
         orgRole: current.orgRole,
         linkRole: current.linkRole,
+        teamRole: current.teamRole || "none",
       };
       const linksAllowed = sharing.publicLinks;
       const owner = s.role === "owner";
@@ -168,7 +170,7 @@ export function createBoardAccess({
           )
           .join(
             "",
-          )}${sharing.organization ? `<label class="field">${t("Role for organization members")}<select id="bs-org-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.orgRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label>` : ""}<label class="field">${t("Role for people with the link")}<select id="bs-link-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.linkRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label></fieldset>${organize ? `<fieldset><legend>${t("Organize")}</legend><label class="field">${t("Space")}<select id="bs-space"><option value="">${t("None")}</option>${spaces.map((sp) => `<option value="${escape(sp.id)}" ${current.space === sp.id ? "selected" : ""} data-user-content>${escape(sp.name)}</option>`).join("")}</select></label><label class="field">${t("Team")}<select id="bs-team"><option value="">${t("None")}</option>${teams.map((tm) => `<option value="${escape(tm.id)}" ${current.team === tm.id ? "selected" : ""} data-user-content>${escape(tm.name)}</option>`).join("")}</select></label>${org.allows("slack") && latest?.integrations ? `<label class="field">${t("Slack channel webhook for mentions (optional)")} ${latest.slack ? `<span class="badge">${t("Connected")}</span>` : ""}<input id="bs-slack" type="url" placeholder="https://hooks.slack.com/services/…" autocomplete="off"${latest.slackError ? ' aria-describedby="bs-slack-error"' : ""}></label>${latest.slackError ? `<p class="dialog-copy" id="bs-slack-error">${t("Slack stopped taking this board's posts ({reason}). Connect the channel again with a new webhook URL.").replace("{reason}", () => escape(slackReason(latest.slackError)))}</p>` : ""}${latest.slack ? `<label class="check-field"><input type="checkbox" id="bs-slack-off"><span>${t("Disconnect Slack")}</span></label>` : ""}` : ""}</fieldset>` : ""}${decides || organize ? `<div class="dialog-footer"><button class="primary">${t("Save settings")}</button></div>` : ""}</form>${
+          )}${sharing.organization ? `<label class="field">${t("Role for organization members")}<select id="bs-org-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.orgRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label>` : ""}<label class="field">${t("Role for people with the link")}<select id="bs-link-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.linkRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label></fieldset>${organize ? `<fieldset><legend>${t("Organize")}</legend><label class="field">${t("Space")}<select id="bs-space"><option value="">${t("None")}</option>${spaces.map((sp) => `<option value="${escape(sp.id)}" ${current.space === sp.id ? "selected" : ""} data-user-content>${escape(sp.name)}</option>`).join("")}</select></label><label class="field">${t("Team")}<select id="bs-team"><option value="">${t("None")}</option>${teams.map((tm) => `<option value="${escape(tm.id)}" ${current.team === tm.id ? "selected" : ""} data-user-content>${escape(tm.name)}</option>`).join("")}</select></label><label class="field">${t("Role for team members")}<select id="bs-team-role" aria-describedby="bs-team-role-note" ${current.team && decides ? "" : "disabled"}>${["none", "editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${shown.teamRole === r ? "selected" : ""}>${t(r === "none" ? "No access" : ROLE_LABELS[r])}</option>`).join("")}</select><small id="bs-team-role-note">${t("People on the board’s team open it with this role for as long as they are on the team. Choose a team first.")}</small></label>${org.allows("slack") && latest?.integrations ? `<label class="field">${t("Slack channel webhook for mentions (optional)")} ${latest.slack ? `<span class="badge">${t("Connected")}</span>` : ""}<input id="bs-slack" type="url" placeholder="https://hooks.slack.com/services/…" autocomplete="off"${latest.slackError ? ' aria-describedby="bs-slack-error"' : ""}></label>${latest.slackError ? `<p class="dialog-copy" id="bs-slack-error">${t("Slack stopped taking this board's posts ({reason}). Connect the channel again with a new webhook URL.").replace("{reason}", () => escape(slackReason(latest.slackError)))}</p>` : ""}${latest.slack ? `<label class="check-field"><input type="checkbox" id="bs-slack-off"><span>${t("Disconnect Slack")}</span></label>` : ""}` : ""}</fieldset>` : ""}${decides || organize ? `<div class="dialog-footer"><button class="primary">${t("Save settings")}</button></div>` : ""}</form>${
           owner
             ? `<section class="policy-form"><h3>${t("Ownership and lifecycle")}</h3><div class="inline-form"><div class="share-link-row"><label class="field">${t("Transfer ownership to")}<select id="bs-transfer"><option value="">${t("Choose a member")}</option>${members
                 .filter(
@@ -201,6 +203,13 @@ export function createBoardAccess({
             space: d.querySelector("#bs-space")?.value,
             team: d.querySelector("#bs-team")?.value,
           };
+          // The role for a team's members is chosen once the board has a
+          // team; a board taken out of its team gives no one access.
+          const teamRole = d.querySelector("#bs-team-role");
+          d.querySelector("#bs-team")?.addEventListener("change", (e) => {
+            teamRole.disabled = !e.target.value || !decides;
+            if (!e.target.value) teamRole.value = "none";
+          });
           const run = async (button, fn) => {
             const done = busy(button);
             try {
@@ -219,6 +228,7 @@ export function createBoardAccess({
                   ?.value,
                 orgRole: d.querySelector("#bs-org-role")?.value,
                 linkRole: d.querySelector("#bs-link-role").value,
+                teamRole: organizeKnown ? teamRole?.value : undefined,
               };
               // Only what was changed here is sent, so saving never undoes a
               // change someone else made while this dialog was open.
@@ -239,6 +249,12 @@ export function createBoardAccess({
               const { settings } = await s.request("settings", payload);
               s.settings = settings;
               Object.assign(shown, chosen);
+              // The board's role for its team as saved, which leaving the
+              // team empty clears.
+              if (teamRole && settings?.teamRole) {
+                teamRole.value = shown.teamRole = settings.teamRole;
+                teamRole.disabled = !settings.team || !decides;
+              }
               if (organizeKnown && d.querySelector("#bs-space"))
                 for (const key of ["space", "team"])
                   filed[key] = d.querySelector(`#bs-${key}`).value;
@@ -390,6 +406,10 @@ addTranslations({
     "Votre organisation n’autorise pas les liens publics vers les tableaux.",
   "Role for organization members": "Rôle des membres de l’organisation",
   "Role for people with the link": "Rôle des personnes ayant le lien",
+  "Role for team members": "Rôle des membres de l’équipe",
+  "No access": "Aucun accès",
+  "People on the board’s team open it with this role for as long as they are on the team. Choose a team first.":
+    "Les membres de l’équipe du tableau l’ouvrent avec ce rôle tant qu’ils font partie de l’équipe. Choisissez d’abord une équipe.",
   Organize: "Organiser",
   Space: "Espace",
   Team: "Équipe",

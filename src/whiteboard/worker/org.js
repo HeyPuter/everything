@@ -204,6 +204,33 @@ export const standing = (user) => ({
   role: user?.status === "active" ? user.role : null,
   active: !user || user.status === "active",
 });
+// The roles a board can give the members of the team it is filed under;
+// "none" gives them nothing, as on boards from before teams gave access.
+export const TEAM_ROLES = ["none", "editor", "commenter", "viewer"];
+// Whether a board, from its metadata or its directory record, gives its
+// team's members a role, and this person, from their user record, is one
+// of them: a member of the organization, not a guest, on that team.
+export const teamGrants = (board, account) => {
+  const { role } = standing(account);
+  return (
+    !!board?.team &&
+    TEAM_ROLES.includes(board.teamRole) &&
+    board.teamRole !== "none" &&
+    !board.deleted &&
+    !!role &&
+    role !== "guest" &&
+    (account.teams || []).includes(board.team)
+  );
+};
+// Whether access that came with how a board is shared, rather than by
+// name, still holds: the board is still open to the organization or by
+// link as when the person joined, or still gives its team a role and they
+// are still on that team. Who may use the first two is checked apart (see
+// BoardService.member).
+export const sharedAccess = (member, meta, account) =>
+  member.via === "team"
+    ? teamGrants({ ...meta, deleted: false }, account)
+    : member.via === (meta?.visibility || "private");
 const text = (value, max = 200) =>
   typeof value === "string" ? value.trim().slice(0, max) : "";
 const bool = (value, fallback) =>
@@ -452,7 +479,11 @@ export function currentGuests(board, now, policy) {
 // still open it.
 export function listedBoard(board, now, policy) {
   const { guestEnds: _, ...rest } = board;
-  return { ...rest, guestCount: currentGuests(board, now, policy) };
+  return {
+    ...rest,
+    teamRole: board.teamRole || "none",
+    guestCount: currentGuests(board, now, policy),
+  };
 }
 // Fill in fields added after a policy was first saved.
 export function normalizePolicy(stored) {
@@ -837,8 +868,11 @@ export class OrgService {
   }
   // Write only the given fields of a member's record, so a change another
   // request saved meanwhile, such as a deactivation, is not written over
-  // with an older copy of the rest. Fields no access check reads (teams,
-  // preferences, the username) leave the organization's stamp alone.
+  // with an older copy of the rest. Fields no access check reads
+  // (preferences, the username) leave the organization's stamp alone.
+  // Teams give access to the boards filed under them, but a change to many
+  // people's teams renews the stamp once, after them all (see
+  // syncTeamMembers).
   async updateUser(uuid, patch, { access = false } = {}) {
     const key = "org:user:" + uuid;
     let next;
@@ -1060,6 +1094,19 @@ export class OrgService {
       if (next.visibility === "organization" && !next.deleted)
         await this.kv.set("org:visible:" + room, 1);
       else await this.kv.del("org:visible:" + room);
+    }
+    // Boards that give a team's members a role are listed by team, so the
+    // directory shows each person the boards their teams can open.
+    if (existing && ["team", "teamRole", "deleted"].some((k) => k in patch)) {
+      const opens = (b) =>
+        b.team && b.teamRole && b.teamRole !== "none" && !b.deleted
+          ? b.team
+          : null;
+      const was = opens(existing),
+        now = opens(next);
+      if (was && was !== now) await this.kv.del(`org:teamboard:${was}:${room}`);
+      if (now && was !== now)
+        await this.kv.set(`org:teamboard:${now}:${room}`, 1);
     }
     return next;
   }

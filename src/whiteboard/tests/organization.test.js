@@ -5794,10 +5794,22 @@ test("a team change or preference save during a deactivation keeps the account d
   const saved = await org.user(x);
   assert.deepEqual(saved.teams, [team.id]);
   assert.equal(saved.prefs.emailNotifications, false);
-  // Joining a team changes no access check, so it keeps the access stamp.
+  // A team can give access to the boards filed under it, so leaving one
+  // renews the access stamp, once for the whole change.
   const before = await org.kv.get("org:access");
-  await call(owner, { op: "teams.update", id: team.id, remove: [x] });
-  assert.equal(await org.kv.get("org:access"), before);
+  const set = org.kv.set,
+    stamped = [];
+  org.kv.set = (key, ...rest) => {
+    if (key === "org:access") stamped.push(key);
+    return set.call(org.kv, key, ...rest);
+  };
+  try {
+    await call(owner, { op: "teams.update", id: team.id, remove: [x] });
+  } finally {
+    org.kv.set = set;
+  }
+  assert.notEqual(await org.kv.get("org:access"), before);
+  assert.equal(stamped.length, 1);
 });
 
 test("concurrent team changes keep every member", async () => {

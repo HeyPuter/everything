@@ -24,6 +24,7 @@ import {
   mergePolicy,
   normalizePolicy,
   publicHost,
+  teamGrants,
   validEmail,
 } from "./org.js";
 import { computeReports } from "./reports.js";
@@ -298,9 +299,14 @@ async function teamMembers(org, ids, known = true, current = []) {
   return out;
 }
 // Record a team's membership change on the people who joined or left it.
+// A board filed under the team can give its members a role, so other
+// worker instances read people's records again: once for the whole change,
+// however many people it names, as an identity provider adding a thousand
+// people to a group sends them in one request.
 export async function syncTeamMembers(org, teamId, before, after) {
   const prior = new Set(before),
     next = new Set(after);
+  let changed = false;
   for (const uuid of new Set([...prior, ...next])) {
     if (prior.has(uuid) === next.has(uuid)) continue;
     const user = await org.freshUser(uuid);
@@ -309,7 +315,9 @@ export async function syncTeamMembers(org, teamId, before, after) {
     if (next.has(uuid)) teams.add(teamId);
     else teams.delete(teamId);
     await org.updateUser(uuid, { teams: [...teams] });
+    changed = true;
   }
+  if (changed) await org.accessChanged();
 }
 // Changes to one team are made one at a time, so two at once both stand:
 // requests on this instance wait their turn in order, and instances claim
@@ -1586,11 +1594,20 @@ export async function adminCall(org, boards, identity, input) {
       );
       const rooms = new Set(mine.keys());
       const role = scope === "organization" && (await org.role(identity));
-      if (role && role !== "guest")
+      if (role && role !== "guest") {
         for (const row of await org.list("org:visible:", { values: false }))
           rooms.add(
             (typeof row === "string" ? row : row.key).split(":").at(-1),
           );
+        // So are the boards that give the person's teams a role.
+        for (const team of (await org.user(identity.uuid))?.teams || [])
+          for (const row of await org.list(`org:teamboard:${team}:`, {
+            values: false,
+          }))
+            rooms.add(
+              (typeof row === "string" ? row : row.key).split(":").at(-1),
+            );
+      }
       const found = await boardRows(org, rooms, scope !== "mine");
       total = found.total;
       rows = found.rows.map((b) => ({
@@ -1686,26 +1703,43 @@ export async function adminCall(org, boards, identity, input) {
     // even by title. Administrators open every board. Members can still
     // join boards shared with the organization that they have not opened
     // yet.
+    // Members can also join boards that give their team a role, unless a
+    // manager removed them; someone whose access came with how a board was
+    // shared comes in again the way it is shared now. Someone who has left
+    // a board's team can still be listed with the role it gave them, so
+    // those boards are checked as for a search.
     // Each batch's access records are read together first, so checking
     // each board reads nothing more.
+    const account = administers ? null : await org.user(identity.uuid);
     const canOpen = (b, member) =>
       boards.member(b.room, identity).then(
         () => true,
-        () => insider && b.visibility === "organization" && !member,
+        () =>
+          insider &&
+          ((b.visibility === "organization" && !member) ||
+            (teamGrants(b, account) && (!member || !!member.via))),
       );
-    if (!administers && (searching || !insider)) {
-      const open = [];
-      for (let n = 0; n < matched.length; n += 300) {
-        const batch = matched.slice(n, n + 300);
+    const doubtful = (b) =>
+      b.teamRole !== "none" && b.role && !teamGrants(b, account);
+    const checked = administers
+      ? []
+      : searching || !insider
+        ? matched
+        : matched.filter(doubtful);
+    if (checked.length) {
+      const shut = new Set();
+      for (let n = 0; n < checked.length; n += 300) {
+        const batch = checked.slice(n, n + 300);
         const members = await boards.accessMany(
           batch.map((b) => b.room),
           identity,
         );
-        open.push(
-          ...(await Promise.all(batch.map((b, i) => canOpen(b, members[i])))),
+        const open = await Promise.all(
+          batch.map((b, i) => canOpen(b, members[i])),
         );
+        batch.forEach((b, i) => open[i] || shut.add(b));
       }
-      matched = matched.filter((b, n) => open[n]);
+      matched = matched.filter((b) => !shut.has(b));
     }
     // A page of the matching boards, with how many matched in all. A page
     // can follow the last board shown (`after`, the `next` of the page
