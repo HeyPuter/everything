@@ -214,11 +214,30 @@ export async function siem(org, policy, { force = false } = {}) {
 }
 // Sends waiting audit records and notes whether any are left: ones that
 // failed to send, or more than one batch holds.
+// One export runs at a time per instance: a request that asks while one
+// runs has it go once more when done, so what the request wrote is sent
+// and nothing is sent twice.
 async function exportAudit(org, policy) {
-  org.instance.siem = org.now();
-  const result = await siem(org, policy).catch((error) => ({ error }));
-  org.instance.siemBacklog = !!(result.error || result.more);
-  org.instance.siemFailed = !!result.error;
+  const instance = org.instance;
+  if (instance.siemRunning) {
+    instance.siemAgain = true;
+    return instance.siemRunning;
+  }
+  instance.siemRunning = (async () => {
+    try {
+      do {
+        instance.siemAgain = false;
+        instance.siem = org.now();
+        const result = await siem(org, policy).catch((error) => ({ error }));
+        instance.siemBacklog = !!(result.error || result.more);
+        instance.siemFailed = !!result.error;
+        if (result.error) break;
+      } while (instance.siemAgain);
+    } finally {
+      instance.siemRunning = null;
+    }
+  })();
+  return instance.siemRunning;
 }
 // Records an export held back go out with this instance's next request of
 // any kind once the interval has passed, such as a board's synchronization
@@ -230,6 +249,7 @@ export async function sendHeldAudit(org) {
   if (
     !org.instance.siemBacklog ||
     org.instance.siemFailed ||
+    org.instance.siemRunning ||
     org.now() - org.instance.siem < org.siemInterval
   )
     return;

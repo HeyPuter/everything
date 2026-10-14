@@ -9381,3 +9381,36 @@ test("people joining a board in a burst are exported to the SIEM together, and w
   await org.flush();
   assert.equal(exported().at(-1), "board.role.changed");
 });
+
+test("requests at the same moment export each audit record to the SIEM once", async () => {
+  const { env, boards, call, org, fetched } = setup();
+  org.now = () => env.now;
+  const base = org.fetcher;
+  org.fetcher = boards.fetcher = async (url, options) => {
+    if (String(url).startsWith("https://siem.fabrikam.test"))
+      await new Promise((r) => setTimeout(r, 20));
+    return base(url, options);
+  };
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { siem: { mode: "https", url: "https://siem.fabrikam.test/in" } },
+  });
+  await org.flush();
+  env.now += 15_000;
+  await Promise.all(
+    Array.from({ length: 10 }, () =>
+      organizationRequest(org, boards, owner, {
+        op: "org.invite",
+        role: "member",
+      }),
+    ),
+  );
+  const ids = fetched
+    .filter((f) => f.url === "https://siem.fabrikam.test/in")
+    .flatMap((f) => JSON.parse(f.options.body).events)
+    .filter((e) => e.Action === "user.invited")
+    .map((e) => e.EventId);
+  assert.equal(ids.length, 10);
+  assert.equal(new Set(ids).size, 10);
+});
