@@ -30,11 +30,21 @@ describe("people and mentions", () => {
   });
   it("lists people once and filters them by any word of the name", () => {
     const list = mentionCandidates(
-      [{ name: "Grace Hopper" }, { name: "Ada Lovelace" }, { name: "Ada Lovelace" }],
+      [
+        { name: "Grace Hopper" },
+        { name: "Ada Lovelace" },
+        { name: "Ada Lovelace" },
+      ],
       { name: "Zed", initials: "Z" },
     );
-    expect(list.map((p) => p.name)).toEqual(["Ada Lovelace", "Grace Hopper", "Zed"]);
-    expect(filterMentions(list, "hop").map((p) => p.name)).toEqual(["Grace Hopper"]);
+    expect(list.map((p) => p.name)).toEqual([
+      "Ada Lovelace",
+      "Grace Hopper",
+      "Zed",
+    ]);
+    expect(filterMentions(list, "hop").map((p) => p.name)).toEqual([
+      "Grace Hopper",
+    ]);
     expect(filterMentions(list, "")).toHaveLength(3);
   });
   it("splits text into mentions of known names, longest first", () => {
@@ -55,7 +65,9 @@ describe("people and mentions", () => {
       userId: "ada",
       signedIn: true,
     });
-    expect(samePerson({ userId: "a", name: "X" }, { userId: "a", name: "Y" })).toBe(true);
+    expect(
+      samePerson({ userId: "a", name: "X" }, { userId: "a", name: "Y" }),
+    ).toBe(true);
     expect(samePerson({ name: "X" }, { name: "Y" })).toBe(false);
     expect(initialsOf("grace brewster hopper")).toBe("GB");
   });
@@ -78,7 +90,10 @@ describe("spelling helpers", () => {
   });
   it("orders suggestions by closeness and keeps capitals", () => {
     expect(orderSuggestions("Teh", ["ten", "the", "tea"])[0]).toBe("The");
-    expect(orderSuggestions("BRWN", ["brown", "brawn"])).toEqual(["BROWN", "BRAWN"]);
+    expect(orderSuggestions("BRWN", ["brown", "brawn"])).toEqual([
+      "BROWN",
+      "BRAWN",
+    ]);
   });
 });
 
@@ -119,7 +134,8 @@ describe("accessibility checks", () => {
     const env = {
       isTable: () => false,
       slideBounds: (s) => P.getShapeBounds(s),
-      size: () => P.getPresentationSlideSize?.(pres) || { cx: 12192000, cy: 6858000 },
+      size: () =>
+        P.getPresentationSlideSize?.(pres) || { cx: 12192000, cy: 6858000 },
       textColors: (s) =>
         P.getShapeId(s) === P.getShapeId(low)
           ? { text: "#EEEEEE", background: "#FFFFFF", size: 12, bold: false }
@@ -133,9 +149,34 @@ describe("accessibility checks", () => {
     expect(findAccessibilityIssues(pres, env)[0].severity).toBe("error");
     // A titled, decorated slide comes clean of those.
     P.addSlideTitlePlaceholder(slide, "Overview", { hidden: true });
+    expect(findAccessibilityIssues(pres, env).map((i) => i.kind)).not.toContain(
+      "missingTitle",
+    );
+  });
+  it("finds nothing to fix on a new presentation's empty Title Slide", () => {
+    const pres = createDeck("title");
+    const env = {
+      isTable: () => false,
+      slideBounds: (s) => P.getShapeBounds(s),
+      size: () => ({ cx: 12192000, cy: 6858000 }),
+      textColors: () => null,
+    };
+    const issues = findAccessibilityIssues(pres, env);
+    // The waiting title and subtitle are tips, not a missing title.
+    expect(issues.map((i) => i.kind)).not.toContain("missingTitle");
+    expect(issues.every((i) => i.severity === "tip")).toBe(true);
+    expect(issues.filter((i) => i.kind === "emptyPlaceholder")).toHaveLength(2);
+    // Typed into, the title clears its tip.
+    const slide = P.getSlides(pres)[0];
+    const title = P.getSlideShapes(slide).find((s) =>
+      /title/i.test(P.getShapePlaceholderType(s) || ""),
+    );
+    P.setShapeText(title, "Launch plan");
     expect(
-      findAccessibilityIssues(pres, env).map((i) => i.kind),
-    ).not.toContain("missingTitle");
+      findAccessibilityIssues(pres, env).filter(
+        (i) => i.kind === "emptyPlaceholder",
+      ),
+    ).toHaveLength(1);
   });
   it("finds duplicate titles and treats decorative objects as described", () => {
     const pres = createDeck("blank");
@@ -163,7 +204,9 @@ describe("accessibility checks", () => {
 describe("thesaurus and AI replies", () => {
   it("reads lenient JSON", () => {
     expect(parseJsonReply('```json\n{"a":1}\n```')).toEqual({ a: 1 });
-    expect(parseJsonReply('Sure! {"a":[1,2]} Hope that helps')).toEqual({ a: [1, 2] });
+    expect(parseJsonReply('Sure! {"a":[1,2]} Hope that helps')).toEqual({
+      a: [1, 2],
+    });
     expect(() => parseJsonReply("no json")).toThrow();
   });
   it("cleans a thesaurus answer", () => {
@@ -171,7 +214,11 @@ describe("thesaurus and AI replies", () => {
       {
         word: "big",
         meanings: [
-          { sense: " size ", synonyms: ["large", "large", " huge ", 3], antonyms: ["small"] },
+          {
+            sense: " size ",
+            synonyms: ["large", "large", " huge ", 3],
+            antonyms: ["small"],
+          },
           { sense: "empty", synonyms: [], antonyms: [] },
         ],
       },
@@ -179,7 +226,9 @@ describe("thesaurus and AI replies", () => {
     );
     expect(out).toEqual({
       word: "big",
-      meanings: [{ sense: "size", synonyms: ["large", "huge"], antonyms: ["small"] }],
+      meanings: [
+        { sense: "size", synonyms: ["large", "huge"], antonyms: ["small"] },
+      ],
     });
   });
   it("has an offline list", () => {
