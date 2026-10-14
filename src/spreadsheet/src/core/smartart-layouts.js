@@ -285,9 +285,10 @@ function ringArrows(n, cx, cy, R, band, gapDeg, angles, o = {}) {
 function basicCycle(roots, A) {
   const n = roots.length, cx = A.x + A.w / 2, cy = A.y + A.h / 2, S = Math.min(A.w, A.h);
   if (n === 1) return [node('ellipse', cx - S / 2, cy - S / 2, S, S, roots[0], 0)];
-  const f = Math.min(2 * Math.sin(Math.PI / n) * 0.72, 1), R = S / 2 / (1 + f / 2), d = f * R;
-  const angles = around(n), gapDeg = (Math.asin(Math.min(1, (d * 0.62) / R)) * 180) / Math.PI;
-  const out = ringArrows(n, cx, cy, R, R * 0.09, gapDeg, angles);
+  const f = Math.min(2 * Math.sin(Math.PI / n) * 0.62, 0.9), R = S / 2 / (1 + f / 2), d = f * R;
+  // The arrows run round the ring between the circles, clear of each by a few degrees.
+  const angles = around(n), gapDeg = (Math.asin(Math.min(1, d / 2 / R)) * 180) / Math.PI + 4;
+  const out = ringArrows(n, cx, cy, R, R * 0.13, gapDeg, angles);
   angles.forEach((a, i) => out.push(node('ellipse', cx + R * Math.cos(rad(a)) - d / 2, cy + R * Math.sin(rad(a)) - d / 2, d, d, roots[i], i)));
   return out;
 }
@@ -331,9 +332,9 @@ function segmentedCycle(roots, A) {
 function textCycle(roots, A) {
   const n = roots.length, cx = A.x + A.w / 2, cy = A.y + A.h / 2, S = Math.min(A.w, A.h);
   if (n === 1) return [shape('rect', A.x, A.y, A.w, A.h, { role: 'text', item: roots[0].i, ci: 0, paras: all(roots[0]) })];
-  const box = Math.min(S * 0.34, 2 * (S / 2) * Math.sin(Math.PI / n) * 0.8), R = Math.min(A.w / 2 - box * 0.65, A.h / 2 - box / 2);
-  const angles = around(n), gapDeg = (Math.asin(Math.min(1, (box * 0.6) / R)) * 180) / Math.PI;
-  const out = ringArrows(n, cx, cy, R, R * 0.07, gapDeg, angles);
+  const box = Math.min(S * 0.3, 2 * (S / 2) * Math.sin(Math.PI / n) * 0.7), R = Math.min(A.w / 2 - box * 0.65, A.h / 2 - box / 2);
+  const angles = around(n), gapDeg = (Math.asin(Math.min(1, (box * 0.5) / R)) * 180) / Math.PI + 3;
+  const out = ringArrows(n, cx, cy, R, R * 0.09, gapDeg, angles);
   angles.forEach((a, i) => out.push(shape('rect', cx + R * Math.cos(rad(a)) - box * 0.65, cy + R * Math.sin(rad(a)) - box / 2, box * 1.3, box,
     { role: 'text', item: roots[i].i, ci: i, paras: all(roots[i]) })));
   return out;
@@ -382,7 +383,7 @@ function treeChart(roots, A, horizontal) {
   });
   walk(roots, (n, s, e, level, parent) => {
     const b = boxes.get(n), ci = level === 0 ? 0 : level;
-    out.push(node('rect', b.x, b.y, b.w, b.h, n, ci, { paras: own(n), fit: `level${Math.min(level, 2)}` }));
+    out.push(node('rect', b.x, b.y, b.w, b.h, n, ci, { paras: own(n), fit: level ? 'levels' : 'level0' }));
     if (!parent) return;
     const p = boxes.get(parent);
     if (horizontal) {
@@ -592,9 +593,10 @@ function bands(roots, A, inverted) {
     const x = x0 + (B - wide) / 2, y = y0 + top, inset = (wide - narrow) / 2;
     const apex = narrow < 1;
     const kind = inverted ? (apex ? 'invTriangle' : 'invTrapezoid') : (apex ? 'triangle' : 'trapezoid');
-    const tw = apex ? wide * 0.45 : (wide + narrow) / 2 * 0.86;
+    // The apex's text sits in its broad half, as wide as the triangle there allows.
+    const tw = apex ? wide * 0.56 : (wide + narrow) / 2 * 0.86;
     return node(kind, x, y, wide, bh, r, i, { adj: { inset }, fit: apex ? 'apex' : 'band',
-      text: { x: x + (wide - tw) / 2, y: apex ? y + bh * (inverted ? 0.05 : 0.4) : y, w: tw, h: apex ? bh * 0.55 : bh } });
+      text: { x: x + (wide - tw) / 2, y: apex ? y + bh * (inverted ? 0.04 : 0.4) : y, w: tw, h: apex ? bh * 0.56 : bh } });
   });
 }
 
