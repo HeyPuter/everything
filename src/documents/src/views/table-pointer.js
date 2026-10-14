@@ -205,7 +205,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     } else if (d.kind === 'insertRow' || d.kind === 'insertColumn') {
       const h = d.hit;
       commit(m => {
-        if (d.kind === 'insertRow') { m.cellBlock = null; m.selectCell(table.rows[h.row].cells[0].id); return T.insertRows(m, { above: h.above, count: 1 }); }
+        // Select a cell that begins in that row (a cell merged from above has no text of its own).
+        if (d.kind === 'insertRow') { m.cellBlock = null; const owners = verticalMerges(table); const own = table.rows[h.row].cells.find(c => owners.get(c.id).cell === c && owners.get(c.id).endRow === h.row) || table.rows[h.row].cells.find(c => owners.get(c.id).cell === c) || owners.get(table.rows[h.row].cells[0].id).cell; m.selectCell(own.id); return T.insertRows(m, { above: h.above, count: 1 }); }
         const cell = d.frame.cells.find(c => c.column === h.column) || d.frame.cells.find(c => c.column + (c.span ?? 1) === h.column);
         m.selectCell(cell.id);
         return T.insertColumns(m, { left: cell.column === h.column, count: 1, widths: widths(table) });
