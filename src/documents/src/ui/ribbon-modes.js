@@ -69,7 +69,6 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
   collapse.addEventListener('mousedown', e => e.preventDefault());
   // Both are reachable from View > Ribbon and the chord; they stay out of the Tab order between the tabs and the commands.
   collapse.tabIndex = -1;
-  toolbar.append(collapse);
   const options = el('button.ed-ribbon-options', { type: 'button', 'aria-label': 'Ribbon display options', title: 'Ribbon display options', 'aria-haspopup': 'menu',
     onclick: e => openMenu({ anchor: options, label: 'Ribbon display options', align: 'end', minWidth: 240, pointer: !!e.detail, onClose: e.detail ? focusEditor : null, items: [
       { label: 'Always Show the Ribbon', radio: true, checked: mode === 'always', onSelect: () => setMode('always') },
@@ -78,7 +77,8 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
       { separator: true }, { label: 'Show KeyTips', hint: IS_MAC ? 'Option' : 'Alt', onSelect: () => keyTips.show() }] }) }, commandIconEl('more', 16));
   options.addEventListener('mousedown', e => e.preventDefault());
   options.tabIndex = -1;
-  tabRow.append(options);
+  // Both sit at the right end of the tab row, where they take no room from the commands.
+  tabRow.append(options, collapse);
   const reveal = el('button.ed-ribbon-reveal', { type: 'button', 'aria-label': 'Show the ribbon', title: 'Show the ribbon', onclick: () => { peek(true); tabRow.querySelector('.ribbon-tab[aria-selected="true"]')?.focus(); } }, commandIconEl('more', 16));
   titleBar.querySelector('.canvas-title-actions')?.prepend(reveal);
 

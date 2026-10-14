@@ -103,12 +103,10 @@ input:disabled + .ed-switch { opacity: .5; }
 /* ---- Ribbon display: tabs only, auto-hide, and the commands shown over the document ---- */
 .ed-workspace { position: relative; }
 .ed-ribbon { position: relative; }
-/* Room at the card's right end for the collapse button. */
-.ed-ribbon .ribbon-panel { padding-right: 30px; }
-@media (max-width: 700px) { .ed-ribbon .ribbon-panel { padding-right: 4px; } }
+
 .ed-ribbon-toggle {
-  position: absolute; right: calc(14px + var(--safe-r)); bottom: 9px; z-index: 2; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: var(--ed-ink-3);
+  align-self: center; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 24px; border: 0; border-radius: 5px; background: transparent; color: var(--ed-ink-3);
 }
 .ed-ribbon-toggle:hover { background: var(--ed-hover); color: var(--ed-ink); }
 .ed-ribbon-options { margin-left: auto; align-self: center; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; border: 0; border-radius: 5px; background: transparent; color: var(--ed-ink-3); flex: none; }
