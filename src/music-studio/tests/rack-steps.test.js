@@ -171,3 +171,26 @@ describe('editor helpers', () => {
     expect(KEY_MAP.Comma).toBe(KEY_MAP.KeyQ);
   });
 });
+
+describe('song mode step playhead', () => {
+  it('maps the song position into the first playing clip of the pattern', async () => {
+    const { createClip } = await import('../src/model/project.js');
+    const p = newProject();
+    const pat = p.patterns[0].id;
+    const bar = PPQ * 4;
+    const project = {
+      ...p,
+      clips: [
+        createClip({ kind: 'pattern', track: 2, start: 0, len: bar * 2, ref: pat }),
+        createClip({ kind: 'pattern', track: 0, start: bar, len: bar, offset: STEP * 4, ref: pat }),
+        { ...createClip({ kind: 'pattern', track: 1, start: bar * 3, len: bar, ref: pat }), mute: true },
+        createClip({ kind: 'pattern', track: 0, start: bar * 4, len: bar, ref: 'other' }),
+      ],
+    };
+    expect(S.songStepAt(project, pat, STEP * 3)).toBe(3); // only the track 2 clip
+    expect(S.songStepAt(project, pat, bar + STEP)).toBe(5); // track 0 wins, offset by 4 steps
+    expect(S.songStepAt(project, pat, bar * 3 + STEP)).toBe(-1); // muted clip
+    expect(S.songStepAt(project, pat, bar * 4)).toBe(-1); // another pattern
+    expect(S.songStepAt(project, pat, bar * 2)).toBe(-1); // clip ends are exclusive
+  });
+});
