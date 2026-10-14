@@ -27,7 +27,20 @@ export function classicMenus(ctx) {
   const sub = (label, items, extra = {}) => { const list = tidy(items); return list.some(i => i && !i.separator && !i.header) ? { label, items: list, ...extra } : null; };
   const anchor = () => ctx.menuAnchor?.() || document.activeElement;
   const ext = id => { try { return tidy(w.extendMenu?.(id, kit) || []); } catch (e) { console.error(e); return []; } };
-  const withExt = (id, items) => { const extra = ext(id); return tidy([...items, ...(extra.length ? [sep, ...extra] : [])]); };
+  // A module's entry takes the place of the built-in entry with the same name (it owns that command);
+  // its other entries follow after a separator, each name once.
+  const withExt = (id, items) => {
+    const key = item => item && !item.separator && item.label ? String(item.label).replace(/…$/, '').trim().toLowerCase() : null;
+    const base = tidy(items), positions = new Map(base.map((item, i) => [key(item), i]).filter(([k]) => k));
+    const extra = [], seen = new Set();
+    for (const item of ext(id)) {
+      const k = key(item);
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      if (k && positions.has(k)) base[positions.get(k)] = item; else extra.push(item);
+    }
+    return tidy([...base, ...(extra.some(item => !item.separator) ? [sep, ...extra] : [])]);
+  };
 
   const file = () => withExt('file', [
     { label: 'New Document', icon: 'filePlus', onSelect: () => a.newDocument?.() },

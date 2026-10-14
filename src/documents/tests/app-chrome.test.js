@@ -141,6 +141,12 @@ describe('classic menus', () => {
     expect(tools.at(-2).separator).toBe(true);
     expect(labels(menus.find(m => m.id === 'help').items())).not.toContain('Mail Merge…');
   });
+  it('lets a module entry take the place of the built-in one with the same name', () => {
+    const own = { label: 'Symbol…', onSelect() {}, hint: 'module' };
+    const insert = build({ insertSymbol() {}, extendMenu: id => id === 'insert' ? [own, { label: 'Equation', onSelect() {} }, { label: 'Symbol', onSelect() {} }] : [] }).find(m => m.id === 'insert').items();
+    expect(insert.filter(i => /^symbol/i.test(i.label || ''))).toEqual([own]);
+    expect(insert.at(-1).label).toBe('Equation');
+  });
   it('tidies separators', () => {
     expect(tidy([{ separator: true }, null, { label: 'A' }, { separator: true }, { separator: true }, { label: 'B' }, { separator: true }])).toEqual([{ label: 'A' }, { separator: true }, { label: 'B' }]);
   });
