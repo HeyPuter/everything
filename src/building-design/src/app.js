@@ -14,15 +14,15 @@ import { h, clear, MOD } from './ui/dom.js';
 import { icon, KIND_ICON } from './ui/icons.js';
 import { COMMANDS } from './commands.js';
 import { Scene, MODEL_KINDS } from './core/scene.js';
-import { createProject, default3DView, planView } from './core/template.js';
+import { createProject, default3DView } from './core/template.js';
 import { createSampleProject } from './core/sample.js';
 import { isView, newId } from './core/doc.js';
-import { categoryOf, KIND_LABEL, TYPE_KIND, defaultTypeFor } from './core/catalog.js';
+import { categoryOf, defaultTypeFor } from './core/catalog.js';
 import { describe as describeEl } from './core/props.js';
-import { formatArea, formatLength, parseLength, scaleOptions } from './core/units.js';
+import { formatArea, formatLength, parseLength } from './core/units.js';
 import { temporaryDimensions } from './editor/tempdims.js';
 import { drawTempDim } from './views/overlay.js';
-import { deleteElements, copyElements, translation, moveElements, uniqueName } from './core/ops.js';
+import { deleteElements, moveElements, uniqueName } from './core/ops.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
 import { ModelController } from './views/model.js';
@@ -33,7 +33,18 @@ import { SketchTool, createLevel } from './editor/draw.js';
 import { FLAG } from './render/gl.js';
 import * as dialogs from './ui/dialogs.js';
 import * as files from './io/files.js';
-import { isSignedIn, getUser, signIn, signOut, canSignOut, whenPuter, cachedProfilePicture, fetchProfilePicture, clearProfilePicture, puterAvailable } from './platform.js';
+import {
+  isSignedIn,
+  getUser,
+  signIn,
+  signOut,
+  canSignOut,
+  whenPuter,
+  cachedProfilePicture,
+  fetchProfilePicture,
+  clearProfilePicture,
+  puterAvailable,
+} from './platform.js';
 import { renderViewbar } from './ui/viewbar.js';
 import { renderHome } from './ui/home.js';
 import { Settings } from './settings.js';
@@ -1521,4 +1532,3 @@ export class App {
   }
 }
 
-export { planView, KIND_LABEL, TYPE_KIND, scaleOptions, copyElements, translation };

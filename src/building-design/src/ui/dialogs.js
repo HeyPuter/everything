@@ -6,10 +6,9 @@
 import { h, clear, MOD } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { openDialog, toast, confirmDialog, promptDialog } from './dialog.js';
-import { roving } from './roving.js';
 import { COMMANDS } from '../commands.js';
 import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/catalog.js';
-import { TYPE_PARAMS, SHEET_SIZES } from '../core/props.js';
+import { TYPE_PARAMS } from '../core/props.js';
 import { formatLength, parseLength, MM_PER_FOOT } from '../core/units.js';
 import { uniqueName, deleteElements } from '../core/ops.js';
 import { planView } from '../core/template.js';
@@ -909,4 +908,3 @@ export function modifySheet(app) {
   return toolGrid(app, ['modify', 'move', 'copy', 'rotate', 'mirrorPick', 'align', 'offset', 'trim', 'split', 'array', 'delete', 'flip', 'editType', 'tempIsolate', 'tempReset', 'zoomFit', 'save', 'export', 'redo'], 'Modify');
 }
 
-export { roving, typeThickness };

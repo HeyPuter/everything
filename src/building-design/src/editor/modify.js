@@ -3,8 +3,20 @@
  * align, offset, trim/extend, split, measure, match type.
  */
 import { Tool, isNumericStart } from './tool.js';
-import { add, sub, scale, dot, norm, perp, dist, len, angleOf, mid, closestOnSegment, lineIntersect, cross } from '../core/geom.js';
-import { transformElements, copyElements, translation, rotation, mirrorAcross, splitWall, cornerWalls, extendToLine, offsetElement, arrayLinear, moveElements } from '../core/ops.js';
+import { add, sub, scale, dot, norm, perp, dist, len, angleOf, closestOnSegment, cross } from '../core/geom.js';
+import {
+  transformElements,
+  copyElements,
+  translation,
+  rotation,
+  mirrorAcross,
+  splitWall,
+  cornerWalls,
+  extendToLine,
+  offsetElement,
+  arrayLinear,
+  moveElements,
+} from '../core/ops.js';
 import { formatAngle, parseAngle } from '../core/units.js';
 import { strokeModel, drawTempDim, drawTag } from '../views/overlay.js';
 import { previewGraphics } from './draw.js';
@@ -779,4 +791,3 @@ export class ZoomRegionTool extends Tool {
   }
 }
 
-export { lineIntersect, mid };

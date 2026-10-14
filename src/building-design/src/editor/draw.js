@@ -5,8 +5,26 @@
  * views (sections, elevations) and levels.
  */
 import { Tool, isNumericStart } from './tool.js';
-import { add, sub, scale, dot, norm, perp, dist, len, angleOf, rectPolygon, signedArea, offsetPolygon, mid, rotate, cleanPolygon, closestOnSegment, area as polyArea } from '../core/geom.js';
-import { typeThickness, defaultTypeFor, TYPE_KIND } from '../core/catalog.js';
+import {
+  add,
+  sub,
+  scale,
+  dot,
+  norm,
+  perp,
+  dist,
+  len,
+  angleOf,
+  rectPolygon,
+  signedArea,
+  offsetPolygon,
+  mid,
+  rotate,
+  cleanPolygon,
+  closestOnSegment,
+  area as polyArea,
+} from '../core/geom.js';
+import { typeThickness } from '../core/catalog.js';
 import { wallAxis, openingSize, hostedBy, stairLayout } from '../core/model.js';
 import { planGraphics, planContext, tagAnchor, sectionFrame } from '../core/plan.js';
 import { nextMark, nextRoomNumber, nextGridName, uniqueName } from '../core/ops.js';
@@ -1524,5 +1542,3 @@ export function createLevel(app, elevation, name) {
   return level;
 }
 
-export const TOOL_TYPE_KIND = TYPE_KIND;
-export { defaultTypeFor };

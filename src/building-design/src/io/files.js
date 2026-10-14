@@ -7,7 +7,24 @@ import { h, clear } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog as modal, toast, unsavedDialog, promptDialog, confirmDialog } from '../ui/dialog.js';
 import { encodeProject, decodeProject, baseName, safeFileName, NATIVE_EXT } from './native.js';
-import { cloudList, cloudRead, cloudWrite, isExistsError, deviceOpen, deviceSave, download, recovery, acquireSessionLock, recentFiles as recent, addRecent, removeRecent, usePuterPickers, puterOpenPicker, puterSavePicker, CLOUD_DIR } from './storage.js';
+import {
+  cloudList,
+  cloudRead,
+  cloudWrite,
+  isExistsError,
+  deviceOpen,
+  deviceSave,
+  download,
+  recovery,
+  acquireSessionLock,
+  recentFiles as recent,
+  addRecent,
+  removeRecent,
+  usePuterPickers,
+  puterOpenPicker,
+  puterSavePicker,
+  CLOUD_DIR,
+} from './storage.js';
 import { isSignedIn, puterAvailable, whenPuter } from '../platform.js';
 import { scheduleRows, scheduleColumns, toCSV } from '../core/schedule.js';
 
@@ -346,4 +363,3 @@ export function exportScheduleCSV(app, id) {
   download(new Blob([csv], { type: 'text/csv' }), `${safeFileName(view.name)}.csv`);
 }
 
-export { download };

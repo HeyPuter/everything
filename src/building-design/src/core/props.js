@@ -6,8 +6,8 @@
  * Types: length, number, angle, text, textarea, bool, select, level,
  * levelOpt (a level or none), material, readonly, button.
  */
-import { verticalExtent, wallAxis, openingSize, stairLayout, levelElevation } from './model.js';
-import { typeThickness, categoryOf, KIND_LABEL } from './catalog.js';
+import { verticalExtent, openingSize, stairLayout } from './model.js';
+import { typeThickness, KIND_LABEL } from './catalog.js';
 import { roofGeometry } from './build3d.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { scaleOptions } from './units.js';
@@ -356,4 +356,3 @@ export function describe(doc, el) {
   return t ? `${base}: ${t.name}` : base;
 }
 
-export { categoryOf, levelElevation, wallAxis };

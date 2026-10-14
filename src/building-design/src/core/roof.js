@@ -5,7 +5,7 @@
  * hips, valleys and ridges without any special cases: the face of plane i is
  * the part of the footprint where plane i is lowest.
  */
-import { clipHalfPlane, ensureCCW, signedArea, dot, sub, dist, cleanPolygon } from './geom.js';
+import { clipHalfPlane, signedArea, dot, sub, dist, cleanPolygon } from './geom.js';
 
 /**
  * planes: [{ edge: i, m: inward unit normal, p: point on edge, k: tan(slope), slope }]

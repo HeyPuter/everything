@@ -4,7 +4,7 @@
  * (called inside a live transaction with the snapped pointer point) or a
  * click handler.
  */
-import { add, sub, scale, norm, perp, dist, mid, dot, eq } from '../core/geom.js';
+import { add, sub, scale, perp, mid, dot, eq } from '../core/geom.js';
 import { wallAxis, openingSize } from '../core/model.js';
 import { sectionFrame } from '../core/plan.js';
 import { dimensionGeometry } from '../core/plan.js';
@@ -190,4 +190,3 @@ export function gripsFor(app, el, vc) {
   return out;
 }
 
-export { dist, norm };

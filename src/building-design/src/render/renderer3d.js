@@ -4,7 +4,7 @@
  * realistic), screen-space feature edges, clip planes (section box, section
  * and elevation depth), transparency, and GPU picking by element index.
  */
-import { createProgram, STATE_GLSL, Grow } from './gl.js';
+import { createProgram, STATE_GLSL } from './gl.js';
 
 const CHUNK = 160;
 export const STYLE = { wireframe: 0, hidden: 1, shaded: 2, consistent: 3, realistic: 4 };

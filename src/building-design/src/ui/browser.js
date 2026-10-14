@@ -7,7 +7,7 @@
 import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { showMenu } from './menu.js';
-import { FAMILY_BY_KIND, CATEGORIES, TYPE_KIND } from '../core/catalog.js';
+import { FAMILY_BY_KIND, CATEGORIES } from '../core/catalog.js';
 
 const TYPE_GROUPS = [
   { label: 'Walls', typeKind: 'wallType', kind: 'wall' },
@@ -299,4 +299,3 @@ function save(v) {
   }
 }
 
-export { TYPE_KIND };

@@ -8,7 +8,7 @@ import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { showMenu } from './menu.js';
 import { instanceParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../core/props.js';
-import { TYPE_KIND, KIND_LABEL, typeLabel, FAMILY_BY_KIND } from '../core/catalog.js';
+import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
 import { isView } from '../core/doc.js';
 
@@ -337,4 +337,3 @@ function saveCollapsed(v) {
   }
 }
 
-export { typeLabel };

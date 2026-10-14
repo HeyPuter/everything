@@ -6,7 +6,7 @@
 import { Tool } from './tool.js';
 import { gripsFor } from './grips.js';
 import { drawGrip, drawFlipArrows } from '../views/overlay.js';
-import { sub, eq, add, dist } from '../core/geom.js';
+import { sub, eq, add } from '../core/geom.js';
 import { transformPatch, translation } from '../core/ops.js';
 import { wallAxis } from '../core/model.js';
 import { dot } from '../core/geom.js';
@@ -356,4 +356,3 @@ function sectionBoxGrips(app, vc) {
   return out;
 }
 
-export { dist };

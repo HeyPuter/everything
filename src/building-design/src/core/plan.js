@@ -9,7 +9,7 @@
  * BG is the canvas colour (used to mask what lies underneath).
  */
 import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf } from './geom.js';
-import { verticalExtent, openingSize, levelElevation, wallAxis, stairLayout } from './model.js';
+import { verticalExtent, openingSize, levelElevation, wallAxis } from './model.js';
 import { axisParam, facePoint, hubsOf } from './walls.js';
 import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid, stairGeometry } from './build3d.js';
 import { buildFamily } from './families.js';

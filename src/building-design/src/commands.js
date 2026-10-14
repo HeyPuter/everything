@@ -5,8 +5,36 @@
  *   { label, icon, run(app, args), enabled(app), keys: 'WA' (typed letters),
  *     accel: 'Ctrl+S', desc, search: extra search words }
  */
-import { WallTool, HostedTool, ComponentTool, LineTool, SketchTool, StairTool, RoomTool, DimensionTool, TextTool, TagTool, SectionTool, ElevationTool, LevelTool, placeRoomsAutomatically, tagAll } from './editor/draw.js';
-import { MoveTool, RotateTool, MirrorTool, ArrayTool, AlignTool, OffsetTool, TrimTool, SplitTool, MeasureTool, MatchTypeTool, ZoomRegionTool } from './editor/modify.js';
+import {
+  WallTool,
+  HostedTool,
+  ComponentTool,
+  LineTool,
+  SketchTool,
+  StairTool,
+  RoomTool,
+  DimensionTool,
+  TextTool,
+  TagTool,
+  SectionTool,
+  ElevationTool,
+  LevelTool,
+  placeRoomsAutomatically,
+  tagAll,
+} from './editor/draw.js';
+import {
+  MoveTool,
+  RotateTool,
+  MirrorTool,
+  ArrayTool,
+  AlignTool,
+  OffsetTool,
+  TrimTool,
+  SplitTool,
+  MeasureTool,
+  MatchTypeTool,
+  ZoomRegionTool,
+} from './editor/modify.js';
 import { deleteElements } from './core/ops.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
