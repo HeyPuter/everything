@@ -928,23 +928,22 @@ export function transitionFor(id, optionId, current) {
   const entry = transitionEntry(id);
   if (!entry) return null;
   const keep = stripEffect(current);
-  if (id === "none") {
-    delete keep.durationMs;
-    delete keep.speed;
-    return { ...keep, effect: "none" };
-  }
+  if (id === "none") return clean({ ...keep, effect: "none" });
   const option =
     entry.options?.find((o) => o.id === optionId) || defaultOption(entry);
-  const durationMs =
-    optionId != null && current?.durationMs != null
-      ? current.durationMs
-      : entry.duration;
-  return clean({
-    ...keep,
-    ...written(entry, option),
-    durationMs,
-    speed: speedFor(durationMs),
-  });
+  // A slide that already has a transition keeps its timing when the effect
+  // changes; one taking its first transition gets the effect's own duration.
+  const timed =
+    !!current?.effect &&
+    (current.effect !== "none" ||
+      current.durationMs !== undefined ||
+      current.speed !== undefined);
+  const durationMs = timed ? current.durationMs : entry.duration;
+  const speed = timed
+    ? (current.speed ??
+      (durationMs === undefined ? "fast" : speedFor(durationMs)))
+    : speedFor(durationMs);
+  return clean({ ...keep, ...written(entry, option), durationMs, speed });
 }
 
 // Drop false defaults that only make the XML noisier.

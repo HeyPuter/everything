@@ -10293,8 +10293,16 @@ function renderInspectorContents(panel, obj) {
                 "aria-label": "Transition",
                 onchange: (e) => setTransition(slide(), e.target.value),
               },
-              ...TRANSITIONS.map(([value, label]) =>
-                el("option", { value }, label),
+              ...transitionTools.groups.map((group) =>
+                el(
+                  "optgroup",
+                  { label: group.label },
+                  ...transitionTools.entries
+                    .filter((entry) => entry.group === group.id)
+                    .map((entry) =>
+                      el("option", { value: entry.id }, entry.label),
+                    ),
+                ),
               ),
             );
             if (current === "other")
@@ -11627,10 +11635,6 @@ function replaceMatch(all) {
  * compatibility alternatives, and every slide can take the same one at once.
  */
 const PLAYABLE_TRANSITIONS = transitionTools.playable;
-const TRANSITIONS = transitionTools.entries.map((entry) => [
-  entry.id,
-  entry.label,
-]);
 function transitionDetails(target, options) {
   return transitionTools.details(target, options);
 }

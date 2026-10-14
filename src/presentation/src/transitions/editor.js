@@ -65,27 +65,19 @@ export function createTransitionTools({
   /** The gallery id of the slide's transition ("other" for an unknown one). */
   const current = (target = slide()) => identify(target).id;
 
-  function choose(
-    target,
-    id,
-    { option = null, all = false, preview = true } = {},
-  ) {
+  async function choose(target, id, { option = null, preview = true } = {}) {
     if (!transitionEntry(id)) return;
-    let changed = false;
-    mutateSlide(target, (target) => {
-      const slides = all ? P.getSlides(pres()) : [target];
-      for (const s of slides) {
-        const now = details(s);
-        const next = transitionFor(id, option, now);
-        if (!next) continue;
-        // An inherited sound belongs to the layout's relationships.
-        if (!P.getSlideTransition(s)) delete next.sound;
-        P.setSlideTransition(s, next);
-        changed = true;
-      }
-      if (!changed) return skip;
+    const part = P.getSlidePartName(target);
+    const applied = await mutateSlide(target, (s) => {
+      const next = transitionFor(id, option, details(s));
+      // An inherited sound belongs to the layout's relationships.
+      if (!P.getSlideTransition(s)) delete next.sound;
+      P.setSlideTransition(s, next);
     });
-    if (changed && preview && id !== "none") previewTransition();
+    // Choosing an effect shows it, as desktop editors do.
+    const now = P.getSlides(pres()).find((s) => P.getSlidePartName(s) === part);
+    if (applied && preview && id !== "none" && now && now === slide())
+      previewTransition(now);
   }
 
   // Effect Options: the current entry's options, the current one checked.
@@ -439,6 +431,7 @@ export function createTransitionTools({
     marked,
     markRow,
     entries: TRANSITIONS,
+    groups: TRANSITION_GROUPS,
     playable: PLAYABLE_EFFECTS,
   };
 }

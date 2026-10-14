@@ -170,3 +170,6 @@
     height: 8px;
   }
 }
+.transition-choice .ribbon-gallery-label {
+  max-width: 72px;
+}
