@@ -1369,3 +1369,14 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .ttc-scale span.brk::before, .ttc-line span.brk::before { content: ''; position: absolute; left: -1px; top: 0; bottom: 0; border-left: 2px solid var(--accent); }
 @media (hover: hover) { .ttc-ruler span:hover { background: var(--accent-wash); } }
 @media (max-width: 639px) { .ttc-top { grid-template-columns: 1fr; } }
+
+/* Print: the choices on the left, the pages as they will print on the right. */
+.modal-panel.print-dialog { max-width: min(980px, calc(100vw - 32px)); }
+.print-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+.print-settings { min-width: 0; }
+.print-preview { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; }
+.print-preview-stage { height: 400px; display: grid; place-items: center; background: var(--surface-2); border-radius: var(--r-sm); overflow: hidden; }
+.print-preview-page { display: block; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06); }
+.print-preview-nav { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.print-preview-step:disabled { opacity: 0.35; }
+@media (max-width: 799px) { .print-layout { grid-template-columns: 1fr; } .print-preview { position: static; } }

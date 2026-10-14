@@ -122,6 +122,13 @@ function pageMargins(opts) {
   }));
 }
 
+/** The paper as oriented and its margins, in CSS pixels: { width, height, margins: { top, right, bottom, left } }. */
+export function printPaperBox(opts = {}) {
+  const paper = PAPER_PX[opts.paper] || PAPER_PX[PRINT_DEFAULTS.paper];
+  const [width, height] = opts.orientation === 'landscape' ? [paper[1], paper[0]] : paper;
+  return { width, height, margins: pageMargins(opts) };
+}
+
 export function printableHeight(opts = {}) {
   const paper = PAPER_PX[opts.paper] || PAPER_PX[PRINT_DEFAULTS.paper], margin = pageMargins(opts);
   return Math.max(1, (opts.orientation === 'landscape' ? paper[0] : paper[1]) - margin.top - margin.bottom);
