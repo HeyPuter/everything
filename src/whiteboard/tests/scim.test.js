@@ -1673,3 +1673,22 @@ test("SCIM reads a user's address as identity providers send it", async () => {
   assert.equal(patched.userName, "pat.lee@example.ca");
   assert.equal(patched.name.givenName, "Pat");
 });
+
+test('SCIM takes a primary flag sent as the string "False" as not primary', async () => {
+  const { scim } = await setup();
+  const user = await scim("Users", "POST", {
+    userName: "pat@example.ca",
+    roles: [
+      { value: "member", primary: "False" },
+      { value: "guest", primary: "True" },
+    ],
+  });
+  assert.equal(user.roles[0].value, "guest");
+  const sam = await scim("Users", "POST", {
+    emails: [
+      { value: "sam@gmail.com", primary: "False" },
+      { value: "sam@example.ca", primary: "true" },
+    ],
+  });
+  assert.equal(sam.userName, "sam@example.ca");
+});

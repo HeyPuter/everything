@@ -347,6 +347,8 @@ async function saveChanges(org, before, user) {
   if (Object.keys(changed).length)
     await org.updateUser(user.uuid, changed, { access: true });
 }
+// Some providers send booleans as strings, "True" or "False".
+const primary = (entry) => truthy(entry?.primary);
 // Roles come as a list, but a single role, written as its value or as one
 // role object, is read the same way, as a patch of the roles path is.
 function roleFrom(body, fallback = "member") {
@@ -354,7 +356,7 @@ function roleFrom(body, fallback = "member") {
   const roles = [body?.roles ?? []]
     .flat()
     .map((r) => (r && typeof r === "object" ? r : { value: r }));
-  const role = ext || roles.find((r) => r.primary)?.value || roles[0]?.value;
+  const role = ext || roles.find((r) => primary(r))?.value || roles[0]?.value;
   const canonical = typeof role === "string" ? role.toLowerCase() : role;
   return ["member", "guest"].includes(canonical) ? canonical : fallback;
 }
@@ -394,7 +396,7 @@ function applyAttributes(user, body) {
 function scimEmail(body) {
   const emails = Array.isArray(body?.emails) ? body.emails : [];
   const email =
-    emails.find((e) => e?.primary === true) ||
+    emails.find((e) => primary(e)) ||
     emails.find((e) => e?.type === "work") ||
     emails[0];
   const value = body?.userName ?? email?.value;
