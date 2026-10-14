@@ -99,8 +99,8 @@ export class App extends Emitter {
     this.store.apply(label, (p) => E.setProjectProps(p, { bpm }));
   }
 
-  /** Adds a channel to the rack on the next free mixer insert and selects it. */
-  addChannel({ type = 'synth', name, params, sample = null, select = true } = {}) {
+  /** Adds a channel to the rack on the next free mixer insert and selects it. `index` places it (default: last). */
+  addChannel({ type = 'synth', name, params, sample = null, select = true, index } = {}) {
     const p = this.store.project;
     const usedInserts = new Set(p.channels.map((c) => c.mixer));
     let insert = 1;
@@ -108,7 +108,7 @@ export class App extends Emitter {
     if (usedInserts.has(insert)) insert = 0;
     const ch = createChannel({ type, name, params, sample, color: colorAt(p.channels.length), mixer: insert });
     this.store.apply(`Add ${name || 'channel'}`, (proj) => {
-      let next = E.addChannel(proj, ch);
+      let next = E.addChannel(proj, ch, index ?? proj.channels.length);
       if (insert > 0) next = E.updateMixerTrack(next, insert, { name: ch.name, color: ch.color });
       return next;
     });
