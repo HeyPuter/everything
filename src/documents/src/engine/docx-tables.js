@@ -548,7 +548,7 @@ export function writeTable(block, doc, writeParagraph) {
       if (cell.textDirectionChanged || !cell.shell && cell.textDirectionExplicit) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }
         child(pr, 'textDirection')?.remove();
-        if (cell.textDirectionExplicit && cell.textDirection !== 'lrTb') pr.insertBefore(prop('textDirection', { val: cell.textDirection }), children(pr).find(n => ['tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
+        if (cell.textDirectionExplicit) pr.insertBefore(prop('textDirection', { val: cell.textDirection }), children(pr).find(n => ['tcFitText', 'vAlign', 'hideMark', 'headers', 'cellIns', 'cellDel', 'cellMerge', 'tcPrChange'].includes(n.localName)) || null);
       }
       if (cell.shadingChanged || !cell.shell && cell.shadingExplicit) {
         let pr = child(tc, 'tcPr'); if (!pr) { pr = make('tcPr'); tc.prepend(pr); }

@@ -42,6 +42,14 @@ it('retains explicit directions when authoring new cell shells after row inserti
   d.undo(); sameParts(await save(p, d), p.parts);
 });
 
+it('writes an explicit horizontal direction on new cell shells so it still overrides the table style', async () => {
+  const p = await DocxPackage.open(source('styles')), d = model(p);
+  d.selectCell(d.tables[3].rows[0].cells[0].id); d.insertTableRow();
+  for (const cell of d.tableContext.row.cells) cell.shell = null;
+  const again = await DocxPackage.open(await save(p, d));
+  expect(again.tables[3].rows[1].cells.map(c => c.textDirection)).toEqual(['tbRl', 'lrTb']);
+});
+
 it('keeps ignored style directions inactive through topology changes and preserves their XML', async () => {
   const p = await DocxPackage.open(source('styles')), d = model(p), table = d.tables[0];
   expect(directions(table)).toEqual([['lrTb', 'lrTb'], ['lrTb', 'tbRl'], ['lrTb', 'lrTb']]);
