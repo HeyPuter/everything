@@ -92,6 +92,8 @@ addTranslations({
     "Seuls le propriétaire du tableau ou un administrateur peuvent en transférer la propriété.",
   "Only the board owner or an administrator can connect Slack.":
     "Seuls le propriétaire du tableau ou un administrateur peuvent connecter Slack.",
+  "Your organization has turned off Slack.":
+    "Votre organisation a désactivé Slack.",
   "Only the server owner can create boards.":
     "Seul le propriétaire du serveur peut créer des tableaux.",
   // Saving and sharing

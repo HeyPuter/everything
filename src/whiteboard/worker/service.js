@@ -3149,6 +3149,11 @@ export class BoardService {
         !/^https:\/\/hooks\.slack\.com\//.test(String(input.slack))
       )
         fail(400, "Enter a Slack incoming webhook URL.");
+      // A channel connected while Slack is off would start hearing about
+      // the board as soon as it is turned on, without an administrator
+      // having seen it; disconnecting is always allowed.
+      if (input.slack && !policy.integrations.slack.enabled)
+        fail(403, "Your organization has turned off Slack.");
     }
     const changes = {};
     if (input.visibility !== undefined) {

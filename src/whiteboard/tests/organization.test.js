@@ -3905,6 +3905,15 @@ test("only the board owner or an administrator connects a board to Slack", async
   });
   await join({ service: boards }, editor, { room, token });
   const hook = "https://hooks.slack.com/services/T/B/x";
+  // Nobody connects a channel while the organization has Slack off.
+  await assert.rejects(
+    boards.call(owner, { op: "settings", room, slack: hook }),
+    { status: 403, message: "Your organization has turned off Slack." },
+  );
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { integrations: { slack: { enabled: true } } },
+  });
   await assert.rejects(
     boards.call(editor, { op: "settings", room, slack: hook }),
     { status: 403 },
