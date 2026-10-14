@@ -2,6 +2,7 @@ import { textEditHistory } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
+import { createSlideAnimator } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -85,9 +86,13 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createReview } from "./review/index.js";
+import { createChartTools } from "./charts/chart-tools.js";
+import { createSmartArtTools } from "./smartart/smartart-tools.js";
 import { createFileTools } from "./export/file-tools.js";
 import { createInsertFeatures } from "./insert/index.js";
 import { createShowFeatures } from "./show/index.js";
+import { createAnimationTools } from "./animations/editor.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
@@ -626,6 +631,9 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
         ["Ctrl / ⌘ + J", "Open or close the AI assistant"],
+        ["Ctrl / ⌘ + Shift + M", "New comment"],
+        ["F7", "Check spelling"],
+        ["Shift + F7", "Thesaurus"],
         [
           "Ctrl / ⌘ + 1 / 2 / 3 / 4 / 5",
           "Normal, Slide Sorter, Notes Page, Outline View, Reading View",
@@ -2048,6 +2056,10 @@ function mutate(
   { coalesce = null, onError = fail, onApplied = null } = {},
 ) {
   if (!doc || readOnlyDocument()) return Promise.resolve(false);
+  if (review.blocksEdits()) {
+    review.blockedEdit();
+    return Promise.resolve(false);
+  }
   pendingMutations++;
   const active = doc;
   // Resolves to whether the edit was applied: a control that committed a
@@ -3073,6 +3085,7 @@ function renderEditor() {
     ),
   );
   mountAssistant();
+  review.mount();
   updateSaveStatus();
   renderSlideArea();
   renderInspector();
@@ -3101,6 +3114,7 @@ function editorTopbar() {
       ["Format", formatMenu],
       ["Arrange", arrangeMenuBar],
       ["Slide", slidesMenu],
+      ["Tools", menuFor("Tools", () => review.toolsMenu())],
       ["Slide Show", slideShowMenuBar],
       ["Help", helpMenu],
     ].map(([label, open]) => ({ label, open })),
@@ -3320,8 +3334,137 @@ let ribbonTab = "home";
 const extraTabProviders = [
   () => [drawTools.tab()],
   () => insertFeatures.tabs(),
+  () => chartTools.tabs(),
+  () => smartArtTools.tabs(),
+  () => [animationTools.tab()],
   () => [showFeatures.recordTab()],
 ];
+// Comments, proofing, accessibility, compare and the read-only mark
+// (review/). It reaches the editor through this surface.
+const review = createReview({
+  doc: () => doc,
+  pres: () => doc?.pres || null,
+  slide: () => slide(),
+  index: () => index,
+  revision: () => revision,
+  chooseSlide: (target) => chooseSlide(target),
+  showObjects: (part, ids) => showObjects(part, ids),
+  selectionIds: () => (doc ? [...selectionIds()] : []),
+  currentShape: () => (doc ? currentShape() : null),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  mutateShape: (shape, fn) => mutateShape(shape, fn),
+  SKIP: SKIP_MUTATION,
+  size: () => currentSize(),
+  slideBounds: (shape) => slideBounds(doc.pres, shape),
+  account: () => account,
+  isTable: (shape) => isTable(shape),
+  replaceInShape: (shape, re, value, only) =>
+    replaceInShape(shape, re, value, only),
+  replaceInCell: (cell, re, value, only) =>
+    replaceInCell(cell, re, value, only),
+  editor: () => richEditor,
+  editShapeText: (part, id) => {
+    if (P.getSlidePartName(slide()) !== part) return;
+    const target = P.findShapeById(slide(), id);
+    if (target) editText(target);
+  },
+  altText: () => altText().catch(fail),
+  setText: (shape, value) => setText(shape, value),
+  setLanguage: (shape, language) =>
+    formatText(withTextBody(shape), { language }),
+  languageItems: () => languageItems(),
+  textColors: (shape) => reviewTextColors(shape),
+  fixContrast: (shape) => fixTextContrast(shape),
+  addTitle: (issue, options) => addAccessibleTitle(issue, options),
+  showIssue: async (issue) => {
+    if (P.getSlidePartName(slide()) !== issue.part)
+      await chooseSlide(issue.slide);
+    showObjects(issue.part, issue.shapeId != null ? [issue.shapeId] : []);
+  },
+  syncToolbar: () => syncToolbar(),
+  refreshEditor: () => {
+    if (view !== "editor") return;
+    renderSlideArea();
+    renderInspector();
+    syncToolbar();
+  },
+  commitText: () => commitText(),
+  settled: () => settled(),
+  fail: (e) => fail(e),
+});
+// The text's colour and the colour behind it, for the contrast check.
+function reviewTextColors(shape) {
+  try {
+    if (!canHoldText(shape) || isTable(shape)) return null;
+    const format = P.getShapeRunFormatEffective(doc.pres, shape, 0, 0);
+    const text = format?.color;
+    if (!text || !/^#?[0-9a-f]{6}$/i.test(text)) return null;
+    const background =
+      P.getShapeFillColorResolvedEffective(doc.pres, shape) ||
+      slideBackground(P.getShapeSlide(shape)).color;
+    if (!background) return null;
+    return {
+      text,
+      background,
+      size: format.size || 18,
+      bold: !!format.bold,
+    };
+  } catch {
+    return null;
+  }
+}
+function fixTextContrast(shape) {
+  if (!shape) return;
+  return mutateShape(shape, (target) => {
+    const colors = reviewTextColors(target);
+    if (!colors) return SKIP_MUTATION;
+    const color = legibleColor(
+      colors.background,
+      [THEMES[theme].ink, "#000000", "#FFFFFF"],
+      4.5,
+    );
+    formatText(target, { color });
+  });
+}
+// A title for a slide without one: in the layout's title position, or just
+// above the slide where only screen readers find it.
+function addAccessibleTitle(issue, { hidden }) {
+  const value = hidden
+    ? (slideDescription(issue.slide, doc.pres) || "")
+        .split("\n")[0]
+        .slice(0, 80) || `Slide ${issue.index + 1}`
+    : `Slide ${issue.index + 1}`;
+  return mutateSlide(issue.slide, (target) => {
+    const size = currentSize();
+    const layout = P.getSlideLayout(target);
+    const fromLayout =
+      layout &&
+      P.getSlideLayoutPlaceholders(layout).some((ph) =>
+        ["title", "ctrTitle"].includes(ph.type),
+      );
+    const added = P.addSlideTitlePlaceholder(target, value, {
+      hidden,
+      slideHeight: size.cy,
+      box: hidden
+        ? {
+            x: 0,
+            y: -Math.round(size.cy * 0.2),
+            w: size.cx,
+            h: Math.round(size.cy * 0.12),
+          }
+        : fromLayout
+          ? undefined
+          : {
+              x: Math.round(size.cx * 0.06),
+              y: Math.round(size.cy * 0.05),
+              w: Math.round(size.cx * 0.88),
+              h: Math.round(size.cy * 0.16),
+            },
+    });
+    if (!hidden) selectIds([P.getShapeId(added)]);
+  });
+}
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3332,6 +3475,58 @@ const drawTools = createDrawTools({
   onToolChange: () => {
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
+  },
+}); // Charts: Insert Chart, the data sheet, and the Chart Design and Format tabs.
+const chartTools = createChartTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  showFormatPane: () => show("formatPane", true),
+  refresh: () => {
+    renderInspector();
+  },
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
+  },
+}); // SmartArt: inserting graphics, the Text Pane, the SmartArt Design tab, and
+// Convert to SmartArt for bulleted text.
+const smartArtTools = createSmartArtTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  refreshRibbon: () => syncToolbar(),
+  removeShape: (target, shape) => removeAnyShape(target, shape),
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  setIndentLevel: (shape, i, level, bulleted) =>
+    setParagraphIndentLevel(shape, i, level, bulleted),
+  canHoldText: (shape) => canHoldText(shape),
+  displayText: (shape) => displayShapeText(doc.pres, shape),
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
   },
 });
 // Icons, media, screenshots, photo albums, equations, header and footer,
@@ -3388,6 +3583,34 @@ const showFeatures = createShowFeatures({
   select: (ids) => selectIds(ids),
   exportVideo: () => fileTools.openExportDialog("video"),
 });
+// The Animations tab, the Animation Pane and animation previews.
+const animationTools = createAnimationTools({
+  P,
+  modKey: MOD_KEY,
+  doc: () => doc,
+  slide: () => doc && slide(),
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    selectIds(ids);
+    renderSelection();
+    renderInspector();
+  },
+  topLevelShapes: (s) => {
+    const parents = groupParents(s);
+    return P.getSlideShapes(s).filter((x) => !parents.has(P.getShapeId(x)));
+  },
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  slideSize: () => currentSize(),
+  // One line, for lists and menus.
+  shapeLabel: (shape) =>
+    truncateLabel(shapeLabel(shape, doc.pres).replace(/\s+/g, " ").trim(), 60),
+  renderLayer: (s, layer) => preview(doc.pres, s, layer),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  canvas: () => document.querySelector("#slide-canvas"),
+  editorBody: () => document.querySelector(".editor-body"),
+  refresh: () => syncToolbar(),
+});
+
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -3395,9 +3618,11 @@ function editorRibbon() {
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
+      animationTools.setTabActive(id === "animations");
     },
   });
   ribbon.onError(fail);
+  animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
   return ribbon.el;
 }
@@ -3624,7 +3849,7 @@ function statusBar() {
           type: "button",
           class: "status-item status-button desktop-only",
           id: "status-accessibility",
-          onclick: run(checkAccessibility),
+          onclick: () => checkAccessibility(),
         },
         icon("o:accessibility", 15),
         el("span", {}, "Accessibility: Investigate"),
@@ -3766,12 +3991,7 @@ function updateStatusBar() {
       String(node.dataset.view === currentView()),
     );
   const a11y = document.querySelector("#status-accessibility span");
-  if (a11y && doc) {
-    const issues = accessibilityIssues().length;
-    a11y.textContent = issues
-      ? "Accessibility: Investigate"
-      : "Accessibility: Good to go";
-  }
+  if (a11y && doc) a11y.textContent = review.accessibilityStatus();
 }
 // The proofing language of the deck's text: what the browser's spell checker
 // is told, and what new text is marked with.
@@ -3826,108 +4046,9 @@ function languageItems() {
     })),
   ];
 }
-// The accessibility checker: pictures without alternative text, slides
-// without titles, and text whose colour is too close to its background.
-function accessibilityIssues() {
-  const issues = [];
-  if (!doc) return issues;
-  P.getSlides(doc.pres).forEach((s, i) => {
-    let titled = false;
-    for (const shape of visibleSlideShapes(s)) {
-      const kind = P.getShapeKind(shape);
-      if (kind === "picture" && !P.getShapeDescription?.(shape))
-        issues.push({
-          slide: s,
-          index: i,
-          shape,
-          kind: "Missing alternative text",
-          hint: shapeLabel(shape, doc.pres),
-        });
-      if (
-        P.getShapePlaceholderType?.(shape) === "title" ||
-        P.getShapePlaceholderType?.(shape) === "ctrTitle"
-      )
-        titled = titled || !!shapeText(shape, doc.pres)?.trim();
-    }
-    if (!titled && !slideTitle(s, doc.pres))
-      issues.push({
-        slide: s,
-        index: i,
-        kind: "Missing slide title",
-        hint: `Slide ${i + 1}`,
-      });
-  });
-  return issues;
-}
-async function checkAccessibility() {
-  const issues = accessibilityIssues();
-  const list = el("div", { class: "a11y-list" });
-  if (!issues.length)
-    list.append(
-      el(
-        "p",
-        {},
-        "No accessibility issues found. People with disabilities should not have difficulty reading this presentation.",
-      ),
-    );
-  const groups = Map.groupBy
-    ? Map.groupBy(issues, (x) => x.kind)
-    : new Map(
-        issues.reduce(
-          (m, x) => m.set(x.kind, [...(m.get(x.kind) || []), x]),
-          new Map(),
-        ),
-      );
-  let picked = null;
-  for (const [kind, entries] of groups) {
-    list.append(el("h3", {}, `${kind} (${entries.length})`));
-    const ul = el("ul", {});
-    for (const issue of entries)
-      ul.append(
-        el(
-          "li",
-          {},
-          el(
-            "button",
-            {
-              type: "button",
-              class: "text-button",
-              onclick: (e) => {
-                picked = issue;
-                e.currentTarget
-                  .closest("dialog")
-                  ?.dispatchEvent(new Event("cancel"));
-              },
-            },
-            `${issue.hint}${issue.shape ? ` (slide ${issue.index + 1})` : ""}`,
-          ),
-        ),
-      );
-    list.append(ul);
-  }
-  list.append(
-    el(
-      "p",
-      { class: "helper" },
-      "Add alternative text with Review › Alt Text, and give every slide a title so people using screen readers can find their way.",
-    ),
-  );
-  await dialog({
-    title: "Accessibility",
-    body: el("div", { class: "dialog-body" }, list),
-    cancel: null,
-    confirm: "Close",
-  });
-  if (picked) {
-    await chooseSlide(picked.slide);
-    if (picked.shape) {
-      selectIds([P.getShapeId(picked.shape)]);
-      renderSelection();
-      renderInspector();
-      if (picked.kind === "Missing alternative text") altText();
-    }
-  }
-  updateStatusBar();
+// The accessibility checker lives with the review panes (review/).
+function checkAccessibility() {
+  review.openAccessibility();
 }
 // Alternative text for the selected object, in a dialog of its own.
 async function altText() {
@@ -5404,11 +5525,22 @@ function ribbonApi() {
     const list = selectedShapes();
     if (!list.length) return null;
     if (list.length === 1 && isTable(list[0])) return "table";
+    if (list.length === 1 && chartTools.isChart(list[0])) return "chart";
+    if (list.length === 1 && smartArtTools.isSmartArt(list[0]))
+      return "smartart";
     if (list.every((s) => P.getShapeKind(s) === "picture")) return "picture";
     return "shape";
   };
   return {
     extraTabs: () => extraTabProviders.flatMap((provide) => provide()),
+    insertChart: () => chartTools.insert(),
+    ...(P.addSlideSmartArt
+      ? {
+          insertSmartArt: () => smartArtTools.insert(),
+          canConvertToSmartArt: () => smartArtTools.canConvert(),
+          convertToSmartArtMenu: () => smartArtTools.convertMenu(),
+        }
+      : {}),
     modKey: MOD_KEY,
     newSlideKeys: IS_MAC ? "⌘+Shift+N" : "Ctrl+M",
     selection: () => selectedShapes(),
@@ -5867,8 +5999,12 @@ function ribbonApi() {
     toggleHideSlide: () =>
       setSlidesHidden(actionSlides(slide()), !P.isSlideHidden(slide())),
     // Review
-    spelling: () => checkSpelling(),
-    checkAccessibility: () => checkAccessibility().catch(fail),
+    spelling: () => review.spelling.open(),
+    reviewTab: (api) => review.tab(api),
+    newComment: () => review.newComment(),
+    toggleComments: () => review.comments.toggle(),
+    commentsOpen: () => review.comments.isOpen(),
+    checkAccessibility: () => checkAccessibility(),
     altText: () => altText().catch(fail),
     languageMenu: languageItems,
     // View
@@ -6187,27 +6323,6 @@ function previewTransition() {
     .querySelector(".slide-image")
     ?.animate(frames, { duration, easing: "ease-out" });
 }
-// Spelling: the browser's own checker, switched on for the deck's text and
-// pointed at the slides that have text to check.
-function checkSpelling() {
-  const notes = document.querySelector("#speaker-notes");
-  if (notes) notes.spellcheck = true;
-  const obj = currentShape();
-  if (obj && canEditText(obj)) {
-    editText(obj);
-    toast("Misspelled words are underlined; right-click one for suggestions.");
-    return;
-  }
-  const withText = shapes().find(
-    (s) => canEditText(s) && shapeText(s, doc.pres)?.trim(),
-  );
-  if (withText) {
-    selectIds([P.getShapeId(withText)]);
-    renderSelection();
-    editText(withText);
-    toast("Misspelled words are underlined; right-click one for suggestions.");
-  } else toast("There is no text on this slide to check.");
-}
 // The toolbar's font and size lists are built once and follow the selection.
 // A value they do not carry, as an imported deck's font or half-point size,
 // joins the list in its own order rather than on top of it, and only for as
@@ -6248,6 +6363,7 @@ function syncToolbar() {
     ribbon?.refresh();
     updateStatusBar();
     renderSelectionPane();
+    animationTools.sync();
   });
 }
 const navigatorVisible = () =>
@@ -6678,6 +6794,7 @@ function fileMenu(anchor) {
         disabled: readOnlyDocument(),
         onSelect: pickFont,
       },
+      ...review.fileMenuItems(),
       { separator: true },
       {
         label: "Page setup (slide size)…",
@@ -6725,6 +6842,19 @@ function fileMenu(anchor) {
             { label: "Insert", icon: "Plus", items: insertItems() },
             { label: "Format", icon: "Type", items: formatItems() },
             { label: "Slide", icon: "LayoutTemplate", items: slideItems() },
+            {
+              label: "Review",
+              icon: "o:showComments",
+              items: [
+                {
+                  label: "New Comment",
+                  icon: "o:newComment",
+                  onSelect: () => review.newComment(),
+                },
+                { separator: true },
+                ...review.toolsMenu(),
+              ],
+            },
             {
               label: "Account and settings",
               icon: "User",
@@ -6861,6 +6991,12 @@ function insertItems() {
     { label: "Image", icon: "Image", onSelect: () => insertImage() },
     { label: "Shape", icon: "Square", items: shapeItems() },
     { label: "Table", icon: "Table", onSelect: run(tableDialog) },
+    { label: "Chart…", icon: "o:chart", onSelect: () => chartTools.insert() },
+    P.addSlideSmartArt && {
+      label: "SmartArt…",
+      icon: "o:smartArt",
+      onSelect: () => smartArtTools.insert(),
+    },
     { separator: true },
     {
       label: "Link",
@@ -6997,6 +7133,14 @@ function formatItems() {
       icon: "AlignStartVertical",
       disabled: !obj,
       items: arrangeItems(),
+    },
+    {
+      label: "Animation Painter",
+      icon: "o:animationPainter",
+      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      checked: animationTools.painting,
+      disabled: !animationTools.painting && !animationTools.current().length,
+      onSelect: () => animationTools.startPainter(false),
     },
     { separator: true },
     { label: "Theme", icon: "Palette", onSelect: run(themeDialog) },
@@ -7386,9 +7530,12 @@ function renderSlideArea(refreshNavigator = true) {
       rows.delete(part);
       if (!row) row = slideRow(part);
       row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
+      // A slide with animations is marked beside its number.
+      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
       row.querySelector(".slide-number").textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
       thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+      review.decorateThumb(thumb, s);
       if (i === index) thumb.setAttribute("aria-current", "true");
       else thumb.removeAttribute("aria-current");
       const badge = thumb.querySelector(".slide-hidden");
@@ -7511,7 +7658,9 @@ function renderSlideArea(refreshNavigator = true) {
   };
   renderCanvasAids();
   drawTools.attach();
+  animationTools.attach();
   renderSelection();
+  review.afterRenderSlide();
   focusTarget?.focus();
   const selectedHit =
     focusSelection && canvas.querySelector(".object-hit.selected");
@@ -9334,12 +9483,18 @@ async function editDiagramText(target) {
 
 function editText(target, event = null) {
   if (readOnlyDocument()) return;
+  if (review.blocksEdits()) return review.blockedEdit();
   const i = shapeIndex(target);
   if (i < 0) return;
   const obj = shapes()[i];
   if (insertFeatures.open(obj)) return;
   if (P.isDiagramShape(obj)) {
-    editDiagramText(obj);
+    if (P.getShapeSmartArt?.(obj)?.layout) smartArtTools.openPane(obj);
+    else editDiagramText(obj);
+    return;
+  }
+  if (chartTools.isChart(obj)) {
+    chartTools.editData(obj);
     return;
   }
   if (isTable(obj)) {
@@ -10010,6 +10165,12 @@ function editText(target, event = null) {
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
+    // Spelling, Thesaurus and New Comment work from inside the text too.
+    if (
+      e.key === "F7" ||
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyM")
+    )
+      return;
     e.stopPropagation();
     // Keys pressed while an input method composes text belong to the
     // composition: Escape there drops a candidate, not the whole edit.
@@ -10086,7 +10247,7 @@ function editText(target, event = null) {
   const controls = (node) =>
     node instanceof Element &&
     node.closest(
-      ".ribbon, .ribbon-gallery-panel, .ribbon-fold-panel, #inspector, .menu, .menubar, .mobile-only",
+      ".ribbon, .ribbon-gallery-panel, .ribbon-fold-panel, #inspector, .menu, .menubar, .mobile-only, .review-pane",
     );
   let closed = false;
   function close() {
@@ -10176,7 +10337,36 @@ function editText(target, event = null) {
     setParagraphs,
     paragraphState,
     selectionFormat,
+    // For the review panes and AutoCorrect: the text as typed so far.
+    text: () =>
+      read()
+        .runs.map((run) => run.text)
+        .join(""),
+    selectionOffsets: () => selection(),
+    setSelection,
+    replaceRange,
+    selectedText: () => {
+      const sel = selection();
+      return sel
+        ? read()
+            .runs.map((run) => run.text)
+            .join("")
+            .slice(sel[0], sel[1])
+        : "";
+    },
+    replaceSelection: (value) => {
+      const sel = selection();
+      if (!sel || sel[0] === sel[1]) return false;
+      replaceRange(sel[0], sel[1], value);
+      saved = [sel[0], sel[0] + value.length];
+      return true;
+    },
+    superscript: (from, to) => {
+      setSelection(from, to);
+      apply({ baseline: 30000 }, { refocus: false });
+    },
   };
+  review.attachEditor(richEditor);
   input.focus();
   getSelection()?.selectAllChildren(input);
 }
@@ -10487,6 +10677,8 @@ function colorInput(
 }
 function renderInspector() {
   syncToolbar();
+  chartTools.sync();
+  smartArtTools.sync();
   assistant?.refresh();
   const panel = document.querySelector("#inspector");
   if (!panel) return;
@@ -10645,11 +10837,13 @@ function renderInspectorContents(panel, obj) {
           ? "Format Background"
           : multiSelected()
             ? "Format"
-            : P.getShapeKind(obj) === "picture"
-              ? "Format Picture"
-              : isTable(obj)
-                ? "Format Table"
-                : "Format Shape",
+            : chartTools.formatTitle(obj) ||
+              smartArtTools.formatTitle(obj) ||
+              (P.getShapeKind(obj) === "picture"
+                ? "Format Picture"
+                : isTable(obj)
+                  ? "Format Table"
+                  : "Format Shape"),
       ),
       iconButton(
         "Close format panel",
@@ -10935,6 +11129,9 @@ function renderInspectorContents(panel, obj) {
       ),
     );
   }
+  const chartSection =
+    smartArtTools.inspector(obj) || chartTools.inspector(obj);
+  if (chartSection) body.append(...chartSection);
   if (!isTable(obj)) body.append(...textBox.childNodes);
 
   // Only ordinary shapes take a fill: groups, tables, and charts refuse one,
@@ -13288,11 +13485,29 @@ function objectContextMenu(e, s) {
     label: "Object options",
     contextual: true,
     items: [
+      ...(chartTools.isChart(obj)
+        ? [
+            {
+              label: "Edit Data",
+              icon: "o:editData",
+              shortcut: "Enter",
+              onSelect: () => chartTools.editData(obj),
+            },
+            {
+              label: "Change Chart Type…",
+              icon: "o:changeChartType",
+              onSelect: () => chartTools.changeType(obj),
+            },
+            { separator: true },
+          ]
+        : []),
       ...(canEditText(obj) || isTable(obj) || P.isDiagramShape(obj)
         ? [
             {
               label: P.isDiagramShape(obj)
-                ? "Edit diagram text"
+                ? P.getShapeSmartArt?.(obj)?.layout
+                  ? "Show Text Pane"
+                  : "Edit diagram text"
                 : isTable(obj)
                   ? "Edit cell"
                   : "Edit text",
@@ -13764,6 +13979,31 @@ async function present(options = {}) {
       links.append(node);
     }
   }
+  // Shapes that play effects when clicked get a region of their own.
+  function placeTriggers() {
+    for (const { shapeId, box } of animator?.triggers || []) {
+      if (!box) continue;
+      const shape = P.findShapeById(all[n], Number(shapeId));
+      const name = shape ? P.getShapeName(shape) || "object" : "object";
+      const node = el("button", {
+        type: "button",
+        class: "presenter-link presenter-trigger",
+        title: `Play the effects of ${name}`,
+        "aria-label": `Play the effects of ${name}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          animator?.playTrigger(shapeId);
+        },
+      });
+      Object.assign(node.style, {
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
+      });
+      links.append(node);
+    }
+  }
   function follow(link) {
     if (link.kind === "slide") {
       const i = all.findIndex(
@@ -13783,7 +14023,7 @@ async function present(options = {}) {
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
-    next = iconButton("Next slide", "ChevronRight", () => show(n + 1));
+    next = iconButton("Next slide", "ChevronRight", () => advance());
   // Speaker notes and the slide to come sit beside the slide when asked for.
   const notesText = el("p", { class: "presenter-notes-text" });
   const upcoming = el("img", {
@@ -13838,6 +14078,16 @@ async function present(options = {}) {
   let shown = false;
   let ended = false;
   let currentTransition;
+  // The current slide's animations: an advance plays its next click step
+  // before the show moves on.
+  let animator = null;
+  function advance() {
+    if (!ended && animator?.next()) {
+      session?.stepped(1);
+      return;
+    }
+    show(n + 1);
+  }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -13877,6 +14127,10 @@ async function present(options = {}) {
     typed = "";
   }
   function showPrevious() {
+    if (!ended && animator?.previous()) {
+      session?.stepped(-1);
+      return;
+    }
     show(ended ? n : n - 1, { backward: true });
   }
   let transitionToken = 0;
@@ -13947,6 +14201,8 @@ async function present(options = {}) {
       playbackTransition?.durationMs ??
       { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    animator?.destroy();
+    animator = null;
     if (
       shown &&
       (n !== from || wrapped) &&
@@ -13988,8 +14244,18 @@ async function present(options = {}) {
     image.src =
       showInserted.imageFor(all[n]) ?? cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
+    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    // Set Up Show can show every slide without its animations.
+    if (backward || !plan.setup.showAnimation) animator.finish();
+    else {
+      const playing = animator;
+      Promise.resolve(readiness).then(() => {
+        if (animator === playing) playing.start();
+      });
+    }
     placeLinks(all[n]);
     showInserted.slideShown(all[n], n);
+    placeTriggers();
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
       : `${n + 1} / ${all.length}`;
@@ -14027,6 +14293,8 @@ async function present(options = {}) {
     if (!d.isConnected) return;
     session?.dispose();
     showInserted.dispose();
+    animator?.destroy();
+    animator = null;
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
@@ -14150,6 +14418,9 @@ async function present(options = {}) {
     laserEnabled: () => laser.enabled,
     picture: (s) => cachedPreview(previews, pres, s),
     title: (s) => slideTitle(s, pres),
+    // Click steps of the slide's animations, and whether it opened on its
+    // last one (reached by going back, or shown without animation).
+    animationSteps: () => animator?.steps ?? 0,
   });
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
@@ -14201,7 +14472,7 @@ async function present(options = {}) {
       (e.key === "Enter" && !typed)
     ) {
       e.preventDefault();
-      show(n + 1);
+      advance();
     }
     if (
       key === "p" ||
@@ -14265,7 +14536,7 @@ async function present(options = {}) {
       close();
       return;
     }
-    if (currentTransition?.advanceOnClick !== false) show(n + 1);
+    if (currentTransition?.advanceOnClick !== false) advance();
   });
   stage.addEventListener("click", (e) => {
     if (e.target.closest(".presenter-controls")) return;
@@ -14303,7 +14574,7 @@ async function present(options = {}) {
       const dy = end.clientY - start.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         swiped = true;
-        if (dx < 0) show(n + 1);
+        if (dx < 0) advance();
         else showPrevious();
       }
     },
@@ -14350,6 +14621,8 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  if (review.keydown(e)) return;
+  if (!typing && animationTools.onKey(e)) return;
   // Presenter View (Alt+F5) and the show's Enter shortcuts.
   if (showFeatures.onKey(e, { typing })) {
     if (editing) e.target.blur();

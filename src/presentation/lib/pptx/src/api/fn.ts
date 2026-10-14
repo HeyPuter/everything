@@ -54,6 +54,7 @@ export * from "./fn/shape-image.ts";
 export * from "./fn/shape-click-action.ts";
 export * from "./fn/shape-image-effects.ts";
 export * from "./fn/shape-animation.ts";
+export * from "./fn/slide-animations.ts";
 
 // Inserted objects: media, vector pictures, actions, embeddings, footers
 export * from "./fn/object-data.ts";
@@ -73,6 +74,8 @@ export * from "./fn/slide-title.ts";
 
 // Tables / charts / comments / validation / package introspection
 export * from "./fn/comments.ts";
+export * from "./fn/comment-threads.ts";
+export * from "./fn/custom-properties.ts";
 export * from "./fn/charts.ts";
 export * from "./fn/tables.ts";
 export { getTableStyleResolver } from "./fn/table-styles.ts";

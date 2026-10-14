@@ -44,6 +44,11 @@ Lucide uses ISC, with some Feather-derived icons under MIT. The complete Lucide 
 
 The Insert Icons dialog draws from the same Lucide package, loaded on demand when the dialog opens; inserted icons are Lucide drawings (ISC) and the notice above covers them. Equations are laid out and drawn by the app's own code (`src/insert/math`), with no math-typesetting dependency. Embedded objects are written as OLE Packages by the library's own compound-file writer (`lib/pptx/src/internal/opc/cfb.ts`).
 
+Spelling uses `nspell` 2.1.5 (MIT, with its MIT dependency `is-buffer`) and the
+en_US Hunspell dictionary derived from SCOWL, vendored in `public/dictionaries`
+with its license file. Both are loaded only when the Spelling pane first opens,
+and both notices are in the shipped third-party notices.
+
 Third-party notices are shipped as `dist/THIRD_PARTY_NOTICES.txt` by Vite's public-directory handling.
 
 The local preview renderer exposes an optional font-family resolver for SVG text,

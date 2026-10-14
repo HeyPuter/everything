@@ -14,6 +14,7 @@ export {
   type DiagramTextEdit,
 } from "./fn/diagram-edit.ts";
 export { isDiagramShape } from "./fn/diagram-read.ts";
+export * from "./fn/smartart/index.ts";
 export {
   getEmbeddedFonts,
   embedFont,
@@ -85,6 +86,8 @@ export type {
   ChartAxisTickLabelPosition,
   ChartAxisScaling,
   ChartDataLabels,
+  ChartDataTable,
+  ChartErrorBars,
   ChartGrouping,
   ChartKind,
   ChartDataLabelPosition,
@@ -97,6 +100,13 @@ export type { SlideChartData } from "./fn.ts";
 export type { ShapeClickAction } from "./fn.ts";
 export type { IssueSeverity, ValidationIssue } from "./fn.ts";
 export type { AnimationEffect, AnimationOptions } from "./fn.ts";
+export type {
+  AnimationPresetClass,
+  AnimationStart,
+  SlideAnimation,
+  SlideAnimationAfter,
+  SlideAnimationTextBuild,
+} from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
 export type { ImageFit } from "./fn.ts";
 export type {
@@ -278,6 +288,11 @@ export {
   getShapeAdjustValues,
   getShapeAltTitle,
   getShapeAnimation,
+  getSlideAnimations,
+  setSlideAnimations,
+  pruneSlideAnimations,
+  getShapeBuildParagraphs,
+  motionPathFor,
   getShapeAt,
   getShapeBounds,
   getShapeBodyPrEffective,
@@ -667,3 +682,8 @@ export * from "./fn/header-footer.ts";
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
+
+// Threaded comments and document custom properties.
+export * from "./fn/comment-threads.ts";
+export * from "./fn/custom-properties.ts";
+export * from "./fn/shape-decorative.ts";

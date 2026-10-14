@@ -62,6 +62,7 @@ export function createShowSession(ctx, show) {
   const cleanups = [];
   const history = [];
   let index = -1;
+  let step = 0; // animation click steps played on the current slide
   let audience = null; // { win, doc, stage, dispose }
   let mirror = null; // the presenter's copy of the slide in Presenter View
   let consoleView = null;
@@ -766,6 +767,9 @@ export function createShowSession(ctx, show) {
         nextImage.hidden = false;
         const at = all.indexOf(coming);
         nextLabel.textContent = `Slide ${at + 1}${show.title(coming) ? `: ${show.title(coming)}` : ""}`;
+        const steps = show.animationSteps?.() ?? 0;
+        if (step < steps)
+          nextLabel.textContent = `Next click: animation ${step + 1} of ${steps} on this slide, then ${nextLabel.textContent}`;
       } else {
         nextImage.removeAttribute("src");
         nextImage.hidden = true;
@@ -1200,6 +1204,10 @@ export function createShowSession(ctx, show) {
     /** After the show draws slide `i`. */
     shown(i) {
       const changed = i !== index;
+      // A slide reached by going back, or shown without animation, opens
+      // with its animations done.
+      step =
+        i < index || !setup.showAnimation ? (show.animationSteps?.() ?? 0) : 0;
       index = i;
       if (history[history.length - 1] !== i) history.push(i);
       if (changed) resetZoom();
@@ -1217,6 +1225,12 @@ export function createShowSession(ctx, show) {
       consoleView?.update();
       rehearsal?.shown(i);
       studio?.shown(i);
+    },
+    /** An animation click step played (1) or was taken back (-1). */
+    stepped(by) {
+      const steps = show.animationSteps?.() ?? 0;
+      step = Math.max(0, Math.min(steps, step + by));
+      consoleView?.update();
     },
     /** The show reached its end screen. */
     ended() {
