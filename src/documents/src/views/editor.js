@@ -1567,6 +1567,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const notices = [...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg)];
     if (pkg.fieldRefreshIssues?.length) notices.push(el('div', {}, 'Some page references could not be updated. Cached results were retained. ', el('ul', {}, ...[...new Set(pkg.fieldRefreshIssues)].map(issue => el('li', {}, issue)))));
     message.replaceChildren(...notices);
+    // update() may already have run while the editor attached; the script-font notice it added was just replaced.
+    scriptMetricSignature = undefined;
     showNotices();
     exportButton.disabled = false; saveButton.disabled = false; printButton.disabled = false; templateButton.disabled = !!pkg.readOnly;
     update(); updateStatus(); engine.focus();
