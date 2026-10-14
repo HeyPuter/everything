@@ -1,4 +1,5 @@
 import { escape } from "../model.js";
+import { fold, searchTerms } from "../search-fold.js";
 import { addTranslations, plural, t, language } from "../i18n.js";
 import {
   createAuthoredField,
@@ -225,19 +226,16 @@ const ROLES = [
   ["facilitator", "Facilitators"],
   ["admin", "Administrators"],
 ];
-// Case, accents, and the kind of apostrophe typed do not matter.
-const fold = (text) =>
-  text
-    .toLocaleLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[\u2018\u2019\u02bc]/g, "'");
+// Guides are found by the language they are shown in, so every guide found
+// shows what was typed: "table" does not bring up guides that only say
+// "tableau" in French. Case, accents, and the kind of apostrophe typed do
+// not matter.
 export function searchGuides(query = "", role = "all", lang = language) {
   const l = lang === "fr" ? 1 : 0;
-  const words = fold(query).split(/\s+/).filter(Boolean);
+  const words = searchTerms(query);
   return GUIDES.filter((g) => role === "all" || g.role === role)
     .filter((g) => {
-      const hay = fold([...g.title, ...g.body].join(" "));
+      const hay = fold(`${g.title[l]} ${g.body[l]}`);
       return words.every((w) => hay.includes(w));
     })
     .map((g) => ({ role: g.role, title: g.title[l], body: g.body[l] }));

@@ -341,6 +341,25 @@ test("help guides are bilingual, role-filtered, and searchable without accents",
     searchGuides("presentation", "all", "fr").length >= 1,
     "accents are ignored",
   );
+  // Guides are found by the language they are shown in, so each one found
+  // shows what was typed: "table" is not found in "tableau", nor "lien" in
+  // English at all.
+  for (const [query, lang] of [
+    ["table", "en"],
+    ["tag", "en"],
+    ["lien", "en"],
+    ["minimap", "fr"],
+    ["mini-carte", "fr"],
+    ["note", "fr"],
+  ])
+    for (const g of searchGuides(query, "all", lang))
+      assert.match(
+        `${g.title} ${g.body}`.toLowerCase(),
+        new RegExp(query),
+        `${lang} "${query}": ${g.title}`,
+      );
+  assert.equal(searchGuides("lien", "all", "en").length, 0);
+  assert.ok(searchGuides("mini-carte", "all", "fr").length >= 1);
   assert.ok(
     searchGuides("", "facilitator").every((g) => g.role === "facilitator"),
   );
