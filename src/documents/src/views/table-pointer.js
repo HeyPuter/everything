@@ -122,7 +122,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     ctx.fillStyle = '#fff'; ctx.fillText(text, x + 5, y + 13); ctx.restore();
   }
   function overlay(ctx, page) {
-    const table = drag?.frame?.table || hover?.frame?.table || focusTable;
+    // Handles show while the pointer is over (or dragging) a table, as on the desktop; never just for the caret.
+    const table = drag?.frame?.table || hover?.frame?.table;
     ctx.save();
     if (table && !readOnly() && !mode) {
       const top = frameOf(table, firstPage(table)), bottom = frameOf(table, lastPage(table));
