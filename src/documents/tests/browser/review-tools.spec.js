@@ -489,3 +489,31 @@ test('in the app, Translate Document opens a translated copy', async ({ page }) 
   await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
   expect(errors).toEqual([]);
 });
+
+test('a protected document opens with its permissions shown and unlocks with its password', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await openFixture(page, 'protected.docx');
+  await expect(input).toHaveValue(/Policy title/);
+  const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await expect(pane).toContainText('protected from unintentional editing');
+  await page.screenshot({ path: info.outputPath('protected-open.png') });
+  await select(input, 0);
+  await input.pressSequentially('X');
+  await expect(input).toHaveValue(/^Policy title/);
+  await pane.getByRole('button', { name: 'Find Next Region I Can Edit' }).click();
+  await input.pressSequentially('Everyone can change this.');
+  await expect(input).toHaveValue(/This sentence is protected\. Everyone can change this\./);
+  // The fixture's verifier was computed by a separate implementation (tools/review_fixture.py).
+  await pane.getByRole('button', { name: 'Stop Protection' }).click();
+  const unlock = page.getByRole('dialog', { name: 'Stop Protection' });
+  await unlock.getByLabel('Password', { exact: true }).fill('secret');
+  await unlock.getByRole('button', { name: 'Unprotect' }).click();
+  await expect(unlock).toBeHidden({ timeout: 20000 });
+  await select(input, 0);
+  await input.pressSequentially('X');
+  await expect(input).toHaveValue(/^XPolicy title/);
+  const { parts } = await exported(page, info, 'unprotected.docx');
+  expect(strFromU8(parts['word/settings.xml'])).toMatch(/<w:documentProtection w:edit="readOnly" w:enforcement="0"\/>/);
+  expect(errors).toEqual([]);
+});

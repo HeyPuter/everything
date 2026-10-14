@@ -225,7 +225,7 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
 
   return {
     pane, applyGuard, startEnforcing, stopEnforcing, nextRegion,
-    open() { pane.open(); render(); },
+    open({ focus = true } = {}) { pane.open({ focus }); render(); },
     refresh() { if (pane.isOpen) render(false); },
     get enforced() { return enforced(); },
     get protection() { return readOnlyView ? { edit: 'readOnly', enforcement: true } : protection(); },

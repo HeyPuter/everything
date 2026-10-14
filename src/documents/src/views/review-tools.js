@@ -253,6 +253,9 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
       const view = docRevisionView();
       if (view.insDel === false || view.formatting === false) Object.assign(revisionView.options, { showInsDel: view.insDel !== false, showFormatting: view.formatting !== false });
       restrict.applyGuard();
+      // A protected document opens with its permissions in view, as desktop word processors show them.
+      const protection = pkg()?.reviewSettings?.protection;
+      if (protection?.enforcement && protection.edit !== 'trackedChanges' && !pkg()?.readOnly) queueMicrotask(() => restrict.open({ focus: false }));
       queueMicrotask(() => restrict.offerReadOnly());
     },
     refresh() { commentsPane.refresh(); restrict.refresh(); },
