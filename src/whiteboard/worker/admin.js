@@ -135,6 +135,9 @@ const publicUser = (u) => ({
   lastActive: u.lastActive || null,
   source: u.source || null,
   externalId: u.externalId || null,
+  // The id SCIM knows them by, so automation using both APIs can match
+  // people without comparing addresses.
+  scimId: u.scimId || null,
 });
 export const API_SCOPES = [
   "scim",

@@ -1705,3 +1705,49 @@ test("SCIM endpoints the service does not offer answer 501 Not Implemented", asy
   assert.equal(config.bulk.supported, false);
   await assert.rejects(request("Nothing"), { status: 404 });
 });
+
+test("people from outside who only joined a board are not listed to the identity provider, and REST users carry their SCIM id", async () => {
+  const { org, boards, scim } = await setup();
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  // As a board admits an outside guest.
+  await org.saveUser(
+    {
+      uuid: "55555555-5555-4555-8555-555555555555",
+      username: "outsider",
+      role: "guest",
+      status: "active",
+      license: "guest",
+      created: org.now(),
+      source: "board",
+      teams: [],
+    },
+    true,
+  );
+  const all = await scim("Users");
+  assert.deepEqual(
+    all.Resources.map((u) => u.userName),
+    ["pat@example.ca"],
+  );
+  await assert.rejects(scim("Users/55555555-5555-4555-8555-555555555555"), {
+    status: 404,
+  });
+  const { key: reader } = await adminCall(org, boards, owner, {
+    op: "apikeys.create",
+    name: "Directory",
+    scopes: ["users:read"],
+  });
+  const response = await restRoute(
+    org,
+    boards,
+    new Request("https://w.puter.work/v1/users", {
+      headers: { Authorization: `Bearer ${reader}` },
+    }),
+    "GET",
+    "users",
+    null,
+  );
+  const { users } = await response.json();
+  assert.equal(users.find((u) => u.email === "pat@example.ca").scimId, pat.id);
+  // REST still lists the guest, for administrators.
+  assert.ok(users.some((u) => u.username === "outsider"));
+});

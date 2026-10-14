@@ -334,8 +334,15 @@ function groupResource(t, base, scimIds = new Map(), members = true) {
 async function findUser(org, scimId) {
   const mapped = await org.kv.get("org:scimid:" + scimId);
   const user = await org.freshUser(mapped || scimId);
-  return user && !user.scimDeleted ? user : null;
+  return listed(user) ? user : null;
 }
+// Who the identity provider sees: everyone in the organization but those it
+// deleted, and people from outside it who only joined a board as guests,
+// whom it neither knows nor manages.
+const listed = (user) =>
+  !!user &&
+  !user.scimDeleted &&
+  !(user.source === "board" && !user.email && !user.scimManaged);
 // Writes only what a request changed on a stored person, so a change saved
 // meanwhile, such as a deactivation in the console or a group membership
 // the provider sent at the same time, stands.
@@ -585,13 +592,13 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
       const found = byEmail
         ? uuid && (await org.freshUser(uuid))
         : await findUser(org, byId.value);
-      users = found && !found.scimDeleted ? [found] : [];
+      users = listed(found) ? [found] : [];
     } else {
       const ownerRecord = await org.user(ownerId);
       users = [
         ...(await org.members()),
         ...(ownerRecord ? [ownerRecord] : []),
-      ].filter((u) => !u.scimDeleted);
+      ].filter(listed);
     }
     let rows = users.filter((u) =>
       filters.every(({ attr, value }) => {
