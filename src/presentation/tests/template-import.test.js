@@ -21,6 +21,10 @@ import {
 import { lineFormattingFixture } from "./line-formatting-fixture.js";
 import { templateFixture as fixture } from "./template-import-fixture.js";
 import { createSharedFontDeck } from "./fixtures.js";
+import { BUILTIN_LAYOUTS } from "../lib/pptx/src/internal/parts/builtin-layouts.ts";
+
+// A new deck's master carries every built-in layout.
+const BUILTIN = BUILTIN_LAYOUTS.length;
 import {
   createGeometryDeck,
   presetGeometry,
@@ -267,7 +271,7 @@ describe("native source template imports", () => {
       .getPart("/ppt/theme/theme1.xml")
       .data.slice();
     const copiedLayout = importSlideTemplate(target, f.slide);
-    expect(P.getSlideLayouts(target)).toHaveLength(4);
+    expect(P.getSlideLayouts(target)).toHaveLength(BUILTIN + 1);
     expect(masters(target)).toHaveLength(2);
     const copiedMaster = masterOfLayout(target, copiedLayout);
     expect(xml(copiedMaster)).toContain('name="Master decoration"');
@@ -324,7 +328,7 @@ describe("native source template imports", () => {
       P.getSlideLayoutPartName(copied[1]),
     );
     expect(masters(target)).toHaveLength(2);
-    expect(P.getSlideLayouts(target)).toHaveLength(5);
+    expect(P.getSlideLayouts(target)).toHaveLength(BUILTIN + 2);
     expect(
       pkg(target).parts.filter((p) => p.contentType.endsWith(".theme+xml")),
     ).toHaveLength(2);
@@ -343,7 +347,7 @@ describe("native source template imports", () => {
     replace(f.master, "</p:sldMaster>", extension + "</p:sldMaster>");
     const copied = importSlideTemplate(target, f.slide),
       master = masterOfLayout(target, copied);
-    expect(P.getSlideLayouts(target)).toHaveLength(5);
+    expect(P.getSlideLayouts(target)).toHaveLength(BUILTIN + 2);
     expect(xml(master)).toContain(extension);
     const rel = pkg(target)
       .getRels(master.name)
@@ -431,7 +435,7 @@ describe("native source template imports", () => {
       "https://example.com/template",
     );
     expect(xml(master)).toContain('r:embed="sound"');
-    expect(P.getSlideLayouts(target)).toHaveLength(5);
+    expect(P.getSlideLayouts(target)).toHaveLength(BUILTIN + 2);
     expect(xml(master).match(/<p:sldLayoutId /g)).toHaveLength(2);
   });
   it("allocates unique master/layout IDs and names on repeated and same-package imports", () => {
@@ -443,7 +447,7 @@ describe("native source template imports", () => {
       ...masters(f.pres),
       pkg(f.pres).getPart("/ppt/presentation.xml"),
     ]);
-    expect(ids).toHaveLength(8);
+    expect(ids).toHaveLength(BUILTIN + 5);
     expect(new Set(ids).size).toBe(ids.length);
     expect(
       ids.every((id) => Number(id) >= 2 ** 31 && Number(id) < 2 ** 32),
@@ -462,7 +466,7 @@ describe("native source template imports", () => {
       );
       expect(xml(master)).not.toContain('id="4294967296"');
       const ids = templateIds([...masters(target), main]);
-      expect(ids).toHaveLength(6);
+      expect(ids).toHaveLength(BUILTIN + 3);
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids.every((id) => id >= 2 ** 31 && id <= 4294967295)).toBe(true);
     },

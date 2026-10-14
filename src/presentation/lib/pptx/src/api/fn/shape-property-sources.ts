@@ -23,8 +23,10 @@ import { getSlideLayout } from "./shape-slide-read.ts";
 // relationship. Resolve their master directly without losing its rId scope.
 export const shapeMasterPartName = (shape: SlideShapeData): string | null => {
   const slide = shape[SHAPE_SLIDE];
-  if (slide[SLIDE_DOCUMENT].root.name.localName !== "sldLayout")
-    return getSlideMasterPartName(slide);
+  const root = slide[SLIDE_DOCUMENT].root.name.localName;
+  if (root === "sldMaster" || root === "notesMaster")
+    return slide[SLIDE_PART_NAME];
+  if (root !== "sldLayout") return getSlideMasterPartName(slide);
   const rel = slide[INTERNAL_PACKAGE].getRels(
     slide[SLIDE_PART_NAME],
   )?.items.find(

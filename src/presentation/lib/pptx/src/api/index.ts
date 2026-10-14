@@ -664,6 +664,47 @@ export type {
   TransitionSound,
 } from "../internal/presentationml/index.ts";
 
+// Slide masters, layouts and placeholders.
+export {
+  addSlideLayout,
+  adoptPlaceholderSlot,
+  addSlideMaster,
+  applySlideLayout,
+  deleteSlideLayout,
+  deleteSlideMaster,
+  duplicateSlideLayout,
+  duplicateSlideMaster,
+  ensureHandoutMaster,
+  ensureNotesMaster,
+  getHandoutMasterPartName,
+  getLayoutMasterPartName,
+  getNotesMasterPartName,
+  getNotesPageExtent,
+  getPlaceholderContentKind,
+  getPlaceholderPrompt,
+  getSlideLayoutUsage,
+  getSlideMasters,
+  getTemplateKind,
+  getTemplatePageSize,
+  getTemplateSlide,
+  hasTemplatePlaceholder,
+  insertTemplatePlaceholder,
+  isPlaceholderEmpty,
+  moveSlideLayout,
+  renameTemplate,
+  resetSlideToLayout,
+  scaleTemplates,
+  setNotesPageOrientation,
+  setTemplatePlaceholder,
+  setTemplatePreserved,
+  setTemplateShowsMasterShapes,
+  syncPlaceholderListStyles,
+  withPlaceholderPrompt,
+  type SlideLayoutEntry,
+  type SlideMasterEntry,
+  type TemplatePlaceholderKind,
+  type TemplatePlaceholderSlot,
+} from "./fn.ts";
 // Inserted objects: media, vector pictures, actions, embeddings, footers.
 export * from "./fn/object-data.ts";
 export * from "./fn/vector-picture.ts";

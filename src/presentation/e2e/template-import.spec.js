@@ -9,6 +9,7 @@ import {
   triangleGeometry,
   presetGeometry,
 } from "../tests/geometry-fixture.js";
+import { BUILTIN_LAYOUTS } from "../lib/pptx/src/internal/parts/builtin-layouts.ts";
 
 for (const kind of [
   "master artwork",
@@ -192,5 +193,8 @@ for (const kind of [
     expect(preview(downloaded, P.getSlides(downloaded).at(-1))).toBe(
       preview(expected, geometry ? P.getSlides(expected).at(-1) : f.slide),
     );
-    expect(P.getSlideLayouts(downloaded)).toHaveLength(4);
+    // The new presentation's built-in layouts and the one imported.
+    expect(P.getSlideLayouts(downloaded)).toHaveLength(
+      BUILTIN_LAYOUTS.length + 1,
+    );
   });

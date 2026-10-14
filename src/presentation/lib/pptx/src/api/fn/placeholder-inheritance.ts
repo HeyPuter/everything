@@ -128,6 +128,15 @@ export const getPlaceholderInheritance = (
       ph = placeholder(layoutShape.element)!;
     }
     layoutName = layout[LAYOUT_PART_NAME];
+  } else if (rootKind === "sldMaster" || rootKind === "notesMaster") {
+    // A master's own placeholders take the text styles of the master they
+    // are on; no other part sits above them.
+    return {
+      layout: null,
+      master: null,
+      masterRoot: slide[SLIDE_DOCUMENT].root,
+      masterType: masterPlaceholderType(value(ph, "type") ?? "obj"),
+    };
   } else if (rootKind !== "sldLayout") return null;
 
   const masterType = masterPlaceholderType(value(ph, "type") ?? "obj");

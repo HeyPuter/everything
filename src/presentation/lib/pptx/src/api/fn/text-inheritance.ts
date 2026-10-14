@@ -57,14 +57,19 @@ export const textListStyleSources = (
       qname("p", "txStyles", NS.pml),
     );
     const type = inherited.masterType;
+    const notes = inherited.masterRoot.name.localName === "notesMaster";
     const local =
       type === "title" || type === "ctrTitle"
         ? "titleStyle"
         : type === "body" || type === "subTitle"
-          ? "bodyStyle"
+          ? notes
+            ? "notesStyle"
+            : "bodyStyle"
           : "otherStyle";
+    // A notes master keeps its notes text style beside its shapes.
+    const container = local === "notesStyle" ? inherited.masterRoot : styles;
     const element =
-      styles && firstChildElement(styles, qname("p", local, NS.pml));
+      container && firstChildElement(container, qname("p", local, NS.pml));
     if (element)
       sources.push({
         element,
