@@ -157,7 +157,7 @@ what is being added, and its status. Items are checked off as they land.
       over: jumps, end show, sounds, highlight).
 - [x] Object: files embedded as OLE Packages, shown as icons, downloaded when
       opened.
-- [ ] Comment (area 9).
+- [x] Comment: Insert > Comment (Cmd/Ctrl+Shift+M) opens the Comments pane (area 9).
 
 ### 7. Charts and SmartArt
 
