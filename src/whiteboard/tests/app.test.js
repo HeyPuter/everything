@@ -23617,6 +23617,7 @@ test("a change of this person's role is told once and a restricted role stays sh
   const [, b] = shared.apps;
   const toastEl = b.doc.querySelector("#toast");
   const tag = () => b.doc.querySelector(".board-tag").textContent;
+  const hint = () => b.doc.querySelector("#tool-hint").textContent;
   const setRole = async (role) => {
     toastEl.classList.remove("visible");
     await shared.env.service.call(owner, {
@@ -23639,6 +23640,8 @@ test("a change of this person's role is told once and a restricted role stays sh
     assert.ok(toastEl.classList.contains("visible"));
     assert.equal(toastEl.textContent, "You can now only view this board.");
     assert.equal(tag(), "Shared board · View only");
+    // The screen reader's tool hint does not offer editing.
+    assert.equal(hint(), "Select objects to read them · Space to pan");
     // The access words sit apart, so a short row never cuts them.
     assert.equal(
       b.doc.querySelector(".board-tag .board-tag-access").textContent,
@@ -23663,6 +23666,10 @@ test("a change of this person's role is told once and a restricted role stays sh
       "You can now comment on this board, but not change its content.",
     );
     assert.equal(tag(), "Shared board · Comment only");
+    assert.equal(
+      hint(),
+      "Select objects to read them · Comment (C) to discuss · Space to pan",
+    );
     await setRole("editor");
     await shared.until(
       () => !b.doc.querySelector(".editor.shared-viewer"),
@@ -23670,6 +23677,10 @@ test("a change of this person's role is told once and a restricted role stays sh
     );
     assert.equal(toastEl.textContent, "You can now edit this board.");
     assert.equal(tag(), "Shared board");
+    assert.equal(
+      hint(),
+      "Select and move · Double-click to edit · Space to pan",
+    );
     // Becoming a facilitator, and ceasing to be one, are told too.
     await setRole("facilitator");
     await shared.until(

@@ -7247,13 +7247,29 @@ function showTool() {
       b.setAttribute("aria-pressed", b.dataset.action === "tool-" + tool),
     );
   document.querySelector("#canvas").style.cursor = toolCursor();
-  document.querySelector("#tool-hint").textContent = t(
-    armedShape
-      ? "Click to add the shape · Drag to draw it at a size"
-      : TOOL_HINTS[tool] || "",
-  );
+  showToolHint();
   renderNoteColors();
   renderFrameFormats();
+}
+// Someone who may only view or comment is not told to edit by double-click.
+const READ_HINTS = {
+  view: "Select objects to read them · Space to pan",
+  comment:
+    "Select objects to read them · Comment (C) to discuss · Space to pan",
+};
+function showToolHint() {
+  const hint = document.querySelector("#tool-hint");
+  if (!hint) return;
+  const text = t(
+    armedShape
+      ? "Click to add the shape · Drag to draw it at a size"
+      : (tool === "select" &&
+          current?.shared &&
+          READ_HINTS[collaboration?.access]) ||
+          TOOL_HINTS[tool] ||
+          "",
+  );
+  if (hint.textContent !== text) hint.textContent = text;
 }
 // While the sticky note tool is on, its colours stand beside the tool rail;
 // the one chosen is the colour new sticky notes take.
@@ -10473,6 +10489,7 @@ function renderParticipants() {
   }
   editor?.classList.toggle("shared-viewer", readOnly);
   editor?.classList.toggle("shared-commenter", readOnly && canComment);
+  showToolHint();
   const title = document.querySelector("#board-title");
   if (title) title.disabled = readOnly;
   for (const button of document.querySelectorAll(

@@ -1294,6 +1294,10 @@ const pairs = {
   "Delete selection": "Supprimer la sélection",
   "Select and move · Double-click to edit · Space to pan":
     "Sélectionner et déplacer · Double-clic pour modifier · Espace pour naviguer",
+  "Select objects to read them · Space to pan":
+    "Sélectionnez des objets pour les lire · Espace pour naviguer",
+  "Select objects to read them · Comment (C) to discuss · Space to pan":
+    "Sélectionnez des objets pour les lire · Commentaire (C) pour en discuter · Espace pour naviguer",
   "Drag to move around your board":
     "Faites glisser pour vous déplacer dans le tableau",
   "Draw freely on the canvas": "Dessinez librement sur le tableau",
