@@ -11,6 +11,7 @@ import {
   installAddTextNow,
   installMenuNow,
   menuCommand,
+  openMenuPath,
   openNewSlideMenu,
   openShapeMenu,
   ribbonButton,
@@ -4172,16 +4173,10 @@ test("editing one slide renders only the changed thumbnail and canvas", async ({
   const thumbnails = page.locator(".slide-thumb img");
   const first = await thumbnails.nth(0).getAttribute("src");
   const second = await thumbnails.nth(1).getAttribute("src");
-  await page.evaluate(() => {
-    const encode = window.encodeURIComponent;
-    window.__svgRenders = 0;
-    window.encodeURIComponent = (value) => {
-      if (typeof value === "string" && value.includes("<svg"))
-        window.__svgRenders++;
-      return encode(value);
-    };
-  });
-  await addText(page);
+  // Insert > Text box; the menu's own layout pictures are not the edit's.
+  await openMenuPath(page, "Insert");
+  await countSvgRenders(page);
+  await page.getByRole("menuitem", { name: "Text box", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(thumbnails.nth(0)).not.toHaveAttribute("src", first);
   await expect(thumbnails.nth(1)).toHaveAttribute("src", second);
