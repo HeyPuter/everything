@@ -298,36 +298,52 @@ async function teamMembers(org, ids, known = true, current = []) {
     );
   return out;
 }
-// Record a team's membership change on the people who joined or left it.
-// A board filed under the team can give its members a role, so other
-// worker instances read people's records again: once for the whole change,
-// however many people it names, as an identity provider adding a thousand
-// people to a group sends them in one request.
-// People are updated 25 at a time, as an identity provider can change
-// thousands of members in one request, and the team's claim is renewed as
-// they go, so it does not lapse during a long change.
-export async function syncTeamMembers(org, teamId, before, after) {
+// Record a team's membership change on the people who joined or left it,
+// around `write`, which saves the team itself. People leaving are updated
+// first and people joining after it, so a change that fails partway never
+// leaves anyone with access the team record does not show, and trying it
+// again finishes it. A board filed under the team can give its members a
+// role, so other worker instances read people's records again, once for
+// the whole change. People are updated 25 at a time, as an identity
+// provider can change thousands of members in one request, and the team's
+// claim is renewed as they go, so it does not lapse during a long change.
+export async function syncTeamMembers(
+  org,
+  teamId,
+  before,
+  after,
+  write = async () => {},
+) {
   const prior = new Set(before),
     next = new Set(after);
-  const moving = [...new Set([...prior, ...next])].filter(
-    (uuid) => prior.has(uuid) !== next.has(uuid),
-  );
-  let changed = false;
-  for (let n = 0; n < moving.length; n += 25) {
-    if (n) await org.kv.expire("org:teamclaim:" + teamId, 30).catch(() => {});
-    await Promise.all(
-      moving.slice(n, n + 25).map(async (uuid) => {
-        const user = await org.freshUser(uuid);
-        if (!user) return;
-        const teams = new Set(user.teams || []);
-        if (next.has(uuid)) teams.add(teamId);
-        else teams.delete(teamId);
-        await org.updateUser(uuid, { teams: [...teams] });
-        changed = true;
-      }),
-    );
+  const leaving = [...prior].filter((uuid) => !next.has(uuid)),
+    joining = [...next].filter((uuid) => !prior.has(uuid));
+  let changed = false,
+    batches = 0;
+  const update = async (people) => {
+    for (let n = 0; n < people.length; n += 25) {
+      if (batches++)
+        await org.kv.expire("org:teamclaim:" + teamId, 30).catch(() => {});
+      await Promise.all(
+        people.slice(n, n + 25).map(async (uuid) => {
+          const user = await org.freshUser(uuid);
+          if (!user) return;
+          const teams = new Set(user.teams || []);
+          if (next.has(uuid)) teams.add(teamId);
+          else teams.delete(teamId);
+          await org.updateUser(uuid, { teams: [...teams] });
+          changed = true;
+        }),
+      );
+    }
+  };
+  try {
+    await update(leaving);
+    await write();
+    await update(joining);
+  } finally {
+    if (changed) await org.accessChanged();
   }
-  if (changed) await org.accessChanged();
 }
 // Changes to one team are made one at a time, so two at once both stand:
 // requests on this instance wait their turn in order, and instances claim
@@ -2622,15 +2638,20 @@ export async function adminCall(org, boards, identity, input) {
         op === "teams.delete"
           ? existing.name
           : text(input.name, 120) || existing?.name || "Untitled team";
-      // The team is saved first, then the people who joined or left it.
-      if (op === "teams.delete") await org.kv.del("org:team:" + teamId);
-      else
-        await org.kv.set("org:team:" + teamId, {
-          ...(existing || { id: teamId, created: org.now() }),
-          name,
-          members,
-        });
-      await syncTeamMembers(org, teamId, existing?.members || [], members);
+      await syncTeamMembers(
+        org,
+        teamId,
+        existing?.members || [],
+        members,
+        () =>
+          op === "teams.delete"
+            ? org.kv.del("org:team:" + teamId)
+            : org.kv.set("org:team:" + teamId, {
+                ...(existing || { id: teamId, created: org.now() }),
+                name,
+                members,
+              }),
+      );
       await org.audit(
         identity,
         `team.${op.split(".")[1]}d`,

@@ -549,3 +549,38 @@ test("board settings offer a role for the team's members once the board has a te
     dom.window.close();
   }
 });
+
+test("a team change that fails partway leaves no access the team does not show, and trying again finishes it", async () => {
+  const { boards, org, call, team } = await setup();
+  const room = await create(boards, owner, { team: team.id });
+  await settings(boards, room, { teamRole: "editor" });
+  await join(boards, editor, room);
+  const update = org.updateUser.bind(org);
+  const failing = () => {
+    org.updateUser = async (uuid, ...rest) => {
+      if (uuid === editor.uuid) throw new Error("storage refused");
+      return update(uuid, ...rest);
+    };
+  };
+  // A removal that fails keeps the team as it was, and is tried again.
+  failing();
+  await assert.rejects(
+    call(owner, { op: "teams.update", id: team.id, remove: [editor.uuid] }),
+  );
+  org.updateUser = update;
+  assert.ok(
+    (await org.kv.get("org:team:" + team.id)).members.includes(editor.uuid),
+  );
+  await call(owner, { op: "teams.update", id: team.id, remove: [editor.uuid] });
+  assert.equal(await opens(boards, editor, room), false);
+  // So does a deletion.
+  await call(owner, { op: "teams.update", id: team.id, add: [editor.uuid] });
+  await join(boards, editor, room);
+  failing();
+  await assert.rejects(call(owner, { op: "teams.delete", id: team.id }));
+  org.updateUser = update;
+  assert.ok(await org.kv.get("org:team:" + team.id));
+  await call(owner, { op: "teams.delete", id: team.id });
+  assert.deepEqual((await org.freshUser(editor.uuid)).teams, []);
+  assert.equal(await opens(boards, editor, room), false);
+});

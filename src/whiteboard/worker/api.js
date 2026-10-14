@@ -953,14 +953,16 @@ async function scimGroups(org, identity, method, id, body, url, base) {
       );
     return identifiers.get(value);
   };
-  // The team is saved first, then the people who joined or left it.
+  // People leaving, then the team, then people joining (see
+  // syncTeamMembers).
   const save = async (team, members) => {
     members = [...new Set(members)];
     const before = team.members || [];
     team.members = members;
     team.modified = org.now();
-    await org.kv.set("org:team:" + team.id, team);
-    await syncTeamMembers(org, team.id, before, members);
+    await syncTeamMembers(org, team.id, before, members, () =>
+      org.kv.set("org:team:" + team.id, team),
+    );
   };
   const resolve = async (list = []) => {
     // SCIM treats null as unassigned. Other collection shapes and members
