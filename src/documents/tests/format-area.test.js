@@ -84,11 +84,11 @@ it('contributes Format, Edit and View menu items and text/list context items', (
   const area = createFormatArea({ editor: () => engine, pkg: () => ({ readOnly: false }), error: e => { throw e; }, host: () => document.body });
   const labels = id => area.commands.extendMenu(id).filter(i => !i.separator).map(i => i.label);
   expect(labels('format')).toEqual(['Font…', 'Text Effects…', 'Paragraph…', 'Bullets and Numbering…', 'Borders and Shading…', 'Tabs…', 'Change Case…', 'Style…']);
-  expect(labels('edit')).toEqual(expect.arrayContaining(['Paste Special…', 'Paste and Match Formatting', 'Advanced Find and Replace…', 'Select']));
+  expect(labels('edit')).toEqual(expect.arrayContaining(['Paste Special…', 'Paste and Match Formatting', 'Select']));
   expect(labels('view')).toEqual(['Styles Pane', 'Reveal Formatting', 'Style Inspector']);
   expect(area.commands.extendMenu('table')).toEqual([]);
   expect(area.commands.contextMenuItems('text').map(i => i.label)).toEqual(['Font…', 'Paragraph…', 'Bullets and Numbering…', 'Styles', 'Select Text with Similar Formatting']);
-  expect(area.commands.contextMenuItems('list').map(i => i.label)).toEqual(['Restart at 1', 'Continue Numbering', 'Set Numbering Value…', 'Adjust List Indents…']);
+  expect(area.commands.contextMenuItems('list').map(i => i.label)).toEqual(['Continue Numbering', 'Set Numbering Value…', 'Adjust List Indents…']);
   // Menu commands open their dialogs.
   area.commands.extendMenu('format').find(i => i.label === 'Paragraph…').onSelect();
   expect(document.querySelector('[role="dialog"]').getAttribute('aria-label')).toBe('Paragraph');
@@ -98,7 +98,7 @@ it('contributes Format, Edit and View menu items and text/list context items', (
   // Restart at 1 is one transaction on the list.
   doc.select(doc.text.indexOf('Two'));
   const before = engine.session.revision;
-  area.commands.contextMenuItems('list')[0].onSelect();
+  area.commands.restartNumberingAtOne();
   expect(engine.session.revision).toBe(before + 1);
   // Installing on the full command set extends the multilevel and effects menus.
   const all = { multilevelItems: () => [{ label: 'Library' }], textEffectItems: () => [{ label: 'Outline' }] };

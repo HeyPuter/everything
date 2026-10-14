@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { onTab, showAllTools, fileCommand } from './helpers/editor-tools.js';
+import { onTab, showAllTools, fileCommand, menuBarMenu } from './helpers/editor-tools.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
 const item = (page, name) => page.getByRole('menuitem', { name, exact: true });
@@ -36,8 +36,8 @@ test('Insert table works with text selected and puts the table after it', async 
 
 test('menu commands that open a dialog end in an ellipsis and only submenus show an arrow', async ({ page }) => {
   await blank(page);
-  await page.getByRole('button', { name: 'File', exact: true }).click();
-  for (const name of ['Open .docx…', 'Rename…', 'Page Setup…']) {
+  await menuBarMenu(page, 'File');
+  for (const name of ['Open…', 'Rename…', 'Page Setup…']) {
     await expect(item(page, name)).toBeVisible();
     await expect(item(page, name).locator('.menu-arrow')).toHaveCount(0);
   }
@@ -118,6 +118,6 @@ test('ribbon pickers opened with the mouse close back into the document', async 
 test('File menu commands act on the document', async ({ page }) => {
   await blank(page);
   await input(page).fill('Printed words');
-  await expect(await fileCommand(page, 'Print / Save as PDF')).toBeEnabled();
+  await expect(await fileCommand(page, 'Print…')).toBeEnabled();
   await page.keyboard.press('Escape');
 });

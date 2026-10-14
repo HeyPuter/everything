@@ -249,10 +249,11 @@ export class CanvasEditor {
     this.rangeTints = tints; this.tintRects = null; this.paint();
   }
   /** Vertical bars in the left margin beside lines that touch the given ranges (tracked changes). */
-  setMarginBars(ranges = [], color = '#7a7a7a') {
-    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color]);
+  // side: 'left', 'right' or 'outside' (right on odd pages, left on even ones).
+  setMarginBars(ranges = [], color = '#7a7a7a', side = 'left') {
+    const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
     if (key === this.marginBarKey) return;
-    this.marginBarKey = key; this.marginBars = { ranges, color }; this.paint();
+    this.marginBarKey = key; this.marginBars = { ranges, color, side }; this.paint();
   }
   rangeTintRects() {
     const tints = this.rangeTints, layout = this.session.path === null ? this.selectionLayout : null;
@@ -290,7 +291,7 @@ export class CanvasEditor {
     return count;
   }
   execute(action, onFailure, options, quiet = false) {
-    if (this.readOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly || this.composition) return;
     try {
       const revision = this.session.revision;
       this.session.run(() => action(), () => {
@@ -351,7 +352,7 @@ export class CanvasEditor {
   setImageProperties(patch) { return this.execute(() => this.model.setImageProperties(patch)); }
   async applyDrawingText(pkg, image, frame, paragraphs, { signal, tables } = {}) {
     this.finishComposition();
-    if (this.readOnly || this.destroyed || signal?.aborted) return false;
+    if (this.readOnly || this.viewOnly || this.destroyed || signal?.aborted) return false;
     const revision = this.session.revision, model = this.model;
     if (model.selectedImage !== image) throw new Error('Select the drawing again before editing its text.');
     const prepared = pkg.prepareDrawingTextEdit(image, frame, paragraphs, model.assets, model.styles, model.numbering, tables);
@@ -376,7 +377,19 @@ export class CanvasEditor {
       this.images.delete(id); delete model.assets[id]; preview.close(); throw error;
     }
   }
+  /**
+   * Viewing: the document stays editable underneath (layout, styles and saving are unchanged) while
+   * every edit path refuses, so switching back loses nothing. A read-only package stays read-only.
+   */
+  setViewOnly(on) {
+    this.finishComposition();
+    this.viewOnly = !!on;
+    this.input.readOnly = this.readOnly || this.viewOnly;
+    if (this.viewOnly && this.session.path !== null) this.editStory(null);
+    this.onSelection?.();
+  }
   async insertImageFile(file) {
+    if (this.readOnly || this.viewOnly) return false;
     if (file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
     this.finishComposition();
     const path = this.session.path, revision = this.session.revision, selection = { ...this.model.selection }, bytes = new Uint8Array(await file.arrayBuffer()), info = imageInfo(bytes), asset = { bytes, mime: info.mime };
@@ -448,7 +461,7 @@ export class CanvasEditor {
   setPageSettings(patch) { return this.execute(() => this.model.setPageSettings(patch)); }
   insertPageBreak() { this.execute(() => this.model.insertPageBreak()); this.focus(); }
   travelHistory(direction) {
-    if (this.readOnly || this.composition) return;
+    if (this.readOnly || this.viewOnly || this.composition) return;
     try {
       if (this.session[direction](() => { this.validateStory(); this.relayout(); })) this.onChange();
       this.focus(); this.revealCaret();
@@ -652,7 +665,8 @@ export class CanvasEditor {
         }
         if (!printing && !pageStory) for (const r of tinted) if (r.page === index) { ctx.fillStyle = r.fill; ctx.fillRect(r.x, r.y, r.width, r.height); }
         if (!printing && !pageStory && this.marginBars?.ranges.length) {
-          const bars = this.marginBars.ranges, x = Math.max(4, (geometry.left ?? 96) - 22);
+          const side = this.marginBars.side === 'outside' ? (index % 2 ? 'left' : 'right') : this.marginBars.side;
+          const bars = this.marginBars.ranges, x = side === 'right' ? Math.min(geometry.width - 5, geometry.width - (geometry.right ?? 96) + 20) : Math.max(4, (geometry.left ?? 96) - 22);
           ctx.fillStyle = this.marginBars.color;
           for (const line of pageLines) if (bars.some(r => r.start <= line.end && r.end > line.start)) ctx.fillRect(x, line.y, 1.25, line.height);
         }
@@ -1224,7 +1238,7 @@ export class CanvasEditor {
     }
   }
   beforeInput(e) {
-    if (this.readOnly) { e.preventDefault(); return; }
+    if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
     if (e.isComposing || this.composition || !e.cancelable) return;
     this.nativeSelection();
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
@@ -1325,7 +1339,7 @@ export class CanvasEditor {
     return this.model.replace(value.slice(start, tail), { checkpoint });
   }
   nativeInput() {
-    if (this.readOnly) { this.syncInput(); return; }
+    if (this.readOnly || this.viewOnly) { this.syncInput(); return; }
     try {
       const revision = this.session.revision;
       this.session.run(() => {

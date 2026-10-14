@@ -31,7 +31,7 @@ import { LineBuilder } from './line-builder.js';
 import { bidiCharacters, bidiLineCharacters, bidiRtlSpace } from './bidi-text.js';
 import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
-import { revisionView, revisionDisplay, revisionColor } from './revisions.js';
+import { revisionView, runRevisionDisplay } from './revisions.js';
 import { inlineSegments, EMU_PER_PX, drawingOffsetPixels, imageExtents, inlineImageExtents, inlineImagePaintFrame, normalizedRotation, isPositionedImage, isSideWrappedImage } from './images.js';
 import { squareFlowHints, squareFlowSignature, squareRow, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
 import { positionedImageFrame, positionedImageContains, positionedImageBounds, isCellRelativePosition, isPageBasedCellPosition } from './positioned-images.js';
@@ -757,14 +757,11 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     if (styleIndex !== runIndex) {
       runStyle = bodySymbolStyle(p.runs[runIndex], runFormat(p.runs[runIndex]));
       if (p.runs[runIndex]?.noteMark) runStyle.noteMark = true;
-      const revision = p.runs[runIndex]?.revision;
       runHidden = !!p.runs[runIndex]?.vanish && !revisionView.showHidden;
       // Shown hidden text carries a dotted underline so it reads as hidden; the run itself is unchanged.
       if (p.runs[runIndex]?.vanish && revisionView.showHidden && (!runStyle.underlineStyle || runStyle.underlineStyle === 'none')) Object.assign(runStyle, { underline: true, underlineStyle: 'dotted', underlineColor: 'auto' });
-      if (revision) {
-        const display = revisionDisplay(revision, revisionView.mode, revisionColor(revision.author, revisionView.authors));
-        if (display?.hidden) runHidden = true; else Object.assign(runStyle, display);
-      }
+      const display = runRevisionDisplay(p.runs[runIndex]);
+      if (display?.hidden) runHidden = true; else if (display) Object.assign(runStyle, display);
       styleIndex = runIndex;
     }
     // Inline page/column breaks in cell XML are retained but have no

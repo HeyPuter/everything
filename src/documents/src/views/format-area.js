@@ -44,7 +44,7 @@ const BORDER_ITEMS = [['Bottom Border', ['bottom'], 'borderBottom'], ['Top Borde
  * It contributes commands to the editor's command object, ribbon groups (extendTab), menu-bar items
  * (extendMenu) and document context-menu items (contextMenuItems).
  */
-export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = () => {}, host, unit = () => 'in', focus = () => editor()?.focus(), openFind, finder = () => null, pageSetup = () => {}, clipboard = {} }) {
+export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = () => {}, host, unit = () => 'in', focus = () => editor()?.focus(), openFind, finder = () => null, pageSetup = () => {}, clipboard = {}, hasKeymap = () => false }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const readOnly = () => !!pkg()?.readOnly || !editor();
   const later = () => queueMicrotask(() => editor()?.focus());
@@ -550,7 +550,6 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       if (menuId === 'edit') return [
         { label: 'Paste Special…', shortcut: chord('Cmd+Ctrl+V'), disabled: !editable, onSelect: pasteSpecial },
         { label: 'Paste and Match Formatting', shortcut: chord('Cmd+Option+Shift+V'), disabled: !editable, onSelect: () => pasteAs('merge') },
-        { label: 'Advanced Find and Replace…', disabled: !has, onSelect: () => advancedFind() },
         { label: 'Select', items: [{ label: 'Select Objects', disabled: !has, onSelect: selectObjects }, { label: 'Select All Text With Similar Formatting', disabled: !has, onSelect: selectSimilar }] },
         ...(dictation.supported ? [{ label: dictation.active ? 'Stop Dictation' : 'Start Dictation…', disabled: !editable, onSelect: () => dictation.toggle() }] : []),
       ];
@@ -574,8 +573,8 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       if (context === 'list') {
         const numbered = engine.model.listFormatting === 'number';
         return [
-          ...(numbered ? [{ label: 'Restart at 1', disabled: !editable, onSelect: commands.restartNumberingAtOne },
-            { label: 'Continue Numbering', disabled: !editable || !previousList(engine.model), onSelect: commands.continueNumbering },
+          // Restart Numbering at 1 is the menu shell's own entry.
+          ...(numbered ? [{ label: 'Continue Numbering', disabled: !editable || !previousList(engine.model), onSelect: commands.continueNumbering },
             { label: 'Set Numbering Value…', disabled: !editable, onSelect: setNumberingValue }] : []),
           { label: 'Adjust List Indents…', disabled: !editable, onSelect: adjustIndents },
         ];
@@ -585,22 +584,27 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
   };
 
   /* ---- Keyboard ---- */
+  // The editor's keymap (Customize Keyboard) owns the shared chords — Paragraph, Styles pane, Paste
+  // Special, Paste and Match Formatting, Copy/Paste Formatting — and calls these commands. Only chords
+  // it leaves unhandled arrive here.
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !editor()) return;
     const mod = MAC ? e.metaKey : e.ctrlKey, code = e.code;
     const act = action => { e.preventDefault(); e.stopPropagation(); action(); };
-    // Paragraph dialog: Cmd+Option+M on a Mac (Ctrl+Alt+M is New Comment elsewhere).
-    if (MAC && e.metaKey && e.altKey && !e.shiftKey && code === 'KeyM') return act(() => paragraphDialog());
-    if (mod && e.altKey && e.shiftKey && code === 'KeyS') return act(() => stylesPane('styles'));
-    if (mod && !e.altKey && e.shiftKey && code === 'KeyS') return act(applyStylesBox);
-    if (mod && !e.altKey && e.shiftKey && code === 'KeyC') return act(copyFormatting);
-    // With formatting copied, Cmd+Shift+V pastes it; otherwise it keeps pasting text only.
-    if (mod && !e.altKey && e.shiftKey && code === 'KeyV' && copiedFormat) return act(pasteFormatting);
-    if (mod && e.altKey && e.shiftKey && code === 'KeyV') return act(() => pasteAs('merge'));
-    if (MAC ? e.metaKey && e.ctrlKey && !e.altKey && code === 'KeyV' : e.ctrlKey && e.altKey && !e.shiftKey && code === 'KeyV') return act(pasteSpecial);
-    if (e.shiftKey && !mod && !e.altKey && e.key === 'F1') return act(() => stylesPane('reveal'));
-  }, { capture: true, signal: keyAbort.signal });
+    // Apply Styles: Cmd/Ctrl+Shift+S where Save As does not use it, and Ctrl+Shift+S on a Mac.
+    if ((mod || MAC && e.ctrlKey && !e.metaKey) && !e.altKey && e.shiftKey && code === 'KeyS') return act(applyStylesBox);
+    if (e.shiftKey && !mod && !e.altKey && !e.ctrlKey && e.key === 'F1') return act(() => stylesPane('reveal'));
+    // Without the editor keymap (embedding surfaces), the shared chords still work.
+    if (!hasKeymap()) {
+      if (MAC && e.metaKey && e.altKey && !e.shiftKey && code === 'KeyM') return act(() => paragraphDialog());
+      if (mod && e.altKey && e.shiftKey && code === 'KeyS') return act(() => stylesPane('styles'));
+      if (mod && !e.altKey && e.shiftKey && code === 'KeyC') return act(copyFormatting);
+      if (mod && !e.altKey && e.shiftKey && code === 'KeyV' && copiedFormat) return act(pasteFormatting);
+      if (mod && e.altKey && e.shiftKey && code === 'KeyV') return act(() => pasteAs('merge'));
+      if (MAC ? e.metaKey && e.ctrlKey && !e.altKey && code === 'KeyV' : e.ctrlKey && e.altKey && !e.shiftKey && code === 'KeyV') return act(pasteSpecial);
+    }
+  }, { signal: keyAbort.signal });
 
   let commandsRef = () => commands;
   /** Join the editor's full command set: list and effects menus gain this area's dialogs. */

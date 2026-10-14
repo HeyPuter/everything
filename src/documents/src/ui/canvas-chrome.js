@@ -4,6 +4,10 @@ import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
 import { createRibbon, large, small, split, command, rows, divider, commandIconEl, setControlIcon } from './ribbon.js';
 import { openListLibrary } from './list-library-menu.js';
+import { classicMenus } from '../views/classic-menus.js';
+import { createTitleBar } from '../views/title-bar.js';
+import { ribbonEntries, menuEntries } from './command-index.js';
+import { createRibbonModes } from './ribbon-modes.js';
 
 // Keep the user's pane and tab choices when opening another document in this tab.
 let expandedTools = false;
@@ -55,11 +59,12 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     const button = command(label, icon, e => openMenu({ anchor: button, label, items: inDocument(items()), minWidth: 220, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null }),
       { size, text, caret: true, attrs: { 'aria-haspopup': 'menu' } });
     noFocusSteal(button);
+    button.menuItems = items; // command search lists what the menu offers
     return button;
   };
   // A command chosen from a ribbon menu acts on the document: the keyboard goes back to it first.
   const inDocument = list => list.map(item => !item ? item
-    : item.onSelect ? { ...item, onSelect: () => { focusEditor(); item.onSelect(); } }
+    : item.onSelect ? { ...item, onSelect: () => { focusEditor(); w.noteCommand?.(item.label, item.onSelect); item.onSelect(); } }
     : item.items ? { ...item, items: inDocument(item.items) } : item);
   const engineReady = () => !c.bold.disabled;
   const separator = { separator: true };
@@ -203,7 +208,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const findSplit = split(findButton, { label: 'Find options', open: (anchor, e) => openMenu({ anchor, label: 'Find options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument([
     { label: 'Find', icon: 'search', shortcut: `${MOD_KEY}+F`, onSelect: () => a.openSearch?.() },
     { label: 'Advanced Find…', onSelect: () => (w.advancedFind ? w.advancedFind() : c.find.click()) },
-    { label: 'Go To…', shortcut: `${MOD_KEY}+G`, onSelect: () => w.goTo?.() }]) }) });
+    { label: 'Go To…', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+G' : 'Ctrl+G', onSelect: () => w.goTo?.() }]) }) });
   noFocusSteal(findButton);
   when(findButton, () => !c.find.disabled); when(findSplit.arrow, () => !c.find.disabled);
   const replace = command('Replace', 'replace', () => w.openReplace?.(), { text: 'Replace', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Shift+H' : 'Ctrl+H' });
@@ -328,12 +333,13 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- Review ---- */
-  const spellingButton = command('Spelling', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Spelling', shortcut: 'F7' });
+  const spellingButton = command('Editor', 'spelling', () => w.spelling?.(), { size: 'large', text: 'Editor', shortcut: 'F7' });
   const spelling = split(spellingButton, { label: 'Spelling options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Spelling options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument(w.spellingItems?.() || []) }) });
   const wordCount = command('Word Count', 'wordCount', () => w.wordCount?.(), { size: 'large', text: 'Word Count' });
-  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.());
+  const thesaurus = command('Thesaurus', 'thesaurus', () => w.thesaurus?.(), { size: 'large', text: 'Thesaurus', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+R' : 'Shift+F7' });
+  when(spellingButton, () => !!w.spelling && !!a.hasDocument?.()); when(spelling.arrow, () => !!w.spellingItems && !!a.hasDocument?.()); when(wordCount, () => !!a.hasDocument?.()); when(thesaurus, () => !!w.thesaurus && !!a.hasDocument?.());
   const review = { id: 'review', label: 'Review', groups: [
-    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, wordCount] },
+    { id: 'proofing', label: 'Proofing', icon: 'spelling', priority: 7, items: [spelling, thesaurus, wordCount] },
   ] };
 
   /* ---- View ---- */
@@ -492,7 +498,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     { label: 'All Documents', icon: 'back', onSelect: a.goHome },
   ];
   const fileCommand = (control, overrides) => ({ label: control.getAttribute('aria-label') || control.textContent, disabled: control.disabled, onSelect: () => control.click(), ...overrides });
-  const fileButton = el('button.ribbon-file', { type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: e => {
+  const fileButton = el('button.ribbon-file', { type: 'button', 'aria-haspopup': w.openBackstage ? 'dialog' : 'menu', 'aria-expanded': 'false', onclick: e => {
+    if (w.openBackstage) { w.openBackstage(); return; }
     const opened = openMenu({ anchor: fileButton, label: 'File', minWidth: 250, items: inDocument(fileItems()), pointer: !!e.detail, onClose: e.detail ? focusEditor : null });
     if (!opened.menu && e.detail) focusEditor();
   } }, 'File');
@@ -520,45 +527,35 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   // Clicking a ribbon button leaves the keyboard in the document: a dialog it
   // opens then hands focus back to the text when it closes. Fields (font name, size) still take focus.
   ribbon.card.addEventListener('mousedown', e => { if (e.target.closest?.('button') && document.activeElement?.matches?.('.canvas-input')) e.preventDefault(); });
+  // A ribbon command that changes the document becomes the one Repeat runs again, and names its undo step.
+  ribbon.card.addEventListener('click', e => {
+    const button = e.target.closest?.('button');
+    if (!button || button.disabled || button.getAttribute('aria-haspopup') || button.classList.contains('ribbon-split-arrow') || button.classList.contains('ribbon-collapsed')) return;
+    const label = button.getAttribute('aria-label') || button.title || button.textContent.trim();
+    w.noteCommand?.(label, () => { if (button.isConnected && !button.disabled) button.click(); });
+  }, true);
 
-  /* ---- Title bar: quick access, document name and status, search and account ---- */
-  small(c.undo, { icon: 'undo' }); small(c.redo, { icon: 'redo' });
-  const homeButton = command('All Documents', 'home', () => a.goHome?.());
-  const saveQuick = command(local ? 'Download .docx' : 'Save', 'save', () => (local ? c.exportButton : c.saveButton).click(), { shortcut: local ? null : `${MOD_KEY}+S` });
-  when(saveQuick, () => !(local ? c.exportButton : c.saveButton).disabled);
-  const printQuick = command('Print', 'print', () => c.printButton.click(), { shortcut: `${MOD_KEY}+P` });
-  when(printQuick, () => !c.printButton.disabled);
-  const quick = el('div.ed-quick', { role: 'toolbar', 'aria-label': 'Quick access' }, homeButton, ...(local ? [] : [saveQuick]), c.undo, c.redo, printQuick);
-  // A toolbar is one tab stop whose commands the arrow keys move between; disabled commands and those a
-  // narrow window hides are passed over.
-  let quickStop = null;
-  const quickCommands = () => [...quick.querySelectorAll('button')].filter(b => !b.disabled && getComputedStyle(b).display !== 'none');
-  function refreshQuickStop() {
-    const list = quickCommands();
-    if (!list.includes(quickStop)) quickStop = list[0] || null;
-    for (const b of quick.querySelectorAll('button')) { const index = b === quickStop ? 0 : -1; if (b.tabIndex !== index) b.tabIndex = index; }
-  }
-  quick.addEventListener('focusin', e => { if (e.target.matches('button')) { quickStop = e.target; refreshQuickStop(); } });
-  quick.addEventListener('keydown', e => {
-    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || !e.target.matches('button')) return;
-    const list = quickCommands(), at = list.indexOf(e.target);
-    const next = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
-    if (next === null || !list.length) return;
-    e.preventDefault(); list[(next + list.length) % list.length].focus();
-  });
-  const search = el('button.ed-search', { type: 'button', 'aria-label': 'Search in document', title: `Search in document (${MOD_KEY}+F)`, onclick: () => (a.openSearch ? a.openSearch() : c.find.click()) }, commandIconEl('find', 16), el('span', {}, 'Search'));
-  search.addEventListener('mousedown', e => e.preventDefault());
+  /* ---- Title bar: quick access, menu bar, document name, command search, modes, comments, share ---- */
   if (local) {
     c.exportButton.className = 'canvas-download';
     c.exportButton.setAttribute('aria-label', 'Download .docx');
     c.exportButton.title = 'Download .docx';
     c.exportButton.replaceChildren(commandIconEl('download', 16), el('span', {}, 'Download .docx'));
   }
-  const header = el('header.canvas-header.ed-header', {},
-    el('div.ed-titlebar', {}, quick,
-      el('div.canvas-title-wrap', {}, title, status),
-      el('div.canvas-title-actions', {}, search, ...(local ? [c.exportButton] : [account]))),
-    ribbon.tablist);
+  const allTabs = [home, insert, design, layout, references, review, view, tableDesign, tableLayout, picture, shapeFormat, ...moduleTabs];
+  let modes = null, titleBar = null;
+  const menuContext = { w, c, a, local, kit, focusEditor, inDocument, engineReady, rulers, engine: () => a.engine?.(),
+    tableAction, tableOption, shortcut: id => w.shortcutFor?.(id) ?? null, menuAnchor: () => document.activeElement,
+    toggleFormattingPane: () => setExpanded(!expandedTools), formattingPaneShown: () => expandedTools,
+    ribbonMode: () => modes?.mode ?? 'always', setRibbonMode: m => modes?.setMode(m), toggleRibbon: () => modes?.toggle(),
+    statusBarShown: () => w.statusBarShown?.() ?? true, setStatusBarShown: w.setStatusBarShown ? on => w.setStatusBarShown(on) : null,
+    openShortcuts: () => (w.openShortcuts ? w.openShortcuts() : openShortcuts()), focusSearch: () => titleBar?.focusSearch(), showKeyTips: () => modes?.showKeyTips() };
+  const menus = classicMenus(menuContext);
+  /** Every command in the window, for search, KeyTips and Customize Keyboard. */
+  const entries = () => [...ribbonEntries({ ribbon, tabs: allTabs, beforeRun: () => modes?.beforeRun() }), ...menuEntries(menus)];
+  titleBar = createTitleBar({ w, c, a, local, title, status, account, menus, focusEditor, entries,
+    openShortcuts: menuContext.openShortcuts, keymapShortcut: id => w.shortcutFor?.(id) ?? null });
+  const header = el('header.canvas-header.ed-header', {}, titleBar.el, ribbon.tablist);
   const toolbar = el('div.ed-ribbon', {}, ribbon.card);
   const navigation = el('div.canvas-navigation', { hidden: true });
 
@@ -585,13 +582,13 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     refreshGallery();
     designs?.refresh();
     ribbon.refresh();
-    refreshQuickStop();
+    titleBar.refresh();
   }
 
   // Keyboard chords for the ribbon's own commands, while the keyboard is in the document.
   const keyAbort = new AbortController();
   // Narrow windows hide some quick access commands, which may hold its tab stop.
-  compact.addEventListener('change', refreshQuickStop, { signal: keyAbort.signal });
+  compact.addEventListener('change', () => titleBar.refreshQuickStop(), { signal: keyAbort.signal });
   window.addEventListener('keydown', e => {
     if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input')) return;
     const mod = e.metaKey || e.ctrlKey;
@@ -603,6 +600,11 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
 
   setContext();
   refresh();
-  return { header, toolbar, navigation, inspector: pane, refresh, setContext, ribbon,
-    closeInspector: () => setExpanded(false), destroy() { keyAbort.abort(); ribbon.destroy(); closeMenu(); } };
+  return { header, toolbar, navigation, inspector: pane, refresh, setContext, ribbon, titleBar, menus, entries,
+    get ribbonModes() { return modes; },
+    /** Ribbon display modes and KeyTips need the workspace the chrome sits in. */
+    attach(workspace) { modes ??= createRibbonModes({ workspace, header, toolbar, ribbon, tabs: allTabs, titleBar: titleBar.el, focusEditor }); },
+    focusSearch: () => titleBar.focusSearch(), focusMenubar: () => titleBar.focusMenubar(), showKeyTips: () => modes?.showKeyTips(),
+    toggleFormattingPane: () => setExpanded(!expandedTools),
+    closeInspector: () => setExpanded(false), destroy() { keyAbort.abort(); ribbon.destroy(); titleBar.destroy(); modes?.destroy(); closeMenu(); } };
 }
