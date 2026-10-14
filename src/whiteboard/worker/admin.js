@@ -2189,7 +2189,16 @@ export async function adminCall(org, boards, identity, input) {
         // Someone the identity provider deleted and an administrator lets
         // back in is listed to it again, so its lookups and deprovisioning
         // still reach them.
-        if (input.status === "active" && user.scimDeleted) {
+        // An address the provider has since given to someone else stays
+        // theirs: the account is listed again only while it still holds
+        // its address, so no two listed people share a userName.
+        if (
+          input.status === "active" &&
+          user.scimDeleted &&
+          (!user.email ||
+            (await org.kv.get("org:email:" + (await hash(user.email)))) ===
+              uuid)
+        ) {
           delete user.scimDeleted;
           if (user.scimId) await org.kv.set("org:scimid:" + user.scimId, uuid);
         }

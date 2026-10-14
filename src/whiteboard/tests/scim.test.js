@@ -1816,3 +1816,30 @@ test("an address the identity provider deleted its user for can be renamed to", 
     { status: 409 },
   );
 });
+
+test("reactivating someone whose address the provider gave to a newcomer does not list two people with it", async () => {
+  const { org, boards, scim, request } = await setup();
+  const former = await scim("Users", "POST", {
+    userName: "shared@example.ca",
+    externalId: "old",
+  });
+  await verifyEmail(org, boards, editor, "shared@example.ca");
+  await request(`Users/${former.id}`, "DELETE");
+  await scim("Users", "POST", {
+    userName: "shared@example.ca",
+    externalId: "new",
+  });
+  await adminCall(org, boards, owner, {
+    op: "org.users.update",
+    uuid: editor.uuid,
+    status: "active",
+  });
+  assert.equal(await org.active(editor), true);
+  const listed = (await scim("Users")).Resources.filter(
+    (u) => u.userName === "shared@example.ca",
+  );
+  assert.deepEqual(
+    listed.map((u) => u.externalId),
+    ["new"],
+  );
+});
