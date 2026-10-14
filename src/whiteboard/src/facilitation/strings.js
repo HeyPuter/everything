@@ -197,6 +197,10 @@ addTranslations({
   "Export JSON": "Exporter en JSON",
   "Results are hidden until the facilitator reveals them.":
     "Les résultats sont masqués jusqu’à ce que l’animateur les dévoile.",
+  "With view access, you can watch this vote but not vote. To vote, ask the owner or a facilitator for comment access.":
+    "Avec un accès en consultation, vous pouvez suivre ce vote, mais pas voter. Pour voter, demandez au propriétaire ou à un animateur l’accès pour commenter.",
+  "With view access, you can watch this poll but not answer it. To answer, ask the owner or a facilitator for comment access.":
+    "Avec un accès en consultation, vous pouvez suivre ce sondage, mais pas y répondre. Pour répondre, demandez au propriétaire ou à un animateur l’accès pour commenter.",
   "{count} objects selected.": "{count} objets sélectionnés.",
   "{count} objects selected, with results tied for last place.":
     "{count} objets sélectionnés, avec les résultats à égalité pour la dernière place.",

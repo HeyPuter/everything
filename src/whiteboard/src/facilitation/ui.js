@@ -166,6 +166,8 @@ export function createFacilitationUI(api) {
       : "The board is unlocked.";
   };
   const manage = () => !!board() && canManage(role()) && api.canParticipate();
+  // Viewers follow votes and polls; commenters and up take part.
+  const watching = () => !!board()?.shared && !canComment(role());
   const shared = () => !!board()?.shared;
   const now = () => Math.round(api.now());
   const settings = () => workshopSettings(board());
@@ -1243,6 +1245,10 @@ export function createFacilitationUI(api) {
             count: voters,
           })
     }${left ? ` ${fill("About {count} minutes left.", { count: left })}` : ""} ${t(v.anonymous ? "Votes are anonymous." : "Votes show who voted.")}</p>${
+      open && watching()
+        ? `<p class="dialog-copy">${t("With view access, you can watch this vote but not vote. To vote, ask the owner or a facilitator for comment access.")}</p>`
+        : ""
+    }${
       canVote
         ? `<p class="fac-remaining" id="fac-remaining">${fill("You have {left} of {total} votes left.", { left: v.votes - mine.length, total: v.votes })}</p><p class="dialog-copy">${t("Select Vote on a highlighted object, or use the list below.")}</p>`
         : ""
@@ -1303,6 +1309,10 @@ export function createFacilitationUI(api) {
     // choice everyone made is 100%, not its part of all the picks.
     const total = responses;
     return `<h3>${authoredTextHTML({ lang: p.questionLang, textRuns: p.questionRuns }, p.question)}</h3><p class="dialog-copy">${fill(open ? "The poll is open. {count} responses." : "The poll is closed. {count} responses.", { count: responses })} ${t(p.anonymous ? "Answers are anonymous." : "Answers show who answered.")}</p>${
+      open && watching()
+        ? `<p class="dialog-copy">${t("With view access, you can watch this poll but not answer it. To answer, ask the owner or a facilitator for comment access.")}</p>`
+        : ""
+    }${
       canAnswer
         ? `<form id="fac-answer-form"><fieldset class="fac-fieldset"><legend>${t(p.multiple ? "Choose one or more answers" : "Choose one answer")}</legend>${p.options
             .map(

@@ -10607,3 +10607,45 @@ test("a selection holding hidden content says the facilitator controls it", () =
     ui.close();
   }
 });
+
+test("a viewer is told why they can watch a vote or poll but not take part", () => {
+  const b = { ...newBoard("Workshop"), shared: { server: "x", room: "r" } };
+  b.items = notes();
+  b.workshop = {
+    vote: vote(),
+    poll: {
+      id: "p1",
+      question: "Lunch?",
+      options: [
+        { id: "o1", text: "Pizza" },
+        { id: "o2", text: "Salad" },
+      ],
+      multiple: false,
+      anonymous: true,
+      hidden: false,
+      state: "open",
+      revealed: false,
+      startedAt: 1,
+    },
+  };
+  const why = {
+    vote: "With view access, you can watch this vote but not vote. To vote, ask the owner or a facilitator for comment access.",
+    poll: "With view access, you can watch this poll but not answer it. To answer, ask the owner or a facilitator for comment access.",
+  };
+  for (const [role, me] of [
+    ["viewer", viewer],
+    ["commenter", editor],
+  ]) {
+    const ui = stubUI(b, { role, me });
+    try {
+      ui.api.render();
+      for (const tab of ["vote", "poll"]) {
+        ui.api.open(tab);
+        const panel = ui.doc.querySelector("#fac-tabpanel").textContent;
+        assert.equal(panel.includes(why[tab]), role === "viewer", role);
+      }
+    } finally {
+      ui.close();
+    }
+  }
+});
