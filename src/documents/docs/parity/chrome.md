@@ -13,7 +13,9 @@ commands. OOXML behaviour (document properties, `w:lang`) is recorded in `docs/c
   not apply to the selection are disabled. Shortcuts show in the items and follow Customize Keyboard.
 - Full menubar keyboard model: one tab stop, Left/Right/Home/End, Down/Enter to open, Left/Right
   between open menus, Escape back to the name; Ctrl+F2 (Mac) or Alt+F10 focuses it.
-- `extendMenu(menuId, kit)` contract chained in `editor.js`; module items append after a separator.
+- `extendMenu(menuId, kit)` contract chained in `editor.js`. A module entry with the same name as a
+  built-in one takes its place (the module owns that command); its other entries follow after a
+  separator, each name once.
 - Narrow windows fold the menus into one Menus button with each menu as a submenu.
 
 **File view** (`src/views/backstage.js`)
@@ -50,7 +52,8 @@ commands. OOXML behaviour (document properties, `w:lang`) is recorded in `docs/c
 - Right-click to choose the items shown (remembered); View > Status Bar hides it.
 
 **Ribbon display and KeyTips** (`src/ui/ribbon-modes.js`)
-- Always show / Show tabs only / Auto-hide (remembered); double-click a tab, the chevron, or
+- Always show / Show tabs only / Auto-hide (remembered); double-click a tab, the chevron at the right
+  end of the tab row, or
   Cmd+Option+R / Ctrl+F1 toggles. In a collapsed ribbon a tab click shows the commands over the
   document until a command runs, Escape, or a click elsewhere.
 - KeyTips: press and release Alt (Option) or F10 (not Mac): badges for File (F), the tabs (H, N, G,
