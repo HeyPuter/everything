@@ -17805,7 +17805,8 @@ test("built timer retains countdown across navigation, preserves drawing undo, a
     await click("#timer-start");
     await new Promise((r) => setTimeout(r, 1300));
     assert.equal(doc.querySelector("#timer-state").textContent, "Time’s up.");
-    assert.equal(doc.querySelector("#toast").textContent, "Time’s up.");
+    // The open panel's status says it; a notification would say it twice.
+    assert.notEqual(doc.querySelector("#toast").textContent, "Time’s up.");
     await click('[data-action="export"]');
     doc.querySelector("#export-format").value = "json";
     doc

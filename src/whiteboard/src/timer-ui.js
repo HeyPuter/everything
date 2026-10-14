@@ -239,7 +239,9 @@ export function createTimerUI(api) {
       ready
     ) {
       alerted = key;
-      api.toast("Time’s up.");
+      // The open panel says so itself, in its status; a notification too
+      // would have it said twice.
+      if (!expanded || covered()) api.toast("Time’s up.");
       chime();
     }
     // A finish seen while the board was busy is told of at the next tick.

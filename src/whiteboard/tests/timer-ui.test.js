@@ -539,3 +539,19 @@ test("on a phone the open timer sits below the docked selection toolbar and work
     a.close();
   }
 });
+test("time's up is said once while the timer panel is open, by its status", () => {
+  const a = setup(
+    changeTimer(undefined, "start", { now: 10000, duration: 2000 }),
+  );
+  try {
+    a.ui.open();
+    a.ui.render();
+    a.state.now += 2500;
+    a.ui.render();
+    assert.equal(a.query("#timer-state").textContent, "Time’s up.");
+    assert.equal(a.query("#timer-state").getAttribute("role"), "status");
+    assert.deepEqual(a.state.toasts, []);
+  } finally {
+    a.close();
+  }
+});
