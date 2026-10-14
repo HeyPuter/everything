@@ -678,9 +678,9 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   });
   const tables = createTableTools({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(), controls: { get cellBorders() { return cellBorders; } } });
   Object.assign(editorCommands, tables.commands);
-  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
-  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...tables.extendMenu(id, kit)];
-  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...tables.contextMenuItems(context, kit)];
+  const tablesBaseExtendMenu = editorCommands.extendMenu, tablesBaseContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.extendMenu = (id, kit) => [...(tablesBaseExtendMenu?.(id, kit) || []), ...tables.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(tablesBaseContextMenuItems?.(context, kit) || []), ...tables.contextMenuItems(context, kit)];
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
     base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
   Object.assign(editorCommands, references.commands);
