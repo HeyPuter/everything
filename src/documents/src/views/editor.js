@@ -58,6 +58,7 @@ import { createReview } from './review.js';
 import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
+import { createDocumentViews } from './document-views.js';
 import { createInsert } from './insert-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
@@ -437,7 +438,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     },
     pages: () => engine?.canvases || [], currentPage: () => engine?.caretPageIndex ?? 0,
     search: text => { try { return engine?.model.findMatches(text, {}) || []; } catch { return []; } },
-    text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches) });
+    text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches),
+    headingActions: () => editorCommands.headingActions || null });
   outlinePanel.node.id = 'canvas-outline-panel';
   function toggleOutline(visible = outlinePanel.node.hidden, { search = false } = {}) {
     outline.setAttribute('aria-expanded', String(visible));
@@ -743,6 +745,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.contextMenuItems = (context, kit) => [...(baseContextItems?.(context, kit) || []), ...insert.commands.contextMenuItems(context, kit)];
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
+  editorCommands.readAloudActive = () => review.commands.readAloudActive();
 
   /* ---- Application chrome: menu bar, File view, title bar, status bar, keyboard ---- */
   // Feature modules add menu-bar entries and document context-menu entries the way they add ribbon groups.
@@ -909,6 +912,17 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.extendMenu = (id, kit) => [...(reviewExtendMenu?.(id, kit) || []), ...reviewTools.extendMenu(id, kit)];
   const reviewContextItems = editorCommands.contextMenuItems;
   editorCommands.contextMenuItems = (context, kit) => [...(reviewContextItems?.(context, kit) || []), ...reviewTools.contextMenuItems(context, kit)];
+  // View tab: document views (Read Mode, Web Layout, Outline, Draft), page movement, gridlines, zoom and windows.
+  const views = createDocumentViews({ editor: () => (failed ? null : engine), pkg: () => pkg, host, surface, root: () => root, error, commands: editorCommands,
+    toggleNavigation: () => toggleOutline(), navigationVisible: () => !outlinePanel.node.hidden, layoutChanged: () => { fitWidth(); rulers?.update(); },
+    rulers: { get visible() { return rulers?.visible ?? true; }, toggle: () => rulers?.toggle(), update: () => rulers?.update() },
+    exportDocument: async () => (pkg.readOnly ? doc.blob : engine.export(pkg)), documentTitle: () => title?.value?.trim(), onState: () => update() });
+  Object.assign(editorCommands, views.commands);
+  const viewsExtendTab = editorCommands.extendTab, viewsContextTabs = editorCommands.contextTabs, viewsExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendTab = (id, kit) => [...(viewsExtendTab?.(id, kit) || []), ...views.extendTab(id, kit)];
+  editorCommands.contextTabs = kit => [...(viewsContextTabs?.(kit) || []), ...views.contextTabs(kit)];
+  editorCommands.extendMenu = (id, kit) => [...(viewsExtendMenu?.(id, kit) || []), ...views.extendMenu(id, kit)];
+  editorCommands.extraContexts = () => views.extraContexts();
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -1126,8 +1140,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const selectedArea = engine.session.path === null ? '' : JSON.stringify([engine.session.path, engine.storyPage]);
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
-    chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', [...(['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []), ...(editorCommands.extraContexts?.() || [])]);
     mailings.refresh();
+    views.refresh();
     if (pkg.readOnly || engine.viewOnly) {
       // Read-only files and Viewing mode: the commands that change the document stay off.
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
@@ -1429,7 +1444,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

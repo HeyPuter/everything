@@ -228,6 +228,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     get paneShown() { return paneShown; },
     togglePane(on = !paneShown) { paneShown = !!on; paneSignature = ''; if (paneShown && !commentsShown) commentsShown = true; refresh(true); if (!paneShown) editor()?.focus(); },
     toggleReadAloud() { if (readAloud.active) readAloud.stop(); else readAloud.start(); },
+    readAloudActive: () => readAloud.active,
   };
 
   function threadAtCaret() {

@@ -30,6 +30,7 @@ import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
 import { readMailMerge, writeMailMerge } from './docx-mail-merge.js';
+import { readDocumentView, writeDocumentView } from './docx-view-settings.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
@@ -1016,6 +1017,7 @@ export class DocxPackage {
     this.reviewSettings = readReviewSettings(null); this.initialReviewSettings = readReviewSettings(null);
     this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
     this.mailMerge = null; this.initialMailMerge = 'null';
+    this.documentView = null; this.initialDocumentView = null;
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1700,6 +1702,7 @@ export class DocxPackage {
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
     pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
+    pkg.documentView = pkg.initialDocumentView = attempt(() => readDocumentView(parts), null);
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
@@ -1930,6 +1933,8 @@ export class DocxPackage {
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
     // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
     if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
+    // The view the document was last shown in (docx-view-settings.js), only when the user changed it.
+    if (this.documentView && this.documentView !== (this.initialDocumentView ?? 'print')) writeDocumentView(parts, this.documentView);
     this.pruneFootnotes(parts, paragraphs);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
