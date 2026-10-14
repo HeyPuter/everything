@@ -41,15 +41,25 @@ async function command(page, id) {
       .click();
   await page.locator(`${selector}:visible`).first().click();
 }
+// A gallery's full panel, unfolding its group first on a narrow screen.
+async function galleryPanel(page, label) {
+  const more = page
+    .locator(".ribbon-panel:not([hidden]), .ribbon-fold-panel")
+    .getByRole("button", { name: `More ${label}` })
+    .filter({ visible: true });
+  if (!(await more.count()))
+    await page
+      .locator(`.ribbon-panel:not([hidden]) .ribbon-fold[title="${label}"]`)
+      .click();
+  await more.first().click();
+  return page.locator(".ribbon-gallery-panel");
+}
 // A theme in the gallery's full panel.
 async function themeOption(page, name) {
-  await page
-    .locator(".ribbon-panel:not([hidden])")
-    .getByRole("button", { name: "More Themes" })
-    .click();
-  return page
-    .getByRole("dialog", { name: "Themes" })
-    .getByRole("option", { name, exact: true });
+  return (await galleryPanel(page, "Themes")).getByRole("option", {
+    name,
+    exact: true,
+  });
 }
 async function download(page) {
   await page
@@ -86,16 +96,9 @@ test("a theme and its variant restyle the master every slide uses", async ({
     .poll(() => page.locator("#slide-canvas .slide-image").getAttribute("src"))
     .not.toBe(before);
   // The Variants gallery offers the theme's four color variants.
-  const variants = page
-    .locator(".ribbon-panel:not([hidden])")
-    .getByRole("listbox", { name: "Variants" });
-  if (await variants.isVisible()) {
-    await expect(variants.getByRole("option")).toHaveCount(4);
-    await variants.getByRole("option", { name: "Harbor Fog" }).click();
-  } else {
-    await command(page, "variants");
-    await page.getByRole("option", { name: "Harbor Fog" }).click();
-  }
+  const variants = await galleryPanel(page, "Variants");
+  await expect(variants.getByRole("option")).toHaveCount(4);
+  await variants.getByRole("option", { name: "Harbor Fog" }).click();
   await expect(page.locator("#save-status")).toContainText("Saved");
   const { p } = await download(page);
   expect(P.getSlideMasters(p)).toHaveLength(1);
@@ -249,10 +252,7 @@ test("the current theme saves as a theme file that another deck can use", async 
   await tab(page, "design");
   await (await themeOption(page, "Orbit")).click();
   await expect(page.locator("#save-status")).toContainText("Saved");
-  await page
-    .locator(".ribbon-panel:not([hidden])")
-    .getByRole("button", { name: "More Themes" })
-    .click();
+  await galleryPanel(page, "Themes");
   const saving = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save Current Theme…" }).click();
   const saved = await saving;
@@ -263,10 +263,7 @@ test("the current theme saves as a theme file that another deck can use", async 
   expect(strFromU8(files["theme/theme/theme1.xml"])).toContain('name="Orbit"');
   // Another theme, then the file brings Orbit back.
   await (await themeOption(page, "Slate")).click();
-  await page
-    .locator(".ribbon-panel:not([hidden])")
-    .getByRole("button", { name: "More Themes" })
-    .click();
+  await galleryPanel(page, "Themes");
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Browse for Themes…" }).click();
   await (
@@ -303,4 +300,59 @@ test("the start screen offers every theme, drawn from the theme", async ({
   await expect(page.locator("#slide-count")).toHaveText("1");
   const { p } = await download(page);
   expect(nameOf(themeOf(p, P.getSlides(p)[0]))).toBe("Lagoon");
+});
+
+test("the current theme's thumbnail and variants are shown inline, and the tab fits", async ({
+  page,
+}, info) => {
+  await start(page);
+  await expect(page.locator("#slide-canvas .slide-image")).toBeVisible();
+  await tab(page, "design");
+  const ribbon = page.locator(".ribbon-panel:not([hidden])");
+  // The deck's own theme is drawn as "Aa", not with the master's sample text.
+  const own = (await galleryPanel(page, "Themes")).getByRole("option").first();
+  await expect(own).toHaveAttribute("aria-selected", "true");
+  const src = decodeURIComponent(await own.locator("img").getAttribute("src"));
+  expect(src).toContain(">Aa<");
+  expect(src).not.toContain("Master title style");
+  await page.keyboard.press("Escape");
+  // The ribbon never scrolls sideways; on wider screens the variants show
+  // in the ribbon itself.
+  const fits = await ribbon.evaluate((p) => p.scrollWidth <= p.clientWidth + 1);
+  expect(fits).toBe(true);
+  if (info.project.name === "desktop") {
+    for (const width of [1280, 1024]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect
+        .poll(() => ribbon.evaluate((p) => p.scrollWidth <= p.clientWidth + 1))
+        .toBe(true);
+      await expect(
+        ribbon.getByRole("listbox", { name: "Variants" }).getByRole("option"),
+      ).not.toHaveCount(0);
+    }
+    await page.setViewportSize({ width: 1440, height: 960 });
+  }
+  // A theme that is not built in has variants of its own colors: the
+  // second swaps light and dark.
+  await (
+    await galleryPanel(page, "Variants")
+  )
+    .getByRole("option")
+    .nth(1)
+    .click();
+  await expect(page.locator("#save-status")).toContainText("Saved");
+  const { files } = await download(page);
+  expect(strFromU8(files["ppt/slideMasters/slideMaster1.xml"])).toContain(
+    'bg1="dk1"',
+  );
+  // The Variants gallery's menu holds the theme's colors, fonts, effects
+  // and background styles.
+  await (
+    await galleryPanel(page, "Variants")
+  )
+    .getByRole("button", { name: "Fonts" })
+    .click();
+  await expect(
+    page.getByRole("menuitem", { name: "Customize Fonts…" }),
+  ).toBeVisible();
 });
