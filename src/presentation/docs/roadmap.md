@@ -135,6 +135,11 @@ what is being added, and its status. Items are checked off as they land.
 - [x] Insert Chart with every common chart type, a data sheet editor, and
       Chart Design / Format tabs (styles, colors, elements, layouts, switch
       row/column, change type).
+- [x] Data labels and trendlines on bubble and scatter charts, data tables
+      on horizontal bar charts, and error-bar amounts as a fixed value,
+      percentage, standard deviations, standard error or custom amounts
+      (typed, or a range of the data sheet that follows its edits; written
+      as `c:plus` / `c:minus`).
 - [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
       tab and Format pane section, and Convert to SmartArt for bulleted text.
 - [x] SmartArt: pictures in picture layouts (buttons in empty picture
