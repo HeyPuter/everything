@@ -18,6 +18,12 @@ import {
   smartArtTree,
 } from "./model.ts";
 import { xmlAttr, xmlText } from "./xml.ts";
+import {
+  type SmartArtShapeFormat,
+  type SmartArtTextStyle,
+  formatSpPrXml,
+  textStyleRunXml,
+} from "./format.ts";
 
 export const COLORS_URN = "urn:everything:smartart:colors/";
 export const STYLE_URN = "urn:everything:smartart:style/";
@@ -26,8 +32,13 @@ const guid = (prefix: string, i: number) =>
   `{${prefix}-0000-4000-8000-${i.toString(16).padStart(12, "0").toUpperCase()}}`;
 const DOC_ID = guid("D0C00000", 0);
 
-const textXml = (text: string): string => {
+const textXml = (text: string, style?: SmartArtTextStyle): string => {
   const paras = text.split(/\r\n|[\r\n]/);
+  const run = textStyleRunXml(style);
+  const rPr =
+    run.line || run.fill || run.effects
+      ? `<a:rPr lang="en-US">${run.line}${run.fill}${run.effects}</a:rPr>`
+      : `<a:rPr lang="en-US"/>`;
   return (
     `<dgm:t><a:bodyPr/><a:lstStyle/>` +
     paras
@@ -37,9 +48,7 @@ const textXml = (text: string): string => {
           .map(
             (line, i) =>
               (i ? `<a:br><a:rPr lang="en-US"/></a:br>` : "") +
-              (line
-                ? `<a:r><a:rPr lang="en-US"/><a:t>${xmlText(line)}</a:t></a:r>`
-                : ""),
+              (line ? `<a:r>${rPr}<a:t>${xmlText(line)}</a:t></a:r>` : ""),
           )
           .join("");
         return `<a:p>${runs}<a:endParaRPr lang="en-US"/></a:p>`;
@@ -62,11 +71,30 @@ const STYLE_CATEGORY: Record<string, string> = {
 export const dataModelXml = (
   model: SmartArtModel,
   drawingRelId: string,
+  pictureRel: (part: string) => string | null = () => null,
 ): string => {
   const entry = layoutEntry(model.layout);
   const points: string[] = [];
   const connections: string[] = [];
   let n = 0;
+  let presCount = 0;
+  // A shape's own formatting: a presentation point tied to the data point.
+  const presPoints = (
+    owner: string,
+    formats: Readonly<Record<string, SmartArtShapeFormat>> | undefined,
+  ) => {
+    for (const [name, f] of Object.entries(formats ?? {})) {
+      const spPr = formatSpPrXml(f, pictureRel);
+      const scale =
+        f.scale && f.scale !== 1
+          ? ` custScaleX="${Math.round(f.scale * 100000)}" custScaleY="${Math.round(f.scale * 100000)}"`
+          : "";
+      if (!spPr && !scale) continue;
+      points.push(
+        `<dgm:pt modelId="${guid("3E000000", presCount++)}" type="pres"><dgm:prSet presAssocID="${owner}" presName="${xmlAttr(name)}" presStyleCnt="0"${scale}/><dgm:spPr>${spPr}</dgm:spPr></dgm:pt>`,
+      );
+    }
+  };
   const visit = (nodes: ReadonlyArray<SmartArtNode>, parent: string) =>
     nodes.forEach((node, order) => {
       const i = n++;
@@ -75,16 +103,18 @@ export const dataModelXml = (
         par = guid("2A000000", i),
         sib = guid("5B000000", i);
       points.push(
-        `<dgm:pt modelId="${id}"><dgm:prSet phldrT="[Text]"/><dgm:spPr/>${textXml(node.text)}</dgm:pt>`,
+        `<dgm:pt modelId="${id}"><dgm:prSet phldrT="[Text]"/><dgm:spPr/>${textXml(node.text, node.textStyle)}</dgm:pt>`,
         `<dgm:pt modelId="${par}" type="parTrans" cxnId="${cxn}"><dgm:prSet/><dgm:spPr/>${textXml("")}</dgm:pt>`,
         `<dgm:pt modelId="${sib}" type="sibTrans" cxnId="${cxn}"><dgm:prSet/><dgm:spPr/>${textXml("")}</dgm:pt>`,
       );
       connections.push(
         `<dgm:cxn modelId="${cxn}" srcId="${parent}" destId="${id}" srcOrd="${order}" destOrd="0" parTransId="${par}" sibTransId="${sib}"/>`,
       );
+      presPoints(id, node.format);
       visit(node.children, id);
     });
   visit(smartArtTree(model.items), DOC_ID);
+  presPoints(DOC_ID, model.format);
   const doc =
     `<dgm:pt modelId="${DOC_ID}" type="doc">` +
     `<dgm:prSet loTypeId="${xmlAttr(LAYOUT_URN + model.layout)}" loCatId="${entry?.category ?? "list"}" ` +
@@ -96,7 +126,7 @@ export const dataModelXml = (
     `<dgm:spPr/>${textXml("")}</dgm:pt>`;
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<dgm:dataModel xmlns:dgm="${NS.diagram}" xmlns:a="${NS.dml}">` +
+    `<dgm:dataModel xmlns:dgm="${NS.diagram}" xmlns:a="${NS.dml}" xmlns:r="${NS.officeDocRels}">` +
     `<dgm:ptLst>${doc}${points.join("")}</dgm:ptLst>` +
     `<dgm:cxnLst>${connections.join("")}</dgm:cxnLst>` +
     `<dgm:bg/><dgm:whole/>` +

@@ -3872,6 +3872,9 @@ const smartArtTools = createSmartArtTools({
   refreshRibbon: () => syncToolbar(),
   removeShape: (target, shape) => removeAnyShape(target, shape),
   bounds: (shape) => slideBounds(doc.pres, shape),
+  pickPicture: (use) =>
+    pickImage(async (file) => use(await readImageFile(file))),
+  refreshCanvas: () => renderSelection(),
   setIndentLevel: (shape, i, level, bulleted) =>
     setParagraphIndentLevel(shape, i, level, bulleted),
   canHoldText: (shape) => canHoldText(shape),
@@ -8457,7 +8460,16 @@ function renderSelection() {
         const current = shapeIndex(s);
         if (current < 0) return;
         if (e.shiftKey || e.ctrlKey || e.metaKey) toggleSelected(current);
-        else selectOnly(current);
+        else {
+          // A click on a selected SmartArt graphic picks the shape under it.
+          if (chosen && smartArtTools.isSmartArt(s))
+            smartArtTools.pickAt(
+              s,
+              e.offsetX / (hit.clientWidth || 1),
+              e.offsetY / (hit.clientHeight || 1),
+            );
+          selectOnly(current);
+        }
         updateSelectionUi();
         renderInspector();
       },
@@ -8481,6 +8493,7 @@ function renderSelection() {
   });
   masterView.decorateCanvas(canvas);
   insertFeatures.decorateCanvas(canvas);
+  smartArtTools.decorateCanvas(canvas);
 }
 // What an empty content placeholder's buttons can insert: tables and
 // pictures always, and what else the Insert tab offers.

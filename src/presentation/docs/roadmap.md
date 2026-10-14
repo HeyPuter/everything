@@ -137,8 +137,14 @@ what is being added, and its status. Items are checked off as they land.
       row/column, change type).
 - [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
       tab and Format pane section, and Convert to SmartArt for bulleted text.
-- [ ] SmartArt: pictures in picture layouts, per-shape formatting (a SmartArt
-      Format tab).
+- [x] SmartArt: pictures in picture layouts (buttons in empty picture
+      shapes; picture fills cropped to cover), and a SmartArt Format tab for
+      one shape picked on the canvas or from Select Shape: Change Shape,
+      Larger, Smaller, Reset Shape, shape fill, outline and effects, and
+      WordArt text styles, fill, outline and effects. Kept on presentation
+      points and text runs of the data model and drawn into the saved
+      drawing (`src/smartart/smartart-format.js`,
+      `lib/pptx/src/api/fn/smartart/format.ts`).
 
 ### 8. Views
 

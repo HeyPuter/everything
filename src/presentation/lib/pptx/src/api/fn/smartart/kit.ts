@@ -10,6 +10,7 @@ import {
   type XmlElement,
 } from "../../../internal/xml/index.ts";
 import type { Role } from "./paint.ts";
+import type { SmartArtShapeFormat, SmartArtTextStyle } from "./format.ts";
 import { descendantLines, type SmartArtNode } from "./model.ts";
 
 export interface Para {
@@ -56,6 +57,13 @@ export interface ArtShape extends Rect {
   readonly item?: number;
   /** Font size chosen by fitting, in points. */
   pt?: number;
+  /** Names the shape for its formatting: "3/pic" (item 3's picture shape)
+   *  or "trans:0" (the first arrow that stands for no item). */
+  key?: string;
+  /** Formatting given to this shape (see format.ts). */
+  format?: SmartArtShapeFormat;
+  /** Formatting given to the text of the item the shape shows. */
+  textStyle?: SmartArtTextStyle;
 }
 
 export interface LayoutContext {
