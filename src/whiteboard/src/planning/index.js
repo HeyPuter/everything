@@ -188,13 +188,18 @@ export function createPlanning(api) {
         // organization's project; their tasks keep their last status.
         const returned = new Set(issues.map((issue) => issue.key));
         const missing = keys.filter((key) => !returned.has(key));
-        const outcome = changed
-          ? `${labelled(t("Jira status updated"), "")}${changed}`
-          : t("Jira status is up to date.");
+        const updated = `${labelled(t("Jira status updated"), "")}${changed}`;
+        const notFound = `${labelled(t("Not found in Jira, so not updated"), "")}${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` +${missing.length - 5}` : ""}.`;
         say(
-          missing.length
-            ? `${outcome}${changed ? "." : ""} ${labelled(t("Not found in Jira, so not updated"), "")}${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` +${missing.length - 5}` : ""}.`
-            : outcome,
+          !missing.length
+            ? changed
+              ? updated
+              : t("Jira status is up to date.")
+            : changed
+              ? `${updated}. ${notFound}`
+              : missing.length < keys.length
+                ? `${notFound} ${t("The others are up to date.")}`
+                : notFound,
         );
       } catch (error) {
         say(

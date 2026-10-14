@@ -4302,6 +4302,12 @@ test("refreshing Jira status names issues Jira no longer has, and Jira's reason 
     toasts.at(-1),
     "Jira status updated: 1. Not found in Jira, so not updated: WB-2.",
   );
+  // Nothing new for the issue it found.
+  await planning.actions["task-jira-refresh"]();
+  assert.equal(
+    toasts.at(-1),
+    "Not found in Jira, so not updated: WB-2. The others are up to date.",
+  );
   answer = async () => {
     throw Object.assign(Error("Jira did not accept the request."), {
       status: 502,

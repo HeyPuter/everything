@@ -85,6 +85,7 @@ addTranslations({
   "Jira says": "Selon Jira",
   "Not found in Jira, so not updated":
     "Introuvables dans Jira, donc non mis à jour",
+  "The others are up to date.": "Les autres sont à jour.",
   "Jira status updated": "Statut Jira mis à jour",
   "Jira status is up to date.": "Le statut Jira est à jour.",
   "No tasks are linked to Jira.": "Aucune tâche n’est liée à Jira.",
