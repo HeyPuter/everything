@@ -172,8 +172,6 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       }))});
     }
     if(behind) items.push({separator:true},{label:'Select picture behind text',onSelect:selectBehind});
-    // In a table, the table commands (insert, delete, merge, borders, alignment…) are offered here too.
-    if (!image && engine.model.tableContext && editable) items.push(...(editorCommands.contextMenuItems?.('table', {}) || []));
     const commentItems = review.contextItems();
     if (commentItems.length) items.push({separator:true}, ...commentItems);
     // Feature modules contribute items for what was clicked (see editorCommands.contextMenuItems).
