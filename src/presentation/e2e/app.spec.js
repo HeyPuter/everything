@@ -16412,15 +16412,23 @@ test("applying to all slides is unavailable for an imported transition", async (
   const pres = createDeck("blank");
   P.addBlankSlide(pres);
   P.setSlideTransition(P.getSlides(pres)[0], { effect: "wipe", speed: "med" });
+  // A transition the app has no entry for, as a newer file may carry.
+  const files = unzipSync(await P.savePresentation(pres)),
+    name = P.getSlidePartName(P.getSlides(pres)[0]).slice(1);
+  files[name] = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(files[name])
+      .replace(/<p:wipe\b[^>]*\/>/, "<p:sparkle/>"),
+  );
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
   await (
     await chooser
   ).setFiles({
-    name: "Wiped.pptx",
+    name: "Sparkled.pptx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    buffer: Buffer.from(await P.savePresentation(pres)),
+    buffer: Buffer.from(zipSync(files)),
   });
   await expect(page.locator("#slide-count")).toHaveText("2");
   await inspector(page);
