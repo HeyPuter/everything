@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createGame, snapshot, undo, getMovingCards, applyMove, drawFromStock, HISTORY_LIMIT,
+  redealLimit, VEGAS_ANTE,
 } from './state.js';
 import { newDeck, SUIT_COLOR } from './deck.js';
 
@@ -203,7 +204,7 @@ describe('drawFromStock', () => {
     const g = rigged({ stock: [card('♠', '2', false), card('♥', '3', false)] });
     const result = drawFromStock(g);
     expect(result.ok).toBe(true);
-    expect(result.drawn).toBe('♥3');
+    expect(result.drawn).toEqual(['♥3']);
     expect(result.recycled).toBe(false);
     expect(g.waste.map(c => c.id)).toEqual(['♥3']);
     expect(g.waste[0].faceUp).toBe(true);
@@ -216,11 +217,122 @@ describe('drawFromStock', () => {
     const result = drawFromStock(g);
     expect(result.ok).toBe(true);
     expect(result.recycled).toBe(true);
-    expect(result.drawn).toBe(null);
+    expect(result.drawn).toEqual([]);
     expect(g.waste).toHaveLength(0);
     expect(g.stock.map(c => c.id)).toEqual(['♦4', '♥3', '♠2']);
     expect(g.stock.every(c => c.faceUp === false)).toBe(true);
     expect(g.moves).toBe(1);
     expect(g.history).toHaveLength(1);
+  });
+});
+
+describe('draw three', () => {
+  it('turns over three cards, last one on top', () => {
+    const g = rigged({
+      draw: 3,
+      stock: [card('♠', '2', false), card('♥', '3', false), card('♦', '4', false), card('♣', '5', false)],
+    });
+    const result = drawFromStock(g);
+    expect(result.drawn).toEqual(['♣5', '♦4', '♥3']);
+    expect(g.waste.map(c => c.id)).toEqual(['♣5', '♦4', '♥3']);
+    expect(g.waste.every(c => c.faceUp)).toBe(true);
+    expect(g.stock.map(c => c.id)).toEqual(['♠2']);
+    expect(g.moves).toBe(1);
+  });
+
+  it('turns over what is left when fewer than three remain', () => {
+    const g = rigged({ draw: 3, stock: [card('♠', '2', false)] });
+    expect(drawFromStock(g).drawn).toEqual(['♠2']);
+    expect(g.stock).toHaveLength(0);
+  });
+
+  it('undoes a three-card draw in one step', () => {
+    const g = rigged({
+      draw: 3,
+      stock: [card('♠', '2', false), card('♥', '3', false), card('♦', '4', false)],
+    });
+    drawFromStock(g);
+    undo(g);
+    expect(g.waste).toHaveLength(0);
+    expect(g.stock).toHaveLength(3);
+  });
+
+  it('only lets the top waste card move', () => {
+    const g = rigged({ draw: 3, waste: [card('♠', '2'), card('♥', '3'), card('♦', '4')] });
+    expect(getMovingCards(g, { from: 'waste' }).map(c => c.id)).toEqual(['♦4']);
+  });
+});
+
+describe('Vegas', () => {
+  const vegas = (overrides = {}) => rigged({ scoring: 'vegas', draw: 1, score: -VEGAS_ANTE, redeals: 0, ...overrides });
+
+  it('deals a game that already owes the $52 ante', () => {
+    const g = createGame(newDeck(), { scoring: 'vegas', draw: 3 });
+    expect(g.score).toBe(-52);
+    expect(g.draw).toBe(3);
+    expect(g.scoring).toBe('vegas');
+  });
+
+  it('scores nothing in a standard game', () => {
+    const g = rigged({ waste: [card('♠', 'A')], scoring: 'standard', score: 0 });
+    applyMove(g, { from: 'waste' }, { kind: 'foundation', index: 0 }, [card('♠', 'A')]);
+    expect(g.score).toBe(0);
+  });
+
+  it('pays $5 for a card played to a foundation', () => {
+    const g = vegas({ waste: [card('♠', 'A')] });
+    applyMove(g, { from: 'waste' }, { kind: 'foundation', index: 0 }, [card('♠', 'A')]);
+    expect(g.score).toBe(-47);
+  });
+
+  it('takes the $5 back when a card leaves a foundation', () => {
+    const g = vegas({
+      tableau: [[card('♥', '3')], [], [], [], [], [], []],
+      foundations: [[card('♠', 'A'), card('♠', '2')], [], [], []],
+      score: -42,
+    });
+    const r = applyMove(g, { from: 'foundation', fromIndex: 0 }, { kind: 'tableau', index: 0 }, [card('♠', '2')]);
+    expect(r.ok).toBe(true);
+    expect(g.score).toBe(-47);
+  });
+
+  it('restores the score on undo', () => {
+    const g = vegas({ waste: [card('♠', 'A')] });
+    applyMove(g, { from: 'waste' }, { kind: 'foundation', index: 0 }, [card('♠', 'A')]);
+    undo(g);
+    expect(g.score).toBe(-52);
+  });
+
+  it('allows one pass when drawing one', () => {
+    const g = vegas({ waste: [card('♠', '2'), card('♥', '3')] });
+    expect(redealLimit(g)).toBe(0);
+    const r = drawFromStock(g);
+    expect(r.ok).toBe(false);
+    expect(g.waste).toHaveLength(2);
+    expect(g.moves).toBe(0);
+    expect(g.history).toHaveLength(0);
+  });
+
+  it('allows three passes (two redeals) when drawing three', () => {
+    const g = vegas({ draw: 3, waste: [card('♠', '2')] });
+    expect(drawFromStock(g).recycled).toBe(true);
+    drawFromStock(g);
+    expect(drawFromStock(g).recycled).toBe(true);
+    drawFromStock(g);
+    expect(drawFromStock(g).ok).toBe(false);
+    expect(g.redeals).toBe(2);
+  });
+
+  it('gives back a redeal on undo', () => {
+    const g = vegas({ draw: 3, redeals: 1, waste: [card('♠', '2')] });
+    drawFromStock(g);
+    expect(g.redeals).toBe(2);
+    undo(g);
+    expect(g.redeals).toBe(1);
+  });
+
+  it('never limits redeals in a standard game', () => {
+    const g = rigged({ waste: [card('♠', '2')], redeals: 500 });
+    expect(drawFromStock(g).recycled).toBe(true);
   });
 });

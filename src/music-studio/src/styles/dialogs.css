@@ -1,0 +1,665 @@
+/* App dialogs (project settings, preferences, shortcuts, about, export,
+   open project), the tour callouts and the small tool windows. */
+
+.dialog .faint,
+.tour .faint,
+.float-win .faint {
+  color: var(--muted);
+}
+
+.dialog a {
+  color: var(--accent);
+}
+
+.dlg-section {
+  margin: 16px 0 8px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app.hide-hints .status-hint {
+  visibility: hidden;
+}
+
+/* ------------------------------------------------------------ project settings */
+
+.project-settings {
+  width: min(440px, 100%);
+}
+
+.project-settings .input {
+  width: 100%;
+}
+
+.project-settings .input.num {
+  width: 96px;
+}
+
+.ps-control,
+.ps-sig,
+.ps-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ps-sig .select {
+  width: 72px;
+}
+
+.ps-range input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ps-out {
+  width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-error {
+  min-height: 1.2em;
+  margin-top: 8px;
+  color: var(--danger);
+}
+
+.ps-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.ps-stat {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.ps-stat strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ preferences */
+
+.dlg-prefs .dialog-body {
+  padding: 0;
+}
+
+.prefs {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  min-height: 340px;
+}
+
+.pref-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--divider);
+  background: var(--panel-2);
+}
+
+.pref-tab {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+}
+
+.pref-tab:hover {
+  background: var(--raised-hover);
+}
+
+.pref-tab[aria-selected='true'] {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pref-panels {
+  padding: 16px;
+  overflow: auto;
+}
+
+.pref-section {
+  display: grid;
+  gap: 14px;
+}
+
+.pref-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.pref-row > label,
+.pref-label {
+  padding-top: 6px;
+  color: var(--text-2);
+}
+
+.pref-check > div:first-child {
+  display: none;
+}
+
+.pref-check {
+  grid-template-columns: 1fr;
+  padding-left: 152px;
+}
+
+.pref-control {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.pref-control .select {
+  min-width: 200px;
+  max-width: 100%;
+}
+
+.pref-hint {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.pref-note {
+  margin: 0;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------ shortcuts */
+
+.dlg-shortcuts .dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sc-search {
+  width: 100%;
+  flex: none;
+}
+
+.sc-note {
+  margin: 8px 0 0 !important;
+  font-size: var(--fs-sm);
+}
+
+.sc-list {
+  columns: 2 300px;
+  column-gap: 24px;
+  margin-top: 4px;
+}
+
+.sc-group {
+  break-inside: avoid;
+}
+
+.sc-items {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.sc-items dt {
+  color: var(--text-2);
+}
+
+.sc-items dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sc-empty {
+  margin-top: 16px !important;
+}
+
+/* ------------------------------------------------------------ about */
+
+.about {
+  width: min(460px, 100%);
+}
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.about-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.about-alpha {
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  background: var(--panel-2);
+}
+
+.about-credits {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------ export */
+
+.export {
+  display: grid;
+  gap: 12px;
+  width: min(440px, 100%);
+}
+
+.exp-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.exp-field legend {
+  margin-bottom: 6px;
+  padding: 0;
+  color: var(--text-2);
+}
+
+.exp-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.exp-radio .faint {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.exp-bar,
+.exp-fill {
+  height: 100%;
+}
+
+.exp-fill {
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.exp-status {
+  min-height: 1.2em;
+  color: var(--text-2);
+}
+
+.exp-status.error {
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------ open project (this device) */
+
+.local-projects {
+  display: grid;
+  gap: 12px;
+}
+
+.lp-list {
+  max-height: min(50vh, 420px);
+  overflow: auto;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+.lp-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.lp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--divider);
+  cursor: default;
+}
+
+.lp-row:last-child {
+  border-bottom: 0;
+}
+
+.lp-row:hover {
+  background: var(--raised-hover);
+}
+
+.lp-row[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+.lp-icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.lp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lp-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.lp-meta {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-empty {
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.lp-empty p {
+  margin: 0 0 4px;
+}
+
+.lp-cloud {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  color: var(--text-2);
+}
+
+.lp-cloud span {
+  flex: 1;
+}
+
+.save-notice-body {
+  max-width: 440px;
+}
+
+/* ------------------------------------------------------------ undo history */
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+}
+
+.history-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.history-list {
+  flex: 1;
+  min-height: 120px;
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+.history-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.history-row:hover {
+  background: var(--raised-hover);
+}
+
+.history-row.current {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.history-row.future {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.history-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ tap tempo */
+
+.tap {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.tap-pad {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  width: 140px;
+  height: 110px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  touch-action: manipulation;
+}
+
+.tap-pad:hover {
+  background: var(--raised-hover);
+}
+
+.tap-pad .faint {
+  font-size: var(--fs-sm);
+  font-weight: 400;
+}
+
+.tap-pad.flash {
+  animation: tap-flash 0.18s ease-out;
+}
+
+@keyframes tap-flash {
+  from {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+}
+
+.tap-value {
+  font: 600 32px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tap-unit {
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------ tour */
+
+.tour-ring {
+  position: fixed;
+  z-index: 940;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+
+.tour {
+  position: fixed;
+  z-index: 950;
+  width: min(320px, calc(100vw - 16px));
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.tour:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+.tour-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tour-title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.tour-count {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.tour-text {
+  margin: 6px 0 10px;
+  color: var(--text-2);
+}
+
+.tour-keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
+.tour-keys dd {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-foot .spacer {
+  flex: 1;
+}
+
+/* ------------------------------------------------------------ phones */
+
+@media (max-width: 720px) {
+  .prefs {
+    grid-template-columns: 1fr;
+  }
+
+  .pref-tabs {
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--divider);
+    overflow-x: auto;
+  }
+
+  .pref-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .pref-row > label,
+  .pref-label {
+    padding-top: 0;
+  }
+
+  .pref-check {
+    padding-left: 0;
+  }
+
+  .pref-control .select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .tap {
+    flex-direction: column;
+  }
+
+  .lp-meta {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .lp-row,
+  .history-row {
+    min-height: 44px;
+  }
+
+  .pref-tab {
+    height: 40px;
+  }
+}
+
+/* Startup: hidden until the last session is restored (storage/index.js). */
+.app.is-restoring > * {
+  visibility: hidden;
+}

@@ -1,4 +1,4 @@
-import { computeSizes, applySizes, renderModeFor } from './layout.js';
+import { computeSizes, applySizes, renderModeFor, fanSpacing, fitFan } from './layout.js';
 import { cardEl, slotEl } from './cardview.js';
 
 function makePile(kind, index) {
@@ -9,15 +9,123 @@ function makePile(kind, index) {
   return p;
 }
 
-export function render(ctx) {
-  const { boardEl, game, hooks } = ctx;
+// Gap between the top row and the tableau; matches .row.tableau's offset
+// in layout.css.
+const TABLEAU_GAP = 24;
 
-  const sizes = computeSizes(boardEl.clientWidth);
+// Lays out one tableau column, squeezing its fan to fit the board's height.
+// The fan used is recorded on the pile so a drag ghost can match it.
+function renderColumn(pile, col, ctx, i) {
+  const { sizes, mode, hooks, availH } = ctx;
+  if (!col.length) {
+    pile.appendChild(slotEl());
+    return;
+  }
+  const natural = fanSpacing(sizes.cardH);
+  const faceDown = col.slice(0, -1).filter(c => !c.faceUp).length;
+  const fan = fitFan({
+    ...natural, faceDown, faceUp: col.length - 1 - faceDown, cardH: sizes.cardH, avail: availH,
+  });
+  pile.dataset.fan = fan.up;
+  let offset = 0;
+  col.forEach((c, idx) => {
+    const e = cardEl(c, mode);
+    e.style.top = offset + 'px';
+    pile.appendChild(e);
+    if (c.faceUp) hooks.attachDrag(e, { from: 'tableau', fromIndex: i, cardIndex: idx });
+    hooks.afterCard(e, c);
+    offset += c.faceUp ? fan.up : fan.down;
+  });
+  pile.style.height = (offset + sizes.cardH) + 'px';
+}
+
+function renderTableau(boardEl, game, ctx) {
+  const tab = document.createElement('div');
+  tab.className = 'row tableau';
+  boardEl.appendChild(tab);
+  game.tableau.forEach((col, i) => {
+    const pile = makePile('tableau', i);
+    pile.classList.add('tableau');
+    renderColumn(pile, col, ctx, i);
+    tab.appendChild(pile);
+  });
+}
+
+function stockCounter(text) {
+  const counter = document.createElement('div');
+  counter.className = 'stock-counter';
+  counter.textContent = text;
+  return counter;
+}
+
+export function render(ctx) {
+  const { boardEl, game, rules, hooks } = ctx;
+
+  boardEl.dataset.game = game.kind;
+  boardEl.style.setProperty('--cols', rules.columns);
+  const sizes = computeSizes(boardEl.clientWidth, rules.columns);
   applySizes(document.documentElement, sizes);
   const mode = renderModeFor(sizes.cardW);
   boardEl.dataset.mode = mode;
+  const availH = boardEl.clientHeight - sizes.cardH - TABLEAU_GAP;
+  const layout = { sizes, mode, hooks, availH };
 
   boardEl.innerHTML = '';
+  if (game.kind === 'spider') renderSpider(boardEl, game, layout);
+  else renderKlondike(boardEl, game, rules, layout);
+}
+
+// Spider's top row, ten columns wide like its tableau: the stock (one back
+// per deal left, fanned so the deals can be counted at a glance), a gap,
+// then eight slots for completed runs, each showing its King.
+function renderSpider(boardEl, game, layout) {
+  const { sizes, mode, hooks } = layout;
+
+  const top = document.createElement('div');
+  top.className = 'row top';
+  boardEl.appendChild(top);
+
+  const stockPile = makePile('stock', 0);
+  const deals = Math.ceil(game.stock.length / 10);
+  if (!deals) {
+    stockPile.appendChild(slotEl('block'));
+  } else {
+    const fanX = Math.max(3, sizes.cardW * 0.06);
+    for (let d = 0; d < deals; d++) {
+      const c = game.stock[d * 10];
+      const e = cardEl({ ...c, faceUp: false }, mode);
+      e.style.left = (d * fanX) + 'px';
+      stockPile.appendChild(e);
+    }
+    stockPile.appendChild(stockCounter(deals === 1 ? '1 deal' : `${deals} deals`));
+  }
+  hooks.attachStockTap(stockPile);
+  top.appendChild(stockPile);
+
+  top.appendChild(document.createElement('div')); // spacer
+
+  for (let i = 0; i < 8; i++) {
+    const fp = makePile('foundation', i);
+    // Runs only ever arrive on their own, so these are never drop targets;
+    // otherwise a run released near the top row could pick one over a
+    // column it overlaps.
+    fp.dataset.drop = 'none';
+    const run = game.foundations[i];
+    if (run) {
+      const e = cardEl(run[0], mode);
+      fp.appendChild(e);
+      hooks.afterCard(e, run[0]);
+    } else {
+      fp.appendChild(slotEl());
+    }
+    top.appendChild(fp);
+  }
+
+  renderTableau(boardEl, game, layout);
+}
+
+function renderKlondike(boardEl, game, rules, layout) {
+  const { sizes, mode, hooks } = layout;
 
   const top = document.createElement('div');
   top.className = 'row top';
@@ -26,19 +134,14 @@ export function render(ctx) {
   // Stock
   const stockPile = makePile('stock', 0);
   if (game.stock.length === 0) {
-    stockPile.appendChild(slotEl(game.waste.length ? 'refresh' : 'block'));
+    stockPile.appendChild(slotEl(rules.canDraw(game) ? 'refresh' : 'block'));
   } else {
     game.stock.slice(-Math.min(3, game.stock.length)).forEach(c => {
       stockPile.appendChild(cardEl({ ...c, faceUp: false }, mode));
     });
   }
   hooks.attachStockTap(stockPile);
-  if (game.stock.length) {
-    const counter = document.createElement('div');
-    counter.className = 'stock-counter';
-    counter.textContent = game.stock.length;
-    stockPile.appendChild(counter);
-  }
+  if (game.stock.length) stockPile.appendChild(stockCounter(game.stock.length));
   top.appendChild(stockPile);
 
   // Waste — last few fanned right so the pile reads as a stack
@@ -49,21 +152,20 @@ export function render(ctx) {
     const fanX = Math.max(6, sizes.cardW * 0.10);
     const visible = game.waste.slice(-3);
     const startIdx = game.waste.length - visible.length;
-    let topCardEl = null;
-    let topCard = null;
+    const placed = [];
     visible.forEach((c, i) => {
       const e = cardEl(c, mode);
       e.style.left = (i * fanX) + 'px';
       if (i === visible.length - 1) {
         hooks.attachDrag(e, { from: 'waste', fromIndex: startIdx + i });
-        topCardEl = e;
-        topCard = c;
       } else {
         e.style.pointerEvents = 'none';
       }
       wastePile.appendChild(e);
+      placed.push([e, c]);
     });
-    if (topCardEl) hooks.afterCard(topCardEl, topCard);
+    // Every visible card, not just the top one: a draw-three flies all three.
+    for (const [e, c] of placed) hooks.afterCard(e, c);
   }
   top.appendChild(wastePile);
 
@@ -84,32 +186,5 @@ export function render(ctx) {
     top.appendChild(fp);
   }
 
-  // Tableau
-  const tab = document.createElement('div');
-  tab.className = 'row tableau';
-  boardEl.appendChild(tab);
-
-  const fanFaceDown = Math.max(10, sizes.cardH * 0.10);
-  const fanFaceUp = Math.max(18, sizes.cardH * 0.22);
-
-  for (let i = 0; i < 7; i++) {
-    const pile = makePile('tableau', i);
-    pile.classList.add('tableau');
-    const col = game.tableau[i];
-    if (!col.length) {
-      pile.appendChild(slotEl());
-    } else {
-      let offset = 0;
-      col.forEach((c, idx) => {
-        const e = cardEl(c, mode);
-        e.style.top = offset + 'px';
-        pile.appendChild(e);
-        if (c.faceUp) hooks.attachDrag(e, { from: 'tableau', fromIndex: i, cardIndex: idx });
-        hooks.afterCard(e, c);
-        offset += c.faceUp ? fanFaceUp : fanFaceDown;
-      });
-      pile.style.height = (offset + sizes.cardH) + 'px';
-    }
-    tab.appendChild(pile);
-  }
+  renderTableau(boardEl, game, layout);
 }

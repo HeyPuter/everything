@@ -1,6 +1,5 @@
 import { renderFaceInto } from './cardview.js';
 import { SUITS, RANKS, SUIT_COLOR } from '../game/deck.js';
-import { computeSizes } from './layout.js';
 import { stepCard, isSettled, launchVelocity, MAX_STEP_MS } from './cascade-physics.js';
 
 // mode is the board's current render mode (boardEl.dataset.mode) so a card
@@ -113,7 +112,7 @@ function drawFallbackCard(ctx, card, w, h) {
 }
 
 function drawCascadeCard(ctx, card, atlas, cardW, cardH) {
-  const img = atlas.get(card.id);
+  const img = atlas.get(card.suit + card.rank);
   if (img && img.complete && img.naturalWidth > 0) {
     ctx.drawImage(img, card.x, card.y, cardW, cardH);
   } else {
@@ -121,23 +120,31 @@ function drawCascadeCard(ctx, card, atlas, cardW, cardH) {
   }
 }
 
-// Highest rank first, cycling the four foundations: K♠ K♥ K♦ K♣ Q♠ Q♥ ...
-// down to A♣. Precomputed once so launching is just walking an index rather
-// than juggling four per-suit counters.
-const LAUNCH_ORDER = [];
-for (let r = RANKS.length - 1; r >= 0; r--) {
-  for (const suit of SUITS) LAUNCH_ORDER.push({ suit, rank: RANKS[r] });
+// Highest rank first, cycling the foundations: K K K K Q Q ... down to the
+// aces. slotSuits[i] is the suit sitting on foundation i (Klondike's aces
+// land wherever the player put them; Spider has eight runs, often several
+// of one suit), so each card launches from the slot that really holds it.
+export function launchOrder(slotSuits) {
+  const order = [];
+  for (let r = RANKS.length - 1; r >= 0; r--) {
+    slotSuits.forEach((suit, slot) => order.push({ suit, rank: RANKS[r], slot }));
+  }
+  return order;
 }
+
+// Klondike launches its 52 cards 90ms apart; Spider's 104 go out twice as
+// fast so the whole cascade still takes about as long.
+const LAUNCH_SPAN_MS = 52 * 90;
 
 export function createAnimator({ boardEl }) {
   let pendingFlips = [];
-  let pendingFlight = null;
+  // card id -> { sourceRect, delay }: a draw-three or a Spider deal sends
+  // several cards at once, each starting a little after the last.
+  let pendingFlights = new Map();
   let celebration = null; // the active cascade's state, or null between/before runs
 
-  function applyFlight(el, card) {
-    if (!pendingFlight || pendingFlight.cardId !== card.id) return;
-    const src = pendingFlight.sourceRect;
-    pendingFlight = null;
+  function applyFlight(el, card, flight) {
+    const src = flight.sourceRect;
 
     const destRect = el.getBoundingClientRect();
     const originalHTML = el.innerHTML;
@@ -145,9 +152,10 @@ export function createAnimator({ boardEl }) {
     const originalStyle = el.getAttribute('style') || '';
 
     el.innerHTML = '';
-    el.className = 'card flying';
+    el.className = flight.slide ? 'card flying slide' : 'card flying';
     el.style.setProperty('--fly-dx', (src.left - destRect.left) + 'px');
     el.style.setProperty('--fly-dy', (src.top - destRect.top) + 'px');
+    el.style.setProperty('--fly-delay', flight.delay + 'ms');
     el.appendChild(buildFlipper(card, boardEl.dataset.mode));
 
     const onEnd = ev => {
@@ -184,10 +192,12 @@ export function createAnimator({ boardEl }) {
   function afterCard(el, card) {
     if (!card) return;
     if (pendingFlips.length) applyFlip(el, card);
-    if (pendingFlight && pendingFlight.cardId === card.id) {
+    const flight = pendingFlights.get(card.id);
+    if (flight) {
+      pendingFlights.delete(card.id);
       // Defer until the pile is in the DOM, or getBoundingClientRect() on the
       // destination returns (0,0) and the card flies in from the viewport corner.
-      requestAnimationFrame(() => applyFlight(el, card));
+      requestAnimationFrame(() => applyFlight(el, card, flight));
     }
   }
 
@@ -199,7 +209,7 @@ export function createAnimator({ boardEl }) {
     if (celebration) celebration.end(false);
   }
 
-  async function startCelebration(onDone) {
+  async function startCelebration(onDone, slotSuits) {
     if (celebration) return; // already running — never overlap two cascades
 
     // Checked first, before building anything: a full-screen bouncing
@@ -262,18 +272,20 @@ export function createAnimator({ boardEl }) {
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr); // backing store is device pixels; every draw call below is in CSS pixels
 
-      const { cardW, cardH } = computeSizes(boardEl.clientWidth);
+      const rootStyle = getComputedStyle(document.documentElement);
+      const cardW = parseFloat(rootStyle.getPropertyValue('--card-w')) || 80;
+      const cardH = parseFloat(rootStyle.getPropertyValue('--card-h')) || cardW * 1.4;
       const bounds = { width: window.innerWidth, height: window.innerHeight, cardW, cardH };
 
       const cards = [];
+      const order = launchOrder(slotSuits);
       let launchIdx = 0;
 
       function launchOne() {
-        if (launchIdx >= LAUNCH_ORDER.length) return false;
-        const { suit, rank } = LAUNCH_ORDER[launchIdx++];
-        const s = SUITS.indexOf(suit);
-        const slot = boardEl.querySelector(`.pile[data-kind="foundation"][data-index="${s}"]`);
-        if (!slot) return true; // shouldn't happen — board.js always renders all four — but never hang
+        if (launchIdx >= order.length) return false;
+        const { suit, rank, slot: slotIdx } = order[launchIdx++];
+        const slot = boardEl.querySelector(`.pile[data-kind="foundation"][data-index="${slotIdx}"]`);
+        if (!slot) return true; // shouldn't happen — board.js renders every foundation — but never hang
 
         const rect = slot.getBoundingClientRect();
         if (!state.hiddenSlots.includes(slot)) state.hiddenSlots.push(slot);
@@ -293,7 +305,7 @@ export function createAnimator({ boardEl }) {
           clearInterval(state.launchTimer);
           state.launchTimer = 0;
         }
-      }, 90);
+      }, Math.max(20, LAUNCH_SPAN_MS / Math.max(1, order.length)));
 
       // ---- Frame loop. THE CANVAS IS NEVER CLEARED — every drawImage call
       // stamps a new position without erasing the last; the accumulated
@@ -315,7 +327,7 @@ export function createAnimator({ boardEl }) {
           if (!c.settled) allSettled = false;
         }
 
-        const allLaunched = launchIdx >= LAUNCH_ORDER.length;
+        const allLaunched = launchIdx >= order.length;
         if (allLaunched && allSettled) {
           state.end(true);
           return;
@@ -402,7 +414,16 @@ export function createAnimator({ boardEl }) {
   return {
     afterCard,
     queueFlip: id => { if (id) pendingFlips.push(id); },
-    queueFlight: (id, sourceRect) => { pendingFlight = { cardId: id, sourceRect }; },
+    queueFlips: ids => { for (const id of ids || []) if (id) pendingFlips.push(id); },
+    // slide: the card is face up at both ends, so it travels without the
+    // back-to-front spin a card turned off the stock gets.
+    queueFlights: (ids, sourceRect, { stagger = 70, slide = false } = {}) => {
+      ids.forEach((id, i) => pendingFlights.set(id, { sourceRect, delay: i * stagger, slide }));
+    },
+    // Called after each render: a flight no rendered card claimed (a dealt
+    // card swept straight into a finished Spider run) must not linger and
+    // fire later, when an undo brings that card back.
+    dropUnclaimed: () => pendingFlights.clear(),
     startCelebration,
     cancelCelebration,
   };

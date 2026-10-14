@@ -1,0 +1,338 @@
+/* Piano roll: editor surface, header toolbar, note popover and tool dialogs.
+   The --pr-* tokens are read by the canvas renderer (pianoroll/render.js). */
+
+:root {
+  --pr-key-white: #aeb5be;
+  --pr-key-hover: #c8cdd4;
+  --pr-key-black: #1b1e22;
+  --pr-key-line: #868e98;
+  --pr-key-text: #3a4047;
+  --pr-key-text-c: #15181b;
+  --pr-bar-shade: rgba(255, 255, 255, 0.02);
+  --pr-octave-line: #353b43;
+  --pr-out-scale: rgba(0, 0, 0, 0.2);
+  --pr-root-row: rgba(143, 131, 245, 0.08);
+  --pr-beyond: rgba(0, 0, 0, 0.3);
+  --pr-end-marker: #8c949e;
+  --pr-hover-row: rgba(255, 255, 255, 0.035);
+  --pr-note-light-text: rgba(255, 255, 255, 0.92);
+  --pr-lane-bg: #17191c;
+  --pr-scroll-track: #17191c;
+  --pr-scroll-thumb: #3a4048;
+  --pr-scroll-thumb-hot: #4f5761;
+  --pr-note-sel-border: #ffffff;
+  --pr-note-sel-tint: #ffffff;
+}
+
+:root[data-theme-resolved='light'] {
+  --pr-key-white: #ffffff;
+  --pr-key-hover: #e4e7eb;
+  --pr-key-black: #3b4047;
+  --pr-key-line: #c6cbd1;
+  --pr-key-text: #6b737c;
+  --pr-key-text-c: #1c1f23;
+  --pr-bar-shade: rgba(0, 0, 0, 0.022);
+  --pr-octave-line: #c2c7cd;
+  --pr-out-scale: rgba(0, 0, 0, 0.05);
+  --pr-root-row: rgba(108, 92, 231, 0.07);
+  --pr-beyond: rgba(20, 24, 28, 0.07);
+  --pr-end-marker: #646c75;
+  --pr-hover-row: rgba(0, 0, 0, 0.03);
+  --pr-lane-bg: #eceef1;
+  --pr-scroll-track: #e6e8eb;
+  --pr-scroll-thumb: #c4c9cf;
+  --pr-scroll-thumb-hot: #a7aeb6;
+  --pr-note-sel-border: #1c1f23;
+  --pr-note-sel-tint: #ffffff;
+}
+
+/* ------------------------------------------------------------ surface */
+
+.pr {
+  position: absolute;
+  inset: 0;
+}
+
+.pr-surface {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  overflow: hidden;
+  outline: none;
+}
+
+.pr-surface:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--focus);
+  pointer-events: none;
+}
+
+.pr-empty p {
+  max-width: 360px;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------ toolbar */
+
+.pr-toolbar {
+  flex: 1;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.pr-toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pr-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 160px;
+  min-width: 0;
+  padding: 0 4px 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  flex: none;
+}
+
+.pr-channel:hover {
+  background: var(--raised-hover);
+}
+
+.pr-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.pr-ch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pr-tools {
+  display: flex;
+  gap: 1px;
+  flex: none;
+}
+
+.pr-tool-menu {
+  display: none;
+}
+
+.pr-snap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  flex: none;
+}
+
+.pr-snap-select {
+  width: 92px;
+}
+
+.pr-scale {
+  max-width: 150px;
+  flex: none;
+  color: var(--text-2);
+  padding: 0 6px;
+}
+
+.pr-scale > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-scale.on {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.pr-opts {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+}
+
+.pr-spacer {
+  flex: 1;
+  min-width: 2px;
+}
+
+@container (max-width: 760px) {
+  .pr-opts {
+    display: none;
+  }
+}
+
+@container (max-width: 610px) {
+  .pr-scale,
+  .pr-sep-scale {
+    display: none;
+  }
+}
+
+@container (max-width: 500px) {
+  .pr-tools {
+    display: none;
+  }
+
+  .pr-tool-menu {
+    display: inline-flex;
+  }
+
+  .pr-channel {
+    max-width: 110px;
+  }
+}
+
+@container (max-width: 330px) {
+  .pr-snap > .icon {
+    display: none;
+  }
+
+  .pr-snap-select {
+    width: 74px;
+  }
+
+  .pr-sep {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .pr-toolbar .icon-btn.sm {
+    width: 30px;
+    height: 30px;
+  }
+
+  .pr-channel,
+  .pr-snap-select {
+    height: 30px;
+  }
+}
+
+/* ------------------------------------------------------------ note popover */
+
+.pr-popover {
+  position: absolute;
+  z-index: 20;
+  width: 236px;
+  padding: 6px 10px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.pr-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.pr-pop-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pr-pop-field {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.pr-pop-field .input {
+  width: 100%;
+}
+
+.pr-pop-hint {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+}
+
+.pr-pop-error {
+  min-height: 0;
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+.pr-pop-error:empty {
+  display: none;
+}
+
+/* ------------------------------------------------------------ dialogs */
+
+.pr-dialog {
+  display: grid;
+  gap: 12px;
+  min-width: min(380px, calc(100vw - 64px));
+}
+
+.pr-dialog .form-grid > .select,
+.pr-dialog .form-grid > .input {
+  width: 100%;
+}
+
+.pr-dialog .pr-note {
+  margin: 0;
+  max-width: 420px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.pr-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pr-range input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-out {
+  min-width: 38px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pr-pair {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pr-pair > .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-checks {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}

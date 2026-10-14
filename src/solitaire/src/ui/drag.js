@@ -1,5 +1,3 @@
-import { getMovingCards, applyMove } from '../game/state.js';
-import { canPlaceOnTableau, canPlaceOnFoundation } from '../game/rules.js';
 import { cardEl } from './cardview.js';
 
 export const DRAG_THRESHOLD = 6;   // px before a press counts as a drag, not a click
@@ -37,12 +35,15 @@ export function pickDropTarget(point, ghostRect, piles) {
   return direct || overlapBest || nearBest;
 }
 
-export function createDragController({ boardEl, getGame, requestRender, onMoveApplied }) {
+// getRules() returns the game-specific rules adapter (see game/modes.js), so
+// the same drag code moves Klondike and Spider cards.
+export function createDragController({ boardEl, getGame, getRules, requestRender, onMoveApplied }) {
   let dragging = null;
 
   function collectPiles() {
     return [...boardEl.querySelectorAll('.pile')]
-      .filter(p => p.dataset.kind !== 'stock' && p.dataset.kind !== 'waste')
+      .filter(p => p.dataset.kind !== 'stock' && p.dataset.kind !== 'waste'
+        && p.dataset.drop !== 'none')
       .map(p => {
         const r = p.getBoundingClientRect();
         const rect = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
@@ -58,25 +59,18 @@ export function createDragController({ boardEl, getGame, requestRender, onMoveAp
   }
 
   function commit(from, to, cards) {
-    const result = applyMove(getGame(), from, to, cards);
+    const result = getRules().applyMove(getGame(), from, to, cards);
     if (result.ok) onMoveApplied(result);
     return result.ok;
   }
 
   function autoMove(info) {
     const game = getGame();
-    const cards = getMovingCards(game, info);
-    if (!cards.length) return false;
-    if (cards.length === 1) {
-      for (let i = 0; i < 4; i++) {
-        if (canPlaceOnFoundation(cards[0], game.foundations[i])
-          && commit(info, { kind: 'foundation', index: i }, cards)) return true;
-      }
-    }
-    for (let i = 0; i < 7; i++) {
-      if (info.from === 'tableau' && info.fromIndex === i) continue;
-      if (canPlaceOnTableau(cards[0], game.tableau[i])
-        && commit(info, { kind: 'tableau', index: i }, cards)) return true;
+    const rules = getRules();
+    if (!rules.canPickUp(game, info)) return false;
+    const cards = rules.getMovingCards(game, info);
+    for (const to of rules.autoTargets(game, info, cards)) {
+      if (commit(info, to, cards)) return true;
     }
     return false;
   }
@@ -86,12 +80,7 @@ export function createDragController({ boardEl, getGame, requestRender, onMoveAp
     if (!dragging) return;
     const drop = findDropTarget(x, y);
     if (!drop) return;
-    const game = getGame();
-    const cards = dragging.cards;
-    const ok = (drop.kind === 'foundation' && cards.length === 1
-        && canPlaceOnFoundation(cards[0], game.foundations[drop.index]))
-      || (drop.kind === 'tableau' && canPlaceOnTableau(cards[0], game.tableau[drop.index]));
-    if (!ok) return;
+    if (!getRules().canDrop(getGame(), dragging.cards, dragging.info, drop)) return;
     const pile = boardEl.querySelector(
       `.pile[data-kind="${drop.kind}"][data-index="${drop.index}"]`);
     if (pile) pile.classList.add('drop-hover');
@@ -163,13 +152,17 @@ export function createDragController({ boardEl, getGame, requestRender, onMoveAp
     if (dragging) return;   // a second pointer mid-drag would orphan the first ghost
     if (ev.button !== 0) return;
     const game = getGame();
-    const cards = getMovingCards(game, info);
-    if (!cards.length || !cards[0].faceUp) return;
+    const rules = getRules();
+    if (!rules.canPickUp(game, info)) return;
+    const cards = rules.getMovingCards(game, info);
 
     const rect = el.getBoundingClientRect();
     const cardH = parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue('--card-h'));
-    const fanFaceUp = Math.max(18, cardH * 0.22);
+    // A crowded column squeezes its fan to fit the board (see board.js), and
+    // the ghost has to match it or the lifted cards jump apart.
+    const pileEl = el.closest('.pile');
+    const fanFaceUp = parseFloat(pileEl?.dataset.fan) || Math.max(18, cardH * 0.22);
     const mode = boardEl.dataset.mode;
 
     const ghost = document.createElement('div');

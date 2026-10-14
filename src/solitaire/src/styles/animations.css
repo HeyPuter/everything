@@ -63,11 +63,13 @@
   box-shadow: none !important;
   overflow: visible;
   animation: flyArc .55s cubic-bezier(.34,.1,.34,1) both;
+  animation-delay: var(--fly-delay, 0ms);
 }
 .card.flying .flipper {
   position: absolute; inset: 0;
   transform-style: preserve-3d;
   animation: flySpin .55s cubic-bezier(.5,.05,.5,.95) both;
+  animation-delay: var(--fly-delay, 0ms);
 }
 .card.flying .face {
   position: absolute; inset: 0;
@@ -112,6 +114,9 @@
    to be at 0deg and .face.back at 180deg. */
 .card.flying .face.front { transform: rotateY(0deg); }
 .card.flying .face.back  { transform: rotateY(180deg); }
+/* A card that is already face up (a finished Spider run's King heading
+   home) arcs across without the spin. */
+.card.flying.slide .flipper { animation: none; }
 .pile.drop-hover .slot,
 .pile.drop-hover > .card:last-child {
   box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(37,99,235,.35);

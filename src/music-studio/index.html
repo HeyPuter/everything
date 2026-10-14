@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-theme-resolved="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Resolve the theme before first paint to avoid a flash.
+      try {
+        var t = (JSON.parse(localStorage.getItem('music-studio:prefs') || '{}').theme) || 'system';
+        var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.themeResolved = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#16181b" />
+    <title>Music Studio</title>
+    <meta name="description" content="Music Studio is a free, open-source music production workstation in your browser. Program beats in the step sequencer, write melodies in the piano roll, arrange songs in the playlist and mix with studio effects." />
+    <meta name="keywords" content="online music production, beat maker, DAW in browser, step sequencer, piano roll, synthesizer, drum machine, mixer, Puter app" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Music Studio" />
+    <meta property="og:title" content="Music Studio: make music in your browser" />
+    <meta property="og:description" content="Beats, melodies, arrangement and mixing in a free, open-source music workstation." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="./favicon-32x32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Music Studio" />
+    <script src="https://js.puter.com/v2/"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>Music Studio needs JavaScript to run.</noscript>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

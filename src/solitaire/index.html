@@ -75,9 +75,17 @@
     Solitaire
   </div>
   <div class="stats">
-    <span>Moves<b id="moves">0</b></span>
+    <span id="movesStat">Moves<b id="moves">0</b></span>
+    <span id="scoreStat" hidden>Score<b id="score"></b></span>
+    <span id="bankStat" hidden>Bank<b id="bank"></b></span>
   </div>
   <div class="actions">
+    <div class="menu-wrap">
+      <button class="btn" id="mode" title="Choose a game" aria-haspopup="menu" aria-expanded="false" aria-controls="modeMenu">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="11" height="15" rx="2" transform="rotate(-10 8.5 13.5)"/><rect x="10" y="3" width="11" height="15" rx="2"/></svg><span id="modeLabel">Klondike</span><svg class="icon chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="menu" id="modeMenu" role="menu" aria-label="Game" hidden></div>
+    </div>
     <button class="btn" id="undo" title="Undo">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>Undo</span>
     </button>
@@ -100,6 +108,8 @@
     </button>
   </div>
 </div>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <footer class="credit">
   <a href="https://developer.puter.com" target="_blank" rel="noopener">Powered by Puter</a>

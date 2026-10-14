@@ -1,0 +1,130 @@
+/* Design tokens. Dark is the base; light overrides follow. The resolved theme
+   is on <html data-theme-resolved>, set before first paint in index.html. */
+
+:root {
+  color-scheme: dark;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 8px;
+
+  --bg: #16181b;
+  --bg-sunken: #121417;
+  --panel: #1d2024;
+  --panel-2: #23272c;
+  --raised: #2a2f35;
+  --raised-hover: #323840;
+  --raised-active: #3a414a;
+  --border: #30353c;
+  --border-strong: #3d444d;
+  --divider: #26292e;
+  --text: #e4e7eb;
+  --text-2: #b4bbc4;
+  --muted: #8c949e;
+  --faint: #626a74;
+
+  --accent: #8f83f5;
+  --accent-hover: #a197f8;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(143, 131, 245, 0.18);
+  --focus: #a9a0ff;
+  --ok: #5cc98a;
+  --warn: #e9b24c;
+  --danger: #ef6b5f;
+  --danger-text: #16181b;
+  --danger-soft: rgba(239, 107, 95, 0.16);
+
+  /* Editor surfaces (read by canvas and WebGL renderers through cssVar). */
+  --grid-bg: #1a1d21;
+  --grid-bg-alt: #1e2125;
+  --grid-line: #262a30;
+  --grid-beat: #2e333a;
+  --grid-bar: #3c424b;
+  --grid-key-black: #16191c;
+  --grid-key-white: #1d2024;
+  --ruler-bg: #202328;
+  --ruler-text: #9aa2ac;
+  --playhead: #f4f5f7;
+  --loop: rgba(143, 131, 245, 0.22);
+  --selection: rgba(143, 131, 245, 0.28);
+  --selection-border: #a197f8;
+  --note-text: rgba(10, 12, 14, 0.85);
+  --clip-text: rgba(10, 12, 14, 0.88);
+  --clip-body: rgba(16, 18, 21, 0.42);
+  --step-off: #2c3137;
+  --step-off-alt: #343a42;
+  --step-on-text: #121417;
+  --meter-bg: #101214;
+  --meter-low: #5cc98a;
+  --meter-mid: #e9b24c;
+  --meter-high: #ef6b5f;
+  --knob-track: #3a4048;
+  --knob-face: #2c3137;
+  --led-on: #6fdc8c;
+  --led-off: #3a4048;
+  --scrim: rgba(0, 0, 0, 0.5);
+  --toolbar-h: 44px;
+  --statusbar-h: 24px;
+  --panel-head-h: 32px;
+}
+
+:root[data-theme-resolved='light'] {
+  color-scheme: light;
+  --bg: #e9ebee;
+  --bg-sunken: #dfe2e6;
+  --panel: #f6f7f8;
+  --panel-2: #eef0f2;
+  --raised: #ffffff;
+  --raised-hover: #f1f2f4;
+  --raised-active: #e5e7ea;
+  --border: #d3d7dc;
+  --border-strong: #bfc4ca;
+  --divider: #e1e4e8;
+  --text: #1c1f23;
+  --text-2: #3f454c;
+  --muted: #646c75;
+  --faint: #8d949c;
+
+  --accent: #6c5ce7;
+  --accent-hover: #5b4bd6;
+  --accent-soft: rgba(108, 92, 231, 0.14);
+  --focus: #6c5ce7;
+  --ok: #23955a;
+  --warn: #b7791f;
+  --danger: #cf3f33;
+  --danger-text: #ffffff;
+  --danger-soft: rgba(207, 63, 51, 0.12);
+
+  --grid-bg: #f4f5f7;
+  --grid-bg-alt: #eceef1;
+  --grid-line: #e2e5e9;
+  --grid-beat: #d4d8dd;
+  --grid-bar: #b5bbc2;
+  --grid-key-black: #e3e6ea;
+  --grid-key-white: #f7f8f9;
+  --ruler-bg: #e9ebee;
+  --ruler-text: #555c64;
+  --playhead: #1c1f23;
+  --loop: rgba(108, 92, 231, 0.16);
+  --selection: rgba(108, 92, 231, 0.2);
+  --selection-border: #6c5ce7;
+  --note-text: rgba(10, 12, 14, 0.85);
+  --clip-text: rgba(10, 12, 14, 0.88);
+  --clip-body: rgba(255, 255, 255, 0.55);
+  --step-off: #dde1e5;
+  --step-off-alt: #ced3d9;
+  --step-on-text: #121417;
+  --meter-bg: #d5d9de;
+  --knob-track: #c9ced4;
+  --knob-face: #ffffff;
+  --led-on: #2fb35d;
+  --led-off: #c4c9cf;
+  --scrim: rgba(20, 24, 28, 0.32);
+}

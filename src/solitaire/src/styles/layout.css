@@ -31,6 +31,7 @@ header {
   font-size: 13px;
   color: var(--muted);
 }
+.stats span { white-space: nowrap; }
 .stats b {
   color: var(--text);
   font-weight: 600;
@@ -74,12 +75,14 @@ main {
   max-width: 980px;
   margin: 0 auto;
 }
+/* Ten columns need more width than seven to keep the cards readable. */
+#board[data-game="spider"] { max-width: 1240px; }
 
 .row {
   position: absolute;
   left: 0; right: 0;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(var(--cols, 7), 1fr);
   gap: var(--gap);
 }
 .row.top { top: 0; }
@@ -111,7 +114,75 @@ main {
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
+
+/* Game menu: a popover under its header button. */
+.menu-wrap { position: relative; }
+button.btn .icon.chevron { width: 14px; height: 14px; opacity: .7; }
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(20,27,33,.96);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid rgba(255,255,255,.1);
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  z-index: 80;
+}
+.menu[hidden] { display: none; }
+.menu-group {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: rgba(255,255,255,.08); outline: none; }
+.menu-item .check { width: 16px; height: 16px; flex: none; visibility: hidden; color: var(--accent); }
+.menu-item[aria-checked="true"] .check { visibility: visible; }
+.menu-item .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+/* Short status line for a refused action (a Spider deal with an empty
+   column, a Vegas stock with no passes left). */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 12px);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(15,20,25,.92);
+  border: 1px solid rgba(255,255,255,.1);
+  font-size: 13px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 90;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* Responsive sizing handled via JS-set CSS vars */
 @media (max-width: 700px) {
@@ -120,4 +191,16 @@ main {
   .stats { gap: 14px; font-size: 12px; }
   .actions .btn span { display: none; }
   .actions .btn { padding: 8px; }
+  .actions .btn .chevron { display: none; }
+}
+/* Vegas adds Score and Bank, and a phone header has no room for three
+   numbers. Money is what Vegas is played for, so Moves gives way. */
+@media (max-width: 480px) {
+  .stats:has(#scoreStat:not([hidden])) #movesStat { display: none; }
+  .stats:has(#scoreStat:not([hidden])) { gap: 12px; }
+  .stats:has(#scoreStat:not([hidden])) span {
+    display: flex; flex-direction: column; align-items: center;
+    font-size: 10px; line-height: 1.2;
+  }
+  .stats:has(#scoreStat:not([hidden])) b { margin-left: 0; font-size: 13px; }
 }
