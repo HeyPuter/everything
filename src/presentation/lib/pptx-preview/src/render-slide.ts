@@ -8547,11 +8547,11 @@ const renderBubbleChart = (
     );
   renderScatterAxes(f, spec, xB, yB, ctx, paint);
   const out: string[] = [];
-  // The largest bubble's diameter is bubbleScale% (default 25%) of the
-  // plot's smaller dimension. Per-point radius scales with sqrt(size) for
-  // the default area mode (sizeRepresents='area'), linearly for 'width'.
-  const scaleFraction =
-    spec.bubbleScale !== undefined ? spec.bubbleScale / 100 : 0.25;
+  // The largest bubble's diameter is a quarter of the plot's smaller
+  // dimension, scaled by bubbleScale (a percentage of that default size,
+  // 100 when absent). Per-point radius scales with sqrt(size) for the
+  // default area mode (sizeRepresents='area'), linearly for 'width'.
+  const scaleFraction = (0.25 * (spec.bubbleScale ?? 100)) / 100;
   const maxRadiusPx = Math.max(
     2,
     scaleFraction * Math.min(f.plotW, f.plotH) * 0.5,

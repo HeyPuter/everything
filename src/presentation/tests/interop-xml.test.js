@@ -112,6 +112,44 @@ describe("rendering matches desktop readers", () => {
     expect(Number(red[2])).toBeCloseTo(1, 5);
     expect(Number(red[2]) + Number(red[1])).toBeCloseTo(0x2f / 255, 5);
   });
+  it("sizes bubbles as a percentage of the default bubble size", async () => {
+    const { renderSlideToSvg } =
+      await import("../lib/pptx-preview/src/index.ts");
+    const largest = (bubbleScale) => {
+      const pres = createDeck("title");
+      const slide = addLayoutSlide(pres, "blank");
+      P.addSlideChart(slide, {
+        spec: {
+          kind: "bubble",
+          categories: [],
+          bubbleScale,
+          series: [
+            {
+              name: "S",
+              xValues: [1, 2, 3],
+              values: [3, 1, 2],
+              bubbleSizes: [10, 30, 20],
+            },
+          ],
+        },
+        x: 0,
+        y: 0,
+        w: 3657600,
+        h: 2743200,
+      });
+      const svg = renderSlideToSvg(pres, slide);
+      return Math.max(
+        ...[...svg.matchAll(/<circle\b[^>]*\br="([\d.]+)"/g)].map((m) =>
+          Number(m[1]),
+        ),
+      );
+    };
+    const full = largest(100);
+    // A quarter of the plot's smaller side across at 100%: under 36px for
+    // a 3-inch-high frame.
+    expect(full).toBeLessThan(36);
+    expect(largest(50) / full).toBeCloseTo(0.5, 2);
+  });
   it("reads the focus rectangle as insets from each edge", async () => {
     const { renderSlideToSvg } =
       await import("../lib/pptx-preview/src/index.ts");
