@@ -360,7 +360,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const fonts = command('Document Fonts', 'documentFonts', () => a.loadFontFiles?.(), { text: 'Document Fonts…' });
   when(fonts, () => !!a.hasDocument?.());
   const view = { id: 'view', label: 'View', groups: [
-    { id: 'views', label: 'Views', icon: 'printLayout', priority: 6, items: [readMode, printLayout, webLayout, rows([outlineView], [draftView])] },
+    { id: 'views', label: 'Views', icon: 'printLayout', priority: 8, items: [readMode, printLayout, webLayout, rows([outlineView], [draftView])] },
     { id: 'immersive', label: 'Immersive', icon: 'focus', priority: 4, items: [focusMode] },
     { id: 'show', label: 'Show', icon: 'ruler', priority: 7, items: [rows([rulerCheck], [gridCheck], [c.outline]), rows([paneToggle])] },
     { id: 'zoom', label: 'Zoom', icon: 'zoom', priority: 5, items: [zoomDialog, zoom100, rows([onePage], [multiplePages], [pageWidth])] },

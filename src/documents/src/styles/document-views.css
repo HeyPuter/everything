@@ -13,7 +13,7 @@
 .ed-view-outline .canvas-document-surface.has-rulers { padding-top: 0; }
 
 /* Draft's style area: paragraph style names in a column beside the text. */
-.view-style-area { position: absolute; left: 0; top: 0; bottom: 0; border-right: 1px solid var(--ed-line); background: var(--ed-frame); pointer-events: none; }
+.view-style-area { position: absolute; left: 0; top: 0; z-index: 1; border-right: 1px solid var(--ed-line); background: var(--ed-frame); pointer-events: none; }
 .view-style-area[hidden] { display: none; }
 .view-style-name { position: absolute; left: 6px; overflow: hidden; color: var(--ed-ink-3); font-size: 11px; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
 
@@ -121,3 +121,10 @@
 .view-many-cell.is-on { background: var(--ed-accent-wash); border-color: var(--ed-accent); }
 .view-many-cell:focus-visible { outline: 2px solid var(--ed-accent); outline-offset: 1px; }
 @media (max-width: 480px) { .view-zoom-set { grid-template-columns: 1fr; } }
+
+/* ---- Navigation pane: dragging a heading to move its section ---- */
+.nav-heading-row { position: relative; }
+.nav-heading-row.is-dragging { opacity: .45; }
+.nav-heading-row.drop-before::before, .nav-heading-row.drop-after::after { content: ''; position: absolute; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--ed-accent); pointer-events: none; }
+.nav-heading-row.drop-before::before { top: -1px; }
+.nav-heading-row.drop-after::after { bottom: -1px; }

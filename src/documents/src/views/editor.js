@@ -413,7 +413,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     },
     pages: () => engine?.canvases || [], currentPage: () => engine?.caretPageIndex ?? 0,
     search: text => { try { return engine?.model.findMatches(text, {}) || []; } catch { return []; } },
-    text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches) });
+    text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches),
+    headingActions: () => editorCommands.headingActions || null });
   outlinePanel.node.id = 'canvas-outline-panel';
   function toggleOutline(visible = outlinePanel.node.hidden, { search = false } = {}) {
     outline.setAttribute('aria-expanded', String(visible));

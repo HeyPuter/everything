@@ -16,7 +16,7 @@ import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { paintFormattingMarks, formattingMarks } from '../engine/formatting-marks.js';
 import { isContinuousView, usesScreenGeometry } from '../engine/document-views.js';
-import { BODY_LEVEL } from '../engine/outline-editing.js';
+import { BODY_LEVEL, moveOutlineSection, setOutlineLevels, promotedLevel, demotedLevel, deleteOutlineSection, insertOutlineHeading, outlineUnits, subtreeEnd } from '../engine/outline-editing.js';
 import { createOutlineView } from './outline-view.js';
 import { createReadMode } from './read-mode.js';
 import '../styles/document-views.css';
@@ -94,7 +94,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     styleColumn.hidden = !show;
     host.style.setProperty('--style-area', `${show ? styleArea : 0}px`);
     if (!show) return;
-    if (styleColumn.parentNode !== engine.pages) engine.pages.prepend(styleColumn);
+    // Beside the pages, not among them: the editor treats every child of its pages box as a page canvas.
+    if (styleColumn.parentNode !== host) host.append(styleColumn);
+    styleColumn.style.height = `${engine.pages.scrollHeight}px`;
     const styles = engine.model.styles.definitions, seen = new Set(), labels = [];
     for (const line of engine.layout.lines) {
       if (line.pageStory || line.virtual || seen.has(line.paragraphId) || line.cellId) continue;
@@ -302,7 +304,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     engine.pages.classList.add('is-multipage');
     // Exactly `cols` pages across: the side padding takes up the rest of the row.
     engine.pages.style.setProperty('--many-columns', String(cols));
-    engine.pages.style.setProperty('--many-inset', `${Math.max(12, Math.floor((host.clientWidth - cols * widest * zoom - (cols - 1) * gap * zoom) / 2) - 2)}px`);
+    const needed = cols * widest * zoom + (cols - 1) * engine.layout.page.gap * zoom + 4;
+    engine.pages.style.setProperty('--many-inset', `${Math.max(12, Math.floor((host.clientWidth - needed) / 2) - 4)}px`);
     engine.resizeCanvases(); engine.revealCaret();
   }
 
@@ -403,6 +406,35 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     });
   }
 
+  /* ---- Navigation pane heading commands (drag to reorder, promote, demote, add, delete) ---- */
+  function runOutline(action) {
+    const engine = ready(); if (!engine || pkg()?.readOnly) return false;
+    engine.finishComposition();
+    if (engine.session.path !== null) engine.editStory(null);
+    const ok = engine.execute(() => action(engine.model));
+    engine.focus(); engine.revealCaret();
+    return ok;
+  }
+  const headingActions = {
+    canEdit: () => !!ready() && !pkg()?.readOnly,
+    move: (id, target, placement) => runOutline(model => moveOutlineSection(model, id, target, placement)),
+    promote: id => runOutline(model => setOutlineLevels(model, [id], promotedLevel, { withSubtree: true })),
+    demote: id => runOutline(model => setOutlineLevels(model, [id], demotedLevel, { withSubtree: true })),
+    remove: id => runOutline(model => deleteOutlineSection(model, id)),
+    insert: (id, placement) => runOutline(model => {
+      const unit = outlineUnits(model.paragraphs).find(u => u.id === id);
+      return placement === 'sub' ? insertOutlineHeading(model, id, 'after', Math.min(9, (unit?.level ?? 1) + 1)) : insertOutlineHeading(model, id, placement);
+    }),
+    select: id => {
+      const engine = ready(); if (!engine) return;
+      const units = outlineUnits(engine.model.paragraphs), index = units.findIndex(u => u.id === id); if (index < 0) return;
+      const last = units[subtreeEnd(units, index) - 1];
+      const end = engine.model.paragraphOffset(last.to - 1) + engine.model.paragraphs[last.to - 1].runs.reduce((n, r) => n + r.text.length, 0);
+      engine.model.select(engine.model.paragraphOffset(units[index].from), end);
+      engine.focus(); engine.revealCaret(); engine.onSelection();
+    },
+  };
+
   /* ---- Gridlines ---- */
   function setGridlines(on) { gridlines = on; editor()?.paint(); onState(); }
 
@@ -421,14 +453,14 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     when(newWin, has); when(splitButton, () => has() && mode !== 'outline' && mode !== 'read', () => String(!!split));
     const properties = command('Properties', 'info', () => w.documentProperties?.(), { size: 'large' });
     when(properties, () => has() && !!w.documentProperties);
-    const gridMenu = menuButton('Gridline Spacing', 'gridlines', () => GRID_SPACINGS.map(([value, label]) => ({ label, radio: true, checked: Math.abs(gridSpacing - value) < 0.01, onSelect: () => { gridSpacing = value; setGridlines(true); } })), { size: 'small', text: null });
+    const gridMenu = menuButton('Grid Spacing', 'gridlines', () => GRID_SPACINGS.map(([value, label]) => ({ label, radio: true, checked: Math.abs(gridSpacing - value) < 0.01, onSelect: () => { gridSpacing = value; setGridlines(true); } })), { size: 'small', text: 'Grid Spacing' });
     const styleMenu = menuButton('Style Area', 'styleArea', () => STYLE_AREAS.map(([value, label]) => ({ label, radio: true, checked: styleArea === value, onSelect: () => setStyleArea(value) })), { size: 'small', text: 'Style Area' });
     when(styleMenu, () => has() && mode === 'draft');
     return [
-      { id: 'pageMovement', label: 'Page Movement', icon: 'sideToSide', priority: 4, after: 'immersive', items: [vertical, across, rows([thumbs])] },
-      { id: 'viewOptions', label: 'Grid & Draft', icon: 'gridlines', priority: 1, after: 'show', items: [rows([gridMenu], [styleMenu])] },
-      { id: 'window', label: 'Window', icon: 'newWindow', priority: 3, after: 'zoom', items: [newWin, splitButton] },
-      { id: 'properties', label: 'Properties', icon: 'info', priority: 2, after: 'window', items: [properties] },
+      { id: 'pageMovement', label: 'Page Movement', icon: 'sideToSide', priority: 4, after: 'immersive', items: [vertical, across, rows([thumbs], [gridMenu], [styleMenu])] },
+      { id: 'window', label: 'Window', icon: 'newWindow', priority: 5, after: 'zoom', items: [newWin, splitButton] },
+      // Document properties live in the File backstage; the View tab offers them when it exists.
+      ...(w.documentProperties ? [{ id: 'properties', label: 'Properties', icon: 'info', priority: 2, after: 'window', items: [properties] }] : []),
     ];
   }
   function setStyleArea(value) {
@@ -534,7 +566,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       gridlinesVisible: () => gridlines, setGridlines, toggleGridlines: () => setGridlines(!gridlines),
       pageMovement: () => (sideToSide ? 'sideToSide' : 'vertical'), setPageMovement: kind => setSideToSide(kind === 'sideToSide'),
       newWindow, toggleSplit, splitActive: () => !!split,
-      zoomDialog, zoomTextWidth: textWidth, manyPages,
+      zoomDialog, zoomTextWidth: textWidth, manyPages, headingActions,
     },
     extendTab, contextTabs, extendMenu, refresh,
     /** Contextual tabs this module shows: the Outlining tab in Outline view. */

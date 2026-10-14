@@ -1,5 +1,6 @@
 import { el, isComposing } from '../ui/dom.js';
 import { iconEl } from '../ui/icons.js';
+import { openMenu } from '../ui/menu.js';
 
 const THUMB_WIDTH = 132;
 
@@ -8,7 +9,10 @@ const THUMB_WIDTH = 132;
  * tracks the current heading), Pages (thumbnails) or Results (each match in its context).
  *
  * api: navigate(paragraphId), goToPage(index), pages() → canvases, search(text) → matches,
- *      text() → document text, selectMatch(match), highlight(matches), close(), focusEditor()
+ *      text() → document text, selectMatch(match), highlight(matches), close(), focusEditor(),
+ *      headingActions() → optional { canEdit(), move(id, targetId, 'before' | 'after'), promote(id), demote(id),
+ *      remove(id), insert(id, 'before' | 'after' | 'sub'), select(id) }: headings can then be dragged to
+ *      reorder their sections, and their context menu promotes, demotes, adds and deletes them.
  */
 export function createNavigationPane(api) {
   let tab = 'headings', entries = [], position = 0, signature = '', matches = [], collapsed = new Set();
@@ -89,9 +93,23 @@ export function createNavigationPane(api) {
         if (parent && closed) hiddenBelow = entry.level;
         const toggle = parent ? el('button.nav-twisty', { type: 'button', tabindex: -1, 'aria-label': closed ? `Expand ${entry.text}` : `Collapse ${entry.text}`,
           onclick: e => { e.stopPropagation(); closed ? collapsed.delete(entry.id) : collapsed.add(entry.id); renderHeadings(); } }, el('span.nav-caret', { 'aria-hidden': 'true', dataset: { closed: String(closed) } })) : el('span.nav-twisty-space');
-        rows.push(el('li', { role: 'none' }, el('div.nav-heading-row', { style: { paddingInlineStart: `${4 + (entry.level - 1) * 14}px` } }, toggle,
-          el('button.canvas-outline-entry.nav-heading', { type: 'button', role: 'treeitem', 'aria-level': entry.level, ...(parent ? { 'aria-expanded': String(!closed) } : {}),
-            dataset: { paragraph: entry.id }, 'aria-label': `Level ${entry.level}: ${entry.text}, page ${entry.page}`, onclick: () => api.navigate(entry.id) }, el('span', {}, entry.text)))));
+        const heading = el('button.canvas-outline-entry.nav-heading', { type: 'button', role: 'treeitem', 'aria-level': entry.level, ...(parent ? { 'aria-expanded': String(!closed) } : {}),
+          dataset: { paragraph: entry.id }, 'aria-label': `Level ${entry.level}: ${entry.text}, page ${entry.page}`, onclick: () => api.navigate(entry.id),
+          oncontextmenu: e => { e.preventDefault(); headingMenu(entry, heading, e); },
+          onkeydown: e => {
+            if (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') { e.preventDefault(); headingMenu(entry, heading, null); }
+            else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable()) {
+              // Move the section past its neighbour, as dragging would.
+              e.preventDefault();
+              const at = entries.indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
+              let target = at + step;
+              while (entries[target] && entries[target].level > entry.level) target += step;
+              if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
+            }
+          } }, el('span', {}, entry.text));
+        const row = el('div.nav-heading-row', { style: { paddingInlineStart: `${4 + (entry.level - 1) * 14}px` } }, toggle, heading);
+        if (editable()) dragHeading(row, heading, entry);
+        rows.push(el('li', { role: 'none' }, row));
       });
       headingList.replaceChildren(...rows);
       if (focused) headingList.querySelector(`[data-paragraph="${CSS.escape(focused)}"]`)?.focus();
@@ -100,6 +118,50 @@ export function createNavigationPane(api) {
     for (const button of headingList.querySelectorAll('.nav-heading')) {
       if (here === button.dataset.paragraph) button.setAttribute('aria-current', 'location'); else button.removeAttribute('aria-current');
     }
+  }
+  /* ---- Rearranging headings: drag a heading to move its section; its menu changes levels ---- */
+  const actions = () => api.headingActions?.() || null;
+  const editable = () => !!actions()?.canEdit?.();
+  const refocus = id => requestAnimationFrame(() => headingList.querySelector(`[data-paragraph="${CSS.escape(id)}"]`)?.focus());
+  let dragging = null;
+  function dragHeading(row, heading, entry) {
+    heading.draggable = true;
+    heading.addEventListener('dragstart', e => { dragging = entry; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', entry.text); row.classList.add('is-dragging'); });
+    heading.addEventListener('dragend', () => { dragging = null; row.classList.remove('is-dragging'); clearDrop(); });
+    row.addEventListener('dragover', e => {
+      if (!dragging || dragging.id === entry.id) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      const box = row.getBoundingClientRect(), after = e.clientY > box.top + box.height / 2;
+      clearDrop(); row.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop-before', 'drop-after'));
+    row.addEventListener('drop', e => {
+      if (!dragging || dragging.id === entry.id) return;
+      e.preventDefault();
+      const placement = row.classList.contains('drop-after') ? 'after' : 'before', moved = dragging.id;
+      clearDrop(); dragging = null;
+      actions().move(moved, entry.id, placement);
+      refocus(moved);
+    });
+  }
+  const clearDrop = () => { for (const row of headingList.querySelectorAll('.drop-before, .drop-after')) row.classList.remove('drop-before', 'drop-after'); };
+  function headingMenu(entry, anchor, event) {
+    const act = actions(), can = editable();
+    const run = fn => () => { fn(); refocus(entry.id); };
+    openMenu({ anchor, x: event?.clientX ?? null, y: event?.clientY ?? null, label: `${entry.text} heading`, pointer: !!event, items: [
+      { label: 'Promote', icon: 'promote', disabled: !can || entry.level <= 1, onSelect: run(() => act.promote(entry.id)) },
+      { label: 'Demote', icon: 'demote', disabled: !can || entry.level >= 9, onSelect: run(() => act.demote(entry.id)) },
+      { separator: true },
+      { label: 'New Heading Before', disabled: !can, onSelect: () => act.insert(entry.id, 'before') },
+      { label: 'New Heading After', disabled: !can, onSelect: () => act.insert(entry.id, 'after') },
+      { label: 'New Subheading', disabled: !can || entry.level >= 9, onSelect: () => act.insert(entry.id, 'sub') },
+      { separator: true },
+      { label: 'Select Heading and Content', disabled: !act, onSelect: () => act.select(entry.id) },
+      { label: 'Delete', icon: 'deleteComment', danger: true, disabled: !can, onSelect: () => act.remove(entry.id) },
+      { separator: true },
+      { label: 'Expand All', onSelect: () => { collapsed.clear(); signature = ''; renderHeadings(); refocus(entry.id); } },
+      { label: 'Collapse All', onSelect: () => { collapsed = new Set(entries.filter((e, i) => entries[i + 1]?.level > e.level).map(e => e.id)); signature = ''; renderHeadings(); refocus(entries.findLast(e => e.start <= entry.start && e.level === 1)?.id || entry.id); } },
+    ] });
   }
   let pagesToken = 0;
   function renderPages() {
