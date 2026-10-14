@@ -1341,3 +1341,31 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .cell-style-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px 6px 6px; }
 .cell-style-grid .cell-style-item { padding: 2px; min-width: 0; }
 .cell-style-grid .cell-style-sample { min-width: 0; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 8px; }
+
+/* Data ▸ Text to Columns: the choices on top, the preview (with a character ruler for fixed widths) below. */
+.modal-panel.ttc-dialog { max-width: min(720px, calc(100vw - 32px)); }
+.ttc-form .modal-text { margin-bottom: 10px; }
+.ttc-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; margin-bottom: 12px; }
+.ttc-top > [hidden] { display: none; }
+.ttc-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ttc-mode { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.ttc-checks { display: grid; grid-template-columns: repeat(2, max-content); gap: 6px 22px; }
+.ttc-other-row { display: flex; align-items: center; gap: 6px; }
+.ttc-other-row .input.ttc-other { width: 40px; min-width: 0; min-height: 0; height: 26px; padding: 0 6px; text-align: center; }
+.ttc-qualifier { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin: 4px 0 0; }
+.ttc-dest { margin: 0; }
+.ttc-preview-wrap { max-height: 210px; overflow: auto; border: 1px solid var(--field-border); border-radius: var(--r-sm); background: var(--surface); }
+.ttc-preview { border-collapse: collapse; font-size: 12.5px; min-width: 100%; }
+.ttc-preview th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); padding: 4px; border-bottom: 1px solid var(--hairline-strong); border-right: 1px solid var(--hairline); text-align: left; font-weight: 400; }
+.ttc-preview td { padding: 3px 8px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.ttc-preview td.skip { color: var(--ink-3); text-decoration: line-through; background: var(--surface-2); }
+.ttc-preview .select.ttc-format { min-height: 0; height: 26px; padding: 0 24px 0 6px; font-size: 12px; min-width: 88px; }
+.ttc-ruler { font-family: var(--mono); font-size: 12px; overflow-x: auto; border: 1px solid var(--field-border); border-radius: var(--r-sm); background: var(--surface); padding: 2px 6px 4px; margin-bottom: 8px; cursor: col-resize; }
+.ttc-ruler[hidden] { display: none; }
+.ttc-scale, .ttc-line { display: flex; }
+.ttc-scale span, .ttc-line span { flex: 0 0 1ch; width: 1ch; height: 18px; line-height: 18px; position: relative; white-space: pre; }
+.ttc-scale { border-bottom: 1px solid var(--hairline); margin-bottom: 2px; }
+.ttc-scale span { color: var(--ink-3); font-size: 10px; overflow: visible; }
+.ttc-scale span.brk::before, .ttc-line span.brk::before { content: ''; position: absolute; left: -1px; top: 0; bottom: 0; border-left: 2px solid var(--accent); }
+@media (hover: hover) { .ttc-ruler span:hover { background: var(--accent-wash); } }
+@media (max-width: 639px) { .ttc-top { grid-template-columns: 1fr; } }

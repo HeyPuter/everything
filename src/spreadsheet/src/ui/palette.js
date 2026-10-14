@@ -188,6 +188,7 @@ export function paletteCommands(flags = {}) {
     c('Remove empty rows', 'Data', 'rows', 'removeEmptyRows', null, { keywords: 'blank' }),
     c('Randomize range', 'Data', 'sortAsc', 'shuffle', null, { keywords: 'shuffle random order' }),
     c('Split text to columns', 'Data', 'cols', 'splitText', null, { keywords: 'delimiter comma' }),
+    c('Text to Columns…', 'Data', 'cols', 'splitTextDialog', null, { keywords: 'split delimiter separator fixed width' }),
     c('Trim whitespace', 'Data', 'text', 'textCase', 'trim'),
     c('UPPERCASE text', 'Data', 'text', 'textCase', 'upper', { keywords: 'case' }),
     c('lowercase text', 'Data', 'text', 'textCase', 'lower', { keywords: 'case' }),
