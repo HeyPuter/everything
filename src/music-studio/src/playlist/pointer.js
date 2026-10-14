@@ -357,7 +357,8 @@ export function installPointer(V, el) {
       app.hint('This segment is flat: give its points different values to curve it.');
       return null;
     }
-    const ch = hit.auto.ch;
+    // About 75 px of travel bends a straight segment fully, whatever the track height.
+    const ch = 150;
     const c0 = p0.c || 0;
     const y0 = pt.y;
     let c = c0;
