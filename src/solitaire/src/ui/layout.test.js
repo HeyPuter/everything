@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  computeSizes, renderModeFor, cardRadiusFor, RICH_MODE_MIN_CARD_W,
+  computeSizes, renderModeFor, cardRadiusFor, RICH_MODE_MIN_CARD_W, fitFan,
 } from './layout.js';
 
 describe('computeSizes', () => {
@@ -50,5 +50,41 @@ describe('cardRadiusFor', () => {
     expect(cardRadiusFor(40)).toBeGreaterThanOrEqual(4);
     expect(cardRadiusFor(1000)).toBeLessThanOrEqual(10);
     expect(cardRadiusFor(120)).toBeGreaterThan(cardRadiusFor(50));
+  });
+});
+
+describe('computeSizes columns', () => {
+  it('fits ten columns into the same width as seven', () => {
+    const seven = computeSizes(980);
+    const ten = computeSizes(980, 10);
+    expect(ten.cardW * 10 + ten.gap * 9).toBeCloseTo(980);
+    expect(ten.cardW).toBeLessThan(seven.cardW);
+  });
+
+  it('lets ten-column gaps shrink below the seven-column floor on a phone', () => {
+    expect(computeSizes(200, 10).gap).toBe(4);
+    expect(computeSizes(200).gap).toBe(8);
+  });
+});
+
+describe('fitFan', () => {
+  const base = { down: 10, up: 30, cardH: 100 };
+
+  it('leaves a column that fits alone', () => {
+    expect(fitFan({ ...base, faceDown: 2, faceUp: 3, avail: 1000 })).toEqual({ down: 10, up: 30 });
+  });
+
+  it('squeezes face-down cards before face-up ones', () => {
+    // natural: 5*10 + 10*30 + 100 = 450
+    const f = fitFan({ ...base, faceDown: 5, faceUp: 10, avail: 420 });
+    expect(f.up).toBe(30);
+    expect(f.down).toBeCloseTo(4);
+  });
+
+  it('then squeezes face-up cards, never below the readable floor', () => {
+    const f = fitFan({ ...base, faceDown: 5, faceUp: 20, avail: 500 });
+    expect(f.down).toBe(4);
+    expect(f.up).toBeCloseTo((500 - 100 - 20) / 20);
+    expect(fitFan({ ...base, faceDown: 5, faceUp: 40, avail: 300 }).up).toBe(16);
   });
 });

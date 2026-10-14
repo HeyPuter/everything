@@ -32,6 +32,7 @@ describe('serialize / deserialize', () => {
 
   it('round-trips a board with the whole deck parked in the stock', () => {
     const game = {
+      kind: 'klondike', draw: 1, scoring: 'standard', score: 0, redeals: 0,
       tableau: [[], [], [], [], [], [], []],
       foundations: [[], [], [], []],
       stock: restOfDeck([]), waste: [], moves: 0, history: [],
@@ -76,6 +77,33 @@ describe('serialize / deserialize', () => {
   it('restores an empty history', () => {
     const game = createGame();
     expect(deserialize(serialize(game, 1)).history).toEqual([]);
+  });
+
+  it('round-trips a draw-three Vegas game mid-play', () => {
+    const game = createGame(newDeck(() => 0.3), { draw: 3, scoring: 'vegas' });
+    game.score = -37;
+    game.redeals = 1;
+    game.moves = 12;
+    const restored = deserialize(serialize(game, 1));
+    expect(stripHistory(restored)).toEqual(stripHistory(game));
+  });
+
+  it('loads a v1 save as draw-one standard Klondike', () => {
+    const v2 = serialize(createGame(newDeck(() => 0.5)), 7);
+    const v1 = { v: 1, t: v2.t, f: v2.f, s: v2.s, w: v2.w, m: 4, ts: 7 };
+    const restored = deserialize(v1);
+    expect(restored.kind).toBe('klondike');
+    expect(restored.draw).toBe(1);
+    expect(restored.scoring).toBe('standard');
+    expect(restored.score).toBe(0);
+    expect(restored.redeals).toBe(0);
+    expect(restored.moves).toBe(4);
+  });
+
+  it('rejects unknown draw counts and scoring', () => {
+    const save = serialize(createGame(), 1);
+    expect(deserialize({ ...save, d: 2 })).toBe(null);
+    expect(deserialize({ ...save, sc: 'macau' })).toBe(null);
   });
 
   it('stamps the version and timestamp', () => {

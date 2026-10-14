@@ -1,7 +1,10 @@
 # Solitaire
 
 Klondike solitaire, built with Vite and plain JavaScript (ES modules, no
-framework). Desktop windows get realistic card art via a vendored SVG deck;
+framework). The game menu in the header picks draw-one or draw-three
+Klondike, either with Vegas scoring (a $52 ante, $5 per card played home,
+one pass through the deck when drawing one and three when drawing three, and
+a running bank across games). Desktop windows get realistic card art via a vendored SVG deck;
 small screens fall back to plain top-left rank-and-suit cards. Games and
 stats can optionally sync to Puter cloud storage.
 

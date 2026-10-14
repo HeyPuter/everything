@@ -15,16 +15,17 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   });
 }
 
-import { createGame, undo, drawFromStock } from './game/state.js';
-import { isWon } from './game/rules.js';
-import { serialize, deserialize } from './game/serialize.js';
+import {
+  MODES, DEFAULT_MODE, findMode, modeOf, dealMode, rulesFor, serialize, deserialize,
+} from './game/modes.js';
 import { render } from './ui/board.js';
 import { preloadCardmeister } from './ui/cardview.js';
 import { createDragController } from './ui/drag.js';
 import { createAnimator } from './ui/animate.js';
 import {
   loadLocalStats, saveLocalStats, recordGameStarted, recordGameWon, mergeStats,
-  loadLocalSave, saveLocalSave, clearLocalSave,
+  loadLocalSave, saveLocalSave, clearLocalSave, loadModePref, saveModePref,
+  modeStats, recordVegasResult, vegasBank,
 } from './services/stats.js';
 import * as cloud from './services/puter-sync.js';
 import { shouldAdoptRemote } from './services/save-arbitration.js';
@@ -38,10 +39,23 @@ const boardEl = document.getElementById('board');
 const movesEl = document.getElementById('moves');
 const winEl = document.getElementById('win');
 const winStatsEl = document.getElementById('winStats');
+const scoreStatEl = document.getElementById('scoreStat');
+const scoreEl = document.getElementById('score');
+const bankStatEl = document.getElementById('bankStat');
+const bankEl = document.getElementById('bank');
+const modeBtn = document.getElementById('mode');
+const modeMenu = document.getElementById('modeMenu');
+const modeLabelEl = document.getElementById('modeLabel');
+const toastEl = document.getElementById('toast');
 
-let game = createGame();
+const modePref = loadModePref();
+let game = dealMode(findMode(modePref) ? modePref : DEFAULT_MODE);
 let stats = loadLocalStats();
 let countedThisGame = false;
+// A Vegas game's score goes into the bank exactly once: when it is won, or
+// when it is abandoned for a new deal. Until then the header shows the bank
+// as if it had already been settled.
+let vegasSettled = false;
 let signedIn = false;
 // True only once a load-time cloud pull of the save has actually succeeded.
 // A failed (or never-attempted) pull leaves this false, so we never push our
@@ -58,14 +72,45 @@ let playerOwnsBoard = false;
 
 const animator = createAnimator({ boardEl });
 
+const rules = () => rulesFor(game);
+
+// U+2212 rather than a hyphen, so -$52 reads as a minus sign.
+function money(n) {
+  return (n < 0 ? '\u2212$' : '$') + Math.abs(n);
+}
+
 function updateStats() {
   movesEl.textContent = game.moves;
+  const vegas = game.scoring === 'vegas';
+  scoreStatEl.hidden = !vegas;
+  bankStatEl.hidden = !vegas;
+  if (vegas) {
+    scoreEl.textContent = money(game.score);
+    bankEl.textContent = money(vegasBank(stats) + (vegasSettled ? 0 : game.score));
+  }
+}
+
+function updateModeLabel() {
+  const m = findMode(modeOf(game));
+  modeLabelEl.textContent = `${m.group} \u00b7 ${m.label}`;
+  for (const item of modeMenu.querySelectorAll('.menu-item')) {
+    item.setAttribute('aria-checked', String(item.dataset.mode === m.key));
+  }
+}
+
+let toastTimer = 0;
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
 }
 
 function requestRender() {
   render({
     boardEl,
     game,
+    rules: rules(),
     hooks: {
       attachDrag: (el, info) => drag.attachDrag(el, info),
       attachStockTap: el => drag.attachStockTap(el),
@@ -76,7 +121,8 @@ function requestRender() {
 }
 
 function checkWin() {
-  if (isWon(game)) animator.startCelebration(showWin);
+  if (!rules().isWon(game)) return;
+  animator.startCelebration(showWin, game.foundations.map(pile => pile[0].suit));
 }
 
 // Resume: save only committed state, never mid-drag or mid-animation, so this
@@ -89,7 +135,7 @@ function writeSave() {
   // supposed to own clearing it, but the celebration animation delays that
   // call, and this debounce/flush can otherwise race ahead of it and
   // resurrect the finished board.
-  if (isWon(game)) return;
+  if (rules().isWon(game)) return;
   // An untouched deal (moves === 0, nothing to undo) isn't worth persisting
   // — flushSave() runs on every visibilitychange, so merely opening the page
   // and switching tabs would otherwise write it. Under last-write-wins that
@@ -138,16 +184,35 @@ document.addEventListener('visibilitychange', () => {
 // A KV write is not guaranteed to finish during unload, so only touch local here.
 window.addEventListener('beforeunload', () => {
   clearTimeout(saveTimer);
-  if (isWon(game)) return; // same reasoning as writeSave() — never resurrect a finished board
+  if (rules().isWon(game)) return; // same reasoning as writeSave() — never resurrect a finished board
   if (game.moves === 0 && game.history.length === 0) return; // skip untouched deals, as writeSave() does
   saveLocalSave(serialize(game, Date.now()));
 });
 
-function showWin() {
-  stats = recordGameWon(stats, game.moves, Date.now());
+// Puts a finished Vegas game's score into the bank. Only a game that was
+// actually played (see countGameOnce) costs its ante: dealing and walking
+// away is free, the same way it doesn't count as a game played.
+function settleVegas() {
+  if (game.scoring !== 'vegas' || vegasSettled || !countedThisGame) return;
+  vegasSettled = true;
+  stats = recordVegasResult(stats, game.score, Date.now());
   saveLocalStats(stats);
-  winStatsEl.textContent = `${game.moves} moves. Nicely done.`
-    + (stats.bestMoves === game.moves ? ' New best.' : ` Best: ${stats.bestMoves}.`);
+}
+
+function showWin() {
+  const mode = modeOf(game);
+  stats = recordGameWon(stats, game.moves, Date.now(), mode);
+  saveLocalStats(stats);
+  if (game.scoring === 'vegas') {
+    settleVegas();
+    winStatsEl.textContent = `${game.moves} moves, ${money(game.score)} this game. `
+      + `Bank: ${money(vegasBank(stats))}.`;
+    updateStats();
+  } else {
+    const best = modeStats(stats, mode).bestMoves;
+    winStatsEl.textContent = `${game.moves} moves. Nicely done.`
+      + (best === game.moves ? ' New best.' : ` Best: ${best}.`);
+  }
   winEl.classList.add('show');
   if (signedIn) syncStats(); // pull, merge, push — same guard as everywhere else; fire-and-forget
   dropSave(); // a won board is not resumable — clear it so a reload deals fresh
@@ -158,61 +223,161 @@ function showWin() {
 function countGameOnce() {
   if (countedThisGame) return;
   countedThisGame = true;
-  stats = recordGameStarted(stats, Date.now());
+  stats = recordGameStarted(stats, Date.now(), modeOf(game));
   saveLocalStats(stats);
 }
 
 const drag = createDragController({
   boardEl,
   getGame: () => game,
+  getRules: rules,
   requestRender,
   onMoveApplied: ({ flipped }) => {
     playerOwnsBoard = true;
     countGameOnce();
-    animator.queueFlip(flipped);
+    animator.queueFlips([].concat(flipped ?? []));
     checkWin();
     scheduleSave();
   },
 });
 
+const REFUSED_DRAW = {
+  'no-redeals': 'No passes left through the deck.',
+};
+
 function onStockTap() {
-  countGameOnce();
   const stockPileEl = boardEl.querySelector('.pile[data-kind="stock"]');
   const srcRect = stockPileEl ? stockPileEl.getBoundingClientRect() : null;
-  const result = drawFromStock(game);
-  if (!result.ok) return;
+  const result = rules().draw(game);
+  if (!result.ok) {
+    if (REFUSED_DRAW[result.reason]) toast(REFUSED_DRAW[result.reason]);
+    return;
+  }
+  countGameOnce();
   playerOwnsBoard = true;
-  if (result.drawn && srcRect) animator.queueFlight(result.drawn, srcRect);
+  if (srcRect) animator.queueFlights(result.drawn, srcRect);
+  animator.queueFlips(result.flipped);
   requestRender();
+  checkWin();
   scheduleSave();
 }
 
-function newGame() {
+// Deals a new game of `key`, or of the game on the table when no key is
+// given. Abandoning a Vegas game settles its score first.
+function newGame(key = modeOf(game)) {
   drag.cancelDrag();
   animator.cancelCelebration();
-  game = createGame();
+  settleVegas();
+  game = dealMode(key);
+  saveModePref(key);
   countedThisGame = false;
+  vegasSettled = false;
   // The player just dealt this board on purpose — it must never be
   // silently swapped out by a load-time cloud restore that is still
   // in flight. See the playerOwnsBoard declaration for why "owns", not
   // "interacted", is the right name for this flag.
   playerOwnsBoard = true;
   winEl.classList.remove('show');
+  updateModeLabel();
   requestRender();
+  if (signedIn) syncStats(); // a settled Vegas game changed the bank
   dropSave(); // a fresh deal replaces whatever was saved, so drop the old save
 }
 
 function doUndo() {
-  if (!undo(game)) return;
+  if (!rules().undo(game)) return;
   playerOwnsBoard = true;
   requestRender();
   scheduleSave();
 }
 
 boardEl.addEventListener('stock-tap', onStockTap);
-document.getElementById('newgame').onclick = newGame;
-document.getElementById('winNew').onclick = newGame;
+document.getElementById('newgame').onclick = () => newGame();
+document.getElementById('winNew').onclick = () => newGame();
 document.getElementById('undo').onclick = doUndo;
+
+// ---- Game menu ----
+const CHECK_ICON = '<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+function buildModeMenu() {
+  let group = null;
+  for (const m of MODES) {
+    if (m.group !== group) {
+      group = m.group;
+      const h = document.createElement('div');
+      h.className = 'menu-group';
+      h.setAttribute('role', 'presentation');
+      h.textContent = group;
+      modeMenu.appendChild(h);
+    }
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'menu-item';
+    item.setAttribute('role', 'menuitemradio');
+    item.setAttribute('aria-checked', 'false');
+    item.tabIndex = -1;
+    item.dataset.mode = m.key;
+    item.innerHTML = CHECK_ICON;
+    const label = document.createElement('span');
+    label.textContent = m.label;
+    item.appendChild(label);
+    item.setAttribute('aria-label', `${m.group}, ${m.label}`);
+    item.addEventListener('click', () => chooseMode(m.key));
+    modeMenu.appendChild(item);
+  }
+}
+
+function menuItems() {
+  return [...modeMenu.querySelectorAll('.menu-item')];
+}
+
+function openModeMenu() {
+  modeMenu.hidden = false;
+  modeBtn.setAttribute('aria-expanded', 'true');
+  const items = menuItems();
+  (items.find(i => i.getAttribute('aria-checked') === 'true') || items[0]).focus();
+}
+
+function closeModeMenu(refocus) {
+  if (modeMenu.hidden) return;
+  modeMenu.hidden = true;
+  modeBtn.setAttribute('aria-expanded', 'false');
+  if (refocus) modeBtn.focus();
+}
+
+// Picking the game already on the table just closes the menu; anything
+// else deals a fresh game of that kind, the same as pressing New.
+function chooseMode(key) {
+  closeModeMenu(true);
+  if (key !== modeOf(game)) newGame(key);
+}
+
+modeBtn.addEventListener('click', () => {
+  if (modeMenu.hidden) openModeMenu();
+  else closeModeMenu(false);
+});
+modeMenu.addEventListener('keydown', e => {
+  const items = menuItems();
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    items[(i + step + items.length) % items.length].focus();
+  } else if (e.key === 'Home' || e.key === 'End') {
+    e.preventDefault();
+    items[e.key === 'Home' ? 0 : items.length - 1].focus();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeModeMenu(true);
+  } else if (e.key === 'Tab') {
+    closeModeMenu(false);
+  }
+});
+document.addEventListener('pointerdown', e => {
+  if (!modeMenu.hidden && !e.target.closest('.menu-wrap')) closeModeMenu(false);
+});
+buildModeMenu();
+updateModeLabel();
 
 // Coalesced with rAF: an unthrottled resize handler would run requestRender
 // on every fired event, and in rich mode every render rebuilds 52 custom
@@ -227,6 +392,7 @@ window.addEventListener('resize', () => {
   });
 });
 window.addEventListener('keydown', e => {
+  if (!modeMenu.hidden) return; // the menu handles its own keys
   if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doUndo(); }
   if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) newGame();
 });
@@ -247,6 +413,9 @@ function adoptSave(save) {
   if (!restored) return false;
   game = restored;
   countedThisGame = true;
+  vegasSettled = false;
+  saveModePref(modeOf(game));
+  updateModeLabel();
   return true;
 }
 
