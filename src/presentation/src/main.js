@@ -87,6 +87,7 @@ import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFileTools } from "./export/file-tools.js";
 import { createInsertFeatures } from "./insert/index.js";
+import { createShowFeatures } from "./show/index.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
@@ -3317,6 +3318,7 @@ let ribbonTab = "home";
 const extraTabProviders = [
   () => [drawTools.tab()],
   () => insertFeatures.tabs(),
+  () => [showFeatures.recordTab()],
 ];
 const drawTools = createDrawTools({
   P,
@@ -3362,6 +3364,27 @@ const insertFeatures = createInsertFeatures({
   normalizeUrl: (value) => normalizeUrl(value),
   startDrawing: (preset) => startDrawing(preset),
   refreshCanvas: () => renderSelection(),
+});
+// Slide Show and Record: presenter view, custom shows, set up, rehearsal,
+// recording, subtitles and the in-show tools (src/show).
+const showFeatures = createShowFeatures({
+  P,
+  doc: () => doc,
+  slide: () => slide(),
+  present: (options) => present(options),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  SKIP: SKIP_MUTATION,
+  fail: (e) => fail(e),
+  slideBounds: (pres, shape) => slideBounds(pres, shape),
+  picture: (s) => cachedPreview(doc.previews, doc.pres, s),
+  title: (s) =>
+    slideTitle(s, doc.pres) ||
+    slideDescription(s, doc.pres).split("\n")[0] ||
+    "",
+  currentSize: () => currentSize(),
+  select: (ids) => selectIds(ids),
+  exportVideo: () => fileTools.openExportDialog("video"),
 });
 function editorRibbon() {
   ribbon = createRibbon({
@@ -4090,6 +4113,8 @@ const slideShowMenuItems = () => [
     icon: "o:previewTransition",
     items: transitionItems(slide()),
   },
+  ...showFeatures.menuItems(),
+  { separator: true },
   {
     label: P.isSlideHidden(slide()) ? "Show Slide" : "Hide Slide",
     icon: "o:hideSlide",
@@ -5835,6 +5860,7 @@ function ribbonApi() {
     },
     // Slide Show
     present: (options) => present(options),
+    ...showFeatures.ribbonApi(),
     slideHidden: () => P.isSlideHidden(slide()),
     toggleHideSlide: () =>
       setSlidesHidden(actionSlides(slide()), !P.isSlideHidden(slide())),
@@ -13550,13 +13576,20 @@ const BACKGROUND_LABELS = {
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
 async function present(options = {}) {
-  const reading = !!options?.reading;
+  // Before anything waits: a window for the audience needs the click.
+  options = showFeatures.begin(options);
   await settled();
-  if (document.querySelector("dialog.presenter[open]")) return;
+  if (document.querySelector("dialog.presenter[open]")) {
+    options.audience?.close();
+    return;
+  }
   const pres = doc.pres;
   const previews = doc.previews;
   const slides = P.getSlides(pres);
-  const selection = P.getSlideShowSelection(pres);
+  // The file's Set Up Show choices, and a custom show asked for by name.
+  const plan = showFeatures.plan(pres, options);
+  const reading = plan.reading;
+  const selection = plan.selection ?? P.getSlideShowSelection(pres);
   let all;
   if (selection.kind === "custom") {
     const byName = new Map(
@@ -13587,16 +13620,18 @@ async function present(options = {}) {
     );
     return;
   }
-  const showTiming = P.getSlideShowTimingOptions(pres);
+  const showTiming = plan.timing(P.getSlideShowTimingOptions(pres));
   const refreshDates = slides.some((s) => slideHasDateFields(pres, s));
   if (refreshDates) P.refreshPresentationFields(pres);
   const start = slides.slice(index).find((s) => !P.isSlideHidden(s));
   let n =
-    selection.kind === "all"
-      ? start
-        ? all.indexOf(start)
-        : all.length - 1
-      : 0;
+    options.from === "beginning"
+      ? 0
+      : selection.kind === "all"
+        ? start
+          ? all.indexOf(start)
+          : all.length - 1
+        : 0;
   const before = document.activeElement;
   const d = el("dialog", {
     class: "presenter",
@@ -13654,11 +13689,14 @@ async function present(options = {}) {
   }
   const size = P.getSlideSize(pres) || { width: 12192000, height: 6858000 };
   // Media, zooms and action settings (src/insert/show.js).
+  // The show's tools and views beside it (src/show/session.js).
+  let session = null;
   const showInserted = insertFeatures.slideShow({
     pres,
     all,
     frame,
     size,
+    skipMedia: (shape) => !!session?.skipMedia(shape),
     show: (i) => show(i),
     close: () => close(),
   });
@@ -13875,6 +13913,7 @@ async function present(options = {}) {
         upcoming.hidden = true;
         upcomingLabel.textContent = "End of presentation.";
         endMessage.focus();
+        session?.ended();
         return;
       }
     }
@@ -13980,8 +14019,11 @@ async function present(options = {}) {
       readiness,
     );
     syncPause();
+    session?.shown(n);
   }
   function close() {
+    if (!d.isConnected) return;
+    session?.dispose();
     showInserted.dispose();
     laser.dispose();
     releaseFonts();
@@ -14075,6 +14117,38 @@ async function present(options = {}) {
   controlsObserver.observe(controls);
   stage.append(slideArea, notes, status, controls);
   d.append(stage);
+  session = showFeatures.session({
+    pres,
+    all,
+    options,
+    setup: plan.setup,
+    reading,
+    dialog: d,
+    stage,
+    frame,
+    slideArea,
+    controls,
+    status,
+    size,
+    current: () => n,
+    isEnded: () => ended,
+    go: (i) => show(i, { backward: i < n }),
+    next: () => next.click(),
+    previous: () => previous.click(),
+    close: () => close(),
+    fit: () => fitFrame(),
+    focus: () => (ended ? endMessage : image).focus(),
+    setPaused: (on) => {
+      restoreBlank();
+      setPaused(on);
+    },
+    paused: () => advanceClock.paused,
+    autoAdvance: !pauseButton.hidden,
+    toggleLaser: () => toggleLaser(),
+    laserEnabled: () => laser.enabled,
+    picture: (s) => cachedPreview(previews, pres, s),
+    title: (s) => slideTitle(s, pres),
+  });
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (laser.enabled) toggleLaser();
@@ -14083,6 +14157,7 @@ async function present(options = {}) {
   d.addEventListener("keydown", (e) => {
     // Composition keys belong to the input method, including its Escape.
     if (e.isComposing) return;
+    if (session?.keydown(e)) return;
     // Native presentation tools leave pointing mode before ending the show.
     if (e.key === "Escape" && laser.enabled) {
       e.preventDefault();
@@ -14273,6 +14348,11 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  // Presenter View (Alt+F5) and the show's Enter shortcuts.
+  if (showFeatures.onKey(e, { typing })) {
+    if (editing) e.target.blur();
+    return;
+  }
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();

@@ -1,0 +1,744 @@
+/* Slide show additions: ink, cameras, menus, see all slides, help,
+   subtitles, presenter view, rehearsal and recording toolbars. The show is
+   always dark, so these use fixed show colours in both themes. */
+
+.presenter-frame .presenter-laser {
+  z-index: 8;
+}
+.show-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+  pointer-events: none;
+  overflow: visible;
+}
+.show-ink .show-ink-highlight {
+  mix-blend-mode: multiply;
+}
+.show-ink-capture {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  touch-action: none;
+  cursor: crosshair;
+}
+.show-ink-capture[data-tool="eraser"] {
+  cursor: cell;
+}
+.show-ink-capture[hidden] {
+  display: none;
+}
+.show-cameras {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.show-camera {
+  position: absolute;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.show-camera.live {
+  opacity: 1;
+}
+.show-camera.circle,
+.show-cam-preview.circle,
+.presenter-media.show-narration-video video {
+  border-radius: 50%;
+}
+.show-camera video,
+.show-cam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.presenter-media.show-narration-video video {
+  object-fit: cover;
+}
+
+/* The pointer: an arrow that hides when it rests, or always hidden. */
+.presenter-stage.cursor-idle .presenter-slide-area,
+.presenter-stage.cursor-idle .presenter-slide-area *,
+.presenter-stage.cursor-hidden .presenter-slide-area,
+.presenter-stage.cursor-hidden .presenter-slide-area * {
+  cursor: none;
+}
+.presenter-stage.cursor-idle .show-ink-capture:not([hidden]) {
+  cursor: crosshair;
+}
+
+/* Zooming in keeps the slide inside its area. */
+.presenter-slide-area {
+  overflow: hidden;
+}
+.show-zoomed .presenter-frame:not(.show-mirror) {
+  cursor: grab;
+}
+.presenter-frame {
+  transition: transform 0.25s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .presenter-frame {
+    transition: none;
+  }
+}
+
+/* See all slides and the shortcut list, over the show. */
+.show-grid,
+.show-help {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: rgb(16 18 16 / 0.96);
+  color: #f4f4f0;
+  padding: 18px 24px 24px;
+  overflow: auto;
+}
+.show-help {
+  inset: 8% 10%;
+  border: 1px solid #3b403b;
+  border-radius: 10px;
+  outline: none;
+}
+.show-grid-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.show-grid-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.show-grid-head .btn {
+  color: #f4f4f0;
+}
+.show-grid-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 16px;
+}
+.show-grid-item {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.show-grid-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 4px;
+}
+.show-grid-item.current {
+  border-color: #f08b73;
+}
+.show-grid-item:hover,
+.show-grid-item:focus-visible {
+  border-color: #9cc3f0;
+  outline: none;
+}
+.show-grid-number {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+}
+.show-help table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.show-help th,
+.show-help td {
+  text-align: left;
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid #2c312c;
+  font-weight: normal;
+}
+.show-help td {
+  color: #c9cec6;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live subtitles. */
+.show-captions {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  max-width: min(90%, 1100px);
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.78);
+  color: #fff;
+  font-size: clamp(16px, 2.4vw, 30px);
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+}
+.show-captions .interim {
+  opacity: 0.7;
+}
+.show-captions[data-position="bottom"],
+.show-captions[data-position="below"] {
+  bottom: calc(var(--presenter-controls, 48px) + 26px);
+}
+.show-captions[data-position="top"],
+.show-captions[data-position="above"] {
+  top: 14px;
+}
+.presenter-stage[data-captions="below"] {
+  padding-bottom: calc(var(--presenter-controls, 48px) + 96px);
+}
+.presenter-stage[data-captions="above"] {
+  padding-top: 84px;
+}
+.show-audience .show-captions[data-position="bottom"],
+.show-audience .show-captions[data-position="below"] {
+  bottom: 18px;
+}
+
+/* Kiosk: no controls; only links on the slides respond. */
+.presenter-stage.show-kiosk .presenter-controls {
+  display: none;
+}
+.presenter-stage.show-kiosk {
+  padding-bottom: 20px;
+}
+
+/* Presenter view: the slide, a timer above it, the next slide and notes
+   beside it, and tools below. */
+.presenter-stage.show-presenting {
+  padding-top: 58px;
+  padding-bottom: calc(var(--presenter-controls, 48px) + 76px);
+  gap: 22px;
+  align-items: stretch;
+}
+.presenter-stage.show-presenting .presenter-notes,
+.presenter-stage.show-presenting .presenter-controls .show-extra {
+  display: none;
+}
+.presenter-stage.show-presenting.blank,
+.presenter-stage.show-presenting.blank-white {
+  background: #101210;
+}
+.presenter-stage.show-presenting.blank .show-mirror-area,
+.presenter-stage.show-presenting.blank-white .show-mirror-area {
+  visibility: visible;
+  opacity: 0.35;
+}
+.show-console-top {
+  position: absolute;
+  top: 10px;
+  left: 28px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.show-console-top .btn,
+.show-console-tools .btn,
+.show-console-side .btn,
+.show-rehearse .btn,
+.show-studio-bar .btn {
+  color: #f4f4f0;
+}
+.show-console-top .btn:hover,
+.show-console-tools .btn:hover,
+.show-console-side .btn:hover,
+.show-rehearse .btn:hover,
+.show-studio-bar .btn:hover {
+  background: #353c35;
+}
+.show-console-tools .btn[aria-pressed="true"],
+.show-studio-bar .btn[aria-pressed="true"] {
+  background: #353c35;
+  border-color: #5a635a;
+}
+.show-console-time {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  min-width: 5ch;
+}
+.show-console-clock,
+.show-console-counter {
+  color: #c9cec6;
+  font-variant-numeric: tabular-nums;
+}
+.show-console-sep {
+  width: 1px;
+  height: 18px;
+  background: #3b403b;
+}
+.show-console-grow {
+  flex: 1;
+}
+.show-console-swap {
+  font-size: 12px;
+  border: 1px solid #3b403b;
+}
+.show-console-side {
+  width: min(420px, 34vw);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: #e8e9e2;
+}
+.show-console-side h2 {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a2a89f;
+  margin: 0 0 8px;
+}
+.show-console-next {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #3b403b;
+}
+.show-console-next[hidden] {
+  display: none;
+}
+.show-console-next-label {
+  font-size: 12px;
+  color: #a2a89f;
+  margin: 6px 0 16px;
+}
+.show-console-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.show-console-notes-head h2 {
+  flex: 1;
+  margin: 0;
+}
+.show-console-notes-text,
+.show-studio-notes-text {
+  flex: 1;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  padding: 6px 2px;
+  min-height: 0;
+}
+.show-console-notes-text.empty,
+.show-studio-notes-text.empty {
+  color: #a2a89f;
+  font-style: italic;
+}
+.show-console-tools {
+  position: absolute;
+  left: 28px;
+  bottom: calc(var(--presenter-controls, 48px) + 26px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.show-console-end {
+  margin-left: 10px;
+  border: 1px solid #5a635a;
+  padding: 4px 12px;
+}
+.show-mirror {
+  position: relative;
+  flex: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+.show-mirror-dot[hidden] {
+  display: none;
+}
+
+/* The audience's window. */
+.show-audience-body {
+  margin: 0;
+  background: #000;
+  height: 100vh;
+  overflow: hidden;
+}
+.presenter-stage.show-audience {
+  padding: 0;
+  background: #000;
+}
+.show-audience-full {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 30;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #3b403b;
+  background: #202420;
+  color: #f4f4f0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.show-audience-body:hover .show-audience-full,
+.show-audience-full:focus-visible {
+  opacity: 1;
+}
+.show-audience:fullscreen ~ .show-audience-full {
+  display: none;
+}
+
+/* Media controls on videos. */
+.show-media-bar {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.66);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.presenter-media:hover .show-media-bar,
+.show-media-bar:focus-within {
+  opacity: 1;
+}
+.show-media-bar button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.show-media-bar input[type="range"] {
+  flex: 1;
+  min-width: 40px;
+}
+.show-media-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rehearse Timings toolbar. */
+.show-rehearse,
+.show-studio-bar {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #202420;
+  border: 1px solid #3b403b;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.show-rehearse-title {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.show-rehearse-slide,
+.show-rehearse-total,
+.show-studio-time {
+  font-variant-numeric: tabular-nums;
+}
+.show-rehearse-slide {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #101210;
+  border: 1px solid #3b403b;
+}
+.show-rehearse-total {
+  color: #c9cec6;
+}
+.show-rehearse-paused {
+  color: #ffd27a;
+}
+.presenter-stage:has(.show-rehearse),
+.presenter-stage.show-studio {
+  padding-top: 58px;
+}
+
+/* Recording studio. */
+.presenter-stage.show-studio {
+  gap: 22px;
+  align-items: stretch;
+}
+.show-studio-bar {
+  right: 14px;
+}
+.show-studio-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid #5a635a;
+  font-weight: 600;
+}
+.show-studio-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+.show-studio-record.live .show-studio-dot {
+  border-radius: 2px;
+}
+.presenter-stage.show-recording .show-studio-dot {
+  animation: show-recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes show-recording-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presenter-stage.show-recording .show-studio-dot {
+    animation: none;
+  }
+}
+.show-studio-message {
+  color: #ffd27a;
+  font-size: 12px;
+}
+.show-studio-notes {
+  width: min(320px, 28vw);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: #e8e9e2;
+}
+.show-studio-notes h2 {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a2a89f;
+  margin: 0 0 8px;
+}
+.show-cam-preview {
+  position: absolute;
+  right: 3%;
+  bottom: 4%;
+  width: 22%;
+  aspect-ratio: 1;
+  z-index: 4;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 2px 14px rgb(0 0 0 / 0.45);
+  background: #000;
+  pointer-events: none;
+}
+.show-cam-preview.circle {
+  border-radius: 50%;
+}
+.show-cam-preview[hidden] {
+  display: none;
+}
+
+/* Dialogs: Set Up Slide Show, Custom Shows. */
+.show-setup-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+.show-setup-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 28px;
+}
+.show-setup-indent {
+  margin-left: 26px;
+}
+.show-setup-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+.show-setup-number {
+  width: 64px;
+}
+.show-color-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+}
+.show-color-input {
+  width: 48px;
+  height: 28px;
+  padding: 0 2px;
+  border: 1px solid var(--line, #ccc);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+}
+.show-setup-error {
+  color: var(--danger, #c4321b);
+  margin: 10px 0 0;
+}
+.show-custom-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.show-custom-row {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+.show-custom-main {
+  flex: 1;
+  min-width: 0;
+}
+.show-custom-list {
+  width: 100%;
+  min-height: 180px;
+}
+.show-custom-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.show-custom-empty {
+  color: var(--muted, #666);
+  margin: 0;
+  padding: 24px 8px;
+  border: 1px dashed var(--line, #ccc);
+  border-radius: 6px;
+  text-align: center;
+}
+.show-custom-empty[hidden],
+.show-custom-list[hidden] {
+  display: none;
+}
+.show-define-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+.show-define-columns {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 12px;
+}
+.show-define-col h3 {
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+.show-custom-pick,
+.show-custom-order {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  height: min(360px, 50vh);
+  overflow: auto;
+  border: 1px solid var(--line, #ccc);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+}
+.show-custom-pick label.show-custom-slide,
+.show-custom-order li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.show-custom-slide img,
+.show-custom-order img {
+  width: 64px;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--line, #ddd);
+  flex: none;
+}
+.show-custom-order li.active {
+  background: var(--accent-soft, rgb(37 99 235 / 0.14));
+}
+.show-custom-order:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+}
+.show-define-mid,
+.show-define-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Narrow screens keep the bar to one row; these are in the More menu. */
+@media (max-width: 900px) {
+  .presenter-controls .show-optional {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .presenter-stage.show-presenting {
+    flex-direction: column;
+    padding-top: 52px;
+  }
+  .show-console-side {
+    width: 100%;
+    max-height: 34vh;
+  }
+  .show-console-next,
+  .show-console-next-label,
+  .show-console-side > h2:first-child {
+    display: none;
+  }
+  .show-console-tools {
+    left: 8px;
+    right: 8px;
+  }
+  .presenter-stage.show-studio {
+    flex-direction: column;
+  }
+  .show-studio-notes {
+    width: 100%;
+    max-height: 22vh;
+  }
+  .show-setup-columns,
+  .show-define-columns {
+    grid-template-columns: 1fr;
+  }
+  .show-define-mid,
+  .show-define-side {
+    flex-direction: row;
+  }
+  .show-help {
+    inset: 8px;
+  }
+  .show-grid-list {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
