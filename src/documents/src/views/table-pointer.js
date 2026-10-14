@@ -7,7 +7,7 @@
 // transactions; painting is an overlay above the page.
 import * as T from '../engine/table-editing.js';
 import { locate as locateParagraph } from '../engine/model.js';
-import { wholeRows, wholeColumns } from '../engine/table-selection.js';
+import { wholeRows, wholeColumns, cellBlockPlacements } from '../engine/table-selection.js';
 import { caretRect } from '../engine/layout.js';
 import { rowGrid, verticalMerges, cellContext } from '../engine/tables.js';
 
@@ -356,6 +356,24 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     else if (columns) commit(m => T.deleteColumns(m, { widths: widths(table) }));
     else deleteCellsDialog();
   }, { capture: true });
+
+  // Typing or pasting over a block of cells replaces the first cell's text only; the other selected
+  // cells (and any cells between them in reading order) keep theirs. Whole rows stay one text range.
+  const narrowBlockToFirstCell = () => {
+    const model = engine.model, block = model.cellBlock && model.activeCellBlock;
+    if (!block) return;
+    if (wholeRows(block.table, block)) { model.cellBlock = null; return; }
+    const first = cellBlockPlacements(block.table, block)[0]?.cell;
+    const from = model.paragraphs.findIndex(p => p.cellId === first?.id), to = model.paragraphs.findLastIndex(p => p.cellId === first?.id);
+    if (from < 0) return;
+    model.select(model.paragraphOffset(from), model.paragraphOffset(to) + model.paragraphs[to].runs.reduce((n, r) => n + r.text.length, 0));
+    engine.syncInput();
+  };
+  listen(engine.input, 'beforeinput', e => {
+    if (!readOnly() && ['insertText', 'insertParagraph', 'insertLineBreak', 'insertReplacementText'].includes(e.inputType)) narrowBlockToFirstCell();
+  }, { capture: true });
+  listen(engine.input, 'paste', () => { if (!readOnly()) narrowBlockToFirstCell(); }, { capture: true });
+  listen(engine.input, 'compositionstart', () => { if (!readOnly()) narrowBlockToFirstCell(); }, { capture: true });
 
   /* ---- Ruler feedback: column markers of the table at the caret, draggable like the borders ---- */
   const rulerLayer = document.createElement('div');

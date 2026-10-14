@@ -131,3 +131,15 @@ test('Draw Table draws a table and splits cells; the eraser merges them; the Bor
   state = await tables(page);
   expect(state[0].top).toMatchObject({ style: 'single', size: 12 });
 });
+
+test('a block of cells formats every cell, and typing replaces only its first cell', async ({ page }) => {
+  await newTable(page, 3, 2);
+  // From X1 (row 0, column 1) to X5 (row 1, column 2): a 2 × 2 block, not the X3 cell between them in reading order.
+  await input(page).evaluate(el => { el.setSelectionRange(el.value.indexOf('X1'), el.value.indexOf('X5') + 1); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await expect.poll(() => block(page)).toEqual([0, 1, 1, 3]);
+  await page.keyboard.press('ControlOrMeta+b');
+  const bold = await page.evaluate(() => { const m = window.__docs.current.view.engine.model; return Object.fromEntries(m.paragraphs.filter(p => p.cellId).map(p => [p.runs.map(r => r.text).join(''), !!p.runs[0]?.bold])); });
+  expect(bold).toMatchObject({ X0: false, X1: true, X2: true, X3: false, X4: true, X5: true });
+  await page.keyboard.type('Z');
+  await expect(input(page)).toHaveValue(/\nX0\nZ\nX2\nX3\nX4\nX5\n/);
+});
