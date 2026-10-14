@@ -44,7 +44,7 @@ const BORDER_ITEMS = [['Bottom Border', ['bottom'], 'borderBottom'], ['Top Borde
  * It contributes commands to the editor's command object, ribbon groups (extendTab), menu-bar items
  * (extendMenu) and document context-menu items (contextMenuItems).
  */
-export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = () => {}, host, unit = () => 'in', focus = () => editor()?.focus(), openFind, finder = () => null, pageSetup = () => {}, clipboard = {}, hasKeymap = () => false }) {
+export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = () => {}, host, unit = () => 'in', focus = () => editor()?.focus(), openFind, finder = () => null, pageSetup = () => {}, clipboard = {}, hasKeymap = () => false, keyClaimed = () => false }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const readOnly = () => !!pkg()?.readOnly || !editor();
   const later = () => queueMicrotask(() => editor()?.focus());
@@ -585,11 +585,11 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
 
   /* ---- Keyboard ---- */
   // The editor's keymap (Customize Keyboard) owns the shared chords — Paragraph, Styles pane, Paste
-  // Special, Paste and Match Formatting, Copy/Paste Formatting — and calls these commands. Only chords
-  // it leaves unhandled arrive here.
+  // Special, Paste and Match Formatting, Copy/Paste Formatting — and calls these commands. A chord it
+  // has a binding for is left to it.
   const keyAbort = new AbortController();
   window.addEventListener('keydown', e => {
-    if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !editor()) return;
+    if (e.defaultPrevented || isComposing(e) || !e.target?.matches?.('.canvas-input') || !editor() || keyClaimed(e)) return;
     const mod = MAC ? e.metaKey : e.ctrlKey, code = e.code;
     const act = action => { e.preventDefault(); e.stopPropagation(); action(); };
     // Apply Styles: Cmd/Ctrl+Shift+S where Save As does not use it, and Ctrl+Shift+S on a Mac.
@@ -604,7 +604,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
       if (mod && e.altKey && e.shiftKey && code === 'KeyV') return act(() => pasteAs('merge'));
       if (MAC ? e.metaKey && e.ctrlKey && !e.altKey && code === 'KeyV' : e.ctrlKey && e.altKey && !e.shiftKey && code === 'KeyV') return act(pasteSpecial);
     }
-  }, { signal: keyAbort.signal });
+  }, { capture: true, signal: keyAbort.signal });
 
   let commandsRef = () => commands;
   /** Join the editor's full command set: list and effects menus gain this area's dialogs. */

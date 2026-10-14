@@ -71,7 +71,7 @@ import { createBackstage } from './backstage.js';
 import { openPreferences } from './preferences.js';
 import { createStatusBar } from './status-bar.js';
 import { openDocumentMenu } from './document-context-menu.js';
-import { createKeymap, displayChord } from './keymap.js';
+import { createKeymap, displayChord, chordOf } from './keymap.js';
 import { openCustomizeKeyboard } from './customize-keyboard.js';
 import { MARKUP_VIEWS } from './review.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
@@ -295,7 +295,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const redo = tool('Redo', 'redo', () => { if (!engine) return; if (engine.session.future.length || !editCommands.canRepeat()) engine.redo(); else editCommands.repeat(); }, { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
   // Format area: Font/Paragraph/Tabs/Borders/Bullets/Style dialogs, Styles pane, paste options, Dictate.
   const formatArea = createFormatArea({ editor: () => engine, pkg: () => pkg, error, refresh: () => chrome?.refresh(), host: () => host, unit: () => rulers?.unit ?? 'in',
-    focus: () => engine?.focus(), openFind: options => openFind(options), finder: () => finder, pageSetup: () => pageSetup.click(), clipboard: { state: () => clipboardState() }, hasKeymap: () => !!keymap });
+    focus: () => engine?.focus(), openFind: options => openFind(options), finder: () => finder, pageSetup: () => pageSetup.click(), clipboard: { state: () => clipboardState() }, hasKeymap: () => !!keymap, keyClaimed: e => !!keymap?.commandFor(chordOf(e)) });
   // The format area's search covers the body, a selection, and headers and footers (advanced options).
   const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [], range: () => engine?.model.range || [0, 0], select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
   const openFind = (options = {}) => {
