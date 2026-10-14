@@ -719,6 +719,41 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   Syncing or Offline with what is waiting. The .xlsx file stays the copy the
   owner keeps: it is written back as people work, so it opens anywhere. See
   [docs/collaboration.md](docs/collaboration.md).
+- **Send by email**: File → Share → Send a copy emails the workbook as it is
+  now to up to 20 addresses, with a subject and a message, from the signed-in
+  user (replies go to them): as an .xlsx, as a PDF of the whole workbook, the
+  sheet or the selection (built in the app, laid out on each sheet's paper and
+  orientation, scaled to the page width or split across pages), or the sheet
+  or selection as .csv. The copy leaves out Show Changes' record of earlier
+  cell values, as every download does. Send a link shares the file with each
+  address (Can view or Can edit; someone without a Puter account is invited)
+  and emails them a link that opens it; the owner of a live workbook sends an
+  invitation into it. The Share dialog offers Email a link too. Addresses are
+  checked as they are typed, attachments are capped at 7 MB, the dialog shows
+  what is attached and how large it is, and after a partial failure it keeps
+  just the addresses that were not reached. Mail goes through the app's own
+  email worker (`src/workers/email-worker.js`, adapted from the Calendar
+  app's), called with the user's Puter session and billed to them; it
+  composes every message itself, accepts only workbook attachments it
+  recognizes and links to the app, sends each person a message of their own,
+  and caps how much one user can send a day. No credential is ever put in a
+  request.
+- **Threaded comments with @mentions**: typing @ in a comment or reply lists
+  the people who can be mentioned (the members of a live workbook, the people
+  the file is shared with, the workbook's other commenters), narrowed as you
+  type; a Puter username or an email address can be typed in full. A posted
+  comment keeps whom it mentions, shows them highlighted, and carries them in
+  .xlsx threaded comments (each comment's mentions list against the
+  workbook's people). Anyone mentioned who cannot open the workbook is offered
+  a share first (Can view or Can edit), then each is emailed the comment, its
+  cell and a link that opens the workbook at that cell (a Puter user known by
+  username at their Puter mailbox). Whoever has the workbook open sees a
+  mention of them as it arrives, and on opening it the mentions they have not
+  seen yet, with a button that goes to the comment. A comment that mentions
+  someone can also assign its thread to them: the card says who it is
+  assigned to, resolving the thread marks it done, and the person is told it
+  is theirs (the assignment travels in the app's own file and live
+  workbooks, not in .xlsx).
 - **Version history**: File → Version history lists snapshots of the file
   kept under `Spreadsheets/.versions/<name> ~<file id>/` — one is written on
   its own about every 10 minutes of saving, and any can be saved by hand with a
@@ -1001,6 +1036,12 @@ In `/mock.html`, editing together runs against a room worker inside the page
 simulated collaborator to the shared workbook that is open, whose `RoomClient`
 can then edit and move about. `npm run build:worker` bundles the room worker
 into `public/worker/spreadsheet-worker.js` (part of `npm run build`).
+
+Email in `/mock.html` runs the real email worker inside the page
+(`dev/email-mock.js`): nothing is sent, and each message it would send is
+kept in `window.__mailbox` and logged. Addresses at `bounce.test` fail and
+addresses at `optout.test` have opted out. `npm run deploy:email-worker`
+deploys the worker as `spreadsheet-email` (done once, by the app owner).
 
 ### Tests
 

@@ -28,9 +28,10 @@ function rowMeta(row) {
 
 /**
  * Open the dialog for the file at `path` (named `name`; `uid`, when known, spares a look-up for
- * the link). `onChange` runs after access was given or withdrawn.
+ * the link). `onChange` runs after access was given or withdrawn; `onEmailLink`, when given, offers to
+ * email a link to people (Send a link) in place of copying it.
  */
-export function openShareDialog({ path, name, uid = null, onChange = null, doc = null, onLive = null }) {
+export function openShareDialog({ path, name, uid = null, onChange = null, doc = null, onLive = null, onEmailLink = null }) {
   const { alert, refuse, clear } = fieldAlert('share');
   const who = el('input.input', {
     type: 'text', placeholder: 'Username or email address', 'aria-label': 'Username or email address',
@@ -235,6 +236,7 @@ export function openShareDialog({ path, name, uid = null, onChange = null, doc =
     list,
     el('div.row.share-foot', {},
       linkBtn,
+      onEmailLink && el('button.btn.btn-outline', { type: 'button', html: icon('sendLink', 16), onclick: () => { modal.close(); onEmailLink(); } }, el('span', {}, 'Email a link…')),
       el('div.grow'),
       doneBtn));
   const modal = openModal({ title: `Share "${name}"`, content, initialFocus: who, onClose: () => { closed = true; } });

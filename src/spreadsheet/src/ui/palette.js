@@ -34,6 +34,8 @@ export function paletteCommands(flags = {}) {
     c('Save a copy…', 'File', 'duplicate', 'saveAs'),
     c('Rename spreadsheet…', 'File', 'pencil', 'rename'),
     flags.share && c('Share…', 'File', 'share', 'share', null, { keywords: 'invite collaborate people access permission send email username' }),
+    flags.mail && c('Send a copy…', 'File', 'sendCopy', 'sendCopy', null, { keywords: 'email mail attachment attach send xlsx pdf csv' }),
+    flags.mail && flags.share && c('Send a link…', 'File', 'sendLink', 'sendLink', null, { keywords: 'email mail link invite share view edit' }),
     c('Document details…', 'File', 'info', 'docInfo', null, { keywords: 'info size path statistics' }),
     c('Version history…', 'File', 'clock', 'versions', null, { keywords: 'snapshots restore backup earlier revert undo save version' }),
     c(flags.changesPane ? 'Hide changes' : 'Show changes', 'File', 'showChanges', 'showChanges', null, { keywords: 'track changes edits history who changed audit log recent review' }),

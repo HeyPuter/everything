@@ -97,7 +97,9 @@ it('reads a threadedComments part as Excel writes it', () => {
   </ThreadedComments>`, persons);
   expect(Object.keys(threads)).toEqual(['6,3']);
   expect(threads['6,3']).toEqual({ done: true, items: [
-    { id: '{AAAAAAAA-0000-0000-0000-000000000001}', author: 'Jane Doe', time: '2024-02-01T09:15:42.310Z', text: 'First & foremost <raw>', userId: 'S::jane@example.com::abc', providerId: 'AD' },
+    { id: '{AAAAAAAA-0000-0000-0000-000000000001}', author: 'Jane Doe', time: '2024-02-01T09:15:42.310Z', text: 'First & foremost <raw>', userId: 'S::jane@example.com::abc', providerId: 'AD',
+      // Its <mentions> name the person mentioned, whose address is read from their directory id.
+      mentions: [{ id: '{BBBBBBBB-0000-0000-0000-000000000001}', name: 'Jane Doe', email: 'jane@example.com', start: 0, length: 3 }] },
     { id: '{AAAAAAAA-0000-0000-0000-000000000002}', author: 'Jane Doe', time: '2024-02-01T09:20:00.000Z', text: 'Reply\r', userId: 'S::jane@example.com::abc', providerId: 'AD' },
   ] });
 });
