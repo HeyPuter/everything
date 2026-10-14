@@ -56,6 +56,8 @@ import { layoutTemplate } from '../lib/template-layout.js';
 import { createWordCommands, documentStatistics as documentStatisticsOf } from './editor-commands.js';
 import { createReview } from './review.js';
 import { createReferences } from './references.js';
+import { createMailings } from './mailings.js';
+import { createInsert } from './insert-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -205,7 +207,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     openDocumentMenu({ event, behind, selectBehind, engine, pkg, w: editorCommands, kit: { separator: { separator: true }, focusEditor: () => engine?.focus() },
       actions: { clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText,
         paragraphDialog: () => paragraphGeometry.click(), editLink: () => editHyperlink(engine.input), spellingItems: at => proofing.menuItems(at),
-        imageItems, tableItems, commentItems: () => review.contextItems(), print: () => printDocument() } });
+        imageItems, tableItems, commentItems: () => review.contextItems(), print: () => printDocument(), fieldAtCaret: () => !!references.fieldAtCaret?.() } });
   }
   let hyperlinkModal = null, bookmarkModal = null, paragraphShadingModal = null, paragraphBorderModal = null;
   let rulers = null;
@@ -702,8 +704,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ],
   });
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
+    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+      openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
+  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...references.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...references.contextMenuItems(context, kit)];
   const baseContextTabs = editorCommands.contextTabs;
   editorCommands.contextTabs = kit => [...(baseContextTabs?.(kit) || []), ...references.contextTabs(kit)];
   const baseFileItems = editorCommands.fileItems;
@@ -718,15 +724,23 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     } catch (e) { if (!destroyed) error(e); }
   }
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
+  // Insert tab: galleries, pictures, drawings, fields, equations and symbols (insert-tab.js).
+  const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (!local && session.signedIn ? session.username : ''), onChange: () => update(),
+    base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(),
+      link: () => editHyperlink(), bookmark: () => bookmarks.click(), comment: () => review.commands?.newComment?.() } });
+  const baseMenu = editorCommands.extendMenu, baseContextItems = editorCommands.contextMenuItems;
+  Object.assign(editorCommands, insert.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseMenu?.(id, kit) || []), ...insert.commands.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextItems?.(context, kit) || []), ...insert.commands.contextMenuItems(context, kit)];
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
 
   /* ---- Application chrome: menu bar, File view, title bar, status bar, keyboard ---- */
   // Feature modules add menu-bar entries and document context-menu entries the way they add ribbon groups.
-  const baseExtendMenu = editorCommands.extendMenu;
-  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || [])];
-  const baseContextMenuItems = editorCommands.contextMenuItems;
-  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || [])];
+  const chromeExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(chromeExtendMenu?.(id, kit) || [])];
+  const chromeContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.contextMenuItems = (context, kit) => [...(chromeContextMenuItems?.(context, kit) || [])];
   const editCommands = createEditCommands({ editor: () => engine, pkg: () => pkg, editLink: () => editHyperlink(engine?.input), searchQuery: () => outlinePanel.query, onChange: () => update() });
   Object.assign(editorCommands, editCommands);
   // Undo steps are named after the command that made them; a command that changed the document is the one Repeat runs.
@@ -866,6 +880,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ];
     return openPreferences({ sections, section, onClose: () => queueMicrotask(() => engine?.focus()) });
   }
+  const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile,
+    print: capture => printPages({ host, signal: printAbort.signal, capture }), documentTitle: () => title?.value?.trim(), layoutChanged: () => { fitWidth(); rulers?.update(); } });
+  Object.assign(editorCommands, mailings.commands);
+  const baseExtraTabs = editorCommands.extraTabs;
+  editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
+  const referencesExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(referencesExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -951,7 +972,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   });
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, chrome.inspector)),
     statusBar.el, backstage.el,
     openInput, imageInput, fontSizes);
   chrome.attach(root);
@@ -1083,6 +1104,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (editingArea.value !== selectedArea) editingArea.value = selectedArea;
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
+    mailings.refresh();
     if (pkg.readOnly || engine.viewOnly) {
       // Read-only files and Viewing mode: the commands that change the document stay off.
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) if (!control.matches('.ed-ribbon-toggle')) control.disabled = true;
@@ -1382,7 +1404,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

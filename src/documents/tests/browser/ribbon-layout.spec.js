@@ -244,6 +244,7 @@ test('commands that sit together on a tab draw different icons', async ({ page }
   expect(await icon('references', 'Update Fields')).not.toBe(await icon('references', 'Update Table'));
   await tab(page, 'Insert').click();
   await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
   await expect(tab(page, 'Header & Footer')).toHaveAttribute('aria-selected', 'true');
   expect(await icon('headerFooter', 'Go to Header')).not.toBe(await icon('headerFooter', 'Header'));
   expect(await icon('headerFooter', 'Go to Footer')).not.toBe(await icon('headerFooter', 'Footer'));

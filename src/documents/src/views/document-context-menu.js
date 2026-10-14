@@ -10,13 +10,14 @@ export const CONTEXTS = ['image', 'shape', 'link', 'field', 'list', 'table', 'te
  * What the caret or selection is in: one or more of CONTEXTS. A picture or shape selection is that
  * alone; text can be in a link, a field, a list and a table at once, and is always 'text' too.
  */
-export function documentContexts(engine, { shapeSelected = false } = {}) {
+export function documentContexts(engine, { shapeSelected = false, fieldAtCaret = null } = {}) {
   const model = engine.model;
   if (shapeSelected) return ['shape'];
   if (model.selectedImage) return ['image'];
   const out = [];
   if (model.hyperlink) out.push('link');
-  if (model.hasBodyFields) {
+  if (fieldAtCaret) { if (fieldAtCaret()) out.push('field'); }
+  else if (model.hasBodyFields) {
     try { const at = model.range[0]; if (bodyFieldRanges(model.paragraphs).some(r => r.start <= at && at <= r.end)) out.push('field'); } catch { /* not a readable field */ }
   }
   if (model.listFormatting === 'bullet' || model.listFormatting === 'number') out.push('list');
@@ -32,7 +33,7 @@ export function documentContexts(engine, { shapeSelected = false } = {}) {
  */
 export function openDocumentMenu({ event, behind, selectBehind, engine, pkg, w, kit, actions: x }) {
   const editable = !pkg.readOnly && !engine.viewOnly;
-  const contexts = documentContexts(engine, { shapeSelected: !!w.shapeSelected?.() });
+  const contexts = documentContexts(engine, { shapeSelected: !!w.shapeSelected?.(), fieldAtCaret: x.fieldAtCaret });
   const has = context => contexts.includes(context);
   const clipboard = x.clipboardState();
   const sep = { separator: true };
