@@ -31,8 +31,27 @@ function paragraphRoles(paragraphs, pageSettings) {
  * The marks for one page's lines: [{ kind, x, y, width?, size, text? }]. `y` is the baseline. Lines carry
  * their caret stops; offsets index `text`, the story's paragraphs joined by '\n'.
  */
+/** Hidden entry fields (XE, TA, TC) by paragraph: [{ offset, label }] with document offsets. */
+function entryFields(paragraphs) {
+  const entries = new Map(); let at = 0;
+  for (const p of paragraphs) {
+    for (const marker of p.fieldMarkers || []) {
+      if (marker.type !== 'start' || !ENTRY_CODES.has(marker.field.type)) continue;
+      const instruction = marker.field.instruction.trim();
+      const label = `{${instruction.length > 40 ? `${instruction.slice(0, 38)}…` : instruction}}`;
+      if (!entries.has(p.id)) entries.set(p.id, []);
+      entries.get(p.id).push({ offset: at + marker.offset, label });
+    }
+    at += p.runs.reduce((n, r) => n + r.text.length, 0) + 1;
+  }
+  return entries;
+}
+const ENTRY_CODES = new Set(['XE', 'TA', 'TC']);
+
 export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
   const roles = paragraphRoles(paragraphs, pageSettings), marks = [];
+  // Index, authority and contents entries are hidden text: shown as their field code while marks are on.
+  const entries = paragraphs.some(p => p.fieldMarkers?.length) ? entryFields(paragraphs) : null;
   for (const line of lines) {
     if (line.virtual) continue;
     const local = line.cellText?.line || line;
@@ -45,6 +64,11 @@ export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
       if (ch === ' ' || ch === '　') marks.push({ kind: 'space', x: (x + next) / 2, y: baseline, size, cell: line });
       else if (ch === ' ') marks.push({ kind: 'nbsp', x: (x + next) / 2, y: baseline, size, cell: line });
       else if (ch === '\t') marks.push({ kind: 'tab', x, width: next - x, y: baseline, size, cell: line });
+    }
+    for (const entry of entries?.get(line.paragraphId) || []) {
+      if (entry.offset < local.start || entry.offset > local.end || (entry.offset === local.end && !local.paragraphEnd)) continue;
+      const x = xAt(entry.offset);
+      if (x !== undefined) marks.push({ kind: 'fieldCode', x, y: baseline, size, text: entry.label, cell: line });
     }
     const endX = xAt(local.end) ?? (local.stops?.at(-1)?.x ?? 0);
     const right = Math.max(endX + 40, page.width - page.right);
@@ -96,6 +120,13 @@ export function paintFormattingMarks(ctx, marks, geometry) {
     else if (mark.kind === 'cell') { ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.fillText('¤', x + 1, y); }
     else if (mark.kind === 'lineBreak') { ctx.font = `${size}px system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.fillText('↵', x + 1, y); }
     else if (mark.kind === 'break' || mark.kind === 'section') dottedRule(ctx, x, y, mark.width, mark.text, size);
+    else if (mark.kind === 'fieldCode') {
+      // A hidden entry's code, drawn small above the line with a dotted underline, as hidden text appears.
+      ctx.font = `${Math.max(7, Math.round(size * 0.55))}px system-ui, sans-serif`; ctx.textAlign = 'left';
+      const top = y - size * 0.92, width = ctx.measureText(mark.text).width;
+      ctx.globalAlpha = 0.9; ctx.fillText(mark.text, x, top);
+      for (let at = x; at < x + width; at += 2.5) ctx.fillRect(at, top + 1.5, 1, 0.75);
+    }
     ctx.restore();
   }
   ctx.restore();

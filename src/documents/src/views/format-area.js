@@ -564,7 +564,7 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     contextMenuItems(context) {
       const engine = editor(); if (!engine) return [];
       const editable = !!ready();
-      if (context === 'text') return [
+      if (['text', 'table', 'link'].includes(context)) return [
         { label: 'Font…', shortcut: `${MOD_KEY}+D`, onSelect: () => fontDialog() },
         { label: 'Paragraph…', onSelect: () => paragraphDialog() },
         { label: 'Bullets and Numbering…', disabled: !editable, onSelect: () => bulletsAndNumbering() },

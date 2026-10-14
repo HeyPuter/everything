@@ -5,17 +5,15 @@ import { downloadDocx } from './helpers/editor-tools.js';
 import { unzipSync } from 'fflate';
 
 const approximations = {
-  eachPage: ['note numbers displayed continuously'],
-  eachSect: ['note numbers displayed continuously'],
-  chicago: ['note numbers displayed as decimal'],
   ordinal: ['note numbers displayed as decimal'],
-  'chicago-eachPage': ['note numbers displayed continuously', 'note numbers displayed as decimal'],
 };
+// Restarting and symbol numbering are supported: these open editable with their own numbers.
+const supported = ['eachPage', 'eachSect', 'chicago', 'chicago-eachPage'];
 
 for (const zoom of [1, .75]) test(`footnote numbering preview retains mixed content at zoom ${zoom}`, async ({ page }) => {
   test.setTimeout(120000);
   await page.goto('/playground.html', { waitUntil: 'domcontentloaded' });
-  const inputs = Object.fromEntries(['continuous', ...Object.keys(approximations)].map(name => [name, [...readFileSync(`tests/fixtures/footnote-recovery/${name}.docx`)]]));
+  const inputs = Object.fromEntries(['continuous', ...Object.keys(approximations), ...supported].map(name => [name, [...readFileSync(`tests/fixtures/footnote-recovery/${name}.docx`)]]));
   const results = await page.evaluate(async ({ inputs, zoom }) => {
     const { openCanvasDocument } = await import('/src/engine/open-document.js');
     const { CanvasEditor } = await import('/src/engine/canvas-editor.js');
@@ -39,6 +37,13 @@ for (const zoom of [1, .75]) test(`footnote numbering preview retains mixed cont
   const control = results.continuous;
   expect(control.readOnly).toBe(false);
   expect(control.pages).toBe(2);
+  for (const name of supported) {
+    const current = results[name];
+    expect(current.readOnly, name).toBe(false);
+    expect(current.errors).toEqual([]);
+    expect(current.tables).toBe(1); expect(current.images).toBe(2); expect(current.notes).toBe(2);
+    expect(current.text).toEqual(control.text);
+  }
   for (const [name, warnings] of Object.entries(approximations)) {
     const current = results[name];
     expect(current.readOnly).toBe(true);

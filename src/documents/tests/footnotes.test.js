@@ -42,7 +42,7 @@ describe('footnotes', () => {
   it.each([
     ['decimal', ['3', '4']], ['decimalZero', ['03', '04']],
     ['lowerRoman', ['iii', 'iv']], ['upperRoman', ['III', 'IV']],
-    ['lowerLetter', ['c', 'd']], ['upperLetter', ['C', 'D']],
+    ['lowerLetter', ['c', 'd']], ['upperLetter', ['C', 'D']], ['chicago', ['‡', '§']],
   ])('keeps supported %s numbering editable and unchanged on export', async (format, expected) => {
     const source = noteSettings(notedDocx(), `<w:numFmt w:val="${format}"/><w:numStart w:val="3"/>`);
     const { pkg, model } = await open(source);
@@ -52,7 +52,7 @@ describe('footnotes', () => {
     expect(unzipSync(saved)).toEqual(unzipSync(source));
   });
 
-  it.each(['chicago', 'ordinal'])('opens unsupported %s footnote numbering as a structured preview', async format => {
+  it.each(['ordinal'])('opens unsupported %s footnote numbering as a structured preview', async format => {
     const source = noteSettings(notedDocx(), `<w:numFmt w:val="${format}"/><w:numStart w:val="3"/>`);
     const preview = await DocxPackage.open(source, { bestEffort: true });
     await expect(DocxPackage.open(source)).rejects.toThrow(/footnote numbering format/);
@@ -67,28 +67,19 @@ describe('footnotes', () => {
     expect(() => preview.export(model.paragraphs)).toThrow(/read-only/);
   });
 
-  it.each(['eachPage', 'eachSect'])('retains note bodies when %s numbering requires a read-only approximation', async restart => {
+  it.each([['eachPage', ['3', '4']], ['eachSect', ['3', '4']]])('opens %s numbering for editing, restarting from numStart', async (restart, expected) => {
     const parts = unzipSync(notedDocx());
     parts['word/settings.xml'] = strToU8(`<w:settings xmlns:w="${W}"><w:footnotePr><w:numStart w:val="3"/><w:numRestart w:val="${restart}"/></w:footnotePr></w:settings>`);
     parts['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('</Relationships>', '<Relationship Id="settings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/></Relationships>'));
     parts['[Content_Types].xml'] = strToU8(strFromU8(parts['[Content_Types].xml']).replace('</Types>', '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>'));
     const bytes = zipSync(parts);
-    await expect(DocxPackage.open(bytes)).rejects.toThrow(/numbering that restarts/);
-    const preview = await DocxPackage.open(bytes, { bestEffort: true });
-    expect(preview.readOnly).toBe(true);
-    expect(preview.previewIssues.join(' ')).toMatch(/note numbers displayed continuously/);
-    expect(Object.values(preview.pageStories.stories).filter(s => s.kind === 'footnote').map(s => [s.noteId, s.editable])).toEqual([['1', false], ['2', false]]);
-    const continuous = { ...parts, 'word/settings.xml': strToU8(strFromU8(parts['word/settings.xml']).replace(restart, 'continuous')) };
-    const { pkg, model } = await open(zipSync(continuous));
-    const previewModel = new TextDocument(preview.paragraphs, preview.pageSettings, preview.numbering, preview.styles, preview.tables, preview.assets);
-    expect(previewModel.text).toBe(model.text);
-    expect(layout(preview, previewModel).footnoteAreas.map(a => a.notes.map(n => [n.id, n.display]))).toEqual(layout(pkg, model).footnoteAreas.map(a => a.notes.map(n => [n.id, n.display])));
-    expect(layout(preview, previewModel).footnoteAreas[0].notes.map(n => n.display)).toEqual(['3', '4']);
-    for (const path of ['word/footnotes.xml#1', 'word/footnotes.xml#2']) {
-      expect(preview.pageStories.stories[path].paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(pkg.pageStories.stories[path].paragraphs.map(p => p.runs.map(r => r.text).join('')));
-    }
-    expect(preview.parts).toEqual(parts);
-    expect(() => preview.export(previewModel.paragraphs)).toThrow(/read-only/);
+    const { pkg, model } = await open(bytes);
+    expect(pkg.readOnly).toBeFalsy();
+    expect(pkg.pageStories.footnotes).toMatchObject({ restart, start: 3 });
+    expect(Object.values(pkg.pageStories.stories).filter(s => s.kind === 'footnote').map(s => [s.noteId, s.editable])).toEqual([['1', true], ['2', true]]);
+    expect(layout(pkg, model).footnoteAreas[0].notes.map(n => n.display)).toEqual(expected);
+    const saved = new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer());
+    expect(unzipSync(saved)).toEqual(parts);
   });
 
   it('opens referenced notes for editing and numbers them in reference order', async () => {

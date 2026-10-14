@@ -489,7 +489,10 @@ export function readShapeGeometry(props, t, options = {}) {
         geometry = definition.build(t.width, t.height, resolve);
       } catch (error) { fail(error.message); }
       const [left, top, right, bottom] = geometry.text;
-      return { paths: [{ width: t.width, height: t.height, points: geometry.points, fill: true, stroke: true }],
+      // Multi-path presets carry per-path fill/stroke flags, fill modes and optional fixed grids.
+      const paths = geometry.paths ? geometry.paths.map(p => ({ width: p.width ?? t.width, height: p.height ?? t.height, points: p.points, fill: p.fill !== false, stroke: p.stroke !== false, ...(p.fillMode ? { fillMode: p.fillMode } : {}) }))
+        : [{ width: t.width, height: t.height, points: geometry.points, fill: true, stroke: true }];
+      return { paths,
         textRect: { left: t.width ? left / t.width : 0, top: t.height ? top / t.height : 0, right: t.width ? right / t.width : 1, bottom: t.height ? bottom / t.height : 1 } };
     }
     if (children(child(preset, A, 'avLst')).length || !['rect', 'ellipse', 'line', 'straightConnector1', 'flowChartOffpageConnector'].includes(kind)) fail('unsupported preset geometry');

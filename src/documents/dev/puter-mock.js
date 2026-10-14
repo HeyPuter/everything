@@ -80,6 +80,12 @@
       /** A canned rewrite so the writing assistant can be exercised offline. */
       async chat(prompt) {
         await delay(700);
+        // Smart Lookup asks for a definition and related topics in a fixed format.
+        if (/concise reference assistant/.test(prompt)) {
+          const term = /Term:\n"+\n([\s\S]*?)\n"+/.exec(String(prompt))?.[1] || 'term';
+          const reply = `Definition: ${term} is a sample term explained by the offline mock.\nRelated:\n- ${term} history\n- ${term} examples\n- Related concepts`;
+          return { message: { role: 'assistant', content: reply }, toString: () => reply };
+        }
         const m = /Text:\n"""\n([\s\S]*)\n"""$/.exec(String(prompt));
         const text = m ? m[1] : String(prompt);
         const reply = /Translate this into/.test(prompt) ? `[Translated] ${text}` : /Continue this text/.test(prompt) ? 'And so the story went on, one careful sentence after another.\n\nIt ended where it had to.' : `${text.replace(/\s+/g, ' ').trim()} (revised)`;

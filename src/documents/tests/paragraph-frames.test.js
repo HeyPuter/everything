@@ -69,7 +69,7 @@ it('frame edits retain source offsets, change grouping when paragraph formatting
 });
 it('unsupported frame placement preserves all other layout in a localized preview', async () => {
   const pkg = await DocxPackage.open(readFileSync('tests/fixtures/paragraph-frames/page.docx'));
-  pkg.paragraphs[1].frameProperties = { ...pkg.paragraphs[1].frameProperties, dropCap: 'drop' };
+  pkg.paragraphs[1].frameProperties = { ...pkg.paragraphs[1].frameProperties, dropCap: 'drop', lines: '0' };
   expect(() => layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings))).toThrow('Drop-cap');
   const preview = layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, undefined, { bestEffort: true });
   expect(preview.frameApproximations).toHaveLength(1);
@@ -112,7 +112,7 @@ it('page-relative footer frame borders and clipping stay at physical page coordi
 });
 it('an unsupported footer frame preserves its text and neighboring footer in best-effort recovery',async()=>{
  const pkg=await DocxPackage.open(readFileSync('tests/fixtures/paragraph-frames/footer-grouped.docx'));
- const footer=Object.values(pkg.pageStories.stories)[0];footer.paragraphs[0].frameProperties.dropCap='drop';
+ const footer=Object.values(pkg.pageStories.stories)[0];footer.paragraphs[0].frameProperties.dropCap='drop';footer.paragraphs[0].frameProperties.lines='0';
  const body=layoutDocument(pkg.paragraphs,measure,pageGeometry(pkg.pageSettings));
  const placed=layoutPageStories(body,pkg.pageStories,[pkg.pageSettings],measure,pkg.numbering,{bestEffort:true});
  expect(placed.lines.flatMap(l=>l.fragments.map(f=>f.text)).join(' ')).toContain('Framed first line');
