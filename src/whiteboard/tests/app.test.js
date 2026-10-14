@@ -5033,6 +5033,60 @@ test("the command palette goes to a frame by its name, as a step Back undoes", a
   }
 });
 
+test("keyboard changes the canvas shows are said to screen readers", async () => {
+  const app = await setup();
+  const { doc } = app;
+  try {
+    const { selected, key } = await rotationFixture(app, [
+      item("frame", 0, 0, { w: 400, h: 300, text: "Plan", order: 0 }),
+      item("note", 50, 50, { w: 100, h: 100, text: "Inside" }),
+      item("note", 600, 50, { w: 100, h: 100, text: "Outside" }),
+    ]);
+    const said = async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return doc.querySelector("#board-announcer").textContent;
+    };
+    const choose = async (text) => {
+      key("Escape");
+      doc
+        .querySelector(
+          `#board-outline [data-id="${selected.find((i) => i.text === text).id}"]`,
+        )
+        .click();
+      await new Promise((r) => setTimeout(r, 350));
+    };
+    await choose("Inside");
+    // Crossing the frame's edge is said once, not each step.
+    for (let n = 0; n < 60; n++) key("ArrowRight", { shiftKey: true });
+    assert.equal(await said(), "Out of the frame");
+    for (let n = 0; n < 60; n++) key("ArrowLeft", { shiftKey: true });
+    assert.equal(await said(), "In frame: Frame: Plan");
+    key("ArrowLeft");
+    doc.querySelector("#board-announcer").textContent = "";
+    assert.equal(await said(), "");
+    key("=", { ctrlKey: true, altKey: true, shiftKey: true });
+    assert.match(await said(), /^Size: \d+ × \d+$/);
+    await choose("Outside");
+    key("PageDown");
+    assert.equal(await said(), "Sent to back");
+    key("PageUp");
+    assert.equal(await said(), "Brought to front");
+    key("a", { ctrlKey: true });
+    key("g", { ctrlKey: true });
+    assert.equal(await said(), "3 objects grouped");
+    key("g", { ctrlKey: true, shiftKey: true });
+    assert.equal(await said(), "Ungrouped");
+    key("z", { ctrlKey: true });
+    assert.equal(await said(), "Undone");
+    key("z", { ctrlKey: true, shiftKey: true });
+    assert.equal(await said(), "Redone");
+    key("z", { ctrlKey: true, shiftKey: true });
+    assert.equal(await said(), "Nothing to redo");
+  } finally {
+    await app.close();
+  }
+});
+
 test("going to a frame from Frames and navigation says where it went, keeping the keyboard on the row", async () => {
   const app = await setup();
   const { doc, w, click } = app;

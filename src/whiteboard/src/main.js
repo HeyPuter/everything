@@ -9556,6 +9556,9 @@ function resizeBy(factor, e) {
       });
       reframeResized(plan);
     });
+    announce(
+      labelled(t("Size"), `${Math.round(size.w)} × ${Math.round(size.h)}`),
+    );
   } catch (error) {
     toast(error.message);
   }
@@ -12983,7 +12986,8 @@ function sharedStep(step) {
   if (session.readOnly || session.contentReadOnly) return;
   const { shared } = session,
     manager = shared.undo;
-  if (!(step === "undo" ? manager.canUndo() : manager.canRedo())) return;
+  if (!(step === "undo" ? manager.canUndo() : manager.canRedo()))
+    return announce(t(step === "undo" ? "Nothing to undo" : "Nothing to redo"));
   // Every step changes content, which a frozen board refuses; the shared
   // document is left untouched so the step waits for the board to open.
   const frozen = facilitation.frozen();
@@ -13012,6 +13016,7 @@ function sharedStep(step) {
     manager[step === "undo" ? "redo" : "undo"]();
     return toast(reason);
   }
+  announce(t(step === "undo" ? "Undone" : "Redone"));
   session.publish().catch((e) => toast(e.message));
 }
 // Buttons over the board that open a panel or a dialog, change a setting
@@ -13255,7 +13260,19 @@ async function action(a) {
         a,
         selectionOptions(),
       );
-      if (next !== current.items) mutate(() => (current.items = next));
+      if (next === current.items) return;
+      mutate(() => (current.items = next));
+      // The canvas shows the new order; a screen reader hears it.
+      announce(
+        t(
+          {
+            front: "Brought to front",
+            back: "Sent to back",
+            forward: "Brought forward",
+            backward: "Sent backward",
+          }[a],
+        ),
+      );
       return;
     }
     case "share":
@@ -13271,23 +13288,25 @@ async function action(a) {
       if (collaboration) return sharedStep("undo");
       // Key repeat must not replace recovery versions with unchanged copies.
       if (isSharedReadOnly()) return toast("This board is read-only.");
-      if (!history.past.length) return;
+      if (!history.past.length) return announce(t("Nothing to undo"));
       checkpoint();
       restoreUndoState(history.undo(undoStateFor(history.past.at(-1))));
       selection.clear();
       draw();
       save({ outlined: true });
+      announce(t("Undone"));
       return;
     case "redo":
       dropEditToast();
       if (collaboration) return sharedStep("redo");
       if (isSharedReadOnly()) return toast("This board is read-only.");
-      if (!history.future.length) return;
+      if (!history.future.length) return announce(t("Nothing to redo"));
       checkpoint();
       restoreUndoState(history.redo(undoStateFor(history.future.at(-1))));
       selection.clear();
       draw();
       save({ outlined: true });
+      announce(t("Redone"));
       return;
     case "minimap":
       return minimap.toggle();
@@ -13711,6 +13730,15 @@ document.addEventListener("keydown", (e) => {
         focusedGroup = null;
       }
     });
+    announce(
+      e.shiftKey
+        ? t("Ungrouped")
+        : plural(
+            selection.size,
+            "{count} object grouped",
+            "{count} objects grouped",
+          ),
+    );
     return;
   }
   if (mod && shortcutLetter(e) === "z") {
@@ -13817,6 +13845,8 @@ document.addEventListener("keydown", (e) => {
       )
     )
       return;
+    const moved = current.items.find((i) => reach.has(i.id) && !isConnector(i)),
+      frameBefore = moved.parentId;
     heldKeyChange(e, "move", () => {
       moveItems(current.items, selection, dx, dy, selectionOptions());
       // Like dragging, moving objects into or out of a frame updates which
@@ -13825,6 +13855,21 @@ document.addEventListener("keydown", (e) => {
         skip: facilitation.concealedIds(),
       });
     });
+    // Crossing a frame's edge is the step a screen reader needs to hear;
+    // each step of the move would only be noise.
+    const after = current.items.find((i) => i.id === moved.id);
+    if (after && after.parentId !== frameBefore) {
+      const frame = after.parentId
+        ? facilitation
+            .masked(current)
+            .items.find((i) => i.id === after.parentId)
+        : null;
+      announce(
+        frame
+          ? labelled(t("In frame"), objectName(frame))
+          : t("Out of the frame"),
+      );
+    }
     return;
   }
   if (
