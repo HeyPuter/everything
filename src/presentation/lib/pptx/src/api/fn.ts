@@ -17,6 +17,8 @@ export * from "./fn/slide-masters.ts";
 export * from "./fn/template-import.ts";
 export * from "./fn/embedded-fonts.ts";
 export * from "./fn/theme.ts";
+export * from "./fn/theme-design.ts";
+export * from "./fn/theme-file.ts";
 export * from "./fn/properties.ts";
 export * from "./fn/document-statistics.ts";
 export * from "./fn/thumbnail.ts";
@@ -68,6 +70,7 @@ export * from "./fn/header-footer.ts";
 
 // Slide features
 export * from "./fn/slide-background.ts";
+export * from "./fn/slide-background-fill.ts";
 export * from "./fn/color-map.ts";
 export * from "./fn/slide-transition.ts";
 export * from "./fn/slide-notes.ts";

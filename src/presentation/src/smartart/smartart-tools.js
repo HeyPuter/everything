@@ -7,6 +7,7 @@ import "../charts/chart-icons.js";
 import { el, toast, button, closeMenu } from "../ui.js";
 import { chooseSmartArtLayout, svgUrl } from "./smartart-dialog.js";
 import { openTextPane } from "./smartart-pane.js";
+import { createSmartArtFormat } from "./smartart-format.js";
 import {
   addAbove,
   addAfter,
@@ -116,6 +117,15 @@ export function createSmartArtTools(h) {
         return ok;
       });
   }
+  // Single shapes: picking, pictures and the SmartArt Format tab.
+  const shapeFormat = createSmartArtFormat({
+    P,
+    h,
+    modelOf,
+    keyOf,
+    selectedGraphic: () => selectedGraphic(),
+    update: (obj, fn) => update(obj, fn),
+  });
   const structureChanged = (a, b) =>
     a.length !== b.length || a.some((x, i) => x.level !== b[i].level);
   const updateSelected = (fn, coalesce) =>
@@ -856,6 +866,7 @@ export function createSmartArtTools(h) {
           },
         ],
       },
+      shapeFormat.tab(),
     ];
   }
 
@@ -870,5 +881,8 @@ export function createSmartArtTools(h) {
     convertMenu,
     sync: () => pane?.sync(),
     closePane: () => pane?.close(),
+    pickAt: (obj, fx, fy) => shapeFormat.pickAt(obj, fx, fy),
+    clearPick: () => shapeFormat.clearPick(),
+    decorateCanvas: (canvas) => shapeFormat.decorateCanvas(canvas),
   };
 }

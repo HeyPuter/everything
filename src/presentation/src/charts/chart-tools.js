@@ -482,6 +482,11 @@ export function createChartTools(h) {
             checked: state === id,
             onSelect: () => updateSelected((s) => setErrorBars(s, id)),
           })),
+          { separator: true },
+          more(
+            spec.series.length ? "series:0" : "chartArea",
+            "More Error Bars Options…",
+          ),
         ],
       });
     }
@@ -1153,6 +1158,7 @@ export function createChartTools(h) {
     isChart,
     insert,
     editData,
+    selectData: (obj) => selectData(obj),
     changeType,
     tabs,
     inspector,

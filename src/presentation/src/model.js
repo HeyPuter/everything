@@ -24,6 +24,8 @@ import {
   relsPartNameFor,
   resolveTarget,
 } from "../lib/pptx/src/internal/opc/index.ts";
+import { LEGACY_IDS, paletteEntries } from "./themes/catalog.js";
+import { applyTheme as applyCatalogTheme } from "./themes/engine.js";
 const measureText = createTextMeasurer();
 export { P };
 export const MIME =
@@ -62,8 +64,14 @@ export const THEMES = {
     panel: "#2c3b45",
   },
 };
+// The themes beyond the original four join them, each with the palette of
+// its first variant, so every theme can start a deck.
+Object.assign(THEMES, paletteEntries());
 export const sectionTextColor = (theme) =>
-  theme === "midnight" ? "#18222b" : "#ffffff";
+  THEMES[theme]?.onAccent ?? (theme === "midnight" ? "#18222b" : "#ffffff");
+// A theme with a master of its own design (not one of the original four):
+// its starter slides show the master's background and use its fonts.
+const designedTheme = (theme) => !!THEMES[theme] && !LEGACY_IDS.has(theme);
 export const cleanName = (
   name,
   { stripExtension = true, maxLength = 180 } = {},
@@ -82,6 +90,8 @@ const box = (x, y, w, h) => ({
   w: P.inches(w),
   h: P.inches(h),
 });
+// The face starter text is set in: Arial, or a theme's heading or body font.
+let textFont = "Arial";
 export function text(
   slide,
   value,
@@ -94,7 +104,7 @@ export function text(
   bold = false,
 ) {
   const s = P.addSlideTextBox(slide, { ...box(x, y, w, h), text: value });
-  P.setShapeTextFormat(s, { font: "Arial", size, color, bold });
+  P.setShapeTextFormat(s, { font: textFont, size, color, bold });
   P.setShapeTextMargins(s, { left: 0, right: 0, top: 0, bottom: 0 });
   P.setShapeTextAutoFit(s, "none");
   return s;
@@ -228,8 +238,23 @@ export function addDesignedSlide(
 ) {
   const t = THEMES[theme] || THEMES.studio;
   const slide = designedSlideBase(pres, layout, onLayout);
-  P.setSlideBackground(slide, t.bg);
+  const designed = designedTheme(theme);
+  if (!designed) P.setSlideBackground(slide, t.bg);
   if (layout === "blank") return slide;
+  textFont = designed ? "+mn-lt" : "Arial";
+  try {
+    return dressDesignedSlide(pres, slide, layout, theme, content, t, designed);
+  } finally {
+    textFont = "Arial";
+  }
+}
+function dressDesignedSlide(pres, slide, layout, theme, content, t, designed) {
+  // Titles take the heading font of a designed theme.
+  const heading = (...args) => {
+    const s = text(...args);
+    if (designed) P.setShapeTextFormat(s, { font: "+mj-lt" });
+    return s;
+  };
   text(
     slide,
     content.kicker || "YOUR NEXT CHAPTER",
@@ -242,7 +267,7 @@ export function addDesignedSlide(
     true,
   );
   if (layout === "title") {
-    text(
+    heading(
       slide,
       content.title || "Make room for\nbig ideas.",
       0.8,
@@ -270,7 +295,7 @@ export function addDesignedSlide(
     P.setSlideBackground(slide, t.accent);
     const contrast = sectionTextColor(theme);
     P.setShapeTextFormat(P.getSlideShapes(slide)[0], { color: contrast });
-    text(
+    heading(
       slide,
       content.title || "A fresh\nperspective.",
       0.8,
@@ -292,7 +317,7 @@ export function addDesignedSlide(
       contrast,
     );
   } else if (layout === "columns") {
-    text(
+    heading(
       slide,
       content.title || "See the bigger picture.",
       0.8,
@@ -318,7 +343,7 @@ export function addDesignedSlide(
       text(slide, body, x + 0.25, 4, 3.1, 1.35, 18, t.ink);
     });
   } else {
-    text(
+    heading(
       slide,
       content.title || "Start with what matters.",
       0.8,
@@ -397,12 +422,19 @@ export function addLayoutSlide(pres, type = "title") {
 // "pitch" are the designed starter decks.
 export function createDeck(template = "blank", theme = "studio") {
   const pres = P.createPresentation();
+  // A designed theme brings its own master; the original four style the
+  // built-in one in their palette.
+  if (designedTheme(theme)) applyCatalogTheme(pres, theme);
   if (template === "title") addLayoutSlide(pres, "title");
   else if (template === "blank") addDesignedSlide(pres, "blank", theme);
   else {
-    stylePaletteMaster(pres, theme);
+    if (!designedTheme(theme)) stylePaletteMaster(pres, theme);
     const designed = (layout, content) =>
-      addDesignedSlide(pres, layout, theme, content, { onLayout: true });
+      // A designed theme's layouts bring artwork of their own; its starter
+      // compositions sit on the Blank layout, over the master's artwork.
+      addDesignedSlide(pres, layout, theme, content, {
+        onLayout: !designedTheme(theme),
+      });
     const pitch = template === "pitch";
     designed(
       "title",

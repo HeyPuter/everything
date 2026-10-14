@@ -27,4 +27,8 @@ export {
   guessSmartArtLayout,
   relayoutSmartArt,
   convertSmartArtToShapes,
+  addSmartArtPicture,
+  getSmartArtPictureBytes,
+  getSmartArtShapes,
 } from "./authoring.ts";
+export type { SmartArtShapeFormat, SmartArtTextStyle } from "./format.ts";

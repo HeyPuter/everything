@@ -284,6 +284,7 @@ export function createTransitionTools({
           load: loadImage,
           W,
           H,
+          option: transition?.morphOption,
         });
       },
     });

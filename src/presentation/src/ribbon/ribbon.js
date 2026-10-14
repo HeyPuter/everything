@@ -18,7 +18,8 @@
 //   { type: "spin", value(), commit(number), min, max, step, format(), parse() }
 //   { type: "check", checked(), commit(boolean) }
 //   { type: "color", color(), run(), menu() }   split button with a colour bar
-//   { type: "gallery", items(), selected?(), choose(item), columns, more?() }
+//   { type: "gallery", items(), selected?(), choose(item), columns, more?(),
+//     contextMenu?(item) }
 //   { type: "custom", render(), sync?(node) }
 import "./ribbon.css";
 import { el, icon, openMenu, closeMenu } from "../ui.js";
@@ -35,6 +36,7 @@ export function createRibbon({
   tabs,
   initial = "home",
   onTabChange,
+  onCollapse,
   focusFallback = null,
 } = {}) {
   let active = initial;
@@ -178,7 +180,9 @@ export function createRibbon({
     if (collapsed) flyout(true);
   }
   function setCollapsed(on) {
+    const changed = collapsed !== on;
     collapsed = on;
+    if (changed) onCollapse?.(on);
     root.classList.toggle("collapsed", on);
     root.classList.remove("flyout");
     collapse.setAttribute("aria-expanded", String(!on));
@@ -789,6 +793,35 @@ export function createRibbon({
             }
             setTimeout(refresh);
           },
+          // A choice can offer more (a theme: apply to all slides or to
+          // the selected ones) on right-click or the context-menu key.
+          oncontextmenu: item.contextMenu
+            ? (e) => {
+                const items = item.contextMenu(choice);
+                if (!items?.length) return;
+                e.preventDefault();
+                const r = b.getBoundingClientRect();
+                openMenu({
+                  anchor: b,
+                  x: e.clientX || r.left + r.width / 2,
+                  y: e.clientY || r.bottom,
+                  contextual: true,
+                  label: `${choice.label} options`,
+                  items: items.map((entry) =>
+                    entry.onSelect
+                      ? {
+                          ...entry,
+                          onSelect: () => {
+                            onChosen?.();
+                            entry.onSelect();
+                            setTimeout(refresh);
+                          },
+                        }
+                      : entry,
+                  ),
+                });
+              }
+            : null,
           onpointerenter: item.preview ? () => item.preview(choice) : null,
           onpointerleave: item.endPreview ? () => item.endPreview() : null,
         },

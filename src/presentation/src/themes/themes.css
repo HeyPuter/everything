@@ -1,0 +1,332 @@
+/* Themes: gallery tiles, color and font menus, the customize dialogs and the
+   Format Background pane. Colors come from the chrome tokens, so light and
+   dark mode both work. */
+
+.theme-tile {
+  position: relative;
+  display: block;
+  width: 76px;
+  border: 1px solid var(--chrome-rule, #d1d1d1);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #fff;
+  line-height: 0;
+}
+.theme-tile img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+.theme-tile-empty {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--chrome-hover, #ececec);
+}
+.theme-accents {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  display: flex;
+  gap: 1px;
+  height: 4px;
+}
+.theme-accents span {
+  flex: 1;
+  border-radius: 1px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.ribbon-gallery-panel .theme-tile {
+  width: 120px;
+}
+.variant-thumb .theme-tile {
+  width: 58px;
+}
+
+/* Colors and fonts menus */
+.scheme-row,
+.font-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.scheme-swatches {
+  display: inline-flex;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--chrome-rule, #d1d1d1);
+  border-radius: 2px;
+}
+.scheme-swatches span {
+  width: 10px;
+  height: 14px;
+}
+.font-sample {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  border: 1px solid var(--chrome-rule, #d1d1d1);
+  border-radius: 3px;
+  font-size: 18px;
+  line-height: 1;
+}
+.font-names {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.font-pair {
+  font-size: 11.5px;
+  color: var(--chrome-muted, #5f5f5f);
+}
+
+/* Background styles grid inside a menu */
+.bg-styles {
+  display: grid;
+  grid-template-columns: repeat(4, 56px);
+  gap: 6px;
+  padding: 6px 10px;
+}
+.bg-style.menu-item {
+  width: 56px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 3px;
+}
+.bg-style.menu-item:hover,
+.bg-style.menu-item:focus-visible {
+  outline: 2px solid var(--ribbon-accent, #c43e1c);
+  outline-offset: 1px;
+}
+
+/* Customize Colors / Fonts */
+.customize-columns {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.scheme-slots {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.scheme-slots legend {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.scheme-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.scheme-slot input[type="color"] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 3px;
+  background: none;
+}
+.scheme-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scheme-preview {
+  display: grid;
+  gap: 8px;
+}
+.scheme-preview-slide {
+  width: 200px;
+  height: 112px;
+  padding: 10px;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scheme-preview-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.scheme-preview-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+.scheme-preview-bars span {
+  flex: 1;
+  border-radius: 1px;
+}
+.scheme-preview-links {
+  font-size: 11px;
+  text-decoration: underline;
+}
+.font-preview {
+  padding: 12px;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 4px;
+  background: var(--chrome-card, #fff);
+  color: var(--chrome-ink, #262626);
+}
+.font-preview-heading {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.font-preview-body {
+  font-size: 13px;
+}
+
+/* Format Background pane */
+.bg-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bg-pane h3 {
+  margin-bottom: 0;
+}
+.bg-kinds {
+  display: grid;
+  gap: 4px;
+}
+.bg-kind,
+.bg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.bg-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--chrome-line, #e1e1e1);
+}
+.bg-label {
+  font-size: 12px;
+  color: var(--chrome-muted, #5f5f5f);
+}
+.bg-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bg-range-row input {
+  flex: 1;
+  min-width: 0;
+}
+.bg-range-value {
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.bg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.bg-presets,
+.bg-textures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 6px;
+}
+.bg-preset,
+.bg-texture {
+  aspect-ratio: 1;
+  min-height: 30px;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 4px;
+  background-size: 64px;
+}
+.bg-patterns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+  gap: 4px;
+}
+.bg-pattern {
+  aspect-ratio: 1;
+  min-height: 24px;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 3px;
+  background-size: 12px;
+  image-rendering: pixelated;
+}
+.bg-pattern.active,
+.bg-preset:focus-visible,
+.bg-texture:focus-visible,
+.bg-pattern:focus-visible {
+  outline: 2px solid var(--ribbon-accent, #c43e1c);
+  outline-offset: 1px;
+}
+.bg-stops {
+  position: relative;
+  height: 34px;
+  margin: 4px 8px 2px;
+}
+.bg-stops-bar {
+  position: absolute;
+  inset: 4px 0 12px;
+  border: 1px solid var(--chrome-rule, #c8c8c8);
+  border-radius: 3px;
+}
+.bg-stop {
+  position: absolute;
+  bottom: 0;
+  width: 14px;
+  height: 18px;
+  margin-left: -7px;
+  padding: 0;
+  border: 2px solid var(--chrome-card, #fff);
+  border-radius: 3px 3px 7px 7px;
+  background: var(--stop);
+  box-shadow: 0 0 0 1px var(--chrome-muted, #5f5f5f);
+}
+.bg-stop.active {
+  box-shadow: 0 0 0 2px var(--ribbon-accent, #c43e1c);
+}
+.bg-stop-buttons,
+.bg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bg-actions {
+  padding-top: 8px;
+  border-top: 1px solid var(--chrome-line, #e1e1e1);
+}
+
+@media (max-width: 640px) {
+  .scheme-preview-slide {
+    width: 160px;
+    height: 90px;
+  }
+  .bg-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.theme-menu-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-menu-row img {
+  width: 64px;
+  border: 1px solid var(--chrome-rule, #d1d1d1);
+  border-radius: 2px;
+}

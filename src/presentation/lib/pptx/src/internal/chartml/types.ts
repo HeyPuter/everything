@@ -202,8 +202,18 @@ export interface ChartSeries {
 export interface ChartErrorBars {
   readonly direction?: "x" | "y";
   readonly type: "both" | "plus" | "minus";
-  readonly valueType: "fixedVal" | "percentage" | "stdDev" | "stdErr";
+  /** `cust`: an amount per point, from `plus` / `minus`. */
+  readonly valueType: "fixedVal" | "percentage" | "stdDev" | "stdErr" | "cust";
   readonly value?: number;
+  /** Custom amounts above / below each point (`<c:plus>` / `<c:minus>`). */
+  readonly plus?: ReadonlyArray<number | null>;
+  readonly minus?: ReadonlyArray<number | null>;
+  /**
+   * The data-sheet ranges the custom amounts come from (`<c:f>`, e.g.
+   * `Sheet1!$C$2:$C$4`); without one the amounts are written as literals.
+   */
+  readonly plusRef?: string;
+  readonly minusRef?: string;
   readonly noEndCap?: boolean;
   readonly color?: string;
 }

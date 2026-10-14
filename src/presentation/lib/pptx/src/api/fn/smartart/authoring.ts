@@ -11,6 +11,12 @@ import {
 } from "../../../internal/opc/index.ts";
 import type { OpcPackage } from "../../../internal/parts/index.ts";
 import { withPackageTransaction } from "../../../internal/parts/package-transaction.ts";
+import {
+  contentTypeForFormat,
+  detectImageFormat,
+  extensionForFormat,
+  readImagePixelSize,
+} from "../../../internal/opc/image-format.ts";
 import { REL_TYPES } from "../../../internal/presentationml/index.ts";
 import { readDiagramHierarchy } from "../../../internal/diagram/hierarchy.ts";
 import { diagramDrawingReferences } from "../../../internal/diagram/drawing-reference.ts";
@@ -57,6 +63,11 @@ import {
   layoutEntry,
 } from "./catalog.ts";
 import { layoutSmartArt } from "./compute.ts";
+import {
+  type SmartArtShapeFormat,
+  readShapeFormat,
+  readTextStyle,
+} from "./format.ts";
 import { drawingXml } from "./drawing.ts";
 import { LAYOUT_URN, layoutDefXml } from "./layout-def.ts";
 import {
@@ -128,6 +139,9 @@ const checked = (model: SmartArtModel): SmartArtModel => {
       ? model.style
       : DEFAULT_SMARTART_STYLE,
     ...(model.rightToLeft ? { rightToLeft: true } : {}),
+    ...(model.format && Object.keys(model.format).length
+      ? { format: model.format }
+      : {}),
   };
 };
 
@@ -150,16 +164,54 @@ const allocateIndex = (pkg: OpcPackage): number => {
       return n;
 };
 
+/** The media parts a model's shapes are filled with, in order. */
+const picturesOf = (model: SmartArtModel): string[] => {
+  const out = new Set<string>();
+  const add = (formats: SmartArtItem["format"]) => {
+    for (const f of Object.values(formats ?? {}))
+      if (f.picture) out.add(f.picture);
+  };
+  for (const item of model.items) add(item.format);
+  add(model.format);
+  return [...out];
+};
+const pictureRelId = (i: number) => `rIdPic${i + 1}`;
+
 const partsFor = (
   model: SmartArtModel,
   w: number,
   h: number,
   drawingRelId: string,
+  pkg: OpcPackage | null = null,
 ) => {
   const entry = layoutEntry(model.layout)!;
   const shapes = layoutSmartArt(model, w, h);
+  // Pictures that are in the package; both the data and the drawing part
+  // relate to each under the same id.
+  const pictures = pkg
+    ? picturesOf(model).filter((name) => pkg.getPart(partName(name)))
+    : [];
+  const relOf = (name: string) => {
+    const i = pictures.indexOf(name);
+    return i < 0 ? null : pictureRelId(i);
+  };
+  const cropOf = (name: string, cw: number, ch: number) => {
+    const part = pkg?.getPart(partName(name));
+    const size = part ? readImagePixelSize(part.data) : null;
+    if (!size || !(cw > 0 && ch > 0)) return null;
+    const image = size.width / size.height,
+      box = cw / ch;
+    if (Math.abs(image - box) < 0.001) return null;
+    if (image > box) {
+      const cut = (1 - box / image) / 2;
+      return { l: cut, t: 0, r: cut, b: 0 };
+    }
+    const cut = (1 - image / box) / 2;
+    return { l: 0, t: cut, r: 0, b: cut };
+  };
   return {
-    dm: dataModelXml(model, drawingRelId),
+    pictures,
+    dm: dataModelXml(model, drawingRelId, relOf),
     lo: layoutDefXml({
       id: entry.id,
       name: entry.name,
@@ -170,9 +222,75 @@ const partsFor = (
     }),
     qs: styleDefXml(model.style),
     cs: colorsDefXml(model.colors),
-    dr: drawingXml(model, shapes),
-  } satisfies Record<Kind, string>;
+    dr: drawingXml(model, shapes, { relOf, cropOf }),
+  };
 };
+
+/** Relates a rewritten data or drawing part to the pictures it shows. */
+const linkPictures = (
+  pkg: OpcPackage,
+  part: PartName,
+  pictures: readonly string[],
+) => {
+  const relsName = relsPartNameFor(part);
+  if (pkg.getPart(relsName)) pkg.removePart(relsName);
+  if (!pictures.length) return;
+  pkg.setRels(part, {
+    ...emptyRels(),
+    items: pictures.map((name, i) => ({
+      id: pictureRelId(i),
+      type: REL_TYPES.image,
+      target: relative(part, partName(name)),
+      targetMode: "Internal" as const,
+    })),
+  });
+};
+
+/** Removes pictures nothing in the package refers to any more. */
+const dropUnusedPictures = (pkg: OpcPackage, names: readonly string[]) => {
+  for (const name of names) {
+    const part = pkg.getPart(partName(name));
+    if (part && !referencesTo(pkg, part.name).length) pkg.removePart(part.name);
+  }
+};
+
+/**
+ * Adds a picture to the package for a SmartArt shape's fill and returns the
+ * media part's name, to use as a shape format's `picture`.
+ */
+export const addSmartArtPicture = (
+  shape: SlideShapeData,
+  bytes: Uint8Array,
+): string => {
+  const format = detectImageFormat(bytes);
+  if (!format) throw new Error("addSmartArtPicture: unrecognized image");
+  const pkg = shape[SHAPE_SLIDE][INTERNAL_PACKAGE];
+  const extension = extensionForFormat(format);
+  let next = 1;
+  for (const p of pkg.parts) {
+    const m = /^\/ppt\/media\/image(\d+)\./.exec(p.name);
+    if (m) next = Math.max(next, Number(m[1]) + 1);
+  }
+  const name = partName(`/ppt/media/image${next}.${extension}`);
+  if (
+    !pkg.contentTypes.defaults.some(
+      (d) => d.extension.toLowerCase() === extension,
+    )
+  )
+    pkg.contentTypes.defaults.push({
+      extension,
+      contentType: contentTypeForFormat(format),
+    });
+  pkg.addPart(name, contentTypeForFormat(format), bytes);
+  return name;
+};
+
+/** The bytes of a picture a SmartArt shape is filled with. */
+export const getSmartArtPictureBytes = (
+  shape: SlideShapeData,
+  picture: string,
+): Uint8Array | null =>
+  shape[SHAPE_SLIDE][INTERNAL_PACKAGE].getPart(partName(picture))?.data ?? null;
 
 const frameXml = (opts: {
   id: number;
@@ -250,16 +368,15 @@ export const addSlideSmartArt = (
       targetMode: "Internal",
     });
   }
-  const xml = partsFor(model, w, h, ids.dr);
+  const xml = partsFor(model, w, h, ids.dr, pkg);
   const id = maxShapeId(slide) + 1;
   let created!: SlideShapeData;
   withPackageTransaction(pkg, () => {
-    for (const kind of Object.keys(KINDS) as Kind[])
-      pkg.addPart(
-        partName(`/ppt/diagrams/${KINDS[kind].file}${n}.xml`),
-        KINDS[kind].contentType,
-        encode(xml[kind]),
-      );
+    for (const kind of Object.keys(KINDS) as Kind[]) {
+      const name = partName(`/ppt/diagrams/${KINDS[kind].file}${n}.xml`);
+      pkg.addPart(name, KINDS[kind].contentType, encode(xml[kind]));
+      if (kind === "dm" || kind === "dr") linkPictures(pkg, name, xml.pictures);
+    }
     pkg.setRels(owner, rels);
     created = appendAndReturnNewShape(
       slide,
@@ -329,6 +446,49 @@ export const getShapeSmartArt = (
 ): SmartArtModel | null => {
   const diagram = readShapeDiagram(shape);
   if (!diagram?.model) return null;
+  // Shape formatting: presentation points by the data point they belong to.
+  const pkg = shape[SHAPE_SLIDE][INTERNAL_PACKAGE];
+  const dataPart = diagram.data?.part.name ?? null;
+  const dataRels = dataPart ? (pkg.getRels(dataPart)?.items ?? []) : [];
+  const pictureOf = (relId: string): string | null => {
+    const rel = dataRels.find(
+      (r) => r.id === relId && r.targetMode !== "External",
+    );
+    if (!rel || !dataPart) return null;
+    try {
+      const target = rel.target.startsWith("/")
+        ? partName(rel.target)
+        : resolveTarget(dataPart, rel.target);
+      return pkg.getPart(target) ? target : null;
+    } catch {
+      return null;
+    }
+  };
+  const formats = new Map<string, Record<string, SmartArtShapeFormat>>();
+  for (const p of diagram.model.points) {
+    if (p.type !== "pres" || !p.properties) continue;
+    const owner = getAttrValue(p.properties, A("presAssocID"));
+    const name = getAttrValue(p.properties, A("presName"));
+    if (!owner || !name) continue;
+    const f = readShapeFormat(p.shapeProperties, p.properties, pictureOf);
+    if (!f) continue;
+    const map = formats.get(owner) ?? {};
+    map[name] = f;
+    formats.set(owner, map);
+  }
+  const itemOf = (
+    point: (typeof diagram.model.points)[number],
+    level: number,
+  ): SmartArtItem => {
+    const format = formats.get(point.id);
+    const textStyle = readTextStyle(point.text);
+    return {
+      text: point.text ? textBodyText(point.text) : "",
+      level,
+      ...(format ? { format } : {}),
+      ...(textStyle ? { textStyle } : {}),
+    };
+  };
   let items: SmartArtItem[] = [];
   try {
     const hierarchy = readDiagramHierarchy(diagram.model);
@@ -337,16 +497,14 @@ export const getShapeSmartArt = (
       .filter(
         (node) => node.point.type === "node" || node.point.type === "asst",
       )
-      .map((node) => ({
-        text: node.point.text ? textBodyText(node.point.text) : "",
-        level: node.depth - 1,
-      }));
+      .map((node) => itemOf(node.point, node.depth - 1));
   } catch {
     items = diagram.model.points
       .filter((p) => p.type === "node" || p.type === "asst")
-      .map((p) => ({ text: p.text ? textBodyText(p.text) : "", level: 0 }));
+      .map((p) => itemOf(p, 0));
   }
   const doc = diagram.model.points.find((p) => p.type === "doc");
+  const graphicFormat = doc ? formats.get(doc.id) : undefined;
   const prop = (name: string) =>
     (doc?.properties && getAttrValue(doc.properties, A(name))) ?? null;
   const layoutId =
@@ -419,6 +577,7 @@ export const getShapeSmartArt = (
     colors,
     style,
     ...(rightToLeft ? { rightToLeft: true } : {}),
+    ...(graphicFormat ? { format: graphicFormat } : {}),
   };
 };
 
@@ -663,21 +822,27 @@ export const setShapeSmartArt = (
       if (kind !== "dr") framesChanged = true;
     }
   }
-  const xml = partsFor(model, size.w, size.h, relOf.dr!);
+  const xml = partsFor(model, size.w, size.h, relOf.dr!, pkg);
+  const before = (() => {
+    try {
+      const old = getShapeSmartArt(shape);
+      return old ? picturesOf(old) : [];
+    } catch {
+      return [];
+    }
+  })();
   withPackageTransaction(pkg, () => {
     for (const { kind, name, create } of plan) {
       if (create) pkg.addPart(name, KINDS[kind].contentType, encode(xml[kind]));
-      else {
-        const part = pkg.getPart(name)!;
-        part.data = encode(xml[kind]);
-        if (kind === "dr" || kind === "dm") {
-          // The rewritten part references nothing; drop stale relationships.
-          if (pkg.getPart(relsPartNameFor(name)))
-            pkg.removePart(relsPartNameFor(name));
-        }
-      }
+      else pkg.getPart(name)!.data = encode(xml[kind]);
+      // The rewritten part refers only to its pictures.
+      if (kind === "dr" || kind === "dm") linkPictures(pkg, name, xml.pictures);
     }
     pkg.setRels(owner, rels);
+    dropUnusedPictures(
+      pkg,
+      before.filter((p) => !xml.pictures.includes(p)),
+    );
     if (framesChanged) {
       ids.attrs = ids.attrs.filter(
         (a) =>
@@ -711,6 +876,45 @@ const setForeignText = (shape: SlideShapeData, input: SmartArtModel): void => {
     .map((entry, i) => ({ modelId: entry.modelId, text: items[i]!.text }))
     .filter((r, i) => r.text !== current.items[i]!.text);
   if (replacements.length) replaceShapeDiagramText(shape, replacements);
+};
+
+/** One shape of an authored graphic as laid out, for picking it. */
+export interface SmartArtShapeInfo {
+  /** Names the shape for formatting (see setSmartArtShapeFormat). */
+  readonly key: string;
+  /** What the shape is for: "node", "child", "pic", "trans", "bg"... */
+  readonly role: string;
+  /** The outline item it stands for, if any. */
+  readonly item: number | null;
+  /** Frame-local EMU. */
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly rot: number;
+  readonly geom: string;
+  readonly format: SmartArtShapeFormat | null;
+}
+
+/** The shapes of an authored graphic, bottom to top (empty otherwise). */
+export const getSmartArtShapes = (
+  shape: SlideShapeData,
+): SmartArtShapeInfo[] => {
+  const model = getShapeSmartArt(shape);
+  if (!model?.layout) return [];
+  const size = frameSize(shape);
+  return layoutSmartArt(checked(model), size.w, size.h).map((s) => ({
+    key: s.key!,
+    role: s.role,
+    item: s.item ?? null,
+    x: s.x,
+    y: s.y,
+    w: s.w,
+    h: s.h,
+    rot: s.rot ?? 0,
+    geom: s.geom,
+    format: s.format ?? null,
+  }));
 };
 
 /** Lays an authored diagram out again, e.g. after its frame is resized. */

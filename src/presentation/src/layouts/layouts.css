@@ -249,3 +249,53 @@
     margin-top: 10px;
   }
 }
+
+/* Reuse Slides: the other deck's slides to pick from. */
+.reuse-body {
+  width: min(680px, calc(100vw - 48px));
+}
+.reuse-file {
+  margin: 0 0 8px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.reuse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  max-height: min(52vh, 460px);
+  overflow: auto;
+  padding: 2px;
+  margin-bottom: 10px;
+}
+.reuse-card {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.reuse-card.picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.reuse-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.reuse-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: white;
+  border-radius: 3px;
+}
+.reuse-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}

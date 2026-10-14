@@ -744,6 +744,8 @@ export function createMasterView(host) {
             },
           ],
         },
+        // Theme commands the editor offers here (themes/design-tab.js).
+        ...(host.themeGroups?.() || []),
         closeGroup,
       ],
     };

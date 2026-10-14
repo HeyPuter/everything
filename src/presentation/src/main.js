@@ -93,6 +93,7 @@ import { prefersReducedMotion } from "./transitions/player.js";
 import { createLayoutCommands } from "./layouts/slide-layouts.js";
 import { createMasterView } from "./layouts/master-view.js";
 import { decoratePlaceholders, fitInto } from "./layouts/placeholders.js";
+import { createSlidesFrom } from "./layouts/slides-from.js";
 import {
   libraryMeta,
   homeRail,
@@ -101,6 +102,8 @@ import {
   libraryFilter,
 } from "./start/start-screen.js";
 import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
+import { createThemeTools, themeStartPicture } from "./themes/design-tab.js";
+import { createBackgroundPane } from "./themes/format-background.js";
 import { lucide } from "./draw/draw-icons.js";
 import { SHOW_PEN_COLORS } from "./draw/show-ink.js";
 import { createReview } from "./review/index.js";
@@ -675,6 +678,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + O", "Open from Puter"],
         ["Ctrl / ⌘ + P", "Print"],
         ["Ctrl / ⌘ + F or H", "Find, or find and replace"],
+        ["Ctrl / ⌘ + G or Shift + G", "Find next or previous"],
         ["Ctrl / ⌘ + = or -", "Zoom in or out"],
         ["Ctrl / ⌘ + 0", "Fit the slide to the window"],
         ["Ctrl / ⌘ + Z", "Undo"],
@@ -682,6 +686,8 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + B / I / U", "Bold, italic, or underline"],
         ["Ctrl / ⌘ + Shift + > or <", "Larger or smaller text"],
         ["Ctrl / ⌘ + D", "Duplicate selected object"],
+        ["Ctrl / ⌘ + Shift + D", "Duplicate slide"],
+        ["Ctrl / ⌘ + Alt + R", "Show or hide the ribbon"],
         ["Ctrl / ⌘ + C / X / V", "Copy, cut, or paste objects"],
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
@@ -1120,6 +1126,8 @@ function deckThemes() {
 let promptTheme = "studio";
 function themePreview(key) {
   const cacheKey = `theme:${key}`;
+  const designed = themeStartPicture(key);
+  if (designed) return designed;
   if (!templatePreviews.has(cacheKey)) {
     const pres = themeDeck(key);
     templatePreviews.set(cacheKey, preview(pres, P.getSlides(pres)[0]));
@@ -3572,6 +3580,24 @@ const layoutCommands = createLayoutCommands({
     slideExtras.clear();
   },
 });
+// Reuse Slides and Slides from Outline (New Slide menu, Insert menu).
+const slidesFrom = createSlidesFrom({
+  pres: () => doc.pres,
+  current: () => slide(),
+  mutate: (fn) => mutate(fn),
+  commitText: () => commitText(),
+  available: () => !!doc && !masterView.active && !readOnlyDocument(),
+  chooseFile: (accept) =>
+    new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
+  parseDeck: (bytes) => parseDeck(bytes),
+  preview: (pres, s) => preview(pres, s),
+  fail: (e) => fail(e),
+  afterAdd: (position) => {
+    if (position >= 0) index = position;
+    clearSelection();
+    slideExtras.clear();
+  },
+});
 // Slide Master, Notes Master and Handout Master views.
 const masterView = createMasterView({
   pres: () => doc.pres,
@@ -3589,8 +3615,88 @@ const masterView = createMasterView({
   startDrawing: (tool) => startDrawing(tool),
   commitText: () => commitText(),
   ribbon: () => ribbon,
+  themeGroups: () => themeTools.masterThemeGroups(),
 });
 
+// Themes: the Design tab's gallery, variants, colors, fonts, effects and
+// background styles (themes/).
+const themeTools = createThemeTools({
+  pres: () => doc.pres,
+  slide: () =>
+    masterView.active ? P.getSlides(doc.pres)[index] || null : slide(),
+  selectedSlides: () =>
+    masterView.active ? P.getSlides(doc.pres) : selectedSlides(),
+  masterView: () => masterView.active,
+  mutate: (fn, options) => {
+    commitText();
+    return mutate(fn, options);
+  },
+  skip: SKIP_MUTATION,
+  palette: () => theme,
+  setPalette: (key) => {
+    if (THEMES[key]) theme = key;
+  },
+  preview: (view) => preview(doc.pres, view),
+  formatBackground: () => ribbonApi().formatBackground(),
+  pickFile: (accept, handle) => pickLocalFile(accept, handle),
+  download: async (blob, name, message) =>
+    reportExport(await cloud.downloadBlob(blob, name), message),
+  fontList: () => FONTS,
+  docName: () => doc?.name || "",
+});
+// The Format Background pane, shown in the format panel when nothing on the
+// slide is selected.
+const backgroundPane = createBackgroundPane({
+  pres: () => doc.pres,
+  target: () => slide(),
+  slides: () => P.getSlides(doc.pres),
+  mutateTarget: (fn, options) => mutateSlide(slide(), fn, options),
+  mutateDeck: (fn) => mutate(fn),
+  skip: SKIP_MUTATION,
+  fail,
+  rerender: () => renderInspector(),
+  resolved: (target) => slideBackground(target),
+  colorInput: (label, value, onchange, options) =>
+    colorInput(label, value, onchange, options),
+  colorField: (target) =>
+    colorInput(
+      "Background color",
+      slideBackground(target).color,
+      (c) =>
+        mutateSlide(target, (s) => P.setSlideBackground(s, c), {
+          coalesce: coalesceKey("background", target),
+        }),
+      {
+        empty: BACKGROUND_LABELS[slideBackground(target).kind] || null,
+        fallback: THEMES[theme].bg,
+      },
+    ),
+  imageButtons: (target) =>
+    el(
+      "div",
+      { class: "arrange-buttons" },
+      button(
+        slideBackground(target).kind === "image"
+          ? "Change background image"
+          : "Background image",
+        "Image",
+        () => pickImage(setBackgroundImage),
+        "secondary",
+      ),
+      slideBackground(target).kind === "image" &&
+        button(
+          "Remove background image",
+          null,
+          removeBackgroundImage,
+          "secondary",
+        ),
+    ),
+  afterPicture: (target) => {
+    doc.previews.delete(P.getSlidePartName(target));
+    pruneUnusedMedia(doc.pres, target);
+    dedupeSlideMedia(doc.pres, target);
+  },
+});
 // Comments, proofing, accessibility, compare and the read-only mark
 // (review/). It reaches the editor through this surface.
 const review = createReview({
@@ -3874,6 +3980,9 @@ const smartArtTools = createSmartArtTools({
   refreshRibbon: () => syncToolbar(),
   removeShape: (target, shape) => removeAnyShape(target, shape),
   bounds: (shape) => slideBounds(doc.pres, shape),
+  pickPicture: (use) =>
+    pickImage(async (file) => use(await readImageFile(file))),
+  refreshCanvas: () => renderSelection(),
   setIndentLevel: (shape, i, level, bulleted) =>
     setParagraphIndentLevel(shape, i, level, bulleted),
   canHoldText: (shape) => canHoldText(shape),
@@ -3977,6 +4086,8 @@ const animationTools = createAnimationTools({
   canvas: () => document.querySelector("#slide-canvas"),
   editorBody: () => document.querySelector(".editor-body"),
   refresh: () => syncToolbar(),
+  chooseFile: (accept) =>
+    new Promise((resolve) => pickLocalFile(accept, (file) => resolve(file))),
 });
 
 function editorRibbon() {
@@ -3988,6 +4099,10 @@ function editorRibbon() {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
       animationTools.setTabActive(id === "animations");
+    },
+    onCollapse: (on) => {
+      chrome.ribbonCollapsed = on;
+      saveChrome();
     },
   });
   ribbon.onError(fail);
@@ -5935,6 +6050,7 @@ function ribbonApi() {
         icon: "o:duplicate",
         onSelect: () => duplicateSlides(actionSlides(slide())),
       },
+      ...slidesFrom.menuItems(),
       ...(assistant
         ? [
             {
@@ -6259,33 +6375,40 @@ function ribbonApi() {
     insertSlideNumber,
     insertSymbol: () => insertSymbol().catch(fail),
     // Design
-    themeChoices: () =>
-      Object.entries(THEMES).map(([id, t]) => ({
-        id,
-        label: t.name,
-        render: () =>
-          el(
-            "span",
-            {
-              class: "theme-swatch-thumb",
-              style: `background:${t.bg};color:${t.ink}`,
-            },
-            el("span", { class: "theme-aa" }, "Aa"),
-            el("span", { class: "theme-bar", style: `background:${t.accent}` }),
-            el("span", { class: "theme-bar", style: `background:${t.panel}` }),
-            el("span", { class: "theme-bar", style: `background:${t.muted}` }),
-          ),
-      })),
-    currentTheme: () => theme,
-    applyTheme: (id) =>
-      mutate(() => (recolorDeck(id) === false ? SKIP_MUTATION : undefined)),
+    themeChoices: () => themeTools.themeChoices(),
+    themeSections: (choices) => themeTools.themeSections(choices),
+    currentTheme: () => themeTools.currentTheme(),
+    chooseTheme: (id) => themeTools.chooseTheme(id),
+    applyTheme: (id) => themeTools.chooseTheme(id),
+    themeContextMenu: (choice) => themeTools.themeContextMenu(choice),
     themeGalleryFooter: () => [
+      ...themeTools.themeGalleryFooter(),
+      { separator: true },
       { label: "Theme Options…", icon: "o:themes", onSelect: run(themeDialog) },
     ],
-    variantChoices: () => [],
-    currentVariant: () => null,
-    applyVariant: () => {},
-    variantFooter: () => [],
+    variantChoices: () => (doc ? themeTools.variantChoices() : []),
+    currentVariant: () => themeTools.currentVariant(),
+    applyVariant: (i) => themeTools.applyVariant(i),
+    variantFooter: () => [
+      {
+        label: "Customize Colors…",
+        icon: "o:colors",
+        onSelect: run(() => themeTools.customizeColors()),
+      },
+      {
+        label: "Customize Fonts…",
+        icon: "o:fonts",
+        onSelect: run(() => themeTools.customizeFonts()),
+      },
+    ],
+    themeColorsMenu: () => themeTools.colorsMenu(),
+    themeFontsMenu: () => themeTools.fontsMenu(),
+    themeEffectsMenu: () => themeTools.effectsMenu(),
+    backgroundStylesMenu: () => themeTools.backgroundStylesMenu(),
+    backgroundGraphicsHidden: () =>
+      !!doc && themeTools.backgroundGraphicsHidden(),
+    setBackgroundGraphicsHidden: (on) =>
+      themeTools.setBackgroundGraphicsHidden(on),
     slideSizeMenu: () => [
       ...SLIDE_SIZES.map(([key, label, cx, cy]) => ({
         label,
@@ -7226,6 +7349,30 @@ function editItems() {
       onSelect: () => openFind(),
     },
     {
+      label: "Find next",
+      icon: "ChevronDown",
+      shortcut: `${M}+G`,
+      onSelect: () => findAgain(1),
+    },
+    {
+      label: "Find previous",
+      icon: "ChevronUp",
+      shortcut: `${M}+Shift+G`,
+      onSelect: () => findAgain(-1),
+    },
+    {
+      label: "Replace…",
+      icon: "o:replace",
+      shortcut: `${M}+H`,
+      onSelect: () => openFind({ replace: true }),
+    },
+    {
+      label: "Select data…",
+      icon: "o:selectData",
+      disabled: !obj || !chartTools.isChart(obj) || readOnlyDocument(),
+      onSelect: () => chartTools.selectData(obj),
+    },
+    {
       label: "Duplicate",
       icon: "CopyPlus",
       shortcut: `${M}+D`,
@@ -7239,6 +7386,20 @@ function editItems() {
       disabled: !obj,
       onSelect: deleteObject,
     },
+    {
+      label: "Delete slide",
+      icon: "o:deleteSlide",
+      disabled:
+        !doc ||
+        masterView.active ||
+        readOnlyDocument() ||
+        P.getSlides(doc.pres).length <= actionSlides(slide()).length,
+      onSelect: () => deleteSlides(actionSlides(slide())),
+    },
+    // Rename Section and Remove Section, for the current slide's section.
+    ...sectionMenu().filter((item) =>
+      ["Rename Section", "Remove Section"].includes(item.label),
+    ),
     { separator: true },
     ...formatTools.editMenuItems(),
   ];
@@ -7266,6 +7427,13 @@ function viewItems() {
       shortcut: `${M}+J`,
       checked: !!assistant?.isOpen,
       onSelect: () => toggleAssistant(),
+    },
+    {
+      label: "Ribbon",
+      icon: "PanelTop",
+      shortcut: `${M}+${IS_MAC ? "⌥" : "Alt"}+R`,
+      checked: !!ribbon && !ribbon.collapsed,
+      onSelect: toggleRibbon,
     },
     { separator: true },
     {
@@ -7318,6 +7486,12 @@ function viewItems() {
       onSelect: () => setView("normal"),
     },
     { separator: true },
+    {
+      label: "Header and Footer…",
+      icon: "o:headerFooter",
+      onSelect: () => ribbonCommands().headerFooter?.(),
+    },
+    { separator: true },
     { label: "Present", icon: "Play", onSelect: run(present) },
     { separator: true },
     { label: "Appearance", icon: "Monitor", onSelect: appearanceDialog },
@@ -7346,6 +7520,45 @@ function insertItems() {
     },
     { separator: true },
     { label: "New slide", icon: "Plus", items: layoutItems(slide()) },
+    {
+      label: "Duplicate slide",
+      icon: "o:duplicate",
+      shortcut: `${M}+Shift+D`,
+      disabled: !doc || masterView.active || readOnlyDocument(),
+      onSelect: () => duplicateSlides(actionSlides(slide())),
+    },
+    {
+      label: "Slides from",
+      icon: "o:reuseSlides",
+      items: slidesFrom.menuItems(),
+    },
+    { label: "Section", icon: "o:section", items: sectionMenu() },
+    {
+      label: "Comment",
+      icon: "o:newComment",
+      shortcut: `${M}+Shift+M`,
+      onSelect: () => review.newComment(),
+    },
+    { separator: true },
+    { label: "WordArt", icon: "o:wordArt", items: wordArtMenu() },
+    {
+      label: "Date and time",
+      icon: "o:dateTime",
+      disabled: !ribbonCommands().canInsertField(),
+      items: dateTimeMenu(),
+    },
+    {
+      label: "Slide number",
+      icon: "o:slideNumber",
+      disabled: !ribbonCommands().canInsertField(),
+      onSelect: insertSlideNumber,
+    },
+    {
+      label: "Symbol…",
+      icon: "o:symbol",
+      disabled: !ribbonCommands().canInsertField(),
+      onSelect: () => insertSymbol().catch(fail),
+    },
     { separator: true },
     ...insertFeatures.menuItems(),
   ];
@@ -8465,7 +8678,16 @@ function renderSelection() {
         const current = shapeIndex(s);
         if (current < 0) return;
         if (e.shiftKey || e.ctrlKey || e.metaKey) toggleSelected(current);
-        else selectOnly(current);
+        else {
+          // A click on a selected SmartArt graphic picks the shape under it.
+          if (chosen && smartArtTools.isSmartArt(s))
+            smartArtTools.pickAt(
+              s,
+              e.offsetX / (hit.clientWidth || 1),
+              e.offsetY / (hit.clientHeight || 1),
+            );
+          selectOnly(current);
+        }
         updateSelectionUi();
         renderInspector();
       },
@@ -8489,6 +8711,7 @@ function renderSelection() {
   });
   masterView.decorateCanvas(canvas);
   insertFeatures.decorateCanvas(canvas);
+  smartArtTools.decorateCanvas(canvas);
 }
 // What an empty content placeholder's buttons can insert: tables and
 // pictures always, and what else the Insert tab offers.
@@ -11363,19 +11586,7 @@ function renderInspectorContents(panel, obj) {
       el(
         "div",
         { class: "inspector-content" },
-        el("h3", {}, "Slide design"),
-        colorInput(
-          "Background color",
-          slideBackground(slide()).color,
-          (c) =>
-            mutateSlide(slide(), (target) => P.setSlideBackground(target, c), {
-              coalesce: coalesceKey("background", slide()),
-            }),
-          {
-            empty: BACKGROUND_LABELS[slideBackground(slide()).kind] || null,
-            fallback: THEMES[theme].bg,
-          },
-        ),
+        backgroundPane.render(),
         el("h3", {}, "Transition"),
         field(
           "Transition",
@@ -11420,26 +11631,6 @@ function renderInspectorContents(panel, obj) {
                   "This slide's transition came with the file. Choose one of the transitions above to apply it to every slide.",
               }
             : {},
-        ),
-        el("h3", {}, "Background"),
-        el(
-          "div",
-          { class: "arrange-buttons" },
-          button(
-            slideBackground(slide()).kind === "image"
-              ? "Change background image"
-              : "Background image",
-            "Image",
-            () => pickImage(setBackgroundImage),
-            "secondary",
-          ),
-          slideBackground(slide()).kind === "image" &&
-            button(
-              "Remove background image",
-              null,
-              removeBackgroundImage,
-              "secondary",
-            ),
         ),
         el(
           "p",
@@ -12480,6 +12671,19 @@ function openFind({ replace = false } = {}) {
     )
     .focus();
   if (!replace) input.select();
+}
+// Find Next / Find Previous: the next match of the last search, or the
+// find bar when there is no search yet.
+function findAgain(step) {
+  const bar = document.querySelector(".findbar");
+  if (!bar || bar.hidden || !find.query) return openFind();
+  moveMatch(step).catch(fail);
+}
+// View > Ribbon: shows or hides the ribbon's commands (its tabs stay).
+function toggleRibbon() {
+  if (!ribbon) return;
+  ribbon.setCollapsed(!ribbon.collapsed);
+  syncToolbar();
 }
 function closeFind() {
   const bar = document.querySelector(".findbar");
@@ -14199,54 +14403,9 @@ async function themeDialog() {
 // current palette's colors takes the new one's, and custom colors and
 // imported artwork stay. False when the deck already uses it.
 function recolorDeck(chosen) {
-  if (chosen === theme || !THEMES[chosen]) return false;
-  const before = THEMES[theme],
-    after = THEMES[chosen];
-  // Masters and layouts recolor too, so slides added later match.
-  const templates = P.getSlideMasters(doc.pres).flatMap((m) =>
-    [m.partName, ...m.layouts.map((l) => l.partName)].map((name) =>
-      P.getTemplateSlide(doc.pres, name),
-    ),
-  );
-  for (const s of [...P.getSlides(doc.pres), ...templates]) {
-    const background = P.getSlideBackground(s);
-    const onAccent =
-      normalizeColor(background?.color) === normalizeColor(before.accent);
-    for (const key of Object.keys(before).filter((k) => k !== "name")) {
-      if (normalizeColor(background?.color) === normalizeColor(before[key]))
-        P.setSlideBackground(s, after[key]);
-    }
-    for (const obj of P.getSlideShapes(s)) {
-      const fill = P.getShapeFillColor(obj);
-      for (const key of Object.keys(before).filter((k) => k !== "name")) {
-        if (normalizeColor(fill) === normalizeColor(before[key]))
-          P.setShapeFill(obj, after[key]);
-      }
-      if (!hasTextBody(obj)) continue;
-      for (let pi = 0; pi < P.getShapeParagraphCount(obj); pi++) {
-        for (let ri = 0; ri < P.getShapeRunCount(obj, pi); ri++) {
-          const fmt = P.getShapeRunFormat(obj, pi, ri) || {};
-          if (
-            onAccent &&
-            [sectionTextColor(theme), before.muted].some(
-              (color) => normalizeColor(fmt.color) === normalizeColor(color),
-            )
-          ) {
-            P.setShapeRunFormat(obj, pi, ri, {
-              color: sectionTextColor(chosen),
-            });
-            continue;
-          }
-          for (const key of Object.keys(before).filter((k) => k !== "name")) {
-            if (normalizeColor(fmt.color) === normalizeColor(before[key]))
-              P.setShapeRunFormat(obj, pi, ri, { color: after[key] });
-          }
-        }
-      }
-    }
-  }
-  for (const view of templates) P.syncPlaceholderListStyles(view);
-  theme = chosen;
+  // The theme's master comes in, and what the slides paint in the current
+  // palette's colors takes the new one's (themes/engine.js).
+  return themeTools.applyPalette(chosen);
 }
 const normalizeColor = (c) =>
   String(c || "")
@@ -15324,6 +15483,18 @@ document.addEventListener("keydown", (e) => {
     openFind({ replace: e.key.toLowerCase() === "h" });
     return;
   }
+  // Find Next / Find Previous, also from the find bar.
+  if (mod && !e.altKey && e.code === "KeyG") {
+    e.preventDefault();
+    findAgain(e.shiftKey ? -1 : 1);
+    return;
+  }
+  // The ribbon folds away and comes back.
+  if (mod && e.altKey && !e.shiftKey && e.code === "KeyR") {
+    e.preventDefault();
+    toggleRibbon();
+    return;
+  }
   // The slide zooms in place of the page.
   if (mod && !e.altKey && ["=", "+", "-", "0"].includes(e.key)) {
     e.preventDefault();
@@ -15399,6 +15570,13 @@ document.addEventListener("keydown", (e) => {
       P.getSlides(doc.pres).find((s) => P.getSlidePartName(s) === part) ||
         slide(),
     );
+    return;
+  }
+  // Duplicate Slide.
+  if (mod && e.shiftKey && !e.altKey && e.code === "KeyD") {
+    e.preventDefault();
+    if (!masterView.active && !readOnlyDocument())
+      duplicateSlides(actionSlides(slide()));
     return;
   }
   if (mod && e.key.toLowerCase() === "d" && currentShape()) {

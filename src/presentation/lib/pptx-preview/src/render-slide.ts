@@ -41,7 +41,16 @@ import { PATTERN_CELL_PERIOD, nativePatternPaths } from "./pattern-cells.ts";
 import { resolveGeometryArc } from "../../pptx/src/internal/drawingml/geometry-arc.ts";
 import { bytesToBase64 } from "./base64.ts";
 import { getShapeEmbeddedObjectPreview } from "../../pptx/src/api/fn/ole-object.ts";
-import { detectImageFormat as detectImageFormatLocal } from "../../pptx/src/internal/opc/image-format.ts";
+import {
+  detectImageFormat as detectImageFormatLocal,
+  readImagePixelSize,
+} from "../../pptx/src/internal/opc/image-format.ts";
+import {
+  getSlideBackgroundPictureFill,
+  getSlideLayoutBackgroundPictureFill,
+  getSlideMasterBackgroundPictureFill,
+  type SlideBackgroundPictureFill,
+} from "../../pptx/src/api/fn/slide-background-fill.ts";
 import { isShapeHidden } from "../../pptx/src/index.ts";
 import { templateShapes } from "./template-shapes.ts";
 import {
@@ -4820,6 +4829,8 @@ interface ErrorBarPoint {
   readonly center: number;
   /** The point's own value, for percentage amounts. */
   readonly own: number;
+  /** The point's index in its series, for custom amounts. */
+  readonly index?: number;
 }
 
 /** X and Y error bars of an XY (scatter / bubble) series. */
@@ -4827,7 +4838,11 @@ const xyErrorBars = (
   paint: ChartPaintLayers,
   spec: ChartSpec,
   series: ChartSeries,
-  pts: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+  pts: ReadonlyArray<{
+    readonly x: number;
+    readonly y: number;
+    readonly index?: number;
+  }>,
   projX: (x: number) => number,
   projY: (y: number) => number,
 ): void => {
@@ -4836,7 +4851,12 @@ const xyErrorBars = (
     paint,
     series,
     "y",
-    pts.map((p) => ({ at: projX(p.x), center: p.y, own: p.y })),
+    pts.map((p) => ({
+      at: projX(p.x),
+      center: p.y,
+      own: p.y,
+      ...(p.index !== undefined ? { index: p.index } : {}),
+    })),
     projY,
     true,
     spec.textStyle?.color,
@@ -4845,7 +4865,12 @@ const xyErrorBars = (
     paint,
     series,
     "x",
-    pts.map((p) => ({ at: projY(p.y), center: p.x, own: p.x })),
+    pts.map((p) => ({
+      at: projY(p.y),
+      center: p.x,
+      own: p.x,
+      ...(p.index !== undefined ? { index: p.index } : {}),
+    })),
     projX,
     false,
     spec.textStyle?.color,
@@ -4856,13 +4881,19 @@ const xyErrorBars = (
 /** Kinds whose data table this renderer lays out under the plot. */
 const showsChartDataTable = (spec: ChartSpec): boolean =>
   spec.dataTable !== undefined &&
-  (spec.kind === "column" || spec.kind === "line" || spec.kind === "area");
+  (spec.kind === "column" ||
+    spec.kind === "bar" ||
+    spec.kind === "line" ||
+    spec.kind === "area");
 
 interface ChartDataTableLayout {
   readonly font: FontSpec;
   readonly rowH: number;
   readonly nameW: number;
   readonly keyW: number;
+  /** Space between the plot and the table: a horizontal bar chart's
+   *  value labels stay under its plot, and the table goes below them. */
+  readonly offset: number;
   readonly height: number;
 }
 
@@ -4880,12 +4911,14 @@ const chartDataTableLayout = (
     ) +
     keyW +
     font.sizePx;
+  const offset = spec.kind === "bar" ? font.sizePx * 2.2 : 0;
   return {
     font,
     rowH,
     nameW,
     keyW,
-    height: rowH * (spec.series.length + 1),
+    offset,
+    height: offset + rowH * (spec.series.length + 1),
   };
 };
 
@@ -4905,11 +4938,11 @@ const renderChartDataTable = (
   const table = spec.dataTable!;
   const N = Math.max(1, pointCount(spec));
   const colW = f.plotW / N;
-  const top = f.plotY + f.plotH;
+  const top = f.plotY + f.plotH + layout.offset;
   const left = f.plotX - layout.nameW;
   const right = f.plotX + f.plotW;
   const { rowH } = layout;
-  const bottom = top + layout.height;
+  const bottom = top + layout.height - layout.offset;
   const color = spec.textStyle?.color ?? "#404040";
   const attrs = `${chartFontAttrs(spec.textStyle, 9, ctx)} fill="${color}"`;
   const baseline = (row: number) => top + row * rowH + rowH / 2;
@@ -5019,12 +5052,27 @@ const chartErrorBars = (
           : `M${px(b)},${px(at - cap)}V${px(at + cap)}`,
       );
   };
+  // Custom amounts are listed per point, separately for each side.
+  const custom = (
+    list: ReadonlyArray<number | null> | undefined,
+    i?: number,
+  ) => {
+    const v = i === undefined ? undefined : list?.[i];
+    return typeof v === "number" && Number.isFinite(v) ? Math.abs(v) : 0;
+  };
   for (const point of points) {
     const center = bars.valueType === "stdDev" ? mean : point.center;
-    const d = amount(point.own);
-    if (!(d > 0)) continue;
-    if (bars.type !== "minus") segment(point.at, center, center + d);
-    if (bars.type !== "plus") segment(point.at, center, center - d);
+    const up =
+      bars.valueType === "cust"
+        ? custom(bars.plus, point.index)
+        : amount(point.own);
+    const down =
+      bars.valueType === "cust"
+        ? custom(bars.minus, point.index)
+        : amount(point.own);
+    if (bars.type !== "minus" && up > 0) segment(point.at, center, center + up);
+    if (bars.type !== "plus" && down > 0)
+      segment(point.at, center, center - down);
   }
   if (!parts.length) return;
   (paint.errorBars ??= []).push(
@@ -6694,7 +6742,12 @@ const renderColumnChart = (
             `<text x="${px(x0 + barW / 2)}" y="${px(labelY)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
-        errorPoint(s, { at: x0 + barW / 2, center: stackedTop, own: v });
+        errorPoint(s, {
+          at: x0 + barW / 2,
+          center: stackedTop,
+          own: v,
+          index: c,
+        });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -6726,7 +6779,7 @@ const renderColumnChart = (
         );
         const y0 = Math.min(top, baseY);
         const h = Math.abs(top - baseY);
-        errorPoint(s, { at: x0 + barW / 2, center: v, own: v });
+        errorPoint(s, { at: x0 + barW / 2, center: v, own: v, index: c });
         // A zero-extent native bar has no painted outline, but keeps its label.
         if (point.paint && h > 0)
           out.push(
@@ -7399,7 +7452,12 @@ const renderBarChart = (
             `<text x="${px(labelX)}" y="${px(y0 + barH / 2 + 3)}" text-anchor="middle" ${dataLabelTextAttrs(spec, s, "#FFFFFF", ctx, 9 / PX_PER_PT, true)}>${escapeXml(labelText)}</text>`,
           );
         }
-        errorPoint(s, { at: y0 + barH / 2, center: stackedTop, own: v });
+        errorPoint(s, {
+          at: y0 + barH / 2,
+          center: stackedTop,
+          own: v,
+          index: c,
+        });
         if (v >= 0) posAcc = stackedTop;
         else negAcc = stackedTop;
       }
@@ -7432,7 +7490,7 @@ const renderBarChart = (
         );
         const x0 = Math.min(tip, baseX);
         const w = Math.abs(tip - baseX);
-        errorPoint(s, { at: y0 + barH / 2, center: v, own: v });
+        errorPoint(s, { at: y0 + barH / 2, center: v, own: v, index: c });
         if (point.paint && w > 0)
           out.push(
             `<rect${clips.plot} x="${px(x0)}" y="${px(y0)}" width="${px(w)}" height="${px(barH)}" ${chartBarPaint(spec, s, c, v, colors, paint.fills, { x: x0, y: y0, w, h: barH }, seriesDisplays[s])}/>`,
@@ -7626,7 +7684,8 @@ const renderLineChart = (
             )
           : baseY;
       if (withinChartAxis(top, min, max)) markerPoints.push([xp, yp]);
-      if (series.errorBars) errorPoints.push({ at: xp, center: top, own: v });
+      if (series.errorBars)
+        errorPoints.push({ at: xp, center: top, own: v, index: c });
       ptsRaw.push([xp, yp]);
       basePtsRaw.push([xp, yBase]);
       if (isStacked) accumulated[c] = top;
@@ -8364,8 +8423,84 @@ const renderScatterChart = (
         out.push(`<g${paint.clips.markers}>${markers.join("")}</g>`);
     }
     xyErrorBars(paint, spec, series, pts, projX, projY);
+    xyLabelsAndTrendline(paint, spec, s, pts, projX, projY, color, ctx, out);
   }
   return out.join("");
+};
+
+// Data labels and trendlines of an XY (scatter / bubble) series. Labels
+// show the Y value, the X value (the "category" of an XY point) and the
+// series name, joined by the separator; a bubble's labels sit on it, a
+// scatter point's to its right, unless a position is authored. The
+// trendline fits the points in X order.
+const xyLabelsAndTrendline = (
+  paint: ChartPaintLayers,
+  spec: ChartSpec,
+  s: number,
+  pts: ReadonlyArray<{ readonly x: number; readonly y: number }>,
+  projX: (x: number) => number,
+  projY: (y: number) => number,
+  color: string,
+  ctx: LayoutCtx,
+  out: string[],
+  radiusOf: (i: number) => number = () => 0,
+): void => {
+  const series = spec.series[s]!;
+  const labels = { ...spec.dataLabels, ...series.dataLabels };
+  const showValue = labels.showValue ?? false;
+  const showX = labels.showCategory ?? false;
+  const showName = labels.showSeriesName ?? false;
+  if (showValue || showX || showName) {
+    const bubble = spec.kind === "bubble";
+    const pos = labels.position ?? (bubble ? "ctr" : "r");
+    const separator = labels.separator ?? ", ";
+    pts.forEach((p, i) => {
+      const parts: string[] = [];
+      if (showName && series.name) parts.push(series.name);
+      if (showX)
+        parts.push(
+          series.xNumberFormat && series.xNumberFormat !== "General"
+            ? formatAxisLabel(p.x, series.xNumberFormat)
+            : formatChartValue(p.x),
+        );
+      if (showValue) parts.push(formatDataLabelValue(spec, s, p.y));
+      if (!parts.length) return;
+      const xp = projX(p.x),
+        yp = projY(p.y);
+      const r = radiusOf(i);
+      const at =
+        pos === "l"
+          ? { x: xp - r - 6, y: yp + 3, anchor: "end" }
+          : pos === "r"
+            ? { x: xp + r + 6, y: yp + 3, anchor: "start" }
+            : pos === "t"
+              ? { x: xp, y: yp - r - 5, anchor: "middle" }
+              : pos === "b"
+                ? { x: xp, y: yp + r + 13, anchor: "middle" }
+                : { x: xp, y: yp + 3, anchor: "middle" };
+      paint.dataLabels.push(
+        `<text x="${px(at.x)}" y="${px(at.y)}" text-anchor="${at.anchor}" ${dataLabelTextAttrs(spec, s, "#374151", ctx)}>${escapeXml(parts.join(separator))}</text>`,
+      );
+    });
+  }
+  if (series.trendline) {
+    const sorted = [...pts]
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      .sort((a, b) => a.x - b.x);
+    if (sorted.length >= 2)
+      out.push(
+        trendlinePath(
+          sorted.map((p) => projX(p.x)),
+          sorted.map((p) => p.y),
+          series.trendline,
+          series.trendline.color ?? color,
+          spec.textStyle,
+          ctx,
+          projY,
+          paint.clips.plot,
+        ),
+      );
+  }
 };
 
 const renderBubbleChart = (
@@ -8443,6 +8578,18 @@ const renderBubbleChart = (
       );
     }
     xyErrorBars(paint, spec, series, pts, projX, projY);
+    xyLabelsAndTrendline(
+      paint,
+      spec,
+      s,
+      pts,
+      projX,
+      projY,
+      color,
+      ctx,
+      out,
+      (i) => radiusFor(pts[i]!.size),
+    );
   }
   return out.join("");
 };
@@ -9784,7 +9931,10 @@ const renderChart = (
   }
   // A data table takes the category tick labels' place under the plot.
   const dataTableShown = showsChartDataTable(spec);
-  if (dataTableShown) spec = { ...spec, categoryAxisTickLabelPos: "none" };
+  // The table's header row names the categories under a vertical plot; a
+  // horizontal bar chart keeps them along its category axis.
+  if (dataTableShown && spec.kind !== "bar")
+    spec = { ...spec, categoryAxisTickLabelPos: "none" };
   let secondaryPair: ChartScaleSpec = resolveChartNumberFormats(
     resolveChartTextStyles(
       secondaryAxisSpec(nativeSpec, axisLines),
@@ -12494,6 +12644,59 @@ const showsMasterArtwork = (slide: SlideData): boolean => {
   return !/\bshowMasterSp="(0|false)"/.test(root);
 };
 
+// A picture background: stretched over the slide (inset by its fill
+// rectangle), or tiled as a texture from its alignment corner, offset and
+// scaled, mirrored when asked; drawn at its transparency.
+const bgGradientDefsId = (slide: SlideData): string =>
+  `bgpic-${getSlidePartName(slide).replace(/[^A-Za-z0-9]/g, "")}`;
+const backgroundPictureSvg = (
+  dataUrl: string,
+  bytes: Uint8Array,
+  fill: SlideBackgroundPictureFill | null,
+  W: number,
+  H: number,
+  id: string,
+): string => {
+  const transparency = fill?.transparency ?? 0;
+  const opacity =
+    transparency > 0
+      ? ` opacity="${Math.max(0, 1 - transparency).toFixed(3)}"`
+      : "";
+  const href = `href="${dataUrl}" xlink:href="${dataUrl}"`;
+  const size = fill?.tile ? readImagePixelSize(bytes) : null;
+  if (fill?.tile && size) {
+    const t = fill.tile;
+    const tw = Math.max(1, size.width * EMU_PER_PX * t.scaleX);
+    const th = Math.max(1, size.height * EMU_PER_PX * t.scaleY);
+    const col = t.align === "ctr" ? "" : t.align.replace(/^[tb]/, "");
+    const row = t.align === "ctr" ? "" : t.align.replace(/[lr]$/, "");
+    const ax = col === "l" ? 0 : col === "r" ? W - tw : (W - tw) / 2;
+    const ay = row === "t" ? 0 : row === "b" ? H - th : (H - th) / 2;
+    const x = ax + t.offsetX,
+      y = ay + t.offsetY;
+    const fx = t.flip === "x" || t.flip === "xy";
+    const fy = t.flip === "y" || t.flip === "xy";
+    const cw = fx ? tw * 2 : tw,
+      ch = fy ? th * 2 : th;
+    const cell = (mx: boolean, my: boolean) =>
+      `<image x="0" y="0" width="${E(tw)}" height="${E(th)}" ${href} preserveAspectRatio="none" transform="translate(${mx ? E(tw * 2) : 0} ${my ? E(th * 2) : 0}) scale(${mx ? -1 : 1} ${my ? -1 : 1})"/>`;
+    const cells = [cell(false, false)];
+    if (fx) cells.push(cell(true, false));
+    if (fy) cells.push(cell(false, true));
+    if (fx && fy) cells.push(cell(true, true));
+    return `<defs><pattern id="${id}" patternUnits="userSpaceOnUse" x="${E(x)}" y="${E(y)}" width="${E(cw)}" height="${E(ch)}">${cells.join("")}</pattern></defs><rect width="${E(W)}" height="${E(H)}" fill="url(#${id})"${opacity}/>`;
+  }
+  const s = fill?.stretch;
+  if (s && (s.left || s.top || s.right || s.bottom)) {
+    const x = s.left * W,
+      y = s.top * H;
+    const w = Math.max(1, W * (1 - s.left - s.right)),
+      h = Math.max(1, H * (1 - s.top - s.bottom));
+    return `<image x="${E(x)}" y="${E(y)}" width="${E(w)}" height="${E(h)}" ${href} preserveAspectRatio="none"${opacity}/>`;
+  }
+  return `<image x="0" y="0" width="${E(W)}" height="${E(H)}" ${href} preserveAspectRatio="xMidYMid slice"${opacity}/>`;
+};
+
 const renderSlideSvgInContext = (
   pres: PresentationData,
   slide: SlideData,
@@ -12643,20 +12846,38 @@ const renderSlideSvgInContext = (
   let bgImage = "";
   if (bg.kind === "image") {
     let bytes = getSlideBackgroundImageBytes(slide);
-    if (!bytes && viewLayout)
+    let pictureFill: SlideBackgroundPictureFill | null = bytes
+      ? getSlideBackgroundPictureFill(slide)
+      : null;
+    if (!bytes && viewLayout) {
       bytes = getSlideMasterBackgroundImageBytes(pres, viewLayout);
+      if (bytes)
+        pictureFill = getSlideMasterBackgroundPictureFill(pres, viewLayout);
+    }
     if (!bytes && pres) {
       const layout = getSlideLayout(slide);
       if (layout) {
         bytes = getSlideLayoutBackgroundImageBytes(pres, layout);
-        if (!bytes) bytes = getSlideMasterBackgroundImageBytes(pres, layout);
+        if (bytes) pictureFill = getSlideLayoutBackgroundPictureFill(layout);
+        else {
+          bytes = getSlideMasterBackgroundImageBytes(pres, layout);
+          if (bytes)
+            pictureFill = getSlideMasterBackgroundPictureFill(pres, layout);
+        }
       }
     }
     if (bytes) {
       const fmt = detectImageFormatLocal(bytes);
       const mime = fmt ? (imageMime[fmt] ?? "image/png") : "image/png";
       const dataUrl = `data:${mime};base64,${bytesToBase64(bytes)}`;
-      bgImage = `<image x="0" y="0" width="${E(W)}" height="${E(H)}" href="${dataUrl}" xlink:href="${dataUrl}" preserveAspectRatio="xMidYMid slice"/>`;
+      bgImage = backgroundPictureSvg(
+        dataUrl,
+        bytes,
+        pictureFill,
+        W,
+        H,
+        bgGradientDefsId(slide),
+      );
     }
   }
 

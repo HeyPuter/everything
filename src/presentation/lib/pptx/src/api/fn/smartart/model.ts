@@ -5,10 +5,17 @@
 // has text and an indent level. Layouts work on the tree that outline
 // describes.
 
+import type { SmartArtShapeFormat, SmartArtTextStyle } from "./format.ts";
+
 /** One line of the outline: its text and indent level (0 = top level). */
 export interface SmartArtItem {
   readonly text: string;
   readonly level: number;
+  /** Formatting of the item's shapes, by shape name ("node", "pic",
+   *  "child", "node:1" for a second shape of the same kind...). */
+  readonly format?: Readonly<Record<string, SmartArtShapeFormat>>;
+  /** WordArt formatting of the item's text. */
+  readonly textStyle?: SmartArtTextStyle;
 }
 
 export interface SmartArtModel {
@@ -20,6 +27,9 @@ export interface SmartArtModel {
   /** A `SMARTART_STYLES` id. */
   readonly style: string;
   readonly rightToLeft?: boolean;
+  /** Formatting of shapes that stand for no item (arrows, backgrounds),
+   *  by shape name ("trans:0", "bg:0"...). */
+  readonly format?: Readonly<Record<string, SmartArtShapeFormat>>;
 }
 
 export interface SmartArtNode {
@@ -27,6 +37,8 @@ export interface SmartArtNode {
   readonly children: SmartArtNode[];
   /** Index of the outline item this node came from. */
   readonly item: number;
+  readonly format?: SmartArtItem["format"];
+  readonly textStyle?: SmartArtItem["textStyle"];
 }
 
 /**
@@ -41,7 +53,13 @@ export const smartArtTree = (
   const stack: { level: number; node: SmartArtNode }[] = [];
   items.forEach((item, index) => {
     const level = Math.max(0, Math.floor(Number(item.level) || 0));
-    const node: SmartArtNode = { text: item.text, children: [], item: index };
+    const node: SmartArtNode = {
+      text: item.text,
+      children: [],
+      item: index,
+      ...(item.format ? { format: item.format } : {}),
+      ...(item.textStyle ? { textStyle: item.textStyle } : {}),
+    };
     while (stack.length && stack[stack.length - 1]!.level >= level) stack.pop();
     const parent = stack[stack.length - 1];
     if (parent) parent.node.children.push(node);
@@ -58,7 +76,12 @@ export const smartArtItems = (
   out: SmartArtItem[] = [],
 ): SmartArtItem[] => {
   for (const node of nodes) {
-    out.push({ text: node.text, level });
+    out.push({
+      text: node.text,
+      level,
+      ...(node.format ? { format: node.format } : {}),
+      ...(node.textStyle ? { textStyle: node.textStyle } : {}),
+    });
     smartArtItems(node.children, level + 1, out);
   }
   return out;

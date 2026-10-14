@@ -11,6 +11,15 @@ import {
   entryFor,
 } from "./catalog.js";
 import { COLORS, optionGroups } from "./options.js";
+import {
+  BUILT_IN_SOUNDS,
+  builtInSoundNamed,
+  playSound,
+  soundFileName,
+  synthesizeSound,
+} from "../transitions/sounds.js";
+
+const AUDIO_TYPES = ".wav,.mp3,.m4a,.aif,.aiff,.ogg,audio/*";
 
 const confirmButton = (d) =>
   [...(d?.querySelectorAll(".dialog-actions .btn") || [])].find((b) =>
@@ -225,12 +234,13 @@ export async function effectOptionsDialog({
   const afterChoices = [
     ["none", "Don't Dim"],
     ["hide", "Hide After Animation"],
+    ["hideOnClick", "Hide on Next Mouse Click"],
     ...COLORS.map(([v, name]) => [`dim:${v}`, `Dim to ${name}`]),
   ];
   const afterValue = !effect.after
     ? "none"
-    : effect.after.kind === "hide"
-      ? "hide"
+    : effect.after.kind === "hide" || effect.after.kind === "hideOnClick"
+      ? effect.after.kind
       : `dim:${effect.after.color.toUpperCase()}`;
   if (
     effect.after?.kind === "dim" &&
@@ -238,10 +248,58 @@ export async function effectOptionsDialog({
   )
     afterChoices.push([afterValue, `Dim to #${effect.after.color}`]);
   const after = select("After animation", afterChoices, afterValue);
-  const sound = select("Sound", [["none", "No Sound"]], "none");
-  sound.input.disabled = true;
-  sound.node.title =
-    "Sounds in the file are kept; adding sounds is not available.";
+  // Sound: none, a built-in (synthesized) sound, the effect's own sound, or
+  // a file picked with "Other Sound…".
+  const ownBuiltIn = effect.sound
+    ? builtInSoundNamed(effect.sound.name || "")
+    : null;
+  const soundChoices = [
+    ["none", "No Sound"],
+    ...BUILT_IN_SOUNDS.map((b) => [`builtin:${b.id}`, b.label]),
+  ];
+  const soundValue = !effect.sound
+    ? "none"
+    : ownBuiltIn
+      ? `builtin:${ownBuiltIn.id}`
+      : "keep";
+  if (soundValue === "keep")
+    soundChoices.push([
+      "keep",
+      (effect.sound.name || "Sound").replace(/\.[a-z0-9]+$/i, ""),
+    ]);
+  soundChoices.push(["other", "Other Sound…"]);
+  const sound = select("Sound", soundChoices, soundValue);
+  let pickedFile = null; // { bytes, name } from Other Sound…
+  let lastSound = soundValue;
+  const preview = (bytes) => {
+    if (bytes && !matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      playSound(bytes).catch(() => {});
+  };
+  sound.input.addEventListener("change", async () => {
+    const v = sound.input.value;
+    if (v.startsWith("builtin:")) {
+      preview(synthesizeSound(v.slice(8)));
+    } else if (v === "other") {
+      const file = await ctx.chooseFile?.(AUDIO_TYPES);
+      if (!file || file.size > 20 * 1024 * 1024) {
+        sound.input.value = lastSound;
+        return;
+      }
+      pickedFile = {
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        name: file.name,
+      };
+      let option = sound.input.querySelector('option[value="file"]');
+      if (!option) {
+        option = el("option", { value: "file" });
+        sound.input.querySelector('option[value="other"]').before(option);
+      }
+      option.textContent = file.name.replace(/\.[a-z0-9]+$/i, "");
+      sound.input.value = "file";
+      preview(pickedFile.bytes);
+    }
+    lastSound = sound.input.value;
+  });
   const iterate = select(
     "Animate text",
     [
@@ -477,9 +535,16 @@ export async function effectOptionsDialog({
   change.after =
     a === "none"
       ? undefined
-      : a === "hide"
-        ? { kind: "hide" }
+      : a === "hide" || a === "hideOnClick"
+        ? { kind: a }
         : { kind: "dim", color: a.slice(4) };
+  const sv = sound.value();
+  if (sv === "none") change.sound = undefined;
+  else if (sv.startsWith("builtin:") && sv !== soundValue) {
+    const b = BUILT_IN_SOUNDS.find((x) => x.id === sv.slice(8));
+    // Bytes to embed: the caller adds them to the slide (see editor.js).
+    change.sound = { bytes: synthesizeSound(b.id), name: soundFileName(b) };
+  } else if (sv === "file" && pickedFile) change.sound = pickedFile;
   const it = iterate.value();
   change.iterate =
     hasText && it !== "all"

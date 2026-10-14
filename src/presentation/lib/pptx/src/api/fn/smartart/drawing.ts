@@ -5,6 +5,23 @@ import { type ArtShape, PT, insetOf, paraPt } from "./kit.ts";
 import { type Fill, type Paint, colorXml, paintFor } from "./paint.ts";
 import type { SmartArtModel } from "./model.ts";
 import { xmlText } from "./xml.ts";
+import {
+  colorStringXml,
+  effectsXml,
+  pictureFillXml,
+  textStyleRunXml,
+} from "./format.ts";
+
+/** How the drawing refers to pictures: a relationship id of the drawing
+ *  part for a media part, and the crop that makes it cover a w × h box. */
+export interface PictureRefs {
+  relOf(part: string): string | null;
+  cropOf(
+    part: string,
+    w: number,
+    h: number,
+  ): { l: number; t: number; r: number; b: number } | null;
+}
 
 const emu = (v: number) => Math.round(v);
 
@@ -66,15 +83,35 @@ export const shapePropertiesXml = (
   s: ArtShape,
   paint: Paint,
   tag: string,
+  pictures: PictureRefs | null = null,
 ): string => {
-  const line = paint.line
-    ? `<a:ln w="${paint.line.w}"><a:solidFill>${colorXml(paint.line.color)}</a:solidFill>${s.geom === "custom" && !s.closed ? "<a:round/>" : ""}</a:ln>`
-    : "<a:ln><a:noFill/></a:ln>";
-  const effects = paint.shadow
-    ? `<a:effectLst><a:outerShdw blurRad="${paint.shadow.blur}" dist="${paint.shadow.dist}" dir="5400000" algn="ctr" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="${Math.round(paint.shadow.alpha * 100000)}"/></a:srgbClr></a:outerShdw></a:effectLst>`
-    : "";
+  const f = s.format;
+  const round = s.geom === "custom" && !s.closed ? "<a:round/>" : "";
+  const lineW = f?.lineWidth ?? paint.line?.w;
+  const line =
+    f?.line === "none"
+      ? "<a:ln><a:noFill/></a:ln>"
+      : f?.line
+        ? `<a:ln w="${Math.round(lineW ?? 12700)}"><a:solidFill>${colorStringXml(f.line)}</a:solidFill>${round}</a:ln>`
+        : paint.line
+          ? `<a:ln w="${Math.round(lineW!)}"><a:solidFill>${colorXml(paint.line.color)}</a:solidFill>${round}</a:ln>`
+          : "<a:ln><a:noFill/></a:ln>";
+  const effects = f?.effects
+    ? effectsXml(f.effects)
+    : paint.shadow
+      ? `<a:effectLst><a:outerShdw blurRad="${paint.shadow.blur}" dist="${paint.shadow.dist}" dir="5400000" algn="ctr" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="${Math.round(paint.shadow.alpha * 100000)}"/></a:srgbClr></a:outerShdw></a:effectLst>`
+      : "";
+  const pictureRel = f?.picture && pictures ? pictures.relOf(f.picture) : null;
   const fill =
-    s.geom === "custom" && !s.closed ? "<a:noFill/>" : fillXml(paint.fill);
+    s.geom === "custom" && !s.closed
+      ? "<a:noFill/>"
+      : pictureRel
+        ? pictureFillXml(pictureRel, pictures!.cropOf(f!.picture!, s.w, s.h))
+        : f?.fill === "none"
+          ? "<a:noFill/>"
+          : f?.fill
+            ? `<a:solidFill>${colorStringXml(f.fill)}</a:solidFill>`
+            : fillXml(paint.fill);
   return `<${tag}>${xfrmXml(s)}${geometryXml(s)}${fill}${line}${effects}</${tag}>`;
 };
 
@@ -86,7 +123,11 @@ export const textBodyXml = (s: ArtShape, paint: Paint, tag: string): string => {
   const anchor = s.anchor ?? "ctr";
   const body = `<a:bodyPr spcFirstLastPara="0" vert="horz" wrap="square" lIns="${inset}" tIns="${inset}" rIns="${inset}" bIns="${inset}" numCol="1" spcCol="1270" anchor="${anchor}" anchorCtr="0"><a:noAutofit/></a:bodyPr><a:lstStyle/>`;
   const pt = s.pt ?? 18;
-  const color = `<a:solidFill>${colorXml(paint.text)}</a:solidFill>`;
+  const style = textStyleRunXml(s.textStyle);
+  const color =
+    style.line +
+    (style.fill || `<a:solidFill>${colorXml(paint.text)}</a:solidFill>`) +
+    style.effects;
   const paras = (s.paras ?? []).map((para) => {
     const size = Math.max(100, Math.round(paraPt(para, pt, s) * 2) * 50);
     const indent = Math.round((size / 100) * PT * BULLET);
@@ -123,6 +164,7 @@ export const paintOf = (model: SmartArtModel, s: ArtShape): Paint =>
 export const drawingXml = (
   model: SmartArtModel,
   shapes: ReadonlyArray<ArtShape>,
+  pictures: PictureRefs | null = null,
 ): string => {
   const body = shapes
     .map((s, i) => {
@@ -137,7 +179,7 @@ export const drawingXml = (
           : "";
       return (
         `<dsp:sp modelId="${drawingShapeId(i)}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr>` +
-        shapePropertiesXml(s, paint, "dsp:spPr") +
+        shapePropertiesXml(s, paint, "dsp:spPr", pictures) +
         styleXml(paint) +
         text +
         tx +
@@ -147,7 +189,7 @@ export const drawingXml = (
     .join("");
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-    `<dsp:drawing xmlns:dgm="${NS.diagram}" xmlns:dsp="${NS.diagramDrawing}" xmlns:a="${NS.dml}">` +
+    `<dsp:drawing xmlns:dgm="${NS.diagram}" xmlns:dsp="${NS.diagramDrawing}" xmlns:a="${NS.dml}" xmlns:r="${NS.officeDocRels}">` +
     `<dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>` +
     body +
     `</dsp:spTree></dsp:drawing>`

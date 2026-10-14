@@ -340,6 +340,7 @@ const ERROR_VALUE_TYPES = new Set([
   "percentage",
   "stdDev",
   "stdErr",
+  "cust",
 ]);
 
 /** Kinds whose series carry `<c:errBars>` (CT_BarSer/LineSer/AreaSer/ScatterSer/BubbleSer). */
@@ -359,7 +360,7 @@ export const validateChartErrorBars = (spec: ChartSpec): void => {
       throw new RangeError(`${label}.type: expected both, plus or minus`);
     if (!ERROR_VALUE_TYPES.has(bars.valueType))
       throw new RangeError(
-        `${label}.valueType: expected fixedVal, percentage, stdDev or stdErr`,
+        `${label}.valueType: expected fixedVal, percentage, stdDev, stdErr or cust`,
       );
     if (bars.direction !== undefined) {
       if (bars.direction !== "x" && bars.direction !== "y")
@@ -378,8 +379,44 @@ export const validateChartErrorBars = (spec: ChartSpec): void => {
       throw new RangeError(`${label}.value: expected a finite number >= 0`);
     if (bars.noEndCap !== undefined && typeof bars.noEndCap !== "boolean")
       throw new TypeError(`${label}.noEndCap: expected a boolean`);
+    for (const side of ["plus", "minus"] as const) {
+      const list = bars[side];
+      if (list === undefined) continue;
+      if (
+        !Array.isArray(list) ||
+        list.some(
+          (v) => v !== null && (typeof v !== "number" || !Number.isFinite(v)),
+        )
+      )
+        throw new TypeError(
+          `${label}.${side}: expected finite numbers or nulls`,
+        );
+    }
   });
 };
+
+// Custom amounts: a range of the data sheet with its cached values, or
+// literal values.
+const customErrorValues = (
+  side: "plus" | "minus",
+  values: ReadonlyArray<number | null>,
+  ref: string | undefined,
+): XmlElement =>
+  elem(c(side), {
+    children: [
+      ref
+        ? numRef(ref, values)
+        : elem(c("numLit"), {
+            children: [
+              elem(c("formatCode"), { children: [text("General")] }),
+              valNode(c("ptCount"), values.length),
+              ...values
+                .map((v, i) => (v === null ? null : ptNode(i, String(v))))
+                .filter((n): n is XmlElement => n !== null),
+            ],
+          }),
+    ],
+  });
 
 /** Default amount of an error bar whose value was not given. */
 export const defaultErrorBarValue = (bars: ChartErrorBars): number =>
@@ -395,7 +432,14 @@ const errorBarsElement = (bars: ChartErrorBars, xy: boolean): XmlElement => {
     valNode(c("errValType"), bars.valueType),
     valNode(c("noEndCap"), bars.noEndCap ? "1" : "0"),
   );
-  if (bars.valueType !== "stdErr")
+  if (bars.valueType === "cust") {
+    if (bars.type !== "minus")
+      children.push(customErrorValues("plus", bars.plus ?? [], bars.plusRef));
+    if (bars.type !== "plus")
+      children.push(
+        customErrorValues("minus", bars.minus ?? [], bars.minusRef),
+      );
+  } else if (bars.valueType !== "stdErr")
     children.push(valNode(c("val"), bars.value ?? defaultErrorBarValue(bars)));
   if (bars.color !== undefined)
     children.push(spPrChildren(undefined, bars.color));

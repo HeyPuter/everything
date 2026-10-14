@@ -2,6 +2,7 @@
 // answered by the test), starting in a theme, pinning presentations, and
 // drafting a slide from a prompt in the editor.
 import { test, expect as baseExpect } from "@playwright/test";
+import { CATALOG } from "../src/themes/catalog.js";
 
 test.setTimeout(120_000);
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -111,7 +112,10 @@ test("an outline the AI got wrong says so and leaves the library open", async ({
 test("a theme starts a new deck in its palette", async ({ page }) => {
   await start(page);
   const themes = page.getByRole("region", { name: "Start in a theme" });
-  await expect(themes.getByRole("button", { name: / theme$/ })).toHaveCount(4);
+  // The original four palettes and the designed themes.
+  await expect(themes.getByRole("button", { name: / theme$/ })).toHaveCount(
+    CATALOG.length,
+  );
   await themes
     .getByRole("button", { name: "New presentation in the Midnight theme" })
     .click();
