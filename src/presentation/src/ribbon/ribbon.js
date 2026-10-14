@@ -289,10 +289,10 @@ export function createRibbon({
         anchor.focus();
       }
     };
-    setTimeout(() => {
-      document.addEventListener("pointerdown", close, true);
-      document.addEventListener("keydown", onKey, true);
-    });
+    // Escape closes the panel at once; a press outside it, from the next
+    // task on, so the press that opened it does not.
+    document.addEventListener("keydown", onKey, true);
+    setTimeout(() => document.addEventListener("pointerdown", close, true));
     pop.addEventListener("click", (e) => {
       if (e.target.closest("button:not([aria-haspopup])")) setTimeout(close);
     });
