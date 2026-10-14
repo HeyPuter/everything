@@ -88,6 +88,41 @@ export async function inspector(page) {
   )
     await menuCommand(page, "View", "Format panel");
 }
+// Shows a tab of the Format panel by name: a top-level tab such as "Text
+// Options", or an icon tab such as "Size & Properties" (opening the panel
+// first when it is closed). Several names show nested tabs in turn; a name
+// the panel does not show (a row with a single tab) is passed over.
+export async function paneTab(page, ...names) {
+  await inspector(page);
+  const panel = page.getByRole("complementary", { name: "Format panel" });
+  // A row with a single tab is not shown, and its tab needs no choosing.
+  for (const name of names) {
+    const tab = panel.getByRole("tab", { name, exact: true });
+    if (!(await tab.count())) continue;
+    if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  }
+}
+// Shows and opens the Format panel's section `key` (its data-section), with
+// the tabs that hold it.
+export async function paneSection(page, key) {
+  await inspector(page);
+  const panel = page.getByRole("complementary", { name: "Format panel" });
+  for (const kind of ["fmt-top-tab", "fmt-sub-tab"]) {
+    const tab = panel
+      .locator(`.${kind}[data-sections~="${key}"]`)
+      .filter({ visible: true })
+      .first();
+    if (
+      (await tab.count()) &&
+      (await tab.getAttribute("aria-selected")) !== "true"
+    )
+      await tab.click();
+  }
+  const node = panel.locator(`details[data-section="${key}"]`).first();
+  if (!(await node.evaluate((d) => d.open)))
+    await node.locator("summary").click();
+  return node;
+}
 // Format > Theme: the presentation theme dialog.
 export async function themeDialog(page) {
   await menuCommand(page, "Format", "Theme");

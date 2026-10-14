@@ -26,7 +26,7 @@ import {
   ASPECT_RATIOS,
   cropToAspect,
   fillOrFit,
-  formatPaneSections,
+  formatPaneParts,
   recolorPresets,
   revealSection,
 } from "./pane.js";
@@ -1616,7 +1616,7 @@ export function createFormatTools(ctx) {
 
   return {
     api,
-    paneSections: (obj) => formatPaneSections(paneCtx, obj),
+    paneParts: (obj, extra) => formatPaneParts(paneCtx, obj, extra),
     editMenuItems,
     formatMenuItems,
     arrangeMenuItems,

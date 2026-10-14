@@ -1,0 +1,299 @@
+/* The Format pane's frame: a heading that stays in view, a search box, the
+   top-level tabs, a row of icon tabs and collapsible sections. Colors come
+   from the app's tokens, so light and dark modes follow. */
+
+.editor .editor-body > .inspector > .panel-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  height: var(--fmt-heading-height, 50px);
+  min-height: 0;
+  background: inherit;
+  padding: 0 10px 0 16px;
+}
+.editor .editor-body > .inspector > .panel-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The pane closes from its heading at every size. */
+.inspector .inspector-close {
+  display: inline-flex;
+}
+
+.inspector-content.fmt-frame {
+  padding: 0 0 24px;
+}
+.fmt-frame-head {
+  position: sticky;
+  top: var(--fmt-heading-height, 50px);
+  z-index: 2;
+  background: var(--chrome-card, var(--surface));
+  padding: 10px 14px 0;
+  border-bottom: 1px solid var(--chrome-line, var(--line));
+}
+.fmt-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.fmt-search-wrap > svg {
+  position: absolute;
+  left: 9px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.fmt-search-wrap .fmt-search {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px 4px 28px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+/* Top-level tabs: words, underlined when chosen. */
+.fmt-top-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 -4px 8px;
+}
+.fmt-top-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 4px 7px;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  box-shadow: inset 0 -2px 0 transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fmt-top-tab:hover {
+  color: var(--ink);
+}
+.fmt-top-tab[aria-selected="true"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.fmt-top-tab:focus-visible,
+.fmt-sub-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Icon tabs, with the chosen one's name beside them. */
+.fmt-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.fmt-sub-row:has(.fmt-sub-tabs[hidden]) {
+  display: none;
+}
+.fmt-sub-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+.fmt-sub-tab {
+  width: 34px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+}
+.fmt-sub-tab:hover {
+  background: var(--hover, color-mix(in srgb, var(--ink) 6%, transparent));
+}
+.fmt-sub-tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.fmt-sub-caption {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sections: flat rows divided by hairlines, opened by their title. */
+.fmt-frame-panel,
+.fmt-search-results {
+  display: flex;
+  flex-direction: column;
+}
+.fmt-frame-panel:focus {
+  outline: none;
+}
+.fmt-frame .fmt-section {
+  border: 0;
+  border-bottom: 1px solid var(--chrome-line, var(--line));
+  border-radius: 0;
+  background: none;
+}
+.fmt-frame .fmt-section > summary {
+  padding: 11px 14px;
+  font-size: 12px;
+  font-weight: 650;
+  border-radius: 0;
+}
+.fmt-frame .fmt-section > summary:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.fmt-frame .fmt-section > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.fmt-frame .fmt-section-body {
+  padding: 2px 14px 16px;
+  gap: 10px;
+}
+/* The fields carried over from the simple pane sit in the section's rhythm. */
+.fmt-frame .fmt-section-body > .field,
+.fmt-frame .fmt-section-body > .format-buttons,
+.fmt-frame .fmt-section-body > .arrange-buttons,
+.fmt-frame .fmt-section-body > .field-grid,
+.fmt-frame .fmt-section-body > .check-field,
+.fmt-frame .fmt-section-body > .helper {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.fmt-frame .fmt-section-body > .helper {
+  font-size: 11.5px;
+}
+.fmt-frame-panel > .helper,
+.fmt-frame > .helper,
+.fmt-frame-lead {
+  padding: 12px 14px 0;
+  margin: 0;
+}
+.fmt-frame-lead .field {
+  margin-bottom: 4px;
+}
+.fmt-frame-lead h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+/* A color field with its theme palette and a way to clear it. */
+.fmt-color-combo {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.fmt-color-combo > .field {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.fmt-color-combo > .btn {
+  align-self: flex-end;
+  min-height: 36px;
+  width: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* Search results: each group under the name of its tab. */
+.fmt-search-status {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.fmt-frame:not(.searching) .fmt-search-status {
+  display: none;
+}
+.fmt-frame.searching .fmt-sub-row,
+.fmt-frame.searching .fmt-top-tabs {
+  display: none;
+}
+.fmt-search-where {
+  padding: 12px 14px 2px;
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* A phone shows the pane as a sheet over the lower part of the screen; its
+   heading is a handle that drags it taller or shorter. */
+@media (max-width: 760px) {
+  .editor .editor-body > .inspector {
+    --fmt-heading-height: 56px;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    min-width: 0;
+    height: var(--fmt-sheet-height, 52%);
+    max-height: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--chrome-line, var(--line));
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 24px rgb(0 0 0 / 0.18);
+    overscroll-behavior: contain;
+  }
+  .editor .editor-body > .inspector > .panel-heading.fmt-sheet-handle {
+    touch-action: none;
+    padding-top: 6px;
+    border-radius: 14px 14px 0 0;
+    cursor: ns-resize;
+  }
+  .inspector > .panel-heading.fmt-sheet-handle::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--ink) 25%, transparent);
+  }
+  .fmt-sub-tab {
+    width: 40px;
+    height: 36px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fmt-frame .fmt-section > summary::before {
+    transition: transform 0.12s ease;
+  }
+}
+@media (forced-colors: active) {
+  .fmt-sub-tab[aria-selected="true"],
+  .fmt-top-tab[aria-selected="true"] {
+    outline: 2px solid Highlight;
+  }
+}
+
+/* In a color field the palette button shows only its arrow: the field
+   beside it already shows the color. */
+.fmt-color-combo > .fmt-color {
+  gap: 0;
+}
+.fmt-color-combo > .fmt-color .fmt-swatch {
+  display: none;
+}

@@ -88,6 +88,14 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createFormatTools } from "./format/index.js";
+import {
+  formatFrame,
+  preferTab,
+  sectionsFromHeadings,
+  sheetHandle,
+  showFormatTab,
+} from "./format/pane-frame.js";
+import { section } from "./format/controls.js";
 import { createTransitionTools } from "./transitions/editor.js";
 import { prefersReducedMotion } from "./transitions/player.js";
 import { createLayoutCommands } from "./layouts/slide-layouts.js";
@@ -3952,7 +3960,11 @@ const chartTools = createChartTools({
   skip: SKIP_MUTATION,
   readOnly: () => readOnlyDocument(),
   selectTab: (id) => ribbon?.select(id),
-  showFormatPane: () => show("formatPane", true),
+  // Formatting a chart element shows the chart's own tab.
+  showFormatPane: () => {
+    showFormatTab("chart", "chart", "chart");
+    show("formatPane", true);
+  },
   refresh: () => {
     renderInspector();
   },
@@ -11535,186 +11547,431 @@ function truncateLabel(label, max = 80) {
     .replace(/[\uD800-\uDBFF]$/, "")
     .trimEnd()}…`;
 }
-function renderInspectorContents(panel, obj) {
-  panel.replaceChildren(
-    el(
-      "div",
-      { class: "panel-heading" },
-      el(
-        "h2",
-        {},
-        !obj
-          ? "Format Background"
-          : multiSelected()
-            ? "Format"
-            : chartTools.formatTitle(obj) ||
-              smartArtTools.formatTitle(obj) ||
-              (P.getShapeKind(obj) === "picture"
-                ? "Format Picture"
-                : isTable(obj)
-                  ? "Format Table"
-                  : "Format Shape"),
-      ),
-      iconButton(
-        "Close format panel",
-        "X",
-        () => {
-          show("formatPane", false);
-          workspace()?.focus({ preventScroll: true });
-        },
-        { class: "btn icon-btn inspector-close" },
-      ),
-    ),
+// The format panel's title: what is being formatted.
+function inspectorTitle(obj) {
+  if (!obj) return "Format Background";
+  if (multiSelected()) return "Format";
+  return (
+    chartTools.formatTitle(obj) ||
+    smartArtTools.formatTitle(obj) ||
+    (P.getShapeKind(obj) === "picture"
+      ? "Format Picture"
+      : isTable(obj)
+        ? "Format Table"
+        : P.getShapeKind(obj) === "connector"
+          ? "Format Line"
+          : "Format Shape")
   );
-  if (obj && multiSelected()) {
-    panel.append(multiInspector());
-    return;
-  }
-  if (!obj) {
-    panel.append(
-      el(
-        "div",
-        { class: "inspector-content" },
-        backgroundPane.render(),
-        el("h3", {}, "Transition"),
-        field(
-          "Transition",
-          (() => {
-            const current = slideTransition(slide());
-            const select = el(
-              "select",
+}
+// Closing the panel while text is being edited goes back to the text, where
+// the selection it had is restored; otherwise the slide takes the focus.
+function closeFormatPane() {
+  if (richEditor?.input?.isConnected)
+    richEditor.input.focus({ preventScroll: true });
+  else workspace()?.focus({ preventScroll: true });
+  show("formatPane", false);
+}
+function renderInspectorContents(panel, obj) {
+  const heading = el(
+    "div",
+    { class: "panel-heading" },
+    el("h2", {}, inspectorTitle(obj)),
+    iconButton("Close format panel", "X", closeFormatPane, {
+      class: "btn icon-btn inspector-close",
+    }),
+  );
+  sheetHandle(heading);
+  panel.replaceChildren(heading, formatFrame(inspectorModel(obj)));
+}
+// The tabs and sections of the format panel for what is selected: the
+// slide's background when nothing is, several objects, or one object.
+function inspectorModel(obj) {
+  if (!obj) return backgroundModel();
+  if (multiSelected()) return multiModel();
+  const kind = P.getShapeKind(obj);
+  const table = isTable(obj);
+  const chart = chartTools.inspector(obj);
+  const diagram = !chart && smartArtTools.inspector(obj);
+  const textCapable = canEditText(obj);
+  const parts = table ? {} : formatTools.paneParts(obj, paneExtras(obj, kind));
+  const sizeSub = {
+    id: "size",
+    label: "Size & Properties",
+    icon: "o:paneSize",
+    build: () => [
+      table
+        ? section("Size", sizeFields(obj), { key: "size", open: true })
+        : parts.size(),
+      table
+        ? section("Position", positionFields(obj), {
+            key: "position",
+            open: true,
+          })
+        : parts.position(),
+      parts.textBox?.(),
+      parts.altText?.(),
+      canLink(obj) && sectionsFromHeadings(linkFields(obj), "link"),
+      section("Arrange", arrangeFields(obj, kind), {
+        key: "arrange",
+        open: true,
+      }),
+    ],
+  };
+  const textTops =
+    textCapable && !table
+      ? [
+          {
+            id: "text",
+            label: "Text Options",
+            subs: [
               {
-                class: "input",
-                "aria-label": "Transition",
-                onchange: (e) => setTransition(slide(), e.target.value),
+                id: "text",
+                label: "Text",
+                icon: "o:paneText",
+                build: () => textSections(obj),
               },
-              ...transitionTools.groups.map((group) =>
-                el(
-                  "optgroup",
-                  { label: group.label },
-                  ...transitionTools.entries
-                    .filter((entry) => entry.group === group.id)
-                    .map((entry) =>
-                      el("option", { value: entry.id }, entry.label),
-                    ),
-                ),
-              ),
-            );
-            if (current === "other")
-              select.prepend(el("option", { value: "other" }, "Imported"));
-            select.value = current;
-            return select;
-          })(),
-        ),
-        button(
-          "Apply to all slides",
-          null,
-          () => setTransition(slide(), slideTransition(slide()), { all: true }),
-          "text-button",
-          // An imported transition is none of the three on offer and has no
-          // name to give the other slides, as the Slide menu also has it.
-          slideTransition(slide()) === "other"
-            ? {
-                disabled: true,
-                title:
-                  "This slide's transition came with the file. Choose one of the transitions above to apply it to every slide.",
-              }
-            : {},
-        ),
-        el(
-          "p",
-          { class: "helper" },
-          "Select an object on the slide to edit its text, style, or position.",
-        ),
-        el("h3", {}, "Slide objects"),
-        el(
-          "div",
-          { class: "object-list" },
-          // Match the canvas: hidden artwork stays out of reach and images
-          // are identified by their description.
-          ...visibleSlideShapes(slide()).map((s) =>
-            button(
-              truncateLabel(shapeLabel(s, doc.pres)),
-              shapeIcon(s),
-              () => {
-                const current = shapeIndex(s);
-                if (current < 0) return;
-                selectOnly(current);
-                renderSelection();
-                renderInspector();
+              parts.textFill && {
+                id: "textFill",
+                label: "Text Fill & Outline",
+                icon: "o:paneTextFill",
+                build: parts.textFill,
               },
-              "object-list-item",
-            ),
+              parts.textEffects && {
+                id: "textEffects",
+                label: "Text Effects",
+                icon: "o:paneTextEffects",
+                build: parts.textEffects,
+              },
+              parts.textBox && {
+                id: "textBox",
+                label: "Text Box",
+                icon: "o:paneTextBox",
+                build: () => [parts.textBox()],
+              },
+            ].filter(Boolean),
+          },
+        ]
+      : [];
+  if (table) {
+    preferTab("table", "table", "table");
+    return {
+      family: "table",
+      tops: [
+        {
+          id: "table",
+          label: "Table Options",
+          subs: [
+            {
+              id: "table",
+              label: "Table",
+              icon: "o:paneTable",
+              build: () => sectionsFromHeadings(tableFields(obj), "table"),
+            },
+            sizeSub,
+          ],
+        },
+        {
+          id: "text",
+          label: "Text Options",
+          subs: [
+            {
+              id: "text",
+              label: "Text",
+              icon: "o:paneText",
+              build: () => textSections(obj),
+            },
+          ],
+        },
+      ],
+    };
+  }
+  if (chart || diagram) {
+    const family = chart ? "chart" : "smartart";
+    preferTab(family, family, family);
+    // The chart's element picker leads the panel, as the part it formats.
+    let lead = [];
+    let nodes = chart || diagram;
+    if (chart && nodes[0]?.tagName === "H3" && nodes[1]) {
+      lead = [el("div", { class: "fmt-frame-lead" }, nodes[1])];
+      nodes = nodes.slice(2);
+    }
+    return {
+      family,
+      lead,
+      tops: [
+        {
+          id: family,
+          label: chart ? "Chart Options" : "SmartArt Options",
+          subs: [
+            {
+              id: family,
+              label: chart ? "Chart" : "SmartArt",
+              icon: chart ? "o:paneChart" : "o:paneDiagram",
+              build: () => sectionsFromHeadings(nodes, family),
+            },
+            sizeSub,
+          ],
+        },
+        ...textTops,
+      ],
+    };
+  }
+  const family =
+    kind === "picture"
+      ? "picture"
+      : kind === "connector"
+        ? "line"
+        : kind === "group"
+          ? "group"
+          : "shape";
+  preferTab(family, "shape", family === "picture" ? "picture" : "fill");
+  return {
+    family,
+    tops: [
+      {
+        id: "shape",
+        label: "Shape Options",
+        subs: [
+          (parts.fill || parts.line) && {
+            id: "fill",
+            label: "Fill & Line",
+            icon: "o:paneFillLine",
+            build: () => [parts.fill?.(), parts.line?.()],
+          },
+          parts.effects && {
+            id: "effects",
+            label: "Effects",
+            icon: "o:paneEffects",
+            build: parts.effects,
+          },
+          sizeSub,
+          parts.picture && {
+            id: "picture",
+            label: "Picture",
+            icon: "o:panePicture",
+            build: parts.picture,
+          },
+        ].filter(Boolean),
+      },
+      ...textTops,
+    ],
+  };
+}
+// The editor's own controls that join the Format pane's sections.
+function paneExtras(obj, kind) {
+  const extras = {
+    sizeFields: () => sizeFields(obj),
+    positionFields: () => positionFields(obj),
+  };
+  if (kind === "shape") {
+    extras.fillColor = () =>
+      // Imported shapes often reference theme colors; show the color they
+      // resolve to rather than "No fill".
+      colorInput(
+        "Fill color",
+        P.getShapeFillColorResolvedEffective(doc.pres, obj),
+        (c) =>
+          mutateShape(
+            obj,
+            (obj) => {
+              if (P.getShapeBackgroundFill(obj))
+                P.setShapeBackgroundFill(obj, false);
+              P.setShapeFill(obj, c);
+            },
+            { coalesce: coalesceKey("fill", P.getShapeSlide(obj), obj) },
           ),
-        ),
-        !visibleSlideShapes(slide()).length &&
+        { empty: "No fill", fallback: THEMES[theme].accent },
+      );
+    extras.removeFill = () =>
+      iconButton(
+        "Remove fill",
+        "Ban",
+        () =>
+          mutateShape(obj, (obj) =>
+            P.getShapeFill(obj).kind === "none"
+              ? SKIP_MUTATION
+              : P.setShapeNoFill(obj),
+          ),
+        { class: "btn secondary icon-btn", title: "Remove fill" },
+      );
+    extras.shadowToggle = () =>
+      el(
+        "label",
+        { class: "check-field" },
+        el("input", {
+          type: "checkbox",
+          checked: hasShadow(obj),
+          onchange: (e) => toggleShadow(e.target.checked),
+        }),
+        el("span", {}, "Drop shadow"),
+      );
+  }
+  if (kind === "shape" || kind === "picture" || kind === "connector") {
+    const stroke = strokeFields(obj, kind);
+    extras.lineColor = stroke.color;
+    if (stroke.remove) extras.removeLine = stroke.remove;
+  }
+  if (kind === "picture") {
+    const picture = pictureFields(obj);
+    Object.assign(extras, picture);
+  }
+  return extras;
+}
+// Text Options > Text: what the object says, its font, and its paragraphs.
+// A table cell's text is formatted here too.
+function textSections(obj) {
+  const fmt = textFormat(obj);
+  const alignment = paragraphAlignment(obj);
+  const anchor = textAnchor(obj);
+  const list = listStyle(obj);
+  const cell = isTable(obj);
+  const out = [];
+  if (cell) {
+    const { row, col } = currentCell(obj);
+    out.push(
+      section(
+        "Cell text",
+        [
           el(
             "p",
             { class: "helper" },
-            "An open canvas. Add text, a shape, or an image to get started.",
+            `Row ${row + 1}, column ${col + 1}. Double-click another cell to format it.`,
           ),
+        ],
+        { key: "cellText", open: true },
       ),
     );
-    return;
-  }
-  const b = slideBounds(doc.pres, obj),
-    kind = P.getShapeKind(obj),
-    isPicture = kind === "picture";
-  const textCapable = canEditText(obj);
-  const fmt = textCapable ? textFormat(obj) : {};
-  const alignment = textCapable ? paragraphAlignment(obj) : null;
-  const body = el("div", { class: "inspector-content" });
-  // Text tools come first for shapes and after the table's own for a cell.
-  const textBox = el("div");
-  if (textCapable) {
-    const anchor = textAnchor(obj);
-    const list = listStyle(obj);
-    const cell = isTable(obj);
-    if (cell) {
-      const { row, col } = currentCell(obj);
-      textBox.append(
-        el("h3", {}, "Cell text"),
-        el(
-          "p",
-          { class: "helper" },
-          `Row ${row + 1}, column ${col + 1}. Double-click another cell to format it.`,
-        ),
-      );
-    } else
-      textBox.append(
-        el("h3", {}, "Text"),
-        field(
-          "Content",
-          contentTextField(obj, {
-            class: "input content-field",
-            "aria-label": "Object text",
-            value: displayShapeText(doc.pres, obj) || "",
-            onchange: (e) => {
-              const value = e.target.value;
-              const fields = e.target.fieldEdits?.fields || [];
-              mutateShape(obj, (obj) => setText(obj, value, fields));
-            },
-          }),
-        ),
-      );
-    const font = el(
-      "select",
-      {
-        class: "input",
-        "aria-label": "Font family",
-        onchange: (e) => {
-          const font = e.target.value;
-          applyTextFormat(obj, { font });
-        },
-      },
-      ...FONTS.map((f) => el("option", { value: f }, f)),
+  } else
+    out.push(
+      section(
+        "Text",
+        [
+          field(
+            "Content",
+            contentTextField(obj, {
+              class: "input content-field",
+              "aria-label": "Object text",
+              value: displayShapeText(doc.pres, obj) || "",
+              onchange: (e) => {
+                const value = e.target.value;
+                const fields = e.target.fieldEdits?.fields || [];
+                mutateShape(obj, (obj) => setText(obj, value, fields));
+              },
+            }),
+          ),
+        ],
+        { key: "text", open: true },
+      ),
     );
-    if (
-      fmt.font &&
-      ![...font.options].some((option) => option.value === fmt.font)
-    )
-      font.prepend(el("option", { value: fmt.font }, fmt.font));
-    font.value = fmt.font || "Arial";
+  const font = el(
+    "select",
+    {
+      class: "input",
+      "aria-label": "Font family",
+      onchange: (e) => {
+        const font = e.target.value;
+        applyTextFormat(obj, { font });
+      },
+    },
+    ...FONTS.map((f) => el("option", { value: f }, f)),
+  );
+  if (
+    fmt.font &&
+    ![...font.options].some((option) => option.value === fmt.font)
+  )
+    font.prepend(el("option", { value: fmt.font }, fmt.font));
+  font.value = fmt.font || "Arial";
+  out.push(
+    section(
+      "Font",
+      [
+        field("Font family", font),
+        // Arrow keys step whole points; typed half sizes such as 10.5 still
+        // apply.
+        numInput(
+          "Font size",
+          fmt.size || 24,
+          (n) => applyTextFormat(obj, { size: n }),
+          6,
+          144,
+          1,
+        ),
+        el(
+          "div",
+          { class: "format-buttons" },
+          iconButton("Bold", "Bold", () => toggleTextFormat(obj, "bold"), {
+            "aria-pressed": fmt.bold ? "true" : "false",
+          }),
+          iconButton(
+            "Italic",
+            "Italic",
+            () => toggleTextFormat(obj, "italic"),
+            { "aria-pressed": fmt.italic ? "true" : "false" },
+          ),
+          iconButton(
+            "Underline",
+            "Underline",
+            () => toggleTextFormat(obj, "underline"),
+            { "aria-pressed": decorated(fmt.underline) ? "true" : "false" },
+          ),
+          iconButton(
+            "Strikethrough",
+            "Strikethrough",
+            () => toggleTextFormat(obj, "strike"),
+            { "aria-pressed": decorated(fmt.strike) ? "true" : "false" },
+          ),
+        ),
+        colorInput("Text color", fmt.color, (c) =>
+          applyTextFormat(
+            obj,
+            { color: c },
+            { coalesce: coalesceKey("text-color", P.getShapeSlide(obj), obj) },
+          ),
+        ),
+      ],
+      { key: "font", open: true },
+    ),
+  );
+  const paragraph = [
+    el(
+      "div",
+      { class: "format-buttons" },
+      ...TEXT_ALIGNMENTS.map(([a, label, ic]) =>
+        iconButton(label, ic, () => setAlignment(obj, a), {
+          "aria-pressed": alignment === a ? "true" : "false",
+        }),
+      ),
+      ...(cell
+        ? []
+        : [
+            el("span", { class: "separator" }),
+            iconButton(
+              "Bulleted list",
+              "List",
+              () => toggleList(obj, "bullet"),
+              {
+                "aria-pressed": list === "bullet" ? "true" : "false",
+              },
+            ),
+            iconButton(
+              "Numbered list",
+              "ListOrdered",
+              () => toggleList(obj, "number"),
+              { "aria-pressed": list === "number" ? "true" : "false" },
+            ),
+          ]),
+    ),
+    el(
+      "div",
+      { class: "format-buttons" },
+      ...TEXT_ANCHORS.map(([a, label, ic]) =>
+        iconButton(label, ic, () => setAnchor(obj, a), {
+          "aria-pressed": anchor === a ? "true" : "false",
+        }),
+      ),
+    ),
+  ];
+  if (!cell) {
     const spacing = lineSpacing(obj);
     const spacingSelect = el(
       "select",
@@ -11730,167 +11987,166 @@ function renderInspectorContents(panel, obj) {
         el("option", { value: spacing }, spacingLabel(spacing)),
       );
     spacingSelect.value = String(spacing);
-    textBox.append(
-      field("Font family", font),
-      // Arrow keys step whole points; typed half sizes such as 10.5 still apply.
-      numInput(
-        "Font size",
-        fmt.size || 24,
-        (n) => applyTextFormat(obj, { size: n }),
-        6,
-        144,
-        1,
-      ),
+    paragraph.push(
+      field("Line spacing", spacingSelect),
       el(
         "div",
-        { class: "format-buttons" },
-        iconButton("Bold", "Bold", () => toggleTextFormat(obj, "bold"), {
-          "aria-pressed": fmt.bold ? "true" : "false",
-        }),
-        iconButton("Italic", "Italic", () => toggleTextFormat(obj, "italic"), {
-          "aria-pressed": fmt.italic ? "true" : "false",
-        }),
-        iconButton(
-          "Underline",
-          "Underline",
-          () => toggleTextFormat(obj, "underline"),
-          { "aria-pressed": decorated(fmt.underline) ? "true" : "false" },
-        ),
-        iconButton(
-          "Strikethrough",
-          "Strikethrough",
-          () => toggleTextFormat(obj, "strike"),
-          { "aria-pressed": decorated(fmt.strike) ? "true" : "false" },
-        ),
-        ...(cell
-          ? []
-          : [
-              el("span", { class: "separator" }),
-              iconButton(
-                "Bulleted list",
-                "List",
-                () => toggleList(obj, "bullet"),
-                { "aria-pressed": list === "bullet" ? "true" : "false" },
-              ),
-              iconButton(
-                "Numbered list",
-                "ListOrdered",
-                () => toggleList(obj, "number"),
-                { "aria-pressed": list === "number" ? "true" : "false" },
-              ),
-            ]),
-      ),
-      el(
-        "div",
-        { class: "format-buttons" },
-        ...TEXT_ALIGNMENTS.map(([a, label, ic]) =>
-          iconButton(label, ic, () => setAlignment(obj, a), {
-            "aria-pressed": alignment === a ? "true" : "false",
-          }),
-        ),
-        el("span", { class: "separator" }),
-        ...TEXT_ANCHORS.map(([a, label, ic]) =>
-          iconButton(label, ic, () => setAnchor(obj, a), {
-            "aria-pressed": anchor === a ? "true" : "false",
-          }),
-        ),
-      ),
-      ...(cell
-        ? []
-        : [
-            field("Line spacing", spacingSelect),
-            el(
-              "div",
-              { class: "field-grid" },
-              paragraphSpacingInput(obj, "before"),
-              paragraphSpacingInput(obj, "after"),
-            ),
-          ]),
-      colorInput("Text color", fmt.color, (c) =>
-        applyTextFormat(
-          obj,
-          { color: c },
-          { coalesce: coalesceKey("text-color", P.getShapeSlide(obj), obj) },
-        ),
+        { class: "field-grid" },
+        paragraphSpacingInput(obj, "before"),
+        paragraphSpacingInput(obj, "after"),
       ),
     );
   }
-  const chartSection =
-    smartArtTools.inspector(obj) || chartTools.inspector(obj);
-  if (chartSection) body.append(...chartSection);
-  if (!isTable(obj)) body.append(...textBox.childNodes);
-
-  // Only ordinary shapes take a fill: groups, tables, and charts refuse one,
-  // and a line has no interior to fill.
-  if (kind === "shape")
-    body.append(
-      el("h3", {}, "Fill"),
-      // Imported shapes often reference theme colors; show the color they
-      // resolve to rather than "No fill".
-      colorInput(
-        "Fill color",
-        P.getShapeFillColorResolvedEffective(doc.pres, obj),
-        (c) =>
-          mutateShape(obj, (obj) => P.setShapeFill(obj, c), {
-            coalesce: coalesceKey("fill", P.getShapeSlide(obj), obj),
+  out.push(section("Paragraph", paragraph, { key: "paragraph", open: true }));
+  return out;
+}
+// The object's size and turn in the editor's fields, in inches and degrees,
+// and a rounded rectangle's corners.
+function sizeFields(obj) {
+  const b = slideBounds(doc.pres, obj);
+  if (!b) return [];
+  const size = currentSize();
+  return [
+    el(
+      "div",
+      { class: "field-grid" },
+      ...["w", "h"].map((key, i) =>
+        boundsInput(obj, key, ["Width (in)", "Height (in)"][i], b, size),
+      ),
+      numInput(
+        "Rotation (°)",
+        Math.round((P.getShapeRotation(obj) || 0) * 10) / 10,
+        (n) =>
+          mutateShape(obj, (obj) => {
+            // -90 and 270 are the same angle; neither is a change from it.
+            const angle = ((n % 360) + 360) % 360;
+            return (P.getShapeRotation(obj) || 0) === angle
+              ? SKIP_MUTATION
+              : P.setShapeRotation(obj, angle);
           }),
-        { empty: "No fill", fallback: THEMES[theme].accent },
+        -360,
+        360,
+        1,
+      ),
+    ),
+    ...(P.getShapeKind(obj) === "shape" ? cornerField(obj) : []),
+  ];
+}
+// Where the object's top left corner sits on the slide, in inches.
+function positionFields(obj) {
+  const b = slideBounds(doc.pres, obj);
+  if (!b) return [];
+  const size = currentSize();
+  return [
+    el(
+      "div",
+      { class: "field-grid" },
+      ...["x", "y"].map((key, i) =>
+        boundsInput(obj, key, ["X (in)", "Y (in)"][i], b, size),
+      ),
+    ),
+  ];
+}
+function boundsInput(obj, key, label, b, size) {
+  return numInput(
+    label,
+    Math.round((b[key] / 914400) * 100) / 100,
+    (n) =>
+      mutateShape(obj, (obj) => {
+        const bounds = {
+          ...slideBounds(doc.pres, obj),
+          [key]: P.inches(n),
+        };
+        setSlideBounds(doc.pres, obj, bounds);
+        fitTableGrid(obj, bounds);
+      }),
+    key === "w" || key === "h" ? 0.15 : 0,
+    (key === "x" || key === "w" ? size.cx : size.cy) / 914400,
+    0.01,
+  );
+}
+// Alignment, stacking order, copies, flips and ungrouping for one object.
+// Rows an object lacks are left out; append() would write them as text.
+function arrangeFields(obj, kind) {
+  return [
+    alignRow(),
+    el(
+      "div",
+      { class: "arrange-buttons" },
+      button(
+        "To front",
+        "BringToFront",
+        () => arrangeObject(obj, P.bringShapeToFront),
+        "secondary",
       ),
       button(
-        "Remove fill",
-        null,
-        () =>
-          mutateShape(obj, (obj) =>
-            P.getShapeFill(obj).kind === "none"
-              ? SKIP_MUTATION
-              : P.setShapeNoFill(obj),
-          ),
-        "text-button",
+        "Forward",
+        "ArrowUp",
+        () => arrangeObject(obj, P.bringShapeForward),
+        "secondary",
       ),
-      ...cornerField(obj),
+    ),
+    el(
+      "div",
+      { class: "arrange-buttons" },
+      button(
+        "Backward",
+        "ArrowDown",
+        () => arrangeObject(obj, P.sendShapeBackward),
+        "secondary",
+      ),
+      button(
+        "To back",
+        "SendToBack",
+        () => arrangeObject(obj, P.sendShapeToBack),
+        "secondary",
+      ),
+    ),
+    el(
+      "div",
+      { class: "arrange-buttons" },
+      button("Duplicate", "Copy", duplicateObject, "secondary"),
+      button("Delete", "Trash2", deleteObject, "secondary"),
+    ),
+    (kind === "shape" || kind === "picture") &&
       el(
-        "label",
-        { class: "check-field" },
-        el("input", {
-          type: "checkbox",
-          checked: hasShadow(obj),
-          onchange: (e) => toggleShadow(e.target.checked),
-        }),
-        el("span", {}, "Drop shadow"),
+        "div",
+        { class: "arrange-buttons" },
+        button(
+          "Flip horizontal",
+          "FlipHorizontal2",
+          () => flipObject(obj, "horizontal"),
+          "secondary",
+        ),
+        button(
+          "Flip vertical",
+          "FlipVertical2",
+          () => flipObject(obj, "vertical"),
+          "secondary",
+        ),
       ),
-    );
-  if (isTable(obj)) body.append(...tableFields(obj), ...textBox.childNodes);
-  if (kind === "shape" || kind === "picture" || kind === "connector")
-    body.append(...borderFields(obj, kind));
-  if (isPicture) {
-    let opacity = 1;
-    let crop = {};
-    let brightness = 0;
-    try {
-      opacity = P.getShapeImageOpacity(obj) ?? 1;
-      crop = P.getShapeImageCrop(obj) || {};
-      brightness = P.getShapeImageBrightness(obj) ?? 0;
-    } catch {}
-    const signed = (n) => `${n > 0 ? "+" : ""}${n}%`;
-    body.append(
-      el("h3", {}, "Image"),
-      field(
-        "Alternative text",
-        el("textarea", {
-          class: "input",
-          value: P.getShapeDescription(obj) || "",
-          "aria-label": "Image alternative text",
-          onchange: (e) => {
-            const value = e.target.value;
-            mutateShape(obj, (obj) => P.setShapeDescription(obj, value));
-          },
-        }),
-      ),
+    kind === "group" &&
       el(
-        "p",
-        { class: "helper" },
-        "Describe what the image communicates for people using screen readers.",
+        "div",
+        { class: "arrange-buttons" },
+        button("Ungroup", "Ungroup", ungroupSelection, "secondary"),
       ),
+  ].filter(Boolean);
+}
+// A picture's own settings: replacing it, its transparency and brightness,
+// its crop by side, and its description for screen readers.
+function pictureFields(obj) {
+  let opacity = 1;
+  let crop = {};
+  let brightness = 0;
+  try {
+    opacity = P.getShapeImageOpacity(obj) ?? 1;
+    crop = P.getShapeImageCrop(obj) || {};
+    brightness = P.getShapeImageBrightness(obj) ?? 0;
+  } catch {}
+  const signed = (n) => `${n > 0 ? "+" : ""}${n}%`;
+  return {
+    imageFields: () => [
       el(
         "div",
         { class: "arrange-buttons" },
@@ -11932,6 +12188,8 @@ function renderInspectorContents(panel, obj) {
           el("span", {}, `${Math.round((1 - opacity) * 100)}%`),
         ),
       ),
+    ],
+    brightness: () =>
       field(
         "Brightness (%)",
         el(
@@ -11971,6 +12229,7 @@ function renderInspectorContents(panel, obj) {
           el("span", {}, signed(Math.round(brightness * 100))),
         ),
       ),
+    cropFields: () =>
       el(
         "div",
         { class: "field-grid" },
@@ -12004,124 +12263,235 @@ function renderInspectorContents(panel, obj) {
           ),
         ),
       ),
-    );
-  }
-  if (canLink(obj)) body.append(...linkFields(obj));
-  if (b) {
-    const size = currentSize();
-    body.append(
-      el("h3", {}, "Position & size"),
-      el(
-        "div",
-        { class: "field-grid" },
-        ...["x", "y", "w", "h"].map((key, i) =>
-          numInput(
-            ["X (in)", "Y (in)", "Width (in)", "Height (in)"][i],
-            Math.round((b[key] / 914400) * 100) / 100,
-            (n) =>
-              mutateShape(obj, (obj) => {
-                const bounds = {
-                  ...slideBounds(doc.pres, obj),
-                  [key]: P.inches(n),
-                };
-                setSlideBounds(doc.pres, obj, bounds);
-                fitTableGrid(obj, bounds);
-              }),
-            key === "w" || key === "h" ? 0.15 : 0,
-            (key === "x" || key === "w" ? size.cx : size.cy) / 914400,
-            0.01,
-          ),
-        ),
-        numInput(
-          "Rotation (°)",
-          Math.round((P.getShapeRotation(obj) || 0) * 10) / 10,
-          (n) =>
-            mutateShape(obj, (obj) => {
-              // -90 and 270 are the same angle; neither is a change from it.
-              const angle = ((n % 360) + 360) % 360;
-              return (P.getShapeRotation(obj) || 0) === angle
-                ? SKIP_MUTATION
-                : P.setShapeRotation(obj, angle);
-            }),
-          -360,
-          360,
-          1,
-        ),
-      ),
-    );
-  }
-  // Rows an object lacks are left out; append() would write them as text.
-  body.append(
-    ...[
-      el("h3", {}, "Arrange"),
-      alignRow(),
-      el(
-        "div",
-        { class: "arrange-buttons" },
-        button(
-          "To front",
-          "BringToFront",
-          () => arrangeObject(obj, P.bringShapeToFront),
-          "secondary",
-        ),
-        button(
-          "Forward",
-          "ArrowUp",
-          () => arrangeObject(obj, P.bringShapeForward),
-          "secondary",
-        ),
+    altText: () => [
+      field(
+        "Alternative text",
+        el("textarea", {
+          class: "input",
+          value: P.getShapeDescription(obj) || "",
+          "aria-label": "Image alternative text",
+          onchange: (e) => {
+            const value = e.target.value;
+            mutateShape(obj, (obj) => P.setShapeDescription(obj, value));
+          },
+        }),
       ),
       el(
-        "div",
-        { class: "arrange-buttons" },
-        button(
-          "Backward",
-          "ArrowDown",
-          () => arrangeObject(obj, P.sendShapeBackward),
-          "secondary",
-        ),
-        button(
-          "To back",
-          "SendToBack",
-          () => arrangeObject(obj, P.sendShapeToBack),
-          "secondary",
-        ),
+        "p",
+        { class: "helper" },
+        "Describe what the image communicates for people using screen readers.",
       ),
+    ],
+  };
+}
+// Nothing selected: the slide's background, then the slide's transition and
+// the objects on it.
+function backgroundModel() {
+  return {
+    family: "background",
+    tops: [
+      {
+        id: "background",
+        label: "Background",
+        subs: [
+          {
+            id: "fill",
+            label: "Fill",
+            icon: "o:paneBackground",
+            build: () => {
+              const pane = backgroundPane.render();
+              pane.querySelector(":scope > h3")?.remove();
+              return [
+                section("Fill", [pane], { key: "background", open: true }),
+                section("Transition", transitionFields(), {
+                  key: "transition",
+                  open: true,
+                }),
+                section("Slide objects", slideObjectFields(), {
+                  key: "objects",
+                  open: true,
+                }),
+              ];
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+function transitionFields() {
+  const current = slideTransition(slide());
+  const select = el(
+    "select",
+    {
+      class: "input",
+      "aria-label": "Transition",
+      onchange: (e) => setTransition(slide(), e.target.value),
+    },
+    ...transitionTools.groups.map((group) =>
       el(
-        "div",
-        { class: "arrange-buttons" },
-        button("Duplicate", "Copy", duplicateObject, "secondary"),
-        button("Delete", "Trash2", deleteObject, "secondary"),
+        "optgroup",
+        { label: group.label },
+        ...transitionTools.entries
+          .filter((entry) => entry.group === group.id)
+          .map((entry) => el("option", { value: entry.id }, entry.label)),
       ),
-      (kind === "shape" || kind === "picture") &&
-        el(
-          "div",
-          { class: "arrange-buttons" },
-          button(
-            "Flip horizontal",
-            "FlipHorizontal2",
-            () => flipObject(obj, "horizontal"),
-            "secondary",
-          ),
-          button(
-            "Flip vertical",
-            "FlipVertical2",
-            () => flipObject(obj, "vertical"),
-            "secondary",
-          ),
-        ),
-      kind === "group" &&
-        el(
-          "div",
-          { class: "arrange-buttons" },
-          button("Ungroup", "Ungroup", ungroupSelection, "secondary"),
-        ),
-    ].filter(Boolean),
+    ),
   );
-  // The detailed sections: fill and line, effects, size and properties,
-  // picture, and text options.
-  if (!isTable(obj)) body.append(...formatTools.paneSections(obj));
-  panel.append(body);
+  if (current === "other")
+    select.prepend(el("option", { value: "other" }, "Imported"));
+  select.value = current;
+  return [
+    field("Transition", select),
+    button(
+      "Apply to all slides",
+      null,
+      () => setTransition(slide(), slideTransition(slide()), { all: true }),
+      "text-button",
+      // An imported transition is none of the three on offer and has no
+      // name to give the other slides, as the Slide menu also has it.
+      current === "other"
+        ? {
+            disabled: true,
+            title:
+              "This slide's transition came with the file. Choose one of the transitions above to apply it to every slide.",
+          }
+        : {},
+    ),
+  ];
+}
+function slideObjectFields() {
+  const shapes = visibleSlideShapes(slide());
+  return [
+    el(
+      "p",
+      { class: "helper" },
+      "Select an object on the slide to edit its text, style, or position.",
+    ),
+    el(
+      "div",
+      { class: "object-list" },
+      // Match the canvas: hidden artwork stays out of reach and images are
+      // identified by their description.
+      ...shapes.map((s) =>
+        button(
+          truncateLabel(shapeLabel(s, doc.pres)),
+          shapeIcon(s),
+          () => {
+            const current = shapeIndex(s);
+            if (current < 0) return;
+            selectOnly(current);
+            renderSelection();
+            renderInspector();
+          },
+          "object-list-item",
+        ),
+      ),
+    ),
+    !shapes.length &&
+      el(
+        "p",
+        { class: "helper" },
+        "An open canvas. Add text, a shape, or an image to get started.",
+      ),
+  ].filter(Boolean);
+}
+// Several objects: aligning, distributing and arranging them together.
+function multiModel() {
+  const count = selectionIds().size;
+  return {
+    family: "multi",
+    lead: [
+      el(
+        "div",
+        { class: "fmt-frame-lead" },
+        el("h3", {}, `${count} objects selected`),
+        el(
+          "p",
+          { class: "helper" },
+          "Drag to move them together. Shift-click adds or removes an object.",
+        ),
+      ),
+    ],
+    tops: [
+      {
+        id: "arrange",
+        label: "Arrange",
+        subs: [
+          {
+            id: "arrange",
+            label: "Align & Arrange",
+            icon: "o:paneArrange",
+            build: () => [
+              section(
+                "Align",
+                [
+                  alignRow(),
+                  el(
+                    "div",
+                    { class: "format-buttons" },
+                    iconButton(
+                      "Distribute horizontally",
+                      "AlignHorizontalDistributeCenter",
+                      () => distributeSelection("x"),
+                      { disabled: count < 3 },
+                    ),
+                    iconButton(
+                      "Distribute vertically",
+                      "AlignVerticalDistributeCenter",
+                      () => distributeSelection("y"),
+                      { disabled: count < 3 },
+                    ),
+                    el(
+                      "span",
+                      { class: "helper" },
+                      count < 3
+                        ? "Select three or more to distribute"
+                        : "Distribute evenly",
+                    ),
+                  ),
+                ],
+                { key: "multiAlign", open: true },
+              ),
+              section(
+                "Arrange",
+                [
+                  el(
+                    "div",
+                    { class: "arrange-buttons" },
+                    button(
+                      "To front",
+                      "BringToFront",
+                      () => arrangeObject(currentShape(), P.bringShapeToFront),
+                      "secondary",
+                    ),
+                    button(
+                      "To back",
+                      "SendToBack",
+                      () => arrangeObject(currentShape(), P.sendShapeToBack),
+                      "secondary",
+                    ),
+                  ),
+                  el(
+                    "div",
+                    { class: "arrange-buttons" },
+                    button("Group", "Group", groupSelection, "secondary"),
+                  ),
+                  el(
+                    "div",
+                    { class: "arrange-buttons" },
+                    button("Duplicate", "Copy", duplicateObject, "secondary"),
+                    button("Delete", "Trash2", deleteObject, "secondary"),
+                  ),
+                ],
+                { key: "multiArrange", open: true },
+              ),
+            ],
+          },
+        ],
+      },
+    ],
+  };
 }
 function flipObject(obj, axis) {
   mutateShape(obj, (obj) => {
@@ -12143,70 +12513,6 @@ function alignRow() {
     ),
   );
 }
-function multiInspector() {
-  const count = selectionIds().size;
-  return el(
-    "div",
-    { class: "inspector-content" },
-    el("h3", {}, `${count} objects selected`),
-    el(
-      "p",
-      { class: "helper" },
-      "Drag to move them together. Shift-click adds or removes an object.",
-    ),
-    el("h3", {}, "Align"),
-    alignRow(),
-    el(
-      "div",
-      { class: "format-buttons" },
-      iconButton(
-        "Distribute horizontally",
-        "AlignHorizontalDistributeCenter",
-        () => distributeSelection("x"),
-        { disabled: count < 3 },
-      ),
-      iconButton(
-        "Distribute vertically",
-        "AlignVerticalDistributeCenter",
-        () => distributeSelection("y"),
-        { disabled: count < 3 },
-      ),
-      el(
-        "span",
-        { class: "helper" },
-        count < 3 ? "Select three or more to distribute" : "Distribute evenly",
-      ),
-    ),
-    el("h3", {}, "Arrange"),
-    el(
-      "div",
-      { class: "arrange-buttons" },
-      button(
-        "To front",
-        "BringToFront",
-        () => arrangeObject(currentShape(), P.bringShapeToFront),
-        "secondary",
-      ),
-      button(
-        "To back",
-        "SendToBack",
-        () => arrangeObject(currentShape(), P.sendShapeToBack),
-        "secondary",
-      ),
-    ),
-    el(
-      "div",
-      { class: "arrange-buttons" },
-      button("Group", "Group", groupSelection, "secondary"),
-    ),
-    el(
-      "div",
-      { class: "arrange-buttons" },
-      button("Duplicate", "Copy", duplicateObject, "secondary"),
-      button("Delete", "Trash2", deleteObject, "secondary"),
-    ),
-  );
-}
 // The outline of a shape or picture, or the line itself for a connector:
 // color, width, dash, and for a line its arrowheads.
 const DASHES = [
@@ -12221,13 +12527,6 @@ const DASHES = [
   ["sysDash", "Short dashes"],
   ["sysDashDot", "Short dash-dot"],
   ["sysDashDotDot", "Short dash-dot-dot"],
-];
-const ARROWHEADS = [
-  ["none", "None"],
-  ["triangle", "Arrow"],
-  ["stealth", "Pointed arrow"],
-  ["oval", "Circle"],
-  ["diamond", "Diamond"],
 ];
 function strokeInfo(obj) {
   try {
@@ -12335,110 +12634,46 @@ function toggleShadow(on = null) {
     return changed ? undefined : SKIP_MUTATION;
   });
 }
-function borderFields(obj, kind) {
+// The outline's color for the Format pane's Line section: a field that takes
+// a typed or picked color, and for a shape or picture a way to remove it.
+function strokeFields(obj, kind) {
   const isLine = kind === "connector";
   const noun = isLine ? "Line" : "Border";
-  const info = strokeInfo(obj);
   const ink = THEMES[theme].ink;
-  const setStroke = (changes) =>
-    mutateShape(
-      obj,
-      (obj) => {
-        const current = strokeInfo(obj);
-        P.setShapeStroke(obj, {
-          color: changes.color ?? current.color ?? ink,
-          widthEmu: P.pt(changes.widthPt ?? current.widthPt),
-        });
-      },
-      changes.color
-        ? { coalesce: coalesceKey("stroke", P.getShapeSlide(obj), obj) }
-        : undefined,
-    );
-  const dash = el(
-    "select",
-    {
-      class: "input",
-      "aria-label": `${noun} style`,
-      onchange: (e) => {
-        const value = e.target.value;
-        mutateShape(obj, (obj) => {
-          if (!strokeInfo(obj).color)
-            P.setShapeStroke(obj, {
-              color: ink,
-              widthEmu: P.pt(strokeInfo(obj).widthPt),
-            });
-          P.setShapeStrokeDash(obj, value);
-        });
-      },
-    },
-    ...DASHES.map(([value, label]) => el("option", { value }, label)),
-    ...(info.dash === "custom"
-      ? [el("option", { value: "custom", disabled: true }, "Custom")]
-      : []),
-  );
-  dash.value = info.dash;
-  const arrowSelect = (end, label) => {
-    let current = "none";
-    try {
-      current = P.getShapeStrokeFormattingEffective(obj)[end]?.type || "none";
-    } catch {}
-    const select = el(
-      "select",
-      {
-        class: "input",
-        "aria-label": label,
-        onchange: (e) => {
-          const type = e.target.value;
-          mutateShape(obj, (obj) => P.setShapeStrokeArrow(obj, end, { type }));
-        },
-      },
-      ...ARROWHEADS.map(([value, name]) => el("option", { value }, name)),
-    );
-    select.value = ARROWHEADS.some(([value]) => value === current)
-      ? current
-      : "none";
-    return field(label, select);
-  };
-  return [
-    el("h3", {}, noun),
-    colorInput(`${noun} color`, info.color, (c) => setStroke({ color: c }), {
-      empty: isLine ? null : "No border",
-      fallback: ink,
-    }),
-    el(
-      "div",
-      { class: "field-grid" },
-      numInput(
-        `${noun} width (pt)`,
-        info.widthPt,
-        (n) => setStroke({ widthPt: n }),
-        0.25,
-        24,
-        0.25,
-      ),
-      field(`${noun} style`, dash),
-    ),
-    ...(isLine
-      ? [
-          el(
-            "div",
-            { class: "field-grid" },
-            arrowSelect("head", "Start arrow"),
-            arrowSelect("tail", "End arrow"),
+  return {
+    color: () =>
+      colorInput(
+        `${noun} color`,
+        strokeInfo(obj).color,
+        (c) =>
+          mutateShape(
+            obj,
+            (obj) => {
+              const current = strokeInfo(obj);
+              if (P.getShapeLineGradient(doc.pres, obj))
+                P.setShapeLineGradient(obj, null);
+              P.setShapeStroke(obj, {
+                color: c ?? current.color ?? ink,
+                widthEmu: P.pt(current.widthPt),
+              });
+            },
+            { coalesce: coalesceKey("stroke", P.getShapeSlide(obj), obj) },
           ),
-        ]
-      : [
-          button(
+        { empty: isLine ? null : "No border", fallback: ink },
+      ),
+    remove: isLine
+      ? null
+      : () =>
+          iconButton(
             "Remove border",
-            null,
+            "Ban",
             () =>
               mutateShape(obj, (obj) =>
                 strokeInfo(obj).color ? P.setShapeNoStroke(obj) : SKIP_MUTATION,
               ),
-            "text-button",
+            { class: "btn secondary icon-btn", title: "Remove border" },
           ),
-        ]),
-  ];
+  };
 }
 // Reordering several objects keeps their order among themselves: the ones
 // heading up go from the bottom, the ones heading down from the top.
@@ -15666,8 +15901,7 @@ document.addEventListener("keydown", (e) => {
       inspectorVisible() &&
       getComputedStyle(panelNode).position === "absolute"
     ) {
-      show("formatPane", false);
-      workspace()?.focus({ preventScroll: true });
+      closeFormatPane();
       return;
     }
     activeDrag?.cancel();

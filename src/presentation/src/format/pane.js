@@ -27,6 +27,7 @@ import {
 import { nativePatternPaths } from "../../lib/pptx-preview/src/pattern-cells.ts";
 import { TEXTURES, textureBytes } from "./textures.js";
 import { imageSize } from "./image-size.js";
+import { revealFormatSection } from "./pane-frame.js";
 
 export const PATTERNS = [
   "pct5",
@@ -79,6 +80,7 @@ export const PATTERNS = [
   "sphere",
 ];
 
+// Every dash the file format names.
 const DASHES = [
   ["solid", "Solid"],
   ["sysDot", "Round dot"],
@@ -88,6 +90,9 @@ const DASHES = [
   ["lgDash", "Long dash"],
   ["lgDashDot", "Long dash dot"],
   ["lgDashDotDot", "Long dash dot dot"],
+  ["dot", "Dot"],
+  ["sysDashDot", "Short dash dot"],
+  ["sysDashDotDot", "Short dash dot dot"],
 ];
 const COMPOUNDS = [
   ["sng", "Single"],
@@ -274,16 +279,16 @@ export function patternSwatch(preset, fg = "#000000", bg = "#FFFFFF") {
   return node;
 }
 
-// The group bar and group headings.
-function groupHeading(id, title) {
-  return el("h3", { class: "fmt-group-heading", id: `fmt-group-${id}` }, title);
-}
-
 /**
- * Builds the detailed format sections for one object. Returns nodes for the
- * inspector to append.
+ * The Format pane's sections for one object, as builders the pane's frame
+ * lays out in its tabs: `fill`, `line`, `effects`, `size`, `position`,
+ * `textBox`, `altText`, `picture`, `textFill` and `textEffects`. A builder is
+ * missing when the object has no such settings. `extra` carries the editor's
+ * own controls that join these sections (a color field that takes a typed
+ * value, the position and size in inches, the shadow switch, the picture's
+ * transparency and crop by side).
  */
-export function formatPaneSections(ctx, obj) {
+export function formatPaneParts(ctx, obj, extra = {}) {
   const { P } = ctx;
   const pres = ctx.pres();
   const theme = ctx.theme();
@@ -294,95 +299,36 @@ export function formatPaneSections(ctx, obj) {
   const textCapable = ctx.canEditText(obj) && !ctx.isTable(obj);
   const imageFilled =
     isShape && P.getShapeFillEffective(pres, obj)?.kind === "image";
-  const groups = [];
   const edit = (fn, key) =>
     ctx.mutateShape(
       obj,
       fn,
       key ? { coalesce: ctx.coalesce(key, obj) } : undefined,
     );
-  const nodes = [];
-
-  // ---- Fill & Line ---------------------------------------------------------
+  const parts = {
+    size: () => sizeSection(ctx, obj, edit, extra),
+    position: () => positionSection(ctx, obj, edit, extra),
+    altText: () => altTextSection(ctx, obj, edit, extra),
+  };
+  if (isShape) parts.fill = () => fillSection(ctx, obj, edit, theme, extra);
   if (isShape || isPicture || isLine) {
-    groups.push(["fill", "Fill & Line"]);
-    nodes.push(groupHeading("fill", "Fill & Line"));
-    if (isShape) nodes.push(fillSection(ctx, obj, edit, theme));
-    nodes.push(lineSection(ctx, obj, edit, theme, { isLine }));
+    parts.line = () => lineSection(ctx, obj, edit, theme, { isLine, extra });
+    parts.effects = () => effectSections(ctx, obj, edit, theme, extra);
   }
-
-  // ---- Effects -------------------------------------------------------------
-  if (isShape || isPicture || isLine) {
-    groups.push(["effects", "Effects"]);
-    nodes.push(
-      groupHeading("effects", "Effects"),
-      ...effectSections(ctx, obj, edit, theme),
-    );
-  }
-
-  // ---- Size & Properties ---------------------------------------------------
-  groups.push(["size", "Size & Properties"]);
-  nodes.push(
-    groupHeading("size", "Size & Properties"),
-    sizeSection(ctx, obj, edit),
-  );
-  if (textCapable) nodes.push(textBoxSection(ctx, obj, edit));
-  if (!isPicture) nodes.push(altTextSection(ctx, obj, edit));
-
-  // ---- Picture -------------------------------------------------------------
-  if (isPicture || imageFilled) {
-    groups.push(["picture", "Picture"]);
-    nodes.push(
-      groupHeading("picture", "Picture"),
-      ...pictureSections(ctx, obj, edit, { isPicture }),
-    );
-  }
-
-  // ---- Text Options --------------------------------------------------------
   if (textCapable) {
-    groups.push(["text", "Text Options"]);
-    nodes.push(
-      groupHeading("text", "Text Options"),
-      ...textOptionSections(ctx, obj, theme),
-    );
+    parts.textBox = () => textBoxSection(ctx, obj, edit);
+    const text = () => textOptionSections(ctx, obj, theme);
+    parts.textFill = () => text().slice(0, 2);
+    parts.textEffects = () => text().slice(2);
   }
-
-  const bar = el(
-    "nav",
-    { class: "fmt-group-bar", "aria-label": "Format groups" },
-    ...groups.map(([id, title]) =>
-      el(
-        "button",
-        {
-          type: "button",
-          class: "fmt-group-link",
-          onclick: (e) => {
-            const panel = e.currentTarget.closest("#inspector") || document;
-            const heading = panel.querySelector(`#fmt-group-${id}`);
-            heading?.scrollIntoView({ block: "start", behavior: "smooth" });
-            const first = heading?.nextElementSibling;
-            if (first?.tagName === "DETAILS") first.open = true;
-          },
-        },
-        title,
-      ),
-    ),
-  );
-  return [
-    el("div", { class: "fmt-pane", "data-format-pane": "" }, bar, ...nodes),
-  ];
+  if (isPicture || imageFilled)
+    parts.picture = () => pictureSections(ctx, obj, edit, { isPicture, extra });
+  return parts;
 }
 
-// Opens the section a menu's "Options…" item points at.
+/** Opens the section a menu's "Options…" item points at. */
 export function revealSection(key) {
-  const node = document.querySelector(
-    `#inspector details[data-section="${key}"]`,
-  );
-  if (!node) return false;
-  node.open = true;
-  node.scrollIntoView({ block: "start" });
-  node.querySelector("input,select,button")?.focus({ preventScroll: true });
-  return true;
+  return revealFormatSection(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +349,7 @@ function fillKindOf(ctx, obj) {
   );
 }
 
-function fillSection(ctx, obj, edit, theme) {
+function fillSection(ctx, obj, edit, theme, extra = {}) {
   const { P } = ctx;
   const pres = ctx.pres();
   const kind = fillKindOf(ctx, obj);
@@ -445,19 +391,44 @@ function fillSection(ctx, obj, edit, theme) {
       },
     ),
   );
+  // A plain color, or none: the color field shows it and takes a typed or
+  // picked color, beside the theme's palette and a way to clear it.
+  if ((kind === "solid" || kind === "none") && extra.fillColor) {
+    const fill = P.getShapeFillEffective(pres, obj);
+    const opacity = kind === "solid" ? (fill?.opacity ?? 1) : 1;
+    body.push(
+      colorCombo(
+        extra.fillColor(),
+        colorButton({
+          label: "Fill theme colors",
+          hideLabel: true,
+          value: P.getShapeFillColorResolvedEffective(pres, obj),
+          theme,
+          onPick: (v) =>
+            edit((s) => {
+              if (P.getShapeBackgroundFill(s))
+                P.setShapeBackgroundFill(s, false);
+              P.setShapeFill(s, withAlpha(v, opacity, theme));
+            }),
+        }),
+        extra.removeFill?.(),
+      ),
+    );
+  }
   if (kind === "solid") {
     const fill = P.getShapeFillEffective(pres, obj);
     const color = P.getShapeFillColorResolvedEffective(pres, obj) || accent;
     const opacity = fill?.opacity ?? 1;
     body.push(
-      colorButton({
-        label: "Fill color",
-        hideLabel: false,
-        value: color,
-        theme,
-        onPick: (v) =>
-          edit((s) => P.setShapeFill(s, withAlpha(v, opacity, theme))),
-      }),
+      !extra.fillColor &&
+        colorButton({
+          label: "Fill color",
+          hideLabel: false,
+          value: color,
+          theme,
+          onPick: (v) =>
+            edit((s) => P.setShapeFill(s, withAlpha(v, opacity, theme))),
+        }),
       sliderField({
         label: "Fill transparency",
         value: pct(1 - opacity),
@@ -474,18 +445,25 @@ function fillSection(ctx, obj, edit, theme) {
     body.push(...gradientEditor(ctx, obj, edit, theme, accent));
   if (kind === "pattern") body.push(...patternEditor(ctx, obj, edit, theme));
   if (kind === "picture") body.push(...pictureFillEditor(ctx, obj, edit));
-  return section("Fill", body, { key: "fill", open: true });
+  return section("Fill", body.filter(Boolean), { key: "fill", open: true });
+}
+
+// A color field with the theme palette's button and, for some, a button that
+// clears the color.
+function colorCombo(field, palette, clear) {
+  return el("div", { class: "fmt-color-combo" }, field, palette, clear);
 }
 
 // A color value carrying an alpha modifier, as the engine writes it.
 function withAlpha(value, opacity, theme) {
   const base = String(value).split("/")[0];
   const hex = base.startsWith("scheme:") ? base : cssColor(base, theme) || base;
-  if (opacity >= 0.999) return hex;
+  // A theme color keeps its tint or shade.
   const mods = String(value)
     .split("/")
     .slice(1)
     .filter((m) => !m.startsWith("alpha="));
+  if (opacity >= 0.999) return [hex, ...mods].join("/");
   return [
     hex,
     ...mods,
@@ -974,7 +952,7 @@ function pictureFillEditor(ctx, obj, edit) {
 // ---------------------------------------------------------------------------
 // Line
 
-function lineSection(ctx, obj, edit, theme, { isLine }) {
+function lineSection(ctx, obj, edit, theme, { isLine, extra = {} }) {
   const { P } = ctx;
   const pres = ctx.pres();
   const stroke = P.getShapeStrokeEffective(pres, obj);
@@ -1026,21 +1004,43 @@ function lineSection(ctx, obj, edit, theme, { isLine }) {
         }),
     ),
   ];
+  if (kind !== "gradient" && extra.lineColor)
+    body.push(
+      colorCombo(
+        extra.lineColor(),
+        colorButton({
+          label: "Line theme colors",
+          hideLabel: true,
+          value: kind === "solid" ? color : null,
+          theme,
+          onPick: (v) =>
+            edit((s) => {
+              if (gradient) P.setShapeLineGradient(s, null);
+              P.setShapeStroke(s, {
+                color: withAlpha(v, kind === "solid" ? opacity : 1, theme),
+                widthEmu: Math.round(widthPt * PT),
+              });
+            }),
+        }),
+        extra.removeLine?.(),
+      ),
+    );
   if (kind !== "none") {
     if (kind === "solid")
       body.push(
-        colorButton({
-          label: "Line color",
-          value: color,
-          theme,
-          onPick: (v) =>
-            edit((s) =>
-              P.setShapeStroke(s, {
-                color: withAlpha(v, opacity, theme),
-                widthEmu: Math.round(widthPt * PT),
-              }),
-            ),
-        }),
+        !extra.lineColor &&
+          colorButton({
+            label: "Line color",
+            value: color,
+            theme,
+            onPick: (v) =>
+              edit((s) =>
+                P.setShapeStroke(s, {
+                  color: withAlpha(v, opacity, theme),
+                  widthEmu: Math.round(widthPt * PT),
+                }),
+              ),
+          }),
         sliderField({
           label: "Line transparency",
           value: pct(1 - opacity),
@@ -1144,9 +1144,21 @@ function lineSection(ctx, obj, edit, theme, { isLine }) {
         { class: "fmt-row" },
         selectField({
           label: "Dash type",
-          value: fmt.dash?.kind === "preset" ? fmt.dash.value : "solid",
-          options: DASHES,
-          onChange: (v) => edit((s) => (ensure(s), P.setShapeStrokeDash(s, v))),
+          // A dash drawn from the file's own lengths shows as Custom until
+          // another is chosen.
+          value:
+            fmt.dash?.kind === "preset"
+              ? fmt.dash.value
+              : fmt.dash?.kind === "custom"
+                ? "custom"
+                : "solid",
+          options:
+            fmt.dash?.kind === "custom"
+              ? [...DASHES, ["custom", "Custom"]]
+              : DASHES,
+          onChange: (v) =>
+            v !== "custom" &&
+            edit((s) => (ensure(s), P.setShapeStrokeDash(s, v))),
         }),
         selectField({
           label: "Cap type",
@@ -1212,13 +1224,13 @@ function lineSection(ctx, obj, edit, theme, { isLine }) {
     if (isLine || P.getShapeKind(obj) === "shape")
       body.push(arrows("head", "Begin"), arrows("tail", "End"));
   }
-  return section("Line", body, { key: "line", open: true });
+  return section("Line", body.filter(Boolean), { key: "line", open: true });
 }
 
 // ---------------------------------------------------------------------------
 // Effects
 
-function effectSections(ctx, obj, edit, theme) {
+function effectSections(ctx, obj, edit, theme, extra = {}) {
   const { P } = ctx;
   const pres = ctx.pres();
   const spec = P.getShapeEffectSpec(pres, obj);
@@ -1231,6 +1243,7 @@ function effectSections(ctx, obj, edit, theme) {
   // Shadow
   const s = spec.shadow;
   const shadowBody = [
+    extra.shadowToggle?.(),
     selectField({
       label: "Shadow presets",
       value: s
@@ -1674,7 +1687,7 @@ function effectSections(ctx, obj, edit, theme) {
 // ---------------------------------------------------------------------------
 // Size & Properties
 
-function sizeSection(ctx, obj, edit) {
+function sizeSection(ctx, obj, edit, extra = {}) {
   const { P } = ctx;
   const b = ctx.slideBounds(obj);
   const locked = P.getShapeAspectLock(obj);
@@ -1710,10 +1723,8 @@ function sizeSection(ctx, obj, edit) {
           );
         ctx.setSlideBounds(s, next);
       });
-    const fromCenter = !!ctx.state.positionFromCenter;
-    const ox = fromCenter ? b.w / 2 : 0;
-    const oy = fromCenter ? b.h / 2 : 0;
     out.push(
+      ...(extra.sizeFields?.() || []),
       el(
         "div",
         { class: "fmt-row" },
@@ -1743,40 +1754,21 @@ function sizeSection(ctx, obj, edit) {
         checked: locked,
         onChange: (on) => edit((s) => P.setShapeAspectLock(s, on)),
       }),
-      el(
-        "div",
-        { class: "fmt-row" },
-        numberField({
-          label: "Horizontal position",
-          value: (b.x + ox) / IN,
-          unit: "in",
-          min: -100,
-          max: 100,
-          step: 0.1,
-          onCommit: (n) =>
-            edit((s) =>
-              ctx.setSlideBounds(s, {
-                ...ctx.slideBounds(s),
-                x: Math.round(n * IN - ox),
-              }),
-            ),
-        }),
-        numberField({
-          label: "Vertical position",
-          value: (b.y + oy) / IN,
-          unit: "in",
-          min: -100,
-          max: 100,
-          step: 0.1,
-          onCommit: (n) =>
-            edit((s) =>
-              ctx.setSlideBounds(s, {
-                ...ctx.slideBounds(s),
-                y: Math.round(n * IN - oy),
-              }),
-            ),
-        }),
-      ),
+    );
+  }
+  return section("Size", out.filter(Boolean), { key: "size", open: true });
+}
+
+// Where the object sits: from the slide's top left corner to the object's
+// corner (in the editor's own fields) or to its center.
+function positionSection(ctx, obj, edit, extra = {}) {
+  const b = ctx.slideBounds(obj);
+  const out = [];
+  if (b) {
+    const fromCenter = !!ctx.state.positionFromCenter;
+    const ox = fromCenter ? b.w / 2 : 0;
+    const oy = fromCenter ? b.h / 2 : 0;
+    out.push(
       selectField({
         label: "Position from",
         value: fromCenter ? "center" : "corner",
@@ -1790,8 +1782,47 @@ function sizeSection(ctx, obj, edit) {
         },
       }),
     );
+    if (!fromCenter && extra.positionFields)
+      out.push(...extra.positionFields());
+    else
+      out.push(
+        el(
+          "div",
+          { class: "fmt-row" },
+          numberField({
+            label: "Horizontal position",
+            value: (b.x + ox) / IN,
+            unit: "in",
+            min: -100,
+            max: 100,
+            step: 0.1,
+            onCommit: (n) =>
+              edit((s) =>
+                ctx.setSlideBounds(s, {
+                  ...ctx.slideBounds(s),
+                  x: Math.round(n * IN - ox),
+                }),
+              ),
+          }),
+          numberField({
+            label: "Vertical position",
+            value: (b.y + oy) / IN,
+            unit: "in",
+            min: -100,
+            max: 100,
+            step: 0.1,
+            onCommit: (n) =>
+              edit((s) =>
+                ctx.setSlideBounds(s, {
+                  ...ctx.slideBounds(s),
+                  y: Math.round(n * IN - oy),
+                }),
+              ),
+          }),
+        ),
+      );
   }
-  return section("Size", out, { key: "size" });
+  return section("Position", out, { key: "position", open: true });
 }
 
 function textBoxSection(ctx, obj, edit) {
@@ -1901,11 +1932,11 @@ function textBoxSection(ctx, obj, edit) {
   );
 }
 
-function altTextSection(ctx, obj, edit) {
+function altTextSection(ctx, obj, edit, extra = {}) {
   const { P } = ctx;
   return section(
     "Alt Text",
-    [
+    extra.altText?.() || [
       el(
         "label",
         { class: "fmt-field" },
@@ -1973,13 +2004,17 @@ export function recolorPresets(theme) {
   ];
 }
 
-function pictureSections(ctx, obj, edit, { isPicture }) {
+function pictureSections(ctx, obj, edit, { isPicture, extra = {} }) {
   const { P } = ctx;
   const theme = ctx.theme();
   const adj = P.getShapePictureAdjustments(obj);
   const writeAdj = (patch, key) =>
     edit((s) => P.setShapePictureAdjustments(s, patch), key);
   const out = [];
+  if (isPicture && extra.imageFields)
+    out.push(
+      section("Picture", extra.imageFields(), { key: "image", open: true }),
+    );
   const brightness = isPicture ? (P.getShapeImageBrightness(obj) ?? 0) : 0;
   const contrast = isPicture ? (P.getShapeImageContrast(obj) ?? 0) : 0;
   out.push(
@@ -1994,7 +2029,9 @@ function pictureSections(ctx, obj, edit, { isPicture }) {
           unit: "%",
           onCommit: (n) => writeAdj({ sharpness: n / 100 }, "sharpness"),
         }),
+        isPicture && extra.brightness?.(),
         isPicture &&
+          !extra.brightness &&
           sliderField({
             label: "Picture brightness",
             value: pct(brightness),
@@ -2037,7 +2074,7 @@ function pictureSections(ctx, obj, edit, { isPicture }) {
           "Reset corrections",
         ),
       ].filter(Boolean),
-      { key: "corrections" },
+      { key: "corrections", open: true },
     ),
   );
   const recolor = P.getShapePictureRecolor(obj);
@@ -2112,7 +2149,7 @@ function pictureSections(ctx, obj, edit, { isPicture }) {
       { key: "artistic" },
     ),
   );
-  if (isPicture) out.push(cropSection(ctx, obj, edit));
+  if (isPicture) out.push(cropSection(ctx, obj, edit, extra));
   return out;
 }
 
@@ -2162,7 +2199,7 @@ export function fillOrFit(img, box, mode) {
   };
 }
 
-function cropSection(ctx, obj, edit) {
+function cropSection(ctx, obj, edit, extra = {}) {
   const { P } = ctx;
   const bytes = P.getShapeImageBytes?.(obj);
   const natural = bytes ? imageSize(bytes) : null;
@@ -2237,8 +2274,9 @@ function cropSection(ctx, obj, edit) {
           ),
         ),
       ),
-    ],
-    { key: "crop" },
+      extra.cropFields?.(),
+    ].filter(Boolean),
+    { key: "crop", open: true },
   );
 }
 
