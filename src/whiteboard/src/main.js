@@ -554,6 +554,7 @@ import { createImageClipboard } from "./image-clipboard.js";
 import { createContentTools } from "./content/content.js";
 import { loadPdfjs } from "./content/pdf-loader.js";
 import { busy } from "./accessibility/busy.js";
+import { say, watchDialogs } from "./accessibility/live-region.js";
 import "./content/content.css";
 import {
   canClearContent,
@@ -2938,6 +2939,7 @@ function iconsRefresh() {
 // A modal dialog covers the page and makes it inert, so show toasts inside
 // the topmost open dialog and return them to the page when it closes.
 const toastElement = document.querySelector("#toast");
+watchDialogs(["board-announcer", "facilitation-live"]);
 document.addEventListener(
   "close",
   (e) => {
@@ -4362,12 +4364,8 @@ function previewsInView(people, now) {
 const announced = { key: "", timer: null, id: null, message: "" };
 function announce(message) {
   const region = document.querySelector("#board-announcer");
-  if (!region) return;
   // Emptied first, so the same words said twice are read twice.
-  region.textContent = "";
-  setTimeout(() => {
-    if (region.isConnected) region.textContent = message;
-  }, 50);
+  say(region, message, { delay: 50 });
 }
 // What an object selected alone is announced as, from the board as this
 // person sees it: hidden objects are left out and face-down notes stay so.

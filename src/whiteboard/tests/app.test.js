@@ -23670,6 +23670,45 @@ test("screen readers hear who joins, leaves and is editing an object", async () 
   }
 });
 
+test("what is said behind an open modal dialog is said inside it as well", async () => {
+  const frame = item("frame", 0, 0, { w: 400, h: 300, title: "Agenda" });
+  const shared = await sharedEditors("presence-behind-dialog", [frame]);
+  const [a, b] = shared.apps;
+  // jsdom does not track the top layer: an open dialog stands in for a
+  // modal one, as showModal is the only way the board opens them.
+  const matches = a.w.Element.prototype.matches;
+  a.w.HTMLDialogElement.prototype.matches = function (selector) {
+    return selector === ":modal" ? this.open : matches.call(this, selector);
+  };
+  const mirrored = (id) =>
+    a.doc.querySelector(`dialog[open] > .dialog-announcer[data-for="${id}"]`)
+      ?.textContent;
+  try {
+    a.w.dispatchEvent(new a.w.Event("online"));
+    await shared.until(
+      () =>
+        a.doc.querySelector("#board-announcer").textContent === "Bob joined",
+      "The join is said",
+    );
+    await a.click('[data-action="present"]');
+    await a.click("#start-presentation");
+    assert.ok(a.doc.querySelector("dialog[open]"), "Presenting");
+    await b.click('[data-action="home"]');
+    a.w.dispatchEvent(new a.w.Event("online"));
+    // The page's region is inert behind the dialog, so the dialog says it.
+    await shared.until(
+      () => mirrored("board-announcer") === "Bob left",
+      "The departure is said inside the presentation",
+    );
+    assert.equal(
+      a.doc.querySelector("#board-announcer").textContent,
+      "Bob left",
+    );
+  } finally {
+    await shared.close();
+  }
+});
+
 test("people joining or leaving together are said as one count", async () => {
   const room = "presence-counted";
   const shared = await sharedEditors(room, [item("note", 100, 100)], 1);

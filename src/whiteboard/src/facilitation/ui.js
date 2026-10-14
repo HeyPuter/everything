@@ -24,6 +24,7 @@ import {
   objectNameHTML,
 } from "../accessibility/object-content.js";
 import { canonicalLanguage } from "../accessibility/language-tag.js";
+import { say } from "../accessibility/live-region.js";
 import { appendRun, sliceTextRuns } from "../rich-text.js";
 import { counted } from "./strings.js";
 import {
@@ -387,10 +388,7 @@ export function createFacilitationUI(api) {
     return true;
   }
   function announce(message, html = false) {
-    if (!live) return;
-    live.textContent = "";
-    if (html) live.innerHTML = message;
-    else live.textContent = message;
+    say(live, message, { html });
   }
   function react(target, type) {
     if (!api.canParticipate()) return api.toast("This board is read-only.");
