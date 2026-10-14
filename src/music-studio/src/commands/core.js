@@ -9,6 +9,11 @@ import { openMenu } from '../ui/menu.js';
 import { REPO_URL } from '../ui/toolbar.js';
 import { SYNTH_PRESETS, DRUM_PRESETS } from '../instruments/presets.js';
 import { applyTheme } from '../ui/theme.js';
+import { IS_MAC } from '../lib/util.js';
+
+// Cmd+Y is the browser history on macOS. The metronome is Alt+M because
+// Cmd+M minimizes the window on macOS.
+const REDO_KEYS = IS_MAC ? ['Mod+Shift+Z'] : ['Mod+Shift+Z', 'Mod+Y'];
 
 /** Runs a panel action ('copy', 'paste', 'delete', ...) on the active panel, if it supports it. */
 function panelAction(app, name) {
@@ -51,7 +56,8 @@ export function registerCoreCommands(app) {
     {
       id: 'view.fullscreen',
       label: 'Full screen',
-      keys: ['F11'],
+      // macOS reserves F11 (show desktop); its full screen shortcut is Cmd+Ctrl+F.
+      keys: [IS_MAC ? 'Mod+Ctrl+F' : 'F11'],
       enabled: () => Boolean(document.documentElement.requestFullscreen),
       checked: () => Boolean(document.fullscreenElement),
       run: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}),
@@ -70,7 +76,7 @@ export function registerCoreCommands(app) {
 
     // ---------------------------------------------------------- edit
     { id: 'edit.undo', label: () => (store.canUndo ? `Undo ${store.undoLabel.toLowerCase()}` : 'Undo'), keys: ['Mod+Z'], enabled: () => store.canUndo, run: () => app.notify(`Undid ${store.undo()?.toLowerCase()}`) },
-    { id: 'edit.redo', label: () => (store.canRedo ? `Redo ${store.redoLabel.toLowerCase()}` : 'Redo'), keys: ['Mod+Shift+Z', 'Mod+Y'], enabled: () => store.canRedo, run: () => app.notify(`Redid ${store.redo()?.toLowerCase()}`) },
+    { id: 'edit.redo', label: () => (store.canRedo ? `Redo ${store.redoLabel.toLowerCase()}` : 'Redo'), keys: REDO_KEYS, enabled: () => store.canRedo, run: () => app.notify(`Redid ${store.redo()?.toLowerCase()}`) },
     { id: 'edit.cut', label: 'Cut', keys: ['Mod+X'], enabled: () => panelHas(app, 'cut'), run: () => panelAction(app, 'cut') },
     { id: 'edit.copy', label: 'Copy', keys: ['Mod+C'], enabled: () => panelHas(app, 'copy'), run: () => panelAction(app, 'copy') },
     { id: 'edit.paste', label: 'Paste', keys: ['Mod+V'], enabled: () => panelHas(app, 'paste'), run: () => panelAction(app, 'paste') },
@@ -199,7 +205,7 @@ export function registerCoreCommands(app) {
     { id: 'add.pattern', label: 'Add pattern', run: () => commands.run('patterns.new') },
 
     // ---------------------------------------------------------- options
-    { id: 'options.metronome', label: 'Metronome', keys: ['Mod+M'], checked: () => app.prefs.get('metronome'), run: () => app.prefs.toggle('metronome') },
+    { id: 'options.metronome', label: 'Metronome', keys: ['Alt+M'], checked: () => app.prefs.get('metronome'), run: () => app.prefs.toggle('metronome') },
     { id: 'options.countIn', label: 'Count-in before recording', keys: ['Mod+P'], checked: () => app.prefs.get('countIn'), run: () => app.prefs.toggle('countIn') },
     { id: 'options.typingKeyboard', label: 'Typing keyboard to piano', keys: ['Alt+K'], checked: () => app.prefs.get('typingKeyboard'), run: () => app.prefs.toggle('typingKeyboard') },
     { id: 'options.stepEdit', label: 'Step edit', keys: ['Mod+E'], checked: () => app.prefs.get('stepEditing'), run: () => app.prefs.toggle('stepEditing') },
