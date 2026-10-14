@@ -371,3 +371,36 @@ test("an edit hashes each picture once, not again on every edit", async (t) => {
   await local.checkpoint(b, "Copied");
   assert.equal(digest.mock.callCount(), 1);
 });
+
+test("on a board too large for every version, a burst of edits leaves the latest version of each earlier day", async (t) => {
+  const local = await fresh();
+  const b = board("Large board");
+  // About 8 MB a version, so 50 MB holds six.
+  b.items.push(item("note", 0, 0, { text: "x".repeat(4 * 1024 * 1024) }));
+  let now;
+  t.mock.method(Date, "now", () => now);
+  // Three days of work, a version each hour.
+  for (let day = 1; day <= 3; day++)
+    for (let hour = 0; hour < 4; hour++) {
+      now = new Date(2026, 9, day, 9 + hour).getTime();
+      await local.checkpoint(b, `Day ${day} at ${9 + hour}`);
+    }
+  // Then a minute of nudges a few days later.
+  now = new Date(2026, 9, 6, 10).getTime();
+  for (let n = 0; n < 10; n++) {
+    now += 2000;
+    await local.checkpoint(b, `Nudge ${n}`);
+  }
+  const labels = (await local.revisions(b.id))
+    .sort((x, y) => y.created - x.created)
+    .map((r) => r.label);
+  // The newest, the end of each earlier day, then the newest nudges.
+  assert.deepEqual(labels, [
+    "Nudge 9",
+    "Nudge 8",
+    "Nudge 7",
+    "Day 3 at 12",
+    "Day 2 at 12",
+    "Day 1 at 12",
+  ]);
+});

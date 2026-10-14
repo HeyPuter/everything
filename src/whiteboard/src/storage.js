@@ -128,18 +128,18 @@ function mediaHash(data) {
   rememberHash(data, hash);
   return hash;
 }
-// What a version's pictures take: each is counted once among the versions
-// kept, however many of them show it. Data URLs are plain ASCII, written at
-// one byte a character.
-const mediaCost = (r, counted) => {
+// What a version takes beyond what the versions kept before it do: each
+// picture counts once among the versions kept, however many of them show
+// it. Data URLs are plain ASCII, written at one byte a character.
+const extraBytes = (r, counted) => {
   let bytes = r.bytes;
   r.media?.forEach((hash, n) => {
-    if (counted.has(hash)) return;
-    counted.add(hash);
-    bytes += r.mediaBytes[n];
+    if (!counted.has(hash)) bytes += r.mediaBytes[n];
   });
   return bytes;
 };
+const countMedia = (r, counted) =>
+  r.media?.forEach((hash) => counted.add(hash));
 // Puts each picture a version refers to back in its place. Versions sharing
 // a picture share the one string read for it.
 function withMedia(r, media) {
@@ -464,42 +464,76 @@ export const local = {
     // The newest 30 versions are kept, then one for each quarter hour of
     // the last 30 days (the latest in it), up to 200 more, so an earlier
     // stage of the work can still be restored after a burst of edits; all
-    // within 50 MB, newest first, each picture counted once. Named versions
-    // do not count among them: the newest 100 are kept, within 50 MB of
-    // their own, and any beyond that are pruned like the others.
+    // within 50 MB, each picture counted once. Named versions do not count
+    // among them: the newest 100 are kept, within 50 MB of their own, and
+    // any beyond that are pruned like the others.
     const over = () => {
       const quarter = (r) => Math.floor(r.created / (15 * 60_000)),
         since = written.created - 30 * 86400_000,
         seen = new Set(),
-        counted = new Set(),
         keptCounted = new Set(),
+        // The versions to keep, by what the budget goes to first when they
+        // do not all fit: the newest version, then the latest of each day,
+        // then the newest 30, then the latest of each hour, then the other
+        // quarter hours. On a large board a minute of small edits would
+        // otherwise take it all and leave nothing from the days before.
+        ranked = [[], [], [], [], []],
         ids = [];
-      let bytes = 0,
-        keptBytes = 0,
+      let keptBytes = 0,
         named = 0,
         recent = 0,
-        older = 0;
+        older = 0,
+        lastDay,
+        lastHour;
       for (const [index, r] of all.entries()) {
         if (r.kept && named < 100) {
-          const counting = new Set(keptCounted),
-            cost = mediaCost(r, counting);
+          const cost = extraBytes(r, keptCounted);
           if (index === 0 || keptBytes + cost <= REVISION_BYTES) {
             named++;
             keptBytes += cost;
-            for (const hash of counting) keptCounted.add(hash);
+            countMedia(r, keptCounted);
             continue;
           }
         }
-        let keep =
-          recent++ < 30 ||
-          (r.created > since && !seen.has(quarter(r)) && older++ < 200);
-        if (keep) {
-          bytes += mediaCost(r, counted);
-          if (index > 0 && bytes > REVISION_BYTES) keep = false;
+        const isRecent = recent++ < 30;
+        if (
+          !isRecent &&
+          !(r.created > since && !seen.has(quarter(r)) && older++ < 200)
+        ) {
+          ids.push(r.id);
+          continue;
         }
-        if (keep) seen.add(quarter(r));
-        else ids.push(r.id);
+        seen.add(quarter(r));
+        // Newest first, so the first of a day or an hour is its latest.
+        const day = (r.day ??= new Date(r.created).toDateString()),
+          hour = Math.floor(r.created / 3_600_000),
+          latestOfDay = day !== lastDay && r.created > since,
+          latestOfHour = hour !== lastHour;
+        lastDay = day;
+        lastHour = hour;
+        ranked[
+          index === 0
+            ? 0
+            : latestOfDay
+              ? 1
+              : isRecent
+                ? 2
+                : latestOfHour
+                  ? 3
+                  : 4
+        ].push(r);
       }
+      const counted = new Set();
+      let bytes = 0;
+      for (const [rank, list] of ranked.entries())
+        for (const r of list) {
+          const cost = extraBytes(r, counted);
+          if (rank > 0 && bytes + cost > REVISION_BYTES) ids.push(r.id);
+          else {
+            bytes += cost;
+            countMedia(r, counted);
+          }
+        }
       return ids;
     };
     const drop = async (ids) => {
