@@ -2126,9 +2126,14 @@ export async function adminCall(org, boards, identity, input) {
           ? "active"
           : "deactivated"
         : user.status;
+      // An API key the account owner made acts for the owner here, as it
+      // does over SCIM, so offboarding automation reaches administrators
+      // too; it still never appoints one.
+      const ownerKey = !!identity.apiKey && identity.createdBy === owner.uuid;
       if (
         before.role === "admin" &&
         role !== "owner" &&
+        !ownerKey &&
         input.status !== current
       )
         fail(403, "Only the account owner can change an administrator.");
@@ -2146,7 +2151,7 @@ export async function adminCall(org, boards, identity, input) {
         delete user.inactiveByOwner;
       } else {
         user.active = false;
-        if (role === "owner") user.inactiveByOwner = true;
+        if (role === "owner" || ownerKey) user.inactiveByOwner = true;
       }
     }
     // Only what this request changed is written, so a team change or a

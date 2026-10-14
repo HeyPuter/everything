@@ -4,7 +4,7 @@ import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 import { adminCall } from "../worker/admin.js";
 import { restRoute } from "../worker/api.js";
-import { environment, owner, editor } from "./collaboration-helpers.js";
+import { environment, owner, editor, viewer } from "./collaboration-helpers.js";
 
 const PATCH = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
@@ -1595,4 +1595,51 @@ test("someone an administrator reactivates after the identity provider deleted t
     Operations: [{ op: "replace", path: "active", value: false }],
   });
   assert.equal(await org.active(editor), false);
+});
+
+test("an API key the account owner made can deactivate an administrator through the REST API, as through SCIM", async () => {
+  const { org, boards } = await setup();
+  const { token } = await adminCall(org, boards, owner, {
+    op: "org.invite",
+    role: "admin",
+  });
+  await adminCall(org, boards, editor, { op: "org.join", token });
+  assert.equal(await org.role(editor), "admin");
+  const users = async (creator) => {
+    const { key } = await adminCall(org, boards, creator, {
+      op: "apikeys.create",
+      name: "Offboarding",
+      scopes: ["users:write"],
+    });
+    return (status) =>
+      restRoute(
+        org,
+        boards,
+        new Request(`https://w.puter.work/v1/users/${editor.uuid}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${key}` },
+        }),
+        "PATCH",
+        `users/${editor.uuid}`,
+        { status },
+      );
+  };
+  const ownerKey = await users(owner);
+  assert.equal((await ownerKey("deactivated")).status, 200);
+  assert.equal(await org.active(editor), false);
+  assert.equal((await ownerKey("active")).status, 200);
+  assert.equal(await org.active(editor), true);
+  // A key an administrator made still cannot, nor can any key appoint one.
+  const viewerAdmin = { uuid: viewer.uuid, username: viewer.username };
+  const second = await adminCall(org, boards, owner, {
+    op: "org.invite",
+    role: "admin",
+  });
+  await adminCall(org, boards, viewerAdmin, {
+    op: "org.join",
+    token: second.token,
+  });
+  const adminKey = await users(viewerAdmin);
+  await assert.rejects(adminKey("deactivated"), { status: 403 });
+  assert.equal(await org.role(editor), "admin");
 });
