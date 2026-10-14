@@ -46,4 +46,16 @@ describe('store', () => {
     s.undo();
     expect(s.project.patterns.some((p) => p.id === s.view.pattern)).toBe(true);
   });
+
+  it('cancel keeps the view on things the restored project has', () => {
+    const s = new Store(newProject());
+    s.begin('Duplicate pattern');
+    const r = s.preview((p) => E.addPattern(p));
+    s.setPattern(r.id);
+    const views = vi.fn();
+    s.on('view', views);
+    s.cancel();
+    expect(s.project.patterns.some((p) => p.id === s.view.pattern)).toBe(true);
+    expect(views).toHaveBeenCalled();
+  });
 });

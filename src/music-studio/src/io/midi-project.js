@@ -16,6 +16,7 @@ import { PPQ } from '../model/time.js';
 import { createChannel, createPattern, createClip, colorAt, patternById, patternLength } from '../model/project.js';
 import * as E from '../model/edits.js';
 import { uid } from '../lib/util.js';
+import { trackAudible } from '../playlist/clips.js';
 import { synthPreset, drumPreset } from '../instruments/presets.js';
 
 /** General MIDI program (0..127) to a built-in synth preset name. */
@@ -55,6 +56,9 @@ const toTicks = (t, ppq) => Math.round((t * PPQ) / ppq);
  * Adds a parsed MIDI file to a project. Resolves the new project plus what
  * was added. Tempo and time signature come from the file when `useTempo`.
  */
+/** Most instrument parts (track and channel pairs) one import adds. */
+export const MAX_PARTS = 256;
+
 export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {}) {
   const ppq = midi.ppq || 96;
   const parts = new Map(); // `${track}:${ch}` -> { name, ch, program, notes }
@@ -66,10 +70,14 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     }
   });
   if (!parts.size) throw new Error('The MIDI file has no notes.');
+  if (parts.size > MAX_PARTS) throw new Error(`The MIDI file has ${parts.size} parts; at most ${MAX_PARTS} can be imported.`);
 
   let p = project;
-  if (useTempo && midi.tempos.length) p = E.setProjectProps(p, { bpm: Math.round(midi.tempos[0].bpm * 100) / 100 });
-  if (useTempo && midi.sigs.length && [1, 2, 4, 8, 16].includes(midi.sigs[0].den)) p = { ...p, sig: [Math.min(16, Math.max(1, midi.sigs[0].num)), midi.sigs[0].den] };
+  // The tempo and meter in effect at the start (the file defaults are 120 bpm, 4/4).
+  const tempo = midi.tempos.length ? (midi.tempos[0].tick === 0 ? midi.tempos[0].bpm : 120) : null;
+  const sig = midi.sigs.length ? (midi.sigs[0].tick === 0 ? midi.sigs[0] : { num: 4, den: 4 }) : null;
+  if (useTempo && tempo) p = E.setProjectProps(p, { bpm: Math.round(tempo * 100) / 100 });
+  if (useTempo && sig && [1, 2, 4, 8, 16].includes(sig.den)) p = { ...p, sig: [Math.min(16, Math.max(1, sig.num)), sig.den] };
 
   const usedInserts = new Set(p.channels.map((c) => c.mixer));
   const nextInsert = () => {
@@ -160,9 +168,9 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     const pat = patternById(project, patternId) || project.patterns[0];
     for (const [cid, list] of Object.entries(pat.notes)) for (const n of list) push(cid, n, 0);
   } else {
-    const trackMuted = (i) => project.tracks[i]?.mute;
     for (const c of project.clips) {
-      if (c.kind !== 'pattern' || c.mute || trackMuted(c.track)) continue;
+      // Track mute and solo as playback applies them.
+      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track)) continue;
       const pat = patternById(project, c.ref);
       if (!pat) continue;
       for (const [cid, list] of Object.entries(pat.notes)) {

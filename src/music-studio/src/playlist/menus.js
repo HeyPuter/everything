@@ -5,6 +5,7 @@ import * as E from '../model/edits.js';
 import { COLORS } from '../model/project.js';
 import { promptDialog, confirmDialog } from '../ui/dialog.js';
 import { openMenu } from '../ui/menu.js';
+import { formatKeys } from '../commands/registry.js';
 import { announce } from '../lib/dom.js';
 import { formatBST } from '../model/time.js';
 import * as C from './clips.js';
@@ -166,11 +167,11 @@ export function trackMenu(V, i, at) {
         store.apply('Insert track', (q) => C.insertTrack(q, i));
         V.selectTrack(i);
       } },
-      { type: 'cmd', label: 'Move up', keys: 'Alt+↑', enabled: i > 0, run: () => {
+      { type: 'cmd', label: 'Move up', keys: formatKeys('Alt+ArrowUp'), enabled: i > 0, run: () => {
         store.apply('Move track', (q) => E.moveTrack(q, i, i - 1));
         V.selectTrack(i - 1);
       } },
-      { type: 'cmd', label: 'Move down', keys: 'Alt+↓', enabled: i < p.tracks.length - 1, run: () => {
+      { type: 'cmd', label: 'Move down', keys: formatKeys('Alt+ArrowDown'), enabled: i < p.tracks.length - 1, run: () => {
         store.apply('Move track', (q) => E.moveTrack(q, i, i + 1));
         V.selectTrack(i + 1);
       } },

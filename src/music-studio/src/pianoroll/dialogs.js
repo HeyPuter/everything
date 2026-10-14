@@ -325,7 +325,9 @@ export function openNoteProps(ed, note) {
   left = clamp(left, 8, Math.max(8, rw - w - 8));
   el.style.left = `${Math.round(left)}px`;
   el.style.top = `${Math.round(top)}px`;
-  setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+  setTimeout(() => {
+    if (el.isConnected) document.addEventListener('pointerdown', outside, true);
+  }, 0);
   popover = { el, close };
   key.focus();
   key.select();

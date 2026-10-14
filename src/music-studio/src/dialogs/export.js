@@ -13,6 +13,8 @@ import { formatTime } from '../model/time.js';
 import * as puter from '../storage/puter.js';
 
 export const EXPORT_RATES = [44100, 48000, 88200, 96000];
+/** Longest effect tail rendered after the end, in seconds (long reverbs decay up to 20 s). */
+export const TAIL_MAX = 30;
 export const EXPORT_BITS = [
   { bits: 16, label: '16-bit (dithered)' },
   { bits: 24, label: '24-bit' },
@@ -156,7 +158,8 @@ async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, 
       mode,
       patternId: store.view.pattern,
       rate,
-      tail,
+      // Seconds at most: the render ends early once the tails fall silent.
+      tail: tail ? TAIL_MAX : 0,
       isolate,
       signal,
       onProgress: (f) => setProgress((part + f) / parts),

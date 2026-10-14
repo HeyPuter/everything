@@ -286,6 +286,49 @@ describe('sequencer', () => {
     expect(seq.counting).toBe(false);
     expect(core.meters()[2]).toBeGreaterThan(0);
   });
+
+  it('releases sounding audio clips and notes that an edit removes, and starts clips moved under the playhead', () => {
+    const p = createProject();
+    const ch = createChannel({ type: 'audio', mixer: 1, sample: 's' });
+    const pad = createChannel({ type: 'synth', mixer: 2 });
+    p.channels = [ch, pad];
+    p.bpm = 120;
+    p.patterns[0].notes = { [pad.id]: [createNote({ key: 60, pos: 0, len: 384 * 4 })] };
+    const clip = { id: 'c', kind: 'audio', track: 0, start: 0, len: 384 * 4, offset: 0, ref: ch.id, mute: false };
+    const notes = { id: 'n', kind: 'pattern', track: 1, start: 0, len: 384 * 4, offset: 0, ref: p.patterns[0].id, mute: false };
+    p.clips = [clip, notes];
+    const sine = new Float32Array(RATE * 10).map((_, i) => Math.sin((2 * Math.PI * 220 * i) / RATE) * 0.5);
+    const core = makeCore();
+    const slots = new Map([[ch.id, 0], [pad.id, 1]]);
+    core.loadSample(0, [sine], RATE);
+    core.setMixer(compileMixer(p));
+    core.setChannel(compileChannel(p, ch, 0, () => 0));
+    core.setChannel(compileChannel(p, pad, 1));
+    const seq = new Sequencer(core, RATE);
+    const compile = (proj) => compileSequence(proj, { mode: 'song', slotOf: (id) => slots.get(id) });
+    seq.setSequence(compile(p));
+    seq.play(0);
+    const run = (blocks) => {
+      for (let i = 0; i < blocks; i++) seq.block(BLOCK);
+      return core.meters();
+    };
+    run(40);
+    let m = run(10);
+    expect(m[2]).toBeGreaterThan(0.1); // audio insert
+    expect(m[4]).toBeGreaterThan(0.01); // synth insert
+    // Mute the audio clip and delete the long note while both sound.
+    const muted = { ...p, clips: [{ ...clip, mute: true }, notes], patterns: [{ ...p.patterns[0], notes: {} }] };
+    seq.setSequence(compile(muted));
+    run(400); // the synth release tail
+    m = run(10);
+    expect(m[2]).toBe(0);
+    expect(m[4]).toBeLessThan(1e-4);
+    // Unmute: the clip resumes from the middle right away.
+    seq.setSequence(compile({ ...muted, clips: [clip, notes] }));
+    run(2);
+    m = run(10);
+    expect(m[2]).toBeGreaterThan(0.1);
+  });
 });
 
 // Keep helpers referenced for linters.
