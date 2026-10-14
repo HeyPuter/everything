@@ -8700,11 +8700,17 @@ for (const action of ["moving", "resizing"]) {
         ? page.locator('.resize-handle[data-handle="se"]')
         : panel;
     const box = await grip.boundingBox();
+    // The drag scales with the slide, so a phone's small slide does not shrink
+    // the object below the size at which its grips stand apart from it.
+    const k = Math.min(
+      1,
+      (await page.locator("#slide-canvas").boundingBox()).width / 800,
+    );
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(
-      box.x + box.width / 2 - 40,
-      box.y + box.height / 2 + 30,
+      box.x + box.width / 2 - 40 * k,
+      box.y + box.height / 2 + 30 * k,
       { steps: 4 },
     );
     await expect(page.locator(".object-hit.selected")).toHaveCount(1);
@@ -8811,6 +8817,10 @@ test("printing reuses the navigator's slide renders", async ({ page }) => {
       window.__printStarted = true;
     };
   });
+  // A phone's File options menu also carries Insert, whose layout pictures
+  // are drawn the first time it opens; they are not slide renders.
+  await openFileMenu(page);
+  await page.keyboard.press("Escape");
   await countSvgRenders(page);
   await printFromMenu(page);
   await page.waitForFunction(() => window.__printStarted);
@@ -10920,8 +10930,9 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   const first = await thumbs.nth(0).boundingBox();
   const third = await thumbs.nth(2).boundingBox();
   const horizontal = third.x > first.x + first.width / 2;
-  // Drag the first slide past the third; a drop line shows on the way.
-  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
+  // Drag the first slide past the third; a drop line shows on the way. The
+  // press is above the slide's options button, which a phone always shows.
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 4);
   await page.mouse.down();
   await page.mouse.move(
     horizontal ? third.x + third.width * 0.9 : third.x + third.width / 2,
@@ -11639,7 +11650,8 @@ test("selected slides move together when one of them is dragged or moved", async
   const fourth = await thumbs.nth(3).boundingBox();
   const horizontal = fourth.x > from.x + from.width / 2;
   // Drag slide 3 past slide 4: slide 2 comes along as a block.
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  // Pressed above the options button a phone always shows.
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 4);
   await page.mouse.down();
   await page.mouse.move(
     horizontal ? fourth.x + fourth.width * 0.9 : fourth.x + fourth.width / 2,
@@ -11923,6 +11935,9 @@ test("color, size, and font from the toolbar or panel apply to the selected text
   expect(runs[0].format).toMatchObject({ size: 52, font: "Arial" });
   expect(runs[0].format.color).not.toBe("#CC0000");
   await page.keyboard.press("Control+z");
+  // A phone's panel lies over the slide; it goes before the next edit.
+  const close = page.getByRole("button", { name: "Close format panel" });
+  if (await close.isVisible()) await close.click();
   await hit.dblclick();
   await expect(editor.locator("span")).toHaveCount(2);
   await page.keyboard.press("Escape");
@@ -14439,8 +14454,14 @@ test("the zoom buttons and menu items switch off at the ends of the zoom ladder"
   const zoomIn = page.getByRole("button", { name: "Zoom in", exact: true });
   const zoomOut = page.getByRole("button", { name: "Zoom out", exact: true });
   const level = page.getByRole("button", { name: "Zoom level" });
+  // Zooming out from a fitted slide is possible while the fit is above the
+  // ladder's least step, as a phone's may not be.
+  const outFromFit = async () =>
+    expect(zoomOut).toBeEnabled({
+      enabled: parseInt(await level.textContent()) > 25,
+    });
   await expect(zoomIn).toBeEnabled();
-  await expect(zoomOut).toBeEnabled();
+  await outFromFit();
   for (let i = 0; i < 15; i++) await page.keyboard.press("Control+=");
   await expect(level).toHaveText("400%");
   await expect(zoomIn).toBeDisabled();
@@ -14469,7 +14490,7 @@ test("the zoom buttons and menu items switch off at the ends of the zoom ladder"
     page.getByRole("button", { name: "Fit slide to current window" }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(zoomIn).toBeEnabled();
-  await expect(zoomOut).toBeEnabled();
+  await outFromFit();
 });
 
 // With the focus on a thumbnail, the arrow keys moved the object selected on
@@ -14554,10 +14575,9 @@ test("unavailable device storage is reported once, in plain words", async ({
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
   await expect(page.locator("#toast")).toHaveText(warning);
   await page.locator('[data-object="1"]').click();
-  const italic = page.getByRole("button", { name: "Italic", exact: true });
   for (let i = 0; i < 3; i++) {
-    await italic.first().click();
-    await expect(italic.first()).toHaveAttribute(
+    await (await ribbonButton(page, "Home", "italic")).click();
+    await expect(ribbonControl(page, "italic")).toHaveAttribute(
       "aria-pressed",
       i % 2 ? "false" : "true",
     );
@@ -15843,9 +15863,7 @@ test("the arrows move an object from the canvas, not from a tool button", async 
   const title = page.locator('[data-object="1"]');
   await title.click();
   const before = await title.getAttribute("style");
-  await page
-    .locator('.ribbon-panel:not([hidden]) [data-command="bold"]')
-    .focus();
+  await (await ribbonButton(page, "Home", "bold")).focus();
   await page.keyboard.press("ArrowDown");
   await page.waitForTimeout(300);
   expect(await title.getAttribute("style")).toBe(before);
