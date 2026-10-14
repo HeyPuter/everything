@@ -357,7 +357,8 @@ export class TextDocument {
     patch = { ...patch };
     if ('underlineColor' in patch && !('underline' in patch)) throw new Error('Set underline and its color together.');
     for (const [key, value] of Object.entries(patch)) {
-      if (!(key in PARAGRAPH_FORMAT)) throw new Error('Unknown paragraph property.');
+      // suppressAutoHyphens (§17.3.1.34) is optional: absent means hyphenation is allowed.
+      if (!(key in PARAGRAPH_FORMAT) && key !== 'suppressAutoHyphens') throw new Error('Unknown paragraph property.');
       if (key === 'paragraphBorders') {
         patch.paragraphBorders = checkedParagraphBorders(value);
       } else if (key === 'paragraphShading') {
@@ -368,7 +369,7 @@ export class TextDocument {
         patch.tabs = normalizeTabStops(value);
       } else if (INDENT_KEYS.includes(key)) {
         validateIndent(value);
-      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing' || key === 'suppressLineNumbers') {
+      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing' || key === 'suppressLineNumbers' || key === 'suppressAutoHyphens') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
         if (!['left', 'center', 'right', 'both'].includes(value)) throw new Error('Choose left, center, right or justified alignment.');

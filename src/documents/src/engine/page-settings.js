@@ -2,6 +2,7 @@ import { normalizeColor } from './colors.js';
 import { sectionColumnIntervals } from './section-columns.js';
 import { checkedPageBorders } from './page-borders.js';
 import { checkedLineNumbers } from './line-number-settings.js';
+import { HYPHENATION_DEFAULTS, checkedHyphenationSetting, hyphenationGeometry } from './hyphenation-settings.js';
 /** Page settings use integer twips; the document-wide background is resolved sRGB. */
 export const DEFAULT_PAGE_SETTINGS = Object.freeze({
   width: 12240, height: 15840, orientation: 'portrait',
@@ -20,6 +21,8 @@ export const DEFAULT_PAGE_SETTINGS = Object.freeze({
   // Section line numbering (w:lnNumType): null or { countBy, start, distance, restart }.
   lineNumbers: null,
   defaultTabStop: 720, noTabHangInd: false, forgetLastTabAlignment: false, allowSpaceOfSameStyleInTable: false, wrapTrailSpaces: false, ulTrailSpace: false, doNotExpandShiftReturn: false, doNotUseHTMLParagraphAutoSpacing: false,
+  // Document-wide hyphenation settings (§17.15.1): see hyphenation-settings.js.
+  ...HYPHENATION_DEFAULTS,
 });
 export const PAPER_SIZES = Object.freeze({ Letter: [12240, 15840], A4: [11906, 16838], Legal: [12240, 20160] });
 /** How a section starts (ST_SectionMark, §17.18.77); next-column starts are not supported. */
@@ -29,12 +32,14 @@ export const SECTION_TYPES = Object.freeze(['nextPage', 'continuous', 'evenPage'
  * same values, so changing one changes them all.
  */
 export const DOCUMENT_PAGE_KEYS = Object.freeze(['background', 'backgroundPicture', 'bordersDoNotSurroundHeader', 'bordersDoNotSurroundFooter', 'bookFoldPrinting', 'bookFoldRevPrinting', 'mirrorMargins', 'printTwoOnOne', 'compatibilityMode',
-  'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'defaultTabStop', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing', 'gutterAtTop']);
+  'splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'defaultTabStop', 'noTabHangInd', 'forgetLastTabAlignment', 'allowSpaceOfSameStyleInTable', 'wrapTrailSpaces', 'ulTrailSpace', 'doNotExpandShiftReturn', 'doNotUseHTMLParagraphAutoSpacing', 'gutterAtTop', ...Object.keys(HYPHENATION_DEFAULTS)]);
 export function validatePageSettings(input = {}) {
   const result = { ...DEFAULT_PAGE_SETTINGS, ...input };
   for (const [key, value] of Object.entries(result)) {
     if (!Object.hasOwn(DEFAULT_PAGE_SETTINGS, key)) throw new Error('Unknown page setting.');
-    if (key === 'backgroundPicture') {
+    if (Object.hasOwn(HYPHENATION_DEFAULTS, key)) {
+      checkedHyphenationSetting(key, value);
+    } else if (key === 'backgroundPicture') {
       if (value !== null && (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !['assetId','width','height'].includes(k)) || typeof value.assetId !== 'string' || !value.assetId || ![value.width,value.height].every(n => Number.isFinite(n) && n > 0 && n <= 1e9))) throw new Error('Invalid page picture background.');
       result.backgroundPicture = value;
     } else if (key === 'lineNumbers') {
@@ -98,6 +103,7 @@ export function pageGeometry(settings = DEFAULT_PAGE_SETTINGS) {
     allowSpaceOfSameStyleInTable: p.allowSpaceOfSameStyleInTable, wrapTrailSpaces: p.wrapTrailSpaces, ulTrailSpace: p.ulTrailSpace, doNotExpandShiftReturn: p.doNotExpandShiftReturn, doNotUseHTMLParagraphAutoSpacing: p.doNotUseHTMLParagraphAutoSpacing,
     defaultTabStop: p.defaultTabStop, noTabHangInd: p.noTabHangInd, forgetLastTabAlignment: p.forgetLastTabAlignment,
     splitPgBreakAndParaMark: p.splitPgBreakAndParaMark, suppressSpBfAfterPgBrk: p.suppressSpBfAfterPgBrk,
+    ...hyphenationGeometry(p),
     ...(bookFold ? { bookFold: p.bookFoldRevPrinting ? 'reverse' : 'forward', bookFoldReferenceMargins: { left: (p.left + p.gutter) / 15, right: p.right / 15 } } : {}),
     left: (p.left + (p.gutterAtTop || bookFold ? 0 : p.gutter)) / 15, right: (p.right + (bookFold ? p.gutter : 0)) / 15,
     top: (Math.abs(p.top) + (p.gutterAtTop ? p.gutter : 0)) / 15, bottom: Math.abs(p.bottom) / 15,

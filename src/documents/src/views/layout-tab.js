@@ -85,6 +85,8 @@ export function createLayoutTab({ editor, pkg, error, onChange = () => {}, comma
   const writingWidth = s => readingPageSize(s)[0] - s.left - s.right - (s.gutterAtTop ? 0 : s.gutter);
 
   const commands = {
+    /** The Page Setup group shows Line Numbers and Hyphenation, so their modules add no groups of their own. */
+    pageSetupHasHyphenation: true,
     /** Section-aware page settings for other modules (line numbers): 'section' | 'document' | 'forward'. */
     applySectionSettings(patch, { scope } = {}) { return setPage(patch, { scope }); },
     /** The Page Setup dialog for the caret's section. */

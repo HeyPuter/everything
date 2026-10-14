@@ -58,7 +58,7 @@ export function resolvedFormat(properties) {
     throw new UnsupportedDocumentError('paragraph spacing outside the supported range');
   }
   const pagination = Object.fromEntries(Object.entries(PAGINATION_DEFAULTS).map(([key, fallback]) => [key, properties[key] ?? fallback]));
-  return { ...geometry, ...pagination, ...automatic, paragraphBorders: checkedParagraphBorders(properties.paragraphBorders || {}), paragraphShading: checkedShading(properties.paragraphShading ?? 'auto'), contextualSpacing: properties.contextualSpacing ?? false, suppressLineNumbers: properties.suppressLineNumbers ?? false, outlineLevel, alignment: alignment === 'start' ? 'left' : alignment === 'end' ? 'right' : alignment, lineRule, lineSpacing, spaceBefore, spaceAfter };
+  return { ...geometry, ...pagination, ...automatic, paragraphBorders: checkedParagraphBorders(properties.paragraphBorders || {}), paragraphShading: checkedShading(properties.paragraphShading ?? 'auto'), contextualSpacing: properties.contextualSpacing ?? false, suppressLineNumbers: properties.suppressLineNumbers ?? false, ...(properties.suppressAutoHyphens !== undefined ? { suppressAutoHyphens: properties.suppressAutoHyphens } : {}), outlineLevel, alignment: alignment === 'start' ? 'left' : alignment === 'end' ? 'right' : alignment, lineRule, lineSpacing, spaceBefore, spaceAfter };
 }
 
 // Explicit point edits switch off inherited/direct automatic spacing. Retain

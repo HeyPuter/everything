@@ -11,6 +11,8 @@ import { inlineDrawingPlaceholder } from './docx-drawing-preview.js';
 import { readPageBorders, writePageBorders } from './docx-page-borders.js';
 import { readPageBackground } from './docx-page-background.js';
 import { writeSettingsFlag } from './docx-settings-flags.js';
+import { readHyphenationSettings, writeHyphenationSettings } from './docx-hyphenation.js';
+import { HYPHENATION_KEYS, withoutHyphenation } from './hyphenation-settings.js';
 import { readTextFill, writeTextFill } from './text-fill.js';
 import { readText3d, writeText3d } from './text-3d.js';
 import { readTextShadow, writeTextShadow } from './text-shadow.js';
@@ -114,6 +116,8 @@ function paragraphProperties(pPr, inherited = {}, readColor) {
     const node = child(pPr, name);
     if (node) result[name] = enabled(node);
   }
+  const noHyphens = child(pPr, 'suppressAutoHyphens');
+  if (noHyphens) result.suppressAutoHyphens = enabled(noHyphens);
   const ind = child(pPr, 'ind');
   // First-line and hanging are mutually exclusive forms of the same indent.
   const special = ['firstLine', 'hanging', 'firstLineChars', 'hangingChars'];
@@ -202,7 +206,7 @@ function writeParagraphFormat(node, p, make, numbering) {
     if (p.list) { const level = make('ilvl'); level.setAttributeNS(W, 'w:val', String(p.list.level)); numPr.append(level); }
     const id = make('numId'); id.setAttributeNS(W, 'w:val', p.list?.numId || '0'); numPr.append(id);
   }
-  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing', 'suppressLineNumbers']) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
+  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing', 'suppressLineNumbers', 'suppressAutoHyphens']) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
   if ('paragraphBorders' in patch) writeParagraphBorders(ensure('pBdr'), patch.paragraphBorders, make);
   if ('paragraphShading' in patch) writeParagraphShading(ensure('shd'), patch.paragraphShading);
   if ('alignment' in patch) ensure('jc').setAttributeNS(W, 'w:val', patch.alignment);
@@ -384,6 +388,7 @@ function readPageSettings(section, settings, readColor, attempt = read => read()
     orientation: size?.getAttributeNS(W, 'orient') || 'portrait',
     defaultTabStop: child(settings, 'defaultTabStop') ? twips(child(settings, 'defaultTabStop'), 'val', NaN) : 720,
     gutterAtTop: enabled(child(settings, 'gutterAtTop')) ?? false,
+    ...readHyphenationSettings(settings),
   };
   for (const key of ['splitPgBreakAndParaMark', 'suppressSpBfAfterPgBrk', 'noTabHangInd', 'forgetLastTabAlignment']) result[key] = enabled(child(child(settings, 'compat'), key)) ?? false;
   const modes = children(child(settings, 'compat')).filter(n => n.namespaceURI === W && n.localName === 'compatSetting' && n.getAttributeNS(W, 'name') === 'compatibilityMode' && n.getAttributeNS(W, 'uri') === 'http://schemas.microsoft.com/office/word');
@@ -1935,7 +1940,8 @@ export class DocxPackage {
       const { settings, related, path } = openSettings(parts);
       if (pageFlags.map(key => writeSettingsFlag(settings, key, pageSettings[key])).some(Boolean)) saveSettings(parts, settings, related, path);
     }
-    if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
+    if (HYPHENATION_KEYS.some(key => pageSettings[key] !== this.initialPageSettings[key])) { const { settings, related, path } = openSettings(parts); if (writeHyphenationSettings(settings.documentElement, pageSettings, this.initialPageSettings)) saveSettings(parts, settings, related, path); }
+    if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(withoutHyphenation(pageSettings)) === JSON.stringify(withoutHyphenation(this.initialPageSettings)) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
     let blocks = documentBlocks(paragraphs, tables);
     listMarkers(paragraphs, numbering);
     writeNumbering(parts, numbering);
@@ -1979,7 +1985,7 @@ export class DocxPackage {
       });
     }
     if (this.hasPlainTextControls) blocks = documentBlocks(paragraphs, tables);
-    if (!section && (!this.originals.size || JSON.stringify(pageSettings) !== JSON.stringify(this.initialPageSettings))) { section = make('sectPr'); body.append(section); }
+    if (!section && (!this.originals.size || JSON.stringify(withoutHyphenation(pageSettings)) !== JSON.stringify(withoutHyphenation(this.initialPageSettings)))) { section = make('sectPr'); body.append(section); }
     // Sections keep their source properties; a new section break copies those of the section it splits.
     const sourceSections = new Map(this.paragraphs.filter(p => p.sectionEnd).map(p => [p.sectionProperties, p.sectionEnd]));
     const finalSource = { xml: section && this.originals.size ? serializeFragment(section) : null, settings: this.initialPageSettings };

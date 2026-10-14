@@ -22966,3 +22966,56 @@ sections place numbers on the left; the PDF text layer omits line numbers; bidi
 and vertical sections, `docGrid` interactions and native label placement within
 column gaps are not verified against a native reference. The HWP converter still
 writes its own margin text boxes instead of `lnNumType`.
+### Hyphenation: automatic, manual and options (2026-10-13)
+
+Clauses (ECMA-376 Part 1): §17.15.1.10 `autoHyphenation`, §17.15.1.22
+`consecutiveHyphenLimit`, §17.15.1.37 `doNotHyphenateCaps`, §17.15.1
+`hyphenationZone` (settings part), §17.3.1.34 `suppressAutoHyphens` (paragraph and
+paragraph-style properties), §17.3.3.29 `softHyphen` and §17.3.3.18 `noBreakHyphen`.
+
+Supported subset:
+- The four settings are read with the specification's defaults for omitted
+  elements (off, off, 360 twips, no limit). `hyphenationZone` accepts plain twips
+  and universal measures. Malformed values fall back to the default; the element
+  is only rewritten when that setting is changed. Changes are written in
+  CT_Settings order (after `defaultTabStop`), switched-off on/off settings are
+  removed, and a missing settings part is created with its relationship and
+  content type. Every other part, including the rest of settings.xml, is
+  unchanged; a settings-only edit leaves document.xml byte-identical. The
+  settings are document-wide, so they can change in multi-section documents
+  whose section geometry is otherwise retained.
+- `suppressAutoHyphens` is read from direct and style paragraph properties
+  (on/off values) and written as `w:val="1"`/`"0"` when set from the editor.
+- Layout (original implementation, `src/engine/hyphenation*.js`): when a line
+  overflows inside a plain word, the word is split at the last break point whose
+  first part and a hyphen fit. The hyphen is display-only: the text, carets,
+  copy and export are unchanged, and the break's caret sits before the hyphen.
+  Interpretation of the zone: the word is split only when ending the line before
+  it would leave more than the zone free at the trailing margin; a word that
+  starts the line is always eligible. The consecutive limit counts lines ending
+  in an automatic or manual (soft) hyphen within a paragraph; only automatic
+  breaks are suppressed when it is reached. Words written entirely in capitals
+  are skipped with `doNotHyphenateCaps`. Text whose `w:lang` is not English, words
+  with digits, symbols, inner punctuation (URLs, addresses), mixed case after the
+  first letter, or existing soft/explicit hyphens are never split.
+- Break points come from an original rule-based English syllabifier (vowel
+  nuclei, consonant-cluster division with maximal permissible onsets, common
+  prefixes/suffixes, silent final e, and a short hand-written exception list).
+  No third-party hyphenation patterns or dictionaries are used. Two letters must
+  precede and three follow a break.
+- Manual hyphenation proposes, word by word, the break automatic hyphenation
+  would use; an accepted break is inserted as a soft hyphen (`w:softHyphen`), one
+  undo step per hyphen. Soft and nonbreaking hyphens keep their existing
+  rendering and round trip.
+
+Independent fixture: `public/fixtures/hyphenation.docx`, written by
+`tools/hyphenation_fixture.py` from the clauses above (schema-valid). Tests:
+`tests/hyphenation.test.js`, `tests/browser/hyphenation.spec.js`.
+
+Gaps: break points are a heuristic, not a dictionary; ambiguous English
+divisions (stress-dependent single consonants) may differ from desktop word
+processors, and only English is hyphenated. Table AutoFit minimum widths ignore
+automatic break points. Line positions of hyphenated text are not claimed to match
+any other renderer. The East Asian `w:kinsoku`-style line rules and
+`w:hyphenationZone` interaction with justification compression are not
+modeled.
