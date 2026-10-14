@@ -68,7 +68,7 @@ export const MENUS = [
   },
   {
     label: 'Options',
-    items: ['options.metronome', 'options.countIn', 'options.typingKeyboard', 'options.stepEdit', 'options.autoScroll', '-', 'project.settings', 'options.audio', 'options.preferences'],
+    items: ['options.metronome', 'options.countIn', 'options.typingKeyboard', 'options.midiInput', 'options.stepEdit', 'options.recordQuantize', 'options.autoScroll', '-', 'project.settings', 'options.audio', 'options.preferences'],
   },
   {
     label: 'Tools',

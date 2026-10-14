@@ -33,6 +33,7 @@ export async function signIn() {
 
 export async function signOut() {
   if (!canSignOut()) return;
+  cachedHome = null;
   await sdk()?.auth.signOut();
 }
 
@@ -54,10 +55,10 @@ export async function getProfilePicture() {
 }
 
 /** Puter file picker. Resolves FSItem[] (never resolves on cancel, per the SDK). */
-export async function pickFiles({ multiple = true, accept } = {}) {
+export async function pickFiles({ multiple = true, accept, path } = {}) {
   const p = sdk();
   if (!p?.ui?.showOpenFilePicker) throw new Error('The Puter file picker is not available.');
-  const r = await p.ui.showOpenFilePicker({ multiple, accept });
+  const r = await p.ui.showOpenFilePicker({ multiple, accept, ...(path ? { path } : {}) });
   return Array.isArray(r) ? r : [r];
 }
 
@@ -78,10 +79,24 @@ export async function writeFile(path, data, options = {}) {
 
 // ------------------------------------------------------------ file browsing
 
+let cachedHome = null; // { username, home } for the signed-in session
+
 /** The signed-in user's home folder ("/username"), or "~" when unknown. */
 export async function homeDir() {
+  if (!isSignedIn()) {
+    cachedHome = null;
+    return '~';
+  }
+  if (cachedHome) return cachedHome.home;
   const user = await getUser();
-  return user?.username ? `/${user.username}` : '~';
+  if (!user?.username) return '~';
+  cachedHome = { username: user.username, home: `/${user.username}` };
+  return cachedHome.home;
+}
+
+/** Forgets cached account details (after sign-in changes). */
+export function resetAccountCache() {
+  cachedHome = null;
 }
 
 /** Default folder for files the app writes: ~/MusicStudio. */
@@ -142,4 +157,61 @@ export function dirname(path = '') {
 
 export function joinPath(dir, name) {
   return `${String(dir).replace(/\/+$/, '')}/${name}`;
+}
+
+// ------------------------------------------------------------ app helpers
+
+/** Throws a friendly error unless signed in (so no call can pop up a sign-in prompt). */
+export function requireSignedIn() {
+  if (!isSignedIn()) throw new Error('Sign in to use your Puter cloud storage.');
+}
+
+/** A folder under ~/MusicStudio ('Projects', 'Samples', 'Exports'). */
+export async function appSubdir(name) {
+  return joinPath(await appDir(), name);
+}
+
+/** Writes a file without replacing an existing one ("name (1).wav"). Resolves the FSItem. */
+export async function writeNew(path, data) {
+  return sdk().fs.write(path, data, { overwrite: false, dedupeName: true, createMissingParents: true });
+}
+
+export async function deleteFile(path) {
+  return sdk().fs.delete(path);
+}
+
+/** Whether an error from Puter means the storage quota is used up. */
+export function isQuotaError(err) {
+  const code = err?.code || err?.error?.code || '';
+  return code === 'storage_limit_reached' || code === 'input_too_large' || err?.status === 413;
+}
+
+/** Whether an error means the app may not access that path. */
+export function isPermissionError(err) {
+  const code = String(err?.code || err?.error?.code || '');
+  return err?.status === 403 || /forbidden|access_denied|permission/i.test(code);
+}
+
+/** A user-facing message for a Puter error. */
+export function errorMessage(err, fallback = 'Something went wrong with Puter storage.') {
+  if (isQuotaError(err)) return 'Your Puter storage is full. Free some space or save to your device instead.';
+  if (err?.code === 'subject_does_not_exist' || err?.status === 404) return 'The file was not found. It may have been moved or deleted.';
+  return err?.message || err?.error?.message || fallback;
+}
+
+/** Inside the Puter desktop: sets the window title. */
+export function setWindowTitle(title) {
+  try {
+    if (env() === 'app') sdk()?.ui?.setWindowTitle?.(title);
+  } catch {
+    // Older SDKs without window control.
+  }
+}
+
+/** Inside the Puter desktop: runs `fn(items)` when the app is opened with files. */
+export function onLaunchedWithItems(fn) {
+  const ui = sdk()?.ui;
+  if (env() !== 'app' || !ui?.onLaunchedWithItems) return false;
+  ui.onLaunchedWithItems(fn);
+  return Boolean(ui.wasLaunchedWithItems?.());
 }

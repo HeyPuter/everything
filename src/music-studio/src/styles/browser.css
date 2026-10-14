@@ -1,0 +1,252 @@
+/* Browser panel: search field and the tree. */
+
+.browser {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.browser.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.br-head {
+  position: relative;
+  flex: none;
+  padding: 6px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.br-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--faint);
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.br-search {
+  width: 100%;
+  padding-left: 26px;
+}
+
+.br-search::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.br-tools {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.br-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 0 8px;
+  overscroll-behavior: contain;
+}
+
+.br-row {
+  --indent: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px 0 calc(4px + var(--level, 0) * var(--indent));
+  color: var(--text-2);
+  font-size: var(--fs);
+  white-space: nowrap;
+  cursor: default;
+  border-radius: 0;
+}
+
+.br-row:hover {
+  background: var(--raised-hover);
+  color: var(--text);
+}
+
+.br-tree:focus-within .br-row[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+.br-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.br-row.current .br-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.br-row.playing .br-label {
+  color: var(--accent);
+}
+
+.br-row[draggable='true'] {
+  cursor: grab;
+}
+
+.br-chev {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--faint);
+}
+
+.br-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.br-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.br-label mark {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.br-detail,
+.br-count {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+}
+
+.br-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-sunken);
+  text-align: center;
+}
+
+.br-play {
+  flex: none;
+  color: var(--muted);
+}
+
+.br-row.playing .br-play {
+  color: var(--accent);
+}
+
+/* Sections read as headers. */
+.br-row.k-section {
+  height: 28px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.br-row.k-section:first-child {
+  margin-top: 0;
+}
+
+.br-row.k-group .br-label {
+  color: var(--text-2);
+}
+
+/* Notes are explanations, not items: wrap and stay quiet. */
+.br-row.k-note {
+  height: auto;
+  min-height: 24px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.br-row.k-note .br-label {
+  overflow: visible;
+}
+
+.br-row.k-note:hover {
+  background: transparent;
+  color: var(--faint);
+}
+
+.br-row.k-action {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.br-row.k-action .br-icon {
+  color: var(--accent);
+}
+
+.br-empty {
+  padding: 16px 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.br-empty p {
+  margin: 0 0 8px;
+}
+
+/* Touch and phones: larger rows and targets. */
+@media (pointer: coarse) {
+  .br-row {
+    --indent: 14px;
+    height: 36px;
+  }
+
+  .br-row.k-section {
+    height: 36px;
+  }
+
+  .br-play {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.is-phone .br-row {
+  --indent: 16px;
+  height: 44px;
+  padding-right: 12px;
+  font-size: var(--fs-md);
+}
+
+.is-phone .br-row.k-section {
+  height: 40px;
+}
+
+.is-phone .br-row.k-note {
+  height: auto;
+  min-height: 36px;
+}
+
+.is-phone .br-search {
+  height: 36px;
+  font-size: var(--fs-md);
+}
+
+.is-phone .br-play {
+  width: 36px;
+  height: 36px;
+}

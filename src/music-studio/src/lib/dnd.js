@@ -6,7 +6,9 @@
 //   { kind: 'effect', type }                       (effects/catalog.js)
 //   { kind: 'pattern', id }
 //   { kind: 'channel', id }                        (rack channel, e.g. onto a mixer insert)
+//   { kind: 'automation', id }                     (automation clip source, playlist picker)
 //   { kind: 'file', path, name, size }             (a Puter file)
+//   { kind: 'sample', id, name }                   (a sample already in the project)
 //
 // Files dragged in from the operating system arrive as e.dataTransfer.files.
 // Touch devices have no HTML drag and drop, so every drop target also has a
