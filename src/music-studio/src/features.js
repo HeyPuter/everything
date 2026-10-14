@@ -6,5 +6,6 @@ import * as rack from './panels/channel-rack.js';
 import * as pianoRoll from './panels/piano-roll.js';
 import * as mixer from './panels/mixer.js';
 import * as browser from './panels/browser.js';
+import * as storage from './storage/index.js';
 
-export const FEATURES = [browser, playlist, rack, pianoRoll, mixer];
+export const FEATURES = [storage, browser, playlist, rack, pianoRoll, mixer];
