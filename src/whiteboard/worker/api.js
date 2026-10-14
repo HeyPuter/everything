@@ -1624,7 +1624,8 @@ function documentedMethods(parts) {
       route.methods.forEach((m) => methods.add(m));
   return methods.size ? methods : null;
 }
-// A compact OpenAPI 3.1 description so CDS can automate against the API.
+// A compact OpenAPI 3.1 description, so organizations can automate against
+// the API.
 // Declares what every operation shares: parameters named in its path,
 // request bodies, and the success status each answers with.
 function completePaths(paths) {

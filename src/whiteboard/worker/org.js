@@ -319,7 +319,7 @@ export function mergePolicy(current, patch = {}) {
         if ("project" in value) {
           const project = text(value.project, 20).toUpperCase();
           if (project && !/^[A-Z][A-Z0-9_]+$/.test(project))
-            fail(400, "Enter a Jira project key, such as CDS.");
+            fail(400, "Enter a Jira project key, such as OPS.");
           p.integrations.jira.project = project;
         }
       }

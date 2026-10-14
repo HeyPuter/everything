@@ -197,8 +197,8 @@ addTranslations({
     "Entrez l’URL d’un webhook entrant Slack.",
   "Enter your Jira Cloud site, such as team.atlassian.net.":
     "Entrez votre site Jira Cloud, comme equipe.atlassian.net.",
-  "Enter a Jira project key, such as CDS.":
-    "Entrez une clé de projet Jira, comme CDS.",
+  "Enter a Jira project key, such as OPS.":
+    "Entrez une clé de projet Jira, comme OPS.",
   "Enter the Microsoft Entra tenant ID.":
     "Entrez l’ID du locataire Microsoft Entra.",
   "Enter the application (client) ID.": "Entrez l’ID d’application (client).",
