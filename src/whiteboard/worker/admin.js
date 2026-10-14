@@ -1054,7 +1054,19 @@ async function jira(org, identity, input, boards) {
         headers: { Authorization: auth, Accept: "application/json" },
         signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) fail(502, "Jira did not accept the request.");
+      if (!res.ok) {
+        // Jira's own reason goes back beside the message, as for creation,
+        // so the person or an administrator can fix it.
+        const reason = jiraReason(await res.json().catch(() => ({})));
+        throw Object.assign(
+          Error(
+            [401, 403].includes(res.status)
+              ? "Jira refused the integration account. Check its email and API token in Organization settings."
+              : "Jira did not accept the request.",
+          ),
+          { status: 502, ...(reason ? { detail: reason } : {}) },
+        );
+      }
       const data = await res.json();
       found.push(...(data.issues || []));
       token = data.nextPageToken || null;

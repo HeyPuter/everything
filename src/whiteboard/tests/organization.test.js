@@ -9228,3 +9228,46 @@ test("a Slack channel that stops taking posts says so where it is set up, and a 
   assert.equal(again.settings.slackError, undefined);
   assert.equal(again.settings.slack, true);
 });
+
+test("a refused Jira status request carries Jira's own reason", async () => {
+  const { boards, call, org } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {
+      integrations: {
+        jira: {
+          enabled: true,
+          site: "fabrikam.atlassian.net",
+          email: "svc@fabrikam.test",
+          project: "WB",
+        },
+      },
+    },
+    secrets: { jira: "token" },
+  });
+  const { input, room } = createInput("Plan");
+  await boards.call(owner, input);
+  org.fetcher = async () =>
+    Response.json(
+      {
+        errorMessages: [
+          "The value 'WB' does not exist for the field 'project'.",
+        ],
+      },
+      { status: 400 },
+    );
+  await assert.rejects(
+    call(owner, { op: "org.jira.status", room, keys: ["WB-1"] }),
+    {
+      status: 502,
+      message: "Jira did not accept the request.",
+      detail: "The value 'WB' does not exist for the field 'project'.",
+    },
+  );
+  org.fetcher = async () => new Response("", { status: 401 });
+  await assert.rejects(
+    call(owner, { op: "org.jira.status", room, keys: ["WB-1"] }),
+    { status: 502, message: /Check its email and API token/ },
+  );
+});

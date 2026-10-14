@@ -74,7 +74,10 @@ export async function call(puter, server, input) {
     if (!res.ok)
       throw Object.assign(
         Error(body?.message || "Could not synchronize this board."),
-        { status: res.status },
+        {
+          status: res.status,
+          ...(typeof body?.detail === "string" ? { detail: body.detail } : {}),
+        },
       );
     return body;
   } finally {

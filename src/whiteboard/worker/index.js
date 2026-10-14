@@ -76,6 +76,11 @@ router.post("/api", async ({ request, user }) => {
             : error.status
               ? error.message
               : "The board could not synchronize. Please retry.",
+        // Another service's reason for refusing, such as Jira's, apart from
+        // the message so the message can still be translated.
+        ...(error.status && typeof error.detail === "string"
+          ? { detail: error.detail }
+          : {}),
       },
       { status: error.status || (error instanceof SyntaxError ? 400 : 500) },
     );

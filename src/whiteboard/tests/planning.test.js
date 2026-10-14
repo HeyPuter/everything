@@ -4250,3 +4250,67 @@ test("the Gantt chart's tasks are exported with the workstream lane they sit in"
     assert.equal(research.lane, lanes[0]);
   }
 });
+
+test("refreshing Jira status names issues Jira no longer has, and Jira's reason for refusing", async (t) => {
+  const dom = new JSDOM('<canvas id="canvas"></canvas>'),
+    previous = {
+      document: globalThis.document,
+      NodeFilter: globalThis.NodeFilter,
+    };
+  globalThis.document = dom.window.document;
+  globalThis.NodeFilter = dom.window.NodeFilter;
+  t.after(() => {
+    dom.window.close();
+    globalThis.document = previous.document;
+    globalThis.NodeFilter = previous.NodeFilter;
+  });
+  const { createPlanning } = await import("../src/planning/index.js");
+  const b = board("Jira");
+  const link = (key) => ({
+    key,
+    url: `https://team.atlassian.net/browse/${key}`,
+  });
+  b.items = ["WB-1", "WB-2"].map((key, n) =>
+    item("note", n * 300, 0, {
+      text: key,
+      task: { status: "todo", jira: link(key) },
+    }),
+  );
+  const toasts = [];
+  let answer = async () => ({
+    issues: [{ key: "WB-1", status: "Done", category: "done" }],
+  });
+  const planning = createPlanning({
+    board: () => b,
+    selection: () => new Set(),
+    readOnly: () => false,
+    locked: () => false,
+    session: () => ({ server: "https://org.puter.work", room: b.id }),
+    org: {
+      server: "https://org.puter.work",
+      info: { configured: true, role: "member" },
+      allows: () => true,
+      request: (op, body) => answer(body),
+    },
+    mutate: (fn) => fn(),
+    toast: (message) => toasts.push(message),
+    now: () => Date.now(),
+    canvas: () => null,
+  });
+  await planning.actions["task-jira-refresh"]();
+  assert.equal(
+    toasts.at(-1),
+    "Jira status updated: 1. Not found in Jira, so not updated: WB-2.",
+  );
+  answer = async () => {
+    throw Object.assign(Error("Jira did not accept the request."), {
+      status: 502,
+      detail: "The value 'WB' does not exist for the field 'project'.",
+    });
+  };
+  await planning.actions["task-jira-refresh"]();
+  assert.equal(
+    toasts.at(-1),
+    "Jira did not accept the request. Jira says: The value 'WB' does not exist for the field 'project'.",
+  );
+});

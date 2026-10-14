@@ -184,13 +184,24 @@ export function createPlanning(api) {
           api.mutate(() => {
             changed = applyStatuses(linked, issues);
           });
+        // Jira leaves out issues it no longer has, or that moved out of the
+        // organization's project; their tasks keep their last status.
+        const returned = new Set(issues.map((issue) => issue.key));
+        const missing = keys.filter((key) => !returned.has(key));
+        const outcome = changed
+          ? `${labelled(t("Jira status updated"), "")}${changed}`
+          : t("Jira status is up to date.");
         say(
-          changed
-            ? `${labelled(t("Jira status updated"), "")}${changed}`
-            : "Jira status is up to date.",
+          missing.length
+            ? `${outcome}${changed ? "." : ""} ${labelled(t("Not found in Jira, so not updated"), "")}${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` +${missing.length - 5}` : ""}.`
+            : outcome,
         );
       } catch (error) {
-        say(error.message || "Could not reach Jira.");
+        say(
+          error.detail
+            ? `${t(error.message)} ${labelled(t("Jira says"), "")}${error.detail}`
+            : error.message || "Could not reach Jira.",
+        );
       }
     },
   };

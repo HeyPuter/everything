@@ -83,6 +83,8 @@ addTranslations({
   "Jira refused the integration account. Check its email and API token in Organization settings.":
     "Jira a refusé le compte d’intégration. Vérifiez son adresse courriel et son jeton d’API dans les paramètres de l’organisation.",
   "Jira says": "Selon Jira",
+  "Not found in Jira, so not updated":
+    "Introuvables dans Jira, donc non mis à jour",
   "Jira status updated": "Statut Jira mis à jour",
   "Jira status is up to date.": "Le statut Jira est à jour.",
   "No tasks are linked to Jira.": "Aucune tâche n’est liée à Jira.",
