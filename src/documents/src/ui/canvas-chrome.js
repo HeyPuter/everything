@@ -237,14 +237,16 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const symbol = command('Symbol', 'symbol', () => w.insertSymbol?.(), { size: 'large' });
   for (const control of [dateTime, symbol]) when(control, engineReady);
   noFocusSteal(blankPage, c.pageBreak);
+  // Galleries and dialogs come from the editor's Insert commands (views/insert-tab.js); without them the basic commands remain.
+  const ins = w.insertRibbon?.({ command, menuButton, split, rows, divider, when, engineReady, focusEditor, inDocument, pageBreak: c.pageBreak }) || {};
   const insert = { id: 'insert', label: 'Insert', groups: [
-    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: [coverPage, blankPage, c.pageBreak] },
+    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: ins.pages || [coverPage, blankPage, c.pageBreak] },
     { id: 'tables', label: 'Tables', icon: 'table', priority: 9, items: [c.insertTable] },
-    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: [c.insertImage, shapesButton] },
+    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: ins.illustrations || [c.insertImage, shapesButton] },
     { id: 'links', label: 'Links', icon: 'link', priority: 7, items: [c.hyperlink, c.bookmarks] },
-    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: [headerButton, footerButton, pageNumber] },
-    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: [textBox, dateTime] },
-    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: [symbol] },
+    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: ins.headerFooter || [headerButton, footerButton, pageNumber] },
+    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: ins.text || [textBox, dateTime] },
+    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: ins.symbols || [symbol] },
   ] };
 
   /* ---- Design ---- */
@@ -297,14 +299,22 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   ] };
 
   /* ---- References ---- */
-  const toc = menuButton('Table of Contents', 'toc', () => w.tocItems?.() || [], { text: 'Table of Contents' });
-  const updateTable = command('Update Table', 'updateTable', () => w.updateFields?.(), { text: 'Update Table' });
-  when(toc, () => !!w.tocItems && engineReady()); when(updateTable, () => !!w.canUpdateFields?.());
-  const footnote = command('Insert Footnote', 'footnote', () => w.insertFootnote?.(), { size: 'large', text: 'Insert Footnote' });
-  when(footnote, () => !!w.insertFootnote && engineReady());
+  const toc = menuButton('Table of Contents', 'toc', () => w.tocItems?.(focusEditor) || [], { text: 'Table of Contents' });
+  const addText = menuButton('Add Text', 'addText', () => w.addTextItems?.() || [], { size: 'small', text: 'Add Text' });
+  const updateTable = command('Update Table', 'updateTable', () => (w.updateTocDialog ? w.updateTocDialog() : w.updateFields?.()), { text: 'Update Table' });
+  const updateFields = command('Update Fields', 'updateFields', () => w.updateAllFields?.(), { text: 'Update Fields', shortcut: 'F9' });
+  when(toc, () => !!w.tocItems && engineReady()); when(addText, () => !!w.addTextItems && engineReady()); when(updateTable, () => !!w.canUpdateFields?.()); when(updateFields, () => !!w.updateAllFields && engineReady());
+  const footnote = command('Insert Footnote', 'footnote', () => w.insertFootnote?.(), { size: 'large', text: 'Insert Footnote', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+F' : 'Ctrl+Alt+F' });
+  const endnote = command('Insert Endnote', 'endnote', () => w.insertEndnote?.(), { text: 'Insert Endnote', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+E' : 'Ctrl+Alt+D' });
+  const nextNote = menuButton('Next Footnote', 'nextFootnote', () => w.nextNoteItems?.() || [], { size: 'small', text: 'Next Footnote' });
+  const showNotes = command('Show Notes', 'showNotes', () => w.showNotes?.(), { text: 'Show Notes' });
+  const notesLauncher = command('Footnote and Endnote Settings', 'noteSettings', () => w.notesDialog?.());
+  when(footnote, () => !!w.insertFootnote && engineReady()); when(endnote, () => !!w.insertEndnote && engineReady()); when(nextNote, () => !!w.nextNoteItems && engineReady());
+  when(showNotes, () => !!w.showNotes && engineReady()); when(notesLauncher, () => !!w.notesDialog && engineReady());
+  noFocusSteal(updateFields, endnote, showNotes, notesLauncher);
   const references = { id: 'references', label: 'References', groups: [
-    { id: 'toc', label: 'Table of Contents', icon: 'toc', priority: 7, items: [toc, rows([updateTable])] },
-    { id: 'footnotes', label: 'Footnotes', icon: 'footnote', priority: 5, items: [footnote] },
+    { id: 'toc', label: 'Table of Contents', icon: 'toc', priority: 7, items: [toc, rows([addText], [updateTable], [updateFields])] },
+    { id: 'footnotes', label: 'Footnotes', icon: 'footnote', priority: 5, items: [footnote, rows([endnote], [nextNote], [showNotes]), el('div.ribbon-launcher', {}, notesLauncher)] },
   ] };
 
   /* ---- Review ---- */

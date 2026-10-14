@@ -1,6 +1,8 @@
 # Footnote and endnote property coverage
 
-Reviewed 2026-10-09 against baseline `1a20ad67`, using supplied ECMA-376
+Updated 2026-10-13 for endnotes, note settings and custom marks (see the
+References section of [conformance.md](conformance.md)); the tables below record
+the remaining gaps. Reviewed 2026-10-09 against baseline `1a20ad67`, using supplied ECMA-376
 Part 1 §17.11 schemas. This inventories document/section note settings, reference
 attributes and part containers in both variants. It contributes to roadmap A01,
 not full note-story, nested property or continuation semantics. The current
@@ -23,10 +25,10 @@ CT_FtnDocProps. No own attributes in the supplied schemas.
 
 | Property | Current behavior / remaining work |
 | --- | --- |
-| `pos` | Retained, no position consumer; current layout reserves a bottom-page area. Implement beneath-text and other applicable position semantics. |
-| `numFmt` | Partial: global format used for real references and notes; limited decimal/decimalZero/letter/Roman formatter. Unsupported formats disclose decimal read-only approximation. |
+| `pos` | `pageBottom` and `beneathText` laid out; written by the Footnote and Endnote dialog. |
+| `numFmt` | Partial: decimal/decimalZero/letter/Roman/chicago; other formats disclose a decimal read-only approximation. |
 | `numStart` | Partial: digit-only global start, fallback one. Complete value/default validation and numbering ranges need controls. |
-| `numRestart` | Only continuous implemented; active other restart modes reject strict import and disclose continuous preview approximation. |
+| `numRestart` | continuous, eachSect and eachPage implemented and written. |
 | `footnote` | Retained separator-note reference, no layout consumer. Resolve configured separator/continuation notes instead of only fixed default rule. |
 
 ## Document endnote settings
@@ -35,10 +37,10 @@ CT_EdnDocProps. No own attributes in the supplied schemas.
 
 | Property | Current behavior / remaining work |
 | --- | --- |
-| `pos` | Retained, no endnote layout consumer. Implement document/section end placement. |
-| `numFmt` | Retained, no endnote numbering consumer. |
-| `numStart` | Retained, no endnote start consumer. |
-| `numRestart` | Retained, no endnote restart consumer. |
+| `pos` | `docEnd` laid out; `sectEnd` stored and approximated at document end. |
+| `numFmt` | Used for endnote numbering (default lowerRoman). |
+| `numStart` | Used for endnote numbering. |
+| `numRestart` | continuous and eachSect implemented. |
 | `endnote` | Retained separator reference, no endnote separator/continuation consumer. |
 
 ## Section footnote settings
@@ -77,7 +79,7 @@ CT_Endnotes. No own attributes in the supplied schemas.
 
 | Property | Current behavior / remaining work |
 | --- | --- |
-| `endnote` | Retained, no referenced endnote story import/layout path. Ordinary endnoteRef orphan mark projection is a separate compatibility case. |
+| `endnote` | Referenced normal endnotes import as editable stories and lay out after the body; new parts are created with separators. |
 
 ## References
 
@@ -86,8 +88,8 @@ and endnote references; runtime support differs.
 
 | Attribute | Current behavior / remaining work |
 | --- | --- |
-| `@customMarkFollows` | Active custom footnote marks reject. False/absent uses normal numbering. Endnote references lack the equivalent implemented story path. Complete mark/value validation, following custom text and editing/preservation need controls. |
-| `@id` | Footnote reference signed integer parsed into canonical identity and resolved to a referenced normal story; missing/malformed IDs reject. Complete duplicate/reference/story identity validation remains open. Endnote reference/story support missing. |
+| `@customMarkFollows` | Footnote and endnote custom marks import, edit and save; the reference shows no number and the following run holds the mark. |
+| `@id` | Footnote and endnote reference IDs parsed into canonical identity and resolved to referenced normal stories; missing/malformed IDs reject. Complete duplicate/reference/story identity validation remains open. |
 
 Footnote references outside the main body reject, including drawing text and
 other page stories. Atomic reference selection/formatting preserves semantic

@@ -79,13 +79,17 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       }
     }
   }
-  // Footnotes stack below the separator in each page's reserved area.
-  for (const area of body.footnoteAreas || []) {
-    const geometry = referencePageGeometry(body.pages[area.page]), numbers = new Map(area.notes.map(note => [note.id, note.display]));
-    let y = area.top + FOOTNOTE_SEPARATOR;
+  // Footnotes stack below the separator in each page's reserved area; endnotes
+  // follow the body's last line at the positions the body layout assigned them.
+  const areas = [...(body.footnoteAreas || []).map(area => ({ area, kind: 'footnote' })), ...(body.endnoteAreas || []).map(area => ({ area, kind: 'endnote' }))];
+  for (const { area, kind } of areas) {
+    const geometry = referencePageGeometry(body.pages[area.page]), shown = new Map(area.notes.map(note => [note.id, note.display]));
+    const numbers = kind === 'footnote' ? shown : { footnote: new Map(), endnote: shown };
+    let y = area.top + (area.separator === false ? 0 : FOOTNOTE_SEPARATOR);
     for (const note of area.notes) {
       const story = definition.stories[note.path];
       if (!story) continue;
+      if (note.y !== undefined) y = note.y;
       try {
         const { placed, storyGeometry, positions: storyPositions } = measureNote({ ...story, paragraphs: storyParagraphs(note.path, story) }, note.display, numbers, geometry, measure, numbering, { drawingLayouts, bestEffort });
         positions.push({ path: note.path, page: area.page, positions: storyPositions });

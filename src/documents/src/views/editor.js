@@ -58,6 +58,7 @@ import { createReview } from './review.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
+import { createInsert } from './insert-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -181,6 +182,9 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     }
     const commentItems = review.contextItems();
     if (commentItems.length) items.push({separator:true}, ...commentItems);
+    // Feature modules contribute items for what was clicked (see editorCommands.contextMenuItems).
+    const moduleItems = editorCommands.contextMenuItems?.(image ? 'image' : engine.model.tableContext ? 'table' : engine.model.hyperlink ? 'link' : references.fieldAtCaret() ? 'field' : 'text', {}) || [];
+    if (moduleItems.length) items.push({separator:true}, ...moduleItems.filter((item, i) => !(item.separator && i === 0)));
     if (engine.session.path === null && engine.model.hasBodyFields) items.push({separator:true},{label:'Update page references',disabled:!editable,onSelect:()=>engine.updatePageReferences()});
     items.push({separator:true},{label:'Print / Save as PDF',onSelect:printDocument});
     const rect=engine.input.getBoundingClientRect();
@@ -683,8 +687,12 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     ],
   });
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
+    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+      openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
+  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...references.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...references.contextMenuItems(context, kit)];
   const baseContextTabs = editorCommands.contextTabs;
   editorCommands.contextTabs = kit => [...(baseContextTabs?.(kit) || []), ...references.contextTabs(kit)];
   const baseFileItems = editorCommands.fileItems;
@@ -699,6 +707,14 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     } catch (e) { if (!destroyed) error(e); }
   }
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
+  // Insert tab: galleries, pictures, drawings, fields, equations and symbols (insert-tab.js).
+  const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (!local && session.signedIn ? session.username : ''), onChange: () => update(),
+    base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(),
+      link: () => editHyperlink(), bookmark: () => bookmarks.click(), comment: () => review.commands?.newComment?.() } });
+  const baseMenu = editorCommands.extendMenu, baseContextItems = editorCommands.contextMenuItems;
+  Object.assign(editorCommands, insert.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseMenu?.(id, kit) || []), ...insert.commands.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextItems?.(context, kit) || []), ...insert.commands.contextMenuItems(context, kit)];
   const baseExtendTab = editorCommands.extendTab;
   editorCommands.extendTab = (id, kit) => [...(baseExtendTab?.(id, kit) || []), ...review.extendTab(id, kit), ...references.extendTab(id, kit)];
   Object.assign(editorCommands, { readAloud: review.commands.readAloud, readAloudActive: review.commands.readAloudActive });
@@ -707,8 +723,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   Object.assign(editorCommands, mailings.commands);
   const baseExtraTabs = editorCommands.extraTabs;
   editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
-  const baseExtendMenu = editorCommands.extendMenu;
-  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
+  const referencesExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(referencesExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
   // View tab: document views (Read Mode, Web Layout, Outline, Draft), page movement, gridlines, zoom and windows.
   const views = createDocumentViews({ editor: () => (failed ? null : engine), pkg: () => pkg, host, surface, root: () => root, error, commands: editorCommands,
     toggleNavigation: () => toggleOutline(), navigationVisible: () => !outlinePanel.node.hidden, layoutChanged: () => { fitWidth(); rulers?.update(); },
@@ -739,7 +755,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const printLayoutButton = el('button.icon-btn.ed-status-view', { type: 'button', 'aria-label': 'Print Layout', title: 'Print Layout', 'aria-pressed': 'true', onclick: () => engine?.focus() }, commandIconEl('printLayoutSolid', 16));
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, chrome.inspector)),
     el('footer.canvas-statusbar.ed-statusbar', {}, el('div.ed-status-left', {}, stats, wordCountButton, proofingButton, languageLabel, editingAreaLabel),
       el('div.ed-status-right', {},
         el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),
@@ -1116,7 +1132,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
-      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); review.destroy(); references.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); review.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

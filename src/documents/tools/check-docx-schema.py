@@ -56,7 +56,7 @@ def schema():
         # Load the official W3C declarations first, without changing either schema.
         extension_imports = install_drawing_schemas(directory) + install_hidden_line(directory) + install_binding_schema(directory)
         wrapper = Path(directory, 'check.xsd')
-        wrapper.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/wordprocessingml/2006/main" schemaLocation="wml.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/drawingml/2006/chart" schemaLocation="dml-chart.xsd"/>' + extension_imports + '</xs:schema>')
+        wrapper.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/wordprocessingml/2006/main" schemaLocation="wml.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/drawingml/2006/chart" schemaLocation="dml-chart.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/officeDocument/2006/bibliography" schemaLocation="shared-bibliography.xsd"/><xs:import namespace="http://schemas.openxmlformats.org/officeDocument/2006/customXml" schemaLocation="shared-customXmlDataProperties.xsd"/>' + extension_imports + '</xs:schema>')
         return etree.XMLSchema(etree.parse(str(wrapper)))
 
 
@@ -318,7 +318,11 @@ def main():
             glossary = [node.get('PartName').lstrip('/') for node in types if node.get('ContentType') == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.glossary+xml']
             settings = [node.get('PartName').lstrip('/') for node in types if node.get('ContentType') == 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml']
             fonts = [node.get('PartName').lstrip('/') for node in types if node.get('ContentType') == 'application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml']
-            for name in ['word/document.xml', *styles, *numbering, *stories, *glossary, *settings, *fonts, *themes, *charts, *diagrams]:
+            # Bibliography sources (Part 1 §22.6) and custom XML item properties (§22.5): other custom XML is free-form.
+            item_props = [node.get('PartName').lstrip('/') for node in types if node.get('ContentType') == 'application/vnd.openxmlformats-officedocument.customXmlProperties+xml']
+            bibliography = [n for n in archive.namelist() if n.startswith('customXml/item') and not n.startswith('customXml/itemProps') and n.endswith('.xml')
+                            and b'officeDocument/2006/bibliography' in archive.read(n)[:400]]
+            for name in ['word/document.xml', *styles, *numbering, *stories, *glossary, *settings, *fonts, *themes, *charts, *diagrams, *bibliography, *item_props]:
                 if name not in archive.namelist():
                     raise RuntimeError(f'{path}: missing {name}')
                 data = archive.read(name)

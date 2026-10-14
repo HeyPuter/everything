@@ -158,6 +158,8 @@ export function bodyFieldBoundary(marker, doc) {
     if(marker.type==='end')return [run];
     for(const name of ['fldLock','dirty'])if(nodes[0].hasAttributeNS(W,name))delimiter.setAttributeNS(W,`w:${name}`,nodes[0].getAttributeNS(W,name));
     const instruction=make('r'),text=make('instrText');text.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');text.textContent=marker.field.instruction;instruction.append(text);
+    // Index, authority and contents entries have no result, so no separator (§17.16.5.62, .63, .72).
+    if(['XE','TA','TC'].includes(marker.field.type))return [run,instruction];
     const separator=make('r'),separate=make('fldChar');separate.setAttributeNS(W,'w:fldCharType','separate');separator.append(separate);
     return [run,instruction,separator];
   }

@@ -52,14 +52,44 @@ export function frameDimensions(properties) {
   const hAnchor = properties.hAnchor || 'text', vAnchor = properties.vAnchor || 'text';
   if (!['auto', 'atLeast', 'exact'].includes(declaredHRule) || !['around', 'notBeside', 'auto', 'none'].includes(wrap) ||
     !['page', 'margin', 'column', 'text'].includes(hAnchor) || !['page', 'margin', 'text'].includes(vAnchor)) throw new Error('These paragraph-frame dimensions, wrapping or anchors are not supported yet.');
-  if (properties.dropCap && properties.dropCap !== 'none') throw new Error('Drop-cap paragraph frames are not supported yet.');
+  const dropCap = properties.dropCap && properties.dropCap !== 'none' ? properties.dropCap : null;
+  if (dropCap && !['drop', 'margin'].includes(dropCap)) throw new Error(`Drop-cap frames of type "${dropCap}" are not supported.`);
+  // §17.3.1.11 lines: an omitted count is one line. Larger counts are not
+  // produced by desktop word processors and would only enlarge the exclusion.
+  const lines = dropCap ? Number(properties.lines ?? 1) : 0;
+  if (dropCap && (!/^\d+$/.test(properties.lines ?? '1') || lines < 1 || lines > 10)) throw new Error('Drop-cap frames must span 1–10 lines.');
   if (properties.xAlign && !['left', 'right', 'center', 'inside', 'outside'].includes(properties.xAlign) ||
     properties.yAlign && !['top', 'bottom', 'center', 'inside', 'outside', 'inline'].includes(properties.yAlign)) throw new Error('This paragraph-frame alignment is not supported yet.');
   // With an explicit size rule but no h, w is used as the requested height.
   // Preserve the distinction between omission and an explicit zero height.
   const height = Object.hasOwn(properties, 'h') ? declaredHeight : declaredHRule === 'auto' ? 0 : width;
   const hRule = height ? declaredHRule : 'auto';
+  // A drop cap is located at the start of the next paragraph; its anchors and
+  // offsets are retained in the source but do not position it (see dropCapBox).
+  if (dropCap) return { width, height, hSpace, vSpace, hRule, wrap, hAnchor, vAnchor: 'text', x: 0, y: 0, dropCap, lines };
   return { width, height, hSpace, vSpace, hRule, wrap, hAnchor, vAnchor, x: distance(properties, 'x', true), y: distance(properties, 'y', true) };
+}
+
+/**
+ * §17.3.1.11 dropCap, §17.18.20 ST_DropCap: the frame starts at the top of the
+ * following paragraph's first line and is exactly `lines` of its lines tall.
+ * The cap's visible baseline (including any w:position lowering) is aligned to
+ * the baseline of line `lines`, so the frame paragraph's exact spacing and
+ * position only need to be approximately right. "drop" sits at the text
+ * column's leading edge and text wraps around it; "margin" ends hSpace before
+ * that edge and does not displace text. Lines beyond a short paragraph are
+ * extrapolated from its first line's pitch.
+ */
+function dropCapBox(frame, placed, anchor, page) {
+  const { lines: count, dropCap, hSpace } = frame.dimensions;
+  const own = placed.lines.filter(l => l.paragraphId === frame.anchorId && l.page === anchor.page && !l.frameId);
+  const first = own[0] || anchor, before = first.wrapBefore || 0, pitch = first.height - before, nth = own[count - 1];
+  const top = first.y + before, bottom = nth ? nth.y + nth.height : top + count * pitch;
+  const baseline = nth ? nth.baseline : first.baseline + (count - 1) * pitch;
+  const capLine = frame.lines[0], text = capLine?.fragments.find(f => !f.image);
+  const capBaseline = capLine ? capLine.baseline - (text?.baselineShift || 0) * 4 / 3 : 0;
+  const left = anchor.columnLeft ?? page.left;
+  return { x: dropCap === 'margin' ? left - frame.width - hSpace : left, y: baseline - capBaseline, top, bottom };
 }
 
 // Native independent controls establish absolute-position precedence
@@ -111,16 +141,22 @@ export function placeParagraphFrames(frames, placed, frameGeometry) {
     const anchor = placed.lines.find(l => l.paragraphId === frame.anchorId);
     if (!anchor) throw new UnsupportedParagraphFrameError('Missing paragraph-frame anchor.', frame.members.map(b => b.paragraph));
     const page = frameGeometry || placed.pageRegions[anchor.page]?.[anchor.region]?.geometry || placed.pages[anchor.page];
-    const position = paragraphFramePosition(frame.properties, frame.dimensions, page, anchor, frame.width, frame.height);
+    const cap = frame.dimensions.dropCap && dropCapBox(frame, placed, anchor, page);
+    const position = cap || paragraphFramePosition(frame.properties, frame.dimensions, page, anchor, frame.width, frame.height);
     const box = { ...frame.dimensions, frameId: frame.members[0].paragraph.id, anchorId: frame.anchorId,
       paragraphIds: frame.members.map(b => b.paragraph.id), start: anchor.start, page: anchor.page, region: anchor.region,
-      left: position.x, right: position.x + frame.width, top: position.y, bottom: position.y + frame.height };
+      left: position.x, right: position.x + frame.width, top: cap ? cap.top : position.y, bottom: cap ? cap.bottom : position.y + frame.height,
+      // A margin cap lies outside the text column: it never displaces text.
+      ...(frame.dimensions.dropCap === 'margin' ? { wrap: 'none' } : {}) };
     const decorationOutset = side => Math.max(0, ...frame.lines.map(line =>
       line.paragraphFrame ? borderOutset(line.paragraphFrame.borders[side]) + 2 : line.paragraphBackground ? 2 : 0));
     const leftOutset = decorationOutset('left'), rightOutset = decorationOutset('right');
     const lines = frame.lines.map(line => ({ ...shiftTableItem(line, position.x, position.y),
       page: anchor.page, region: anchor.region, frameId: box.frameId,
       cellClip: { left: box.left - leftOutset, right: box.right + rightOutset, top: box.top, bottom: box.bottom } }));
+    // A cap glyph is sized to its lines, not to its exact-height line box:
+    // keep its whole line visible rather than clipping it to the frame.
+    if (cap) for (const line of lines) line.cellClip = { ...line.cellClip, top: Math.min(box.top, line.y), bottom: Math.max(box.bottom, line.y + line.height) };
     // A specified frame height is also the physical shading/border extent;
     // it does not enlarge the text's line box or change caret navigation.
     for (const line of lines) if (line.paragraphBackground && !line.paragraphFrame) {
