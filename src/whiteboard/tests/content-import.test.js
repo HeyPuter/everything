@@ -4302,6 +4302,14 @@ test("a live embed stays within the visible board, below its top controls, with 
       [node.style.left, node.style.top, node.style.width, node.style.height],
       ["340px", "230px", "480px", "300px"],
     );
+    // Partly off the board, it still keeps its card's place: the floating
+    // header and tool rail would cover it in the corner.
+    view = { x: 20, y: -10, z: 1 };
+    live.render();
+    assert.deepEqual(
+      [node.style.left, node.style.top, node.style.width, node.style.height],
+      ["-40px", "20px", "480px", "300px"],
+    );
   } finally {
     Object.assign(globalThis, saved);
     dom.window.close();

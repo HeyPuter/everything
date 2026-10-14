@@ -262,16 +262,28 @@ export function createLiveEmbeds(api) {
     const ox = rect.left - wrapRect.left,
       oy = rect.top - wrapRect.top;
     const selection = api.selection();
-    // A live embed covers its card, kept within the visible board and
-    // below the board's top controls, so its header and Close stay in
-    // reach when the card is partly off-screen or larger than a phone.
+    // A live embed covers its card. On narrow screens, where the header
+    // and toolbars are docked above the board, it is kept within the
+    // visible board and below the board's top controls, so its header and
+    // Close stay in reach when the card is partly off-screen or larger than
+    // the phone; wider screens, whose header and tool rail float over the
+    // board, keep it exactly over its card.
+    const fit = rect.width < 760;
     const margin = 8,
-      controls = live.size
-        ? [...layer.parentNode.querySelectorAll(".canvas-top > *")]
-            .map((control) => control.getBoundingClientRect())
-            .filter((box) => box.width && box.height)
-        : [];
+      controls =
+        live.size && fit
+          ? [...layer.parentNode.querySelectorAll(".canvas-top > *")]
+              .map((control) => control.getBoundingClientRect())
+              .filter((box) => box.width && box.height)
+          : [];
     const place = (node, i) => {
+      if (!fit) {
+        node.style.left = `${ox + i.x * view.z + view.x}px`;
+        node.style.top = `${oy + i.y * view.z + view.y}px`;
+        node.style.width = `${Math.max(0, i.w * view.z)}px`;
+        node.style.height = `${Math.max(0, i.h * view.z)}px`;
+        return;
+      }
       const minX = ox + margin,
         maxX = ox + rect.width - margin,
         maxY = oy + rect.height - margin;
