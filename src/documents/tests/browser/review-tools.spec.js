@@ -351,6 +351,7 @@ test('Lock Tracking keeps Track Changes on until unlocked with the password', as
   const unlock = page.getByRole('dialog', { name: 'Unlock Tracking' });
   await unlock.getByLabel('Password', { exact: true }).fill('lock');
   await unlock.getByRole('button', { name: 'Unprotect' }).click();
+  await expect(unlock).toBeHidden({ timeout: 20000 });
   await input.press('ControlOrMeta+Shift+e');
   await expect(review(page).getByRole('button', { name: 'Track Changes', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(errors).toEqual([]);

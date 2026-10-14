@@ -473,7 +473,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     ] }) });
     const markup = markupButton = menuButton('Display for Review', 'markup', () => MARKUP_VIEWS.map(([mode, label]) => ({ label, radio: true, checked: revisionView.mode === mode, onSelect: () => commands.setMarkupView(mode) })), { size: 'small', text: 'All Markup' });
     const showMarkup = menuButton('Show Markup', 'showMarkup', () => hooks.showMarkupItems?.() || [], { size: 'small', text: 'Show Markup' });
-    const options = command('Tracking Options', 'trackingOptions', () => hooks.trackingOptions?.(), { text: 'Tracking Options' });
+    // Tracking Options is the group's settings launcher, as Page Setup's is.
+    const options = command('Tracking Options', 'trackingOptions', () => hooks.trackingOptions?.());
+    options.classList.add('ribbon-launcher-button');
     options.addEventListener('mousedown', e => e.preventDefault());
     when(showMarkup, () => !!editor() && !!hooks.showMarkupItems); when(options, () => !!editor() && !!hooks.trackingOptions);
     const resolveMenu = accept => [
@@ -509,7 +511,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     when(reviewingSplit.arrow, () => !!editor());
     return [{ id: 'speech', label: 'Speech', icon: 'readAloud', priority: 2, after: 'proofing', items: [speak] },
       { id: 'comments', label: 'Comments', icon: 'comment', priority: 6, after: 'proofing', items: [add, removeSplit, rows([previous], [next], [resolve]), showSplit] },
-      { id: 'tracking', label: 'Tracking', icon: 'trackChanges', priority: 7, after: 'proofing', items: [trackSplit, rows([markup], [showMarkup], [reviewingSplit]), rows([options])] },
+      { id: 'tracking', label: 'Tracking', icon: 'trackChanges', priority: 7, after: 'proofing', items: [trackSplit, rows([markup], [showMarkup], [reviewingSplit]), el('div.ribbon-launcher', {}, options)] },
       { id: 'changes', label: 'Changes', icon: 'accept', priority: 5, after: 'proofing', items: [acceptSplit, rejectSplit, rows([previousChange], [nextChange])] }];
   }
 
