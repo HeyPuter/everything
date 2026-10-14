@@ -608,6 +608,18 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
     let user = linked ? await org.freshUser(linked) : null;
     if (user?.scimManaged)
       refuse(409, "A user with this userName already exists.", "uniqueness");
+    // An address the provider deleted may now be someone else's, as when a
+    // shared or former colleague's address is given to a new hire. When the
+    // provider's identifier says it is another person, the deleted account
+    // keeps its deactivation and the address starts a new pending record,
+    // which whoever proves the mailbox links.
+    if (
+      user?.scimDeleted &&
+      user.externalId &&
+      body?.externalId != null &&
+      String(body.externalId) !== user.externalId
+    )
+      user = null;
     if (!user) {
       // Never derived from the address: one given up, by a rename or a
       // deletion, must not lead back to the record that held it.

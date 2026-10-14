@@ -1429,6 +1429,51 @@ test("an address given up by a rename never leads back to the record that held i
   assert.equal((await request(`Users/${annette.id}`)).status, 200);
 });
 
+test("an address the provider deleted and gives to someone else stays with the deactivated account's successor", async () => {
+  const { org, boards, scim, request } = await setup();
+  const former = await scim("Users", "POST", {
+    userName: "sales@example.ca",
+    externalId: "idp-111",
+  });
+  await verifyEmail(org, boards, editor, "sales@example.ca");
+  await request(`Users/${former.id}`, "DELETE");
+  const hire = await scim("Users", "POST", {
+    userName: "sales@example.ca",
+    externalId: "idp-999",
+  });
+  assert.notEqual(hire.id, former.id);
+  assert.equal(
+    hire["urn:ietf:params:scim:schemas:extension:whiteboard:2.0:User"].linked,
+    false,
+  );
+  assert.equal(await org.active(editor), false);
+  assert.equal(await org.role(editor), null);
+  const newcomer = {
+    uuid: "33333333-3333-4333-8333-333333333333",
+    username: "newcomer",
+  };
+  await verifyEmail(org, boards, newcomer, "sales@example.ca");
+  assert.equal(await org.role(newcomer), "member");
+  assert.equal(await org.active(editor), false);
+  // The same person, named by the provider's identifier, is linked again.
+  const again = await setup();
+  const kept = await again.scim("Users", "POST", {
+    userName: "pat@example.ca",
+    externalId: "idp-pat",
+  });
+  await verifyEmail(again.org, again.boards, editor, "pat@example.ca");
+  await again.request(`Users/${kept.id}`, "DELETE");
+  const rehired = await again.scim("Users", "POST", {
+    userName: "pat@example.ca",
+    externalId: "idp-pat",
+  });
+  assert.equal(
+    rehired["urn:ietf:params:scim:schemas:extension:whiteboard:2.0:User"]
+      .linked,
+    true,
+  );
+});
+
 test("a provisioned person cannot verify an address their identity provider does not manage", async () => {
   const { org, boards, scim } = await setup();
   const bob = await scim("Users", "POST", { userName: "bob@example.ca" });
