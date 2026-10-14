@@ -40566,6 +40566,13 @@ test("fill colours and text style open in popovers that stay open across a redra
     assert.equal(selectedClipboard(app)[0].color, color);
     const reopened = doc.querySelector("#fill-popover");
     assert.equal(reopened.hidden, false, "Still open after the redraw");
+    // The current colour is the pressed one, for screen readers too.
+    assert.deepEqual(
+      [...reopened.querySelectorAll("[aria-pressed=true]")].map(
+        (b) => b.dataset.color,
+      ),
+      [color],
+    );
     assert.equal(
       doc.querySelector("#fill-options").style.getPropertyValue("--swatch"),
       color,

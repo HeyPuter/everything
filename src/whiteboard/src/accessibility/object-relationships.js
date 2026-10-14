@@ -1,5 +1,5 @@
-import { escape } from "../model.js";
-import { t, language } from "../i18n.js";
+import { COLORS, escape } from "../model.js";
+import { t, language, plural } from "../i18n.js";
 import { objectNameHTML } from "./object-content.js";
 
 // Objects in the order a screen reader meets them: each frame, in the order
@@ -17,13 +17,43 @@ export function outlineOrder(items) {
   return [...frames.flatMap((f) => [f, ...held.get(f.id)]), ...rest];
 }
 
+const COLOR_NAMES = ["Butter", "Sage", "Blue", "Lilac", "Peach", "White"];
+// A connected object names at most this many objects at each end.
+const CONNECTIONS_NAMED = 5;
+
 // Only pass the objects this person may read, with private content masked.
 // A relationship must never recover a name from the unfiltered board.
-export function objectRelationships(items) {
+// `tags` is the board's tag catalog and `comments` its discussions, so an
+// object says what the canvas shows on it: its colour, tags, connections,
+// and open discussions.
+export function objectRelationships(items, { tags = [], comments = [] } = {}) {
   const byId = new Map(items.map((i) => [i.id, i]));
   const groups = new Map();
   const children = new Map();
+  // Connections each way, by the connector's own place on the board.
+  const outgoing = new Map(),
+    incoming = new Map();
+  const add = (map, id, other) => {
+    if (!map.has(id)) map.set(id, []);
+    map.get(id).push(other);
+  };
+  const tagNames = new Map(tags.map((tag) => [tag.id, tag.name]));
+  const discussions = new Map();
+  for (const thread of comments)
+    if (
+      thread.anchorId &&
+      !thread.resolved &&
+      thread.messages.some((m) => !m.deleted)
+    )
+      discussions.set(
+        thread.anchorId,
+        (discussions.get(thread.anchorId) || 0) + 1,
+      );
   for (const i of items) {
+    if (i.type === "arrow" && i.startId && i.endId) {
+      add(outgoing, i.startId, i.endId);
+      add(incoming, i.endId, i.startId);
+    }
     if (i.groupId) {
       if (!groups.has(i.groupId))
         groups.set(i.groupId, { number: groups.size + 1, count: 0 });
@@ -50,8 +80,34 @@ export function objectRelationships(items) {
     label(
       value === "arrow" ? "Arrowhead" : value === "circle" ? "Dot" : "None",
     );
+  const connected = (ids) => {
+    const shown = ids.slice(0, CONNECTIONS_NAMED).map(name).join(", ");
+    return ids.length > CONNECTIONS_NAMED
+      ? `${shown} ${escape(plural(ids.length - CONNECTIONS_NAMED, "and {count} more", "and {count} more"))}`
+      : shown;
+  };
   const describe = (i) => {
     const parts = [];
+    // Colour often carries meaning, as a retrospective's columns do; a
+    // shape left white says nothing by it.
+    const color = COLORS.indexOf(i.color);
+    if (
+      color >= 0 &&
+      (i.type === "note" ||
+        (["rect", "ellipse", "shape"].includes(i.type) &&
+          COLOR_NAMES[color] !== "White"))
+    )
+      parts.push(`${label(`${COLOR_NAMES[color]} color`)}.`);
+    const tagged = (i.tagIds || []).filter((id) => tagNames.has(id));
+    if (tagged.length)
+      parts.push(
+        `${label(tagged.length === 1 ? "Tag" : "Tags")}${colon} ${tagged
+          .map(
+            (id) =>
+              `<span data-user-content>${escape(tagNames.get(id))}</span>`,
+          )
+          .join(", ")}.`,
+      );
     if (i.parentId)
       parts.push(`${label("In frame")}${colon} ${name(i.parentId)}.`);
     if (i.type === "frame" && children.has(i.id))
@@ -60,6 +116,20 @@ export function objectRelationships(items) {
       const group = groups.get(i.groupId);
       parts.push(
         `${label("Group")} ${group.number}${colon} ${count(group.count)}.`,
+      );
+    }
+    if (outgoing.has(i.id))
+      parts.push(
+        `${label("Connects to")}${colon} ${connected(outgoing.get(i.id))}.`,
+      );
+    if (incoming.has(i.id))
+      parts.push(
+        `${label("Connected from")}${colon} ${connected(incoming.get(i.id))}.`,
+      );
+    if (discussions.has(i.id)) {
+      const n = discussions.get(i.id);
+      parts.push(
+        `${n} ${label(n === 1 ? "open discussion" : "open discussions")}.`,
       );
     }
     if (i.mindMap?.parent)

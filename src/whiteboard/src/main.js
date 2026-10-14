@@ -4774,13 +4774,18 @@ function buildOutline(outline) {
     language,
     contentVersion,
     editedByOthers.key,
+    current.tags,
+    current.comments,
   ];
   if (outline.key?.every((value, n) => value === key[n])) return;
   outline.key = key;
   return writeOutline(outline, outlineOrder(outlined));
 }
 function writeOutline(outline, outlined) {
-  const relationships = objectRelationships(outlined);
+  const relationships = objectRelationships(outlined, {
+    tags: facilitation.masked(current).tags,
+    comments: current.comments,
+  });
   if (
     !outline.renderedParts &&
     outlined.length > OUTLINE_LATER &&
@@ -5761,7 +5766,7 @@ function renderSelectionTools(locked, resizeBox, anchor) {
             // Text, frames and images have no fill to colour. The swatches
             // open from one button showing the current colour.
             chosen.some(paintsColor)
-              ? `<button id="fill-options" class="icon-btn fill-options" type="button" aria-label="Fill color" title="Fill color" aria-expanded="false" aria-controls="fill-popover" data-popover="fill-popover" style="--swatch:${chosen.find(paintsColor).color || COLORS[0]}"><span class="fill-chip" aria-hidden="true"></span></button><div id="fill-popover" class="selection-popover fill-popover" role="group" aria-label="Fill color" hidden>${COLORS.map((c, n) => `<button class="swatch" style="--swatch:${c}" data-color="${c}" aria-label="${["Butter", "Sage", "Blue", "Lilac", "Peach", "White"][n]} color"></button>`).join("")}<label class="color-control" title="Custom color"><span class="sr-only">Custom color</span><input id="fill-color" type="color" value="${chosen.find(paintsColor).color || COLORS[0]}"></label></div>`
+              ? `<button id="fill-options" class="icon-btn fill-options" type="button" aria-label="Fill color" title="Fill color" aria-expanded="false" aria-controls="fill-popover" data-popover="fill-popover" style="--swatch:${chosen.find(paintsColor).color || COLORS[0]}"><span class="fill-chip" aria-hidden="true"></span></button><div id="fill-popover" class="selection-popover fill-popover" role="group" aria-label="Fill color" hidden>${COLORS.map((c, n) => `<button class="swatch" style="--swatch:${c}" data-color="${c}" aria-label="${["Butter", "Sage", "Blue", "Lilac", "Peach", "White"][n]} color" aria-pressed="${chosen.filter(paintsColor).every((i) => (i.color || COLORS[0]) === c)}"></button>`).join("")}<label class="color-control" title="Custom color"><span class="sr-only">Custom color</span><input id="fill-color" type="color" value="${chosen.find(paintsColor).color || COLORS[0]}"></label></div>`
               : ""
           }${
             // A shape's border can be dashed or dotted, as for a boundary,
@@ -12849,12 +12854,22 @@ function objectsDialog() {
         // The board as this person sees it: hidden objects are left out and
         // others' private notes stay face down.
         const query = fold(d.querySelector("input").value),
-          items = facilitation.masked(current).items;
-        if (related?.items !== items)
+          shown = facilitation.masked(current),
+          items = shown.items;
+        if (
+          related?.items !== items ||
+          related.tags !== shown.tags ||
+          related.comments !== current.comments
+        )
           related = {
             items,
+            tags: shown.tags,
+            comments: current.comments,
             ordered: outlineOrder(items),
-            map: objectRelationships(items),
+            map: objectRelationships(items, {
+              tags: shown.tags,
+              comments: current.comments,
+            }),
           };
         // Each frame is listed with what it holds, as in the outline, and a
         // frame found by its name brings what it holds with it.

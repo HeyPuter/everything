@@ -6786,6 +6786,11 @@ dialog p[role="alert"]:not(.admin-error, .fac-error, .sr-only):not(:empty) {
   width: 28px;
   height: 28px;
 }
+/* The selection's current colour, as in the sticky note palette. */
+.fill-popover .swatch[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .fill-popover .color-control input {
   width: 28px;
   height: 28px;

@@ -1065,6 +1065,12 @@ const pairs = {
   "{count} objects grouped": "{count} objets groupés",
   "Out of the frame": "Hors du cadre",
   Size: "Taille",
+  "Connects to": "Relié à",
+  "Connected from": "Relié depuis",
+  "open discussion": "discussion ouverte",
+  "open discussions": "discussions ouvertes",
+  "one|and {count} more": "et {count} autre",
+  "and {count} more": "et {count} autres",
   "Continue a list item on a new line":
     "Continuer un élément de liste sur une nouvelle ligne",
   "Tab / Shift + Tab": "Tab / Maj + Tab",
