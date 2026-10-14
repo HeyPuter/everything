@@ -840,3 +840,38 @@ test("a shared restoration reports how many objects it changed", async () => {
     a.close();
   }
 });
+
+test("a shared version is previewed with what changed since, and the board's start is listed as the original version", async () => {
+  const a = fixture("en", true);
+  try {
+    a.list(async () => ({
+      versions: [
+        { at: 2, edits: 1, authors: ["Owner"] },
+        { at: 1, edits: 0, authors: ["Owner"], original: true },
+      ],
+      more: false,
+    }));
+    await a.features.actions.history();
+    const original = a.dialog().querySelector('[data-pick="s:1"]');
+    assert.match(original.textContent, /^Original version/);
+    original.click();
+    for (let n = 0; n < 5; n++) await new Promise((r) => setTimeout(r, 0));
+    assert.equal(original.getAttribute("aria-pressed"), "true");
+    assert.equal(
+      a.dialog().querySelector("#history-preview-title").textContent,
+      "Original version",
+    );
+    const changes = a.dialog().querySelector("#history-changes").textContent;
+    // The version's deleted note, its changed note and the newer note.
+    assert.match(changes, /3 objects/);
+    assert.match(changes, /1 deleted since/);
+    assert.match(changes, /1 changed since/);
+    assert.match(changes, /1 added since/);
+    assert.equal(a.loads(), 1);
+    // Its options use the version already read.
+    await a.row().querySelector("[data-shared-options]").onclick();
+    assert.equal(a.loads(), 1);
+  } finally {
+    a.close();
+  }
+});
