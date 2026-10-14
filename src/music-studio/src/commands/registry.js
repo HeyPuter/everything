@@ -128,9 +128,10 @@ const MAC_SYMBOLS = { Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧' };
 const NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', 'Num+': 'Num +', 'Num-': 'Num -', Escape: 'Esc', Delete: 'Del' };
 
 export function formatKeys(combo) {
-  const parts = combo.split('+').filter(Boolean);
-  if (combo.endsWith('++')) parts.push('+');
-  const key = parts.pop();
+  // The key is the last part; it may itself end in '+' ('+', 'Mod++', 'Num+').
+  const m = /^(.*?)\+?([^+]*\+|[^+]+)$/.exec(combo);
+  const parts = m && m[1] ? m[1].split('+').filter(Boolean) : [];
+  const key = m ? m[2] : combo;
   const label = NAMES[key] || key;
   if (IS_MAC) return parts.map((p) => MAC_SYMBOLS[p] || p).join('') + label;
   return [...parts.map((p) => (p === 'Mod' ? 'Ctrl' : p)), label].join('+');

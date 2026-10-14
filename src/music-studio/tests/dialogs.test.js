@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { applyProjectSettings, projectInfo, openProjectSettings } from '../src/dialogs/project-settings.js';
-import { shortcutGroups } from '../src/dialogs/shortcuts.js';
+import { shortcutGroups, KEYBOARD_EDITING } from '../src/dialogs/shortcuts.js';
 import { historyEntries, tapBpm, purgeUnused } from '../src/dialogs/tools.js';
 import { stemInserts } from '../src/dialogs/export.js';
 import { formatWhen } from '../src/dialogs/open-local.js';
 import { Store } from '../src/model/store.js';
-import { Commands } from '../src/commands/registry.js';
+import { Commands, formatKeys } from '../src/commands/registry.js';
 import * as E from '../src/model/edits.js';
 import { demoProject, newProject } from '../src/model/demo.js';
 import { createChannel } from '../src/model/project.js';
@@ -76,6 +76,24 @@ describe('shortcuts list', () => {
     expect(groups.map((g) => g.title)).toEqual(['File', 'Transport', 'Piano roll']);
     expect(shortcutGroups(c, 'quant')).toEqual([{ title: 'Piano roll', items: [{ id: 'pianoRoll.quantize', label: 'Quantize', keys: ['Q'] }] }]);
     expect(shortcutGroups(c, 'space')[0].items[0].id).toBe('transport.play');
+  });
+
+  it('formats keys that are or end in a plus sign', () => {
+    const plain = (k) => formatKeys(k).replace(/[⌘⇧]/g, '').replace(/^(Ctrl|Shift)\+/g, '');
+    expect(formatKeys('+')).toBe('+');
+    expect(formatKeys('Num+')).toBe('Num +');
+    expect(formatKeys('Num-')).toBe('Num -');
+    expect(plain('Mod++')).toBe('+');
+    expect(plain('Shift+F')).toBe('F');
+  });
+
+  it('lists the editing surface keys with the commands and names every scope', () => {
+    const c = new Commands({});
+    c.register({ id: 'input.octaveUp', label: 'Octave up', keys: ['='], scope: 'typingKeyboard', run() {} });
+    const groups = shortcutGroups(c, '', KEYBOARD_EDITING);
+    expect(groups.map((g) => g.title)).toEqual(['Menus and windows', 'Playlist', 'Piano roll', 'Channel rack', 'Typing keyboard']);
+    expect(groups.find((g) => g.title === 'Typing keyboard').items).toHaveLength(2);
+    expect(shortcutGroups(c, 'menu bar', KEYBOARD_EDITING)[0].items[0].keys).toEqual(['F10']);
   });
 });
 
