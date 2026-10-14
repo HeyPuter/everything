@@ -39,7 +39,7 @@ describe('the account menu', () => {
     const labels = [...document.querySelectorAll('.menu-item')].map((b) => b.querySelector('.menu-label').childNodes[0].textContent);
     expect(labels).toContain('Keyboard shortcuts…');
     expect(labels).toContain('About…');
-    expect(labels.filter((l) => /…$/.test(l))).toEqual(['Regional format…', 'Keyboard shortcuts…', 'About…']);
+    expect(labels.filter((l) => /…$/.test(l))).toEqual(['Regional format…', 'Options…', 'Keyboard shortcuts…', 'About…']);
   });
 });
 

@@ -33,18 +33,17 @@ import { session } from './session.js';
 import { draftKey, liveDraftKey, draftRevision, saveDraft, loadDraft, clearDraft, moveDraft, parkDraft, isUnsavedDraftKey, sameBook, draftKeyForFile, readableDraft, uniqueId } from './drafts.js';
 import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL } from './versions.js';
 import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } from './account-storage.js';
+import { optionState } from './option-state.js';
 
 const AUTOSAVE_MS = 1500;
 // The title row's AutoSave switch: off, edits wait for Save (the local draft still keeps them). Per device.
 const AUTOSAVE_KEY = 'spreadsheet:autosave';
-// Whether a device that never flipped the switch saves as it goes: the app's options (Save ▸ AutoSave by default).
-let autoSaveDefault = true;
-export function setAutoSaveDefault(on) { autoSaveDefault = on !== false; }
+// A device that never flipped the switch saves as it goes unless the app's options say not to (Save ▸ AutoSave by default).
 export function autoSaveEnabled() {
   try {
     const kept = globalThis.localStorage?.getItem(AUTOSAVE_KEY);
-    return kept == null ? autoSaveDefault : kept !== 'off';
-  } catch { return autoSaveDefault; }
+    return kept == null ? optionState.autoSave !== false : kept !== 'off';
+  } catch { return optionState.autoSave !== false; }
 }
 export function setAutoSaveEnabled(on) {
   try { globalThis.localStorage?.setItem(AUTOSAVE_KEY, on ? 'on' : 'off'); } catch { /* optional storage */ }
@@ -164,11 +163,10 @@ export function forgetExternalDecision(file, scope = storageScope()) {
   recordExternal(file, scope, null);
 }
 // Unsaved edits are copied to this browser's storage after this pause; the app's options can lengthen it (Save).
-let DRAFT_MS = 600;
-export function setDraftDelay(seconds) {
-  const s = Number(seconds);
-  DRAFT_MS = Number.isFinite(s) && s > 1 ? Math.min(s, 3600) * 1000 : 600;
-}
+const draftMs = () => {
+  const s = Number(optionState.draftDelay);
+  return Number.isFinite(s) && s > 1 ? Math.min(s, 3600) * 1000 : 600;
+};
 export const UNTITLED = 'Untitled spreadsheet';
 /** How long a shared workbook waits after its last change before its owner's browser writes the .xlsx file. */
 const SHARED_FILE_MS = 15_000;
@@ -466,7 +464,7 @@ export class Doc extends EventTarget {
       this._timerIsRetry = false;
     }
     clearTimeout(this._draftTimer);
-    this._draftTimer = setTimeout(() => this.writeDraft(), DRAFT_MS);
+    this._draftTimer = setTimeout(() => this.writeDraft(), draftMs());
   }
 
   /** Turn AutoSave on or off; turning it on saves what is waiting. */

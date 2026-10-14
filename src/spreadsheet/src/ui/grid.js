@@ -1075,6 +1075,11 @@ export function createGrid(opts) {
    * (it reports that itself): the rules of Workbook.moveRange, in its order.
    */
   function moveProblem(src, dst) {
+    return knownMoveProblem(src, dst) || 'Those cells cannot be moved there';
+  }
+
+  /** Why a move from `src` to `dst` will be refused, when it can be told beforehand; null otherwise. */
+  function knownMoveProblem(src, dst) {
     if ((src.r2 - src.r1 + 1) * (src.c2 - src.c1 + 1) > 200000) return 'Select at most 200,000 cells to move at once';
     const s = sheet();
     const overlaps = (a, b) => !(a.r2 < b.r1 || a.r1 > b.r2 || a.c2 < b.c1 || a.c1 > b.c2);
@@ -1090,7 +1095,7 @@ export function createGrid(opts) {
     const shifted = (m) => ({ r1: m.r1 + dr, c1: m.c1 + dc, r2: m.r2 + dr, c2: m.c2 + dc });
     const landing = s.tables.find((t) => inside(t.range, src) && s.tables.some((o) => !inside(o.range, src) && overlaps(shifted(t.range), o.range)));
     if (landing) return `Table ${landing.name} cannot be dropped on another table`;
-    return 'Those cells cannot be moved there';
+    return null;
   }
 
   function place(node, box) {
@@ -4052,7 +4057,8 @@ export function createGrid(opts) {
       movePreview = null;
       if (target && rangeName(target) !== rangeName(d.source)) {
         // Dropping onto cells that hold something asks first, when the options say to warn before overwriting.
-        if (appOption('overwriteAlert') && dropOverwrites(d.source, target)) {
+        // A move that will be refused anyway says why at once, without asking first.
+        if (appOption('overwriteAlert') && !(!d.copy && knownMoveProblem(d.source, target)) && dropOverwrites(d.source, target)) {
           schedule();
           confirmDialog({
             title: 'Replace the contents?',

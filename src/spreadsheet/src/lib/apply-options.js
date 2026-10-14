@@ -1,7 +1,7 @@
 /**
- * The app's options that reach past the editor: how two-digit years are read, whether AI features are offered,
- * how soon unsaved edits are copied into this browser, whether AutoSave starts on, and the page-wide
- * accessibility choices (a stronger selection, less motion). Installed once at start-up; each change is
+ * The app's options that reach past the editor: how two-digit years are read, and the page-wide accessibility
+ * choices (a stronger selection, less motion). Whether AI features are offered, how soon unsaved edits are
+ * copied into this browser and whether AutoSave starts on are read where they act (lib/option-state.js). Installed once at start-up; each change is
  * applied as it is made.
  */
 import { appOptions, onAppOptions, reloadAppOptions } from './app-options.js';
@@ -9,14 +9,9 @@ import { quickAccessStore, ribbonLayoutStore, keymapStore } from './customize.js
 import { session } from './session.js';
 import { storageScope } from './account-storage.js';
 import { setTwoDigitYearCutoff } from '../core/format.js';
-import { setAIFeaturesAllowed } from './puter.js';
-import { setDraftDelay, setAutoSaveDefault } from './doc.js';
 
 function apply(options) {
   setTwoDigitYearCutoff(options.yearCutoff);
-  setAIFeaturesAllowed(options.aiFeatures);
-  setDraftDelay(options.draftDelay);
-  setAutoSaveDefault(options.autoSave);
   const html = globalThis.document?.documentElement;
   if (html) {
     html.classList.toggle('reduce-motion', !!options.reduceMotion);

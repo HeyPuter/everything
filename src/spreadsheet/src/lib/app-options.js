@@ -9,6 +9,7 @@
  * (File ▸ Options…), which lays its pages out from it.
  */
 import { loadPref, savePref, syncPref } from './user-prefs.js';
+import { optionState } from './option-state.js';
 
 const PREF = 'options';
 
@@ -106,9 +107,17 @@ export function normalizeOptions(raw) {
 let current = null;
 const listeners = new Set();
 
+/** Hand the options lower-level modules act on to them (see option-state.js). */
+function mirror(options) {
+  optionState.aiFeatures = options.aiFeatures;
+  optionState.autoSave = options.autoSave;
+  optionState.draftDelay = options.draftDelay;
+  return options;
+}
+
 /** The options in force. */
 export function appOptions() {
-  current ??= normalizeOptions(loadPref(PREF, null));
+  current ??= mirror(normalizeOptions(loadPref(PREF, null)));
   return current;
 }
 
@@ -116,6 +125,7 @@ export function appOptions() {
 export const appOption = (key) => appOptions()[key];
 
 function changed(before) {
+  mirror(current);
   const keys = Object.keys(current).filter((key) => before[key] !== current[key]);
   if (!keys.length) return;
   for (const fn of [...listeners]) { try { fn(current, keys); } catch (e) { console.error(e); } }

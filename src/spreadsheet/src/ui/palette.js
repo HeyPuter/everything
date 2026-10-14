@@ -45,6 +45,7 @@ export function paletteCommands(flags = {}) {
     c('Download selection as .csv', 'File', 'fileDown', 'downloadRangeCsv', null, { keywords: 'export range' }),
     c('Save as PDF…', 'File', 'fileDown', 'exportPdf', null, { keywords: 'export print' }),
     c('Print…', 'File', 'printer', 'print', null, { shortcut: `${M}+P` }),
+    c('Options…', 'File', 'options', 'options', null, { shortcut: `${M}+,`, keywords: 'preferences settings enter direction fill handle autosave' }),
     c('Back to all spreadsheets', 'File', 'back', 'home'),
 
     flags.canUndo !== false && c('Undo', 'Edit', 'undo', 'undo', null, { shortcut: `${M}+Z` }),
@@ -84,6 +85,9 @@ export function paletteCommands(flags = {}) {
     c('Focus mode', 'View', 'eyeOff', 'focusMode', null, { keywords: 'toolbar hide distraction' }),
     c('Check spelling as you type', 'View', 'text', 'toggleSpellcheck', null, { keywords: 'spellcheck toggle' }),
     c('AutoCorrect Options…', 'Tools', 'autoCorrect', 'autoCorrectOptions', null, { keywords: 'autocorrect replace text typing typos capitals capitalize symbols' }),
+    c('Customize the Ribbon…', 'Tools', 'customizeRibbon', 'options', 'ribbon', { keywords: 'ribbon tabs groups custom hide rename' }),
+    c('Customize Quick Access Toolbar…', 'Tools', 'customizeQuickAccess', 'options', 'quickAccess', { keywords: 'quick access toolbar qat' }),
+    c('Customize Keyboard…', 'Tools', 'customizeKeyboard', 'options', 'keyboard', { keywords: 'keyboard shortcuts keys hotkeys' }),
     c('Spelling…', 'Tools', 'spell', 'spelling', null, { shortcut: 'F7', keywords: 'spell check spellcheck proofing dictionary typos misspelled' }),
     c('Thesaurus', 'Tools', 'thesaurus', 'thesaurus', null, { shortcut: 'Shift+F7', keywords: 'synonyms antonyms words meaning alternative' }),
     c('Translate', 'Tools', 'translate', 'translatePane', null, { keywords: 'translator language translation convert' }),
