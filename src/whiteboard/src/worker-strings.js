@@ -222,6 +222,7 @@ addTranslations({
   "Choose a SIEM destination to send a test event.":
     "Choisissez une destination SIEM pour envoyer un événement d’essai.",
   "The webhook test failed.": "L’essai du webhook a échoué.",
+  "The Slack test failed.": "L’essai de Slack a échoué.",
   "Puter enforces multifactor authentication at sign-in, so there is nothing to turn on here.":
     "Puter impose l’authentification multifacteur à la connexion; il n’y a donc rien à activer ici.",
   "Choose at least one scope.": "Choisissez au moins une portée.",
