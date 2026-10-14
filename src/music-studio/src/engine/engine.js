@@ -26,6 +26,9 @@
 //     early after 0.25 s of silence); isolate: a mixer insert index, only signal that passes
 //     through it reaches the master (stems); signal: an AbortSignal (rejects with AbortError).
 //   engine.ready, engine.ctx, engine.sampleRate, engine.unavailable (reason string or null)
+//   engine.restart()               recreate the context (prefs 'latencyHint', 'sampleRate'
+//                                  ('auto' or Hz) and 'outputDevice' are read on start)
+//   engine.setOutputDevice(id)     route the output to a device (setSinkId where supported)
 //
 // Live notes (noteOn, audition) also start the engine: called from a user
 // gesture they work before start(); the notes are queued until the audio
@@ -174,12 +177,22 @@ export class Engine extends Emitter {
     const Ctx = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!Ctx) return this.#fail('Sound is unavailable: this browser does not support Web Audio.');
     let ctx;
+    const latencyHint = this.prefs?.get?.('latencyHint') || 'interactive';
+    const rate = Number(this.prefs?.get?.('sampleRate'));
     try {
-      ctx = new Ctx({ latencyHint: this.prefs?.get?.('latencyHint') || 'interactive' });
+      try {
+        ctx = new Ctx(rate >= 8000 ? { latencyHint, sampleRate: rate } : { latencyHint });
+      } catch (err) {
+        // Some devices refuse a requested rate: fall back to the device rate.
+        if (!(rate >= 8000)) throw err;
+        ctx = new Ctx({ latencyHint });
+      }
     } catch (err) {
       return this.#fail(`Sound is unavailable: the browser blocked the audio device (${err?.message || err}).`);
     }
     this.ctx = ctx;
+    const sink = this.prefs?.get?.('outputDevice');
+    if (sink && sink !== 'default' && ctx.setSinkId) ctx.setSinkId(sink).catch(() => {});
     // Resume inside the user gesture (before any await) so autoplay rules allow it.
     const resumed = ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : null;
     if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined') return this.#fail('Sound is unavailable: this browser does not support AudioWorklet.');
@@ -200,11 +213,49 @@ export class Engine extends Emitter {
     const queued = this._queue;
     this._queue = [];
     for (const m of queued) this.node.port.postMessage(m);
-    await resumed;
-    if (ctx.state === 'suspended') this.#resumeOnGesture();
+    // resume() stays pending while the browser withholds audio; never wait on it.
+    resumed?.then(() => {
+      if (ctx.state !== 'running') this.#resumeOnGesture();
+    });
+    if (ctx.state !== 'running') this.#resumeOnGesture();
     ctx.onstatechange = () => {
       if (ctx.state === 'suspended' || ctx.state === 'interrupted') this.#resumeOnGesture();
     };
+    return true;
+  }
+
+  /**
+   * Recreates the audio context (after latency or sample rate preferences
+   * change). Playback stops; the project, samples and settings are resent.
+   * Does nothing until audio has been started once.
+   */
+  async restart() {
+    if (this._starting) await this._starting;
+    if (!this.ctx && !this.unavailable) return false;
+    if (this.playing) this.stop();
+    const old = this.ctx;
+    const node = this.node;
+    this.node = null;
+    this.ctx = null;
+    this.unavailable = null;
+    this._wraps = 0;
+    this._wrapsAtPlay = 0;
+    try {
+      node?.disconnect();
+      node?.port.close();
+      await old?.close();
+    } catch {
+      // Already closed.
+    }
+    return this.start();
+  }
+
+  /** Routes the output to an audio device (a deviceId from enumerateDevices; '' or 'default' for the system default). */
+  async setOutputDevice(id) {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    if (!ctx.setSinkId) throw new Error('This browser cannot choose the audio output.');
+    await ctx.setSinkId(!id || id === 'default' ? '' : id);
     return true;
   }
 
@@ -232,8 +283,9 @@ export class Engine extends Emitter {
       case 'pos': {
         const now = performance.now();
         if (m.wraps > this._wraps) {
+          const passes = m.wraps - this._wraps;
           this._wraps = m.wraps;
-          if (this.playing) this.emit('loop');
+          if (this.playing) for (let i = 0; i < passes; i++) this.emit('loop');
         }
         if (this.playing && m.playing) this._anchor = { tick: m.tick, perf: now, counting: m.counting };
         if (this.countingIn !== Boolean(m.counting && this.playing)) {
