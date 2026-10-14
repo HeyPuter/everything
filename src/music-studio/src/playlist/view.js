@@ -20,7 +20,7 @@ import { promptDialog } from '../ui/dialog.js';
 import { getDragData, dragHasPayload } from '../lib/dnd.js';
 import * as E from '../model/edits.js';
 import { songLength, patternById } from '../model/project.js';
-import { SNAPS, snapTicks, snapFloor, snapRound, ticksPerBar, ticksPerBeat, barLabel, formatBST, secondsToTicks, STEP } from '../model/time.js';
+import { SNAPS, snapTicks, snapFloor, snapRound, ticksPerBar, ticksPerBeat, barLabel, formatBST, STEP } from '../model/time.js';
 import { evaluateAutomation } from '../automation/evaluate.js';
 import { hitPoint } from '../automation/points.js';
 import { isSignedIn, readFile } from '../storage/puter.js';
@@ -930,7 +930,7 @@ export function createPlaylistView(app, host) {
     app.notify(`Importing ${clean}...`);
     const r = await app.importAudio(blob, { name: clean, path, as: 'audio' });
     if (!r?.channelId) return;
-    const len = Math.max(1, Math.round(secondsToTicks(r.duration || 0, store.project.bpm))) || ticksPerBar(store.project.sig);
+    const len = r.duration > 0 ? C.audioTicks(store.project, r.duration, tick) : ticksPerBar(store.project.sig);
     const out = store.apply('Add audio clip', (p) => C.placeClip(p, { kind: 'audio', id: r.channelId }, track, tick, len));
     V.setSource({ kind: 'audio', id: r.channelId });
     V.selectClips([out.id], { announce: false });

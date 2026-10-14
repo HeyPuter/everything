@@ -116,7 +116,7 @@ export function installPointer(V, el) {
       return null;
     }
     const start = V.snapFloor(pt.tick, e);
-    const natural = C.sourceLength(store.project, src, V.durations());
+    const natural = C.sourceLength(store.project, src, V.durations(), start);
     let len = natural;
     store.begin('Add clip');
     const place = () => {

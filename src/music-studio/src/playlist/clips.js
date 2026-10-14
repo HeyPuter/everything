@@ -15,6 +15,7 @@
 import * as E from '../model/edits.js';
 import { createTrack, patternById, patternLength, patternColor, channelById, COLORS } from '../model/project.js';
 import { secondsToTicks, ticksPerBar } from '../model/time.js';
+import { tempoMap } from '../engine/compile.js';
 import { automationLength } from '../automation/points.js';
 import { resolveTarget } from '../automation/targets.js';
 import { uid, clamp } from '../lib/util.js';
@@ -47,10 +48,21 @@ export function audioDuration(project, channelId, durations) {
 }
 
 /**
- * Natural length in ticks of a source: the pattern length, the audio duration
- * at the project tempo, or the automation's length. One bar when unknown.
+ * Length in ticks of `sec` seconds of audio placed at song tick `start`,
+ * following tempo automation (the song's tempo map).
  */
-export function sourceLength(project, src, durations) {
+export function audioTicks(project, sec, start = 0) {
+  const map = tempoMap(project, 'song');
+  if (map.constant) return Math.max(1, Math.round(secondsToTicks(sec, project.bpm)));
+  return Math.max(1, Math.round(map.ticks(map.seconds(start) + sec) - start));
+}
+
+/**
+ * Natural length in ticks of a source placed at `start`: the pattern length,
+ * the audio duration (through the tempo map), or the automation's length.
+ * One bar when unknown.
+ */
+export function sourceLength(project, src, durations, start = 0) {
   const bar = ticksPerBar(project.sig);
   if (!src) return bar;
   if (src.kind === 'pattern') {
@@ -59,7 +71,7 @@ export function sourceLength(project, src, durations) {
   }
   if (src.kind === 'audio') {
     const sec = audioDuration(project, src.id, durations);
-    return sec > 0 ? Math.max(1, Math.round(secondsToTicks(sec, project.bpm))) : bar;
+    return sec > 0 ? audioTicks(project, sec, start) : bar;
   }
   if (src.kind === 'auto') return automationLength(project.automation[src.id], project.sig);
   return bar;
@@ -135,7 +147,7 @@ export function firstFreeTrack(project, start, end) {
 
 /** Places a clip of `src`; `len` defaults to the source's natural length. Returns { project, id }. */
 export function placeClip(project, src, track, start, len, durations) {
-  const r = E.addClips(project, [{ kind: src.kind, ref: src.id, track: Math.max(0, track), start: Math.max(0, Math.round(start)), len: Math.max(1, Math.round(len ?? sourceLength(project, src, durations))), offset: 0 }]);
+  const r = E.addClips(project, [{ kind: src.kind, ref: src.id, track: Math.max(0, track), start: Math.max(0, Math.round(start)), len: Math.max(1, Math.round(len ?? sourceLength(project, src, durations, start))), offset: 0 }]);
   return { project: r.project, id: r.ids[0] };
 }
 

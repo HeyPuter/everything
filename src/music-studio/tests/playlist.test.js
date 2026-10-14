@@ -285,3 +285,20 @@ describe('marker navigation', () => {
     expect(p.markers.map((m) => m.name)).toEqual(['B', 'A']);
   });
 });
+
+describe('audio clip length under tempo automation', () => {
+  it('follows the tempo map from where the clip is placed', async () => {
+    const C = await import('../src/playlist/clips.js');
+    const { createProject } = await import('../src/model/project.js');
+    const E = await import('../src/model/edits.js');
+    let p = createProject();
+    p = { ...p, bpm: 120 };
+    expect(C.audioTicks(p, 2)).toBe(384); // 2 s at 120 BPM = 4 beats
+    // A tempo clip holding 60 BPM (v for 60 in the 20..300 range) over the first 8 bars.
+    const v = (60 - 20) / 280;
+    const r = E.addAutomation(p, { name: 'Tempo', target: { kind: 'tempo' }, points: [{ t: 0, v }, { t: 3072, v }] });
+    p = E.addClips(r.project, [{ kind: 'auto', ref: r.id, track: 0, start: 0, len: 3072 }]).project;
+    expect(C.audioTicks(p, 2)).toBe(192); // 2 s at 60 BPM = 2 beats
+    expect(C.audioTicks(p, 2, 4000)).toBe(384); // after the clip: back to 120 BPM
+  });
+});
