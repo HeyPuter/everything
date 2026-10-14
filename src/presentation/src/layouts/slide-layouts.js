@@ -87,6 +87,7 @@ export function createLayoutCommands(host) {
               ? `Layout for ${targets.length} slides`
               : "Slide layout",
           selected: same ? current : null,
+          radio: true,
           onChoose: (part) => changeLayout(targets, part),
         }),
       },

@@ -2672,7 +2672,11 @@ async function slideSizeDialog(preset = null) {
   mutate(() => {
     const before = currentSize();
     P.setSlideSize(doc.pres, { width, height, type });
-    if (!fit) return;
+    // Masters and layouts stretch to the new size, so new slides fill it;
+    // slides placed by them have taken their places first.
+    const stretchTemplates = () =>
+      P.scaleTemplates(doc.pres, width / before.cx, height / before.cy);
+    if (!fit) return stretchTemplates();
     const k = Math.min(width / before.cx, height / before.cy);
     const dx = (width - before.cx * k) / 2,
       dy = (height - before.cy * k) / 2;
@@ -2727,6 +2731,7 @@ async function slideSizeDialog(preset = null) {
           }
       }
     }
+    stretchTemplates();
   });
 }
 // Slides as pictures: the current slide as a PNG, or every visible slide as
@@ -3335,6 +3340,7 @@ const masterView = createMasterView({
   },
   clearSelection: () => clearSelection(),
   selectShape: (id) => selectIds([id]),
+  startDrawing: (tool) => startDrawing(tool),
   commitText: () => commitText(),
   ribbon: () => ribbon,
 });
@@ -5224,6 +5230,9 @@ function drawOnCanvas(e) {
 }
 async function placeDrawn(tool, at) {
   commitText();
+  // Master view's Insert Placeholder draws a placeholder on the layout.
+  if (tool.startsWith("placeholder:"))
+    return masterView.placePlaceholder(tool.slice("placeholder:".length), at);
   const isText = tool === "text";
   const applied = await addObject(isText ? "text" : tool, (obj) => {
     const b = slideBounds(doc.pres, obj);
@@ -13278,7 +13287,11 @@ function canvasContextMenu(e) {
       },
       { label: "Picture…", icon: "o:picture", onSelect: () => insertImage() },
       { separator: true },
-      { label: "New Slide", icon: "o:newSlide", items: layoutItems(slide()) },
+      !masterView.active && {
+        label: "New Slide",
+        icon: "o:newSlide",
+        items: layoutItems(slide()),
+      },
       ...slideActions(slide(), { hideUnavailable: true }),
       { separator: true },
       {

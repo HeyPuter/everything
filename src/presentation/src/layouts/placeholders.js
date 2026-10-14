@@ -75,6 +75,9 @@ export function decoratePlaceholders({
     if (masterView || !empty) continue;
     const kind = P.getPlaceholderContentKind(shape);
     if (!kind) continue;
+    // A placeholder drawn too small to hold the buttons below its middle
+    // offers them from the Insert tab only.
+    if (hit.offsetHeight < 64 || hit.offsetWidth < 90) continue;
     const offered = PLACEHOLDER_INSERTS.filter(
       (entry) => entry.kinds.includes(kind) && available(entry.id),
     );
@@ -82,7 +85,7 @@ export function decoratePlaceholders({
     const box = el("div", {
       class: "placeholder-inserts",
       role: "group",
-      "aria-label": `Insert into ${P.getShapeName(shape) || "placeholder"}`,
+      "aria-label": "Insert into this placeholder",
       "data-shape-id": hit.dataset.shapeId,
     });
     for (const entry of offered)
@@ -103,9 +106,15 @@ export function decoratePlaceholders({
           icon(entry.icon, 20),
         ),
       );
-    // The buttons sit in the middle of the placeholder, below its prompt.
-    for (const key of ["left", "top", "width", "height", "transform"])
+    // The buttons sit in the lower half of the placeholder, under its
+    // prompt, leaving its middle free to select it.
+    for (const key of ["left", "width", "transform"])
       box.style[key] = hit.style[key];
+    const top = parseFloat(hit.style.top) || 0,
+      height = parseFloat(hit.style.height) || 0;
+    box.style.top = `${top + height / 2}%`;
+    box.style.height = `${height / 2}%`;
+    box.style.transformOrigin = "50% 0";
     const small = hit.offsetWidth < 150 || hit.offsetHeight < 90;
     box.classList.toggle("compact", small);
     canvas.append(box);

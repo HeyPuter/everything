@@ -35,8 +35,9 @@ what is being added, and its status. Items are checked off as they land.
 - [x] Handout Master and Notes Master views: page orientation, header,
       footer, date, page number (and slide image and body on notes pages)
       placeholders, slides-per-page guides on the handout page.
-- [ ] Draw a placeholder's rectangle on the canvas with Insert Placeholder
-      (it is placed in the middle of the layout for now).
+- [x] Insert Placeholder draws the placeholder on the layout (drag, or click
+      for a standard size); changing the slide size stretches masters and
+      layouts with it.
 
 ### 2. Themes and design
 

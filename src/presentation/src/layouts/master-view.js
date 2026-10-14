@@ -261,19 +261,39 @@ export function createMasterView(host) {
 
   // ---- Placeholders ------------------------------------------------------
 
+  // Insert Placeholder arms a drawing tool: a drag on the layout draws the
+  // placeholder, a click places one at a standard size there.
   function insertPlaceholder(kind = "content") {
     const view = slide();
     if (!view || P.getTemplateKind(view) !== "layout") return;
     host.commitText();
-    const size = P.getTemplatePageSize(pres(), view);
+    host.startDrawing(`placeholder:${kind}`);
+    toast("Drag on the layout to draw the placeholder, or click to place it.");
+  }
+
+  function placePlaceholder(kind, at) {
     const part = targetPart();
+    const view = slide();
+    if (!part || !view || P.getTemplateKind(view) !== "layout") return;
+    const page = P.getTemplatePageSize(pres(), view);
+    let bounds = at;
+    if (at.click) {
+      const w = Math.round(page.cx * 0.4),
+        h = Math.round(page.cy * 0.3);
+      bounds = {
+        x: Math.max(0, Math.min(page.cx - w, at.x)),
+        y: Math.max(0, Math.min(page.cy - h, at.y)),
+        w,
+        h,
+      };
+    }
     host.mutate(() => {
       const fresh = P.getTemplateSlide(pres(), part);
       const shape = P.insertTemplatePlaceholder(fresh, kind, {
-        x: Math.round(size.cx * 0.25),
-        y: Math.round(size.cy * 0.3),
-        w: Math.round(size.cx * 0.5),
-        h: Math.round(size.cy * 0.45),
+        x: bounds.x,
+        y: bounds.y,
+        w: bounds.w,
+        h: bounds.h,
       });
       host.selectShape(P.getShapeId(shape));
     });
@@ -872,6 +892,7 @@ export function createMasterView(host) {
     insertSlideMaster,
     insertLayout,
     insertPlaceholder,
+    placePlaceholder,
     choose,
   };
 }

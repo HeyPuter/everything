@@ -2476,3 +2476,49 @@ export const syncPlaceholderListStyles = (slide: SlideData): boolean => {
   }
   return changed;
 };
+
+/**
+ * Stretches the shapes of every slide master and layout by `sx` × `sy`, as
+ * a change of slide size does, so layouts keep filling the slide. Text sizes
+ * are left as they are.
+ */
+export const scaleTemplates = (
+  pres: PresentationData,
+  sx: number,
+  sy: number,
+): void => {
+  if (sx === 1 && sy === 1) return;
+  const pkg = pkgOf(pres);
+  const names = getSlideMasters(pres).flatMap((m) => [
+    m.partName,
+    ...m.layouts.map((l) => l.partName),
+  ]);
+  for (const name of names) {
+    const doc = readDoc(pkg, name);
+    for (const child of spTreeOf(doc.root).children) {
+      if (child.kind !== "element") continue;
+      const holder =
+        child.name.localName === "graphicFrame"
+          ? child
+          : (firstChildElement(child, pq("spPr")) ??
+            firstChildElement(child, pq("grpSpPr")));
+      const xfrm =
+        holder &&
+        (firstChildElement(holder, aq("xfrm")) ??
+          firstChildElement(holder, pq("xfrm")));
+      if (!xfrm) continue;
+      const off = firstChildElement(xfrm, aq("off"));
+      const ext = firstChildElement(xfrm, aq("ext"));
+      const scale = (el: XmlElement | null, a: string, k: number) => {
+        const v = el && Number(getAttrValue(el, plain(a)));
+        if (el && Number.isFinite(v))
+          setAttr(el, a, String(Math.round(v! * k)));
+      };
+      scale(off, "x", sx);
+      scale(off, "y", sy);
+      scale(ext, "cx", sx);
+      scale(ext, "cy", sy);
+    }
+    writeDoc(pkg, name, doc);
+  }
+};

@@ -651,6 +651,7 @@ export {
   moveSlideLayout,
   renameTemplate,
   resetSlideToLayout,
+  scaleTemplates,
   setNotesPageOrientation,
   setTemplatePlaceholder,
   setTemplatePreserved,

@@ -404,6 +404,25 @@ describe("layout and master structure", () => {
   });
 });
 
+describe("slide size", () => {
+  it("stretches masters and layouts to a new slide size", () => {
+    const pres = P.createPresentation({ size: "4:3" });
+    const name = layoutOf(pres, "title").partName;
+    const before = P.getShapeBounds(
+      P.getSlideShapes(P.getTemplateSlide(pres, name))[0],
+    );
+    P.setSlideSize(pres, { width: 12192000, height: 6858000 });
+    P.scaleTemplates(pres, 12192000 / 9144000, 1);
+    const after = P.getShapeBounds(
+      P.getSlideShapes(P.getTemplateSlide(pres, name))[0],
+    );
+    expect(after.x).toBe(Math.round((before.x * 12192000) / 9144000));
+    expect(after.w).toBe(Math.round((before.w * 12192000) / 9144000));
+    expect(after.y).toBe(before.y);
+    expect(errors(pres)).toEqual([]);
+  });
+});
+
 describe("placeholders on layouts and masters", () => {
   it("inserts each kind of placeholder with its own index", async () => {
     const pres = P.createPresentation();

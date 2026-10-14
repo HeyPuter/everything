@@ -96,12 +96,12 @@ test("New Slide and Layout galleries draw the master's layouts, and Reset restor
   await tab(page, "home");
   await command(page, "new-slide", { arrow: true });
   const gallery = page.locator(".layout-gallery");
-  await expect(gallery.getByRole("menuitemradio")).toHaveCount(11);
+  await expect(gallery.getByRole("menuitem")).toHaveCount(11);
   await expect(gallery.locator(".layout-thumb img").first()).toHaveAttribute(
     "src",
     /^data:image\/svg\+xml/,
   );
-  await gallery.getByRole("menuitemradio", { name: "Two Content" }).click();
+  await gallery.getByRole("menuitem", { name: "Two Content" }).click();
   await expect(page.locator("#slide-list .slide-item")).toHaveCount(2);
   await expect(hits(page)).toHaveCount(3);
   // The New Slide button follows the current layout.
@@ -199,6 +199,19 @@ test("Slide Master view edits the master, adds a layout and placeholders, and sl
     .click();
   await command(page, "insert-placeholder", { arrow: true });
   await page.getByRole("menuitem", { name: "Picture", exact: true }).click();
+  // The placeholder is drawn on the layout.
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  await page.mouse.move(
+    canvas.x + canvas.width * 0.3,
+    canvas.y + canvas.height * 0.4,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    canvas.x + canvas.width * 0.7,
+    canvas.y + canvas.height * 0.8,
+    { steps: 4 },
+  );
+  await page.mouse.up();
   await expect(page.locator(".object-hit.placeholder-frame")).toHaveCount(5);
   // Footers off for this layout.
   await command(page, "layout-footers");
@@ -213,7 +226,7 @@ test("Slide Master view edits the master, adds a layout and placeholders, and sl
   // A new slide on the new layout.
   await tab(page, "home");
   await command(page, "new-slide", { arrow: true });
-  await page.getByRole("menuitemradio", { name: "Photo Story" }).click();
+  await page.getByRole("menuitem", { name: "Photo Story" }).click();
   await expect(page.locator("#slide-list .slide-item")).toHaveCount(2);
   const { p } = await download(page);
   const master = P.getSlideMasters(p)[0];

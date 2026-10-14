@@ -25,11 +25,15 @@ function partBufferStamp(part) {
   if (!id) bufferIds.set(part.data, (id = ++nextBufferId));
   return id;
 }
+// A layout's picture also changes with its master and the master's theme.
 function templateStampForLayout(pres, partName) {
   const pkg = P._internalPackageOf(pres);
-  const master = P.getLayoutMasterPartName(pres, partName);
-  const masterPart = master && pkg.getPart(master);
-  return masterPart ? partBufferStamp(masterPart) : 0;
+  const master = P.getLayoutMasterPartName(pres, partName) || partName;
+  const rel = pkg.getRels(master)?.items.find((r) => r.type.endsWith("/theme"));
+  const theme = rel && new URL(rel.target, `file://${master}`).pathname;
+  return [master, theme]
+    .map((name) => partBufferStamp(name && pkg.getPart(name)))
+    .join(":");
 }
 
 /**
@@ -124,7 +128,7 @@ export function nextLayoutFor(pres, target) {
  */
 export function layoutGallery(
   pres,
-  { label, selected = null, onChoose, describe = null },
+  { label, selected = null, onChoose, describe = null, radio = false },
 ) {
   const root = el("div", {
     class: "layout-gallery",
@@ -151,8 +155,9 @@ export function layoutGallery(
           {
             type: "button",
             class: `layout-gallery-item ${isSelected ? "selected" : ""}`,
-            role: "menuitemradio",
-            "aria-checked": String(isSelected),
+            // The Layout gallery marks the current layout; New Slide has none.
+            role: radio ? "menuitemradio" : "menuitem",
+            "aria-checked": radio ? String(isSelected) : null,
             tabindex: -1,
             title: describe ? describe(layout) : name,
             "data-layout": layout.partName,

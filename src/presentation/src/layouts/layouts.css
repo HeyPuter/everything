@@ -137,7 +137,8 @@
   width: 14px;
   height: 14px;
 }
-.editor.text-editing .placeholder-inserts {
+/* Typing into a placeholder puts its buttons away. */
+#slide-canvas:has(.inline-editor) .placeholder-inserts {
   display: none;
 }
 
