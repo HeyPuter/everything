@@ -699,7 +699,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   }
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); } });
   // Insert tab: galleries, pictures, drawings, fields, equations and symbols (insert-tab.js).
-  const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (local ? '' : session.username), onChange: () => update(),
+  const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (!local && session.signedIn ? session.username : ''), onChange: () => update(),
     base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(),
       link: () => editHyperlink(), bookmark: () => bookmarks.click(), comment: () => review.commands?.newComment?.() } });
   const baseMenu = editorCommands.extendMenu, baseContextItems = editorCommands.contextMenuItems;
