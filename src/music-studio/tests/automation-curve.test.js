@@ -122,3 +122,47 @@ describe('engine curve evaluation', () => {
     expect(compileSequence(p, { mode: 'song', slotOf: () => 0 }).auto[0].segs[0].cs).toBe(null);
   });
 });
+
+describe('playlist curve keyboard model', () => {
+  async function setup() {
+    const { Store } = await import('../src/model/store.js');
+    const { installCurves, describeCurve } = await import('../src/playlist/curves.js');
+    const C = await import('../src/playlist/clips.js');
+    const p = createProject();
+    p.automation = { a: { id: 'a', name: 'Tempo', target: { kind: 'tempo' }, points: [{ t: 0, v: 0.2 }, { t: 96, v: 0.8 }, { t: 192, v: 0.8 }] } };
+    p.clips = [{ id: 'c', kind: 'auto', track: 0, start: 384, len: 384, offset: 0, ref: 'a', mute: false }];
+    const store = new Store(p);
+    const hints = [];
+    const V = { store, app: { hint: (t) => hints.push(t) }, selection: new Set(['c']), cursor: { track: 0, tick: 0 }, markDirty() {}, revealTick() {} };
+    V.byTrack = C.clipsByTrack(p.clips, p.tracks.length);
+    installCurves(V);
+    return { V, store, hints, describeCurve };
+  }
+
+  it('steps through points and bends the active segment in one undo step per key', async () => {
+    const { V, store, hints, describeCurve } = await setup();
+    V.stepPoint(1);
+    expect(V.activePoint).toEqual({ clip: 'c', index: 0 });
+    expect(hints.at(-1)).toMatch(/Tempo point 1 of 3: 2:01:00, 76 BPM, curve linear/);
+    V.bendCurve(1);
+    const c = store.project.automation.a.points[0].c;
+    expect(c).toBeLessThan(0); // a rising segment bent up eases out
+    expect(store.undoLabel).toBe('Change curve');
+    V.bendCurve(1);
+    expect(store.project.automation.a.points[0].c).toBeLessThan(c);
+    V.resetCurve();
+    expect(store.project.automation.a.points[0].c).toBeUndefined();
+    store.undo();
+    expect(store.project.automation.a.points[0].c).toBeCloseTo(2 * c, 9);
+    // The flat segment after point 2 takes no curve.
+    V.stepPoint(1);
+    V.bendCurve(1);
+    expect(store.project.automation.a.points[1].c).toBeUndefined();
+    expect(V.curveItems(store.project.clips[0], 0).find((i) => i.label === 'Linear').checked).toBe(false);
+    V.curveItems(store.project.clips[0], 0).find((i) => i.label.startsWith('Ease in')).run();
+    expect(store.project.automation.a.points[0].c).toBe(0.5);
+    expect(describeCurve(0.5)).toBe('ease in 50%');
+    expect(describeCurve(-0.25)).toBe('ease out 25%');
+    expect(describeCurve(0)).toBe('linear');
+  });
+});

@@ -30,6 +30,7 @@ import { drawCanvas, drawRulerLayer, resetColors, AUTO_EDIT_MIN_H } from './rend
 import { createHeaders } from './headers.js';
 import { createPicker, listSources } from './picker.js';
 import { installPointer } from './pointer.js';
+import { installCurves } from './curves.js';
 import * as M from './menus.js';
 import { LOOP_STRIP_H, TITLE_H, PICKER_W, DEFAULT_PX_PER_TICK, DEFAULT_TRACK_H } from './constants.js';
 
@@ -337,7 +338,7 @@ export function createPlaylistView(app, host) {
     }
   };
 
-  V.clipMenu = (clip, at) => M.clipMenu(V, clip, at);
+  V.clipMenu = (clip, at, opts) => M.clipMenu(V, clip, at, opts);
   V.emptyMenu = (pt, at) => M.emptyMenu(V, pt, at);
   V.trackMenu = (i, at) => M.trackMenu(V, i, at);
   V.sourceMenu = (src, at) => M.sourceMenu(V, src, at);
@@ -610,6 +611,7 @@ export function createPlaylistView(app, host) {
   // ---------------------------------------------------------------- canvas pointer and keyboard
 
   installPointer(V, scroller);
+  installCurves(V);
 
   scroller.addEventListener(
     'pointerdown',
@@ -709,7 +711,10 @@ export function createPlaylistView(app, host) {
       const sel = p.clips.find((c) => V.selection.has(c.id)) || clipUnderCursor();
       const x = r.left + clamp(V.vp.x(sel ? sel.start : V.cursor.tick), 0, V.vp.width) + 8;
       const y = r.top + trackTop(V.layout, sel ? sel.track : V.cursor.track) - V.scrollY + 18;
-      if (sel) V.clipMenu(sel, { x, y });
+      const ap = V.activePoint;
+      const pointClip = ap && p.clips.find((c) => c.id === ap.clip);
+      if (pointClip && (!sel || sel.id === pointClip.id)) V.clipMenu(pointClip, { x, y }, { curve: ap.index });
+      else if (sel) V.clipMenu(sel, { x, y });
       else V.emptyMenu({ track: V.cursor.track, tick: V.cursor.tick }, { x, y });
     }
   });
@@ -958,6 +963,11 @@ export function createPlaylistView(app, host) {
     },
     deselect() {
       if (V.cancelGesture()) return;
+      if (V.activePoint) {
+        V.activePoint = null;
+        V.markDirty();
+        return;
+      }
       if (V.selection.size) V.selectClips([]);
     },
     duplicate() {

@@ -371,6 +371,7 @@ function drawCurve(V, d, clip, x0, w, cy, ch, line, fill, editable) {
   if (!editable) return;
   const c = colors();
   const hover = V.hoverPoint;
+  const active = V.activePoint;
   for (let i = 0; i < pts.length; i++) {
     const t = pts[i].t;
     if (t < clip.offset || t > clip.offset + clip.len) continue;
@@ -379,6 +380,8 @@ function drawCurve(V, d, clip, x0, w, cy, ch, line, fill, editable) {
     const py = bottom - pts[i].v * ch;
     const hot = hover && hover.clip === clip.id && hover.index === i;
     const r = hot ? 5 : 3.5;
+    // The active point (keyboard handle for curve edits) gets a focus ring.
+    if (active && active.clip === clip.id && active.index === i) d.rect(px - r - 3, py - r - 3, (r + 3) * 2, (r + 3) * 2, c.focus, r + 3);
     d.rect(px - r - 1, py - r - 1, (r + 1) * 2, (r + 1) * 2, c.bg, r + 1);
     d.rect(px - r, py - r, r * 2, r * 2, hot ? c.text : line, r);
   }

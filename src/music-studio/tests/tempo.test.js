@@ -177,7 +177,8 @@ describe('tempo target', () => {
     expect(r.norm).toBeCloseTo((128 - 20) / 280, 12);
     expect(r.label).toBe('Tempo');
     expect(formatParam(TEMPO_PARAM, 128)).toBe('128 BPM');
-    expect(formatParam(TEMPO_PARAM, 92.5)).toBe('92.50 BPM');
+    expect(formatParam(TEMPO_PARAM, 92.5)).toBe('92.5 BPM');
+    expect(formatParam(TEMPO_PARAM, 92.123456)).toBe('92.12 BPM');
     expect(listTargets(p).at(-1).items.map((i) => i.target)).toContainEqual({ kind: 'tempo' });
     expect(tempoFromNorm(tempoToNorm(140))).toBeCloseTo(140, 9);
   });

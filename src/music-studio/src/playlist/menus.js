@@ -100,7 +100,8 @@ export function sourceMenu(V, src, at) {
 
 // ------------------------------------------------------------------ clips
 
-export function clipMenu(V, clip, at) {
+/** Clip options. `opts.curve`: on an automation clip, the point index whose segment gets a Curve submenu. */
+export function clipMenu(V, clip, at, opts = {}) {
   const { store, app } = V;
   const p = store.project;
   if (!V.selection.has(clip.id)) V.selectClips([clip.id]);
@@ -113,6 +114,8 @@ export function clipMenu(V, clip, at) {
     [
       pattern ? { type: 'cmd', label: 'Open pattern', run: () => V.openClip(clip) } : null,
       clip.kind === 'audio' ? { type: 'cmd', label: 'Open channel settings', enabled: Boolean(app.openChannelEditor), run: () => app.openChannelEditor?.(clip.ref) } : null,
+      clip.kind === 'auto' && Number.isInteger(opts.curve) && V.curveItems ? { type: 'submenu', label: 'Curve', items: () => V.curveItems(clip, opts.curve) } : null,
+      clip.kind === 'auto' && Number.isInteger(opts.curve) && V.curveItems ? { type: 'sep' } : null,
       { type: 'cmd', label: `Rename ${KIND_LABEL[clip.kind]}...`, run: () => renameSource(V, src) },
       { type: 'submenu', label: 'Color', items: () => colorItems(V, src) },
       { type: 'cmd', label: 'Make unique', run: () => V.makeUnique(clip.id) },
