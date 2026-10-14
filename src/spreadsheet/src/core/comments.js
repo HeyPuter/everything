@@ -7,12 +7,14 @@
  * A thread is { done, items: [{ id, author, time, text, userId?, providerId?, mentions? }] }: items[0] is the
  * comment that started it, the rest are replies in order. Ids are GUIDs in braces, as the file
  * format writes them; times are ISO strings in UTC. `mentions` are the people the comment @mentions
- * (see mentions.js).
+ * (see mentions.js). A thread may be assigned to someone (`assignee`: { name, user?, email? }), a task for
+ * them that resolving the thread marks done; the assignment is kept in the app's own file and shared
+ * workbooks, not in an .xlsx, whose threaded comments have no place for it.
  *
  * Every change goes through setThread, one undo step each (folded into a transaction when inside one).
  */
 import { cellKey, parseKey } from './cell.js';
-import { normalizeMentions, remapMentions, findMentions } from './mentions.js';
+import { normalizeMentions, remapMentions, findMentions, isEmail, isUsername } from './mentions.js';
 
 export const MAX_COMMENT_TEXT = 10000;
 export const MAX_REPLIES = 100;
@@ -46,6 +48,15 @@ function normalizeItem(item) {
   return out;
 }
 
+/** Whom a thread is assigned to, as the model keeps it, or null. */
+export function normalizeAssignee(a) {
+  if (!a || typeof a !== 'object' || typeof a.name !== 'string' || !a.name.trim()) return null;
+  const out = { name: a.name.trim().slice(0, 255) };
+  if (isUsername(a.user)) out.user = a.user;
+  if (isEmail(a.email)) out.email = a.email.toLowerCase();
+  return out.user || out.email ? out : null;
+}
+
 /** A thread as the model keeps it, or null when it holds no comment. */
 export function normalizeThread(thread) {
   if (!thread || !Array.isArray(thread.items)) return null;
@@ -53,7 +64,8 @@ export function normalizeThread(thread) {
   if (!items.length) return null;
   const seen = new Set();
   for (const item of items) { if (seen.has(item.id)) item.id = newCommentId(); seen.add(item.id); }
-  return { done: thread.done === true, items };
+  const assignee = normalizeAssignee(thread.assignee);
+  return { done: thread.done === true, items, ...(assignee ? { assignee } : {}) };
 }
 
 /** A sheet's threads from their stored form ({ "r,c": thread }), keyed by cell. */
@@ -69,7 +81,7 @@ export function readComments(stored) {
 }
 
 const cloneItem = (i) => (i.mentions ? { ...i, mentions: i.mentions.map((m) => ({ ...m })) } : { ...i });
-const cloneThread = (t) => ({ done: !!t.done, items: t.items.map(cloneItem) });
+const cloneThread = (t) => ({ done: !!t.done, items: t.items.map(cloneItem), ...(t.assignee ? { assignee: { ...t.assignee } } : {}) });
 /** An item with ids of its own, its mentions' too: two comments in one file must not share an id. */
 const freshItem = (i) => ({ ...cloneItem(i), id: newCommentId(), ...(i.mentions ? { mentions: i.mentions.map((m) => ({ ...m, id: newCommentId() })) } : {}) });
 
@@ -157,7 +169,7 @@ export function addComment(wb, sheetId, r, c, text, author, now = null, { mentio
 export function replyToThread(wb, sheetId, r, c, text, author, now = null, { mentions = null } = {}) {
   const t = getThread(wb, sheetId, r, c);
   if (!t || !String(text ?? '').trim() || t.items.length > MAX_REPLIES) return false;
-  return setThread(wb, sheetId, r, c, { done: false, items: [...t.items, stamp(author, text, now, mentions)] }, 'Reply to comment');
+  return setThread(wb, sheetId, r, c, { ...t, done: false, items: [...t.items, stamp(author, text, now, mentions)] }, 'Reply to comment');
 }
 
 /** The comment last added to a cell's thread (what addComment or replyToThread just wrote), or null. */
@@ -193,6 +205,17 @@ export function deleteThreadItem(wb, sheetId, r, c, id) {
   if (at < 0) return false;
   if (at === 0) return setThread(wb, sheetId, r, c, null, 'Delete thread');
   return setThread(wb, sheetId, r, c, { ...t, items: t.items.filter((_, n) => n !== at) }, 'Delete reply');
+}
+
+/** Assign a cell's thread to someone ({ name, user?, email? }), or take the assignment away (null). Undoable. */
+export function setThreadAssignee(wb, sheetId, r, c, person) {
+  const t = getThread(wb, sheetId, r, c);
+  if (!t) return false;
+  const next = normalizeAssignee(person);
+  const same = (a, b) => (a?.user || a?.email || null) === (b?.user || b?.email || null);
+  if (same(t.assignee, next)) return false;
+  const { assignee: _old, ...rest } = t;
+  return setThread(wb, sheetId, r, c, { ...rest, ...(next ? { assignee: next } : {}) }, next ? 'Assign thread' : 'Unassign thread');
 }
 
 export function setThreadResolved(wb, sheetId, r, c, done) {
@@ -317,7 +340,7 @@ export function pasteThreads(wb, sheetId, threads, r0, c0) {
   threads.forEach((row, i) => row.forEach((t, j) => {
     const r = r0 + i, c = c0 + j;
     if (t && sheet.notes.has(cellKey(r, c))) return;
-    const copy = t && { done: t.done, items: t.items.map(freshItem) };
+    const copy = t && { done: t.done, items: t.items.map(freshItem), ...(t.assignee ? { assignee: { ...t.assignee } } : {}) };
     if (copy || sheet.comments.has(cellKey(r, c))) setThread(wb, sheetId, r, c, copy, 'Paste');
   }));
 }

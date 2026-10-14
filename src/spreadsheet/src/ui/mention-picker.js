@@ -38,7 +38,10 @@ export function matchPeople(people, query) {
     .sort((a, b) => b.s - a.s || a.p.name.localeCompare(b.p.name)).map((x) => x.p).slice(0, MAX_SHOWN);
   const known = (pred) => people.some(pred);
   if (isEmail(query) && !known((p) => p.email === q)) list.push({ name: q, email: q, typed: true, hint: 'Email address' });
-  else if (query.length >= 2 && isUsername(query) && !known((p) => p.user?.toLowerCase() === q)) list.push({ name: query, user: query, typed: true, hint: 'Puter username' });
+  // A username is offered once nobody listed matches: until then they are the likelier pick.
+  else if (query.length >= 2 && isUsername(query) && !list.length) {
+    list.push({ name: query, user: query, typed: true, hint: 'Puter username' });
+  }
   return list;
 }
 

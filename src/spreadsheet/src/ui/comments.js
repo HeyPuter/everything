@@ -17,7 +17,7 @@ import { cellName, cellKey } from '../core/cell.js';
 import * as S from '../core/selection.js';
 import {
   getThread, addComment, replyToThread, editThreadItem, deleteThreadItem, setThreadResolved, adjacentThread,
-  deleteThreadsWhere, threadCells, authorInitials, lastThreadItem, MAX_COMMENT_TEXT,
+  deleteThreadsWhere, threadCells, authorInitials, lastThreadItem, setThreadAssignee, MAX_COMMENT_TEXT,
 } from '../core/comments.js';
 import { findMentions, mentionRuns, mentionedPeople } from '../core/mentions.js';
 
@@ -79,12 +79,43 @@ export function createComments(ctx, host) {
   const pickedIn = (area) => (area && pickers.get(area)?.picked.slice()) || [];
   const carryPicked = (area, people) => { if (area && people.length) pickers.get(area)?.picked.push(...people); };
   /** After a post: the people the comment now mentions that it did not before are told. */
-  const told = (sheetId, r, c, item, before = []) => {
+  const told = (sheetId, r, c, item, before = [], assigned = null) => {
     if (!item?.mentions?.length || !host.onMentioned) return;
     const had = new Set(mentionedPeople(before).map((p) => p.user || p.email || p.name));
     const people = mentionedPeople(item.mentions).filter((p) => !had.has(p.user || p.email || p.name));
-    if (people.length) host.onMentioned({ sheetId, r, c, item, people });
+    if (people.length) host.onMentioned({ sheetId, r, c, item, people, assigned });
   };
+
+  /**
+   * "Assign to @name": offered under a comment box once its text mentions someone, for the first person it
+   * mentions. Returns { node, person() }: the person to assign, when the box is ticked.
+   */
+  function assignOption(area, pick) {
+    const box = el('input', { type: 'checkbox' });
+    const label = el('span');
+    const node = el('label.cmt-assign', { hidden: true }, box, label);
+    let who = null;
+    const update = () => {
+      who = mentionedPeople(findMentions(area.value, pick.picked))[0] || null;
+      node.hidden = !who;
+      if (!who) box.checked = false;
+      else label.textContent = `Assign to ${who.name}`;
+    };
+    area.addEventListener('input', update);
+    queueMicrotask(update);
+    return { node, person: () => (box.checked && who ? who : null) };
+  }
+
+  /** Post a comment (a new thread or a reply), assigning the thread too when asked: one undo step. */
+  function postComment(sheetId, r, c, text, picked, assignTo, reply) {
+    const mentions = findMentions(text, picked);
+    let ok = false;
+    wb.transaction(reply ? 'Reply to comment' : 'New comment', () => {
+      ok = reply ? replyToThread(wb, sheetId, r, c, text, author(), null, { mentions }) : addComment(wb, sheetId, r, c, text, author(), null, { mentions });
+      if (ok && assignTo) setThreadAssignee(wb, sheetId, r, c, assignTo);
+    });
+    return ok;
+  }
   let card = null; // { node, sheetId, r, c, mode: 'hover' | 'pinned' | 'compose', editing: id | null, draft: '' }
   let hoverTimer = 0;
   let leaveTimer = 0;
@@ -107,6 +138,7 @@ export function createComments(ctx, host) {
           { label: root ? 'Delete thread' : 'Delete comment', icon: 'trash', onSelect: () => { deleteThreadItem(wb, sheetId, r, c, item.id); host.keepFocus?.(); } },
           root && { separator: true },
           root && { label: thread.done ? 'Reopen thread' : 'Resolve thread', icon: thread.done ? 'undo' : 'check', onSelect: () => setThreadResolved(wb, sheetId, r, c, !thread.done) },
+          root && thread.assignee && { label: `Unassign ${thread.assignee.name}`, icon: 'x', onSelect: () => setThreadAssignee(wb, sheetId, r, c, null) },
         ].filter(Boolean) });
       });
       const head = el('div.cmt-head', {},
@@ -137,6 +169,11 @@ export function createComments(ctx, host) {
       } else body = el('div.cmt-text', {}, ...textWithMentions(item));
       return el(`div.cmt-item${root ? '.cmt-root' : ''}`, { dataset: { id: item.id } }, head, body);
     });
+    if (thread.assignee) {
+      const who = thread.assignee;
+      box.append(el('div.cmt-assigned', { title: who.email || (who.user ? `Puter user ${who.user}` : who.name) },
+        el('span', { html: icon('user', 14) }), el('span', {}, thread.done ? `Done · was assigned to ${who.name}` : `Assigned to ${who.name}`)));
+    }
     box.append(...items);
     if (thread.done) {
       box.append(el('div.cmt-resolved', {}, el('span', {}, 'Resolved'),
@@ -145,13 +182,14 @@ export function createComments(ctx, host) {
       const reply = el('textarea.input.cmt-input.cmt-reply', { rows: 1, maxlength: MAX_COMMENT_TEXT, placeholder: 'Reply… (@ to mention someone)', 'aria-label': `Reply to the thread on ${cellName(r, c)}` });
       const pick = picker(reply);
       const post = el('button.icon-btn.cmt-post', { type: 'button', 'aria-label': 'Post reply', title: `Post (${IS_MAC ? '⌘' : 'Ctrl'}+Enter)`, html: icon('send', 16), disabled: true });
+      const assign = assignOption(reply, pick);
       const send = () => {
         if (!reply.value.trim()) return;
-        const text = reply.value;
-        if (replyToThread(wb, sheetId, r, c, text, author(), null, { mentions: findMentions(text, pick.picked) })) {
+        const text = reply.value, assignTo = assign.person();
+        if (postComment(sheetId, r, c, text, pick.picked, assignTo, true)) {
           reply.value = '';
           pick.picked.length = 0;
-          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c));
+          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
         }
       };
       reply.addEventListener('input', () => { post.disabled = !reply.value.trim(); reply.rows = Math.min(6, Math.max(1, reply.value.split('\n').length)); });
@@ -160,7 +198,7 @@ export function createComments(ctx, host) {
         if (e.key === 'Enter' && isMod(e)) { e.preventDefault(); send(); }
       });
       post.addEventListener('click', send);
-      box.append(el('div.cmt-reply-row', {}, reply, post));
+      box.append(el('div.cmt-reply-row', {}, reply, post), assign.node);
       if (focusReply) queueMicrotask(() => reply.focus({ preventScroll: true }));
     }
     if (inPane) {
@@ -193,13 +231,14 @@ export function createComments(ctx, host) {
       pick.picked.push(...card.picked);
       card.picked = pick.picked;
       const post = el('button.btn.btn-sm.btn-primary', { type: 'button', disabled: !area.value.trim() }, 'Post');
+      const assign = assignOption(area, pick);
       const send = () => {
         if (!area.value.trim()) return;
-        const text = area.value;
-        if (addComment(wb, sheetId, r, c, text, author(), null, { mentions: findMentions(text, pick.picked) })) {
+        const text = area.value, assignTo = assign.person();
+        if (postComment(sheetId, r, c, text, pick.picked, assignTo, false)) {
           card.mode = 'pinned'; card.draft = ''; card.picked = [];
           renderCard();
-          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c));
+          told(sheetId, r, c, lastThreadItem(wb, sheetId, r, c), [], assignTo);
         }
       };
       area.addEventListener('input', () => { card.draft = area.value; post.disabled = !area.value.trim(); });
@@ -213,6 +252,7 @@ export function createComments(ctx, host) {
           el('span.cmt-badge', { 'aria-hidden': 'true', style: { background: badgeColor(author()) } }, authorInitials(author())),
           el('div.cmt-who', {}, el('span.cmt-author', {}, author()))),
         area,
+        assign.node,
         el('div.cmt-actions', {}, el('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => { hideCard(); host.keepFocus?.(); } }, 'Cancel'), post));
       queueMicrotask(() => { area.focus({ preventScroll: true }); area.setSelectionRange(area.value.length, area.value.length); });
     } else {

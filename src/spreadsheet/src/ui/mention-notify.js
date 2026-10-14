@@ -20,7 +20,7 @@ import * as P from '../lib/puter.js';
 import { fileLink } from '../lib/links.js';
 import { cellName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
-import { mentionAddress, mentionsOfPerson, isUsername } from '../core/mentions.js';
+import { mentionAddress, mentionsOfPerson, assignmentsOfPerson, isUsername } from '../core/mentions.js';
 
 /** The people who can be mentioned in this workbook: [{ name, user?, email?, hint }], never the user. */
 export async function mentionCandidates({ doc, wb, me }) {
@@ -131,8 +131,11 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     return failed;
   }
 
-  /** Tell `people` (from mentionedPeople) about `item`, the comment on (sheetId, r, c). */
-  async function notify({ sheetId, r, c, item, people }) {
+  /**
+   * Tell `people` (from mentionedPeople) about `item`, the comment on (sheetId, r, c); `assigned` is the person
+   * the thread was assigned to with it, who is told that.
+   */
+  async function notify({ sheetId, r, c, item, people, assigned = null }) {
     const user = me();
     const state = await access();
     const missing = withoutAccess(people, { ...state, me: user });
@@ -158,11 +161,21 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     }
     const sheet = wb.sheet(sheetId);
     const cell = `${quoteSheet(sheet?.name || '')}!${cellName(r, c)}`;
+    const assignee = assigned && mentionAddress(assigned);
+    const base = { workbookName: doc.name, link: fileLink(where, doc.uid, cell), comment: { id: item.id, text: item.text, cell: `${sheet?.name || ''}!${cellName(r, c)}` } };
     try {
-      const out = await mailer.sendMentions({
-        workbookName: doc.name, recipients, link: fileLink(where, doc.uid, cell),
-        comment: { id: item.id, text: item.text, cell: `${sheet?.name || ''}!${cellName(r, c)}` },
-      });
+      // The person assigned gets a mail that says so; everyone else mentioned, one that they were mentioned.
+      const batches = [
+        { recipients: recipients.filter((p) => p.email !== assignee), assigned: false },
+        { recipients: recipients.filter((p) => p.email === assignee), assigned: true },
+      ].filter((b) => b.recipients.length);
+      const out = { sent: 0, failed: 0, results: [] };
+      for (const batch of batches) {
+        const res = await mailer.sendMentions({ ...base, ...batch });
+        out.sent += res.sent || 0;
+        out.failed += res.failed || 0;
+        out.results.push(...(res.results || []));
+      }
       const told = out.sent ? (out.results || []).filter((x) => x.status === 'sent').length : 0;
       if (out.failed) toast(`Could not email ${out.failed === 1 ? 'one person' : `${out.failed} people`} you mentioned`, { icon: 'alert', duration: 4500 });
       else if (told) toast(`${names} ${people.length === 1 ? 'was' : 'were'} notified by email`, { icon: 'check', duration: 2500 });
@@ -207,16 +220,23 @@ export function createMentionAlerts({ wb, me, fileKey, goTo, storage = globalThi
     const seen = readSeen(key);
     const opening = first;
     first = false;
-    const fresh = mentionsOfPerson(wb, { username: user.username, email: user.email })
-      .filter((m) => !seen.has(m.item.id) && !(opening && m.done));
+    const who = { username: user.username, email: user.email };
+    const assigned = assignmentsOfPerson(wb, who).filter((a) => !seen.has(a.key));
+    const mentioned = mentionsOfPerson(wb, who)
+      .filter((m) => !seen.has(m.item.id) && !(opening && m.done))
+      .map((m) => ({ ...m, key: m.item.id }))
+      // A comment that assigned its thread to the user says so once, as the assignment.
+      .filter((m) => !assigned.some((a) => a.sheetId === m.sheetId && a.r === m.r && a.c === m.c && a.item.id === m.item.id));
+    const fresh = [...assigned.map((a) => ({ ...a, assigned: true })), ...mentioned];
     if (!fresh.length) return [];
-    for (const m of fresh) seen.add(m.item.id);
+    for (const m of fresh) seen.add(m.key);
+    for (const m of mentioned) seen.add(m.item.id);
     writeSeen(key, seen);
     const one = fresh[0];
     const where = `${one.sheetName}!${cellName(one.r, one.c)}`;
     const message = fresh.length === 1
-      ? `${one.item.author} mentioned you on ${where}`
-      : opening ? `You were mentioned in ${fresh.length} comments` : `${fresh.length} new comments mention you`;
+      ? `${one.item.author} ${one.assigned ? 'assigned you a comment' : 'mentioned you'} on ${where}`
+      : opening ? `You have ${fresh.length} comments that mention you or are assigned to you` : `${fresh.length} new comments for you`;
     toast(message, { icon: 'comment', duration: 8000, action: { label: fresh.length === 1 ? 'Show' : 'Show first', onClick: () => goTo(one.sheetId, one.r, one.c) } });
     return fresh;
   }

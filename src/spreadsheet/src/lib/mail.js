@@ -219,9 +219,15 @@ export function createMailer({ getPuter = () => globalThis.puter, workerUrl = EM
     sendLink({ workbookName, recipients, link, access = 'view', message = '' }) {
       return post('/links', { workbook: { name: workbookName }, recipients: recipientsOf(recipients), link, access, message: String(message).slice(0, MAX_MESSAGE) });
     },
-    /** People mentioned in a comment: { id, text, cell } and a link that opens the workbook at the cell. */
-    sendMentions({ workbookName, recipients, comment, link }) {
-      return post('/mentions', { workbook: { name: workbookName }, recipients: recipientsOf(recipients), comment: { id: comment.id, text: comment.text, cell: comment.cell }, link });
+    /**
+     * People mentioned in a comment: { id, text, cell } and a link that opens the workbook at the cell.
+     * `assigned`: the thread was assigned to them as well.
+     */
+    sendMentions({ workbookName, recipients, comment, link, assigned = false }) {
+      return post('/mentions', {
+        workbook: { name: workbookName }, recipients: recipientsOf(recipients), comment: { id: comment.id, text: comment.text, cell: comment.cell }, link,
+        ...(assigned ? { assigned: true } : {}),
+      });
     },
   };
 }

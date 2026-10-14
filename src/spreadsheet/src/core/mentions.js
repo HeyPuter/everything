@@ -135,6 +135,24 @@ export function mentionedPeople(mentions) {
 }
 
 /**
+ * The open threads assigned to this person by someone else: [{ sheetId, sheetName, r, c, item, key }], `item`
+ * the comment that started the thread and `key` one that changes when the thread is assigned to them anew.
+ */
+export function assignmentsOfPerson(wb, person) {
+  const out = [];
+  for (const sheet of wb.sheets) {
+    for (const [key, thread] of sheet.comments || []) {
+      if (thread.done || !thread.assignee || !mentionIsOf(thread.assignee, person)) continue;
+      const [r, c] = key.split(',').map(Number);
+      const by = [...thread.items].reverse().find((i) => i.author !== person.username) || thread.items[0];
+      if (person.username && thread.items.every((i) => i.author === person.username)) continue;
+      out.push({ sheetId: sheet.id, sheetName: sheet.name, r, c, item: by, key: `assigned:${thread.items[0].id}:${thread.assignee.user || thread.assignee.email}` });
+    }
+  }
+  return out;
+}
+
+/**
  * Every comment on the workbook that mentions this person and that someone else wrote:
  * [{ sheetId, sheetName, r, c, item }], sheets in order and cells row by row.
  */

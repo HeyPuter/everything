@@ -288,12 +288,14 @@ function compose(kind, req, sender) {
         note(req.message) + button(req.link, 'Open the spreadsheet') + FRAME_CLOSE,
     };
   }
-  // A mention.
+  // A mention, or an assignment.
   const where = req.comment.cell ? ` on ${req.comment.cell}` : '';
+  const did = req.assigned ? 'assigned you a comment' : 'mentioned you in a comment';
   return {
-    subject: line(`${who} mentioned you in “${wb}”`, 200),
-    text: [`${who} mentioned you in a comment${where} in “${wb}”:`, '', req.comment.text, '', `Open the comment: ${req.link}`].join('\n'),
-    html: FRAME_OPEN + intro(`<strong>${escapeHtml(who)}</strong> mentioned you in a comment${escapeHtml(where)}.`) + title(wb) +
+    subject: line(req.assigned ? `${who} assigned you a comment in “${wb}”` : `${who} mentioned you in “${wb}”`, 200),
+    text: [`${who} ${did}${where} in “${wb}”:`, '', req.comment.text, '',
+      req.assigned ? 'Resolve the comment when it is done.' : '', `Open the comment: ${req.link}`].filter((l, i, a) => l || a[i - 1] !== '').join('\n'),
+    html: FRAME_OPEN + intro(`<strong>${escapeHtml(who)}</strong> ${did}${escapeHtml(where)}${req.assigned ? '. Resolve it when it is done' : ''}.`) + title(wb) +
       note(req.comment.text) + button(req.link, 'Open the comment') + FRAME_CLOSE,
   };
 }
@@ -448,6 +450,8 @@ function readRequest(kind, body) {
     const commentText = text(c.text, MAX_COMMENT).trim();
     if (!commentText) return { status: 400, body: { error: 'comment_required' } };
     req.comment = { id: c.id.toUpperCase(), text: commentText, cell: line(c.cell, 120) };
+    // The thread was also assigned to the people written to: a task for them, which the mail says.
+    req.assigned = src.assigned === true;
   }
   return { req };
 }
