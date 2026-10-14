@@ -303,6 +303,31 @@ export const COMMAND_ICONS = {
   altText: r(2.5, 4.5, 9, 8, 'bw') + r(2.5, 4.5, 9, 8, 'o') + p('M3.5 11.5l2.6-3 2 2 1.4-1.4 1.5 2.4', 'g') + ci(8.6, 7, 0.9, 'yf') + lines(13.5, 6, 4, 3, 2.5),
   drawingText: r(2.5, 3.5, 15, 13, 'ns', 2.4) + t(10, 13.4, 'T', 9, { c: 'txw' }),
 
+  /* Draw */
+  // Back to typing: a solid pointer over a text cursor.
+  drawSelect: p('M12.5 4.5h3M12.5 15.5h3M14 4.5v11', 'o') + p('M3.5 3l8 6.6-3.7.5 2.3 4.4-1.8.8-2.3-4.4-2.5 2.7z', 's'),
+  // A dashed loop with its trailing rope.
+  lassoSelect: p('M10.5 3.5c3.9 0 7 1.9 7 4.4s-3.1 4.4-7 4.4-7-1.9-7-4.4 3.1-4.4 7-4.4z', 'b dash') + p('M6.2 11.6c-1.2 1.3-1 2.8.3 3.4 1.2.6 1.3 1.7.3 2.6', 'o'),
+  // A tilted eraser block, its rubber end red, over the line it cleans.
+  inkEraser: p('M12.2 3.3l4.6 4.6-7.4 7.4-4.6-4.6z', 'bf') + p('M4.8 10.7l4.6 4.6-1.6 1.6H5.6l-2.4-2.4v-2.2z', 'rs') + p('M10.5 17h7', 'o'),
+  // A fountain-pen nib and the line it draws.
+  inkPen: p('M13.8 2.6l3.6 3.6-8.3 8.3-4.6 1 1-4.6z', 'bs') + p('M7.9 12.1l1.5 1.5', 'wh') + p('M2.5 17.5c2.2-1.6 4.4-.4 6.6-1.4', 'o'),
+  addPen: p('M12.3 2.6l3.1 3.1-7.2 7.2-4 .9.9-4z', 'bs') + p('M2.5 17c2-1.4 3.8-.4 5.6-1.2', 'o') + badge(15, 14.8, 'plus'),
+  // A fingertip drawing a wave.
+  drawTouch: p('M9.5 11V4.6a1.5 1.5 0 0 1 3 0v4.3l3.2.7c.9.2 1.5 1.1 1.3 2l-.8 4.4h-6l-2.6-3.3a1.2 1.2 0 0 1 1.9-1.5z', 'bf') + p('M2.5 8c1.3-2 2.6-2 3.9 0', 'b thick'),
+  // A ruler laid at an angle, with its graduations.
+  inkRuler: p('M2.8 13.6L13.6 2.8l3.6 3.6L6.4 17.2z', 'yf') + p('M5.6 10.8l1.6 1.6M7.6 8.8l1 1M9.6 6.8l1.6 1.6M11.6 4.8l1 1', 'o'),
+  // A hand-drawn loop turned into a clean square.
+  inkToShape: p('M3.5 9.5c-.6-3 2.8-5.1 5-3.5 2 1.4.8 4.6-1.8 5-1.6.3-2.9-.4-3.2-1.5z', 'o') + arrowRight(9.5, 13.5, 3.5, 'b') + r(12, 5, 5.5, 5.5, 'bf', 0.8),
+  // A handwritten x and an equals sign.
+  inkToMath: p('M2.8 6.2c2.1-.4 3.2 1.4 4 3.8s1.8 4.2 3.4 4M3.2 14c1.6-.6 3.2-2.8 4-4.4s1.7-3.4 2.9-3.6', 'o thick') + p('M12 8.6h5.5M12 11.8h5.5', 'b thick'),
+  // Play, over the curve being redrawn.
+  inkReplay: p('M2.5 15.5c2.5-4 4.8 1.2 7.2-2.2s4.1 1.4 7.8-1.8', 'o') + ci(10, 7.5, 5, 'bf') + p('M8.6 5l4.2 2.5-4.2 2.5z', 'bs'),
+  // A framed drawing area with a stroke inside it.
+  drawingCanvas: r(2.5, 3.5, 15, 13, 'of') + corners(4.5, 5.5, 11, 9, 1.8) + p('M5.5 12.5c1.6-3.2 3.2 1.6 4.8-1.6s2.6.8 4.2-.8', 'b thick'),
+  // Ink struck through: hidden.
+  hideInk: p('M2.5 12.5c2-4 4 1.6 6-1.6s4 1.6 9-2.4', 'b thick') + p('M4 4l12 12', 'r thick'),
+
   /* References */
   toc: sheet(3.5, 2.5, 13, 15) + p('M5.5 6h5', 'b thick') + p('M5.5 9.5h6M7 13h5', 'o') + p('M12.5 9.5h1M13 13h.5', 'o dash') + p('M14.5 6h0M14.5 9.5h0M14.5 13h0', 'o thick'),
   updateFields: r(2.5, 3, 10.5, 6.5, 'of') + t(7.75, 8.3, '{ }', 6, { c: 'txb' }) + refresh,

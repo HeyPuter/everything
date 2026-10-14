@@ -58,6 +58,7 @@ import { createReview } from './review.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createInsert } from './insert-tab.js';
+import { createDraw } from './draw-tab.js';
 import { createEditingCommands } from './home-editing-commands.js';
 import { engineApi, provideEngineApi } from '../lib/engine-api.js';
 import { styleDisplayName } from '../lib/style-names.js';
@@ -723,6 +724,15 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
   const referencesExtendMenu = editorCommands.extendMenu;
   editorCommands.extendMenu = (id, kit) => [...(referencesExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
+  // Draw tab: pens, eraser, lasso, ruler, ink conversion, replay and drawing canvases (draw-tab.js).
+  const draw = createDraw({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), commands: () => editorCommands });
+  Object.assign(editorCommands, draw.commands);
+  const drawExtraTabs = editorCommands.extraTabs;
+  editorCommands.extraTabs = kit => [...(drawExtraTabs?.(kit) || []), ...draw.extraTabs(kit)];
+  const drawExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(drawExtendMenu?.(id, kit) || []), ...draw.extendMenu(id, kit)];
+  const drawContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.contextMenuItems = (context, kit) => [...(drawContextMenuItems?.(context, kit) || []), ...draw.contextMenuItems(context, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -837,6 +847,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     outline.disabled = false; outlinePanel.refresh(engine.outline, engine.model.range[0]);
     chrome.setContext(engineApi()?.selectedShape(engine) ? 'shape' : engine.model.selectedImage ? 'image' : engine.model.tableContext ? 'table' : 'paragraph', ['header', 'footer'].includes(references.activeStoryKind()) ? ['headerFooter'] : []);
     mailings.refresh();
+    draw.update();
     if (pkg.readOnly) {
       for (const control of [...chrome.toolbar.querySelectorAll('button, input, select'), ...chrome.inspector.querySelectorAll('button.canvas-tool, input, select')]) control.disabled = true;
       find.disabled = false; finder.refresh();
@@ -1118,7 +1129,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); references.destroy(); insert.destroy(); draw.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

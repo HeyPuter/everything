@@ -570,7 +570,7 @@ export class CanvasEditor {
       for (const pageStory of [true, false]) {
         const floatingObjects = pageStory ? this.storyLayout.floatingObjects : this.layout.floatingObjects || [];
         const paintFloating = behind => {
-          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind) {
+          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind && !this.hiddenDrawing?.(f.image)) {
             if (f.cellClip) { ctx.save(); ctx.beginPath(); ctx.rect(f.cellClip.left ?? 0, f.cellClip.top, (f.cellClip.right ?? geometry.width) - (f.cellClip.left ?? 0), f.cellClip.bottom - f.cellClip.top); ctx.clip(); }
             const angle = normalizedRotation(f.image.rotation);
             if (angle) {
@@ -691,7 +691,7 @@ export class CanvasEditor {
                 if (clipImage) { ctx.save(); ctx.beginPath(); ctx.rect(0, line.y, geometry.width, line.height); ctx.clip(); }
                 const upright = fragment.uprightImage;
                 if (upright) { ctx.save(); leaveCellText(ctx, physical.cellText.matrix); }
-                const bitmap = this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
+                const bitmap = this.hiddenDrawing?.(fragment.image) ? null : this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
                 if (bitmap) {
                   if (fragment.image.opacity !== undefined) { ctx.save(); ctx.globalAlpha *= fragment.image.opacity; }
                   const { flipH, flipV } = fragment.image, angle = normalizedRotation(fragment.image.rotation), transformed = flipH || flipV || angle;
@@ -821,6 +821,8 @@ export class CanvasEditor {
     if (!nearest) return 0;
     const page = Number(nearest.canvas.dataset.page), y = (event.clientY - nearest.r.top) / this.zoom;
     this.pointImage = imageAtPoint(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y, { includeBehindText: !!event.altKey });
+    // A view can hide some drawings (hidden ink); they are not painted, so they are not hit either.
+    if (this.pointImage && this.hiddenDrawing?.(this.pointImage.image)) this.pointImage = null;
     const hit = hitTestStop(this.selectionLayout, page, (event.clientX - nearest.r.left) / this.zoom, y), position = hit.offset;
     this.pointLink = hyperlinkAtPoint(this.selectionLayout, this.model.paragraphs, page, (event.clientX - nearest.r.left) / this.zoom, y, this.pointImage);
     if (!updateCaret) return position;
