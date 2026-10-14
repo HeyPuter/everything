@@ -252,6 +252,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       const table = m.tableContext.table;
       T.setColumnWidths(m, table, [Math.max(T.MIN_COLUMN_WIDTH, Math.round(dx * 15))], { layout: 'fixed' });
       T.setRowsHeight(m, [table.rows[0]], Math.round(dy * 15), 'atLeast');
+      // The outline takes the pen's line when it is not the plain default.
+      if (pen && !(pen.style === 'single' && pen.size === 4 && ['000000', 'auto'].includes(pen.color))) T.applyBorderPreset(m, 'all', pen, { toggle: false });
       return true;
     });
   }
