@@ -10,7 +10,7 @@
  */
 import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf } from './geom.js';
 import { verticalExtent, openingSize, levelElevation, wallAxis, stairLayout } from './model.js';
-import { axisParam, facePoint } from './walls.js';
+import { axisParam, facePoint, hubsOf } from './walls.js';
 import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid, stairGeometry } from './build3d.js';
 import { buildFamily } from './families.js';
 import { Frame } from './mesh.js';
@@ -264,9 +264,7 @@ function planWall(pc, w, b) {
       for (const part of splitByCuts(poly, axis, gaps)) b.fill(part, [], INK(115), 0);
     }
     // Hubs belong to the first wall (by id) that meets there.
-    const lvl = pc.walls.level(w.levelId);
-    for (const hub of lvl.hubs) {
-      if (hub.ids.slice().sort()[0] !== w.id) continue;
+    for (const hub of hubsOf(pc.walls.level(w.levelId), w.id)) {
       if (pc.detail === 'coarse') b.fill(hub.poly, [], INK(115));
       else b.fill(hub.poly, [], INK(pc.detail === 'medium' ? 90 : 60));
     }

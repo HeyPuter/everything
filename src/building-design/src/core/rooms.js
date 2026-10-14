@@ -74,6 +74,7 @@ export function arrangementFaces(segments) {
     return id;
   };
   const edgeSet = new Set();
+  const EK = 1 << 24;
   segs.forEach(([a, b], i) => {
     const ts = [...new Set(splits[i].map((t) => Math.max(0, Math.min(1, t))))].sort((x, y) => x - y);
     let prev = vertex(a);
@@ -82,7 +83,7 @@ export function arrangementFaces(segments) {
       const p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
       const v = vertex(p);
       if (v !== prev) {
-        const key = prev < v ? `${prev}_${v}` : `${v}_${prev}`;
+        const key = prev < v ? prev * EK + v : v * EK + prev;
         if (!edgeSet.has(key)) {
           edgeSet.add(key);
           verts[prev].out.push(v);
@@ -95,19 +96,21 @@ export function arrangementFaces(segments) {
 
   // Sort outgoing edges by angle.
   for (const v of verts) {
-    v.out.sort((x, y) => ang(v.p, verts[x].p) - ang(v.p, verts[y].p));
+    const angles = new Map(v.out.map((x) => [x, ang(v.p, verts[x].p)]));
+    v.out.sort((x, y) => angles.get(x) - angles.get(y));
   }
+  const NV = verts.length;
   const visited = new Set();
   const faces = [];
   for (let u = 0; u < verts.length; u++) {
     for (const v0 of verts[u].out) {
-      if (visited.has(`${u}>${v0}`)) continue;
+      if (visited.has(u * NV + v0)) continue;
       const loop = [];
       let a = u;
       let b = v0;
       let guard = 0;
-      while (!visited.has(`${a}>${b}`) && guard++ < 100000) {
-        visited.add(`${a}>${b}`);
+      while (!visited.has(a * NV + b) && guard++ < 100000) {
+        visited.add(a * NV + b);
         loop.push(verts[a].p);
         const out = verts[b].out;
         const k = out.length;
@@ -170,17 +173,68 @@ export function boundarySegments(doc, solved, levelId, columnOutline) {
   return segs;
 }
 
-/** Find the room region containing point p among arrangement faces. */
-export function regionAt(faces, p) {
-  let best = null;
+const FACE_CELL = 4000;
+
+/** Spatial index of faces by bounding box. */
+export function indexFaces(faces) {
+  const grid = new Map();
   for (const f of faces) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const q of f.loop) {
+      if (q[0] < x0) x0 = q[0];
+      if (q[1] < y0) y0 = q[1];
+      if (q[0] > x1) x1 = q[0];
+      if (q[1] > y1) y1 = q[1];
+    }
+    f.bbox = { x0, y0, x1, y1 };
+    const cx0 = Math.floor(x0 / FACE_CELL);
+    const cx1 = Math.floor(x1 / FACE_CELL);
+    const cy0 = Math.floor(y0 / FACE_CELL);
+    const cy1 = Math.floor(y1 / FACE_CELL);
+    if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 400) {
+      if (!grid.has('big')) grid.set('big', []);
+      grid.get('big').push(f);
+      continue;
+    }
+    for (let x = cx0; x <= cx1; x++)
+      for (let y = cy0; y <= cy1; y++) {
+        const k = `${x},${y}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(f);
+      }
+  }
+  return grid;
+}
+
+function facesNear(grid, faces, box) {
+  if (!grid) return faces;
+  const out = new Set(grid.get('big') || []);
+  const cx0 = Math.floor(box.x0 / FACE_CELL);
+  const cx1 = Math.floor(box.x1 / FACE_CELL);
+  const cy0 = Math.floor(box.y0 / FACE_CELL);
+  const cy1 = Math.floor(box.y1 / FACE_CELL);
+  if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 400) return faces;
+  for (let x = cx0; x <= cx1; x++)
+    for (let y = cy0; y <= cy1; y++) for (const f of grid.get(`${x},${y}`) || []) out.add(f);
+  return out;
+}
+
+/** Find the room region containing point p among arrangement faces. */
+export function regionAt(faces, p, grid = null) {
+  let best = null;
+  for (const f of facesNear(grid, faces, { x0: p[0], y0: p[1], x1: p[0], y1: p[1] })) {
     if (f.area <= 1) continue;
+    if (f.bbox && (p[0] < f.bbox.x0 || p[0] > f.bbox.x1 || p[1] < f.bbox.y0 || p[1] > f.bbox.y1)) continue;
     if (!pointInPolygon(p, f.loop)) continue;
     if (!best || f.area < best.area) best = f;
   }
   if (!best) return null;
   const holes = [];
-  for (const f of faces) {
+  const candidates = best.bbox ? facesNear(grid, faces, best.bbox) : faces;
+  for (const f of candidates) {
     if (f.area >= 0) continue;
     // An island's outer cycle inside the room (not the room's own boundary).
     if (Math.abs(f.area) >= best.area) continue;
@@ -215,7 +269,8 @@ export class RoomSolver {
     let f = this.cache.get(levelId);
     if (!f) {
       const segs = boundarySegments(this.doc, this.walls.level(levelId), levelId, this.columnOutline);
-      f = { faces: arrangementFaces(segs), rooms: new Map() };
+      const faces = arrangementFaces(segs);
+      f = { faces, grid: indexFaces(faces), rooms: new Map() };
       this.cache.set(levelId, f);
     }
     return f;
@@ -225,11 +280,12 @@ export class RoomSolver {
   room(room) {
     const f = this.faces(room.levelId);
     const key = `${room.at[0]},${room.at[1]}`;
-    if (!f.rooms.has(key)) f.rooms.set(key, regionAt(f.faces, room.at));
+    if (!f.rooms.has(key)) f.rooms.set(key, regionAt(f.faces, room.at, f.grid));
     return f.rooms.get(key);
   }
 
   regionAt(levelId, p) {
-    return regionAt(this.faces(levelId).faces, p);
+    const f = this.faces(levelId);
+    return regionAt(f.faces, p, f.grid);
   }
 }

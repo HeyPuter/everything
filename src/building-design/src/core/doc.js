@@ -14,6 +14,7 @@ export const FORMAT = 'building-design';
 export const FORMAT_VERSION = 1;
 const UNDO_LIMIT = 300;
 
+const EMPTY = new Set();
 let seq = 0;
 const RAND = () => Math.random().toString(36).slice(2, 8);
 
@@ -26,6 +27,7 @@ export class Doc {
   constructor() {
     this.items = new Map();
     this.byKind = new Map();
+    this.hostIndex = new Map();
     this.undoStack = [];
     this.redoStack = [];
     this.revision = 0;
@@ -174,8 +176,19 @@ export class Doc {
     tx.pending.add(id);
   }
 
+  /** Ids of items hosted by (doors and windows in) an element. */
+  hosted(hostId) {
+    return this.hostIndex.get(hostId) ?? EMPTY;
+  }
+
   _put(id, item) {
     const prev = this.items.get(id);
+    if (prev?.hostId && prev.hostId !== item?.hostId) this.hostIndex.get(prev.hostId)?.delete(id);
+    if (item?.hostId) {
+      let s = this.hostIndex.get(item.hostId);
+      if (!s) this.hostIndex.set(item.hostId, (s = new Set()));
+      s.add(id);
+    }
     if (prev && (!item || prev.kind !== item.kind)) this.byKind.get(prev.kind)?.delete(id);
     if (item) {
       this.items.set(id, item);

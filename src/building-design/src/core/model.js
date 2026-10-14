@@ -65,6 +65,7 @@ export function openingSize(doc, el) {
 
 /** Elements hosted by a wall. */
 export function hostedBy(doc, wallId) {
+  if (doc.hosted) return [...doc.hosted(wallId)].map((id) => doc.get(id)).filter(Boolean);
   const out = [];
   for (const k of ['door', 'window', 'opening']) for (const el of doc.all(k)) if (el.hostId === wallId) out.push(el);
   return out;

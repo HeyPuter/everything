@@ -9,7 +9,7 @@
  * its type, levels, host, solved wall outline...). Items are immutable, so
  * comparing those inputs by identity tells whether to rebuild.
  */
-import { WallSolver } from './walls.js';
+import { WallSolver, hubsOf } from './walls.js';
 import { RoomSolver } from './rooms.js';
 import { build3D } from './build3d.js';
 import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.js';
@@ -84,13 +84,16 @@ export class Scene {
         this.plans.clear();
       }
     }
+    // Room boundaries are recomputed when an edit is committed, not on every
+    // frame of a drag (they are the most expensive derived data).
+    const rooms = !ev.preview;
     if (all) {
       this.walls.invalidate();
-      this.rooms.invalidate();
+      if (rooms) this.rooms.invalidate();
     } else {
       for (const l of levels) {
         this.walls.invalidate(l);
-        this.rooms.invalidate(l);
+        if (rooms) this.rooms.invalidate(l);
       }
     }
     for (const id of ev.ids) if (!doc.has(id)) this.meshes.delete(id);
@@ -106,8 +109,7 @@ export class Scene {
       const g = this.walls.wall(el.id);
       d.push(g ? wallSignature(g) : null);
       for (const h of hostedBy(doc, el.id)) d.push(h, doc.get(h.typeId));
-      const lvl = this.walls.level(el.levelId);
-      for (const hub of lvl.hubs) if (hub.ids.slice().sort()[0] === el.id) d.push(hub.poly.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(';'));
+      for (const hub of hubsOf(this.walls.level(el.levelId), el.id)) d.push(hub.poly.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(';'));
     } else if (el.hostId) {
       const host = doc.get(el.hostId);
       d.push(host, host && doc.get(host.typeId), host && doc.get(host.levelId), host && doc.get(host.topLevelId));

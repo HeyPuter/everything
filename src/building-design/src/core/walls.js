@@ -114,7 +114,21 @@ export function solveWalls(doc, walls) {
   for (const g of geoms.values()) {
     g.poly = [g.R0, g.R1, g.L1, g.L0];
   }
-  return { walls: geoms, hubs };
+  // Each hub is drawn and built by one wall: the one with the smallest id.
+  const hubsByOwner = new Map();
+  for (const hub of hubs) {
+    let owner = hub.ids[0];
+    for (const id of hub.ids) if (id < owner) owner = id;
+    hub.owner = owner;
+    if (!hubsByOwner.has(owner)) hubsByOwner.set(owner, []);
+    hubsByOwner.get(owner).push(hub);
+  }
+  return { walls: geoms, hubs, hubsByOwner };
+}
+
+/** Hubs owned by a wall in a solved level. */
+export function hubsOf(solved, wallId) {
+  return solved.hubsByOwner?.get(wallId) ?? [];
 }
 
 /** Direction leaving the node into the wall body, and the wall's side faces as lines. */

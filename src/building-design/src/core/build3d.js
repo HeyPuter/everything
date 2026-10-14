@@ -7,7 +7,7 @@
 import { MeshBuilder, Frame, hexToRgba } from './mesh.js';
 import { add, scale, sub, dot, norm, perp, len, clipHalfPlane, triangulate } from './geom.js';
 import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wallAxis } from './model.js';
-import { axisParam } from './walls.js';
+import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
 import { buildFamily } from './families.js';
@@ -133,11 +133,7 @@ function buildWall(ctx, w) {
   if (g.ends[1].kind === 'free') b.quad([g.R1[0], g.R1[1], base], [g.L1[0], g.L1[1], base], [g.L1[0], g.L1[1], top], [g.R1[0], g.R1[1], top], core);
 
   // Hubs owned by this wall.
-  const lvl = ctx.walls.level(w.levelId);
-  for (const hub of lvl.hubs) {
-    if (hub.ids.slice().sort()[0] !== w.id) continue;
-    b.prism(hub.poly, [], hub.base, hub.top, core, { edges: false });
-  }
+  for (const hub of hubsOf(ctx.walls.level(w.levelId), w.id)) b.prism(hub.poly, [], hub.base, hub.top, core, { edges: false });
 
   // Edges.
   const faceEdges = (side, u0, u1) => {
