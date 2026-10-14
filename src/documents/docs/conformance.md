@@ -22955,8 +22955,9 @@ shading. Clear removes `w:tblStyle`. Table Style Options write `w:tblLook`
 with both the explicit attributes and the equivalent hexadecimal `w:val`, so
 readers that use either agree; Header Row/Total Row/First Column/Last Column map
 to `firstRow`/`lastRow`/`firstColumn`/`lastColumn` and Banded Rows/Columns to the
-inverse of `noHBand`/`noVBand`. Rows with their own `w:tblPrEx/w:tblLook` follow
-the table's new choice in the editor; their source exception is retained.
+inverse of `noHBand`/`noVBand`. Rows with their own `w:tblPrEx/w:tblLook` (§17.4.60) follow
+the table's new choice: the row exception is removed from the saved row, and an
+emptied `w:tblPrEx` is dropped.
 
 Imported table styles remain readable and keep their regions; they are listed
 for neither Modify nor application to other tables (only library and documents'
