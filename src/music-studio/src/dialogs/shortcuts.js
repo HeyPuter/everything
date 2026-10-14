@@ -37,7 +37,7 @@ export const KEYBOARD_EDITING = [
   { scope: 'playlist', label: 'Move the cursor', keys: ['Alt+ArrowLeft', 'Alt+ArrowRight', 'Alt+ArrowUp', 'Alt+ArrowDown'] },
   { scope: 'playlist', label: 'Change the length of the selected clips', keys: ['Shift+ArrowLeft', 'Shift+ArrowRight'] },
   { scope: 'playlist', label: 'Open the clip at the cursor, or place the selected source', keys: ['Enter'] },
-  { scope: 'typingKeyboard', label: 'Play notes: Z to M (lower octave), Q to P (upper octave)', keys: ['Z', 'Q'] },
+  { scope: 'typingKeyboard', label: 'Play notes: Z to M (lower octave), Q to P (upper octave). While on, these keys play notes instead of their shortcuts', keys: ['Z', 'Q'] },
 ];
 
 /** Groups [{ title, items: [{ id, label, keys: string[] }] }] for a search query (pure). */
