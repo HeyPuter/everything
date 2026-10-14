@@ -636,15 +636,32 @@ export const slackStatusKey = (room) =>
 async function postSlack(org, room, url, text) {
   const key = slackStatusKey(room),
     address = await hash(url);
+  // A post that went through is recorded once an hour per instance, not
+  // for every mention, unless the last one had failed.
+  const posted = (org.instance.slackPosted ??= new Map());
   try {
     await slack(org, url, text);
-    await org.kv.set(key, { url: address, lastSuccess: org.now() });
+    const at = posted.get(key + address);
+    if (!at || org.now() - at > 3600_000 || at > org.now()) {
+      await org.kv.set(key, { url: address, lastSuccess: org.now() });
+      if (posted.size > 1000) posted.clear();
+      posted.set(key + address, org.now());
+    }
   } catch (error) {
+    posted.delete(key + address);
+    // Slack's own refusal says why; anything else, such as a timeout,
+    // is said plainly. A removed webhook or an archived or forbidden
+    // channel stays that way until someone sets the channel up again;
+    // a busy or unreachable Slack is passing.
+    const message = /^Slack refused the message/.test(error.message || "")
+      ? error.message
+      : "Could not reach Slack.";
     await org.kv
       .set(key, {
         url: address,
-        lastError: String(error.message || error).slice(0, 200),
+        lastError: message.slice(0, 200),
         lastErrorAt: org.now(),
+        lasting: /^Slack refused the message \((403|404|410)\)/.test(message),
       })
       .catch(() => {});
     throw error;
@@ -657,6 +674,7 @@ export async function slackStatus(org, room, url) {
         lastSuccess: status.lastSuccess,
         lastError: status.lastError,
         lastErrorAt: status.lastErrorAt,
+        lasting: !!status.lasting,
       }
     : null;
 }

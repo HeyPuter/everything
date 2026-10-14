@@ -2039,7 +2039,9 @@ export class BoardService {
           space: record?.space || null,
           team: record?.team || null,
           slack: !!slack,
-          ...(posted?.lastError ? { slackError: posted.lastError } : {}),
+          ...(posted?.lastError && posted.lasting
+            ? { slackError: posted.lastError }
+            : {}),
           integrations,
         },
         sharing: await this.sharing(user, await this.org.accessPolicy()),

@@ -2813,7 +2813,12 @@ export async function adminCall(org, boards, identity, input) {
       await testSlack(org, url);
       return { ok: true };
     } catch (error) {
-      fail(502, error.message || "The Slack test failed.");
+      fail(
+        502,
+        /^Slack refused the message/.test(error.message || "")
+          ? error.message
+          : "Could not reach Slack.",
+      );
     }
   }
   if (op === "org.siem.test") {

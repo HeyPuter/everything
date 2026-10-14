@@ -9471,3 +9471,85 @@ test("only events the SIEM exports, and not AI use or provisioning, keep an expo
   assert.equal(posts(), before);
   assert.equal(org.instance.siemBacklog, true);
 });
+
+test("a passing Slack failure is reported but does not tell the board's owner to set the channel up again", async () => {
+  const { boards, call, org } = setup();
+  let answer = () => new Response("ok");
+  const base = org.fetcher;
+  org.fetcher = boards.fetcher = async (url, options) =>
+    String(url).startsWith("https://hooks.slack.com/services/T/B/board")
+      ? answer()
+      : base(url, options);
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { integrations: { slack: { enabled: true } } },
+    secrets: { slack: "https://hooks.slack.com/services/T/B/board-alerts" },
+  });
+  const { input, room } = createInput();
+  await boards.call(owner, input);
+  const { token } = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await join({ service: boards }, editor, { room, token });
+  await boards.call(owner, {
+    op: "settings",
+    room,
+    slack: "https://hooks.slack.com/services/T/B/board",
+  });
+  let n = 0;
+  const mention = () =>
+    commit(boards, editor, room, (b) => {
+      n++;
+      b.comments = [
+        {
+          id: "t" + n,
+          x: 0,
+          y: 0,
+          resolved: false,
+          messages: [
+            {
+              id: "m" + n,
+              authorId: editor.uuid,
+              authorName: editor.username,
+              text: `@alice look ${n}`,
+              createdAt: n,
+            },
+          ],
+        },
+      ];
+    }).then(() => org.flush());
+  const writes = [];
+  const set = org.kv.set.bind(org.kv);
+  org.kv.set = (key, ...rest) => {
+    if (String(key).startsWith("org:slackstatus:")) writes.push(key);
+    return set(key, ...rest);
+  };
+  await mention();
+  await mention();
+  // A post that went through is recorded once, not for every mention.
+  assert.equal(writes.length, 1);
+  answer = () => {
+    throw Object.assign(Error("The operation timed out."), {
+      name: "TimeoutError",
+    });
+  };
+  await mention();
+  const status = await org.kv.get("org:slackstatus:board:" + room);
+  assert.equal(status.lastError, "Could not reach Slack.");
+  let { settings } = await boards.call(owner, { op: "settings.get", room });
+  assert.equal(settings.slackError, undefined);
+  answer = () => new Response("rate_limited", { status: 429 });
+  await mention();
+  ({ settings } = await boards.call(owner, { op: "settings.get", room }));
+  assert.equal(settings.slackError, undefined);
+  answer = () => new Response("no_service", { status: 404 });
+  await mention();
+  ({ settings } = await boards.call(owner, { op: "settings.get", room }));
+  assert.equal(
+    settings.slackError,
+    "Slack refused the message (404): no_service",
+  );
+});
