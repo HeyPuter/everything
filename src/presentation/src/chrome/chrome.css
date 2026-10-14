@@ -187,6 +187,38 @@
 .editor .document-title {
   max-width: 100%;
 }
+/* A phone keeps Undo and Redo one tap away in the title bar (Save is the
+   cloud button among the actions), and Present goes by its icon to make the
+   room. */
+@media (max-width: 760px) {
+  .editor-header .qat.desktop-only {
+    display: flex;
+    padding-right: 0;
+    margin-right: 0;
+    border-right: 0;
+  }
+  .editor-header .qat .qat-save {
+    display: none;
+  }
+  .editor-header .qat-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+@media (max-width: 480px) {
+  .editor .topbar-actions .btn.present-button {
+    padding: 0 9px;
+  }
+  .editor .topbar-actions .btn.present-button span {
+    display: none;
+  }
+}
+/* The narrowest phones leave Redo to the Edit menu. */
+@media (max-width: 360px) {
+  .editor-header .qat #redo {
+    display: none;
+  }
+}
 /* A tablet has no room for the menus beside the title and the actions: the
    menu bar takes a row of its own under them. */
 @media (max-width: 1230px) and (min-width: 761px) {
@@ -287,6 +319,21 @@
 }
 .editor .slide-list {
   padding: 10px 14px 16px 4px;
+}
+/* On a phone the thumbnails are a strip across the screen, under the slide;
+   its width is the screen's, not the one dragged on a wider window. */
+@media (max-width: 760px) {
+  .editor .slide-sidebar {
+    width: 100%;
+    min-width: 0;
+    border-right: 0;
+  }
+  .editor .slide-sidebar > .pane-resize {
+    display: none;
+  }
+  .editor .slide-list {
+    padding: 8px 12px;
+  }
 }
 .editor .slide-item {
   padding: 4px 0 10px;
