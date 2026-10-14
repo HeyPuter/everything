@@ -231,6 +231,16 @@ export async function retrySiem(org) {
   const policy = await org.policy();
   if (policy.siem.mode !== "none") await exportAudit(org, policy);
 }
+// Azure Government and Azure China have their own sign-in and ingestion
+// audience; the endpoint says which cloud a workspace is in.
+const AZURE_CLOUDS = {
+  com: { login: "login.microsoftonline.com", audience: "monitor.azure.com" },
+  us: { login: "login.microsoftonline.us", audience: "monitor.azure.us" },
+  cn: { login: "login.chinacloudapi.cn", audience: "monitor.azure.cn" },
+};
+export const azureCloud = (endpoint) =>
+  AZURE_CLOUDS[new URL(endpoint).hostname.split(".").at(-1)] ||
+  AZURE_CLOUDS.com;
 async function sentinelToken(org, config) {
   const secret = await org.secret("sentinel");
   if (!secret) throw Error("Add the Sentinel client secret.");
@@ -239,15 +249,16 @@ async function sentinelToken(org, config) {
   const key = `${config.tenantId}|${config.clientId}|${await hash(secret)}`;
   const cached = tokens.get(key);
   if (cached && cached.expires > org.now() + 60_000) return cached.token;
+  const { login, audience } = azureCloud(config.endpoint);
   const res = await org.fetcher(
-    `https://login.microsoftonline.com/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`,
+    `https://${login}/${encodeURIComponent(config.tenantId)}/oauth2/v2.0/token`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: config.clientId,
         client_secret: secret,
-        scope: "https://monitor.azure.com//.default",
+        scope: `https://${audience}//.default`,
         grant_type: "client_credentials",
       }),
       signal: signal(),

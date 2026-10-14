@@ -24,7 +24,7 @@ A Whiteboard organization exports its audit log to Microsoft Sentinel in near re
 3. In Whiteboard, open **Organization settings → Security → SIEM export**, choose **Microsoft Sentinel**, and enter the tenant ID, application ID, client secret, the logs ingestion endpoint, the data collection rule immutable ID, and `Custom-WhiteboardAudit` as the stream. Choose the event categories to export.
 4. Select **Send test event**. A `siem.test` record appears in `WhiteboardAudit_CL` within a few minutes of the first ingestion (new tables can take longer on first use). The Security tab shows the last delivery time, the number of events sent, and the last error.
 
-The client secret is stored only in the organization's worker storage with sharing disabled and is never returned to browsers. Access tokens are requested with the client credentials flow for the `https://monitor.azure.com//.default` scope and cached until shortly before they expire.
+The client secret is stored only in the organization's worker storage with sharing disabled and is never returned to browsers. Access tokens are requested with the client credentials flow for the `https://monitor.azure.com//.default` scope (`monitor.azure.us` with `login.microsoftonline.us` for an Azure Government endpoint, `monitor.azure.cn` with `login.chinacloudapi.cn` for Azure China) and cached until shortly before they expire.
 
 ### Delivery behavior
 

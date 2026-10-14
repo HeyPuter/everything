@@ -15,6 +15,7 @@ import { auditCategory, mergePolicy, normalizePolicy } from "../worker/org.js";
 import {
   hmac,
   sendHook,
+  azureCloud,
   sentinelChunks,
   siem,
   siemRecord,
@@ -9079,4 +9080,53 @@ test("a replaced Sentinel client secret is used at once, so a wrong one fails it
   assert.equal((await call(owner, { op: "org.siem.test" })).sent >= 1, true);
   await sentinel("wrong-secret");
   await assert.rejects(call(owner, { op: "org.siem.test" }), /invalid_client/);
+});
+
+test("Sentinel signs in to the Azure cloud its ingestion endpoint belongs to", async () => {
+  const { call, org, fetched } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {
+      siem: {
+        mode: "sentinel",
+        sentinel: {
+          tenantId: "11111111-2222-3333-4444-555555555555",
+          clientId: "11111111-2222-3333-4444-888888888888",
+          endpoint: "https://wb-abc.usgovvirginia-1.ingest.monitor.azure.us",
+          dcrId: "dcr-0123456789abcdef0123456789abcdef",
+          stream: "Custom-WhiteboardAudit",
+        },
+      },
+    },
+    secrets: { sentinel: "entra-secret" },
+  });
+  const base = org.fetcher;
+  org.fetcher = (url, options) =>
+    String(url).startsWith("https://login.microsoftonline.us/")
+      ? (fetched.push({ url: String(url), options }),
+        Response.json({ access_token: "gov-token", expires_in: 3600 }))
+      : base(url, options);
+  await call(owner, { op: "org.siem.test" });
+  const logins = fetched.filter((f) => f.url.includes("/oauth2/v2.0/token"));
+  assert.deepEqual(
+    logins.map((f) => [new URL(f.url).host, f.options.body.get("scope")]),
+    [["login.microsoftonline.us", "https://monitor.azure.us//.default"]],
+  );
+  assert.equal(
+    fetched.find((f) => f.url.includes("/dataCollectionRules/")).options.headers
+      .Authorization,
+    "Bearer gov-token",
+  );
+  assert.deepEqual(
+    azureCloud("https://x.chinanorth3-1.ingest.monitor.azure.cn"),
+    {
+      login: "login.chinacloudapi.cn",
+      audience: "monitor.azure.cn",
+    },
+  );
+  assert.equal(
+    azureCloud("https://x.canadacentral-1.ingest.monitor.azure.com").audience,
+    "monitor.azure.com",
+  );
 });
