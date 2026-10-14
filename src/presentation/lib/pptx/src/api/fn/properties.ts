@@ -4,6 +4,7 @@ import { emptyRels, nextRelId, partName } from "../../internal/opc/index.ts";
 import { REL_TYPES } from "../../internal/presentationml/index.ts";
 import {
   type XmlElement,
+  attr,
   elem,
   firstChildElement,
   parseXml,
@@ -24,6 +25,7 @@ const NS_CORE_PROPS =
   "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
 const NS_DC = "http://purl.org/dc/elements/1.1/";
 const NS_DCTERMS = "http://purl.org/dc/terms/";
+const NS_XSI = "http://www.w3.org/2001/XMLSchema-instance";
 const CORE_PROPS_PART_NAME = partName("/docProps/core.xml");
 
 /**
@@ -177,17 +179,29 @@ const buildEmptyCorePropsRoot = (): XmlElement => {
   };
 };
 
+// A W3CDTF timestamp (ISO-8601 to the second, UTC) from a Date, a time
+// value or a date string; other strings are kept as they are.
+const w3cdtf = (value: unknown): string => {
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === "number"
+        ? new Date(value)
+        : null;
+  if (date && !Number.isNaN(date.getTime()))
+    return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  return String(value);
+};
+
 /**
  * Writes selected fields on `/docProps/core.xml`. Unspecified fields
  * are left as-is; pass `null` to clear a field that's currently set.
  * Bootstraps the part (and the `/_rels/.rels` entry + content-type
  * override) if the package didn't have one.
  *
- * Note: setting `created` / `modified` requires an ISO-8601 timestamp
- * string (e.g. `'2026-05-15T12:34:56Z'`). Native output carries the
- * `xsi:type="dcterms:W3CDTF"` attribute on these elements but readers
- * we tested all accept missing-attribute output too; this helper
- * therefore omits the attribute for simplicity.
+ * `created` / `modified` take an ISO-8601 timestamp string (e.g.
+ * `'2026-05-15T12:34:56Z'`) or a Date, and are written with the
+ * `xsi:type="dcterms:W3CDTF"` attribute desktop readers expect.
  */
 export const setCoreProperties = (
   pres: PresentationData,
@@ -207,7 +221,9 @@ export const setCoreProperties = (
 
   for (const field of CORE_PROP_FIELDS) {
     if (!(field.key in values)) continue;
-    const value = values[field.key] ?? null;
+    const raw: unknown = values[field.key] ?? null;
+    const dated = field.uri === NS_DCTERMS;
+    const value = raw === null ? null : dated ? w3cdtf(raw) : String(raw);
     const name = qname(field.prefix, field.local, field.uri);
     const existing = firstChildElement(root, name);
     if (value === null) {
@@ -216,10 +232,29 @@ export const setCoreProperties = (
       }
       continue;
     }
-    if (existing) {
-      existing.children = [textNode(value)];
-    } else {
-      root.children.push(elem(name, { children: [textNode(value)] }));
+    const target = existing ?? elem(name);
+    target.children = [textNode(value)];
+    if (!existing) root.children.push(target);
+    if (dated) {
+      // Desktop readers expect the dates typed as W3CDTF, as the package
+      // schema has it; without the type a file is offered for repair.
+      for (const [p, u] of [
+        ["dcterms", NS_DCTERMS],
+        ["xsi", NS_XSI],
+      ] as const)
+        if (![...root.prefixDecls.values()].includes(u))
+          root.prefixDecls.set(p, u);
+      const xsi = [...root.prefixDecls].find(([, u]) => u === NS_XSI)![0];
+      const dcterms = [...root.prefixDecls].find(
+        ([, u]) => u === NS_DCTERMS,
+      )![0];
+      target.attrs = [
+        ...target.attrs.filter(
+          (a) =>
+            !(a.name.namespaceURI === NS_XSI && a.name.localName === "type"),
+        ),
+        attr(qname(xsi, "type", NS_XSI), `${dcterms}:W3CDTF`),
+      ];
     }
   }
 

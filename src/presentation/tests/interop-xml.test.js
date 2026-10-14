@@ -17,3 +17,66 @@ describe("transitions", () => {
     expect(slideXml(slide)).toContain('<p159:morph option="byChar"/>');
   });
 });
+
+describe("document properties", () => {
+  const coreXml = async (pres) => {
+    const { unzipSync, strFromU8 } = await import("fflate");
+    return strFromU8(
+      unzipSync(await P.savePresentation(pres))["docProps/core.xml"],
+    );
+  };
+  it("types the created and modified dates as W3CDTF", async () => {
+    const pres = createDeck("title");
+    P.setCoreProperties(pres, {
+      created: "2026-10-01T00:00:00Z",
+      modified: new Date("2026-10-13T08:30:00.250Z"),
+    });
+    const xml = await coreXml(pres);
+    expect(xml).toMatch(
+      /xmlns:xsi="http:\/\/www\.w3\.org\/2001\/XMLSchema-instance"/,
+    );
+    expect(xml).toContain(
+      '<dcterms:created xsi:type="dcterms:W3CDTF">2026-10-01T00:00:00Z</dcterms:created>',
+    );
+    expect(xml).toContain(
+      '<dcterms:modified xsi:type="dcterms:W3CDTF">2026-10-13T08:30:00Z</dcterms:modified>',
+    );
+    expect(P.getCoreProperties(pres)).toMatchObject({
+      created: "2026-10-01T00:00:00Z",
+      modified: "2026-10-13T08:30:00Z",
+    });
+  });
+});
+
+describe("media timing", () => {
+  it("drops the main sequence a media effect leaves empty", () => {
+    const pres = createDeck("title");
+    const slide = addLayoutSlide(pres, "obj");
+    const wav = new Uint8Array(64);
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    const shape = P.addSlideMedia(
+      slide,
+      {
+        kind: "audio",
+        data: wav,
+        contentType: "audio/wav",
+        extension: "wav",
+        poster: png,
+      },
+      { x: 0, y: 0, w: 914400, h: 914400 },
+      { durationMs: 1000 },
+    );
+    expect(slideXml(slide)).toContain('nodeType="mainSeq"');
+    P.setShapeMediaOptions(shape, { start: "whenClicked", durationMs: 1000 });
+    const xml = slideXml(slide);
+    expect(xml).not.toContain('nodeType="mainSeq"');
+    expect(xml).not.toMatch(/<p:childTnLst\/>/);
+    expect(xml).toContain('nodeType="interactiveSeq"');
+    expect(P.getShapeMedia(shape).options.start).toBe("whenClicked");
+  });
+});
