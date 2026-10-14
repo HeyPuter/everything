@@ -107,8 +107,22 @@ export async function formatPane(page) {
   return pane;
 }
 
-/** Opens a collapsible section of the Format pane. */
+/**
+ * Opens a collapsible section of the Format pane, showing the tab that
+ * holds it first: its top-level tab, then its icon tab.
+ */
 export async function section(pane, key) {
+  for (const kind of ["fmt-top-tab", "fmt-sub-tab"]) {
+    const tab = pane
+      .locator(`.${kind}[data-sections~="${key}"]`)
+      .filter({ visible: true })
+      .first();
+    if (
+      (await tab.count()) &&
+      (await tab.getAttribute("aria-selected")) !== "true"
+    )
+      await tab.click();
+  }
   const node = pane.locator(`details[data-section="${key}"]`);
   if (!(await node.evaluate((d) => d.open)))
     await node.locator("summary").click();

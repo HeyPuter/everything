@@ -291,8 +291,16 @@ export function createRibbon({
       fit();
       anchor.setAttribute("aria-expanded", "false");
     };
+    // Escape is the panel's while the focus is in it; a command that moved
+    // the focus on (into the Format pane, say) leaves Escape to its new
+    // place, and the panel closes on its own.
     const onKey = (e) => {
-      if (e.key === "Escape") {
+      if (
+        e.key === "Escape" &&
+        (pop.contains(e.target) ||
+          e.target === anchor ||
+          e.target === document.body)
+      ) {
         e.stopPropagation();
         close();
         anchor.focus();

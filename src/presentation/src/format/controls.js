@@ -415,8 +415,21 @@ export function tabs(list, { label = "Sections", initial = 0, onChange } = {}) {
   return { node: el("div", { class: "fmt-tabbed" }, bar, panels), select };
 }
 
-/** A collapsible section; its open state is kept per key for the session. */
-const openSections = new Map();
+/**
+ * A collapsible section; its open state is kept per key, and across
+ * sessions, so the pane opens the way it was left.
+ */
+const SECTIONS_STORE = "presentation:format-sections";
+const openSections = new Map(
+  (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SECTIONS_STORE) || "{}");
+      return Object.entries(saved).filter(([, v]) => typeof v === "boolean");
+    } catch {
+      return [];
+    }
+  })(),
+);
 export function section(title, children, { key = title, open = false } = {}) {
   const details = el(
     "details",
@@ -425,12 +438,34 @@ export function section(title, children, { key = title, open = false } = {}) {
     el("div", { class: "fmt-section-body" }, ...children),
   );
   details.open = openSections.has(key) ? openSections.get(key) : open;
-  details.addEventListener("toggle", () => openSections.set(key, details.open));
+  details.dataset.defaultOpen = open ? "true" : "false";
+  // A search opens the sections it finds without changing what is kept.
+  const searching = () => !!details.closest(".fmt-search-results");
+  details.addEventListener("toggle", () => {
+    if (!searching()) keepSection(key, details.open);
+  });
   // Remembered at once too, so a refresh that follows the click keeps it.
-  details
-    .querySelector("summary")
-    .addEventListener("click", () => openSections.set(key, !details.open));
+  details.querySelector("summary").addEventListener("click", () => {
+    if (!searching()) keepSection(key, !details.open);
+  });
   return details;
+}
+/** Puts a section back the way it was kept, after a search opened it. */
+export function restoreSection(details) {
+  const key = details.dataset.section;
+  const open = openSections.has(key)
+    ? openSections.get(key)
+    : details.dataset.defaultOpen === "true";
+  if (details.open !== open) details.open = open;
+}
+function keepSection(key, open) {
+  openSections.set(key, open);
+  try {
+    localStorage.setItem(
+      SECTIONS_STORE,
+      JSON.stringify(Object.fromEntries(openSections)),
+    );
+  } catch {}
 }
 
 /**

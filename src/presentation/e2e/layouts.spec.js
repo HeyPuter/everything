@@ -319,3 +319,51 @@ test("the start of a new presentation is a preference", async ({
   await expect(page.locator("#slide-canvas .slide-image")).toBeVisible();
   await expect(hits(page)).toHaveCount(0);
 });
+
+test("the New Slide submenu draws its layouts only when it opens", async ({
+  page,
+}) => {
+  await start(page);
+  // The Insert menu: on the menu bar, or behind File options on a phone.
+  const bar = page
+    .getByRole("menuitem", { name: "Insert", exact: true })
+    .filter({ visible: true });
+  const phone = !(await bar.count());
+  if (phone) {
+    await page.getByRole("button", { name: "File options" }).click();
+    await page
+      .getByRole("menuitem", { name: "Insert", exact: true })
+      .last()
+      .dispatchEvent("click");
+  } else await bar.first().click();
+  const newSlide = page
+    .getByRole("menuitem", { name: "New slide", exact: true })
+    .filter({ visible: true });
+  await expect(newSlide).toBeVisible();
+  // The menu that holds it has no layout pictures yet.
+  await expect(page.locator(".layout-gallery")).toHaveCount(0);
+  await expect(page.locator(".layout-thumb")).toHaveCount(0);
+  await newSlide.dispatchEvent("click");
+  const gallery = page.getByRole("group", { name: "Layouts for a new slide" });
+  await expect(gallery).toBeVisible();
+  await expect(gallery.locator(".layout-thumb img")).toHaveCount(11);
+  const before = await gallery
+    .locator(".layout-thumb img")
+    .evaluateAll((imgs) => imgs.map((img) => img.src));
+  await page.keyboard.press("Escape");
+  await newSlide.dispatchEvent("click");
+  // Opened again, the same pictures come back without being drawn anew.
+  await expect(
+    page
+      .getByRole("group", { name: "Layouts for a new slide" })
+      .locator(".layout-thumb img"),
+  ).toHaveCount(11);
+  expect(
+    await page
+      .getByRole("group", { name: "Layouts for a new slide" })
+      .locator(".layout-thumb img")
+      .evaluateAll((imgs) => imgs.map((img) => img.src)),
+  ).toEqual(before);
+  await gallery.getByRole("menuitem", { name: "Blank" }).click();
+  await expect(page.locator("#slide-list .slide-thumb")).toHaveCount(2);
+});

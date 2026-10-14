@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { inspector } from "./editor-commands.js";
+import { paneSection } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck, MIME } from "../src/model.js";
 import {
@@ -69,10 +69,11 @@ test("inherited line decorations match before and after clipboard transfer, edit
   };
   expect(await outline(page)).toEqual([expected]);
   await page.locator(".object-hit").click();
-  const showFormat = () => inspector(page);
+  // The dash is set in the Format pane's Line section.
+  const showFormat = () => paneSection(page, "line");
   await showFormat();
   const style = page.getByRole("combobox", {
-    name: "Border style",
+    name: "Dash type",
     exact: true,
   });
   await expect(style).toHaveValue("custom");

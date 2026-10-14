@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { inspector } from "./editor-commands.js";
+import { paneSection } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
@@ -85,13 +85,14 @@ test("the corner inspector reads a formula adjustment and keeps it intact until 
     source = await parseDeck(bytes);
   await load(page, bytes, 1);
   await page.locator(".object-hit").click();
-  await inspector(page);
+  // The corners are sized in Size & Properties.
+  await paneSection(page, "size");
   const radius = page.getByRole("slider", { name: "Corner radius (%)" });
   await expect(radius).toHaveValue("40");
   const before = await download(page);
   expect(authored(before.bytes, before.p)).toEqual(authored(bytes, source));
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneSection(page, "size");
   await radius.fill("30");
   const edited = await download(page),
     sh = P.getSlideShapes(P.getSlides(edited.p)[0])[0];

@@ -14,6 +14,8 @@ import {
   openMenuPath,
   openNewSlideMenu,
   openShapeMenu,
+  paneSection,
+  paneTab,
   ribbonButton,
   ribbonControl,
   setRibbonFont,
@@ -189,7 +191,7 @@ test("mapped text and paint colors survive editing, copying, and PNG and .pptx d
       `fill="#FFFFFF">Mapped ${layer}</tspan>`,
     );
   await object.click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(
     panel(page).locator('.color-field:has(input[aria-label="Text color"])'),
   ).toHaveText("#FFFFFF");
@@ -1730,7 +1732,7 @@ test("create, edit, undo, recover, and download a real PPTX", async ({
 }, info) => {
   await story(page);
   await addText(page);
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const input = page.getByRole("textbox", { name: "Object text" });
   await input.fill("A better way to present");
   await input.press("Tab");
@@ -2307,7 +2309,7 @@ test("canvas text edits, object movement, and themes survive export", async ({
   );
   await page.locator('[data-object="1"]').click();
   await page.keyboard.press("ArrowRight");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(page.getByRole("spinbutton", { name: "X (in)" })).toHaveValue(
     "0.81",
   );
@@ -2351,7 +2353,8 @@ test("images retain alternative text and can be resized", async ({ page }) => {
       "base64",
     ),
   });
-  await inspector(page);
+  // The description and the size share Size & Properties.
+  await paneSection(page, "altText");
   const alt = page.getByRole("textbox", { name: "Image alternative text" });
   await expect(alt).toBeVisible();
   await alt.fill("A simplified diagram");
@@ -2605,7 +2608,7 @@ test("keyboard activation respects toolbar buttons and open menus", async ({
   await expect(page.locator(".object-hit")).toHaveCount(8);
   // Menu navigation must not also nudge the previously selected title.
   await page.locator('[data-object="1"]').click({ position: { x: 8, y: 8 } });
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(page.getByRole("spinbutton", { name: "Y (in)" })).toHaveValue(
     "1.8",
   );
@@ -3619,7 +3622,7 @@ for (const [navigation, field] of [
         .fill("Notes entered while navigation was pending");
     } else {
       await page.locator('[data-object="1"]').click();
-      await inspector(page);
+      await paneTab(page, "Size & Properties");
       await page
         .getByRole("spinbutton", { name: "Width (in)", exact: true })
         .fill("3");
@@ -4076,7 +4079,7 @@ test("keys pressed while an input method composes text leave the edit alone", as
   await composing(hit, "Delete");
   await composing(hit, "ArrowRight");
   await expect(page.locator(".object-hit")).toHaveCount(7);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(page.locator('input[aria-label="X (in)"]')).toHaveValue("0.8");
   await hit.press("Delete");
   await expect(page.locator(".object-hit")).toHaveCount(6);
@@ -4114,7 +4117,7 @@ test("queued arrow keys accumulate every movement step", async ({ page }) => {
       );
     }
   });
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(page.getByRole("spinbutton", { name: "X (in)" })).toHaveValue(
     "1.3",
   );
@@ -4279,7 +4282,7 @@ test("the Circle tool inserts a circle rather than an oval", async ({
   await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Circle", exact: true }).click();
   await expect(page.locator(".object-hit.selected")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     page.getByRole("spinbutton", { name: "Width (in)" }),
   ).toHaveValue("2.2");
@@ -4826,7 +4829,7 @@ test("typing in the format panel survives completion of an earlier edit", async 
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await page.evaluate(() => {
     const open = indexedDB.open.bind(indexedDB);
     indexedDB.open = (...args) => {
@@ -4872,7 +4875,7 @@ test("typing in the format panel survives completion of an earlier edit", async 
 test("queued formatting toggles apply every activation", async ({ page }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await page.evaluate(() => {
     for (const label of ["Bold", "Italic"]) {
       const button = document.querySelector(`button[aria-label="${label}"]`);
@@ -4905,7 +4908,7 @@ for (const action of ["formatting", "movement"]) {
     await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.locator('[data-object="1"]').click();
-    await inspector(page);
+    await paneTab(page, "Text Options", "Text");
     await page.evaluate((action) => {
       document.querySelector("#undo").click();
       if (action === "formatting")
@@ -5568,7 +5571,7 @@ for (const action of ["select", "edit", "keyboard edit", "drag"]) {
     await expect(title).toHaveAccessibleName(/^Make room/);
     if (action === "select") {
       await title.click();
-      await inspector(page);
+      await paneTab(page, "Text Options", "Text");
       await panel(page)
         .getByRole("button", { name: "Bold", exact: true })
         .click();
@@ -5630,6 +5633,7 @@ for (const action of ["Forward", "Backward"]) {
       .locator(".object-list-item")
       .nth(action === "Forward" ? 6 : 0)
       .click();
+    await paneTab(page, "Size & Properties");
     await page.getByRole("button", { name: action, exact: true }).click();
     await openFileMenu(page);
     const downloaded = page.waitForEvent("download");
@@ -5683,7 +5687,7 @@ for (const action of ["Forward", "Backward"]) {
     });
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction(() => window.__releaseDraft);
-    await inspector(page);
+    await paneTab(page, "Size & Properties");
     await page.getByRole("button", { name: action, exact: true }).click();
     if (
       await page.getByRole("button", { name: "Close format panel" }).isVisible()
@@ -7121,7 +7125,7 @@ test("the reload warning includes unfinished numeric edits and clears when resto
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const width = page.getByRole("spinbutton", {
     name: "Width (in)",
     exact: true,
@@ -7247,7 +7251,7 @@ test("an edit queued for an object removed by undo preserves redo", async ({
   await story(page);
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await page.evaluate(() => {
     document.querySelector("#undo").click();
     document.querySelector('button[aria-label="Bold"]').click();
@@ -7271,7 +7275,7 @@ test("duplicating selects the copy and deleting it clears selection", async ({
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await page.getByRole("button", { name: "Duplicate", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(page.locator(".object-hit.selected")).toHaveAccessibleName(
@@ -7316,7 +7320,7 @@ for (const action of ["Delete", "Duplicate"]) {
     });
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction(() => window.__releaseDraft);
-    await inspector(page);
+    await paneTab(page, "Size & Properties");
     await page.getByRole("button", { name: action, exact: true }).click();
     if (
       await page.getByRole("button", { name: "Close format panel" }).isVisible()
@@ -7417,7 +7421,7 @@ test("imported font names remain visible and selectable in the format panel", as
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const font = page.getByRole("combobox", { name: "Font family", exact: true });
   await expect(font).toHaveValue("Aptos Display");
   await panel(page).getByRole("button", { name: "Bold", exact: true }).click();
@@ -7444,7 +7448,7 @@ test("clearing a position field preserves its value while explicit zero remains 
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const x = page.getByRole("spinbutton", { name: "X (in)", exact: true });
   await expect(x).toHaveValue("0.8");
   await x.fill("");
@@ -7470,7 +7474,9 @@ test("numeric input still commits after a pending edit refreshes its field", asy
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  // The pending edit and the width share the Size & Properties tab.
+  await paneTab(page, "Size & Properties");
+  const lock = panel(page).getByRole("checkbox", { name: "Lock aspect ratio" });
   await page.evaluate(() => {
     const open = indexedDB.open.bind(indexedDB);
     indexedDB.open = (...args) => {
@@ -7490,7 +7496,7 @@ test("numeric input still commits after a pending edit refreshes its field", asy
       return request;
     };
   });
-  await panel(page).getByRole("button", { name: "Bold", exact: true }).click();
+  await lock.click();
   await page.waitForFunction(() => window.__releaseDraft);
   const width = page.getByRole("spinbutton", {
     name: "Width (in)",
@@ -7498,9 +7504,7 @@ test("numeric input still commits after a pending edit refreshes its field", asy
   });
   await width.fill("3");
   await page.evaluate(() => window.__releaseDraft());
-  await expect(
-    panel(page).getByRole("button", { name: "Bold", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
+  await expect(lock).toBeChecked();
   await expect(width).toHaveValue("3");
   await expect(width).toBeFocused();
   await width.press("Tab");
@@ -7522,7 +7526,7 @@ test("an invalid number restores the latest value committed with Enter", async (
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const width = page.getByRole("spinbutton", {
     name: "Width (in)",
     exact: true,
@@ -7592,6 +7596,8 @@ for (const [key, label, value, direction, increment] of [
     await expect(page.locator(".document-title")).toHaveText("Numeric bounds");
     await inspector(page);
     await page.locator(".object-list-item").click();
+    if (label === "Font size") await paneTab(page, "Text Options", "Text");
+    else await paneTab(page, "Size & Properties");
     const control = page.getByRole("spinbutton", { name: label, exact: true });
     await expect(control).toHaveValue(String(value));
     expect(await control.evaluate((input) => input.checkValidity())).toBe(true);
@@ -7634,7 +7640,7 @@ test("position and size controls accept hundredth-inch coordinates and step prec
   await page.locator('[data-object="1"]').click();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowDown");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     page.getByRole("spinbutton", { name: "X (in)", exact: true }),
   ).toHaveValue("0.81");
@@ -7676,7 +7682,9 @@ test("selected numeric text survives a pending inspector refresh", async ({
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  // The pending edit and the width share the Size & Properties tab.
+  await paneTab(page, "Size & Properties");
+  const lock = panel(page).getByRole("checkbox", { name: "Lock aspect ratio" });
   await page.evaluate(() => {
     const open = indexedDB.open.bind(indexedDB);
     indexedDB.open = (...args) => {
@@ -7696,7 +7704,7 @@ test("selected numeric text survives a pending inspector refresh", async ({
       return request;
     };
   });
-  await panel(page).getByRole("button", { name: "Bold", exact: true }).click();
+  await lock.click();
   await page.waitForFunction(() => window.__releaseDraft);
   const width = page.getByRole("spinbutton", {
     name: "Width (in)",
@@ -7705,9 +7713,7 @@ test("selected numeric text survives a pending inspector refresh", async ({
   await width.focus();
   await width.press("ControlOrMeta+a");
   await page.evaluate(() => window.__releaseDraft());
-  await expect(
-    panel(page).getByRole("button", { name: "Bold", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
+  await expect(lock).toBeChecked();
   await page.keyboard.type("3");
   await expect(width).toHaveValue("3");
   await expect(width).toBeFocused();
@@ -7758,7 +7764,8 @@ for (const [label, first, second] of [
     await expect(page.locator(".object-hit")).toHaveCount(8);
     const shapeIndex = label === "Image alternative text" ? 7 : 1;
     await page.locator(`[data-object="${shapeIndex}"]`).click();
-    await inspector(page);
+    if (label === "Image alternative text") await paneSection(page, "altText");
+    else await paneTab(page, "Text Options", "Text");
     await page.evaluate(() => {
       const open = indexedDB.open.bind(indexedDB);
       indexedDB.open = (...args) => {
@@ -7827,7 +7834,7 @@ test("queued position and size edits preserve the other dimensions", async ({
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await page.evaluate(() => {
     for (const [label, value] of [
       ["X (in)", "2"],
@@ -7855,7 +7862,7 @@ test("queued position and size edits preserve the other dimensions", async ({
     .getByRole("button", { name: "The big idea Recovery draft" })
     .click();
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     page.getByRole("spinbutton", { name: "X (in)", exact: true }),
   ).toHaveValue("2");
@@ -8061,7 +8068,7 @@ test("alignment buttons show the current paragraph alignment", async ({
 }) => {
   await story(page);
   await addText(page);
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const align = (name) =>
     panel(page).getByRole("button", { name: `Align ${name}`, exact: true });
   await expect(align("left")).toHaveAttribute("aria-pressed", "true");
@@ -8680,6 +8687,7 @@ test("the slide object list matches the canvas by omitting hidden shapes and nam
     "Image: Team photo",
   ]);
   await items.nth(1).click();
+  await paneSection(page, "altText");
   await expect(
     page.getByRole("textbox", { name: "Image alternative text" }),
   ).toHaveValue("Team photo");
@@ -8751,7 +8759,11 @@ for (const action of ["Align left", "Remove fill", "retyped X position"]) {
     await expect(page.locator(".object-hit")).toHaveCount(7);
     // The title is left aligned with no fill at X = 0.8 in.
     await page.locator('[data-object="1"]').click();
-    await inspector(page);
+    if (action === "retyped X position")
+      await paneTab(page, "Size & Properties");
+    else if (action === "Align left")
+      await paneTab(page, "Text Options", "Text");
+    else await paneTab(page, "Shape Options", "Fill & Line");
     if (action === "retyped X position") {
       const x = page.getByRole("spinbutton", { name: "X (in)" });
       await expect(x).toHaveValue("0.8");
@@ -8898,7 +8910,7 @@ test("the font size field steps by whole points and still accepts half sizes", a
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const size = page.getByRole("spinbutton", { name: "Font size" });
   await expect(size).toHaveValue("52");
   await size.press("ArrowUp");
@@ -9102,7 +9114,7 @@ test("resizing an image by its handle keeps its proportions unless Shift is held
   // Drags and insertions commit through the mutation queue, so wait for the
   // width to move on from its previous value before reading the fields.
   const fields = async (previousWidth) => {
-    await inspector(page);
+    await paneTab(page, "Size & Properties");
     if (previousWidth) await expect(width).not.toHaveValue(previousWidth);
     const values = [await width.inputValue(), await height.inputValue()];
     const close = page.getByRole("button", { name: "Close format panel" });
@@ -9245,13 +9257,13 @@ test("empty placeholders in an imported deck can be formatted and filled in", as
     const close = page.getByRole("button", { name: "Close format panel" });
     if (await close.isVisible()) await close.click();
   };
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(page.locator(".object-list-item").nth(1)).toHaveText(
     "Subtitle 2",
   );
   await closePanel();
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   // The panel reports the format typed text will take: the Title Slide
   // layout's subtitle size.
   await expect(page.getByRole("combobox", { name: "Font family" })).toHaveValue(
@@ -9388,7 +9400,7 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
   );
   await expectPlacement(child, [2, 2, 4, 2]);
   await child.click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const field = (label) => page.locator(`input[aria-label="${label}"]`);
   await expect(field("X (in)")).toHaveValue("2");
   await expect(field("Y (in)")).toHaveValue("2");
@@ -9417,7 +9429,7 @@ test("grouped shapes are selected, moved, and measured where the slide shows the
   ).toBeCloseTo(Math.max(14, (36 / 72 / (12192000 / 914400)) * canvasWidth), 0);
   await editor.press("Escape");
   await expect(editor).toHaveCount(0);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   // Nudging moves the shape by a hundredth of an inch on the slide.
   await child.press("ArrowRight");
   await expect(field("X (in)")).toHaveValue("2.01");
@@ -9504,56 +9516,69 @@ test("the format panel offers a fill only for shapes that can take one", async (
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
   const fill = page.locator('input[aria-label="Fill color"]');
   const removeFill = page.getByRole("button", { name: "Remove fill" });
-  // The panel's own sections; the Format pane's groups follow them.
-  const headings = page.locator("#inspector h3:not(.fmt-group-heading)");
+  // The icon tabs the object offers, and the sections of the first one.
+  const tabs = panel(page).locator(".fmt-sub-tabs:not([hidden]) [role=tab]");
+  const sections = () =>
+    panel(page)
+      .locator(".fmt-frame-panel details[data-section]")
+      .evaluateAll((nodes) => nodes.map((node) => node.dataset.section));
   // On phones the panel covers the canvas, so select before opening it.
   const select = async (locator) => {
     const close = page.getByRole("button", { name: "Close format panel" });
-    if (await close.isVisible()) await close.click();
-    await locator.click();
+    if (locator) {
+      if (await close.isVisible()) await close.click();
+      await locator.click();
+    }
     await inspector(page);
+    for (const kind of ["fmt-top-tab", "fmt-sub-tab"]) {
+      const first = panel(page).locator(`.${kind}`).first();
+      if (
+        (await first.isVisible()) &&
+        (await first.getAttribute("aria-selected")) !== "true"
+      )
+        await first.click();
+    }
   };
-  const shapeHeadings = [
-    "Text",
-    "Fill",
-    "Border",
-    "Link",
-    "Position & size",
-    "Arrange",
-  ];
+  const shapeTabs = ["Fill & Line", "Effects", "Size & Properties"];
   await select(page.locator('[data-object="0"]'));
-  await expect(headings).toHaveText(shapeHeadings);
+  await expect(tabs).toHaveCount(3);
+  for (const [i, name] of shapeTabs.entries())
+    await expect(tabs.nth(i)).toHaveAccessibleName(name);
+  expect(await sections()).toEqual(["fill", "line"]);
   await expect(fill).toHaveCount(1);
   await expect(removeFill).toHaveCount(1);
-  for (const [name, own] of [
-    [/^Pair\./, []],
-    [/^Table \d+\./, ["Table", "Cell text"]],
+  // A group has only its size, position, description and arrangement; a
+  // table its own settings beside those.
+  for (const [name, own, keys] of [
+    [/^Pair\./, [], ["size", "position", "altText", "arrange"]],
+    [/^Table \d+\./, ["Table", "Size & Properties"], null],
   ]) {
     await select(page.getByRole("button", { name }));
-    await expect(headings).toHaveText([...own, "Position & size", "Arrange"]);
+    await expect(tabs).toHaveCount(own.length);
+    for (const [i, tab] of own.entries())
+      await expect(tabs.nth(i)).toHaveAccessibleName(tab);
+    if (keys) expect(await sections()).toEqual(keys);
     await expect(fill).toHaveCount(0);
     await expect(removeFill).toHaveCount(0);
     await expect(page.locator("#toast")).not.toContainText("not supported");
   }
   // A line has no interior, but its stroke and arrowheads are its own.
   await select(page.getByRole("button", { name: /^Straight Connector \d+\./ }));
-  await expect(headings).toHaveText([
-    "Line",
-    "Link",
-    "Position & size",
-    "Arrange",
-  ]);
+  await expect(tabs).toHaveCount(3);
+  expect(await sections()).toEqual(["line"]);
   await expect(fill).toHaveCount(0);
   await expect(removeFill).toHaveCount(0);
   // Grouped shapes and pictures keep their own fill and image controls.
   await select(page.getByRole("button", { name: /^Circle \d+\./ }));
-  await expect(headings).toHaveText(shapeHeadings);
+  expect(await sections()).toEqual(["fill", "line"]);
+  await expect(fill).toHaveCount(1);
   // A new text box takes a fill as well.
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   await addText(page);
-  await inspector(page);
-  await expect(headings).toHaveText(shapeHeadings);
+  await select(null);
+  expect(await sections()).toEqual(["fill", "line"]);
+  await expect(fill).toHaveCount(1);
 });
 
 test("transformed backgrounds agree across the swatch, duplication, PNG and .pptx downloads", async ({
@@ -9899,7 +9924,7 @@ test("the inline editor takes the text's own font and colors when they stay read
     family: "Arial",
   });
   await editor.press("Escape");
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await panel(page).getByRole("button", { name: "Bold", exact: true }).click();
   await expect(
     panel(page).getByRole("button", { name: "Bold", exact: true }),
@@ -9999,7 +10024,7 @@ test("the format panel reads text that starts with an empty line", async ({
   });
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
   await page.locator('[data-object="0"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(page.getByRole("spinbutton", { name: "Font size" })).toHaveValue(
     "40",
   );
@@ -10020,7 +10045,7 @@ test("keyboard focus survives duplicating and deleting objects", async ({
     .click();
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const focused = () =>
     page.evaluate(() => {
       const active = document.activeElement;
@@ -10051,7 +10076,7 @@ test("keyboard focus survives duplicating and deleting objects", async ({
   };
   await closePanel();
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await page.getByRole("button", { name: "Duplicate", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(2);
   await closePanel();
@@ -10367,7 +10392,7 @@ test("the ribbon's text controls follow the selection and reach the file", async
   await sizeBox.press("Enter");
   await expect(size).toHaveValue("28");
   await page.keyboard.press("Escape");
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const bottom = panel(page).getByRole("button", {
     name: "Align bottom",
     exact: true,
@@ -10439,7 +10464,7 @@ test("a plain shape takes text from a double-click or the format panel", async (
   await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Circle", exact: true }).click();
   await expect(objects).toHaveCount(2);
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const content = panel(page).getByRole("textbox", { name: "Object text" });
   await content.fill("Round");
   await content.press("Tab");
@@ -10561,12 +10586,13 @@ test("borders, line styles, and arrowheads are edited in the format panel", asyn
   await expect(
     format.locator('.color-field:has(input[aria-label="Border color"])'),
   ).toHaveText("#FF0000");
-  const width = format.getByRole("spinbutton", { name: "Border width (pt)" });
+  // A line once colored has its width and dash in the Line section.
+  const width = format.getByRole("spinbutton", { name: "Line width" });
   await expect(width).toHaveValue("1");
   await width.fill("3");
   await width.press("Enter");
   await format
-    .getByRole("combobox", { name: "Border style" })
+    .getByRole("combobox", { name: "Dash type" })
     .selectOption("dash");
   // The border shows on the slide.
   const svg = async () =>
@@ -10584,18 +10610,20 @@ test("borders, line styles, and arrowheads are edited in the format panel", asyn
   await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Arrow", exact: true }).click();
   await inspector(page);
-  await expect(format.locator("h3").first()).toHaveText("Line");
+  await expect(format.locator(".fmt-frame-panel summary").first()).toHaveText(
+    "Line",
+  );
   await expect(
-    format.getByRole("combobox", { name: "End arrow", exact: true }),
+    format.getByRole("combobox", { name: "End arrow type", exact: true }),
   ).toHaveValue("triangle");
   await format
-    .getByRole("combobox", { name: "Start arrow", exact: true })
+    .getByRole("combobox", { name: "Begin arrow type", exact: true })
     .selectOption("oval");
   await format
-    .getByRole("combobox", { name: "End arrow", exact: true })
+    .getByRole("combobox", { name: "End arrow type", exact: true })
     .selectOption("none");
   await expect(
-    format.getByRole("combobox", { name: "Start arrow", exact: true }),
+    format.getByRole("combobox", { name: "Begin arrow type", exact: true }),
   ).toHaveValue("oval");
   // Removing the border takes it away again. The arrow crosses the
   // rectangle's middle, and on a touch screen its handles' targets reach
@@ -10700,7 +10728,7 @@ test("objects resize from every edge and corner and rotate by their handle", asy
   await page.mouse.up();
   await page.keyboard.up("Shift");
   await expect(title).toHaveCSS("transform", /matrix/);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const rotation = panel(page).getByRole("spinbutton", {
     name: "Rotation (°)",
   });
@@ -10738,7 +10766,7 @@ test("dragged objects snap to the slide's center and other objects' edges unless
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   const rect = page.locator(".object-hit");
   await expect(rect).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const x = panel(page).getByRole("spinbutton", { name: "X (in)" });
   await expect(x).toHaveValue("3.3");
   const close = page.getByRole("button", { name: "Close format panel" });
@@ -10762,19 +10790,19 @@ test("dragged objects snap to the slide's center and other objects' edges unless
   };
   expect(await drag(6.667 - 4.8 - 0.04)).toBe(1);
   await expect(page.locator(".snap-guide")).toHaveCount(0);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(x).toHaveValue("5.17");
   if (await close.isVisible()) await close.click();
   // Alt drags freely: no guide, and the rectangle lands where it was left.
   expect(await drag(-0.3, { alt: true })).toBe(0);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(x).toHaveValue("4.87");
   if (await close.isVisible()) await close.click();
   // Dragging back toward another object's edge snaps to it.
   await addText(page);
   const text = page.locator(".object-hit").nth(1);
   await expect(text).toHaveAccessibleName("Your text here. Select to edit");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(x).toHaveValue("1.2");
   if (await close.isVisible()) await close.click();
   const box = await text.boundingBox();
@@ -10789,7 +10817,7 @@ test("dragged objects snap to the slide's center and other objects' edges unless
   );
   await expect(page.locator(".snap-guide.vertical")).toHaveCount(1);
   await page.mouse.up();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(x).toHaveValue("4.87");
 });
 
@@ -10827,7 +10855,7 @@ test("several objects are selected together, moved, aligned, grouped, and delete
   await expect(page.locator(".resize-handle")).toHaveCount(8);
   await panelB.click({ modifiers: ["Shift"], position: { x: 8, y: 6 } });
   await expect(chosen).toHaveCount(2);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator("h3").first()).toHaveText(
     "2 objects selected",
   );
@@ -10872,7 +10900,7 @@ test("several objects are selected together, moved, aligned, grouped, and delete
   await panelA.click({ position: { x: 8, y: 6 } });
   await panelB.click({ modifiers: ["Shift"], position: { x: 8, y: 6 } });
   await expect(chosen).toHaveCount(2);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Left edges" }).click();
   await expect
     .poll(async () => Math.round((await panelA.boundingBox()).x))
@@ -11105,7 +11133,7 @@ test("objects take links to web addresses or slides that work while presenting",
   await expect(dialog).toBeVisible();
   await dialog.getByRole("textbox", { name: "Web address" }).fill("puter.com");
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText(
     "https://puter.com",
   );
@@ -11121,7 +11149,7 @@ test("objects take links to web addresses or slides that work while presenting",
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   await page.locator('[data-object="3"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Add link" }).click();
   await page
     .getByRole("combobox", { name: "Link to" })
@@ -11141,7 +11169,7 @@ test("objects take links to web addresses or slides that work while presenting",
   // Removing the link takes it off, and the file keeps what remains.
   if (await close.isVisible()) await close.click();
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Remove link" }).click();
   await expect(panel(page).locator(".link-target")).toHaveText("No link");
   await openFileMenu(page);
@@ -11177,7 +11205,7 @@ test("a slide takes a background image, and pictures are replaced, faded, croppe
         "",
       ),
     );
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   let chooser = page.waitForEvent("filechooser");
   await panel(page)
     .getByRole("button", { name: "Background image", exact: true })
@@ -11202,7 +11230,7 @@ test("a slide takes a background image, and pictures are replaced, faded, croppe
   await expect(picture).toHaveAccessibleName(
     "Image: photo.png. Select to edit",
   );
-  await inspector(page);
+  await paneTab(page, "Picture");
   chooser = page.waitForEvent("filechooser");
   await panel(page).getByRole("button", { name: "Replace image" }).click();
   await (await chooser).setFiles({ ...png(OTHER_PNG), name: "other.png" });
@@ -11234,12 +11262,13 @@ test("a slide takes a background image, and pictures are replaced, faded, croppe
   });
   await cropLeft.fill("20");
   await cropLeft.press("Enter");
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Flip horizontal" }).click();
   await expect.poll(async () => (await svg()).includes("clipPath")).toBe(true);
   // Removing the background image leaves the palette's color.
   if (await close.isVisible()) await close.click();
   await page.keyboard.press("Escape");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Remove background image" })
     .click();
@@ -11308,15 +11337,18 @@ test("tables are inserted, filled in cell by cell, reshaped, and resized with th
   await expect.poll(svg).toContain("Region");
   expect(await svg()).toContain("Q1");
   // Rows and columns come and go around the current cell.
-  await inspector(page);
+  await paneTab(page, "Table Options", "Table");
   const format = panel(page);
-  await expect(format.locator("h3").first()).toHaveText("Table");
+  await expect(format.locator(".fmt-frame-panel summary").first()).toHaveText(
+    "Table",
+  );
   await format.getByRole("button", { name: "Row below" }).click();
   await expect(format.locator(".helper").first()).toContainText("3 × 3");
   await format.getByRole("button", { name: "Delete column" }).click();
   await expect(format.locator(".helper").first()).toContainText("3 × 2");
   await format.getByRole("checkbox", { name: "Header row" }).uncheck();
   // Resizing the frame stretches the grid along with it.
+  await paneTab(page, "Size & Properties");
   const width = format.getByRole("spinbutton", { name: "Width (in)" });
   await width.fill("6");
   await width.press("Enter");
@@ -11511,10 +11543,11 @@ test("the slide size changes to standard and back, scaling the content along", a
   // The title moved and shrank with the slide: 0.8 in from the left became
   // 0.6, and the text a step smaller.
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     panel(page).getByRole("spinbutton", { name: "X (in)" }),
   ).toHaveValue("0.6");
+  await paneTab(page, "Text Options", "Text");
   await expect(
     panel(page).getByRole("spinbutton", { name: "Font size" }),
   ).toHaveValue("39");
@@ -11718,7 +11751,7 @@ test("shapes take a drop shadow from the format panel or the Format menu and kee
   await openShapeMenu(page);
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(8);
-  await inspector(page);
+  await paneSection(page, "shadow");
   const shadow = panel(page).getByRole("checkbox", { name: "Drop shadow" });
   await expect(shadow).not.toBeChecked();
   const shadows = async () =>
@@ -11882,7 +11915,7 @@ test("color, size, and font from the toolbar or panel apply to the selected text
   for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+ArrowRight");
   const toolbarSize = page.locator('.toolbar select[aria-label="Font size"]');
   const useToolbar = await toolbarSize.isVisible();
-  if (!useToolbar) await inspector(page);
+  if (!useToolbar) await paneTab(page, "Text Options", "Text");
   const scope = useToolbar ? page.locator(".toolbar") : panel(page);
   // A color from the picker colors the word and leaves the editor open.
   await scope.locator('input[aria-label="Text color"]').fill("#cc0000");
@@ -11957,12 +11990,18 @@ test("text formatting, alignment, and a fill apply to the current table cell", a
   await dialog.getByRole("button", { name: "Insert", exact: true }).click();
   const table = page.locator('[data-object="7"]');
   await expect(table).toHaveClass(/selected/);
-  await inspector(page);
   const format = panel(page);
-  // The panel leads with the table and follows with the current cell's text.
-  await expect(format.locator("h3").nth(0)).toHaveText("Table");
-  await expect(format.locator("h3").nth(1)).toHaveText("Cell text");
-  await expect(format.locator(".helper").nth(1)).toContainText(
+  // The table's own settings, and under Text Options the current cell's
+  // text.
+  await paneTab(page, "Table Options", "Table");
+  await expect(format.locator(".fmt-frame-panel summary").nth(0)).toHaveText(
+    "Table",
+  );
+  await paneTab(page, "Text Options");
+  await expect(format.locator(".fmt-frame-panel summary").nth(0)).toHaveText(
+    "Cell text",
+  );
+  await expect(format.locator(".fmt-frame-panel .helper").nth(0)).toContainText(
     "Row 1, column 1",
   );
   // Formatting goes to the first cell: bold, 24 points, red, centered, at
@@ -11978,7 +12017,9 @@ test("text formatting, alignment, and a fill apply to the current table cell", a
   await format
     .getByRole("button", { name: "Align bottom", exact: true })
     .click();
+  await paneTab(page, "Table Options", "Table");
   await format.locator('input[aria-label="Cell fill"]').fill("#00aa00");
+  await paneTab(page, "Text Options");
   await expect(
     format.getByRole("button", { name: "Bold", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -12007,8 +12048,8 @@ test("text formatting, alignment, and a fill apply to the current table cell", a
   await editor.fill("Second");
   await editor.press("Control+Enter");
   await expect(editor).toHaveCount(0);
-  await inspector(page);
-  await expect(format.locator(".helper").nth(1)).toContainText(
+  await paneTab(page, "Text Options", "Text");
+  await expect(format.locator(".fmt-frame-panel .helper").nth(0)).toContainText(
     "Row 2, column 2",
   );
   await format.getByRole("button", { name: "Italic", exact: true }).click();
@@ -12302,7 +12343,7 @@ test("a rounded rectangle's corner radius follows the panel slider", async ({
     .getByRole("menuitem", { name: "Rounded rectangle", exact: true })
     .click();
   await expect(page.locator(".object-hit.selected")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const radius = panel(page).getByRole("slider", { name: "Corner radius (%)" });
   await expect(radius).toHaveValue("17");
   const svg = async () =>
@@ -12322,7 +12363,7 @@ test("a rounded rectangle's corner radius follows the panel slider", async ({
   if (await close.isVisible()) await close.click();
   await page.keyboard.press("Escape");
   await page.locator('[data-object="0"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     panel(page).getByRole("slider", { name: "Corner radius (%)" }),
   ).toHaveCount(0);
@@ -12348,7 +12389,7 @@ test("paragraph spacing and line spacing apply to the whole box, or to the caret
   await expect(page.locator("#slide-position")).toHaveText("Slide 4 of 5");
   const body = page.locator('[data-object="2"]');
   await body.click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const after = panel(page).getByRole("spinbutton", {
     name: "Space after (pt)",
   });
@@ -12370,7 +12411,7 @@ test("paragraph spacing and line spacing apply to the whole box, or to the caret
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const spaceBefore = panel(page).getByRole("spinbutton", {
     name: "Space before (pt)",
   });
@@ -12450,27 +12491,34 @@ test("the format panel's button rows fit inside the panel", async ({
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
-  await expect(
-    panel(page).getByRole("button", { name: "Align bottom", exact: true }),
-  ).toBeVisible();
-  const [outside, overflow] = await panel(page).evaluate((node) => {
-    const content = node.querySelector(".inspector-content");
-    const edge =
-      content.getBoundingClientRect().right -
-      parseFloat(getComputedStyle(content).paddingRight);
-    return [
-      [...content.querySelectorAll("*")]
-        .filter((child) => {
-          const box = child.getBoundingClientRect();
-          return box.width > 0 && box.right > edge + 0.5;
-        })
-        .map((child) => child.getAttribute("aria-label") || child.className),
-      node.scrollWidth - node.clientWidth,
-    ];
-  });
-  expect(outside).toEqual([]);
-  expect(overflow).toBe(0);
+  // The text's rows under Text Options, the arrangement's under Size &
+  // Properties.
+  for (const [tabs, button] of [
+    [["Text Options", "Text"], "Align bottom"],
+    [["Shape Options", "Size & Properties"], "Flip horizontal"],
+  ]) {
+    await paneTab(page, ...tabs);
+    await expect(
+      panel(page).getByRole("button", { name: button, exact: true }),
+    ).toBeVisible();
+    const [outside, overflow] = await panel(page).evaluate((node) => {
+      const content = node.querySelector(".inspector-content");
+      const edge =
+        content.getBoundingClientRect().right -
+        parseFloat(getComputedStyle(content).paddingRight);
+      return [
+        [...content.querySelectorAll("*")]
+          .filter((child) => {
+            const box = child.getBoundingClientRect();
+            return box.width > 0 && box.right > edge + 0.5;
+          })
+          .map((child) => child.getAttribute("aria-label") || child.className),
+        node.scrollWidth - node.clientWidth,
+      ];
+    });
+    expect(outside).toEqual([]);
+    expect(overflow).toBe(0);
+  }
 });
 
 // The arrange section appends its optional rows straight into the panel, and
@@ -12480,13 +12528,14 @@ test("the format panel shows no stray text for the rows an object lacks", async 
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     panel(page).getByRole("button", { name: "Flip vertical", exact: true }),
   ).toBeVisible();
   const stray = await panel(page).evaluate((node) => {
     const content = node.querySelector(".inspector-content");
-    return [...content.childNodes]
+    return [content, ...content.querySelectorAll(".fmt-section-body")]
+      .flatMap((parent) => [...parent.childNodes])
       .filter((child) => child.nodeType === Node.TEXT_NODE)
       .map((child) => child.textContent.trim())
       .filter(Boolean);
@@ -13028,7 +13077,7 @@ test("the rotation field records no step for the same angle", async ({
     .click();
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const rotation = panel(page).getByRole("spinbutton", {
     name: "Rotation (°)",
   });
@@ -13044,7 +13093,7 @@ test("the rotation field records no step for the same angle", async ({
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(rotation).toHaveValue("0");
 });
 
@@ -13105,17 +13154,24 @@ test("a table grows with its rows and shares its width among its columns", async
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("3");
   await dialog.getByRole("button", { name: "Insert", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
-  const height = panel(page).getByRole("spinbutton", { name: "Height (in)" });
-  const width = panel(page).getByRole("spinbutton", { name: "Width (in)" });
-  await expect(height).toHaveValue("1");
-  const before = await width.inputValue();
-  await panel(page).getByRole("button", { name: "Row below" }).click();
-  await expect(height).toHaveValue("1.5");
-  await panel(page).getByRole("button", { name: "Column right" }).click();
-  await expect(width).toHaveValue(before);
-  await panel(page).getByRole("button", { name: "Delete row" }).click();
-  await expect(height).toHaveValue("1");
+  // Rows and columns are in the Table tab, the frame's size in Size &
+  // Properties.
+  const table = (name) =>
+    paneTab(page, "Table").then(() =>
+      panel(page).getByRole("button", { name }).click(),
+    );
+  const size = async (name) => {
+    await paneTab(page, "Size & Properties");
+    return panel(page).getByRole("spinbutton", { name });
+  };
+  await expect(await size("Height (in)")).toHaveValue("1");
+  const before = await (await size("Width (in)")).inputValue();
+  await table("Row below");
+  await expect(await size("Height (in)")).toHaveValue("1.5");
+  await table("Column right");
+  await expect(await size("Width (in)")).toHaveValue(before);
+  await table("Delete row");
+  await expect(await size("Height (in)")).toHaveValue("1");
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
   await page
@@ -13161,7 +13217,7 @@ test("a rotated object's link region turns with it while presenting", async ({
     .getByRole("combobox", { name: "Link to" })
     .selectOption("nextSlide");
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const rotation = panel(page).getByRole("spinbutton", {
     name: "Rotation (°)",
   });
@@ -13244,7 +13300,7 @@ test("ungrouping a turned group keeps its children where they were shown", async
   await page.locator("#slide-canvas").focus();
   await page.keyboard.press("Control+a");
   await expect(page.locator('.object-hit[aria-pressed="true"]')).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Ungroup", exact: true })
     .click();
@@ -13404,7 +13460,7 @@ test("deleting a slide removes the links to it", async ({ page }) => {
     .getByRole("combobox", { name: "Link to" })
     .selectOption("slide:/ppt/slides/slide2.xml");
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText("Slide 2");
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
@@ -13416,7 +13472,7 @@ test("deleting a slide removes the links to it", async ({ page }) => {
     .click();
   await expect(page.locator("#slide-count")).toHaveText("4");
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText("No link");
   if (await close.isVisible()) await close.click();
   await openFileMenu(page);
@@ -13793,7 +13849,7 @@ test("the link dialog takes a bare address on Enter and one with a port", async 
     .fill("example.com");
   await page.keyboard.press("Enter");
   await expect(dialog).toHaveCount(0);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText(
     "https://example.com",
   );
@@ -13806,7 +13862,7 @@ test("the link dialog takes a bare address on Enter and one with a port", async 
     .fill("localhost:3000/deck");
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText(
     "https://localhost:3000/deck",
   );
@@ -13871,7 +13927,7 @@ test("stepping the font size at its limit records no undo step", async ({
     .click();
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const size = panel(page).getByRole("spinbutton", { name: "Font size" });
   await size.fill("6");
   await size.press("Enter");
@@ -13881,13 +13937,13 @@ test("stepping the font size at its limit records no undo step", async ({
   await page.locator(".object-hit").click();
   // Five steps reach the smallest size; two more change nothing.
   for (let i = 0; i < 7; i++) await page.keyboard.press("Control+Shift+Comma");
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(size).toHaveValue("1");
   if (await close.isVisible()) await close.click();
   for (let i = 0; i < 5; i++)
     await page.getByRole("button", { name: "Undo", exact: true }).click();
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(size).toHaveValue("6");
 });
 
@@ -14180,7 +14236,7 @@ test("a link whose address is not a web, mail, or phone address gets no region w
   await expect(page).toHaveTitle("Linked deck | Presentation");
   // The panel still shows the address, so the link can be edited or removed.
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText(script);
   await panel(page).getByRole("button", { name: "Remove link" }).click();
   await expect(panel(page).locator(".link-target")).toHaveText("No link");
@@ -14213,7 +14269,7 @@ test("the ribbon's font color applies a color already given to another object", 
         .getByRole("menuitem", { name: "Dark Red", exact: true })
         .click();
     } else await (await ribbonButton(page, "Home", "font-color")).click();
-    await inspector(page);
+    await paneTab(page, "Text Options", "Text");
   };
   await pick(1, true);
   await expect(textColor()).toHaveText("#C00000");
@@ -14225,7 +14281,7 @@ test("the ribbon's font color applies a color already given to another object", 
   await page.locator('[data-object="2"]').click();
   await page.keyboard.press("Control+z");
   await page.locator('[data-object="2"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await expect(textColor()).not.toHaveText("#C00000");
   await pick(2, false);
   await expect(textColor()).toHaveText("#C00000");
@@ -14310,14 +14366,14 @@ test("undo and redo reach the presentation from a picker that has the focus", as
     if (await close.isVisible()) await close.click();
   };
   await page.locator('[data-object="3"]').click();
-  await inspector(page);
+  await paneSection(page, "shadow");
   const shadow = panel(page).getByRole("checkbox", { name: "Drop shadow" });
   await shadow.check();
   await expect(shadow).toBeChecked();
   await page.keyboard.press("Control+z");
   await closePanel();
   await page.locator('[data-object="3"]').click();
-  await inspector(page);
+  await paneSection(page, "shadow");
   await expect(
     panel(page).getByRole("checkbox", { name: "Drop shadow" }),
   ).not.toBeChecked();
@@ -14390,7 +14446,7 @@ test("the panel's helper text stands clear of the field under it", async ({
       ),
     ),
   );
-  expect(gaps.length).toBeGreaterThanOrEqual(2);
+  expect(gaps.length).toBeGreaterThanOrEqual(1);
   for (const gap of gaps) expect(gap).toBeGreaterThanOrEqual(10);
 });
 
@@ -14428,7 +14484,7 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   await page.keyboard.press("Control+k");
   await page.getByRole("textbox", { name: "Web address" }).fill("puter.com");
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const remove = panel(page).getByRole("button", { name: "Remove link" });
   await remove.focus();
   await page.keyboard.press("Enter");
@@ -14440,7 +14496,7 @@ test("keyboard focus stays in the editor when the control under it is used up", 
   const dialog = page.getByRole("dialog", { name: "Insert table" });
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("2");
   await dialog.getByRole("button", { name: "Insert", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Table Options", "Table");
   const deleteRow = panel(page).getByRole("button", { name: "Delete row" });
   await deleteRow.focus();
   await page.keyboard.press("Enter");
@@ -14716,7 +14772,7 @@ test("arrow keys move several selected objects together, or not at all", async (
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(2);
   // The text box goes against the slide's right edge.
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Right edges" }).click();
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
@@ -14752,7 +14808,7 @@ test("objects dragged together do not snap to each other", async ({ page }) => {
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(2);
   // The second rectangle spans 8 to 11 inches, its center at 9.5.
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const x = panel(page).getByRole("spinbutton", { name: "X (in)" });
   await x.fill("8");
   await x.press("Enter");
@@ -14870,7 +14926,7 @@ test("a grouped object turned by its handle keeps the group's turn out of its ow
   }
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(2);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const y = panel(page).getByRole("spinbutton", { name: "Y (in)" });
   await y.fill("5");
   await y.press("Enter");
@@ -14883,7 +14939,7 @@ test("a grouped object turned by its handle keeps the group's turn out of its ow
   await expect(page.locator(".selection-box")).toHaveCount(0);
   await page.locator('[data-object="0"]').click();
   await page.locator('[data-object="1"]').click({ modifiers: ["Shift"] });
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page).getByRole("button", { name: "Group", exact: true }).click();
   await expect(objects).toHaveCount(3);
   const rotation = panel(page).getByRole("spinbutton", {
@@ -14928,7 +14984,7 @@ test("a grouped object turned by its handle keeps the group's turn out of its ow
     /rotate\(([-\d.]+)deg\)/.exec(await child.getAttribute("style"))[1],
   );
   expect(shown).toBeLessThan(130);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const own = Number(await rotation.inputValue());
   expect(own).toBeGreaterThan(20);
   expect(own).toBeLessThan(40);
@@ -15015,7 +15071,7 @@ test("text is edited at the angle its box is turned to", async ({ page }) => {
     .click();
   await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   const rotation = panel(page).getByRole("spinbutton", {
     name: "Rotation (°)",
   });
@@ -15083,7 +15139,7 @@ test("ungrouping a mirrored group keeps its children where they were shown", asy
   await page.locator("#slide-canvas").focus();
   await page.keyboard.press("Control+a");
   await expect(page.locator('.object-hit[aria-pressed="true"]')).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Ungroup", exact: true })
     .click();
@@ -15500,7 +15556,7 @@ test("fixed line spacing reads as its points in the panel", async ({
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const spacing = panel(page).getByRole("combobox", { name: "Line spacing" });
   await expect(spacing).not.toHaveValue("NaN");
   await expect(spacing.locator("option:checked")).toHaveText("Exactly 20 pt");
@@ -15663,7 +15719,7 @@ test("a pasted object's slide link goes to its slide, or goes", async ({
     .getByRole("combobox", { name: "Link to" })
     .selectOption("slide:/ppt/slides/slide3.xml");
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText("Slide 3");
   const close = page.getByRole("button", { name: "Close format panel" });
   if (await close.isVisible()) await close.click();
@@ -15672,7 +15728,7 @@ test("a pasted object's slide link goes to its slide, or goes", async ({
   await page.locator(".slide-thumb").nth(1).click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 2 of 5");
   await page.keyboard.press("Control+v");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText("Slide 3");
   if (await close.isVisible()) await close.click();
   const dangling = (files, part) => {
@@ -15711,7 +15767,7 @@ test("a pasted object's slide link goes to its slide, or goes", async ({
   await expect(page.locator(".object-hit")).toHaveCount(0);
   await page.keyboard.press("Control+v");
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(panel(page).locator(".link-target")).toHaveText("No link");
   if (await close.isVisible()) await close.click();
   await openFileMenu(page);
@@ -15883,7 +15939,7 @@ test("number fields take the nearest allowed value and the table dialog the leas
 }) => {
   await story(page);
   await page.locator('[data-object="1"]').click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const size = panel(page).getByRole("spinbutton", { name: "Font size" });
   await size.fill("999");
   await size.press("Enter");
@@ -15896,7 +15952,7 @@ test("number fields take the nearest allowed value and the table dialog the leas
   await dialog.getByRole("spinbutton", { name: "Rows" }).fill("99");
   await dialog.getByRole("spinbutton", { name: "Columns" }).fill("0");
   await dialog.getByRole("button", { name: "Insert", exact: true }).click();
-  await inspector(page);
+  await paneTab(page, "Table Options", "Table");
   await expect(panel(page).locator(".helper").first()).toContainText("30 × 1.");
 });
 
@@ -16145,7 +16201,7 @@ test("the Content field keeps each paragraph's settings and formatting", async (
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await page.locator(".object-hit").click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const content = panel(page).getByRole("textbox", { name: "Object text" });
   await content.fill("Heading\nPoint one!\nPoint two\nPoint three");
   await content.press("Tab");
@@ -16775,7 +16831,7 @@ test("a group and a table are not offered a link", async ({ page }) => {
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await expect(page.locator(".document-title")).toHaveText("Linkable");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Group 99", exact: true })
     .click();
@@ -17012,7 +17068,7 @@ test("an object its selected group carries is left to the group", async ({
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await expect(page.locator(".document-title")).toHaveText("Carried");
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Group 99", exact: true })
     .click();
@@ -17034,7 +17090,7 @@ test("an object its selected group carries is left to the group", async ({
     .getByRole("button", { name: "Group 99. Select to edit" })
     .click({ force: true });
   await pick();
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await panel(page)
     .getByRole("button", { name: "Left edges", exact: true })
     .click();
@@ -17643,7 +17699,7 @@ for (const table of [false, true])
       input = page.getByRole("textbox", { name: /^Edit cell/ });
     } else {
       await hit.click();
-      await inspector(page);
+      await paneTab(page, "Text Options", "Text");
       input = panel(page).getByRole("textbox", { name: "Object text" });
     }
     await input.focus();
@@ -17692,7 +17748,7 @@ for (const table of [false, true])
       await hit.dblclick();
       input = page.getByRole("textbox", { name: /^Edit cell/ });
     } else {
-      await inspector(page);
+      await paneTab(page, "Text Options", "Text");
       input = panel(page).getByRole("textbox", { name: "Object text" });
     }
     await input.focus();
@@ -17832,7 +17888,7 @@ for (const mode of ["partial", "field-only", "table", "table-field-only"])
       await editor.press("Control+Enter");
     } else {
       await hit.click();
-      await inspector(page);
+      await paneTab(page, "Text Options", "Text");
       if (mode.endsWith("field-only"))
         await expect(
           panel(page).getByRole("button", { name: "Bold", exact: true }),
@@ -17920,7 +17976,7 @@ test("table rows expand around edited text without changing authored minimums", 
       return b.width / b.height;
     })
     .toBeCloseTo(6 / 2.1, 1);
-  await inspector(page);
+  await paneTab(page, "Size & Properties");
   await expect(
     panel(page).getByRole("spinbutton", { name: "Height (in)" }),
   ).toHaveValue("2.1");
@@ -17979,7 +18035,7 @@ test("percentage paragraph spacing survives inline editing, partial spacing edit
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(1);
   await objects.click();
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   const before = panel(page).getByRole("spinbutton", {
     name: "Space before (pt)",
   });
@@ -18003,7 +18059,7 @@ test("percentage paragraph spacing survives inline editing, partial spacing edit
     "margin-bottom",
     "0px",
   );
-  await inspector(page);
+  await paneTab(page, "Text Options", "Text");
   await after.fill("50");
   await after.press("Enter");
   // Back to the text (closing the panel would end the edit) to finish it.

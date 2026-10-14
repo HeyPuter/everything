@@ -41,14 +41,20 @@ export function createLayoutCommands(host) {
     });
   }
 
-  /** The New Slide gallery: a picture of every layout of every master. */
+  /**
+   * The New Slide gallery: a picture of every layout of every master. The
+   * gallery is drawn when its menu opens, not when a menu holding it as a
+   * submenu does; the pictures are kept per layout and redrawn only when the
+   * layout, its master or its theme changes.
+   */
   function newSlideItems(target) {
     return [
       {
-        custom: layoutGallery(host.pres(), {
-          label: "Layouts for a new slide",
-          onChoose: (part) => addSlide(target, part),
-        }),
+        custom: () =>
+          layoutGallery(host.pres(), {
+            label: "Layouts for a new slide",
+            onChoose: (part) => addSlide(target, part),
+          }),
       },
     ];
   }
@@ -81,15 +87,16 @@ export function createLayoutCommands(host) {
     const same = targets.every((s) => layoutOf(s) === current);
     return [
       {
-        custom: layoutGallery(host.pres(), {
-          label:
-            targets.length > 1
-              ? `Layout for ${targets.length} slides`
-              : "Slide layout",
-          selected: same ? current : null,
-          radio: true,
-          onChoose: (part) => changeLayout(targets, part),
-        }),
+        custom: () =>
+          layoutGallery(host.pres(), {
+            label:
+              targets.length > 1
+                ? `Layout for ${targets.length} slides`
+                : "Slide layout",
+            selected: same ? current : null,
+            radio: true,
+            onChoose: (part) => changeLayout(targets, part),
+          }),
       },
     ];
   }
