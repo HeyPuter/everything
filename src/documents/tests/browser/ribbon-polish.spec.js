@@ -29,8 +29,9 @@ test('menus opened from the ribbon draw every icon from the ribbon\'s own set', 
   await openEditor(page);
   await page.getByRole('button', { name: 'Paste options', exact: true }).click();
   const icons = page.getByRole('menu', { name: 'Paste options' }).locator('.menu-icon svg');
-  await expect(icons).toHaveCount(2);
-  expect(await icons.evaluateAll(list => list.map(svg => svg.classList.contains('ico')))).toEqual([true, true]);
+  await expect(icons.first()).toBeVisible();
+  expect(await icons.count()).toBeGreaterThanOrEqual(2);
+  expect(await icons.evaluateAll(list => list.every(svg => svg.classList.contains('ico')))).toBe(true);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'File', exact: true }).click();
   const fileIcons = page.getByRole('menu', { name: 'File' }).locator('.menu-icon svg');

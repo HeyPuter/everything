@@ -157,7 +157,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     [alignLeft, alignCenter, alignRight, justify, divider(), c.lineSpacingMenu, divider(), c.paragraphShading, bordersControl, divider(), paragraphLauncher])];
 
   // The quick style gallery shows the document's paragraph styles in their own formatting.
-  const gallery = el('div.ribbon-gallery', { role: 'listbox', 'aria-label': 'Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '2', shrinkMax: '620' } });
+  const gallery = el('div.ribbon-gallery', { role: 'listbox', 'aria-label': 'Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '1', shrinkMax: '620' } });
   const galleryMore = command('More Styles', 'more', e => {
     if (c.paragraphStyle.disabled) return;
     openMenu({ anchor: galleryMore, label: 'Styles', minWidth: 240, pointer: !!e?.detail, onClose: focusEditor, items: inDocument([

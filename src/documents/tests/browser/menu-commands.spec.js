@@ -66,7 +66,7 @@ test('the bookmarks dialog keeps its parts apart and its buttons on screen on a 
 test('closing a dialog opened from the ribbon returns to the document with the selection', async ({ page }) => {
   await blank(page);
   await input(page).fill('Keep typing here');
-  for (const [tab, name, close] of [['home', 'Indents and tabs', 'Escape'], ['layout', 'Page setup', 'Cancel'], ['insert', 'Bookmarks', 'Escape']]) {
+  for (const [tab, name, close] of [['home', 'Paragraph Settings', 'Escape'], ['layout', 'Page setup', 'Cancel'], ['insert', 'Bookmarks', 'Escape']]) {
     await select(page, 5, 11);
     await (await onTab(page, tab)).locator('.ribbon-card').getByRole('button', { name, exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
