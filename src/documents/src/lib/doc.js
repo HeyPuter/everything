@@ -148,11 +148,22 @@ export class Doc extends EventTarget {
     this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), ms);
   }
 
+  /**
+   * In a shared document one client writes the file (the owner's elected tab); the others leave
+   * saving to it: their edits reach the file through the room, so they are never "unsaved" here.
+   */
+  setSaving(on) {
+    if (this.writes === !!on) return;
+    this.writes = !!on;
+    if (!this.writes) { clearTimeout(this._timer); this._timer = null; this.savedVersion = this.version; this._setStatus('saved'); }
+  }
+
   /** The engine reports an edit. */
   changed() {
     // After the editor has closed (a content error, a reopen) nothing from it may be saved over the file.
     if (this._deleted || this._closed) return;
     this.version += 1;
+    if (this.writes === false) { this.savedVersion = this.version; return; }
     this._setStatus('unsaved');
     if (this.exporter && this.autosave) this._schedule(this.autosaveDelay);
   }
@@ -189,7 +200,7 @@ export class Doc extends EventTarget {
   async save({ auto = false } = {}) {
     clearTimeout(this._timer);
     this._timer = null;
-    if (this._deleted) return true;
+    if (this._deleted || this.writes === false) return true;
     if (this._closed) return false;
     while (this._saving) {
       try {
@@ -301,19 +312,19 @@ export class Doc extends EventTarget {
   /** Leave a version snapshot when one is due. Never affects the save status. */
   _snapshot(blob) {
     if (!versioning.enabled || !this.path || this._snapshotting) return;
-    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt)
+    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.() })
       .then((t) => { this.lastVersionAt = t; })
       .catch((e) => { console.warn('[documents] version snapshot failed', e); })
       .finally(() => { this._snapshotting = null; });
   }
 
   /** Snapshot the current content now (saving first when needed). Resolves the version or null. */
-  async saveVersionNow() {
+  async saveVersionNow(meta = {}) {
     if (this.dirty || !this.path) await this.save();
     return this._withFileLock(async () => {
       if (!this.path) return null;
       if (this._snapshotting) await this._snapshotting;
-      const v = await saveVersion(this.path, await this.toBlob());
+      const v = await saveVersion(this.path, await this.toBlob(), { meta: { ...this.versionMeta?.(), ...meta } });
       if (v) this.lastVersionAt = v.time;
       return v;
     });

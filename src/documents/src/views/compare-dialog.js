@@ -26,7 +26,7 @@ function column(title, paragraphs, marked = false) {
     }) : [plainText(p) || ' '])))));
 }
 
-export function openCompareDialog({ mode = 'compare', editor, pkg, documentName, author, openDocument, currentBytes, error }) {
+export function openCompareDialog({ mode = 'compare', editor, pkg, documentName, author, openDocument, currentBytes, error, original: presetOriginal = null }) {
   const combine = mode === 'combine';
   const sources = { original: null, revised: null };
   const options = OPTIONS.get();
@@ -44,7 +44,7 @@ export function openCompareDialog({ mode = 'compare', editor, pkg, documentName,
       const picked = await P.pickFile({ accept: ['.docx'] });
       if (picked) choose(key, { name: picked.name, read: async () => new Uint8Array(await (await P.readFile(picked.path)).arrayBuffer()) });
     };
-    return { fileInput, current, node: el('fieldset.rv-fieldset.rv-source', {}, el('legend', {}, label), name,
+    return { fileInput, current, set: source => choose(key, source), node: el('fieldset.rv-fieldset.rv-source', {}, el('legend', {}, label), name,
       el('div.rv-actions', {},
         el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: current }, 'This document'),
         el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => fileInput.click() }, 'From device…'),
@@ -75,6 +75,8 @@ export function openCompareDialog({ mode = 'compare', editor, pkg, documentName,
     el('div.modal-actions', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), run));
   const modal = openModal({ title: combine ? 'Combine Documents' : 'Compare Documents', content, wide: true });
   if (editor() && pkg()) (combine ? original : revised).current();
+  // Compare with an earlier version (Version History): that version is the original, and the comparison runs at once.
+  if (presetOriginal) { original.set(presetOriginal); refresh(); queueMicrotask(() => content.requestSubmit()); }
   refresh();
 
   async function compare() {

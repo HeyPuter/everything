@@ -545,6 +545,19 @@ Object.assign(COMMAND_ICONS, {
 const HELPERS = { p, r, ci, t, cells, page, lines, arrowDown, arrowRight, arrowUp, arrowLeft, badge, n, sheet, tintedPage, headBand, footBand, rows, pencil, settingsBadge, corners, picture, ROUND };
 for (const icons of [designIcons, layoutIcons, textFlowIcons]) Object.assign(COMMAND_ICONS, icons(HELPERS));
 
+/* ---- Co-editing and the writing assistant ---- */
+// A four-pointed spark with a smaller one beside it: help from the writing assistant.
+const spark = (cx, cy, k, c) => p(`M${cx} ${cy - k}C${cx + k * 0.18} ${cy - k * 0.28} ${cx + k * 0.28} ${cy - k * 0.18} ${cx + k} ${cy}C${cx + k * 0.28} ${cy + k * 0.18} ${cx + k * 0.18} ${cy + k * 0.28} ${cx} ${cy + k}C${cx - k * 0.18} ${cy + k * 0.28} ${cx - k * 0.28} ${cy + k * 0.18} ${cx - k} ${cy}C${cx - k * 0.28} ${cy - k * 0.18} ${cx - k * 0.18} ${cy - k * 0.28} ${cx} ${cy - k}z`, c);
+Object.assign(COMMAND_ICONS, {
+  assistant: spark(8.5, 11, 6.5, 'ps') + spark(15, 4.8, 2.8, 'bs') + ci(7, 9.4, 0.9, 'glint'),
+  // Two people, one in front of the other: who is editing with you.
+  coauthors: person(13, 9.5, 'nf') + ci(7.5, 7.3, 3.6, 'knock') + p('M1.8 17.5c0-3.4 2.5-5.6 5.7-5.6s5.7 2.2 5.7 5.6z', 'knock') + person(7.5, 11, 'bf'),
+  // A person with a plus badge: invite someone.
+  invitePeople: person(8, 10.5, 'bf') + badge(14.5, 13.5, 'plus', 'b'),
+  // Two pages with a clock face on the front one: compare with an earlier version.
+  compareVersion: page(6.5, 2.5, 10, 12, 2.5) + page(3.5, 5.5, 10, 12, 2.5) + ci(8.5, 12.5, 3.2, 'bf') + p('M8.5 10.8v1.9l1.3.8', 'o'),
+});
+
 /* ---- View: page movement, windows, reading tools and the Outlining tab ---- */
 Object.assign(COMMAND_ICONS, {
   verticalMovement: sheet(3.5, 2, 9, 7) + sheet(3.5, 11, 9, 7, 'bf glassy') + arrowDown(16, 3.5, 13),

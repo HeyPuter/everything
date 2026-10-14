@@ -151,7 +151,8 @@ export function createBackstage(api) {
         e.target.disabled = true;
         try { await api.saveVersionNow(); } finally { e.target.disabled = false; }
         loadVersions(request);
-      } }, 'Save a Version Now')), versions) : null;
+      } }, 'Save a Version Now'),
+      api.openVersionHistory ? el('button.btn.btn-ghost', { type: 'button', onclick: act(() => api.openVersionHistory()) }, 'Open Version History') : null), versions) : null;
     const loadVersions = req => {
       versions.replaceChildren(el('p.bs-muted', {}, 'Loading versions…'));
       api.versions().then(list => {
@@ -250,6 +251,9 @@ export function createBackstage(api) {
     };
     if (api.findSite) api.findSite().then(render).catch(() => render(null)); else render(null);
     return [...heading('Share'),
+      api.shareWithPeople ? el('section.bs-section.bs-card', {}, el('h2', {}, 'Share with people'),
+        el('p.bs-muted', {}, 'Invite people to edit, comment on or view this document with you, at the same time.'),
+        el('div.bs-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: act(() => api.shareWithPeople()) }, 'Share with People…'))) : null,
       api.publish ? el('section.bs-section.bs-card', {}, el('h2', {}, 'Publish to the web'), status) : null,
       el('section.bs-section', {}, el('h2', {}, 'Send a copy'), el('div.bs-tiles', {},
         tile('Word document', 'download', act(() => api.download()), { hint: '.docx' }),

@@ -4,20 +4,24 @@ import { el } from './ui/dom.js';
 import { editorView } from './views/editor.js';
 import { createDocx } from './engine/docx.js';
 import { paragraph } from './engine/model.js';
+import { parseLink } from './collab/protocol.js';
+import { localGuest } from './views/collab.js';
 
 /** The local harness uses no cloud SDK or account. All files stay in this tab. */
 class LocalDocument extends EventTarget {
   constructor(name, blob) { super(); this.name = name; this.blob = blob; this.dirty = false; this.path = null; }
   attach(exporter) { this.exporter = exporter; }
-  changed() { this.dirty = true; this.dispatchEvent(new Event('status')); }
+  changed() { if (this.writes === false) return; this.dirty = true; this.dispatchEvent(new Event('status')); }
   discardEdits() { this.dirty = false; }
+  /** A tab that joined a local shared document keeps no changes of its own to download. */
+  setSaving(on) { this.writes = on; if (!on) this.dirty = false; }
   async flush() { return true; }
   destroy() {}
 }
 
 let current, request = 0;
 const host = el('div.playground-editor');
-const open = async (name, blob, { initial = false } = {}) => {
+const open = async (name, blob, { initial = false, collab = null } = {}) => {
   const token = ++request;
   try {
     if (blob) { const { images } = await openCanvasDocument(blob); for (const image of images.values()) image.close(); }
@@ -26,8 +30,10 @@ const open = async (name, blob, { initial = false } = {}) => {
   if (token !== request) return;
   if (!initial && current?.doc.dirty && !window.confirm('Open another document? Download your current changes first if you want to keep them.')) return;
   current?.destroy();
+  const doc = new LocalDocument(name, blob);
+  if (collab) { doc.collab = collab; doc.setSaving(false); }
   current = editorView({
-    doc: new LocalDocument(name, blob), local: true,
+    doc, local: true,
     goHome: () => sample(false), newDoc: () => open('Untitled document', null),
     importFile: file => open(file.name.replace(/\.docx$/i, ''), file),
   });
@@ -105,4 +111,16 @@ document.getElementById('app').append(el('main.playground-shell', {},
     )), el('a', { href: './index.html' }, 'Open app')),
   el('p', { id: 'playground-error', role: 'alert' }), host));
 window.addEventListener('beforeunload', e => { if (current?.doc.dirty) { e.preventDefault(); e.returnValue = ''; } });
-sample(false, true);
+// A link from Share in another tab of this browser (#collab-local=…) joins that tab's document.
+async function joinFromLink() {
+  let link = null;
+  try { link = parseLink(location.href); } catch (e) { document.getElementById('playground-error').textContent = e.message; }
+  if (!link?.local) return false;
+  try {
+    const { joinRoom } = await import('./collab/live.js');
+    const joined = await joinRoom(link, localGuest());
+    await open(joined.name, new Blob([joined.base]), { initial: true, collab: { client: joined.client, link } });
+    return true;
+  } catch (e) { document.getElementById('playground-error').textContent = e.message; return false; }
+}
+joinFromLink().then(joined => { if (!joined) sample(false, true); });

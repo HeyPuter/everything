@@ -15,6 +15,7 @@ import { templateById } from './lib/templates.js';
 import { importFiles, nothingImportable } from './lib/importfiles.js';
 import { imageFilesFrom } from './lib/images.js';
 import { customTemplatePath } from './lib/customtemplates.js';
+import { parseLink } from './collab/protocol.js';
 
 const appRoot = document.getElementById('app');
 let current = null; // { kind: 'home' | 'editor' | 'gate', view }
@@ -252,6 +253,16 @@ async function route({ newDocument = false } = {}) {
   requestedNewDocument = false;
   const requestedHash = location.hash;
   try {
+    // An invitation to a shared document (#collab-…): join its room, then open what it holds.
+    let invitation = null;
+    try { invitation = parseLink(location.href); } catch (e) { toast(e.message, { icon: 'alert' }); }
+    if (invitation) {
+      if (current?.kind === 'editor' && current.view.doc.collab?.link?.room === invitation.room) return;
+      if (!await unmount()) return;
+      if (location.hash !== requestedHash) return;
+      await openInvitation(invitation, requestedHash);
+      return;
+    }
     const { route: r, path, template } = parseHash(requestedHash);
     if (current?.kind === 'editor' && r === 'edit' && current.view.doc.path === path) return;
     // Going home from a failed open changes the hash and re-routes when it settles: the list is mounted once.
@@ -305,6 +316,29 @@ async function route({ newDocument = false } = {}) {
     routing = false;
     // Hash changes during an awaited save/read must be processed after it settles.
     if (location.hash !== requestedHash) route();
+  }
+}
+
+/** Join a shared document from its link and open the editor on the room's state. */
+async function openInvitation(link, requestedHash) {
+  if (!link.local && session.signedOut) { mountSignInGate(requestedHash, 'shared document'); return; }
+  showLoading('Joining the shared document');
+  try {
+    const { joinRoom } = await import('./collab/live.js');
+    const user = { id: session.user?.uuid || session.username, name: session.username };
+    const joined = await joinRoom(link, user);
+    if (location.hash !== requestedHash) { joined.client.close().catch(() => {}); return; }
+    // The room holds the document; this tab never writes a file of its own unless sharing ends.
+    const doc = new Doc({ name: joined.name, blob: new Blob([joined.base], { type: P.DOCX_MIME }) });
+    doc.setSaving(false);
+    doc.collab = { client: joined.client, link };
+    openEditor(doc);
+    document.title = `${doc.name} — Documents`;
+  } catch (e) {
+    if (location.hash !== requestedHash) return;
+    console.error(e);
+    toast(e?.status === 403 ? e.message : `Could not open the shared document: ${e?.message || e}`, { icon: 'alert', duration: 8000 });
+    go(HOME);
   }
 }
 

@@ -23532,6 +23532,39 @@ Ink is saved as ordinary DrawingML so every reader shows it; nothing depends on 
 - Strokes in a session are committed as individual groups and gathered into one group when the
   session ends (tool change); a file saved in the middle of a session holds one group per stroke.
 - Ink in headers, footers and table cells is not supported (ink is placed on the body layer).
+## Co-authoring, sharing and version history (docs/collaboration.md)
+
+Co-editing adds no new WordprocessingML: a shared document is saved by the writing tab through the
+same exporter as any document, from a model rebuilt from the shared state. What the shared state
+must carry for the saved package to keep its meaning:
+
+- Paragraph and run properties (§17.3.1 pPr, §17.3.2 rPr) travel as the model holds them, including
+  the original property XML the exporter preserves; `tests/collab-fixtures.test.js` round-trips a
+  sample of `tests/fixtures` (paragraphs, tables, numbering, styles, comments) through the shared
+  document and requires the same model.
+- Bookmarks (§17.13.6), comment ranges (§17.13.4.3–.5) and editing permission ranges (§17.13.7
+  permStart/permEnd) are zero-width markers; they are attached to the character they precede, so a
+  concurrent insertion before them moves them as Word-processing semantics require. A marker
+  duplicated by a concurrent edit keeps its first position; one whose characters were all deleted
+  stays at the deletion point (the editor's own rule).
+- Comments (§17.13.4.2) are shared per comment; the comments part is created when the first comment
+  is added by anyone.
+- Tables (§17.4), styles (§17.7), numbering (§17.9) and section/page properties (§17.6) are atomic
+  per table, style, abstract/instance definition and page setting. Concurrent restructuring of one
+  table keeps one structure; the merged model is validated before it is shown or saved.
+- Content the shared text cannot represent (content controls with no text, §17.5.2) switches the
+  document to single-editor mode instead of approximating it.
+- A comment-only participant's editor uses the document-protection guard in `comments` mode
+  (§17.15.1.29 semantics); nothing about the role is written to `w:documentProtection`.
+- Joining people open the owner's original package (its untouched parts byte for byte), then the
+  shared state; parts outside the model are saved by the writing tab from its own package.
+- Version details (author, name) are kept beside each snapshot as `<snapshot>.json` in the versions
+  folder, not inside the package.
+
+Browser export of a co-edited document is validated by `tests/browser/collab.spec.js` (saved under
+`test-results/collab-coedited.docx`) with `tools/check-docx-schema.py`. Gaps: header/footer stories
+are atomic per story; document settings outside the model (protection, review settings) are not
+shared live.
 ## Format area (2026-10-13)
 
 Font, Paragraph, Tabs, Borders and Shading, Bullets and Numbering, Text Effects, Change Case and Style

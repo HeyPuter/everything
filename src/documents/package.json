@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:worker && vite build",
+    "build:worker": "vite build --config vite.worker.config.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -33,7 +34,8 @@
     "nspell": "2.1.5",
     "opentype.js": "2.0.0",
     "rtf.js": "3.0.9",
-    "utif": "3.1.0"
+    "utif": "3.1.0",
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

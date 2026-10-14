@@ -13,6 +13,8 @@
     try { return JSON.parse(sessionStorage.getItem(LS)) || { fs: {} }; } catch { return { fs: {} }; }
   })();
   let signedIn = !params.has('signedout');
+  // ?user=name signs in as someone else (two people sharing a document in one browser).
+  const mockUser = (params.get('user') || 'demo').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32) || 'demo';
   const persist = () => { try { sessionStorage.setItem(LS, JSON.stringify(state)); } catch {} };
   const delay = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 
@@ -38,11 +40,29 @@
   window.puter = {
     env: params.get('env') || 'web',
     appID: 'mock-app',
+    // Shared documents use the dev server's in-process room service (dev/collab-dev-server.mjs).
+    collabDevServer: `${location.origin}/__collab`,
+    authToken: 'mock-session',
+    /** App key-value storage (per tab, like the files). */
+    kv: {
+      async get(key) { await delay(10); return state.kv?.[key] ?? null; },
+      async set(key, value) { await delay(10); (state.kv ||= {})[key] = value; persist(); return true; },
+      async del(key) { await delay(10); if (state.kv) delete state.kv[key]; persist(); return true; },
+    },
+    /** Mail from the user's Puter address: recorded for tests (window.__sentMail), never sent. */
+    email: {
+      async send(message) {
+        await delay(200);
+        (window.__sentMail ||= []).push({ to: message.to, subject: message.subject, text: message.text, attachments: (message.attachments || []).map(a => ({ filename: a.filename, contentType: a.contentType, size: a.content?.length || 0 })) });
+        console.log(`[puter-mock] email to ${message.to}: ${message.subject}`);
+        return { delivered: [message.to] };
+      },
+    },
     auth: {
       isSignedIn: () => signedIn,
       async signIn() { await delay(200); signedIn = true; return true; },
       signOut() { signedIn = false; },
-      async getUser() { await delay(); return signedIn ? { username: 'demo', uuid: 'mock-uuid', email: 'demo@example.com' } : null; },
+      async getUser() { await delay(); return signedIn ? { username: mockUser, uuid: mockUser === 'demo' ? 'mock-uuid' : `mock-uuid-${mockUser}`, email: `${mockUser}@example.com` } : null; },
       async getProfilePicture() { await delay(); return signedIn && params.has('picture') ? `data:image/png;base64,${SAMPLE_PNG}` : null; },
     },
     hosting: {
@@ -84,6 +104,14 @@
         if (/concise reference assistant/.test(prompt)) {
           const term = /Term:\n"+\n([\s\S]*?)\n"+/.exec(String(prompt))?.[1] || 'term';
           const reply = `Definition: ${term} is a sample term explained by the offline mock.\nRelated:\n- ${term} history\n- ${term} examples\n- Related concepts`;
+          return { message: { role: 'assistant', content: reply }, toString: () => reply };
+        }
+        // The Assistant pane: a draft or rewrite comes back as TEXT, anything else as an ANSWER.
+        if (/writing assistant inside a word processor\. Below/.test(prompt)) {
+          const request = /The person asks: (.*)/.exec(String(prompt))?.[1] || '';
+          const reply = /draft|write|rewrite|shorten|translate/i.test(request)
+            ? `TEXT:\nThis draft was written by the offline assistant for: ${request.replace(/[.?!]+$/, '')}.`
+            : `ANSWER:\nThe offline assistant read ${String(prompt).length} characters and answers: ${request}`;
           return { message: { role: 'assistant', content: reply }, toString: () => reply };
         }
         const m = /Text:\n"""\n([\s\S]*)\n"""$/.exec(String(prompt));
