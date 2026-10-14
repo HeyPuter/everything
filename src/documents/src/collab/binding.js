@@ -67,6 +67,8 @@ export class CollabBinding extends EventTarget {
     this.role = 'editor';
     this.pending = false; this.applying = false; this.destroyed = false;
     this.queued = [];
+    // The shared body's paragraph encodings while only this binding has written to it (see writeBody).
+    this.bodyCache = { body: null };
     this.conflict = null;
     this.undoManager = new Y.UndoManager([this.body, ydoc.getMap('parts'), ydoc.getMap('comments')], { trackedOrigins: new Set([this]), captureTimeout: 600 });
     this.undoManager.on('stack-item-added', e => { e.stackItem.meta.set('selection', this.captureSelection()); });
@@ -143,9 +145,9 @@ export class CollabBinding extends EventTarget {
       if (this.mode === 'single' || reason) this.writeSnapshot(state, reason);
       else {
         this.uploadAssets();
-        writeState(this.ydoc, state, this);
+        writeState(this.ydoc, state, this, this.bodyCache);
       }
-    } catch (error) { this.onError(error); }
+    } catch (error) { this.bodyCache.body = null; this.onError(error); }
     this.refreshHistory();
     this.drainQueue();
   }
@@ -209,6 +211,7 @@ export class CollabBinding extends EventTarget {
       // Back to content everyone can edit together: publish it as shared text again.
       this.ydoc.transact(() => {
         writeState(this.ydoc, state, this);
+        this.bodyCache.body = null;
         this.meta.set('mode', 'shared'); this.meta.delete('lock'); this.meta.delete('snapshot');
       }, this);
       this.mode = 'shared';
@@ -249,6 +252,7 @@ export class CollabBinding extends EventTarget {
 
   observe(transaction) {
     if (transaction.origin === this || this.destroyed) return;
+    this.bodyCache.body = null;
     if (!transaction.changed.size && !transaction.deleteSet.clients.size) return;
     this.apply(transaction.origin === this.undoManager ? this.undoSelection : this.remoteSelection);
   }

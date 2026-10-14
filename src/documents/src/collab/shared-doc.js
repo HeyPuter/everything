@@ -298,9 +298,11 @@ export function encoded(p) {
  * character diff finds insertions and deletions, and characters kept whose
  * attributes changed are reformatted. Returns whether anything was written.
  */
-export function writeBody(ytext, before, after) {
+export function writeBody(ytext, before, after, cache = null) {
   const ydoc = ytext.doc;
-  const old = before.map(encoded), next = after.map(encoded);
+  // `cache.body` holds the encodings of what the shared text holds when nothing else changed it since.
+  const old = cache?.body || before.map(encoded), next = after.map(encoded);
+  if (cache) cache.body = next;
   let head = 0;
   while (head < old.length && head < next.length && old[head].key === next[head].key) head++;
   let tailOld = old.length, tailNew = next.length;
@@ -370,11 +372,11 @@ export function encodeComments(comments) {
 }
 
 /** Write a whole model state into the shared document (one transaction). */
-export function writeState(ydoc, state, origin = null) {
+export function writeState(ydoc, state, origin = null, cache = null) {
   let changed = false;
   ydoc.transact(() => {
-    const before = readBody(ydoc.getText('body'));
-    changed = writeBody(ydoc.getText('body'), before, state.paragraphs) || changed;
+    const before = cache?.body ? null : readBody(ydoc.getText('body'));
+    changed = writeBody(ydoc.getText('body'), before, state.paragraphs, cache) || changed;
     changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state)) || changed;
     if (state.comments) {
       if (!ydoc.getMap('comments').has(PRESENT)) ydoc.getMap('comments').set(PRESENT, 'true');
