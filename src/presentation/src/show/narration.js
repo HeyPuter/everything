@@ -51,8 +51,10 @@ export function removeNarrations(P, slide) {
  */
 export function addNarration(P, slide, media, size) {
   removeNarrations(P, slide);
-  let box;
-  if (media.kind === "video") {
+  let box = media.box || null;
+  if (box) {
+    // In place of a live camera the recording replaced.
+  } else if (media.kind === "video") {
     const side = Math.round(Math.min(size.cx, size.cy) * 0.28);
     const margin = Math.round(size.cy * 0.04);
     box = {

@@ -3282,6 +3282,8 @@ function commandSearch() {
 const fileTools = createFileTools({
   P,
   doc: () => doc,
+  // Recorded narrations go into exported videos (src/show/narration.js).
+  narrationOf: (s) => showFeatures.narrationOf(s),
   settled,
   mutate,
   SKIP: SKIP_MUTATION,

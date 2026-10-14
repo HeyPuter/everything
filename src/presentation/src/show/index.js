@@ -24,8 +24,14 @@ import {
   narrationOf,
   removeNarrations,
   setSlideAdvance,
+  slideNarrations,
 } from "./narration.js";
-import { CAMERA_SVG, addCameraShape, isCameraShape } from "./camera.js";
+import {
+  CAMERA_SVG,
+  addCameraShape,
+  cameraShapeKind,
+  isCameraShape,
+} from "./camera.js";
 import { SPEAKER_SVG } from "../insert/media.js";
 import { svgToPng } from "../insert/util.js";
 
@@ -195,7 +201,25 @@ export function createShowFeatures(ctx) {
       for (const r of recorded) {
         const slide = slideByPart(presentation, r.part);
         if (!slide) continue;
-        addNarration(P, slide, { ...r, poster: r.poster || speakerPng }, size);
+        // A recording with the camera takes the place of a live camera on
+        // the slide; Reset to Camera puts the camera back.
+        let box = null;
+        let shape = r.shape;
+        const camera =
+          r.kind === "video" &&
+          P.getSlideShapes(slide).find((x) => isCameraShape(P, x));
+        if (camera) {
+          const b = P.getShapeBounds(camera);
+          if (b) box = { x: b.x, y: b.y, w: b.w, h: b.h };
+          shape = cameraShapeKind(P, camera);
+          P.removeShape(camera);
+        }
+        addNarration(
+          P,
+          slide,
+          { ...r, shape, box, poster: r.poster || speakerPng },
+          size,
+        );
         setSlideAdvance(P, slide, r.durationMs);
       }
       P.setSlideShowSetup(presentation, {
@@ -339,13 +363,24 @@ export function createShowFeatures(ctx) {
       let any = false;
       for (const s of slides) {
         if (!hasNarration(P, s)) continue;
+        // The camera goes back where a recording with the camera was.
+        const video = slideNarrations(P, s).find(
+          (x) => P.getShapeMediaKind(x) === "video",
+        );
+        const b = video && P.getShapeBounds(video);
+        const kind = video
+          ? P.getShapeObjectData(video)?.shape === "rect"
+            ? "rect"
+            : "circle"
+          : showPrefs.cameraShape;
         removeNarrations(P, s);
         if (!P.getSlideShapes(s).some((x) => isCameraShape(P, x)))
           addCameraShape(P, s, {
             png: cameraPng,
             svg: new TextEncoder().encode(CAMERA_SVG),
             size: ctx.currentSize(),
-            shape: showPrefs.cameraShape,
+            shape: kind,
+            box: b ? { x: b.x, y: b.y, w: b.w, h: b.h } : null,
           });
         any = true;
       }

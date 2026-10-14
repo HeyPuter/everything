@@ -458,8 +458,14 @@ export function createRecordingStudio(ctx, session) {
         const was = state;
         finish();
         current = i;
-        if (begin(i)) state = was === "paused" ? "recording" : was;
-        else state = "idle";
+        if (!begin(i)) state = "idle";
+        else if (was === "paused") {
+          // A paused recording stays paused on the next slide.
+          try {
+            recorder.media.pause();
+          } catch {}
+          state = "paused";
+        } else state = "recording";
       }
       current = i;
       const text = P.getSlideNotes(all[i]) || "";

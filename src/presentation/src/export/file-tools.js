@@ -201,6 +201,10 @@ export function createFileTools(ctx) {
         get src() {
           return (src ??= ctx.previewSrc(target, s));
         },
+        // A recorded narration: { data, contentType, durationMs } or null.
+        get narration() {
+          return ctx.narrationOf?.(s) ?? null;
+        },
       };
     });
   }
@@ -379,6 +383,7 @@ export function createFileTools(ctx) {
       step: 0.5,
     });
     const timings = checkField("Use slide timings where a slide has one", true);
+    const narrations = checkField("Include recorded narrations", true);
     const videoNote = el("p", { class: "muted export-note", role: "note" });
 
     const gifWidth = selectField(
@@ -440,6 +445,7 @@ export function createFileTools(ctx) {
         resolution.wrap,
         seconds.wrap,
         timings.wrap,
+        narrations.wrap,
         videoNote,
       ),
       gif: el(
@@ -505,13 +511,22 @@ export function createFileTools(ctx) {
       groups.pdf.hidden = format !== "pdf";
       groups.pictures.hidden = format !== "png" && format !== "jpeg";
       groups.video.hidden = format !== "video";
+      narrations.wrap.hidden = !(
+        ctx.narrationOf &&
+        P.getSlides(ctx.doc().pres).some((s) => ctx.narrationOf(s))
+      );
       groups.gif.hidden = format !== "gif";
       groups.outline.hidden = format !== "outline";
       const handouts = pdfLayout.input.value === "handouts";
       perPage.wrap.hidden = !handouts;
       order.wrap.hidden = !handouts;
       if (format === "video" && support) {
-        const kind = support[container.input.value];
+        const kind =
+          !narrations.wrap.hidden &&
+          narrations.input.checked &&
+          support[container.input.value]
+            ? "realtime"
+            : support[container.input.value];
         videoNote.textContent =
           kind === "fast"
             ? "The video is encoded in this browser; long presentations take a little while."
@@ -679,6 +694,7 @@ export function createFileTools(ctx) {
           options: {
             secondsPerSlide: Math.max(0.5, Number(seconds.input.value) || 5),
             useTimings: timings.input.checked,
+            narrations: narrations.input.checked,
           },
           signal,
           progress: report("Making the video…"),

@@ -24,7 +24,11 @@ export const cameraShapeKind = (P, shape) =>
   P.getShapeObjectData?.(shape)?.shape === "rect" ? "rect" : "circle";
 
 /** Adds a live camera to a slide. `png` is CAMERA_SVG drawn as a picture. */
-export function addCameraShape(P, slide, { png, svg, size, shape = "circle" }) {
+export function addCameraShape(
+  P,
+  slide,
+  { png, svg, size, shape = "circle", box = null },
+) {
   const side = Math.round(Math.min(size.cx, size.cy) * 0.32);
   const margin = Math.round(size.cy * 0.05);
   const existing = P.getSlideShapes(slide).filter((s) => isCameraShape(P, s));
@@ -32,10 +36,10 @@ export function addCameraShape(P, slide, { png, svg, size, shape = "circle" }) {
     slide,
     { png, svg },
     {
-      x: size.cx - side - margin,
-      y: size.cy - side - margin,
-      w: side,
-      h: side,
+      x: box ? box.x : size.cx - side - margin,
+      y: box ? box.y : size.cy - side - margin,
+      w: box ? box.w : side,
+      h: box ? box.h : side,
       name: `${CAMERA_NAME} ${existing.length + 1}`,
     },
   );
