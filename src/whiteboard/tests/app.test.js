@@ -23637,7 +23637,7 @@ test("screen readers hear who joins, leaves and is editing an object", async () 
     // A check-in brings the roster with the person who joined.
     a.w.dispatchEvent(new a.w.Event("online"));
     await shared.until(() => said() === "Bob joined", "The join is said");
-    assert.equal(described(), "");
+    assert.equal(described(), "Butter color.");
     await b.click(`#board-outline [data-id="${note.id}"]`);
     b.doc.querySelector("#canvas").dispatchEvent(
       new b.w.KeyboardEvent("keydown", {
@@ -23647,11 +23647,11 @@ test("screen readers hear who joins, leaves and is editing an object", async () 
       }),
     );
     await shared.until(
-      () => described() === "Being edited by Bob",
+      () => described() === "Being edited by Bob. Butter color.",
       "The outline says who is editing the note",
     );
     await b.click('[data-action="home"]');
-    await shared.until(() => described() === "", "Editing ends");
+    await shared.until(() => described() === "Butter color.", "Editing ends");
     a.w.dispatchEvent(new a.w.Event("online"));
     await shared.until(() => said() === "Bob left", "The departure is said");
   } finally {
