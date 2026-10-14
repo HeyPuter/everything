@@ -1,3 +1,4 @@
+import { writeTableStyleDefinition } from './docx-table-styles.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
 import { pruneReleasedMedia } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
@@ -684,6 +685,8 @@ function writeStyles(parts, styles) {
     for (const key of ['name', 'basedOn', 'next']) if (key in patch || style.generated) {
       if (style[key]) ensure(key).setAttributeNS(W, 'w:val', style[key]); else child(node, key)?.remove();
     }
+    // Table styles described by a spec (New/Modify Table Style, the style library) write their whole formatting.
+    if (style.type === 'table' && style.tableSpec && (style.generated || patch.table)) { writeTableStyleDefinition(node, style.tableSpec, make); continue; }
     const pp = patch.paragraph || {}, rp = patch.run || {};
     if (Object.keys(pp).length) {
       const wrapper = make('p'), properties = child(node, 'pPr')?.cloneNode(true);

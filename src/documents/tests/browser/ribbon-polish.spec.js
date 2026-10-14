@@ -46,7 +46,8 @@ test('related table, picture and shape commands have distinct icons', async ({ p
   await tab(page, 'Table Layout').click();
   expect(await iconOf(page, 'Paragraph After')).not.toBe(await iconOf(page, 'Insert Below'));
   expect(await iconOf(page, 'Paragraph Before')).not.toBe(await iconOf(page, 'Paragraph After'));
-  expect(await iconOf(page, 'Merge Below')).not.toBe(await iconOf(page, 'Merge Cells'));
+  expect(await iconOf(page, 'Split Table')).not.toBe(await iconOf(page, 'Split Cells…'));
+  expect(await iconOf(page, 'Select')).not.toBe(await iconOf(page, 'Delete'));
   const deleteTable = await page.evaluate(async () => (await import('/src/ui/command-icons.js')).commandIconBody('deleteTable'));
   await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.press('Enter');
   await tab(page, 'Insert').click();

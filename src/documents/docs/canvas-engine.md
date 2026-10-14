@@ -326,7 +326,12 @@ Open **Table sample** (`public/fixtures/tables.docx`). The fixed-width table has
 unequal columns, inherited italic text, shaded header cells, multiple paragraphs,
 an empty cell and a tall row that flows across pages.
 
-Use **Insert table** at a caret outside a table, then choose rows and columns.
+Use **Insert table** at a caret outside a table, then choose rows and columns
+(or Insert Table…, Draw Table, Convert Text to Table… and Quick Tables from the
+same drop-down). The **Table Design** and **Table Layout** tabs, the Table menu
+and the table context menu hold the full table tools (styles and style options,
+borders with a pen, insert/delete/merge/split, sizes, alignment, sort, formulas
+and properties); see [the tables parity notes](parity/tables.md).
 **Table actions** adds or deletes rows/columns, deletes the table, or inserts a
 body paragraph before/after it. In fixed layout, inserting a column shares the
 existing width and deleting a column reduces the table width. In AutoFit, a new

@@ -27,6 +27,7 @@ import { openTextColor } from './text-color.js';
 import { openTableProperties } from './table-properties.js';
 import { openImageProperties } from './image-properties.js';
 import { openInsertTable } from './insert-table.js';
+import { createTableTools } from './table-tools.js';
 import { openStyleEditor } from './style-editor.js';
 import { createNavigationPane } from './navigation-pane.js';
 import { goToTargets, openGoTo } from './go-to.js';
@@ -210,14 +211,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       }))});
       return items;
     };
-    // In a table, the row and column commands of Table > Rows & columns are offered here too.
-    const tableItems=()=>{
-      update();
-      const tableItem = value => { const option = tableActions.querySelector(`option[value="${value}"]`);
-        return option && { label: option.textContent, disabled: option.disabled, onSelect: () => { tableActions.value = value; tableActions.dispatchEvent(new Event('change')); } }; };
-      return [...['addRow', 'addColumn'].map(tableItem), {separator:true}, ...['row', 'column', 'table'].map(tableItem),
-        {separator:true}, ...['mergeCells', 'splitCell'].map(tableItem), {label:'Table properties…',icon:'tableProperties',onSelect:()=>tableProperties.click()}].filter(Boolean);
-    };
+    // Table commands come from the table tools (contextMenuItems('table')), so none are listed here.
+    const tableItems=()=>[];
     openDocumentMenu({ event, behind, selectBehind, engine, pkg, w: editorCommands, kit: { separator: { separator: true }, focusEditor: () => engine?.focus() },
       actions: { clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText,
         paragraphDialog: () => (editorCommands.paragraphDialog ? editorCommands.paragraphDialog() : paragraphGeometry.click()), editLink: () => editHyperlink(engine.input), spellingItems: at => proofing.menuItems(at),
@@ -589,10 +584,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       const ok = engine.insertTable(rows, columns);
       if (!ok && start !== end) { engine.model.select(start, end); engine.syncInput(); }
       if (ok) queueMicrotask(() => engine?.focus()); return ok;
-    }, { anchor, ...options });
+    }, { anchor, items: editorCommands.tableInsertMenuItems?.() || [], ...options });
   };
   const tableProperties = tool('Table properties', 'ruler', () => {
     if (!engine?.model.tableContext) return; engine.finishComposition();
+    if (editorCommands.openTableProperties) { editorCommands.openTableProperties(); return; }
     const { table, column } = engine.model.tableContext;
     const widths = engine.layout.tableWidths[table.id].map(w => w * 15);
     tableModal = openTableProperties(table, widths, column, patch => {
@@ -725,6 +721,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       { label: 'Recheck Document', disabled: !proofing.enabled, onSelect: () => proofing.recheck() },
     ],
   });
+  const tables = createTableTools({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(), controls: { get cellBorders() { return cellBorders; } } });
+  Object.assign(editorCommands, tables.commands);
+  const tablesBaseExtendMenu = editorCommands.extendMenu, tablesBaseContextMenuItems = editorCommands.contextMenuItems;
+  editorCommands.extendMenu = (id, kit) => [...(tablesBaseExtendMenu?.(id, kit) || []), ...tables.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(tablesBaseContextMenuItems?.(context, kit) || []), ...tables.contextMenuItems(context, kit)];
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
     base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
       openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
@@ -1232,7 +1233,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       find.disabled = false; finder.refresh();
       stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
       if (pkg.readOnly) words.textContent = 'Read only'; else updateWordCount();
-      chrome.refresh(); review.refresh(); statusBar?.refresh(); assistant.refresh(); collab.refresh();
+      chrome.refresh(); review.refresh(); statusBar?.refresh(); assistant.refresh(); collab.refresh(); tables.refresh();
       return;
     }
     undo.disabled = !engine.session.history.length && !designVersions.undo.length;
@@ -1345,7 +1346,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     lineSpacing.value = format.lineRule === 'auto' && [1, 1.15, 1.5, 2, 2.5, 3].includes(format.lineSpacing) ? String(format.lineSpacing) : '';
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
-    chrome.refresh(); review.refresh(); reviewTools.refresh(); formatArea.refresh(); assistant.refresh(); versionHistory.refresh(); collab.refresh();
+    chrome.refresh(); review.refresh(); reviewTools.refresh(); formatArea.refresh(); assistant.refresh(); versionHistory.refresh(); collab.refresh(); tables.refresh();
     stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
     updateWordCount();
     statusBar?.refresh();
@@ -1536,6 +1537,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     editorCommands.restoreMarks(engine);
     formatArea.attach(engine);
     proofing.attach(engine);
+    tables.attach(engine);
     reviewTools.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
     pictures.attach(engine);
@@ -1593,6 +1595,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   return {
     el: root, doc, ready,
     get engine() { return engine; },
+    get commands() { return editorCommands; },
     async flush() {
       if (destroyed) return true;
       engine?.finishComposition();
@@ -1604,7 +1607,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     destroy() {
       drawingTextModal?.close();
       printAbort.abort();
-      destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
+      destroyed = true; tables.destroy(); paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
       fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();

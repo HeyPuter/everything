@@ -3,12 +3,10 @@ import { openModal } from '../ui/modal.js';
 import { changeCase, captureFormat, applyFormat, sortParagraphs } from '../engine/home-editing.js';
 import { prepareCanvasFont, documentFontAvailable } from '../engine/font-availability.js';
 import { openFontDialog } from './font-dialog.js';
-import { applyTableDesign } from '../engine/table-designs.js';
 import { insertCoverPage, COVER_DESIGNS } from '../engine/cover-pages.js';
 import { setImageWrap, imageWrapMode, wrapUnavailable } from '../engine/image-wrap.js';
 import { applyListLibrary, libraryIndex, applyMultilevelList, MULTILEVEL_LIBRARY } from '../engine/list-library.js';
 import { levelFor, listKind } from '../engine/numbering.js';
-import { createTableDesignControls } from '../ui/table-design-gallery.js';
 import { engineApi } from '../lib/engine-api.js';
 import { openColorPalette } from '../ui/color-palette.js';
 import { TEXT_COLORS } from './text-color.js';
@@ -155,19 +153,6 @@ export function createEditingCommands({ editor, pkg, host, refresh, zoomControl,
       const model = editor()?.model, lists = model?.selectedParagraphs.map(p => p.list) || [];
       if (!lists.length || !lists.every(Boolean)) return lists.some(Boolean) ? -1 : -2;
       try { return lists.every(l => l.numId === lists[0].numId && l.level === lists[0].level) && listKind(model.numbering, lists[0]) === kind ? libraryIndex(levelFor(model.numbering, lists[0]), kind) : -1; } catch { return -1; }
-    },
-    /** Table Design → Table Style Options and Table Styles, for the table holding the selection. */
-    tableDesignControls() {
-      return createTableDesignControls({
-        current: () => editor()?.model.tableContext?.table.design || null,
-        enabled: () => !!ready()?.model.tableContext,
-        apply: (id, options) => {
-          const engine = ready(); if (!engine?.model.tableContext) return;
-          engine.finishComposition();
-          engine.execute(() => applyTableDesign(engine.model, id, options));
-          engine.focus();
-        },
-      });
     },
     /** Design → Paragraph Spacing: the presets, set on the Normal style so every style based on it follows. */
     paragraphSpacingItems() {

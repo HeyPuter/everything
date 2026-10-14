@@ -44,19 +44,19 @@ test('a right-click in a table offers its row and column commands', async ({ pag
   const shape = () => page.evaluate(() => window.__docs.current.view.engine.model.tables.map(t => [t.rows.length, t.rows[0].cells.length]));
   expect(await shape()).toEqual([[2, 2]]);
   const canvas = page.locator('canvas.canvas-page').first(), menu = page.getByRole('menu', { name: 'Document menu' });
-  const choose = async name => { await canvas.click({ button: 'right', position: { x: 120, y: 150 } }); await menu.getByRole('menuitem', { name, exact: true }).click(); };
+  const choose = async (first, ...path) => { await canvas.click({ button: 'right', position: { x: 120, y: 150 } }); await menu.getByRole('menuitem', { name: first, exact: true }).click(); for (const name of path) await page.getByRole('menu').getByRole('menuitem', { name, exact: true }).click(); };
   await canvas.click({ button: 'right', position: { x: 120, y: 150 } });
-  await expect(menu.getByRole('menuitem', { name: 'Merge cells in row', exact: true })).toBeDisabled();
+  await expect(menu.getByRole('menuitem', { name: 'Merge Cells', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
-  await choose('Insert row below'); expect(await shape()).toEqual([[3, 2]]);
-  await choose('Insert column right'); expect(await shape()).toEqual([[3, 3]]);
-  await choose('Delete row'); expect(await shape()).toEqual([[2, 3]]);
-  await choose('Table properties…'); await expect(page.getByRole('dialog', { name: 'Table properties' })).toBeVisible();
+  await choose('Insert', 'Insert Rows Below'); expect(await shape()).toEqual([[3, 2]]);
+  await choose('Insert', 'Insert Columns to the Right'); expect(await shape()).toEqual([[3, 3]]);
+  await choose('Delete', 'Delete Rows'); expect(await shape()).toEqual([[2, 3]]);
+  await choose('Table Properties…'); await expect(page.getByRole('dialog', { name: 'Table properties' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await choose('Delete table'); expect(await shape()).toEqual([]);
+  await choose('Delete', 'Delete Table'); expect(await shape()).toEqual([]);
   // Outside a table the menu stays short.
   await canvas.click({ button: 'right', position: { x: 120, y: 110 } });
-  await expect(menu.getByRole('menuitem', { name: 'Delete row', exact: true })).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: 'Merge Cells', exact: true })).toHaveCount(0);
 });
 
 test('the document menu offers plain paste and links', async ({ page }) => {

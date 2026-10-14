@@ -5,6 +5,7 @@ import { bodyFieldRanges } from './body-fields.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
+import { formulaResult } from './table-formula.js';
 import { fieldResultPlan } from './field-results.js';
 import { noteKindOf } from './footnotes.js';
 
@@ -89,7 +90,8 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
         if (bookmark.columnRange || /[\n￼]/.test(value)) { retain('A REF with structural or object content cannot be refreshed yet'); continue; }
       }
-    } else if (type === 'NOTEREF' && notes) {
+    } else if (type === '=') value = formulaResult(model, range.field.instruction, range.cellId || null);
+    else if (type === 'NOTEREF' && notes) {
       let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
       if (tokens.slice(1).some(t => !['\\h', '\\f', '\\p'].includes(t) && !/^\\\*$/.test(t) && t.toUpperCase() !== 'MERGEFORMAT')) { onIssue({ id: range.field.id, message: 'This NOTEREF uses switches that cannot be refreshed yet; its cached result is retained.' }); continue; }
       const bookmark = bookmarks.get(tokens[0]);

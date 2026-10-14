@@ -1,6 +1,23 @@
 import { paintParagraphBorder } from './canvas-paragraph-borders.js';
 import { tableBorderColor } from './colors.js';
 
+/** Diagonal cell borders (tl2br, tr2bl), drawn corner to corner inside each laid-out cell. */
+export function paintCellDiagonals(ctx, cells) {
+  for (const cell of cells) for (const side of ['tl2br', 'tr2bl']) {
+    const border = cell.borders?.[side];
+    if (!border || ['nil', 'none'].includes(border.style) || !border.size) continue;
+    const { x, y, width, height } = cell;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, width, height); ctx.clip();
+    ctx.strokeStyle = tableBorderColor(border.color); ctx.lineWidth = Math.max(0.5, border.size / 6);
+    if (border.style === 'dotted') ctx.setLineDash([ctx.lineWidth, ctx.lineWidth * 2]);
+    else if (/dash/i.test(border.style)) ctx.setLineDash([ctx.lineWidth * 4, ctx.lineWidth * 2]);
+    ctx.beginPath();
+    if (side === 'tl2br') { ctx.moveTo(x, y); ctx.lineTo(x + width, y + height); } else { ctx.moveTo(x + width, y); ctx.lineTo(x, y + height); }
+    ctx.stroke(); ctx.restore();
+  }
+}
+
 export function paintTableBorder(ctx, stroke) {
   if (!stroke.guide) {
     paintParagraphBorder(ctx, stroke, stroke.crossingCuts?.map(cut => ({...cut, x: cut.x + stroke.x, y: cut.y + stroke.y})), tableBorderColor(stroke.border.color));

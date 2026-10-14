@@ -1,0 +1,95 @@
+/* Table tools: the Insert → Table drop-down, the table tabs' controls, table dialogs and pointer cursors. */
+
+/* Pointer tools over the pages (set by views/table-pointer.js). */
+.canvas-pages[data-table-cursor="col-resize"] .canvas-page { cursor: col-resize; }
+.canvas-pages[data-table-cursor="row-resize"] .canvas-page { cursor: row-resize; }
+.canvas-pages[data-table-cursor="move"] .canvas-page { cursor: move; }
+.canvas-pages[data-table-cursor="nwse-resize"] .canvas-page { cursor: nwse-resize; }
+.canvas-pages[data-table-cursor="pointer"] .canvas-page { cursor: pointer; }
+.canvas-pages[data-table-cursor="crosshair"] .canvas-page { cursor: crosshair; }
+.canvas-pages[data-table-cursor="cell"] .canvas-page { cursor: cell; }
+.canvas-pages[data-table-cursor="copy"] .canvas-page { cursor: copy; }
+
+/* Insert → Table: a 10 × 8 grid to sweep out a size. */
+.table-size-palette.table-size-palette { width: 300px; }
+.table-size-palette .menu-custom-grid.table-size-grid { grid-template-columns: repeat(10, 22px); gap: 4px; padding: 8px 2px; justify-content: center; }
+.table-size-palette .table-size-grid .table-size-cell { width: 22px; height: 19px; border-radius: 3px; }
+@media (hover: hover) { .table-size-palette .table-size-grid .table-size-cell:hover { transform: none; } }
+
+/* Ribbon: the alignment grid, the pen color sample. */
+.table-align-grid { display: grid; grid-template-columns: repeat(3, 24px); grid-auto-rows: 22px; gap: 2px; align-content: center; padding: 0 2px; }
+.table-align-grid > button.ribbon-small { width: 24px; height: 22px; min-width: 0; padding: 0; justify-content: center; }
+.table-align-grid > button[aria-pressed="true"] { background: var(--ed-accent-wash, var(--accent-wash)); box-shadow: inset 0 0 0 1px var(--ed-accent); }
+.ribbon-pen-indicator { position: absolute; left: 7px; bottom: 3px; width: 14px; height: 3px; border-radius: 1px; pointer-events: none; }
+button[aria-label="Pen Color"] { position: relative; }
+
+/* Pen samples in Border Styles and Line Style. */
+.table-pen-item { display: flex; align-items: center; gap: 10px; width: 100%; }
+.table-pen-item[aria-checked="true"] { background: var(--accent-wash); }
+.table-pen-sample { display: inline-flex; width: 60px; color: var(--ink); flex: none; }
+
+/* Table Styles: every style by family. */
+.table-style-menu { max-width: min(560px, calc(100vw - 16px)); }
+.table-style-menu .menu-custom-grid.table-style-grid { grid-template-columns: repeat(7, 66px); gap: 6px; }
+.table-style-menu .table-style-swatch { width: 66px; height: 50px; padding: 3px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: var(--surface); }
+.table-style-menu .table-style-swatch[aria-checked="true"] { border-color: var(--ed-accent, var(--accent)); box-shadow: inset 0 0 0 1px var(--ed-accent, var(--accent)); }
+@media (max-width: 700px) {
+  .table-style-menu .menu-custom-grid.table-style-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .table-style-menu .table-style-swatch { width: 100%; height: auto; aspect-ratio: 4 / 3; }
+  .table-size-palette.table-size-palette { width: min(300px, calc(100vw - 16px)); }
+}
+
+/* Dialogs */
+.table-dialog { display: grid; gap: 14px; }
+.table-dialog-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.table-dialog-grid .input { width: 100%; min-width: 0; }
+.table-radios { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.table-radios legend { padding: 0; margin-bottom: 6px; }
+.table-radio { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 28px; }
+.table-radio .input { width: 120px; margin-left: auto; }
+.table-radio .table-other { width: 48px; text-align: center; }
+.table-check { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 28px; }
+.table-dialog-count { font-size: 13px; color: var(--ink-2); padding: 8px 0; }
+.table-dialog-preview { display: grid; gap: 2px; height: 64px; padding: 6px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: var(--surface-2); }
+.table-dialog-preview > span { border: 1px solid var(--ink-3); background: var(--surface); border-radius: 1px; }
+.table-dialog-preview[data-autofit="window"] { width: 100%; }
+.table-dialog-preview[data-autofit="contents"] { width: 60%; }
+.table-sort-key { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 8px; align-items: center; }
+.table-sort-key > .field-label { grid-column: 1 / -1; }
+.table-sort-key > .input { width: 100%; min-width: 0; }
+.table-formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.table-formula-result { font-size: 13px; color: var(--ink-2); min-height: 18px; }
+.table-formula-result.is-error { color: var(--danger, #b3261e); }
+
+/* Table properties: a section list and one scrolling page. */
+.table-properties { display: grid; gap: 10px; }
+.table-properties-nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--hairline); padding-bottom: 8px; }
+.table-properties-scroll { max-height: min(56vh, 520px); overflow: auto; display: grid; gap: 18px; padding: 2px 4px 2px 2px; scroll-padding-top: 4px; }
+.table-properties-section { display: grid; gap: 8px; }
+.table-properties-section h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.table-properties-subhead { font-size: 12px; color: var(--ink-2); margin-top: 4px; }
+.table-margin-fields { grid-template-columns: repeat(4, 1fr); }
+
+/* New/Modify Table Style */
+.table-style-layout { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; align-items: start; }
+.table-style-fields { display: grid; gap: 10px; }
+.table-style-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.table-style-row .input:not(.table-color) { width: auto; min-width: 0; }
+.table-color { width: 44px; height: 30px; padding: 2px; }
+.table-style-sample { display: grid; gap: 6px; justify-items: center; }
+.table-style-preview { border: 1px solid var(--hairline-strong); border-radius: 6px; background: #fff; }
+
+@media (max-width: 700px) {
+  .table-style-layout { grid-template-columns: 1fr; }
+  .table-sort-key { grid-template-columns: 1fr 1fr; }
+  .table-sort-key > .input:first-of-type { grid-column: 1 / -1; }
+  .table-margin-fields { grid-template-columns: 1fr 1fr; }
+  .table-dialog-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Ruler feedback: the column lines of the table at the caret. */
+.table-ruler-markers { position: absolute; top: 0; height: 29px; pointer-events: none; z-index: 2; }
+.table-ruler-marker { position: absolute; bottom: 2px; width: 9px; height: 10px; margin-left: -4.5px; pointer-events: auto; cursor: col-resize; touch-action: none;
+  background: linear-gradient(var(--ink-3), var(--ink-3)) center / 1px 100% no-repeat, var(--surface-3); border: 1px solid var(--ink-3); border-radius: 2px; }
+.table-ruler-marker.is-edge { cursor: default; opacity: .6; }
+.table-ruler-marker.is-dragging { border-color: var(--accent); background-color: var(--accent-wash); }

@@ -275,7 +275,8 @@ export function classicMenus(ctx) {
     const option = ctx.tableOption(value);
     return option ? { label, icon, disabled: c.tableActions.disabled || option.disabled, onSelect: ctx.tableAction(value) } : null;
   };
-  const table = () => withExt('table', [
+  // The table tools (views/table-tools.js), when present, provide the whole Table menu.
+  const table = () => w.tableRibbon ? withExt('table', []) : withExt('table', [
     c.insertTable && { label: 'Insert Table…', icon: 'table', disabled: c.insertTable.disabled, onSelect: () => c.insertTable.openPalette(anchor()) },
     opt(w.drawTable, 'Draw Table'),
     sep,

@@ -152,8 +152,16 @@ it.each(['', 'w:sz="0"', 'w:sz="1"', 'w:sz="100"'])('uses the zero default and n
   expect(cell(doc, 'Nil edge').borders.right.size).toBe(size === 'w:sz="1"' ? 2 : size === 'w:sz="100"' ? 96 : 0);
 });
 
-it.each(['<w:right/>', '<w:right w:val="wave"/>', '<w:right w:val="single" w:sz="-1"/>', '<w:right w:val="single" w:sz="1.5"/>', '<w:right w:val="single" w:space="1"/>', '<w:right w:val="single" w:shadow="1"/>', '<w:right w:val="single" w:frame="bad"/>', '<w:right w:val="single" w:color="bad"/>', '<w:right w:val="single" w:themeColor="unknown"/>', '<w:right w:val="single" w:themeTint="XYZ"/>', '<w:right w:val="single" w:unknown="1"/>', '<w:right w:val="single">text</w:right>', '<w:right w:val="single"><w:top/></w:right>', '<w:right w:val="single"/><w:right w:val="nil"/>', '<w:tr2bl w:val="single" w:sz="8"/>'])('rejects unsupported active borders before editable import: %s', async markup => {
+it.each(['<w:right/>', '<w:right w:val="wave"/>', '<w:right w:val="single" w:sz="-1"/>', '<w:right w:val="single" w:sz="1.5"/>', '<w:right w:val="single" w:space="1"/>', '<w:right w:val="single" w:shadow="1"/>', '<w:right w:val="single" w:frame="bad"/>', '<w:right w:val="single" w:color="bad"/>', '<w:right w:val="single" w:themeColor="unknown"/>', '<w:right w:val="single" w:themeTint="XYZ"/>', '<w:right w:val="single" w:unknown="1"/>', '<w:right w:val="single">text</w:right>', '<w:right w:val="single"><w:top/></w:right>', '<w:right w:val="single"/><w:right w:val="nil"/>'])('rejects unsupported active borders before editable import: %s', async markup => {
   await expect(DocxPackage.open(rewrite(rightNil, markup))).rejects.toThrow();
+});
+
+it('imports active diagonal cell borders and keeps them through editing', async () => {
+  const pkg = await DocxPackage.open(rewrite(rightNil, '<w:tr2bl w:val="single" w:sz="8" w:color="C00000"/>')), doc = model(pkg);
+  expect(cell(doc, 'Nil edge').borders.tr2bl).toMatchObject({ style: 'single', size: 8, color: 'C00000' });
+  select(doc, 'Nil edge'); doc.replace('Diagonal edge');
+  const reopened = model(await DocxPackage.open(await save(pkg, doc)));
+  expect(cell(reopened, 'Diagonal edge').borders.tr2bl).toMatchObject({ style: 'single', size: 8, color: 'C00000' });
 });
 
 it('rejects invalid edits atomically and leaves cells untouched outside table selections', async () => {
