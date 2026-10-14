@@ -15,6 +15,7 @@ import {
   workshopEvents,
 } from "../src/facilitation/model.js";
 import { SharedDocument } from "../src/collaboration/document.js";
+import { slackStatus } from "./delivery.js";
 import { sameJSON } from "../src/same-json.js";
 import { ListingQueue } from "./listings.js";
 import { oversized, MAX_OBJECTS } from "../src/model.js";
@@ -2007,12 +2008,23 @@ export class BoardService {
         this.kv.get("org:boardslack:" + room),
         this.managesIntegrations(meta, user),
       ]);
+      // Whoever connected the channel learns when Slack stops taking its
+      // posts, as when the channel is archived or the webhook removed.
+      const posted =
+        slack && integrations
+          ? await slackStatus(
+              this.org,
+              room,
+              typeof slack === "string" ? slack : slack.url,
+            )
+          : null;
       return {
         settings: {
           ...this.settings(meta),
           space: record?.space || null,
           team: record?.team || null,
           slack: !!slack,
+          ...(posted?.lastError ? { slackError: posted.lastError } : {}),
           integrations,
         },
         sharing: await this.sharing(user, await this.org.accessPolicy()),

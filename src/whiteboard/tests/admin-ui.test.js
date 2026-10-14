@@ -7650,3 +7650,111 @@ test("a webhook test says when webhooks are off, so the endpoint can be checked 
     ]);
   }
 });
+
+test("the Integrations tab shows why Slack refused the last post and sends a test message", async () => {
+  const { normalizePolicy } = await import("../worker/org.js");
+  const policy = normalizePolicy({ name: "Fabrikam" });
+  policy.integrations.slack.enabled = true;
+  const toasts = [];
+  let status = {
+    lastError: "Slack refused the message (404): no_service",
+    lastErrorAt: 1,
+  };
+  await withConsole(
+    (op) =>
+      op === "org.policy.get"
+        ? { policy, secrets: { slack: true }, slack: status, owner: null }
+        : { ok: true },
+    "integrations",
+    async ({ d, calls, settle }) => {
+      assert.match(
+        d.querySelector("#admin-panel").textContent,
+        /Slack refused the message \(404\): no_service/,
+      );
+      status = { lastSuccess: Date.UTC(2026, 9, 13, 15) };
+      d.querySelector("#i-slack-test").click();
+      await settle();
+      assert.deepEqual(calls.map(([op]) => op).slice(-3), [
+        "org.policy.set",
+        "org.slack.test",
+        "org.policy.get",
+      ]);
+      assert.deepEqual(toasts, ["Test message posted to Slack."]);
+      assert.doesNotMatch(
+        d.querySelector("#admin-panel").textContent,
+        /refused/,
+      );
+      assert.match(d.querySelector("#admin-panel").textContent, /Last post/);
+    },
+    { console: { toast: (message) => toasts.push(message) } },
+  );
+});
+
+test("board settings say when Slack stopped taking the board's posts", async () => {
+  const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
+    url: "https://whiteboard.test",
+  });
+  const keys = ["document", "localStorage", "NodeFilter", "HTMLElement"];
+  for (const key of keys) globalThis[key] = dom.window[key];
+  try {
+    const { createBoardAccess } =
+      await import("../src/organization/board-access.js");
+    const settings = {
+      visibility: "private",
+      orgRole: "editor",
+      linkRole: "viewer",
+    };
+    const session = {
+      role: "owner",
+      server: "https://whiteboard-abc.puter.work",
+      settings,
+      request: async (op) =>
+        op === "settings.get"
+          ? {
+              settings: {
+                ...settings,
+                integrations: true,
+                slack: true,
+                slackError: "Slack refused the message (404): no_service",
+              },
+            }
+          : { members: [] },
+    };
+    let d;
+    const access = createBoardAccess({
+      org: {
+        server: "https://whiteboard-abc.puter.work",
+        isMember: true,
+        info: { configured: true },
+        policy: () => ({ publicLinks: false }),
+        allows: () => true,
+        request: async (op) =>
+          op === "spaces.list" ? { spaces: [] } : { teams: [] },
+      },
+      session: () => session,
+      board: () => ({ items: [] }),
+      modal: (title, html, ready) => {
+        d = document.createElement("dialog");
+        d.close = () => d.remove();
+        d.innerHTML = html;
+        document.body.append(d);
+        ready(d);
+        return d;
+      },
+      toast: () => {},
+      icon: () => "",
+    });
+    await access.settings();
+    const note = d.querySelector("#bs-slack-error");
+    assert.equal(
+      note.textContent,
+      "Slack stopped taking this board's posts (404, no_service). Connect the channel again with a new webhook URL.",
+    );
+    assert.equal(
+      d.querySelector("#bs-slack").getAttribute("aria-describedby"),
+      "bs-slack-error",
+    );
+  } finally {
+    for (const key of keys) delete globalThis[key];
+  }
+});

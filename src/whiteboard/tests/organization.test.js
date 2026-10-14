@@ -9139,3 +9139,92 @@ test("Sentinel signs in to the Azure cloud its ingestion endpoint belongs to", a
     "monitor.azure.com",
   );
 });
+
+test("a Slack channel that stops taking posts says so where it is set up, and a test post checks it", async () => {
+  const { boards, call, org, fetched } = setup();
+  const refused = new Set();
+  const base = org.fetcher;
+  org.fetcher = boards.fetcher = async (url, options) =>
+    refused.has(String(url))
+      ? (fetched.push({ url: String(url), options }),
+        new Response("channel_is_archived", { status: 410 }))
+      : base(url, options);
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await assert.rejects(call(owner, { op: "org.slack.test" }), {
+    status: 400,
+  });
+  const alerts = "https://hooks.slack.com/services/T/B/alerts";
+  await call(owner, {
+    op: "org.policy.set",
+    policy: { integrations: { slack: { enabled: true } } },
+    secrets: { slack: alerts },
+  });
+  assert.equal((await call(owner, { op: "org.policy.get" })).slack, null);
+  await call(owner, { op: "org.slack.test" });
+  const test = fetched.filter((f) => f.url === alerts).at(-1);
+  assert.match(JSON.parse(test.options.body).text, /can post to this channel/);
+  assert.ok((await call(owner, { op: "org.policy.get" })).slack.lastSuccess);
+  refused.add(alerts);
+  await assert.rejects(call(owner, { op: "org.slack.test" }), {
+    status: 502,
+    message: "Slack refused the message (410): channel_is_archived",
+  });
+  const failed = (await call(owner, { op: "org.policy.get" })).slack;
+  assert.equal(
+    failed.lastError,
+    "Slack refused the message (410): channel_is_archived",
+  );
+  // A new address starts clean.
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {},
+    secrets: { slack: "https://hooks.slack.com/services/T/B/new" },
+  });
+  assert.equal((await call(owner, { op: "org.policy.get" })).slack, null);
+  // A board's own channel: its owner sees why its mentions stopped.
+  const { input, room } = createInput();
+  await boards.call(owner, input);
+  const { token } = await boards.call(owner, {
+    op: "invite",
+    room,
+    role: "editor",
+  });
+  await join({ service: boards }, editor, { room, token });
+  const channel = "https://hooks.slack.com/services/T/B/board";
+  refused.add(channel);
+  await boards.call(owner, { op: "settings", room, slack: channel });
+  await commit(boards, editor, room, (b) => {
+    b.comments = [
+      {
+        id: "t1",
+        x: 0,
+        y: 0,
+        resolved: false,
+        messages: [
+          {
+            id: "m1",
+            authorId: editor.uuid,
+            authorName: editor.username,
+            text: "@alice please look",
+            createdAt: 1,
+          },
+        ],
+      },
+    ];
+  });
+  await org.flush();
+  assert.ok(fetched.some((f) => f.url === channel));
+  const { settings } = await boards.call(owner, { op: "settings.get", room });
+  assert.equal(
+    settings.slackError,
+    "Slack refused the message (410): channel_is_archived",
+  );
+  await boards.call(owner, {
+    op: "settings",
+    room,
+    slack: "https://hooks.slack.com/services/T/B/board-2",
+  });
+  const again = await boards.call(owner, { op: "settings.get", room });
+  assert.equal(again.settings.slackError, undefined);
+  assert.equal(again.settings.slack, true);
+});

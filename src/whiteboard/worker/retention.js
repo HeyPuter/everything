@@ -204,6 +204,7 @@ export async function destroyBoard(org, room, budget = Infinity) {
   await org.kv.del("org:visible:" + room);
   await org.kv.del("org:idx:" + room);
   await org.kv.del("org:boardslack:" + room);
+  await org.kv.del("org:slackstatus:board:" + room);
   try {
     await org.puter.fs.delete(`whiteboard/shared/${room}`, {
       recursive: true,

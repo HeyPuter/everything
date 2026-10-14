@@ -4,6 +4,13 @@ import { addTranslations, labelled, nameOrder, t } from "../i18n.js";
 import { canManage } from "../collaboration/protocol.js";
 import { orderedFrames } from "../scene.js";
 
+// Slack's status and reason for refusing a channel's last post, such as
+// "404, no_service", from the worker's message.
+const slackReason = (message) => {
+  const m = /\((\d+)\)(?::\s*([\w.-]+))?/.exec(message);
+  return m ? [m[1], m[2]].filter(Boolean).join(", ") : "";
+};
+
 export const ROLE_LABELS = {
   owner: "Owner",
   facilitator: "Facilitator",
@@ -161,7 +168,7 @@ export function createBoardAccess({
           )
           .join(
             "",
-          )}${sharing.organization ? `<label class="field">${t("Role for organization members")}<select id="bs-org-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.orgRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label>` : ""}<label class="field">${t("Role for people with the link")}<select id="bs-link-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.linkRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label></fieldset>${organize ? `<fieldset><legend>${t("Organize")}</legend><label class="field">${t("Space")}<select id="bs-space"><option value="">${t("None")}</option>${spaces.map((sp) => `<option value="${escape(sp.id)}" ${current.space === sp.id ? "selected" : ""} data-user-content>${escape(sp.name)}</option>`).join("")}</select></label><label class="field">${t("Team")}<select id="bs-team"><option value="">${t("None")}</option>${teams.map((tm) => `<option value="${escape(tm.id)}" ${current.team === tm.id ? "selected" : ""} data-user-content>${escape(tm.name)}</option>`).join("")}</select></label>${org.allows("slack") && latest?.integrations ? `<label class="field">${t("Slack channel webhook for mentions (optional)")} ${latest.slack ? `<span class="badge">${t("Connected")}</span>` : ""}<input id="bs-slack" type="url" placeholder="https://hooks.slack.com/services/…" autocomplete="off"></label>${latest.slack ? `<label class="check-field"><input type="checkbox" id="bs-slack-off"><span>${t("Disconnect Slack")}</span></label>` : ""}` : ""}</fieldset>` : ""}${decides || organize ? `<div class="dialog-footer"><button class="primary">${t("Save settings")}</button></div>` : ""}</form>${
+          )}${sharing.organization ? `<label class="field">${t("Role for organization members")}<select id="bs-org-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.orgRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label>` : ""}<label class="field">${t("Role for people with the link")}<select id="bs-link-role">${["editor", "commenter", "viewer"].map((r) => `<option value="${r}" ${current.linkRole === r ? "selected" : ""}>${t(ROLE_LABELS[r])}</option>`).join("")}</select></label></fieldset>${organize ? `<fieldset><legend>${t("Organize")}</legend><label class="field">${t("Space")}<select id="bs-space"><option value="">${t("None")}</option>${spaces.map((sp) => `<option value="${escape(sp.id)}" ${current.space === sp.id ? "selected" : ""} data-user-content>${escape(sp.name)}</option>`).join("")}</select></label><label class="field">${t("Team")}<select id="bs-team"><option value="">${t("None")}</option>${teams.map((tm) => `<option value="${escape(tm.id)}" ${current.team === tm.id ? "selected" : ""} data-user-content>${escape(tm.name)}</option>`).join("")}</select></label>${org.allows("slack") && latest?.integrations ? `<label class="field">${t("Slack channel webhook for mentions (optional)")} ${latest.slack ? `<span class="badge">${t("Connected")}</span>` : ""}<input id="bs-slack" type="url" placeholder="https://hooks.slack.com/services/…" autocomplete="off"${latest.slackError ? ' aria-describedby="bs-slack-error"' : ""}></label>${latest.slackError ? `<p class="dialog-copy" id="bs-slack-error">${t("Slack stopped taking this board's posts ({reason}). Connect the channel again with a new webhook URL.").replace("{reason}", () => escape(slackReason(latest.slackError)))}</p>` : ""}${latest.slack ? `<label class="check-field"><input type="checkbox" id="bs-slack-off"><span>${t("Disconnect Slack")}</span></label>` : ""}` : ""}</fieldset>` : ""}${decides || organize ? `<div class="dialog-footer"><button class="primary">${t("Save settings")}</button></div>` : ""}</form>${
           owner
             ? `<section class="policy-form"><h3>${t("Ownership and lifecycle")}</h3><div class="inline-form"><div class="share-link-row"><label class="field">${t("Transfer ownership to")}<select id="bs-transfer"><option value="">${t("Choose a member")}</option>${members
                 .filter(
@@ -387,6 +394,8 @@ addTranslations({
   Space: "Espace",
   Team: "Équipe",
   None: "Aucun",
+  "Slack stopped taking this board's posts ({reason}). Connect the channel again with a new webhook URL.":
+    "Slack n’accepte plus les publications de ce tableau ({reason}). Connectez de nouveau le canal avec une nouvelle URL de webhook.",
   "Slack channel webhook for mentions (optional)":
     "Webhook du canal Slack pour les mentions (facultatif)",
   Connected: "Connecté",

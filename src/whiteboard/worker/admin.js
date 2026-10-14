@@ -35,6 +35,8 @@ import {
   mail,
   sendHook,
   siem,
+  slackStatus,
+  testSlack,
 } from "./delivery.js";
 
 const text = (value, max = 200) =>
@@ -1941,6 +1943,7 @@ export async function adminCall(org, boards, identity, input) {
       policy: meta?.policy || normalizePolicy(),
       secrets,
       siem: (await org.kv.get("org:siem:status")) || null,
+      slack: await slackStatus(org, null, await org.secret("slack")),
       owner: await org.accountOwner(),
       platform: {
         saml: false,
@@ -2676,6 +2679,16 @@ export async function adminCall(org, boards, identity, input) {
       return { ok: true, matches: hookMatches(hook, "board.created") };
     } catch (error) {
       fail(502, error.message || "The webhook test failed.");
+    }
+  }
+  if (op === "org.slack.test") {
+    const url = await org.secret("slack");
+    if (!url) fail(400, "Enter a Slack incoming webhook URL.");
+    try {
+      await testSlack(org, url);
+      return { ok: true };
+    } catch (error) {
+      fail(502, error.message || "The Slack test failed.");
     }
   }
   if (op === "org.siem.test") {

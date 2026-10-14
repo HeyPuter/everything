@@ -554,7 +554,7 @@ export async function retryWebhooks(org) {
 }
 export async function slack(org, url, text) {
   if (!url || !/^https:\/\/hooks\.slack\.com\//.test(url)) return;
-  await org.fetcher(url, {
+  const res = await org.fetcher(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     // Slack reads <...> as links and mentions such as <!channel>; text
@@ -568,6 +568,61 @@ export async function slack(org, url, text) {
     }),
     signal: signal(),
   });
+  // Slack refuses a post to a removed webhook or an archived channel with
+  // a short reason, such as no_service or channel_is_archived.
+  if (!res.ok) {
+    const reason = (await res.text().catch(() => "")).trim();
+    throw Error(
+      /^[\w.-]{1,60}$/.test(reason)
+        ? `Slack refused the message (${res.status}): ${reason}`
+        : `Slack refused the message (${res.status}).`,
+    );
+  }
+}
+// Where a Slack channel's last post went, kept with a hash of the channel's
+// address: the alerts channel's, or a board's by its room. A channel that
+// stopped taking posts says so where it is set up, and one set up again
+// starts clean.
+export const slackStatusKey = (room) =>
+  "org:slackstatus:" + (room ? "board:" + room : "alerts");
+async function postSlack(org, room, url, text) {
+  const key = slackStatusKey(room),
+    address = await hash(url);
+  try {
+    await slack(org, url, text);
+    await org.kv.set(key, { url: address, lastSuccess: org.now() });
+  } catch (error) {
+    await org.kv
+      .set(key, {
+        url: address,
+        lastError: String(error.message || error).slice(0, 200),
+        lastErrorAt: org.now(),
+      })
+      .catch(() => {});
+    throw error;
+  }
+}
+export async function slackStatus(org, room, url) {
+  const status = url && (await org.kv.get(slackStatusKey(room)));
+  return status && status.url === (await hash(url))
+    ? {
+        lastSuccess: status.lastSuccess,
+        lastError: status.lastError,
+        lastErrorAt: status.lastErrorAt,
+      }
+    : null;
+}
+// A test post to the alerts channel, from Organization settings.
+export async function testSlack(org, url) {
+  await postSlack(
+    org,
+    null,
+    url,
+    bilingualPost(
+      "Whiteboard can post to this channel.",
+      "Whiteboard peut publier dans ce canal.",
+    ),
+  );
 }
 // Sends through whichever method this runtime's SDK has: sendTransactional
 // now, send before it. Answers Puter's result ({ failed, suppressed }), or
@@ -731,8 +786,9 @@ async function sendAlerts(org, policy, matching) {
       ? org
           .secret("slack")
           .then((url) =>
-            slack(
+            postSlack(
               org,
+              null,
               url,
               bilingualPost(
                 lines,
@@ -849,8 +905,11 @@ async function boardSlack(org, policy, notifications) {
             `${who} a commenté dans ${title} : ${entry.excerpt}`,
           )
         : entry.text || "";
-    await slack(org, url, post + (entry.url ? `\n\n${entry.url}` : "")).catch(
-      () => {},
-    );
+    await postSlack(
+      org,
+      entry.board,
+      url,
+      post + (entry.url ? `\n\n${entry.url}` : ""),
+    ).catch(() => {});
   }
 }

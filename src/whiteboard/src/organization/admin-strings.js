@@ -517,4 +517,12 @@ addTranslations({
     "L’ingestion dans Sentinel a échoué ({status}).",
   "Microsoft Entra sign-in failed ({status}): {error}":
     "La connexion à Microsoft Entra a échoué ({status}) : {error}",
+  "Slack refused the message ({status}).":
+    "Slack a refusé le message ({status}).",
+  "Slack refused the message ({status}): {error}":
+    "Slack a refusé le message ({status}) : {error}",
+  "Last post": "Dernière publication",
+  "Nothing posted yet.": "Rien n’a encore été publié.",
+  "Send test message": "Envoyer un message d’essai",
+  "Test message posted to Slack.": "Message d’essai publié dans Slack.",
 });
