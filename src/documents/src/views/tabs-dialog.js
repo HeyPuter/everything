@@ -3,7 +3,7 @@ import { TAB_LEADERS } from '../engine/tab-leaders.js';
 import { normalizeTabStops, sameValue } from '../engine/paragraph-geometry.js';
 import { field, group, distance, openFormatDialog, UNITS } from './format-dialog-kit.js';
 
-export const TAB_KINDS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['decimal', 'Decimal']];
+export const TAB_KINDS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right'], ['decimal', 'Decimal'], ['bar', 'Bar']];
 const LEADERS = Object.entries(TAB_LEADERS).filter(([value]) => value !== 'heavy');
 
 /**

@@ -11,6 +11,7 @@ import { checkedParagraphBorder } from '../engine/paragraph-borders.js';
 import { defineBullet, defineNumberFormat, adjustListIndents, defineMultilevelList, continueNumbering, previousList, currentListValue, selectedLevelDefinition, selectedListLevel } from '../engine/list-definitions.js';
 import { styleUsage, styleRanges, deleteStyle, styleDeletionBlocker, createStyleFromSelection } from '../engine/style-management.js';
 import { similarFormatCondition, similarFormattingRanges } from '../engine/format-inspection.js';
+import { advancedFind } from '../engine/advanced-search.js';
 import { directParagraph, directRun } from '../engine/home-editing.js';
 import { PASTE_MODES, pastePayload, availablePasteModes } from '../engine/paste-modes.js';
 import { fragmentHtml } from '../engine/clipboard-fragment.js';
@@ -327,7 +328,48 @@ export function createFormatArea({ editor, pkg, error, refresh: refreshChrome = 
     openFind?.({ advanced: true });
     if (format) finder()?.setFindFormat(format);
   }
+  /** Header and footer stories to search: one occurrence of each editable story. */
+  const searchStories = engine => {
+    const seen = new Set(), stories = [];
+    for (const item of engine?.storyLayout?.positions || []) {
+      const story = engine.pageStories?.stories[item.path];
+      if (!story?.editable || !['header', 'footer'].includes(story.kind) || seen.has(item.path)) continue;
+      seen.add(item.path);
+      stories.push({ path: item.path, page: item.page, kind: story.kind, label: `${story.kind === 'header' ? 'Header' : 'Footer'} · page ${item.page + 1}` });
+    }
+    return stories;
+  };
+  const storyParagraphs = (engine, path) => engine.session.models?.get(path)?.paragraphs || engine.pageStories.stories[path].paragraphs;
   const findApi = {
+    scopes: () => [['headers', 'Headers and footers']],
+    isCurrentStory: story => editor()?.session.path === story.path,
+    range: () => editor()?.model.range || [0, 0],
+    matches(query, options) {
+      const engine = editor(); if (!engine) return [];
+      if (options.scope !== 'headers') return engine.model.findMatches(query, options);
+      const body = engine.session.body || engine.model;
+      return searchStories(engine).flatMap(story => advancedFind(storyParagraphs(engine, story.path), query, { ...options, within: undefined }, { styles: body.styles, numbering: body.numbering }).map(m => ({ ...m, story })));
+    },
+    select(match) {
+      const engine = editor(); if (!engine) return;
+      if (match.story && engine.session.path !== match.story.path) engine.editStory(match.story.path, match.story.page);
+      else if (!match.story && engine.session.path !== null) engine.editStory(null);
+      engine.selectMatch(match);
+    },
+    highlight(matches) { const engine = editor(); engine?.setFindHighlights(matches.filter(m => (m.story?.path ?? null) === engine.session.path)); },
+    replace(query, text, options, all) {
+      const engine = editor(); if (!engine) return 0;
+      if (options.scope !== 'headers') return engine.replaceMatches(query, text, options, all);
+      if (!all) return engine.session.path === null ? 0 : engine.replaceMatches(query, text, options, false);
+      let total = 0;
+      for (const story of searchStories(engine)) {
+        const found = advancedFind(storyParagraphs(engine, story.path), query, options, { styles: engine.model.styles, numbering: engine.model.numbering });
+        if (!found.length) continue;
+        if (engine.session.path !== story.path) engine.editStory(story.path, story.page);
+        total += engine.replaceMatches(query, text, options, true);
+      }
+      return total;
+    },
     chooseFont: (seed, done) => fontDialog({ title: 'Find Font', seed: Object.fromEntries(Object.entries(seed || {}).filter(([k]) => k in NULL_RUN)), capture: patch => done(fontCondition(patch)) }),
     chooseParagraph: (seed, done) => {
       const nulls = Object.fromEntries(['alignment', 'outlineLevel', 'indentLeft', 'indentRight', 'firstLine', 'spaceBefore', 'spaceAfter', 'lineRule', 'lineSpacing', 'contextualSpacing', 'mirrorIndents', 'widowControl', 'keepNext', 'keepLines', 'pageBreakBefore', 'suppressLineNumbers', 'suppressAutoHyphens'].map(k => [k, null]));

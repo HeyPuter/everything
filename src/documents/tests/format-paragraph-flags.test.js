@@ -73,3 +73,18 @@ it('hides hidden text unless formatting marks show it, and keeps w:vanish throug
   expect(again.xml).toMatch(/<w:vanish w:val="0"\/>/);
   expect((await reopen(again.bytes)).paragraphs[0].runs.every(r => !r.vanish)).toBe(true);
 });
+
+it('draws bar tabs beside every line without making them tab stops, and keeps them in DOCX', async () => {
+  const { pkg, doc } = documentWith(['Left\tRight']);
+  doc.select(0);
+  expect(doc.setParagraphFormat({ tabs: [{ position: 720, alignment: 'bar' }, { position: 2880, alignment: 'left' }] })).toBe(true);
+  const placed = layoutDocument(doc.paragraphs, measure, pageGeometry(doc.pageSettings), doc.numbering, doc.tables, undefined, { styles: doc.styles });
+  const line = placed.lines[0], page = pageGeometry(doc.pageSettings);
+  expect(line.bars).toEqual([{ x: page.left + 720 / 15 }]);
+  // The tab skips the bar position and lands on the 2-inch stop.
+  expect(line.fragments.find(f => f.text === 'Right').x).toBeCloseTo(page.left + 2880 / 15, 3);
+  const { bytes, xml } = await save(pkg, doc);
+  expect(xml).toMatch(/<w:tab w:val="bar" w:pos="720"\/><w:tab w:val="left" w:pos="2880"\/>/);
+  const reopened = await reopen(bytes);
+  expect(reopened.paragraphs[0].format.tabs).toEqual([{ position: 720, alignment: 'bar' }, { position: 2880, alignment: 'left' }]);
+});

@@ -59,7 +59,7 @@ function unwrappedWidth(chars, left, format, page, measure, minimum) {
   const fields = [[]];
   for (const c of chars) { if (c.text === '\t') fields.push([]); else fields.at(-1).push(c); }
   let end = left;
-  const tabs = format.tabs.filter(t => !t.numberingOnly);
+  const tabs = format.tabs.filter(t => !t.numberingOnly && t.alignment !== 'bar');
   const automaticDecimal = tabs.length === 1 && tabs[0].alignment === 'decimal';
   if (format.firstLine < 0 && !page.noTabHangInd && !tabs.some(t => t.position === format.indentLeft)) tabs.push({ position: format.indentLeft, alignment: 'left' });
   tabs.sort((a,b) => a.position - b.position);
@@ -68,7 +68,7 @@ function unwrappedWidth(chars, left, format, page, measure, minimum) {
   // as an implicit stop; mode 15 starts at the real first-line position.
   // This is intrinsic sizing only: normal paragraph tab placement is unchanged.
   const legacyMinimum = (page.compatibilityMode ?? 12) < 15;
-  const minimumTabs = minimum && [...(legacyMinimum ? format.tabs.filter(t => !t.numberingOnly) : tabs)];
+  const minimumTabs = minimum && [...(legacyMinimum ? format.tabs.filter(t => !t.numberingOnly && t.alignment !== 'bar') : tabs)];
   if (minimumTabs && legacyMinimum && format.indentLeft > 0 && !minimumTabs.some(t => t.position === format.indentLeft)) minimumTabs.push({position:format.indentLeft, alignment:'left'});
   minimumTabs?.sort((a,b) => a.position - b.position);
   let minimumEnd = 0;

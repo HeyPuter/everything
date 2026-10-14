@@ -125,3 +125,33 @@ test('Advanced Find and Replace: wildcards, special characters, formatting and s
   await expect(panel.locator('.canvas-find-count')).toHaveText(/2 matches|of 2/);
   expect(errors).toEqual([]);
 });
+
+test('Advanced Find searches headers and footers and a selection', async ({ page }, info) => {
+  const { input, errors } = await blank(page, 'Report body one report body two report');
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.keyboard.type('Quarterly report header');
+  await page.getByRole('button', { name: 'Close Header and Footer' }).click();
+  await onTab(page, 'home');
+  await page.getByRole('button', { name: 'Find options' }).click();
+  await page.getByRole('menuitem', { name: 'Advanced Find…' }).click();
+  const panel = page.getByRole('search', { name: 'Find and replace' });
+  const query = panel.getByRole('textbox', { name: 'Find text', exact: true });
+  await query.fill('report');
+  await expect(panel.locator('.canvas-find-count')).toHaveText(/3 matches|of 3/);
+  await panel.getByLabel('Search in').selectOption('headers');
+  await expect(panel.locator('.canvas-find-count')).toHaveText(/1 match|1 of 1/);
+  await panel.getByRole('textbox', { name: 'Replace with', exact: true }).fill('summary');
+  await panel.getByRole('button', { name: 'Replace all', exact: true }).click();
+  await expect(panel.locator('.canvas-find-notice')).toHaveText('Replaced 1 match.');
+  // A selection scope counts only matches inside the selection.
+  await panel.getByLabel('Search in').selectOption('document');
+  await page.getByRole('button', { name: 'Close Header and Footer' }).click().catch(() => {});
+  await input.evaluate(el => { el.setSelectionRange(0, 15); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await panel.getByLabel('Search in').selectOption('selection');
+  await expect(panel.locator('.canvas-find-count')).toHaveText(/1 match|1 of 1/);
+  const saved = await save(page, info, 'find-headers.docx');
+  const files = unzipSync(readFileSync(saved.path)), header = Object.keys(files).find(name => /^word\/header\d*\.xml$/.test(name));
+  expect(strFromU8(files[header])).toContain('Quarterly summary header');
+  expect(saved.xml('word/document.xml')).toContain('Report body one report body two report');
+  expect(errors).toEqual([]);
+});

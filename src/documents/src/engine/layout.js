@@ -1037,6 +1037,12 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       if (bordered) line.paragraphFrame = { borders: format.paragraphBorders, x: paintLeft, right: paintRight, spaceAfter: format.spaceAfter * 4 / 3, contextualSpacing: format.contextualSpacing, styleId: p.resolvedStyleId ?? p.styleId ?? null };
     }
   }
+  // Bar tabs draw a vertical rule beside every line of the paragraph, measured from the text margin.
+  const bars = format.tabs.filter(t => t.alignment === 'bar');
+  if (bars.length) for (const line of lines) if (!line.virtual) {
+    const geometry = line.columnMeasureWidth === undefined ? page : columnPage;
+    line.bars = bars.map(t => ({ x: geometry.left + t.position / 15 }));
+  }
   return { lines, format, styleId: 'resolvedStyleId' in p ? p.resolvedStyleId : p.styleId ?? null, leadingFlowBreaks: /^[\f\u000e]+/.exec(text)?.[0].length || 0 };
 }
 

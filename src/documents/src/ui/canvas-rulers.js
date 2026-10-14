@@ -1,7 +1,7 @@
 import { el } from './dom.js';
 import { recallUnit, rememberUnit, onUnitChange } from '../lib/units.js';
 
-const SYMBOLS = { left: '└', center: '┴', right: '┘', decimal: '⊥' };
+const SYMBOLS = { left: '└', center: '┴', right: '┘', decimal: '⊥', bar: '│' };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 function marginSource(page, settings, side) {
   const key = page.bookFoldSwapped && ['left', 'right'].includes(side) ? (side === 'left' ? 'right' : 'left') : side;
