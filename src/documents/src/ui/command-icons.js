@@ -220,6 +220,10 @@ export const COMMAND_ICONS = {
 
   /* Styles and editing */
   stylesPane: r(3, 3, 12, 14, 'of') + lines(5, 6, 7, 2, 2.5) + brush(1, 0),
+  // A microphone: soft capsule, the cradle arc and its stand.
+  dictate: r(7.5, 2.5, 5, 9.5, 'bf', 2.5) + p('M8.5 5.5h1.5M8.5 7.5h1.5', 'o ln') + p('M4.8 9.5a5.2 5.2 0 0 0 10.4 0', 'o') + p('M10 14.7v2.8M7 17.5h6', 'o'),
+  // Formatting revealed: a letter under a magnifier.
+  revealFormatting: t(7.5, 14, 'A', 12, { weight: 600 }) + magnifier(13.2, 11.8, 3.4),
   styleGallery: r(2.5, 2.5, 15, 4.2, 'bs', 1.4) + p('M4.7 4.6h5', 'wh') + r(2.5, 7.9, 15, 4.2, 'gf', 1.4) + p('M4.7 10h5', 'g') + r(2.5, 13.3, 15, 4.2, 'of', 1.4) + p('M4.7 15.4h5', 'o ln'),
   newStyle: t(7, 14, 'A', 12) + badge(14.5, 14.5, 'plus'),
   editStyle: t(7, 14, 'A', 12) + pencil(2, 2),
@@ -478,6 +482,28 @@ Object.assign(COMMAND_ICONS, {
   invitePeople: person(8, 10.5, 'bf') + badge(14.5, 13.5, 'plus', 'b'),
   // Two pages with a clock face on the front one: compare with an earlier version.
   compareVersion: page(6.5, 2.5, 10, 12, 2.5) + page(3.5, 5.5, 10, 12, 2.5) + ci(8.5, 12.5, 3.2, 'bf') + p('M8.5 10.8v1.9l1.3.8', 'o'),
+});
+
+/* ---- View: page movement, windows, reading tools and the Outlining tab ---- */
+Object.assign(COMMAND_ICONS, {
+  verticalMovement: sheet(3.5, 2, 9, 7) + sheet(3.5, 11, 9, 7, 'bf glassy') + arrowDown(16, 3.5, 13),
+  sideToSide: sheet(2, 3, 7, 9.5) + sheet(11, 3, 7, 9.5, 'bf glassy') + arrowRight(3, 16, 14),
+  thumbnails: [[2.5, 3], [11, 3], [2.5, 11], [11, 11]].map(([x, y], i) => sheet(x, y, 6.5, 6, i === 1 ? 'bf' : 'of')).join(''),
+  newWindow: r(2.5, 3.5, 13, 11, 'of', 1.6) + headBand(2.5, 3.5, 13, 2.8, 'bs', 1.6) + lines(4.5, 9, 9, 2, 2.5) + badge(15, 15, 'plus'),
+  split: r(2.5, 2.5, 15, 15, 'of') + lines(4.5, 5.5, 11, 2, 2.2) + p('M2.5 10h15', 'b thick') + lines(4.5, 13, 11, 2, 2.2),
+  promote: arrowLeft(3, 5.5, 9, 'g thick') + lines(7.5, 10.5, 10, 3, 2.7),
+  demote: arrowRight(3, 5.5, 9, 'b thick') + lines(7.5, 10.5, 10, 3, 2.7),
+  promoteHeading1: p('M8.5 2.5 5 5.5l3.5 3M13 2.5l-3.5 3 3.5 3', 'g thick') + t(15.5, 9, '1', 7, { weight: 700, c: 'txb' }) + lines(3.5, 12.5, 13, 3, 2.5),
+  demoteBody: p('M4.5 2.5 8 5.5l-3.5 3M9 2.5l3.5 3-3.5 3', 'b thick') + lines(3.5, 12.5, 13, 3, 2.5) + ci(16, 5.5, 1.3, 'bs'),
+  moveUp: arrowUp(15, 3, 13) + lines(3, 5.5, 8, 4, 3),
+  moveDown: arrowDown(15, 3, 13) + lines(3, 5.5, 8, 4, 3),
+  expand: ci(10, 10, 7, 'of') + plusMark(10, 10, 3.5, 'g thick'),
+  collapse: ci(10, 10, 7, 'of') + p('M6.5 10h7', 'r thick'),
+  showLevel: rows([[2.5, 12], [5.5, 9], [8.5, 6]], 5, 4.5, 'o') + p('M17 3v13M15 14l2 2 2-2', 'b'),
+  closeView: page(3.5, 2.5, 11, 14) + lines(5.5, 7.5, 6, 3, 2.5) + badge(14.5, 14.5, 'x', 'r'),
+  lineFocus: r(2.5, 3.5, 15, 13, 'of') + lines(4.5, 6, 11, 1) + r(2.5, 8.2, 15, 3.6, 'bs', 0) + p('M4.5 10h11', 'wh') + lines(4.5, 14, 11, 1),
+  textSpacing: t(10, 11.5, 'ab', 9) + p('M2.5 16h15M4.5 14l-2 2 2 2M15.5 14l2 2-2 2', 'b'),
+  styleArea: r(2.5, 3.5, 15, 13, 'of') + paneLeft(2.5, 3.5, 5.5, 13) + p('M8 3.5v13', 'o ln') + p('M3.8 6.5h3M3.8 11h3', 'b') + lines(10, 6.5, 5.5, 4, 2.5),
 });
 
 /** Aliases: the editor's existing control icon names that map onto a drawing above. */

@@ -30,6 +30,7 @@ import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
 import { readMailMerge, writeMailMerge } from './docx-mail-merge.js';
+import { readDocumentView, writeDocumentView } from './docx-view-settings.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
@@ -75,7 +76,7 @@ import { OBJECT } from './images.js';
 import { isPageBasedCellPosition, isCellRelativePosition } from './positioned-images.js';
 import { documentBlocks } from './tables.js';
 import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun } from './styles.js';
-import { resolvedFormat, geometryPatch, checkedRunFormat } from './formatting.js';
+import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS } from './formatting.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
 import { parseXml as xml, wordText } from './docx-xml.js';
@@ -113,7 +114,7 @@ function paragraphProperties(pPr, inherited = {}, readColor) {
     if (!/^[+-]?\d+$/.test(raw || '') || !Number.isInteger(level) || level < 0 || level > 9 || children(node).length || [...node.attributes].some(a => a.namespaceURI === W && a.localName !== 'val')) throw new UnsupportedDocumentError('invalid outline level');
     result.outlineLevel = level;
   }
-  for (const name of ['mirrorIndents', 'bidi']) {
+  for (const name of ['mirrorIndents', 'bidi', 'suppressLineNumbers', 'suppressAutoHyphens']) {
     const node = child(pPr, name);
     if (node) result[name] = enabled(node);
   }
@@ -210,7 +211,7 @@ function writeParagraphFormat(node, p, make, numbering) {
     if (p.list) { const level = make('ilvl'); level.setAttributeNS(W, 'w:val', String(p.list.level)); numPr.append(level); }
     const id = make('numId'); id.setAttributeNS(W, 'w:val', p.list?.numId || '0'); numPr.append(id);
   }
-  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing']) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
+  for (const key of [...Object.keys(PAGINATION_DEFAULTS), 'contextualSpacing', ...Object.keys(PARAGRAPH_FLAGS)]) if (key in patch) ensure(key).setAttributeNS(W, 'w:val', patch[key] ? '1' : '0');
   if ('paragraphBorders' in patch) writeParagraphBorders(ensure('pBdr'), patch.paragraphBorders, make);
   if ('paragraphShading' in patch) writeParagraphShading(ensure('shd'), patch.paragraphShading);
   if ('alignment' in patch) ensure('jc').setAttributeNS(W, 'w:val', patch.alignment);
@@ -334,7 +335,7 @@ function writeRunFormat(properties, patch, make, inheritedStrike = 'none', inher
     node.setAttributeNS(W, 'w:val', mode === 'single' || mode === 'double' ? '1' : '0');
     properties.insertBefore(node, children(properties).find(n => runOrder.indexOf(n.localName) > runOrder.indexOf(tag)) || null);
   }
-  for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['boldCs', 'bCs'], ['italicCs', 'iCs'], ['fontSizeCs', 'szCs'], ['cs', 'cs'], ['rtl', 'rtl'], ['noProof', 'noProof'], ['color', 'color'], ['characterSpacing', 'spacing'], ['textScale', 'w'], ['kerning', 'kern'], ['baselineShift', 'position'], ['fontSize', 'sz'], ['highlight', 'highlight'], ['underline', 'u'], ['shading', 'shd'], ['verticalAlign', 'vertAlign']]) {
+  for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['boldCs', 'bCs'], ['italicCs', 'iCs'], ['fontSizeCs', 'szCs'], ['cs', 'cs'], ['rtl', 'rtl'], ['noProof', 'noProof'], ['vanish', 'vanish'], ['color', 'color'], ['characterSpacing', 'spacing'], ['textScale', 'w'], ['kerning', 'kern'], ['baselineShift', 'position'], ['fontSize', 'sz'], ['highlight', 'highlight'], ['underline', 'u'], ['shading', 'shd'], ['verticalAlign', 'vertAlign']]) {
     if (!(key in patch) && !(key === 'underline' && ('underlineColor' in patch || 'underlineStyle' in patch))) continue;
     properties ||= make('rPr');
     const old = child(properties, tag);
@@ -616,13 +617,16 @@ function readStyles(parts, parsed, readColor, readFonts, onUnsupported = null) {
 // Modify only requested declarations; retain latent styles, links and extension XML.
 function writeStyles(parts, styles) {
   const changed = Object.values(styles.definitions).filter(s => s.changes || s.generated);
-  if (!changed.length) return;
+  const deleted = (styles.deleted || []).filter(id => !Object.hasOwn(styles.definitions, id));
+  if (!changed.length && !deleted.length) return;
   const existingPath = stylesPath(parts);
   let path = existingPath || 'word/styles.xml';
   // Preserve any unrelated/orphan part occupying the conventional name.
   if (!existingPath) for (let i = 1; Object.hasOwn(parts, path); i++) path = `word/styles${i}.xml`;
   const doc = existingPath ? xml(parts[path]) : xml(`<w:styles xmlns:w="${W}"/>`), root = doc.documentElement;
   const make = name => doc.createElementNS(W, `w:${name}`);
+  // Deleted styles leave the part; every other definition keeps its XML.
+  for (const node of children(root)) if (node.namespaceURI === W && node.localName === 'style' && deleted.includes(node.getAttributeNS(W, 'styleId'))) node.remove();
   const order = ['name', 'aliases', 'basedOn', 'next', 'link', 'autoRedefine', 'hidden', 'uiPriority', 'semiHidden', 'unhideWhenUsed', 'qFormat', 'locked', 'personal', 'personalCompose', 'personalReply', 'rsid', 'pPr', 'rPr', 'tblPr', 'trPr', 'tcPr', 'tblStylePr'];
   for (const style of changed) {
     let node = children(root).find(n => n.namespaceURI === W && n.localName === 'style' && n.getAttributeNS(W, 'styleId') === style.id);
@@ -1013,6 +1017,7 @@ export class DocxPackage {
     this.reviewSettings = readReviewSettings(null); this.initialReviewSettings = readReviewSettings(null);
     this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
     this.mailMerge = null; this.initialMailMerge = 'null';
+    this.documentView = null; this.initialDocumentView = null;
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1697,6 +1702,7 @@ export class DocxPackage {
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
     pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
+    pkg.documentView = pkg.initialDocumentView = attempt(() => readDocumentView(parts), null);
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
@@ -1927,6 +1933,8 @@ export class DocxPackage {
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
     // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
     if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
+    // The view the document was last shown in (docx-view-settings.js), only when the user changed it.
+    if (this.documentView && this.documentView !== (this.initialDocumentView ?? 'print')) writeDocumentView(parts, this.documentView);
     this.pruneFootnotes(parts, paragraphs);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Documents — second window</title>
+  <script>
+    (() => { try { const t = localStorage.getItem('documents:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {} })();
+  </script>
+  <script type="module" src="/src/mirror.js"></script>
+</head>
+<body><div id="app" class="app"></div></body>
+</html>

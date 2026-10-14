@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         app: fileURLToPath(new URL('./index.html', import.meta.url)),
         playground: fileURLToPath(new URL('./playground.html', import.meta.url)),
+        mirror: fileURLToPath(new URL('./mirror.html', import.meta.url)),
       },
     },
   },

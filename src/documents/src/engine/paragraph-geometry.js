@@ -1,7 +1,8 @@
 import { TAB_LEADERS } from './tab-leaders.js';
 /** Paragraph distances are integer twips (1/1440 inch). A negative firstLine is hanging. */
 export const INDENT_KEYS = ['indentLeft', 'indentRight', 'firstLine'];
-export const TAB_ALIGNMENTS = ['left', 'center', 'right', 'decimal'];
+// A bar tab (§17.18.84 ST_TabJc bar) draws a vertical line and is not a stop for tab characters.
+export const TAB_ALIGNMENTS = ['left', 'center', 'right', 'decimal', 'bar'];
 export const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 export function validateIndent(value) {
@@ -14,7 +15,7 @@ export function normalizeTabStops(tabs) {
   const positions = new Set();
   return tabs.map(tab => {
     if (!tab || !Number.isInteger(tab.position) || Math.abs(tab.position) > 31680) throw new Error('Tab positions must be valid measurements between −22 and 22 inches.');
-    if (!TAB_ALIGNMENTS.includes(tab.alignment)) throw new Error('Choose a left, center, right, or decimal tab stop.');
+    if (!TAB_ALIGNMENTS.includes(tab.alignment)) throw new Error('Choose a left, center, right, decimal or bar tab stop.');
     if (tab.leader !== undefined && !Object.hasOwn(TAB_LEADERS, tab.leader)) throw new Error('Choose a supported tab leader.');
     if (positions.has(tab.position)) throw new Error('Each tab stop needs a different position.');
     positions.add(tab.position);

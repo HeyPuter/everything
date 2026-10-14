@@ -90,7 +90,7 @@ export class LineBuilder {
   constructor(left, right, format, page, measure, offset) {
     this.left = left; this.right = right; this.page = page; this.measure = measure;
     this.format = format;
-    this.tabs = format.tabs.filter(t => !t.numberingOnly || page.numberingSuffix);
+    this.tabs = format.tabs.filter(t => t.alignment !== 'bar' && (!t.numberingOnly || page.numberingSuffix));
     if (format.firstLine < 0 && !page.noTabHangInd && !this.tabs.some(t => t.position === format.indentLeft)) {
       this.tabs.push({ position: format.indentLeft, alignment: 'left' });
       this.tabs.sort((a, b) => a.position - b.position);

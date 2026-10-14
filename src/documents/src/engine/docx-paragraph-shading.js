@@ -16,17 +16,23 @@ export function readParagraphShading(pPr, readColor) {
   const fill = readColor(pPr, 'shd', 'fill'), color = readColor(pPr, 'shd', 'color');
   // [MS-OI29500] §2.1.553: nil declarations are ignored, retaining inheritance.
   if(pattern==='nil')return undefined;
-  if(percentages.has(pattern)){
-    // Percentage shading paints as flat sRGB. Automatic channels are
-    // black/white even on dark page/cell backgrounds. A rounded
-    // signed channel delta is added to the background (half ties toward foreground).
-    const weight=percentages.get(pattern),foreground=color==='auto'?'000000':color,background=fill==='auto'?'FFFFFF':fill;
-    return [0,2,4].map(i=>{
-      const back=parseInt(background.slice(i,i+2),16),delta=parseInt(foreground.slice(i,i+2),16)-back;
-      return (back+Math.sign(delta)*Math.floor((Math.abs(delta)*weight+100)/200)).toString(16).padStart(2,'0');
-    }).join('').toUpperCase();
-  }
+  if(percentages.has(pattern)) return patternedFill(pattern, color, fill);
   return pattern === 'clear' ? fill : color === 'auto' ? 'foreground' : color;
+}
+
+/** The percentage patterns (§17.18.78 pct5–pct95) a flat fill can stand for. */
+export const SHADING_PERCENTAGES = Object.freeze([...percentages.keys()]);
+/**
+ * A percentage pattern painted as flat sRGB. Automatic channels are black/white even on dark page/cell
+ * backgrounds. A rounded signed channel delta is added to the background (half ties toward foreground).
+ */
+export function patternedFill(pattern, color, fill) {
+  const weight=percentages.get(pattern),foreground=color==='auto'?'000000':color,background=fill==='auto'?'FFFFFF':fill;
+  if (weight === undefined) throw new Error('Unsupported shading pattern.');
+  return [0,2,4].map(i=>{
+    const back=parseInt(background.slice(i,i+2),16),delta=parseInt(foreground.slice(i,i+2),16)-back;
+    return (back+Math.sign(delta)*Math.floor((Math.abs(delta)*weight+100)/200)).toString(16).padStart(2,'0');
+  }).join('').toUpperCase();
 }
 
 export function writeParagraphShading(node, value) {

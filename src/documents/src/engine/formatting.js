@@ -19,15 +19,18 @@ import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { UnsupportedDocumentError } from './errors.js';
 // Spacing is in points, except auto line spacing, which is a multiple of a line.
 export const PAGINATION_DEFAULTS = Object.freeze({ keepNext: false, keepLines: false, widowControl: true, pageBreakBefore: false });
-export const PARAGRAPH_FORMAT = Object.freeze({ paragraphBorders: Object.freeze({}), paragraphShading: 'auto', alignment: 'left', lineRule: 'auto', lineSpacing: 1, spaceBefore: 0, spaceAfter: 9, contextualSpacing: false, ...PAGINATION_DEFAULTS, indentLeft: 0, indentRight: 0, firstLine: 0, tabs: Object.freeze([]), outlineLevel: 9 });
-export const RUN_FORMAT = Object.freeze({ ...FONT_DEFAULTS, bold: false, italic: false, boldCs: false, italicCs: false, fontSizeCs: 12, cs: false, rtl: false, noProof: false, underline: false, underlineStyle: 'none', strikethrough: 'none', capitalization: 'normal', fontSize: 12, textOutline: null, textShadow: null, textFill: null, text3d: null, textScene: null, color: 'auto', underlineColor: 'auto', highlight: 'none', shading: 'auto', verticalAlign: 'baseline', baselineShift: 0, characterSpacing: 0, textScale: 100, kerning: 0, ligatures: 'none' });
+// Plain on/off paragraph properties: mirrored indents (§17.3.1.18), line-number suppression (§17.3.1.34)
+// and automatic-hyphenation suppression (§17.3.1.33).
+export const PARAGRAPH_FLAGS = Object.freeze({ mirrorIndents: false, suppressLineNumbers: false, suppressAutoHyphens: false });
+export const PARAGRAPH_FORMAT = Object.freeze({ paragraphBorders: Object.freeze({}), paragraphShading: 'auto', alignment: 'left', lineRule: 'auto', lineSpacing: 1, spaceBefore: 0, spaceAfter: 9, contextualSpacing: false, ...PAGINATION_DEFAULTS, indentLeft: 0, indentRight: 0, firstLine: 0, tabs: Object.freeze([]), outlineLevel: 9, ...PARAGRAPH_FLAGS });
+export const RUN_FORMAT = Object.freeze({ ...FONT_DEFAULTS, bold: false, italic: false, boldCs: false, italicCs: false, fontSizeCs: 12, cs: false, rtl: false, noProof: false, underline: false, underlineStyle: 'none', strikethrough: 'none', capitalization: 'normal', fontSize: 12, textOutline: null, textShadow: null, textFill: null, text3d: null, textScene: null, color: 'auto', underlineColor: 'auto', highlight: 'none', shading: 'auto', verticalAlign: 'baseline', baselineShift: 0, characterSpacing: 0, textScale: 100, kerning: 0, ligatures: 'none', vanish: false });
 export const runFormat = run => { const result = Object.fromEntries(Object.entries(RUN_FORMAT).map(([k, v]) => [k, run?.[k] ?? v])); result.underlineStyle = underlinePattern(run); result.underline = result.underlineStyle !== 'none'; if (run?.legacyKerning !== undefined) result.legacyKerning = run.legacyKerning; return result; };
 
 export function resolvedFormat(properties) {
   const s = properties.spacing || {}, ind = properties.ind || {};
   const outlineLevel = properties.outlineLevel ?? 9;
   if (!Number.isInteger(outlineLevel) || outlineLevel < 0 || outlineLevel > 9) throw new UnsupportedDocumentError('outline levels outside 0–9');
-  if (properties.mirrorIndents || properties.bidi) throw new UnsupportedDocumentError('mirrored or right-to-left paragraph indents');
+  if (properties.bidi) throw new UnsupportedDocumentError('right-to-left paragraph indents');
   if (Object.keys(ind).some(k => k.endsWith('Chars') && ind[k] !== 0)) throw new UnsupportedDocumentError('character-unit paragraph indents');
   const geometry = { indentLeft: ind.left ?? 0, indentRight: ind.right ?? 0, firstLine: ind.hanging !== undefined ? -ind.hanging : ind.firstLine ?? 0 };
   try {
@@ -58,7 +61,8 @@ export function resolvedFormat(properties) {
     throw new UnsupportedDocumentError('paragraph spacing outside the supported range');
   }
   const pagination = Object.fromEntries(Object.entries(PAGINATION_DEFAULTS).map(([key, fallback]) => [key, properties[key] ?? fallback]));
-  return { ...geometry, ...pagination, ...automatic, paragraphBorders: checkedParagraphBorders(properties.paragraphBorders || {}), paragraphShading: checkedShading(properties.paragraphShading ?? 'auto'), contextualSpacing: properties.contextualSpacing ?? false, outlineLevel, alignment: alignment === 'start' ? 'left' : alignment === 'end' ? 'right' : alignment, lineRule, lineSpacing, spaceBefore, spaceAfter };
+  const flags = Object.fromEntries(Object.entries(PARAGRAPH_FLAGS).map(([key, fallback]) => [key, properties[key] ?? fallback]));
+  return { ...geometry, ...pagination, ...flags, ...automatic, paragraphBorders: checkedParagraphBorders(properties.paragraphBorders || {}), paragraphShading: checkedShading(properties.paragraphShading ?? 'auto'), contextualSpacing: properties.contextualSpacing ?? false, outlineLevel, alignment: alignment === 'start' ? 'left' : alignment === 'end' ? 'right' : alignment, lineRule, lineSpacing, spaceBefore, spaceAfter };
 }
 
 // Explicit point edits switch off inherited/direct automatic spacing. Retain
