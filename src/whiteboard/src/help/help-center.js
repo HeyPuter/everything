@@ -40,8 +40,8 @@ export const GUIDES = [
       "Se joindre à un tableau et collaborer en direct",
     ],
     body: [
-      "Open the invitation link and sign in with Puter. You see other people's cursors, selections, and edits as they happen. Your role decides what you can do: editors change content, commenters add comments, reactions, and votes, and viewers follow along.",
-      "Ouvrez le lien d’invitation et connectez-vous avec Puter. Vous voyez les curseurs, les sélections et les modifications des autres en direct. Votre rôle détermine ce que vous pouvez faire : les éditeurs modifient le contenu, les commentateurs ajoutent des commentaires, des réactions et des votes, et les lecteurs suivent.",
+      "Open the invitation link and sign in with Puter. You see other people's cursors, selections, and edits as they happen. Your role decides what you can do: editors change content, commenters add comments, reactions, and votes, and viewers follow along, send live reactions, and raise their hand.",
+      "Ouvrez le lien d’invitation et connectez-vous avec Puter. Vous voyez les curseurs, les sélections et les modifications des autres en direct. Votre rôle détermine ce que vous pouvez faire : les éditeurs modifient le contenu, les commentateurs ajoutent des commentaires, des réactions et des votes, et les lecteurs suivent, envoient des réactions en direct et lèvent la main.",
     ],
   },
   {
@@ -53,6 +53,17 @@ export const GUIDES = [
     body: [
       "Choose Comment (C) and click an object or empty space. Reply in the thread, resolve it when done, and type @ followed by a name to mention someone. Mentions and replies appear under Notifications in the library and, if you verified your email, by email.",
       "Choisissez Commentaire (C) et cliquez sur un objet ou un espace vide. Répondez dans le fil, résolvez-le une fois terminé et tapez @ suivi d’un nom pour mentionner quelqu’un. Les mentions et les réponses apparaissent sous Notifications dans la bibliothèque et, si vous avez vérifié votre courriel, par courriel.",
+    ],
+  },
+  {
+    role: "participant",
+    title: [
+      "Vote, react, and raise your hand",
+      "Voter, réagir et lever la main",
+    ],
+    body: [
+      "During a dot vote, a banner shows how many votes you have left. Click an object in the vote, or its Vote button, to vote, and the ✓ button under it to take a vote back; with the keyboard, choose the banner or open Facilitation, then Voting, and use the list. Answer polls in Facilitation, then Poll. To react to an object, select it and choose Add a reaction under it; choosing the same reaction again removes it. On a shared board, Live reactions and raise hand, in the row above the board, sends a reaction that floats up for everyone, and Raise hand puts your hand up for the facilitator until you choose it again. Commenters and editors vote, answer polls, and react to objects; viewers can send live reactions and raise their hand.",
+      "Pendant un vote par points, une bannière indique combien de votes il vous reste. Cliquez sur un objet soumis au vote, ou sur son bouton Voter, pour voter, et sur le bouton ✓ sous celui-ci pour retirer un vote; au clavier, choisissez la bannière ou ouvrez Animation, puis Votes, et utilisez la liste. Répondez aux sondages dans Animation, puis Sondage. Pour réagir à un objet, sélectionnez-le et choisissez Ajouter une réaction sous celui-ci; choisir la même réaction de nouveau la retire. Sur un tableau partagé, Réactions en direct et main levée, dans la rangée au-dessus du tableau, envoie une réaction qui s’élève à l’écran de tous, et Lever la main signale votre main levée à l’animateur jusqu’à ce que vous le choisissiez de nouveau. Les commentateurs et les éditeurs votent, répondent aux sondages et réagissent aux objets; les lecteurs peuvent envoyer des réactions en direct et lever la main.",
     ],
   },
   {
@@ -117,7 +128,7 @@ export const GUIDES = [
     ],
     body: [
       "Open Facilitation, then Voting. Choose the votable objects (all sticky notes, the selection, or the objects in chosen frames), votes per person, and a time limit, and whether votes are anonymous or results stay hidden until you reveal them, then choose Start voting. Participants select Vote on highlighted objects or use the list. For a question with set answers, use Poll. End voting to see the results, select the top results, or export them as CSV or JSON.",
-      "Ouvrez Animation, puis Vote. Choisissez les objets soumis au vote (toutes les notes adhésives, la sélection ou les objets des cadres choisis), le nombre de votes par personne et la durée, et si les votes sont anonymes ou si les résultats restent masqués jusqu’à ce que vous les dévoiliez, puis choisissez Commencer le vote. Les participants choisissent Voter sur les objets mis en évidence ou utilisent la liste. Pour une question à choix prédéfinis, utilisez Sondage. Terminez le vote pour voir les résultats, sélectionner les meilleurs résultats ou les exporter en CSV ou en JSON.",
+      "Ouvrez Animation, puis Votes. Choisissez les objets soumis au vote (toutes les notes adhésives, la sélection ou les objets des cadres choisis), le nombre de votes par personne et la durée, et si les votes sont anonymes ou si les résultats restent masqués jusqu’à ce que vous les dévoiliez, puis choisissez Commencer le vote. Les participants choisissent Voter sur les objets mis en évidence ou utilisent la liste. Pour une question à choix prédéfinis, utilisez Sondage. Terminez le vote pour voir les résultats, sélectionner les meilleurs résultats ou les exporter en CSV ou en JSON.",
     ],
   },
   {

@@ -359,6 +359,27 @@ test("help guides are bilingual, role-filtered, and searchable without accents",
         `${lang} "${query}": ${g.title}`,
       );
   assert.equal(searchGuides("lien", "all", "en").length, 0);
+  // Participants learn to vote, react and raise a hand, in either language.
+  for (const [query, lang, title] of [
+    ["vote", "en", "Vote, react, and raise your hand"],
+    ["hand", "en", "Vote, react, and raise your hand"],
+    ["main levée", "fr", "Voter, réagir et lever la main"],
+    ["réaction", "fr", "Voter, réagir et lever la main"],
+  ])
+    assert.ok(
+      searchGuides(query, "participant", lang).some((g) => g.title === title),
+      `${lang} "${query}"`,
+    );
+  // Viewers do more than follow along, and the French guide names the
+  // Votes section as the panel does.
+  assert.match(
+    searchGuides("viewers", "participant", "en")[0].body,
+    /viewers follow along, send live reactions, and raise their hand/,
+  );
+  assert.match(
+    searchGuides("vote par points", "facilitator", "fr")[0].body,
+    /Ouvrez Animation, puis Votes\./,
+  );
   assert.ok(searchGuides("mini-carte", "all", "fr").length >= 1);
   assert.ok(
     searchGuides("", "facilitator").every((g) => g.role === "facilitator"),
