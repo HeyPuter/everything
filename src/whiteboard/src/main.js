@@ -450,6 +450,7 @@ import { CollaborationSession } from "./collaboration/session.js";
 import { SharedDocument, rebase } from "./collaboration/document.js";
 import {
   ASSET,
+  canComment,
   canEditContent,
   canManage,
   encode,
@@ -1553,15 +1554,30 @@ const helpCenter = createHelpCenter({
   org: organization,
   toast,
 });
+// A tour asked for before a shared board says what this person may do on
+// it starts once it does.
+let tourWaiting = null;
 function startTour() {
   document.querySelector("#tour-offer")?.remove();
-  if (current)
-    // By role, not by whether the board is still connecting.
-    onboarding.start(undefined, {
-      canEdit: !collaboration?.readOnly && !collaboration?.contentReadOnly,
-      canComment: !collaboration?.readOnly,
+  tourWaiting = null;
+  if (!current) return toast("Open a board to take the tour.");
+  // By role, not by whether the board is still connecting: until the
+  // board answers, the role it last gave this person stands.
+  if (collaboration && !collaboration.role) {
+    const role = current.shared?.role;
+    if (!role) {
+      tourWaiting = current;
+      return toast("The tour starts once the board connects.");
+    }
+    return onboarding.start(undefined, {
+      canEdit: canEditContent(role),
+      canComment: canComment(role),
     });
-  else toast("Open a board to take the tour.");
+  }
+  onboarding.start(undefined, {
+    canEdit: !collaboration?.readOnly && !collaboration?.contentReadOnly,
+    canComment: !collaboration?.readOnly,
+  });
 }
 const planning = createPlanning({
   board: () => current,
@@ -10300,6 +10316,7 @@ function followAccess() {
   // The library offers what this role may do with the board, such as
   // renaming it, even before any content arrives with the change.
   if (collaboration.role) current.shared.role = collaboration.role;
+  if (tourWaiting === current) startTour();
   const seen = accessSeen.board === current;
   if (seen && accessSeen.access === access) return;
   if (seen)

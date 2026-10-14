@@ -28929,6 +28929,43 @@ test("the library offers renaming a shared board only to people who can edit it"
   }
 });
 
+test("the tour offered while a shared board reconnects follows the person's role", async () => {
+  const shared = await sharedEditors("tour-while-connecting", [
+    item("note", 0, 0, { text: "A" }),
+  ]);
+  const [, b] = shared.apps;
+  try {
+    await b.click('[data-action="home"]');
+    await shared.until(() => b.doc.querySelector("[data-open]"), "Library");
+    b.w.localStorage.removeItem("whiteboard-tour-v1");
+    // The board opens from this device while the server has not yet
+    // answered, so the role is the one it last gave.
+    const exec = b.w.puter.workers.exec;
+    const held = [];
+    b.w.puter.workers.exec = (url, options) =>
+      new Promise((resolve) => held.push(() => resolve(exec(url, options))));
+    await b.click("[data-open]");
+    await shared.until(() => b.doc.querySelector("#canvas"), "Board opened");
+    assert.equal(
+      b.doc.querySelector('[data-action="tool-note"]').disabled,
+      true,
+      "Tools wait for the connection",
+    );
+    await b.click('#tour-offer [data-action="tour"]');
+    const titles = [];
+    for (let n = 0; n < 12 && b.doc.querySelector(".tour-bubble"); n++) {
+      titles.push(b.doc.querySelector("#tour-title").textContent);
+      b.doc.querySelector("#tour-next").click();
+    }
+    assert.equal(titles.length, 8, titles.join(" / "));
+    b.w.puter.workers.exec = exec;
+    for (const release of held) release();
+    await new Promise((r) => setTimeout(r, 300));
+  } finally {
+    await shared.close();
+  }
+});
+
 test("the comments panel follows a change between viewer and commenter access", async () => {
   const room = "viewer-to-commenter";
   const shared = await sharedEditors(room, [item("note", 0, 0, { text: "A" })]);

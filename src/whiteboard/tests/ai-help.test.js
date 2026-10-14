@@ -1426,4 +1426,17 @@ test("viewers and commenters take a tour of what they can do", () => {
     "Run workshops",
     "Find any command",
   ]);
+  // While a shared board connects its controls are disabled; the tour
+  // still follows the person's role rather than shrinking to two steps.
+  for (const s of EDITOR_TOUR.filter((s) => s.edits || s.comments))
+    doc.querySelector(s.target).disabled = true;
+  assert.deepEqual(
+    titles({ canEdit: true, canComment: true }),
+    EDITOR_TOUR.map((s) => s.title),
+  );
+  assert.deepEqual(titles({ canEdit: false, canComment: true }), [
+    "Navigate large boards",
+    "Discuss asynchronously",
+    "Find any command",
+  ]);
 });

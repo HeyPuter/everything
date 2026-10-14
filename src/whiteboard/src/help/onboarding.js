@@ -167,15 +167,19 @@ export function createOnboarding({
     },
     // Viewers and commenters are shown only what they can do: steps about
     // editing, or commenting for viewers, and controls that are disabled
-    // or hidden for them, are left out.
-    start(list = EDITOR_TOUR, { canEdit = true, canComment = true } = {}) {
+    // or hidden for them, are left out. When the roles are given, steps
+    // about editing and commenting follow them rather than whether their
+    // controls are disabled for now, as they are while a shared board
+    // connects.
+    start(list = EDITOR_TOUR, roles) {
       close(false);
+      const { canEdit = true, canComment = true } = roles || {};
       const doc = root();
       steps = list.filter((s) => {
         const el = doc.querySelector(s.target);
         return (
           el &&
-          !el.disabled &&
+          (!el.disabled || (roles && (s.edits || s.comments))) &&
           !el.closest("[hidden]") &&
           (canEdit || !s.edits) &&
           (canComment || !s.comments)
@@ -290,6 +294,8 @@ addTranslations({
   "Take a one-minute tour": "Faire une visite d’une minute",
   Dismiss: "Fermer",
   "Open a board to take the tour.": "Ouvrez un tableau pour faire la visite.",
+  "The tour starts once the board connects.":
+    "La visite commencera une fois le tableau connecté.",
   "AI assistant": "Assistant IA",
   "Help and training": "Aide et formation",
   "Take the tour": "Faire la visite",
