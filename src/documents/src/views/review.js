@@ -520,8 +520,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function contextItems() {
     const engine = editor(); if (!engine) return [];
     const changes = engine.session.path === null && commands.revisionsAround().length ? [
-      { label: 'Accept Change', disabled: !ready(), onSelect: () => commands.resolve(true) },
-      { label: 'Reject Change', disabled: !ready(), onSelect: () => commands.resolve(false) }] : [];
+      { label: 'Accept Change', icon: 'accept', disabled: !ready() || locked(), onSelect: () => commands.resolve(true) },
+      { label: 'Reject Change', icon: 'reject', disabled: !ready() || locked(), onSelect: () => commands.resolve(false) }] : [];
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },
