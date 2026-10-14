@@ -180,6 +180,9 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     }
     const commentItems = review.contextItems();
     if (commentItems.length) items.push({separator:true}, ...commentItems);
+    // Feature modules contribute items for what was clicked (see editorCommands.contextMenuItems).
+    const moduleItems = editorCommands.contextMenuItems?.(image ? 'image' : engine.model.tableContext ? 'table' : engine.model.hyperlink ? 'link' : references.fieldAtCaret() ? 'field' : 'text', {}) || [];
+    if (moduleItems.length) items.push({separator:true}, ...moduleItems.filter((item, i) => !(item.separator && i === 0)));
     if (engine.session.path === null && engine.model.hasBodyFields) items.push({separator:true},{label:'Update page references',disabled:!editable,onSelect:()=>engine.updatePageReferences()});
     items.push({separator:true},{label:'Print / Save as PDF',onSelect:printDocument});
     const rect=engine.input.getBoundingClientRect();
@@ -682,8 +685,12 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
     ],
   });
   const references = createReferences({ editor: () => engine, pkg: () => pkg, error, onChange: () => update(),
-    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields } });
+    base: { canEditHeader: editorCommands.canEditHeader, editHeader: editorCommands.editHeader, canUpdateFields: editorCommands.canUpdateFields, updateFields: editorCommands.updateFields,
+      openBookmarks: () => bookmarks.click(), showFieldCodes: () => { if (engine && !editorCommands.marksVisible?.()) editorCommands.toggleMarks?.(); } } });
+  const baseExtendMenu = editorCommands.extendMenu, baseContextMenuItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, references.commands);
+  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...references.extendMenu(id, kit)];
+  editorCommands.contextMenuItems = (context, kit) => [...(baseContextMenuItems?.(context, kit) || []), ...references.contextMenuItems(context, kit)];
   const baseContextTabs = editorCommands.contextTabs;
   editorCommands.contextTabs = kit => [...(baseContextTabs?.(kit) || []), ...references.contextTabs(kit)];
   const baseFileItems = editorCommands.fileItems;
@@ -705,8 +712,8 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   Object.assign(editorCommands, mailings.commands);
   const baseExtraTabs = editorCommands.extraTabs;
   editorCommands.extraTabs = kit => [...(baseExtraTabs?.(kit) || []), ...mailings.extraTabs(kit)];
-  const baseExtendMenu = editorCommands.extendMenu;
-  editorCommands.extendMenu = (id, kit) => [...(baseExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
+  const referencesExtendMenu = editorCommands.extendMenu;
+  editorCommands.extendMenu = (id, kit) => [...(referencesExtendMenu?.(id, kit) || []), ...mailings.extendMenu(id, kit)];
   const chrome = createCanvasChrome({ title, status, account, local, focusEditor: () => engine?.focus(), commands: editorCommands,
     controls: { undo, redo, find, paragraphStyle, editStyle, newStyle, clearParagraphFormatting, outline, outlineLevel,
       characterStyle, editCharacterStyle, newCharacterStyle, clearTextFormatting, fontFamily, fontSize, bold, italic, underline,
@@ -726,7 +733,7 @@ export function editorView({ doc, goHome, newDoc, importFile, local = false }) {
   const printLayoutButton = el('button.icon-btn.ed-status-view', { type: 'button', 'aria-label': 'Print Layout', title: 'Print Layout', 'aria-pressed': 'true', onclick: () => engine?.focus() }, commandIconEl('printLayoutSolid', 16));
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, chrome.inspector)),
     el('footer.canvas-statusbar.ed-statusbar', {}, el('div.ed-status-left', {}, stats, wordCountButton, proofingButton, languageLabel, editingAreaLabel),
       el('div.ed-status-right', {},
         el('label.canvas-text-mode', { title: 'Edit the text in a plain text field without page layout, for screen readers and other assistive tools' }, textMode, 'Text mode'),

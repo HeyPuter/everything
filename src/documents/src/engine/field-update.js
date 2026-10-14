@@ -5,6 +5,22 @@ import { bodyFieldRanges } from './body-fields.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
+import { noteKindOf } from './footnotes.js';
+
+/** The first note reference mark within [start, end]: { kind, id }. */
+function noteMarkIn(paragraphs, start, end) {
+  let at = 0;
+  for (const p of paragraphs) {
+    for (const run of p.runs) {
+      const kind = noteKindOf(run);
+      if (kind && at >= start && at < Math.max(end, start + 1)) return { kind, id: run.noteMark.id };
+      at += run.text.length;
+    }
+    at++;
+    if (at > end + 1) break;
+  }
+  return null;
+}
 
 const FORMATS = { ARABIC: 'decimal', ROMAN: 'upperRoman', roman: 'lowerRoman', ALPHABETIC: 'upperLetter', alphabetic: 'lowerLetter' };
 
@@ -29,8 +45,11 @@ export function sequenceInstruction(instruction) {
   return result;
 }
 
-/** The text each SEQ/REF field should show now: [{ range, text }] where it differs. */
-export function fieldUpdatePlan(model, { onIssue = () => {} } = {}) {
+/**
+ * The text each SEQ/REF/NOTEREF field should show now: [{ range, text }] where it differs. `notes`
+ * gives the displayed note numbers ({ footnote: Map, endnote: Map }) for NOTEREF (§17.16.5.40).
+ */
+export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}) {
   const ranges = bodyFieldRanges(model.paragraphs), text = model.text, changes = [];
   const counters = new Map();
   const bookmarks = new Map(bookmarkEntries(model.paragraphs, model.tables).map(b => [b.name, b]));
@@ -68,6 +87,19 @@ export function fieldUpdatePlan(model, { onIssue = () => {} } = {}) {
       else {
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
         if (bookmark.columnRange || /[\n￼]/.test(value)) { retain('A REF with structural or object content cannot be refreshed yet'); continue; }
+      }
+    } else if (type === 'NOTEREF' && notes) {
+      let tokens; try { tokens = fieldInstructionTokens(range.field.instruction).slice(1); } catch { continue; }
+      if (tokens.slice(1).some(t => !['\\h', '\\f', '\\p'].includes(t) && !/^\\\*$/.test(t) && t.toUpperCase() !== 'MERGEFORMAT')) { onIssue({ id: range.field.id, message: 'This NOTEREF uses switches that cannot be refreshed yet; its cached result is retained.' }); continue; }
+      const bookmark = bookmarks.get(tokens[0]);
+      if (!bookmark) value = 'Error! Reference source not found.';
+      else {
+        // The bookmark encloses a note reference mark; show that note's number.
+        const ref = noteMarkIn(model.paragraphs, bookmark.start, bookmark.end);
+        if (!ref) { onIssue({ id: range.field.id, message: 'A NOTEREF bookmark without a note reference keeps its cached result.' }); continue; }
+        value = notes[ref.kind]?.get(ref.id);
+        if (value === undefined) continue;
+        if (tokens.includes('\\p')) value = `${value} ${range.end <= bookmark.start ? 'below' : 'above'}`;
       }
     } else continue;
     if (text.slice(range.start, range.end) !== value) changes.push({ range, text: value });

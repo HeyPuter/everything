@@ -1686,11 +1686,12 @@ export class TextDocument {
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
-  /** Insert a footnote reference mark for note `id` at the caret (after any selection). */
-  insertFootnoteReference(id) {
+  /** Insert a footnote (or endnote) reference mark for note `id` at the caret (after any selection); `custom` marks follow as text. */
+  insertFootnoteReference(id, kind = 'footnote', { custom = false } = {}) {
     this.checkpoint();
     const at = this.range[1], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
-    const run = footnoteReferenceRun(this.typingRun(at), id);
+    const run = footnoteReferenceRun(this.typingRun(at), id, kind);
+    if (custom) run.noteMark.custom = true;
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
     for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset || marker.offset === location.offset && marker.edge === 'end' && marker.comment) marker.offset++;
     this.hasNoteMarks = true;

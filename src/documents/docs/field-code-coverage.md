@@ -42,8 +42,8 @@ context-specific readers.
 | `AUTHOR` | §17.16.5.4 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `AUTOTEXT` | §17.16.5.5 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `AUTOTEXTLIST` | §17.16.5.6 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
-| `BIBLIOGRAPHY` | §17.16.5.7 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `CITATION` | §17.16.5.8 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `BIBLIOGRAPHY` | §17.16.5.7 | Partial: result generated from the bibliography custom XML part in five original styles; `\l` retained, other switches not evaluated. See the References section of conformance.md. |
+| `CITATION` | §17.16.5.8 | Partial: inline result generated from the bibliography part with `\m`, `\p`, `\f`, `\s`, `\v`, `\n`, `\y`, `\t`; refreshed on style or source changes. |
 | `COMMENTS` | §17.16.5.9 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `COMPARE` | §17.16.5.10 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `CREATEDATE` | §17.16.5.11 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
@@ -64,7 +64,7 @@ context-specific readers.
 | `IF` | §17.16.5.26 | Retained with nested instruction fields (operands such as `{ MERGEFIELD City }`) kept in the envelope; editable. Evaluated in mail merge preview/output: `= <> < <= > >=`, numeric comparison, `*`/`?` wildcards for `=`/`<>`. Not refreshed by Update Fields outside a merge; formula operands are not evaluated. |
 | `INCLUDEPICTURE` | §17.16.5.27 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
 | `INCLUDETEXT` | §17.16.5.28 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
-| `INDEX` | §17.16.5.29 | Cached result and instruction retained; no index generator identified in the current References path. Implement entry collection, collation, ranges and switches. |
+| `INDEX` | §17.16.5.29 | Partial generator: collation, three levels, run-in, letter headings, separators, type/bookmark/letter filters; `\c` columns stored but displayed in one column. |
 | `KEYWORDS` | §17.16.5.30 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `LASTSAVEDBY` | §17.16.5.31 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `LINK` | §17.16.5.32 | No dedicated body instruction handler or retained-code entry; strict editing import rejects it. Read-only recovery can project an available saved result; evaluation remains missing. |
@@ -75,7 +75,7 @@ context-specific readers.
 | `MERGESEQ` | §17.16.5.37 | Mail merge: evaluated as the 1-based count of documents produced so far (skipped records excluded). |
 | `NEXT` | §17.16.5.38 | Retained and editable. Mail merge: moves to the next record within one output copy (label sheets); Update Labels inserts it before each later label. |
 | `NEXTIF` | §17.16.5.39 | Retained and editable with nested operands. Mail merge: moves to the next record when the comparison is true. |
-| `NOTEREF` | §17.16.5.40 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `NOTEREF` | §17.16.5.40 | Partial: Update Fields evaluates the bookmarked note reference number (`\h`, `\f`, `\p`); other switches keep the cache. |
 | `NUMCHARS` | §17.16.5.41 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `NUMPAGES` | §17.16.5.42 | Partial evaluation from current layout; no full general-switch semantics. |
 | `NUMWORDS` | §17.16.5.43 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
@@ -91,23 +91,23 @@ context-specific readers.
 | `SAVEDATE` | §17.16.5.53 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SECTION` | §17.16.5.54 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SECTIONPAGES` | §17.16.5.55 | Partial evaluation of current section page count; locked results retained; complete geometry/section semantics remain dependencies. |
-| `SEQ` | §17.16.5.56 | Partial explicit counter refresh with reset/repeat/hidden results and supported number formats; heading restart and bookmark argument semantics remain missing. |
+| `SEQ` | §17.16.5.56 | Partial explicit counter refresh with reset/repeat/hidden results and supported number formats (captions write all five general formats); heading restart and bookmark argument semantics remain missing. |
 | `SET` | §17.16.5.57 | Mail merge: assigns its bookmark value for REF within the merge. No bookmark is created in the document. |
 | `SKIPIF` | §17.16.5.58 | Retained and editable with nested operands. Mail merge: a true comparison leaves the record out of merged documents, printing and email; preview still shows it. |
 | `STYLEREF` | §17.16.5.59 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SUBJECT` | §17.16.5.60 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `SYMBOL` | §17.16.5.61 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `TA` | §17.16.5.62 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `TC` | §17.16.5.63 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
+| `TA` | §17.16.5.62 | Partial: hidden authority entries (`\l`, `\s`, `\c`, `\b`, `\i`) written by Mark Citation and read for TOA. |
+| `TC` | §17.16.5.63 | Partial: hidden contents entries; text, `\f`, `\l`, `\n` read by TOC generation. |
 | `TEMPLATE` | §17.16.5.64 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `TIME` | §17.16.5.65 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `TITLE` | §17.16.5.66 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `TOA` | §17.16.5.67 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `TOC` | §17.16.5.68 | Partial cached import and basic outline-heading generation/rebuild; only whole-paragraph results can be rebuilt; complete authored switch semantics remain missing. |
+| `TOA` | §17.16.5.67 | Partial generator: one category per field, `\h`, `\p` passim, `\f`, `\e`, `\l`. |
+| `TOC` | §17.16.5.68 | Partial generator: `\o`, `\u`, `\t`, `\c`, `\a`, `\f`, `\l`, `\b`, `\h`, `\n`, `\p`, `\z`; unknown switches retained; only whole-paragraph results rebuild. |
 | `USERADDRESS` | §17.16.5.69 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `USERINITIALS` | §17.16.5.70 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
 | `USERNAME` | §17.16.5.71 | Cached result/source retained; no evaluator for this code in the current field refresh path. Implement its instruction, context, switches and result semantics. |
-| `XE` | §17.16.5.72 | Partial hidden entry import and retained code; limited switch validation and bookmark argument tracking; no full index evaluation. |
+| `XE` | §17.16.5.72 | Partial: Mark Entry writes levels, `\t`, `\r`, `\b`, `\i`, `\f`; INDEX generation evaluates them (`\y` used for sorting). |
 
 ## Cross-cutting gaps and implementation work
 
