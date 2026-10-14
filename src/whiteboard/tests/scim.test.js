@@ -1569,3 +1569,30 @@ test("REST team changes add and remove members one at a time, and only people th
   );
   assert.deepEqual((await org.kv.get("org:team:" + team.id)).members, [sam.id]);
 });
+
+test("someone an administrator reactivates after the identity provider deleted them is listed to it again", async () => {
+  const { org, boards, scim, request } = await setup();
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  await verifyEmail(org, boards, editor, "pat@example.ca");
+  await request(`Users/${pat.id}`, "DELETE");
+  await assert.rejects(request(`Users/${pat.id}`), { status: 404 });
+  await adminCall(org, boards, owner, {
+    op: "org.users.update",
+    uuid: editor.uuid,
+    status: "active",
+  });
+  assert.equal(await org.active(editor), true);
+  const found = await scim(`Users/${pat.id}`);
+  assert.equal(found.active, true);
+  assert.equal(found.userName, "pat@example.ca");
+  const listed = await scim(
+    `Users?filter=${encodeURIComponent('userName eq "pat@example.ca"')}`,
+  );
+  assert.equal(listed.totalResults, 1);
+  // Its deprovisioning reaches them again.
+  await scim(`Users/${pat.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [{ op: "replace", path: "active", value: false }],
+  });
+  assert.equal(await org.active(editor), false);
+});

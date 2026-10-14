@@ -2132,8 +2132,16 @@ export async function adminCall(org, boards, identity, input) {
         input.status !== current
       )
         fail(403, "Only the account owner can change an administrator.");
-      if (!pending) user.status = input.status;
-      else if (input.status === "active") {
+      if (!pending) {
+        user.status = input.status;
+        // Someone the identity provider deleted and an administrator lets
+        // back in is listed to it again, so its lookups and deprovisioning
+        // still reach them.
+        if (input.status === "active" && user.scimDeleted) {
+          delete user.scimDeleted;
+          if (user.scimId) await org.kv.set("org:scimid:" + user.scimId, uuid);
+        }
+      } else if (input.status === "active") {
         user.active = true;
         delete user.inactiveByOwner;
       } else {
@@ -2144,7 +2152,15 @@ export async function adminCall(org, boards, identity, input) {
     // Only what this request changed is written, so a team change or a
     // preference saved meanwhile is kept.
     const changed = Object.fromEntries(
-      ["role", "license", "roleChanged", "status", "active", "inactiveByOwner"]
+      [
+        "role",
+        "license",
+        "roleChanged",
+        "status",
+        "active",
+        "inactiveByOwner",
+        "scimDeleted",
+      ]
         .filter((field) => user[field] !== original[field])
         .map((field) => [field, user[field]]),
     );
