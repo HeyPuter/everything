@@ -2393,8 +2393,8 @@ export function createGrid(opts) {
         const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : CHART_MIN_H) * objectScale;
         let width = Math.max(minW, drag.from.width + dx);
         let height = Math.max(minH, drag.from.height + dy);
-        // Images keep their proportions unless Shift is held.
-        if (ch.type === 'image' && !ev.shiftKey) {
+        // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
+        if (ch.type === 'image' && (ch.lockAspect !== false) !== ev.shiftKey) {
           const ratio = drag.from.width / drag.from.height;
           if (Math.abs(dx) >= Math.abs(dy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
         }
