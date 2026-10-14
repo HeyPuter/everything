@@ -51,6 +51,36 @@ function groupItems(ctx) {
 }
 
 export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
+  if (kind === 'chart' && ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'smartart') {
+    // A SmartArt graphic: its text, its layout, and the actions every drawing object has.
+    const smartArt = (action, extra = {}) => () => ctx.run('smartArt', { action, id: chartId, ...extra });
+    openMenu({
+      x, y, label: 'SmartArt actions', restoreFocus: false, onClose: () => ctx.grid.focus(),
+      items: [
+        { label: 'Show Text Pane', icon: 'textPane', shortcut: 'Enter', onSelect: () => ctx.run('editChart', chartId) },
+        { label: 'Change Layout…', icon: 'smartArt', onSelect: smartArt('layoutDialog') },
+        { label: 'Add Shape', icon: 'addShape', submenu: [
+          { label: 'Add Shape After', onSelect: smartArt('add', { where: 'after' }) }, { label: 'Add Shape Before', onSelect: smartArt('add', { where: 'before' }) },
+          { label: 'Add Shape Above', onSelect: smartArt('add', { where: 'above' }) }, { label: 'Add Shape Below', onSelect: smartArt('add', { where: 'below' }) }] },
+        { label: 'Reset Graphic', icon: 'resetStyle', onSelect: smartArt('reset') },
+        { label: 'Convert to Shapes', icon: 'convertShapes', onSelect: smartArt('convert') },
+        { separator: true },
+        { label: 'Duplicate', icon: 'duplicate', onSelect: () => ctx.run('duplicateChart', { id: chartId }) },
+        { label: 'Copy as picture', icon: 'copy', onSelect: () => ctx.run('copyChart', { id: chartId }) },
+        { label: 'Download as PNG', icon: 'download', onSelect: () => ctx.run('downloadChart', { id: chartId, format: 'png' }) },
+        { label: 'Download as SVG', icon: 'download', onSelect: () => ctx.run('downloadChart', { id: chartId, format: 'svg' }) },
+        { separator: true },
+        { label: 'Bring to Front', icon: 'bringForward', onSelect: () => ctx.run('orderObject', { where: 'front' }) },
+        { label: 'Send to Back', icon: 'sendBackward', onSelect: () => ctx.run('orderObject', { where: 'back' }) },
+        { label: 'Group', icon: 'groupObjects', submenu: groupItems(ctx) },
+        { label: 'Selection Pane…', icon: 'selectionPane', onSelect: () => ctx.run('selectionPane') },
+        { label: 'Edit Alt Text…', icon: 'altText', onSelect: () => ctx.run('altText', chartId) },
+        { separator: true },
+        { label: 'Delete SmartArt', icon: 'trash', shortcut: 'Delete', danger: true, onSelect: () => ctx.run('deleteChart', chartId) },
+      ],
+    });
+    return;
+  }
   if (kind === 'chart') {
     const slicer = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'slicer';
     const image = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'image';

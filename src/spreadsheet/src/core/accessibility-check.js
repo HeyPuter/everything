@@ -57,7 +57,7 @@ const minimumRatio = (style) => {
 };
 
 const objectName = (obj, index) => obj.title || {
-  image: `Picture ${index + 1}`, text: `TextBox ${index + 1}`, slicer: `Slicer ${index + 1}`, scroll: `Scroll Bar ${index + 1}`,
+  image: `Picture ${index + 1}`, text: `TextBox ${index + 1}`, smartart: `SmartArt ${index + 1}`, slicer: `Slicer ${index + 1}`, scroll: `Scroll Bar ${index + 1}`,
 }[obj.type] || `Chart ${index + 1}`;
 
 /**
@@ -76,7 +76,8 @@ export function checkAccessibility(wb) {
     // Objects without a description and not marked decorative. Scroll bars and slicers carry their own names.
     sheet.charts.forEach((obj, i) => {
       if (obj.type === 'scroll' || obj.type === 'slicer' || obj.decorative) return;
-      const alt = obj.description || (obj.type === 'image' ? obj.title : '');
+      // A SmartArt graphic reads out its own text when it has no description.
+      const alt = obj.description || (obj.type === 'image' ? obj.title : obj.type === 'smartart' ? (obj.items || []).map((it) => it.text).join(' ') : '');
       if (!String(alt || '').trim()) add('altText', sheet, `${objectName(obj, i)} (${sheet.name})`, { chartId: obj.id });
     });
     for (const table of sheet.tables || []) {

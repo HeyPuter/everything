@@ -493,7 +493,7 @@ function workbookInfo(wb, env) {
         ...(s.frozenRows || s.frozenCols ? { frozen: { rows: s.frozenRows || 0, columns: s.frozenCols || 0 } } : {}),
         ...(s.protected ? { protected: true } : {}),
         ...(s.tables?.length ? { tables: s.tables.map((t) => ({ name: t.name, range: rangeName(t.range), columns: wb.tableColumns(s.id, t) })) } : {}),
-        ...(s.charts?.length ? { charts: s.charts.filter((c) => c.type !== 'image' && c.type !== 'text').map((c) => ({ type: c.type, title: c.title || undefined, data: c.range ? rangeName(c.range) : undefined })) } : {}),
+        ...(s.charts?.length ? { charts: s.charts.filter((c) => c.type !== 'image' && c.type !== 'text' && c.type !== 'smartart').map((c) => ({ type: c.type, title: c.title || undefined, data: c.range ? rangeName(c.range) : undefined })) } : {}),
       };
     }),
     named_ranges: (wb.names || []).slice(0, 100).map((n) => ({ name: n.name, refers_to: n.ref, ...(n.sheet ? { scope: n.sheet } : {}) })),

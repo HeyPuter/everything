@@ -144,6 +144,7 @@ export function paletteCommands(flags = {}) {
     flags.pick && c('Image from Puter…', 'Insert', 'folderOpen', 'insertImagePuter', null, { keywords: 'picture cloud storage drive logo' }),
     c('Image from URL…', 'Insert', 'external', 'insertImageUrl', null, { keywords: 'picture web address link logo' }),
     c('Text box…', 'Insert', 'text', 'insertTextBox', null, { keywords: 'label note caption title floating shape drawing' }),
+    c('SmartArt graphic…', 'Insert', 'smartArt', 'smartArt', { action: 'insertDialog' }, { keywords: 'diagram org chart organization process cycle hierarchy venn pyramid matrix list timeline' }),
     flags.sparklines && c('Sparkline settings…', 'Format', 'chartLine', 'editSparkline', null, { keywords: 'mini chart axis markers colors data' }),
     c('Sparklines…', 'Insert', 'chartLine', 'insertSparklines', null, { keywords: 'mini chart line column win loss data' }),
     flags.sparklines && c('Group using active sparkline', 'Format', 'chartLine', 'groupSparklines', null, { keywords: 'mini chart shared settings' }),

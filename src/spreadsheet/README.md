@@ -521,6 +521,33 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   default view's filters with the named views beside them, the view you are
   in is remembered on this device for that file, and sorting (which moves
   the rows themselves) still applies to everyone.
+- **SmartArt graphics**: Insert ▸ Illustrations ▸ SmartArt opens a gallery of
+  37 diagram layouts in seven categories (list, process, cycle, hierarchy,
+  relationship, matrix and pyramid: block and bullet lists, steps, chevrons,
+  a timeline, cycles, hub and spokes, organization charts and trees,
+  overlapping circles, a target, a balance, an equation, quadrants and
+  pyramids), each shown drawn by the same engine that draws the diagram. A
+  diagram is an outline: the Text Pane beside the sheet edits it as a
+  bulleted list (Enter adds an item, Tab and Shift+Tab demote and promote it,
+  Alt+Shift+Up/Down moves it, Backspace joins lines, several pasted lines
+  become several items), and the layout works out every shape, connector and
+  text size again from it, fitting like shapes to one size and following the
+  diagram's resizing; with a range of cells selected, a new diagram takes its
+  outline from them. The SmartArt Design tab adds shapes after, before, above
+  or below the one picked, promotes, demotes and moves it, turns the diagram
+  Right to Left, switches to another layout keeping the text, and offers 31
+  colour schemes and six styles drawn from the workbook's theme (so a new
+  theme recolours every diagram), Reset Graphic and Convert to Shapes (a group
+  of ordinary shapes and text boxes). The Format tab gives a shape picked in
+  the diagram its own fill, outline and text colour, makes it larger or
+  smaller, or changes it to another shape. Every change is one undo step
+  (typing in one item undoes together); diagrams arrange, group, print and
+  export to PDF like other objects, read their text out as alt text unless
+  given their own, sync between people editing together, and are saved in an
+  `.xlsx` as a group of ordinary shapes any spreadsheet program shows, with
+  the diagram kept for this app to edit again. A diagram another program
+  saved opens with the shapes that program drew, its outline in the Text Pane,
+  and is redrawn with the nearest layout once changed.
 - **Arranging objects**: charts, pictures, shapes, text boxes, WordArt,
   slicers, timelines and controls stack in an order of their own. Page
   Layout ▸ Arrange (and a chart's Format tab, and the object menu) brings

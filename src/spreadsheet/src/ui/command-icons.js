@@ -558,6 +558,18 @@ Object.assign(COMMAND_ICONS, {
 });
 
 /** The icons drawn here with a larger canvas in mind are the same drawings; the ribbon shows them at 32px. */
+/* SmartArt: the gallery, the Text Pane and the commands of its Design and Format tabs. */
+Object.assign(COMMAND_ICONS, {
+  smartArt: r(7, 2.5, 6, 4.5, 'bf', 1) + p('M10 7v3M5 10h10M5 10v2.5M15 10v2.5', 'o') + r(2, 12.5, 6, 4.5, 'gf', 1) + r(12, 12.5, 6, 4.5, 'nf', 1),
+  textPane: r(2.5, 3.5, 15, 13, 'of') + ci(5.5, 7, 0.9, 'bs') + ci(8.5, 10, 0.9, 'bs') + ci(5.5, 13, 0.9, 'bs') + p('M7.5 7h7M10.5 10h4.5M7.5 13h7', 'o ln'),
+  addShape: r(2.5, 5.5, 10, 8, 'bf', 1.5) + badge(15, 14, 'plus'),
+  rightToLeft: p('M3 5.5h9M3 9.5h9M3 13.5h9', 'o ln') + p('M17 15.5H6.5M9 13l-2.5 2.5L9 18', 'b'),
+  convertShapes: r(2.5, 2.5, 7, 6, 'bf', 1) + ci(14, 5.5, 3.2, 'gf') + p('M6 11.5l3.5 6h-7z', 'pf') + r(11, 11.5, 6.5, 6, 'nf', 1),
+  changeShape: r(2.5, 2.5, 8, 8, 'bf', 1.5) + ci(13.5, 13.5, 4, 'nf') + p('M12.5 3.5a4 4 0 0 1 4 4M15.5 6l1 1.5 1.5-1', 'b'),
+  shapeLarger: r(5.5, 5.5, 9, 9, 'bf', 1.5) + p('M2.5 6V2.5H6M14 2.5h3.5V6M17.5 14v3.5H14M6 17.5H2.5V14', 'b'),
+  shapeSmaller: r(6.5, 6.5, 7, 7, 'bf', 1.5) + p('M2.5 2.5l3 3M17.5 2.5l-3 3M17.5 17.5l-3-3M2.5 17.5l3-3', 'b'),
+});
+
 export function commandIcon(name, size) {
   const body = COMMAND_ICONS[name];
   if (!body) return null;

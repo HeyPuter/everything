@@ -12,6 +12,8 @@ import { xlsxAttr } from './xlsx-styles.js';
 import { decorativeXml, drawingDescription } from './drawingml-accessibility.js';
 import { equationAnchorXml, equationParagraphs } from './xlsx-equation.js';
 import { effectRefStyleXml } from './theme-effects.js';
+import { smartArtGroupXml } from './xlsx-smartart.js';
+import { workbookTheme } from './workbook-theme.js';
 import { CHARTEX_CONTENT_TYPE, CHARTEX_REL, CHARTEX_TYPES, CHART_COLORS_REL, CHART_STYLE_REL, chartExColorsXml, chartExFrame, chartExStyleXml, chartExXml } from './xlsx-chartex.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -476,7 +478,7 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
   const members = new Map();
   for (const obj of sheet.charts) if (obj.group) members.set(obj.group, [...(members.get(obj.group) || []), obj]);
   const nativeGroups = new Set([...members].filter(([, list]) => list.length > 1 && sheet.kind !== 'chart' && list.every(o => !appOnly(o)
-    && o.type !== 'slicer' && !o.cellAnchor && o.anchorMode !== 'absolute' && !o.equation && !(o.type === 'image' && o.nativeDrawing))).map(([group]) => group));
+    && o.type !== 'slicer' && o.type !== 'smartart' && !o.cellAnchor && o.anchorMode !== 'absolute' && !o.equation && !(o.type === 'image' && o.nativeDrawing))).map(([group]) => group));
   const pending = new Map();
   for (const [i, obj] of sheet.charts.entries()) {
     if (appOnly(obj)) continue;
@@ -491,7 +493,14 @@ export async function exportDrawings(X, wb, sheet, index, { set, binary, content
       if (!view) throw new Error('Missing native slicer export plan');
       shape = slicerFrameXml(obj, id, view.name);
     } else if (native) shape = native;
-    else if (obj.type === 'text') {
+    else if (obj.type === 'smartart') {
+      // A SmartArt graphic: a group of ordinary shapes as the app draws it (the app's record keeps the diagram), or,
+      // for one another program drew and nobody has changed here, the shapes that program drew.
+      const theme = workbookTheme(wb);
+      shape = (obj.fallback?.nativeDrawing && nativeDrawingXml({ ...obj, nativeDrawing: obj.fallback.nativeDrawing, title: obj.name || 'Diagram', rotation: 0, flipH: false, flipV: false },
+        id, () => nextDrawingId++, null, objectIds.get(obj.id), drawingIds))
+        || smartArtGroupXml(obj, id, () => nextDrawingId++, { colors: theme.colors, font: theme.minor });
+    } else if (obj.type === 'text') {
       const s = obj.style || {};
       const text = textBoxText(wb, sheet.id, obj);
       // WordArt carries its effects on each run as well, where every reader applies them.
