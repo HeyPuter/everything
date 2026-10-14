@@ -47,11 +47,14 @@ import { Emitter } from '../lib/emitter.js';
 import { patternById, patternLength, songLength } from '../model/project.js';
 import { ticksToSeconds, ticksPerBar, PPQ } from '../model/time.js';
 import { paramVector } from '../instruments/catalog.js';
+import { DIVISION_BEATS } from '../effects/catalog.js';
 import { compileChannel, compileMixer, compileSequence, compileTrack, instrumentIndex, mixerGains, trackOrder } from './compile.js';
 
 const SEQ_THROTTLE_MS = 30;
 const AUDITION_SLOTS = 2;
 const AUDITION_SAMPLE = 65535;
+// Messages queued before the audio thread exists that are replayed once it does.
+const REPLAY = new Set(['note', 'allOff', 'play', 'stop', 'seek']);
 
 let modulePromise = null;
 
@@ -123,6 +126,8 @@ export class Engine extends Emitter {
     this._renderJobs = new Map();
     this._renderId = 1;
 
+    // Slots for the initial project, so live notes work (and start audio) right away.
+    this.#syncChannels(store.project);
     store.on('change', (p, prev, info) => this.#onChange(p, prev, info));
     store.on('view', () => this.#onView());
     prefs?.on?.('change', (key) => {
@@ -209,10 +214,13 @@ export class Engine extends Emitter {
     } catch (err) {
       return this.#fail(`Sound is unavailable: the audio engine could not load (${err?.message || err}).`);
     }
-    this.#sendAll();
+    // The full current state goes first; of what was queued while starting,
+    // only live input and transport survive (queued configuration is older
+    // than what #sendAll just sent and would overwrite it).
     const queued = this._queue;
     this._queue = [];
-    for (const m of queued) this.node.port.postMessage(m);
+    this.#sendAll();
+    for (const m of queued) if (this.#replayable(m)) this.node.port.postMessage(m);
     // resume() stays pending while the browser withholds audio; never wait on it.
     resumed?.then(() => {
       if (ctx.state !== 'running') this.#resumeOnGesture();
@@ -222,6 +230,12 @@ export class Engine extends Emitter {
       if (ctx.state === 'suspended' || ctx.state === 'interrupted') this.#resumeOnGesture();
     };
     return true;
+  }
+
+  #replayable(m) {
+    if (m.type === 'channel') return this._audition.includes(m.cfg.slot);
+    if (m.type === 'sample') return m.index === AUDITION_SAMPLE;
+    return REPLAY.has(m.type);
   }
 
   /**
@@ -706,7 +720,7 @@ export class Engine extends Emitter {
           reject(err);
         },
       });
-      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), pitch: p.masterPitch || 0 });
+      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
     });
   }
 
@@ -740,6 +754,23 @@ export class Engine extends Emitter {
   seconds(ticks) {
     return ticksToSeconds(ticks, this.store.project.bpm);
   }
+}
+
+/**
+ * Longest silence between delay echoes in seconds: a render tail may only
+ * end after a quiet stretch longer than that, or echoes would be cut off.
+ */
+export function echoGap(project) {
+  let gap = 0;
+  for (const t of project.mixer) {
+    for (const s of t.fx || []) {
+      if (s.type !== 'delay' || s.on === false) continue;
+      const q = s.params || {};
+      const sec = q.sync ? ((DIVISION_BEATS[Math.round(q.division ?? 7)] || 0) * 60) / (project.bpm || 120) : (q.time ?? 350) / 1000;
+      if (sec > gap) gap = sec;
+    }
+  }
+  return gap;
 }
 
 function abortError() {

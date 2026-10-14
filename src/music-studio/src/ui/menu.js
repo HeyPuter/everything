@@ -234,7 +234,10 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
   };
   const blur = () => closeMenus();
   if (!parent) {
-    setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+    // Deferred past the opening click; skipped if the menu closed meanwhile.
+    setTimeout(() => {
+      if (!closed) document.addEventListener('pointerdown', outside, true);
+    }, 0);
     window.addEventListener('blur', blur);
     window.addEventListener('resize', blur);
   }

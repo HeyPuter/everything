@@ -24,6 +24,8 @@ import { h } from '../lib/dom.js';
 import { openDialog, confirmDialog, promptDialog } from '../ui/dialog.js';
 
 const RECENT_MAX = 10;
+// Projects with embedded samples can be large, but not this large.
+const MAX_PROJECT_BYTES = 512 * 1024 * 1024;
 const PROJECT_ACCEPT = `${FILE_EXT},.mid,.midi,application/json,audio/midi`;
 const AUDIO_ACCEPT = `audio/*,${AUDIO_EXTENSIONS.join(',')}`;
 
@@ -38,6 +40,29 @@ export class ProjectFiles {
     this.app = app;
     this.lib = lib;
     this.store = app.store;
+    // Counts project replacements (open, new, restore): a save that finishes
+    // after one must not point the app at the file it was writing.
+    this.loads = 0;
+    this.store.on('change', (_p, _prev, info) => {
+      if (info?.source === 'load') this.loads++;
+    });
+  }
+
+  /** Resolves once no save is running. */
+  whenIdle() {
+    if (!this.app.saving) return Promise.resolve();
+    return new Promise((resolve) => {
+      const off = this.app.on('saving', () => {
+        if (this.app.saving) return;
+        off();
+        resolve();
+      });
+    });
+  }
+
+  /** What a save writes: the gesture's start state while a drag is in progress. */
+  snapshot() {
+    return this.store.gesture ? this.store.gesture.start : this.store.project;
   }
 
   signedIn() {
@@ -143,6 +168,7 @@ export class ProjectFiles {
     if (isAudioName(name) || file.type?.startsWith('audio/')) return this.app.importAudio(file, { name });
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
     if (isMidi(head)) return this.importMidiBlob(file, name);
+    if (file.size > MAX_PROJECT_BYTES) throw new Error(`"${name}" is ${mb(file.size)}, too large for a Music Studio project.`);
     const project = await this.lib.readProjectText(await file.text());
     if (!(await this.confirmDiscard())) return false;
     this.loadProject(project, null, { dirty: true });
@@ -176,6 +202,8 @@ export class ProjectFiles {
       validate: (v) => (v.trim() ? '' : 'Enter a name.'),
     });
     if (name === null) return false;
+    // An autosave may have started while the dialog was open.
+    await this.whenIdle();
     const clean = name.trim().slice(0, 120);
     if (cloud) {
       const path = await this.lib.cloudPathFor(clean);
@@ -196,14 +224,17 @@ export class ProjectFiles {
 
   async saveCloudTo(path, { auto = false } = {}) {
     this.setSaving(true);
-    const snapshot = this.store.project;
+    const snapshot = this.snapshot();
+    const loads = this.loads;
     try {
       const r = await this.lib.saveCloud(snapshot, this.store.view, { path });
+      const name = stripExtension(baseName(r.path));
+      this.addRecent({ path: r.path, name });
+      // Another project was opened meanwhile: it keeps its own file and state.
+      if (this.loads !== loads) return true;
       // Edits made while saving stay unsaved.
       if (this.store.project === snapshot) this.store.markSaved();
-      const name = stripExtension(baseName(r.path));
       this.setFile({ path: r.path, name });
-      this.addRecent({ path: r.path, name });
       if (r.missing.length) this.app.notify(`Saved, but ${r.missing.length === 1 ? 'one sample is' : `${r.missing.length} samples are`} not on this device and could not be uploaded.`, { error: true });
       else if (!auto) this.app.notify(`Saved to your Puter cloud`);
       return true;
@@ -222,12 +253,15 @@ export class ProjectFiles {
 
   async saveLocalProject(key, name) {
     this.setSaving(true);
-    const snapshot = this.store.project;
+    const snapshot = this.snapshot();
+    const loads = this.loads;
     try {
       await this.lib.saveLocal(snapshot, this.store.view, { key, name });
-      if (this.store.project === snapshot) this.store.markSaved();
-      this.setFile({ local: key, name });
       this.addRecent({ local: key, name });
+      if (this.loads === loads) {
+        if (this.store.project === snapshot) this.store.markSaved();
+        this.setFile({ local: key, name });
+      }
     } catch (err) {
       this.app.notify(err?.message || 'The project could not be saved in this browser.', { error: true, action: { label: 'Save to device', run: () => this.download() } });
       return false;
@@ -368,6 +402,9 @@ export class ProjectFiles {
   /** Imports an audio file already in Puter (the browser's My files). */
   async importAudioFromPath(path, opts = {}) {
     puter.requireSignedIn();
+    // Check the size first: downloads count against the user's allowance.
+    const size = (await puter.stat(path).catch(() => null))?.size;
+    if (size > MAX_IMPORT_BYTES) throw new Error(`"${baseName(path)}" is ${mb(size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const blob = await puter.readFile(path);
     return this.importAudio(blob, { name: baseName(path), path, ...opts });
   }
