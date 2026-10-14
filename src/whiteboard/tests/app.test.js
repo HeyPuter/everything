@@ -4397,6 +4397,10 @@ test("table-editing fields retain the table's authored language through row chan
       );
     };
     check();
+    assert.equal(
+      doc.querySelector("dialog[open] [type=submit]").textContent,
+      "Save changes",
+    );
     const field = doc.querySelector('[data-row="0"][data-col="0"]');
     const label = doc.getElementById(field.getAttribute("aria-labelledby"));
     assert.equal(label.textContent, "Row 1, Column 1");
@@ -4435,7 +4439,18 @@ test("table-editing fields retain the table's authored language through row chan
       doc.querySelector('[data-table="row"]').textContent,
       /Ajouter une ligne/,
     );
+    assert.equal(
+      doc.querySelector("dialog[open] [type=submit]").textContent,
+      "Enregistrer les modifications",
+    );
     doc.querySelector("dialog").close();
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="table"]');
+    assert.equal(
+      doc.querySelector("dialog[open] [type=submit]").textContent,
+      "Ajouter un tableau de données",
+    );
+    doc.querySelector("dialog[open]").close();
   } finally {
     await app.close();
   }
@@ -11417,6 +11432,11 @@ test("the tool rail's Add content button offers tables, links, files and other c
     assert.equal(dialog.open, false);
     assert.equal(
       doc.querySelector("dialog[open]").getAttribute("aria-label"),
+      "Add table",
+    );
+    // A new table is added, as a new link is, not saved as changes.
+    assert.equal(
+      doc.querySelector("dialog[open] [type=submit]").textContent,
       "Add table",
     );
     doc.querySelector("dialog[open]").close();
