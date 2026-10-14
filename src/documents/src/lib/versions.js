@@ -71,13 +71,31 @@ async function listSnapshots(folder) {
 }
 
 /** Write a snapshot of `blob` now and trim the history to `keep` entries. */
-export async function saveVersion(path, blob, { now = Date.now(), keep = MAX_VERSIONS } = {}) {
+export async function saveVersion(path, blob, { now = Date.now(), keep = MAX_VERSIONS, meta = null } = {}) {
   const folder = await resolveVersionsFolder(path);
   if (!folder || !blob) return null;
-  return writeSnapshot(folder, blob, now, keep);
+  return writeSnapshot(folder, blob, now, keep, meta);
 }
 
-async function writeSnapshot(folder, blob, now, keep) {
+/**
+ * A snapshot's details beside it, as `<snapshot>.json`: who saved it and the name given to it.
+ * Older snapshots have none. Best effort: a version without details is still a version.
+ */
+export const metaPath = versionPath => versionPath.replace(/\.docx$/i, '.json');
+export async function readVersionMeta(version) {
+  try {
+    const blob = await P.readFile(metaPath(version.path));
+    const meta = JSON.parse(await blob.text());
+    return meta && typeof meta === 'object' ? { author: typeof meta.author === 'string' ? meta.author.slice(0, 120) : '', label: typeof meta.label === 'string' ? meta.label.slice(0, 120) : '' } : {};
+  } catch { return {}; }
+}
+export async function writeVersionMeta(version, meta) {
+  const clean = { author: String(meta.author || '').slice(0, 120), label: String(meta.label || '').slice(0, 120) };
+  await P.writeFile(metaPath(version.path), new Blob([JSON.stringify(clean)], { type: 'application/json' }));
+  return clean;
+}
+
+async function writeSnapshot(folder, blob, now, keep, meta = null) {
   const previous = await listSnapshots(folder);
   // Stay newer than retained entries even if a clock moves backwards or an
   // older filename has become available again after trimming.
@@ -95,11 +113,16 @@ async function writeSnapshot(folder, blob, now, keep) {
       time += 1;
     }
   }
+  const written = { path: `${folder}/${name}`, name, time, size: blob.size };
+  if (meta && (meta.author || meta.label)) {
+    try { await writeVersionMeta(written, meta); } catch (e) { console.warn('[documents] could not record version details', e); }
+  }
   const versions = await listSnapshots(folder);
   for (const v of versions.slice(keep)) {
     try { await P.deleteFile(v.path); } catch (e) { console.warn('[documents] could not trim a version', e); }
+    try { await P.deleteFile(metaPath(v.path)); } catch { /* no details were kept */ }
   }
-  return { path: `${folder}/${name}`, name, time, size: blob.size };
+  return written;
 }
 
 /**
@@ -107,14 +130,14 @@ async function writeSnapshot(folder, blob, now, keep) {
  * null for none, or undefined when not yet known (the folder is read once).
  * Resolves the time of the newest snapshot afterwards.
  */
-export async function snapshotIfDue(path, blob, lastTime, { now = Date.now() } = {}) {
+export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), meta = null } = {}) {
   if (lastTime != null && !shouldSnapshot(lastTime, now)) return lastTime;
   const folder = await resolveVersionsFolder(path);
   if (!folder) return lastTime ?? null;
   let last = lastTime;
   if (last === undefined) last = (await listSnapshots(folder))[0]?.time ?? null;
   if (!shouldSnapshot(last, now)) return last;
-  if (blob) return (await writeSnapshot(folder, blob, now, MAX_VERSIONS)).time;
+  if (blob) return (await writeSnapshot(folder, blob, now, MAX_VERSIONS, meta)).time;
   return now;
 }
 

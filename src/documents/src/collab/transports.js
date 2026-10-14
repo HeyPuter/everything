@@ -141,6 +141,8 @@ export class BroadcastRoom {
       this.emitRoster();
     } else if (data.type === 'bye') {
       this.peers.delete(data.from); this.emitRoster();
+    } else if (data.type === 'closed') {
+      this.handlers.closed('The person who shared this document stopped sharing it.');
     }
   }
   expire() {
@@ -157,6 +159,8 @@ export class BroadcastRoom {
     this.post({ type: 'update', update: encode(update) });
   }
   presence(state) { this.lastPresence = state; this.post({ type: 'presence', state }); }
+  /** Sharing stopped: the other tabs keep their copies and stop receiving changes. */
+  stop() { this.post({ type: 'closed' }); }
   async leave() {
     this.post({ type: 'bye' });
     clearInterval(this.heartbeat);

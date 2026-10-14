@@ -159,22 +159,26 @@ export class CollabBinding extends EventTarget {
     }, 50);
   }
 
-  /** New pictures go into the shared asset map, under an id no one else can be using. */
+  /**
+   * New pictures and drawings go into the shared asset map, under an id no one else can be using:
+   * `<id>#` holds the asset's description (JSON), `<id>` its bytes when it has any.
+   */
   uploadAssets() {
-    const body = this.engine.session.body;
+    const engine = this.engine, body = engine.session.body;
     for (const [id, asset] of Object.entries(body.assets || {})) {
-      if (this.baseAssets.has(id) || this.assets.has(id) || !asset?.bytes) continue;
+      if (!asset || this.baseAssets.has(id) || this.assets.has(`${id}#`)) continue;
       let shared = id;
       if (!id.includes('@')) {
         shared = `${id}@${this.ydoc.clientID.toString(36)}`;
         body.assets[shared] = asset; delete body.assets[id];
-        const bitmap = this.engine.images.get(id);
-        if (bitmap) { this.engine.images.set(shared, bitmap); this.engine.images.delete(id); }
-        renameAsset(body.paragraphs, id, shared); renameAsset(body.tables, id, shared);
-        for (const model of this.engine.session.models.values()) if (model !== body) { renameAsset(model.paragraphs, id, shared); renameAsset(model.tables, id, shared); }
+        const bitmap = engine.images.get(id);
+        if (bitmap) { engine.images.set(shared, bitmap); engine.images.delete(id); }
+        for (const model of engine.session.models.values()) { renameAsset(model.paragraphs, id, shared); renameAsset(model.tables, id, shared); if (model !== body && model.assets !== body.assets) renameAsset(model.assets, id, shared); }
       }
       const { bytes, ...rest } = asset;
-      this.ydoc.transact(() => { this.assets.set(shared, bytes); this.assets.set(`${shared}#`, json(rest)); }, this);
+      let description;
+      try { description = json(rest); } catch { continue; }
+      this.ydoc.transact(() => { if (bytes) this.assets.set(shared, bytes); this.assets.set(`${shared}#`, description); }, this);
     }
   }
 
@@ -276,6 +280,8 @@ export class CollabBinding extends EventTarget {
     } catch (error) { this.onError(error); return; }
     const session = engine.session, body = session.body;
     const before = selection;
+    // Pictures first: the paragraphs that show them may arrive in the same update.
+    this.applyAssets();
     let fresh;
     try {
       fresh = new TextDocument(state.paragraphs, state.pageSettings, state.numbering, state.stylesEnabled ? state.styles : undefined, state.tables, body.assets, { comments: state.comments, trackChanges: state.trackChanges ?? body.trackChanges });
@@ -296,7 +302,6 @@ export class CollabBinding extends EventTarget {
       body.revision++;
       this.applyStories(state.stories || {});
       session.publish(body, { styles: oldStyles, numbering: oldNumbering });
-      this.applyAssets();
       if (session.path === null) {
         const length = body.text.length;
         const anchor = this.absolute(before?.anchor), focus = this.absolute(before?.focus);
@@ -331,14 +336,18 @@ export class CollabBinding extends EventTarget {
     }
   }
 
-  /** Pictures others added: their bytes join the model and are decoded for painting. */
+  /** Pictures and drawings others added: they join the model, and pictures are decoded for painting. */
   applyAssets() {
     const engine = this.engine, assets = engine.session.body.assets;
-    for (const [id, value] of this.assets.entries()) {
-      if (id.endsWith('#') || assets[id]) continue;
+    for (const [key, description] of this.assets.entries()) {
+      if (!key.endsWith('#')) continue;
+      const id = key.slice(0, -1);
+      if (assets[id]) continue;
       let rest = {};
-      try { rest = JSON.parse(this.assets.get(`${id}#`) || '{}'); } catch { /* bytes alone */ }
-      assets[id] = { ...rest, bytes: value };
+      try { rest = JSON.parse(description); } catch { continue; }
+      const bytes = this.assets.get(id);
+      assets[id] = bytes ? { ...rest, bytes } : rest;
+      if (!bytes) continue;
       decodeImage(assets[id]).then(bitmap => {
         if (this.destroyed || engine.destroyed) { bitmap.close?.(); return; }
         engine.images.set(id, bitmap); engine.relayout(); engine.paint();
