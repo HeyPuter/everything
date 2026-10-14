@@ -230,10 +230,103 @@ async function encodeRealtime({
   options,
   signal,
   progress,
+  audio = null,
 }) {
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
   const stream = canvas.captureStream(FPS);
+  // Recorded narrations play into the recording as the show runs.
+  let audioContext = null;
+  let source = null;
+  if (audio) {
+    audioContext = new AudioContext({ sampleRate: audio.sampleRate });
+    const destination = audioContext.createMediaStreamDestination();
+    source = audioContext.createBufferSource();
+    source.buffer = audio;
+    source.connect(destination);
+    destination.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+    await audioContext.resume().catch(() => {});
+  }
+  // Video narrations: the presenter's camera, played (silently; their sound
+  // is in the mixed track) over its slide while the slide is up.
+  const timeline = audio
+    ? showTimeline(
+        slides.map((s) => s.transition),
+        options,
+      )
+    : [];
+  const cameras = [];
+  if (audio)
+    slides.forEach((slide, i) => {
+      const n = slide.narration;
+      if (n?.kind !== "video" || !n.box || typeof document === "undefined")
+        return;
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.src = URL.createObjectURL(
+        new Blob([n.data], { type: n.contentType }),
+      );
+      const entry = timeline[i];
+      cameras.push({
+        video,
+        box: n.box,
+        round: n.shape !== "rect",
+        from: entry.start + entry.transition,
+        until: entry.start + entry.transition + entry.hold,
+        started: false,
+      });
+    });
+  function drawCamera(target, time, w, h) {
+    for (const camera of cameras) {
+      if (time < camera.from || time >= camera.until) {
+        if (camera.started) camera.video.pause();
+        continue;
+      }
+      if (!camera.started) {
+        camera.started = true;
+        camera.video.currentTime = 0;
+        camera.video.play().catch(() => {});
+      }
+      const v = camera.video;
+      if (v.readyState < 2 || !v.videoWidth) continue;
+      const x = camera.box.x * w,
+        y = camera.box.y * h,
+        bw = camera.box.w * w,
+        bh = camera.box.h * h;
+      // Cover the box, cropping the camera picture to fit.
+      const scale = Math.max(bw / v.videoWidth, bh / v.videoHeight);
+      const sw = bw / scale,
+        sh = bh / scale;
+      target.save();
+      target.beginPath();
+      if (camera.round)
+        target.ellipse(
+          x + bw / 2,
+          y + bh / 2,
+          bw / 2,
+          bh / 2,
+          0,
+          0,
+          Math.PI * 2,
+        );
+      else target.rect(x, y, bw, bh);
+      target.clip();
+      target.drawImage(
+        v,
+        (v.videoWidth - sw) / 2,
+        (v.videoHeight - sh) / 2,
+        sw,
+        sh,
+        x,
+        y,
+        bw,
+        bh,
+      );
+      target.restore();
+    }
+  }
   const recorder = new MediaRecorder(stream, {
     mimeType: type,
     videoBitsPerSecond: bitrate(width, height),
@@ -242,6 +335,7 @@ async function encodeRealtime({
   recorder.ondataavailable = (e) => e.data.size && parts.push(e.data);
   const stopped = new Promise((resolve) => (recorder.onstop = resolve));
   recorder.start(1000);
+  source?.start();
   const started = performance.now();
   try {
     await playShow({
@@ -252,21 +346,85 @@ async function encodeRealtime({
       fps: FPS,
       signal,
       progress,
-      holdStep: 1000 / 10,
+      // Recordings with the camera are drawn as they play, so frames come
+      // more often.
+      holdStep: cameras.length ? 1000 / FPS : 1000 / 10,
       async emit(frame, time) {
         // Wait until the moment this frame belongs to, so the recording
         // keeps the show's timing.
         const wait = started + time - performance.now();
         if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
         context.drawImage(frame, 0, 0);
+        drawCamera(context, time, width, height);
       },
     });
   } finally {
+    for (const camera of cameras) {
+      camera.video.pause();
+      URL.revokeObjectURL(camera.video.src);
+    }
     recorder.stop();
     stream.getTracks().forEach((track) => track.stop());
     await stopped;
+    try {
+      source?.stop();
+    } catch {}
+    audioContext?.close().catch(() => {});
   }
   return new Blob(parts, { type: type.split(";")[0] });
+}
+
+const AUDIO_RECORDER_TYPES = {
+  mp4: [
+    "video/mp4;codecs=avc1,mp4a.40.2",
+    "video/mp4;codecs=avc1,opus",
+    "video/mp4",
+  ],
+  webm: [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ],
+};
+const SAMPLE_RATE = 48000;
+
+// The slides' recorded narrations, decoded: [AudioBuffer | null] by slide.
+async function decodeNarrations(slides) {
+  if (typeof OfflineAudioContext === "undefined") return null;
+  const decoder = new OfflineAudioContext(2, SAMPLE_RATE, SAMPLE_RATE);
+  const out = [];
+  let any = false;
+  for (const slide of slides) {
+    const narration = slide.narration;
+    if (!narration?.data?.byteLength) {
+      out.push(null);
+      continue;
+    }
+    try {
+      const bytes = narration.data.slice().buffer;
+      out.push(await decoder.decodeAudioData(bytes));
+      any = true;
+    } catch {
+      out.push(null);
+    }
+  }
+  return any ? out : null;
+}
+
+// One sound track for the whole show: each narration starts once its
+// slide's transition has finished.
+async function mixNarrations(buffers, timeline) {
+  const total = timeline.reduce((n, e) => n + e.transition + e.hold, 0);
+  const frames = Math.max(1, Math.ceil((total / 1000) * SAMPLE_RATE));
+  const mixer = new OfflineAudioContext(2, frames, SAMPLE_RATE);
+  buffers.forEach((buffer, i) => {
+    if (!buffer) return;
+    const node = mixer.createBufferSource();
+    node.buffer = buffer;
+    node.connect(mixer.destination);
+    node.start((timeline[i].start + timeline[i].transition) / 1000);
+  });
+  return mixer.startRendering();
 }
 
 // Encodes the show. Resolves to a Blob of the container asked for.
@@ -280,8 +438,48 @@ export async function exportVideo({
   progress,
 }) {
   const size = videoSize(height, aspect);
-  const config = await supportedConfig(container, size.width, size.height);
   const mime = container === "mp4" ? "video/mp4" : "video/webm";
+  // With recorded narrations the show is recorded in real time with its
+  // sound; each narrated slide stays up until its narration ends.
+  const narrations =
+    options.narrations !== false && slides.some((s) => s.narration)
+      ? await decodeNarrations(slides)
+      : null;
+  if (narrations) {
+    const type =
+      typeof MediaRecorder === "undefined"
+        ? null
+        : AUDIO_RECORDER_TYPES[container].find((t) =>
+            MediaRecorder.isTypeSupported(t),
+          );
+    if (!type)
+      throw new Error(
+        container === "mp4"
+          ? "This browser cannot make MP4 videos with sound. Choose WebM instead."
+          : "This browser cannot make videos with sound.",
+      );
+    const timed = {
+      ...options,
+      minimumHoldMs: narrations.map((b) =>
+        b ? Math.ceil(b.duration * 1000) : 0,
+      ),
+    };
+    const timeline = showTimeline(
+      slides.map((s) => s.transition),
+      timed,
+    );
+    const audio = await mixNarrations(narrations, timeline);
+    return encodeRealtime({
+      type,
+      ...size,
+      slides,
+      options: timed,
+      signal,
+      progress,
+      audio,
+    });
+  }
+  const config = await supportedConfig(container, size.width, size.height);
   if (config) {
     const bytes = await encodeFast({
       container,

@@ -1327,3 +1327,10 @@ export function commandIcon(name, size = 20) {
   return svg;
 }
 export const hasCommandIcon = (name) => name in COMMAND_ICONS;
+// Feature modules add their own drawings, in the same idiom, under new names.
+export function registerCommandIcons(more) {
+  for (const [name, body] of Object.entries(more)) {
+    if (name in COMMAND_ICONS) continue;
+    COMMAND_ICONS[name] = body;
+  }
+}

@@ -1,7 +1,7 @@
 // Paints the Format pane sets beyond solid colors: a gradient line, how a
 // picture fills a shape (stretched with offsets, or tiled), picture
-// corrections, color and artistic effects, recoloring, and a change of a
-// shape's or picture's preset geometry.
+// corrections, color and artistic effects, recoloring, the slide-background
+// fill, the aspect-ratio lock, and theme style-matrix references.
 
 import {
   NS,
@@ -522,55 +522,6 @@ export const setShapePictureRecolor = (
         ],
       }),
     );
-  commitAndRefresh(shape);
-};
-
-// ---------------------------------------------------------------------------
-// Preset geometry
-
-/**
- * Gives a shape or picture another preset geometry, keeping its position,
- * size, fill, line, effects and text. Adjustment values reset unless given.
- */
-export const setShapePresetGeometry = (
-  shape: SlideShapeData,
-  preset: string,
-  adjustments: Readonly<Record<string, number>> = {},
-): void => {
-  if (!/^[A-Za-z0-9]+$/.test(preset))
-    throw new Error(`not a preset geometry: ${preset}`);
-  const spPr = requireSpPr(shape);
-  const geometry = elem(a("prstGeom"), {
-    attrs: [attr(A("prst"), preset)],
-    children: [
-      elem(a("avLst"), {
-        children: Object.entries(adjustments).map(([name, value]) =>
-          elem(a("gd"), {
-            attrs: [
-              attr(A("name"), name),
-              attr(A("fmla"), `val ${Math.round(value)}`),
-            ],
-          }),
-        ),
-      }),
-    ],
-  });
-  const at = spPr.children.findIndex(
-    (c) =>
-      c.kind === "element" &&
-      c.name.namespaceURI === NS.dml &&
-      (c.name.localName === "prstGeom" || c.name.localName === "custGeom"),
-  );
-  if (at >= 0) spPr.children[at] = geometry;
-  else {
-    const xfrm = spPr.children.findIndex(
-      (c) =>
-        c.kind === "element" &&
-        c.name.namespaceURI === NS.dml &&
-        c.name.localName === "xfrm",
-    );
-    spPr.children.splice(xfrm + 1, 0, geometry);
-  }
   commitAndRefresh(shape);
 };
 

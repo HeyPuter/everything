@@ -47,6 +47,14 @@ const ATTR_TYPE = qname("", "type", "");
 const ATTR_IDX = qname("", "idx", "");
 const ATTR_NO_GRP = qname("", "noGrp", "");
 
+/** Placeholder types that belong to the header and footer row. */
+export const FOOTER_TYPES: ReadonlySet<string> = new Set([
+  "dt",
+  "ftr",
+  "sldNum",
+  "hdr",
+]);
+
 /**
  * Builds a `<p:sld>` document containing the canonical slide-root group
  * (id=1, name="") and one placeholder stub per `<p:ph>` found on
@@ -69,6 +77,10 @@ export const buildSlideFromLayout = (layoutSpTree: XmlElement): XmlDocument => {
     if (nvPr === null) continue;
     const ph = firstChildElement(nvPr, NAME_PH);
     if (ph === null) continue;
+    // The date, footer, slide-number and header placeholders are not put on
+    // a new slide: they appear only once the deck turns them on.
+    const type = getAttrValue(ph, ATTR_TYPE);
+    if (type !== null && FOOTER_TYPES.has(type)) continue;
     placeholders.push({
       type: getAttrValue(ph, ATTR_TYPE),
       idx: getAttrValue(ph, ATTR_IDX),
@@ -183,6 +195,9 @@ const inferPlaceholderName = (id: number, phType: string | null): string => {
       return `Footer Placeholder ${id - 1}`;
     case "hdr":
       return `Header Placeholder ${id - 1}`;
+    case null:
+    case "obj":
+      return `Content Placeholder ${id - 1}`;
     default:
       return `Placeholder ${id - 1}`;
   }

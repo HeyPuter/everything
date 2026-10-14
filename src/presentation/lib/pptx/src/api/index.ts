@@ -57,6 +57,17 @@ export {
   type SlideShowLaserColor,
 } from "./fn.ts";
 export {
+  getSlideShowSetup,
+  setSlideShowSetup,
+  getCustomShows,
+  setCustomShows,
+  DEFAULT_SLIDE_SHOW_SETUP,
+  type SlideShowSetup,
+  type SlideShowSetupSelection,
+  type SlideShowType,
+  type CustomShow,
+} from "./fn/slide-show-setup.ts";
+export {
   getViewProperties,
   setViewProperties,
   getNotesPageSize,
@@ -452,6 +463,10 @@ export {
   getSlideTitle,
   getSlideTransition,
   getEffectiveSlideTransition,
+  setSlideTransitionTiming,
+  addSlideTransitionSound,
+  shareSlideTransitionSound,
+  getSlideTransitionSoundData,
   getSlideXmlString,
   getSlides,
   getSlidesByLayout,
@@ -646,8 +661,64 @@ export type {
   PresetShape,
   TransitionEffect,
   TransitionOptions,
+  TransitionSound,
 } from "../internal/presentationml/index.ts";
 
+// Slide masters, layouts and placeholders.
+export {
+  addSlideLayout,
+  adoptPlaceholderSlot,
+  addSlideMaster,
+  applySlideLayout,
+  deleteSlideLayout,
+  deleteSlideMaster,
+  duplicateSlideLayout,
+  duplicateSlideMaster,
+  ensureHandoutMaster,
+  ensureNotesMaster,
+  getHandoutMasterPartName,
+  getLayoutMasterPartName,
+  getNotesMasterPartName,
+  getNotesPageExtent,
+  getPlaceholderContentKind,
+  getPlaceholderPrompt,
+  getSlideLayoutUsage,
+  getSlideMasters,
+  getTemplateKind,
+  getTemplatePageSize,
+  getTemplateSlide,
+  hasTemplatePlaceholder,
+  insertTemplatePlaceholder,
+  isPlaceholderEmpty,
+  moveSlideLayout,
+  renameTemplate,
+  resetSlideToLayout,
+  scaleTemplates,
+  setNotesPageOrientation,
+  setTemplatePlaceholder,
+  setTemplatePreserved,
+  setTemplateShowsMasterShapes,
+  syncPlaceholderListStyles,
+  withPlaceholderPrompt,
+  type SlideLayoutEntry,
+  type SlideMasterEntry,
+  type TemplatePlaceholderKind,
+  type TemplatePlaceholderSlot,
+} from "./fn.ts";
+// Inserted objects: media, vector pictures, actions, embeddings, footers.
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
+// Ink stroke timing (drawing order and pace, for replay).
+export {
+  getShapeInkTiming,
+  setShapeInkTiming,
+  INK_TIMING_EXT_URI,
+  type InkTiming,
+} from "./fn/shape-ink.ts";
 export {
   countWords,
   getDocumentStatistics,

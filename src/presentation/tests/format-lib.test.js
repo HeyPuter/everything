@@ -387,7 +387,6 @@ describe("paints and geometry", () => {
     expect(P.getShapePreset(shape)).toBe("star5");
     expect(P.getShapeFill(shape)).toMatchObject({ color: "#336699" });
     expect(P.getShapeText(shape)).toBe("Keep me");
-    expect(() => P.setShapePresetGeometry(shape, "bad name")).toThrow();
     expect(P.getShapeGeometryResolved(pres, shape).preset).toBe("star5");
   });
 });

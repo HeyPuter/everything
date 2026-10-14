@@ -1,11 +1,13 @@
 // The Draw tab: pen and highlighter strokes become freeform shapes, and the
 // eraser removes them.
-import { test, expect } from "@playwright/test";
+import { test, expect as baseExpect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { P, parseDeck } from "../src/model.js";
 
 test.setTimeout(90_000);
+// Phones render each stroke at three times the pixels; give them time.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 async function start(page) {
   await page.route("https://js.puter.com/v2/", (r) =>
@@ -17,15 +19,25 @@ async function start(page) {
   await page.goto("/");
   await page.getByRole("tab", { name: "Draw" }).click();
 }
+// Points are on an 800 × 450 grid laid over the canvas, whatever its size on
+// the screen.
 async function stroke(page, points) {
   const b = await page.locator("#slide-canvas").boundingBox();
-  await page.mouse.move(b.x + points[0][0], b.y + points[0][1]);
+  const at = ([x, y]) => [
+    b.x + (x / 800) * b.width,
+    b.y + (y / 450) * b.height,
+  ];
+  await page.mouse.move(...at(points[0]));
   await page.mouse.down();
-  for (const [x, y] of points.slice(1)) await page.mouse.move(b.x + x, b.y + y);
+  for (const p of points.slice(1)) await page.mouse.move(...at(p));
   await page.mouse.up();
 }
 async function download(page) {
-  await page.getByRole("menuitem", { name: "File", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "File", exact: true })
+    .or(page.getByRole("button", { name: "File options" }))
+    .filter({ visible: true })
+    .click();
   const event = page.waitForEvent("download");
   await page
     .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })

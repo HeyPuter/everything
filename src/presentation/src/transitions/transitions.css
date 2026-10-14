@@ -1,0 +1,180 @@
+/* Slide transitions: the playing overlay, the gallery pictures, the
+   navigator's transition mark. */
+
+.slide-transition {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  background: #000;
+}
+.slide-transition > canvas,
+.slide-transition > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+:root {
+  --tt-old: #c9d3e3;
+  --tt-new: #4f74b8;
+  --tt-line: #ffffff;
+  --tt-arrow: #ffffff;
+  --tt-bg: #e9edf3;
+  --tt-frame: rgba(31, 45, 72, 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --tt-old: #59647a;
+    --tt-new: #8fb0ee;
+    --tt-line: #1d2433;
+    --tt-arrow: #10141d;
+    --tt-bg: #343c4c;
+    --tt-frame: rgba(220, 230, 250, 0.3);
+  }
+}
+:root[data-theme="dark"] {
+  --tt-old: #59647a;
+  --tt-new: #8fb0ee;
+  --tt-line: #1d2433;
+  --tt-arrow: #10141d;
+  --tt-bg: #343c4c;
+  --tt-frame: rgba(220, 230, 250, 0.3);
+}
+
+.transition-thumb {
+  display: block;
+  flex: none;
+}
+.transition-thumb .tt-o {
+  fill: var(--tt-old);
+}
+.transition-thumb .tt-n,
+.transition-thumb .tt-s {
+  fill: var(--tt-new);
+}
+.transition-thumb .tt-bg {
+  fill: var(--tt-bg);
+}
+.transition-thumb .tt-blank {
+  fill: var(--tt-bg);
+}
+.transition-thumb .tt-ghost {
+  fill: var(--tt-line);
+  opacity: 0.45;
+}
+.transition-thumb .tt-l {
+  fill: none;
+  stroke: var(--tt-line);
+  stroke-width: 1;
+  opacity: 0.8;
+}
+.transition-thumb .tt-a {
+  fill: none;
+  stroke: var(--tt-arrow);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.transition-thumb .tt-none {
+  fill: none;
+  stroke: var(--tt-old);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.transition-thumb .tt-shadow {
+  fill: #000;
+  opacity: 0.18;
+}
+.transition-thumb .tt-glow {
+  fill: #fff8d6;
+}
+.transition-thumb .tt-back {
+  fill: var(--tt-line);
+  opacity: 0.85;
+}
+.transition-thumb .tt-dark {
+  fill: #1c2230;
+}
+.transition-thumb .tt-ring,
+.transition-thumb .tt-swirl {
+  fill: none;
+  stroke: var(--tt-line);
+  stroke-width: 1.2;
+  opacity: 0.85;
+}
+.transition-thumb .tt-die {
+  fill: var(--tt-line);
+}
+.transition-thumb .tt-pip {
+  fill: var(--tt-new);
+}
+.transition-thumb .tt-stop-o {
+  stop-color: var(--tt-old);
+}
+.transition-thumb .tt-stop-n {
+  stop-color: var(--tt-new);
+}
+.transition-thumb .tt-frame {
+  fill: none;
+  stroke: var(--tt-frame);
+}
+
+/* The gallery holds a picture over each name. */
+.transition-choice {
+  min-width: 60px;
+}
+
+/* The editing canvas's Preview plays above selection and guides. */
+.slide-canvas > .slide-transition {
+  z-index: 50;
+}
+
+/* The star under a slide's number in the navigator marks a transition;
+   pressing it plays the transition. */
+.slide-item > .slide-transition-mark {
+  position: absolute;
+  left: 0;
+  top: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted, #6b7280);
+  cursor: pointer;
+}
+.slide-item > .slide-transition-mark:hover {
+  color: var(--accent, #c44730);
+}
+.slide-item > .slide-transition-mark:focus-visible {
+  outline: 2px solid var(--accent, #c44730);
+  outline-offset: 1px;
+}
+.slide-transition-mark svg {
+  width: 10px;
+  height: 10px;
+}
+@media (max-width: 760px) {
+  .slide-item > .slide-transition-mark {
+    top: 20px;
+    width: 11px;
+  }
+  .slide-transition-mark svg {
+    width: 8px;
+    height: 8px;
+  }
+}
+.transition-choice .ribbon-gallery-label {
+  max-width: 72px;
+}
+/* One star marks a slide: the transition's, which also stands for any
+   animations the slide has. */
+.slide-item:has(> .slide-transition-mark) .slide-number::after {
+  visibility: hidden;
+}
