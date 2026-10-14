@@ -1843,6 +1843,7 @@ export function createFeatures(api) {
                 : part === "frame"
                   ? restoreFrame(api.board(), source, frameId, covered)
                   : recoverDeleted(api.board(), source, chosenDeleted());
+            const before = new Map(api.board().items.map((i) => [i.id, i]));
             api.replaceItems(result.items);
             shared?.note({
               at: onDevice ? null : at,
@@ -1850,12 +1851,34 @@ export function createFeatures(api) {
               objects: result.count,
             });
             d.close();
+            // What came back is selected and brought into view, so it can
+            // be found, checked, and moved or undone at once.
+            const back = api
+              .board()
+              .items.filter(
+                (i) => !before.has(i.id) || !sameObject(before.get(i.id), i),
+              );
+            if (back.length) {
+              api.select(new Set(back.map((i) => i.id)));
+              const box = bounds(back),
+                shown = api.viewBounds?.();
+              if (
+                shown &&
+                (box.x < shown.x ||
+                  box.y < shown.y ||
+                  box.x + box.w > shown.x + shown.w ||
+                  box.y + box.h > shown.y + shown.h)
+              )
+                api.focusRegion?.(box);
+              api.draw();
+            }
             api.toast(
               plural(
                 result.count,
                 "{count} object restored.",
                 "{count} objects restored.",
               ),
+              { label: "Undo", run: () => api.undo?.() },
             );
           } catch (error) {
             api.toast(error.message || "Could not restore this version.");
@@ -1924,7 +1947,10 @@ export function createFeatures(api) {
           objects: changed,
         });
         d.close();
-        api.toast("Version restored.");
+        api.toast("Version restored.", {
+          label: "Undo",
+          run: () => api.undo?.(),
+        });
       } catch {
         api.toast("Could not restore this version.");
       } finally {

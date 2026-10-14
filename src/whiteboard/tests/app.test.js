@@ -5964,6 +5964,42 @@ test("version history previews a chosen version with what changed since, and fil
   }
 });
 
+test("recovered objects are selected and the toast offers to undo the recovery", async () => {
+  const app = await setup();
+  const { doc, click, tick } = app;
+  const count = () => doc.querySelectorAll("#board-outline [data-id]").length;
+  try {
+    await click('[data-action="new"]');
+    await click('[data-action="add-note"]');
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="history"]');
+    doc.querySelector("#checkpoint-label").value = "With the note";
+    await click("#checkpoint-create");
+    await click("dialog .dialog-header button");
+    await click('[data-action="delete"]');
+    assert.equal(count(), 0);
+    await click('[data-action="more-tools"]');
+    await click('[data-feature="history"]');
+    for (let n = 0; n < 20 && !doc.querySelector(".revision-row"); n++)
+      await tick();
+    const row = [
+      ...doc.querySelectorAll("#local-revisions .revision-row"),
+    ].find((r) => r.textContent.includes("With the note"));
+    await row.querySelector("[data-revision-options]").onclick();
+    await click('[data-part="deleted"]');
+    for (let n = 0; n < 5; n++) await tick();
+    assert.equal(count(), 1);
+    assert.equal(doc.querySelector("#selection-tools").hidden, false);
+    const undo = doc.querySelector(".toast-action");
+    assert.equal(undo.textContent, "Undo");
+    undo.click();
+    await tick();
+    assert.equal(count(), 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("checkpoints restore content and trash preserves boards for recovery", async () => {
   const app = await setup();
   const { doc, click, tick } = app;

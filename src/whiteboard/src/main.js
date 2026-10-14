@@ -1033,6 +1033,7 @@ const features = createFeatures({
     fit();
   },
   addBoard: adoptBoard,
+  undo: () => action("undo"),
 });
 const transfer = createTransfer({
   board: () => current,
