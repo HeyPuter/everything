@@ -303,19 +303,29 @@ async function teamMembers(org, ids, known = true, current = []) {
 // worker instances read people's records again: once for the whole change,
 // however many people it names, as an identity provider adding a thousand
 // people to a group sends them in one request.
+// People are updated 25 at a time, as an identity provider can change
+// thousands of members in one request, and the team's claim is renewed as
+// they go, so it does not lapse during a long change.
 export async function syncTeamMembers(org, teamId, before, after) {
   const prior = new Set(before),
     next = new Set(after);
+  const moving = [...new Set([...prior, ...next])].filter(
+    (uuid) => prior.has(uuid) !== next.has(uuid),
+  );
   let changed = false;
-  for (const uuid of new Set([...prior, ...next])) {
-    if (prior.has(uuid) === next.has(uuid)) continue;
-    const user = await org.freshUser(uuid);
-    if (!user) continue;
-    const teams = new Set(user.teams || []);
-    if (next.has(uuid)) teams.add(teamId);
-    else teams.delete(teamId);
-    await org.updateUser(uuid, { teams: [...teams] });
-    changed = true;
+  for (let n = 0; n < moving.length; n += 25) {
+    if (n) await org.kv.expire("org:teamclaim:" + teamId, 30).catch(() => {});
+    await Promise.all(
+      moving.slice(n, n + 25).map(async (uuid) => {
+        const user = await org.freshUser(uuid);
+        if (!user) return;
+        const teams = new Set(user.teams || []);
+        if (next.has(uuid)) teams.add(teamId);
+        else teams.delete(teamId);
+        await org.updateUser(uuid, { teams: [...teams] });
+        changed = true;
+      }),
+    );
   }
   if (changed) await org.accessChanged();
 }

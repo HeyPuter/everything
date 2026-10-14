@@ -1751,3 +1751,43 @@ test("people from outside who only joined a board are not listed to the identity
   // REST still lists the guest, for administrators.
   assert.ok(users.some((u) => u.username === "outsider"));
 });
+
+test("a large group change updates its members in parallel and keeps the team's claim", async () => {
+  const { org, scim } = await setup();
+  const people = [];
+  for (let n = 0; n < 120; n++)
+    people.push(
+      (await scim("Users", "POST", { userName: `p${n}@example.ca` })).id,
+    );
+  const group = await scim("Groups", "POST", { displayName: "Everyone" });
+  const read = org.freshUser.bind(org);
+  let reading = 0,
+    most = 0;
+  org.freshUser = async (uuid) => {
+    most = Math.max(most, ++reading);
+    await new Promise((r) => setTimeout(r, 1));
+    try {
+      return await read(uuid);
+    } finally {
+      reading--;
+    }
+  };
+  const renewed = [];
+  const expire = org.kv.expire.bind(org.kv);
+  org.kv.expire = (key, seconds) => {
+    if (key.startsWith("org:teamclaim:")) renewed.push(seconds);
+    return expire(key, seconds);
+  };
+  await scim(`Groups/${group.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [
+      { op: "add", path: "members", value: people.map((value) => ({ value })) },
+    ],
+  });
+  org.freshUser = read;
+  assert.ok(most > 1 && most <= 25, `${most}`);
+  // Taken once, then renewed after each of the first four batches.
+  assert.ok(renewed.length >= 5, `${renewed.length}`);
+  for (const id of people)
+    assert.deepEqual((await org.freshUser(id)).teams, [group.id]);
+});
