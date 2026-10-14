@@ -43,6 +43,8 @@ import {
   createGoogle,
   defaultFetcher,
   ACCESS_ERROR,
+  NOT_FOUND_ERROR,
+  TAB_ERROR,
 } from "../src/content/google.js";
 import { documentKind, checkFile } from "../src/content/importer.js";
 import { embedCardLayout, drawEmbedCard } from "../src/content/embed-card.js";
@@ -1751,6 +1753,89 @@ test("Google exports follow redirects to Google's file hosts only", async () => 
     );
     assert.ok(requests.length <= 6, "Redirect loops stop");
     assert.ok(requests.every((u) => u === exportURL));
+  }
+});
+
+test("Google imports say when a file or sheet tab is gone, and blame sharing only for access refusals", async () => {
+  const fileHost = "https://doc-08-4o-sheets.googleusercontent.com/export/abc";
+  const requests = [];
+  let status = 404;
+  // A sheet export redirects to Google's file host, which answers 400 for
+  // a tab that no longer exists; other exports answer on docs.google.com.
+  const fetcher = async (url) => {
+    requests.push(url);
+    if (/\/spreadsheets\/d\/[^/]+\/export/.test(url) && status === 400)
+      return new Response(null, {
+        status: 307,
+        headers: { location: `${fileHost}?${url.split("?")[1]}` },
+      });
+    return new Response("<html>Error</html>", {
+      status,
+      headers: { "content-type": "text/html" },
+    });
+  };
+  const google = createGoogle({ fetcher });
+  const sheet = `https://docs.google.com/spreadsheets/d/${DOC_ID}/edit#gid=7`;
+  const doc = `https://docs.google.com/document/d/${DOC_ID}/edit`;
+  const slides = `https://docs.google.com/presentation/d/${DOC_ID}/edit`;
+  const rejects = (promise, message) =>
+    assert.rejects(promise, (e) => e.message === message);
+  for (status of [404, 410]) {
+    await rejects(google.sheet(sheet), NOT_FOUND_ERROR);
+    await rejects(
+      google.refresh({ sourceUrl: `${sheet}&range=A1:B2`, cells: [["", ""]] }),
+      NOT_FOUND_ERROR,
+    );
+    await rejects(google.slides(slides), NOT_FOUND_ERROR);
+    // A document that is gone has no plain text to fall back to either.
+    requests.length = 0;
+    await rejects(google.document(doc), NOT_FOUND_ERROR);
+    assert.equal(requests.length, 1);
+  }
+  status = 400;
+  await rejects(google.sheet(sheet), TAB_ERROR);
+  await rejects(
+    google.refresh({ sourceUrl: `${sheet}&range=A1:B2`, cells: [["", ""]] }),
+    TAB_ERROR,
+  );
+  // Refusals and sign-in pages are still about sharing.
+  for (status of [401, 403, 200]) {
+    await rejects(google.sheet(sheet), ACCESS_ERROR);
+    await rejects(google.document(doc), ACCESS_ERROR);
+  }
+  // Puter's fetch, used when a direct request is refused, says the same.
+  const saved = { fetch: globalThis.fetch, window: globalThis.window };
+  globalThis.window = {
+    puter: {
+      auth: { isSignedIn: () => true },
+      net: {
+        fetch: async () =>
+          new Response("<html>Not found</html>", {
+            status: 404,
+            headers: { "content-type": "text/html" },
+          }),
+      },
+    },
+  };
+  globalThis.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  try {
+    await rejects(createGoogle().sheet(sheet), NOT_FOUND_ERROR);
+  } finally {
+    Object.assign(globalThis, saved);
+  }
+  // Both read in French too.
+  const { language, setLanguage, t } = await import("../src/i18n.js");
+  const previous = language;
+  globalThis.document = { documentElement: {} };
+  try {
+    setLanguage("fr");
+    assert.match(t(NOT_FOUND_ERROR), /^Ce fichier Google est introuvable/);
+    assert.match(t(TAB_ERROR), /^Cet onglet n’existe plus/);
+  } finally {
+    setLanguage(previous);
+    delete globalThis.document;
   }
 });
 

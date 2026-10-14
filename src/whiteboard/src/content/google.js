@@ -22,6 +22,13 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]),
     /^https:\/\/(docs\.google\.com|[a-z0-9-]+\.googleusercontent\.com)\//;
 export const ACCESS_ERROR =
   "Google did not share this file. Set sharing to “Anyone with the link” or publish it to the web, then try again.";
+// Google says plainly when a file is gone, and a sheet's export answers 400
+// for a tab that is gone. Blaming sharing for those sends people to fix
+// settings that are not the problem.
+export const NOT_FOUND_ERROR =
+  "This Google file wasn’t found. It may have been deleted, or the link is wrong.";
+export const TAB_ERROR =
+  "This sheet tab no longer exists. It may have been deleted from the spreadsheet.";
 
 // Google's export endpoints let any page read files shared by link, so they
 // are asked directly, signed in to Puter or not. Puter's CORS-free fetch,
@@ -100,6 +107,8 @@ export function createGoogle({ fetcher = defaultFetcher, DOMParser } = {}) {
     // Google answers export requests with a redirect to its file host.
     // Puter's fetch returns redirects as they are, so they are followed here,
     // only to Google's own hosts; a sign-in page elsewhere means no access.
+    const sheetTab =
+      /^https:\/\/docs\.google\.com\/spreadsheets\/.*[?&]gid=\d/.test(url);
     let response;
     for (let hop = 0; ; hop++) {
       try {
@@ -132,6 +141,11 @@ export function createGoogle({ fetcher = defaultFetcher, DOMParser } = {}) {
     }
     if (signal?.aborted) throw cancelled();
     const type = response.headers?.get?.("content-type") || "";
+    // Puter's fetch passes Google's status on as a direct request does.
+    if (response.status === 404 || response.status === 410)
+      throw Object.assign(Error(NOT_FOUND_ERROR), { missing: true });
+    if (response.status === 400 && sheetTab)
+      throw Object.assign(Error(TAB_ERROR), { missing: true });
     if (!response.ok || /text\/html/i.test(type)) throw Error(ACCESS_ERROR);
     const declared = +(response.headers?.get?.("content-length") || 0);
     if (declared > limit) throw Error(TOO_LARGE);
@@ -190,8 +204,10 @@ export function createGoogle({ fetcher = defaultFetcher, DOMParser } = {}) {
         });
         return { source, model: parseText(md, { markdown: true }) };
       } catch (error) {
-        // Too much text is final; plain text would hold as much.
-        if (error.name === "AbortError" || error.limit) throw error;
+        // Too much text is final; plain text would hold as much, and a
+        // file that is gone has no plain text either.
+        if (error.name === "AbortError" || error.limit || error.missing)
+          throw error;
         const txt = await download(docExportURL(source, "txt"), {
           limit: TEXT_BYTES,
           signal,

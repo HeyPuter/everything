@@ -259,6 +259,10 @@ addTranslations({
     "Collez un lien vers une présentation Google Slides.",
   "Google did not share this file. Set sharing to “Anyone with the link” or publish it to the web, then try again.":
     "Google n’a pas partagé ce fichier. Réglez le partage sur « Tous les utilisateurs disposant du lien » ou publiez-le sur le Web, puis réessayez.",
+  "This Google file wasn’t found. It may have been deleted, or the link is wrong.":
+    "Ce fichier Google est introuvable. Il a peut-être été supprimé, ou le lien est erroné.",
+  "This sheet tab no longer exists. It may have been deleted from the spreadsheet.":
+    "Cet onglet n’existe plus. Il a peut-être été supprimé de la feuille de calcul.",
   "Could not reach Google. Check your connection and try again.":
     "Impossible de joindre Google. Vérifiez votre connexion et réessayez.",
   "This Google file is too large to import.":
