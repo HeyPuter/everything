@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createCommentsUI } from "../src/comments-ui.js";
 import { board, item } from "../src/model.js";
-import { commentThread } from "../src/comments.js";
+import { commentMessage, commentThread } from "../src/comments.js";
+import { setLanguage } from "../src/i18n.js";
 
 function setup({ now } = {}) {
   const dom = new JSDOM(
@@ -680,6 +681,75 @@ test("large comment lists page at fifty and unchanged navigation avoids rebuildi
     a.doc.querySelector("#comments-next").click();
     assert.equal(a.doc.querySelectorAll("[data-thread]").length, 50);
   } finally {
+    a.close();
+  }
+});
+test("replies and mentions in the open discussion are said, gathered, and so are this person's own posts", async () => {
+  const a = setup();
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const said = () => a.doc.querySelector("#comment-said").textContent;
+  const bob = { id: "bob", name: "Bob" },
+    carol = { id: "carol", name: "Carol" };
+  let clock = Date.now() + 60000;
+  const arrive = (...messages) => {
+    const all = structuredClone(a.s.board.comments);
+    for (const [who, text] of messages)
+      all[0].messages.push(commentMessage(who, text, ++clock));
+    a.s.board = { ...a.s.board, comments: all };
+    a.ui.render();
+  };
+  try {
+    a.s.board.shared = true;
+    a.s.board.comments = [
+      commentThread({ x: 0, y: 0 }, a.s.author, "What comes first?"),
+    ];
+    a.ui.show(a.s.board.comments[0].id);
+    const status = a.doc.querySelector("#comment-said");
+    assert.equal(status.getAttribute("role"), "status");
+    // Opening a discussion says nothing of the messages already in it.
+    await wait(1100);
+    assert.equal(said(), "");
+    arrive([bob, "Onboarding"]);
+    assert.equal(said(), "", "said after a moment, not at once");
+    await wait(1100);
+    assert.equal(said(), "Bob replied");
+    // A burst is said once, each person once, and a mention as such, first.
+    arrive([bob, "Then billing"], [carol, "Agreed"], [bob, "@Alice ok?"]);
+    await wait(1100);
+    assert.equal(said(), "Bob mentioned you. Bob replied. Carol replied");
+    // Many people at once are counted rather than named.
+    arrive(
+      ...["Dan", "Eve", "Fay", "Gus"].map((name) => [
+        { id: name, name },
+        "Yes",
+      ]),
+    );
+    await wait(1100);
+    assert.equal(said(), "4 new messages in this discussion");
+    // This person's own reply and resolution are confirmed.
+    a.doc.querySelector("#comment-text").value = "Thanks all";
+    a.submit();
+    await wait(100);
+    assert.equal(said(), "Reply posted");
+    const results = a.doc.querySelector("#comments-results").textContent;
+    a.doc.querySelector("#comment-resolve").click();
+    await wait(100);
+    assert.equal(said(), "Discussion resolved");
+    // The list's count is said for searches and filters only.
+    assert.notEqual(
+      a.doc.querySelector("#comments-results").textContent,
+      "0 discussions",
+    );
+    assert.equal(results, "1 discussion");
+    setLanguage("fr");
+    a.doc.querySelector("#comment-resolve").click();
+    await wait(100);
+    assert.equal(said(), "Discussion rouverte");
+    arrive([bob, "Merci"]);
+    await wait(1100);
+    assert.equal(said(), "Bob a répondu");
+  } finally {
+    setLanguage("en");
     a.close();
   }
 });

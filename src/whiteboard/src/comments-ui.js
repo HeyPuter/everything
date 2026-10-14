@@ -1,4 +1,5 @@
 import { attachMentions } from "./mentions.js";
+import { say } from "./accessibility/live-region.js";
 import { escape } from "./model.js";
 import { labelled, language, plural, t, translateUI } from "./i18n.js";
 import { fold, searchTerms } from "./search-fold.js";
@@ -187,8 +188,55 @@ export function createCommentsUI(api) {
       button.setAttribute("aria-label", label);
     counted = { list, version: seenVersion, board: state().board?.id, badge };
   }
+  // What happens in the open discussion is said: replies and mentions from
+  // others, gathered for a moment so a burst is said once, and this
+  // person's own posts and resolutions, which change nothing else that is
+  // read out.
+  let heard = null,
+    hearing = [],
+    hearTimer = null;
+  function tell(message) {
+    say(panel?.querySelector("#comment-said"), message, { delay: 50 });
+  }
+  function hear(message) {
+    hearing.push(message);
+    hearTimer ??= setTimeout(() => {
+      const said = [...new Set(hearing)];
+      tell(
+        said.length > 3
+          ? t("{count} new messages in this discussion").replace(
+              "{count}",
+              hearing.length,
+            )
+          : said.join(". "),
+      );
+      stopHearing(false);
+    }, 1000);
+  }
+  function stopHearing(forget = true) {
+    clearTimeout(hearTimer);
+    hearTimer = null;
+    hearing = [];
+    if (forget) heard = null;
+  }
+  const byName = (text, m) =>
+    t(text).replace("{name}", () => m.authorName || t("Someone"));
+  function hearReplies() {
+    const c = panel && active ? thread() : null;
+    const known = c && heard?.thread === c.id ? heard.ids : null;
+    heard = c
+      ? { thread: c.id, ids: new Set(c.messages.map((m) => m.id)) }
+      : null;
+    if (!known) return;
+    // A message naming this person is said as a mention instead.
+    const me = state().board?.shared && state().author?.name?.toLowerCase();
+    for (const m of fromOthers(c))
+      if (!known.has(m.id) && !(me && mentions(m.text).includes(me)))
+        hear(byName("{name} replied", m));
+  }
   // Someone else naming this person in a comment, while the board is open,
-  // is said once, with a way to open the discussion.
+  // is said once, with a way to open the discussion, or as one more message
+  // in it when that discussion is the one open.
   let mentionsChecked = null;
   function announceMentions() {
     const s = state(),
@@ -208,7 +256,10 @@ export function createCommentsUI(api) {
           (before === false && m.editedAt > announceSince)
         ) {
           announced.add(m.id);
-          if (active === c.id && panel) continue;
+          if (active === c.id && panel) {
+            hear(byName("{name} mentioned you", m));
+            continue;
+          }
           api.toast(
             t("{name} mentioned you in a comment.").replace(
               "{name}",
@@ -261,6 +312,7 @@ export function createCommentsUI(api) {
     remember();
     panel.remove();
     panel = null;
+    stopHearing();
     active = editing = draft = positioning = null;
     signature = null;
     document
@@ -284,7 +336,7 @@ export function createCommentsUI(api) {
     panel.innerHTML = `<header><h2 tabindex="-1">Comments</h2><button class="icon-btn" id="comments-close" aria-label="Close comments">${api.icon("x")}</button></header>
       <div class="comment-filters"><label class="sr-only" for="comment-search">Search comments</label><input id="comment-search" type="search" placeholder="Search comments"><label class="sr-only" for="comment-filter">Show comments</label><select id="comment-filter"><option value="open">Open comments</option><option value="unread">Unread comments</option><option value="resolved">Resolved comments</option><option value="all">All comments</option></select></div>
       <div class="comment-list-actions"><button id="comment-new" class="text-btn">New comment</button><label><input id="comment-pins-visible" type="checkbox">Show pins</label></div>
-      <div id="comment-list"></div><p id="comments-results" class="sr-only" role="status"></p><div class="comment-pages"><button class="text-btn" id="comments-previous">Previous</button><span id="comments-count"></span><button class="text-btn" id="comments-next">Next</button></div>
+      <div id="comment-list"></div><p id="comments-results" class="sr-only" role="status"></p><p id="comment-said" class="sr-only" role="status"></p><div class="comment-pages"><button class="text-btn" id="comments-previous">Previous</button><span id="comments-count"></span><button class="text-btn" id="comments-next">Next</button></div>
       <section id="comment-thread" hidden><header><h3 tabindex="-1">Discussion</h3><button class="text-btn" id="comment-resolve"></button></header><button class="text-btn" id="comment-move" aria-expanded="false" aria-controls="comment-position">Move pin</button><form id="comment-position" hidden><p class="dialog-copy" id="comment-position-help">Set the pin position in board pixels.</p><div class="field-row"><label class="field">Horizontal position<input id="comment-x" type="number" step="any" min="-1000000" max="1000000" required aria-describedby="comment-position-help comment-position-error"></label><label class="field">Vertical position<input id="comment-y" type="number" step="any" min="-1000000" max="1000000" required aria-describedby="comment-position-help comment-position-error"></label></div><p id="comment-position-error" role="alert" hidden></p><div class="dialog-footer"><button class="text-btn" type="button" id="comment-move-cancel">Cancel</button><button class="primary" type="submit">Apply move</button></div></form><div id="comment-messages"></div></section>
       <form id="comment-form" hidden><label class="sr-only" for="comment-text">Write a comment</label><textarea id="comment-text" maxlength="4000" rows="3" placeholder="Write a reply" aria-describedby="comment-help comment-error"></textarea><p id="comment-help">Enter to post · Shift+Enter for a new line</p><p id="comment-error" role="alert" hidden></p><div class="comment-form-actions"><button type="button" class="text-btn" id="comment-edit-cancel" hidden>Cancel edit</button><button class="primary" type="submit">Post comment</button></div></form>`;
     api.canvas().parentElement.append(panel);
@@ -314,11 +366,17 @@ export function createCommentsUI(api) {
       render();
       keepPageFocus(next, previous);
     };
-    panel.querySelector("#comment-resolve").onclick = () =>
-      change((all) => {
-        const c = all.find((i) => i.id === active);
-        if (c) c.resolved = !c.resolved;
-      });
+    panel.querySelector("#comment-resolve").onclick = () => {
+      if (
+        change((all) => {
+          const c = all.find((i) => i.id === active);
+          if (c) c.resolved = !c.resolved;
+        })
+      )
+        tell(
+          t(thread()?.resolved ? "Discussion resolved" : "Discussion reopened"),
+        );
+    };
     panel.querySelector("#comment-move").onclick = () =>
       positioning ? closePosition() : openPosition();
     panel.querySelector("#comment-move-cancel").onclick = () => closePosition();
@@ -661,6 +719,11 @@ export function createCommentsUI(api) {
       return;
     }
     let nextId = active;
+    const posted = editing
+      ? "Comment saved"
+      : active
+        ? "Reply posted"
+        : "Comment posted";
     const success = change((all) => {
       const author = state().author,
         c = all.find((i) => i.id === active);
@@ -731,6 +794,7 @@ export function createCommentsUI(api) {
       loadDraft();
       render();
       panel.querySelector("textarea").focus();
+      tell(t(posted));
     } else if (editing) {
       // A resumed edit of a message that changed meanwhile is refused once;
       // editing it again starts from the message as it is now, as the
@@ -796,6 +860,7 @@ export function createCommentsUI(api) {
     // A discussion open in the panel is read as it arrives.
     if (panel && active) markSeen(thread());
     announceMentions();
+    hearReplies();
     renderPins();
     renderBadge();
     if (!panel) return;
@@ -911,14 +976,18 @@ export function createCommentsUI(api) {
       (page + 1) * 50 >= results.length;
     panel.querySelector("#comments-count").textContent = String(results.length);
     // Searching and filtering say how many discussions match, even when
-    // they all fit on one page and the pager is hidden.
+    // they all fit on one page and the pager is hidden. A count changed by
+    // anything else, such as resolving the open discussion, is not said.
     const found = panel.querySelector("#comments-results"),
       summary = plural(
         results.length,
         "{count} discussion",
         "{count} discussions",
-      );
-    if (found.textContent !== summary) found.textContent = summary;
+      ),
+      asked = `${filter}|${query}`;
+    if (found.textContent !== summary)
+      found.textContent = found.dataset.asked === asked ? "" : summary;
+    found.dataset.asked = asked;
     panel.querySelector(".comment-pages").hidden = results.length <= 50;
     keepPaginationFocus(
       focused,
