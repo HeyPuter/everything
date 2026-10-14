@@ -1791,3 +1791,28 @@ test("a large group change updates its members in parallel and keeps the team's 
   for (const id of people)
     assert.deepEqual((await org.freshUser(id)).teams, [group.id]);
 });
+
+test("an address the identity provider deleted its user for can be renamed to", async () => {
+  const { org, boards, scim, request } = await setup();
+  const bob = await scim("Users", "POST", { userName: "bob@example.ca" });
+  await verifyEmail(org, boards, editor, "bob@example.ca");
+  await request(`Users/${bob.id}`, "DELETE");
+  const ann = await scim("Users", "POST", { userName: "ann@example.ca" });
+  const renamed = await scim(`Users/${ann.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [{ op: "replace", path: "userName", value: "bob@example.ca" }],
+  });
+  assert.equal(renamed.userName, "bob@example.ca");
+  assert.equal(await org.active(editor), false);
+  // Someone not deleted still keeps theirs: Ann now holds it.
+  const kim = await scim("Users", "POST", { userName: "kim@example.ca" });
+  await assert.rejects(
+    request(`Users/${kim.id}`, "PATCH", {
+      schemas: [PATCH],
+      Operations: [
+        { op: "replace", path: "userName", value: "bob@example.ca" },
+      ],
+    }),
+    { status: 409 },
+  );
+});

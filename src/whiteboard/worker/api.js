@@ -419,7 +419,13 @@ async function renameUser(org, user, email) {
     refuse(400, "userName must be the user's email address.", "invalidValue");
   const key = "org:email:" + (await hash(email));
   const holder = await org.kv.get(key);
-  if (holder && holder !== user.uuid)
+  // Someone the provider deleted gives up their address, as creating a
+  // user with it does (see the POST), so it can go to someone else.
+  if (
+    holder &&
+    holder !== user.uuid &&
+    !(await org.freshUser(holder))?.scimDeleted
+  )
     refuse(409, "A user with this userName already exists.", "uniqueness");
   if (user.email) {
     const old = "org:email:" + (await hash(user.email));
