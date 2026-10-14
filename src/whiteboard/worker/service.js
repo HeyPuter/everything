@@ -1693,6 +1693,7 @@ export class BoardService {
       throw error;
     } finally {
       if (!refused) await this.org.touch(user);
+      if (input?.op !== "commit") await this.writeDueActivity().catch(() => {});
       await this.org.flush();
       // Retention and scheduled reports never hold up saving, synchronizing
       // or checking in.
@@ -3292,7 +3293,9 @@ export class BoardService {
       // Directory, search index, and content audit records are written at
       // most once a minute per board and worker instance; counts in between
       // are added up. Busy workshops would otherwise spend the worker's
-      // storage quota on bookkeeping.
+      // storage quota on bookkeeping. A deletion is written at once, with
+      // what the minute held before it: counts held in memory go if the
+      // instance stops, and a deletion must reach the activity log.
       const activity = this.org.instance.activity;
       const entry = activity.get(room) || {
         at: 0,
@@ -3305,21 +3308,36 @@ export class BoardService {
       entry.changed += changed;
       entry.removed += removed;
       if (added || changed || removed) entry.editors.add(user.uuid);
-      if (activity.size > 1000) activity.clear();
+      activity.delete(room);
       activity.set(room, entry);
-      if (this.now() - entry.at >= 60_000 || before.title !== after.title)
+      // An instance keeps the boards edited through it most recently; one
+      // let go of has what it held back written first.
+      while (activity.size > 1000) {
+        const [old, kept] = activity.entries().next().value;
+        activity.delete(old);
+        if (kept.editor) await this.writeHeldActivity(old, kept, false);
+      }
+      if (
+        this.now() - entry.at >= 60_000 ||
+        before.title !== after.title ||
+        removed
+      )
         await this.writeActivity(room, user, after, entry);
-      // Otherwise the next synchronization after the minute writes it, so
-      // removed content does not stay findable when the board goes quiet,
-      // and revealed content becomes findable.
+      // Otherwise this instance's first request after the minute writes
+      // it, so revealed content becomes findable when the board goes quiet.
       else if (
         added ||
         changed ||
-        removed ||
         JSON.stringify(before.workshop?.settings) !==
           JSON.stringify(after.workshop?.settings)
-      )
+      ) {
         entry.editor = user;
+        const instance = this.org.instance;
+        instance.activityDue = Math.min(
+          instance.activityDue ?? Infinity,
+          entry.at + 60_000,
+        );
+      }
       await this.commentNotifications(room, user, before, after);
       await this.taskAssignments(room, user, before, after);
       for (const { action, details } of workshopEvents(
@@ -3334,6 +3352,51 @@ export class BoardService {
         );
     } catch {
       /* Activity records never block an acknowledged edit. */
+    }
+  }
+  // Writes what boards edited through this instance held back once their
+  // minute has passed, whichever request comes next: the board's own next
+  // synchronization may reach another instance, or never come.
+  async writeDueActivity() {
+    const instance = this.org.instance,
+      now = this.now();
+    if (!(now >= instance.activityDue)) return;
+    let due = Infinity;
+    for (const [room, entry] of [...instance.activity])
+      if (!entry.editor) continue;
+      else if (now - entry.at >= 60_000)
+        await this.writeHeldActivity(room, entry).catch(() => {});
+      else due = Math.min(due, entry.at + 60_000);
+    instance.activityDue = due;
+  }
+  // Writes a board's held-back activity from the board as this instance
+  // has it, loading it if `load` and it is not kept. Otherwise, or if it
+  // cannot be loaded, only the content audit record is written, and the
+  // directory entry and search text follow with the board's next write.
+  async writeHeldActivity(room, entry, load = true) {
+    const cached = DOCS.get(room);
+    let doc = null;
+    try {
+      if (cached?.state) doc = new SharedDocument(this.durable(cached));
+      else if (load) ({ doc } = await this.load(room));
+    } catch {
+      /* Counted without it. */
+    }
+    try {
+      if (doc)
+        return await this.writeActivity(
+          room,
+          entry.editor,
+          doc.snapshot(),
+          entry,
+        );
+      const user = entry.editor;
+      entry.editor = null;
+      await this.auditActivity(room, user, null, entry);
+    } catch {
+      /* Activity records never block a request. */
+    } finally {
+      doc?.destroy();
     }
   }
   // The directory entry, search index, and content audit record of a board,
@@ -3372,20 +3435,25 @@ export class BoardService {
     INDEXED.delete(room);
     if (INDEXED.size >= 1000) INDEXED.delete(INDEXED.keys().next().value);
     INDEXED.set(room, digest);
-    if (entry.added || entry.changed || entry.removed)
+    await this.auditActivity(room, user, board.title, entry);
+  }
+  // The content audit record of the edits counted since the last one.
+  async auditActivity(room, user, title, entry) {
+    const counts = {
+      added: entry.added,
+      changed: entry.changed,
+      removed: entry.removed,
+      editors: [...entry.editors].slice(0, 50),
+    };
+    entry.added = entry.changed = entry.removed = 0;
+    entry.editors.clear();
+    if (counts.added || counts.changed || counts.removed)
       await this.org.audit(
         user,
         "board.content.updated",
-        { type: "board", id: room, name: board.title },
-        {
-          added: entry.added,
-          changed: entry.changed,
-          removed: entry.removed,
-          editors: [...entry.editors].slice(0, 50),
-        },
+        { type: "board", id: room, name: title },
+        counts,
       );
-    entry.added = entry.changed = entry.removed = 0;
-    entry.editors.clear();
   }
   // Notifications carry the board's title and content, so only people who
   // could open the board now receive them: not guests whose access lapsed

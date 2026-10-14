@@ -7950,7 +7950,7 @@ test("the directory lists only boards a guest can still open, never the trash to
   assert.deepEqual(await titles(editor, { deleted: true }), []);
 });
 
-test("content removed within a minute of the last index write leaves the search index once someone synchronizes or leaves", async () => {
+test("content removed within a minute of the last index write leaves the search index at once, and stays out after a synchronization or leave", async () => {
   const { boards, org, call } = setup();
   await call(owner, { op: "org.setup", name: "Fabrikam" });
   await call(editor, {
@@ -7983,7 +7983,8 @@ test("content removed within a minute of the last index write leaves the search 
     await commit(boards, owner, b.room, (x) => {
       x.items = x.items.filter((i) => !String(i.text).includes("salary"));
     });
-    assert.equal(await search(), 1, `${via}: not yet written`);
+    // A deletion is written at once rather than held back for the minute.
+    assert.equal(await search(), 0, `${via}: written at once`);
     if (via === "sync") {
       now += 61_000;
       await boards.call(owner, { op: "sync", room: b.room });

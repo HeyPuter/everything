@@ -1594,6 +1594,99 @@ async function instances(name) {
   return { env, A, B, room: b.id, join, admin };
 }
 
+// A board's content activity log, as its owner reads it: added, changed
+// and removed counts, oldest first, and an editor's commits through A.
+async function activityLog(name) {
+  const setup = await instances(name);
+  const { env, A, room } = setup;
+  const log = () =>
+    [...env.data]
+      .filter(([k]) => k.startsWith(`org:bact:${room}:`))
+      .map(([, v]) => v)
+      .filter((v) => v.action === "board.content.updated")
+      .sort((a, b) => a.at - b.at)
+      .map(({ details: d }) => [d.added, d.changed, d.removed]);
+  const commit = async (change, target = room) => {
+    const { doc } = await A.load(target);
+    const before = doc.vector(),
+      next = doc.snapshot();
+    change(next);
+    doc.commit(next);
+    const update = doc.update(before);
+    doc.destroy();
+    return A.call(owner, {
+      op: "commit",
+      room: target,
+      id: await hash(update),
+      update: encode(update),
+    });
+  };
+  return { ...setup, log, commit };
+}
+
+test("the activity log keeps every deletion, and edits a minute held back, whichever instance is asked next", async () => {
+  const { env, A, B, room, log, commit } = await activityLog("deletions");
+  env.now += 5 * 60_000;
+  await commit((b) => {
+    for (let n = 0; n < 19; n++) b.items.push(item("note", n * 100, 200));
+  });
+  assert.deepEqual(log(), [[19, 0, 0]]);
+  // Within the minute, a change waits; a mass deletion is written at once,
+  // with it.
+  env.now += 20_000;
+  await commit((b) => (b.items[0].text = "Tweak"));
+  assert.deepEqual(log(), [[19, 0, 0]]);
+  env.now += 20_000;
+  await commit((b) => (b.items = b.items.slice(0, 1)));
+  assert.deepEqual(log(), [
+    [19, 0, 0],
+    [0, 1, 19],
+  ]);
+  // A note added just after waits for the minute. Leaving through another
+  // instance cannot write it, but whatever A is asked next does.
+  env.now += 10_000;
+  await commit((b) => b.items.push(item("note", 0, 400)));
+  env.now += 60_000;
+  await B.call(owner, { op: "leave", room, session: "s1" });
+  assert.equal(log().length, 2);
+  await A.call(owner, { op: "members", room });
+  assert.deepEqual(log().at(-1), [1, 0, 0]);
+});
+
+test("an instance editing many boards writes a board's held-back activity before letting it go", async () => {
+  const { env, A, room, log, commit } = await activityLog("eviction");
+  env.now += 5 * 60_000;
+  await commit((b) => b.items.push(item("note", 0, 200)));
+  env.now += 10_000;
+  await commit((b) => b.items.push(item("note", 0, 400)));
+  assert.deepEqual(log(), [[1, 0, 0]]);
+  // A thousand other boards edited through this instance since.
+  const activity = A.org.instance.activity;
+  for (let n = 0; n < 1000; n++)
+    activity.set(`other${n}`, {
+      at: env.now,
+      added: 0,
+      changed: 0,
+      removed: 0,
+      editors: new Set(),
+    });
+  const other = board("Other"),
+    seed = new SharedDocument();
+  seed.commit(other);
+  await A.call(owner, {
+    op: "create",
+    room: other.id,
+    update: encode(seed.update()),
+  });
+  seed.destroy();
+  await commit((b) => b.items.push(item("note", 0, 0)), other.id);
+  assert.ok(!activity.has(room));
+  assert.deepEqual(log(), [
+    [1, 0, 0],
+    [1, 0, 0],
+  ]);
+});
+
 test("removing or demoting someone through one instance applies on another within a second", async () => {
   const { env, A, B, room, join } = await instances("revoke");
   await join(editor);
