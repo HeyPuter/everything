@@ -1,4 +1,4 @@
-import { fontColorCss } from '../core/font-color.js';
+import { fontColorCss, sameFontColor } from '../core/font-color.js';
 import { fillColorCss } from '../core/fill-color.js';
 /**
  * Format cells dialog (Ctrl/Cmd+Shift+F): number format, alignment, font,
@@ -9,12 +9,14 @@ import { fillColorCss } from '../core/fill-color.js';
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt } from './toolbar.js';
+import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS } from './toolbar.js';
 import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
 import { lineStylePicker, edgeGlyph, presetGlyph } from './border-picker.js';
+import { swatchGrid } from './swatch-grid.js';
+import { themeColorGrid, workbookTheme } from '../core/workbook-theme.js';
 
 const PANELS = [['number', 'Number'], ['align', 'Alignment'], ['font', 'Font'], ['border', 'Border'], ['fill', 'Fill'], ['protect', 'Protection']];
 const CATEGORIES = FORMATS.filter((f) => f.value !== 'date-medium');
@@ -348,11 +350,31 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       el('p.field-hint', {}, 'Pick a line, then click a preset, an edge of the diagram or a button beside it. An edge that already has that line comes off.')));
 
   /* ---- Fill ---- */
+  // The theme's colours and their tints, the standard fills, or any other colour; the sample shows the pick.
   const fill = { bg: style.bg || '', none: !style.bg };
   const fillCss = fillColorCss(fill.bg);
-  const fillColor = el('input.chart-color-input', { type: 'color', value: isHex(fillCss) ? fillCss : '#fef3c7', 'aria-label': 'Fill color', oninput: () => { fill.bg = fillColor.value; fill.none = false; noFill.querySelector('input').checked = false; } });
-  const noFill = checkbox('No fill', fill.none, (v) => { fill.none = v; if (!v && !fill.bg) fill.bg = fillColor.value; });
-  const fillPanel = el('div.fc-panel', {}, el('div.row', {}, el('label.chart-color', {}, fillColor, el('span', {}, 'Fill color')), noFill));
+  const pickFill = (value) => {
+    fill.bg = value; fill.none = false; noFill.querySelector('input').checked = false;
+    const css = fillColorCss(value);
+    if (isHex(css)) fillColor.value = css.toLowerCase();
+    syncFillSwatches(); refreshAppearance();
+  };
+  const fillChosen = (value) => !fill.none && !!fill.bg && (typeof value === 'object'
+    ? typeof fill.bg === 'object' && sameFontColor(fill.bg, value)
+    : typeof fill.bg === 'string' && fill.bg.toLowerCase() === value);
+  const fillColor = el('input.chart-color-input', { type: 'color', value: isHex(fillCss) ? fillCss : '#fef3c7', 'aria-label': 'Fill color', oninput: () => { fill.bg = fillColor.value; fill.none = false; noFill.querySelector('input').checked = false; syncFillSwatches(); } });
+  const noFill = checkbox('No fill', fill.none, (v) => { fill.none = v; if (!v && !fill.bg) fill.bg = fillColor.value; syncFillSwatches(); });
+  const themeFills = swatchGrid({ label: 'Theme fill colors', cols: 10, isChosen: fillChosen, onPick: pickFill,
+    colors: themeColorGrid(workbookTheme(ctx.wb).colors).flat().map(cell => ({ value: cell.color, css: cell.color.rgb, label: cell.label })) });
+  const standardFills = swatchGrid({ label: 'Standard fill colors', cols: 12, isChosen: fillChosen, onPick: pickFill,
+    colors: FILL_COLORS.map(hex => ({ value: hex, css: hex, label: hex })) });
+  const syncFillSwatches = () => { themeFills.sync(); standardFills.sync(); };
+  const fillPanel = el('div.fc-panel.fc-fill', {},
+    el('div.fc-fill-colors', {},
+      el('span.field-label', {}, 'Background color'), noFill,
+      el('span.fc-swatch-head', {}, 'Theme colors'), themeFills,
+      el('span.fc-swatch-head', {}, 'Standard colors'), standardFills,
+      el('label.chart-color', {}, fillColor, el('span', {}, 'Custom color…'))));
   // Protection: Locked (every cell is, until unchecked) and Hidden (the formula), which take effect once the sheet is protected.
   const prot = { locked: style.locked !== false, hidden: style.formulaHidden === true };
   const protectPanel = el('div.fc-panel.fc-protection', {},

@@ -1000,6 +1000,16 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
 .fc-border-samples { position: absolute; inset: 0; display: grid; pointer-events: none; }
 .fc-border-sample { display: grid; place-items: center; overflow: hidden; white-space: nowrap; padding: 0 6px; }
 .fc-border-interactive .fc-preview-text { pointer-events: none; }
+/* Fill tab: the palettes on the left, the sample filling the rest. */
+.fc-fill { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.fc-fill-colors { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.fc-swatch-head { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.fc-fill > .fc-preview { margin: 0; display: flex; flex-direction: column; }
+.fc-fill .fc-appearance { flex: 1; height: auto; min-height: 120px; }
+.dialog-swatches { display: grid; grid-template-columns: repeat(var(--cols), 20px); gap: 3px; }
+.dialog-swatches .swatch { width: 20px; height: 20px; border-radius: 3px; }
+.dialog-swatches .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dialog-swatches .swatch[aria-checked="true"] { box-shadow: inset 0 0 0 2px var(--surface), inset 0 0 0 3px var(--ink); }
 .fc-border-hit { position: absolute; z-index: 2; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .fc-border-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .fc-border-hit:disabled { pointer-events: none; }
@@ -1032,6 +1042,7 @@ body[data-view="editor"] .toast-root { bottom: calc(var(--statusbar-h) + var(--t
   .fc-align { grid-template-columns: minmax(0, 1fr) 130px; gap: 10px; }
   .fc-align-fields, .fc-orientation { padding: 8px; }
   .fc-border { grid-template-columns: 1fr; gap: 12px; }
+  .fc-fill { grid-template-columns: 1fr; }
   .fc-border-presets { margin: 0; justify-content: flex-start; }
   .fc-font-choices { grid-template-columns: minmax(0, 1fr) minmax(90px, .6fr); gap: 10px; }
   .fc-font-choices > :nth-child(2) { grid-column: 1; grid-row: 2; }
