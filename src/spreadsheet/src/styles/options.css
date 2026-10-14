@@ -169,7 +169,6 @@
 
 /* ---------- The ribbon: groups of the person's own ---------- */
 
-.ribbon-custom-group .ribbon-group-controls { flex-wrap: wrap; align-content: flex-start; }
 .ribbon-group-empty { font-size: 12px; color: var(--ink-3); padding: 0 8px; align-self: center; }
 /* A choice that belongs to the option above it sits under it. */
 .opt-row.opt-dependent { padding-left: 24px; }
