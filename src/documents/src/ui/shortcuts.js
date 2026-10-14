@@ -1,4 +1,4 @@
-import { el, MOD_KEY } from './dom.js';
+import { el, MOD_KEY, IS_MAC } from './dom.js';
 import { openModal } from './modal.js';
 
 /**
@@ -19,7 +19,9 @@ const GROUPS = [
     [`${MOD_KEY} + Shift + .`, 'Increase font size'],
     [`${MOD_KEY} + Shift + ,`, 'Decrease font size'],
     [`${MOD_KEY} + K`, 'Insert or edit link'],
-    [`${MOD_KEY} + Shift + V`, 'Paste without formatting'],
+    [`${MOD_KEY} + Shift + V`, 'Paste without formatting (or paste copied formatting)'],
+    [`${MOD_KEY} + ${IS_MAC ? 'Option' : 'Alt'} + Shift + V`, 'Paste and match formatting'],
+    [`${MOD_KEY} + Shift + C`, 'Copy formatting'],
     [[`${MOD_KEY} + Space`, `${MOD_KEY} + \\`], 'Clear direct text formatting'],
     ['Ctrl + Shift + D', 'Double underline'],
     ['Ctrl + Shift + W', 'Underline words only'],
@@ -55,6 +57,12 @@ const GROUPS = [
     [[`${MOD_KEY} + F`, MOD_KEY === 'Cmd' ? 'Cmd + Shift + H' : 'Ctrl + H'], 'Find and replace'],
     [`${MOD_KEY} + Z`, 'Undo'],
     [[`${MOD_KEY} + Shift + Z`, `${MOD_KEY} + Y`], 'Redo'],
+    [['F4', `${MOD_KEY} + Y`], 'Repeat the last command (when there is nothing to redo)'],
+    [IS_MAC ? 'Cmd + Shift + S' : 'Ctrl + Shift + S', 'Save as'],
+    [`${MOD_KEY} + O`, 'Open a document'],
+    [['Shift + F4', `${MOD_KEY} + Shift + F4`], 'Find next or previous'],
+    [IS_MAC ? 'Cmd + Option + K' : 'Alt + Q', 'Search for a command'],
+    [`${MOD_KEY} + ,`, 'Preferences'],
     [`${MOD_KEY} + A`, 'Select all'],
     [`${MOD_KEY} + P`, 'Print or save as PDF'],
     ['F9', 'Update page references'],
@@ -71,14 +79,19 @@ const GROUPS = [
     ['Shift + any movement key', 'Extend the selection'],
     ['Double-click / triple-click', 'Select a word / a paragraph'],
     [`${MOD_KEY} + Alt + O`, 'Show or hide the outline'],
+    [IS_MAC ? 'Option' : ['Alt', 'F10'], 'Show KeyTips: letters for the ribbon tabs and commands'],
+    [IS_MAC ? 'Cmd + Option + R' : 'Ctrl + F1', 'Collapse or expand the ribbon'],
+    [IS_MAC ? 'Ctrl + F2' : 'Alt + F10', 'Go to the menu bar'],
+    ...(IS_MAC ? [['Cmd + Option + G', 'Go to'], ['Cmd + Option + M', 'Paragraph settings'], ['Cmd + Ctrl + Shift + F', 'Focus']] : []),
     [['Tab', 'Shift + Tab'], 'Next or previous table cell'],
     ['Escape', 'Close a panel or menu; in the document, Tab then moves to the toolbar'],
   ]],
 ];
 
-export function openShortcuts() {
+export function openShortcuts({ custom = [] } = {}) {
+  const groups = custom.length ? [...GROUPS, ['Your shortcuts', custom]] : GROUPS;
   const content = el('div.shortcuts', {},
-    GROUPS.map(([title, rows]) => el('section.shortcut-group', {},
+    groups.map(([title, rows]) => el('section.shortcut-group', {},
       el('h3', {}, title),
       el('dl', {}, rows.map(([keys, what]) => [
         el('dt', {}, [keys].flat().map((chord, n) => [n > 0 && ' or ', chord.split(' + ').map((k, i) => [i > 0 && ' + ', el('span.kbd', {}, k)])])),

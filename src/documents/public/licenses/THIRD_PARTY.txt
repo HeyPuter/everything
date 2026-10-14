@@ -3683,3 +3683,15 @@ http://wordlist.aspell.net — https://github.com/wooorm/dictionaries/tree/main/
     Vendored unmodified as public/dictionaries/en-US.aff and en-US.dic. The complete
     copyright and permission text is in public/dictionaries/en-US-LICENSE.txt.
 
+
+========================================================================
+
+WordNet 3.1 thesaurus data — WordNet License (Princeton University)
+https://wordnet.princeton.edu — https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz
+
+    public/thesaurus/en.json is derived from the WordNet 3.1 database by
+    tools/generate-thesaurus.mjs (a subset of synonyms, antonyms, shortened
+    definitions and irregular word forms). The complete license is in
+    public/thesaurus/LICENSE-WordNet.txt; provenance is in public/thesaurus/README.md.
+
+    WordNet 3.1 Copyright 2011 by Princeton University.  All rights reserved.

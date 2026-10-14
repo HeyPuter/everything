@@ -32,7 +32,7 @@ test('menus opened from the ribbon draw every icon from the ribbon\'s own set', 
   await expect(icons).toHaveCount(2);
   expect(await icons.evaluateAll(list => list.map(svg => svg.classList.contains('ico')))).toEqual([true, true]);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'File', exact: true }).click();
   const fileIcons = page.getByRole('menu', { name: 'File' }).locator('.menu-icon svg');
   expect(await fileIcons.evaluateAll(list => list.every(svg => svg.classList.contains('ico')))).toBe(true);
 });
@@ -58,7 +58,7 @@ test('related table, picture and shape commands have distinct icons', async ({ p
 
 test('large commands, split buttons and titled fields fit inside their ribbon group', async ({ page }) => {
   await openEditor(page);
-  for (const name of ['Home', 'Insert', 'Layout', 'References', 'Mailings', 'Review', 'View']) {
+  for (const name of ['Home', 'Insert', 'Draw', 'Layout', 'References', 'Mailings', 'Review', 'View']) {
     await tab(page, name).click();
     const overflow = await page.evaluate(() => {
       const panel = document.querySelector('.ribbon-panel:not([hidden])'), bad = [];

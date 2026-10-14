@@ -26,7 +26,7 @@ const stored = () => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) |
 const store = prefs => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* storage is a convenience */ } };
 
 export function createDraw({ editor, pkg, error, onChange = () => {}, commands = () => ({}) }) {
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly ? engine : null; };
   const fail = e => { error(e); };
   const prefs = { touch: true, eraser: 'stroke', eraserSize: 'medium', ...stored() };
   const pens = loadPens();
@@ -434,7 +434,7 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
   }
   function contextMenuItems(context) {
     const engine = ready(), image = engine?.model.selectedImage;
-    if (!engine || (context !== 'image' && context !== 'shape') || !inkOf(image)) return [];
+    if (!engine || context !== 'image' || !inkOf(image)) return [];
     const arrange = direction => { engine.execute(() => engine.model.arrangeImage(direction)); engine.focus(); };
     const floating = !!image.anchor;
     return [

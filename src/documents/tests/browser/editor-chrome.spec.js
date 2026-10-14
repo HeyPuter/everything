@@ -12,7 +12,7 @@ async function openEditor(page) {
 
 test('opens on the Home tab of a word-processor ribbon with every everyday command in view', async ({ page }, info) => {
   await openEditor(page);
-  await expect(page.getByRole('tablist', { name: 'Ribbon tabs' }).getByRole('tab')).toHaveText(['Home', 'Insert', 'Design', 'Layout', 'References', 'Mailings', 'Review', 'View']);
+  await expect(page.getByRole('tablist', { name: 'Ribbon tabs' }).getByRole('tab')).toHaveText(['Home', 'Insert', 'Draw', 'Design', 'Layout', 'References', 'Mailings', 'Review', 'View']);
   await expect(tab(page, 'Home')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: 'File', exact: true })).toBeVisible();
   for (const name of ['Paste', 'Cut', 'Copy', 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Superscript', 'Subscript', 'Text color', 'Text highlight',
@@ -63,9 +63,11 @@ test('moves through tabs and commands with the keyboard and returns to the docum
   await page.keyboard.press('Tab'); await expect(size).not.toBeFocused();
   await page.keyboard.press('Escape'); await expect(text(page)).toBeFocused();
   expect(await text(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([0, 18]);
+  // File opens the File view over the editor; Escape returns to the document.
   const file = page.getByRole('button', { name: 'File', exact: true });
-  await file.click(); await expect(page.getByRole('menu', { name: 'File' })).toBeVisible();
-  await file.click(); await expect(page.getByRole('menu')).toHaveCount(0);
+  await file.click(); await expect(page.getByRole('dialog', { name: 'File' })).toBeVisible();
+  await page.keyboard.press('Escape'); await expect(page.getByRole('dialog', { name: 'File' })).toBeHidden();
+  await expect(text(page)).toBeFocused();
 });
 
 test('uses File menu actions to rename, save and start a document', async ({ page }) => {
@@ -75,7 +77,7 @@ test('uses File menu actions to rename, save and start a document', async ({ pag
   await expect(title).toBeFocused(); await title.fill('Quarterly notes'); await title.press('Enter');
   await expect(title).toHaveAttribute('title', 'Quarterly notes — Rename');
   await expect(text(page)).toBeFocused();
-  await (await fileCommand(page, 'Save to Puter')).click();
+  await (await fileCommand(page, 'Save')).click();
   await expect(page.locator('.canvas-save-status')).toHaveText('Saved to Puter');
   await page.reload(); await expect(title).toHaveValue('Quarterly notes'); await expect(text(page)).toHaveValue('Saved through the menu');
   await title.fill('Cancelled name'); await title.press('Escape'); await expect(title).toHaveValue('Quarterly notes');
@@ -119,8 +121,8 @@ test('keeps the title, tabs and commands reachable in a narrow window and dark t
   const title = page.getByRole('textbox', { name: 'Document name' });
   await title.fill('A very long document name that should leave room for the account and save status'); await title.press('Enter');
   await expect(page.getByRole('button', { name: 'File', exact: true })).toBeInViewport();
-  await expect(await fileCommand(page, 'Download .docx')).toBeEnabled();
-  await expect(item(page, 'Download .docx')).toBeInViewport();
+  await expect(await fileCommand(page, 'Download a Copy')).toBeEnabled();
+  await expect(item(page, 'Download a Copy')).toBeInViewport();
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   // The commands form one row that scrolls sideways.

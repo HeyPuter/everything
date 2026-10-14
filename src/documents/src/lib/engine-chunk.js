@@ -12,3 +12,6 @@ export { selectionRects } from '../engine/layout.js';
 export { setFormattingMarks, formattingMarksVisible } from '../engine/formatting-marks.js';
 export { insertShape, insertTextBox, updateShape, selectedShape, attachShapeEditing } from '../engine/shape-editing.js';
 export { openShapeGallery } from '../ui/shape-controls.js';
+
+// Review: protection, permissions and document comparison (see engine/review-api.js).
+export * from '../engine/review-api.js';

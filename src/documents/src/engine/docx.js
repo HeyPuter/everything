@@ -25,6 +25,7 @@ import { contentControlReader, projectControlContents, projectRetainedStoryContr
 import { blockControlGroups, blockControlSignature, changedBlockControls } from './block-controls.js';
 import { appendControlledBlocks } from './docx-block-controls.js';
 import { relatedPartPath } from './docx-relationships.js';
+import { readCoreProperties, writeCoreProperties, corePropertiesPath, cleanCoreValue, CORE_FIELDS, w3cdtf } from './docx-core-properties.js';
 import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
@@ -42,6 +43,8 @@ import { hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, bookmarkInlineEvents } from './bookmarks.js';
 import { bookmarkReader, writeBookmark } from './docx-bookmarks.js';
 import { readComments, writeComments, readCommentMarker } from './docx-comments.js';
+import { isPermissionElement, readPermissionMarker } from './docx-permissions.js';
+import { readReviewSettings, writeReviewSettings } from './docx-review-settings.js';
 import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd, writePageNumbering } from './docx-page-story-create.js';
 import { footnoteReferences, footnoteStoryPath, footnoteStoryId, noteReferences, NOTE_KINDS } from './footnotes.js';
 import { readNoteSettings, writeNoteSettings, createNotesPart, separatorIds, NOTE_DEFAULTS } from './docx-notes.js';
@@ -713,7 +716,7 @@ export function createDocx(paragraphs = [paragraph()], pageSettings, numbering =
 let revisionIds = 0x3F000000;
 /** A w:ins or w:del element for a revision record (§17.13.5.18, §17.13.5.14). */
 function revisionElement(doc, revision) {
-  const node = doc.createElementNS(W, revision.type === 'del' ? 'w:del' : 'w:ins');
+  const node = doc.createElementNS(W, revision.move ? (revision.type === 'del' ? 'w:moveFrom' : 'w:moveTo') : revision.type === 'del' ? 'w:del' : 'w:ins');
   node.setAttributeNS(W, 'w:id', String(revisionIds++));
   node.setAttributeNS(W, 'w:author', revision.author || '');
   if (revision.date) node.setAttributeNS(W, 'w:date', revision.date);
@@ -730,8 +733,47 @@ function writeMarkRevision(node, revision, make) {
   rPr.prepend(revisionElement(node.ownerDocument, own));
   if (inserted) rPr.prepend(revisionElement(node.ownerDocument, { type: 'ins', ...inserted }));
 }
+const FORMAT_CHANGE_STRIP = ['rPrChange', 'ins', 'del', 'moveFrom', 'moveTo'];
+/** Append a regenerated rPrChange (§17.13.5.30) recording a run's former properties; it is the last child of rPr. */
+function writeRunChange(properties, revision, make, previousProperties) {
+  for (const n of children(properties)) if (n.namespaceURI === W && n.localName === 'rPrChange') n.remove();
+  if (!revision) return properties;
+  properties ||= make('rPr');
+  const former = previousProperties || make('rPr');
+  for (const n of children(former)) if (n.namespaceURI === W && FORMAT_CHANGE_STRIP.includes(n.localName)) n.remove();
+  const change = make('rPrChange');
+  change.setAttributeNS(W, 'w:id', revision.id || String(revisionIds++));
+  change.setAttributeNS(W, 'w:author', revision.author || '');
+  if (revision.date) change.setAttributeNS(W, 'w:date', revision.date);
+  change.append(former); properties.append(change);
+  return properties;
+}
+/** Insert move range markers around each run of moveFrom/moveTo wrappers (§17.13.5.22–.27). */
+function writeMoveRanges(node, names, counters, make) {
+  const containers = [node, ...[...node.getElementsByTagNameNS(W, 'hyperlink')]];
+  for (const container of containers) {
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      const first = group[0], kind = first.localName, base = names.get(first) || 'move';
+      const key = `${kind}:${base}`, index = (counters.get(key) || 0) + 1; counters.set(key, index);
+      const id = String(revisionIds++);
+      const start = make(`${kind}RangeStart`); start.setAttributeNS(W, 'w:id', id); start.setAttributeNS(W, 'w:name', index > 1 ? `${base}_${index}` : base);
+      start.setAttributeNS(W, 'w:author', first.getAttributeNS(W, 'author') || ''); if (first.getAttributeNS(W, 'date')) start.setAttributeNS(W, 'w:date', first.getAttributeNS(W, 'date'));
+      const end = make(`${kind}RangeEnd`); end.setAttributeNS(W, 'w:id', id);
+      first.before(start); group.at(-1).after(end); group = [];
+    };
+    for (const n of children(container)) {
+      const move = n.namespaceURI === W && ['moveFrom', 'moveTo'].includes(n.localName);
+      if (move && (!group.length || group[0].localName === n.localName && names.get(group[0]) === names.get(n))) group.push(n);
+      else { flush(); if (move) group.push(n); }
+    }
+    flush();
+  }
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink) {
   const make = name => doc.createElementNS(W, `w:${name}`);
+  const moveNames = new WeakMap(), moveCounters = new Map();
   return p => {
     const inheritedCaps = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').capitalization;
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
@@ -758,6 +800,25 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         if (!old && updated) pPr.insertBefore(updated, child(pPr, 'sectPr') || null);
       }
       writeMarkRevision(node, p.markRevision, make);
+      {
+        // A recorded paragraph formatting change: pPrChange holds the former pPr (§17.13.5.29).
+        const pPr = child(node, 'pPr');
+        if (p.formatRevision?.previous) {
+          for (const n of children(pPr)) if (n.namespaceURI === W && n.localName === 'pPrChange') n.remove();
+          const previous = { ...p, ...p.formatRevision.previous };
+          const scratch = previous.shell ? doc.importNode(xml(previous.shell).documentElement, true) : make('p');
+          writeParagraphFormat(scratch, previous, make, numbering);
+          const former = child(scratch, 'pPr') || make('pPr');
+          for (const n of children(former)) if (n.namespaceURI === W && ['rPr', 'sectPr', 'pPrChange'].includes(n.localName)) n.remove();
+          const change = make('pPrChange');
+          change.setAttributeNS(W, 'w:id', p.formatRevision.id || String(revisionIds++));
+          change.setAttributeNS(W, 'w:author', p.formatRevision.author || '');
+          if (p.formatRevision.date) change.setAttributeNS(W, 'w:date', p.formatRevision.date);
+          change.append(former);
+          let target = pPr; if (!target) { target = make('pPr'); node.prepend(target); }
+          target.append(change);
+        }
+      }
       let linkId = null, parent = node, linkParent = node;
       const fieldContainers = [], fieldContainer = () => fieldContainers.at(-1)?.node || node;
       const writtenControls = new Map();
@@ -793,7 +854,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         return writtenControls.get(control.id);
       };
       // Tracked runs sit in w:ins/w:del wrappers; neighbours with the same revision share one.
-      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '');
+      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
       const place = (r, run) => {
         if (!run.revision) { parent.append(r); return; }
         const { inserted, ...revision } = run.revision;
@@ -806,6 +867,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         if (matches(host.lastElementChild, revision)) { host.lastElementChild.append(r); return; }
         const wrapper = revisionElement(doc, revision);
+        if (revision.move) moveNames.set(wrapper, revision.moveName || 'move');
         wrapper.append(r); host.append(wrapper);
       };
       for (let i = 0; i < events.length; i++) {
@@ -872,6 +934,13 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         let properties = run.properties ? doc.importNode(xml(run.properties).documentElement, true) : null;
         properties = writeRunFormat(properties, run.properties ? run.overrides || {} : run.styleManaged ? { ...run.directFormat, ...run.overrides } : runFormat(run), make, inheritedStrike(run.styleId), inheritedCaps(run.styleId));
         properties = writeRunStyle(properties, run.styleId, run.styleChanged || !run.properties && run.styleId, make);
+        if (run.formatRevision?.previous) {
+          const prev = run.formatRevision.previous;
+          let former = prev.properties ? doc.importNode(xml(prev.properties).documentElement, true) : null;
+          former = writeRunFormat(former, prev.properties ? prev.overrides || {} : prev.styleManaged ? { ...prev.directFormat, ...prev.overrides } : runFormat(prev), make, inheritedStrike(prev.styleId), inheritedCaps(prev.styleId));
+          former = writeRunStyle(former, prev.styleId, prev.styleChanged || !prev.properties && prev.styleId, make);
+          properties = writeRunChange(properties, run.formatRevision, make, former);
+        }
         if (properties) r.append(properties);
         if (run.math) {
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
@@ -921,6 +990,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         }
         place(r, run);
       }
+      writeMoveRanges(node, moveNames, moveCounters, make);
     }
     return node;
   };
@@ -940,6 +1010,7 @@ function hasPageStoryControls(root) {
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
+    this.reviewSettings = readReviewSettings(null); this.initialReviewSettings = readReviewSettings(null);
     this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
     this.mailMerge = null; this.initialMailMerge = 'null';
     this.tables = tables; this.initialTables = JSON.stringify(tables);
@@ -1016,9 +1087,6 @@ export class DocxPackage {
     if (Object.keys(parts).some(name => /vbaProject|^_xmlsignatures\//i.test(name))) unsupported('macros or digital signatures');
     const settings = attempt(() => readSettings(parts), null);
     const savedSpellingComplete = completedSpelling(settings?.documentElement), spellingAnchors = new Map();
-    if (settings) {
-      if (settings.getElementsByTagNameNS(W, 'documentProtection').length) unsupported('document protection');
-    }
     const doc = xml(parts['word/document.xml']);
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
@@ -1105,10 +1173,34 @@ export class DocxPackage {
     let bodyInlineOrder = 0;
     const commentReferences = [];
     let currentRevision = null;
+    // Open move ranges (§17.13.5.22–.27) name the moveFrom/moveTo content they enclose.
+    const moveNames = { from: null, to: null };
+    const readMoveRange = node => {
+      const side = node.localName.startsWith('moveFrom') ? 'from' : 'to';
+      moveNames[side] = node.localName.endsWith('Start') ? node.getAttributeNS(W, 'name') || '' : null;
+    };
+    const isMoveRange = node => node.namespaceURI === W && ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd'].includes(node.localName);
     const readRevision = node => {
       for (const attr of [...node.attributes]) if (attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(attr.namespaceURI === W && ['id', 'author', 'date', 'name'].includes(attr.localName))) throw new UnsupportedDocumentError(`revision attribute ${attr.name}`);
       const type = ['ins', 'moveTo'].includes(node.localName) ? 'ins' : 'del';
-      return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '' };
+      const move = ['moveFrom', 'moveTo'].includes(node.localName);
+      return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '', ...(move ? { move: true, moveName: moveNames[node.localName === 'moveFrom' ? 'from' : 'to'] || '' } : {}) };
+    };
+    // A recorded formatting change keeps its former formatting for rejection (§17.13.5.29/.30).
+    const changeMeta = change => ({ type: 'format', author: change.getAttributeNS(W, 'author') || '', date: change.getAttributeNS(W, 'date') || '', ...(change.getAttributeNS(W, 'id') ? { id: change.getAttributeNS(W, 'id') } : {}) });
+    const readRunChange = rPr => {
+      const change = child(rPr, 'rPrChange'); if (!change) return null;
+      const inner = child(change, 'rPr');
+      return { ...changeMeta(change), previous: { styleId: readCharacterStyle(inner), directFormat: readDirectRun(inner), hasDirectProperties: hasDirectProperties(inner), styleManaged: true, properties: inner ? serialize(inner) : '', overrides: {} } };
+    };
+    const readParagraphChange = (pPr, shell, mark) => {
+      const change = child(pPr, 'pPrChange'); if (!change) return null;
+      const inner = child(change, 'pPr');
+      const previousShell = shell.cloneNode(true), target = child(previousShell, 'pPr');
+      for (const n of children(target)) if (!(n.namespaceURI === W && ['rPr', 'sectPr'].includes(n.localName))) n.remove();
+      for (const n of children(inner)) if (!(n.namespaceURI === W && ['rPr', 'sectPr', 'pPrChange'].includes(n.localName))) target.insertBefore(n.cloneNode(true), child(target, 'rPr') || child(target, 'sectPr') || null);
+      const styleContext = { ...recoverProperties(inner, candidate => ({ properties: paragraphProperties(candidate, {}, readColor), reference: numberingReference(candidate) })), numberingDirect: !!child(inner, 'numPr'), mark };
+      return { ...changeMeta(change), previous: { shell: serializeFragment(previousShell), styleId: value(child(inner, 'pStyle')), styleContext, hasDirectParagraphProperties: children(inner).some(n => !retainedParagraphProperty(n)) } };
     };
     const bodyFields = bodyFieldReader(()=>bodyInlineOrder++);
     const normalizeFields = (node, refreshFormatting = false) => {
@@ -1200,6 +1292,10 @@ export class DocxPackage {
           if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('bookmarks inside a body field instruction');
           bookmarks.push({ ...readBookmark(r, textPosition, link, context), ...(!context.drawingText&&!context.pageStory?{bodyOrder:bodyInlineOrder++}:{}) }); return;
         }
+        if (isPermissionElement(r) && !context.drawingText && !context.pageStory) {
+          if (bodyFields.inCode) throw new UnsupportedDocumentError('permission ranges inside a body field instruction');
+          bookmarks.push(readPermissionMarker(r, textPosition, bodyInlineOrder++)); return;
+        }
         if (r.namespaceURI === W && ['commentRangeStart', 'commentRangeEnd'].includes(r.localName)) {
           if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('comments outside the main body');
           if (bodyFields.inCode) throw new UnsupportedDocumentError('comments inside a body field instruction');
@@ -1218,6 +1314,7 @@ export class DocxPackage {
           return;
         }
         const rPr = child(r, 'rPr');
+        const formatRevision = rPr && !context.drawingText ? readRunChange(rPr) : null;
         const characterStyleId=readCharacterStyle(rPr),characterStyle=styles.definitions?.[characterStyleId];
         let text = '';
         const push = (image, positionalTab) => {
@@ -1230,7 +1327,7 @@ export class DocxPackage {
           if (/[\n\r]/.test(text)) throw new UnsupportedDocumentError('line breaks inside text runs');
           const tocHyperlink=tocHyperlinkRuns.has(r)||!context.drawingText&&!context.pageStory&&bodyFields.inToc&&characterStyle?.type==='character'&&characterStyle.name.toLowerCase()==='hyperlink';
           const resultLink=link||(!context.drawingText&&!context.pageStory?bodyFields.link:null);
-          if (text || image) runs.push({ text: image ? OBJECT : text, ...(currentRevision ? { revision: { ...currentRevision } } : {}), ...(image ? { image } : {}), ...(positionalTab ? { positionalTab } : {}), ...(fieldRuns.has(r) ? { field: fieldRuns.get(r) } : {}), ...(tocHyperlink ? { tocHyperlink: true } : {}), ...(resultLink ? { link:resultLink } : {}), styleId: characterStyleId, directFormat: readDirectRun(rPr), hasDirectProperties: hasDirectProperties(rPr), styleManaged: true, properties: rPr ? serialize(rPr) : '', overrides: {} });
+          if (text || image) runs.push({ text: image ? OBJECT : text, ...(currentRevision ? { revision: { ...currentRevision } } : {}), ...(formatRevision ? { formatRevision: structuredClone(formatRevision) } : {}), ...(image ? { image } : {}), ...(positionalTab ? { positionalTab } : {}), ...(fieldRuns.has(r) ? { field: fieldRuns.get(r) } : {}), ...(tocHyperlink ? { tocHyperlink: true } : {}), ...(resultLink ? { link:resultLink } : {}), styleId: characterStyleId, directFormat: readDirectRun(rPr), hasDirectProperties: hasDirectProperties(rPr), styleManaged: true, properties: rPr ? serialize(rPr) : '', overrides: {} });
           textPosition += image ? 1 : text.length;
           text = '';
         };
@@ -1376,7 +1473,7 @@ export class DocxPackage {
           finally { currentRevision = outer; }
           return;
         }
-        if (r.namespaceURI === W && ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd'].includes(r.localName)) return;
+        if (isMoveRange(r)) { readMoveRange(r); return; }
         if(macroPrompts.has(r)){
           if(controlDepth)throw new UnsupportedDocumentError('body fields inside inline content controls');
           bodyFields.prompt(macroPrompts.get(r),children(r),()=>textPosition,fieldMarkers,readRun);
@@ -1451,9 +1548,11 @@ export class DocxPackage {
       if (hyperlinkBoundaryChanges(runs).length) throw new UnsupportedDocumentError('hyperlink boundaries inside grapheme clusters');
       if (pPr) shell.append(pPr.cloneNode(true));
       const mark = child(pPr, 'rPr');
+      const paragraphChange = pPr && !context.drawingText ? readParagraphChange(pPr, shell, styleContext.mark) : null;
       const p = paragraph('', { ...context, runs, ...(bookmarks.length || commentReferences.at(-1)?.bookmarks === bookmarks ? { bookmarks } : {}), shell: serializeFragment(shell), ...(child(pPr, 'sectPr') ? { sectionEnd: readPageSettings(child(pPr, 'sectPr'), settings?.documentElement, readColor, attempt), sectionProperties: serializeFragment(child(pPr, 'sectPr')) } : {}), styleId, styleContext, hasDirectParagraphProperties: children(pPr).some(n => !retainedParagraphProperty(n)), markStyleId: readCharacterStyle(mark), markProperties: mark ? serialize(mark) : '', markHasDirectProperties: hasDirectProperties(mark) });
       if (p.sectionEnd && !context.drawingText && !context.pageStory) p.sectionSourceIndex = sectionSourceIndices.get(child(pPr, 'sectPr'));
       if (markRevision) p.markRevision = markRevision;
+      if (paragraphChange) p.formatRevision = paragraphChange;
       if(fieldMarkers.length)p.fieldMarkers=fieldMarkers;
       try {
         resolveStyledParagraph(p, styles, numbering, { displayOnly: preview, onNumberingError: preview ? error => recordPreviewIssue(issues, error) : undefined });
@@ -1475,7 +1574,10 @@ export class DocxPackage {
     const stylesRoot = stylesDoc?.documentElement;
     const readBlocks = (nodes, context = {}, depth = 0, blockTables = tables) => {
       if (depth > 12) throw new UnsupportedDocumentError('excessive block nesting');
-      const result = [], pending = [];
+      const result = [], pending = [], leading = [];
+      // A paragraph that received markers from between blocks cannot reuse its source XML, which lacks them.
+      const adopted = p => { const original = originals.get(p.id); if (original) original.blockMarkers = true; };
+      const takeLeading = paragraphs => { if (leading.length && paragraphs[0]) { paragraphs[0].bookmarks = [...leading.splice(0), ...(paragraphs[0].bookmarks || [])]; adopted(paragraphs[0]); } };
       const tableAt = p => {
         const owner = id => blockTables.find(t => t.rows.some(row => row.cells.some(cell => cell.id === id)));
         let table = p?.cellId && p.cellId !== context.cellId ? owner(p.cellId) : null;
@@ -1487,12 +1589,18 @@ export class DocxPackage {
         try {
           if (node.namespaceURI !== W) throw new UnsupportedDocumentError(node.localName);
           if (node.localName === 'sectPr' && !depth && !context.cellId) continue;
-          if (['commentRangeStart', 'commentRangeEnd'].includes(node.localName) && !context.drawingText && !context.pageStory) {
-            const previous = result.at(-1);
-            const marker = readCommentMarker(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
-            if (previous) (previous.bookmarks ||= []).push(marker); else pending.push(marker);
+          if (isPermissionElement(node) && node.localName === 'permStart' && !context.drawingText && !context.pageStory) {
+            // A range opening between blocks starts with the next paragraph.
+            leading.push(readPermissionMarker(node, 0, bodyInlineOrder++));
             continue;
           }
+          if ((['commentRangeStart', 'commentRangeEnd'].includes(node.localName) || isPermissionElement(node)) && !context.drawingText && !context.pageStory) {
+            const previous = result.at(-1);
+            const marker = (isPermissionElement(node) ? readPermissionMarker : readCommentMarker)(node, previous ? paragraphText(previous).length : 0, bodyInlineOrder++);
+            if (previous) { (previous.bookmarks ||= []).push(marker); adopted(previous); } else pending.push(marker);
+            continue;
+          }
+          if (isMoveRange(node) && !context.drawingText) { readMoveRange(node); continue; }
           if (['bookmarkStart', 'bookmarkEnd'].includes(node.localName)) {
             if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('bookmarks inside a body field instruction');
             const previous = result.at(-1);
@@ -1503,6 +1611,7 @@ export class DocxPackage {
           }
           if (node.localName === 'p') {
             const p = readParagraph(context.pageStory ? normalizeFields(node) : node, context);
+            takeLeading([p]);
             if (context.pageStory || context.drawingText) {
               if (p.sectionEnd) throw new UnsupportedDocumentError('section properties in a header/footer');
               p.storySource = serializeFragment(node);
@@ -1520,7 +1629,7 @@ export class DocxPackage {
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
             if (context.cellId) parsed.table.parentCellId = context.cellId;
             if (context.blockControls) parsed.table.blockControls = context.blockControls;
-            blockTables.push(parsed.table); result.push(...parsed.paragraphs);
+            blockTables.push(parsed.table); takeLeading(parsed.paragraphs); result.push(...parsed.paragraphs);
           } else throw new UnsupportedDocumentError(node.localName);
         } catch (e) {
           if (!preview || context.drawingText || !(e instanceof UnsupportedDocumentError)) throw e;
@@ -1536,10 +1645,15 @@ export class DocxPackage {
           result.push(...recovered);
         }
       }
+      if (leading.length) {
+        if (!result.length) throw new UnsupportedDocumentError('permission ranges without paragraph content');
+        const last = result.at(-1); (last.bookmarks ||= []).push(...leading.splice(0).map(m => ({ ...m, offset: paragraphText(last).length }))); adopted(last);
+      }
       if (pending.length) {
         if (!result.length) throw new UnsupportedDocumentError('block bookmarks without paragraph content');
         const tableId = tableAt(result[0]); if (tableId) for (const marker of pending) marker.blockTableId = tableId;
         (result[0].bookmarks ||= []).push(...pending);
+        if (pending.some(m => m.comment || m.perm)) adopted(result[0]);
       }
       return result;
     };
@@ -1563,7 +1677,7 @@ export class DocxPackage {
     try { bodyFieldRanges(paragraphs); } catch(error) { throw new UnsupportedDocumentError(error.message); }
     for (const group of blockControlGroups(paragraphs)) group.control.signature = blockControlSignature(group.paragraphs, group.control);
     for (const p of paragraphs) {
-      const original = originals.get(p.id); if (original) original.signature = signature(p);
+      const original = originals.get(p.id); if (original && !original.blockMarkers) original.signature = signature(p);
     }
     documentBlocks(paragraphs, tables);
     try {
@@ -1586,6 +1700,8 @@ export class DocxPackage {
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
+    pkg.reviewSettings = attempt(() => readReviewSettings(settings?.documentElement, stylesDoc?.documentElement), () => readReviewSettings(null));
+    pkg.initialReviewSettings = { ...structuredClone(pkg.reviewSettings), hideSpellingErrors: pkg.hideSpellingErrors };
     pkg.savedSpelling = savedSpellingComplete ? bodySpellingCache(paragraphs, spellingAnchors) : null;
     pkg.initialProofingFingerprint = savedSpellingComplete || child(settings?.documentElement, 'proofState')?.getAttributeNS(W, 'grammar') === 'clean' ? proofingFingerprint(paragraphs) : null;
     if (activeNodes.some(n => n.namespaceURI === W && (['headerReference', 'footerReference', 'pgNumType'].includes(n.localName))) || Object.values(assets).some(a => a.scene && shapeHasFields(a.scene))) {
@@ -1814,7 +1930,34 @@ export class DocxPackage {
     this.pruneFootnotes(parts, paragraphs);
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
+    this.writeCoreProperties(parts);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });
+  }
+  /** Document properties (Part 2 §11): the file's values with this session's edits over them. */
+  get coreProperties() { return { ...readCoreProperties(this.parts), ...(this.coreEdits || {}) }; }
+  /** Change title, subject, author, keywords… on the next export. An empty value removes one. */
+  setCoreProperties(patch) {
+    if (this.readOnly) throw new Error('This document is open read-only.');
+    const edits = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => Object.hasOwn(CORE_FIELDS, key) && key !== 'modified').map(([key, value]) => [key, cleanCoreValue(value)]));
+    const current = this.coreProperties;
+    const changed = Object.entries(edits).filter(([key, value]) => current[key] !== value);
+    if (!changed.length) return false;
+    this.coreEdits = { ...(this.coreEdits || {}), ...Object.fromEntries(changed) };
+    return true;
+  }
+  /**
+   * Edited properties are written with a fresh modification time and author. Content edits alone leave
+   * the part as it was, so an unedited part (and an undone edit) still saves byte for byte.
+   */
+  writeCoreProperties(parts) {
+    const edits = { ...(this.coreEdits || {}) };
+    if (!Object.keys(edits).length) return;
+    const existing = corePropertiesPath(this.parts);
+    const now = w3cdtf(this.clock?.() || new Date());
+    edits.modified = now;
+    if (this.coreAuthor) edits.lastModifiedBy = this.coreAuthor;
+    if (!existing) { edits.created ??= now; if (this.coreAuthor) edits.creator ??= this.coreAuthor; }
+    writeCoreProperties(parts, edits);
   }
   /** Reserve a new footnote in the notes part (created if needed): { id, part, path, settings }. */
   addFootnote() { return this.addNote('footnote'); }
@@ -1937,6 +2080,7 @@ export class DocxPackage {
     const parts = { ...this.parts };
     if (comments) writeComments(parts, comments, this.initialComments ?? '[]');
     if (!!trackRevisions !== !!this.trackRevisions) writeTrackRevisions(parts, trackRevisions);
+    writeReviewSettings(parts, { ...this.reviewSettings, hideSpellingErrors: !!this.hideSpellingErrors }, this.initialReviewSettings);
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
     if (!this.createdStories.length && !this.titlePages.size && !this.pageNumberings.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;

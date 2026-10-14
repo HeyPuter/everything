@@ -25,23 +25,29 @@ export async function onTab(page, id) {
   return page;
 }
 
+/** Open a menu of the menu bar (or, in a narrow window, of the Menus button) and return it. */
+export async function menuBarMenu(page, name) {
+  const bar = page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name, exact: true });
+  if (await bar.isVisible()) { await bar.click(); return page.getByRole('menu', { name, exact: true }); }
+  await page.getByRole('button', { name: 'Menus', exact: true }).click();
+  await page.getByRole('menu', { name: 'Menus' }).getByRole('menuitem', { name, exact: true }).click();
+  return page.getByRole('menu', { name, exact: true });
+}
+
 /** The File menu's command of this name. */
 export async function fileCommand(page, name) {
-  await page.getByRole('button', { name: 'File', exact: true }).click();
-  return page.getByRole('menu', { name: 'File' }).getByRole('menuitem', { name, exact: true });
+  return (await menuBarMenu(page, 'File')).getByRole('menuitem', { name, exact: true });
 }
 
 export async function saveToPuter(page) {
-  await page.getByRole('button', { name: 'File', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Save to Puter', exact: true }).click();
+  await (await fileCommand(page, 'Save')).click();
 }
 
-/** The evaluation playground has a direct download button; the app uses File. */
+/** The evaluation playground has a direct download button; the app downloads from File. */
 export async function downloadDocx(page) {
   const button = page.getByRole('button', { name: 'Download .docx', exact: true });
   if (await button.count()) return button.click();
-  await page.getByRole('button', { name: 'File', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Download .docx', exact: true }).click();
+  await (await fileCommand(page, 'Download a Copy')).click();
 }
 
 /** Table commands live on the contextual table tabs, which stay hidden outside a table; their
