@@ -67,6 +67,7 @@ export class Sequencer {
     this.core = core;
     this.rate = rate;
     this.loop = loop;
+    this.free = false; // playing past a playlist loop toward the song end
     this.seq = null;
     this.playing = false;
     this.pos = 0;
@@ -119,7 +120,7 @@ export class Sequencer {
     const prev = new Map(this.lanes.map((l) => [laneKey(l), l]));
     this.lanes = seq.auto.map((l) => ({ ...l, applied: prev.get(laneKey(l))?.applied || false }));
     if (this.playing) {
-      if (this.loop && this.pos >= seq.end && !this.countIn) this.#jump(seq.start, 0);
+      if (this.loop && this.pos >= this.#end() && !this.countIn) this.#jump(seq.start, 0);
       else {
         this.cursor = lowerBound(seq.notes.start, seq.notes.count, this.pos);
         this.#reconcile(seq);
@@ -194,9 +195,22 @@ export class Sequencer {
     if (this.playing && !this.countIn) this.#resumeAudio(this.pos, 0);
   }
 
+  /**
+   * Where playback wraps: the loop end, or the song end while playing past a
+   * playlist loop (after a seek beyond it), which then joins the loop.
+   */
+  #end() {
+    const s = this.seq;
+    return this.free && s.outer > s.end ? s.outer : s.end;
+  }
+
   #clampStart(t) {
     const s = this.seq;
-    if (this.loop && (t >= s.end || t < 0)) return s.start;
+    this.free = this.loop && t >= s.end && t < (s.outer ?? s.end);
+    if (this.loop && (t >= this.#end() || t < 0)) {
+      this.free = false;
+      return s.start;
+    }
     return Math.max(0, t);
   }
 
@@ -248,6 +262,7 @@ export class Sequencer {
   }
 
   #jump(tick, offset) {
+    this.free = false;
     this.#releaseAll(offset);
     this.pos = tick;
     this.cursor = lowerBound(this.seq.notes.start, this.seq.notes.count, tick);
@@ -414,7 +429,8 @@ export class Sequencer {
     while (f < frames && guard++ < 8) {
       const t0 = this.pos;
       const left = frames - f;
-      if (t0 >= s.end - 1e-9) {
+      const end = this.#end();
+      if (t0 >= end - 1e-9) {
         // At or past the range end (also after a seek beyond it).
         if (this.loop) {
           this.wraps++;
@@ -423,18 +439,18 @@ export class Sequencer {
           continue;
         }
         this.#releaseAll(Math.min(f, frames - 1));
-        this.pos = s.end;
+        this.pos = end;
         this.playing = false;
         this.ended = true;
         return;
       }
       const s0 = map.seconds(t0);
-      const toEnd = Math.ceil((map.seconds(s.end) - s0) * rate - 1e-6);
+      const toEnd = Math.ceil((map.seconds(end) - s0) * rate - 1e-6);
       if (toEnd <= left) {
         // The range ends inside this block.
         this.#events(t0, toEnd, f, s0);
         f += toEnd;
-        this.pos = s.end;
+        this.pos = end;
         if (f >= frames && this.loop) {
           // Wrap at the start of the next block.
           return;

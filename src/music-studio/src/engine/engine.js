@@ -354,9 +354,11 @@ export class Engine extends Emitter {
       const pat = patternById(p, this.store.view.pattern) || p.patterns[0];
       return { start: 0, end: patternLength(pat, p.sig) };
     }
-    if (p.loop) return { start: p.loop.start, end: p.loop.end };
     const bar = ticksPerBar(p.sig);
-    return { start: 0, end: Math.max(bar, Math.ceil(songLength(p) / bar) * bar) };
+    const song = Math.max(bar, Math.ceil(songLength(p) / bar) * bar);
+    // outer: playback that starts past the loop runs to the song end, then loops.
+    if (p.loop) return { start: p.loop.start, end: p.loop.end, outer: Math.max(p.loop.end, song) };
+    return { start: 0, end: song };
   }
 
   async play() {
@@ -433,7 +435,11 @@ export class Engine extends Emitter {
   /** Current position in ticks (wrapped into the play range). */
   get position() {
     if (!this.playing) return this._pausedAt;
-    const { start, end } = this.range();
+    const range = this.range();
+    const { start } = range;
+    let { end } = range;
+    // Started past the playlist loop and not wrapped yet: the song end is the limit.
+    if (range.outer > end && this._wraps === this._wrapsAtPlay && (this.node ? this._anchor?.tick : this._startTick) >= end) end = range.outer;
     const len = Math.max(1, end - start);
     let t;
     if (this.node) {

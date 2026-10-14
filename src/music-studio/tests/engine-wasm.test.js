@@ -334,3 +334,41 @@ describe('sequencer', () => {
 // Keep helpers referenced for linters.
 void paramVector;
 void effectParamVector;
+
+describe('seeking past a playlist loop', () => {
+  it('plays on to the song end, then joins the loop', () => {
+    const p = createProject();
+    const ch = createChannel({ type: 'drum', mixer: 1 });
+    p.channels = [ch];
+    const pat = p.patterns[0];
+    pat.notes = { [ch.id]: [createNote({ pos: 0, len: 24 })] };
+    p.bpm = 480; // fast, so the test renders few blocks
+    p.clips = [{ id: 'c', kind: 'pattern', track: 0, start: 0, len: 384 * 4, offset: 0, ref: pat.id, mute: false }];
+    p.loop = { start: 0, end: 384 };
+    const core = makeCore();
+    core.setMixer(compileMixer(p));
+    core.setChannel(compileChannel(p, ch, 0));
+    const seq = new Sequencer(core, RATE);
+    const compiled = compileSequence(p, { mode: 'song', slotOf: () => 0 });
+    expect(compiled.end).toBe(384);
+    expect(compiled.outer).toBe(384 * 4);
+    seq.setSequence(compiled);
+    seq.play(0);
+    seq.seek(900); // past the loop end: keeps going instead of snapping back
+    expect(seq.pos).toBe(900);
+    let maxPos = 0;
+    let wrapped = false;
+    for (let i = 0; i < 4000 && !wrapped; i++) {
+      seq.block(BLOCK);
+      maxPos = Math.max(maxPos, seq.pos);
+      if (seq.pos < 900) wrapped = true;
+    }
+    expect(maxPos).toBeGreaterThan(384 * 3);
+    expect(wrapped).toBe(true);
+    // After joining the loop it stays inside it.
+    for (let i = 0; i < 400; i++) {
+      seq.block(BLOCK);
+      expect(seq.pos).toBeLessThanOrEqual(384);
+    }
+  });
+});

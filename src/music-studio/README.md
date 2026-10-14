@@ -11,10 +11,10 @@ No framework: vanilla JavaScript modules built with Vite. The audio engine is wr
 - **Channel rack**: a step sequencer with per-channel mute, solo, volume, pan and mixer routing, plus instrument editors for each channel.
 - **Instruments**: a polyphonic subtractive synthesizer, a drum synthesizer (kick, snare, clap, hats, toms, percussion) and a sampler for your own audio. Every bundled sound is synthesized; no audio files ship with the app.
 - **Piano roll**: draw, paint, slice, select and audition tools, velocity and pan lanes, ghost notes, scale highlighting, quantize, chords and a riff generator.
-- **Playlist**: arrange pattern, audio and automation clips on tracks, with a loop region, markers and slicing.
-- **Mixer**: inserts with peak meters, faders, pan, stereo width, sends and up to ten effects per insert (parametric EQ, compressor, limiter, delay, reverb, chorus, phaser, distortion, bitcrusher, filter, stereo tool).
+- **Playlist**: arrange pattern, audio and automation clips on tracks, with a loop region, markers and slicing. Automation curves have per-segment tension, and a tempo lane can ramp or step the tempo.
+- **Mixer**: inserts with peak meters, faders, pan, stereo width, sends and up to ten effects per insert (parametric EQ, compressor, limiter, delay, reverb, chorus, phaser, oversampled distortion, bitcrusher, filter, stereo tool), each with built-in presets and your own saved presets.
 - **Recording**: play from the computer keyboard or a MIDI controller, record into patterns, step edit.
-- **Files**: works without signing in (projects autosave on this device). Signed in, projects and samples save to your Puter cloud. Import audio and MIDI; export WAV, MIDI and stems.
+- **Files**: works without signing in (projects autosave on this device, separately for each open tab). Signed in, projects, samples, exports and your presets save to the app's own folder in your Puter cloud. Import audio and MIDI; export WAV, MIDI and stems.
 - **Everywhere**: dark, light and system themes; desktop, tablet and phone layouts; full keyboard operation.
 
 ## Architecture

@@ -36,6 +36,7 @@ import { toast } from './ui/toast.js';
 import { openMenu, isMenuOpen } from './ui/menu.js';
 import { confirmDialog } from './ui/dialog.js';
 import { icon } from './ui/icons.js';
+import { REPO_URL } from './ui/toolbar.js';
 
 // Browser shortcuts the app reuses (see installKeyboard).
 const BROWSER_KEYS = new Set(['F5', 'Mod+R', 'Mod+Shift+R', 'Mod+S', 'Mod+Shift+S', 'Mod+O', 'Mod+P']);
@@ -160,7 +161,7 @@ export class App extends Emitter {
     };
     this.on('account', syncCloud);
     syncCloud();
-    this.shell.statusbar.append(this.hintEl, h('span.status-spacer'), cloud, h('span.status-badge', { title: 'This app is an early alpha' }, 'Alpha'));
+    this.shell.statusbar.append(this.hintEl, h('span.status-spacer'), cloud, h('a.status-link', { href: REPO_URL, target: '_blank', rel: 'noopener', title: 'Music Studio is open source' }, icon('github', 12), h('span', 'Source on GitHub')), h('span.status-badge', { title: 'This app is an early alpha' }, 'Alpha'));
   }
 
   installHints() {

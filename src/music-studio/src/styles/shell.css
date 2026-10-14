@@ -557,6 +557,20 @@
   white-space: nowrap;
 }
 
+.status-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.status-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 .status-badge {
   padding: 0 6px;
   border: 1px solid var(--warn);

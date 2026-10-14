@@ -17,7 +17,9 @@
 // soloed, feeds a soloed insert (directly or through other inserts) or is fed
 // by one; the master is always audible. Mute always wins.
 //
-// Sequence: { mode, bpm, sig, start, end (the loop range in ticks), notes,
+// Sequence: { mode, bpm, sig, start, end (the loop range in ticks), outer (the
+//   song end: playback that starts past a playlist loop runs to here, then
+//   joins the loop), notes,
 //   audio (indices of audio events), auto (automation lanes), tempo (tempo
 //   map pieces, engine/tempo.js: song mode follows tempo automation clips,
 //   pattern mode always plays at project.bpm) } where notes is
@@ -216,6 +218,13 @@ export function playRange(project, mode, patternId) {
   return { start: 0, end: Math.max(bar, Math.ceil(songLength(project) / bar) * bar) };
 }
 
+/** End of the song (whole bars) when a playlist loop is set, else the loop end. */
+function outerEnd(project, mode, r) {
+  if (mode !== 'song' || !project.loop) return r.end;
+  const bar = ticksPerBar(project.sig);
+  return Math.max(r.end, Math.ceil(songLength(project) / bar) * bar);
+}
+
 /** Playlist track audibility (playlist/clips.js trackAudible), per track index. */
 function trackAudible(project) {
   return project.tracks.map((_, i) => playlistTrackAudible(project, i));
@@ -322,6 +331,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     sig: project.sig,
     start: r.start,
     end: r.end,
+    outer: range ? r.end : outerEnd(project, mode, r),
     notes,
     audio: Int32Array.from(audio),
     auto: mode === 'song' ? compileAutomation(project, slot) : [],
