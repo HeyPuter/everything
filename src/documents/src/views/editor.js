@@ -1088,7 +1088,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     message, collab.banner, el('div.canvas-editor-body', {}, chrome.navigation,
       el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, versionHistory.previewNode, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, pictures.pane, versionHistory.pane.node, assistant.pane.node, chrome.inspector, assistant.fab)),
     statusBar.el, backstage.el,
-    openInput, imageInput, ...pictures.inputs, fontSizes);
+    openInput, imageInput, ...pictures.inputs, ...insert.inputs, fontSizes);
   chrome.attach(root);
   // Who is here, beside Share in the title bar.
   const titleActions = chrome.header.querySelector('.canvas-title-actions');
@@ -1571,7 +1571,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     scriptMetricSignature = undefined;
     showNotices();
     exportButton.disabled = false; saveButton.disabled = false; printButton.disabled = false; templateButton.disabled = !!pkg.readOnly;
-    update(); updateStatus(); engine.focus();
+    update(); updateStatus();
+    // Take the keyboard, unless it is in a text field elsewhere on the page (the user is typing there).
+    const active = document.activeElement;
+    const typing = active && !root.contains(active) && (active.isContentEditable || /^(TEXTAREA|SELECT)$/.test(active.tagName) || active.tagName === 'INPUT' && !/^(button|checkbox|radio|file|submit|reset|image|color|range)$/.test(active.type));
+    if (!typing) engine.focus();
     collab.attach();
     document.title = `${doc.name} — Documents`;
   })().catch(e => {
