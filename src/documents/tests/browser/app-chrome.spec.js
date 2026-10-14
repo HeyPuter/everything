@@ -165,6 +165,11 @@ test('command search finds and runs ribbon and menu commands, and falls back to 
   await search.press('Enter');
   await expect.poll(async () => (await engine(page)).bold).toBe(true);
   await expect(text(page)).toBeFocused();
+  // A ribbon drop-down's choice: Layout › Orientation › Landscape.
+  await search.click(); await search.fill('landscape');
+  await expect(page.getByRole('listbox', { name: 'Commands' }).getByRole('option').first()).toContainText('Orientation');
+  await search.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.pageSettings.orientation)).toBe('landscape');
   // A menu command: Word Count.
   await search.click(); await search.fill('word count'); await search.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Word Count' })).toBeVisible();

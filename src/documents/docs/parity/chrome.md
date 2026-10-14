@@ -34,8 +34,9 @@ commands. OOXML behaviour (document properties, `w:lang`) is recorded in `docs/c
 - Undo history: each step is named after the ribbon or menu command that made it ("Bold",
   "Paste Formatting"), otherwise "Typing" or "Formatting"; choosing an entry undoes back to it.
 - Document name with a details popover (rename, location, status, version history, properties).
-- Command search (Cmd+Option+K / Alt+Q): every labelled ribbon button and menu item, ranked by
-  label then path, with shortcuts; recent commands when empty; falls back to finding the text.
+- Command search (Cmd+Option+K / Alt+Q): every labelled ribbon button, the choices of ribbon
+  drop-downs (Orientation › Landscape, Margins › Narrow…) and every menu item, ranked by label then
+  path, with shortcuts; recent commands when empty; falls back to finding the text.
 - Editing / Reviewing / Viewing: Reviewing turns Track Changes on through the review module;
   Viewing locks every edit path in the engine (`setViewOnly`) and disables the ribbon, without
   touching the package or its layout.

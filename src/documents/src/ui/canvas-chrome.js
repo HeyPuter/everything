@@ -58,6 +58,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     const button = command(label, icon, e => openMenu({ anchor: button, label, items: inDocument(items()), minWidth: 220, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null }),
       { size, text, caret: true, attrs: { 'aria-haspopup': 'menu' } });
     noFocusSteal(button);
+    button.menuItems = items; // command search lists what the menu offers
     return button;
   };
   // A command chosen from a ribbon menu acts on the document: the keyboard goes back to it first.

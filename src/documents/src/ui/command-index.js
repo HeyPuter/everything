@@ -37,29 +37,42 @@ export function ribbonEntries({ ribbon, tabs, beforeRun = () => {} }) {
             return true;
           },
         });
+        // A drop-down's own choices (Margins › Narrow, Orientation › Landscape) are commands too.
+        if (typeof control.menuItems === 'function' && tabShown) {
+          let items = [];
+          try { items = control.menuItems() || []; } catch { items = []; }
+          for (const entry of leafEntries(items, [tab.label, groupLabel, label], `ribbon:${tab.id}/${group.dataset.group}/${label}`)) out.push({ ...entry, disabled: entry.disabled || control.disabled });
+        }
       }
     }
   }
   return out;
 }
 
-/** Menu-bar items: each leaf with an action, under its menu path. */
-export function menuEntries(menus) {
+/** Leaf items of a menu tree, each with its path and an id under `prefix`. */
+function leafEntries(items, path, prefix) {
   const out = [];
-  const walk = (items, path, idPath) => {
-    for (const item of items || []) {
+  const walk = (list, at, ids) => {
+    for (const item of list || []) {
       if (!item || item.separator || item.header || item.note || item.custom || !item.label) continue;
       const label = clean(item.label);
-      if (item.items) { walk(item.items, [...path, label], [...idPath, label]); continue; }
+      if (item.items) { walk(item.items, [...at, label], [...ids, label]); continue; }
       if (!item.onSelect) continue;
-      out.push({ id: `menu:${[...idPath, label].join('/')}`, label, path, shortcut: item.shortcut || null, disabled: !!item.disabled,
+      out.push({ id: `${prefix}/${[...ids, label].join('/')}`, label, path: at, shortcut: item.shortcut || null, disabled: !!item.disabled,
         run: () => { if (item.disabled) return false; item.onSelect(); return true; } });
     }
   };
+  walk(items, path, []);
+  return out;
+}
+
+/** Menu-bar items: each leaf with an action, under its menu path. */
+export function menuEntries(menus) {
+  const out = [];
   for (const menu of menus) {
     let items = [];
     try { items = menu.items(); } catch { items = []; }
-    walk(items, [menu.label], [menu.id]);
+    out.push(...leafEntries(items, [menu.label], `menu:${menu.id}`));
   }
   return out;
 }
