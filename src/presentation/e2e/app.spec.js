@@ -9239,12 +9239,13 @@ test("empty placeholders in an imported deck can be formatted and filled in", as
   await closePanel();
   await page.locator('[data-object="1"]').click();
   await inspector(page);
-  // The panel reports the format typed text will take.
+  // The panel reports the format typed text will take: the Title Slide
+  // layout's subtitle size.
   await expect(page.getByRole("combobox", { name: "Font family" })).toHaveValue(
     "Calibri",
   );
   await expect(page.getByRole("spinbutton", { name: "Font size" })).toHaveValue(
-    "32",
+    "24",
   );
   const bold = panel(page).getByRole("button", { name: "Bold", exact: true });
   await bold.click();
@@ -9270,7 +9271,7 @@ test("empty placeholders in an imported deck can be formatted and filled in", as
   expect(P.getShapeText(subtitle)).toBe("A subtitle at last");
   expect(P.getShapeRunFormatEffective(loaded, subtitle, 0, 0)).toMatchObject({
     bold: true,
-    size: 32,
+    size: 24,
   });
   expect(errors).toEqual([]);
 });
@@ -9490,7 +9491,8 @@ test("the format panel offers a fill only for shapes that can take one", async (
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
   const fill = page.locator('input[aria-label="Fill color"]');
   const removeFill = page.getByRole("button", { name: "Remove fill" });
-  const headings = page.locator("#inspector h3");
+  // The panel's own sections; the Format pane's groups follow them.
+  const headings = page.locator("#inspector h3:not(.fmt-group-heading)");
   // On phones the panel covers the canvas, so select before opening it.
   const select = async (locator) => {
     const close = page.getByRole("button", { name: "Close format panel" });
@@ -10570,17 +10572,17 @@ test("borders, line styles, and arrowheads are edited in the format panel", asyn
   await page.getByRole("menuitem", { name: "Arrow", exact: true }).click();
   await inspector(page);
   await expect(format.locator("h3").first()).toHaveText("Line");
-  await expect(format.getByRole("combobox", { name: "End arrow" })).toHaveValue(
-    "triangle",
-  );
+  await expect(
+    format.getByRole("combobox", { name: "End arrow", exact: true }),
+  ).toHaveValue("triangle");
   await format
-    .getByRole("combobox", { name: "Start arrow" })
+    .getByRole("combobox", { name: "Start arrow", exact: true })
     .selectOption("oval");
   await format
-    .getByRole("combobox", { name: "End arrow" })
+    .getByRole("combobox", { name: "End arrow", exact: true })
     .selectOption("none");
   await expect(
-    format.getByRole("combobox", { name: "Start arrow" }),
+    format.getByRole("combobox", { name: "Start arrow", exact: true }),
   ).toHaveValue("oval");
   // Removing the border takes it away again. The arrow crosses the
   // rectangle's middle, and on a touch screen its handles' targets reach
