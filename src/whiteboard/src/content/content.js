@@ -351,13 +351,15 @@ export function createContentTools(api) {
   function linkChoice(result, url, point, target) {
     const sheet = result.provider === "google-sheets" && !result.published;
     const doc = result.provider === "google-docs";
+    // Published presentations have no PowerPoint export to import.
+    const slides = result.provider === "google-slides" && !result.published;
     api.modal(
       "Add link",
       `<p class="dialog-copy" data-user-content>${escape(url)}</p>
       <p class="dialog-copy">${escape(t(providerName(result.provider)))} · ${t("Embed it as live content or add a link card.")}</p>
       ${providerGroup(result.provider) === "google" ? `<p class="dialog-copy content-google-note">${t(GOOGLE_HELP)}</p>` : ""}
       <p class="content-error" role="alert"></p>
-      <div class="dialog-footer content-choice">${sheet ? '<button type="button" class="secondary" data-choice="sheet">Import as table</button>' : ""}${doc ? '<button type="button" class="secondary" data-choice="doc">Import as sticky notes</button>' : ""}<button type="button" class="secondary" data-choice="link">Link card</button><button type="button" class="primary" data-choice="embed">Embed</button></div>`,
+      <div class="dialog-footer content-choice">${sheet ? '<button type="button" class="secondary" data-choice="sheet">Import as table</button>' : ""}${doc ? '<button type="button" class="secondary" data-choice="doc">Import as sticky notes</button>' : ""}${slides ? '<button type="button" class="secondary" data-choice="slides">Import as frames</button>' : ""}<button type="button" class="secondary" data-choice="link">Link card</button><button type="button" class="primary" data-choice="embed">Embed</button></div>`,
       (d) => {
         const error = d.querySelector(".content-error");
         d.querySelectorAll("[data-choice]").forEach((button) => {
@@ -371,6 +373,10 @@ export function createContentTools(api) {
               if (choice === "doc") {
                 d.close();
                 return googleDialog({ url, mode: "doc", point });
+              }
+              if (choice === "slides") {
+                d.close();
+                return googleDialog({ url, mode: "slides", point });
               }
               const object =
                 choice === "embed"

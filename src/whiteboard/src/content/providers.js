@@ -365,8 +365,13 @@ function vimeo(url) {
   } else if (hostIs(url, "vimeo.com", "www.vimeo.com")) {
     const n = parts.findIndex((p) => /^\d+$/.test(p));
     if (n < 0) return null;
-    // Only plain video pages and channel/group video pages qualify.
-    if (n > 0 && !["channels", "groups", "video"].includes(parts[0]))
+    // Only plain video pages, channel and group video pages, and the
+    // owner's video manager page qualify.
+    if (
+      n > 0 &&
+      !["channels", "groups", "video"].includes(parts[0]) &&
+      !(parts[0] === "manage" && parts[1] === "videos" && n === 2)
+    )
       return null;
     id = parts[n];
     if (parts[n + 1] && /^[a-f0-9]{6,20}$/.test(parts[n + 1]))
@@ -398,8 +403,13 @@ function microsoftForms(url) {
     return null;
   const host = url.hostname.toLowerCase();
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] === "r" && /^[A-Za-z0-9]{6,40}$/.test(parts[1] || "")) {
-    const canonical = `https://${host}/r/${parts[1]}`;
+  // Short links: /r/ and, in current sharing links, /e/; both redirect to
+  // the response page, keeping ?embed=true.
+  if (
+    ["r", "e"].includes(parts[0]) &&
+    /^[A-Za-z0-9]{6,40}$/.test(parts[1] || "")
+  ) {
+    const canonical = `https://${host}/${parts[0]}/${parts[1]}`;
     return {
       provider: "microsoft-forms",
       url: canonical,
@@ -565,6 +575,26 @@ export function normalizeEmbed(value, { generic = true } = {}) {
   for (const normalize of NORMALIZERS) {
     const result = normalize(url);
     if (result) return result.url.length > MAX_URL ? null : result;
+  }
+  // A Looker Studio report's sharing link shows the report full-page; its
+  // embed address is the same report under /embed/. A link copied while
+  // editing ends in /edit.
+  if (hostIs(url, "lookerstudio.google.com", "datastudio.google.com")) {
+    const parts = segments(url);
+    if (parts.at(-1) === "edit") parts.pop();
+    if (
+      parts[0] === "reporting" &&
+      /^[\w-]{1,100}$/.test(parts[1] || "") &&
+      (parts.length === 2 ||
+        (parts.length === 4 &&
+          parts[2] === "page" &&
+          /^[\w-]{1,100}$/.test(parts[3])))
+    )
+      return generic
+        ? web(
+            new URL(`https://lookerstudio.google.com/embed/${parts.join("/")}`),
+          )
+        : null;
   }
   // Google pages made to be framed embed as web pages.
   if (

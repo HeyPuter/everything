@@ -50,6 +50,7 @@ addTranslations({
   "Link card": "Carte de lien",
   "Import as table": "Importer comme tableau de données",
   "Import as sticky notes": "Importer en notes adhésives",
+  "Import as frames": "Importer en cadres",
   // Live embeds
   "Open live": "Ouvrir en direct",
   "Live embed": "Intégration en direct",

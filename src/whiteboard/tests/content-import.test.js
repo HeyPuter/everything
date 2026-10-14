@@ -145,6 +145,39 @@ test("embed URLs normalize to each provider's official embed address", () => {
       `https://drive.google.com/file/d/${DOC_ID}/view`,
       `https://drive.google.com/file/d/${DOC_ID}/preview`,
     ],
+    // A Looker Studio sharing or editing link embeds as its /embed/ form.
+    [
+      "https://lookerstudio.google.com/u/0/reporting/1a2b3c4d-5e6f-7a8b-9c0d-112233445566/page/p_abc123?s=x",
+      "web",
+      "https://lookerstudio.google.com/embed/reporting/1a2b3c4d-5e6f-7a8b-9c0d-112233445566/page/p_abc123",
+      "https://lookerstudio.google.com/embed/reporting/1a2b3c4d-5e6f-7a8b-9c0d-112233445566/page/p_abc123",
+    ],
+    [
+      "https://datastudio.google.com/reporting/1a2b3c4d-5e6f/page/AbCd/edit",
+      "web",
+      "https://lookerstudio.google.com/embed/reporting/1a2b3c4d-5e6f/page/AbCd",
+      "https://lookerstudio.google.com/embed/reporting/1a2b3c4d-5e6f/page/AbCd",
+    ],
+    // The owner's video manager page, unlisted or not.
+    [
+      "https://vimeo.com/manage/videos/76979871/abcdef1234",
+      "vimeo",
+      "https://vimeo.com/76979871/abcdef1234",
+      "https://player.vimeo.com/video/76979871?h=abcdef1234&dnt=1",
+    ],
+    // Current Microsoft Forms sharing links use /e/.
+    [
+      "https://forms.office.com/e/ByzZjGk4nj?origin=lprLink",
+      "microsoft-forms",
+      "https://forms.office.com/e/ByzZjGk4nj",
+      "https://forms.office.com/e/ByzZjGk4nj?embed=true",
+    ],
+    [
+      "https://forms.cloud.microsoft/e/ByzZjGk4nj",
+      "microsoft-forms",
+      "https://forms.cloud.microsoft/e/ByzZjGk4nj",
+      "https://forms.cloud.microsoft/e/ByzZjGk4nj?embed=true",
+    ],
     [
       "https://calendar.google.com/calendar/embed?src=team%40example.org&ctz=America%2FToronto&evil=1",
       "google-calendar",
@@ -2663,6 +2696,46 @@ test("built app: links pasted without their scheme or over plain HTTP are still 
       3,
       labels.join(" | "),
     );
+  } finally {
+    w.close();
+  }
+});
+
+test("built app: pasting a Google Slides link offers to import it as frames, as the Google Workspace dialog does", async () => {
+  const { w, doc, click, tick, until, transfer } = await app();
+  try {
+    await click('[data-action="new"]');
+    await until(() => doc.querySelector("#canvas"), "Board opened");
+    await tick();
+    const choices = () =>
+      [...doc.querySelectorAll("dialog[open] [data-choice]")].map(
+        (b) => b.dataset.choice,
+      );
+    transfer("paste", {
+      "text/plain": `https://docs.google.com/presentation/d/${DOC_ID}/edit#slide=id.p`,
+    });
+    await tick();
+    assert.deepEqual(choices(), ["slides", "link", "embed"]);
+    const button = doc.querySelector('dialog[open] [data-choice="slides"]');
+    assert.equal(button.textContent, "Import as frames");
+    button.click();
+    await tick();
+    const dialog = doc.querySelector("dialog[open]");
+    assert.equal(dialog.getAttribute("aria-label"), "Google Workspace");
+    assert.equal(
+      dialog.querySelector('[name="google-mode"]:checked').value,
+      "slides",
+    );
+    assert.match(dialog.querySelector("#google-url").value, /presentation/);
+    dialog.close();
+    await tick();
+    // A published presentation has nothing to import.
+    transfer("paste", {
+      "text/plain": `https://docs.google.com/presentation/d/e/2PACX-${"a".repeat(40)}/pub`,
+    });
+    await tick();
+    assert.deepEqual(choices(), ["link", "embed"]);
+    doc.querySelector("dialog[open]").close();
   } finally {
     w.close();
   }
