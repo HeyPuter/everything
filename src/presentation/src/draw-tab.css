@@ -7,8 +7,18 @@
   touch-action: none;
   cursor: crosshair;
 }
-.ink-layer[data-tool="eraser"] {
+.ink-layer[data-tool="eraser-stroke"] {
   cursor: cell;
+}
+.ink-layer[data-tool="eraser-point"] {
+  cursor: cell;
+}
+.ink-layer[data-tool="lasso"] {
+  cursor: crosshair;
+}
+/* With drawing by touch off a finger pans the workspace instead. */
+.ink-layer.touch-pans {
+  touch-action: pan-x pan-y pinch-zoom;
 }
 .ink-live {
   position: absolute;
@@ -32,4 +42,205 @@
 }
 .ribbon-btn.ink-pen[aria-pressed="true"] svg {
   transform: translateY(6px);
+}
+.ribbon-btn.ink-pen[aria-pressed="true"] {
+  background: var(--accent-wash);
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+.ink-pens {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  margin-right: 4px;
+}
+.ink-pen-body {
+  fill: #f2f2f2;
+  stroke: #8a8a8a;
+}
+.ink-pen-edge {
+  stroke: #8a8a8a;
+  fill-opacity: 1;
+}
+:root[data-theme="dark"] .ink-pen-body {
+  fill: #3a3d38;
+  stroke: #9da197;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ink-pen-body {
+    fill: #3a3d38;
+    stroke: #9da197;
+  }
+}
+/* The point eraser's trail and the lasso's loop, while they are drawn. */
+.ink-live path.ink-eraser-trail {
+  stroke: color-mix(in srgb, var(--accent) 35%, transparent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ink-live path.ink-lasso {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#slide-canvas.ink-reading {
+  cursor: progress;
+}
+#slide-canvas.ink-reading .slide-image {
+  opacity: 0.85;
+}
+
+/* The ruler stencil. */
+.ink-ruler {
+  position: absolute;
+  z-index: 9;
+  box-sizing: border-box;
+  border: 1px solid #8f8a72;
+  border-radius: 6px;
+  background: color-mix(in srgb, #f6efc8 82%, transparent);
+  box-shadow: 0 4px 14px #0003;
+  cursor: grab;
+  touch-action: none;
+  transform-origin: 50% 50%;
+}
+.ink-ruler:active {
+  cursor: grabbing;
+}
+.ink-ruler:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ink-ruler-ticks {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, #5b5646 0 1px, transparent 1px 50px) 0 0 /
+      100% 45% no-repeat,
+    repeating-linear-gradient(90deg, #5b5646 0 1px, transparent 1px 10px) 0 0 /
+      100% 22% no-repeat,
+    repeating-linear-gradient(90deg, #5b5646 0 1px, transparent 1px 10px) 0
+      100% / 100% 22% no-repeat;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.ink-ruler-angle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: -0.7em 0 0 -1.4em;
+  width: 2.8em;
+  text-align: center;
+  font:
+    600 12px/1.4 system-ui,
+    sans-serif;
+  color: #3f3b2f;
+  pointer-events: none;
+}
+.ink-ruler-knob {
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid #8f8a72;
+  cursor: alias;
+}
+
+/* Ink Replay: the slide without its ink, the strokes drawn again over it,
+   and the controls. */
+.ink-replay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  background: var(--surface);
+}
+.ink-replay-slide,
+.ink-replay-strokes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ink-replay-strokes path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ink-replay-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px #0003;
+  width: min(420px, calc(100% - 24px));
+  box-sizing: border-box;
+}
+.ink-replay-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.ink-replay-btn:hover {
+  background: var(--surface-2);
+}
+.ink-replay-btn:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.ink-replay-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+/* The presenter's pen during a slide show. */
+.presenter-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+.presenter-ink path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.presenter-frame.ink-mode,
+.presenter-frame.ink-mode * {
+  cursor: crosshair;
+}
+.presenter-frame.ink-mode {
+  touch-action: none;
+}
+.presenter-stage.ended .presenter-ink {
+  display: none;
+}
+.presenter-controls .presenter-ink-menu {
+  width: 22px;
+  min-width: 22px;
+  margin-left: -6px;
 }

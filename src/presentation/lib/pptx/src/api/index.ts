@@ -655,6 +655,13 @@ export * from "./fn/slide-media.ts";
 export * from "./fn/shape-actions.ts";
 export * from "./fn/ole-object.ts";
 export * from "./fn/header-footer.ts";
+// Ink stroke timing (drawing order and pace, for replay).
+export {
+  getShapeInkTiming,
+  setShapeInkTiming,
+  INK_TIMING_EXT_URI,
+  type InkTiming,
+} from "./fn/shape-ink.ts";
 export {
   countWords,
   getDocumentStatistics,
