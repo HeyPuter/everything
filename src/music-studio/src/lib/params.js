@@ -46,6 +46,8 @@ export function formatParam(p, v) {
       return `${v > 0 ? '+' : ''}${Math.round(v)} ct`;
     case 'key':
       return keyName(Math.round(v));
+    case 'bpm':
+      return `${Number.isInteger(v) ? v : v.toFixed(2)} BPM`;
     default:
       return p.step ? String(Math.round(v)) : v.toFixed(2);
   }

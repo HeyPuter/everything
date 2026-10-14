@@ -180,7 +180,7 @@ export function createToolbar(app) {
   const drawTime = (force) => {
     const p = app.store.project;
     const pos = app.engine.position;
-    const text = timeMode === 'bst' ? formatBST(pos, p.sig) : formatTime(pos, p.bpm);
+    const text = timeMode === 'bst' ? formatBST(pos, p.sig) : formatTime(pos, app.engine.tempo || p.bpm);
     if (!force && text === lastTimeText) return;
     lastTimeText = text;
     timeMain.textContent = text;
