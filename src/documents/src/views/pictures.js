@@ -58,14 +58,27 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   const friendly = (e, label) => /could not be created|pictures with|drawing|unsupported/i.test(e?.message || '') && !/Select|changed/.test(e.message)
     ? new Error(`${label}: this formatting is not available for this object yet.`) : e;
 
-  /** Rewrite the selected drawing (or `image`) with `edit(drawing, context)`; reports failures. */
-  async function apply(label, edit, image = selected()) {
-    const engine = ready(); if (!engine || !image) return false;
-    try {
-      const ok = await formatDrawing(engine, image, edit, { label });
-      if (ok) { onChange(); refreshPanes(); }
-      return ok;
-    } catch (e) { fail(friendly(e, label)); return false; }
+  /**
+   * Rewrite the selected drawing (or `image`) with `edit(drawing, context)`; reports failures. Edits run
+   * one after another, each on the drawing as the previous one left it, so quick successive commands
+   * never race each other.
+   */
+  let queue = Promise.resolve();
+  function apply(label, edit, image = selected()) {
+    const id = image?.id;
+    const run = async () => {
+      const engine = ready(); if (!engine || id === undefined) return false;
+      const all = runImages(engine.model), target = all.includes(image) ? image : all.find(i => i.id === id);
+      if (!target) return false;
+      try {
+        const ok = await formatDrawing(engine, target, edit, { label });
+        if (ok) { onChange(); refreshPanes(); }
+        return ok;
+      } catch (e) { fail(friendly(e, label)); return false; }
+    };
+    const result = queue.then(run, run);
+    queue = result.catch(() => {});
+    return result;
   }
   /** An edit of the drawing's shape properties (spPr / grpSpPr). */
   const props = fn => async (drawing, context) => {

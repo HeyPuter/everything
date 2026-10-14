@@ -1,0 +1,217 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
+import { onTab, downloadDocx } from './helpers/editor-tools.js';
+import { reopenDocx } from './helpers/reopen-docx.js';
+
+// Picture Format, Shape Format and Arrange: formatting, wrapping, positioning, grouping and the panes.
+const SHOTS = process.env.PICTURE_SHOTS || '';
+const shot = (page, name) => SHOTS ? page.screenshot({ path: `${SHOTS}/${name}.png` }) : null;
+const PNG = readFileSync('icon-128.png');
+const OBJECT = '￼';
+
+async function start(page, { width = 1440 } = {}) {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Pictures and shapes sit beside this paragraph of text. '.repeat(6));
+  await input.press('ControlOrMeta+Home');
+  return { input, errors };
+}
+async function insertPicture(page, input) {
+  await onTab(page, 'insert');
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  await expect.poll(async () => (await input.inputValue()).split(OBJECT).length - 1).toBeGreaterThan(0);
+  await expect(page.locator('#ribbon-tab-picture')).toBeVisible();
+  await expect(page.locator('#ribbon-tab-picture')).toHaveAttribute('aria-selected', 'true');
+  return page.locator('#ribbon-panel-picture');
+}
+async function insertShape(page, name = 'Rectangle') {
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.getByRole('menuitem', { name, exact: true }).click();
+  // A shape gallery click inserts at the caret (or starts a drag on the page in some galleries).
+  const canvas = page.locator('canvas.canvas-page').first();
+  if (!await page.locator('#ribbon-tab-shapeFormat').isVisible()) {
+    const box = await canvas.boundingBox();
+    await page.mouse.move(box.x + 420, box.y + 380); await page.mouse.down(); await page.mouse.move(box.x + 540, box.y + 450, { steps: 4 }); await page.mouse.up();
+  }
+  await expect(page.locator('#ribbon-tab-shapeFormat')).toBeVisible();
+  return page.locator('#ribbon-panel-shapeFormat');
+}
+async function save(page, info, name) {
+  const path = info.outputPath(`${name}.docx`);
+  const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
+  mkdirSync('test-results/pictures-exports', { recursive: true }); copyFileSync(path, `test-results/pictures-exports/${name}.docx`);
+  const parts = unzipSync(new Uint8Array(readFileSync(path)));
+  return { path, parts, xml: part => strFromU8(parts[part]) };
+}
+const undoButton = page => page.getByRole('button', { name: 'Undo', exact: true }).first();
+
+test('picture styles, border, effects, corrections, color, transparency and alt text', async ({ page }, info) => {
+  test.setTimeout(180000);
+  const { input, errors } = await start(page);
+  const ribbon = await insertPicture(page, input);
+  await shot(page, 'picture-format');
+  // Picture Styles gallery: a white frame with a shadow.
+  await ribbon.getByRole('option', { name: 'White Frame' }).click();
+  await expect(undoButton(page)).toBeEnabled();
+  // Picture Border: a theme color and a weight.
+  await ribbon.getByRole('button', { name: 'Picture Border', exact: true }).click();
+  await shot(page, 'picture-border');
+  await page.getByRole('menuitem', { name: 'Red', exact: true }).click();
+  await ribbon.getByRole('button', { name: 'Picture Border', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Weight' }).click();
+  await page.getByRole('menuitemradio', { name: '3 pt' }).click();
+  // Picture Effects → Shadow.
+  await ribbon.getByRole('button', { name: 'Picture Effects', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Shadow' }).click();
+  await page.getByRole('menuitemradio', { name: 'Offset: Bottom' }).click();
+  // Corrections: brightness/contrast; Color: grayscale; Transparency.
+  await ribbon.getByRole('button', { name: 'Corrections', exact: true }).click();
+  await shot(page, 'corrections');
+  await page.getByRole('menuitem', { name: 'Brightness: +20% Contrast: +20%' }).click();
+  await ribbon.getByRole('button', { name: 'Color', exact: true }).click();
+  await shot(page, 'color');
+  await page.getByRole('menuitem', { name: 'Grayscale' }).click();
+  await ribbon.getByRole('button', { name: 'Transparency', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Transparency: 30%' }).click();
+  // Alt Text pane.
+  await ribbon.getByRole('button', { name: 'Alt Text', exact: true }).click();
+  const alt = page.getByRole('complementary', { name: 'Alt Text pane' });
+  await alt.getByRole('textbox', { name: 'Description' }).fill('A blue square logo');
+  await alt.getByRole('button', { name: 'Save' }).click();
+  await shot(page, 'alt-text');
+  await alt.getByRole('button', { name: 'Close Alt Text pane' }).click();
+  const { path, xml } = await save(page, info, 'picture-format');
+  const body = xml('word/document.xml');
+  expect(body).toMatch(/<a:ln w="38100"><a:solidFill><a:srgbClr val="E02424"\/>/);
+  expect(body).toMatch(/<a:outerShdw [^>]*dir="5400000"/);
+  expect(body).toMatch(/<a:grayscl\/>/);
+  expect(body).toMatch(/<a:lum bright="20000" contrast="20000"\/>/);
+  expect(body).toMatch(/<a:alphaModFix amt="70000"\/>/);
+  expect(body).toMatch(/descr="A blue square logo"/);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 30000 });
+  await expect(page.locator('.canvas-message')).not.toContainText('read-only');
+  expect(errors).toEqual([]);
+});
+
+test('wrap text, position, layout dialog, rotate and crop to shape', async ({ page }, info) => {
+  test.setTimeout(180000);
+  const { input, errors } = await start(page);
+  const ribbon = await insertPicture(page, input);
+  await ribbon.getByRole('button', { name: 'Wrap Text', exact: true }).click();
+  await shot(page, 'wrap-text');
+  await page.getByRole('menuitemradio', { name: 'Square' }).click();
+  await expect.poll(async () => (await save(page, info, 'wrap-square')).xml('word/document.xml')).toMatch(/<wp:wrapSquare wrapText="bothSides"\/>/);
+  await ribbon.getByRole('button', { name: 'Position', exact: true }).click();
+  await shot(page, 'position');
+  await page.getByRole('menuitem', { name: 'Position in Top Right with Square Text Wrapping' }).click();
+  // Layout dialog: Tight wrapping with larger distances; then a rotation.
+  await ribbon.getByRole('button', { name: 'Size and Position…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Layout' });
+  await dialog.getByRole('tab', { name: 'Text Wrapping' }).click();
+  await dialog.getByText('Tight', { exact: true }).click();
+  await dialog.getByRole('spinbutton', { name: 'Distance from text left (in)' }).fill('0.25');
+  await dialog.getByRole('tab', { name: 'Size' }).click();
+  await dialog.getByRole('spinbutton', { name: 'Rotation (degrees)' }).fill('0');
+  await shot(page, 'layout-dialog');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toBeHidden();
+  await ribbon.getByRole('button', { name: 'Rotate', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Flip Horizontal' }).click();
+  // Crop to Shape: an oval.
+  await ribbon.getByRole('button', { name: 'Crop options' }).click();
+  await page.getByRole('menuitem', { name: 'Crop to Shape' }).click();
+  await page.getByRole('menuitem', { name: 'Oval', exact: true }).click();
+  const { path, xml } = await save(page, info, 'picture-layout');
+  const body = xml('word/document.xml');
+  expect(body).toMatch(/<wp:wrapTight wrapText="bothSides"><wp:wrapPolygon/);
+  expect(body).toMatch(/distL="228600"/);
+  expect(body).toMatch(/prst="ellipse"/);
+  expect(body).toMatch(/flipH="1"/);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 30000 });
+  await expect(page.locator('.canvas-message')).not.toContainText('read-only');
+  expect(errors).toEqual([]);
+});
+
+test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ page }, info) => {
+  test.setTimeout(180000);
+  const { input, errors } = await start(page);
+  const ribbon = await insertShape(page, 'Rounded Rectangle');
+  await shot(page, 'shape-format');
+  await ribbon.getByRole('option', { name: 'Colored Fill: Accent 2' }).click();
+  await ribbon.getByRole('button', { name: 'Shape Fill', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Gradient' }).click();
+  await page.getByRole('menuitem', { name: 'Linear Down' }).click();
+  await ribbon.getByRole('button', { name: 'Shape Outline', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Dashes' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dash', exact: true }).click();
+  await ribbon.getByRole('button', { name: 'Shape Effects', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Shadow' }).click();
+  await page.getByRole('menuitemradio', { name: 'Offset: Bottom Right' }).click();
+  // Format pane: line width.
+  await ribbon.getByRole('button', { name: 'Format Shape', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Format pane' });
+  await expect(pane.getByRole('heading', { name: 'Format Shape' })).toBeVisible();
+  await pane.getByLabel('Width').fill('2.5'); await pane.getByLabel('Width').press('Enter');
+  await shot(page, 'format-pane');
+  await pane.getByRole('button', { name: 'Close Format pane' }).click();
+  const { path, xml } = await save(page, info, 'shape-format');
+  const body = xml('word/document.xml');
+  expect(body).toMatch(/<a:gradFill rotWithShape="1">/);
+  expect(body).toMatch(/<a:prstDash val="dash"\/>/);
+  expect(body).toMatch(/<a:ln w="31750"/);
+  expect(body).toMatch(/<a:outerShdw /);
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 30000 });
+  await expect(page.locator('.canvas-message')).not.toContainText('read-only');
+  expect(errors).toEqual([]);
+});
+
+test('selection pane, align, group and ungroup', async ({ page }, info) => {
+  test.setTimeout(180000);
+  const { input, errors } = await start(page);
+  await insertShape(page, 'Oval');
+  await input.press('ArrowRight');
+  const ribbon = await insertShape(page, 'Rectangle');
+  await ribbon.getByRole('button', { name: 'Selection Pane', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Selection pane' });
+  await expect(pane.getByRole('option')).toHaveCount(2);
+  await shot(page, 'selection-pane');
+  // Rename and select both from the pane.
+  const first = pane.getByRole('option').first().locator('.pic-selection-name');
+  await first.dblclick();
+  await pane.getByRole('textbox').fill('Blue box'); await pane.getByRole('textbox').press('Enter');
+  await expect(pane.getByRole('option').first()).toContainText('Blue box');
+  await pane.getByRole('option').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await ribbon.getByRole('button', { name: 'Align', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Align Top' }).click();
+  await pane.getByRole('option').first().locator('.pic-selection-name').click();
+  await pane.getByRole('option').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await ribbon.getByRole('button', { name: 'Group', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Group', exact: true }).click();
+  await expect(pane.getByRole('option')).toHaveCount(1);
+  let saved = await save(page, info, 'grouped');
+  expect(saved.xml('word/document.xml')).toMatch(/<wpg:wgp>/);
+  await ribbon.getByRole('button', { name: 'Group', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Ungroup' }).click();
+  await expect(pane.getByRole('option')).toHaveCount(2);
+  saved = await save(page, info, 'ungrouped');
+  expect(saved.xml('word/document.xml')).not.toMatch(/<wpg:wgp>/);
+  expect(saved.xml('word/document.xml')).toMatch(/name="Blue box"/);
+  await reopenDocx(page, input, saved.path, await input.inputValue(), { timeout: 30000 });
+  expect(errors).toEqual([]);
+});
+
+test('Picture Format at phone width', async ({ page }) => {
+  const { input, errors } = await start(page, { width: 390 });
+  await insertPicture(page, input);
+  await shot(page, 'phone-picture-format');
+  await onTab(page, 'picture');
+  await page.locator('#ribbon-panel-picture').getByRole('button', { name: 'Alt Text', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Alt Text pane' })).toBeVisible();
+  await shot(page, 'phone-alt-text');
+  expect(errors).toEqual([]);
+});
