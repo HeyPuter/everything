@@ -1108,8 +1108,10 @@ const gradientDef = (
       right: 0.5,
       bottom: 0.5,
     };
-    const cx = (focus.left + focus.right) / 2;
-    const cy = (focus.top + focus.bottom) / 2;
+    // `<a:fillToRect>` gives insets from each edge, so the focus rectangle
+    // runs from left to 1 - right and from top to 1 - bottom.
+    const cx = (focus.left + 1 - focus.right) / 2;
+    const cy = (focus.top + 1 - focus.bottom) / 2;
     // ECMA-376 stops paint outward from the focus: the first stop sits at
     // the focus and the last at the edge (as desktop editors draw it), which
     // is also how SVG's radial gradient runs from cx/cy out to r.

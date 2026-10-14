@@ -112,4 +112,31 @@ describe("rendering matches desktop readers", () => {
     expect(Number(red[2])).toBeCloseTo(1, 5);
     expect(Number(red[2]) + Number(red[1])).toBeCloseTo(0x2f / 255, 5);
   });
+  it("reads the focus rectangle as insets from each edge", async () => {
+    const { renderSlideToSvg } =
+      await import("../lib/pptx-preview/src/index.ts");
+    const pres = createDeck("title");
+    const slide = addLayoutSlide(pres, "blank");
+    const shape = P.addSlideShape(slide, {
+      preset: "rect",
+      x: 0,
+      y: 0,
+      w: 914400,
+      h: 914400,
+    });
+    P.setShapeGradientFill(shape, {
+      stops: [
+        { offset: 0, color: "#FFFFFF" },
+        { offset: 1, color: "#ED7D31" },
+      ],
+      path: "circle",
+      // A point 30% across and 20% down.
+      focus: { left: 0.3, top: 0.2, right: 0.7, bottom: 0.8 },
+    });
+    expect(P.getSlideXmlString(slide)).toContain(
+      '<a:fillToRect l="30000" t="20000" r="70000" b="80000"/>',
+    );
+    const svg = renderSlideToSvg(pres, slide);
+    expect(svg).toMatch(/<radialGradient\b[^>]*cx="0\.3000" cy="0\.2000"/);
+  });
 });
