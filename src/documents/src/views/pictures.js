@@ -23,7 +23,10 @@ import { SHAPE_PRESETS, LINE_PRESETS } from '../engine/authored-shapes.js';
 import { ARTISTIC_EFFECTS } from '../engine/picture-processing.js';
 import * as presets from './picture-presets.js';
 import { filteredThumb, processedThumb, styleThumb, shapeStyleThumb, positionThumb, pictureSource } from './picture-thumbnails.js';
-import { processedEdit, compressEdit, changePictureEdit, restoreOriginal, readBakedLayer, bakedState } from './picture-adjustments.js';
+import { processedEdit, compressEdit, changePictureEdit, restoreOriginal, readBakedLayer, bakedState, partPixels } from './picture-adjustments.js';
+import { setImageWrap } from '../engine/image-wrap.js';
+import { rasterize } from './insert-tab.js';
+import { WORDART_STYLES } from '../engine/text-designs.js';
 
 const PT = 12700, IN = 914400;
 const runImages = model => model?.paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image)) || [];
@@ -210,7 +213,6 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const image = selected(), engine = ready(); if (!engine || !image) return false;
     if (!formattable(image)) {
       // Charts and diagrams keep their graphic; their frame changes through the model.
-      const { setImageWrap } = await import('../engine/image-wrap.js');
       engine.finishComposition();
       return engine.execute(() => setImageWrap(engine.model, mode === 'tight' || mode === 'through' ? 'square' : mode, mode !== 'inline' && !image.anchor ? inlinePlace(engine, image) : undefined));
     }
@@ -317,7 +319,6 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       const layer = readBakedLayer(blip), relId = layer?.relId || blip.getAttributeNS(R, 'embed');
       const part = parts.get(relId);
       if (!part?.bytes || !/^image\/(png|jpeg|gif|bmp|webp|tiff)$/.test(part.contentType)) throw new Error('Remove Background works on PNG, JPEG, GIF, BMP and TIFF pictures.');
-      const { partPixels } = await import('./picture-adjustments.js');
       const pixels = await partPixels(part.bytes, part.contentType);
       const state = bakedState(layer);
       const { openRemoveBackground } = await import('./remove-background.js');
@@ -345,7 +346,6 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const file = pictureInput.files?.[0]; pictureInput.value = '';
     if (!file) return;
     try {
-      const { rasterize } = await import('./insert-tab.js');
       let bytes = new Uint8Array(await file.arrayBuffer()), mime = file.type, width, height;
       if (!/^image\/(png|jpeg)$/.test(mime)) ({ png: bytes, width, height } = await rasterize(file, 4096)), mime = 'image/png';
       else { const bitmap = await createImageBitmap(file); width = bitmap.width; height = bitmap.height; bitmap.close(); }
@@ -709,7 +709,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     return [{ label: 'Shadow', items: [{ label: 'No Shadow', onSelect: () => textEdit('Text Effects', { shadow: 'none' }) }, ...presets.SHADOW_PRESETS.slice(1, 10).map(([name, s]) => ({ label: name, onSelect: () => textEdit('Text Effects', { shadow: { distance: s.distance, direction: s.direction, blur: s.blur, alpha: s.alpha } }) }))] }];
   }
   function wordArtGallery() {
-    return import('../engine/text-designs.js').then(({ WORDART_STYLES }) => galleryItems([{ columns: 4, items: WORDART_STYLES.map(style => ({ label: style.name, preview: el('span.pic-wordart-sample', { style: { color: `#${style.run.fill && style.run.fill !== 'none' ? style.run.fill : style.run.color}`, WebkitTextStroke: style.run.outline ? `1px #${style.run.outline.color}` : null, textShadow: style.run.shadow ? '1px 1px 1px rgba(0,0,0,.4)' : null } }, 'A'),
+    return (galleryItems([{ columns: 4, items: WORDART_STYLES.map(style => ({ label: style.name, preview: el('span.pic-wordart-sample', { style: { color: `#${style.run.fill && style.run.fill !== 'none' ? style.run.fill : style.run.color}`, WebkitTextStroke: style.run.outline ? `1px #${style.run.outline.color}` : null, textShadow: style.run.shadow ? '1px 1px 1px rgba(0,0,0,.4)' : null } }, 'A'),
       onSelect: () => textEdit('WordArt Styles', { color: style.run.color, fill: style.run.fill || 'none-reset', outline: style.run.outline ? { color: style.run.outline.color, width: style.run.outline.width } : 'none', shadow: style.run.shadow ? { distance: style.run.shadow.distance ?? 38100, direction: 45, blur: 38100, alpha: style.run.shadow.alpha, color: style.run.shadow.color } : 'none' }) })) }], { size: 'small', label: 'WordArt Styles' }));
   }
   function alignTextItems() {

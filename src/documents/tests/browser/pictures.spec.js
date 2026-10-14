@@ -39,6 +39,13 @@ async function insertShape(page, name = 'Rectangle', at = { x: 420, y: 380 }) {
   await onTab(page, 'shapeFormat');
   return page.locator('#ribbon-panel-shapeFormat');
 }
+/** A ribbon command, opening its group's drop-down first when the window folded the group. */
+async function ribbonCommand(page, panel, group, name) {
+  const direct = panel.getByRole('button', { name, exact: true });
+  if (await direct.isVisible()) return direct;
+  await panel.getByRole('button', { name: group, exact: true }).click();
+  return page.locator('.ribbon-flyout').getByRole('button', { name, exact: true });
+}
 async function save(page, info, name) {
   const path = info.outputPath(`${name}.docx`);
   const download = page.waitForEvent('download'); await downloadDocx(page); await (await download).saveAs(path);
@@ -157,8 +164,27 @@ test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ p
   await pane.getByRole('spinbutton', { name: 'Width' }).fill('2.5'); await pane.getByRole('spinbutton', { name: 'Width' }).press('Enter');
   await shot(page, 'format-pane');
   await pane.getByRole('button', { name: 'Close Format pane' }).click();
+  // A text box: WordArt quick style, middle alignment and a different shape.
+  await ribbon.getByRole('button', { name: 'Draw Text Box', exact: true }).click();
+  const textDialog = page.getByRole('dialog', { name: 'Edit drawing text' });
+  await expect(textDialog).toBeVisible();
+  await textDialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(textDialog).toHaveCount(0);
+  await onTab(page, 'shapeFormat');
+  await (await ribbonCommand(page, ribbon, 'WordArt Styles', 'Quick Styles')).click();
+  await shot(page, 'wordart-styles');
+  await page.getByRole('menuitem', { name: 'Fill: Gold, Shadow' }).click();
+  await (await ribbonCommand(page, ribbon, 'Text', 'Align Text')).click();
+  await page.getByRole('menuitemradio', { name: 'Middle' }).click();
+  await ribbon.getByRole('button', { name: 'Edit Shape', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Change Shape' }).click();
+  await page.getByRole('menuitem', { name: 'Oval', exact: true }).click();
   const { path, xml } = await save(page, info, 'shape-format');
   const body = xml('word/document.xml');
+  expect(body).toMatch(/<w14:textFill><w14:solidFill><w14:srgbClr w14:val="FFC000"\/>/);
+  expect(body).toMatch(/anchor="ctr"/);
+  expect(body).toMatch(/<wps:txbx>[\s\S]*|prst="ellipse"/);
+  expect(body).toMatch(/prst="ellipse"/);
   expect(body).toMatch(/<a:gradFill rotWithShape="1">/);
   expect(body).toMatch(/<a:prstDash val="dash"\/>/);
   expect(body).toMatch(/<a:ln w="31750"/);
