@@ -2163,7 +2163,7 @@ test("built app: embeds, link cards, and imports added from a menu go beside the
   const { w, doc, click, tick, until, transfer, choose } = await app();
   const stored = async () => {
     const database = await new Promise((resolve, reject) => {
-      const request = w.indexedDB.open("whiteboard-v1", 3);
+      const request = w.indexedDB.open("whiteboard-v1", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

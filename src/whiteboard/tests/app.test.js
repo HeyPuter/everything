@@ -624,7 +624,7 @@ test("character shortcut preferences load on startup and follow other tabs", asy
 
 async function storedBoards(app) {
   const database = await new Promise((resolve, reject) => {
-    const request = app.w.indexedDB.open("whiteboard-v1", 3);
+    const request = app.w.indexedDB.open("whiteboard-v1", 4);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -641,7 +641,7 @@ async function storedBoards(app) {
 }
 async function storedSharedBoard(app, room) {
   const database = await new Promise((resolve, reject) => {
-    const request = app.w.indexedDB.open("whiteboard-v1", 3);
+    const request = app.w.indexedDB.open("whiteboard-v1", 4);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -22336,7 +22336,7 @@ test("undo and redo with empty history leave recovery versions untouched", async
       );
     const revisions = async () => {
       const db = await new Promise((resolve) => {
-        const request = w.indexedDB.open("whiteboard-v1", 3);
+        const request = w.indexedDB.open("whiteboard-v1", 4);
         request.onsuccess = () => resolve(request.result);
       });
       return new Promise((resolve) => {
@@ -22604,7 +22604,7 @@ test("tool shortcuts, drawing, and quick-add respect the 5,000-object limit", as
     ),
   };
   const database = await new Promise((resolve) => {
-    const request = app.w.indexedDB.open("whiteboard-v1", 3);
+    const request = app.w.indexedDB.open("whiteboard-v1", 4);
     request.onsuccess = () => resolve(request.result);
   });
   await new Promise((resolve) => {
@@ -27605,7 +27605,7 @@ test("duplicating a shared board from the library keeps what its facilitator may
       await app.click("[data-more]");
       await app.click("#copy-board");
       const database = await new Promise((resolve, reject) => {
-        const request = app.w.indexedDB.open("whiteboard-v1", 3);
+        const request = app.w.indexedDB.open("whiteboard-v1", 4);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
@@ -27687,7 +27687,7 @@ test("saving reusable content leaves out what is hidden from the person", async 
       .querySelector("dialog form")
       .dispatchEvent(new app.w.Event("submit", { cancelable: true }));
     const database = await new Promise((resolve, reject) => {
-      const request = app.w.indexedDB.open("whiteboard-v1", 3);
+      const request = app.w.indexedDB.open("whiteboard-v1", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -38714,7 +38714,7 @@ test("test window disposal waits for the exact pending local save before releasi
     release();
     await closing;
     assert.equal(app.w.document, undefined);
-    const request = factory.open("whiteboard-v1", 3);
+    const request = factory.open("whiteboard-v1", 4);
     const saved = await new Promise((resolve, reject) => {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -39703,7 +39703,7 @@ test("Add comment on a chosen frame attaches the comment to the frame", async ()
     await click('#comment-form [type="submit"]');
     await tick();
     const database = await new Promise((resolve, reject) => {
-      const request = app.w.indexedDB.open("whiteboard-v1", 3);
+      const request = app.w.indexedDB.open("whiteboard-v1", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -40598,7 +40598,7 @@ test("reopening keeps frame contents as saved, and takes in a legacy board's con
   ];
   let app = await setup(undefined, { indexedDB });
   const database = await new Promise((resolve) => {
-    const request = app.w.indexedDB.open("whiteboard-v1", 3);
+    const request = app.w.indexedDB.open("whiteboard-v1", 4);
     request.onsuccess = () => resolve(request.result);
   });
   await new Promise((resolve) => {
@@ -42792,7 +42792,7 @@ for (const locale of ["en", "fr"])
       };
       const templates = async () => {
         const db = await new Promise((resolve, reject) => {
-          const r = app.w.indexedDB.open("whiteboard-v1", 3);
+          const r = app.w.indexedDB.open("whiteboard-v1", 4);
           r.onsuccess = () => resolve(r.result);
           r.onerror = () => reject(r.error);
         });
@@ -42936,7 +42936,7 @@ for (const locale of ["en", "fr"])
       { doc } = app;
     const templates = async () => {
       const db = await new Promise((resolve, reject) => {
-        const r = app.w.indexedDB.open("whiteboard-v1", 3);
+        const r = app.w.indexedDB.open("whiteboard-v1", 4);
         r.onsuccess = () => resolve(r.result);
         r.onerror = () => reject(r.error);
       });
@@ -43033,7 +43033,7 @@ for (const locale of ["en", "fr"])
     };
     const templates = async () => {
       const db = await new Promise((resolve, reject) => {
-        const r = app.w.indexedDB.open("whiteboard-v1", 3);
+        const r = app.w.indexedDB.open("whiteboard-v1", 4);
         r.onsuccess = () => resolve(r.result);
         r.onerror = () => reject(r.error);
       });
@@ -44929,7 +44929,7 @@ for (const locale of ["en", "fr"])
           }
           if (phase.startsWith("deleted")) {
             const db = await new Promise((resolve, reject) => {
-              const r = storage.indexedDB.open("whiteboard-v1", 3);
+              const r = storage.indexedDB.open("whiteboard-v1", 4);
               r.onsuccess = () => resolve(r.result);
               r.onerror = () => reject(r.error);
             });
@@ -45097,7 +45097,7 @@ test("a board record without objects is skipped rather than failing the home scr
   const indexedDB = new IDBFactory();
   let app = await setup(undefined, { indexedDB });
   const database = await new Promise((resolve) => {
-    const request = app.w.indexedDB.open("whiteboard-v1", 3);
+    const request = app.w.indexedDB.open("whiteboard-v1", 4);
     request.onsuccess = () => resolve(request.result);
   });
   await new Promise((resolve) => {
@@ -48530,7 +48530,7 @@ test("opening a Puter card for a board another tab keeps newer here opens that c
     edited.updated = 5000;
     edited.items.push(item("note", 0, 0, { text: "Unsynced idea" }));
     const db = await new Promise((resolve, reject) => {
-      const r = indexedDB.open("whiteboard-v1", 3);
+      const r = indexedDB.open("whiteboard-v1", 4);
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -48566,9 +48566,10 @@ test("deleting a shared board permanently removes what its sessions kept on this
   shared.deletedAt = Date.now();
   const other = board("Other team");
   other.shared = { server: "https://wb.test", room: "room-b" };
-  const open = () =>
+  // The database as an earlier release made it, then as the app has it.
+  const open = (version) =>
     new Promise((resolve, reject) => {
-      const r = indexedDB.open("whiteboard-v1", 3);
+      const r = indexedDB.open("whiteboard-v1", version);
       r.onupgradeneeded = () => {
         r.result.createObjectStore("boards", { keyPath: "id" });
         r.result
@@ -48589,7 +48590,7 @@ test("deleting a shared board permanently removes what its sessions kept on this
       tx.oncomplete = () => resolve(r?.result);
       tx.onerror = () => reject(tx.error);
     });
-  let db = await open();
+  let db = await open(3);
   await run(db, "boards", "readwrite", (s) => {
     s.put(shared);
     return s.put(other);
@@ -48612,7 +48613,7 @@ test("deleting a shared board permanently removes what its sessions kept on this
     await app.click("[data-open]");
     await app.click("#purge-board");
     await app.click("#confirm-purge");
-    db = await open();
+    db = await open(4);
     const ids = await run(db, "collaboration", "readonly", (s) =>
       s.getAllKeys(),
     );
@@ -48636,7 +48637,7 @@ test("following a board address reads only that board, not the whole library", a
     const made = board("Made in another tab");
     made.items.push(item("note", 0, 0, { text: "Hello" }));
     const db = await new Promise((resolve, reject) => {
-      const r = indexedDB.open("whiteboard-v1", 3);
+      const r = indexedDB.open("whiteboard-v1", 4);
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });

@@ -80,7 +80,7 @@ for (const first of [false, true])
         pending = local.save(value);
         await reached;
         db = await new Promise((resolve, reject) => {
-          const r = storage.indexedDB.open("whiteboard-v1", 3);
+          const r = storage.indexedDB.open("whiteboard-v1", 4);
           r.onsuccess = () => resolve(r.result);
           r.onerror = () => reject(r.error);
         });

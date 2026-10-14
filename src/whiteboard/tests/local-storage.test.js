@@ -4,6 +4,33 @@ import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { local } from "../src/storage.js";
 import { board, item, undoCopy } from "../src/model.js";
 
+// The rows of one store as written, without the storage module.
+async function rawRows(store) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open("whiteboard-v1");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const rows = await new Promise((resolve, reject) => {
+    const request = db.transaction(store).objectStore(store).getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return rows;
+}
+const rawRevisions = async (id) =>
+  (await rawRows("revisions")).filter((r) => r.boardId === id);
+// Each test that reads the stores directly loads the storage module afresh,
+// so it opens the database those reads see.
+let loads = 0;
+const fresh = async () => {
+  globalThis.indexedDB = new IDBFactory();
+  return (await import(`../src/storage.js?fresh=${++loads}`)).local;
+};
+const picture = (letter, length) =>
+  "data:image/jpeg;base64," + letter.repeat(length);
+
 test("storage upgrades preserve boards and bound isolated recovery snapshots", async (t) => {
   globalThis.indexedDB = new IDBFactory();
   const b = board("Existing board");
@@ -176,13 +203,20 @@ test("a recovery version is measured without writing the board out as JSON, and 
     item("note", 0, 0, { text: "Plain words", lang: "en" }),
   );
   const stringify = t.mock.method(JSON, "stringify");
+  const puts = t.mock.method(IDBObjectStore.prototype, "put");
   const revision = await local.checkpoint(b, "Owned", { owned: true });
   assert.equal(stringify.mock.callCount(), 0, "nothing written out as JSON");
   stringify.mock.restore();
-  // The size counted is the one writing it out gave, before it was noted.
-  const { bytes, ...written } = revision;
+  puts.mock.restore();
+  // The size counted is the one writing it out gave, before it was noted:
+  // the picture is written apart, and the version refers to it.
+  const stored = puts.mock.calls
+    .map((call) => call.arguments[0])
+    .find((value) => value.label === "Owned");
+  const { bytes, ...written } = stored;
   assert.equal(bytes, JSON.stringify(written).length * 2);
   assert.equal(revision.board, b, "a copy handed over is kept as it is");
+  assert.equal(b.items[0].src.length, 200_022, "and its picture stays");
   // A board still being edited is copied, so later edits stay out of it.
   const copied = await local.checkpoint(b, "Copied");
   assert.notEqual(copied.board, b);
@@ -251,4 +285,89 @@ test("checkpoints named before they were marked as kept are kept too", async (t)
   const labels = (await after.revisions(b.id)).map((r) => r.label);
   assert.ok(labels.includes("Before the review"));
   assert.equal(labels.filter((l) => l === "Board edit").length, 30);
+});
+
+test("versions of a board with pictures keep each picture once, so its history is kept as long as any other board's", async (t) => {
+  const local = await fresh();
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  // One photo of about 2 MB.
+  const one = board("One photo");
+  one.items.push(item("image", 0, 0, { src: picture("Q", 2_700_000) }));
+  for (let n = 0; n < 40; n++) {
+    one.items.push(item("note", n, 0));
+    await local.checkpoint(one, "Board edit");
+  }
+  assert.equal((await local.revisions(one.id)).length, 30);
+  // Three photos of about 4 MB each: two named checkpoints and the edits
+  // after them are all kept.
+  const three = board("Three photos");
+  for (const letter of "ABC")
+    three.items.push(item("image", 0, 0, { src: picture(letter, 5_400_000) }));
+  await local.checkpoint(three, "Draft for review", { kept: true });
+  three.items.push(item("note", 0, 300, { text: "x" }));
+  await local.checkpoint(three, "Final approved", { kept: true });
+  for (let n = 0; n < 10; n++) {
+    three.items.push(item("note", n, 400, { text: `${n}` }));
+    await local.checkpoint(three, "Board edit");
+  }
+  const versions = await local.revisions(three.id);
+  assert.equal(versions.length, 12);
+  assert.ok(versions.some((r) => r.label === "Draft for review"));
+  assert.ok(versions.some((r) => r.label === "Final approved"));
+  // Each version reads back whole, its pictures in place.
+  for (const r of versions)
+    assert.deepEqual(
+      r.board.items.slice(0, 3).map((i) => i.src),
+      ["A", "B", "C"].map((letter) => picture(letter, 5_400_000)),
+    );
+  assert.deepEqual(Object.keys(versions[0]).sort(), [
+    "board",
+    "boardId",
+    "bytes",
+    "created",
+    "id",
+    "kept",
+    "label",
+  ]);
+  // Written once each, not once a version, and the versions stay small.
+  assert.equal((await rawRows("media")).length, 4);
+  assert.ok((await rawRevisions(three.id)).every((r) => r.bytes < 100_000));
+});
+
+test("a picture no version uses any more is removed with the last version that did", async (t) => {
+  const local = await fresh();
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  const b = board("Photo board");
+  b.items.push(item("image", 0, 0, { src: picture("A", 100_000) }));
+  // A copy of the board keeps the same picture.
+  const copy = structuredClone(b);
+  copy.id = crypto.randomUUID();
+  await local.checkpoint(copy, "Board edit");
+  for (let n = 0; n < 5; n++) await local.checkpoint(b, "Board edit");
+  // The picture is replaced; once the versions showing it are pruned, the
+  // picture goes too, but not while the copy's version still shows it.
+  b.items[0].src = picture("B", 100_000);
+  for (let n = 0; n < 35; n++) await local.checkpoint(b, "Board edit");
+  let media = (await rawRows("media")).map((m) => m.data[23]);
+  assert.deepEqual(media.sort(), ["A", "B"]);
+  await local.removeRevisions(copy.id);
+  media = (await rawRows("media")).map((m) => m.data[23]);
+  assert.deepEqual(media, ["B"]);
+  await local.removeRevisions(b.id);
+  assert.deepEqual(await rawRows("media"), []);
+});
+
+test("an edit hashes each picture once, not again on every edit", async (t) => {
+  const local = await fresh();
+  const b = board("Photo board");
+  b.items.push(item("image", 0, 0, { src: picture("A", 3_000_000) }));
+  const digest = t.mock.method(crypto.subtle, "digest");
+  for (let n = 0; n < 5; n++)
+    await local.checkpoint(undoCopy(b), "Board edit", { owned: true });
+  // A board copied for the version, as structuredClone() copies it, has a
+  // new string for the picture, and it is still not hashed again.
+  await local.checkpoint(b, "Copied");
+  assert.equal(digest.mock.callCount(), 1);
 });
