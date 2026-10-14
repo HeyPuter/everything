@@ -533,7 +533,7 @@ export function installPointer(V, el) {
         hint = hit.zone === 'left' ? 'Drag to trim the start of the clip.' : 'Drag to change the clip length.';
       } else if (tool !== 'paint') {
         cursor = 'grab';
-        hint = 'Drag to move, Shift+drag to duplicate, Alt to bypass snap. Double-click opens. Right-click for options.';
+        hint = `Drag to move, Shift+drag to duplicate, Alt to bypass snap. Double-click opens. ${tool === 'draw' ? 'Right-click deletes, Shift+right-click for options.' : 'Right-click for options.'}`;
       }
     } else if (tool === 'draw') hint = 'Click to place the selected source, drag right to set its length. Right-click deletes.';
     else if (tool === 'paint') hint = 'Drag to paint copies of the selected source. Right-click deletes.';

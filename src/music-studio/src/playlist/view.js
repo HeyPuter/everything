@@ -234,10 +234,10 @@ export function createPlaylistView(app, host) {
     const w = clip.len * ppt;
     const y0 = trackTop(V.layout, clip.track) + 1;
     const hh = trackHeight(V.layout, clip.track) - 2;
-    const zone = clipZone(x0, w, pt.x, coarse.matches ? 12 : 6);
+    let zone = clipZone(x0, w, pt.x, coarse.matches ? 12 : 6);
     const title = pt.y - y0 < TITLE_H;
     let auto = null;
-    if (clip.kind === 'auto' && hh + 2 >= AUTO_EDIT_MIN_H && !title && zone === 'body') {
+    if (clip.kind === 'auto' && hh + 2 >= AUTO_EDIT_MIN_H && !title) {
       const a = store.project.automation[clip.ref];
       if (a) {
         const cy = y0 + TITLE_H + 1;
@@ -248,6 +248,12 @@ export function createPlaylistView(app, host) {
         const index = hitPoint(a.points, toX, toY, pt.x, pt.y, coarse.matches ? 14 : 7);
         const lineY = toY(evaluateAutomation(a.points, clip.offset + (pt.x - x0) / ppt) ?? 0);
         auto = { a, index, onLine: Math.abs(pt.y - lineY) <= (coarse.matches ? 12 : 6), cy, ch, bottom };
+        // The first and last points sit on the clip edges: a point under the
+        // pointer wins over the resize handle there, the rest of the edge resizes.
+        if (zone !== 'body') {
+          if (index >= 0) zone = 'body';
+          else auto = null;
+        }
       }
     }
     return { clip, zone, title, auto, x0, w };
