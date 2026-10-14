@@ -127,7 +127,7 @@ On an organization board whose organization has enabled Jira (Organization setti
 
 Supported services, each normalized to its official embed address:
 
-- Google Docs, Sheets (including a sheet tab), Slides, Forms, Drawings, Drive files and folders, published ("Publish to the web") documents, and Google Calendar.
+- Google Docs, Sheets (including a sheet tab), Slides, Forms, Drawings, Drive files and folders (keeping the `resourcekey` that older files shared by link need), published ("Publish to the web") documents, and Google Calendar.
 - YouTube (privacy-enhanced `youtube-nocookie.com` player, including start times) and Vimeo (including unlisted links).
 - Microsoft Forms, Office Online viewer links (`view.officeapps.live.com`), and OneDrive embed links.
 - Figma files, designs, prototypes, boards, and slides; Loom videos; Miro boards.

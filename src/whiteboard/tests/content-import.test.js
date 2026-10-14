@@ -119,6 +119,32 @@ test("embed URLs normalize to each provider's official embed address", () => {
       `https://drive.google.com/drive/folders/${DOC_ID}`,
       `https://drive.google.com/embeddedfolderview?id=${DOC_ID}#grid`,
     ],
+    // Older files and folders shared by link keep their resource key.
+    [
+      `https://drive.google.com/file/d/${DOC_ID}/view?usp=sharing&resourcekey=0-AbC_d-9`,
+      "google-drive",
+      `https://drive.google.com/file/d/${DOC_ID}/view?resourcekey=0-AbC_d-9`,
+      `https://drive.google.com/file/d/${DOC_ID}/preview?resourcekey=0-AbC_d-9`,
+    ],
+    [
+      `https://drive.google.com/open?id=${DOC_ID}&resourcekey=0-k1`,
+      "google-drive",
+      `https://drive.google.com/file/d/${DOC_ID}/view?resourcekey=0-k1`,
+      `https://drive.google.com/file/d/${DOC_ID}/preview?resourcekey=0-k1`,
+    ],
+    [
+      `https://drive.google.com/drive/u/0/folders/${DOC_ID}?resourcekey=0-xyz&usp=drive_link`,
+      "google-drive",
+      `https://drive.google.com/drive/folders/${DOC_ID}?resourcekey=0-xyz`,
+      `https://drive.google.com/embeddedfolderview?id=${DOC_ID}&resourcekey=0-xyz#grid`,
+    ],
+    // A key that is not one is dropped.
+    [
+      `https://drive.google.com/file/d/${DOC_ID}/view?resourcekey=1-"><x>`,
+      "google-drive",
+      `https://drive.google.com/file/d/${DOC_ID}/view`,
+      `https://drive.google.com/file/d/${DOC_ID}/preview`,
+    ],
     [
       "https://calendar.google.com/calendar/embed?src=team%40example.org&ctz=America%2FToronto&evil=1",
       "google-calendar",
@@ -257,6 +283,16 @@ test("embed URLs normalize to each provider's official embed address", () => {
     assert.equal(normalizeEmbed(result.url).url, result.url, input);
     assert.ok(EMBED_PROVIDERS[provider]);
   }
+  // A stored Drive embed validates with its resource key and without one.
+  for (const url of [
+    `https://drive.google.com/file/d/${DOC_ID}/view?resourcekey=0-k1`,
+    `https://drive.google.com/drive/folders/${DOC_ID}?resourcekey=0-k1`,
+    `https://drive.google.com/file/d/${DOC_ID}/view`,
+  ])
+    assert.ok(
+      validEmbed({ type: "embed", provider: "google-drive", url }),
+      url,
+    );
   const covered = new Set(cases.map((c) => c[1]));
   for (const provider of Object.keys(EMBED_PROVIDERS))
     assert.ok(covered.has(provider), `${provider} is tested`);

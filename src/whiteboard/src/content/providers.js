@@ -127,10 +127,15 @@ function segments(url) {
 const hashParams = (url) => new URLSearchParams(url.hash.slice(1));
 const decimal = (value) => (/^\d{1,12}$/.test(value || "") ? value : "");
 const RANGE = /^[A-Z]{1,3}[1-9]\d{0,6}(:[A-Z]{1,3}[1-9]\d{0,6})?$/;
+const RESOURCE_KEY = /^0-[\w-]{1,80}$/;
 
 function google(url) {
   if (hostIs(url, "drive.google.com")) {
     const parts = segments(url);
+    // Files shared by link before 2021 also need their resource key, which
+    // Google adds to their links; without it they show as not found.
+    const key = url.searchParams.get("resourcekey") || "";
+    const resourceKey = RESOURCE_KEY.test(key) ? key : "";
     let id = "";
     if (parts[0] === "file" && parts[1] === "d") id = parts[2];
     else if (parts[0] === "open" || parts[0] === "uc")
@@ -138,8 +143,8 @@ function google(url) {
     if (id && GOOGLE_ID.test(id))
       return {
         provider: "google-drive",
-        url: `https://drive.google.com/file/d/${id}/view`,
-        embed: `https://drive.google.com/file/d/${id}/preview`,
+        url: `https://drive.google.com/file/d/${id}/view${resourceKey ? `?resourcekey=${resourceKey}` : ""}`,
+        embed: `https://drive.google.com/file/d/${id}/preview${resourceKey ? `?resourcekey=${resourceKey}` : ""}`,
         id,
       };
     const folder =
@@ -151,8 +156,8 @@ function google(url) {
     if (folder && GOOGLE_ID.test(folder))
       return {
         provider: "google-drive",
-        url: `https://drive.google.com/drive/folders/${folder}`,
-        embed: `https://drive.google.com/embeddedfolderview?id=${folder}#grid`,
+        url: `https://drive.google.com/drive/folders/${folder}${resourceKey ? `?resourcekey=${resourceKey}` : ""}`,
+        embed: `https://drive.google.com/embeddedfolderview?id=${folder}${resourceKey ? `&resourcekey=${resourceKey}` : ""}#grid`,
         id: folder,
         folder: true,
       };
