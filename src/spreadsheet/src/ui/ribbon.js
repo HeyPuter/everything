@@ -553,6 +553,8 @@ export function createRibbon(ctx) {
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
     if (CHART_TABS.includes(name) || PICTURE_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
+    // Its key tip is its own (J for the picture tools, then P), leaving Page Layout its single P.
+    if (PICTURE_TABS.includes(name)) tab.dataset.keytip = 'JP';
     buttons.push(tab); panels.push(panel); tabs.append(tab);
   }
   const toggle = el('button.ribbon-collapse', { type: 'button', 'aria-controls': `${id}-panels`, onclick: () => setCollapsed(!collapsed) });
