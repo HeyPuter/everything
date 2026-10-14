@@ -37,8 +37,14 @@ import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } f
 const AUTOSAVE_MS = 1500;
 // The title row's AutoSave switch: off, edits wait for Save (the local draft still keeps them). Per device.
 const AUTOSAVE_KEY = 'spreadsheet:autosave';
+// Whether a device that never flipped the switch saves as it goes: the app's options (Save ▸ AutoSave by default).
+let autoSaveDefault = true;
+export function setAutoSaveDefault(on) { autoSaveDefault = on !== false; }
 export function autoSaveEnabled() {
-  try { return globalThis.localStorage?.getItem(AUTOSAVE_KEY) !== 'off'; } catch { return true; }
+  try {
+    const kept = globalThis.localStorage?.getItem(AUTOSAVE_KEY);
+    return kept == null ? autoSaveDefault : kept !== 'off';
+  } catch { return autoSaveDefault; }
 }
 export function setAutoSaveEnabled(on) {
   try { globalThis.localStorage?.setItem(AUTOSAVE_KEY, on ? 'on' : 'off'); } catch { /* optional storage */ }
@@ -157,7 +163,12 @@ export async function copyExternalDecision(source, copy, scope = storageScope())
 export function forgetExternalDecision(file, scope = storageScope()) {
   recordExternal(file, scope, null);
 }
-const DRAFT_MS = 600; // unsaved edits are copied to this browser's storage after this pause
+// Unsaved edits are copied to this browser's storage after this pause; the app's options can lengthen it (Save).
+let DRAFT_MS = 600;
+export function setDraftDelay(seconds) {
+  const s = Number(seconds);
+  DRAFT_MS = Number.isFinite(s) && s > 1 ? Math.min(s, 3600) * 1000 : 600;
+}
 export const UNTITLED = 'Untitled spreadsheet';
 /** How long a shared workbook waits after its last change before its owner's browser writes the .xlsx file. */
 const SHARED_FILE_MS = 15_000;
@@ -1117,8 +1128,19 @@ export class Doc extends EventTarget {
 
   /** A new, empty spreadsheet; `excel` starts it with the usual .xlsx defaults: Calibri 11 (the theme's body font) as the
    * Normal font, cells aligned to the bottom, and the format's default column width and row height. */
-  static blank({ excel = false } = {}) {
-    const wb = new Workbook(excel ? { normalFont: { name: 'Calibri', sz: 11, scheme: 'minor' }, sheets: [{ name: 'Sheet1', ...EXCEL_SHEET_DEFAULTS, defaultVAlign: 'bottom' }] } : null);
+  /**
+   * A new, empty workbook. `start` carries the app's options for new workbooks (lib/app-options.js): the font
+   * and size, how many sheets, the view and headers they open with, and how the workbook calculates.
+   */
+  static blank({ excel = false, start = null } = {}) {
+    if (!excel) return new Doc({ wb: new Workbook(null), name: UNTITLED });
+    const font = start?.fontName && start.fontName !== 'Calibri' ? { name: start.fontName, sz: start.fontSize || 11 }
+      : { name: 'Calibri', sz: start?.fontSize || 11, scheme: 'minor' };
+    const count = Math.max(1, Math.min(255, Math.round(start?.newSheets || 1)));
+    const view = start?.newView && start.newView !== 'normal' ? { viewMode: start.newView } : {};
+    const headers = start && start.showHeaders === false ? { headers: false } : {};
+    const sheets = Array.from({ length: count }, (_, i) => ({ name: `Sheet${i + 1}`, ...EXCEL_SHEET_DEFAULTS, defaultVAlign: 'bottom', ...view, ...headers }));
+    const wb = new Workbook({ normalFont: font, sheets, ...(start?.newCalcMode === 'manual' ? { calcMode: 'manual' } : {}) });
     return new Doc({ wb, name: UNTITLED });
   }
 }

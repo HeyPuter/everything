@@ -404,6 +404,12 @@ export const COMMAND_ICONS = {
   windows: r(2.5, 3.5, 11, 9, 'of', 1.6) + r(6.5, 7.5, 11, 9, 'bf glassy', 1.6) + p('M6.5 10.5h11', 'b'),
 
   /* Quick access and file */
+  // Options: a panel of three sliders. Customize the Ribbon: a tab strip over its commands. Quick Access: a short
+  // bar of buttons with the arrow that customizes it. Keyboard: keys with one picked out.
+  options: r(2.5, 3, 15, 14, 'of', 1.6) + p('M5 7h10M5 10h10M5 13h10', 'o ln') + ci(8, 7, 1.6, 'bs') + ci(12.5, 10, 1.6, 'bs') + ci(7, 13, 1.6, 'bs'),
+  customizeRibbon: r(2.5, 6, 15, 10.5, 'of', 1.6) + r(2.5, 3.5, 5, 2.5, 'bs', 0.8) + r(8, 3.5, 4, 2.5, 'of', 0.8) + r(5, 9, 4, 4.5, 'bf', 0.8) + r(10.5, 9, 4, 4.5, 'of', 0.8),
+  customizeQuickAccess: r(2.5, 6.5, 15, 7, 'of', 1.6) + r(4.3, 8.5, 3, 3, 'bs', 0.6) + r(8.3, 8.5, 3, 3, 'of', 0.6) + p('M13.3 9.3l1.5 1.5 1.5-1.5', 'o thick'),
+  customizeKeyboard: r(2, 5, 16, 10, 'of', 1.6) + p('M5 8h1M8 8h1M11 8h1M14 8h1M5 11h1M14 11h1', 'o thick') + r(7.5, 10, 5, 2, 'bs', 0.6),
   save: p('M5 3.5h9l2.5 2.5V15a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 15V5A1.5 1.5 0 0 1 5 3.5z', 'bs') + r(6, 3.5, 7, 4.5, 'of', 0.6) + r(6, 11, 8, 5.5, 'of', 0.6),
   undo: p('M7 4.5 3.5 8 7 11.5', 'o thick') + p('M3.5 8h8.5a4.5 4.5 0 0 1 0 9H8', 'o thick'),
   redo: p('M13 4.5 16.5 8 13 11.5', 'o thick') + p('M16.5 8H8a4.5 4.5 0 0 0 0 9h4', 'o thick'),

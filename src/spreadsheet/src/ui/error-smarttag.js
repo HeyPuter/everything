@@ -10,6 +10,21 @@ import { openMenu } from './menu.js';
 import { openModal } from './modal.js';
 import { errorCheckAt, textToNumber, ERROR_RULES, errorCheckingOptions, setErrorCheckingOptions } from '../core/error-checking.js';
 import { shiftFormula } from '../core/refs.js';
+import { savePref, syncPref } from '../lib/user-prefs.js';
+
+const PREF = 'error-checking';
+
+/** Keep the Error Checking choices for the person: in this browser and with their account (see lib/user-prefs.js). */
+export function saveErrorChecking(options) {
+  setErrorCheckingOptions({ ...errorCheckingOptions(), ...options });
+  savePref(PREF, errorCheckingOptions());
+}
+
+/** Take the account's copy of the Error Checking choices, when there is one. */
+export async function syncErrorChecking() {
+  const value = await syncPref(PREF, null);
+  if (value && typeof value === 'object') setErrorCheckingOptions({ ...errorCheckingOptions(), ...Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'boolean')) });
+}
 
 export function createErrorSmartTag(ctx) {
   let found = null; // { r, c, sheetId, check }
@@ -103,7 +118,7 @@ export function openErrorCheckingOptions(ctx) {
     input.addEventListener('change', () => { options[key] = input.checked; });
     return el('label.find-option', {}, input, el('span', {}, label));
   };
-  const content = el('form', { onsubmit: (e) => { e.preventDefault(); setErrorCheckingOptions(options); modal.close(); ctx.grid?.redraw?.(); ctx.refreshErrorTag?.(); } },
+  const content = el('form', { onsubmit: (e) => { e.preventDefault(); saveErrorChecking(options); modal.close(); ctx.grid?.redraw?.(); ctx.refreshErrorTag?.(); } },
     box('enabled', 'Enable background error checking'),
     el('h3.field-label', { style: { margin: '10px 0 4px' } }, 'Error checking rules'),
     ...ERROR_RULES.map(([key, label]) => box(key, label)),

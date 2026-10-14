@@ -973,6 +973,8 @@ export class Workbook extends EventTarget {
   _asyncCache = new Map();
   _snapshotBudget = SNAPSHOT_CELLS;
   _fixedArrayIndexes = new WeakMap();
+  /** Sheet settings a sheet added in this session starts with (see addSheet); never saved. */
+  newSheetDefaults = null;
 
   constructor(json = null) {
     super();
@@ -1383,7 +1385,9 @@ export class Workbook extends EventTarget {
     const beside = this.sheet(this.activeSheetId);
     const excel = beside && beside.defaultColWidth === EXCEL_SHEET_DEFAULTS.defaultColWidth && beside.defaultRowHeight === EXCEL_SHEET_DEFAULTS.defaultRowHeight;
     return this._structural('Add sheet', () => {
-      const sheet = makeSheet({ name: sheetName, ...(excel ? EXCEL_SHEET_DEFAULTS : {}), ...(excel && beside.defaultVAlign ? { defaultVAlign: beside.defaultVAlign } : {}) });
+      // `newSheetDefaults` is the person's choice for new sheets (the editor sets it from the app's options: the
+      // view they open in, whether headers show); it belongs to this session, not to the file.
+      const sheet = makeSheet({ name: sheetName, ...(excel ? EXCEL_SHEET_DEFAULTS : {}), ...(excel && beside.defaultVAlign ? { defaultVAlign: beside.defaultVAlign } : {}), ...this.newSheetDefaults });
       this.sheets.splice(index, 0, sheet);
       this.activeSheetId = sheet.id;
       return sheet;
@@ -12265,6 +12269,21 @@ export class Workbook extends EventTarget {
   }
 
   /** Switch between automatic and manual calculation; switching back to automatic works everything out again. */
+  /**
+   * Iterative calculation for circular references: { iterate, iterateCount, iterateDelta }, or null to turn it
+   * off. A setting of the workbook (saved in it, shared with co-authors), like the calculation mode.
+   */
+  setIteration(value) {
+    const next = normalizeIteration(value);
+    if (JSON.stringify(next) === JSON.stringify(this.iteration)) return;
+    this.iteration = next;
+    this._iterationReady = false;
+    this.dirty = true;
+    this.version++;
+    this._invalidate();
+    this._announce('calc', null);
+  }
+
   setCalcMode(mode) {
     const next = mode === 'manual' ? 'manual' : 'automatic';
     if (next === this.calcMode) return;

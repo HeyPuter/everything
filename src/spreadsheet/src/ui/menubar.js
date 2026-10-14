@@ -17,6 +17,7 @@ import { chartSheetCommand } from '../core/chartsheet.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
 import { TABLE_STYLES } from '../core/tables.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
+import { withCustomShortcuts } from './custom-shortcuts.js';
 
 export const MENU_TITLES = [
   ['file', 'File'], ['edit', 'Edit'], ['view', 'View'], ['insert', 'Insert'],
@@ -110,6 +111,8 @@ export function menubarMenus(f = {}) {
       i(f.background ? 'Replace background…' : 'Background picture…', 'background', 'sheetBackground', 'pick', { disabled: f.chartSheet }),
       i('Delete background', 'deleteItem', 'sheetBackground', 'delete', { disabled: !f.background }),
     ].map(waits)),
+    sep,
+    i('Options…', 'options', 'options', null, { shortcut: `${M}+,` }),
     sep,
     i('Back to all spreadsheets', 'back', 'home'),
   ];
@@ -527,6 +530,11 @@ export function menubarMenus(f = {}) {
     i('Check spelling as you type', 'text', 'toggleSpellcheck', null, { checked: f.spell !== false }),
     i('AutoCorrect Options…', 'autoCorrect', 'autoCorrectOptions'),
     fn('Regional format…', 'monitor', f.fns?.locale),
+    sep,
+    i('Customize the Ribbon…', 'customizeRibbon', 'options', 'ribbon'),
+    i('Customize Quick Access Toolbar…', 'customizeQuickAccess', 'options', 'quickAccess'),
+    i('Customize Keyboard…', 'customizeKeyboard', 'options', 'keyboard'),
+    i('Options…', 'options', 'options', null, { shortcut: `${M}+,` }),
   ];
 
   const help = [
@@ -542,7 +550,7 @@ export function menubarMenus(f = {}) {
     : f.chartSheet && item.cmd && !chartSheetCommand(item.cmd) ? { ...item, disabled: true }
       // Grouped sheets: a command for one sheet's objects waits, and says why.
       : f.grouped && item.cmd && GROUP_BLOCKED_COMMANDS.has(item.cmd) ? { ...item, disabled: true, hint: GROUP_BLOCKED_HINT } : item));
-  return MENU_TITLES.map(([id, label]) => ({ id, label, items: tidy(capabilities(lists[id])) }));
+  return MENU_TITLES.map(([id, label]) => ({ id, label, items: withCustomShortcuts(tidy(capabilities(lists[id]))) }));
 }
 
 /** Drop false entries and separators that would sit at an edge or beside another. */

@@ -569,9 +569,13 @@ function shareError(e) {
 
 /* ---------- Desktop integration ---------- */
 
-/** Is Puter's AI available here (an AI() formula can be answered)? */
+/** The person turned the AI features off in the app's options (Privacy). */
+let aiTurnedOff = false;
+export function setAIFeaturesAllowed(on) { aiTurnedOff = !on; }
+
+/** Is Puter's AI available here (an AI() formula can be answered), and wanted? */
 export function canAI() {
-  return !!window.puter?.ai?.chat;
+  return !aiTurnedOff && !!window.puter?.ai?.chat;
 }
 
 /** How much a web address may serve to a formula or a picture: plenty for any sheet the cell budgets allow, not enough to fill memory. */
