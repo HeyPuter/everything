@@ -561,9 +561,12 @@ export function createDrawTools({
           color: P.getShapeStroke(s).color || "#000000",
           width: (P.getShapeStrokeWidth(s) || PT) / (MM * PT),
         };
-        const shape = recognizeStroke(strokeSamples(P, s, 6), {
-          minSize: size.cx / 40,
-        });
+        // The points the stroke was thinned to, joined straight: its smooth
+        // curve would round off the corners being looked for.
+        const shape = recognizeStroke(
+          densify(strokePoints(P, s), size.cx / 400),
+          { minSize: size.cx / 40 },
+        );
         return shape && { id: P.getShapeId(s), shape, pen };
       })
       .filter(Boolean);
@@ -646,27 +649,15 @@ export function createDrawTools({
         checked: p.width === w,
         onSelect: update(() => (p.width = w)),
       })),
-      { separator: true },
-      { header: "Color" },
-      ...colorMenuItems({
-        theme: theme(),
-        current: p.color,
-        onPick: (value, hex) => {
-          const c = String(hex || value || "").toUpperCase();
-          if (/^#[0-9A-F]{6}$/.test(c)) update(() => (p.color = c))();
-        },
-      }),
       ...(spec.textures.length > 1
         ? [
             { separator: true },
-            {
-              label: "Texture",
-              items: spec.textures.map((t) => ({
-                label: TEXTURE_LABELS[t],
-                checked: p.texture === t,
-                onSelect: update(() => (p.texture = t)),
-              })),
-            },
+            { header: "Texture" },
+            ...spec.textures.map((t) => ({
+              label: TEXTURE_LABELS[t],
+              checked: p.texture === t,
+              onSelect: update(() => (p.texture = t)),
+            })),
           ]
         : []),
       { separator: true },
@@ -690,6 +681,18 @@ export function createDrawTools({
           persistPens();
         },
       },
+      // The palette is the tallest part, so it comes last: on a phone the
+      // commands above stay in reach without scrolling.
+      { separator: true },
+      { header: "Color" },
+      ...colorMenuItems({
+        theme: theme(),
+        current: p.color,
+        onPick: (value, hex) => {
+          const c = String(hex || value || "").toUpperCase();
+          if (/^#[0-9A-F]{6}$/.test(c)) update(() => (p.color = c))();
+        },
+      }),
     ];
   }
   function penIcon(p) {

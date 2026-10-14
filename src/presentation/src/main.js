@@ -693,6 +693,8 @@ async function shortcutsDialog() {
         ],
         ["B / W in presentation", "Black or white screen"],
         ["S in presentation", "Pause or resume automatic advance"],
+        ["I in presentation", "Pen on or off"],
+        ["E in presentation", "Erase the ink on the slide"],
         ["Number, then Enter, in presentation", "Go to that slide"],
       ].map(([keys, action]) =>
         el("div", {}, el("span", {}, action), el("kbd", {}, keys)),
