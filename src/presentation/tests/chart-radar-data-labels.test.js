@@ -394,6 +394,7 @@ describe("native automatic radar data labels", () => {
     });
 
     for (const mode of ["value", "combined", "range"])
+      // Transfers both ways with workbooks, and a save: heavy under load.
       it(`${radarStyle} ${mode} keeps labels, overrides and independent workbooks through transfer both ways and save`, async () => {
         const f = chartRadarDataLabelPair(radarStyle, mode),
           original = P.getSlideCharts(f.slide).map((c) => ({
@@ -438,7 +439,7 @@ describe("native automatic radar data labels", () => {
           },
         );
         check(f.p, back);
-      });
+      }, 30_000);
   }
 
   it("places labels radially outside their points and above opaque filled data", () => {

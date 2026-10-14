@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck, MIME } from "../src/model.js";
 import { svgImageFixture, vectorImage } from "../tests/svg-image-fixture.js";
@@ -91,8 +92,7 @@ for (const fallback of [false, true])
     expect(P.getShapeImageOpacity(picture(saved))).toBe(0.8);
     await objects.click();
     const panel = page.getByRole("complementary", { name: "Format panel" });
-    if (!(await panel.isVisible()))
-      await page.getByRole("button", { name: "Toggle format panel" }).click();
+    await inspector(page);
     const replacement = page.waitForEvent("filechooser");
     await panel
       .getByRole("button", { name: "Replace image", exact: true })

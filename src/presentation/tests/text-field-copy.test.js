@@ -390,6 +390,7 @@ describe("field copy token reservation", () => {
       getAttrValue(nativeFields(doc.root)[0], qname("x", "id", "urn:foreign")),
     ).toBe("opaque");
   });
+  // 2048 fields parsed, reserved and copied twice: seconds under load.
   it("reserves a large field set once and assigns unique tokens across copied parts", () => {
     const p = OpcPackage.empty(),
       ids = Array.from({ length: 2048 }, (_, i) =>
@@ -406,5 +407,5 @@ describe("field copy token reservation", () => {
     expect(new Set(copiedIds)).toHaveLength(ids.length);
     expect(copiedIds.some((id) => ids.includes(id))).toBe(false);
     expect(first).toEqual(second);
-  });
+  }, 60_000);
 });

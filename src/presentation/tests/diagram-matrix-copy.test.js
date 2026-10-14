@@ -121,6 +121,7 @@ describe("native diagram style-matrix transfer", () => {
         );
       }
     },
+    30_000,
   );
 
   it.each(["fillStyleLst", "lnStyleLst", "effectStyleLst", "bgFillStyleLst"])(

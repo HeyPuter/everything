@@ -21,7 +21,13 @@ import {
   backgroundStyles,
   readThemeXml,
 } from "./theme-xml.js";
-import { accentStrip, fillCss, themePicture, themeTile } from "./thumbnails.js";
+import {
+  accentStrip,
+  fillCss,
+  masterPicture,
+  themePicture,
+  themeTile,
+} from "./thumbnails.js";
 import "./themes.css";
 
 const CUSTOM_COLORS_KEY = "presentation:custom-color-schemes";
@@ -174,20 +180,8 @@ export function createThemeTools(host) {
           label: i?.name || m.name || "This presentation",
           description: "A theme this presentation uses",
           section: "deck",
-          version: layout ? templateVersion(layout.partName) : "",
-          render: () =>
-            el(
-              "span",
-              { class: "theme-tile" },
-              layout
-                ? el("img", {
-                    src: deckPicture(layout.partName),
-                    alt: "",
-                    draggable: "false",
-                  })
-                : el("span", { class: "theme-tile-empty" }),
-              i?.colors?.accent1 ? accentStrip(i.colors) : null,
-            ),
+          version: masterStamp(m.partName),
+          render: () => deckTile(m.partName, i),
         };
       });
     return [
@@ -200,21 +194,42 @@ export function createThemeTools(host) {
       })),
     ];
   }
-  const pictureCache = new Map();
-  function templateVersion(part) {
+  // A name for the current state of a master: its part, its layouts and its
+  // theme, each by the byte buffer it holds now.
+  const buffers = new WeakMap();
+  let nextBuffer = 0;
+  const bufferId = (data) => {
+    if (!data) return 0;
+    if (!buffers.has(data)) buffers.set(data, ++nextBuffer);
+    return buffers.get(data);
+  };
+  function masterStamp(master) {
     const pkg = P._internalPackageOf(pres());
-    const master = P.getLayoutMasterPartName(pres(), part);
-    return [part, master]
-      .map((n) => pkg.getPart(n)?.data?.length || 0)
+    const entry = P.getSlideMasters(pres()).find((m) => m.partName === master);
+    const theme = entry?.themePartName;
+    return [master, theme, ...(entry?.layouts || []).map((l) => l.partName)]
+      .map((n) => (n ? bufferId(pkg.getPart(n)?.data) : 0))
       .join(".");
   }
-  function deckPicture(layoutPart) {
-    const key = `${layoutPart}|${templateVersion(layoutPart)}`;
-    if (!pictureCache.has(key)) {
-      const view = P.getTemplateSlide(pres(), layoutPart);
-      pictureCache.set(key, host.preview(view));
-    }
-    return pictureCache.get(key);
+  // The deck's own theme, drawn the way built-in themes are: "Aa" on its
+  // Title Slide layout, with its accents beneath.
+  function deckPicture(master, colors, dark) {
+    return masterPicture(pres(), master, masterStamp(master), {
+      colors,
+      dark,
+    });
+  }
+  function deckTile(master, i, colors, dark) {
+    const src = deckPicture(master, colors, dark);
+    const accents = colors || i?.colors;
+    return el(
+      "span",
+      { class: "theme-tile" },
+      src
+        ? el("img", { src, alt: "", draggable: "false" })
+        : el("span", { class: "theme-tile-empty" }),
+      accents?.accent1 ? accentStrip(accents) : null,
+    );
   }
   function currentTheme() {
     const i = info();
@@ -309,7 +324,7 @@ export function createThemeTools(host) {
       master?.layouts.find((l) => l.type === "title") || master?.layouts[0];
     if (!layout || typeof document === "undefined") return null;
     const img = new Image();
-    img.src = deckPicture(layout.partName);
+    img.src = deckPicture(master.partName);
     await img.decode();
     const canvas = document.createElement("canvas");
     canvas.width = 256;
@@ -323,9 +338,48 @@ export function createThemeTools(host) {
 
   // ---- Variants -------------------------------------------------------------
 
+  // A theme that is not built in (imported, or the plain default) gets
+  // variants of its own colors: as they are, with light and dark swapped, and
+  // with its accents turned round by two and by four.
+  function ownVariants(i) {
+    const c = i.colors;
+    if (!SCHEME_SLOTS.every((slot) => c[slot])) return [];
+    const accents = [1, 2, 3, 4, 5, 6].map((n) => c[`accent${n}`]);
+    const turned = (by) => ({
+      ...c,
+      ...Object.fromEntries(
+        accents.map((_, n) => [`accent${n + 1}`, accents[(n + by) % 6]]),
+      ),
+    });
+    const base = (i.colorName || i.name || "Colors").replace(
+      / \((Dark|Light|Accents .*)\)$/,
+      "",
+    );
+    return [
+      { name: base, colors: c, dark: i.dark },
+      {
+        name: `${base} (${i.dark ? "Light" : "Dark"})`,
+        colors: c,
+        dark: !i.dark,
+      },
+      { name: `${base} (Accents turned)`, colors: turned(2), dark: i.dark },
+      {
+        name: `${base} (Accents turned twice)`,
+        colors: turned(4),
+        dark: i.dark,
+      },
+    ];
+  }
   function variantChoices() {
     const i = info();
-    if (!i?.theme) return [];
+    if (!i) return [];
+    if (!i.theme)
+      return ownVariants(i).map((v, index) => ({
+        id: index,
+        label: v.name,
+        version: masterStamp(i.master),
+        render: () => deckTile(i.master, i, v.colors, v.dark),
+      }));
     return i.theme.variants.map((v, index) => ({
       id: index,
       label: v.name,
@@ -333,19 +387,51 @@ export function createThemeTools(host) {
     }));
   }
   const currentVariant = () => {
-    const v = info()?.variant;
+    const i = info();
+    if (i && !i.theme) return 0;
+    const v = i?.variant;
     return v >= 0 ? v : null;
   };
   function applyVariant(index) {
     return host.mutate(() => {
       const i = info();
-      if (!i?.theme || i.variant === index) return host.skip;
+      if (!i || i.variant === index) return host.skip;
+      if (!i.theme) {
+        const v = ownVariants(i)[index];
+        if (!v || index === 0) return host.skip;
+        const masters = [i.master];
+        if (
+          !E.applyColors(
+            pres(),
+            masters,
+            { ...v.colors, name: v.name },
+            {
+              dark: v.dark,
+              slides: slides(),
+            },
+          )
+        )
+          return host.skip;
+        return;
+      }
       const masters = deckMasters().filter(
         (m) => E.masterInfo(pres(), m)?.theme?.id === i.theme.id,
       );
       if (!E.applyVariant(pres(), masters, index, slides())) return host.skip;
     });
   }
+  // The Variants gallery's menu: the theme's colors, fonts, effects and
+  // background styles, each a submenu.
+  const variantFooter = () => [
+    { label: "Colors", icon: "o:colors", menu: colorsMenu },
+    { label: "Fonts", icon: "o:fonts", menu: fontsMenu },
+    { label: "Effects", icon: "o:effects", menu: effectsMenu },
+    {
+      label: "Background Styles",
+      icon: "o:backgroundStyles",
+      menu: backgroundStylesMenu,
+    },
+  ];
 
   // ---- Colors, fonts, effects -------------------------------------------------
 
@@ -922,6 +1008,7 @@ export function createThemeTools(host) {
     variantChoices,
     currentVariant,
     applyVariant,
+    variantFooter,
     colorsMenu,
     fontsMenu,
     effectsMenu,

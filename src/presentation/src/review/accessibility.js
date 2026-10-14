@@ -168,8 +168,9 @@ export function findAccessibilityIssues(pres, env) {
           if (!P.getTableStyleFlags(shape).firstRow) add("tableHeader", shape);
         } catch {}
       }
-      // Placeholders left empty (titles are reported as missing titles).
-      if (placeholder && !isTitlePh(placeholder) && kind === "shape") {
+      // Placeholders left empty, a title's among them: a slot waiting for
+      // its text is a tip, as on a new presentation's first slide.
+      if (placeholder && kind === "shape") {
         const text = (P.getShapeText(shape) || "").trim();
         if (!text && !["sldNum", "dt", "ftr", "hdr"].includes(placeholder))
           add("emptyPlaceholder", shape);
@@ -183,7 +184,14 @@ export function findAccessibilityIssues(pres, env) {
       }
     }
     const title = (slideTitle(slide, pres) || "").trim();
-    if (!title) add("missingTitle");
+    // A slide with no title at all; an empty title placeholder is the tip
+    // above.
+    const titleSlot = shapes.some(
+      (s) =>
+        isTitlePh(P.getShapePlaceholderType?.(s)) &&
+        P.getShapeKind(s) === "shape",
+    );
+    if (!title && !titleSlot) add("missingTitle");
     else {
       const key = title.toLowerCase().replace(/\s+/g, " ");
       titles.set(key, [...(titles.get(key) || []), { slide, index, part }]);

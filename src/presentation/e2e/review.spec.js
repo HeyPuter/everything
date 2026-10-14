@@ -134,7 +134,10 @@ test("comments: post, mention, reply and resolve, saved as threaded comments", a
   );
   await pane.getByRole("button", { name: "Resolve thread" }).click();
   await expect(pane.locator(".comment-thread.resolved")).toHaveCount(1);
-  // The marker moves where it is dragged.
+  // The marker moves where it is dragged. On a phone the pane is a sheet over
+  // the slide; it is put away to reach the marker, which stays.
+  if (await pane.evaluate((p) => getComputedStyle(p).position === "fixed"))
+    await pane.getByRole("button", { name: "Close pane" }).click();
   const marker = page.locator("#slide-canvas .comment-marker");
   const box = await marker.boundingBox();
   await page.mouse.move(box.x + 8, box.y + 8);
@@ -461,4 +464,25 @@ test("always open read-only: the mark is saved, and Edit Anyway lifts the lock",
   await page.locator(".object-hit").first().click();
   await page.keyboard.press("Delete");
   await expect(page.locator(".object-hit")).toHaveCount(0);
+});
+
+test.describe("a new presentation", () => {
+  // The app's own start: a Title Slide waiting for its title and subtitle.
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("starts with nothing for the accessibility check to fix", async ({
+    page,
+  }) => {
+    await stub(page);
+    await page.goto("/");
+    await expect(page.locator("#slide-canvas .object-hit")).toHaveCount(2);
+    await expect(page.locator("#status-accessibility")).toHaveText(
+      "Accessibility: Good to go",
+    );
+    // The empty placeholders are tips in the pane.
+    await reviewTab(page);
+    await command(page, "check-accessibility");
+    const pane = page.locator("#review-pane");
+    await expect(pane).toContainText("Empty placeholder (2)");
+    await expect(pane).not.toContainText("Missing slide title");
+  });
 });

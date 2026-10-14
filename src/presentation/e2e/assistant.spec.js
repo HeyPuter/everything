@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { addText, ribbonButton, themeDialog } from "./editor-commands.js";
 
 // Puter with a scripted AI: each request takes the next reply from
 // window.__replies (a list of stream parts) and is kept in window.__requests.
@@ -166,7 +167,7 @@ test("a reply's Undo turns off once the user edits after it", async ({
   await expect(page.locator("#speaker-notes")).toHaveValue("Welcome everyone");
   const undo = panel.getByRole("button", { name: "Undo" });
   await expect(undo).toBeEnabled();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(undo).toBeDisabled();
 });
 
@@ -243,7 +244,7 @@ test("Undo of a reply longer than the history brings back its palette too", asyn
   await panel.getByRole("button", { name: "Undo" }).click();
   await expect(panel.getByText("32 changes undone")).toBeVisible();
   await expect(page.locator("#speaker-notes")).toHaveValue("");
-  await page.getByRole("button", { name: "Theme" }).click();
+  await themeDialog(page);
   await expect(page.locator(".theme-choice[aria-pressed=true]")).toContainText(
     "Studio",
   );
@@ -253,7 +254,7 @@ test("the user's own selection during a reply stays theirs", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "desktop", "one layout covers the flow");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Ask AI" }).click();
   await reply(
@@ -291,7 +292,7 @@ test("the assistant waits for typing on the slide before showing another", async
   await box.press("Enter");
   await expect(page.getByText("Added slide 2.")).toBeVisible();
   await page.locator(".slide-thumb").first().click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await reply(
     page,
     [{ type: "gate" }, toolCall("select", { slide: 2 })],
@@ -350,7 +351,7 @@ test("where the format panel lies over the slide, it and the assistant take turn
   const format = page.locator("#inspector");
   await page.getByRole("button", { name: "Ask AI" }).click();
   await expect(assistant).toBeVisible();
-  await page.getByRole("button", { name: "Toggle format panel" }).click();
+  await (await ribbonButton(page, "View", "view-format-pane")).click();
   await expect(format).toBeVisible();
   await expect(assistant).toBeHidden();
   await expect(page.getByRole("button", { name: "Ask AI" })).toHaveAttribute(
@@ -361,8 +362,8 @@ test("where the format panel lies over the slide, it and the assistant take turn
   await expect(assistant).toBeVisible();
   await expect(format).toBeHidden();
   await expect(
-    page.getByRole("button", { name: "Toggle format panel" }),
-  ).toHaveAttribute("aria-expanded", "false");
+    await ribbonButton(page, "View", "view-format-pane"),
+  ).toHaveAttribute("aria-pressed", "false");
   const slide = await page.locator("#slide-canvas").boundingBox();
   expect(slide.width).toBeGreaterThan(100);
 });
@@ -371,7 +372,7 @@ test("undo reaches the deck from the panel, and object keys do not", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "desktop", "one layout covers the flow");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.getByRole("button", { name: "Ask AI" }).click();
   const panel = page.locator("#ai-panel");
   const box = page.getByRole("textbox", { name: "Message the assistant" });

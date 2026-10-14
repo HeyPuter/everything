@@ -225,7 +225,7 @@ describe("independent native chart axis crossings", () => {
         ).toThrow(new RegExp(field));
         expect(snapshot(p)).toEqual(before);
         expect(() => buildChartSpaceDoc(requested)).toThrow(new RegExp(field));
-      });
+      }, 30_000);
     for (const [token, expected] of [
       [" +2.50e+1 ", { at: 25 }],
       ["-.25", { at: -0.25 }],

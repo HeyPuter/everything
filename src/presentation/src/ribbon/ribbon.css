@@ -18,16 +18,19 @@
   font-size: 13px;
   user-select: none;
 }
+/* The ribbon keeps clear of a phone's notch, as the title bar does. */
 .ribbon-tab-row {
   display: flex;
   align-items: flex-end;
   height: 32px;
-  padding: 0 10px 0 14px;
+  padding: 0 max(10px, env(safe-area-inset-right)) 0
+    max(14px, env(safe-area-inset-left));
 }
+/* The tabs scroll sideways only. */
 .ribbon-tabs {
   display: flex;
   min-width: 0;
-  overflow-x: auto;
+  overflow: auto hidden;
   scrollbar-width: none;
   gap: 2px;
 }
@@ -105,7 +108,8 @@
   background: var(--ribbon-hover);
 }
 .ribbon-body {
-  margin: 4px 8px 6px;
+  margin: 4px max(8px, env(safe-area-inset-right)) 6px
+    max(8px, env(safe-area-inset-left));
   background: var(--ribbon-card);
   border-radius: 9px;
   box-shadow:

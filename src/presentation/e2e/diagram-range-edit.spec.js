@@ -42,6 +42,8 @@ test("typing in semantic diagram entries retains rich runs, soft breaks, live fi
     await (
       await event
     ).setFiles({ name: "Rich native diagram.pptx", mimeType: MIME, buffer });
+    // The editor, not the library it was opened from, before counting.
+    await expect(page.locator("#slide-position")).toBeVisible();
     await expect(back).toBeVisible();
     await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
     await expect(objects).toHaveCount(count);

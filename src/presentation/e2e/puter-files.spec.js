@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { addText as insertTextBox } from "./editor-commands.js";
 import { P, createDeck } from "../src/model.js";
 
 // A Puter drive in memory that behaves as the real one does where it matters
@@ -159,7 +160,7 @@ const title = (page) => page.locator(".document-title");
 const writes = (page) => page.evaluate(() => window.__fs.writes);
 async function addText(page) {
   const before = await page.locator(".object-hit").count();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await insertTextBox(page);
   await expect(page.locator(".object-hit")).toHaveCount(before + 1);
 }
 const fileMenu = (page) =>

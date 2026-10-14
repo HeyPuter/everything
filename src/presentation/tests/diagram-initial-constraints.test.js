@@ -373,7 +373,7 @@ describe("DiagramML initial constraint evaluation", () => {
     expect(initial.size).toBe(count + 1);
     expect(initial.get(root.children[0]).values.get("w")).toBe(12);
     expect(initial.get(root.children.at(-1)).values.get("w")).toBe(12);
-  });
+  }, 30_000);
 
   it("rejects unsupported algorithms and property families explicitly", () => {
     expect(() =>

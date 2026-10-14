@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { P, createDeck } from "../src/model.js";
+import { insertImage } from "./editor-commands.js";
 
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/v2/", (route) =>
@@ -19,13 +20,14 @@ for (const kind of ["presentation", "image"]) {
       await page
         .getByRole("button", { name: "New presentation", exact: true })
         .click();
-    const button = page.getByRole("button", {
-      name: kind === "presentation" ? "Import PPTX" : "Image",
-      exact: true,
-    });
+    // The library's Import PPTX, or the editor's Insert > Image.
+    const press = () =>
+      kind === "presentation"
+        ? page.getByRole("button", { name: "Import PPTX", exact: true }).click()
+        : insertImage(page);
     const open = async () => {
       const pending = page.waitForEvent("filechooser");
-      await button.click();
+      await press();
       const chooser = await pending;
       expect(
         await chooser.element().evaluate((input) => input.isConnected),

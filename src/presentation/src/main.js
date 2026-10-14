@@ -3238,6 +3238,7 @@ function renderEditor() {
               role: "separator",
               "aria-orientation": "vertical",
               "aria-label": "Resize slide thumbnails",
+              "data-pane": "thumbnails",
               tabindex: 0,
               onpointerdown: (e) => resizePane(e, "thumbnails"),
               onkeydown: (e) => resizePaneKey(e, "thumbnails"),
@@ -3272,6 +3273,7 @@ function renderEditor() {
                 role: "separator",
                 "aria-orientation": "horizontal",
                 "aria-label": "Resize notes",
+                "data-pane": "notes",
                 tabindex: 0,
                 onpointerdown: (e) => resizePane(e, "notes"),
                 onkeydown: (e) => resizePaneKey(e, "notes"),
@@ -4092,6 +4094,7 @@ function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
     initial: ribbonTab,
+    focusFallback: workspace,
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
@@ -4141,6 +4144,13 @@ function applyPaneSizes() {
   if (!editor) return;
   editor.style.setProperty("--thumbnail-width", `${chrome.thumbnailWidth}px`);
   editor.style.setProperty("--notes-height", `${chrome.notesHeight}px`);
+  // A focusable separator says where it is between its limits.
+  for (const handle of editor.querySelectorAll(".pane-resize[data-pane]")) {
+    const [key, min, max] = PANE_LIMITS[handle.dataset.pane];
+    handle.setAttribute("aria-valuemin", String(min));
+    handle.setAttribute("aria-valuemax", String(max));
+    handle.setAttribute("aria-valuenow", String(chrome[key]));
+  }
   editor.classList.toggle("show-gridlines", !!chrome.gridlines);
   editor.classList.toggle("show-guides", !!chrome.guides);
   editor.classList.toggle("show-ruler", !!chrome.ruler);
@@ -6379,18 +6389,7 @@ function ribbonApi() {
     variantChoices: () => (doc ? themeTools.variantChoices() : []),
     currentVariant: () => themeTools.currentVariant(),
     applyVariant: (i) => themeTools.applyVariant(i),
-    variantFooter: () => [
-      {
-        label: "Customize Colors…",
-        icon: "o:colors",
-        onSelect: run(() => themeTools.customizeColors()),
-      },
-      {
-        label: "Customize Fonts…",
-        icon: "o:fonts",
-        onSelect: run(() => themeTools.customizeFonts()),
-      },
-    ],
+    variantFooter: () => themeTools.variantFooter(),
     themeColorsMenu: () => themeTools.colorsMenu(),
     themeFontsMenu: () => themeTools.fontsMenu(),
     themeEffectsMenu: () => themeTools.effectsMenu(),
@@ -14102,7 +14101,6 @@ function pasteText(value) {
       20,
       legibleColor(background, [t.ink, sectionTextColor(theme)], 4.5),
     );
-    place?.(s);
     if (P.getSlidePartName(slide()) === P.getSlidePartName(target))
       selectIds([P.getShapeId(s)]);
   });
@@ -14474,11 +14472,13 @@ const BACKGROUND_LABELS = {
 // Ink drawn during a show stays on the slides only if the presenter says so.
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
+// A show on its way up (its inserted media still loading) counts as open.
+let presentOpening = false;
 async function present(options = {}) {
   // Before anything waits: a window for the audience needs the click.
   options = showFeatures.begin(options);
   await settled();
-  if (document.querySelector("dialog.presenter[open]")) {
+  if (presentOpening || document.querySelector("dialog.presenter[open]")) {
     options.audience?.close();
     return;
   }
@@ -15316,7 +15316,12 @@ async function present(options = {}) {
     },
     { passive: true },
   );
-  await showInserted.prepare();
+  presentOpening = true;
+  try {
+    await showInserted.prepare();
+  } finally {
+    presentOpening = false;
+  }
   const releaseFonts = retainDocumentFonts(pres);
   document.body.append(d);
   try {
@@ -15487,7 +15492,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (mod && ["z", "y"].includes(e.key.toLowerCase())) {
-    if (typing) return;
+    // A ribbon box holding the value it applied has nothing of its own to
+    // undo: the shortcut takes back the change it made.
+    const applied =
+      e.target.matches(".ribbon-combo-input") &&
+      e.target.value === (e.target.dataset.value ?? "");
+    if (typing && !applied) return;
     e.preventDefault();
     // With nothing to redo, Ctrl/⌘+Y repeats the last format command.
     if (
@@ -15544,7 +15554,11 @@ document.addEventListener("keydown", (e) => {
     e.target.closest("#slide-list .slide-thumb")
   ) {
     e.preventDefault();
-    addSlideAfter(slide());
+    const part = e.target.closest(".slide-item")?.dataset.slidePart;
+    addSlideAfter(
+      P.getSlides(doc.pres).find((s) => P.getSlidePartName(s) === part) ||
+        slide(),
+    );
     return;
   }
   // Duplicate Slide.

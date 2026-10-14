@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
@@ -36,6 +37,8 @@ async function load(page, bytes, count = 6) {
     mimeType: MIME,
     buffer: Buffer.from(bytes),
   });
+  // The editor, not the library it was opened from, before counting.
+  await expect(page.locator("#slide-position")).toBeVisible();
   await expect(page.locator(".object-hit")).toHaveCount(count);
 }
 async function download(page) {
@@ -82,21 +85,13 @@ test("the corner inspector reads a formula adjustment and keeps it intact until 
     source = await parseDeck(bytes);
   await load(page, bytes, 1);
   await page.locator(".object-hit").click();
-  const inspector = async () => {
-    if (
-      !(await page
-        .getByRole("complementary", { name: "Format panel" })
-        .isVisible())
-    )
-      await page.getByRole("button", { name: "Toggle format panel" }).click();
-  };
-  await inspector();
+  await inspector(page);
   const radius = page.getByRole("slider", { name: "Corner radius (%)" });
   await expect(radius).toHaveValue("40");
   const before = await download(page);
   expect(authored(before.bytes, before.p)).toEqual(authored(bytes, source));
   await page.locator(".object-hit").click();
-  await inspector();
+  await inspector(page);
   await radius.fill("30");
   const edited = await download(page),
     sh = P.getSlideShapes(P.getSlides(edited.p)[0])[0];

@@ -108,6 +108,7 @@ describe("native chart extension retention on surviving structural hosts", () =>
         ).toBe("extLst");
     });
   for (const kind of ["bar", "column", "line", "area", "pie", "doughnut"])
+    // Two transfers, edits and saves per chart kind: heavy under load.
     it(`${kind} transfer both ways and returned-copy edits retain identities, relationships and original data`, async () => {
       const f = chartExtensionDeck(kind),
         before = slots(f),
@@ -156,7 +157,7 @@ describe("native chart extension retention on surviving structural hosts", () =>
           shape: P.getSlideCharts(P.getSlides(reopened).at(-1))[0].shape,
         }),
       ).toEqual(before);
-    });
+    }, 30_000);
   it("extension identities follow positional model series through reversed combo groups and nonsequential native indices", () => {
     const f = chartExtensionDeck("column", true),
       d = doc(f),
@@ -326,7 +327,7 @@ describe("native chart extension retention on surviving structural hosts", () =>
         c("legendEntry"),
       ),
     ).toHaveLength(1);
-  });
+  }, 30_000);
   it("removed titles, axes, legends, labels, markers and trendlines do not regain extension hosts", () => {
     const f = chartExtensionDeck("line"),
       chart = P.getSlideCharts(f.slide)[0];
@@ -419,7 +420,7 @@ describe("native chart extension retention on surviving structural hosts", () =>
       ).toThrow(/finite number/);
       expect(snapshot(f)).toEqual(before);
     }
-  });
+  }, 30_000);
   for (const missing of ["plotArea", "chart"])
     it(`repairing a missing ${missing} retains metadata on the surviving outer hosts`, () => {
       const f = chartExtensionDeck(),

@@ -36,6 +36,8 @@ for (const table of [false, true]) {
       await (
         await event
       ).setFiles({ name: "Numbered outline.pptx", mimeType: MIME, buffer });
+      // The editor, not the library it was opened from, before counting.
+      await expect(page.locator("#slide-position")).toBeVisible();
       await ready(count);
     }
     async function download() {

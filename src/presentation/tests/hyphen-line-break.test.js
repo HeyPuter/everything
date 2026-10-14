@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { P, createDeck, parseDeck } from "../src/model.js";
 import { renderSlideToSvg } from "../lib/pptx-preview/src/index.ts";
 import {
@@ -17,9 +17,18 @@ it("keeps every authored delimiter, joiner and nonbreaking space through save/re
   expect(P.getSlideShapes(slide).map(P.getShapeText)).toEqual(
     hyphenLineBreakCases.map((c) => c.text),
   );
-  const before = await P.savePresentation(source);
+  // The archive stamps each entry with the time of saving; both saves get
+  // the same clock so the bytes can be compared whole.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 0, 2, 3, 4, 6) });
+  let before, again;
+  try {
+    before = await P.savePresentation(source);
+    again = await P.savePresentation(source);
+  } finally {
+    vi.useRealTimers();
+  }
   const expected = signature(source, slide);
-  expect(await P.savePresentation(source)).toEqual(before);
+  expect(again).toEqual(before);
   const loaded = await parseDeck(before);
   expect(signature(loaded, P.getSlides(loaded)[0])).toEqual(expected);
 });
