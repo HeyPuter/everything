@@ -7533,7 +7533,11 @@ dialog::backdrop {
 }
 /* Forced colors (Windows contrast themes) replace the tints that mark the
    current tool, pressed toggles, chosen tabs and highlighted options, so
-   they take the system highlight instead. Colour choices keep their own
+   they take the system highlight instead. The browser would otherwise put
+   its own plate of the page colour behind their text, where the highlight
+   text colour can vanish, so they set their colours themselves, and what
+   they hold, such as a shortcut key, is drawn in the highlight text colour
+   on the highlight. Colour choices keep their own
    colours: there the colour is the content. */
 @media (forced-colors: active) {
   :is(
@@ -7544,8 +7548,22 @@ dialog::backdrop {
     [role="tab"][aria-selected="true"],
     [role="option"][aria-selected="true"]
   ):not(.swatch) {
+    forced-color-adjust: none;
     background-color: Highlight !important;
     color: HighlightText !important;
+  }
+  :is(
+      [aria-pressed="true"],
+      [aria-checked="true"],
+      [aria-current="page"],
+      [aria-current="true"],
+      [role="tab"][aria-selected="true"],
+      [role="option"][aria-selected="true"]
+    ):not(.swatch)
+    :not(.swatch, .fill-chip) {
+    color: inherit !important;
+    background-color: transparent !important;
+    border-color: currentColor !important;
   }
   .swatch,
   .fill-chip {

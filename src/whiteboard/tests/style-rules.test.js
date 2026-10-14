@@ -357,8 +357,17 @@ test("in forced colors, pressed and chosen controls show the system highlight an
   ])
     assert.ok(block.includes(state), state);
   assert.match(block, /:not\(\.swatch\)/);
-  assert.match(block, /background-color:\s*Highlight !important/);
-  assert.match(block, /color:\s*HighlightText !important/);
+  // Their own colours, not the browser's, so it puts no plate of the page
+  // colour behind their text, where the highlight text colour can vanish;
+  // what they hold is drawn in the highlight text colour.
+  assert.match(
+    block,
+    /forced-color-adjust:\s*none;\s*background-color:\s*Highlight !important;\s*color:\s*HighlightText !important/,
+  );
+  assert.match(
+    block,
+    /:not\(\.swatch, \.fill-chip\) \{\s*color:\s*inherit !important;\s*background-color:\s*transparent !important/,
+  );
   assert.match(
     block,
     /\.swatch,\s*\.fill-chip\s*\{\s*forced-color-adjust:\s*none/,
