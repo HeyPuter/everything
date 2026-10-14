@@ -901,6 +901,11 @@ export const COMMAND_ICONS = {
     r(7.5, 9, 11, 9.5, "knock", 2) +
     g("translate(7 7.5) scale(.6)", speaker(2.5, 7.5) + waves(12.5, 10, 2)),
   duration: stopwatch(10, 11, 6.5),
+  delay:
+    p(
+      "M5.5 2.5h9M5.5 17.5h9M7 2.5c0 4.2 6 4.6 6 7.5s-6 3.3-6 7.5M13 2.5c0 4.2-6 4.6-6 7.5s6 3.3 6 7.5",
+      "o",
+    ) + p("M8 16.2h4L10 13.6z", "ys"),
   applyToAll:
     slideBox(2.5, 2.5, 10, 7.5, "kf glassy") +
     slideBox(4.5, 5, 10, 7.5, "kf glassy") +
@@ -1043,6 +1048,27 @@ export const COMMAND_ICONS = {
     page(2.5, 5.5, 8, 12, 2) +
     page(9.5, 2.5, 8, 12, 2) +
     p("M8 10.5h4M10.5 9l1.5 1.5-1.5 1.5", "b thick"),
+  // A document with a pencil under a lock: it opens read-only.
+  readOnly:
+    page(3.5, 2.5, 10, 14, 2.5) + p("M6 7.5h5M6 10h3.5", "o ln") + lock(11, 12),
+  // A word with a curved arrow turning it into its corrected form.
+  autoCorrect:
+    t(6.5, 8, "ab", 6.5) +
+    p("M4 12.5c1.5 3 5.5 4 8.5 2", "b thick") +
+    p("M11 12.5l1.8 2-2.2 1.3", "b thick") +
+    badge(15.5, 6, "check"),
+  // Objects numbered in the order they are read.
+  readingOrder:
+    r(7.5, 3, 10, 3.5, "bf", 1) +
+    r(7.5, 8.25, 10, 3.5, "of", 1) +
+    r(7.5, 13.5, 10, 3.5, "of", 1) +
+    t(4, 6.1, "1", 4.5, { weight: 700, c: "txb" }) +
+    t(4, 11.35, "2", 4.5, { weight: 700 }) +
+    t(4, 16.6, "3", 4.5, { weight: 700 }),
+  acceptChange:
+    page(3.5, 2.5, 11, 14, 2.5) + lines(6, 7, 6, 3) + badge(15, 15, "check"),
+  rejectChange:
+    page(3.5, 2.5, 11, 14, 2.5) + lines(6, 7, 6, 3) + badge(15, 15, "x", "r"),
 
   // View
   normalView:
@@ -1253,6 +1279,21 @@ export const COMMAND_ICONS = {
     r(3.5, 5, 6, 10, "bw", 0.6) +
     p("M10 4v12", "o"),
   slideShowSmall: monitor(2.5, 3, 15, 10.5) + r(5, 5.5, 10, 5.5, "ks", 0.6),
+  // A page with an arrow leaving it.
+  exportFile:
+    r(3, 2.5, 10, 15, "of") +
+    p("M6 7h4M6 10h2.5M6 13h4", "o ln") +
+    p("M9.5 10h8M15 7.2l2.8 2.8-2.8 2.8", "b thick"),
+  // A picture with its corners drawn in.
+  compressPictures:
+    r(4.5, 5, 11, 10, "gf") +
+    p("M6.5 13l2.6-3 2 2 1.6-1.6 1.8 2.6", "g") +
+    p("M1.8 2l3 3M4.8 2.6V5H2.4M18.2 18l-3-3M15.2 17.4V15h2.4", "b thick"),
+  // A drive with a level of how full it is.
+  fileSize:
+    r(2.5, 6, 15, 9, "of", 2) +
+    r(4.5, 8.5, 7, 4, "bs", 0.8) +
+    ci(14.5, 10.5, 1, "gs"),
   info:
     ci(10, 10, 7.5, "bs") + p("M10 9v5", "wh grip") + ci(10, 6.1, 1.1, "txw"),
   help:
@@ -1286,3 +1327,10 @@ export function commandIcon(name, size = 20) {
   return svg;
 }
 export const hasCommandIcon = (name) => name in COMMAND_ICONS;
+// Feature modules add their own drawings, in the same idiom, under new names.
+export function registerCommandIcons(more) {
+  for (const [name, body] of Object.entries(more)) {
+    if (name in COMMAND_ICONS) continue;
+    COMMAND_ICONS[name] = body;
+  }
+}

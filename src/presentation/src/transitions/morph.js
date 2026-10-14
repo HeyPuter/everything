@@ -147,7 +147,8 @@ export async function prepareMorph({ P, pres, from, to, render, load, W, H }) {
   const slideParts = (slide) => {
     const shapes = [];
     const bg = render(slide, {
-      includeShape: (shape) => {
+      background: true,
+      shape: (shape) => {
         shapes.push(shape);
         return false;
       },
@@ -180,7 +181,7 @@ export async function prepareMorph({ P, pres, from, to, render, load, W, H }) {
     const area = cropArea(item, W, H);
     const url = render(slide, {
       background: false,
-      includeShape: (shape) => P.getShapeId(shape) === item.id,
+      shape: (shape) => P.getShapeId(shape) === item.id,
     });
     item.area = area;
     item.picture = await raster(url, area);

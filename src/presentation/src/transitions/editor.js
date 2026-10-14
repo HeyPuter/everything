@@ -37,7 +37,8 @@ const AUDIO_TYPES = ".wav,.mp3,.m4a,.aif,.aiff,.ogg,audio/*";
  *   mutateSlide    (slide, fn) → applies an undoable edit; fn may return skip
  *   skip           the value that tells mutateSlide nothing changed
  *   picture(slide) the slide's rendered picture URL
- *   render(slide, layer) a picture URL of part of a slide (RenderSlideOptions)
+ *   render(slide, layer) a picture URL of part of a slide
+ *                  (RenderSlideOptions.layer: { background, shape })
  *   canvas()       the editing canvas element (for Preview)
  *   chooseFile(accept) → Promise<File | null>
  *   report(error)  shows an error
@@ -246,8 +247,8 @@ export function createTransitionTools({
   // Layers of a slide for the dynamic content effects: its background
   // (with the layout's decorations) and its own content.
   const layersOf = (target) => ({
-    bg: render(target, { includeShape: () => false }),
-    fg: render(target, { background: false }),
+    bg: render(target, { background: true, shape: () => false }),
+    fg: render(target, { background: false, shape: () => true }),
   });
 
   /**

@@ -8,7 +8,7 @@
 const OFFICE_DOC =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const PACKAGE = "http://schemas.openxmlformats.org/package/2006/relationships";
-const MS_2015 = "http://schemas.microsoft.com/office/2015/relationships";
+const MS_2018 = "http://schemas.microsoft.com/office/2018/10/relationships";
 
 export const REL_TYPES = {
   // Package-root → presentation
@@ -56,9 +56,9 @@ export const REL_TYPES = {
   font: `${OFFICE_DOC}/font`,
 
   // Authors list for modern comments
-  authors: `${MS_2015}/authors`,
+  authors: `${MS_2018}/authors`,
   // Modern comments per slide
-  modernComment: `${MS_2015}/comments`,
+  modernComment: `${MS_2018}/comments`,
 
   // Legacy comments — universally supported by every PPTX consumer.
   // Authors list lives at /ppt/commentAuthors.xml (one per package);

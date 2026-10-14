@@ -14,6 +14,7 @@ export {
   type DiagramTextEdit,
 } from "./fn/diagram-edit.ts";
 export { isDiagramShape } from "./fn/diagram-read.ts";
+export * from "./fn/smartart/index.ts";
 export {
   getEmbeddedFonts,
   embedFont,
@@ -55,6 +56,17 @@ export {
   type SlideShowSelection,
   type SlideShowLaserColor,
 } from "./fn.ts";
+export {
+  getViewProperties,
+  setViewProperties,
+  getNotesPageSize,
+  getSlideOutlineShapes,
+  addSlideOutlinePlaceholder,
+  type ViewProperties,
+  type ViewPropertiesPatch,
+  type DrawingGuide,
+  type LastView,
+} from "./fn.ts";
 export type { PresentationInput, PresentationSize, SlideSize } from "./fn.ts";
 export { SLIDE_SIZE_4_3, SLIDE_SIZE_16_9, SLIDE_SIZE_16_10 } from "./fn.ts";
 export type { ImageFormat } from "../internal/opc/index.ts";
@@ -63,6 +75,8 @@ export type {
   ChartAxisTickLabelPosition,
   ChartAxisScaling,
   ChartDataLabels,
+  ChartDataTable,
+  ChartErrorBars,
   ChartGrouping,
   ChartKind,
   ChartDataLabelPosition,
@@ -75,6 +89,13 @@ export type { SlideChartData } from "./fn.ts";
 export type { ShapeClickAction } from "./fn.ts";
 export type { IssueSeverity, ValidationIssue } from "./fn.ts";
 export type { AnimationEffect, AnimationOptions } from "./fn.ts";
+export type {
+  AnimationPresetClass,
+  AnimationStart,
+  SlideAnimation,
+  SlideAnimationAfter,
+  SlideAnimationTextBuild,
+} from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
 export type { ImageFit } from "./fn.ts";
 export type {
@@ -256,6 +277,11 @@ export {
   getShapeAdjustValues,
   getShapeAltTitle,
   getShapeAnimation,
+  getSlideAnimations,
+  setSlideAnimations,
+  pruneSlideAnimations,
+  getShapeBuildParagraphs,
+  motionPathFor,
   getShapeAt,
   getShapeBounds,
   getShapeBodyPrEffective,
@@ -627,5 +653,31 @@ export type {
   TransitionSound,
 } from "../internal/presentationml/index.ts";
 
+// Inserted objects: media, vector pictures, actions, embeddings, footers.
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
+export {
+  countWords,
+  getDocumentStatistics,
+  getExtendedStatistics,
+  setExtendedStatistics,
+  updateExtendedStatistics,
+  getPresentationKind,
+  setPresentationKind,
+  PRESENTATION_FILE_TYPES,
+  type DocumentStatistics,
+  type ExtendedStatistics,
+  type PresentationKind,
+} from "./fn/document-statistics.ts";
+
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
+
+// Threaded comments and document custom properties.
+export * from "./fn/comment-threads.ts";
+export * from "./fn/custom-properties.ts";
+export * from "./fn/shape-decorative.ts";
