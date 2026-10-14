@@ -12,6 +12,7 @@ import { createKnob } from '../ui/knob.js';
 import { contextMenu, isContextKey } from '../ui/menu.js';
 import { getDragData, dragHasPayload } from '../lib/dnd.js';
 import { EFFECTS } from '../effects/catalog.js';
+import { effectPresetController } from '../effects/ui/presets.js';
 import { IS_MAC } from '../lib/util.js';
 import { MAX_FX_SLOTS, dropIndex } from './slots.js';
 import { formatGain, MAX_GAIN } from './db.js';
@@ -180,6 +181,7 @@ export function createFxPanel(ctx) {
     const items = [
       { type: 'cmd', label: 'Open editor', run: () => app.openEffectEditor?.(i, slot.id) },
       { type: 'check', label: 'Enabled', checked: slot.on, run: () => ctl.toggleEffect(i, slot.id) },
+      { type: 'submenu', label: 'Presets', items: () => effectPresetController(app, ctl, i, slot.id)?.menuItems() || [] },
       { type: 'sep' },
       {
         type: 'submenu',

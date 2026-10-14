@@ -24,6 +24,7 @@ import { dragHasPayload } from '../lib/dnd.js';
 import { waveGlyph, waveGlyphName, createAdsrView } from './glyphs.js';
 import { createKeyboard } from './keyboard.js';
 import { channelActions } from './actions.js';
+import { presetController } from '../ui/presets.js';
 
 const VOLUME = { id: 'volume', label: 'Volume', min: 0, max: 1.25, def: 0.78 };
 const PAN = { id: 'pan', label: 'Pan', min: -1, max: 1, def: 0 };
@@ -99,7 +100,8 @@ class ChannelEditor {
     this.presetBtn = h('button.btn.sm.ed-preset', { type: 'button', 'aria-haspopup': 'menu', title: 'Choose a preset', onclick: () => this.openPresetMenu() }, this.presetName, icon('chevron-down', 12));
     const prev = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Previous preset', title: 'Previous preset', onclick: () => this.stepPreset(-1) }, icon('chevron-left', 14));
     const next = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Next preset', title: 'Next preset', onclick: () => this.stepPreset(1) }, icon('chevron-right', 14));
-    this.toolbar = h('div.ed-toolbar', prev, this.presetBtn, next);
+    const save = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Save preset', title: 'Save these settings as a preset', onclick: () => this.presets().saveAs().catch((err) => this.app.reportError(err)) }, icon('save', 14));
+    this.toolbar = h('div.ed-toolbar', prev, this.presetBtn, next, save);
 
     // Header: color, name, type.
     this.colorBtn = h('button.ed-color', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Channel color', title: 'Channel color', onclick: (e) => this.openColorMenu(e.currentTarget) });
@@ -554,7 +556,7 @@ class ChannelEditor {
     this.colorBtn.style.background = ch.color;
     this.el.style.setProperty('--ch', ch.color);
     this.typeBadge.textContent = INSTRUMENTS[ch.type]?.label || ch.type;
-    const pr = matchPreset(ch.type, ch.params);
+    const pr = this.presets().current();
     this.presetName.textContent = pr ? pr.name : 'Custom';
     this.presetBtn.setAttribute('aria-label', `Preset: ${pr ? pr.name : 'Custom'}. Choose a preset`);
   }
@@ -566,41 +568,44 @@ class ChannelEditor {
     );
   }
 
-  openPresetMenu() {
+  /** Built-in and saved presets for this channel's instrument type. */
+  presets() {
     const type = this.ch.type;
-    const cur = matchPreset(type, this.ch.params);
-    const items = [];
-    let cat = null;
-    for (const pr of presetsFor(type)) {
-      if (pr.category !== cat) {
-        cat = pr.category;
-        items.push({ type: 'heading', label: cat });
-      }
-      items.push({ type: 'radio', label: pr.name, checked: cur === pr, run: () => this.loadPreset(pr) });
-    }
-    openMenu(items, { anchor: this.presetBtn, label: 'Presets' });
+    if (this.pc?.type === type) return this.pc.ctl;
+    const ctl = presetController({
+      app: this.app,
+      kind: `instrument:${type}`,
+      builtins: presetsFor(type),
+      defaults: defaultParams(type),
+      params: () => this.ch.params,
+      apply: (entry) => this.loadPreset(entry),
+    });
+    this.pc?.off();
+    this.pc = { type, ctl, off: ctl.store.on('change', () => this.syncHeader()) };
+    return ctl;
+  }
+
+  openPresetMenu() {
+    openMenu(this.presets().menuItems(), { anchor: this.presetBtn, label: 'Presets' });
   }
 
   stepPreset(d) {
-    const list = presetsFor(this.ch.type);
-    const cur = matchPreset(this.ch.type, this.ch.params);
-    const i = cur ? list.indexOf(cur) : d > 0 ? -1 : 0;
-    this.loadPreset(list[(i + d + list.length) % list.length]);
+    this.presets().step(d);
   }
 
+  /** Loads a preset entry ({ name, params }, params merged over the defaults): one undo step. */
   loadPreset(pr) {
     const ch = this.ch;
     const type = ch.type;
     const params = { ...defaultParams(type), ...pr.params };
     // A channel still named after its preset (or its instrument) takes the new preset's name.
-    const old = matchPreset(type, ch.params);
+    const old = this.presets().current();
     const rename = pr.name !== 'Init' && (ch.name === INSTRUMENTS[type]?.label || (old && ch.name === old.name));
     this.store.apply(`Load preset ${pr.name}`, (p) => {
       let next = E.updateChannel(p, this.id, { params });
       if (rename) next = E.updateChannel(next, this.id, { name: pr.name });
       return next;
     });
-    announce(`Preset ${pr.name}`);
   }
 
   // ---------------------------------------------------------------- sound
@@ -651,6 +656,7 @@ class ChannelEditor {
   }
 
   destroy() {
+    this.pc?.off();
     for (const off of this.offs) off();
     this.offs = [];
     window.removeEventListener('themechange', this.onTheme);
