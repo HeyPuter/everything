@@ -67,6 +67,8 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     : item.items ? { ...item, items: inDocument(item.items) } : item);
   const engineReady = () => !c.bold.disabled;
   const separator = { separator: true };
+  const tableAction = value => () => { c.tableActions.value = value; c.tableActions.dispatchEvent(new Event('change', { bubbles: true })); };
+  const tableOption = value => c.tableActions.querySelector(`option[value="${value}"]`);
   const optionItems = (select, filter = () => true) => [...select.options].filter(o => o.value && !o.disabled && filter(o)).map(o => ({
     label: o.textContent, onSelect: () => { select.value = o.value; select.dispatchEvent(new Event('change', { bubbles: true })); } }));
   // Ribbon commands without an editor control follow these predicates on every refresh.
