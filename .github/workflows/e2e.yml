@@ -7,7 +7,7 @@ name: Browser tests
 # when the PR changes src/documents or the shared dev/ folder. A change to this
 # file runs every PR and nightly suite. A newer push cancels the older run.
 #
-# Nightly: 3d, email, documents and parametric, each only if its app changed
+# Nightly: 3d, email, documents, parametric and building-design, each only if its app changed
 # on main in the last day.
 #
 # Manual only (Actions > Browser tests > Run workflow, list them in "apps"):
@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       apps:
-        description: 'Comma-separated: 3d, email, documents, parametric, pdf, presentation'
+        description: 'Comma-separated: 3d, email, documents, parametric, building-design, pdf, presentation'
         default: '3d,email'
 
 permissions:
@@ -63,6 +63,7 @@ jobs:
             {"app": "3d", "script": "test:e2e", "browsers": "chromium", "shards": 1, "nightly": true},
             {"app": "email", "script": "test:browser", "browsers": "chromium", "shards": 1, "nightly": true},
             {"app": "parametric", "script": "test:e2e", "browsers": "chromium", "shards": 1, "nightly": true},
+            {"app": "building-design", "script": "test:e2e", "browsers": "chromium", "shards": 1, "nightly": true},
             {"app": "documents", "script": "test:browser", "browsers": "chromium", "shards": 8, "nightly": true, "pr": true},
             {"app": "pdf", "script": "test:e2e", "browsers": "chromium firefox webkit", "shards": 8},
             {"app": "presentation", "script": "test:e2e", "browsers": "chromium", "shards": 8}

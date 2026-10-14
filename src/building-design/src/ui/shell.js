@@ -21,7 +21,7 @@ export function buildShell(app) {
   const title = h('div.title', { 'aria-live': 'polite' });
   const search = h(
     'button.search-btn',
-    { type: 'button', 'aria-label': 'Search commands', 'aria-haspopup': 'dialog', 'data-tip': 'Search commands', 'data-tip-keys': `${MOD}+K`, onClick: () => app.run('search') },
+    { type: 'button', 'aria-haspopup': 'dialog', 'aria-keyshortcuts': `${MOD === 'Cmd' ? 'Meta' : 'Control'}+K`, 'data-tip': 'Search commands', 'data-tip-keys': `${MOD}+K`, onClick: () => app.run('search') },
     icon('search', 15),
     h('span.search-text', 'Search commands'),
     h('kbd', `${MOD} K`),
@@ -61,9 +61,9 @@ export function buildShell(app) {
   const browserBody = h('div.pane-body');
   const browserSearch = h('input.input', { type: 'search', placeholder: 'Search views, sheets and types', 'aria-label': 'Search the project browser' });
   const paneBrowser = h('section.pane.pane-browser', { 'aria-labelledby': 'browser-title' }, h('div.pane-head', browserTitle, browserClose), h('div.browser-search', browserSearch), browserBody);
-  const dockSplit = h('div.dock-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize Properties and Project Browser', tabindex: '0' });
+  const dockSplit = h('div.dock-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize Properties and Project Browser', 'aria-valuemin': '15', 'aria-valuemax': '85', 'aria-valuenow': '52', tabindex: '0' });
   const dock = h('aside.dock', { 'aria-label': 'Properties and Project Browser' }, paneProps, dockSplit, paneBrowser);
-  const dockResize = h('div.dock-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize side panel', tabindex: '0' });
+  const dockResize = h('div.dock-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize side panel', 'aria-valuemin': '200', 'aria-valuemax': '560', 'aria-valuenow': '290', tabindex: '0' });
 
   // Views
   const vtabs = h('div.vtabs', { role: 'tablist', 'aria-label': 'Open views' });

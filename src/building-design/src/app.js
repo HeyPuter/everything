@@ -1211,6 +1211,7 @@ export class App {
         const r = this.shell.main.getBoundingClientRect();
         const w2 = Math.max(200, Math.min(560, ev.clientX - r.left));
         this.shell.root.style.setProperty('--dock-w', `${w2}px`);
+        this.shell.dockResize.setAttribute('aria-valuenow', String(Math.round(w2)));
         this.dockW = w2;
       },
       () => this.dockW && this.settingsStore.set('dockWidth', this.dockW),
@@ -1221,6 +1222,7 @@ export class App {
         const r = this.shell.dock.getBoundingClientRect();
         const p = Math.max(15, Math.min(85, ((ev.clientY - r.top) / r.height) * 100));
         this.shell.dock.style.setProperty('--props-h', `${p}%`);
+        this.shell.dockSplit.setAttribute('aria-valuenow', String(Math.round(p)));
         this.propsH = p;
       },
       () => this.propsH && this.settingsStore.set('propsHeight', this.propsH),
@@ -1235,6 +1237,7 @@ export class App {
         const d = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -step : step;
         const v = Math.max(min, Math.min(max, cur + d));
         target.style.setProperty(prop, `${v}${unit}`);
+        el.setAttribute('aria-valuenow', String(Math.round(v)));
         this.settingsStore.set(save, v);
       });
     keyResize(this.shell.dockResize, '--dock-w', 16, 200, 560, 'px', 'dockWidth');

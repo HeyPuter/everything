@@ -90,12 +90,12 @@ export class PropertiesPanel {
         ? {
             type: 'button',
             'aria-haspopup': 'menu',
-            'aria-label': `Type: ${famLabel} ${nameLabel}. Change type`,
             onClick: (e) => this.typeMenu(e.currentTarget, typeKind, t.mode === 'tool' ? toolKind : t.kind, items, typeItem),
           }
         : {},
       h('span.type-sel-ico', icon(typeIcon, 24)),
-      h('span.type-sel-text', h('span.type-sel-fam', famLabel), h('span.type-sel-name', nameLabel || ' ')),
+      h('span.type-sel-text', h('span.type-sel-fam', famLabel), ' ', h('span.type-sel-name', nameLabel || ' ')),
+      canPickType ? h('span.sr-only', ', change type') : null,
       canPickType ? icon('chevron-down', 14) : null,
     );
     wrap.append(typeSel);

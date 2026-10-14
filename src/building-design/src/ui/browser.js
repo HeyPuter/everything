@@ -114,6 +114,9 @@ export class ProjectBrowser {
 
   render() {
     const app = this.app;
+    // Keep keyboard focus on the same node when the tree is rebuilt.
+    const hadFocus = this.body.contains(document.activeElement);
+    if (hadFocus) this.focusKey = document.activeElement.dataset?.key ?? this.focusKey;
     clear(this.body);
     const rows = this.rows();
     const ul = h('ul.tree', { role: 'tree', 'aria-label': 'Project Browser' });
@@ -156,6 +159,7 @@ export class ProjectBrowser {
     }
     if (!rows.length) ul.append(h('li.props-empty', { role: 'none' }, 'Nothing matches the search.'));
     this.body.append(ul);
+    if (hadFocus && focusable) this.body.querySelector(`[data-key="${cssEscape(focusable)}"]`)?.focus({ preventScroll: true });
   }
 
   toggle(key) {

@@ -34,9 +34,13 @@ export function renderViewbar(app) {
   const graphical = !['schedule', 'sheet'].includes(view.kind);
   if (view.scale && view.kind !== 'view3d') {
     bar.append(
-      btn([h('span', scaleLabel(view.scale, app.doc.units)), icon('chevron-up', 12)], `View scale ${scaleLabel(view.scale, app.doc.units)}`, (e) =>
-        showMenu(e.currentTarget, scaleOptions(app.doc.units).map((o) => ({ label: o.label, checked: o.value === view.scale, radio: true, action: () => set({ scale: o.value }, 'View scale') })), { label: 'View scale' }),
-      { menu: true }),
+      btn(
+        [h('span', scaleLabel(view.scale, app.doc.units)), icon('chevron-up', 12)],
+        `View scale ${scaleLabel(view.scale, app.doc.units)}`,
+        (e) => showMenu(e.currentTarget, scaleOptions(app.doc.units).map((o) => ({ label: o.label, checked: o.value === view.scale, radio: true, action: () => set({ scale: o.value }, 'View scale') })), { label: 'View scale' }),
+        null,
+        { menu: true },
+      ),
     );
   }
   if (graphical) {
