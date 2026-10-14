@@ -509,6 +509,88 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
+// ------------------------------------------------------------------ oversampling
+
+/// Half-band FIR for 2x oversampling: 47 taps, Kaiser window (beta 8),
+/// normalized for unity gain. Flat to 0.38 of the base rate (18 kHz at
+/// 48 kHz, ripple under 0.001 dB), about -80 dB from 0.62 of the base rate
+/// (30 kHz at 48 kHz). Only the even taps h[0], h[2] .. h[22] are listed
+/// (the odd taps are zero except the 0.5 center; the filter is symmetric).
+const HB: [f32; 12] = [
+    -3.236778986e-05, 2.146022812e-04, -6.899972485e-04, 1.690635467e-03, -3.539435262e-03, 6.670786169e-03,
+    -1.168527653e-02, 1.951150296e-02, -3.190591831e-02, 5.323910908e-02, -9.953366729e-02, 3.160600265e-01,
+];
+const HB_LEN: usize = 24;
+/// Delay of an up + down round trip through the half-band pair, in base-rate samples.
+pub const OS2_LATENCY: usize = 23;
+
+#[inline]
+fn hb_sum(s: &[f32]) -> f32 {
+    let mut acc = 0.0;
+    for i in 0..HB.len() {
+        acc += HB[i] * (s[i] + s[HB_LEN - 1 - i]);
+    }
+    acc
+}
+
+/// 2x polyphase upsampler: one base-rate sample in, two samples out (in time order).
+pub struct HalfBandUp {
+    buf: [f32; HB_LEN * 2],
+    pos: usize,
+}
+
+impl HalfBandUp {
+    pub const fn new() -> Self {
+        HalfBandUp { buf: [0.0; HB_LEN * 2], pos: 0 }
+    }
+
+    #[inline]
+    pub fn run(&mut self, x: f32) -> (f32, f32) {
+        // History doubled so the newest HB_LEN samples are always contiguous: s[i] = x[m - i].
+        self.pos = if self.pos == 0 { HB_LEN - 1 } else { self.pos - 1 };
+        self.buf[self.pos] = x;
+        self.buf[self.pos + HB_LEN] = x;
+        let s = &self.buf[self.pos..self.pos + HB_LEN];
+        (2.0 * hb_sum(s), s[11])
+    }
+
+    pub fn reset(&mut self) {
+        self.buf = [0.0; HB_LEN * 2];
+    }
+}
+
+/// 2x polyphase decimator: two oversampled samples in (in time order), one out.
+pub struct HalfBandDown {
+    even: [f32; HB_LEN * 2],
+    pos: usize,
+    odd: [f32; 16],
+    opos: usize,
+}
+
+impl HalfBandDown {
+    pub const fn new() -> Self {
+        HalfBandDown { even: [0.0; HB_LEN * 2], pos: 0, odd: [0.0; 16], opos: 0 }
+    }
+
+    #[inline]
+    pub fn run(&mut self, a: f32, b: f32) -> f32 {
+        self.pos = if self.pos == 0 { HB_LEN - 1 } else { self.pos - 1 };
+        self.even[self.pos] = a;
+        self.even[self.pos + HB_LEN] = a;
+        let acc = hb_sum(&self.even[self.pos..self.pos + HB_LEN]);
+        // The center tap sits on the odd sample twelve pairs back.
+        self.odd[self.opos] = b;
+        let center = self.odd[(self.opos + 16 - 12) & 15];
+        self.opos = (self.opos + 1) & 15;
+        undenorm(acc + 0.5 * center)
+    }
+
+    pub fn reset(&mut self) {
+        self.even = [0.0; HB_LEN * 2];
+        self.odd = [0.0; 16];
+    }
+}
+
 /// Balance pan law: center is unity, a hard pan silences the other side.
 #[inline]
 pub fn balance(pan: f32) -> (f32, f32) {
@@ -519,6 +601,25 @@ pub fn balance(pan: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn half_band_round_trip_is_a_pure_delay_in_band() {
+        let mut up = HalfBandUp::new();
+        let mut down = HalfBandDown::new();
+        let rate = 48_000.0f32;
+        let hz = 1_000.0f32;
+        let n = 4_000;
+        let mut out = vec![0.0f32; n];
+        for i in 0..n {
+            let x = (2.0 * PI * hz * i as f32 / rate).sin();
+            let (a, b) = up.run(x);
+            out[i] = down.run(a, b);
+        }
+        for i in 200..n {
+            let want = (2.0 * PI * hz * (i - OS2_LATENCY) as f32 / rate).sin();
+            assert!((out[i] - want).abs() < 2e-3, "sample {i}: {} vs {}", out[i], want);
+        }
+    }
 
     #[test]
     fn fast_math_is_accurate() {
