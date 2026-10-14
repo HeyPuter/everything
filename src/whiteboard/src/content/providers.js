@@ -403,13 +403,10 @@ function microsoftForms(url) {
     return null;
   const host = url.hostname.toLowerCase();
   const parts = url.pathname.split("/").filter(Boolean);
-  // Short links: /r/ and, in current sharing links, /e/; both redirect to
-  // the response page, keeping ?embed=true.
-  if (
-    ["r", "e"].includes(parts[0]) &&
-    /^[A-Za-z0-9]{6,40}$/.test(parts[1] || "")
-  ) {
-    const canonical = `https://${host}/${parts[0]}/${parts[1]}`;
+  // Sharing links that use /e/ stay generic web embeds, as boards already
+  // store them that way and a stored embed must keep validating.
+  if (parts[0] === "r" && /^[A-Za-z0-9]{6,40}$/.test(parts[1] || "")) {
+    const canonical = `https://${host}/r/${parts[1]}`;
     return {
       provider: "microsoft-forms",
       url: canonical,

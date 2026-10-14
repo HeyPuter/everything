@@ -165,19 +165,6 @@ test("embed URLs normalize to each provider's official embed address", () => {
       "https://vimeo.com/76979871/abcdef1234",
       "https://player.vimeo.com/video/76979871?h=abcdef1234&dnt=1",
     ],
-    // Current Microsoft Forms sharing links use /e/.
-    [
-      "https://forms.office.com/e/ByzZjGk4nj?origin=lprLink",
-      "microsoft-forms",
-      "https://forms.office.com/e/ByzZjGk4nj",
-      "https://forms.office.com/e/ByzZjGk4nj?embed=true",
-    ],
-    [
-      "https://forms.cloud.microsoft/e/ByzZjGk4nj",
-      "microsoft-forms",
-      "https://forms.cloud.microsoft/e/ByzZjGk4nj",
-      "https://forms.cloud.microsoft/e/ByzZjGk4nj?embed=true",
-    ],
     [
       "https://calendar.google.com/calendar/embed?src=team%40example.org&ctz=America%2FToronto&evil=1",
       "google-calendar",
@@ -5594,4 +5581,17 @@ test("Markdown keeps private-use characters, such as icon font symbols, as writt
     { markdown: true },
   ).blocks;
   assert.equal(block.text, `Status ${icon}${other} *not bold* <tag> __init__`);
+});
+
+test("Microsoft Forms /e/ sharing links stay web embeds, so boards that hold one keep validating", () => {
+  for (const typed of [
+    "https://forms.office.com/e/AbCdEf1234",
+    "https://forms.office.com/e/AbCdEf1234?origin=lprLink",
+    "https://forms.cloud.microsoft/e/AbCdEf1234",
+  ]) {
+    const result = normalizeEmbed(typed);
+    assert.equal(result.provider, "web", typed);
+    const stored = { type: "embed", provider: "web", url: result.url };
+    assert.ok(validEmbed(stored), typed);
+  }
 });

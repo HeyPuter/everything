@@ -129,7 +129,7 @@ Supported services, each normalized to its official embed address:
 
 - Google Docs, Sheets (including a sheet tab), Slides, Forms, Drawings, Drive files and folders (keeping the `resourcekey` that older files shared by link need), published ("Publish to the web") documents, and Google Calendar.
 - YouTube (privacy-enhanced `youtube-nocookie.com` player, including start times) and Vimeo (including unlisted links and the owner's `vimeo.com/manage/videos/…` page).
-- Microsoft Forms (`/r/` and current `/e/` sharing links), Office Online viewer links (`view.officeapps.live.com`), and OneDrive embed links.
+- Microsoft Forms, Office Online viewer links (`view.officeapps.live.com`), and OneDrive embed links.
 - Figma files, designs, prototypes, boards, and slides; Loom videos; Miro boards.
 - Looker Studio reports, from their sharing or editing links (`lookerstudio.google.com/reporting/<id>/page/<page>`, embedded as the report's `/embed/` address) or their embed codes, when the report allows embedding.
 - Other public HTTPS pages, when the page allows framing. Local, private, and bare IP addresses are refused. Pages of services known to refuse framing, such as Slack, Teams, Notion, Jira, Linear, Discord, Webex, monday.com, Canva designs (other than their `?embed` view), OneDrive and SharePoint pages (other than Office embed links), and Google Maps short links, are offered as link cards instead; embeds of them already on a board stay as they are.
