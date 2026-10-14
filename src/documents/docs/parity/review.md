@@ -20,7 +20,7 @@ reopens, and goes through the editor's transactions (undo, read-only rules, prot
   (2.9 MB, about 0.9 MB compressed), fetched on first use; license and provenance in
   `public/thesaurus/` and checked by `npm run check:licenses`. Context menu *Synonyms* submenu.
 - Word Count (Cmd/Ctrl+Shift+G, status bar, Tools): pages, words, characters with and without
-  spaces, paragraphs, lines; selection-aware; *Include text boxes and footnotes* toggle.
+  spaces, paragraphs, lines; selection-aware; *Include text boxes, footnotes and endnotes* toggle.
 - Spelling menu: Hide Spelling Errors / Hide Grammar Errors in This Document (saved), Reset Ignored
   Words, Recheck, Check Spelling as You Type.
 
@@ -109,7 +109,6 @@ Synonyms, Translate, New Comment, accept/reject and comment actions.
 
 - Table cell revision highlighting (inserted/deleted/merged cells) and table row/cell revisions.
 - Revisions in headers, footers, notes and text boxes (those documents stay read-only).
-- Endnotes in Word Count (the engine has no endnotes yet).
 - Notifications for @mentions, modern threaded "people" identities.
 - Style gallery filtering under formatting restrictions (the guard refuses locked styles instead).
 - Ink annotations themselves (owned by the drawing tools).

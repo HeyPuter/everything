@@ -55,7 +55,7 @@ export function openWordCount(engine, { onClose } = {}) {
   render();
   const modal = openModal({ title: 'Word Count', onClose, content: el('div.ed-dialog-body', {},
     intro, table,
-    el('label.rv-check', {}, include, 'Include text boxes and footnotes'),
+    el('label.rv-check', {}, include, 'Include text boxes, footnotes and endnotes'),
     el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: () => modal.close() }, 'Close'))) });
   return modal;
 }
