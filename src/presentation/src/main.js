@@ -3590,6 +3590,7 @@ const masterView = createMasterView({
   startDrawing: (tool) => startDrawing(tool),
   commitText: () => commitText(),
   ribbon: () => ribbon,
+  themeGroups: () => themeTools.masterThemeGroups(),
 });
 
 // Themes: the Design tab's gallery, variants, colors, fonts, effects and

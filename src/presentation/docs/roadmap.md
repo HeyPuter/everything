@@ -41,12 +41,30 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 2. Themes and design
 
-- [ ] Theme gallery of original themes, each a real theme part (color scheme,
-      font scheme, effect and background styles) applied through the master.
-- [ ] Variants, Colors, Fonts and Background Styles galleries; Customize
-      Colors and Customize Fonts dialogs; Save Current Theme.
-- [ ] Format Background pane with solid, gradient, picture/texture and
-      pattern fills, Hide background graphics, Apply to All, Reset.
+- [x] Theme gallery of 22 original themes (the four original palettes among
+      them), each a real theme part (12-color scheme, heading and body fonts,
+      effect and background style lists) with a master and layouts of its own
+      design: backgrounds, vector artwork from theme colors, text styles and
+      placeholder positions. Applying one moves the slides onto its master,
+      keeping their content and re-mapping placeholders; the context menu
+      applies it to the selected slides only (a second master). Thumbnails
+      are drawn by the renderer from the theme itself, in the gallery, the
+      Slide Master tab and the start screen's theme strip.
+- [x] Variants (four color and background variants per theme), Colors (every
+      scheme, plus Customize Colors with the 12 slots, a live preview and
+      named schemes kept in the browser), Fonts (font pairs, plus Customize
+      Fonts), Effects (six effect schemes), Background Styles (12 styles from
+      the theme's background fills, for all or the selected slides, Format
+      Background…, Reset Slide Background), Hide Background Graphics.
+      Browse for Themes applies the master of a .thmx, .pptx or .potx file;
+      Save Current Theme downloads the master as a .thmx theme file.
+- [x] Format Background pane with solid (and transparency), gradient
+      (presets, linear/radial/rectangular/path, angle, stops with color,
+      position and transparency), picture or texture (insert, 12 textures,
+      stretch with offsets or tile with offset, scale, alignment and mirror,
+      transparency) and all 54 pattern fills, Hide background graphics, Apply
+      to All and Reset Background; on layouts and masters too in Slide Master
+      view.
 
 ### 3. Animations
 

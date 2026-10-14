@@ -813,7 +813,104 @@ export function createThemeTools(host) {
     await applyFonts(scheme);
   }
 
+  // The Slide Master tab's Edit Theme and Background groups: the same
+  // commands, offered while the masters themselves are being edited.
+  function masterThemeGroups() {
+    const themesMenu = () => [
+      { header: "Built-in" },
+      ...CATALOG.map((t) => ({
+        label: el(
+          "span",
+          { class: "theme-menu-row" },
+          el("img", {
+            src: themePicture(t.id, 0, { aspect: aspect() }),
+            alt: "",
+            draggable: "false",
+          }),
+          el("span", {}, t.name),
+        ),
+        checked: info()?.theme?.id === t.id,
+        onSelect: run(() => applyTheme(t.id)),
+      })),
+      { separator: true },
+      {
+        label: "Browse for Themes…",
+        icon: "o:folderOpen",
+        onSelect: browseThemes,
+      },
+      {
+        label: "Save Current Theme…",
+        icon: "o:save",
+        onSelect: run(saveTheme),
+      },
+    ];
+    return [
+      {
+        id: "master-edit-theme",
+        label: "Edit Theme",
+        icon: "themes",
+        items: [
+          {
+            type: "large",
+            id: "master-themes",
+            label: "Themes",
+            icon: "themes",
+            title: "Themes",
+            description: "Give the masters another theme.",
+            menu: themesMenu,
+            menuLabel: "Themes",
+          },
+          {
+            type: "stack",
+            items: [
+              {
+                type: "small",
+                id: "master-theme-colors",
+                label: "Colors",
+                showLabel: true,
+                icon: "colors",
+                title: "Colors",
+                menu: colorsMenu,
+                menuLabel: "Theme colors",
+              },
+              {
+                type: "small",
+                id: "master-theme-fonts",
+                label: "Fonts",
+                showLabel: true,
+                icon: "fonts",
+                title: "Fonts",
+                menu: fontsMenu,
+                menuLabel: "Theme fonts",
+              },
+              {
+                type: "small",
+                id: "master-theme-effects",
+                label: "Effects",
+                showLabel: true,
+                icon: "effects",
+                title: "Effects",
+                menu: effectsMenu,
+                menuLabel: "Theme effects",
+              },
+            ],
+          },
+          {
+            type: "large",
+            id: "master-background-styles",
+            label: "Background\nStyles",
+            icon: "backgroundStyles",
+            title: "Background Styles",
+            menu: backgroundStylesMenu,
+            menuLabel: "Background styles",
+          },
+        ],
+      },
+    ];
+  }
+
   return {
+    masterThemeGroups,
     applyTheme,
     applyPalette,
     themeChoices,

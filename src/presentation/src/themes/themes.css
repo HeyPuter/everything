@@ -319,3 +319,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+.theme-menu-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-menu-row img {
+  width: 64px;
+  border: 1px solid var(--chrome-rule, #d1d1d1);
+  border-radius: 2px;
+}
