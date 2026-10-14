@@ -2745,7 +2745,9 @@ kbd {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  z-index: 4;
+  /* Above the selection toolbar, which would otherwise cover the object
+     the keyboard is on. */
+  z-index: 5;
 }
 #board-outline button {
   display: block;

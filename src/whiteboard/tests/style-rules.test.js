@@ -380,3 +380,16 @@ test("on phones the tool row stacks above vote badges, comment pins and reaction
   assert.match(tools, /z-index:\s*3/);
   assert.match(tools, /bottom:\s*77px/);
 });
+
+test("the keyboard object outline shows above the selection toolbar", () => {
+  const toolbar = Math.max(
+    ...[...css.matchAll(/\n\.selection-tools \{([^}]*)\}/g)].map((m) =>
+      Number(m[1].match(/z-index:\s*(\d+)/)?.[1] ?? 0),
+    ),
+  );
+  const outline = Number(
+    rule("#board-outline:focus-within {").match(/z-index:\s*(\d+)/)[1],
+  );
+  assert.ok(toolbar > 0);
+  assert.ok(outline > toolbar, `${outline} > ${toolbar}`);
+});
