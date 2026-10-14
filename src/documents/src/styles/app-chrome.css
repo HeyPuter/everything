@@ -137,6 +137,11 @@ input:disabled + .ed-switch { opacity: .5; }
 .ed-status-views { display: flex; align-items: center; gap: 2px; }
 .ed-zoom-slider-wrap { display: flex; align-items: center; gap: 2px; }
 @media (max-width: 700px) { .ed-zoom-slider-wrap, .ed-status-views, .ed-status-track { display: none; } }
+/* The accessibility check shrinks to its icon, then leaves the status bar to the page and word counts and the language. */
+.ed-status-accessibility { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ed-status-accessibility[data-state='errors'] { color: var(--ed-danger, #b3261e); }
+@media (max-width: 1100px) { .ed-status-accessibility > span { display: none; } }
+@media (max-width: 900px) { .ed-status-accessibility, .ed-statusbar .ed-status-language { display: none; } }
 
 /* ---- File view ---- */
 .backstage {
