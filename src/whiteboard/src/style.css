@@ -7511,3 +7511,24 @@ dialog::backdrop {
     display: none;
   }
 }
+/* Forced colors (Windows contrast themes) replace the tints that mark the
+   current tool, pressed toggles, chosen tabs and highlighted options, so
+   they take the system highlight instead. Colour choices keep their own
+   colours: there the colour is the content. */
+@media (forced-colors: active) {
+  :is(
+    [aria-pressed="true"],
+    [aria-checked="true"],
+    [aria-current="page"],
+    [aria-current="true"],
+    [role="tab"][aria-selected="true"],
+    [role="option"][aria-selected="true"]
+  ):not(.swatch) {
+    background-color: Highlight !important;
+    color: HighlightText !important;
+  }
+  .swatch,
+  .fill-chip {
+    forced-color-adjust: none;
+  }
+}

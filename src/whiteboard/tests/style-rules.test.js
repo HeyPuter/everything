@@ -343,3 +343,24 @@ test("the chosen template category's count stays readable on its tint", () => {
     /color:\s*color-mix\(in srgb, var\(--muted\) 80%, var\(--text\)\)/,
   );
 });
+
+test("in forced colors, pressed and chosen controls show the system highlight and colour choices keep their colours", () => {
+  const at = css.indexOf("@media (forced-colors: active) {");
+  assert.ok(at >= 0);
+  const block = css.slice(at, css.indexOf("\n}\n", at));
+  for (const state of [
+    '[aria-pressed="true"]',
+    '[aria-checked="true"]',
+    '[aria-current="page"]',
+    '[role="tab"][aria-selected="true"]',
+    '[role="option"][aria-selected="true"]',
+  ])
+    assert.ok(block.includes(state), state);
+  assert.match(block, /:not\(\.swatch\)/);
+  assert.match(block, /background-color:\s*Highlight !important/);
+  assert.match(block, /color:\s*HighlightText !important/);
+  assert.match(
+    block,
+    /\.swatch,\s*\.fill-chip\s*\{\s*forced-color-adjust:\s*none/,
+  );
+});
