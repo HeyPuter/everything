@@ -335,7 +335,12 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   `[h]:mm`, `0.0%;[Red](0.0%)`) with a live preview. A Format cells dialog
   (Ctrl/Cmd+Shift+F, or Ctrl+1 where the browser leaves it free) gathers
   number format, alignment, font, borders, and fill in one place and applies
-  only what changed. Keyboard shortcuts
+  only what changed. It keeps one size on every tab; the Number tab says in a
+  line what the chosen category does; the Border tab draws its line styles as
+  the lines they make, with None, Outline and Inside presets and a diagram of
+  the selection whose edges (and the buttons beside them) draw or remove a
+  line; the Fill tab offers the theme's colours with their tints and the
+  standard fills as palettes beside a large sample. Keyboard shortcuts
   (Ctrl/Cmd+Shift+1/2/3/4/5/6/~ for formats, Ctrl/Cmd+Shift+7 and _ for an
   outline border and no borders, Ctrl/Cmd+\ to clear formatting). Formatting
   more than 50,000 cells at once (Select all on a sheet of many rows) formats
@@ -412,7 +417,11 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   rows grouped to collapse, removable again in one click); randomize the order of the
   selected rows; remove duplicate rows (choosing which columns must match)
   or empty rows;
-  split text to columns on a detected or chosen separator; trim whitespace,
+  split text to columns on a detected or chosen separator, or with Text to
+  Columns (Data menu and ribbon): any mix of separators with repeated ones
+  counted once and a choice of text qualifier, or fixed widths picked on a
+  clickable ruler, a live preview where each column is read as values, kept
+  as typed text or skipped, and a destination cell; trim whitespace,
   change case, and convert text to numbers; and pivot tables that summarize
   a range by rows, columns, and Sum, Count, Average, Max, or Min onto a new
   sheet as live `SUMIFS`/`COUNTIFS` formulas (over a table, they name its
@@ -627,7 +636,10 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   or fit to a chosen number of pages wide and tall. Imported XLSX print
   areas, paper orientation, scale, fit settings, exact margins, centering,
   gridlines, and header/footer text are retained in native XLSX records.
-  The print dialog starts with the sheet's saved page setup and offers
+  The print dialog shows the pages as they will print beside its choices
+  (paper, orientation, scale, margins, centring, breaks, gridlines, headings,
+  title, header and footer), page by page, and follows every change.
+  It starts with the sheet's saved page setup and offers
   custom margins and separate pages for nonadjacent print areas,
   with your own header and footer text on every page (`&[Page]`, `&[Pages]`,
   `&[Date]`, `&[Time]`, `&[Tab]`, and `&[File]` fill in the page number and
@@ -673,7 +685,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   changes worksheet zoom. The formula bar
   expands to several lines for long formulas (Alt+Enter adds a line), sheet
   tabs, and a status bar that sums the selection (with min and max) and
-  explains an error in the active cell. Works on desktop, tablet, and phone
+  explains an error in the active cell; right-click it to choose what it shows,
+  each choice listed with its current value, the menu staying open while you switch several. Works on desktop, tablet, and phone
   (tap to select, tap again to edit, long-press for the menu). Light, dark,
   and system themes, applied before first paint. Dark mode changes the app
   controls while the spreadsheet keeps its white paper background and colors.
