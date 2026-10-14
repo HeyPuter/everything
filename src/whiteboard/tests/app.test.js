@@ -1069,15 +1069,28 @@ test("built editors join the same board, show participants, synchronize text and
         cancelable: true,
       }),
     );
-    const topId = (app) =>
-      app.doc.querySelector("#board-outline button:last-of-type")?.dataset.id;
-    await until(
-      () => [a, b, c].every((app) => topId(app) === initial.items[0].id),
+    // The outline reads the board's layout, not its layers, so the order
+    // each editor keeps of the board is read from its saved copy.
+    const topId = async (app) =>
+      (await storedBoards(app))
+        .find((board) => board.shared?.room === initial.id)
+        ?.items.at(-1)?.id;
+    const layers = async (expected) => {
+      const deadline = Date.now() + 5000;
+      let tops;
+      do {
+        await a.tick();
+        tops = await Promise.all([a, b, c].map(topId));
+      } while (!tops.every(expected) && Date.now() < deadline);
+      return tops.every(expected);
+    };
+    assert.ok(
+      await layers((id) => id === initial.items[0].id),
       "Bring to front preserves layer order in all built editors",
     );
     await a.click('[data-action="undo"]');
-    await until(
-      () => [a, b, c].every((app) => topId(app) !== initial.items[0].id),
+    assert.ok(
+      await layers((id) => id && id !== initial.items[0].id),
       "Undo restores shared layers",
     );
     // A remote style change must survive the next endpoint pointer update.
@@ -16847,8 +16860,13 @@ test("mind map authoring creates child and sibling nodes, navigates, rearranges,
     mindKey(app, "Enter", { ctrlKey: true });
     assert.equal(doc.querySelector("#canvas-text-editor"), null);
     const delivery = selectedClipboard(app)[0];
+    // The outline reads in rows, so the root is found by its name.
     await click(
-      `[data-id="${doc.querySelector("#board-outline button").dataset.id}"]`,
+      `[data-id="${
+        [...doc.querySelectorAll("#board-outline button")].find((b) =>
+          b.textContent.endsWith("Product launch"),
+        ).dataset.id
+      }"]`,
     );
     const nodes = selectedClipboard(app),
       root = nodes.find((i) => !i.mindMap.parent),
