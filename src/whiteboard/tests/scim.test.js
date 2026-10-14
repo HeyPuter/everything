@@ -1893,3 +1893,31 @@ test("re-provisioning someone with a long externalId links their account again",
   );
   assert.equal(await org.active(editor), true);
 });
+
+test("a path-less patch renames a person to their work address, not another type", async () => {
+  const { scim } = await setup();
+  const pat = await scim("Users", "POST", { userName: "pat@example.ca" });
+  const patched = await scim(`Users/${pat.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [
+      {
+        op: "Replace",
+        value: {
+          'emails[type eq "work"].value': "pat.lee@example.ca",
+          'emails[type eq "other"].value': "pat.personal@gmail.com",
+        },
+      },
+    ],
+  });
+  assert.equal(patched.userName, "pat.lee@example.ca");
+  const other = await scim(`Users/${pat.id}`, "PATCH", {
+    schemas: [PATCH],
+    Operations: [
+      {
+        op: "Replace",
+        value: { 'emails[type eq "other"].value': "pat.home@gmail.com" },
+      },
+    ],
+  });
+  assert.equal(other.userName, "pat.lee@example.ca");
+});

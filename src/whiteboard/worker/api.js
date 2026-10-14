@@ -794,16 +794,26 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
         applyAttributes(user, patchValue(op.value));
         // Microsoft Entra ID names the work address by its value path:
         // { "emails[type eq \"work\"].value": "pat@example.ca" }.
+        // An address of another type, such as "other", is not the work
+        // address and does not rename the person.
+        const emails = [];
         const value = scimEmail(
           Object.fromEntries(
-            Object.entries(op.value).map(([k, v]) => {
+            Object.entries(op.value).flatMap(([k, v]) => {
               const key = unqualified(k, CORE);
-              return /^emails(\[.*\])?\.value$/i.test(key)
-                ? ["emails", [{ value: v, type: "work", primary: true }]]
-                : [key, v];
+              const typed =
+                /^emails(?:\[\s*type\s+eq\s+"([^"]*)"\s*\])?\.value$/i.exec(
+                  key,
+                );
+              if (!typed) return [[key, v]];
+              const type = (typed[1] ?? "work").toLowerCase();
+              emails.push({ value: v, type, primary: type === "work" });
+              return [];
             }),
           ),
         );
+        const work = scimEmail({ emails: emails.filter((e) => e.primary) });
+        if (work !== undefined) renamed = work;
         if (value !== undefined) renamed = value;
       } else if (/^name$/i.test(path) && kind === "remove")
         applyAttributes(user, { name: { givenName: "", familyName: "" } });
