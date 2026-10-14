@@ -583,6 +583,16 @@ export class BoardService {
   async loadAt(room, at) {
     const meta = await this.kv.get(`wb:${room}:meta`);
     if (!meta) fail(404, "Board not found.");
+    // The moment the board was created, or any before, is its starting
+    // content, without edits stamped in that same millisecond or, by a
+    // clock running behind, earlier; the version list shows those just
+    // after it.
+    if (at <= meta.created) {
+      const doc = new SharedDocument(
+        decode(await this.cachedFile(meta.snapshot)),
+      );
+      return { doc, meta, count: 0 };
+    }
     const latest = await this.kv.get(`wb:${room}:cp`);
     const checkpoint =
       latest && latest.at <= at
@@ -1618,7 +1628,7 @@ export class BoardService {
     await this.setRecord(
       room,
       `wb:${room}:meta`,
-      { ...latest, owner: target },
+      { ...latest, owner: target, creator: latest.creator ?? latest.owner },
       { disableSharing: true },
     );
     await this.org.registerBoard(room, { owner: target, ownerName: username });
@@ -1753,6 +1763,8 @@ export class BoardService {
             await this.writeFile(snapshot, input.update);
             meta = {
               owner: user.uuid,
+              // Kept through transfers, for the original version's author.
+              creator: user.uuid,
               snapshot,
               keys,
               created: this.now(),
@@ -2233,13 +2245,18 @@ export class BoardService {
         ]),
       );
       const before = Number(input.before);
+      // The board's starting content is the version at its creation, so
+      // edits stamped then, or before by a clock running behind, are shown
+      // just after it.
+      const born = Number.isFinite(meta.created) ? meta.created : null;
+      const after = (at) => (born === null ? at : Math.max(at, born + 1));
       const record = (row) => {
         const parts = (typeof row === "string" ? row : row.key)
           .slice(`${prefix}log:`.length)
           .split(":");
         const author = parts.at(-2);
         return {
-          at: Date.parse(parts.slice(0, -2).join(":")),
+          at: after(Date.parse(parts.slice(0, -2).join(":"))),
           author,
           username: names.get(author) || "",
         };
@@ -2251,7 +2268,7 @@ export class BoardService {
       // began, so a session's versions are counted once it is complete.
       // Older edits are not read, however long the board's history.
       const legacy = (await this.list(`${prefix}op:`)).map((r) => ({
-        at: r.value.at,
+        at: after(r.value.at),
         author: r.value.author,
         username: r.value.username,
       }));
@@ -2287,9 +2304,20 @@ export class BoardService {
         }
         cursor = page.cursor;
       } while (cursor && complete <= 300);
+      // Once the oldest edit is read, the board as it was created comes
+      // last, so content that was there from the start, as from an import,
+      // a template, or a copy, can be restored even if it was soon removed.
+      const creator = meta.creator || meta.owner;
+      const original =
+        !cursor && born !== null && legacy.length + logged.length > 0
+          ? { creator, at: born }
+          : null;
       // Administrators can edit without a membership; their names come from
       // their organization records.
-      for (const author of new Set(logged.map((r) => r.author)))
+      for (const author of new Set([
+        ...logged.map((r) => r.author),
+        ...(original ? [creator] : []),
+      ]))
         if (!names.has(author)) {
           const account = await this.org.user(author).catch(() => null);
           names.set(author, account?.username || "");
@@ -2300,19 +2328,33 @@ export class BoardService {
             names.set(author, (await this.org.accountOwner()).username || "");
         }
       for (const r of logged) r.username = names.get(r.author) || "";
+      if (original) original.username = names.get(creator) || "";
       // On a board that takes anonymous notes, votes or answers, who edited
       // when would tell participants who wrote them, so only its owner and
       // facilitators see names; everyone else sees "Participant".
       if (!canManage(member.role) && (await this.anonymousInput(room, meta)))
-        for (const r of [...legacy, ...logged]) r.username = "";
+        for (const r of [...legacy, ...logged, ...(original ? [original] : [])])
+          r.username = "";
       const records = [...legacy, ...logged]
         .filter((v) => Number.isFinite(v.at))
         .sort((a, b) => a.at - b.at);
       // Newest first, a page at a time: `before` asks for the versions
       // older than the last one shown.
-      const older = historyVersions(records, undefined, Infinity).filter(
-        (v) => !Number.isFinite(before) || v.at < before,
-      );
+      const older = [
+        ...historyVersions(records, undefined, Infinity),
+        ...(original
+          ? [
+              {
+                start: born,
+                until: born,
+                edits: 0,
+                authors: [original.username || "Participant"],
+                at: born,
+                original: true,
+              },
+            ]
+          : []),
+      ].filter((v) => !Number.isFinite(before) || v.at < before);
       return {
         created: meta.created,
         versions: older.slice(0, 300),

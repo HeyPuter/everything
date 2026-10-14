@@ -28084,8 +28084,9 @@ test("restoring a version never changes content hidden from a participant", asyn
       doc.querySelector(".revision-options").textContent,
       /Answer key/,
     );
-    // Restoring the oldest version, from before the hidden frame, restores
-    // what this person sees and leaves what is hidden from them as it is.
+    // Restoring the oldest version, the board as it was created, before
+    // the hidden frame, restores what this person sees and leaves what is
+    // hidden from them as it is.
     const oldest = rows.at(-1).querySelector("[data-shared]");
     oldest.click();
     for (let n = 0; n < 40; n++) await app.tick();
@@ -28096,7 +28097,7 @@ test("restoring a version never changes content hidden from a participant", asyn
     sdoc.destroy();
     assert.deepEqual(
       snap.items.map((i) => i.text),
-      ["Ideas", "Warm-up 2", "Answer key frame", "Answer key v2"],
+      ["Ideas", "Warm-up", "Answer key frame", "Answer key v2"],
     );
     assert.ok(
       snap.items.some((i) => i.text === "Answer key v2"),

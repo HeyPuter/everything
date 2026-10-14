@@ -45,7 +45,7 @@ test("history groups edits into versions and rebuilds any earlier state", async 
     update: encode(doc.update()),
   });
   doc.destroy();
-  let clock = 1_000_000;
+  let clock = env.now + 60_000;
   boards.now = () => clock;
   await commit(boards, owner, b.id, (s) => (s.items[0].text = "Second"));
   const secondAt = clock;
@@ -67,9 +67,11 @@ test("history groups edits into versions and rebuilds any earlier state", async 
     read.every(([prefix, values]) => !prefix.includes(":log:") || !values),
     JSON.stringify(read),
   );
-  assert.equal(versions.length, 2);
+  // Two versions of edits, then the board as it was created.
+  assert.equal(versions.length, 3);
   assert.deepEqual(versions[0].authors, ["Alice"]);
   assert.equal(versions[1].at, secondAt);
+  assert.equal(versions[2].original, true);
   const { update } = await boards.call(owner, {
     op: "history.state",
     room: b.id,
@@ -118,6 +120,92 @@ test("history groups edits into versions and rebuilds any earlier state", async 
   );
 });
 
+test("a board's starting content is a version, even when its first edit removed it", async () => {
+  const env = environment(),
+    boards = env.service;
+  const b = board("Imported"),
+    doc = new SharedDocument();
+  // Content it began with, as from an import, a template or a copy.
+  b.items = Array.from({ length: 5 }, (_, n) =>
+    item("note", n * 100, 0, { text: `Imported ${n}` }),
+  );
+  doc.commit(b);
+  await boards.call(owner, {
+    op: "create",
+    room: b.id,
+    update: encode(doc.update()),
+  });
+  doc.destroy();
+  const created = env.now;
+  const { token } = await boards.call(owner, {
+    op: "invite",
+    room: b.id,
+    role: "editor",
+  });
+  await boards.call(editor, { op: "join", room: b.id, token });
+  // Cleared in the same millisecond, then edited again later.
+  await commit(boards, editor, b.id, (s) => (s.items = []));
+  env.now += 10 * 60_000;
+  await commit(boards, editor, b.id, (s) =>
+    s.items.push(item("note", 0, 0, { text: "New" })),
+  );
+  // Ownership moving on leaves the creator named.
+  await boards.call(owner, { op: "transfer", room: b.id, uuid: editor.uuid });
+  const objects = async (at) => {
+    const { update } = await boards.call(editor, {
+      op: "history.state",
+      room: b.id,
+      at,
+    });
+    const then = new SharedDocument(decode(update));
+    try {
+      return then.snapshot().items.map((i) => i.text);
+    } finally {
+      then.destroy();
+    }
+  };
+  const { versions, more } = await boards.call(editor, {
+    op: "history.list",
+    room: b.id,
+  });
+  assert.equal(more, false);
+  assert.deepEqual(
+    versions.map((v) => [v.edits, v.original === true]),
+    [
+      [1, false],
+      [1, false],
+      [0, true],
+    ],
+  );
+  assert.deepEqual(versions[2], {
+    start: created,
+    until: created,
+    edits: 0,
+    authors: ["Alice"],
+    at: created,
+    original: true,
+  });
+  // The clearing edit, stamped as the board was created, is listed after
+  // it, and the original state has none of it.
+  assert.ok(versions[1].at > created);
+  assert.deepEqual(await objects(versions[1].at), []);
+  assert.deepEqual(await objects(versions[0].at), ["New"]);
+  assert.equal((await objects(created)).length, 5);
+  // Paging reaches it once, after the versions before it.
+  const older = await boards.call(editor, {
+    op: "history.list",
+    room: b.id,
+    before: versions[0].at,
+  });
+  assert.deepEqual(older.versions, versions.slice(1));
+  const none = await boards.call(editor, {
+    op: "history.list",
+    room: b.id,
+    before: created,
+  });
+  assert.deepEqual(none.versions, []);
+});
+
 test("shared history arrives a page at a time so every version can be reached", async () => {
   const env = environment(),
     boards = env.service;
@@ -159,8 +247,10 @@ test("shared history arrives a page at a time so every version can be reached", 
     before: first.versions.at(-1).at,
   });
   assert.equal(rest.more, false);
-  // The five oldest spaced versions and the early one.
-  assert.equal(rest.versions.length, 6);
+  // The five oldest spaced versions, the early one, and the board as it
+  // was created.
+  assert.equal(rest.versions.length, 7);
+  assert.equal(rest.versions.at(-1).original, true);
   assert.ok(rest.versions.every((v) => v.at < first.versions.at(-1).at));
   // A board from before checkpoints, whose first edits are op: records,
   // still reads only the pages its versions need, not its whole log.
@@ -368,6 +458,7 @@ test("an object is unchanged whatever order its fields are listed in", () => {
 test("versions after the latest checkpoint are rebuilt from it", async () => {
   const env = environment(),
     boards = env.service;
+  env.now = Date.parse("2026-03-01T11:00:00Z");
   const b = board("Checkpointed"),
     doc = new SharedDocument();
   b.items = [item("note", 0, 0, { text: "One" })];
@@ -969,6 +1060,7 @@ test("opening an earlier version as a copy leaves out what is hidden from this p
 
 test("listing a long shared history reads only as far back as the page shown", async () => {
   const env = environment();
+  env.now = Date.parse("2025-12-31T00:00:00Z");
   const b = board("Long");
   b.items = [item("note", 0, 0)];
   const seed = new SharedDocument();
@@ -1021,7 +1113,17 @@ test("listing a long shared history reads only as far back as the page shown", a
       cursor: end < found.length ? String(end) : undefined,
     };
   };
-  const expected = historyVersions(all, undefined, Infinity);
+  const expected = [
+    ...historyVersions(all, undefined, Infinity),
+    {
+      start: env.now,
+      until: env.now,
+      edits: 0,
+      authors: ["Alice"],
+      at: env.now,
+      original: true,
+    },
+  ];
   const shown = [];
   let before,
     first = 0;
@@ -1048,6 +1150,7 @@ test("listing a long shared history reads only as far back as the page shown", a
 
 test("listing a history of long working sessions reads only as far back as the page shown", async () => {
   const env = environment();
+  env.now = Date.parse("2025-12-31T00:00:00Z");
   const b = board("Workshops");
   b.items = [item("note", 0, 0)];
   const seed = new SharedDocument();
@@ -1094,7 +1197,17 @@ test("listing a history of long working sessions reads only as far back as the p
     if (pattern.includes(":log:")) read += items.length;
     return { items, cursor: end < found.length ? String(end) : undefined };
   };
-  const expected = historyVersions(all, undefined, Infinity);
+  const expected = [
+    ...historyVersions(all, undefined, Infinity),
+    {
+      start: env.now,
+      until: env.now,
+      edits: 0,
+      authors: ["Alice"],
+      at: env.now,
+      original: true,
+    },
+  ];
   const shown = [];
   let before,
     first = 0;
@@ -1197,7 +1310,7 @@ test("version history names no one to participants on a board that takes anonymo
     });
     await boards.call(user, { op: "join", room: b.id, token });
   }
-  let clock = 1_000_000;
+  let clock = env.now + 60_000;
   boards.now = () => clock;
   const authors = async (user) =>
     (await boards.call(user, { op: "history.list", room: b.id })).versions
@@ -1206,7 +1319,8 @@ test("version history names no one to participants on a board that takes anonymo
   await commit(boards, editor, b.id, (s) =>
     s.items.push(item("note", 300, 0, { text: "Named idea" })),
   );
-  assert.deepEqual(await authors(viewer), ["Bob"]);
+  // Alice created the board.
+  assert.deepEqual(await authors(viewer), ["Alice", "Bob"]);
   clock += 10 * 60_000;
   await commit(boards, owner, b.id, (s) => {
     s.workshop = { settings: { anonymous: true } };
@@ -1221,9 +1335,10 @@ test("version history names no one to participants on a board that takes anonymo
       "Participant",
       "Participant",
       "Participant",
+      "Participant",
     ]);
   // The owner, who runs the workshop, still does.
-  assert.deepEqual(await authors(owner), ["Alice", "Bob", "Bob"]);
+  assert.deepEqual(await authors(owner), ["Alice", "Alice", "Bob", "Bob"]);
 });
 
 test("a version's changes since are the objects deleted, changed and added since", async () => {
