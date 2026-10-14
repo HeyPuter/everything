@@ -137,6 +137,104 @@ const commonSlideView = (root: XmlElement): XmlElement | null => {
   return slideView ? firstChildElement(slideView, p("cSldViewPr")) : null;
 };
 
+// The presentation-level slide guide list (an extension of
+// CT_Presentation, as editors since 2013 write it). Positions are in the
+// same 1/8 point units as the view part's guides.
+const SLIDE_GUIDES_EXT = "{EFAFB233-063F-42B5-8137-9DF3F51BA10A}";
+const p15 = (local: string) => qname("p15", local, NS.p15);
+/** The color guides are drawn in (a neutral gray). */
+const GUIDE_COLOR = "A6A6A6";
+
+const readPresentationRoot = (pres: PresentationData): XmlElement | null => {
+  const part = pres[INTERNAL_PACKAGE].getPart(PRES_PART_NAME);
+  if (!part) return null;
+  try {
+    return parseXml(decode(part.data)).root;
+  } catch {
+    return null;
+  }
+};
+
+const slideGuidesExt = (root: XmlElement): XmlElement | null => {
+  const list = firstChildElement(root, p("extLst"));
+  return list
+    ? (allChildElements(list, p("ext")).find(
+        (e) => getAttrValue(e, bare("uri")) === SLIDE_GUIDES_EXT,
+      ) ?? null)
+    : null;
+};
+
+const readPresentationGuides = (pres: PresentationData): DrawingGuide[] => {
+  const root = readPresentationRoot(pres);
+  const ext = root && slideGuidesExt(root);
+  const list = ext && firstChildElement(ext, p15("sldGuideLst"));
+  if (!list) return [];
+  const out: DrawingGuide[] = [];
+  for (const guide of allChildElements(list, p15("guide"))) {
+    const pos = Number(getAttrValue(guide, bare("pos")) ?? "0");
+    if (!Number.isFinite(pos)) continue;
+    out.push({
+      orient: getAttrValue(guide, bare("orient")) === "horz" ? "horz" : "vert",
+      pos: Math.round(pos * EMU_PER_GUIDE_UNIT),
+    });
+  }
+  return out;
+};
+
+/** Writes the slide guides into the presentation part as well, where
+ * current desktop editors look for them; drops the list when empty. */
+const writePresentationGuides = (
+  pres: PresentationData,
+  guides: ReadonlyArray<DrawingGuide>,
+): void => {
+  const part = pres[INTERNAL_PACKAGE].getPart(PRES_PART_NAME);
+  if (!part) return;
+  const doc = parseXml(decode(part.data));
+  const root = doc.root;
+  let extLst = firstChildElement(root, p("extLst"));
+  const old = slideGuidesExt(root);
+  if (extLst && old) extLst.children = extLst.children.filter((c) => c !== old);
+  if (guides.length) {
+    const ext = elem(p("ext"), {
+      attrs: [attr(bare("uri"), SLIDE_GUIDES_EXT)],
+      children: [
+        elem(p15("sldGuideLst"), {
+          children: guides.map((g, i) =>
+            elem(p15("guide"), {
+              attrs: [
+                attr(bare("id"), String(i + 1)),
+                ...(g.orient === "horz" ? [attr(bare("orient"), "horz")] : []),
+                attr(
+                  bare("pos"),
+                  String(Math.round(g.pos / EMU_PER_GUIDE_UNIT)),
+                ),
+              ],
+              children: [
+                elem(p15("clr"), {
+                  children: [
+                    elem(a("srgbClr"), {
+                      attrs: [attr(bare("val"), GUIDE_COLOR)],
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ),
+        }),
+      ],
+    });
+    if (!extLst) {
+      // CT_Presentation ends with its extension list.
+      extLst = elem(p("extLst"));
+      root.children.push(extLst);
+    }
+    extLst.children.push(ext);
+  } else if (extLst && !extLst.children.some((c) => c.kind === "element")) {
+    root.children = root.children.filter((c) => c !== extLst);
+  }
+  part.data = encode(serializeXml(doc));
+};
+
 /** Reads the deck's view properties. A missing or unreadable part reads as
  * the defaults: no last view, no guides, no grid recorded. */
 export const getViewProperties = (pres: PresentationData): ViewProperties => {
@@ -149,7 +247,7 @@ export const getViewProperties = (pres: PresentationData): ViewProperties => {
     guides: [],
     gridSpacing: null,
   };
-  if (!root) return empty;
+  if (!root) return { ...empty, guides: readPresentationGuides(pres) };
   const last = getAttrValue(root, bare("lastView"));
   const common = commonSlideView(root);
   const guides: DrawingGuide[] = [];
@@ -165,6 +263,9 @@ export const getViewProperties = (pres: PresentationData): ViewProperties => {
         pos: Math.round(pos * EMU_PER_GUIDE_UNIT),
       });
     }
+  // Editors since 2013 keep slide guides with the presentation; read those
+  // when the view part lists none.
+  if (!list) guides.push(...readPresentationGuides(pres));
   const spacing = firstChildElement(root, p("gridSpacing"));
   const cx = Number(spacing && getAttrValue(spacing, bare("cx")));
   const cy = Number(spacing && getAttrValue(spacing, bare("cy")));
@@ -306,6 +407,7 @@ export const setViewProperties = (
         kept.splice(at + 1, 0, list);
       }
       common.children = kept;
+      writePresentationGuides(pres, patch.guides);
     }
   }
   if (patch.gridSpacing !== undefined) {

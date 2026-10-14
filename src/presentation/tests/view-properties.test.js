@@ -59,6 +59,41 @@ describe("view properties", () => {
     expect(cleared.snapToGrid).toBe(true);
   });
 
+  it("also keeps slide guides with the presentation, where editors look for them", async () => {
+    const pres = P.createPresentation();
+    P.setViewProperties(pres, {
+      showGuides: true,
+      guides: [
+        { orient: "horz", pos: 3429000 },
+        { orient: "vert", pos: 6096000 },
+      ],
+    });
+    const files = unzipSync(await save(pres));
+    const presentation = strFromU8(files["ppt/presentation.xml"]);
+    expect(presentation).toMatch(
+      /<p:extLst><p:ext uri="\{EFAFB233-063F-42B5-8137-9DF3F51BA10A\}"><p15:sldGuideLst xmlns:p15="http:\/\/schemas.microsoft.com\/office\/powerpoint\/2012\/main"><p15:guide id="1" orient="horz" pos="2160"><p15:clr><a:srgbClr val="[0-9A-F]{6}"\/><\/p15:clr><\/p15:guide><p15:guide id="2" pos="3840">.*<\/p15:sldGuideLst><\/p:ext><\/p:extLst><\/p:presentation>$/,
+    );
+    // A file with guides only there (as editors write them) reads them.
+    files["ppt/viewProps.xml"] = strToU8(
+      strFromU8(files["ppt/viewProps.xml"]).replace(
+        /<p:guideLst>.*<\/p:guideLst>/,
+        "",
+      ),
+    );
+    const back = await P.loadPresentation(zipSync(files));
+    expect(P.getViewProperties(back).guides).toEqual([
+      { orient: "horz", pos: 3429000 },
+      { orient: "vert", pos: 6096000 },
+    ]);
+    // Clearing the guides clears both lists.
+    P.setViewProperties(back, { guides: [] });
+    const cleared = unzipSync(await save(back));
+    expect(strFromU8(cleared["ppt/presentation.xml"])).not.toContain(
+      "sldGuideLst",
+    );
+    expect(P.getViewProperties(await reload(back)).guides).toEqual([]);
+  });
+
   it("keeps the rest of an existing part and creates a missing one", async () => {
     const pres = P.createPresentation();
     const files = unzipSync(await save(pres));
