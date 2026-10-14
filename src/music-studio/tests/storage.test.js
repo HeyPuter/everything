@@ -9,6 +9,7 @@ import { demoProject, newProject } from '../src/model/demo.js';
 import { serializeProject } from '../src/model/serialize.js';
 import { App } from '../src/app.js';
 import { install } from '../src/storage/index.js';
+import { ProjectFiles } from '../src/storage/files.js';
 
 /** A fake Puter SDK with an in-memory file system. Every fs call is recorded. */
 function fakePuter({ signedIn = true, username = 'ada' } = {}) {
@@ -329,6 +330,89 @@ describe('storage feature in the app', () => {
     } finally {
       globalThis.OfflineAudioContext = orig;
     }
+  });
+});
+
+describe('save races', () => {
+  /** A minimal app and a library whose cloud saves wait for `release()`. */
+  function setup() {
+    const events = {};
+    const prefs = new Map();
+    const app = {
+      store: new Store(newProject()),
+      file: null,
+      saving: false,
+      engine: { stop() {} },
+      samples: { ids: () => [], delete() {} },
+      emit: (n) => (events[n] || []).slice().forEach((f) => f()),
+      on: (n, f) => {
+        (events[n] ||= []).push(f);
+        return () => (events[n] = events[n].filter((x) => x !== f));
+      },
+      prefs: { get: (k) => prefs.get(k), set: (k, v) => prefs.set(k, v) },
+      notify() {},
+    };
+    let release;
+    const saved = [];
+    const lib = {
+      saveCloud: async (project, _view, { path }) => {
+        saved.push(project);
+        await new Promise((r) => (release = r));
+        return { path, missing: [] };
+      },
+      loadSamples: async () => ({ loaded: 0, missing: [] }),
+    };
+    const files = new ProjectFiles(app, lib);
+    return { app, files, saved, release: () => release() };
+  }
+
+  it('a save that ends after another project opened leaves that project alone', async () => {
+    const { app, files, release } = setup();
+    app.file = { path: 'Projects/A.msproj', name: 'A' };
+    app.store.apply('Edit', (p) => E.setProjectProps(p, { name: 'A2' }));
+    const saving = files.saveCloudTo(app.file.path, { auto: true });
+    await Promise.resolve();
+    const b = newProject();
+    files.loadProject({ ...b, name: 'B' }, { path: 'Projects/B.msproj', name: 'B' }, { dirty: true });
+    release();
+    expect(await saving).toBe(true);
+    expect(app.file.path).toBe('Projects/B.msproj');
+    expect(app.store.dirty).toBe(true);
+  });
+
+  it('saves the drag start state while a drag is in progress', async () => {
+    const { app, files, saved, release } = setup();
+    const start = app.store.project;
+    app.store.begin('Tempo');
+    app.store.preview((p) => E.setProjectProps(p, { bpm: 90 }));
+    const saving = files.saveCloudTo('Projects/A.msproj');
+    release();
+    await saving;
+    expect(saved[0]).toBe(start);
+    app.store.commit();
+    expect(app.store.dirty).toBe(true);
+  });
+
+  it('cloud autosave runs again for edits that waited on a write in flight', async () => {
+    const store = new Store(newProject());
+    let release;
+    let writes = 0;
+    const pending = [];
+    const timers = { setTimeout: (f) => (pending.push(f), f), clearTimeout: (t) => pending.splice(pending.indexOf(t) >>> 0, 1) };
+    const a = new Autosave({ store, writeDraft: async () => {}, writeCloud: () => (writes++, new Promise((r) => (release = r))), cloudEnabled: () => true, timers });
+    a.start();
+    store.apply('One', (p) => E.setProjectProps(p, { name: 'one' }));
+    a.cloudTimer();
+    await new Promise((r) => setTimeout(r, 0));
+    store.apply('Two', (p) => E.setProjectProps(p, { name: 'two' }));
+    a.cloudTimer(); // fires while the first write is still running
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(a.cloudTimer).not.toBe(null);
+    a.cloudTimer();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writes).toBe(2);
+    a.stop();
   });
 });
 

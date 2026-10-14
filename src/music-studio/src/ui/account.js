@@ -24,7 +24,8 @@ export function createAccount(app) {
               try {
                 if (await puter.signIn()) await refresh();
               } catch (err) {
-                app.notify(err.message || 'Sign in failed.', { error: true });
+                // Puter rejects with { error, msg }; closing the popup is not a failure.
+                if (err?.error !== 'auth_window_closed') app.notify(err?.msg || err?.message || 'Sign in failed.', { error: true });
               }
             },
           },
