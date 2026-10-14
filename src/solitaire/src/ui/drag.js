@@ -42,7 +42,8 @@ export function createDragController({ boardEl, getGame, getRules, requestRender
 
   function collectPiles() {
     return [...boardEl.querySelectorAll('.pile')]
-      .filter(p => p.dataset.kind !== 'stock' && p.dataset.kind !== 'waste')
+      .filter(p => p.dataset.kind !== 'stock' && p.dataset.kind !== 'waste'
+        && p.dataset.drop !== 'none')
       .map(p => {
         const r = p.getBoundingClientRect();
         const rect = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };

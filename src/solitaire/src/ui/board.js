@@ -106,6 +106,10 @@ function renderSpider(boardEl, game, layout) {
 
   for (let i = 0; i < 8; i++) {
     const fp = makePile('foundation', i);
+    // Runs only ever arrive on their own, so these are never drop targets;
+    // otherwise a run released near the top row could pick one over a
+    // column it overlaps.
+    fp.dataset.drop = 'none';
     const run = game.foundations[i];
     if (run) {
       const e = cardEl(run[0], mode);
