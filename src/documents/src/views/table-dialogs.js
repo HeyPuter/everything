@@ -153,7 +153,7 @@ export function openSortDialog({ columns, header }, apply, { onClose } = {}) {
     }
   }
   relabel(header);
-  return formDialog({ title: 'Sort', onClose, className: 'table-sort-dialog', body: [...keys.map(k => k.node), hasHeader, el('label.table-check', {}, caseSensitive, 'Case sensitive')],
+  return formDialog({ title: 'Sort', onClose, wide: true, className: 'table-sort-dialog', body: [...keys.map(k => k.node), hasHeader, el('label.table-check', {}, caseSensitive, 'Case sensitive')],
     submit: () => apply({ header: hasHeader.value() === 'yes', caseSensitive: caseSensitive.checked,
       keys: keys.filter(k => k.by.value !== '').map(k => ({ column: Number(k.by.value), type: k.type.value, descending: k.order.value === 'desc' })) }) });
 }

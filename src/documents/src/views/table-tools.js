@@ -147,8 +147,12 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const b = block(); if (!b) return;
     const styles = model().styles, current = tableStyleSpec(styles, b.table.styleId);
     // A new style starts from the table's current look, including a style that came with the document.
-    const base = current || (b.table.styleId && styles.definitions[b.table.styleId] ? specFromTable(styles, b.table) : tableStyleSpec(styles, 'DocsTablePlainGrid'));
-    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: `${base.name || 'Table'} Copy`.slice(0, 100), family: 'custom' } : structuredClone(current);
+    const imported = b.table.styleId && styles.definitions[b.table.styleId] && !styles.definitions[b.table.styleId].generated;
+    const base = current || (imported ? specFromTable(styles, b.table) : tableStyleSpec(styles, 'DocsTablePlainGrid'));
+    const names = new Set(Object.values(styles.definitions).filter(s => s.type === 'table').map(s => s.name.toLowerCase()));
+    let name = current || imported ? `${base.name} Copy` : 'Table Style 1';
+    for (let n = 2; names.has(name.toLowerCase()); n++) name = current || imported ? `${base.name} Copy ${n}` : `Table Style ${n}`;
+    const spec = mode === 'new' ? { ...structuredClone(base), id: '', name: name.slice(0, 100), family: 'custom' } : structuredClone(current);
     if (mode === 'modify' && !current) { error(new Error('This table’s style came with the document. Use New Table Style to make an editable copy of it.')); return; }
     openTableStyleDialog({ title: mode === 'new' ? 'New Table Style' : 'Modify Table Style', spec, look: tableLook(b.table),
       nameTaken: name => Object.values(model().styles.definitions).some(s => s.type === 'table' && s.name.toLowerCase() === name.toLowerCase() && s.id !== (mode === 'modify' ? spec.id : null)) },

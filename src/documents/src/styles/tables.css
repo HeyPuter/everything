@@ -54,7 +54,9 @@ button[aria-label="Pen Color"] { position: relative; }
 .table-dialog-preview > span { border: 1px solid var(--ink-3); background: var(--surface); border-radius: 1px; }
 .table-dialog-preview[data-autofit="window"] { width: 100%; }
 .table-dialog-preview[data-autofit="contents"] { width: 60%; }
-.table-sort-key { display: grid; grid-template-columns: 70px 1fr 110px 120px; gap: 8px; align-items: center; }
+.table-sort-key { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px 8px; align-items: center; }
+.table-sort-key > .field-label { grid-column: 1 / -1; }
+.table-sort-key > .input { width: 100%; min-width: 0; }
 .table-formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .table-formula-result { font-size: 13px; color: var(--ink-2); min-height: 18px; }
 .table-formula-result.is-error { color: var(--danger, #b3261e); }
@@ -80,7 +82,7 @@ button[aria-label="Pen Color"] { position: relative; }
 @media (max-width: 700px) {
   .table-style-layout { grid-template-columns: 1fr; }
   .table-sort-key { grid-template-columns: 1fr 1fr; }
-  .table-sort-key > .field-label { grid-column: 1 / -1; }
+  .table-sort-key > .input:first-of-type { grid-column: 1 / -1; }
   .table-margin-fields { grid-template-columns: 1fr 1fr; }
   .table-dialog-grid { grid-template-columns: 1fr 1fr; }
 }
