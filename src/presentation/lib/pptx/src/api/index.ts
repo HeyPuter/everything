@@ -633,5 +633,13 @@ export type {
   TransitionOptions,
 } from "../internal/presentationml/index.ts";
 
+// Ink stroke timing (drawing order and pace, for replay).
+export {
+  getShapeInkTiming,
+  setShapeInkTiming,
+  INK_TIMING_EXT_URI,
+  type InkTiming,
+} from "./fn/shape-ink.ts";
+
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";

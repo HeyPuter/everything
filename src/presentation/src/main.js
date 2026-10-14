@@ -85,9 +85,12 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import { createShowInk, addShowInk, SHOW_PEN_COLORS } from "./draw/show-ink.js";
+import { addInkStroke, MM as INK_MM } from "./draw/ink-model.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
+import { AI_MODEL } from "./assistant.js";
 import { zipSync } from "fflate";
 import * as drafts from "./drafts.js";
 import * as recent from "./recent.js";
@@ -3288,6 +3291,21 @@ const drawTools = createDrawTools({
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
   },
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    if (!doc) return;
+    selectIds(ids);
+    renderSelection();
+    updateSelectionUi();
+    renderInspector();
+  },
+  renderSlide: (s) => preview(doc.pres, s),
+  chat: () =>
+    cloud.canAI() ? globalThis.puter.ai.chat.bind(globalThis.puter.ai) : null,
+  aiModel: AI_MODEL,
+  shapeLabels: Object.fromEntries(
+    SHAPES.map(([preset, label]) => [preset, label]),
+  ),
 });
 function editorRibbon() {
   ribbon = createRibbon({
@@ -13393,6 +13411,26 @@ const BACKGROUND_LABELS = {
   image: "Image",
   inherit: "From layout",
 };
+// Ink drawn during a show stays on the slides only if the presenter says so.
+async function keepShowInk(pres, strokes) {
+  const count = [...strokes.values()].reduce((n, list) => n + list.length, 0);
+  const keep = await dialog({
+    title: "Keep your ink?",
+    body: el(
+      "p",
+      { class: "dialog-body" },
+      `You drew ${count} ink stroke${count === 1 ? "" : "s"} during the slide show. Keep ${count === 1 ? "it" : "them"} on the slides?`,
+    ),
+    actions: [
+      { label: "Discard", value: false },
+      { label: "Keep Ink", value: true, kind: "primary" },
+    ],
+  });
+  if (!keep || doc?.pres !== pres) return;
+  await mutate(() => {
+    addShowInk(P, doc.pres, strokes, addInkStroke, INK_MM);
+  });
+}
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
 async function present(options = {}) {
@@ -13479,6 +13517,46 @@ async function present(options = {}) {
     status.textContent = error.message;
     stage.classList.add("has-status");
   }
+  // The presenter's pen: ink kept per slide while the show runs, which may
+  // be kept on the slides when it ends.
+  const showInk = createShowInk(frame, {
+    slideKey: () => P.getSlidePartName(all[n]),
+  });
+  const inkButton = iconButton("Pen", "Pencil", () => toggleInk(), {
+    "aria-pressed": "false",
+    title: "Pen (I). E erases the ink on this slide.",
+  });
+  const inkMenuButton = iconButton(
+    "Pen color and ink",
+    "ChevronDown",
+    (e) =>
+      menu(
+        e.currentTarget,
+        [
+          ...SHOW_PEN_COLORS.map(([name, value]) => ({
+            label: name,
+            checked: showInk.color === value,
+            onSelect: () => {
+              showInk.setColor(value);
+              toggleInk(true);
+            },
+          })),
+          { separator: true },
+          {
+            label: "Erase Ink on Slide",
+            shortcut: "E",
+            onSelect: () => showInk.clearSlide(),
+          },
+        ],
+        { label: "Pen" },
+      ),
+    { ...MENU_BUTTON, class: "btn icon-btn presenter-ink-menu" },
+  );
+  function toggleInk(on = !showInk.enabled) {
+    if (on && laser.enabled) toggleLaser();
+    showInk.setEnabled(on);
+    inkButton.setAttribute("aria-pressed", String(on));
+  }
   const laserButton = iconButton(
     "Laser pointer",
     "Pointer",
@@ -13490,6 +13568,7 @@ async function present(options = {}) {
   );
   function toggleLaser() {
     try {
+      if (!laser.enabled && showInk.enabled) toggleInk(false);
       laser.setEnabled(!laser.enabled);
       laserButton.setAttribute("aria-pressed", String(laser.enabled));
       status.textContent = "";
@@ -13780,6 +13859,7 @@ async function present(options = {}) {
     image.src = cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
     placeLinks(all[n]);
+    showInk.show();
     counter.textContent = reading
       ? `Slide ${n + 1} of ${all.length}`
       : `${n + 1} / ${all.length}`;
@@ -13814,6 +13894,8 @@ async function present(options = {}) {
   }
   function close() {
     laser.dispose();
+    const inkDrawn = showInk.hasInk ? showInk.strokes() : null;
+    showInk.dispose();
     releaseFonts();
     advanceClock.dispose();
     clearTransition();
@@ -13826,6 +13908,7 @@ async function present(options = {}) {
     d.close();
     d.remove();
     if (refreshDates && doc?.pres === pres) renderSlideArea();
+    if (inkDrawn) keepShowInk(pres, inkDrawn).catch(fail);
     if (before?.isConnected) before.focus();
     else if (before?.matches(".object-hit"))
       document
@@ -13897,6 +13980,8 @@ async function present(options = {}) {
         next,
         notesButton,
         laserButton,
+        inkButton,
+        inkMenuButton,
         pauseButton,
         timer,
         fullscreen,
@@ -13908,6 +13993,7 @@ async function present(options = {}) {
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (laser.enabled) toggleLaser();
+    else if (showInk.enabled) toggleInk(false);
     else close();
   });
   d.addEventListener("keydown", (e) => {
@@ -13917,6 +14003,11 @@ async function present(options = {}) {
     if (e.key === "Escape" && laser.enabled) {
       e.preventDefault();
       toggleLaser();
+      return;
+    }
+    if (e.key === "Escape" && showInk.enabled) {
+      e.preventDefault();
+      toggleInk(false);
       return;
     }
     if (
@@ -13940,6 +14031,14 @@ async function present(options = {}) {
     if (key === "l") {
       e.preventDefault();
       toggleLaser();
+    }
+    if (key === "i") {
+      e.preventDefault();
+      toggleInk();
+    }
+    if (key === "e") {
+      e.preventDefault();
+      showInk.clearSlide();
     }
     if (key !== "b" && key !== "w" && wasBlank) {
       restoreBlank();

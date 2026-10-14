@@ -41,6 +41,7 @@ export * from "./fn/shape-gradient-read.ts";
 export * from "./fn/shape-fill-stroke.ts";
 export * from "./fn/shape-format-copy.ts";
 export * from "./fn/shape-freeform.ts";
+export * from "./fn/shape-ink.ts";
 export * from "./fn/shape-effects.ts";
 export * from "./fn/shape-text.ts";
 export * from "./fn/shape-runs.ts";
