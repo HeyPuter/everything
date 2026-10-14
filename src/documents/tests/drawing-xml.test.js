@@ -116,7 +116,10 @@ describe('picture formatting writes DrawingML that reopens editable', () => {
     });
     expect(next.anchor).toMatchObject({ wrap: 'square', x: 100000, y: 50000, horizontal: 'column', vertical: 'paragraph' });
     expect(readFrame(new DOMParser().parseFromString(next.shell, 'application/xml').documentElement).wrap.type).toBe('square');
-    const inline = await edit(pkg, doc, next, drawing => writeFrame(drawing, { inline: true }));
+    const tight = await edit(pkg, doc, next, drawing => writeFrame(drawing, { wrap: { type: 'tight', side: 'largest' } }));
+    expect(tight.anchor).toMatchObject({ wrap: 'square', contour: 'tight', wrapText: 'largest', x: 100000 });
+    expect((await roundTrip(pkg, doc)).xml).toMatch(/<wp:wrapTight wrapText="largest"><wp:wrapPolygon edited="0"><wp:start x="0" y="0"\/>/);
+    const inline = await edit(pkg, doc, tight, drawing => writeFrame(drawing, { inline: true }));
     expect(inline.anchor).toBeUndefined();
     await roundTrip(pkg, doc);
   });

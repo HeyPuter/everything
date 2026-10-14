@@ -5,12 +5,25 @@ const WP14 = 'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawin
 const children = n => [...(n?.children || [])].flatMap(c => c.namespaceURI === MC && c.localName === 'AlternateContent' ? children(alternateBranch(c)) : [c]);
 const child = (n, name) => children(n).find(c => c.namespaceURI === WP && c.localName === name);
 const fail = why => { throw new UnsupportedDocumentError(`floating pictures with ${why}`); };
+// A wrap polygon (§20.4.2.16): a start point and at least two more points in 0..21600 wrap units.
+function validPolygon(wrap) {
+  const nodes = children(wrap);
+  if (nodes.length !== 1 || nodes[0].namespaceURI !== WP || nodes[0].localName !== 'wrapPolygon') return false;
+  const polygon = nodes[0], points = children(polygon);
+  if ([...polygon.attributes].some(a => !a.namespaceURI && (a.localName !== 'edited' || !['0', '1', 'true', 'false'].includes(a.value)))) return false;
+  if (points.length < 3 || points[0].localName !== 'start' || points.slice(1).some(n => n.localName !== 'lineTo')) return false;
+  return points.every(n => n.namespaceURI === WP && !children(n).length && ['x', 'y'].every(k => /^[+-]?\d+$/.test(n.getAttribute(k) || '') && Math.abs(Number(n.getAttribute(k))) <= 27273042316900)
+    && [...n.attributes].every(a => a.namespaceURI || ['x', 'y'].includes(a.localName)));
+}
 // Retain supported floating coordinate systems and wrapping independently of
 // inline image metrics. Numeric square anchors use page-aware text exclusions;
 // centered full-column pictures retain the existing standalone band path.
 export function readAnchor(anchor) {
   for (const attr of [...anchor.attributes]) if (!attr.namespaceURI && !['simplePos', 'behindDoc', 'locked', 'layoutInCell', 'allowOverlap', 'relativeHeight', 'hidden', 'distT', 'distB', 'distL', 'distR'].includes(attr.localName)) fail(`unsupported ${attr.localName}`);
-  const square = child(anchor, 'wrapSquare');
+  // Tight and through wrapping (§20.4.2.18, §20.4.2.17) keep their wrap polygon in the drawing; text
+  // flows around the object's rectangle, as for square wrapping.
+  const contour = child(anchor, 'wrapTight') || child(anchor, 'wrapThrough');
+  const square = child(anchor, 'wrapSquare') || contour;
   const sideWrapped = square && child(child(anchor, 'positionH'), 'posOffset') && child(child(anchor, 'positionV'), 'posOffset');
   const positioned = !!child(anchor, 'wrapTopAndBottom') || !!child(anchor, 'wrapNone') || !!sideWrapped;
   if (anchor.hasAttribute('hidden') && !['0', 'false'].includes(anchor.getAttribute('hidden'))) fail('hidden drawings');
@@ -70,7 +83,7 @@ export function readAnchor(anchor) {
     const wrap = child(anchor, 'wrapTopAndBottom') || child(anchor, 'wrapNone') || square;
     if (children(anchor).filter(n => n.namespaceURI === WP && n.localName.startsWith('wrap')).length !== 1) fail('multiple wrapping declarations');
     if (sideWrapped) {
-      if (children(wrap).length || !['bothSides', 'left', 'right', 'largest'].includes(wrap.getAttribute('wrapText'))) fail('unsupported square wrapping');
+      if ((contour ? !validPolygon(wrap) : children(wrap).length) || !['bothSides', 'left', 'right', 'largest'].includes(wrap.getAttribute('wrapText'))) fail('unsupported square wrapping');
       const distances = {};
       for (const side of ['T', 'B', 'L', 'R']) {
         const raw = wrap.getAttribute('dist' + side) ?? anchor.getAttribute('dist' + side) ?? '0';
@@ -78,7 +91,7 @@ export function readAnchor(anchor) {
         distances[side] = Number(raw);
       }
       if ([...wrap.attributes].some(a => !a.namespaceURI && !['wrapText','distT','distB','distL','distR'].includes(a.localName))) fail('unsupported square wrapping attribute');
-      return { ...bases, wrap: 'square', wrapText: wrap.getAttribute('wrapText'), distances, behind: defaults.behindDoc, order: Number(anchor.getAttribute('relativeHeight')), ...(locked ? { locked } : {}), ...offsets };
+      return { ...bases, wrap: 'square', ...(contour ? { contour: contour.localName === 'wrapTight' ? 'tight' : 'through' } : {}), wrapText: wrap.getAttribute('wrapText'), distances, behind: defaults.behindDoc, order: Number(anchor.getAttribute('relativeHeight')), ...(locked ? { locked } : {}), ...offsets };
     }
     if (children(wrap).length || [...wrap.attributes].some(a => !a.namespaceURI && (!['distT', 'distB'].includes(a.localName) || !/^0+$/.test(a.value)))) fail('unsupported wrapping distances');
     return { ...bases, wrap: wrap.localName === 'wrapNone' ? 'none' : 'topAndBottom', behind: defaults.behindDoc, order: Number(anchor.getAttribute('relativeHeight')), ...(locked ? { locked } : {}), ...(!layoutInCell ? { layoutInCell } : {}), ...(!allowOverlap ? { allowOverlap } : {}), ...offsets };
