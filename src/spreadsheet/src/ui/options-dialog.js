@@ -55,9 +55,23 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
   // Every row carries the words a search finds it by.
   const row = (words, ...kids) => el('div.opt-row', { dataset: { search: words.filter(Boolean).join(' ').toLowerCase() } }, ...kids);
   /** A row for one of the app's options, which Restore Defaults puts back. */
-  const optionRow = (key, words, ...kids) => { const node = row([...words, key], ...kids); node.dataset.key = key; return node; };
+  const optionRow = (key, words, ...kids) => {
+    const node = row([...words, key], ...kids);
+    node.dataset.key = key;
+    if (dependents.has(key)) node.classList.add('opt-dependent'); // it sits under the option it follows
+    return node;
+  };
   const group = (title, ...rows) => el('section.opt-group', { 'aria-label': title }, el('h4.opt-group-title', {}, title), ...rows.filter(Boolean));
-  const dependsOn = (control, key) => { if (key) queueMicrotask(() => control.closest?.('.opt-row')?.classList.add('opt-dependent')); if (key) syncs.push(() => { control.disabled = !appOptions()[key]; control.closest?.('.opt-row')?.classList.toggle('opt-off', !appOptions()[key]); }); };
+  /** Options that only mean something while another is on: greyed while it is off. */
+  const dependents = new Set();
+  const dependsOn = (control, requires, key) => {
+    if (!requires) return;
+    dependents.add(key);
+    syncs.push(() => {
+      control.disabled = !appOptions()[requires];
+      control.closest?.('.opt-row')?.classList.toggle('opt-off', !appOptions()[requires]);
+    });
+  };
 
   function check(key, label, hint = null, { requires = null, onChange = null } = {}) {
     const id = fieldId('opt');
@@ -65,7 +79,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
     input.checked = !!appOptions()[key];
     input.addEventListener('change', () => { set({ [key]: input.checked }); onChange?.(input.checked); });
     syncs.push(() => { input.checked = !!appOptions()[key]; });
-    dependsOn(input, requires);
+    dependsOn(input, requires, key);
     return optionRow(key, [label, hint], el('div.opt-check', {}, input,
       el('label.opt-check-text', { for: id }, el('span.opt-label', {}, label), hint && el('span.opt-hint', { id: `${id}-hint` }, hint))));
   }
@@ -76,7 +90,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
     select.value = String(appOptions()[key]);
     select.addEventListener('change', () => set({ [key]: select.value }));
     syncs.push(() => { select.value = String(appOptions()[key]); });
-    dependsOn(select, requires);
+    dependsOn(select, requires, key);
     return optionRow(key, [label, hint, ...choices.map(([, t]) => t)], el('div.opt-field', {},
       el('label.opt-label', { for: id }, label), select, hint && el('span.opt-hint', {}, hint)));
   }
@@ -92,7 +106,7 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
     });
     syncs.push(show);
     show();
-    dependsOn(input, requires);
+    dependsOn(input, requires, key);
     return optionRow(key, [label, hint], el('div.opt-field', {}, el('label.opt-label', { for: id }, label),
       el('span.opt-number-wrap', {}, input, suffix && el('span.opt-suffix', {}, suffix)), (hint || describe) && note));
   }

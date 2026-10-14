@@ -94,6 +94,26 @@ describe('the Options dialog', () => {
     expect(wb.dirty).toBeFalsy();
   });
 
+  it('greys an option that depends on another until that one is on', async () => {
+    await mount();
+    view.run('options', 'edit');
+    await vi.advanceTimersByTimeAsync(1);
+    const places = dialog().querySelector('.opt-row[data-key="fixedDecimalPlaces"]');
+    expect(places.classList.contains('opt-dependent')).toBe(true);
+    expect(places.querySelector('input').disabled).toBe(true);
+    checkbox('Put in a decimal point automatically').click();
+    expect(appOption('fixedDecimal')).toBe(true);
+    expect(places.querySelector('input').disabled).toBe(false);
+    const input = places.querySelector('input');
+    input.value = '3';
+    input.dispatchEvent(new Event('change'));
+    expect(appOption('fixedDecimalPlaces')).toBe(3);
+    const direction = dialog().querySelector('.opt-row[data-key="enterDirection"] select');
+    direction.value = 'right';
+    direction.dispatchEvent(new Event('change'));
+    expect(appOption('enterDirection')).toBe('right');
+  });
+
   it('sets the workbook’s own calculation, saying so, apart from the choice for new workbooks', async () => {
     const { wb } = await mount();
     view.run('options', 'formulas');
