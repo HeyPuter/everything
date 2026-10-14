@@ -55,6 +55,17 @@ export {
   type SlideShowSelection,
   type SlideShowLaserColor,
 } from "./fn.ts";
+export {
+  getViewProperties,
+  setViewProperties,
+  getNotesPageSize,
+  getSlideOutlineShapes,
+  addSlideOutlinePlaceholder,
+  type ViewProperties,
+  type ViewPropertiesPatch,
+  type DrawingGuide,
+  type LastView,
+} from "./fn.ts";
 export type { PresentationInput, PresentationSize, SlideSize } from "./fn.ts";
 export { SLIDE_SIZE_4_3, SLIDE_SIZE_16_9, SLIDE_SIZE_16_10 } from "./fn.ts";
 export type { ImageFormat } from "../internal/opc/index.ts";
@@ -75,6 +86,13 @@ export type { SlideChartData } from "./fn.ts";
 export type { ShapeClickAction } from "./fn.ts";
 export type { IssueSeverity, ValidationIssue } from "./fn.ts";
 export type { AnimationEffect, AnimationOptions } from "./fn.ts";
+export type {
+  AnimationPresetClass,
+  AnimationStart,
+  SlideAnimation,
+  SlideAnimationAfter,
+  SlideAnimationTextBuild,
+} from "./fn.ts";
 export type { ImageCrop, ShapeImagePaint } from "./fn.ts";
 export type { ImageFit } from "./fn.ts";
 export type {
@@ -256,6 +274,11 @@ export {
   getShapeAdjustValues,
   getShapeAltTitle,
   getShapeAnimation,
+  getSlideAnimations,
+  setSlideAnimations,
+  pruneSlideAnimations,
+  getShapeBuildParagraphs,
+  motionPathFor,
   getShapeAt,
   getShapeBounds,
   getShapeBodyPrEffective,
@@ -621,6 +644,20 @@ export type {
   TransitionEffect,
   TransitionOptions,
 } from "../internal/presentationml/index.ts";
+
+export {
+  countWords,
+  getDocumentStatistics,
+  getExtendedStatistics,
+  setExtendedStatistics,
+  updateExtendedStatistics,
+  getPresentationKind,
+  setPresentationKind,
+  PRESENTATION_FILE_TYPES,
+  type DocumentStatistics,
+  type ExtendedStatistics,
+  type PresentationKind,
+} from "./fn/document-statistics.ts";
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";

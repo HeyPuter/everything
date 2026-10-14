@@ -1240,22 +1240,6 @@ export function createComments(env, host) {
         `${label}, ${count} comment${count === 1 ? "" : "s"}`,
       );
   }
-  function statusButton() {
-    return el(
-      "button",
-      {
-        type: "button",
-        class: "status-item status-button",
-        id: "status-comments",
-        "aria-pressed": "false",
-        "data-tip-title": "Comments",
-        "aria-label": "Comments",
-        onclick: () => host.toggle("comments"),
-      },
-      icon("o:comment", 15),
-      el("span", {}, "Comments"),
-    );
-  }
   function syncStatus() {
     document
       .querySelector("#status-comments")
@@ -1276,7 +1260,6 @@ export function createComments(env, host) {
     step,
     renderMarkers,
     decorateThumb,
-    statusButton,
     syncStatus,
     invalidate,
     refresh: () => {

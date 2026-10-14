@@ -2,6 +2,7 @@ import { textEditHistory } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
+import { createSlideAnimator } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -86,6 +87,9 @@ import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
 import { createReview } from "./review/index.js";
+import { createFileTools } from "./export/file-tools.js";
+import { createAnimationTools } from "./animations/editor.js";
+import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { zipSync } from "fflate";
@@ -610,7 +614,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + S", "Save to Puter"],
         ["Ctrl / ⌘ + Shift + S", "Save a copy to Puter"],
         ["Ctrl / ⌘ + O", "Open from Puter"],
-        ["Ctrl / ⌘ + P", "Print / Save as PDF"],
+        ["Ctrl / ⌘ + P", "Print"],
         ["Ctrl / ⌘ + F or H", "Find, or find and replace"],
         ["Ctrl / ⌘ + = or -", "Zoom in or out"],
         ["Ctrl / ⌘ + 0", "Fit the slide to the window"],
@@ -626,6 +630,17 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + Shift + M", "New comment"],
         ["F7", "Check spelling"],
         ["Shift + F7", "Thesaurus"],
+        [
+          "Ctrl / ⌘ + 1 / 2 / 3 / 4 / 5",
+          "Normal, Slide Sorter, Notes Page, Outline View, Reading View",
+        ],
+        ["Ctrl + Shift + Tab", "Show or hide the outline"],
+        ["Ctrl / ⌘ + '", "Show or hide the gridlines"],
+        [
+          "Tab / Shift + Tab in the outline",
+          "Move a line down or up a level; a title becomes a paragraph",
+        ],
+        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
@@ -2906,7 +2921,12 @@ function renderReadOnly() {
             run(downloadDeck),
             "secondary",
           ),
-          button("Print", "Printer", run(printDeck), "secondary"),
+          button(
+            "Print",
+            "Printer",
+            run(() => fileTools.openPrintDialog()),
+            "secondary",
+          ),
           button("Present", "Play", run(present)),
         ),
       ),
@@ -2937,6 +2957,7 @@ function renderEditor() {
       "div",
       {
         class: `editor ${chrome.formatPane ? "" : "hide-inspector"} ${chrome.thumbnails ? "" : "hide-slides"} ${chrome.notes ? "" : "hide-notes"}`,
+        "data-view": editorView,
       },
       editorTopbar(),
       fontLoadNotice(),
@@ -3046,6 +3067,8 @@ function renderEditor() {
               }),
             ),
           ),
+          // Slide Sorter and Notes Page take the place of the panes.
+          el("section", { id: "view-host", class: "view-host" }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -3070,6 +3093,7 @@ function renderEditor() {
   canvasObserver.observe(document.querySelector("#canvas-area"));
   fitCanvas();
   applyPaneSizes();
+  views.mounted();
 }
 // The title bar: the way back to the library, the quick access commands
 // (save, undo, redo), the menu bar, the presentation's name with its save
@@ -3263,6 +3287,37 @@ function commandSearch() {
   );
   return wrap;
 }
+// Export, print, properties and pictures (src/export): they read the open
+// presentation through these and edit it through mutate.
+const fileTools = createFileTools({
+  P,
+  doc: () => doc,
+  settled,
+  mutate,
+  SKIP: SKIP_MUTATION,
+  previewSrc: (target, s) => cachedPreview(target.previews, target.pres, s),
+  slideDescription,
+  displayShapeText,
+  visibleSlideShapes,
+  slideBounds: (pres, shape) => slideBounds(pres, shape),
+  currentIndex: () => index,
+  selectedSlides: () => selectedSlides(),
+  selectedShapes: () => (view === "editor" && doc ? selectedShapes() : []),
+  readOnly: () => readOnlyDocument(),
+  pruneUnusedMedia,
+  cleanName,
+  toast,
+  fail,
+  refreshFields() {
+    if (P.getSlides(doc.pres).some((s) => slideHasDateFields(doc.pres, s))) {
+      P.refreshPresentationFields(doc.pres);
+      renderSlideArea();
+    }
+  },
+  async download(blob, filename, message) {
+    reportExport(await cloud.downloadBlob(blob, filename), message);
+  },
+});
 // The ribbon, built once per editor from the tab definitions, and refreshed
 // whenever the selection or the presentation changes.
 let ribbon = null;
@@ -3270,7 +3325,10 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()]];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => [animationTools.tab()],
+];
 // Comments, proofing, accessibility, compare and the read-only mark
 // (review/). It reaches the editor through this surface.
 const review = createReview({
@@ -3409,6 +3467,33 @@ const drawTools = createDrawTools({
     syncToolbar();
   },
 });
+// The Animations tab, the Animation Pane and animation previews.
+const animationTools = createAnimationTools({
+  P,
+  modKey: MOD_KEY,
+  doc: () => doc,
+  slide: () => doc && slide(),
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    selectIds(ids);
+    renderSelection();
+    renderInspector();
+  },
+  topLevelShapes: (s) => {
+    const parents = groupParents(s);
+    return P.getSlideShapes(s).filter((x) => !parents.has(P.getShapeId(x)));
+  },
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  slideSize: () => currentSize(),
+  // One line, for lists and menus.
+  shapeLabel: (shape) =>
+    truncateLabel(shapeLabel(shape, doc.pres).replace(/\s+/g, " ").trim(), 60),
+  renderLayer: (s, layer) => preview(doc.pres, s, layer),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  canvas: () => document.querySelector("#slide-canvas"),
+  editorBody: () => document.querySelector(".editor-body"),
+  refresh: () => syncToolbar(),
+});
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -3416,9 +3501,11 @@ function editorRibbon() {
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
+      animationTools.setTabActive(id === "animations");
     },
   });
   ribbon.onError(fail);
+  animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
   return ribbon.el;
 }
@@ -3554,19 +3641,10 @@ function renderCanvasAids() {
   const inchesWide = size.cx / 914400,
     inchesHigh = size.cy / 914400;
   if (chrome.gridlines || chrome.guides) {
-    const aids = el("div", { class: "canvas-aids", "aria-hidden": "true" });
-    if (chrome.gridlines) {
-      // The grid spacing is a twelfth of an inch; the lines drawn
-      // are every half inch, with the inches stronger.
-      aids.style.setProperty("--grid-x", `${100 / (inchesWide * 2)}%`);
-      aids.style.setProperty("--grid-y", `${100 / (inchesHigh * 2)}%`);
-      aids.classList.add("grid");
-    }
-    if (chrome.guides)
-      aids.append(
-        el("div", { class: "guide-line vertical" }),
-        el("div", { class: "guide-line horizontal" }),
-      );
+    // The grid at the deck's spacing, and the drawing guides, which can be
+    // dragged (see views/grid-guides.js).
+    const aids = el("div", { class: "canvas-aids" });
+    views.grid.decorate(aids, canvas);
     canvas.append(aids);
   }
   if (chrome.ruler) {
@@ -3593,8 +3671,6 @@ function renderCanvasAids() {
     canvas.append(ticks(inchesWide, false), ticks(inchesHigh, true));
   }
 }
-// Buttons other modules add to the status bar, after Notes.
-const statusBarButtons = [() => review.statusButton()];
 // The status bar: the slide's position, the proofing language and the
 // accessibility check on the left; the notes and comments panes, the views,
 // and the zoom on the right.
@@ -3677,7 +3753,20 @@ function statusBar() {
         icon("o:notesPane", 15),
         el("span", {}, "Notes"),
       ),
-      ...statusBarButtons.map((make) => make()),
+      // Shown once the editor has a comments pane to open.
+      el(
+        "button",
+        {
+          type: "button",
+          class: "status-item status-button desktop-only",
+          id: "status-comments",
+          "aria-pressed": "false",
+          hidden: true,
+          onclick: () => statusComments()?.toggle(),
+        },
+        icon("o:showComments", 15),
+        el("span", {}, "Comments"),
+      ),
       el(
         "div",
         {
@@ -3748,7 +3837,10 @@ function updateZoomUi() {
     );
   document
     .querySelector(".status-view.fit")
-    ?.setAttribute("aria-pressed", String(zoom === "fit"));
+    ?.setAttribute(
+      "aria-pressed",
+      String(viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+    );
   const zoomIn = document.querySelector('.zoom-control [aria-label="Zoom in"]');
   const zoomOut = document.querySelector(
     '.zoom-control [aria-label="Zoom out"]',
@@ -3756,9 +3848,26 @@ function updateZoomUi() {
   disableControl(zoomIn, !nextZoomStep(1), workspace);
   disableControl(zoomOut, !nextZoomStep(-1), workspace);
 }
+// The comments pane, when the editor has one.
+let statusApi = null;
+function statusComments() {
+  const api = (statusApi ??= ribbonApi());
+  return typeof api.toggleComments === "function"
+    ? {
+        toggle: () => api.toggleComments(),
+        open: () => !!api.commentsOpen?.(),
+      }
+    : null;
+}
 function updateStatusBar() {
   const notes = document.querySelector("#status-notes");
   if (notes) notes.setAttribute("aria-pressed", String(showing("notes")));
+  const comments = document.querySelector("#status-comments");
+  if (comments) {
+    const pane = statusComments();
+    comments.hidden = !pane;
+    comments.setAttribute("aria-pressed", String(!!pane?.open()));
+  }
   for (const node of document.querySelectorAll(".status-views [data-view]"))
     node.setAttribute(
       "aria-pressed",
@@ -3859,24 +3968,91 @@ async function altText() {
   const value = decorative.checked ? "" : input.value.trim();
   mutateShape(obj, (obj) => P.setShapeDescription(obj, value));
 }
-// The editor's views: Normal, plus the others as they are added (see
-// setView).
+// The editor's views: Normal, Outline View, Slide Sorter and Notes Page
+// (src/views), and Reading View, which plays the show inside the window.
 let editorView = "normal";
 const currentView = () => editorView;
 const VIEW_HANDLERS = {};
 function supportsView(id) {
-  return id === "normal" || !!VIEW_HANDLERS[id];
+  return id === "normal" || id === "reading" || !!VIEW_HANDLERS[id];
 }
-function setView(id) {
+// `remount` enters the view again after the editor was drawn anew.
+function setView(id, { remount = false } = {}) {
   if (id === "reading") return present({ from: "current", reading: true });
   if (!supportsView(id)) return;
   const previous = editorView;
+  if (previous === id && !remount) {
+    syncToolbar();
+    return;
+  }
+  if (previous !== id) {
+    commitText();
+    VIEW_HANDLERS[previous]?.leave?.();
+  }
   editorView = id;
-  if (previous !== "normal") VIEW_HANDLERS[previous]?.leave?.();
-  if (id !== "normal") VIEW_HANDLERS[id].enter();
   document.querySelector(".editor")?.setAttribute("data-view", id);
-  syncToolbar();
+  if (id !== "normal") {
+    clearSelection();
+    VIEW_HANDLERS[id].enter();
+  }
+  if (!remount) views.viewChanged(id);
+  renderSelection();
+  updatePanelToggles();
+  updateZoomUi();
+  if (id === "normal" && previous !== "normal")
+    document.querySelector("#main")?.focus({ preventScroll: true });
 }
+// The zoom of the view in front, when it keeps its own.
+const viewZoom = () => VIEW_HANDLERS[editorView]?.zoom || null;
+const views = createViews({
+  P,
+  doc: () => doc,
+  docKey: () => doc && (doc.path || doc.id),
+  currentSlide: () => slide(),
+  currentSize: () => currentSize(),
+  currentView,
+  setView,
+  show,
+  showing,
+  chrome,
+  saveChrome,
+  renderCanvasAids: () => renderCanvasAids(),
+  sync: () => syncToolbar(),
+  thumbnail: (s) => cachedPreview(doc.previews, doc.pres, s),
+  slideLabel: (s, i) => thumbLabel(s, i, false),
+  markers: (s) => ({
+    transition: (transitionDetails(s)?.effect || "none") !== "none",
+    animation: /<(\w+:)?timing[\s>]/.test(P.getSlideXmlString(s)),
+  }),
+  selectedParts: () => selectedSlideParts(),
+  choose: (part, extras) => {
+    const s = P.getSlides(doc.pres).find((x) => P.getSlidePartName(x) === part);
+    return s ? chooseSlide(s, { extras }) : Promise.resolve();
+  },
+  settle: (parts) => settleIndex(parts),
+  settleIndex: (i) => {
+    index = Math.max(0, Math.min(i, P.getSlides(doc.pres).length - 1));
+  },
+  mutate: (fn, options) => mutate(fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  SKIP: SKIP_MUTATION,
+  undo: () => undo(),
+  redo: () => redo(),
+  addSlideAfter: (s) => addSlideAfter(s),
+  duplicateSlides: (list) => duplicateSlides(list),
+  deleteSlides: (list) => deleteSlides(list),
+  setSlidesHidden: (list, hidden) => setSlidesHidden(list, hidden),
+  moveSlides: (list, direction) =>
+    moveSlides(list, direction, [P.getSlidePartName(slide())]),
+  stepZoom: (direction) => stepZoom(direction),
+  setZoom: (level) => setZoom(level),
+  zoomFactor: () => zoomFactor(),
+  zoomIsFit: () => (viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+  zoomChanged: () => updateZoomUi(),
+  toast,
+  fail,
+});
+Object.assign(VIEW_HANDLERS, views.handlers);
 function setColorMode(id) {
   chrome.colorMode = id;
   saveChrome();
@@ -5694,6 +5870,8 @@ function ribbonApi() {
     spelling: () => review.spelling.open(),
     reviewTab: (api) => review.tab(api),
     newComment: () => review.newComment(),
+    toggleComments: () => review.comments.toggle(),
+    commentsOpen: () => review.comments.isOpen(),
     checkAccessibility: () => checkAccessibility(),
     altText: () => altText().catch(fail),
     languageMenu: languageItems,
@@ -5704,6 +5882,8 @@ function ribbonApi() {
     showing,
     show,
     zoomMenu: () => zoomItems(),
+    zoomDialog: () => views.openZoomDialog(),
+    gridDialog: () => views.grid.gridDialog(),
     fitToWindow: () => setZoom("fit"),
     colorMode: () => chrome.colorMode,
     setColorMode,
@@ -6049,6 +6229,7 @@ function syncToolbar() {
     ribbon?.refresh();
     updateStatusBar();
     renderSelectionPane();
+    animationTools.sync();
   });
 }
 const navigatorVisible = () =>
@@ -6113,12 +6294,14 @@ function fitCanvas() {
 }
 // The step above or below the current zoom, or undefined at the ladder's end.
 function nextZoomStep(direction, current = zoomFactor()) {
+  const steps = viewZoom()?.steps || ZOOM_STEPS;
   return direction > 0
-    ? ZOOM_STEPS.find((step) => step > current + 0.01)
-    : [...ZOOM_STEPS].reverse().find((step) => step < current - 0.01);
+    ? steps.find((step) => step > current + 0.01)
+    : [...steps].reverse().find((step) => step < current - 0.01);
 }
 // The slide's scale on screen, whatever set it.
 function zoomFactor() {
+  if (viewZoom()) return viewZoom().factor();
   if (zoom !== "fit") return zoom;
   const canvas = document.querySelector("#slide-canvas");
   const size = currentSize();
@@ -6128,6 +6311,12 @@ function zoomFactor() {
 }
 // A new zoom keeps the middle of the view where it was.
 function setZoom(next) {
+  // Slide Sorter and Notes Page zoom on their own.
+  if (viewZoom()) {
+    viewZoom().set(next);
+    updateZoomUi();
+    return;
+  }
   const area = document.querySelector("#canvas-area");
   const center = area && {
     x: (area.scrollLeft + area.clientWidth / 2) / Math.max(1, area.scrollWidth),
@@ -6150,20 +6339,27 @@ function stepZoom(direction) {
   if (next) setZoom(next);
 }
 function zoomItems() {
+  const setting = viewZoom() ? viewZoom().setting() : zoom;
   return [
     {
       label: "Fit to screen",
       icon: "Maximize",
       shortcut: `${MOD_KEY}+0`,
-      checked: zoom === "fit",
+      checked: setting === "fit",
       onSelect: () => setZoom("fit"),
     },
     { separator: true },
     ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((level) => ({
       label: `${Math.round(level * 100)}%`,
-      checked: zoom === level,
+      checked: setting === level,
       onSelect: () => setZoom(level),
     })),
+    { separator: true },
+    {
+      label: "Zoom…",
+      icon: "o:zoom",
+      onSelect: () => views.openZoomDialog().catch(fail),
+    },
   ];
 }
 function zoomMenu(e) {
@@ -6360,6 +6556,34 @@ const menuFor = (label, items) => (anchor) =>
     align: "auto",
     minWidth: 240,
   });
+// Presentations to reopen from the File menu: the newest in the library and
+// those opened from elsewhere on the drive, without the one already open.
+function recentMenuItems() {
+  const open = doc?.path;
+  const seen = new Set();
+  const list = [
+    ...files.map((f) => ({
+      ...f,
+      at: Number(f.modified || f.created || 0) * 1000,
+    })),
+    ...recentFiles.map((r) => ({ ...r, at: cloud.modifiedMs(r) ?? r.at ?? 0 })),
+  ]
+    .filter(
+      (f) => f.path && f.path !== open && !seen.has(f.path) && seen.add(f.path),
+    )
+    .sort((a, b) => (b.at || 0) - (a.at || 0))
+    .slice(0, 8);
+  if (!list.length)
+    return [{ label: "No recent presentations", disabled: true }];
+  return list.map((f) => ({
+    label: cleanName(f.name || cloud.displayName(f.path), {
+      maxLength: Infinity,
+    }),
+    icon: "Presentation",
+    hint: cloud.folderName(f.path) || null,
+    onSelect: run(() => openCloud(f)),
+  }));
+}
 // The File menu. The phone's File options button, the only menu button its
 // layout keeps, carries the other menus too.
 function fileMenu(anchor) {
@@ -6381,6 +6605,11 @@ function fileMenu(anchor) {
         shortcut: `${M}+O`,
         onSelect: run(openPicker),
       },
+      {
+        label: "Open recent",
+        icon: "Clock",
+        items: recentMenuItems(),
+      },
       { label: "Import PPTX", icon: "Upload", onSelect: pickLocal },
       { separator: true },
       {
@@ -6395,8 +6624,36 @@ function fileMenu(anchor) {
         shortcut: `${M}+Shift+S`,
         onSelect: run(saveCopy),
       },
+      {
+        label: "Save as template…",
+        icon: "LayoutTemplate",
+        onSelect: run(() => fileTools.saveAsTemplate()),
+      },
+      {
+        label: "Export…",
+        icon: "o:exportFile",
+        onSelect: run(() => fileTools.openExportDialog()),
+      },
       { label: "Rename", icon: "Pencil", onSelect: run(renameDoc) },
-      { label: "Slide size", icon: "Maximize", onSelect: run(slideSizeDialog) },
+      {
+        label: "Close",
+        icon: "X",
+        onSelect: run(async () => {
+          if (await leaveEditor()) await home();
+        }),
+      },
+      { separator: true },
+      {
+        label: "Compress pictures…",
+        icon: "o:compressPictures",
+        disabled: readOnlyDocument(),
+        onSelect: run(() => fileTools.openCompressDialog()),
+      },
+      {
+        label: "File size…",
+        icon: "o:fileSize",
+        onSelect: run(() => fileTools.openFileSizeDialog()),
+      },
       {
         label: "Embed font",
         icon: "Type",
@@ -6406,15 +6663,26 @@ function fileMenu(anchor) {
       ...review.fileMenuItems(),
       { separator: true },
       {
+        label: "Page setup (slide size)…",
+        icon: "Maximize",
+        onSelect: run(slideSizeDialog),
+      },
+      {
+        label: "Print…",
+        icon: "Printer",
+        shortcut: `${M}+P`,
+        onSelect: run(() => fileTools.openPrintDialog()),
+      },
+      {
+        label: "Properties",
+        icon: "Info",
+        onSelect: run(() => fileTools.openPropertiesDialog()),
+      },
+      { separator: true },
+      {
         label: "Download PowerPoint (.pptx)",
         icon: "Download",
         onSelect: run(downloadDeck),
-      },
-      {
-        label: "Print / Save as PDF",
-        icon: "Printer",
-        shortcut: `${M}+P`,
-        onSelect: run(printDeck),
       },
       {
         label: "Download as images",
@@ -6527,6 +6795,8 @@ function editItems() {
 const editMenu = menuFor("Edit", editItems);
 function viewItems() {
   return [
+    ...views.menuItems(),
+    { separator: true },
     {
       label: "Slide navigator",
       icon: "PanelLeft",
@@ -6562,6 +6832,18 @@ function viewItems() {
       onSelect: () => stepZoom(-1),
     },
     { label: "Zoom", icon: "Maximize", items: zoomItems() },
+    { separator: true },
+    {
+      label: "Ruler",
+      icon: "o:ruler",
+      checked: !!chrome.ruler,
+      onSelect: () => show("ruler", !chrome.ruler),
+    },
+    {
+      label: "Grid and Guides",
+      icon: "o:gridlines",
+      items: views.grid.menuItems(),
+    },
     { separator: true },
     { label: "Present", icon: "Play", onSelect: run(present) },
     { separator: true },
@@ -6709,6 +6991,14 @@ function formatItems() {
       icon: "AlignStartVertical",
       disabled: !obj,
       items: arrangeItems(),
+    },
+    {
+      label: "Animation Painter",
+      icon: "o:animationPainter",
+      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      checked: animationTools.painting,
+      disabled: !animationTools.painting && !animationTools.current().length,
+      onSelect: () => animationTools.startPainter(false),
     },
     { separator: true },
     { label: "Theme", icon: "Palette", onSelect: run(themeDialog) },
@@ -7098,6 +7388,8 @@ function renderSlideArea(refreshNavigator = true) {
       rows.delete(part);
       if (!row) row = slideRow(part);
       row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
+      // A slide with animations is marked beside its number.
+      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
       row.querySelector(".slide-number").textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
       thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
@@ -7224,6 +7516,7 @@ function renderSlideArea(refreshNavigator = true) {
   };
   renderCanvasAids();
   drawTools.attach();
+  animationTools.attach();
   renderSelection();
   review.afterRenderSlide();
   focusTarget?.focus();
@@ -7237,6 +7530,7 @@ function renderSlideArea(refreshNavigator = true) {
       document.querySelector("#main")
     )?.focus({ preventScroll: true });
   }
+  views.refresh();
 }
 // A navigator row for one slide, built once and kept. Its buttons look the
 // slide up when used: the deck behind the row changes with every edit and
@@ -8243,8 +8537,13 @@ function snapTargets(
   threshold,
   moving = new Set([P.getShapeId(obj)]),
 ) {
-  const xs = [0, size.cx / 2, size.cx];
-  const ys = [0, size.cy / 2, size.cy];
+  // The drawing guides always offer themselves; the slide and the other
+  // objects do while smart guides are on.
+  const guides = views.grid.snapTargets();
+  const smart = views.grid.smartGuides();
+  const xs = [...guides.xs, ...(smart ? [0, size.cx / 2, size.cx] : [])];
+  const ys = [...guides.ys, ...(smart ? [0, size.cy / 2, size.cy] : [])];
+  if (!smart) return { xs, ys, threshold };
   const parents = groupParents(slide());
   const visible = new Set(visibleSlideShapes(slide()).map(P.getShapeId));
   for (const other of shapes()) {
@@ -8291,6 +8590,24 @@ function snapBounds(b, mode, { xs, ys, threshold }, { dx = 0, dy = 0 } = {}) {
   const y = Math.abs(dy) >= threshold ? nearest(yEdges, ys, threshold) : null;
   const bounds = { ...b };
   const guides = [];
+  // An edge that meets no guide settles on the grid when snapping is on.
+  const onGrid = (values) => views.grid.gridDelta(values);
+  const gx = !x && Math.abs(dx) > 0 ? onGrid(xEdges.slice(0, 1)) : null;
+  const gy = !y && Math.abs(dy) > 0 ? onGrid(yEdges.slice(0, 1)) : null;
+  if (gx != null) {
+    if (moving) bounds.x += gx;
+    else if (left) {
+      bounds.x += gx;
+      bounds.w -= gx;
+    } else bounds.w += gx;
+  }
+  if (gy != null) {
+    if (moving) bounds.y += gy;
+    else if (top) {
+      bounds.y += gy;
+      bounds.h -= gy;
+    } else bounds.h += gy;
+  }
   if (x) {
     if (moving) bounds.x += x.delta;
     else if (left) {
@@ -13118,18 +13435,7 @@ function canvasContextMenu(e) {
       {
         label: "Grid and Guides",
         icon: "o:gridlines",
-        items: [
-          {
-            label: "Gridlines",
-            checked: !!chrome.gridlines,
-            onSelect: () => show("gridlines", !chrome.gridlines),
-          },
-          {
-            label: "Guides",
-            checked: !!chrome.guides,
-            onSelect: () => show("guides", !chrome.guides),
-          },
-        ],
+        items: views.grid.menuItems(),
       },
       {
         label: "Format Background…",
@@ -13309,7 +13615,10 @@ const BACKGROUND_LABELS = {
   image: "Image",
   inherit: "From layout",
 };
-async function present() {
+// `reading` plays the show in Reading View: inside the window, under its
+// title bar, with a status bar for moving through it.
+async function present(options = {}) {
+  const reading = !!options?.reading;
   await settled();
   if (document.querySelector("dialog.presenter[open]")) return;
   const pres = doc.pres;
@@ -13473,6 +13782,31 @@ async function present() {
       links.append(node);
     }
   }
+  // Shapes that play effects when clicked get a region of their own.
+  function placeTriggers() {
+    for (const { shapeId, box } of animator?.triggers || []) {
+      if (!box) continue;
+      const shape = P.findShapeById(all[n], Number(shapeId));
+      const name = shape ? P.getShapeName(shape) || "object" : "object";
+      const node = el("button", {
+        type: "button",
+        class: "presenter-link presenter-trigger",
+        title: `Play the effects of ${name}`,
+        "aria-label": `Play the effects of ${name}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          animator?.playTrigger(shapeId);
+        },
+      });
+      Object.assign(node.style, {
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
+      });
+      links.append(node);
+    }
+  }
   function follow(link) {
     if (link.kind === "slide") {
       const i = all.findIndex(
@@ -13492,7 +13826,7 @@ async function present() {
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
-    next = iconButton("Next slide", "ChevronRight", () => show(n + 1));
+    next = iconButton("Next slide", "ChevronRight", () => advance());
   // Speaker notes and the slide to come sit beside the slide when asked for.
   const notesText = el("p", { class: "presenter-notes-text" });
   const upcoming = el("img", {
@@ -13547,6 +13881,13 @@ async function present() {
   let shown = false;
   let ended = false;
   let currentTransition;
+  // The current slide's animations: an advance plays its next click step
+  // before the show moves on.
+  let animator = null;
+  function advance() {
+    if (!ended && animator?.next()) return;
+    show(n + 1);
+  }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -13586,6 +13927,7 @@ async function present() {
     typed = "";
   }
   function showPrevious() {
+    if (!ended && animator?.previous()) return;
     show(ended ? n : n - 1, { backward: true });
   }
   let transitionToken = 0;
@@ -13652,6 +13994,8 @@ async function present() {
       playbackTransition?.durationMs ??
       { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    animator?.destroy();
+    animator = null;
     if (
       shown &&
       (n !== from || wrapped) &&
@@ -13692,8 +14036,19 @@ async function present() {
     // distant ones render once here and are kept for the navigator.
     image.src = cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
+    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    if (backward) animator.finish();
+    else {
+      const playing = animator;
+      Promise.resolve(readiness).then(() => {
+        if (animator === playing) playing.start();
+      });
+    }
     placeLinks(all[n]);
-    counter.textContent = `${n + 1} / ${all.length}`;
+    placeTriggers();
+    counter.textContent = reading
+      ? `Slide ${n + 1} of ${all.length}`
+      : `${n + 1} / ${all.length}`;
     previous.disabled = n === 0 && !showTiming.loop;
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
@@ -13724,6 +14079,8 @@ async function present() {
     syncPause();
   }
   function close() {
+    animator?.destroy();
+    animator = null;
     laser.dispose();
     releaseFonts();
     advanceClock.dispose();
@@ -13774,19 +14131,45 @@ async function present() {
   document.addEventListener("fullscreenchange", syncFullscreen);
   const slideArea = el("div", { class: "presenter-slide-area" }, frame);
   frameObserver.observe(slideArea);
-  const controls = el(
-    "div",
-    { class: "presenter-controls" },
-    button("Exit", "X", close),
-    previous,
-    counter,
-    next,
-    notesButton,
-    laserButton,
-    pauseButton,
-    timer,
-    fullscreen,
-  );
+  const controls = reading
+    ? readingBar({
+        previous,
+        next,
+        counter,
+        count: all.length,
+        current: () => n,
+        show: (i) => show(i, { backward: i < n }),
+        close,
+        titleOf: (i) => slideTitle(all[i], pres),
+        // Another view from the bar: the show ends on the slide it reached.
+        switchTo: (id) => {
+          const part = P.getSlidePartName(all[n]);
+          close();
+          const at = P.getSlides(doc.pres).findIndex(
+            (s) => P.getSlidePartName(s) === part,
+          );
+          if (at >= 0) index = at;
+          if (id === "show") present({ from: "current" }).catch(fail);
+          else {
+            renderSlideArea();
+            setView(id);
+          }
+        },
+      })
+    : el(
+        "div",
+        { class: "presenter-controls" },
+        button("Exit", "X", close),
+        previous,
+        counter,
+        next,
+        notesButton,
+        laserButton,
+        pauseButton,
+        timer,
+        fullscreen,
+      );
+  if (reading) placeReadingDialog(d);
   controlsObserver.observe(controls);
   stage.append(slideArea, notes, status, controls);
   d.append(stage);
@@ -13814,7 +14197,10 @@ async function present() {
     // own print would only produce a blank page behind the slideshow.
     if ((e.ctrlKey || e.metaKey) && ["p", "s"].includes(e.key.toLowerCase())) {
       e.preventDefault();
-      (e.key.toLowerCase() === "p" ? printDeck() : saveCloud()).catch(fail);
+      (e.key.toLowerCase() === "p"
+        ? fileTools.openPrintDialog()
+        : saveCloud()
+      ).catch(fail);
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -13836,7 +14222,7 @@ async function present() {
       (e.key === "Enter" && !typed)
     ) {
       e.preventDefault();
-      show(n + 1);
+      advance();
     }
     if (
       key === "p" ||
@@ -13900,7 +14286,7 @@ async function present() {
       close();
       return;
     }
-    if (currentTransition?.advanceOnClick !== false) show(n + 1);
+    if (currentTransition?.advanceOnClick !== false) advance();
   });
   stage.addEventListener("click", (e) => {
     if (e.target.closest(".presenter-controls")) return;
@@ -13938,7 +14324,7 @@ async function present() {
       const dy = end.clientY - start.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         swiped = true;
-        if (dx < 0) show(n + 1);
+        if (dx < 0) advance();
         else showPrevious();
       }
     },
@@ -13962,55 +14348,6 @@ async function present() {
     throw error;
   }
 }
-async function printDeck() {
-  const target = doc;
-  if (!target) return;
-  await settled();
-  if (doc !== target) return;
-  const slides = P.getSlides(doc.pres).filter((s) => !P.isSlideHidden(s));
-  if (!slides.length) {
-    toast("There are no visible slides to print.");
-    return;
-  }
-  if (slides.some((s) => slideHasDateFields(doc.pres, s))) {
-    P.refreshPresentationFields(doc.pres);
-    renderSlideArea();
-  }
-  const size = currentSize();
-  const width = size.cx / 914400;
-  const height = size.cy / 914400;
-  const print = el(
-    "div",
-    { id: "print-slides", style: `--print-slide-height: ${height}in` },
-    el("style", { media: "print" }, `@page { size: ${width}in ${height}in; }`),
-    // The navigator already rendered nearby slides from this same state.
-    ...slides.map((s) =>
-      el(
-        "div",
-        { class: "print-page" },
-        el("img", {
-          src: cachedPreview(doc.previews, doc.pres, s),
-          alt: slideDescription(s, doc?.pres),
-        }),
-      ),
-    ),
-  );
-  document.querySelector("#print-slides")?.remove();
-  document.body.append(print);
-  await Promise.all(
-    [...print.querySelectorAll("img")].map((img) =>
-      img.decode().catch(() => {}),
-    ),
-  );
-  if (doc !== target) {
-    print.remove();
-    return;
-  }
-  if (!print.isConnected) return;
-  window.print();
-  setTimeout(() => print.remove(), 1000);
-}
-
 document.addEventListener("keydown", (e) => {
   if (
     e.defaultPrevented ||
@@ -14034,12 +14371,15 @@ document.addEventListener("keydown", (e) => {
     );
   const mod = e.ctrlKey || e.metaKey;
   if (review.keydown(e)) return;
+  if (!typing && animationTools.onKey(e)) return;
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();
     (e.shiftKey ? saveCopy() : saveCloud()).catch(fail);
     return;
   }
+  // The views by number (Cmd/Ctrl+1 to 5), Show Outline, and the grid.
+  if (views.keydown(e)) return;
   if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "o") {
     e.preventDefault();
     if (editing) e.target.blur();
@@ -14049,7 +14389,7 @@ document.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "p") {
     e.preventDefault();
     if (editing) e.target.blur();
-    printDeck().catch(fail);
+    fileTools.openPrintDialog().catch(fail);
     return;
   }
   // F5 presents from the first slide, Shift+F5 from the current one.

@@ -483,7 +483,6 @@ export function createReview(base) {
       comments.syncStatus();
     },
     decorateThumb: (thumb, slide) => comments.decorateThumb(thumb, slide),
-    statusButton: () => comments.statusButton(),
     accessibilityStatus: () => accessibility.statusText(),
     blocksEdits: () => final.blocksEdits(),
     blockedEdit: () => final.blockedEdit(),

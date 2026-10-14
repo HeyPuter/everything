@@ -27,6 +27,13 @@ dependencies are not shipped or installed. Browser previews use device fonts
 and the separately licensed packaged families described below.
 The app's existing PNG export uses browser rasterization of the same SVG.
 
+Export and print add no dependencies. The PDF writer (`src/export/pdf-writer.js`),
+animated GIF encoder (median-cut palettes, LZW), and the WebM and MP4
+containers for WebCodecs output are original code in this repository; video
+frames are encoded by the browser (WebCodecs, else MediaRecorder). PDF text
+uses the standard Helvetica faces, which are referenced by name and never
+embedded. Compression for PDF streams reuses the existing `fflate` dependency.
+
 ## Other dependencies
 
 The `fflate` 0.8.3 patch makes synchronous ZIP extraction reject DEFLATE output that disagrees with the directory's declared size. Decoding stops before writing past that bound, keeping false size headers from bypassing the application's decompressed-data limit or silently truncating package parts. Archive-end detection also checks the declared comment length, matching the application validator so signature bytes inside ZIP comments do not prevent importing valid decks. Both browser and Node ESM entry points used by the PPTX library are patched. The public `inflateSync` API's documented output-buffer truncation behavior is unchanged.
