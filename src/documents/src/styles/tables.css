@@ -20,6 +20,9 @@
 .table-align-grid { display: grid; grid-template-columns: repeat(3, 24px); grid-auto-rows: 22px; gap: 2px; align-content: center; padding: 0 2px; }
 .table-align-grid > button.ribbon-small { width: 24px; height: 22px; min-width: 0; padding: 0; justify-content: center; }
 .table-align-grid > button[aria-pressed="true"] { background: var(--ed-accent-wash, var(--accent-wash)); box-shadow: inset 0 0 0 1px var(--ed-accent); }
+/* Table Layout holds many groups: its two-word large commands wrap to their longest word, so the
+   Alignment group still fits a 1280px window with wider system fonts. */
+#ribbon-panel-tableLayout button.ribbon-large:not(:has(> .is-one-word)) { width: min-content; }
 .ribbon-pen-indicator { position: absolute; left: 7px; bottom: 3px; width: 14px; height: 3px; border-radius: 1px; pointer-events: none; }
 button[aria-label="Pen Color"] { position: relative; }
 
