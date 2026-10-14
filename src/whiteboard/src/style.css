@@ -5910,7 +5910,8 @@ dialog.history-dialog[open] {
 }
 @media (max-width: 760px) {
   /* Above the tool row and the undo and zoom row, both at the bottom; the
-     minimap, which it would cover, waits as for the side panels. */
+     minimap, which it would cover, waits as for the side panels. A docked
+     selection toolbar or workshop banner moves it lower, from the script. */
   .workshop-timer.panel {
     left: 12px;
     top: 76px;

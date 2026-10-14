@@ -4714,6 +4714,7 @@ function draw() {
   comments.render();
   objectLinks.render();
   facilitation.render();
+  workshopTimer.place();
   contentTools.render();
   tags.render();
   hideAccess(

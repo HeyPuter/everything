@@ -487,3 +487,55 @@ test("a timer opened under a side panel on a phone has the panel closed, or stay
     b.close();
   }
 });
+test("on a phone the open timer sits below the docked selection toolbar and workshop banner", () => {
+  const a = setup();
+  let phone = true;
+  a.w.matchMedia = (query) => ({
+    matches: query === "(max-width: 760px)" && phone,
+  });
+  const host = a.query(".canvas-wrap");
+  host.insertAdjacentHTML(
+    "beforeend",
+    '<div id="selection-tools" class="panel"></div><div id="workshop-banner" class="panel"></div><div class="left-rail"><div class="tools panel"></div></div><div class="canvas-bottom"><div class="zoom-tools panel"></div></div>',
+  );
+  // A 390 by 753 canvas below the header, as on a phone.
+  const boxes = {
+    "canvas-wrap": [91, 844],
+    "selection-tools": [153, 311],
+    "workshop-banner": [319, 361],
+    tools: [678, 765],
+    "zoom-tools": [781, 828],
+  };
+  for (const name of Object.keys(boxes))
+    (a.query(`#${name}`) || a.query(`.${name}`)).getBoundingClientRect = () => {
+      const [top, bottom] = boxes[name];
+      return { top, bottom, height: bottom - top, left: 0, width: 300 };
+    };
+  try {
+    a.ui.open();
+    const timer = a.query("#workshop-timer");
+    a.ui.place();
+    // Below the banner, 8 pixels clear, and above the tool rows.
+    assert.equal(timer.style.top, `${361 + 8 - 91}px`);
+    assert.equal(timer.style.maxHeight, `${678 - 8 - 369}px`);
+    // A screen too short to leave it room above the tool rows: it covers
+    // them rather than the selection toolbar or the banner.
+    boxes.tools = [402, 489];
+    a.ui.place();
+    assert.equal(timer.style.top, `${361 + 8 - 91}px`);
+    assert.equal(timer.style.maxHeight, `${844 - 12 - 369}px`);
+    // Nothing docked: the stylesheet's place.
+    a.query("#selection-tools").classList.add("is-floating");
+    a.query("#workshop-banner").hidden = true;
+    a.ui.place();
+    assert.equal(timer.style.top, "");
+    assert.equal(timer.style.maxHeight, "");
+    // Wider screens keep the stylesheet's place too.
+    a.query("#workshop-banner").hidden = false;
+    phone = false;
+    a.ui.place();
+    assert.equal(timer.style.top, "");
+  } finally {
+    a.close();
+  }
+});
