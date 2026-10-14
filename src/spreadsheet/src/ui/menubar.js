@@ -263,6 +263,7 @@ export function menubarMenus(f = {}) {
       i('From a URL…', 'external', 'insertImageUrl'),
     ]),
     i('Text box…', 'text', 'insertTextBox'),
+    i('SmartArt…', 'smartArt', 'smartArt', { action: 'insertDialog' }),
     i('Slicer…', 'slicer', 'insertSlicer', null, { disabled: !f.hasTable && !f.pivotReport }),
     i('Timeline…', 'timeline', 'insertTimeline', null, { disabled: !f.pivotReport }),
     sep,

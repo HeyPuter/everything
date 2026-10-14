@@ -59,6 +59,8 @@ import { chartData, chartTitles, CHART_MIN_W, CHART_MIN_H, IMAGE_MIN, TEXT_MIN, 
 import { renderChartSvg, renderSparklineSvg, chartCornerRadius, themeSeriesKey } from './chartsvg.js';
 import { equationBody } from './equation-view.js';
 import { textBoxEffectCss } from '../core/theme-effects.js';
+import { smartArtSvg, smartArtAltText, SMARTART_MIN } from '../core/smartart.js';
+import { smartArtLook } from './smartart.js';
 import { paintCellFill } from './cell-fill.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { nativeFillOverridesNormal } from '../core/native-fill.js';
@@ -1948,13 +1950,14 @@ export function createGrid(opts) {
         // clip here would cut off corners extending beyond the original frame.
         if (image) body.style.overflow = 'visible';
         const textBox = ch.type === 'text';
-        const noun = ch.type === 'slicer' ? 'slicer' : ch.type === 'timeline' ? 'timeline' : ch.type === 'scroll' ? 'scroll bar' : image ? 'image' : textBox ? ch.equation ? 'equation' : 'text box' : 'chart';
+        const smartArt = ch.type === 'smartart';
+        const noun = ch.type === 'slicer' ? 'slicer' : ch.type === 'timeline' ? 'timeline' : ch.type === 'scroll' ? 'scroll bar' : image ? 'image' : textBox ? ch.equation ? 'equation' : 'text box' : smartArt ? 'SmartArt text' : 'chart';
         const tools = el('div.chart-tools', {},
           el('button.chart-tool.chart-open-link', { type: 'button', title: 'Open link', 'aria-label': 'Open link', onclick: e => { e.stopPropagation(); if (safeLinkUrl(wb.chartById(sheetId, ch.id)?.hyperlink)) opts.onCommand?.('openDrawingLink', ch.id); } }, 'Open link'),
           !image && el('button.chart-tool', { type: 'button', title: `Edit ${noun}`, 'aria-label': `Edit ${noun}`, onclick: (e) => { e.stopPropagation(); opts.onCommand?.('editChart', ch.id); } }, 'Edit'),
           el('button.chart-tool', { type: 'button', title: `Delete ${noun}`, 'aria-label': `Delete ${noun}`, onclick: (e) => { e.stopPropagation(); opts.onCommand?.('deleteChart', ch.id); } }, 'Delete'));
         const handle = el('div.chart-resize', { title: 'Resize' });
-        const node = el('div.chart-box', { dataset: { chart: ch.id }, className: `chart-box${image ? ' image-box' : ''}${textBox ? ' text-box' : ''}`, role: textBox ? 'note' : 'figure', tabindex: -1 }, body, tools, handle);
+        const node = el('div.chart-box', { dataset: { chart: ch.id }, className: `chart-box${image ? ' image-box' : ''}${textBox ? ' text-box' : ''}${smartArt ? ' smartart-box' : ''}`, role: textBox ? 'note' : 'figure', tabindex: -1 }, body, tools, handle);
         // Where a frozen pane has scrolled over the box, the presses are for the frozen cells drawn over it.
         node.addEventListener('pointerdown', (e) => chartPointerDown(e, ch.id, e.target === handle));
         // A double-click opens what the object has to edit: the chart or text dialog, or the picker for a
@@ -2074,6 +2077,20 @@ export function createGrid(opts) {
           box.body.style.overflow = effect.filter ? 'visible' : '';
           box.el.classList.toggle('borderless', ch.style?.border === false);
           box.el.setAttribute('aria-label', ch.decorative ? `Decorative ${ch.equation ? 'equation' : 'text box'}` : ch.equation ? `Equation: ${text.slice(0, 80)}` : `Text box: ${text.slice(0, 80) || 'empty'}`);
+        }
+        continue;
+      }
+      if (ch.type === 'smartart') {
+        // A SmartArt diagram is drawn from its outline each time it changes, in the workbook's theme, with the
+        // shapes picked in it framed while it is selected.
+        const look = smartArtLook(wb), picked = objectSelected(ch.id) ? opts.smartArtSelection?.(ch.id) || null : null;
+        const sig = JSON.stringify([ch.layout, ch.items, ch.colors, ch.style, ch.rtl, ch.w, ch.h, look, picked && [...picked], ch.fallback?.src?.length, ch.decorative, ch.description]);
+        box.el.classList.add('borderless');
+        if (box.sig !== sig) {
+          box.sig = sig;
+          box.body.innerHTML = ch.fallback ? `<img class="smartart-fallback" alt="" draggable="false" src="${ch.fallback.src}">`
+            : smartArtSvg(ch, ch.w, ch.h, { ...look, placeholders: true, selected: picked, idPrefix: `sa-${String(ch.id).replace(/[^\w-]/g, '')}` });
+          box.el.setAttribute('aria-label', ch.decorative ? 'Decorative SmartArt graphic' : `SmartArt graphic: ${(ch.description || smartArtAltText(ch)).slice(0, 300)}`);
         }
         continue;
       }
@@ -2299,7 +2316,7 @@ export function createGrid(opts) {
     schedule();
     if (id) {
       const ch = wb.chartById(sheetId, id);
-      if (ch) opts.announce?.(safeLinkUrl(ch.hyperlink) ? `${ch.hyperlinkTooltip || ch.title || 'Linked drawing'} selected. Press Enter to open link, Delete to remove` : ch.type === 'image' ? `${ch.title || 'Image'} selected. Press Delete to remove` : ch.type === 'text' ? 'Text box selected. Press Enter to edit, Delete to remove' : `${chartTitles(wb, sheetId, ch).title ?? (ch.title || `${ch.type} chart`)} selected. Press Enter to edit, Delete to remove`);
+      if (ch) opts.announce?.(safeLinkUrl(ch.hyperlink) ? `${ch.hyperlinkTooltip || ch.title || 'Linked drawing'} selected. Press Enter to open link, Delete to remove` : ch.type === 'smartart' ? 'SmartArt graphic selected. Press Enter to type its text, Delete to remove' : ch.type === 'image' ? `${ch.title || 'Image'} selected. Press Delete to remove` : ch.type === 'text' ? 'Text box selected. Press Enter to edit, Delete to remove' : `${chartTitles(wb, sheetId, ch).title ?? (ch.title || `${ch.type} chart`)} selected. Press Enter to edit, Delete to remove`);
     }
   }
 
@@ -2313,7 +2330,11 @@ export function createGrid(opts) {
     // Shift- or Cmd/Ctrl-click adds the object to those selected (or takes it out); a press on one of several
     // selected keeps them all, so they move together.
     const adding = !onHandle && (e.shiftKey || e.metaKey || e.ctrlKey);
-    if (adding) selectChart(id, { add: true });
+    // A press on a shape of a SmartArt diagram already selected picks that shape (Shift or Cmd/Ctrl: adds it).
+    const pickedShape = ch.type === 'smartart' && !onHandle && objectSelected(id) ? e.target.closest?.('[data-item]') : null;
+    const pickedPart = ch.type === 'smartart' && !onHandle && objectSelected(id) && selectedSet.size <= 1;
+    if (pickedPart) { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
+    else if (adding) selectChart(id, { add: true });
     else if (!(objectSelected(id) && selectedSet.size > 1)) selectChart(id);
     else { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
     if (!objectSelected(id)) return;
@@ -2356,8 +2377,8 @@ export function createGrid(opts) {
         drag.rect = { ...drag.from, left, top };
         drag.shift = { x: left - drag.from.left, y: top - drag.from.top };
       } else {
-        const minW = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : CHART_MIN_W) * objectScale;
-        const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : CHART_MIN_H) * objectScale;
+        const minW = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_W) * objectScale;
+        const minH = (ch.type === 'scroll' ? 12 : ch.type === 'image' ? IMAGE_MIN : ch.type === 'text' ? TEXT_MIN : ch.type === 'smartart' ? SMARTART_MIN : CHART_MIN_H) * objectScale;
         let width = Math.max(minW, drag.from.width + dx);
         let height = Math.max(minH, drag.from.height + dy);
         // Images keep their proportions unless Shift is held.
@@ -2380,6 +2401,7 @@ export function createGrid(opts) {
     const up = () => {
       const d = end();
       if (!d || !d.moved) {
+        if (d && pickedPart) opts.onCommand?.('smartArt', { action: 'pick', id, item: pickedShape ? Number(pickedShape.dataset.item) : null, add: adding });
         if (d && !onHandle && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && safeLinkUrl(ch.hyperlink)) opts.onCommand?.('openDrawingLink', id);
         schedule(); return;
       }

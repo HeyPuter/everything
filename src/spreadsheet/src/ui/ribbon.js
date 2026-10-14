@@ -19,6 +19,7 @@ import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-
 import { activeChart } from './chart-actions.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
+import { activeSmartArt, smartArtDesignGroups, smartArtFormatGroups } from './smartart.js';
 
 /** The menus' commands, flattened once for each set of menus however many buttons look in them. */
 const leavesOf = new WeakMap();
@@ -232,7 +233,11 @@ const groupsFor = name => ({
   ],
   Insert: [
     ['Tables', large(c('PivotTable', 'pivot', 'pivot')), large(direct('Recommended PivotTables', 'pivotRecommend', 'recommendedPivots', null)), large(c('Table', 'table', 'insertTable'))],
-    ['Illustrations', large(m('Pictures', 'pictures', 'insert', 'Image')), direct('Shapes', 'shapes', 'shapesMenu', null), direct('Icons', 'icons', 'iconsDialog', null)],
+    ['Illustrations', large(m('Pictures', 'pictures', 'insert', 'Image')), direct('Shapes', 'shapes', 'shapesMenu', null), direct('Icons', 'icons', 'iconsDialog', null),
+      { label: 'SmartArt', glyph: 'smartArt', ariaLabel: 'Insert SmartArt graphic', resolve: (menus, ctx) => {
+        const f = ctx?.flags?.() || {};
+        return { label: 'SmartArt', cmd: 'smartArt', arg: { action: 'insertDialog' }, disabled: !!f.editing || !!f.chartSheet || !!f.grouped };
+      } }],
     chartInsertGroup(),
     ['Sparklines', a('Line', 'sparkLine', 'insertSparklines', 'line', { ariaLabel: 'Insert line sparklines' }),
       a('Column', 'sparkColumn', 'insertSparklines', 'column', { ariaLabel: 'Insert column sparklines' }),
@@ -248,6 +253,8 @@ const groupsFor = name => ({
   Draw: drawRibbonGroups(),
   'Chart Design': chartDesignGroups(),
   Format: chartFormatGroups(),
+  'SmartArt Design': smartArtDesignGroups(),
+  'SmartArt Format': smartArtFormatGroups(),
   'Page Layout': [
     ['Themes', large(direct('Themes', 'palette', 'themesMenu', null)), direct('Colors', 'themeColors', 'themeColorsMenu', null, { ariaLabel: 'Theme Colors' }),
       direct('Fonts', 'themeFonts', 'themeFontsMenu', null, { ariaLabel: 'Theme Fonts' }), direct('Effects', 'themeEffects', 'themeEffectsMenu', null)],
@@ -406,9 +413,14 @@ export function createRibbon(ctx) {
   const root = el('div.ribbon.toolbar');
   const id = fieldId('ribbon');
   const tabs = el('div.ribbon-tabs', { role: 'tablist', 'aria-label': 'Ribbon' });
-  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format'];
+  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format', 'SmartArt Design', 'SmartArt Format'];
   const CHART_TABS = ['Chart Design', 'Format'];
+  // A selected SmartArt graphic offers its own two tabs; the second is called Format, as a chart's is.
+  const SMARTART_TABS = ['SmartArt Design', 'SmartArt Format'];
+  const tabLabel = name => (name === 'SmartArt Format' ? 'Format' : name);
+  const contextualTab = name => name === 'Table' || CHART_TABS.includes(name) || SMARTART_TABS.includes(name);
   let chartId = null;
+  let smartArtId = null;
   const panels = [];
   const buttons = [];
   const dynamic = [];
@@ -503,6 +515,7 @@ export function createRibbon(ctx) {
     const tab = el('button.ribbon-tab', {
       type: 'button', role: 'tab', id: `${panelId}-tab`, 'aria-controls': panelId,
       'aria-selected': String(name === active), tabindex: name === active ? 0 : -1,
+      ...(name === 'SmartArt Format' ? { 'aria-label': 'SmartArt Format' } : {}),
       onclick: e => { if (e.detail <= 1) clickExpanded = collapsed; select(name); },
       ondblclick: () => { if (clickExpanded) clickExpanded = false; else setCollapsed(!collapsed); },
       onkeydown: e => {
@@ -513,7 +526,7 @@ export function createRibbon(ctx) {
         if (next !== null) { e.preventDefault(); select(names[buttons.indexOf(list[next])], { expand: false }); list[next].focus(); }
         else if (e.key === 'ArrowDown') { e.preventDefault(); setCollapsed(false); enabled(panels[names.indexOf(name)])[0]?.focus(); }
       },
-    }, name);
+    }, tabLabel(name));
     const panel = el('div.ribbon-panel', { id: panelId, role: 'tabpanel', 'aria-labelledby': tab.id, hidden: name !== active });
     if (name === 'Home') {
       panel.append(toolbar.el);
@@ -547,6 +560,7 @@ export function createRibbon(ctx) {
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
     if (CHART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
+    if (SMARTART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-smartart-tab');
     buttons.push(tab); panels.push(panel); tabs.append(tab);
   }
   const toggle = el('button.ribbon-collapse', { type: 'button', 'aria-controls': `${id}-panels`, onclick: () => setCollapsed(!collapsed) });
@@ -620,10 +634,10 @@ export function createRibbon(ctx) {
   const enabled = panel => [...panel.querySelectorAll('.tb-btn, .ribbon-control')].filter(b => !b.disabled && !b.closest('[hidden], [inert]'));
   const rove = (panel, target) => { for (const b of panel.querySelectorAll('.tb-btn, .ribbon-control')) b.tabIndex = b === target ? 0 : -1; };
   function select(name, { expand = true } = {}) {
-    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId)) return;
+    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId) || (SMARTART_TABS.includes(name) && !smartArtId)) return;
     active = name;
     tableNameError.hidden = true;
-    if (name !== 'Table' && !CHART_TABS.includes(name)) lastRegular = name;
+    if (!contextualTab(name)) lastRegular = name;
     if (collapsed && expand) setCollapsed(false);
     refresh();
   }
@@ -656,8 +670,17 @@ export function createRibbon(ctx) {
       else if (!chartId && CHART_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
     }
     for (const name of CHART_TABS) buttons[names.indexOf(name)].hidden = !chartId;
+    // A selected SmartArt graphic offers SmartArt Design and Format, and opens on SmartArt Design.
+    const nextSmartArtId = flags.editing ? smartArtId : activeSmartArt(ctx)?.id || null;
+    if (nextSmartArtId !== smartArtId) {
+      const fresh = !smartArtId && nextSmartArtId;
+      smartArtId = nextSmartArtId;
+      if (fresh && !collapsed && !flags.editing) active = 'SmartArt Design';
+      else if (!smartArtId && SMARTART_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
+    }
+    for (const name of SMARTART_TABS) buttons[names.indexOf(name)].hidden = !smartArtId;
     const contextual = buttons[names.indexOf('Table')];
-    contextual.hidden = !tableId || !!chartId;
+    contextual.hidden = !tableId || !!chartId || !!smartArtId;
     // A chart chosen over a collapsed ribbon hides the Table tab without opening Chart Design: never leave a hidden tab selected.
     if (buttons[names.indexOf(active)].hidden) active = lastRegular;
     if (contextualScrollPending && active === 'Table') {

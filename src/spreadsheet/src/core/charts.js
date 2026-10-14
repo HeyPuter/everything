@@ -55,6 +55,7 @@ import { normalizeSlicer } from './slicer.js';
 import { normalizeTimeline } from './timeline.js';
 import { normalizeNativeDrawing, validDrawingKey } from './drawingml-native.js';
 import { pictureRect } from './picture-geometry.js';
+import { normalizeSmartArt, SMARTART_MIN } from './smartart.js';
 
 import { normalizeRange } from './cell.js';
 import { HIERARCHY_TYPES, STOCK_KINDS, fillDownLevels } from './chart-special.js';
@@ -131,6 +132,9 @@ export const TEXT_MIN = 40;
 export const TEXT_MAX_LENGTH = 4000;
 export const CHART_DESCRIPTION_MAX_LENGTH = 32767;
 export const TEXT_SIZES = [10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48];
+
+/** A SmartArt diagram floating over the sheet (see smartart.js). */
+export const isSmartArt = (obj) => obj?.type === 'smartart';
 
 /** A text box floating over the sheet: a label, a note, a title for a dashboard. */
 export function isTextBox(obj) {
@@ -284,6 +288,25 @@ function normalizeChartBody(raw) {
       ...(raw.flipV ? { flipV: true } : {}),
       ...(Number.isFinite(raw.rotation) && raw.rotation % 360 ? { rotation: ((raw.rotation % 360) + 360) % 360 } : {}),
       ...(raw.border === false ? { border: false } : {}),
+    };
+  }
+  if (raw.type === 'smartart') {
+    // A SmartArt diagram (see smartart.js): its outline, layout, colours and style; drawn from them each time.
+    const anchor = { r: Math.max(0, num(raw.anchor.r, 0) | 0), c: Math.max(0, num(raw.anchor.c, 0) | 0) };
+    const min = raw.nativeSize ? 1 : SMARTART_MIN;
+    return {
+      id: raw.id,
+      type: 'smartart',
+      ...common,
+      ...normalizeSmartArt(raw),
+      ...(raw.nativeSize ? { nativeSize: true } : {}),
+      range: { r1: anchor.r, c1: anchor.c, r2: anchor.r, c2: anchor.c },
+      title: typeof raw.title === 'string' ? raw.title.slice(0, 200) : '',
+      anchor,
+      dx: num(raw.dx, 0),
+      dy: num(raw.dy, 0),
+      w: Math.max(min, num(raw.w, 480)),
+      h: Math.max(min, num(raw.h, 300)),
     };
   }
   if (raw.type === 'text') {

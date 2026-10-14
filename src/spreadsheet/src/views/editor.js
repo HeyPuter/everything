@@ -100,6 +100,9 @@ import { openCustomViews } from '../ui/customviews.js';
 import { openZoomDialog } from '../ui/zoomdialog.js';
 import { openSheetViewOptions, askViewName, nextViewName } from '../ui/sheetviews.js';
 import { createSelectionPane } from '../ui/selection-pane.js';
+import { createSmartArtUi, runSmartArtAction, smartArtLook } from '../ui/smartart.js';
+import { createSmartArtPane } from '../ui/smartart-pane.js';
+import { smartArtSvg, smartArtAltText } from '../core/smartart.js';
 import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
@@ -331,7 +334,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onCommand: (cmd, arg) => run(cmd, arg),
     onFilled: (info) => offerAutoFill(info),
     // A chart's own elements (Chart Design, Format and the Format pane) follow the chart selected on the grid.
-    onChartSelection: (id) => { chartUi?.chartSelected(id); notify(); },
+    onChartSelection: (id) => { chartUi?.chartSelected(id); ctx.smartArt?.chartSelected(id); notify(); },
+    // A SmartArt diagram draws the shapes picked in it (a click on one, or the Text Pane's cursor) framed.
+    smartArtSelection: (id) => ctx.smartArt?.selected(id),
     onChartKey: (e, id) => !!chartUi?.onChartKey(e, id),
     canOpen: P.canPickFiles(), // Ctrl+O only where a file picker exists
     onContextMenu: (info) => openCellContextMenu(ctx, info),
@@ -361,6 +366,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }),
   });
   ctx.grid = grid;
+  // SmartArt: the shapes picked in a diagram, and its Text Pane (made below with the other task panes).
+  ctx.notify = notify;
+  ctx.refused = (what) => refusedByProtection(what);
+  ctx.smartArt = createSmartArtUi(ctx);
   // The Paste Options and Auto Fill Options button, at the corner of what was just pasted or filled.
   const optionButton = createOptionButton({ grid, host: grid.el });
   let lastPaste = null; // { text, html, paste, from, mark, external }: what the Paste Options button pastes again
@@ -3520,6 +3529,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'chart': return runChartAction(ctx, arg);
+      case 'smartArt': { if (!committed()) return; const changed = runSmartArtAction(ctx, arg); if (changed) keepFocusUnlessPane(); notify(); return; }
       case 'editChart': {
         const chart = wb.chartById(sheetId, arg || grid.selectedChart);
         if (chart?.type === 'slicer') openSlicerDialog(ctx, chart);
@@ -3527,6 +3537,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (chart?.type === 'scroll') openScrollDialog(ctx, chart);
         else if (chart?.type === 'text' && chart.equation) openEquationDialog(ctx, { equation: chart });
         else if (chart?.type === 'text') openTextBoxDialog(ctx, { textbox: chart });
+        else if (chart?.type === 'smartart') { grid.selectChart(chart.id, { focus: false }); smartArtPane.show({ focus: true }); }
         else if (chart && chart.type !== 'image') openChartDialog(ctx, { chart });
         return;
       }
@@ -3537,7 +3548,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const kind = wb.chartById(sheetId, id)?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
-        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
+        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : kind === 'smartart' ? 'SmartArt deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
         keepFocus();
         return;
       }
@@ -3573,7 +3584,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { toast('This browser cannot copy images; use Download instead', { icon: 'info', duration: 3500 }); return; }
         try {
           let blob;
-          if (ch.type === 'image') {
+          if (ch.type === 'smartart') blob = await svgToPng(smartArtPicture(ch), ch.w, ch.h);
+          else if (ch.type === 'image') {
             const raw = await (await fetch(ch.src)).blob();
             blob = raw.type === 'image/png' && !ch.flipH && !ch.flipV && !ch.srcRect && !ch.fillRect && !ch.rotation ? raw : await imageToPng(ch.src, ch);
           } else {
@@ -3582,7 +3594,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             blob = await svgToPng(svg, ch.w, ch.h);
           }
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          toast(ch.type === 'image' ? 'Image copied' : 'Chart copied as a picture', { icon: 'copy', duration: 1800 });
+          toast(ch.type === 'image' ? 'Image copied' : ch.type === 'smartart' ? 'SmartArt copied as a picture' : 'Chart copied as a picture', { icon: 'copy', duration: 1800 });
         } catch (e) {
           console.error(e);
           toast('Could not copy the picture', { icon: 'alert' });
@@ -3597,7 +3609,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         try {
           let blob;
           let name;
-          if (ch.type === 'image') {
+          if (ch.type === 'smartart') {
+            const format = arg?.format === 'svg' ? 'svg' : 'png', svg = smartArtPicture(ch);
+            blob = format === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg, ch.w, ch.h);
+            name = `${P.sanitizeName(ch.name || 'SmartArt') || 'SmartArt'}.${format}`;
+          } else if (ch.type === 'image') {
             if (ch.flipH || ch.flipV || ch.srcRect || ch.fillRect || ch.rotation) blob = await imageToPng(ch.src, ch);
             else {
               const drawing = ch.drawingShape && await (await import('../core/drawingml-raster.js')).drawingRasterSource(ch.src, ch);
@@ -3871,6 +3887,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
     const png = file.type === 'image/png';
     return { src: canvas.toDataURL(png ? 'image/png' : 'image/jpeg', 0.86), width: canvas.width, height: canvas.height };
+  }
+
+  /** A SmartArt diagram as a picture of its own, in the workbook's theme (one another program drew, as it drew it). */
+  function smartArtPicture(ch) {
+    if (ch.fallback?.src) return decodeURIComponent(escape(atob(ch.fallback.src.split(',')[1])));
+    return smartArtSvg(ch, ch.w, ch.h, { ...smartArtLook(wb), idPrefix: 'sap', label: ch.decorative ? '' : ch.description || smartArtAltText(ch) });
+  }
+  /** After a SmartArt command the keyboard goes back to the sheet, unless the Text Pane has it. */
+  function keepFocusUnlessPane() {
+    if (!ctx.smartArt?.pane?.el.contains(document.activeElement)) keepFocus();
   }
 
   function svgToPng(svg, width, height) {
@@ -5565,6 +5591,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     translate: P.canAI() ? (text, from, to) => aiTranslate(translatePrompt(text, from || '', to || 'English')) : null });
   // Page Layout ▸ Arrange ▸ Selection Pane: the sheet's drawing objects, front first.
   selectionPane = createSelectionPane({ ...ctx, run, notify });
+  // SmartArt Design ▸ Text Pane: the selected diagram's outline to type into.
+  const smartArtPane = ctx.smartArt.pane = createSmartArtPane(ctx);
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
@@ -5665,7 +5693,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The page's main landmark: the grid (the panel the sheet tabs control) and the find bar over it.
         // The task panes (Accessibility, Thesaurus and Translate, Changes, Selection, Queries) dock at the grid's right
         // edge, under the ribbon and beside whatever column is open to the right; one at a time (see taskPanes).
-        el('main.editor-grid', {}, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el),
+        el('main.editor-grid', {}, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el, smartArtPane.el),
         sheetTabs.el,
         statusBar.el,
         watchWindow.el,
@@ -5677,7 +5705,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       aiPanel?.el,
       aiPanel?.rail));
   // The task panes over the grid take turns: opening one closes whichever other was open, so none hides another.
-  const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane];
+  const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane, smartArtPane];
   for (const pane of taskPanes) {
     const show = pane.show.bind(pane);
     pane.show = (...args) => {
@@ -6143,6 +6171,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       languagePane.destroy();
       changesPane.destroy();
       selectionPane.destroy();
+      smartArtPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();
