@@ -319,10 +319,16 @@ export class CanvasEditor {
     this.relayout();
   }
   /** Different first page for a section, and different odd and even pages for the document (display only; the package writes them). */
-  setStoryOptions({ section, firstPageDifferent, evenAndOdd } = {}) {
+  setStoryOptions({ section, firstPageDifferent, evenAndOdd, pageNumbering } = {}) {
     const current = this.session.definition || { sections: Array.from({ length: this.session.body.paragraphs.filter(p => p.sectionEnd).length + 1 }, () => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
     this.session.definition = { ...current, ...(evenAndOdd !== undefined ? { evenAndOdd: !!evenAndOdd } : {}),
-      sections: current.sections.map((s, i) => i === section && firstPageDifferent !== undefined ? { ...s, firstPageDifferent: !!firstPageDifferent } : s) };
+      sections: current.sections.map((s, i) => {
+        if (i !== section) return s;
+        const next = firstPageDifferent !== undefined ? { ...s, firstPageDifferent: !!firstPageDifferent } : { ...s };
+        // Page numbering (format and restart) applies to this section's PAGE fields and page count.
+        if (pageNumbering !== undefined) { if (pageNumbering) next.pageNumbering = pageNumbering; else delete next.pageNumbering; }
+        return next;
+      }) };
     this.session.sectionRevision = undefined;
     if (this.session.path !== null) this.editStory(null); else this.relayout();
   }

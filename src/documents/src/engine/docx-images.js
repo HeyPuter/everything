@@ -510,6 +510,25 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
   const images = paragraphs.flatMap(p => p.runs.filter(r => r.image).map(r => r.image)), relations = new Map();
   for (const image of images) if (image.shell) relations.set(image.assetId, image.relId);
   let rels, types;
+  // A drawing inserted in this session brings its own package parts (a chart part, SVG and PNG
+  // media). They are written while the drawing is in the story; undoing the insertion leaves none.
+  for (const image of images) if (image.shell) for (const id of new Set([image.assetId, image.fallbackAssetId])) for (const part of assets[id]?.packageParts || []) {
+    rels ||= parts[relPath] ? parseXml(parts[relPath]) : parseXml(`<Relationships xmlns="${REL}"/>`);
+    types ||= parseXml(parts['[Content_Types].xml']);
+    if (part.relId) {
+      const target = relativePartTarget(sourcePart, part.path), existing = children(rels.documentElement).find(n => n.getAttribute('Id') === part.relId);
+      if (existing && existing.getAttribute('Target') !== target) throw new Error('An inserted drawing\'s relationship conflicts with the document.');
+      if (!existing) {
+        const rel = rels.createElementNS(REL, 'Relationship');
+        for (const [key, value] of Object.entries({ Id: part.relId, Type: part.relType, Target: target })) rel.setAttribute(key, value);
+        rels.documentElement.append(rel);
+      }
+    }
+    parts[part.path] = part.bytes;
+    if (part.contentType && ![...types.documentElement.children].some(n => n.localName === 'Override' && n.getAttribute('PartName') === `/${part.path}`)) {
+      const type = types.createElementNS(types.documentElement.namespaceURI, 'Override'); type.setAttribute('PartName', `/${part.path}`); type.setAttribute('ContentType', part.contentType); types.documentElement.append(type);
+    }
+  }
   for (const image of images) {
     validateImage(image);
     if (image.shell) continue;

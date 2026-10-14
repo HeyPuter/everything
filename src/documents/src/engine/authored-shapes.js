@@ -1,6 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import { readShapeScene } from './docx-shapes.js';
 import { validateImage } from './images.js';
+import { PRESET_CATEGORIES } from './preset-geometries.js';
 
 /**
  * Shapes inserted from Insert → Shapes. Each is written as ordinary WordprocessingML DrawingML — a
@@ -18,7 +19,7 @@ const NS = {
 export const EMU_PER_INCH = 914400;
 
 /** [preset, name, group, width, height] in inches. Lines are drawn left to right. */
-export const SHAPE_PRESETS = Object.freeze([
+const BASE_PRESETS = [
   ['line', 'Line', 'Lines', 1.5, 0], ['straightArrow', 'Line Arrow', 'Lines', 1.5, 0],
   ['rect', 'Rectangle', 'Rectangles', 1.5, 1], ['roundRect', 'Rounded Rectangle', 'Rectangles', 1.5, 1],
   ['ellipse', 'Oval', 'Basic Shapes', 1.25, 1.25], ['triangle', 'Isosceles Triangle', 'Basic Shapes', 1.25, 1.1], ['rtTriangle', 'Right Triangle', 'Basic Shapes', 1.25, 1.1],
@@ -29,8 +30,30 @@ export const SHAPE_PRESETS = Object.freeze([
   ['downArrow', 'Down Arrow', 'Block Arrows', 0.8, 1.5], ['leftRightArrow', 'Left-Right Arrow', 'Block Arrows', 1.75, 0.8], ['chevron', 'Chevron', 'Block Arrows', 1.25, 1],
   ['homePlate', 'Pentagon Arrow', 'Block Arrows', 1.5, 0.8],
   ['star5', '5-Point Star', 'Stars and Banners', 1.25, 1.2], ['star4', '4-Point Star', 'Stars and Banners', 1.25, 1.25],
-]);
+];
+/** Gallery names for the presets preset-geometries-more.js adds, in this app's own words. */
+const NAMES = { snip1Rect: 'Snipped Corner Rectangle', snip2SameRect: 'Snipped Top Corners', snip2DiagRect: 'Snipped Diagonal Corners', snipRoundRect: 'Snipped and Rounded Rectangle',
+  round1Rect: 'Rounded Corner Rectangle', round2DiagRect: 'Rounded Diagonal Corners', can: 'Cylinder', foldedCorner: 'Folded Corner', smileyFace: 'Smiley Face', lightningBolt: 'Lightning Bolt',
+  blockArc: 'Block Arc', noSmoking: 'Circle with Slash', bracketPair: 'Double Bracket', bracePair: 'Double Brace', leftBracket: 'Left Bracket', rightBracket: 'Right Bracket', leftBrace: 'Left Brace', rightBrace: 'Right Brace',
+  corner: 'L-Shape', diagStripe: 'Diagonal Stripe', upDownArrow: 'Up-Down Arrow', quadArrow: 'Four-Way Arrow', leftRightUpArrow: 'Three-Way Arrow', leftUpArrow: 'Left-Up Arrow', bentUpArrow: 'Bent-Up Arrow',
+  notchedRightArrow: 'Notched Right Arrow', stripedRightArrow: 'Striped Right Arrow', bentArrow: 'Bent Arrow', uturnArrow: 'U-Turn Arrow', rightArrowCallout: 'Right Arrow Callout', leftArrowCallout: 'Left Arrow Callout',
+  upArrowCallout: 'Up Arrow Callout', downArrowCallout: 'Down Arrow Callout', leftRightArrowCallout: 'Left-Right Arrow Callout', quadArrowCallout: 'Four-Way Arrow Callout',
+  mathPlus: 'Plus Sign', mathMinus: 'Minus Sign', mathMultiply: 'Multiplication Sign', mathDivide: 'Division Sign', mathEqual: 'Equals Sign', mathNotEqual: 'Not Equal Sign',
+  irregularSeal1: 'Burst', irregularSeal2: 'Burst with Points', ribbon: 'Ribbon', wave: 'Wave', doubleWave: 'Double Wave', verticalScroll: 'Vertical Scroll', horizontalScroll: 'Horizontal Scroll',
+  wedgeRectCallout: 'Speech Bubble: Rectangle', wedgeRoundRectCallout: 'Speech Bubble: Rounded', wedgeEllipseCallout: 'Speech Bubble: Oval', borderCallout1: 'Line Callout: Bordered', callout1: 'Line Callout', accentCallout1: 'Line Callout: Accent Bar',
+  frame: 'Frame', halfFrame: 'Half Frame', donut: 'Ring', plaque: 'Plaque', round2SameRect: 'Rounded Top Corners', ribbon2: 'Ribbon Up', cloudCallout: 'Thought Bubble', flowChartOffpageConnector: 'Flowchart: Off-page Connector' };
+const GROUPS = { rectangles: 'Rectangles', basic: 'Basic Shapes', blockArrows: 'Block Arrows', equation: 'Equation Shapes', flowchart: 'Flowchart', starsBanners: 'Stars and Banners', callouts: 'Callouts' };
+const label = preset => NAMES[preset] || (preset.startsWith('flowChart') ? `Flowchart: ${preset.slice(9).replace(/([a-z])([A-Z])/g, '$1 $2')}` : /^star\d+$/.test(preset) ? `${preset.slice(4)}-Point Star` : preset.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase()));
+const size = (group, preset) => group === 'Block Arrows' && /up|down/i.test(preset) && !/left|right/i.test(preset) ? [0.9, 1.4] : group === 'Flowchart' ? [1.4, 0.9] : group === 'Callouts' || group === 'Block Arrows' ? [1.6, 1] : group === 'Equation Shapes' ? [1.1, 1.1] : ['rectangles', 'Rectangles'].includes(group) ? [1.5, 1] : [1.25, 1.25];
+const extra = [...Object.entries(PRESET_CATEGORIES).flatMap(([key, presets]) => presets.map(preset => [preset, GROUPS[key]])),
+  ['round2SameRect', 'Rectangles'], ['frame', 'Basic Shapes'], ['halfFrame', 'Basic Shapes'], ['donut', 'Basic Shapes'], ['plaque', 'Basic Shapes'],
+  ['flowChartOffpageConnector', 'Flowchart'], ['ribbon2', 'Stars and Banners'], ['cloudCallout', 'Callouts']];
+const ORDER = ['Lines', 'Rectangles', 'Basic Shapes', 'Block Arrows', 'Equation Shapes', 'Flowchart', 'Stars and Banners', 'Callouts'];
+export const SHAPE_PRESETS = Object.freeze([...BASE_PRESETS, ...extra.filter(([preset]) => !BASE_PRESETS.some(([p]) => p === preset)).map(([preset, group]) => [preset, label(preset), group, ...size(group, preset)])]
+  .sort((a, b) => ORDER.indexOf(a[2]) - ORDER.indexOf(b[2])));
 export const LINE_PRESETS = new Set(['line', 'straightArrow']);
+/** Open outlines that are drawn without a fill when inserted. */
+export const UNFILLED_PRESETS = new Set(['arc', 'leftBracket', 'rightBracket', 'leftBrace', 'rightBrace', 'bracketPair', 'bracePair']);
 
 /** The default look of a new shape: a blue fill with a darker outline; lines are a blue stroke. */
 export const DEFAULT_SHAPE_STYLE = Object.freeze({ fill: '4472C4', line: '2F528F', lineWidth: 12700 });

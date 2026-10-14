@@ -237,14 +237,16 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const symbol = command('Symbol', 'symbol', () => w.insertSymbol?.(), { size: 'large' });
   for (const control of [dateTime, symbol]) when(control, engineReady);
   noFocusSteal(blankPage, c.pageBreak);
+  // Galleries and dialogs come from the editor's Insert commands (views/insert-tab.js); without them the basic commands remain.
+  const ins = w.insertRibbon?.({ command, menuButton, split, rows, divider, when, engineReady, focusEditor, inDocument, pageBreak: c.pageBreak }) || {};
   const insert = { id: 'insert', label: 'Insert', groups: [
-    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: [coverPage, blankPage, c.pageBreak] },
+    { id: 'pages', label: 'Pages', icon: 'blankPage', priority: 4, items: ins.pages || [coverPage, blankPage, c.pageBreak] },
     { id: 'tables', label: 'Tables', icon: 'table', priority: 9, items: [c.insertTable] },
-    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: [c.insertImage, shapesButton] },
+    { id: 'illustrations', label: 'Illustrations', icon: 'pictures', priority: 8, items: ins.illustrations || [c.insertImage, shapesButton] },
     { id: 'links', label: 'Links', icon: 'link', priority: 7, items: [c.hyperlink, c.bookmarks] },
-    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: [headerButton, footerButton, pageNumber] },
-    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: [textBox, dateTime] },
-    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: [symbol] },
+    { id: 'headerFooter', label: 'Header & Footer', icon: 'header', priority: 5, items: ins.headerFooter || [headerButton, footerButton, pageNumber] },
+    { id: 'text', label: 'Text', icon: 'textBox', priority: 3, items: ins.text || [textBox, dateTime] },
+    { id: 'symbols', label: 'Symbols', icon: 'symbol', priority: 2, items: ins.symbols || [symbol] },
   ] };
 
   /* ---- Design ---- */

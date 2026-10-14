@@ -259,6 +259,12 @@ export const COMMAND_ICONS = {
   symbol: t(10, 15.5, 'Ω', 14),
   equation: t(10, 15.5, 'π', 15),
   object: r(2.5, 2.5, 13, 13, 'of', 2) + r(7, 7, 10.5, 10.5, 'bs glassy', 2) + ci(10, 10, 1.1, 'glint'),
+  // Screenshot: a screen with a captured region marked by blue corner brackets.
+  screenshot: r(2.5, 3.5, 15, 10.5, 'of', 1.4) + p('M7.5 17h5M10 14v3', 'o') + p('M5.5 8.5v-2h2.5M14.5 8.5v-2H12M5.5 9.5v2h2.5M14.5 9.5v2H12', 'b thick'),
+  // Quick Parts: reusable building blocks stacked over a page.
+  quickParts: page(3.5, 2.5, 10, 13, 2.5) + r(8.5, 9, 8.5, 4, 'bs', 1) + r(6.5, 13.5, 8.5, 4, 'gs', 1) + ci(10, 10.6, 0.8, 'glint'),
+  // Signature line: an X and a pen stroke on a rule.
+  signatureLine: p('M2.5 15.5h15', 'o') + p('M3.5 10.5l3 3M6.5 10.5l-3 3', 'o') + p('M9 13c1.2-3.5 2.4-4.6 3-3.4s-.8 3.2.4 3.1 2.1-2.2 3.1-1.9', 'b thick'),
 
   /* Design */
   themes: t(7.5, 9.5, 'Aa', 8.5, { serif: true }) + r(3, 12, 3.2, 4, 'bs') + r(7, 12, 3.2, 4, 'gs') + r(11, 12, 3.2, 4, 'ns') + r(15, 12, 2.5, 4, 'rs'),

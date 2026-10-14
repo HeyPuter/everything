@@ -5,6 +5,7 @@ import { bodyFieldRanges } from './body-fields.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
+import { fieldResultPlan } from './field-results.js';
 import { noteKindOf } from './footnotes.js';
 
 /** The first note reference mark within [start, end]: { kind, id }. */
@@ -104,7 +105,8 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
     } else continue;
     if (text.slice(range.start, range.end) !== value) changes.push({ range, text: value });
   }
-  return changes;
+  // Dates, times and document information (field-results.js) refresh in the same pass.
+  return [...changes, ...fieldResultPlan(model)].sort((a, b) => a.range.start - b.range.start);
 }
 
 /** Apply the plan inside one editor transaction; returns the number of fields updated. */
