@@ -44,7 +44,7 @@ describe('citations and bibliography fields', () => {
     const sources = [book, article];
     d.select('Engines compute'.length); insertCitation(d, { tags: ['Lov20'], pages: '4' }, sources, 'apa');
     d.select(d.text.length - 1); insertCitation(d, { tags: ['Hop19'] }, sources, 'apa');
-    expect(d.text).toBe('Engines compute(Lovelace, 2020, p. 4). Machines learn(Hopper, 2019).');
+    expect(d.text).toBe('Engines compute (Lovelace, 2020, p. 4). Machines learn (Hopper, 2019).');
     d.select(d.text.length); d.replace('\n'); insertBibliography(d, sources, 'apa', { heading: 'References' });
     expect(d.text.split('\n').slice(1)).toEqual(['References', 'Hopper, G. (2019). Compilers. Machine Review, 4, 1–9.', 'Lovelace, A. (2020). Notes on engines. Harbor Press.', '']);
     const bib = d.paragraphs[3];
@@ -52,7 +52,7 @@ describe('citations and bibliography fields', () => {
     expect(bib.runs.find(r => r.text === 'Notes on engines').italic).toBe(true);
     // Switching to IEEE renumbers citations in order and rebuilds the list.
     updateCitations(d, sources, 'ieee'); updateBibliographies(d, sources, 'ieee');
-    expect(d.text.split('\n').slice(0, 4)).toEqual(['Engines compute[1, p. 4]. Machines learn[2].', 'References', '[1]\tA. Lovelace, Notes on engines. Harbor Press, 2020.', '[2]\tG. Hopper, “Compilers,” Machine Review, vol. 4, pp. 1–9, 2019.']);
+    expect(d.text.split('\n').slice(0, 4)).toEqual(['Engines compute [1, p. 4]. Machines learn [2].', 'References', '[1]\tA. Lovelace, Notes on engines. Harbor Press, 2020.', '[2]\tG. Hopper, “Compilers,” Machine Review, vol. 4, pp. 1–9, 2019.']);
     writeBibliographyPart(pkg.parts, { style: 'ieee', styleName: 'IEEE', sources });
     const bytes = await save(pkg, d), xml = strFromU8(unzipSync(bytes)['word/document.xml']);
     expect(xml).toMatch(/<w:instrText[^>]*> CITATION Lov20 \\l 1033 \\p 4 <\/w:instrText>/);
@@ -64,7 +64,7 @@ describe('citations and bibliography fields', () => {
     // Back to APA after reopening, from the stored sources.
     const stored = readBibliographyPart(again.parts).data;
     updateCitations(reopened, stored.sources, styleOf(stored) === 'ieee' ? 'apa' : 'ieee');
-    expect(reopened.text.startsWith('Engines compute(Lovelace, 2020, p. 4)')).toBe(true);
+    expect(reopened.text.startsWith('Engines compute (Lovelace, 2020, p. 4)')).toBe(true);
   });
 
   it('keeps imported sources and unknown source elements unchanged', async () => {

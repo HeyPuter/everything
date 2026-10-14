@@ -88,8 +88,8 @@ and endnote references; runtime support differs.
 
 | Attribute | Current behavior / remaining work |
 | --- | --- |
-| `@customMarkFollows` | Active custom footnote marks reject. False/absent uses normal numbering. Endnote references lack the equivalent implemented story path. Complete mark/value validation, following custom text and editing/preservation need controls. |
-| `@id` | Footnote reference signed integer parsed into canonical identity and resolved to a referenced normal story; missing/malformed IDs reject. Complete duplicate/reference/story identity validation remains open. Endnote reference/story support missing. |
+| `@customMarkFollows` | Footnote and endnote custom marks import, edit and save; the reference shows no number and the following run holds the mark. |
+| `@id` | Footnote and endnote reference IDs parsed into canonical identity and resolved to referenced normal stories; missing/malformed IDs reject. Complete duplicate/reference/story identity validation remains open. |
 
 Footnote references outside the main body reject, including drawing text and
 other page stories. Atomic reference selection/formatting preserves semantic

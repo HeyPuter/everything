@@ -148,7 +148,7 @@ test('citations, sources and bibliography follow the chosen style', async ({ pag
   await expect(source.locator('.ref-source-entry')).toHaveText('Lovelace, A. (2020). Notes on engines. Machine Review, 4, 1–9.');
   await shot(page, 'source-dialog');
   await source.getByRole('button', { name: 'OK', exact: true }).click();
-  await expect.poll(() => engineText(page)).toBe('Engines compute (Lovelace, 2020).'.replace(' (', '('));
+  await expect.poll(() => engineText(page)).toBe('Engines compute (Lovelace, 2020).');
   // A bibliography from the gallery, then a style change updates both.
   await page.evaluate(() => { const m = window.__docs.current.view.engine.model; m.select(m.text.length); m.replace('\n'); });
   await ribbon(page).getByRole('button', { name: 'Bibliography', exact: true }).click();
@@ -156,7 +156,7 @@ test('citations, sources and bibliography follow the chosen style', async ({ pag
   await page.getByRole('menuitem', { name: /^References:/ }).click();
   await expect.poll(() => engineText(page)).toContain('References\nLovelace, A. (2020). Notes on engines. Machine Review, 4, 1–9.');
   await ribbon(page).getByRole('combobox', { name: 'Citation style' }).selectOption('mla');
-  await expect.poll(() => engineText(page)).toContain('Engines compute(Lovelace).\nReferences\nLovelace, Ada. “Notes on engines.” Machine Review, vol. 4, 2020, pp. 1–9.');
+  await expect.poll(() => engineText(page)).toContain('Engines compute (Lovelace).\nReferences\nLovelace, Ada. “Notes on engines.” Machine Review, vol. 4, 2020, pp. 1–9.');
   // Manage Sources: the master list remembers the source.
   await ribbon(page).getByRole('button', { name: 'Manage Sources', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Source Manager' });

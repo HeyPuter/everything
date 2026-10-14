@@ -119,6 +119,9 @@ export function updateCitations(doc, sources, style) {
 /** Insert a citation of `citation` ({ tags, pages, … }) at the caret. */
 export function insertCitation(doc, citation, sources, style) {
   const field = newBodyField(citationInstruction({ lcid: '1033', ...citation }));
+  // A citation typed straight after a word gets a space before it, as one would type it.
+  const at = doc.range[0];
+  if (/[\p{L}\p{N}]/u.test(doc.text[at - 1] || '')) { doc.select(at, doc.range[1]); doc.replaceUntracked(' ', { checkpoint: false }); }
   const context = citationContext(style, sources, [...citedTags(doc.paragraphs), ...citation.tags]);
   const range = writeInlineField(doc, { field, runs: citationRuns(parseCitation(field.instruction), sources, style, context) });
   // IEEE numbers follow citation order, so earlier numbers can shift.
