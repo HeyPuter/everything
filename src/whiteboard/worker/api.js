@@ -1296,7 +1296,10 @@ export async function restRoute(org, boards, request, method, path, body) {
       fail(404, "Unknown SCIM resource.");
     // Endpoints the protocol defines but this service does not offer, as
     // ServiceProviderConfig says for bulk, answer as RFC 7644 asks.
-    if (["Me", "Bulk", ".search"].includes(resource) && !id)
+    if (
+      (["Me", "Bulk", ".search"].includes(resource) && !id) ||
+      (["Users", "Groups"].includes(resource) && id === ".search")
+    )
       fail(501, "This SCIM endpoint is not supported.");
     if (
       ["ServiceProviderConfig", "ResourceTypes", "Schemas"].includes(resource)

@@ -1699,6 +1699,8 @@ test("SCIM endpoints the service does not offer answer 501 Not Implemented", asy
     ["Me", "GET"],
     ["Bulk", "POST"],
     [".search", "POST"],
+    ["Users/.search", "POST"],
+    ["Groups/.search", "POST"],
   ])
     await assert.rejects(request(path, method, {}), { status: 501 });
   const config = await scim("ServiceProviderConfig");
