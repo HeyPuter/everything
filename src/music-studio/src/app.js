@@ -24,7 +24,7 @@ import { Prefs } from './lib/prefs.js';
 import { Store } from './model/store.js';
 import { newProject } from './model/demo.js';
 import * as E from './model/edits.js';
-import { createChannel, colorAt } from './model/project.js';
+import { createChannel, colorAt, freeInsert } from './model/project.js';
 import { Engine } from './engine/engine.js';
 import { SampleCache } from './audio/samples.js';
 import { Commands, eventCombo, isTyping } from './commands/registry.js';
@@ -105,10 +105,7 @@ export class App extends Emitter {
   /** Adds a channel to the rack on the next free mixer insert and selects it. `index` places it (default: last). */
   addChannel({ type = 'synth', name, params, sample = null, select = true, index } = {}) {
     const p = this.store.project;
-    const usedInserts = new Set(p.channels.map((c) => c.mixer));
-    let insert = 1;
-    while (usedInserts.has(insert) && insert < p.mixer.length - 1) insert++;
-    if (usedInserts.has(insert)) insert = 0;
+    const insert = freeInsert(p);
     const ch = createChannel({ type, name, params, sample, color: colorAt(p.channels.length), mixer: insert });
     this.store.apply(`Add ${name || 'channel'}`, (proj) => {
       let next = E.addChannel(proj, ch, index ?? proj.channels.length);

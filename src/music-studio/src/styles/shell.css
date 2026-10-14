@@ -628,6 +628,27 @@
   .tb-row {
     gap: 4px;
   }
+
+  .github-link {
+    display: none;
+  }
+
+  /* Sign in shrinks to its icon so it always fits (the label stays for screen readers). */
+  .account-signin {
+    position: relative;
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .account-signin > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 
 /* ------------------------------------------------------------ phone */
@@ -732,7 +753,8 @@
 }
 
 @media (max-width: 420px) {
-  .is-phone .tb-pattern {
+  .is-phone .tb-pattern,
+  .is-phone .time-display {
     display: none;
   }
 }

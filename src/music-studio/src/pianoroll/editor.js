@@ -66,6 +66,7 @@ export class PianoRollEditor {
       tabindex: '0',
       role: 'application',
       'aria-roledescription': 'piano roll',
+      'aria-label': 'Piano roll',
       'aria-describedby': this.helpId,
     });
     this.help = h(
@@ -256,9 +257,15 @@ export class PianoRollEditor {
       const out = fn(E.getNotes(p, pat.id, ch.id));
       const list = Array.isArray(out) ? out : out.notes;
       extra = Array.isArray(out) ? null : out;
-      return E.setNotes(p, pat.id, ch.id, list);
+      return this.fitLength(E.setNotes(p, pat.id, ch.id, list), pat.id);
     });
     return extra;
+  }
+
+  /** Grows an explicit pattern length to cover notes written past its end (else they would never play). */
+  fitLength(p, patternId) {
+    const len = N.lengthToFit(patternById(p, patternId), p.sig);
+    return len ? E.updatePattern(p, patternId, { length: len }) : p;
   }
 
   /** Gesture preview from the gesture's start state. */
@@ -268,7 +275,7 @@ export class PianoRollEditor {
     if (!pat || !ch) return;
     this.store.preview((base) => {
       const list = fn(E.getNotes(base, pat.id, ch.id));
-      return E.setNotes(base, pat.id, ch.id, list);
+      return this.fitLength(E.setNotes(base, pat.id, ch.id, list), pat.id);
     });
   }
 
@@ -520,7 +527,11 @@ export class PianoRollEditor {
       drawPianoRoll(this, d);
       if (!this.notes.length && this.channel && !this.gesture) {
         const L = this.L;
-        d.text(this.app.tools.pianoRoll === 'draw' || this.app.tools.pianoRoll === 'paint' ? 'Click to add notes. Drag to set their length; right-click deletes.' : 'No notes in this pattern yet. Press P for the draw tool.', L.gridX + L.gridW / 2, L.gridY + 18, this.emptyHintColor(), { align: 'center', maxWidth: L.gridW - 20 });
+        const drawing = this.app.tools.pianoRoll === 'draw' || this.app.tools.pianoRoll === 'paint';
+        // Narrow views (phones) get the short form instead of a clipped sentence (about 6.5 px per character).
+        const roomy = L.gridW - 20 >= 66 * 6.5;
+        const hint = drawing ? (roomy ? 'Click to add notes. Drag to set their length; right-click deletes.' : 'Tap or click to add notes') : roomy ? 'No notes in this pattern yet. Press P for the draw tool.' : 'No notes yet. Pick the draw tool.';
+        d.text(hint, L.gridX + L.gridW / 2, L.gridY + 18, this.emptyHintColor(), { align: 'center', maxWidth: L.gridW - 20 });
       }
     });
   }
@@ -679,6 +690,7 @@ export class PianoRollEditor {
     let at;
     if (ph !== null && ph >= view0 && ph < view1 && (this.app.engine.playing || ph > 0)) at = grid ? snapFloor(ph, grid) : Math.round(ph);
     else at = grid ? Math.ceil(view0 / grid) * grid : Math.round(view0);
+    at = N.pasteTarget(this.notes, clip, at, grid);
     const made = N.pasteNotes(clip, at);
     this.applyNotes('Paste notes', (list) => [...list, ...made]);
     this.select(made.map((n) => n.id));

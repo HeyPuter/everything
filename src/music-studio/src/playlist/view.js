@@ -267,10 +267,10 @@ export function createPlaylistView(app, host) {
     const w = clip.len * ppt;
     const y0 = trackTop(V.layout, clip.track) + 1;
     const hh = trackHeight(V.layout, clip.track) - 2;
-    const zone = clipZone(x0, w, pt.x, coarse.matches ? 12 : 6);
+    let zone = clipZone(x0, w, pt.x, coarse.matches ? 12 : 6);
     const title = pt.y - y0 < TITLE_H;
     let auto = null;
-    if (clip.kind === 'auto' && hh + 2 >= AUTO_EDIT_MIN_H && !title && zone === 'body') {
+    if (clip.kind === 'auto' && hh + 2 >= AUTO_EDIT_MIN_H && !title) {
       const a = store.project.automation[clip.ref];
       if (a) {
         const cy = y0 + TITLE_H + 1;
@@ -281,6 +281,12 @@ export function createPlaylistView(app, host) {
         const index = hitPoint(a.points, toX, toY, pt.x, pt.y, coarse.matches ? 14 : 7);
         const lineY = toY(evaluateAutomation(a.points, clip.offset + (pt.x - x0) / ppt) ?? 0);
         auto = { a, index, onLine: Math.abs(pt.y - lineY) <= (coarse.matches ? 12 : 6), cy, ch, bottom };
+        // The first and last points sit on the clip edges: a point under the
+        // pointer wins over the resize handle there, the rest of the edge resizes.
+        if (zone !== 'body') {
+          if (index >= 0) zone = 'body';
+          else auto = null;
+        }
       }
     }
     return { clip, zone, title, auto, x0, w };
@@ -884,19 +890,23 @@ export function createPlaylistView(app, host) {
       V.setSource({ kind: 'auto', id: payload.id });
       V.placeAt(track, tick);
     } else if (payload.kind === 'preset' || payload.kind === 'instrument') {
-      // A new channel with a fresh pattern on the playlist, ready to write into.
-      const chId = app.addChannel({ type: payload.type, name: payload.name, params: payload.params });
-      const r = store.apply('New pattern', (q) => E.addPattern(q));
-      store.setPattern(r.id);
-      store.selectChannels([chId]);
-      V.setSource({ kind: 'pattern', id: r.id });
-      V.placeAt(track, tick);
+      // A new channel with a fresh pattern on the playlist, ready to write into (one undo step).
+      store.group(`Add ${payload.name || 'channel'}`, () => {
+        const chId = app.addChannel({ type: payload.type, name: payload.name, params: payload.params });
+        const r = store.apply('New pattern', (q) => E.addPattern(q));
+        store.setPattern(r.id);
+        store.selectChannels([chId]);
+        V.setSource({ kind: 'pattern', id: r.id });
+        V.placeAt(track, tick);
+      });
     } else if (payload.kind === 'sample' && p.samples[payload.id]) {
       // Reuse an audio channel that already plays this sample, else make one.
       const existing = p.channels.find((c) => c.type === 'audio' && c.sample === payload.id);
-      const id = existing?.id || app.addChannel({ type: 'audio', name: payload.name || p.samples[payload.id].name, sample: payload.id, select: false });
-      V.setSource({ kind: 'audio', id });
-      V.placeAt(track, tick);
+      store.group('Add audio clip', () => {
+        const id = existing?.id || app.addChannel({ type: 'audio', name: payload.name || p.samples[payload.id].name, sample: payload.id, select: false });
+        V.setSource({ kind: 'audio', id });
+        V.placeAt(track, tick);
+      });
     } else if (payload.kind === 'file') {
       if (!app.importAudio) {
         app.notify('Audio import is not available yet');
@@ -931,7 +941,8 @@ export function createPlaylistView(app, host) {
     const r = await app.importAudio(blob, { name: clean, path, as: 'audio' });
     if (!r?.channelId) return;
     const len = r.duration > 0 ? C.audioTicks(store.project, r.duration, tick) : ticksPerBar(store.project.sig);
-    const out = store.apply('Add audio clip', (p) => C.placeClip(p, { kind: 'audio', id: r.channelId }, track, tick, len));
+    // Importing and placing the clip are one undo step.
+    const out = store.amend(() => store.apply('Add audio clip', (p) => C.placeClip(p, { kind: 'audio', id: r.channelId }, track, tick, len)));
     V.setSource({ kind: 'audio', id: r.channelId });
     V.selectClips([out.id], { announce: false });
     V.announceClip(store.project.clips.find((c) => c.id === out.id), 'Placed ');

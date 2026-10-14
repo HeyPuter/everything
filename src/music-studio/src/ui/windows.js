@@ -46,7 +46,7 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   let x = clamp(vw / 2 - el.offsetWidth / 2 + (cascade % 6) * 24, 8, vw - el.offsetWidth - 8);
-  let y = clamp(90 + (cascade % 6) * 24, 8, vh - 80);
+  let y = clamp(90 + (cascade % 6) * 24, 8, Math.max(8, vh - el.offsetHeight - 8));
   cascade++;
   const place = () => {
     x = clamp(x, 8 - el.offsetWidth + 120, window.innerWidth - 120);
@@ -55,6 +55,15 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
     el.style.top = `${Math.round(y)}px`;
   };
   place();
+  // Keep the whole window on screen when its content grows (tabs, sections).
+  const fit = new ResizeObserver(() => {
+    const over = y + el.offsetHeight - (window.innerHeight - 8);
+    if (over > 0) {
+      y = Math.max(4, y - over);
+      place();
+    }
+  });
+  fit.observe(el);
 
   head.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.closest('button, input, select')) return;
@@ -97,6 +106,7 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
       if (!open.has(key)) return;
       open.delete(key);
       el.remove();
+      fit.disconnect();
       window.removeEventListener('resize', place);
       onClose?.();
       if (el.contains(document.activeElement) || document.activeElement === document.body) previous?.focus?.({ preventScroll: true });

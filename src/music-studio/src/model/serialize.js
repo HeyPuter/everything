@@ -11,7 +11,7 @@ export const KIND = 'music-studio-project';
 
 export function serializeProject(project, view = {}) {
   const { ui, ...rest } = project;
-  return JSON.stringify({ kind: KIND, ...rest, version: PROJECT_VERSION, ui: { pattern: view.pattern ?? ui?.pattern ?? null } });
+  return JSON.stringify({ kind: KIND, ...rest, version: PROJECT_VERSION, ui: { pattern: view.pattern ?? ui?.pattern ?? null, channel: view.channel ?? ui?.channel ?? null } });
 }
 
 const num = (v, def, lo = -Infinity, hi = Infinity) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : def);
@@ -213,7 +213,10 @@ export function parseProject(input) {
     samples,
     loop,
     markers,
-    ui: { pattern: typeof data.ui?.pattern === 'string' && patternIds.has(data.ui.pattern) ? data.ui.pattern : patterns[0].id },
+    ui: {
+      pattern: typeof data.ui?.pattern === 'string' && patternIds.has(data.ui.pattern) ? data.ui.pattern : patterns[0].id,
+      channel: typeof data.ui?.channel === 'string' && channelIds.has(data.ui.channel) ? data.ui.channel : null,
+    },
   };
 }
 

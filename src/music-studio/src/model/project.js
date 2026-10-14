@@ -153,6 +153,25 @@ export function patternColor(project, pattern) {
   return pattern.color || colorAt(patternIndex(project, pattern.id) + 6);
 }
 
+/**
+ * Mixer inserts already in use: a channel plays into them, another insert
+ * sends to them (a bus) or they hold effects someone set up.
+ */
+export function busyInserts(project) {
+  const busy = new Set(project.channels.map((c) => c.mixer));
+  project.mixer.forEach((t, i) => {
+    if (i > 0 && t.fx?.length) busy.add(i);
+    for (const k of Object.keys(t.routes || {})) if (Number(k) > 0) busy.add(Number(k));
+  });
+  return busy;
+}
+
+/** The first free mixer insert for a new channel (0, the master, when every insert is busy). */
+export function freeInsert(project, busy = busyInserts(project)) {
+  for (let i = 1; i < project.mixer.length; i++) if (!busy.has(i)) return i;
+  return 0;
+}
+
 /** End tick of the last note in a pattern (0 when empty). */
 export function patternContentEnd(pattern) {
   let end = 0;

@@ -8,6 +8,9 @@
   gap: 2px;
   flex: 1;
   min-width: 0;
+  /* Narrow panels scroll the toolbar instead of cutting it off. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .rack-tb-group {

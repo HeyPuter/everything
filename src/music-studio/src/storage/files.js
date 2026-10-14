@@ -12,7 +12,7 @@
 import * as puter from './puter.js';
 import { MAX_IMPORT_BYTES } from './library.js';
 import * as E from '../model/edits.js';
-import { createChannel, colorAt, FILE_EXT } from '../model/project.js';
+import { createChannel, colorAt, freeInsert, FILE_EXT } from '../model/project.js';
 import { decodeAudio } from '../audio/samples.js';
 import { defaultParams } from '../instruments/catalog.js';
 import { readMidi, isMidi, writeMidi } from '../io/midi.js';
@@ -188,6 +188,8 @@ export class ProjectFiles {
       return this.saveAs();
     }
     if (auto) return false;
+    // A first save of a project nobody has named yet asks for a name.
+    if (!file?.local && this.store.project.name === 'Untitled') return this.saveAs();
     return this.saveLocalProject(file?.local || uid(), file?.name || this.store.project.name);
   }
 
@@ -384,10 +386,7 @@ export class ProjectFiles {
       });
       return { sampleId: id, channelId: target.id, duration };
     }
-    const used = new Set(p.channels.map((c) => c.mixer));
-    let insert = 1;
-    while (used.has(insert) && insert < p.mixer.length - 1) insert++;
-    if (used.has(insert)) insert = 0;
+    const insert = freeInsert(p);
     const ch = createChannel({ type: as === 'audio' ? 'audio' : 'sampler', name: label, sample: id, color: colorAt(p.channels.length), mixer: insert });
     this.store.apply(`Import ${label}`, (proj) => {
       let next = E.addSample(proj, ref).project;

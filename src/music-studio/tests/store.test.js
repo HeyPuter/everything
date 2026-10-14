@@ -28,6 +28,42 @@ describe('store', () => {
     expect(s.project).toBe(start);
   });
 
+  it('restores the edited channel saved with the project on load', () => {
+    const s = new Store(newProject());
+    const p = newProject();
+    s.load({ ...p, ui: { channel: p.channels[2].id } });
+    expect(s.view.channel).toBe(p.channels[2].id);
+    expect([...s.view.selectedChannels]).toEqual([p.channels[2].id]);
+    s.load({ ...p, ui: { channel: 'gone' } });
+    expect(s.view.channel).toBe(p.channels[0].id);
+  });
+
+  it('groups several edits into one undo step and amends the last step', () => {
+    const s = new Store(newProject());
+    const start = s.project;
+    s.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+    const afterTempo = s.project;
+    s.group('Add Bass', () => {
+      s.apply('Add pattern', (p) => E.addPattern(p).project);
+      s.apply('Swing', (p) => E.setProjectProps(p, { swing: 0.5 }));
+    });
+    expect(s.undoStack.map((u) => u.label)).toEqual(['Tempo', 'Add Bass']);
+    s.undo();
+    expect(s.project).toBe(afterTempo);
+    s.redo();
+    expect(s.project.swing).toBe(0.5);
+    // An async follow-up joins the last step.
+    s.amend(() => s.apply('Rename', (p) => E.setProjectProps(p, { name: 'X' })));
+    expect(s.undoStack.map((u) => u.label)).toEqual(['Tempo', 'Add Bass']);
+    s.undo();
+    expect(s.project).toBe(afterTempo);
+    s.undo();
+    expect(s.project).toBe(start);
+    // Nothing recorded: the history is unchanged.
+    s.group('Nothing', () => {});
+    expect(s.undoStack).toHaveLength(0);
+  });
+
   it('ignores edits that change nothing and returns extra fields', () => {
     const s = new Store(newProject());
     const onChange = vi.fn();
