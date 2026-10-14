@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openReadOnlyPreview } from './helpers/preview.js';
 const folder = 'tests/fixtures/page-setting-recovery/';
+// Mirrored margins are a supported, editable page setting (docs/parity/design.md); the rest stay read-only.
 const names = ['mirror', 'ansi', 'top-spacing', 'bottom-spacing', 'page-spacing', 'rtl-gutter', 'vertical', 'combined'];
 
 test('unsupported page settings retain supported section geometry and pixels', async ({ page }) => {
@@ -29,8 +30,9 @@ test('unsupported page settings retain supported section geometry and pixels', a
     });
   }, inputs);
   for (const result of results) {
-    expect(result.readOnly, result.name).toBe(true); expect(result.baselineEditable, result.name).toBe(true);
-    expect(result.tables, result.name).toBe(1); expect(result.issues.length, result.name).toBeGreaterThan(0);
+    const supported = result.name === 'mirror';
+    expect(result.readOnly, result.name).toBe(!supported); expect(result.baselineEditable, result.name).toBe(true);
+    expect(result.tables, result.name).toBe(1); expect(result.issues?.length || 0, result.name)[supported ? 'toBe' : 'toBeGreaterThan'](0);
     expect(result.sameGeometry, result.name).toBe(true); expect(result.samePixels, result.name).toBe(true);
   }
 });
@@ -40,10 +42,12 @@ test('page recovery lists omissions and downloads the original package', async (
   await page.goto('/playground.html', { waitUntil: 'domcontentloaded' });
   await openReadOnlyPreview(page, `${folder}combined.docx`);
   await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/Retained table cell/);
-  await page.getByText('Unsupported features detected (4)', { exact: true }).click();
-  for (const feature of ['Mirrored page margins', 'ANSI font kerning compatibility', 'First-line spacing compatibility', 'Right-to-left gutters or vertical page text']) {
+  await page.getByText('Unsupported features detected (3)', { exact: true }).click();
+  for (const feature of ['ANSI font kerning compatibility', 'First-line spacing compatibility', 'Right-to-left gutters or vertical page text']) {
     await expect(page.getByText(feature, { exact: true })).toBeVisible();
   }
+  // The sample's mirrored margins are supported, so they are not listed.
+  await expect(page.getByText('Mirrored page margins', { exact: true })).toHaveCount(0);
   await page.getByRole('combobox', { name: 'Zoom' }).selectOption('0.5');
   await page.screenshot({ path: info.outputPath('page-setting-recovery.png'), fullPage: true });
 });

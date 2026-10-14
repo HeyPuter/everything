@@ -128,7 +128,6 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
   const pictureInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/tiff,image/gif,image/webp,image/bmp,image/svg+xml,.svg,.tif,.tiff', hidden: true, 'aria-label': 'Insert picture file',
     onchange: () => { const file = pictureInput.files?.[0]; pictureInput.value = ''; if (file) insertPictureFile(file); } });
-  document.body.append(pictureInput);
   function pictureItems() {
     const engine = ready();
     return [
@@ -516,7 +515,6 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
   const textFileInput = el('input', { type: 'file', accept: '.docx,.dotx,.docm,.md,.markdown,.txt,.html,.htm', hidden: true, 'aria-label': 'Insert text from file',
     onchange: () => { const file = textFileInput.files?.[0]; textFileInput.value = ''; if (file) insertTextFromFile(file); } });
-  document.body.append(textFileInput);
   const objectItems = () => [{ label: 'Text from File…', icon: 'object', disabled: !ready(), onSelect: () => textFileInput.click() }];
 
   /* ---- Equations ---- */
@@ -702,5 +700,6 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     extendMenu, contextMenuItems,
   };
   Object.assign(commands, chartCommands({ hub: { ready, fail, insertDrawing, textWidth }, pkg, editor }));
-  return { commands, insertDrawing, sceneFragment, textWidth, fail, ready, run, destroy() { keyAbort.abort(); cancelDrawing(); pictureInput.remove(); textFileInput.remove(); setFieldContextProvider(null); } };
+  // The editor places these file inputs in its own element, not on the page body.
+  return { commands, insertDrawing, sceneFragment, textWidth, fail, ready, run, inputs: [pictureInput, textFileInput], destroy() { keyAbort.abort(); cancelDrawing(); pictureInput.remove(); textFileInput.remove(); setFieldContextProvider(null); } };
 }

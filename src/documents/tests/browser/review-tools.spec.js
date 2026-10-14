@@ -23,6 +23,12 @@ async function openFixture(page, name) {
 }
 const select = (input, start, end = start) => input.evaluate((el, [a, b]) => { el.setSelectionRange(a, b); el.dispatchEvent(new Event('select', { bubbles: true })); }, [start, end]);
 const review = page => page.locator('#ribbon-panel-review');
+// The ribbon folds groups to fit the window's fonts and width; open the folded group when its command is hidden.
+async function reviewButton(page, name, group) {
+  const button = review(page).getByRole('button', { name, exact: true });
+  if (!(await button.isVisible())) await review(page).getByRole('button', { name: group, exact: true }).click();
+  return page.getByRole('button', { name, exact: true }).filter({ visible: true }).first();
+}
 async function exported(page, info, name) {
   const download = page.waitForEvent('download');
   await downloadDocx(page);
@@ -172,7 +178,7 @@ test('Restrict Editing enforces read-only with an editable region and a password
   const input = await newDocument(page, 'Locked text. Open text.');
   await select(input, 13, 23);
   await onTab(page, 'review');
-  await review(page).getByRole('button', { name: 'Restrict Editing', exact: true }).click();
+  await (await reviewButton(page, 'Restrict Editing', 'Protect')).click();
   const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
   await pane.getByRole('checkbox', { name: 'Limit formatting to a selection of styles' }).check();
   await pane.getByRole('button', { name: 'Choose styles…' }).click();

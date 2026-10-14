@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, it, expect, describe } from 'vitest';
+import { beforeAll, afterAll, it, expect, describe, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage, createDocx } from '../src/engine/docx.js';
@@ -105,6 +105,26 @@ describe('tracked changes', () => {
     expect(xml).toMatch(/<w:del [^>]*w:author="Me"[^>]*><w:r><w:delText xml:space="preserve">Sec<\/w:delText><\/w:r><\/w:del>/);
   });
 
+  it('keeps one burst of typing as one insertion across a clock second, but not an old insertion', async () => {
+    const { pkg, model } = await open(trackedDocx());
+    const at = model.text.indexOf('Second') + 6;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-05-01T10:00:00.900Z'));
+      model.select(at); model.replace(' M');
+      vi.setSystemTime(new Date('2026-05-01T10:00:01.100Z'));
+      model.replace('ore');
+      expect(summary(model).filter(r => r[1] === 'Me')).toEqual([['ins', 'Me', ' More']]);
+      // Ada's months-old insertion is not extended by her typing now.
+      model.revisionAuthor = 'Ada';
+      model.select(model.text.indexOf('added') + 5); model.replace('!');
+      expect(summary(model)).toEqual(expect.arrayContaining([['ins', 'Ada', 'added'], ['ins', 'Ada', '!']]));
+      model.revisionAuthor = 'Me';
+    } finally { vi.useRealTimers(); }
+    const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(xml.match(/<w:ins [^>]*w:author="Me"[^>]*>/g)).toHaveLength(1);
+    expect(xml.replace(/<\/w:t><\/w:r><w:r><w:t xml:space="preserve">/g, '')).toMatch(/<w:ins [^>]*w:author="Me"[^>]*><w:r><w:t xml:space="preserve"> More<\/w:t><\/w:r><\/w:ins>/);
+  });
   it('accepts and rejects changes, singly and all at once', async () => {
     let { model } = await open(trackedDocx());
     model.select(model.text.indexOf('added') + 1);
