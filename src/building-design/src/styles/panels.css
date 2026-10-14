@@ -467,7 +467,8 @@ button.type-sel:hover:not(:disabled) {
   overflow: visible;
   position: fixed;
   left: 50%;
-  top: 56px;
+  top: auto;
+  bottom: calc(var(--status-h) + var(--viewbar-h) + 12px);
   transform: translateX(-50%);
   z-index: 1200;
   display: flex;

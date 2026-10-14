@@ -868,7 +868,7 @@ function planSectionMarker(pc, sec, b) {
     const a0 = angleOf(look) - Math.PI / 2;
     b.fill([c, ...arcPoints(c, r, a0, a0 + Math.PI, Math.PI / 16)], [], INK(255));
     b.circle(c, r, W.light);
-    b.text(sub(c, scale(look, r * 0.45)), sec.name, { size: P(pc, 1.8), rot: 0, color: null });
+    b.text(sub(c, scale(look, r * 0.45)), abbreviation(sec.name), { size: P(pc, 1.8), rot: 0, color: null });
   }
   const pad = P(pc, 2);
   const n = perp(dir);

@@ -1,0 +1,22 @@
+{
+  "name": "Building Design",
+  "short_name": "Building Design",
+  "description": "Free, open-source building information modeling in the browser.",
+  "id": "building-design",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16191e",
+  "theme_color": "#16191e",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ],
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": { "application/octet-stream": [".bdp"] }
+    }
+  ]
+}

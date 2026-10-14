@@ -443,7 +443,7 @@ export class Renderer3D {
       gl.uniform3fv(p.u.uBg, theme.bg);
       gl.uniform3fv(p.u.uSel, theme.sel);
       gl.uniform3fv(p.u.uHover, theme.hover);
-      gl.uniform1f(p.u.uAlpha, style === STYLE.shaded || style === STYLE.consistent ? 0.85 : 1);
+      gl.uniform1f(p.u.uAlpha, 1);
       gl.enable(gl.BLEND);
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);

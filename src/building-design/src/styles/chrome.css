@@ -14,6 +14,26 @@
   min-width: 0;
 }
 
+/* Explicit rows: hidden rows (an empty options bar) must not shift the others. */
+.app-root > .titlebar {
+  grid-row: 1;
+}
+.app-root > .ribbon {
+  grid-row: 2;
+}
+.app-root > .optionsbar {
+  grid-row: 3;
+}
+.app-root > .main {
+  grid-row: 4;
+}
+.app-root > .statusbar {
+  grid-row: 5;
+}
+.app-root > .phonebar {
+  grid-row: 6;
+}
+
 /* Title bar ------------------------------------------------------------------ */
 
 .titlebar {
