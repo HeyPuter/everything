@@ -129,7 +129,9 @@ const findMaster = (pkg: OpcPackage): PartName | null => {
     ?.items.find(
       (r) => r.type === OFFICE_DOCUMENT && r.targetMode === "Internal",
     );
-  const mainName = main ? resolveTarget(partName("/"), main.target) : null;
+  const mainName = main
+    ? partName(`/${main.target.replace(/^\/+/, "")}`)
+    : null;
   const mainPart = mainName ? pkg.getPart(mainName) : null;
   if (mainPart && mainName) {
     const rels = pkg.getRels(mainName)?.items ?? [];

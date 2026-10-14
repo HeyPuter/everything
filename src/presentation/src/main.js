@@ -6308,9 +6308,9 @@ function ribbonApi() {
         onSelect: run(() => themeTools.customizeFonts()),
       },
     ],
-    colorsMenu: () => themeTools.colorsMenu(),
-    fontsMenu: () => themeTools.fontsMenu(),
-    effectsMenu: () => themeTools.effectsMenu(),
+    themeColorsMenu: () => themeTools.colorsMenu(),
+    themeFontsMenu: () => themeTools.fontsMenu(),
+    themeEffectsMenu: () => themeTools.effectsMenu(),
     backgroundStylesMenu: () => themeTools.backgroundStylesMenu(),
     backgroundGraphicsHidden: () =>
       !!doc && themeTools.backgroundGraphicsHidden(),

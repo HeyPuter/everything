@@ -1039,7 +1039,7 @@ export function buildTabs(api) {
         id: "theme-parts",
         label: "Theme",
         icon: "colors",
-        visible: () => !!api.colorsMenu,
+        visible: () => !!api.themeColorsMenu,
         items: [
           {
             type: "stack",
@@ -1053,7 +1053,7 @@ export function buildTabs(api) {
                 title: "Colors",
                 description:
                   "Change the theme's colors, or make your own color scheme.",
-                menu: () => api.colorsMenu(),
+                menu: () => api.themeColorsMenu(),
                 menuLabel: "Theme colors",
               },
               {
@@ -1064,7 +1064,7 @@ export function buildTabs(api) {
                 icon: "fonts",
                 title: "Fonts",
                 description: "Change the heading and body fonts of the theme.",
-                menu: () => api.fontsMenu(),
+                menu: () => api.themeFontsMenu(),
                 menuLabel: "Theme fonts",
               },
               {
@@ -1076,7 +1076,7 @@ export function buildTabs(api) {
                 title: "Effects",
                 description:
                   "Change how shapes that follow the theme are shaded and outlined.",
-                menu: () => api.effectsMenu(),
+                menu: () => api.themeEffectsMenu(),
                 menuLabel: "Theme effects",
               },
             ],
