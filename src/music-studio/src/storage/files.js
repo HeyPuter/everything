@@ -24,6 +24,8 @@ import { h } from '../lib/dom.js';
 import { openDialog, confirmDialog, promptDialog } from '../ui/dialog.js';
 
 const RECENT_MAX = 10;
+// Projects with embedded samples can be large, but not this large.
+const MAX_PROJECT_BYTES = 512 * 1024 * 1024;
 const PROJECT_ACCEPT = `${FILE_EXT},.mid,.midi,application/json,audio/midi`;
 const AUDIO_ACCEPT = `audio/*,${AUDIO_EXTENSIONS.join(',')}`;
 
@@ -166,6 +168,7 @@ export class ProjectFiles {
     if (isAudioName(name) || file.type?.startsWith('audio/')) return this.app.importAudio(file, { name });
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
     if (isMidi(head)) return this.importMidiBlob(file, name);
+    if (file.size > MAX_PROJECT_BYTES) throw new Error(`"${name}" is ${mb(file.size)}, too large for a Music Studio project.`);
     const project = await this.lib.readProjectText(await file.text());
     if (!(await this.confirmDiscard())) return false;
     this.loadProject(project, null, { dirty: true });
@@ -399,6 +402,9 @@ export class ProjectFiles {
   /** Imports an audio file already in Puter (the browser's My files). */
   async importAudioFromPath(path, opts = {}) {
     puter.requireSignedIn();
+    // Check the size first: downloads count against the user's allowance.
+    const size = (await puter.stat(path).catch(() => null))?.size;
+    if (size > MAX_IMPORT_BYTES) throw new Error(`"${baseName(path)}" is ${mb(size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const blob = await puter.readFile(path);
     return this.importAudio(blob, { name: baseName(path), path, ...opts });
   }
