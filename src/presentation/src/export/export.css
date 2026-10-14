@@ -1,0 +1,370 @@
+/* File dialogs: export, print with preview, properties, pictures, file size. */
+.file-dialog {
+  width: min(640px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.file-dialog[open] {
+  display: flex;
+}
+.file-dialog > .dialog-body {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.file-field label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.file-field .input {
+  margin: 0;
+}
+.file-field + .file-field,
+.file-field + .file-check,
+.file-radios + .file-field {
+  margin-top: 12px;
+}
+.file-check {
+  margin: 12px 0 0;
+}
+.file-radios {
+  border: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  min-width: 0;
+}
+.file-radios legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding: 0;
+}
+.file-dialog label.file-radio {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 13px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.file-dialog .file-radio input {
+  accent-color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+  transform: translateY(1px);
+}
+.file-dialog .file-radio small {
+  flex-basis: 100%;
+  padding-left: 21px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.file-group {
+  border: 0;
+  padding: 0;
+  margin: 0 0 18px;
+  min-width: 0;
+}
+.file-group > legend,
+.file-group > h3 {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 0 0 10px;
+  padding: 0;
+}
+.export-note {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+.export-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+.export-grid > .file-field + .file-field,
+.export-grid > .file-check {
+  margin-top: 0;
+}
+.export-grid > .export-note,
+.export-grid > .file-check {
+  grid-column: 1 / -1;
+}
+.export-grid > [hidden] {
+  display: none;
+}
+
+/* Export: formats on the left, their options on the right. */
+.export-dialog {
+  width: min(780px, calc(100vw - 32px));
+}
+.export-body {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 24px;
+}
+.file-dialog .export-formats .file-radio {
+  padding: 7px 10px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+}
+.file-dialog .export-formats .file-radio:has(input:checked) {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+.file-dialog .export-formats .file-radio:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.export-main {
+  min-width: 0;
+}
+.export-main > .export-group {
+  margin-top: 16px;
+}
+.export-main > .export-note {
+  margin-top: 8px;
+}
+.export-custom-range {
+  margin: 0 0 8px 21px;
+  max-width: 260px;
+}
+.file-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+.file-progress[hidden] {
+  display: none;
+}
+.file-progress progress {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 8px;
+}
+
+/* Print: the preview beside the settings. */
+.print-dialog {
+  width: min(1060px, calc(100vw - 32px));
+  height: min(760px, calc(100dvh - 40px));
+}
+.print-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0;
+  padding: 0;
+}
+.print-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+}
+.print-preview-stage {
+  flex: 1;
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px;
+}
+.print-sheet {
+  background: #fff;
+  box-shadow:
+    0 1px 3px #0003,
+    0 8px 24px #0002;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.print-preview-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+}
+.print-page-label {
+  min-width: 96px;
+  text-align: center;
+}
+.print-empty {
+  font-size: 13px;
+}
+.print-settings {
+  padding: 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.print-settings > .file-field,
+.print-settings > .file-radios,
+.print-settings > .file-check,
+.print-settings > .file-group {
+  margin-top: 12px;
+}
+.print-settings > :first-child {
+  margin-top: 0;
+}
+.print-settings > [hidden] {
+  display: none;
+}
+
+/* A laid-out page, in points; the preview scales it and print shows it. */
+.export-page {
+  position: relative;
+  background: #fff;
+  color: #000;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.export-page-slide {
+  position: absolute;
+  overflow: hidden;
+}
+.export-page-slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.export-page-text {
+  position: absolute;
+  white-space: pre;
+  line-height: 1;
+}
+.export-page-rule {
+  position: absolute;
+}
+
+/* Properties and file size. */
+.properties-dialog,
+.file-size-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+.properties-body .export-grid > .file-field:last-child {
+  grid-column: 1 / -1;
+}
+.file-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 18px;
+  margin: 0;
+  font-size: 13px;
+}
+.file-facts dt {
+  color: var(--muted);
+}
+.file-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.file-size-table-wrap {
+  margin-top: 16px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.file-size-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.file-size-table th,
+.file-size-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.file-size-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.file-size-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.compress-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+@media (max-width: 760px) {
+  .export-body {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .export-formats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 8px;
+  }
+  .export-formats legend {
+    grid-column: 1 / -1;
+  }
+  .print-dialog {
+    height: calc(100dvh - 24px);
+    width: calc(100vw - 16px);
+  }
+  .print-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 40%) minmax(0, 1fr);
+  }
+  .print-preview {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .print-preview-stage {
+    min-height: 0;
+  }
+}
+@media (max-width: 480px) {
+  .export-grid {
+    grid-template-columns: 1fr;
+  }
+  .file-dialog .dialog-actions .btn {
+    flex: 1 1 auto;
+  }
+}
+
+@media print {
+  #print-slides .export-page {
+    break-after: page;
+    page-break-after: always;
+    display: block;
+    margin: 0;
+  }
+  #print-slides .export-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  #print-slides .export-page-slide img {
+    object-fit: fill;
+  }
+}
+
+.file-dialog .file-radios.inline label.file-radio {
+  display: inline-flex;
+  margin-right: 14px;
+}
+.file-dialog .export-formats label.file-radio {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.file-dialog .export-formats .file-radio span {
+  min-width: 0;
+}
+.compress-body > .file-radios,
+.compress-body > .file-check {
+  margin-top: 14px;
+}

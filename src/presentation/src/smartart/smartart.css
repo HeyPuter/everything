@@ -1,0 +1,188 @@
+/* SmartArt: the layout picker, the Text Pane, and the gallery pictures. */
+.dialog.smartart-dialog {
+  width: min(940px, calc(100vw - 32px));
+}
+.smartart-picker {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 280px;
+  gap: 16px;
+  padding: 18px 22px;
+}
+.smartart-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  align-content: start;
+  gap: 8px;
+  max-height: min(440px, 60dvh);
+  overflow: auto;
+  padding: 3px;
+}
+.smartart-layout-choice {
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  line-height: 0;
+}
+.smartart-layout-choice img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+}
+.smartart-layout-choice:hover {
+  border-color: var(--muted);
+}
+.smartart-layout-choice[aria-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.smartart-detail {
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+.smartart-big-stage {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  line-height: 0;
+}
+.smartart-big-preview {
+  width: 100%;
+  height: auto;
+}
+.smartart-layout-name {
+  margin: 12px 0 4px;
+  font-size: 15px;
+}
+.smartart-layout-about {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+@media (max-width: 760px) {
+  .smartart-picker {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+  .smartart-categories {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0 0 8px;
+  }
+  .smartart-categories .chart-family {
+    flex: none;
+  }
+  .smartart-layout-grid {
+    grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+    max-height: 32dvh;
+  }
+  .smartart-detail {
+    border-left: 0;
+    padding-left: 0;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 0 12px;
+  }
+  .smartart-detail .smartart-big-stage {
+    grid-row: span 2;
+  }
+  .smartart-layout-name {
+    margin-top: 0;
+  }
+}
+
+/* The Text Pane uses the data sheet's floating window. */
+.chart-sheet.smartart-pane {
+  left: 228px;
+  right: auto;
+  top: 190px;
+  bottom: auto;
+  width: min(300px, calc(100vw - 32px));
+}
+.smartart-outline {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+}
+.smartart-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: calc(var(--level, 0) * 18px);
+}
+.smartart-bullet {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  flex: none;
+}
+.smartart-outline-item[data-level="1"] .smartart-bullet,
+.smartart-outline-item[data-level="3"] .smartart-bullet {
+  background: transparent;
+  border: 1px solid var(--ink);
+}
+.smartart-outline-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--ink);
+}
+.smartart-outline-input:hover {
+  border-color: var(--line);
+}
+.smartart-outline-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.smartart-pane-about {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 11.5px;
+}
+.smartart-pane-about:empty {
+  display: none;
+}
+@media (max-width: 640px) {
+  .chart-sheet.smartart-pane {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    width: auto;
+  }
+}
+
+.smartart-gallery-img {
+  display: block;
+  width: 72px;
+  height: 54px;
+}
+.ribbon-gallery-item.smartart-gallery-thumb {
+  background: #fff;
+  padding: 2px;
+}
+.ribbon-gallery-item.smartart-gallery-thumb .smartart-gallery-img {
+  width: 56px;
+  height: 42px;
+}
+.chart-menu-choice .smartart-gallery-img {
+  width: 88px;
+  height: 66px;
+}
+.smartart-color-img {
+  display: block;
+  width: 54px;
+  height: 36px;
+}
+.smartart-color-choice[aria-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
