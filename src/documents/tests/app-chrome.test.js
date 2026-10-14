@@ -165,3 +165,46 @@ describe('document context menu shell', () => {
     closeMenu();
   });
 });
+
+describe('status bar', () => {
+  it('names languages, hides items on request and remembers the choice', async () => {
+    const { createStatusBar, languageName } = await import('../src/views/status-bar.js');
+    expect(languageName('fr-FR', 'en')).toBe('French (France)');
+    const span = () => document.createElement('span');
+    const parts = { stats: span(), words: span(), proofingButton: document.createElement('button'), editingArea: span(), focusButton: document.createElement('button'),
+      zoomOut: document.createElement('button'), zoomSlider: document.createElement('input'), zoomIn: document.createElement('button'), textMode: span(), zoomLabel: span() };
+    const w = { currentLanguage: () => 'de-DE', isTracking: () => false, canTrack: () => true, toggleTracking() {} };
+    const bar = createStatusBar({ w, a: { hasDocument: () => true }, parts, help: span() });
+    document.body.append(bar.el);
+    bar.refresh();
+    expect(bar.el.querySelector('.ed-status-language').textContent).toBe('German (Germany)');
+    // Track Changes shows only while tracking, until chosen to stay.
+    expect(bar.el.querySelector('.ed-status-track').classList.contains('is-user-hidden')).toBe(true);
+    bar.toggle('track');
+    expect(bar.el.querySelector('.ed-status-track').classList.contains('is-user-hidden')).toBe(false);
+    bar.toggle('words');
+    expect(bar.isShown('words')).toBe(false);
+    expect(JSON.parse(localStorage.getItem('documents:statusbar'))).toEqual(['words']);
+    bar.el.remove();
+  });
+});
+
+describe('preferences', () => {
+  it('applies a toggle at once and switches sections from the keyboard', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    const { openPreferences } = await import('../src/views/preferences.js');
+    let on = true;
+    const modal = openPreferences({ sections: [
+      { id: 'a', label: 'First', controls: [{ type: 'toggle', label: 'Thing', get: () => on, set: v => { on = v; } }] },
+      { id: 'b', label: 'Second', controls: [{ type: 'button', label: 'Act', action: 'Go', run: vi.fn() }] },
+    ] });
+    const toggle = document.querySelector('.pref-body input[role="switch"]');
+    toggle.click();
+    expect(on).toBe(false);
+    document.querySelector('#pref-tab-a').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.querySelector('#pref-tab-b').getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelector('.pref-body').textContent).toContain('Act');
+    modal.close();
+    vi.unstubAllGlobals();
+  });
+});
