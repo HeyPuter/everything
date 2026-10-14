@@ -22935,8 +22935,7 @@ imported, painted corner to corner inside each laid-out cell (screen and print),
 and written by Diagonal Down/Up; they take no part in edge conflict resolution.
 
 Not implemented: nonzero `w:tblCellSpacing`, `w:bidiVisual`, row/cell revision marks,
-`w:hidden` rows, `w:tcFitText`, splitting several selected cells without merging
-them first, converting text inside table cells, and moving floating tables.
+`w:hidden` rows, `w:tcFitText`, converting text inside table cells, and moving floating tables.
 
 **ECMA-376 Part 1 §17.7.6 (table styles) and §17.4.55 (`w:tblLook`).** The
 library styles and New/Modify Table Style write a `w:style w:type="table"`

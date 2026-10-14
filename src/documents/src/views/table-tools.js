@@ -13,6 +13,7 @@ import { applyTableStyle, setTableLook, clearTableStyle, saveTableStyle, tableLo
 import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NUMBER_FORMATS, buildInstruction } from '../engine/table-formula.js';
 import { QUICK_TABLES, insertQuickTable } from '../engine/quick-tables.js';
 import { headerRowCount, rowGrid, verticalMerges } from '../engine/tables.js';
+import { locate } from '../engine/model.js';
 import { createTableStyleGallery } from '../ui/table-design-gallery.js';
 import { openInsertTableDialog, openConvertTextDialog, openConvertTableDialog, openSplitCellsDialog, openCellsDialog, openSortDialog, openFormulaDialog } from './table-dialogs.js';
 import { openTableStyleDialog } from './table-style-dialog.js';
@@ -234,14 +235,14 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function formulaDialog() {
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
-    const m = engine.model, cellId = m.paragraphs.find((p, i) => m.paragraphOffset(i) <= m.range[0] && m.paragraphOffset(i) + p.runs.reduce((n, r) => n + r.text.length, 0) >= m.range[0])?.cellId || null;
+    const m = engine.model, cellId = m.paragraphs[locate(m.paragraphs, m.range[0]).index]?.cellId || null;
     openFormulaDialog({ suggested: suggestedFormula(m), formats: NUMBER_FORMATS, functions: FORMULA_FUNCTIONS, preview: (formula, format) => evaluateFormula(engine.model, buildInstruction(formula, format || null), cellId) },
       (formula, format) => { let failure; engine.execute(() => insertFormula(engine.model, formula, format), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return true; }, { onClose: closeFocus });
   }
   const convertToText = () => { if (!inTable()) return; openConvertTableDialog(choice => { const engine = ready(); let failure; engine.execute(() => T.convertTableToText(engine.model, choice), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return true; }, { onClose: closeFocus }); };
   const splitCellsDialog = () => { const b = block(); if (!b) return; openSplitCellsDialog({ several: cellBlockPlacements(b.table, b).length > 1 }, choice => {
     const engine = ready(); let failure;
-    engine.execute(() => { const m = engine.model, t = T.selectionBlock(m).table; if (!choice.merge) throw new Error('Splitting several cells separately is not available yet. Merge them first.'); return T.splitCells(m, { ...choice, widths: widthsOf(engine, t) }); }, e => { failure = e; }, undefined, true);
+    engine.execute(() => { const m = engine.model, t = T.selectionBlock(m).table, options = { ...choice, widths: widthsOf(engine, t) }; return choice.merge ? T.splitCells(m, options) : T.splitEachCell(m, options); }, e => { failure = e; }, undefined, true);
     if (failure) throw failure; onChange(); return true; }, { onClose: closeFocus }); };
   const cellsDialog = kind => openCellsDialog(kind, shift => {
     const engine = ready(); let failure;

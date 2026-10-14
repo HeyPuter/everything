@@ -156,6 +156,15 @@ describe('cells', () => {
     expect(shape(doc)).toEqual(['a0 a1 a2', 'b0 b1 b2', 'c0 c1 c2']);
   });
 
+  it('splits several cells each on its own when asked not to merge them', () => {
+    const { doc } = tableDocument();
+    block(doc, 0, 0, 1, 2);
+    T.splitEachCell(doc, { rows: 1, columns: 2 });
+    expect(doc.tables[0].grid).toHaveLength(5);
+    expect(shape(doc)).toEqual(['a0  a1  a2', 'b0  b1  b2', 'c0:2 c1:2 c2']);
+    valid(doc);
+  });
+
   it('splits a merged cell back along its own grid and rows', () => {
     const { doc } = tableDocument();
     block(doc, 0, 0, 1, 2); T.mergeBlock(doc);

@@ -44,8 +44,8 @@ OOXML details and the supported subset are in
 - Draw Table, Eraser.
 - Delete (Cells…, Columns, Rows, Table); Insert Above, Below, Left, Right (as many
   as are selected); Insert Cells… (group launcher); Paragraph Before/After.
-- Merge Cells (any rectangle), Split Cells… (rows × columns; merges a multi-cell
-  selection first), Split Table.
+- Merge Cells (any rectangle), Split Cells… (rows × columns; a multi-cell selection
+  is merged first, or each cell splits on its own), Split Table.
 - AutoFit (Contents, Window, Fixed Column Width), Height and Width spinners,
   Distribute Rows, Distribute Columns, Keep Together and the row height dialog.
 - Alignment: 3 × 3 grid (horizontal + vertical at once, with the current one
@@ -103,8 +103,7 @@ OOXML details and the supported subset are in
 - Modify Table Style edits library and document-made styles only; styles that came
   with an opened document can be applied to their own tables but are not offered
   for other tables or for editing.
-- Splitting several cells without merging them first; converting text inside a
-  table cell; converting nested tables to text.
+- Converting text inside a table cell, and converting nested tables to text.
 - Formula bookmarks, `R1C1` references and general (`\*`) formats.
 - The rulers do not yet show table column markers; dragging uses an on-page guide.
 - Table cell spacing, right-to-left tables and tracked structural changes remain

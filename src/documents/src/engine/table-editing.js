@@ -1151,3 +1151,12 @@ export function moveTable(model, tableId, beforeId) {
   model.selectCell(editableCells(table)[0].id);
   model.didChange(); return true;
 }
+
+/** Split Cells without merging first: each selected cell divides into `rows` × `columns` on its own. */
+export function splitEachCell(model, { rows = 1, columns = 2, widths } = {}) {
+  const block = requireBlock(model), ids = cellBlockPlacements(block.table, block).map(p => p.cell.id).reverse();
+  if (ids.length < 2) return splitCells(model, { rows, columns, widths });
+  for (const id of ids) { model.cellBlock = null; model.selectCell(id); splitCells(model, { rows, columns, widths }); }
+  model.selectCell(ids.at(-1));
+  return true;
+}
