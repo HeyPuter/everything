@@ -92,12 +92,18 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 11. Format dialogs and panes
 
-- [ ] Font dialog, Paragraph dialog (indents, spacing, tabs), Bullets and
+- [x] Font dialog, Paragraph dialog (indents, spacing, tabs), Bullets and
       Numbering dialog (picture and symbol bullets, start at, size, color).
-- [ ] Format Shape pane parity: gradient, picture, pattern fills; line
+      Columns dialog; bullet and numbering galleries on the ribbon.
+- [x] Format Shape pane parity: gradient, picture, pattern fills; line
       compound and cap types; shadow, reflection, glow, soft edges, bevel and
       3-D rotation; text box options (autofit, margins, wrap).
-- [ ] Replace Fonts, Paste Special, Regroup, rotation and size dialogs.
+      Picture corrections, color, artistic effects, crop to shape and ratio;
+      text fill, outline and effects; alt text.
+- [x] Replace Fonts, Paste Special, Regroup, rotation and size dialogs.
+- [x] Shape, WordArt and picture style galleries; effect preset menus.
+- [x] Change Shape, Edit Points and Merge Shapes; Selection Pane rename,
+      reorder, show and hide all; Repeat; align to slide or to the selection.
 
 ### 12. Draw and assistant
 

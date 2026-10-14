@@ -712,6 +712,11 @@ export async function tabsDialog({ tabs: initial, defaultTab }) {
       ),
     ),
     list,
+    el(
+      "p",
+      { class: "helper" },
+      "While you type in a paragraph with tab stops, Tab moves to the next one.",
+    ),
     numberField({
       label: "Default tab stops",
       value: spacing,

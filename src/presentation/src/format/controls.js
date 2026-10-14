@@ -426,6 +426,10 @@ export function section(title, children, { key = title, open = false } = {}) {
   );
   details.open = openSections.has(key) ? openSections.get(key) : open;
   details.addEventListener("toggle", () => openSections.set(key, details.open));
+  // Remembered at once too, so a refresh that follows the click keeps it.
+  details
+    .querySelector("summary")
+    .addEventListener("click", () => openSections.set(key, !details.open));
   return details;
 }
 

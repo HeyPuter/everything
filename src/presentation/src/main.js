@@ -3331,6 +3331,20 @@ const formatTools = createFormatTools({
   flipObject: (obj, axis) => flipObject(obj, axis),
   deleteSelection: () => deleteObject(),
   toast: (message) => toast(message),
+  pickUpStyle: () => {
+    const obj = currentShape();
+    if (!obj) return;
+    painter = { format: pickUpFormat(obj), sticky: true, keyboard: true };
+    toast(`Style picked up. Select an object and choose Apply Object Style.`);
+  },
+  applyStyle: () => {
+    const obj = currentShape();
+    if (!obj || !painter) return;
+    const held = painter;
+    paintFormat(obj);
+    if (held.keyboard) painter = held;
+  },
+  canApplyStyle: () => !!painter && !!currentShape(),
 });
 const drawTools = createDrawTools({
   P,
@@ -4063,20 +4077,31 @@ function paintFormat(target) {
     let changed = false;
     if (source && source !== obj) changed = P.copyShapeFormatting(source, obj);
     if (format.text && canEditText(obj)) {
-      const { font, size, bold, italic, underline, strike, color } =
-        format.text;
+      const keys = [
+        "font",
+        "size",
+        "bold",
+        "italic",
+        "underline",
+        "strike",
+        "color",
+        "underlineColor",
+        "cap",
+        "spc",
+        "kern",
+        "baseline",
+        "highlight",
+        "outline",
+        "gradient",
+        "effects",
+        "normalizeHeight",
+      ];
       formatText(
         withTextBody(obj),
         Object.fromEntries(
-          Object.entries({
-            font,
-            size,
-            bold,
-            italic,
-            underline,
-            strike,
-            color,
-          }).filter(([, v]) => v != null),
+          keys
+            .map((key) => [key, format.text[key]])
+            .filter(([, v]) => v != null),
         ),
       );
       changed = true;
@@ -4666,7 +4691,10 @@ function setSelectionSize(axis, inches) {
     if (!b) return SKIP_MUTATION;
     const value = Math.round(inches * 914400);
     // Pictures keep their proportions by default.
-    const keep = P.getShapeKind(obj) === "picture" && b.w > 0 && b.h > 0;
+    const keep =
+      (P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj)) &&
+      b.w > 0 &&
+      b.h > 0;
     const next =
       axis === "h"
         ? { ...b, h: value, w: keep ? Math.round((b.w * value) / b.h) : b.w }
@@ -7976,7 +8004,8 @@ function startDrag(e, shape, mode = "move") {
   const rect = canvas.getBoundingClientRect();
   const startX = e.clientX,
     startY = e.clientY;
-  const keepRatio = P.getShapeKind(obj) === "picture";
+  const keepRatio =
+    P.getShapeKind(obj) === "picture" || P.getShapeAspectLock(obj);
   const line = isLine(obj);
   const rotation = slideRotation(obj);
   const target = e.currentTarget;
@@ -9721,6 +9750,16 @@ function editText(target, event = null) {
     }
     if (e.key === "Tab" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
+      // In a paragraph with tab stops of its own, Tab types a tab.
+      const sel = selectionOffsets();
+      if (!e.shiftKey && sel) {
+        const current = read();
+        const block = current.paras[paragraphAt(sel[0], textOf(current.runs))];
+        if (block?.ppr?.children?.some((c) => c.name?.localName === "tabLst")) {
+          replaceRange(sel[0], sel[1], "\t");
+          return;
+        }
+      }
       indent(e.shiftKey ? -1 : 1);
       return;
     }

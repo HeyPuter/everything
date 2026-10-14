@@ -1235,6 +1235,29 @@ export function createFormatTools(ctx) {
         }));
       },
       applyShapeStyle: (id) => applyShapeStyle(id, base.applyShapeStyle),
+      quickStylesMenu: () => {
+        const choices = shapeStyleChoices(base.shapeStyleChoices());
+        const groups = [...new Set(choices.map((c) => c.group))];
+        return groups.flatMap((group) => [
+          { header: group },
+          {
+            custom: galleryGrid(
+              choices
+                .filter((c) => c.group === group)
+                .map((c) => ({
+                  label: c.label,
+                  render: () => c.render(),
+                  onSelect: () => applyShapeStyle(c.id, base.applyShapeStyle),
+                })),
+              {
+                label: group,
+                columns: group === "Presets" ? 6 : 7,
+                cellClass: "style-thumb",
+              },
+            ),
+          },
+        ]);
+      },
       wordArtStyleChoices: () =>
         wordArtStyles(theme()).map((s, i) => ({
           id: `wordart-${i}`,
@@ -1395,6 +1418,21 @@ export function createFormatTools(ctx) {
         icon: "o:columns",
         disabled: !text,
         onSelect: () => openColumns(),
+      },
+      { separator: true },
+      {
+        label: "Pick Up Object Style",
+        icon: "o:formatPainter",
+        shortcut: `${MOD_KEY}+Shift+C`,
+        disabled: !ctx.currentShape(),
+        onSelect: () => ctx.pickUpStyle(),
+      },
+      {
+        label: "Apply Object Style",
+        icon: "o:formatPainter",
+        shortcut: `${MOD_KEY}+Shift+V`,
+        disabled: !ctx.canApplyStyle(),
+        onSelect: () => ctx.applyStyle(),
       },
       { separator: true },
       {
