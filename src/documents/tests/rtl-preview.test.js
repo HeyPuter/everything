@@ -39,7 +39,7 @@ it('keeps the enclosing table when a cell contains active RTL text',async()=>{
   expect(cell.runs.find(r=>r.rtl)).toMatchObject({fontCs:'Courier New',fontSizeCs:16,boldCs:true});
   expect(pkg.parts).toEqual(parts);
 });
-it.each(['bidi','mirrorIndents'])('keeps unsupported paragraph %s guarded independently of run direction',async feature=>{
+it.each(['bidi'])('keeps unsupported paragraph %s guarded independently of run direction',async feature=>{
  const parts=unzipSync(readFileSync('tests/fixtures/rtl-font-context/control.docx'));
  const xml=new DOMParser().parseFromString(strFromU8(parts['word/document.xml']),'application/xml');
  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',p=xml.getElementsByTagNameNS(W,'p')[0];

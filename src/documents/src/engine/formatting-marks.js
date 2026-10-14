@@ -1,4 +1,5 @@
 import { enterCellText } from './canvas-cell-text.js';
+import { revisionView } from './revisions.js';
 
 /**
  * Show/Hide ¶: the nonprinting marks a word processor draws over laid-out text. Marks are computed from
@@ -150,7 +151,11 @@ export function setFormattingMarks(editor, visible) {
     overlay.formattingMarks = true;
     editor.overlays.push(overlay);
   }
-  editor.paint();
+  // Hidden text (w:vanish) is laid out while the marks are shown, as desktop word processors display it.
+  const hiddenChanged = revisionView.showHidden !== visible;
+  revisionView.showHidden = visible;
+  if (hiddenChanged && hasHiddenText(editor)) editor.relayout(); else editor.paint();
   return visible;
 }
+const hasHiddenText = editor => [editor.session?.body, ...Object.values(editor.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
 export const formattingMarksVisible = editor => !!editor?.overlays.some(overlay => overlay.formattingMarks);

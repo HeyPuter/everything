@@ -692,6 +692,8 @@ export class CanvasEditor {
               const marker = line.marker; ctx.fillStyle = paintColor(marker.color, foregroundBackground(marker, background)); setCanvasTextStyle(ctx, marker); paintTextShadows(ctx, marker, line.baseline); paintText(ctx, marker, line.baseline);
               for (const u of marker.underlines || []) { ctx.fillStyle = paintColor(u.color, foregroundBackground(u, background)); paintUnderline(ctx, { ...u, x: u.x + marker.x }, line.baseline); }
             }
+            // Bar tabs: a hairline over the line's full height, so consecutive lines join.
+            for (const bar of imagesOnly ? [] : line.bars || []) { ctx.fillStyle = paintColor('auto', background); ctx.fillRect(Math.round(bar.x), line.y, 1, line.height); }
             for (const leader of imagesOnly ? [] : line.leaders || []) {
               ctx.save(); ctx.beginPath(); ctx.rect(leader.x, line.clipText === false ? 0 : line.y, leader.width, line.clipText === false ? geometry.height : line.height); ctx.clip();
               ctx.fillStyle = paintColor(leader.color, foregroundBackground(leader, background));

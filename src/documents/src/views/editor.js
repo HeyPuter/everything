@@ -65,12 +65,13 @@ import { styleDisplayName } from '../lib/style-names.js';
 import { createProofing } from './proofing.js';
 import { keyboardShortcuts } from './keyboard-shortcuts.js';
 import { commandIconEl } from '../ui/ribbon.js';
+import { createFormatArea } from './format-area.js';
 import { createEditCommands } from './edit-commands.js';
 import { createBackstage } from './backstage.js';
 import { openPreferences } from './preferences.js';
 import { createStatusBar } from './status-bar.js';
 import { openDocumentMenu } from './document-context-menu.js';
-import { createKeymap, displayChord } from './keymap.js';
+import { createKeymap, displayChord, chordOf } from './keymap.js';
 import { openCustomizeKeyboard } from './customize-keyboard.js';
 import { MARKUP_VIEWS } from './review.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
@@ -207,7 +208,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     };
     openDocumentMenu({ event, behind, selectBehind, engine, pkg, w: editorCommands, kit: { separator: { separator: true }, focusEditor: () => engine?.focus() },
       actions: { clipboardState, cut: () => copyText(true), copy: () => copyText(false), paste: pasteText, pastePlain: pastePlainText,
-        paragraphDialog: () => paragraphGeometry.click(), editLink: () => editHyperlink(engine.input), spellingItems: at => proofing.menuItems(at),
+        paragraphDialog: () => (editorCommands.paragraphDialog ? editorCommands.paragraphDialog() : paragraphGeometry.click()), editLink: () => editHyperlink(engine.input), spellingItems: at => proofing.menuItems(at),
         imageItems, tableItems, print: () => printDocument(), fieldAtCaret: () => !!references.fieldAtCaret?.() } });
   }
   let hyperlinkModal = null, bookmarkModal = null, paragraphShadingModal = null, paragraphBorderModal = null;
@@ -292,15 +293,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const undo = tool('Undo', 'undo', () => engine?.undo(), { disabled: true, shortcut: `${MOD_KEY}+Z` });
   // With nothing to redo, Redo becomes Repeat: it runs the last command again, as F4 does.
   const redo = tool('Redo', 'redo', () => { if (!engine) return; if (engine.session.future.length || !editCommands.canRepeat()) engine.redo(); else editCommands.repeat(); }, { disabled: true, shortcut: `${MOD_KEY}+Shift+Z` });
-  const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [], range: () => engine?.model.range || [0, 0], select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
-  const openFind = () => {
+  // Format area: Font/Paragraph/Tabs/Borders/Bullets/Style dialogs, Styles pane, paste options, Dictate.
+  const formatArea = createFormatArea({ editor: () => engine, pkg: () => pkg, error, refresh: () => chrome?.refresh(), host: () => host, unit: () => rulers?.unit ?? 'in',
+    focus: () => engine?.focus(), openFind: options => openFind(options), finder: () => finder, pageSetup: () => pageSetup.click(), clipboard: { state: () => clipboardState() }, hasKeymap: () => !!keymap, keyClaimed: e => !!keymap?.commandFor(chordOf(e)) });
+  // The format area's search covers the body, a selection, and headers and footers (advanced options).
+  const finder = findReplacePanel({ readOnly: () => !!pkg?.readOnly, matches: (text, options) => engine?.model.findMatches(text, options) || [], range: () => engine?.model.range || [0, 0], select: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches), replace: (...args) => engine?.replaceMatches(...args), ...formatArea.findApi, close: () => { find.setAttribute('aria-expanded', 'false'); engine?.focus(); } });
+  const openFind = (options = {}) => {
     if (!engine) return;
     engine.finishComposition();
     if (window.matchMedia('(max-width: 700px)').matches) {
       chrome.closeInspector();
     }
     outlinePanel.hide(); outline.setAttribute('aria-expanded', 'false');
-    find.setAttribute('aria-expanded', 'true'); finder.open(engine.model.text.slice(...engine.model.range));
+    find.setAttribute('aria-expanded', 'true'); finder.open(engine.model.text.slice(...engine.model.range), options);
   };
   finder.node.id = 'canvas-find-panel';
   const find = tool('Find and replace', 'search', openFind, { 'aria-expanded': 'false', 'aria-controls': finder.node.id, shortcut: `${MOD_KEY}+F` });
@@ -684,7 +689,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       } }));
   };
   const editingCommands = createEditingCommands({ editor: () => engine, pkg: () => pkg, host: () => host, refresh: () => chrome?.refresh(), zoomControl, error, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(), documentTitle: () => title?.value?.trim() });
-  Object.assign(editorCommands, editingCommands);
+  // The format area's extendTab, extendMenu and contextMenuItems arrive here too; later modules chain onto them.
+  Object.assign(editorCommands, editingCommands, formatArea.commands);
+  formatArea.install(editorCommands);
   // The proofing indicator: the book shows whether spelling found errors; clicking opens the Spelling pane.
   const proofingButton = el('button.ed-status-item.ed-proofing', { type: 'button', onclick: () => proofing.openPane() }, commandIconEl('proofingClean', 16));
   function updateProofingStatus() {
@@ -987,7 +994,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   });
   root = el('section.canvas-workspace.ed-workspace', {}, chrome.header, chrome.toolbar,
     message, el('div.canvas-editor-body', {}, chrome.navigation,
-      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, chrome.inspector)),
+      el('div.canvas-editor-content', {}, outlinePanel.node, finder.node, surface, review.pane, formatArea.pane.node, proofing.pane, mailings.pane, references.lookupPane, ...reviewTools.panes, chrome.inspector)),
     statusBar.el, backstage.el,
     openInput, imageInput, fontSizes);
   chrome.attach(root);
@@ -1006,13 +1013,13 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const builtInCommands = {
     'edit.copyFormat': () => editCommands.copyFormat(),
     'edit.pasteFormat': () => (formatClipboard ? editCommands.pasteFormat() : false),
-    'edit.pasteMatch': () => { if (!engine || !clipboardState().paste) return false; pastePlainText(); },
+    'edit.pasteMatch': () => { if (!engine || !clipboardState().paste) return false; if (editorCommands.pasteMatchFormatting) editorCommands.pasteMatchFormatting(); else pastePlainText(); },
     'edit.pasteSpecial': () => (editorCommands.pasteSpecial ? editorCommands.pasteSpecial() : false),
     'edit.repeat': () => editCommands.repeat(),
     'edit.redoOrRepeat': () => (engine && !engine.session.future.length && editCommands.canRepeat() ? editCommands.repeat() : false),
     'edit.findNext': () => editCommands.findNext(1), 'edit.findPrevious': () => editCommands.findNext(-1),
     'edit.goTo': () => editorCommands.goTo(),
-    'format.paragraph': () => { if (paragraphGeometry.disabled) return false; paragraphGeometry.click(); },
+    'format.paragraph': () => { if (editorCommands.paragraphDialog && engine) return editorCommands.paragraphDialog(); if (paragraphGeometry.disabled) return false; paragraphGeometry.click(); },
     'view.focus': () => (engine ? editorCommands.focusMode() : false),
     'format.styles': () => (editorCommands.stylesPane ? editorCommands.stylesPane() : false),
     'file.open': () => openInput.click(), 'file.saveAs': () => backstage.open('save'),
@@ -1241,7 +1248,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     lineSpacing.value = format.lineRule === 'auto' && [1, 1.15, 1.5, 2, 2.5, 3].includes(format.lineSpacing) ? String(format.lineSpacing) : '';
     if (document.activeElement !== spaceBefore) spaceBefore.value = format.spaceBefore ?? '';
     if (document.activeElement !== spaceAfter) spaceAfter.value = format.spaceAfter ?? '';
-    chrome.refresh(); review.refresh(); reviewTools.refresh();
+    chrome.refresh(); review.refresh(); reviewTools.refresh(); formatArea.refresh();
     stats.textContent = `Page ${Math.min(engine.layout.pageCount, (engine.caretPageIndex ?? 0) + 1)} of ${engine.layout.pageCount}`;
     updateWordCount();
     statusBar?.refresh();
@@ -1352,6 +1359,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       doc.template = null;
     }
     editorCommands.restoreMarks(engine);
+    formatArea.attach(engine);
     proofing.attach(engine);
     reviewTools.attach(engine);
     engineApi().attachShapeEditing(engine, error, () => pkg);
@@ -1421,7 +1429,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       printAbort.abort();
       destroyed = true; paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();
       backstage?.close({ focus: false });
-      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
+      fitObserver?.disconnect(); rulers?.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); references.destroy(); insert.destroy(); editingCommands.destroy(); proofing.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
       session.removeEventListener('change', onSession);

@@ -28,8 +28,9 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   /* ---- Formatting pane: the settings of the Font, Paragraph and Style dialogs ---- */
   const textSection = section('Text', field('Character style', c.characterStyle), c.editCharacterStyle, c.newCharacterStyle,
     c.caps, c.smallCaps, c.doubleStrike, c.baselineShift, c.characterSpacing, c.textWidth, c.kerning);
+  // With the Paragraph and Borders and Shading dialogs on the ribbon, the older direct editors stay here.
   const paragraphSection = section('Paragraph', field('Paragraph style', c.paragraphStyle), c.editStyle, c.newStyle, c.clearParagraphFormatting,
-    field('Line spacing', c.lineSpacing), c.lineSpacingOptions, c.restart);
+    field('Line spacing', c.lineSpacing), c.lineSpacingOptions, c.restart, ...(w.paragraphDialog ? [c.paragraphGeometry, c.paragraphBorders] : []));
   const tableSection = section('Table', field('Rows & columns', c.tableActions));
   const pageSection = el('details.canvas-inspector-details', { open: pageToolsExpanded, ontoggle: () => { pageToolsExpanded = pageSection.open; } }, el('summary', {}, 'Page & document'),
     section('Page & document settings', c.pageBreakBefore, c.insertTab, ...c.paginationTools, field('Outline level', c.outlineLevel), c.unlink));
@@ -77,7 +78,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
 
   /* ---- Home ---- */
   const paste = command('Paste', 'paste', () => a.paste?.(), { size: 'large', shortcut: `${MOD_KEY}+V` });
-  const pasteSplit = split(paste, { label: 'Paste options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Paste options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument([
+  const pasteSplit = split(paste, { label: 'Paste options', size: 'large', open: (anchor, e) => openMenu({ anchor, label: 'Paste options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument(w.pasteItems?.() || [
     { label: 'Keep Source Formatting', icon: 'paste', shortcut: `${MOD_KEY}+V`, onSelect: () => a.paste?.() },
     { label: 'Keep Text Only', icon: 'pasteText', shortcut: `${MOD_KEY}+Shift+V`, onSelect: () => a.pastePlain?.() }]) }) });
   const cut = command('Cut', 'cut', () => a.cut?.(), { shortcut: `${MOD_KEY}+X` });
@@ -124,7 +125,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   small(c.bullets, { icon: 'bullets' }); small(c.numbers, { icon: 'numbers' });
   // The list buttons' arrows open the bullet and numbering libraries.
   const listSplit = (control, kind) => {
-    const wrap = split(control, { label: kind === 'bullet' ? 'Bullet Library' : 'Numbering Library', open: (anchor, e) => openListLibrary({ anchor, kind, current: w.listLibraryIndex?.(kind) ?? -1,
+    const wrap = split(control, { label: kind === 'bullet' ? 'Bullet Library' : 'Numbering Library', open: (anchor, e) => openListLibrary({ anchor, kind, current: w.listLibraryIndex?.(kind) ?? -1, extra: inDocument(w.listLibraryExtras?.(kind) || []),
       apply: index => { focusEditor(); w.applyListLibrary?.(kind, index); }, none: () => { focusEditor(); w.removeList?.(kind); }, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null }) });
     when(wrap.arrow, () => engineReady() && !!w.applyListLibrary && !control.disabled);
     return wrap;
@@ -145,14 +146,23 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   small(c.lineSpacingMenu, { icon: 'lineSpacing' });
   c.lineSpacingMenu.setAttribute('aria-label', 'Line and Paragraph Spacing'); c.lineSpacingMenu.title = 'Line and Paragraph Spacing';
   c.lineSpacingMenu.append(el('span.ribbon-caret', { 'aria-hidden': 'true' }));
-  small(c.paragraphShading, { icon: 'shading' }); small(c.paragraphBorders, { icon: 'borders' });
-  const paragraphLauncher = small(c.paragraphGeometry, { icon: 'paragraphDialog' });
+  small(c.paragraphShading, { icon: 'shading' });
+  // Borders: the last border choice, with the border presets and Borders and Shading on its arrow.
+  let bordersControl = c.paragraphBorders;
+  if (w.paragraphBorderItems) {
+    const main = command('Borders', 'borders', () => w.applyLastBorder?.());
+    noFocusSteal(main); when(main, engineReady);
+    bordersControl = split(main, { label: 'Border options', open: (anchor, e) => openMenu({ anchor, label: 'Borders', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument(w.paragraphBorderItems()) }) });
+    when(bordersControl.arrow, engineReady);
+  } else small(c.paragraphBorders, { icon: 'borders' });
+  const paragraphLauncher = w.paragraphDialog ? command('Paragraph Settings', 'paragraphDialog', () => w.paragraphDialog(), { shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+M' : null }) : small(c.paragraphGeometry, { icon: 'paragraphDialog' });
+  if (w.paragraphDialog) { noFocusSteal(paragraphLauncher); when(paragraphLauncher, () => !!a.hasDocument?.()); }
   const paragraphGroup = [rows(
     [bulletSplit, numberSplit, multilevel, divider(), c.outdent, c.indent, divider(), sort, divider(), marks],
-    [alignLeft, alignCenter, alignRight, justify, divider(), c.lineSpacingMenu, divider(), c.paragraphShading, c.paragraphBorders, divider(), paragraphLauncher])];
+    [alignLeft, alignCenter, alignRight, justify, divider(), c.lineSpacingMenu, divider(), c.paragraphShading, bordersControl, divider(), paragraphLauncher])];
 
   // The quick style gallery shows the document's paragraph styles in their own formatting.
-  const gallery = el('div.ribbon-gallery', { role: 'listbox', 'aria-label': 'Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '2', shrinkMax: '620' } });
+  const gallery = el('div.ribbon-gallery', { role: 'listbox', 'aria-label': 'Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '1', shrinkMax: '620' } });
   const galleryMore = command('More Styles', 'more', e => {
     if (c.paragraphStyle.disabled) return;
     openMenu({ anchor: galleryMore, label: 'Styles', minWidth: 240, pointer: !!e?.detail, onClose: focusEditor, items: inDocument([
@@ -191,19 +201,19 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
     // The ribbon sizes the gallery to whole items: refit when the number of styles changes.
     if (gallery.children.length !== count) queueMicrotask(() => ribbon?.fit());
   }
-  const styleGroup = [el('div.ribbon-gallery-frame', {}, gallery, galleryMore), more];
+  const styleGroup = [el('div.ribbon-gallery-frame', {}, gallery, galleryMore), ...(w.styleGroupItems?.({ command, when }) || []), more];
 
   // Find searches from the Navigation pane; its menu also offers the Find and Replace panel and Go To.
   const findButton = command('Find', 'find', () => a.openSearch?.(), { text: 'Find', shortcut: `${MOD_KEY}+F` });
   const findSplit = split(findButton, { label: 'Find options', open: (anchor, e) => openMenu({ anchor, label: 'Find options', pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument([
     { label: 'Find', icon: 'search', shortcut: `${MOD_KEY}+F`, onSelect: () => a.openSearch?.() },
-    { label: 'Advanced Find…', onSelect: () => c.find.click() },
+    { label: 'Advanced Find…', onSelect: () => (w.advancedFind ? w.advancedFind() : c.find.click()) },
     { label: 'Go To…', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+G' : 'Ctrl+G', onSelect: () => w.goTo?.() }]) }) });
   noFocusSteal(findButton);
   when(findButton, () => !c.find.disabled); when(findSplit.arrow, () => !c.find.disabled);
   const replace = command('Replace', 'replace', () => w.openReplace?.(), { text: 'Replace', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Shift+H' : 'Ctrl+H' });
   const selectMenu = menuButton('Select', 'select', () => [
-    { label: 'Select All', shortcut: `${MOD_KEY}+A`, icon: 'selectAll', onSelect: a.selectAll }], { size: 'small', text: 'Select' });
+    { label: 'Select All', shortcut: `${MOD_KEY}+A`, icon: 'selectAll', onSelect: a.selectAll }, ...(w.selectItems?.() || [])], { size: 'small', text: 'Select' });
   noFocusSteal(replace);
   when(replace, () => !c.find.disabled); when(selectMenu, engineReady);
   const editingGroup = [rows([findSplit], [replace], [selectMenu])];
