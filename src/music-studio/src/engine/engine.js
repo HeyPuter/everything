@@ -9,8 +9,11 @@
 //   engine.noteOn(channelId, key, vel) / noteOff(channelId, key) / allNotesOff()
 //   engine.meters        Float32Array, [peakL, peakR] per mixer track, updated ~30x/s
 //   engine.cpu           0..1 share of the audio time budget used
-//   engine.loadSample(sampleId, { channels: Float32Array[], rate })
-//   engine.render({ mode, patternId, start, end, rate, tail, onProgress }) -> { channels, rate }
+//   engine.loadSample(sampleId, { channels: Float32Array[], rate }) / unloadSample(sampleId)
+//   engine.audition({ type, params, sample }, key, vel)   one-off preview voice (browser presets),
+//                                                         played through the master; returns a stop()
+//   engine.render({ mode, patternId, start, end, rate, tail, isolate, onProgress }) -> { channels, rate }
+//     isolate: a mixer insert index; only signal that passes through it reaches the master (stems)
 //
 // Events: 'state' (playing, mode, recording changed), 'meters', 'stats',
 // 'error' (Error), 'loop' (playback wrapped).
@@ -129,6 +132,10 @@ export class Engine extends Emitter {
   noteOff() {}
   allNotesOff() {}
   async loadSample() {}
+  unloadSample() {}
+  audition() {
+    return () => {};
+  }
 
   async render() {
     throw new Error('Rendering is not available yet.');

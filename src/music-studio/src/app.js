@@ -4,6 +4,19 @@
 //
 // Feature modules are installed from main.js: each exports install(app) and
 // registers panels, commands and menu items.
+//
+// Hooks that feature modules provide on the app (absent until installed, so
+// callers check before use):
+//   app.openChannelEditor(channelId)            channel rack: instrument editor window
+//   app.openEffectEditor(track, slotId)         mixer: effect editor window
+//   app.importAudio(blob, { name, path, as })   storage: decodes audio, adds the sample
+//                                               and a channel ('sampler' | 'audio'),
+//                                               resolves { sampleId, channelId, duration }
+//   app.emitKeyboardNote(keyEvent, down)        piano roll: typing keyboard to piano;
+//                                               returns true when the key played a note
+//   app.recentMenuItems(), app.effectMenuItems() menu providers (storage, mixer)
+//   app.lastTweaked = { label, target }          set by editors when a parameter moves;
+//                                               target uses the automation target shape
 
 import { Emitter } from './lib/emitter.js';
 import { h } from './lib/dom.js';
@@ -13,6 +26,7 @@ import { newProject } from './model/demo.js';
 import * as E from './model/edits.js';
 import { createChannel, colorAt } from './model/project.js';
 import { Engine } from './engine/engine.js';
+import { SampleCache } from './audio/samples.js';
 import { Commands, eventCombo, isTyping } from './commands/registry.js';
 import { registerCoreCommands } from './commands/core.js';
 import { Shell } from './ui/shell.js';
@@ -30,6 +44,7 @@ export class App extends Emitter {
     this.prefs = new Prefs(storage);
     this.store = new Store(project || newProject());
     this.engine = new Engine(this.store, this.prefs);
+    this.samples = new SampleCache(this.engine);
     this.commands = new Commands(this);
     this.activePanel = 'playlist';
     this.file = null; // { path?: Puter path, local?: IndexedDB key, name }

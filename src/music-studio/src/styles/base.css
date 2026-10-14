@@ -687,3 +687,77 @@ input[type='range'] {
 .dialog.wide {
   width: min(760px, 100%);
 }
+
+/* ------------------------------------------------------------ floating windows */
+
+.float-win {
+  position: fixed;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 24px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.win-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--panel-2);
+  cursor: grab;
+  touch-action: none;
+  flex: none;
+}
+
+.win-icon {
+  color: var(--muted);
+  display: inline-flex;
+}
+
+.win-title {
+  margin: 0;
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs);
+  font-weight: 600;
+}
+
+.win-tools {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.win-body {
+  overflow: auto;
+  min-height: 0;
+}
+
+@media (max-width: 720px) {
+  .float-win {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    width: 100% !important;
+    max-width: 100%;
+    max-height: 70vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .win-head {
+    cursor: default;
+  }
+}
