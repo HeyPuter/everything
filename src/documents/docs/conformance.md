@@ -23142,3 +23142,43 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
 - Symbols are ordinary characters; a symbol font choice is written as `w:rFonts` ascii/hAnsi on the
   inserted run. Nonbreaking and optional hyphens are inserted as U+2011 and U+00AD (not
   `w:noBreakHyphen` / `w:softHyphen` elements). `w:sym` (§17.3.3.30) is read but not written.
+
+## Picture and shape effects, preset picture geometry and hidden drawings (2026-10-13)
+
+- **Effect lists** (§20.1.8.26 `a:effectLst`): members must follow CT_EffectList order without
+  duplicates. Top-level pictures (`pic:spPr`) and standalone shapes (`wps:spPr`, including effects
+  resolved from a theme `effectRef`) accept any subset of `a:glow`, `a:outerShdw`, `a:reflection`
+  and `a:softEdge`. `a:blur`, `a:fillOverlay`, `a:innerShdw` and `a:prstShdw`, and the new effects
+  on shapes or pictures inside groups, keep the document read-only as before. A list holding only
+  an outer shadow reads exactly as before.
+- **Glow** (§20.1.8.32): `rad` and one color (with alpha); painted behind the drawing as its
+  silhouette blurred over the radius and strengthened at the edge. A zero radius paints nothing.
+- **Soft edge** (§20.1.8.53): `rad`; the drawing's alpha ramps from zero on its silhouette's edge to
+  full at about the radius inside it (Gaussian of the silhouette remapped). Applied before the shadow
+  for pictures; for shapes the in-scene shadow is softened with the shape (approximation).
+- **Reflection** (§20.1.8.50): the supported form is a vertical mirror below the drawing —
+  `sx` 100%, `sy` −100%, `kx`/`ky` 0, `algn` `bl` or `b`, `fadeDir` 5400000 and, with a distance,
+  `dir` 5400000 — with `blurRad`, `stA`, `stPos`, `endA`, `endPos` and `dist`. The mirror image fades
+  linearly from `stA` to `endA` between `stPos` and `endPos` of the drawing's height and is clear
+  beyond `endPos`. Other reflection geometry is unsupported.
+- Effects add ink around the drawing only: the frame, `wp:effectExtent`, wrapping and layout are
+  unchanged, and the source XML is kept in the drawing for saving. Effect rasters keep the
+  4,096 px / 4 MP preview limits.
+- **Black and white** (§20.1.8.11 `a:biLevel`): `thresh` (0–100%) joins the ordered blip color
+  effects; pixels whose luminance (0.299 R + 0.587 G + 0.114 B) is at or above the threshold become
+  white and the rest black, keeping alpha. A missing or out-of-range threshold is unsupported.
+- **Preset geometry on pictures** (§20.1.9.18 `a:prstGeom` in `pic:spPr`): any preset the shape
+  reader evaluates (with `a:avLst` guide adjustments) now clips the picture, and its outline follows
+  the preset; `rect` keeps the unclipped picture path and still requires an empty `a:avLst`. 3D
+  pictures keep the rectangle/ellipse subset. The same applies to pictures inside groups.
+- **Rotated and flipped styled pictures**: pictures with a clip, outline, backing fill, shadow or
+  the effects above may now carry `a:xfrm` `rot`, `flipH` and `flipV` (§20.1.7.6); the scene paints
+  the unrotated frame and the page rotates it like an ordinary picture, so effect directions rotate
+  with the picture. Rotated 3D pictures and pictures whose fill does not rotate with the shape
+  (`rotWithShape="0"`) remain unsupported. Text-wrapped rotated pictures remain unsupported, as for
+  plain pictures.
+- **Hidden drawings** (§20.4.2.5 `wp:docPr@hidden`, and `pic:cNvPr@hidden` on a top-level picture):
+  `1`/`true`/`on` opens the drawing as hidden — it keeps its anchor run, position and XML, paints
+  nothing (on screen and in print), is skipped by hit-testing and does not take part in square or
+  top-and-bottom text exclusion or overlap resolution. An inline hidden drawing still reserves its
+  space in the line. Invalid values are unsupported.

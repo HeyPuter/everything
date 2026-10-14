@@ -4,13 +4,16 @@ const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const A14 = 'http://schemas.microsoft.com/office/drawing/2010/main';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const fail = why => { throw new UnsupportedDocumentError(`picture shadows with ${why}`); };
-export function readPictureShadow(shape, scheme) {
+// With `withEffects`, glow, reflection and soft edges may share the list; docx-drawing-effects.js
+// reads and validates them. Without it, a list holding anything but one outer shadow is unsupported.
+export function readPictureShadow(shape, scheme, withEffects = false) {
   const list = [...shape.children].find(n => n.namespaceURI === A && n.localName === 'effectLst');
   if (!list) return null;
   if ([...list.attributes].some(a => a.namespaceURI !== XMLNS) || list.textContent.trim()) fail('invalid effect list');
-  if (!list.children.length) return null;
-  const n = list.children[0];
-  if (list.children.length !== 1 || n.namespaceURI !== A || n.localName !== 'outerShdw') fail('unsupported or duplicate effects');
+  const members = withEffects ? [...list.children].filter(n => !(n.namespaceURI === A && ['glow', 'reflection', 'softEdge'].includes(n.localName))) : [...list.children];
+  if (!members.length) return null;
+  const n = members[0];
+  if (members.length !== 1 || n.namespaceURI !== A || n.localName !== 'outerShdw') fail('unsupported or duplicate effects');
   const attrs = ['blurRad', 'dist', 'dir', 'sx', 'sy', 'kx', 'ky', 'algn', 'rotWithShape'];
   if ([...n.attributes].some(a => a.namespaceURI !== XMLNS && (a.namespaceURI || !attrs.includes(a.localName)))) fail('unsupported attributes');
   const number = (key, fallback, min, max) => {

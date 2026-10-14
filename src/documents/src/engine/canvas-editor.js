@@ -570,7 +570,8 @@ export class CanvasEditor {
       for (const pageStory of [true, false]) {
         const floatingObjects = pageStory ? this.storyLayout.floatingObjects : this.layout.floatingObjects || [];
         const paintFloating = behind => {
-          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind) {
+          // A hidden drawing (§20.4.2.5) keeps its anchor and place but paints nothing.
+          for (const f of floatingObjects) if (f.page === index && !!f.image.anchor.behind === behind && !f.image.hidden) {
             if (f.cellClip) { ctx.save(); ctx.beginPath(); ctx.rect(f.cellClip.left ?? 0, f.cellClip.top, (f.cellClip.right ?? geometry.width) - (f.cellClip.left ?? 0), f.cellClip.bottom - f.cellClip.top); ctx.clip(); }
             const angle = normalizedRotation(f.image.rotation);
             if (angle) {
@@ -691,7 +692,7 @@ export class CanvasEditor {
                 if (clipImage) { ctx.save(); ctx.beginPath(); ctx.rect(0, line.y, geometry.width, line.height); ctx.clip(); }
                 const upright = fragment.uprightImage;
                 if (upright) { ctx.save(); leaveCellText(ctx, physical.cellText.matrix); }
-                const bitmap = this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
+                const bitmap = fragment.image.hidden ? null : this.images.get(fragment.image.assetId), top = upright?.y ?? line.baseline - fragment.ascent;
                 if (bitmap) {
                   if (fragment.image.opacity !== undefined) { ctx.save(); ctx.globalAlpha *= fragment.image.opacity; }
                   const { flipH, flipV } = fragment.image, angle = normalizedRotation(fragment.image.rotation), transformed = flipH || flipV || angle;

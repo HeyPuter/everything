@@ -144,7 +144,7 @@ it('rejects unsupported drawing forms, transforms, broken relationships, invalid
     ['empty crop', xml => { const rect = xml.createElementNS(A, 'a:srcRect'); rect.setAttribute('l', '100000'); node(xml, PIC, 'blipFill').append(rect); }],
     ['invalid rotation', xml => node(xml, A, 'xfrm').setAttribute('rot', 'not-an-angle')],
     ['unsupported effect', xml => { const alpha = xml.createElementNS(A, 'a:alphaBiLevel'); alpha.setAttribute('thresh', '50000'); node(xml, A, 'blip').append(alpha); }],
-    ['unsupported preset', xml => node(xml, A, 'prstGeom').setAttribute('prst', 'heart')],
+    ['unknown preset', xml => node(xml, A, 'prstGeom').setAttribute('prst', 'notAPreset')],
     ['duplicate ID', xml => xml.getElementsByTagNameNS(WP, 'docPr')[1].setAttribute('id', node(xml, WP, 'docPr').getAttribute('id'))],
     ['missing dimensions', xml => node(xml, WP, 'extent').removeAttribute('cx')],
     ['missing relationship', xml => node(xml, A, 'blip').setAttributeNS(R, 'r:embed', 'missing')],

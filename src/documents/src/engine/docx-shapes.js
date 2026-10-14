@@ -19,6 +19,7 @@ import { cloudGeometry } from './cloud-geometry.js';
 import { ribbonGeometry } from './ribbon-geometry.js';
 import { readShapeExtensions } from './docx-shape-extensions.js';
 import { readPictureShadow } from './docx-picture-shadow.js';
+import { readDrawingEffects } from './docx-drawing-effects.js';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -712,7 +713,8 @@ export function readShapeScene(root, readPicture, readParagraph, readPictureFill
     }
     if (node.namespaceURI === PIC && node.localName === 'pic') {
       const props = child(node, PIC, 'spPr'), t = transform(props, false, true);
-      const clipped = child(props, A, 'custGeom') || child(props, A, 'prstGeom')?.getAttribute('prst') === 'ellipse';
+      const preset = child(props, A, 'prstGeom')?.getAttribute('prst');
+      const clipped = child(props, A, 'custGeom') || preset && preset !== 'rect';
       const clipPaths = clipped ? readShapeGeometry(props, t, options).paths : null;
       const pen = readDrawingOutline(props, readSchemeColor, options);
       const backingFill = readPictureBackingFill(props, readSchemeColor);
@@ -746,7 +748,9 @@ export function readShapeScene(root, readPicture, readParagraph, readPictureFill
     readShapeExtensions(props);
     validateGroupFill(props);
     props = styledProperties(node, props, readDrawingStyle, readSchemeColor);
-    const shadow = readPictureShadow(props, readSchemeColor);
+    // A standalone shape may also glow, soften its edges or show a reflection; grouped shapes may not yet.
+    const shadow = readPictureShadow(props, readSchemeColor, depth === 0);
+    const effects = depth === 0 ? readDrawingEffects(props, readSchemeColor) : null;
     if (shadow) {
       if (shadow.scaleX !== undefined || shadow.obscured) fail('scaled or obscured shape shadows');
       const effect = child(child(props, A, 'effectLst'), A, 'outerShdw');
@@ -785,7 +789,7 @@ export function readShapeScene(root, readPicture, readParagraph, readPictureFill
       if (width) text.outlineWidth = width;
     }
     if (pen?.compound && (pen.headEnd || pen.tailEnd) && geometry.paths.some(p => p.stroke && !closedOutlinePath(p))) fail('line-end markers on open compound paths');
-    return { type: 'shape', ...t, ...(shadow ? { shadow } : {}), ...(ellipse ? { textRect: { left: inset, top: inset, right: 1 - inset, bottom: 1 - inset } } : {}), ...geometry, fill: pictureFill ? readPictureFill(pictureFill, t) : child(props, A, 'grpFill') ? groupFill : fill(props, readSchemeColor), outline: pen, text };
+    return { type: 'shape', ...t, ...(shadow ? { shadow } : {}), ...(effects ? { effects } : {}), ...(ellipse ? { textRect: { left: inset, top: inset, right: 1 - inset, bottom: 1 - inset } } : {}), ...geometry, fill: pictureFill ? readPictureFill(pictureFill, t) : child(props, A, 'grpFill') ? groupFill : fill(props, readSchemeColor), outline: pen, text };
   };
   return read(root);
 }

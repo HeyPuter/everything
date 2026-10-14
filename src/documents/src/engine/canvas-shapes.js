@@ -23,6 +23,7 @@ import { paintText, paintTextShadows } from './canvas-paint-text.js';
 import { compoundOutlinePainter, compoundContours } from './compound-outlines.js';
 import { pictureOutlineContours } from './picture-outline-offset.js';
 import { paintPictureShadow } from './canvas-picture-shadow.js';
+import { paintDrawingEffects } from './canvas-drawing-effects.js';
 import { paintTableBorder } from './canvas-table-borders.js';
 import { drawingRasterScale } from './drawing-raster-scale.js';
 import { pointOutlinePosition } from './point-outline.js';
@@ -76,9 +77,12 @@ function paintMissingPicture(ctx, image, x, y, width, height) {
 // Render an immutable scene at the document's existing drawing size. The bitmap
 // exists only in this session; export retains the vector and text source.
 export async function decodeShape(asset, bitmaps, fontAlternatives, onRasterResize) {
+  // Pictures carry their effects on the asset, standalone shapes on their scene.
+  const effects = asset.effects || asset.scene.effects;
+  const withShadow = asset.shadow ? raster => paintPictureShadow(raster, asset.shadow, asset.shadowGeometry) : null;
   if (asset.scene.type === 'picture3d') {
     const decoded = await decodePicture3d(asset, bitmaps);
-    const painted = asset.shadow ? paintPictureShadow(decoded, asset.shadow, asset.shadowGeometry) : decoded;
+    const painted = effects ? paintDrawingEffects(decoded, effects, withShadow) : withShadow ? withShadow(decoded) : decoded;
     // Effects use the fitted solid; page painting maps the result through the
     // original outer frame without stretching unused space in that frame.
     return { ...painted, frameWidth: asset.width, frameHeight: asset.height };
@@ -88,6 +92,7 @@ export async function decodeShape(asset, bitmaps, fontAlternatives, onRasterResi
   const solidPlan = solidRectangles ? {} : undefined;
   const render = (asset, context, placement, scale = 2, display) => {
     const raster = rasterShape(asset, bitmaps, fontAlternatives, context, placement, scale, display, false, solidPlan);
+    if (effects) return paintDrawingEffects(raster, effects, withShadow);
     return asset.shadow ? paintPictureShadow(raster, asset.shadow, asset.shadowGeometry) : raster;
   };
   const displaySupported = solidRectangles || supportsDrawingDisplay(asset);

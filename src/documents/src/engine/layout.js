@@ -1002,13 +1002,13 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // A paragraph-relative square float must fit with its anchor on the page.
     // This reserves placement capacity, not text advancement or paragraph
     // height. Pagination discounts the anchor's own before-spacing.
-    const sideFrames = (page.compatibilityMode ?? 12) >= 15 ? positioned.filter(({ image }) => isSideWrappedImage(image) && image.anchor.vertical === 'paragraph' && image.anchor.y >= 0) : [];
+    const sideFrames = (page.compatibilityMode ?? 12) >= 15 ? positioned.filter(({ image }) => isSideWrappedImage(image) && !image.hidden && image.anchor.vertical === 'paragraph' && image.anchor.y >= 0) : [];
     const sideHeights = sideFrames.map(({ image }) => drawingOffsetPixels(image.anchor.y) + imageExtents(image).height / EMU_PER_PX)
       .filter(height => height <= page.height - page.top - page.bottom + 1e-6);
     if (sideHeights.length) lines[0].floatingFitHeight = Math.max(...sideHeights);
     // wrapNone does not reserve paragraph or row height, or force keepLines.
     // Its extent is considered separately when vertically aligning a cell.
-    const bands = positioned.filter(r => r.image.anchor.wrap === 'topAndBottom').map(({ image }) => {
+    const bands = positioned.filter(r => r.image.anchor.wrap === 'topAndBottom' && !r.image.hidden).map(({ image }) => {
       if (image.anchor.y < 0) throw new Error('Top-and-bottom drawings with negative paragraph offsets are not supported yet.');
       const top = drawingOffsetPixels(image.anchor.y);
       return [top, top + image.height / EMU_PER_PX];
@@ -1180,7 +1180,7 @@ export function nearestStop(line, x, y) {
 export function imageAtPoint(layout, page, x, y, { includeBehindText = false } = {}) {
   let behind = null;
   for (const f of [...(layout.floatingObjects || [])].reverse()) {
-    if (f.page !== page || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
+    if (f.page !== page || f.image.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
     if (!f.image.anchor?.behind) return f;
     behind ||= f;
   }
@@ -1195,7 +1195,7 @@ export function imageAtPoint(layout, page, x, y, { includeBehindText = false } =
     }
     if (line.oversizedInlineHeight && (x < 0 || x >= physicalWidth(layout, page) || y < 0 || y >= (layout.pages?.[page] || layout.page).height)) continue;
     const image = line.fragments.find(f => {
-      if (!f.image || isPositionedImage(f.image)) return false;
+      if (!f.image || f.image.hidden || isPositionedImage(f.image)) return false;
       if (f.uprightImage) {
         const frame = f.uprightImage;
         if ((line.clip || normalizedRotation(f.image.rotation)) && (x < line.x || x > line.x + line.width)) return false;
