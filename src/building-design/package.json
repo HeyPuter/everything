@@ -1,0 +1,29 @@
+{
+  "name": "building-design",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Building Design: building information modeling in the browser. Model walls, doors, windows, floors, roofs, stairs and rooms on levels, then work in plans, elevations, sections, 3D, schedules and sheets.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "earcut": "3.2.4",
+    "lucide": "1.55.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "jsdom": "30.1.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.4"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
