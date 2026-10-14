@@ -114,6 +114,7 @@ import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.
 import { toggleDetail } from '../core/outline-detail.js';
 import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
+import { openTextToColumnsDialog } from '../ui/textcolumnsdialog.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
 import { cellStyle } from '../core/cellstyles.js';
@@ -1111,6 +1112,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
    */
   function splitWouldOverwrite(delimiter) {
     const sheetId = grid.sheetId;
+    if (delimiter && typeof delimiter === 'object') {
+      // The Text to Columns choices: whatever the split writes, other than over the text itself.
+      const ranges = delimiter.dest ? [grid.range] : grid.ranges.flatMap((rg) => shownRuns(rg, sheetId));
+      return ranges.some((rg) => (wb.splitTextPlan(sheetId, { ...rg, c2: rg.c1 }, delimiter).entries || []).some(({ r, c }) => {
+        if (c === rg.c1 && r >= rg.r1 && r <= rg.r2) return false;
+        const cell = wb.getCell(sheetId, r, c);
+        return !!cell && (cell.v != null || cell.f != null);
+      }));
+    }
     for (const rg of grid.ranges) for (const run of shownRuns(rg, sheetId)) {
       const texts = [];
       for (let r = run.r1; r <= run.r2; r++) {
@@ -2302,9 +2312,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
               const d = await promptDialog({ title: 'Split text', label: 'Separator', value: '', confirmLabel: 'Split', validate: (v) => (v.length ? null : 'Enter a separator') });
               if (d != null) run('splitText', d);
             } },
+            { label: 'Text to Columns…', icon: 'textToColumns', onSelect: () => run('splitTextDialog') },
           ],
           onClose: () => keepFocus(),
         });
+        return;
+      }
+      case 'splitTextDialog': {
+        // Text to Columns: separators or fixed widths, a preview, a format per column and a destination.
+        if (!committed()) return;
+        if (refusedByProtection('split the text')) return;
+        openTextToColumnsDialog(ctx, { range: grid.range, allowDest: grid.ranges.length === 1, resolve: resolveRangeText, onSplit: (options) => run('splitText', options) });
         return;
       }
       case 'splitText': {
@@ -2321,17 +2339,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let rows = 0;
         let cols = 0;
         let reason = null;
-        const done = eachRange('Split text', (rg) => {
+        const dest = arg && typeof arg === 'object' ? arg.dest : null;
+        const splitOne = (rg) => {
           const out = wb.splitTextToColumns(sheetId, { ...rg, c2: rg.c1 }, arg || null);
           rows += out.rows;
           cols = Math.max(cols, out.cols);
           reason ??= out.reason;
-        }, { cap: false });
+        };
+        // Pieces sent elsewhere keep the rows of the text they came from, so the selection is read whole, once.
+        const done = dest ? (wb.lockedIn(sheetId, { ...grid.range, c2: grid.range.c1 }) ? null : splitOne(grid.range)) : eachRange('Split text', splitOne, { cap: false });
         if (done === null) { keepFocus(); return; } // a protected cell among the selected ranges; the workbook's notice has named it
         const problem = { room: "Can't split: the pieces would run past the last column", merged: "Can't split: the pieces would land under merged cells" }[reason];
         if (!rows) {
           // A protected cell right of the text refused the split; the workbook's notice has named it.
-          if (reason !== 'protected') toast(problem || (arg ? `No text containing "${arg === '\t' ? 'a tab' : arg}" to split` : 'No text with a separator to split'), { icon: 'info' });
+          if (reason !== 'protected') toast(problem || (typeof arg === 'string' && arg ? `No text containing "${arg === '\t' ? 'a tab' : arg}" to split` : 'No text with a separator to split'), { icon: 'info' });
           keepFocus();
           return;
         }
@@ -2339,7 +2360,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // A range the split had to refuse is not passed over in silence.
         if (problem) toast(problem, { icon: 'info' });
         const range = grid.range;
-        if (grid.ranges.length === 1) grid.setSelection(S.fromRange({ ...range, c2: Math.min(range.c1 + cols - 1, wb.sheet(sheetId).cols - 1) }, grid.active), { scroll: false });
+        if (dest) grid.setSelection(S.fromRange({ r1: dest.r, c1: dest.c, r2: dest.r + range.r2 - range.r1, c2: Math.min(dest.c + cols - 1, wb.sheet(sheetId).cols - 1) }, { r: dest.r, c: dest.c }), { scroll: false });
+        else if (grid.ranges.length === 1) grid.setSelection(S.fromRange({ ...range, c2: Math.min(range.c1 + cols - 1, wb.sheet(sheetId).cols - 1) }, grid.active), { scroll: false });
         keepFocus();
         return;
       }

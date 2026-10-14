@@ -249,13 +249,15 @@ export function createStatusBar(ctx) {
     zoomLabel.hidden = !prefs.zoom;
     zoomBox.hidden = !prefs.zoomSlider && !prefs.zoom;
   }
-  // Right-click chooses what the bar shows; each choice is remembered on this device.
+  // Right-click chooses what the bar shows; each choice is remembered on this device. Every item reads its
+  // current value beside it, shown or not, and the menu stays open so several can be switched in one go.
   root.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    const values = currentValues();
     openMenu({
-      x: e.clientX, y: e.clientY, label: 'Customize Status Bar', minWidth: 220,
+      x: e.clientX, y: e.clientY, label: 'Customize Status Bar', minWidth: 260,
       items: [{ header: 'Customize Status Bar' }, ...STATUS_OPTIONS.map(([key, label]) => ({
-        label, checked: !!prefs[key], onSelect: () => {
+        label, checked: !!prefs[key], keepOpen: true, detail: values[key] ?? '', onSelect: () => {
           prefs[key] = !prefs[key];
           try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* optional storage */ }
           applyVisibility(); refresh();
@@ -263,6 +265,39 @@ export function createStatusBar(ctx) {
       }))],
     });
   });
+
+  /** The selection's statistics, formatted as the bar shows them (null for a single cell or a chart sheet). */
+  function selectionStats() {
+    const sheet = ctx.wb.sheet(ctx.sheetId());
+    const sel = ctx.grid.selection;
+    const ranges = ctx.grid.ranges || [ctx.grid.range];
+    if (!sheet || sheet.kind === 'chart' || (isSingle(sel) && ranges.length === 1)) return null;
+    const s = ranges.length === 1 ? summarize(ctx.wb, ctx.sheetId(), ctx.grid.range) : summarizeAll(ctx.wb, ctx.sheetId(), ranges);
+    if (!s) return null;
+    const style = s.nums ? numericStyleAt(ctx.wb, sheet, sel.active.r, sel.active.c) || s.style || null : null;
+    return { s, fmt: style ? (n) => formatValue(n, style) : formatGeneral };
+  }
+
+  /** What each status bar item would show now, for the customize menu. */
+  function currentValues() {
+    const sheet = ctx.wb.sheet(ctx.sheetId());
+    const ranges = ctx.grid.ranges || [ctx.grid.range];
+    const out = {
+      mode: cellMode(ctx.grid.editState),
+      a11y: a11yEl.querySelector('.status-a11y-text').textContent.replace(/^Accessibility: /, ''),
+      address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : rangeName(ctx.grid.range)) : `${ranges.length} ranges`,
+      size: sheet && sheet.kind !== 'chart' ? `${sheet.rows.toLocaleString()} × ${sheet.cols}` : '',
+      zoom: `${Math.round(ctx.grid.zoom * 100)}%`,
+    };
+    const stats = selectionStats();
+    if (stats) {
+      const { s, fmt } = stats;
+      out.count = String(s.count);
+      out.numCount = String(s.nums);
+      if (s.nums) { out.avg = fmt(s.avg); out.sum = fmt(s.sum); out.min = fmt(s.min); out.max = fmt(s.max); }
+    }
+    return out;
+  }
   applyVisibility();
 
   let liveTimer = null;
@@ -330,14 +365,13 @@ export function createStatusBar(ctx) {
       right.replaceChildren(el('span.status-item.muted.status-size', {}, `${sheet.rows.toLocaleString()} rows, ${sheet.cols} columns`));
       return;
     }
-    const s = ranges.length === 1 ? summarize(ctx.wb, ctx.sheetId(), range) : summarizeAll(ctx.wb, ctx.sheetId(), ranges);
     const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? rangeName(range) : ranges.length <= 3 ? ranges.map(rangeName).join(', ') : `${ranges.length} ranges`)];
     // The statistics stand at the right, in this order: Average, Count, Numerical Count, Minimum, Maximum, Sum.
     const stats = [];
     const stat = (label, value, extra = '') => el(`span.status-item.status-stat${extra}`, {}, el('span.muted', {}, `${label}: `), value);
-    if (s) {
-      const style = s.nums ? numericStyleAt(ctx.wb, sheet, sel.active.r, sel.active.c) || s.style || null : null;
-      const fmt = style ? (n) => formatValue(n, style) : formatGeneral;
+    const summary = selectionStats();
+    if (summary) {
+      const { s, fmt } = summary;
       if (s.nums && prefs.avg) stats.push(stat('Average', fmt(s.avg)));
       if (prefs.count) stats.push(stat('Count', String(s.count)));
       if (prefs.numCount) stats.push(stat('Numerical Count', String(s.nums)));

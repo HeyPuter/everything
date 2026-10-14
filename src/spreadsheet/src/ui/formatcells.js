@@ -1,4 +1,4 @@
-import { fontColorCss } from '../core/font-color.js';
+import { fontColorCss, sameFontColor } from '../core/font-color.js';
 import { fillColorCss } from '../core/fill-color.js';
 /**
  * Format cells dialog (Ctrl/Cmd+Shift+F): number format, alignment, font,
@@ -9,16 +9,35 @@ import { fillColorCss } from '../core/fill-color.js';
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt } from './toolbar.js';
-import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, BORDER_STYLES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT } from '../core/format.js';
+import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS } from './toolbar.js';
+import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
+import { lineStylePicker, edgeGlyph, presetGlyph } from './border-picker.js';
+import { swatchGrid } from './swatch-grid.js';
+import { themeColorGrid, workbookTheme } from '../core/workbook-theme.js';
 
 const PANELS = [['number', 'Number'], ['align', 'Alignment'], ['font', 'Font'], ['border', 'Border'], ['fill', 'Fill'], ['protect', 'Protection']];
 const CATEGORIES = FORMATS.filter((f) => f.value !== 'date-medium');
 // The day the number-format menu samples too, so the two controls for the same setting show the same date.
 const SAMPLE_DAY = FORMATS.find((f) => f.value === 'date').sample;
+/** A line under the Number tab's options saying what the chosen category does. */
+const CATEGORY_NOTES = {
+  general: 'No particular format: numbers, dates and text show as they were entered.',
+  number: 'Plain numbers, with a set count of decimals, an optional thousands separator and a style for negatives.',
+  currency: 'Amounts with a currency label beside the digits.',
+  accounting: 'Amounts with the currency label at the left edge of the cell, so the decimals line up down a column.',
+  date: 'Day numbers shown as calendar dates. The style follows the regional format.',
+  time: 'The time of day a value holds.',
+  percent: 'The value multiplied by 100, with a percent sign.',
+  fraction: 'Decimals shown as the closest simple fraction.',
+  scientific: 'Numbers as a value between 1 and 10 times a power of ten, such as 1.23E+04.',
+  text: 'Entries are kept exactly as typed, even ones that look like numbers or dates.',
+  duration: 'Elapsed time in hours, minutes and seconds, counting on past 24 hours.',
+  datetime: 'A calendar date and a time of day together.',
+  custom: 'Write a format code of your own; the preview follows as you type.',
+};
 const DATE_STYLE_NAMES = [['iso', 'year first'], ['medium', 'written out'], ['long', 'written out in full']];
 /**
  * The date styles, each shown as the date it produces. Built when the dialog opens, so the samples read
@@ -31,7 +50,6 @@ function dateStyles() {
   return DATE_STYLE_NAMES.map(([key, name], i) => [key,
     samples.indexOf(samples[i]) === samples.lastIndexOf(samples[i]) ? samples[i] : `${samples[i]} (${name})`]);
 }
-const BORDER_PRESETS = [['keep', 'Leave as they are'], ['none', 'None'], ['outer', 'Outline'], ['all', 'All'], ['inner', 'Inside'], ['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right']];
 
 const isHex = (s) => /^#[0-9a-f]{6}$/i.test(s || '');
 
@@ -183,6 +201,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     negField.hidden = !['number', 'currency'].includes(c);
     dateField.hidden = c !== 'date' && c !== 'datetime';
     codeField.hidden = c !== 'custom';
+    categoryNote.textContent = CATEGORY_NOTES[c] || '';
     const patch = numberPatch(state);
     let text;
     try { text = c === 'custom' && formatCodeError(state.code) ? '' : formatValue(sample, { ...style, ...patch }); } catch { text = ''; }
@@ -195,8 +214,9 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       option.style.color = red ? '#ff0000' : 'var(--ink)';
     }
   }
+  const categoryNote = el('p.fc-category-note');
   const numberPanel = el('div.fc-panel.fc-number', {}, categorySel,
-    el('div.fc-number-options', {}, preview, decField, curField, groupField, negField, dateField, codeField));
+    el('div.fc-number-options', {}, preview, decField, curField, groupField, negField, dateField, codeField, categoryNote));
 
   /* ---- Alignment ---- */
   const align = { align: style.align || '', valign: style.valign || 'middle', wrap: style.wrap ? 'wrap' : style.clip ? 'clip' : 'overflow', indent: style.indent || 0, rot: style.rot || 0, shrink: !!style.shrink };
@@ -274,13 +294,15 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
 
 
   /* ---- Border ---- */
-  const border = { preset: 'keep', style: style.bs || 'thin', color: style.bc || '', auto: !style.bc };
+  // Pick a line and a colour, then click a preset, an edge of the diagram or a button beside it: each click
+  // draws that edge with the chosen line, or takes it off when it already wears that line. Nothing changes
+  // until OK, and the edges no click touched are left as the cells have them.
+  const border = { style: style.bs || 'thin', color: style.bc || '', auto: !style.bc };
   const originalEdges = readBorderEdges(draftStyle ? { styleAt: () => style, mergesIn: () => [] } : ctx.wb, ctx.sheetId?.(), selection);
   let edges = new Map(originalEdges), customEdges = false, baseBorder = null;
   const edgeActions = new Map(), edgeButtons = new Map();
   const currentPen = () => ({ style: border.style, color: border.auto ? null : border.color || null });
   const action = kind => ({ kind, ...currentPen(), perSide: true });
-  const legacyBorder = () => border.preset === 'keep' ? null : { kind: border.preset, ...currentPen() };
   function syncEdgeButtons() {
     for (const [kind, button] of edgeButtons) {
       const edge = edges.get(kind);
@@ -288,34 +310,17 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       button.disabled = edge.disabled;
     }
   }
-  function syncLegacyEdges() {
-    if (customEdges) return;
-    edges = new Map(originalEdges);
-    const kinds = border.preset === 'all' ? BORDER_EDGES.map(([kind]) => kind)
-      : border.preset === 'outer' ? ['top', 'bottom', 'left', 'right']
-      : border.preset === 'inner' ? ['horizontal', 'vertical'] : [border.preset];
-    for (const [kind, edge] of edges) {
-      if (border.preset === 'none') edges.set(kind, { ...edge, on: false, pen: null });
-      else if (kinds.includes(kind) && !edge.disabled) edges.set(kind, { ...edge, on: true, pen: currentPen() });
-    }
-    syncEdgeButtons();
-  }
-  function beginEdges() {
-    if (customEdges) return;
-    baseBorder = legacyBorder(); customEdges = true;
-    presetSelect.value = 'custom';
-  }
   function paintEdge(kind) {
     const edge = edges.get(kind);
     if (edge.disabled) return;
-    beginEdges();
+    customEdges = true;
     const remove = edge.on === true && penSignature(edge.pen) === penSignature(currentPen());
     edgeActions.set(kind, { ...action(kind), remove });
     edges.set(kind, { ...edge, on: !remove, pen: remove ? null : currentPen() });
     syncEdgeButtons(); refreshAppearance();
   }
   function presetEdges(kind) {
-    beginEdges();
+    customEdges = true;
     if (kind === 'none') {
       baseBorder = { kind: 'none' }; edgeActions.clear();
       for (const [key, edge] of edges) edges.set(key, { ...edge, on: false, pen: null });
@@ -325,35 +330,69 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     }
     syncEdgeButtons(); refreshAppearance();
   }
-  const borderColor = el('input.chart-color-input', { type: 'color', value: isHex(border.color) ? border.color : '#0b0b0b', 'aria-label': 'Border color', oninput: () => { border.color = borderColor.value; border.auto = false; autoBorder.querySelector('input').checked = false; syncLegacyEdges(); } });
-  const autoBorder = checkbox('Default color', border.auto, (v) => { border.auto = v; if (!v && !border.color) border.color = borderColor.value; syncLegacyEdges(); });
-  const presetField = select('Borders', [...BORDER_PRESETS, ['custom', 'Custom edges']], border.preset, value => {
-    border.preset = value; customEdges = false; baseBorder = null; edgeActions.clear(); syncLegacyEdges();
-  });
-  const presetSelect = presetField.querySelector('select');
-  presetSelect.querySelector('[value="custom"]').disabled = true;
+  // The line samples are drawn in the colour they will paint.
+  const syncPenColor = () => { lineStyles.style.color = border.auto ? '' : border.color || ''; };
+  const borderColor = el('input.chart-color-input', { type: 'color', value: isHex(border.color) ? border.color : '#0b0b0b', 'aria-label': 'Border color', oninput: () => { border.color = borderColor.value; border.auto = false; autoBorder.querySelector('input').checked = false; syncPenColor(); } });
+  const autoBorder = checkbox('Default color', border.auto, (v) => { border.auto = v; if (!v && !border.color) border.color = borderColor.value; syncPenColor(); });
+  const lineStyles = lineStylePicker({ label: 'Line style', value: border.style, onChange: (v) => { border.style = v; } });
   const presets = el('div.fc-border-presets', { role: 'group', 'aria-label': 'Border presets' },
-    [['none', 'None'], ['outer', 'Outline'], ['inner', 'Inside']].map(([kind, label]) => el('button.btn.btn-ghost', {
-      type: 'button', disabled: kind === 'inner' && edges.get('horizontal').disabled && edges.get('vertical').disabled
+    [['none', 'None', 'Take every border off'], ['outer', 'Outline', 'Draw the outside edges'], ['inner', 'Inside', 'Draw the lines between cells']].map(([kind, label, title]) => el('button.fc-preset', {
+      type: 'button', title, disabled: kind === 'inner' && edges.get('horizontal').disabled && edges.get('vertical').disabled
         || kind === 'outer' && ['top', 'bottom', 'left', 'right'].every(key => edges.get(key).disabled),
       onclick: () => presetEdges(kind),
-    }, label)));
-  for (const [kind, label] of BORDER_EDGES) edgeButtons.set(kind, el('button.btn.btn-ghost.fc-edge', {
-    type: 'button', 'aria-label': `${label} border`, 'aria-pressed': String(edges.get(kind).on),
-    disabled: edges.get(kind).disabled, onclick: () => paintEdge(kind),
-  }, label));
+    }, el('span.fc-preset-glyph', { html: presetGlyph(kind) }), el('span.fc-preset-label', {}, label))));
+  for (const [kind, label] of BORDER_EDGES) edgeButtons.set(kind, el('button.fc-edge', {
+    type: 'button', 'aria-label': `${label} border`, title: label, 'aria-pressed': String(edges.get(kind).on),
+    disabled: edges.get(kind).disabled, html: edgeGlyph(kind), onclick: () => paintEdge(kind),
+  }));
+  const diagonal = (kind, label) => el(`button.fc-edge.fc-edge-diagonal.fc-edge-${kind}`, {
+    type: 'button', 'aria-label': `${label} border`, disabled: true, title: 'Diagonal borders are not supported', html: edgeGlyph(kind),
+  });
+  // The diagram: the edges of the selection drawn around a sample of its cells, with a button for each edge
+  // beside the line it draws (top, between rows and bottom on the left; left, between columns and right below).
+  const diagramSlot = el('div.fc-diagram-box');
+  const diagram = el('div.fc-diagram', {},
+    el('div.fc-diagram-rows', { role: 'group', 'aria-label': 'Row edges' }, ['top', 'horizontal', 'bottom'].map(k => edgeButtons.get(k))),
+    diagramSlot,
+    diagonal('diagonalUp', 'Diagonal up'),
+    el('div.fc-diagram-cols', { role: 'group', 'aria-label': 'Column edges' }, ['left', 'vertical', 'right'].map(k => edgeButtons.get(k))),
+    diagonal('diagonalDown', 'Diagonal down'));
   const borderPanel = el('div.fc-panel.fc-border', {},
-    el('div.fc-border-pen-controls', {},
-      select('Line style', BORDER_STYLES.map(([k, label]) => [k, label]), border.style, (v) => { border.style = v; syncLegacyEdges(); }, BORDER_STYLES.length),
-      el('div.row', {}, el('label.chart-color', {}, borderColor, el('span', {}, 'Border color')), autoBorder)),
-    el('div.fc-border-patterns', {}, el('span.field-label', {}, 'Presets'), presets, presetField));
+    el('fieldset.fc-group.fc-border-line', {}, el('legend', {}, 'Line'),
+      el('span.field-label', {}, 'Style'), lineStyles,
+      el('span.field-label', {}, 'Color'),
+      el('div.fc-color-row', {}, el('label.chart-color', {}, borderColor, el('span', {}, 'Border color')), autoBorder)),
+    el('div.fc-border-edges', {},
+      el('span.field-label', {}, 'Presets'), presets,
+      el('span.field-label', {}, 'Border'), diagram,
+      el('p.field-hint', {}, 'Pick a line, then click a preset, an edge of the diagram or a button beside it. An edge that already has that line comes off.')));
 
   /* ---- Fill ---- */
+  // The theme's colours and their tints, the standard fills, or any other colour; the sample shows the pick.
   const fill = { bg: style.bg || '', none: !style.bg };
   const fillCss = fillColorCss(fill.bg);
-  const fillColor = el('input.chart-color-input', { type: 'color', value: isHex(fillCss) ? fillCss : '#fef3c7', 'aria-label': 'Fill color', oninput: () => { fill.bg = fillColor.value; fill.none = false; noFill.querySelector('input').checked = false; } });
-  const noFill = checkbox('No fill', fill.none, (v) => { fill.none = v; if (!v && !fill.bg) fill.bg = fillColor.value; });
-  const fillPanel = el('div.fc-panel', {}, el('div.row', {}, el('label.chart-color', {}, fillColor, el('span', {}, 'Fill color')), noFill));
+  const pickFill = (value) => {
+    fill.bg = value; fill.none = false; noFill.querySelector('input').checked = false;
+    const css = fillColorCss(value);
+    if (isHex(css)) fillColor.value = css.toLowerCase();
+    syncFillSwatches(); refreshAppearance();
+  };
+  const fillChosen = (value) => !fill.none && !!fill.bg && (typeof value === 'object'
+    ? typeof fill.bg === 'object' && sameFontColor(fill.bg, value)
+    : typeof fill.bg === 'string' && fill.bg.toLowerCase() === value);
+  const fillColor = el('input.chart-color-input', { type: 'color', value: isHex(fillCss) ? fillCss : '#fef3c7', 'aria-label': 'Fill color', oninput: () => { fill.bg = fillColor.value; fill.none = false; noFill.querySelector('input').checked = false; syncFillSwatches(); } });
+  const noFill = checkbox('No fill', fill.none, (v) => { fill.none = v; if (!v && !fill.bg) fill.bg = fillColor.value; syncFillSwatches(); });
+  const themeFills = swatchGrid({ label: 'Theme fill colors', cols: 10, isChosen: fillChosen, onPick: pickFill,
+    colors: themeColorGrid(workbookTheme(ctx.wb).colors).flat().map(cell => ({ value: cell.color, css: cell.color.rgb, label: cell.label })) });
+  const standardFills = swatchGrid({ label: 'Standard fill colors', cols: 12, isChosen: fillChosen, onPick: pickFill,
+    colors: FILL_COLORS.map(hex => ({ value: hex, css: hex, label: hex })) });
+  const syncFillSwatches = () => { themeFills.sync(); standardFills.sync(); };
+  const fillPanel = el('div.fc-panel.fc-fill', {},
+    el('div.fc-fill-colors', {},
+      el('span.field-label', {}, 'Background color'), noFill,
+      el('span.fc-swatch-head', {}, 'Theme colors'), themeFills,
+      el('span.fc-swatch-head', {}, 'Standard colors'), standardFills,
+      el('label.chart-color', {}, fillColor, el('span', {}, 'Custom color…'))));
   // Protection: Locked (every cell is, until unchecked) and Hidden (the formula), which take effect once the sheet is protected.
   const prot = { locked: style.locked !== false, hidden: style.formulaHidden === true };
   const protectPanel = el('div.fc-panel.fc-protection', {},
@@ -364,22 +403,25 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   // These are draft previews, never workbook edits. Number formatting and
   // appearance changes remain one existing applyFormat command on submission.
   const appearances = new Map();
+  // The border diagram shows a sample per cell of the selection's shape (one, a row or a column of two, or
+  // two by two), so the lines between cells have cells to run between.
+  const sampleRows = selection.r2 > selection.r1 ? 2 : 1, sampleCols = selection.c2 > selection.c1 ? 2 : 1;
   for (const [key, label, p] of [['align', 'Alignment', alignPanel], ['font', 'Font', fontPanel], ['border', 'Border', borderPanel], ['fill', 'Fill', fillPanel]]) {
-    const text = el('span.fc-preview-text');
-    const box = el('div.fc-appearance.sheet-paper', { 'aria-label': `${label} preview` }, text);
-    const preview = el('fieldset.fc-preview', {}, el('legend', {}, 'Preview'), box);
     if (key === 'border') {
-      preview.append(el('div.fc-edge-controls', { role: 'group', 'aria-label': 'Individual borders' }, [...edgeButtons.values()]),
-        el('div.row', {}, ['Diagonal up', 'Diagonal down'].map(label => el('button.btn.btn-ghost', {
-          type: 'button', disabled: true, title: 'Diagonal borders are not supported',
-        }, label))));
-      box.classList.add('fc-border-interactive');
-      for (const [kind, label] of BORDER_EDGES) box.append(el(`button.fc-border-hit.fc-border-hit-${kind}`, {
-        type: 'button', 'aria-label': `Preview: ${label} border`, disabled: edges.get(kind).disabled,
+      const samples = el('div.fc-border-samples', { style: { gridTemplateColumns: `repeat(${sampleCols}, 1fr)`, gridTemplateRows: `repeat(${sampleRows}, 1fr)` } },
+        Array.from({ length: sampleRows * sampleCols }, () => el('span.fc-border-sample')));
+      const box = el('div.fc-appearance.fc-border-interactive.sheet-paper', { 'aria-label': `${label} preview` }, samples);
+      for (const [kind, edgeLabel] of BORDER_EDGES) box.append(el(`button.fc-border-hit.fc-border-hit-${kind}`, {
+        type: 'button', 'aria-label': `Preview: ${edgeLabel} border`, disabled: edges.get(kind).disabled, tabIndex: -1,
         onclick: () => paintEdge(kind),
       }));
+      diagramSlot.append(box);
+      appearances.set(key, { box, text: samples, samples: true });
+      continue;
     }
-    p.append(preview);
+    const text = el('span.fc-preview-text');
+    const box = el('div.fc-appearance.sheet-paper', { 'aria-label': `${label} preview` }, text);
+    p.append(el('fieldset.fc-preview', {}, el('legend', {}, 'Preview'), box));
     appearances.set(key, { box, text });
   }
   function refreshAppearance() {
@@ -392,47 +434,49 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       sectionColor = formatted.fmt === 'custom' ? codeColor(sample, formatted.code, ctx.wb.colorPalette) : null;
     } catch { text = ''; }
     for (const [key, preview] of appearances) {
-      const { box, text: node } = preview;
-      node.textContent = text;
+      const { box, text: node, samples } = preview;
+      if (samples) for (const cell of node.children) cell.textContent = text;
+      else node.textContent = text;
       box.style.backgroundColor = fill.none ? 'var(--surface)' : fillColorCss(fill.bg) || 'var(--surface)';
       node.style.color = sectionColor || (font.auto ? fontColorCss('windowtext') : fontColorCss(font.color));
       node.style.fontFamily = fontStack(font.font) || 'var(--font)';
-      node.style.fontSize = `${font.size}px`;
+      // The diagram's samples keep to the cells they sit in; the other previews show the size chosen.
+      node.style.fontSize = samples ? `${Math.min(font.size, 16)}px` : `${font.size}px`;
       node.style.fontWeight = font.bold ? '600' : '400';
       node.style.fontStyle = font.italic ? 'italic' : 'normal';
       node.style.textDecorationLine = [font.underline && 'underline', font.strike && 'line-through'].filter(Boolean).join(' ') || 'none';
-      const horizontal = align.align || (typeof sample === 'number' ? 'right' : 'left');
-      box.style.justifyContent = { left: 'flex-start', center: 'center', right: 'flex-end' }[horizontal];
-      box.style.alignItems = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[align.valign];
-      node.style.textAlign = horizontal;
-      node.style.whiteSpace = align.wrap === 'wrap' ? 'pre-wrap' : 'pre';
-      node.style.overflow = align.wrap === 'overflow' ? 'visible' : 'hidden';
-      node.style.paddingLeft = `${align.indent * 12}px`;
-      if (align.shrink && align.wrap !== 'wrap' && node.scrollWidth > 0) {
-        const css = getComputedStyle(box);
-        const room = box.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0) - align.indent * 12;
-        const radians = Math.abs(align.rot) * Math.PI / 180;
-        const extent = node.scrollWidth * Math.cos(radians) + font.size * 1.2 * Math.sin(radians);
-        if (room > 0 && extent > room) node.style.fontSize = `${font.size * room / extent}px`;
+      if (!samples) {
+        const horizontal = align.align || (typeof sample === 'number' ? 'right' : 'left');
+        box.style.justifyContent = { left: 'flex-start', center: 'center', right: 'flex-end' }[horizontal];
+        box.style.alignItems = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[align.valign];
+        node.style.textAlign = horizontal;
+        node.style.whiteSpace = align.wrap === 'wrap' ? 'pre-wrap' : 'pre';
+        node.style.overflow = align.wrap === 'overflow' ? 'visible' : 'hidden';
+        node.style.paddingLeft = `${align.indent * 12}px`;
+        if (align.shrink && align.wrap !== 'wrap' && node.scrollWidth > 0) {
+          const css = getComputedStyle(box);
+          const room = box.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0) - align.indent * 12;
+          const radians = Math.abs(align.rot) * Math.PI / 180;
+          const extent = node.scrollWidth * Math.cos(radians) + font.size * 1.2 * Math.sin(radians);
+          if (room > 0 && extent > room) node.style.fontSize = `${font.size * room / extent}px`;
+        }
+        node.style.transform = align.rot ? `rotate(${-align.rot}deg)` : '';
       }
-      node.style.transform = align.rot ? `rotate(${-align.rot}deg)` : '';
-      for (const [side, flag, preset] of [['Top', 'bt', 'top'], ['Bottom', 'bb', 'bottom'], ['Left', 'bl', 'left'], ['Right', 'br', 'right']]) {
-        const draft = customEdges ? edges.get(preset) : key === 'border' && border.preset === 'keep' ? originalEdges.get(preset) : null;
-        const enabled = draft ? draft.on !== false : border.preset === 'keep' ? style[flag] : ['outer', 'all', preset].includes(border.preset);
-        const edge = draft ? { bs: draft.pen?.style || 'dotted', bc: draft.pen?.color } : border.preset === 'keep' ? style[`${flag}Border`] || style : { bs: border.style, bc: border.auto ? null : border.color };
-        const paint = borderCss(edge);
+      // The diagram shows the edges as drafted, else as the selection has them; the other previews show the
+      // drafted edges once there are any, else the active cell's own.
+      const shown = customEdges ? edges : key === 'border' ? originalEdges : null;
+      for (const [side, flag, kind] of [['Top', 'bt', 'top'], ['Bottom', 'bb', 'bottom'], ['Left', 'bl', 'left'], ['Right', 'br', 'right']]) {
+        const draft = shown?.get(kind);
+        const enabled = draft ? draft.on !== false : style[flag];
+        const paint = borderCss(draft ? { bs: draft.pen?.style || 'dotted', bc: draft.pen?.color } : style[`${flag}Border`] || style);
         box.style[`border${side}Width`] = enabled ? paint.width : '1px';
         box.style[`border${side}Style`] = enabled ? paint.style : 'solid';
         box.style[`border${side}Color`] = enabled ? paint.color || 'var(--ink)' : 'var(--grid)';
       }
-      const insideOn = key === 'border' && ['all', 'inner'].includes(border.preset);
-      const previewEdges = customEdges ? edges : border.preset === 'keep' ? originalEdges : null;
-      box.classList.toggle('fc-preview-inside-rows', key === 'border' && (previewEdges ? previewEdges.get('horizontal').on !== false && !previewEdges.get('horizontal').disabled : insideOn && selection.r2 > selection.r1));
-      box.classList.toggle('fc-preview-inside-cols', key === 'border' && (previewEdges ? previewEdges.get('vertical').on !== false && !previewEdges.get('vertical').disabled : insideOn && selection.c2 > selection.c1));
-      const inside = borderCss({ bs: border.style, bc: border.auto ? null : border.color });
-      box.style.setProperty('--preview-inside', `${inside.width} ${inside.style} ${inside.color || 'var(--ink)'}`);
-      for (const [kind, variable] of [['horizontal', '--preview-horizontal'], ['vertical', '--preview-vertical']]) {
-        const pen = previewEdges ? previewEdges.get(kind).pen : currentPen(), paint = borderCss({ bs: pen?.style || 'dotted', bc: pen?.color });
+      for (const [kind, cls, variable] of [['horizontal', 'fc-preview-inside-rows', '--preview-horizontal'], ['vertical', 'fc-preview-inside-cols', '--preview-vertical']]) {
+        const edge = key === 'border' ? shown.get(kind) : null;
+        box.classList.toggle(cls, !!edge && edge.on !== false && !edge.disabled);
+        const paint = borderCss({ bs: edge?.pen?.style || 'dotted', bc: edge?.pen?.color });
         box.style.setProperty(variable, `${paint.width} ${paint.style} ${paint.color || 'var(--ink)'}`);
       }
     }
@@ -507,8 +551,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     if (prot.locked !== (style.locked !== false)) patch.locked = prot.locked ? null : false;
     if (prot.hidden !== (style.formulaHidden === true)) patch.formulaHidden = prot.hidden ? true : null;
     if (customEdges) return { patch, border: null, borders: [...(baseBorder ? [baseBorder] : []), ...edgeActions.values()] };
-    const borderAction = border.preset === 'keep' ? null : border.preset === 'none' ? { kind: 'none' } : { kind: border.preset, color: border.auto ? null : border.color || null, style: border.style };
-    return { patch, border: borderAction };
+    return { patch, border: null };
   }
 
   const submit = (e) => {

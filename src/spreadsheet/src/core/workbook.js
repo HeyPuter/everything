@@ -80,6 +80,7 @@ import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
+import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
 import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs } from './tables.js';
@@ -5058,47 +5059,18 @@ export class Workbook extends EventTarget {
    * both 0 when nothing was split, with `reason` 'protected' when a protected
    * cell among the targets refused the split, 'room' when the pieces would
    * run past the last column, or 'merged' when one would land under a merge.
+   *
+   * `delimiter` may instead be the Text to Columns options (see text-split.js): separators or fixed
+   * widths, plus `formats` (per piece: 'general', 'text' to keep it as typed, 'skip' to leave it out) and
+   * `dest` ({ r, c }, where the first row's pieces start; by default over the text itself).
    */
   splitTextToColumns(sheetId, range, delimiter = null) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return { rows: 0, cols: 0 };
     if (this._gridLocked(sheet)) return { rows: 0, cols: 0 };
-    const n = normalizeRange(range);
-    const c = n.c1;
-    const texts = [];
-    for (let r = n.r1; r <= n.r2; r++) {
-      const cell = sheet.cells.get(cellKey(r, c));
-      if (cell && cell.f == null && typeof cell.v === 'string') texts.push({ r, cell });
-    }
-    if (!texts.length) return { rows: 0, cols: 0 };
-    let delim = delimiter;
-    if (!delim) {
-      // The delimiter most rows contain wins; space is the last resort.
-      const candidates = ['\t', ',', ';', '|', ' '];
-      let best = null;
-      let bestCount = 0;
-      for (const d of candidates) {
-        const count = texts.filter((t) => t.cell.v.includes(d)).length;
-        if (count > bestCount) { best = d; bestCount = count; }
-      }
-      if (!best) return { rows: 0, cols: 0 };
-      delim = best;
-    }
-    // Quoted fields keep their delimiter: "Smith, John",42 splits into two. A line
-    // break inside a cell (Alt+Enter) is part of its piece, not the row break it is
-    // in pasted text: the breaks are hidden from the parser and put back in the pieces.
-    const pieces = (text) => (parseDelimited(text.replace(/\r/g, '').replace(/\n/g, ''), delim)[0] || [])
-      .map((piece) => piece.replace(//g, '\r').replace(//g, '\n'));
-    const split = texts.map(({ r, cell }) => ({ r, cell, parts: delim === ' ' ? cell.v.trim().split(/\s+/) : pieces(cell.v) }));
-    const cols = split.reduce((n, { parts }) => Math.max(n, parts.length), 1);
-    // Pieces past the last column would be dropped while the split was reported as written, so the split is refused.
-    if (c + cols > Math.max(sheet.cols, MAX_COLS)) return { rows: 0, cols: 0, reason: 'room' };
-    const entries = [];
-    for (const { r, parts } of split) {
-      parts.forEach((part, i) => {
-        entries.push({ r, c: c + i, cell: cellFromInput(part.trim(), this.styleAt(sheetId, r, c + i)) });
-      });
-    }
+    const plan = this.splitTextPlan(sheetId, range, delimiter);
+    if (!plan.entries) return { rows: 0, cols: 0, ...(plan.reason ? { reason: plan.reason } : {}) };
+    const { entries } = plan;
     // A piece under a merged block would be stored out of sight: the split is refused rather than the merge undone unasked.
     for (const { r, c: cc } of entries) if (this._coveredByMerge(sheetId, r, cc)) return { rows: 0, cols: 0, reason: 'merged' };
     // The pieces land right of the selection, where a protected cell refuses the whole split; the
@@ -5109,7 +5081,59 @@ export class Workbook extends EventTarget {
     // Pieces written over a table's header row rename its columns: the names stay distinct and the
     // formulas that used the old names follow, as when a header is typed or pasted over.
     if (!this.setCellsWithTableHeaders(sheetId, entries, 'Split text')) return { rows: 0, cols: 0 };
-    return { rows: texts.length, cols };
+    return { rows: plan.rows, cols: plan.cols };
+  }
+
+  /**
+   * The cells a split would write, without writing them: { entries, rows, cols }, or { reason } (or {}) when
+   * there is nothing to split. The editor asks it before a split whether cells holding data would be written over.
+   */
+  splitTextPlan(sheetId, range, delimiter = null) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return {};
+    const n = normalizeRange(range);
+    const c = n.c1;
+    const texts = [];
+    for (let r = n.r1; r <= n.r2; r++) {
+      const cell = sheet.cells.get(cellKey(r, c));
+      if (cell && cell.f == null && typeof cell.v === 'string') texts.push({ r, cell });
+    }
+    if (!texts.length) return {};
+    let split;
+    const options = delimiter && typeof delimiter === 'object' ? delimiter : null;
+    if (options) {
+      split = texts.map(({ r, cell }) => ({ r, cell, parts: splitPieces(cell.v, { ...DEFAULT_SPLIT, ...options }) }));
+    } else {
+      // The delimiter most rows contain wins; space is the last resort.
+      const delim = delimiter || detectDelimiter(texts.map((t) => t.cell.v));
+      if (!delim) return {};
+      // Quoted fields keep their delimiter: "Smith, John",42 splits into two. A line
+      // break inside a cell (Alt+Enter) is part of its piece, not the row break it is
+      // in pasted text: the breaks are hidden from the parser and put back in the pieces.
+      const pieces = (text) => (parseDelimited(text.replace(/\r/g, '\u0001').replace(/\n/g, '\u0002'), delim)[0] || [])
+        .map((piece) => piece.replace(/\u0001/g, '\r').replace(/\u0002/g, '\n'));
+      split = texts.map(({ r, cell }) => ({ r, cell, parts: delim === ' ' ? cell.v.trim().split(/\s+/) : pieces(cell.v) }));
+    }
+    const formats = options?.formats || [];
+    const dest = options?.dest || { r: n.r1, c };
+    const entries = [];
+    let cols = 1;
+    for (const { r, parts } of split) {
+      const row = dest.r + (r - n.r1);
+      let k = 0;
+      parts.forEach((part, i) => {
+        const fmt = formats[i] || 'general';
+        if (fmt === 'skip') return;
+        const at = dest.c + k++;
+        const style = this.styleAt(sheetId, row, at);
+        entries.push({ r: row, c: at, cell: cellFromInput(part.trim(), fmt === 'text' ? { ...(style || {}), fmt: 'text' } : style) });
+      });
+      cols = Math.max(cols, k);
+    }
+    // Pieces past the last column (or row) would be dropped while the split was reported as written, so the split is refused.
+    if (dest.c + cols > Math.max(sheet.cols, MAX_COLS) || dest.r + (n.r2 - n.r1) >= Math.max(sheet.rows, MAX_ROWS)) return { reason: 'room' };
+    if (!entries.length) return {};
+    return { entries, rows: texts.length, cols };
   }
 
   /**

@@ -3,9 +3,11 @@
  * context menus, color swatches. One menu at a time; Escape or an outside
  * click closes it; arrows move between items; focus returns to the anchor.
  *
- * items: [{ label, icon?, shortcut?, hint?, onSelect, disabled?, checked?, radio?, danger?, style? }
+ * items: [{ label, icon?, shortcut?, hint?, detail?, onSelect, disabled?, checked?, radio?, keepOpen?, danger?, style? }
  *           `hint` is a muted second line, spoken as the item's description; `checked` makes a
- *           checkbox item, or with `radio` one choice of several (a font, a size, a number format)
+ *           checkbox item, or with `radio` one choice of several (a font, a size, a number format);
+ *           `detail` is a value printed at the right (a statistic beside its name), read with the label;
+ *           `keepOpen` on a checkbox item toggles it in place and leaves the menu open for the next
  *         { label, icon?, submenu: [items] }   opens a child menu beside the item (hover, click, or Right arrow)
  *         { separator: true }, { header: 'Label' }, { custom: HTMLElement }]
  *
@@ -175,6 +177,15 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
       onclick: () => {
         if (item.disabled) return;
         if (isSub) { openSub(item, btn); return; }
+        if (item.keepOpen && isCheck && !item.radio) {
+          // A list of switches (what the status bar shows): each click flips one, and the menu stays for the next.
+          item.onSelect?.();
+          item.checked = !item.checked;
+          btn.setAttribute('aria-checked', String(item.checked));
+          btn.classList.toggle('checked', item.checked);
+          btn.querySelector('.menu-icon').innerHTML = item.checked ? icon('check', 16, 2.2) : '';
+          return;
+        }
         closeAll('select');
         item.onSelect?.();
       },
@@ -185,6 +196,7 @@ export function openMenu({ anchor, items, x = null, y = null, altRight = null, a
       // `paper` marks a sample of how the sheet draws something: its tokens are the paper's, whatever the theme.
       el(item.paper ? 'span.menu-label.sheet-paper' : 'span.menu-label', { style: item.style || null }, item.label, item.hint && el('span.menu-hint', { id: hintId }, item.hint)),
       item.shortcut && el('span.menu-shortcut', { 'aria-hidden': 'true' }, item.shortcut),
+      item.detail != null && item.detail !== '' && el('span.menu-shortcut.menu-detail', {}, item.detail),
       isSub && el('span.menu-chevron', { html: icon('chevR', 14, 2), 'aria-hidden': 'true' }));
     if (isSub) {
       // Hovering opens the submenu after a moment; leaving for another item closes it.

@@ -12,6 +12,7 @@ import { parseRefText } from '../core/refs.js';
 import { getLocale } from '../core/format.js';
 import * as S from '../core/selection.js';
 import { accountStorageKey } from '../lib/account-storage.js';
+import { createPrintPreview } from './print-preview.js';
 
 const STORAGE_KEY = 'spreadsheet:print';
 
@@ -170,7 +171,10 @@ export function openPrintDialog(ctx) {
     scaleField.hidden = prefs.fit !== 'scale';
     pagesField.hidden = chartSheet || prefs.fit !== 'pages';
     marginField.hidden = prefs.margins !== 'custom';
+    preview?.refresh();
   }
+  // Beside the choices, the pages as they will print, following each change (not for a chart sheet, which is one page).
+  const preview = chartSheet ? null : createPrintPreview({ wb: ctx.wb, sheetId, docName: ctx.doc?.name, getPrefs: () => prefs, getRange: () => range });
 
   const controller = new AbortController();
   let preparing = false;
@@ -228,7 +232,7 @@ export function openPrintDialog(ctx) {
   };
 
   // The scale field is hidden unless Custom is chosen; the browser must not check it then.
-  const content = el('form', { onsubmit: submit, novalidate: true },
+  const settings = el('div.print-settings', {},
     el('div.field', {}, el('span.field-label', {}, 'Print'), areaSeg),
     el('div.row.row-2', {},
       el('div.field', {}, el('span.field-label', {}, 'Orientation'), orientSeg),
@@ -248,7 +252,9 @@ export function openPrintDialog(ctx) {
       frozenCheck,
       check('horizontalCentered', 'Center horizontally'),
       check('verticalCentered', 'Center vertically'),
-      check('title', 'Title and sheet name')),
+      check('title', 'Title and sheet name')));
+  const content = el('form.print-form', { onsubmit: submit, novalidate: true },
+    el('div.print-layout', {}, settings, preview?.el),
     el('div.row.row-end', {},
       el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
       el('button.btn.btn-primary', { type: 'submit' }, 'Print')));
@@ -256,6 +262,8 @@ export function openPrintDialog(ctx) {
   // tab order, and until sync() has laid the roving tabindex over the groups every option is, so the
   // dialog would open on an unchecked radio the Tab trap then bounces to the Close button.
   sync();
-  const modal = openModal({ title: 'Print', content, wide: true, onClose: () => { controller.abort(); ctx.grid.focus(); } });
+  if (preview) { content.addEventListener('input', preview.refresh); content.addEventListener('change', preview.refresh); }
+  const modal = openModal({ title: 'Print', content, wide: true, className: preview ? 'print-dialog' : '', onClose: () => { controller.abort(); ctx.grid.focus(); } });
+  preview?.refresh();
   return modal;
 }

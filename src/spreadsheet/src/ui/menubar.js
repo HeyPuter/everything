@@ -486,6 +486,7 @@ export function menubarMenus(f = {}) {
     f.ai && i('Ask AI about this data…', 'sparkle', 'aiAsk'),
     sep,
     i('Data validation…', 'validation', 'validation'),
+    i('Text to Columns…', 'cols', 'splitTextDialog'),
     i('Named ranges…', 'tag', 'names'),
     i('Define name…', 'tag', 'defineName'),
     i('Create names from selection…', 'tag', 'createNames'),

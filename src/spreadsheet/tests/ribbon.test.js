@@ -64,7 +64,7 @@ it('routes data controls to the existing editor commands and arguments', () => {
   const { run } = setup(); tab('Data').click();
   button('Sort Z to A').click(); expect(run).toHaveBeenLastCalledWith('sort', 'desc');
   button('Data Validation').click(); expect(run).toHaveBeenLastCalledWith('validation', null);
-  button('Text to Columns').click(); expect(run).toHaveBeenLastCalledWith('splitText', null);
+  button('Text to Columns').click(); expect(run).toHaveBeenLastCalledWith('splitTextDialog', null);
 });
 
 it('shows unavailable host actions disabled', () => {

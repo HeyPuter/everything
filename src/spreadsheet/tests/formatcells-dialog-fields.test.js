@@ -83,11 +83,10 @@ it('applies the swatch colour when a none or automatic box is unchecked and the 
   font.apply();
   expect(font.runs).toEqual([['applyFormat', { patch: { color: '#0b0b0b' }, border: null }]]);
   const border = open({}, 'border');
-  border.field('Borders').value = 'outer';
-  border.field('Borders').dispatchEvent(new Event('change'));
   border.check('Default color').click();
+  [...border.field('Border presets').querySelectorAll('button')].find((b) => b.textContent === 'Outline').click();
   border.apply();
-  expect(border.runs).toEqual([['applyFormat', { patch: {}, border: { kind: 'outer', color: '#0b0b0b', style: 'thin' } }]]);
+  expect(border.runs).toEqual([['applyFormat', { patch: {}, border: null, borders: ['top', 'bottom', 'left', 'right'].map((kind) => ({ kind, color: '#0b0b0b', style: 'thin', perSide: true })) }]]);
 });
 
 it('shows imported automatic text color and applies an explicit swatch when unchecked', () => {
