@@ -66,9 +66,9 @@ what is being added, and its status. Items are checked off as they land.
 
 - [x] The full transition set (subtle, exciting and dynamic content groups)
       with per-transition Effect Options, Duration, Sound, Preview, On Mouse
-      Click / After timing and Apply To All; morphing between slides
-      (objects; the Words and Characters options are saved and play as
-      objects).
+      Click / After timing and Apply To All; morphing between slides by
+      objects, words or characters (each word or letter travels to the same
+      text on the next slide; the rest fades out or in).
 
 ### 5. Slide Show and Record
 
