@@ -9271,3 +9271,46 @@ test("a refused Jira status request carries Jira's own reason", async () => {
     { status: 502, message: /Check its email and API token/ },
   );
 });
+
+test("the REST board directory searches content only when asked, and pages with the cursor it documents", async () => {
+  const { boards, call, org } = setup();
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  for (const title of ["Plan", "Retro", "Roadmap"]) {
+    const { input } = createInput(title, [
+      item("note", 0, 0, { text: "Budget review" }),
+    ]);
+    await boards.call(owner, input);
+  }
+  const { key } = await call(owner, {
+    op: "apikeys.create",
+    name: "Directory",
+    scopes: ["boards:read"],
+  });
+  const get = async (query) =>
+    (
+      await restRoute(
+        org,
+        boards,
+        new Request("https://w.puter.work/v1/boards?" + query, {
+          headers: { Authorization: `Bearer ${key}` },
+        }),
+        "GET",
+        "boards",
+        null,
+      )
+    ).json();
+  assert.equal((await get("query=budget&content=false")).total, 0);
+  assert.equal((await get("query=budget&content=true")).total, 3);
+  const first = await get("limit=2&sort=title");
+  assert.ok(first.next);
+  const second = await get(
+    `limit=2&sort=title&after=${encodeURIComponent(first.next)}`,
+  );
+  assert.deepEqual(
+    [...first.boards, ...second.boards].map((b) => b.title),
+    ["Plan", "Retro", "Roadmap"],
+  );
+  const spec = openAPI("https://w.puter.work");
+  const names = spec.paths["/v1/boards"].get.parameters.map((p) => p.name);
+  assert.ok(names.includes("after") && names.includes("content"));
+});

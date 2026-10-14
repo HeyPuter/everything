@@ -1465,6 +1465,8 @@ export async function restRoute(org, boards, request, method, path, body) {
         archived: q.archived === undefined ? undefined : q.archived === "true",
         deleted: q.deleted === "true",
         guests: q.guests === "true",
+        // Whether the query searches board content too; "false" is no.
+        content: q.content === "true",
       };
       return json(
         await call(identity, { ...filters, op: "org.boards", scope: "all" }),
@@ -1785,8 +1787,10 @@ export function openAPI(base) {
             "archived",
             "deleted",
             "guests",
+            "content",
             "sort",
             "limit",
+            "after",
             "offset",
           ),
         ),
