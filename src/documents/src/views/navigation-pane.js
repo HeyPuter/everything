@@ -225,6 +225,8 @@ export function createNavigationPane(api) {
     hide() { node.hidden = true; if (search.value) api.highlight([]); },
     focusSearch() { search.focus(); search.select(); },
     setSearch(text) { search.value = text; runSearch(); search.focus(); search.select(); },
+    /** The text searched for last, for Find Next. */
+    get query() { return search.value; },
     get tab() { return tab; },
     select,
   };

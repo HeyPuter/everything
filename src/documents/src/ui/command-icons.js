@@ -135,6 +135,12 @@ export const COMMAND_ICONS = {
   rename: r(2.5, 6.5, 15, 7, 'of') + t(7.5, 12.3, 'ab', 6.5) + p('M13.5 8.3v3.4M12.6 8.3h1.8M12.6 11.7h1.8', 'b'),
   template: page(4.5, 2.5, 11, 15) + r(6.5, 6, 6, 3.5, 'bs', 0.8) + lines(6.5, 12, 7, 3, 2),
   info: ci(10, 10, 7.5, 'bs') + p('M10 9v5', 'wh thick') + ci(10, 6.4, 1, 'txw'),
+  // Three bars: the menus, folded into one button.
+  menus: p('M3.5 5.5h13M3.5 10h13M3.5 14.5h13', 'o thick'),
+  // A clock face with an arrow turning back around it: earlier versions of the file.
+  history: ci(10.5, 10.5, 6.5, 'bf') + p('M10.5 6.8v4l2.6 1.6', 'o thick') + p('M3.2 7.5A7.4 7.4 0 0 1 10.5 3M3.2 4.2v3.3h3.3', 'b thick'),
+  // Three sliders, each with its knob: settings that apply everywhere.
+  preferences: p('M3 5.5h14M3 10h14M3 14.5h14', 'o') + ci(7, 5.5, 1.9, 'bs') + ci(13, 10, 1.9, 'bs') + ci(9, 14.5, 1.9, 'bs'),
   keyboard: r(2.5, 5.5, 15, 9, 'of', 2) + p('M5 8.5h1M8 8.5h1M11 8.5h1M14 8.5h1M5 11.5h1M14 11.5h1', 'o thick') + r(7.5, 10.7, 5, 1.6, 'bs', 0.8),
   pdf: page(4.5, 2.5, 11, 15) + r(2.5, 10.5, 10, 5, 'rs', 1) + t(7.5, 14.5, 'PDF', 4.6, { weight: 700, c: 'txw' }),
 
@@ -360,6 +366,18 @@ export const COMMAND_ICONS = {
   compare: r(2.5, 3.5, 7.5, 11, 'of') + lines(4, 6.5, 4.5, 3, 2) + r(10, 5.5, 7.5, 11, 'bf glassy') + lines(11.5, 8.5, 4.5, 3, 2, 'b'),
   protect: page(2.5, 2.5, 10, 14) + lines(4.5, 7, 6, 2, 2) + lock(9.5, 11.5),
   readOnly: page(2.5, 2.5, 10, 14) + lock(9.5, 11.5),
+  // Translate: a sheet with a capital A, and a glass card in front with a lowercase a.
+  translate: r(2.5, 2.5, 10, 10, 'of') + t(7.5, 10.4, 'A', 7.5, { weight: 700 }) + r(8.5, 8.5, 9, 9, 'bf glassy') + t(13, 15.6, 'a', 8, { serif: true, c: 'txb' }),
+  // Combine: two pages meeting in one.
+  combine: r(2.5, 2.5, 5.5, 7.5, 'of') + r(12, 2.5, 5.5, 7.5, 'of') + p('M5.25 10v2.3h3.2M14.75 10v2.3h-3.2', 'b') + r(6.5, 11, 7, 6.5, 'bf') + p('M8.3 14.2h3.4', 'b'),
+  // Show Markup: a marked-up page with a filter.
+  showMarkup: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h6', 'r') + p('M4.5 10h6', 'b') + p('M4.5 13h3.5', 'o ln') + p('M10.5 11.5h7l-2.7 3.2v2.6l-1.6.9v-3.5z', 'pf'),
+  // Tracking Options: a marked-up page with a dial.
+  trackingOptions: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h6', 'r') + p('M4.5 10h5', 'b') + ci(14.5, 14.5, 4.2, 'knock') + ci(14.5, 14.5, 3.2, 'nf') + ci(14.5, 14.5, 1.1, 'o') + p('M14.5 10.6v1.2M14.5 17.2v1.2M10.6 14.5h1.2M17.2 14.5h1.2', 'o'),
+  // Lock Tracking: the tracked page, locked.
+  lockTracking: page(2.5, 2.5, 10.5, 15) + p('M4.5 7h4.5', 'o') + p('M4.5 10h6', 'r') + p('M4.5 13h4', 'b') + lock(10, 12),
+  // Hide Ink: a pen stroke, struck through.
+  hideInk: p('M2.5 13.5c1.6-3.4 3.4-3.4 4.4 0s2.8 3.4 4.4 0 2.8-3.4 4.2-1.2', 'b thick') + p('M3.5 3.5l13 13', 'o thick'),
 
   /* View */
   readMode: p('M2.5 4.5c3-1 5.5-1 7.5.5v12c-2-1.5-4.5-1.5-7.5-.5zM17.5 4.5c-3-1-5.5-1-7.5.5v12c2-1.5 4.5-1.5 7.5-.5z', 'of') + lines(4.5, 7.5, 3.5, 2, 2.5, 'b') + lines(12, 7.5, 3.5, 2, 2.5, 'b'),

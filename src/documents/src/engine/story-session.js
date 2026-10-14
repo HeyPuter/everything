@@ -1,5 +1,6 @@
 import { TextDocument } from './model.js';
 import { resolveStyledParagraph } from './styles.js';
+import { trackFormatChanges } from './revisions.js';
 
 // A document has separate text-position spaces, but one chronological undo
 // stack. History stores only the changed story, never copies of every story.
@@ -13,6 +14,8 @@ export class StorySession {
     this.history = [];
     this.future = [];
     this.revision = 0;
+    // guard(beforeState, model, path) throws to refuse a change (document protection).
+    this.guard = null;
   }
   get model() { return this.models.get(this.path); }
   activate(path = null) {
@@ -53,11 +56,19 @@ export class StorySession {
   }
   run(action, validate = () => {}, { record = true } = {}) {
     const before = this.capture(), model = this.model;
+    model.formatTrackingSuppressed = false;
     try {
       const result = action(model);
       if (this.path !== before.path) throw new Error('A text command cannot switch page stories.');
       if (model.revision !== before.revision) {
+        // With Track Changes on, a formatting change keeps the formatting it replaced (§17.13.5.29/.30).
+        if (model.trackChanges && model.trackFormatting !== false && !model.formatTrackingSuppressed && this.path === null) trackFormatChanges(before.state.paragraphs, model.paragraphs, () => model.newRevision('format'), {
+          // Style definitions and table structure (with its conditional formatting) are not
+          // formatting changes to the text they restyle.
+          stylesChanged: JSON.stringify(before.state.styles) !== JSON.stringify(model.styles) || JSON.stringify(before.state.tables) !== JSON.stringify(model.tables),
+        });
         this.publish(model, before.state);
+        this.guard?.(before.state, model, this.path);
       }
       validate(model);
       if (model.revision !== before.revision) { if (record) this.record(before); this.revision++; }
@@ -76,6 +87,7 @@ export class StorySession {
     const current = this.capture();
     try {
       this.restore(entry);
+      this.guard?.(current.state, this.model, this.path);
       validate?.(this.model);
       from.pop(); to.push(current);
       this.revision++;
@@ -112,6 +124,8 @@ export class StorySession {
   }
   export(pkg) {
     const body = this.body;
-    return pkg.export(body.paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, this.storyEdits, body.comments, body.trackChanges);
+    // Tracking "just mine" is a session choice: the document keeps its own Track Changes setting.
+    const track = body.trackChangesMode === 'mine' ? !!pkg.trackRevisions : body.trackChanges;
+    return pkg.export(body.paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, this.storyEdits, body.comments, track);
   }
 }

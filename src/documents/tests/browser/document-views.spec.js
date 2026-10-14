@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import { menuBarMenu } from './helpers/editor-tools.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 const ribbon = page => page.locator('.ribbon-card');
@@ -294,4 +295,24 @@ test('a document saved in Outline view opens there and its direct level promotes
   const saved = await download(page, info, 'outline-fixture');
   expect(settingsXml(saved)).toContain('<w:view w:val="outline"/>');
   expect(strFromU8(parts(saved)['word/document.xml'])).toMatch(/<w:pStyle w:val="Heading2"\/><\/w:pPr><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t[^>]*>A direct level three note/);
+});
+
+test('the status bar view buttons and the View and Window menus switch views and windows', async ({ page }) => {
+  await headings(page);
+  const views = page.getByLabel('Status bar').getByRole('group', { name: 'Views' });
+  await expect(views.getByRole('button')).toHaveCount(5);
+  await views.getByRole('button', { name: 'Draft' }).click();
+  await expect(page.locator('.canvas-host')).toHaveClass(/view-draft/);
+  await expect(views.getByRole('button', { name: 'Draft' })).toHaveAttribute('aria-pressed', 'true');
+  const view = await menuBarMenu(page, 'View');
+  await expect(view.getByRole('menuitemradio', { name: 'Draft' })).toHaveAttribute('aria-checked', 'true');
+  await view.getByRole('menuitemcheckbox', { name: 'Gridlines' }).click();
+  await expect((await viewTab(page)).getByLabel('Gridlines')).toBeChecked();
+  await views.getByRole('button', { name: 'Print Layout' }).click();
+  await expect(page.locator('.canvas-host')).not.toHaveClass(/view-draft/);
+  const windows = await menuBarMenu(page, 'Window');
+  await windows.getByRole('menuitemcheckbox', { name: 'Split' }).click();
+  await expect(page.locator('.view-split-pane')).toBeVisible();
+  await (await menuBarMenu(page, 'Window')).getByRole('menuitemcheckbox', { name: 'Remove Split' }).click();
+  await expect(page.locator('.view-split-pane')).toHaveCount(0);
 });

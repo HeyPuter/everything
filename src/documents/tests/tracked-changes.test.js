@@ -44,9 +44,18 @@ describe('tracked changes', () => {
     expect(model.paragraphs[1].runs[1].bold).toBe(true);
     expect(model.revisions.map(r => [r.type, r.author, model.text.slice(r.start, r.end)])).toEqual([['format', 'Ada', 'Centered now\n'], ['format', 'Grace', 'bolded']]);
     expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
-    model.resolveRevisions(false);
-    expect(model.formatRejectSkipped).toBe(true);
-    expect(model.revisions).toHaveLength(2);
+    // Rejecting restores the recorded former formatting.
+    const rejected = await open(source);
+    rejected.model.resolveRevisions(false);
+    expect(rejected.model.formatRejectSkipped).toBe(false);
+    expect(rejected.model.revisions).toEqual([]);
+    expect(rejected.model.paragraphs[0].format.alignment).toBe('left');
+    expect(rejected.model.paragraphs[1].runs.at(-1)).toMatchObject({ text: 'bolded', bold: false, vanish: true });
+    const restored = strFromU8(unzipSync(await save(rejected.pkg, rejected.model))['word/document.xml']);
+    expect(restored).not.toMatch(/PrChange/);
+    expect(restored).toMatch(/<w:jc w:val="left"\/>/);
+    expect(restored).toMatch(/<w:vanish\/>/);
+    expect(restored).not.toMatch(/<w:b\/>/);
     model.resolveRevisions(true);
     expect(model.revisions).toEqual([]);
     const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);

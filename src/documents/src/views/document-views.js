@@ -505,19 +505,13 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   /** Classic menu bar: the View and Window menus. */
   function extendMenu(id) {
     const has = !!ready();
+    // The menu bar's View menu already lists the views, Focus, Ruler, the sidebars and Zoom; these add to it.
     if (id === 'view') return [
-      ...['print', 'web', 'outline', 'draft', 'read'].map(kind => ({ label: VIEW_LABELS[kind], icon: { print: 'printLayout', web: 'webLayout', outline: 'outlineView', draft: 'draft', read: 'readMode' }[kind], radio: true, checked: mode === kind, disabled: !has, onSelect: () => setDocumentView(kind) })),
-      { separator: true },
-      { label: 'Focus', icon: 'focus', disabled: !has || !w.focusMode, onSelect: () => w.focusMode?.() },
-      { separator: true },
-      { label: 'Ruler', checked: rulers?.visible ?? true, onSelect: () => rulers?.toggle?.() },
-      { label: 'Gridlines', checked: gridlines, disabled: !has, onSelect: () => setGridlines(!gridlines) },
-      { label: 'Navigation Pane', icon: 'navigationPane', checked: !!navigationVisible?.(), disabled: !has, onSelect: () => toggleNavigation?.() },
-      { separator: true },
-      { label: 'Page Movement', items: [
+      { label: 'Gridlines', icon: 'gridlines', checked: gridlines, disabled: !has, onSelect: () => setGridlines(!gridlines) },
+      { label: 'Page Movement', icon: 'sideToSide', items: [
         { label: 'Vertical', radio: true, checked: !sideToSide, disabled: !has, onSelect: () => setSideToSide(false) },
         { label: 'Side to Side', radio: true, checked: sideToSide, disabled: !has, onSelect: () => setSideToSide(true) }] },
-      { label: 'Zoom…', icon: 'zoom', disabled: !has, onSelect: zoomDialog },
+      { label: 'Style Area', icon: 'styleArea', items: STYLE_AREAS.map(([value, label]) => ({ label, radio: true, checked: styleArea === value, disabled: !has || mode !== 'draft', onSelect: () => setStyleArea(value) })) },
     ];
     if (id === 'window') return [
       { label: 'New Window', icon: 'newWindow', disabled: !has, onSelect: newWindow },
@@ -562,7 +556,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
 
   return {
     commands: {
-      setDocumentView, documentView: () => mode, documentViewLabel: () => VIEW_LABELS[mode],
+      setDocumentView, documentView: () => mode, documentViewLabel: () => VIEW_LABELS[mode], documentViewModes: () => Object.keys(VIEW_LABELS),
       gridlinesVisible: () => gridlines, setGridlines, toggleGridlines: () => setGridlines(!gridlines),
       pageMovement: () => (sideToSide ? 'sideToSide' : 'vertical'), setPageMovement: kind => setSideToSide(kind === 'sideToSide'),
       newWindow, toggleSplit, splitActive: () => !!split,
