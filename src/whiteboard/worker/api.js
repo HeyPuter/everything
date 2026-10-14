@@ -636,74 +636,85 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
       scimEmail({ ...body, userName: body?.userName || undefined }) || "";
     if (!validEmail(email))
       refuse(400, "userName must be the user's email address.", "invalidValue");
-    const emailKey = "org:email:" + (await hash(email));
-    const linked = await org.kv.get(emailKey);
-    let user = linked ? await org.freshUser(linked) : null;
-    if (user?.scimManaged)
+    // Two requests creating one person at once, as when a provider retries
+    // after a timeout, would each make a record: the first holds the
+    // address until it is done.
+    const claim = "org:emailclaim:" + (await hash(email));
+    if ((await org.kv.incr(claim)) !== 1)
       refuse(409, "A user with this userName already exists.", "uniqueness");
-    // An address the provider deleted may now be someone else's, as when a
-    // shared or former colleague's address is given to a new hire. When the
-    // provider's identifier says it is another person, the deleted account
-    // keeps its deactivation and the address starts a new pending record,
-    // which whoever proves the mailbox links.
-    if (
-      user?.scimDeleted &&
-      user.externalId &&
-      body?.externalId != null &&
-      String(body.externalId).slice(0, 200) !== user.externalId
-    )
-      user = null;
-    const stored = user && structuredClone(user);
-    if (!user) {
-      // Never derived from the address: one given up, by a rename or a
-      // deletion, must not lead back to the record that held it.
-      const pendingId = "pending-" + crypto.randomUUID().replaceAll("-", "");
-      user = {
-        uuid: pendingId,
-        scimId: pendingId,
-        email,
-        emailVerified: false,
-        role: roleFrom(body),
-        status: "pending",
-        active: true,
-        created: org.now(),
-        source: "scim",
-        teams: [],
-      };
+    await org.kv.expire(claim, 30).catch(() => {});
+    try {
+      const emailKey = "org:email:" + (await hash(email));
+      const linked = await org.kv.get(emailKey);
+      let user = linked ? await org.freshUser(linked) : null;
+      if (user?.scimManaged)
+        refuse(409, "A user with this userName already exists.", "uniqueness");
+      // An address the provider deleted may now be someone else's, as when a
+      // shared or former colleague's address is given to a new hire. When the
+      // provider's identifier says it is another person, the deleted account
+      // keeps its deactivation and the address starts a new pending record,
+      // which whoever proves the mailbox links.
+      if (
+        user?.scimDeleted &&
+        user.externalId &&
+        body?.externalId != null &&
+        String(body.externalId).slice(0, 200) !== user.externalId
+      )
+        user = null;
+      const stored = user && structuredClone(user);
+      if (!user) {
+        // Never derived from the address: one given up, by a rename or a
+        // deletion, must not lead back to the record that held it.
+        const pendingId = "pending-" + crypto.randomUUID().replaceAll("-", "");
+        user = {
+          uuid: pendingId,
+          scimId: pendingId,
+          email,
+          emailVerified: false,
+          role: roleFrom(body),
+          status: "pending",
+          active: true,
+          created: org.now(),
+          source: "scim",
+          teams: [],
+        };
+      }
+      const was = user.status,
+        wasRole = user.role,
+        wasActive = user.active;
+      user.scimManaged = true;
+      delete user.scimDeleted;
+      user.scimId ||= user.uuid;
+      user.modified = org.now();
+      applyAttributes(user, body);
+      keepOwner(user, was, wasRole);
+      keepAdmin(user, was, wasRole, wasActive);
+      if (was && was !== "pending" && user.role !== wasRole)
+        user.roleChanged = user.modified;
+      if (stored) await saveChanges(org, stored, user);
+      else await org.saveUser(user);
+      await org.kv.set("org:scimid:" + user.scimId, user.uuid);
+      // Provisioning an existing account as inactive ends its sessions, as
+      // deactivating it does.
+      if (was === "active" && user.status === "deactivated")
+        await boards.revokeSessions(user.uuid);
+      await org.audit(
+        identity,
+        "scim.user.created",
+        { type: "user", id: user.uuid, name: email },
+        {
+          linked: user.status !== "pending",
+        },
+      );
+      await recordChange(user, was, wasRole);
+      return scim(
+        view(user),
+        201,
+        `${base}/scim/v2/Users/${user.scimId || user.uuid}`,
+      );
+    } finally {
+      await org.kv.del(claim).catch(() => {});
     }
-    const was = user.status,
-      wasRole = user.role,
-      wasActive = user.active;
-    user.scimManaged = true;
-    delete user.scimDeleted;
-    user.scimId ||= user.uuid;
-    user.modified = org.now();
-    applyAttributes(user, body);
-    keepOwner(user, was, wasRole);
-    keepAdmin(user, was, wasRole, wasActive);
-    if (was && was !== "pending" && user.role !== wasRole)
-      user.roleChanged = user.modified;
-    if (stored) await saveChanges(org, stored, user);
-    else await org.saveUser(user);
-    await org.kv.set("org:scimid:" + user.scimId, user.uuid);
-    // Provisioning an existing account as inactive ends its sessions, as
-    // deactivating it does.
-    if (was === "active" && user.status === "deactivated")
-      await boards.revokeSessions(user.uuid);
-    await org.audit(
-      identity,
-      "scim.user.created",
-      { type: "user", id: user.uuid, name: email },
-      {
-        linked: user.status !== "pending",
-      },
-    );
-    await recordChange(user, was, wasRole);
-    return scim(
-      view(user),
-      201,
-      `${base}/scim/v2/Users/${user.scimId || user.uuid}`,
-    );
   }
   const user = id && (await findUser(org, id));
   if (!user) fail(404, "User not found.");

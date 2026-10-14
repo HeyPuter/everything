@@ -1921,3 +1921,27 @@ test("a path-less patch renames a person to their work address, not another type
   });
   assert.equal(other.userName, "pat.lee@example.ca");
 });
+
+test("two requests creating one person at once make one record", async () => {
+  const { scim, request } = await setup();
+  const results = await Promise.allSettled([
+    request("Users", "POST", { userName: "pat@example.ca" }),
+    request("Users", "POST", { userName: "pat@example.ca" }),
+  ]);
+  assert.deepEqual(
+    results.map((r) => r.value?.status ?? r.reason.status).sort(),
+    [201, 409],
+  );
+  const listed = await scim("Users");
+  assert.equal(listed.totalResults, 1);
+  // The address is free for the next request once the first is done.
+  await assert.rejects(
+    request("Users", "POST", { userName: "pat@example.ca" }),
+    {
+      status: 409,
+      scimType: "uniqueness",
+    },
+  );
+  const sam = await request("Users", "POST", { userName: "sam@example.ca" });
+  assert.equal(sam.status, 201);
+});
