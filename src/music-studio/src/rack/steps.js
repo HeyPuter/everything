@@ -165,3 +165,19 @@ export function resizedBars(pattern, sig, delta) {
   const bars = Math.round(patternLength(pattern, sig) / bar);
   return clamp(bars + delta, 1, MAX_BARS);
 }
+
+/**
+ * The step of pattern `patternId` playing at song tick `pos`: from the first
+ * unmuted clip of that pattern under the song playhead (lowest track, then
+ * earliest start), mapped through the clip's start and offset. -1 when no
+ * clip of the pattern plays there. Allocation-free (runs every frame).
+ */
+export function songStepAt(project, patternId, pos) {
+  let best = null;
+  for (const c of project.clips) {
+    if (c.kind !== 'pattern' || c.ref !== patternId || c.mute || pos < c.start || pos >= c.start + c.len) continue;
+    if (!best || c.track < best.track || (c.track === best.track && c.start < best.start)) best = c;
+  }
+  if (!best) return -1;
+  return Math.floor((pos - best.start + (best.offset || 0)) / STEP);
+}

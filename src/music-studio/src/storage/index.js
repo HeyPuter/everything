@@ -22,6 +22,9 @@ import { isAudioName } from '../io/wav.js';
 import { installDialogs } from '../dialogs/index.js';
 import '../styles/dialogs.css';
 
+/** Longest the startup waits for the last session before showing the app. */
+export const RESTORE_WAIT_MS = 1500;
+
 /** Preference: autosave projects that live in the Puter cloud (default on). */
 export const cloudAutosaveOn = (prefs) => prefs.get('cloudAutosave') !== false;
 
@@ -103,6 +106,28 @@ export function install(app, { db = openDB() } = {}) {
     if (firstLaunch) autosave.scheduleDraft();
   };
   app.restored = new Promise((resolve) => app.once('started', () => restore().then(resolve)));
+
+  // Until the last session is back the workspace stays hidden, so the default
+  // project never flashes before it. A slow or stuck IndexedDB shows the app
+  // after RESTORE_WAIT_MS anyway (the draft still loads when it arrives).
+  if (!firstLaunch) {
+    const root = app.root;
+    let shown = false;
+    const reveal = () => {
+      if (shown) return;
+      shown = true;
+      root.classList.remove('is-restoring');
+      root.removeAttribute('aria-busy');
+    };
+    root.classList.add('is-restoring');
+    root.setAttribute('aria-busy', 'true');
+    setTimeout(reveal, RESTORE_WAIT_MS);
+    // One frame after the restore so the canvases have redrawn the restored project.
+    app.restored.then(() => {
+      requestAnimationFrame(reveal);
+      setTimeout(reveal, 100);
+    });
+  }
 
   // Inside the Puter desktop: open the file the app was launched with.
   launched = puter.onLaunchedWithItems(async (items) => {

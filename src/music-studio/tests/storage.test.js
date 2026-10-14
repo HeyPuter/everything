@@ -8,7 +8,7 @@ import * as E from '../src/model/edits.js';
 import { demoProject, newProject } from '../src/model/demo.js';
 import { serializeProject } from '../src/model/serialize.js';
 import { App } from '../src/app.js';
-import { install } from '../src/storage/index.js';
+import { install, RESTORE_WAIT_MS } from '../src/storage/index.js';
 import { ProjectFiles } from '../src/storage/files.js';
 
 /** A fake Puter SDK with an in-memory file system. Every fs call is recorded. */
@@ -288,12 +288,35 @@ describe('storage feature in the app', () => {
     const { root: root2 } = mount();
     const app2 = new App(root2, { storage });
     app2.start([{ install: (a) => install(a, { db }) }]);
+    // The workspace stays hidden until the session is back (no flash of the default project).
+    expect(root2.classList.contains('is-restoring')).toBe(true);
     await app2.restored;
+    await new Promise((r) => setTimeout(r, 120));
+    expect(root2.classList.contains('is-restoring')).toBe(false);
+    expect(root.classList.contains('is-restoring')).toBe(false); // first launch never hides
     expect(app2.store.project.bpm).toBe(77);
     expect(app2.store.dirty).toBe(true);
     expect(app2.file?.local).toBe(app.file.local);
     expect(fake.calls.filter((c) => c !== 'getUser')).toEqual([]);
     expect(fake.calls).toEqual([]);
+  });
+
+  it('shows the app after a timeout when the draft store never answers', async () => {
+    window.puter = fakePuter({ signedIn: false });
+    vi.useFakeTimers();
+    try {
+      const { root, storage } = mount();
+      storage.setItem('music-studio:prefs', JSON.stringify({ launched: true }));
+      const stuck = { get: () => new Promise(() => {}), put: () => new Promise(() => {}), delete: () => new Promise(() => {}), keys: () => new Promise(() => {}), getAll: () => new Promise(() => {}) };
+      const app = new App(root, { storage });
+      app.start([{ install: (a) => install(a, { db: Promise.resolve(stuck) }) }]);
+      expect(root.classList.contains('is-restoring')).toBe(true);
+      vi.advanceTimersByTime(RESTORE_WAIT_MS + 10);
+      expect(root.classList.contains('is-restoring')).toBe(false);
+      expect(root.hasAttribute('aria-busy')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reopens a saved cloud project from the cloud (it may be newer) instead of its clean draft', async () => {
