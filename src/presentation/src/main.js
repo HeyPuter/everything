@@ -14531,7 +14531,11 @@ document.addEventListener("keydown", (e) => {
     e.target.closest("#slide-list .slide-thumb")
   ) {
     e.preventDefault();
-    addSlideAfter(slide());
+    const part = e.target.closest(".slide-item")?.dataset.slidePart;
+    addSlideAfter(
+      P.getSlides(doc.pres).find((s) => P.getSlidePartName(s) === part) ||
+        slide(),
+    );
     return;
   }
   if (mod && e.key.toLowerCase() === "d" && currentShape()) {
