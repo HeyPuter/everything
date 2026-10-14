@@ -583,8 +583,11 @@ const body = (family: LayoutFamily, rtl: boolean): string => {
     }
     case "pyramid":
       return [
+        // The pyramid algorithm widens its levels away from the end it
+        // starts at: starting from the bottom gives the apex at the top,
+        // with the first item there (as desktop editors lay it out).
         alg("pyra", {
-          linDir: family.inverted ? "fromB" : "fromT",
+          linDir: family.inverted ? "fromT" : "fromB",
           txDir: "fromT",
         }),
         shape(),
@@ -606,13 +609,10 @@ const body = (family: LayoutFamily, rtl: boolean): string => {
           { name: "levelEach", axis: "ch", ptType: "node" },
           el(
             "layoutNode",
-            { name: "level", styleLbl: "trBgShp" },
+            { name: "level", styleLbl: "node1" },
             el("varLst", {}, el("bulletEnabled", { val: 1 })),
             alg("tx"),
-            shape("trapezoid", {
-              ...(family.inverted ? { rot: 180 } : {}),
-              "r:blip": "",
-            }),
+            shape("trapezoid", { "r:blip": "" }),
             presOf("desOrSelf", "node"),
             margins,
             fontRule,

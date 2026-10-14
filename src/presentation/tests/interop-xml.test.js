@@ -189,3 +189,41 @@ describe("SmartArt shape formatting", () => {
     });
   });
 });
+
+describe("SmartArt layout definitions", () => {
+  const layoutXml = async (layout) => {
+    const pres = createDeck("title");
+    const slide = addLayoutSlide(pres, "blank");
+    P.addSlideSmartArt(slide, {
+      model: {
+        layout,
+        colors: P.DEFAULT_SMARTART_COLORS,
+        style: P.DEFAULT_SMARTART_STYLE,
+        items: [
+          { text: "A", level: 0 },
+          { text: "B", level: 0 },
+        ],
+      },
+      x: 0,
+      y: 0,
+      w: 4572000,
+      h: 2743200,
+    });
+    const { unzipSync, strFromU8 } = await import("fflate");
+    const files = unzipSync(await P.savePresentation(pres));
+    return strFromU8(
+      files[
+        Object.keys(files).find((f) => /diagrams\/layout\d+\.xml$/.test(f))
+      ],
+    );
+  };
+  it("builds a pyramid up from its base, apex first", async () => {
+    const up = await layoutXml("pyramid");
+    expect(up).toContain('<dgm:param type="linDir" val="fromB"/>');
+    expect(up).toContain('<dgm:shape type="trapezoid" r:blip="">');
+    expect(up).toContain('styleLbl="node1"');
+    const down = await layoutXml("inverted-pyramid");
+    expect(down).toContain('<dgm:param type="linDir" val="fromT"/>');
+    expect(down).not.toContain('rot="180"');
+  });
+});
