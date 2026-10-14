@@ -136,6 +136,25 @@ describe('clipboard', () => {
     expect(N.copyNotes(notes, [], 96)).toBe(null);
   });
 
+  it('grows an explicit pattern length to cover notes past its end', () => {
+    const pat = (length, notes) => ({ id: 'p', length, notes: { c: notes } });
+    expect(N.lengthToFit(pat(768, [note('a', 60, 0, 96)]))).toBe(null);
+    expect(N.lengthToFit(pat(null, [note('a', 60, 2000, 96)]))).toBe(null);
+    expect(N.lengthToFit(pat(768, [note('a', 60, 700, 96)]))).toBe(1152);
+    expect(N.lengthToFit(pat(384, [note('a', 60, 0, 1600)]), [3, 4])).toBe(1728);
+  });
+
+  it('pastes after the copied notes instead of stacking on them', () => {
+    const notes = [note('a', 60, 0, 24), note('b', 62, 192, 192)];
+    const clip = N.copyNotes(notes, ['a', 'b'], 96); // length 384
+    expect(N.pasteTarget(notes, clip, 0, 96)).toBe(384);
+    const once = [...notes, ...N.pasteNotes(clip, 384)];
+    expect(N.pasteTarget(once, clip, 0, 96)).toBe(768);
+    // Free spot or a partial overlap: paste where asked.
+    expect(N.pasteTarget(notes, clip, 96, 96)).toBe(96);
+    expect(N.pasteTarget([note('a', 60, 0, 24)], clip, 0, 96)).toBe(0);
+  });
+
   it('duplicates a selection after itself in whole grid cells', () => {
     const notes = [note('a', 60, 0, 90), note('b', 62, 96, 200)];
     const r = N.duplicateAfter(notes, null, 384);

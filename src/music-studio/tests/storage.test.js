@@ -79,7 +79,7 @@ describe('local projects (this device)', () => {
   it('round trips a project through save and open', async () => {
     const lib = new Library({ db: memoryDB(), now: () => 1000 });
     const p = demoProject();
-    const { key } = await lib.saveLocal(p, { pattern: p.patterns[1].id }, { name: 'Beat' });
+    const { key } = await lib.saveLocal(p, { pattern: p.patterns[1].id, channel: p.channels[2].id }, { name: 'Beat' });
     const list = await lib.listLocal();
     expect(list).toEqual([{ key, name: 'Beat', modified: 1000, size: expect.any(Number) }]);
     const back = await lib.loadLocal(key);
@@ -89,6 +89,7 @@ describe('local projects (this device)', () => {
     expect(back.patterns[0].notes).toEqual(p.patterns[0].notes);
     expect(back.clips).toEqual(p.clips);
     expect(back.ui.pattern).toBe(p.patterns[1].id);
+    expect(back.ui.channel).toBe(p.channels[2].id);
     await lib.deleteLocal(key);
     expect(await lib.listLocal()).toEqual([]);
     await expect(lib.loadLocal(key)).rejects.toThrow(/no longer saved/);

@@ -37,7 +37,7 @@ export class Store extends Emitter {
     this.gesture = null;
     this.dirty = false;
     this.view.pattern = project.ui?.pattern && patternById(project, project.ui.pattern) ? project.ui.pattern : project.patterns[0]?.id ?? null;
-    this.view.channel = project.channels[0]?.id ?? null;
+    this.view.channel = project.ui?.channel && project.channels.some((c) => c.id === project.ui.channel) ? project.ui.channel : project.channels[0]?.id ?? null;
     this.view.selectedChannels = new Set(this.view.channel ? [this.view.channel] : []);
     this.emit('change', project, prev, { label: 'Open', source: 'load' });
     this.emit('view');

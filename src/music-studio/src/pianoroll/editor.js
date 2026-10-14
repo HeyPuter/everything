@@ -256,9 +256,15 @@ export class PianoRollEditor {
       const out = fn(E.getNotes(p, pat.id, ch.id));
       const list = Array.isArray(out) ? out : out.notes;
       extra = Array.isArray(out) ? null : out;
-      return E.setNotes(p, pat.id, ch.id, list);
+      return this.fitLength(E.setNotes(p, pat.id, ch.id, list), pat.id);
     });
     return extra;
+  }
+
+  /** Grows an explicit pattern length to cover notes written past its end (else they would never play). */
+  fitLength(p, patternId) {
+    const len = N.lengthToFit(patternById(p, patternId), p.sig);
+    return len ? E.updatePattern(p, patternId, { length: len }) : p;
   }
 
   /** Gesture preview from the gesture's start state. */
@@ -268,7 +274,7 @@ export class PianoRollEditor {
     if (!pat || !ch) return;
     this.store.preview((base) => {
       const list = fn(E.getNotes(base, pat.id, ch.id));
-      return E.setNotes(base, pat.id, ch.id, list);
+      return this.fitLength(E.setNotes(base, pat.id, ch.id, list), pat.id);
     });
   }
 
@@ -679,6 +685,7 @@ export class PianoRollEditor {
     let at;
     if (ph !== null && ph >= view0 && ph < view1 && (this.app.engine.playing || ph > 0)) at = grid ? snapFloor(ph, grid) : Math.round(ph);
     else at = grid ? Math.ceil(view0 / grid) * grid : Math.round(view0);
+    at = N.pasteTarget(this.notes, clip, at, grid);
     const made = N.pasteNotes(clip, at);
     this.applyNotes('Paste notes', (list) => [...list, ...made]);
     this.select(made.map((n) => n.id));

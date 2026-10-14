@@ -62,6 +62,7 @@ export function startTour(app) {
   const previous = document.activeElement;
   const phonePanel = app.prefs.get('mobilePanel');
   let index = 0;
+  const opened = new Set(); // panels the tour opened (desktop), closed when it ends
   const titleId = 'tour-title';
   const ring = h('div.tour-ring', { 'aria-hidden': 'true' });
   const title = h('h2.tour-title', { id: titleId });
@@ -122,8 +123,13 @@ export function startTour(app) {
   function go(i) {
     index = Math.max(0, Math.min(STEPS.length - 1, i));
     const step = STEPS[index];
-    // On phones one panel shows at a time: switch to the step's panel.
+    // On phones one panel shows at a time: switch to the step's panel. On
+    // larger screens open a closed panel for its step (closed again at the end).
     if (step.panel && app.root.classList.contains('is-phone')) app.shell?.showMobile?.(step.panel);
+    else if (step.panel && app.shell && !app.shell.isVisible(step.panel)) {
+      app.shell.show(step.panel, { focus: false });
+      if (app.shell.isVisible(step.panel)) opened.add(step.panel);
+    }
     title.textContent = step.title;
     text.textContent = step.text;
     keys.replaceChildren(...step.keys.flatMap(([k, label]) => [h('dt', h('kbd.kbd', k === '?' ? '?' : formatKeys(k))), h('dd', label)]));
@@ -159,6 +165,7 @@ export function startTour(app) {
     active = null;
     // Phones: return to the view the tour started from.
     if (app.root.classList.contains('is-phone') && app.prefs.get('mobilePanel') !== phonePanel) app.shell?.showMobile?.(phonePanel);
+    else for (const id of opened) app.shell?.hide?.(id);
     if (previous?.isConnected) previous.focus({ preventScroll: true });
   }
   active = { end };

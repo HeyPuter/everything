@@ -5,7 +5,7 @@
 // array, or null for every note.
 
 import { uid, clamp } from '../lib/util.js';
-import { snapRound, snapFloor } from '../model/time.js';
+import { snapRound, snapFloor, ticksPerBar } from '../model/time.js';
 import { chordKeys } from './scales.js';
 
 const toSet = (ids) => (ids === null || ids === undefined ? null : ids instanceof Set ? ids : new Set(ids));
@@ -278,6 +278,22 @@ export function chordize(notes, ids, chordId, opts = {}) {
   return { notes: sortNotes(out), ids: outIds };
 }
 
+// ------------------------------------------------------------------ pattern length
+
+/**
+ * The explicit pattern length that covers every note, in whole bars, when
+ * notes now end past it (they would be silent); null when it already fits
+ * or the length follows the content anyway.
+ */
+export function lengthToFit(pattern, sig = [4, 4]) {
+  if (!pattern?.length) return null;
+  let end = 0;
+  for (const list of Object.values(pattern.notes)) for (const n of list) if (n.pos + n.len > end) end = n.pos + n.len;
+  if (end <= pattern.length) return null;
+  const bar = ticksPerBar(sig);
+  return Math.ceil(end / bar) * bar;
+}
+
 // ------------------------------------------------------------------ clipboard
 
 /**
@@ -301,6 +317,21 @@ export function copyNotes(notes, ids, grid = 0) {
 export function pasteNotes(clip, at, dKey = 0) {
   if (!clip) return [];
   return clip.notes.map((n) => ({ ...n, id: uid(6), pos: Math.max(0, at + n.pos), key: clamp(n.key + dKey, 0, 127) }));
+}
+
+/**
+ * Where a paste aimed at tick `at` lands: when every clipboard note would sit
+ * exactly on an existing note (pasting where the copy came from), it moves on
+ * by the clipboard's length (rounded up to the grid) until it lands somewhere
+ * new, so repeated pastes lay copies end to end instead of stacking them.
+ */
+export function pasteTarget(notes, clip, at, grid = 0) {
+  if (!clip?.notes.length) return at;
+  const taken = new Set(notes.map((n) => `${n.key}:${n.pos}`));
+  const step = Math.max(grid > 0 ? Math.ceil(clip.length / grid) * grid : clip.length, grid || 1, 1);
+  let t = at;
+  for (let i = 0; i < 1000 && clip.notes.every((n) => taken.has(`${n.key}:${Math.max(0, t + n.pos)}`)); i++) t += step;
+  return t;
 }
 
 /**

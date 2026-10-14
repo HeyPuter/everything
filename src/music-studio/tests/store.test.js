@@ -28,6 +28,16 @@ describe('store', () => {
     expect(s.project).toBe(start);
   });
 
+  it('restores the edited channel saved with the project on load', () => {
+    const s = new Store(newProject());
+    const p = newProject();
+    s.load({ ...p, ui: { channel: p.channels[2].id } });
+    expect(s.view.channel).toBe(p.channels[2].id);
+    expect([...s.view.selectedChannels]).toEqual([p.channels[2].id]);
+    s.load({ ...p, ui: { channel: 'gone' } });
+    expect(s.view.channel).toBe(p.channels[0].id);
+  });
+
   it('ignores edits that change nothing and returns extra fields', () => {
     const s = new Store(newProject());
     const onChange = vi.fn();
