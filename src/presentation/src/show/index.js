@@ -614,7 +614,28 @@ export function createShowFeatures(ctx) {
     menuItems,
     onKey,
     insertCamera,
-    narrationOf: (slide) => narrationOf(P, slide),
+    // A slide's narration for video export, with the camera picture's box
+    // as fractions of the slide.
+    narrationOf: (slide) => {
+      const n = narrationOf(P, slide);
+      if (!n) return null;
+      const size = P.getSlideSize(pres()) || {
+        width: 12192000,
+        height: 6858000,
+      };
+      const b = n.bounds;
+      return {
+        ...n,
+        box: b
+          ? {
+              x: b.x / size.width,
+              y: b.y / size.height,
+              w: b.w / size.width,
+              h: b.h / size.height,
+            }
+          : null,
+      };
+    },
     isNarration: (shape) => isNarration(P, shape),
   };
 }

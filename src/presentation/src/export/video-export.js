@@ -247,6 +247,86 @@ async function encodeRealtime({
     destination.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
     await audioContext.resume().catch(() => {});
   }
+  // Video narrations: the presenter's camera, played (silently; their sound
+  // is in the mixed track) over its slide while the slide is up.
+  const timeline = audio
+    ? showTimeline(
+        slides.map((s) => s.transition),
+        options,
+      )
+    : [];
+  const cameras = [];
+  if (audio)
+    slides.forEach((slide, i) => {
+      const n = slide.narration;
+      if (n?.kind !== "video" || !n.box || typeof document === "undefined")
+        return;
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.src = URL.createObjectURL(
+        new Blob([n.data], { type: n.contentType }),
+      );
+      const entry = timeline[i];
+      cameras.push({
+        video,
+        box: n.box,
+        round: n.shape !== "rect",
+        from: entry.start + entry.transition,
+        until: entry.start + entry.transition + entry.hold,
+        started: false,
+      });
+    });
+  function drawCamera(target, time, w, h) {
+    for (const camera of cameras) {
+      if (time < camera.from || time >= camera.until) {
+        if (camera.started) camera.video.pause();
+        continue;
+      }
+      if (!camera.started) {
+        camera.started = true;
+        camera.video.currentTime = 0;
+        camera.video.play().catch(() => {});
+      }
+      const v = camera.video;
+      if (v.readyState < 2 || !v.videoWidth) continue;
+      const x = camera.box.x * w,
+        y = camera.box.y * h,
+        bw = camera.box.w * w,
+        bh = camera.box.h * h;
+      // Cover the box, cropping the camera picture to fit.
+      const scale = Math.max(bw / v.videoWidth, bh / v.videoHeight);
+      const sw = bw / scale,
+        sh = bh / scale;
+      target.save();
+      target.beginPath();
+      if (camera.round)
+        target.ellipse(
+          x + bw / 2,
+          y + bh / 2,
+          bw / 2,
+          bh / 2,
+          0,
+          0,
+          Math.PI * 2,
+        );
+      else target.rect(x, y, bw, bh);
+      target.clip();
+      target.drawImage(
+        v,
+        (v.videoWidth - sw) / 2,
+        (v.videoHeight - sh) / 2,
+        sw,
+        sh,
+        x,
+        y,
+        bw,
+        bh,
+      );
+      target.restore();
+    }
+  }
   const recorder = new MediaRecorder(stream, {
     mimeType: type,
     videoBitsPerSecond: bitrate(width, height),
@@ -266,16 +346,23 @@ async function encodeRealtime({
       fps: FPS,
       signal,
       progress,
-      holdStep: 1000 / 10,
+      // Recordings with the camera are drawn as they play, so frames come
+      // more often.
+      holdStep: cameras.length ? 1000 / FPS : 1000 / 10,
       async emit(frame, time) {
         // Wait until the moment this frame belongs to, so the recording
         // keeps the show's timing.
         const wait = started + time - performance.now();
         if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
         context.drawImage(frame, 0, 0);
+        drawCamera(context, time, width, height);
       },
     });
   } finally {
+    for (const camera of cameras) {
+      camera.video.pause();
+      URL.revokeObjectURL(camera.video.src);
+    }
     recorder.stop();
     stream.getTracks().forEach((track) => track.stop());
     await stopped;

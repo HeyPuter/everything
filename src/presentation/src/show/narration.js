@@ -29,11 +29,15 @@ export function narrationOf(P, slide) {
   if (!shape) return null;
   const media = P.getShapeMedia(shape);
   if (!media) return null;
+  const data = P.getShapeObjectData(shape) || {};
   return {
     data: media.data,
     contentType: media.contentType,
     kind: media.kind,
-    durationMs: Number(P.getShapeObjectData(shape)?.durationMs) || 0,
+    durationMs: Number(data.durationMs) || 0,
+    // Where a recording with the camera shows, in EMU, and its outline.
+    bounds: P.getShapeBounds(shape),
+    shape: data.shape === "rect" ? "rect" : "circle",
   };
 }
 

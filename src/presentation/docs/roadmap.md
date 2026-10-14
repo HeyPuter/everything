@@ -78,10 +78,9 @@ what is being added, and its status. Items are checked off as they land.
       microphone choice, pause, retake, clear), narrations stored per slide
       as media that plays by itself with the recording's timing; Clear
       Recording, Reset to Camera, and Export to Video with the narrations as
-      the sound track.
+      the sound track and the recorded camera over its slides.
 - [ ] Not yet: ink replayed with its timing in recordings (ink is kept as
-      shapes), subtitle translation, a narrated video's camera picture in the
-      exported video (its sound is included).
+      shapes), subtitle translation.
 
 ### 6. Insert
 
