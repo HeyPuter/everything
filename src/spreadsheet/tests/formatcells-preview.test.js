@@ -44,16 +44,17 @@ it('previews font effects and submits only the selected edits through the existi
   const { panel, choose, field, run } = open();
   choose('Size', '18'); choose('Text color', '#224466');
   const bold = [...panel.querySelectorAll('label.find-option')].find(label => label.textContent === 'Bold').querySelector('input');
-  bold.click(); choose('Borders', 'outer'); choose('Line style', 'dashed');
+  bold.click(); choose('Line style', 'dashed'); [...field('Border presets').querySelectorAll('button')].find(b => b.textContent === 'Outline').click();
   const box = field('Font preview'); expect(box.querySelector('span').style.fontSize).toBe('24px'); // 18pt
   expect(box.querySelector('span').style.fontWeight).toBe('600'); expect(box.style.borderTopStyle).toBe('dashed');
   panel.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
   expect(run).toHaveBeenCalledOnce();
-  expect(run).toHaveBeenCalledWith('applyFormat', { patch: { size: 24, bold: true, color: '#224466' }, border: { kind: 'outer', color: null, style: 'dashed' } });
+  expect(run).toHaveBeenCalledWith('applyFormat', { patch: { size: 24, bold: true, color: '#224466' }, border: null,
+    borders: ['top', 'bottom', 'left', 'right'].map(kind => ({ kind, style: 'dashed', color: null, perSide: true })) });
 });
 
 it.each([['A1', false, false], ['A1:B1', false, true], ['A1:A2', true, false], ['A1:B2', true, true]])('previews inside borders for the dimensions of %s', (range, rows, cols) => {
-  const { choose, field } = open(range); choose('Borders', 'inner');
+  const { field } = open(range); [...field('Border presets').querySelectorAll('button')].find(b => b.textContent === 'Inside').click();
   const box = field('Border preview');
   expect(box.classList.contains('fc-preview-inside-rows')).toBe(rows);
   expect(box.classList.contains('fc-preview-inside-cols')).toBe(cols);

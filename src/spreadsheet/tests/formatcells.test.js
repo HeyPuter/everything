@@ -100,16 +100,15 @@ describe('format cells dialog', () => {
     expect(document.body.textContent).toContain('Preview: 123,450.0%');
     const italic = [...document.querySelectorAll('label')].find((l) => l.textContent.trim() === 'Italic').querySelector('input');
     italic.click();
-    const borders = [...document.querySelectorAll('select')].find((s) => s.getAttribute('aria-label') === 'Borders');
-    borders.value = 'outer';
-    borders.dispatchEvent(new Event('change'));
+    [...document.querySelectorAll('[aria-label="Border presets"] button')].find((b) => b.textContent === 'Outline').click();
     document.querySelector('form.fc-form').dispatchEvent(new Event('submit', { cancelable: true }));
     expect(ctx.runs).toHaveLength(1);
     const [cmd, arg] = ctx.runs[0];
     expect(cmd).toBe('applyFormat');
     expect(arg.patch).toMatchObject({ fmt: 'percent', dec: 1, italic: true });
     expect('bold' in arg.patch).toBe(false); // unchanged fields are left alone
-    expect(arg.border).toMatchObject({ kind: 'outer', style: 'thin', color: null });
+    expect(arg.borders.map((b) => b.kind)).toEqual(['top', 'bottom', 'left', 'right']);
+    expect(arg.borders[0]).toMatchObject({ style: 'thin', color: null });
     modal.close?.();
   });
 });

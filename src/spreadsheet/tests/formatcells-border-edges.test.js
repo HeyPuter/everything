@@ -95,7 +95,7 @@ it.each([['A1', true, true], ['A1:B1', true, false], ['A1:A2', false, true]])
     expect(field('Inside horizontal border').disabled).toBe(horizontal);
     expect(field('Inside vertical border').disabled).toBe(vertical);
     expect(preset('Inside').disabled).toBe(horizontal && vertical);
-    const diagonal = [...modal.panel.querySelectorAll('button')].filter(b => b.textContent.startsWith('Diagonal'));
+    const diagonal = [...modal.panel.querySelectorAll('button')].filter(b => b.getAttribute('aria-label')?.startsWith('Diagonal'));
     expect(diagonal).toHaveLength(2); expect(diagonal.every(b => b.disabled && b.title.includes('not supported'))).toBe(true);
   });
 
@@ -106,11 +106,41 @@ it('cancels edge drafts and ignores pen-only edits when no edge or preset was se
   expect(untouched.run).not.toHaveBeenCalled(); expect(untouched.wb.toJSON()).toEqual(untouched.before);
 });
 
-it('retains the original preset command shape and resets custom edges when Keep is selected', () => {
-  const normal = open(); normal.choose('Borders', 'outer'); normal.choose('Line style', 'dashed'); normal.apply();
-  expect(normal.run).toHaveBeenCalledWith('applyFormat', { patch: {}, border: { kind: 'outer', style: 'dashed', color: null } });
-  const keep = open(); keep.field('Top border').click(); keep.choose('Borders', 'keep'); keep.apply();
-  expect(keep.run).not.toHaveBeenCalled(); expect(keep.wb.toJSON()).toEqual(keep.before);
+it('applies a preset with the pen chosen when it is clicked, and leaves edges alone without a click', () => {
+  const normal = open(); normal.choose('Line style', 'dashed'); normal.preset('Outline').click(); normal.apply();
+  expect(normal.run).toHaveBeenCalledWith('applyFormat', { patch: {}, border: null, borders: ['top', 'bottom', 'left', 'right'].map(kind => ({ kind, style: 'dashed', color: null, perSide: true })) });
+  const untouched = open(); untouched.choose('Line style', 'double'); untouched.apply();
+  expect(untouched.run).not.toHaveBeenCalled(); expect(untouched.wb.toJSON()).toEqual(untouched.before);
+});
+
+it('draws the line styles as a single-choice group walked with the arrow keys', () => {
+  const { field, preset, apply, run } = open();
+  const group = field('Line style');
+  expect(group.getAttribute('role')).toBe('radiogroup');
+  const radios = [...group.querySelectorAll('[role="radio"]')];
+  expect(radios.map(r => r.dataset.value)).toEqual(['thin', 'medium', 'thick', 'dashed', 'dotted', 'double']);
+  expect(radios.every(r => r.querySelector('svg'))).toBe(true);
+  expect(radios.filter(r => r.tabIndex === 0)).toHaveLength(1);
+  radios[0].focus();
+  radios[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  expect(group.value).toBe('medium'); expect(document.activeElement).toBe(radios[1]);
+  group.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+  expect(group.value).toBe('double'); expect(radios[5].getAttribute('aria-checked')).toBe('true');
+  radios[2].click(); expect(group.value).toBe('thick');
+  preset('Inside').click(); apply();
+  expect(run.mock.calls[0][1].borders).toEqual([{ kind: 'horizontal', style: 'thick', color: null, perSide: true }, { kind: 'vertical', style: 'thick', color: null, perSide: true }]);
+});
+
+it('draws a sample per cell of the selection shape and puts every edge button beside the diagram', () => {
+  const { field, modal } = open('A1:B2');
+  expect(field('Border preview').querySelectorAll('.fc-border-sample')).toHaveLength(4);
+  for (const label of ['Top', 'Bottom', 'Left', 'Right', 'Inside horizontal', 'Inside vertical']) {
+    const button = field(`${label} border`);
+    expect(button.closest('.fc-diagram')).not.toBeNull(); expect(button.querySelector('svg')).not.toBeNull();
+  }
+  expect(modal.panel.querySelector('[aria-label="Borders"]')).toBeNull();
+  expect(open('A1').field('Border preview').querySelectorAll('.fc-border-sample')).toHaveLength(1);
+  expect(open('A1:C1').field('Border preview').querySelectorAll('.fc-border-sample')).toHaveLength(2);
 });
 
 it('bounds inspection of a million-row selection and leaves unknown edges mixed', () => {
