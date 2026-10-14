@@ -457,7 +457,8 @@ export async function promptName(
  *
  * items: [{ label, icon?, shortcut?, hint?, onSelect, disabled?, checked?, danger? },
  *         { label, icon?, items: [...] },   // a submenu
- *         { separator: true }, { header: "Label" }, { custom: HTMLElement }]
+ *         { separator: true }, { header: "Label" },
+ *         { custom: HTMLElement | () => HTMLElement }]   // built on opening
  */
 const HOVER_OPEN_MS = 90;
 const HOVER_CLOSE_MS = 220;
@@ -551,7 +552,11 @@ export function openMenu({
       continue;
     }
     if (item.custom) {
-      panel.append(item.custom);
+      // A custom node may be built only when its menu opens (a gallery of
+      // pictures a parent menu should not pay for).
+      panel.append(
+        typeof item.custom === "function" ? item.custom() : item.custom,
+      );
       continue;
     }
     const isCheck = item.checked !== undefined;
