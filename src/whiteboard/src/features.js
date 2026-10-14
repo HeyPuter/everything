@@ -1150,8 +1150,15 @@ export function createFeatures(api) {
           // brought along would find covered.
           const hidden =
             region.frameId && api.hiddenFromParticipants?.(region.frameId);
-          d.querySelector("#slide-count").innerHTML =
-            `${index + 1} / ${regions.length} · <span id="slide-title">${name}</span>${hidden ? ` <span class="badge slide-hidden">${t("Hidden from participants")}</span>` : ""}`;
+          // The count is a status, read whenever it is written, so it is
+          // written only when it says something new, not when the board
+          // redraws the slide for a timer or someone else's change.
+          const count = `${index + 1} / ${regions.length} · <span id="slide-title">${name}</span>${hidden ? ` <span class="badge slide-hidden">${t("Hidden from participants")}</span>` : ""}`;
+          const status = d.querySelector("#slide-count");
+          if (status.dataset.shown !== count) {
+            status.innerHTML = count;
+            status.dataset.shown = count;
+          }
           const prev = d.querySelector("#slide-prev"),
             next = d.querySelector("#slide-next");
           prev.disabled = index === 0;

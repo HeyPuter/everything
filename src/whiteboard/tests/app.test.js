@@ -47932,6 +47932,40 @@ test("a presentation starts at the selected frame, turns with Space and arrows, 
   }
 });
 
+test("the slide count is said again only when it changes, not when the timer starts", async () => {
+  const app = await setup();
+  const { doc, w, click } = app;
+  try {
+    await rotationFixture(app, [
+      item("frame", 0, 0, { w: 400, h: 300, text: "One", order: 0 }),
+      item("frame", 600, 0, { w: 400, h: 300, text: "Two", order: 1 }),
+    ]);
+    await click('[data-action="present"]');
+    await click("#start-presentation");
+    const status = doc.querySelector("#slide-count");
+    assert.equal(status.getAttribute("role"), "status");
+    const writes = [];
+    new w.MutationObserver((records) => writes.push(...records)).observe(
+      status,
+      { childList: true, subtree: true, characterData: true },
+    );
+    await click(".presentation-timer-access");
+    await click("#timer-start");
+    // The slide is drawn again on the next look at the board, and when the
+    // window is resized.
+    await new Promise((r) => setTimeout(r, 700));
+    await click('[data-timer-command="pause"]');
+    w.dispatchEvent(new w.Event("resize"));
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(writes.length, 0, "the timer does not rewrite the status");
+    await click("#slide-next");
+    assert.match(status.textContent, /^2 \/ 2/);
+    assert.ok(writes.length > 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("a swipe across a presented slide turns it on a touch screen", async () => {
   const app = await setup();
   const { doc, w, click } = app;
