@@ -850,6 +850,8 @@ export class CanvasEditor {
     if (e.button !== 0 || this.composition) return;
     this.typingGroup = null; this.deleteGroup = null;
     e.preventDefault();
+    // Crop mode and Shift+click drawing selection take the press first (image-interaction.js).
+    if (this.imageInteraction.pointerDown(e)) return;
     if (this.session.path !== null) {
       const story = this.storyAtEvent(e);
       if (story && this.pageStories.stories[story.pageStory].editable && (story.pageStory !== this.session.path || story.page !== this.storyPage)) this.editStory(story.pageStory, story.page);
@@ -1164,6 +1166,7 @@ export class CanvasEditor {
   }
   keydown(e) {
     if (e.isComposing || this.composition || e.keyCode === 229) return;
+    if (this.imageInteraction.keydown(e)) return;
     if (e.key === 'F9' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       e.preventDefault(); if (this.onUpdateFields) this.onUpdateFields(); else this.updatePageReferences(); return;
     }

@@ -1,0 +1,85 @@
+/* Direct manipulation of pictures and shapes on the page (engine/image-interaction.js). */
+.canvas-image-frame {
+  --handle-ink: #375f91;
+  --guide-ink: #d6338f;
+}
+.canvas-image-handle[data-handle='n'] { left:calc(50% - 6px); top:-6px; }
+.canvas-image-handle[data-handle='s'] { left:calc(50% - 6px); bottom:-6px; }
+.canvas-image-handle[data-handle='e'] { right:-6px; top:calc(50% - 6px); }
+.canvas-image-handle[data-handle='w'] { left:-6px; top:calc(50% - 6px); }
+.canvas-image-handle[data-handle='n'], .canvas-image-handle[data-handle='s'],
+.canvas-image-handle[data-handle='e'], .canvas-image-handle[data-handle='w'] { border-radius:50%; }
+.canvas-image-handle[hidden], .canvas-image-rotate[hidden], .canvas-layout-options[hidden],
+.canvas-crop-frame[hidden], .canvas-crop-preview[hidden], .canvas-anchor-mark[hidden], .canvas-drop-caret[hidden], .canvas-drawing-guide[hidden] { display:none; }
+/* The Move button sits below the frame so the rotation handle has the top edge to itself. */
+.canvas-image-frame > .canvas-image-move { top:auto; bottom:-30px; left:0; }
+/* The rotation handle sits on a short stem above the top edge and turns with the frame. */
+.canvas-image-rotate {
+  position:absolute; left:calc(50% - 9px); top:-34px; width:18px; height:18px; padding:0;
+  display:grid; place-items:center; border:1px solid var(--handle-ink); border-radius:50%;
+  background:white; color:var(--handle-ink); pointer-events:auto; touch-action:none; cursor:grab;
+}
+.canvas-image-rotate::after { content:''; position:absolute; left:8px; top:17px; width:1px; height:16px; background:var(--handle-ink); pointer-events:none; }
+.canvas-image-rotate:active { cursor:grabbing; }
+.canvas-image-frame[data-angle]::after {
+  content:attr(data-angle); position:absolute; left:50%; top:calc(100% + 8px); transform:translateX(-50%);
+  padding:1px 6px; border-radius:4px; background:#243e5f; color:white; font:11px system-ui; white-space:nowrap;
+}
+.canvas-image-handle:focus-visible, .canvas-image-rotate:focus-visible, .canvas-layout-options:focus-visible,
+.canvas-crop-handle:focus-visible { outline:2px solid var(--focus, #2563eb); outline-offset:1px; }
+/* Drawings selected together with the main one: a frame without handles. */
+.canvas-image-frame.is-secondary { border:1px dashed #375f91; box-shadow:0 0 0 1px rgba(255,255,255,.7); }
+.canvas-drawing-layer { position:absolute; left:0; top:0; width:0; height:0; pointer-events:none; z-index:3; }
+.canvas-drawing-layer > * { position:absolute; pointer-events:none; }
+.canvas-drawing-guide { background:#d6338f; }
+.canvas-drawing-guide[data-axis='x'] { width:1px !important; margin-left:-.5px; }
+.canvas-drawing-guide[data-axis='y'] { height:1px !important; margin-top:-.5px; }
+.canvas-drawing-guide[data-kind='margin'] { background:repeating-linear-gradient(var(--dir, 180deg), #d6338f 0 4px, transparent 4px 7px); }
+.canvas-drawing-guide[data-axis='y'][data-kind='margin'] { --dir:90deg; }
+.canvas-drop-caret { background:#375f91; box-shadow:0 0 0 1px rgba(255,255,255,.8); border-radius:1px; }
+.canvas-anchor-mark { color:#375f91; line-height:0; opacity:.85; }
+.canvas-layout-options {
+  position:absolute; z-index:4; width:24px; height:24px; padding:0; display:grid; place-items:center;
+  border:1px solid #9aa9bd; border-radius:4px; background:white; color:#243e5f; box-shadow:0 1px 3px rgba(0,0,0,.15); cursor:pointer;
+}
+.canvas-layout-options:hover { background:#eef3f9; border-color:#375f91; }
+/* Crop mode: the kept area has heavy black corner and edge marks; the rest of the picture is dimmed. */
+.canvas-crop-preview { z-index:3; box-shadow:0 0 0 1px rgba(55,95,145,.4); }
+.canvas-crop-frame { position:absolute; z-index:4; pointer-events:none; outline:1px solid rgba(0,0,0,.6); }
+.canvas-crop-handle {
+  position:absolute; padding:0; border:0; background:transparent; pointer-events:auto; touch-action:none;
+  width:16px; height:16px;
+}
+.canvas-crop-handle::before, .canvas-crop-handle::after { content:''; position:absolute; background:#111; box-shadow:0 0 0 1px white; }
+.canvas-crop-handle[data-crop='nw'] { left:-3px; top:-3px; cursor:nwse-resize; }
+.canvas-crop-handle[data-crop='ne'] { right:-3px; top:-3px; cursor:nesw-resize; }
+.canvas-crop-handle[data-crop='sw'] { left:-3px; bottom:-3px; cursor:nesw-resize; }
+.canvas-crop-handle[data-crop='se'] { right:-3px; bottom:-3px; cursor:nwse-resize; }
+.canvas-crop-handle[data-crop='nw']::before, .canvas-crop-handle[data-crop='ne']::before,
+.canvas-crop-handle[data-crop='sw']::before, .canvas-crop-handle[data-crop='se']::before { width:16px; height:4px; }
+.canvas-crop-handle[data-crop='nw']::after, .canvas-crop-handle[data-crop='ne']::after,
+.canvas-crop-handle[data-crop='sw']::after, .canvas-crop-handle[data-crop='se']::after { width:4px; height:16px; }
+.canvas-crop-handle[data-crop='nw']::before, .canvas-crop-handle[data-crop='nw']::after { left:0; top:0; }
+.canvas-crop-handle[data-crop='ne']::before, .canvas-crop-handle[data-crop='ne']::after { right:0; top:0; }
+.canvas-crop-handle[data-crop='sw']::before, .canvas-crop-handle[data-crop='sw']::after { left:0; bottom:0; }
+.canvas-crop-handle[data-crop='se']::before, .canvas-crop-handle[data-crop='se']::after { right:0; bottom:0; }
+.canvas-crop-handle[data-crop='n'], .canvas-crop-handle[data-crop='s'] { left:calc(50% - 9px); width:18px; height:8px; cursor:ns-resize; }
+.canvas-crop-handle[data-crop='e'], .canvas-crop-handle[data-crop='w'] { top:calc(50% - 9px); width:8px; height:18px; cursor:ew-resize; }
+.canvas-crop-handle[data-crop='n'] { top:-3px; } .canvas-crop-handle[data-crop='s'] { bottom:-3px; }
+.canvas-crop-handle[data-crop='e'] { right:-3px; } .canvas-crop-handle[data-crop='w'] { left:-3px; }
+.canvas-crop-handle[data-crop='n']::before, .canvas-crop-handle[data-crop='s']::before { left:0; width:18px; height:4px; }
+.canvas-crop-handle[data-crop='n']::before { top:0; } .canvas-crop-handle[data-crop='s']::before { bottom:0; }
+.canvas-crop-handle[data-crop='e']::before, .canvas-crop-handle[data-crop='w']::before { top:0; width:4px; height:18px; }
+.canvas-crop-handle[data-crop='e']::before { right:0; } .canvas-crop-handle[data-crop='w']::before { left:0; }
+.canvas-crop-handle[data-crop='n']::after, .canvas-crop-handle[data-crop='s']::after,
+.canvas-crop-handle[data-crop='e']::after, .canvas-crop-handle[data-crop='w']::after { display:none; }
+/* Touch: larger targets. */
+@media (pointer: coarse) {
+  .canvas-image-handle { transform:scale(1.4); }
+  .canvas-image-rotate { transform:scale(1.3); }
+  .canvas-crop-handle { transform:scale(1.3); }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .canvas-layout-options { background:#1f2733; color:#dbe4f0; border-color:#4b5b70; }
+}
+:root[data-theme="dark"] .canvas-layout-options { background:#1f2733; color:#dbe4f0; border-color:#4b5b70; }
