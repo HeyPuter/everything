@@ -13285,7 +13285,6 @@ function pasteText(value) {
       20,
       legibleColor(background, [t.ink, sectionTextColor(theme)], 4.5),
     );
-    place?.(s);
     if (P.getSlidePartName(slide()) === P.getSlidePartName(target))
       selectIds([P.getShapeId(s)]);
   });
