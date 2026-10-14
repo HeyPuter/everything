@@ -4,6 +4,7 @@ import { t } from "./i18n.js";
 // command list, so labels, shortcuts and availability match the command
 // palette; whatever the selection cannot do is left out, not greyed.
 const OBJECT_MENU = [
+  ["open-link"],
   ["clipboard:copy", "clipboard:cut", "clipboard:paste", "duplicate", "delete"],
   ["front", "forward", "backward", "back"],
   ["arrange:group", "arrange:ungroup", "lock"],
@@ -25,6 +26,7 @@ const CANVAS_MENU = [
   ["unlock-all"],
 ];
 const ICONS = {
+  "open-link": "external-link",
   "clipboard:copy": "copy",
   "clipboard:cut": "scissors",
   "clipboard:paste": "clipboard-paste",

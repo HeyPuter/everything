@@ -85,6 +85,17 @@
 .sheet-refresh:hover {
   background: var(--soft);
 }
+.link-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.link-open svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
 .embed-open[hidden],
 .sheet-refresh[hidden] {
   display: none;

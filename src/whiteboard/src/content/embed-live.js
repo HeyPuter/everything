@@ -2,7 +2,9 @@
 // follow pan and zoom, and close when scrolled out of view, when another
 // object is selected, or with Escape, so in practice one is open at a time;
 // MAX_LIVE caps them regardless, so large boards only pay for the frames
-// someone is actually using.
+// someone is actually using. The same layer holds Open link under a
+// selected link card.
+import { createElement, ExternalLink } from "lucide";
 import { t } from "../i18n.js";
 import { authoredTextHTML } from "../accessibility/object-content.js";
 import { canonicalLanguage } from "../accessibility/language-tag.js";
@@ -26,10 +28,10 @@ export function createLiveEmbeds(api) {
   const live = new Map();
   const captions = new WeakMap();
   let layer = null,
-    opener = null;
+    opener = null,
+    linkOpener = null;
 
-  function updateCaption(label, i) {
-    const html = captionHTML(i);
+  function updateCaption(label, i, html = captionHTML(i)) {
     if (captions.get(label) === html) return;
     label.innerHTML = html;
     captions.set(label, html);
@@ -69,7 +71,29 @@ export function createLiveEmbeds(api) {
       const i = selectedEmbed();
       if (i) open(i);
     };
-    layer.append(opener);
+    // A link card's Open link is a real link to its address, for everyone
+    // who can see the card: on a read-only board or with the card locked,
+    // the Edit link dialog that also opens it is not available.
+    linkOpener = document.createElement("a");
+    linkOpener.className = "embed-open link-open";
+    linkOpener.target = "_blank";
+    linkOpener.rel = "noopener noreferrer";
+    linkOpener.hidden = true;
+    const linkIcon = createElement(ExternalLink);
+    linkIcon.setAttribute("aria-hidden", "true");
+    linkIcon.setAttribute("stroke-width", "2");
+    const linkAction = document.createElement("span");
+    linkAction.id = `link-open-action-${++nextLabel}`;
+    linkAction.textContent = t("Open link");
+    const linkCaption = document.createElement("span");
+    linkCaption.id = `link-open-caption-${++nextLabel}`;
+    linkCaption.className = "sr-only";
+    linkOpener.setAttribute(
+      "aria-labelledby",
+      `${linkAction.id} ${linkCaption.id}`,
+    );
+    linkOpener.append(linkIcon, linkAction, linkCaption);
+    layer.append(opener, linkOpener);
     wrap.append(layer);
     return layer;
   }
@@ -78,6 +102,18 @@ export function createLiveEmbeds(api) {
     if (selection.size !== 1) return null;
     const i = api.board()?.items.find((x) => selection.has(x.id));
     return i?.type === "embed" && !api.hidden?.(i.id) ? i : null;
+  }
+  // A selected link card to a web address, which Open link follows.
+  function selectedLink() {
+    const selection = api.selection();
+    if (selection.size !== 1) return null;
+    const i = api.board()?.items.find((x) => selection.has(x.id));
+    if (i?.type !== "link" || api.hidden?.(i.id)) return null;
+    try {
+      return ["http:", "https:"].includes(new URL(i.url).protocol) ? i : null;
+    } catch {
+      return null;
+    }
   }
   function close(id, focus = false) {
     const entry = live.get(id);
@@ -184,10 +220,10 @@ export function createLiveEmbeds(api) {
   // The Open live button hides with its embed's selection, as when Escape
   // clears it or Delete removes the embed; if it had focus, the canvas
   // takes it rather than the page.
-  function showOpener(show) {
-    if (!show && !opener.hidden && opener.contains(document.activeElement))
+  function showOpener(show, button = opener) {
+    if (!show && !button.hidden && button.contains(document.activeElement))
       document.querySelector("#canvas")?.focus({ preventScroll: true });
-    opener.hidden = !show;
+    button.hidden = !show;
   }
   let rendering = false;
   function render() {
@@ -205,10 +241,12 @@ export function createLiveEmbeds(api) {
       return;
     }
     if (!ensureLayer()) return;
-    // Runs on every frame: nothing open and no embed selected needs no
-    // layout reads.
-    if (!live.size && !selectedEmbed()) {
+    // Runs on every frame: nothing open and no embed or link card selected
+    // needs no layout reads.
+    const link = selectedLink();
+    if (!live.size && !selectedEmbed() && !link) {
       showOpener(false);
+      showOpener(false, linkOpener);
       return;
     }
     const view = api.view(),
@@ -269,6 +307,26 @@ export function createLiveEmbeds(api) {
         cy = oy + (i.y + i.h) * view.z + view.y;
       opener.style.left = `${cx}px`;
       opener.style.top = `${cy + 10}px`;
+    }
+    const showLink = !!link && !api.busy?.();
+    showOpener(showLink, linkOpener);
+    if (showLink) {
+      const [, action, caption] = linkOpener.children;
+      if (action.textContent !== t("Open link"))
+        action.textContent = t("Open link");
+      updateCaption(
+        caption,
+        link,
+        link.text
+          ? authoredTextHTML(link)
+          : authoredTextHTML({}, new URL(link.url).hostname),
+      );
+      if (linkOpener.getAttribute("href") !== link.url) {
+        linkOpener.href = link.url;
+        linkOpener.title = link.url;
+      }
+      linkOpener.style.left = `${ox + (link.x + link.w / 2) * view.z + view.x}px`;
+      linkOpener.style.top = `${oy + (link.y + link.h) * view.z + view.y + 10}px`;
     }
   }
   return {

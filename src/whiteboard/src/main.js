@@ -175,6 +175,7 @@ import {
   ArrowDown,
   ArrowDownWideNarrow,
   ArrowUpRight,
+  ExternalLink,
   BringToFront,
   SendToBack,
   AlignStartVertical,
@@ -303,6 +304,7 @@ const icons = {
   ArrowDown,
   ArrowDownWideNarrow,
   ArrowUpRight,
+  ExternalLink,
   BringToFront,
   SendToBack,
   AlignStartVertical,
@@ -525,6 +527,7 @@ import {
   nextFrameTitle,
   orderedFrames,
   layoutUnits,
+  safeURL,
 } from "./scene.js";
 import { TEMPLATE_CATALOG, fromTemplate } from "./templates.js";
 import {
@@ -9757,6 +9760,12 @@ function connectionEndpoints(i) {
     },
   );
 }
+// A link card's web address opens in a new tab, cut off from this page.
+function openLinkCard(i) {
+  const url = i?.type === "link" && safeURL(i.url);
+  if (url) window.open(url, "_blank", "noopener,noreferrer");
+  return !!url;
+}
 function editObject(i, properties = false, point) {
   pointerUp();
   if (i && contentTools.edit(i, properties)) return;
@@ -9768,6 +9777,14 @@ function editObject(i, properties = false, point) {
       !!point,
     );
   }
+  // Someone who cannot change a link card, on a read-only board or with
+  // the card locked, can still follow it: double-click and Enter open it.
+  if (
+    !properties &&
+    i?.type === "link" &&
+    (isSharedReadOnly() || hasLocked(current.items, new Set([i.id])))
+  )
+    return openLinkCard(i);
   if (!i || !canEditSelection(new Set([i.id]))) return;
   if (!properties && canEditText(i)) return beginTextEdit(i, { point });
   if (!properties && i.type === "image") return imageCrop.open(i);
@@ -13152,6 +13169,8 @@ async function action(a) {
       return exitGroup();
     case "edit":
       return editObject(primarySelected());
+    case "open-link":
+      return openLinkCard(primarySelected());
     case "duplicate":
       return duplicate();
     case "connection-endpoints":

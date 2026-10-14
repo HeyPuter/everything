@@ -1353,6 +1353,7 @@ const pairs = {
   "Attach file": "Joindre un fichier",
   "Add content": "Ajouter du contenu",
   "Open link": "Ouvrir le lien",
+  "Select a link card first.": "Sélectionnez d’abord une carte de lien.",
   "Download attachment": "Télécharger la pièce jointe",
   "Import contents": "Importer le contenu",
   "Files added. To add a document’s contents to the board, open its file card and choose Import contents.":

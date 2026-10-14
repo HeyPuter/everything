@@ -35747,6 +35747,157 @@ test("link edit validation preserves source declarations, cancellation and singl
   }
 });
 
+test("a locked link card opens in a new tab from the board, Enter, double-click and the context menu", async () => {
+  const app = await setup(),
+    { doc, w, click, tick } = app;
+  const opened = [];
+  w.open = (...args) => {
+    opened.push(args);
+    return null;
+  };
+  const enter = () => {
+    doc.querySelector("#canvas").focus();
+    doc.querySelector("#canvas").dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  };
+  try {
+    await rotationFixture(app, [
+      item("link", 0, 0, {
+        text: "Weekly sync",
+        url: "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+      }),
+      item("link", 0, 300, {
+        text: "Agenda",
+        url: "https://example.com/agenda",
+      }),
+    ]);
+    const [card, locked] = allClipboard(app);
+    await click(`#board-outline [data-id="${locked.id}"]`);
+    await click('[data-action="lock"]');
+    // An editor's Enter still edits an unlocked card.
+    await click(`#board-outline [data-id="${card.id}"]`);
+    enter();
+    await tick();
+    assert.equal(
+      doc.querySelector("dialog[open]")?.getAttribute("aria-label"),
+      "Edit link",
+    );
+    doc.querySelector("dialog[open]").close();
+    await tick();
+    assert.deepEqual(opened, []);
+    // Any selected card has Open link, a real link to its address.
+    const opener = doc.querySelector(".link-open");
+    assert.equal(opener.hidden, false);
+    assert.equal(opener.tagName, "A");
+    assert.equal(opener.href, card.url);
+    assert.equal(opener.target, "_blank");
+    assert.equal(opener.rel, "noopener noreferrer");
+    const name = () =>
+      opener
+        .getAttribute("aria-labelledby")
+        .split(" ")
+        .map((id) => doc.getElementById(id).textContent)
+        .join(" ");
+    assert.equal(name(), "Open link Weekly sync");
+    // A locked card opens rather than refusing with a notice.
+    await click(`#board-outline [data-id="${locked.id}"]`);
+    assert.equal(opener.hidden, false);
+    assert.equal(opener.href, locked.url);
+    assert.equal(name(), "Open link Agenda");
+    enter();
+    await tick();
+    assert.equal(doc.querySelector("dialog[open]"), null);
+    assert.deepEqual(opened, [[locked.url, "_blank", "noopener,noreferrer"]]);
+    const v = renderedView(app);
+    const x = v.x + (locked.x + locked.w / 2) * v.z,
+      y = v.y + (locked.y + locked.h / 2) * v.z;
+    for (const type of ["pointerdown", "pointerup", "pointerdown", "pointerup"])
+      canvasPointer(app, type, 3, x, y, { pointerType: "mouse" });
+    await tick();
+    assert.equal(doc.querySelector("dialog[open]"), null);
+    assert.equal(opened.length, 2, "Double-click opens it");
+    canvasPointer(app, "pointerdown", 4, x, y, {
+      pointerType: "mouse",
+      button: 2,
+    });
+    canvasPointer(app, "pointerup", 4, x, y, {
+      pointerType: "mouse",
+      button: 2,
+    });
+    await tick();
+    const first = doc.querySelector('#context-menu [role="menuitem"]');
+    assert.equal(first?.dataset.command, "open-link");
+    first.click();
+    await tick();
+    assert.equal(opened.length, 3, "The context menu opens it");
+    // Open link leaves with the selection.
+    doc.querySelector("#canvas").dispatchEvent(
+      new w.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await tick();
+    assert.equal(opener.hidden, true);
+  } finally {
+    await tick();
+    await app.close();
+  }
+});
+
+test("viewers can open a link card they cannot edit", async () => {
+  const card = item("link", 100, 100, {
+    w: 320,
+    h: 115,
+    text: "Stand-up call",
+    url: "https://us02web.zoom.us/j/81234567890",
+  });
+  const room = "viewer-link-card";
+  const shared = await sharedEditors(room, [card]);
+  try {
+    const [, app] = shared.apps;
+    await shared.env.service.call(owner, {
+      op: "role",
+      room,
+      uuid: collaborator.uuid,
+      role: "viewer",
+    });
+    app.w.dispatchEvent(new app.w.Event("online"));
+    await shared.until(
+      () => app.doc.querySelector(".editor.shared-viewer"),
+      "Viewer access received",
+    );
+    const opened = [];
+    app.w.open = (...args) => opened.push(args);
+    await app.click(`#board-outline [data-id="${card.id}"]`);
+    const opener = app.doc.querySelector(".link-open");
+    assert.equal(opener.hidden, false);
+    assert.equal(opener.href, card.url);
+    app.doc.querySelector("#canvas").focus();
+    app.doc.querySelector("#canvas").dispatchEvent(
+      new app.w.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await app.tick();
+    assert.deepEqual(opened, [[card.url, "_blank", "noopener,noreferrer"]]);
+    assert.doesNotMatch(
+      app.doc.querySelector("#toast").textContent,
+      /read-only/,
+    );
+  } finally {
+    await shared.close();
+  }
+});
+
 test("presentation frame validation stays available until selection is corrected in both languages", async () => {
   for (const language of ["en", "fr"]) {
     const app = await setup(),

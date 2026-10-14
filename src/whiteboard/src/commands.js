@@ -205,6 +205,17 @@ export function commandEntries({
       "Enter",
       single?.type === "embed" ? "" : "Select an embed first.",
     );
+    // Link cards open for anyone who can see them, read-only or locked.
+    add(
+      "open-link",
+      "Open link",
+      "View",
+      "url website web page new tab browser link card ouvrir lien onglet",
+      "",
+      single?.type === "link" && /^https?:/i.test(single.url || "")
+        ? ""
+        : "Select a link card first.",
+    );
     for (const [n, shape] of SHAPES.entries()) {
       if (["rectangle", "ellipse"].includes(shape.key)) continue;
       add(

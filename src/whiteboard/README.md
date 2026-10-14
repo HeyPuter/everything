@@ -137,6 +137,8 @@ Only HTTPS addresses qualify; `javascript:`, `data:`, `blob:`, embedded credenti
 
 Pasting or dropping a link to a supported service offers **Embed** or **Link card** (and **Import as table** for Google Sheets, or **Import as sticky notes** for Google Docs). Other links still become link cards directly.
 
+A selected link card shows **Open link** below it, which opens its address in a new tab for everyone who can see the card, as do **Open link** in the context menu and command search. Double-click or Enter edits the card; for viewers, commenters, and anyone looking at a locked card, they open the link instead.
+
 **Google Workspace** (More tools or command search) works beyond embedding. It needs the file shared with "Anyone with the link" or published to the web, and fetches only Google's public export endpoints: directly, as Google allows for files shared by link, and through Puter's CORS-free `puter.net.fetch` only when a direct request is refused and the user is signed in:
 
 - **Editable table from Google Sheets** reads `https://docs.google.com/spreadsheets/d/<id>/export?format=csv&gid=<gid>` for the linked tab and creates editable tables. Tables keep their source as a Google Sheets link with the A1 range (for example `…/edit#gid=0&range=A1:L20`). Select one and choose **Refresh from Google Sheets** (on-canvas button or command search) to re-read that range as one undoable change; the last table of a split import grows with new rows.
