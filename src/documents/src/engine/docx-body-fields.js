@@ -80,6 +80,14 @@ export function bodyFieldReader(nextOrder = () => 0) {
       if(stack.at(-1)!==active)fail('a body field crossing a simple field boundary');
       stack.pop();markers.push({type:'end',offset:offset(),field,order:nextOrder()});
     },
+    /** Keep the cached result of a field nested in an instruction inside the outer field's envelope. */
+    absorb(node, run){
+      const active=stack.at(-1);
+      if(active?.phase!=='code'||active.nested.at(-1)!=='result')return false;
+      const fragment=run.cloneNode(false),properties=[...run.children].find(n=>is(n,'rPr'));
+      if(properties)fragment.append(properties.cloneNode(true));fragment.append(node.cloneNode(true));
+      active.opening+=serializeFragment(fragment);return true;
+    },
     token(node, run, offset, markers, link){
       if(!is(node,'fldChar')&&!is(node,'instrText'))return false;
       const active=stack.at(-1);
@@ -87,13 +95,20 @@ export function bodyFieldReader(nextOrder = () => 0) {
       if(properties)fragment.append(properties.cloneNode(true));fragment.append(node.cloneNode(true));
       const source=serializeFragment(fragment);
       if(is(node,'instrText')){
-        if(active?.phase!=='code')fail('a body instruction outside its field code');
+        if(active?.phase!=='code'||active.nested.at(-1)==='result')fail('a body instruction outside its field code');
         active.opening+=source;active.instruction+=node.textContent;return true;
       }
       const kind=node.getAttributeNS(W,'fldCharType');
+      // Fields nested in an instruction (the operands of IF, NEXTIF, SKIPIF) belong to the outer envelope.
+      if(active?.phase==='code'&&(kind==='begin'||active.nested.length)){
+        if(kind==='begin'){active.nested.push('code');active.instruction+='{';}
+        else if(kind==='separate'&&active.nested.at(-1)==='code')active.nested[active.nested.length-1]='result';
+        else if(kind==='end'){active.nested.pop();active.instruction+='}';}
+        else fail('an unmatched body field delimiter');
+        active.opening+=source;return true;
+      }
       if(kind==='begin'){
-        if(active?.phase==='code')fail('nested body fields inside instructions');
-        stack.push({field:{id:`bodyField${++count}`},opening:source,instruction:'',phase:'code'});
+        stack.push({field:{id:`bodyField${++count}`},opening:source,instruction:'',phase:'code',nested:[]});
       }else if(kind==='separate'&&active?.phase==='code'){
         if(/^\s*HYPERLINK(?:\s|$)/i.test(active.instruction)){
           const {hyperlink}=bodyFieldInstruction(active.instruction);
@@ -143,6 +158,8 @@ export function bodyFieldBoundary(marker, doc) {
     if(marker.type==='end')return [run];
     for(const name of ['fldLock','dirty'])if(nodes[0].hasAttributeNS(W,name))delimiter.setAttributeNS(W,`w:${name}`,nodes[0].getAttributeNS(W,name));
     const instruction=make('r'),text=make('instrText');text.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');text.textContent=marker.field.instruction;instruction.append(text);
+    // Index, authority and contents entries have no result, so no separator (§17.16.5.62, .63, .72).
+    if(['XE','TA','TC'].includes(marker.field.type))return [run,instruction];
     const separator=make('r'),separate=make('fldChar');separate.setAttributeNS(W,'w:fldCharType','separate');separator.append(separate);
     return [run,instruction,separator];
   }

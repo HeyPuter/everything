@@ -77,32 +77,46 @@ function cache(source, kind) {
   if (!count || seen.size !== count) fail('incomplete cached data');
   return result;
 }
-function axis(n, kind, scheme, text, fonts) {
+// Builder-shaped XY charts move axes (horizontal bars, scatter X) and may cross
+// value axes at category midpoints; column charts keep the original subset.
+function axis(n, kind, scheme, text, fonts, { position = kind === 'category' ? 'b' : 'l', between = ['between'], formats = kind === 'value' ? ['General', '0%'] : ['General'] } = {}) {
   if (!n) fail('missing axes');
   check(n, ['axId', 'scaling', 'delete', 'axPos', 'majorGridlines', 'numFmt', 'majorTickMark', 'minorTickMark', 'tickLblPos', 'spPr', 'txPr', 'crossAx', 'crosses', 'crossesAt', ...(kind === 'category' ? ['auto', 'lblAlgn', 'lblOffset', 'noMultiLvlLbl'] : ['crossBetween'])]);
   const fmt = child(n, 'numFmt'); check(fmt, []);
-  const numberFormat = fmt ? choice(fmt.getAttribute('formatCode'), kind === 'value' ? ['General', '0%'] : ['General'], 'axis number format') : null;
+  const numberFormat = fmt ? choice(fmt.getAttribute('formatCode'), formats, 'axis number format') : null;
   if (fmt && !['0', '1', 'false', 'true'].includes(fmt.getAttribute('sourceLinked'))) fail('invalid number-format source link');
   const scaling = child(n, 'scaling'); if (!scaling) fail('missing axis scaling'); check(scaling, ['orientation']);
   choice(val(scaling, 'orientation', 'minMax'), ['minMax'], 'axis orientation');
   choice(val(n, 'delete', '0'), ['0', 'false'], 'hidden axes');
-  choice(val(n, 'axPos'), [kind === 'category' ? 'b' : 'l'], 'axis position');
+  choice(val(n, 'axPos'), [position], 'axis position');
   choice(val(n, 'majorTickMark', 'out'), ['out', 'none'], 'major ticks');
   choice(val(n, 'minorTickMark', 'none'), ['none'], 'minor ticks');
   choice(val(n, 'tickLblPos', 'nextTo'), ['nextTo'], 'label position');
   if (child(n, 'crosses') && child(n, 'crossesAt')) fail('conflicting axis crossings');
   choice(val(n, 'crosses', 'autoZero'), ['autoZero'], 'axis crossing');
   if (number(val(n, 'crossesAt', '0'), 'axis crossing') !== 0) fail('nonzero axis crossings');
+  let crossBetween;
   if (kind === 'category') {
     choice(val(n, 'auto', '1'), ['1', 'true'], 'category axis');
     choice(val(n, 'lblAlgn', 'ctr'), ['ctr'], 'category label alignment');
     if (!['100', '100%'].includes(val(n, 'lblOffset', '100'))) fail('custom category label offsets');
     choice(val(n, 'noMultiLvlLbl', '0'), ['0', '1', 'false', 'true'], 'multilevel label flag');
-  } else choice(val(n, 'crossBetween', 'between'), ['between'], 'category crossings');
+  } else crossBetween = choice(val(n, 'crossBetween', 'between'), between, 'category crossings');
   const grid = child(n, 'majorGridlines'); check(grid, ['spPr']);
   const lineColor = (props, fallback) => { const style = shape(props, null, scheme); return child(props, 'ln', A) ? style.line : fallback; };
   const labelText = readChartText(child(n, 'txPr'), text, scheme, fonts);
-  return { id: integer(val(n, 'axId'), 'axis ID', 4294967295), cross: integer(val(n, 'crossAx'), 'cross axis', 4294967295), line: lineColor(child(n, 'spPr'), '#777777'), grid: grid ? lineColor(child(grid, 'spPr'), '#d0d0d0') : null, ticks: val(n, 'majorTickMark', 'out') === 'out', ...(numberFormat ? { numberFormat } : {}), ...(labelText ? { text: labelText } : {}) };
+  return { id: integer(val(n, 'axId'), 'axis ID', 4294967295), cross: integer(val(n, 'crossAx'), 'cross axis', 4294967295), line: lineColor(child(n, 'spPr'), '#777777'), grid: grid ? lineColor(child(grid, 'spPr'), '#d0d0d0') : null, ticks: val(n, 'majorTickMark', 'out') === 'out', ...(numberFormat ? { numberFormat } : {}), ...(labelText ? { text: labelText } : {}), ...(between.length > 1 ? { crossBetween } : {}) };
+}
+
+// Markers are explicit circles or none; automatic symbols cycle by series.
+function seriesMarker(n, scheme) {
+  if (!n) fail('automatic series markers');
+  check(n, ['symbol', 'size', 'spPr']);
+  if (choice(val(n, 'symbol'), ['none', 'circle'], 'marker symbol') === 'none') return null;
+  const size = integer(val(n, 'size'), 'marker size', 72), props = child(n, 'spPr');
+  if (size < 2) fail('invalid marker size');
+  if (!props || !child(props, 'ln', A) || !child(props, 'solidFill', A) && !child(props, 'noFill', A)) fail('inherited marker appearance');
+  return { symbol: 'circle', size, ...shape(props, null, scheme, true) };
 }
 
 function extensions(node, kind) {
@@ -157,9 +171,12 @@ function explicitChartStyles(parts, path, style) {
   return null;
 }
 
-// Retained doughnut charts use cached data; formulas/workbooks are never executed.
+const FULL_TEXT = ['fontSize', 'fontAscii', 'bold', 'italic', 'color', 'kerning'];
+const latinOnly = list => !list.some(t => /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(t));
+// Retained doughnut and pie charts use cached data; formulas/workbooks are never
+// executed. Pie charts are the zero-hole case and must declare one series.
 function readDoughnut(root, chart, scheme, fonts, text, styledShape) {
-  check(chart, ['title', 'autoTitleDeleted', 'plotArea', 'plotVisOnly', 'dispBlanksAs', 'showDLblsOverMax', 'extLst']);
+  check(chart, ['title', 'autoTitleDeleted', 'plotArea', 'legend', 'plotVisOnly', 'dispBlanksAs', 'showDLblsOverMax', 'extLst']);
   choice(val(chart, 'plotVisOnly', '1'), ['1','true'], 'hidden data');
   choice(val(chart, 'dispBlanksAs', 'gap'), ['gap','zero','span'], 'blank display');
   choice(val(chart, 'showDLblsOverMax', '0'), ['0','1','false','true'], 'label maximum flag');
@@ -189,12 +206,13 @@ function readDoughnut(root, chart, scheme, fonts, text, styledShape) {
     if (!title && (result.x+result.w > 1+1e-9 || result.y+result.h > 1+1e-9)) fail('out-of-frame doughnut layout');
     return result;
   };
-  const plot = child(chart,'plotArea');check(plot,['layout','doughnutChart','spPr']);
-  const ring = child(plot,'doughnutChart');check(ring,['varyColors','ser','dLbls','firstSliceAng','holeSize'],['ser']);
+  const plot = child(chart,'plotArea'), pie = !child(plot,'doughnutChart'), kind = pie ? 'pieChart' : 'doughnutChart';
+  check(plot,['layout',kind,'spPr']);
+  const ring = child(plot,kind);check(ring,['varyColors','ser','dLbls','firstSliceAng',...(pie?[]:['holeSize'])],['ser']);
   choice(val(ring,'varyColors','1'),['0','1','false','true'],'per-point color flag');
   const scalar = (key,fallback) => { const n=child(ring,key);check(n,[]);return n?.getAttribute('val') ?? fallback; };
   const angle=integer(scalar('firstSliceAng','0'),'first slice angle',360);
-  const hole=integer(scalar('holeSize','10').replace(/%$/,''),'hole size',90);if(hole<10)fail('invalid hole size');
+  const hole=pie?0:integer(scalar('holeSize','10').replace(/%$/,''),'hole size',90);if(!pie&&hole<10)fail('invalid hole size');
   const switches=['showLegendKey','showVal','showCatName','showSerName','showPercent','showBubbleSize'];
   const labels = node => {
     check(node,['delete',...switches,'showLeaderLines']);
@@ -231,10 +249,17 @@ function readDoughnut(root, chart, scheme, fonts, text, styledShape) {
     if(points.filter(Boolean).length!==values.length)fail('inherited doughnut point colors');
     return {order,name,categories,values,points};
   }).sort((a,b)=>a.order-b.order);
-  if(!series.length||series.length>20)fail('missing or excessive doughnut series');
+  if(!series.length||series.length>(pie?1:20))fail('missing or excessive doughnut series');
   let title=null;const titleNode=child(chart,'title');
   const autoDeleted=choice(val(chart,'autoTitleDeleted','1'),['0','1','false','true'],'automatic title flag');
-  if(titleNode){
+  if(child(titleNode,'tx')){
+    // Rich titles are placed automatically above the plot, like column titles.
+    check(titleNode,['tx','layout','overlay','spPr','txPr']);check(child(titleNode,'layout'),[]);
+    choice(val(titleNode,'overlay','0'),['0','false'],'title overlay');
+    const tx=child(titleNode,'tx');check(tx,['rich']);if(!child(tx,'rich'))fail('missing rich doughnut title');
+    const paragraphs=readChartRichTitle(child(tx,'rich'),readChartText(child(titleNode,'txPr'),text,scheme,fonts),scheme,fonts);
+    title={paragraphs,style:paragraphs[0].runs[0]?.style||paragraphs[0].style,overlay:false,background:declaredShape(titleNode,'title')};
+  }else if(titleNode){
     check(titleNode,['layout','overlay','spPr','txPr']);
     choice(val(titleNode,'overlay','0'),['0','1','false','true'],'title overlay');
     const style=readChartText(child(titleNode,'txPr'),text,scheme,fonts);
@@ -242,8 +267,18 @@ function readDoughnut(root, chart, scheme, fonts, text, styledShape) {
     if(series.length!==1||/[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(series[0].name))fail('automatic multiseries or mixed-script titles');
     title={text:series[0].name,style,layout:layout(child(titleNode,'layout'),true),background:declaredShape(titleNode,'title')};
   }else if(['0','false'].includes(autoDeleted))fail('automatic doughnut title placement');
-  return {type:'doughnut',series,angle,hole,layout:layout(child(plot,'layout')),title,
-    background:declaredShape(root,'chartArea'),plot:declaredShape(plot,'plotArea')};
+  // Legends list the first series' categories. Their text must be fully declared.
+  const legend=child(chart,'legend');let legendText;check(legend,['legendPos','overlay','spPr','txPr']);
+  if(legend){
+    choice(val(legend,'legendPos','r'),['r','b'],'legend position');choice(val(legend,'overlay','0'),['0','false'],'overlaid legends');
+    const style=declaredShape(legend,'legend');if(style.fill||style.line)fail('filled or bordered legends');
+    legendText=readChartText(child(legend,'txPr'),text,scheme,fonts);
+    if(!FULL_TEXT.every(k=>legendText?.[k]!==undefined))fail('inherited legend text formatting');
+    if(!latinOnly(series[0].categories))fail('explicit mixed-script label formatting');
+  }
+  return {type:pie?'pie':'doughnut',series,angle,hole,layout:layout(child(plot,'layout')),title,
+    background:declaredShape(root,'chartArea'),plot:declaredShape(plot,'plotArea'),
+    ...(legend?{legend:true,legendPosition:val(legend,'legendPos','r'),legendText}:{})};
 }
 
 export function readChart(parts, reference, readSchemeColor, readFonts) {
@@ -294,7 +329,7 @@ export function readChart(parts, reference, readSchemeColor, readFonts) {
     if (contentType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') fail('non-OOXML chart workbooks');
   }
   const chart = child(root, 'chart'); if (!chart) fail('missing chart');
-  if (child(child(chart, 'plotArea'), 'doughnutChart')) return { path, relId, chart: readDoughnut(root, chart, scheme, fonts, text, explicitChartStyles(parts, path, style)) };
+  if (child(child(chart, 'plotArea'), 'doughnutChart') || child(child(chart, 'plotArea'), 'pieChart')) return { path, relId, chart: readDoughnut(root, chart, scheme, fonts, text, explicitChartStyles(parts, path, style)) };
   check(chart, ['title', 'autoTitleDeleted', 'plotArea', 'legend', 'plotVisOnly', 'dispBlanksAs', 'showDLblsOverMax', 'extLst']); choice(val(chart, 'plotVisOnly', '1'), ['1', 'true'], 'hidden data');
   const titleNode = child(chart, 'title');
   const autoTitleDeleted = choice(val(chart, 'autoTitleDeleted', '1'), ['0', '1', 'false', 'true'], 'automatic chart titles');
@@ -312,20 +347,48 @@ export function readChart(parts, reference, readSchemeColor, readFonts) {
   choice(val(chart, 'dispBlanksAs', 'gap'), ['gap', 'zero', 'span'], 'blank display');
   choice(val(chart, 'showDLblsOverMax', '0'), ['0', '1', 'false', 'true'], 'label maximum flag');
   extensions(child(chart, 'extLst'), 'chart');
-  const plot = child(chart, 'plotArea'); check(plot, ['layout', 'barChart', 'catAx', 'valAx', 'spPr']); check(child(plot, 'layout'), []);
-  const bars = child(plot, 'barChart'); if (!bars) fail('non-column charts');
-  check(bars, ['barDir', 'grouping', 'varyColors', 'ser', 'dLbls', 'gapWidth', 'overlap', 'axId'], ['ser', 'axId']);
+  const plot = child(chart, 'plotArea');
+  const kind = ['barChart', 'lineChart', 'areaChart', 'scatterChart'].find(name => child(plot, name));
+  if (!kind) fail('unsupported chart types');
+  const scatter = kind === 'scatterChart', stroked = kind === 'lineChart' || scatter;
+  check(plot, ['layout', kind, ...(scatter ? [] : ['catAx']), 'valAx', 'spPr'], scatter ? ['valAx'] : []); check(child(plot, 'layout'), []);
+  const bars = child(plot, kind);
+  check(bars, {
+    barChart: ['barDir', 'grouping', 'varyColors', 'ser', 'dLbls', 'gapWidth', 'overlap', 'axId'],
+    lineChart: ['grouping', 'varyColors', 'ser', 'dLbls', 'marker', 'smooth', 'axId'],
+    areaChart: ['grouping', 'varyColors', 'ser', 'dLbls', 'axId'],
+    scatterChart: ['scatterStyle', 'varyColors', 'ser', 'dLbls', 'axId'],
+  }[kind], ['ser', 'axId']);
   const labels = child(bars, 'dLbls'), switches = ['showLegendKey', 'showVal', 'showCatName', 'showSerName', 'showPercent', 'showBubbleSize'];
   check(labels, switches);
   for (const name of switches) choice(val(labels, name, '0'), ['0', 'false'], 'visible data labels');
-  choice(val(bars, 'barDir'), ['col'], 'bar direction');
-  const grouping = choice(val(bars, 'grouping', 'clustered'), ['clustered', 'stacked', 'percentStacked'], 'bar grouping');
   choice(val(bars, 'varyColors', '0'), ['0', 'false'], 'per-point colors');
-  const overlap = number(val(bars, 'overlap', '0').replace(/%$/, ''), 'overlap');
-  if (!Number.isInteger(overlap) || overlap < -100 || overlap > 100) fail('invalid overlap');
-  const gap = integer(val(bars, 'gapWidth', '150').replace(/%$/, ''), 'gap width', 500), orders = new Set(), indices = new Set();
+  let type, grouping, overlap, gap, markers = true;
+  if (kind === 'barChart') {
+    type = choice(val(bars, 'barDir'), ['col', 'bar'], 'bar direction') === 'bar' ? 'bar' : 'column';
+    grouping = choice(val(bars, 'grouping', 'clustered'), ['clustered', 'stacked', 'percentStacked'], 'bar grouping');
+    overlap = number(val(bars, 'overlap', '0').replace(/%$/, ''), 'overlap');
+    if (!Number.isInteger(overlap) || overlap < -100 || overlap > 100) fail('invalid overlap');
+    gap = integer(val(bars, 'gapWidth', '150').replace(/%$/, ''), 'gap width', 500);
+  } else if (kind === 'lineChart') {
+    type = 'line'; grouping = choice(val(bars, 'grouping', 'standard'), ['standard'], 'line grouping');
+    markers = ['1', 'true'].includes(choice(val(bars, 'marker', '1'), ['0', '1', 'false', 'true'], 'marker flag'));
+    choice(val(bars, 'smooth', '0'), ['0', 'false'], 'smoothed lines');
+  } else if (kind === 'areaChart') {
+    type = 'area'; grouping = choice(val(bars, 'grouping', 'standard'), ['standard', 'stacked'], 'area grouping');
+  } else {
+    // Both styles draw exactly what each series declares: its line and marker.
+    type = 'scatter'; choice(val(bars, 'scatterStyle'), ['lineMarker', 'marker'], 'scatter style');
+  }
+  const orders = new Set(), indices = new Set();
+  const seriesChildren = {
+    barChart: ['idx', 'order', 'tx', 'spPr', 'invertIfNegative', 'cat', 'val', 'extLst'],
+    lineChart: ['idx', 'order', 'tx', 'spPr', 'marker', 'cat', 'val', 'smooth', 'extLst'],
+    areaChart: ['idx', 'order', 'tx', 'spPr', 'cat', 'val', 'extLst'],
+    scatterChart: ['idx', 'order', 'tx', 'spPr', 'marker', 'xVal', 'yVal', 'smooth', 'extLst'],
+  }[kind];
   const series = children(bars).filter(n => n.localName === 'ser').map((n, index) => {
-    check(n, ['idx', 'order', 'tx', 'spPr', 'invertIfNegative', 'cat', 'val', 'extLst']);
+    check(n, seriesChildren);
     extensions(child(n, 'extLst'), 'series');
     const order = integer(val(n, 'order'), 'series order', 4294967295), id = integer(val(n, 'idx'), 'series index', 4294967295);
     if (orders.has(order) || indices.has(id)) fail('duplicate series'); orders.add(order); indices.add(id);
@@ -333,15 +396,51 @@ export function readChart(parts, reference, readSchemeColor, readFonts) {
     const tx = child(n, 'tx');
     if (tx) { if (child(tx, 'v')) { check(tx, ['v']); name = child(tx, 'v').textContent; } else { const values = cache(tx, 'str'); if (values.length !== 1) fail('series names with multiple values'); name = values[0]; } }
     if (name.length > 200) fail('oversized series names');
-    const categories = cache(child(n, 'cat'), 'str'), values = cache(child(n, 'val'), 'num');
-    if (categories.length !== values.length) fail('different category and value counts');
-    const invert = choice(val(n, 'invertIfNegative', '1'), ['0', '1', 'false', 'true'], 'negative inversion');
-    return { order, name, categories, values, invertIfNegative: invert === '1' || invert === 'true', ...shape(child(n, 'spPr'), ['#4472c4', '#ed7d31', '#a5a5a5'][index % 3], scheme) };
+    if (kind === 'barChart') {
+      const categories = cache(child(n, 'cat'), 'str'), values = cache(child(n, 'val'), 'num');
+      if (categories.length !== values.length) fail('different category and value counts');
+      const invert = choice(val(n, 'invertIfNegative', '1'), ['0', '1', 'false', 'true'], 'negative inversion');
+      return { order, name, categories, values, invertIfNegative: invert === '1' || invert === 'true', ...shape(child(n, 'spPr'), ['#4472c4', '#ed7d31', '#a5a5a5'][index % 3], scheme) };
+    }
+    // Other chart types have no palette fallback here: series paint is explicit.
+    const props = child(n, 'spPr');
+    if (!props || !child(props, 'ln', A) || !stroked && !child(props, 'solidFill', A) && !child(props, 'noFill', A)) fail('inherited series appearance');
+    if (!stroked) {
+      const categories = cache(child(n, 'cat'), 'str'), values = cache(child(n, 'val'), 'num');
+      if (categories.length !== values.length) fail('different category and value counts');
+      return { order, name, categories, values, ...shape(props, null, scheme) };
+    }
+    choice(val(n, 'smooth'), ['0', 'false'], 'smoothed or implicitly smoothed series');
+    const { lineWidth, line, lineJoin } = shape(props, null, scheme, true), point = seriesMarker(child(n, 'marker'), scheme);
+    const stroke = { line, lineWidth, ...(lineJoin ? { lineJoin } : {}), marker: markers ? point : null };
+    if (!scatter) {
+      const categories = cache(child(n, 'cat'), 'str'), values = cache(child(n, 'val'), 'num');
+      if (categories.length !== values.length) fail('different category and value counts');
+      return { order, name, categories, values, ...stroke };
+    }
+    // Text X values plot at their 1-based positions.
+    const x = child(n, 'xVal'), numeric = !!(child(x, 'numRef') || child(x, 'numLit'));
+    const xs = cache(x, numeric ? 'num' : 'str'), values = cache(child(n, 'yVal'), 'num');
+    if (xs.length !== values.length) fail('different X and Y value counts');
+    return { order, name, xValues: numeric ? xs : xs.map((_, i) => i + 1), ...(numeric ? {} : { categories: xs }), values, ...stroke };
   }).sort((a, b) => a.order - b.order);
-  if (!series.length || series.length > 20 || series[0].values.length > 100 || series.some(s => JSON.stringify(s.categories) !== JSON.stringify(series[0].categories))) fail('too many or inconsistent series');
-  const categoryAxis = axis(child(plot, 'catAx'), 'category', scheme, text, fonts), valueAxis = axis(child(plot, 'valAx'), 'value', scheme, text, fonts);
+  if (!series.length || series.length > 20 || series.some(s => s.values.length > 100) || !scatter && series.some(s => JSON.stringify(s.categories) !== JSON.stringify(series[0].categories))) fail('too many or inconsistent series');
+  let categoryAxis, valueAxis, xAxis, axisNodes;
+  if (scatter) {
+    const nodes = children(plot).filter(n => n.localName === 'valAx'), at = pos => nodes.find(n => child(n, 'axPos')?.getAttribute('val') === pos);
+    if (nodes.length !== 2 || !at('b') || !at('l')) fail('unsupported scatter axis positions');
+    xAxis = axis(at('b'), 'value', scheme, text, fonts, { position: 'b', between: ['midCat', 'between'], formats: ['General'] });
+    valueAxis = axis(at('l'), 'value', scheme, text, fonts, { position: 'l', between: ['midCat', 'between'] });
+    axisNodes = [[at('b'), 'categoryAxis', xAxis], [at('l'), 'valueAxis', valueAxis]];
+  } else {
+    const horizontal = type === 'bar';
+    categoryAxis = axis(child(plot, 'catAx'), 'category', scheme, text, fonts, { position: horizontal ? 'l' : 'b' });
+    valueAxis = axis(child(plot, 'valAx'), 'value', scheme, text, fonts, kind === 'barChart' ? { position: horizontal ? 'b' : 'l' } : { between: ['between', 'midCat'] });
+    axisNodes = [[child(plot, 'catAx'), 'categoryAxis', categoryAxis], [child(plot, 'valAx'), 'valueAxis', valueAxis]];
+  }
+  const crossing = categoryAxis || xAxis;
   const ids = children(bars).filter(n => n.localName === 'axId').map(n => integer(n.getAttribute('val'), 'bar axis ID', 4294967295));
-  if (ids.length !== 2 || new Set(ids).size !== 2 || !ids.includes(categoryAxis.id) || !ids.includes(valueAxis.id) || categoryAxis.cross !== valueAxis.id || valueAxis.cross !== categoryAxis.id) fail('inconsistent axis references');
+  if (ids.length !== 2 || new Set(ids).size !== 2 || !ids.includes(crossing.id) || !ids.includes(valueAxis.id) || crossing.cross !== valueAxis.id || valueAxis.cross !== crossing.id) fail('inconsistent axis references');
   const legend = child(chart, 'legend'); check(legend, ['legendPos', 'overlay', 'spPr', 'txPr']);
   if (legend) {
     choice(val(legend, 'legendPos', 'r'), ['r', 'b'], 'legend position'); choice(val(legend, 'overlay', '0'), ['0', 'false'], 'overlaid legends');
@@ -355,15 +454,19 @@ export function readChart(parts, reference, readSchemeColor, readFonts) {
     if (titleNode) completeShape(titleNode, 'title');
     if (legend) completeShape(legend, 'legend');
     completeShape(root, 'chartArea'); completeShape(plot, 'plotArea');
-    for (const n of children(bars).filter(n => n.localName === 'ser')) completeShape(n, 'dataPoint');
-    for (const [name, role, data] of [['catAx', 'categoryAxis', categoryAxis], ['valAx', 'valueAxis', valueAxis]]) {
-      const node = child(plot, name); completeShape(node, role);
+    for (const n of children(bars).filter(n => n.localName === 'ser')) {
+      completeShape(n, stroked ? 'dataPointLine' : 'dataPoint', stroked);
+      const point = child(n, 'marker'); if (stroked && child(point, 'spPr')) completeShape(point, 'dataPointMarker');
+    }
+    for (const [node, role, data] of axisNodes) {
+      completeShape(node, role);
       const grid = child(node, 'majorGridlines'); if (grid) completeShape(grid, 'gridlineMajor', true);
       if (!['fontSize', 'fontAscii', 'bold', 'italic', 'color', 'kerning'].every(k => data.text?.[k] !== undefined)) fail('inherited chart text formatting');
     }
   }
   const legendText = readChartText(child(legend, 'txPr'), text, scheme, fonts);
-  if (legend && (completeShape || val(legend, 'legendPos', 'r') === 'b') && !['fontSize','fontAscii','bold','italic','color','kerning'].every(k => legendText?.[k] !== undefined)) fail('inherited legend text formatting');
-  if (categoryAxis.text && series[0].categories.some(t => /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(t)) || legend && legendText && series.some(s => /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(s.name))) fail('explicit mixed-script label formatting');
-  return { path, relId, chart: { series, gap, grouping, overlap, categoryAxis, valueAxis, legend: !!legend, ...(legend ? { legendPosition: val(legend, 'legendPos', 'r') } : {}), ...(title ? { title } : {}), ...(text ? { text } : {}), ...(legendText ? { legendText } : {}), background: shape(child(root, 'spPr'), null, scheme), plot: shape(child(plot, 'spPr'), null, scheme) } };
+  if (legend && (completeShape || val(legend, 'legendPos', 'r') === 'b' || type !== 'column') && !FULL_TEXT.every(k => legendText?.[k] !== undefined)) fail('inherited legend text formatting');
+  if (crossing.text && !latinOnly(series[0].categories || []) || legend && legendText && !latinOnly(series.map(s => s.name))) fail('explicit mixed-script label formatting');
+  const layout = kind === 'barChart' ? { gap, grouping, overlap, categoryAxis } : scatter ? { xAxis } : { grouping, categoryAxis };
+  return { path, relId, chart: { type, series, ...layout, valueAxis, legend: !!legend, ...(legend ? { legendPosition: val(legend, 'legendPos', 'r') } : {}), ...(title ? { title } : {}), ...(text ? { text } : {}), ...(legendText ? { legendText } : {}), background: shape(child(root, 'spPr'), null, scheme), plot: shape(child(plot, 'spPr'), null, scheme) } };
 }

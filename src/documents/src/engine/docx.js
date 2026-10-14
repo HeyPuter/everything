@@ -29,6 +29,7 @@ import { relatedPartPath } from './docx-relationships.js';
 import { readPageStories, activePageStoryPaths } from './page-stories.js';
 import { pageFieldSegments, pageFieldInstruction } from './docx-page-fields.js';
 import { bodyFieldReader, bodyFieldBoundary, bodyFieldSimpleShell } from './docx-body-fields.js';
+import { readMailMerge, writeMailMerge } from './docx-mail-merge.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { projectCachedFieldResults } from './docx-field-results.js';
 import { shapeHasFields } from './shape-page-fields.js';
@@ -42,8 +43,9 @@ import { hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, bookmarkInlineEvents } from './bookmarks.js';
 import { bookmarkReader, writeBookmark } from './docx-bookmarks.js';
 import { readComments, writeComments, readCommentMarker } from './docx-comments.js';
-import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd } from './docx-page-story-create.js';
-import { footnoteReferences, footnoteStoryPath, footnoteStoryId } from './footnotes.js';
+import { createPageStoryPart, writeCreatedStoryReferences, createFootnotesPart, writeTitlePages, writeEvenAndOdd, writePageNumbering } from './docx-page-story-create.js';
+import { footnoteReferences, footnoteStoryPath, footnoteStoryId, noteReferences, NOTE_KINDS } from './footnotes.js';
+import { readNoteSettings, writeNoteSettings, createNotesPart, separatorIds, NOTE_DEFAULTS } from './docx-notes.js';
 import { isMathElement, linearMath } from './office-math.js';
 import { commentMarker } from './comments.js';
 import { readUnderline } from './docx-underlines.js';
@@ -179,7 +181,7 @@ function writeParagraphFormat(node, p, make, numbering) {
   const patch = p.shell || p.styleContext || p.paragraphPropertiesCleared ? { ...p.formatOverrides } : { ...paragraphFormat({ ...p, list: null }, numbering) };
   const writeList = p.listChanged || !p.shell && p.list && (!p.styleContext || p.list.direct);
   if (!p.shell && p.list) for (const key of ['indentLeft', 'indentRight', 'firstLine', 'tabs']) if (!(key in (p.formatOverrides || {}))) delete patch[key];
-  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared) return;
+  if (!Object.keys(patch).length && !p.styleChanged && !writeList && !p.outlineLevelCleared && !p.lineSpacingCleared && !p.paragraphPropertiesCleared && !p.framePropertiesChanged) return;
   let pPr = child(node, 'pPr');
   if (!pPr) { pPr = make('pPr'); node.prepend(pPr); }
   if (p.paragraphPropertiesCleared) for (const property of children(pPr)) if (!retainedParagraphProperty(property)) property.remove();
@@ -193,6 +195,13 @@ function writeParagraphFormat(node, p, make, numbering) {
   };
   if (p.styleChanged) {
     if (p.styleId) ensure('pStyle').setAttributeNS(W, 'w:val', p.styleId); else child(pPr, 'pStyle')?.remove();
+  }
+  if (p.framePropertiesChanged) {
+    // §17.3.1.11: rewrite the paragraph's own (direct) frame declaration,
+    // attribute for attribute, as the reader produced it (e.g. drop caps).
+    child(pPr, 'framePr')?.remove();
+    const declared = p.styleContext ? p.styleContext.properties.frameProperties : p.frameProperties;
+    if (declared) { const frame = ensure('framePr'); for (const [name, v] of Object.entries(declared)) frame.setAttributeNS(W, `w:${name}`, String(v)); }
   }
   if (writeList) {
     const numPr = ensure('numPr'); numPr.replaceChildren();
@@ -888,9 +897,10 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
           r.append(symbol);place(r, run);continue;
         }
         if(run.noteMark){
-          if(!['footnoteRef','endnoteRef','footnoteReference'].includes(run.noteMark.kind)||run.text!==run.noteMark.text)throw new Error('Invalid retained note mark.');
+          if(!['footnoteRef','endnoteRef','footnoteReference','endnoteReference'].includes(run.noteMark.kind)||run.text!==run.noteMark.text)throw new Error('Invalid retained note mark.');
           const mark=make(run.noteMark.kind);
-          if(run.noteMark.kind==='footnoteReference')mark.setAttributeNS(W,'w:id',run.noteMark.id);
+          if(run.noteMark.custom)mark.setAttributeNS(W,'w:customMarkFollows','1');
+          if(run.noteMark.kind.endsWith('Reference'))mark.setAttributeNS(W,'w:id',run.noteMark.id);
           r.append(mark);place(r, run);continue;
         }
         if (run.image) {
@@ -933,7 +943,8 @@ function hasPageStoryControls(root) {
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
-    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.evenAndOdd = null;
+    this.comments = []; this.initialComments = '[]'; this.trackRevisions = false; this.createdStories = []; this.titlePages = new Map(); this.pageNumberings = new Map(); this.evenAndOdd = null;
+    this.mailMerge = null; this.initialMailMerge = 'null';
     this.tables = tables; this.initialTables = JSON.stringify(tables);
     this.styles = styles || readStyles(parts); this.initialStyles = JSON.stringify(this.styles);
     this.numbering = numbering; this.initialNumbering = JSON.stringify(numbering);
@@ -1247,7 +1258,7 @@ export class DocxPackage {
           if (!context.drawingText && !context.pageStory && t.namespaceURI === W && ['fldChar','instrText'].includes(t.localName)) {
             push();bodyFields.token(t,r,textPosition,fieldMarkers,link);continue;
           }
-          if (!context.drawingText && !context.pageStory && bodyFields.inCode) throw new UnsupportedDocumentError('visible content inside a body field instruction');
+          if (!context.drawingText && !context.pageStory && bodyFields.inCode) { if (bodyFields.absorb(t, r)) continue; throw new UnsupportedDocumentError('visible content inside a body field instruction'); }
           if (t.namespaceURI === W && t.localName === 't') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'delText' && currentRevision?.type === 'del') text += wordText(t);
           else if (t.namespaceURI === W && t.localName === 'sym') {
@@ -1277,17 +1288,20 @@ export class DocxPackage {
             if (!/^[+-]?\d+$/.test(raw || '') || t.children.length) throw new UnsupportedDocumentError('an invalid comment reference');
             push(); commentReferences.push({ id: BigInt(raw).toString(), offset: textPosition, bookmarks });
           }
-          else if (t.namespaceURI === W && t.localName === 'footnoteReference') {
-            if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError('footnote references outside the main body');
+          else if (t.namespaceURI === W && (t.localName === 'footnoteReference' || t.localName === 'endnoteReference')) {
+            const kind = t.localName === 'footnoteReference' ? 'footnote' : 'endnote';
+            if (context.drawingText || context.pageStory) throw new UnsupportedDocumentError(`${kind} references outside the main body`);
             const raw = t.getAttributeNS(W, 'id');
-            if (!/^[+-]?\d+$/.test(raw || '') || t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError('an invalid footnote reference');
-            if (['1', 'true', 'on'].includes(t.getAttributeNS(W, 'customMarkFollows') || '')) throw new UnsupportedDocumentError('custom footnote reference marks');
+            if (!/^[+-]?\d+$/.test(raw || '') || t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError(`an invalid ${kind} reference`);
+            const custom = t.getAttributeNS(W, 'customMarkFollows') || '';
+            if (custom && !['0', '1', 'true', 'false', 'on', 'off'].includes(custom)) throw new UnsupportedDocumentError(`an invalid ${kind} custom mark flag`);
             push(); text = OBJECT; push();
-            runs.at(-1).noteMark = { kind: 'footnoteReference', id: BigInt(raw).toString(), text: OBJECT, display: '' };
+            // A custom mark (§17.11.14 customMarkFollows) is the run text that follows; the reference shows no number.
+            runs.at(-1).noteMark = { kind: t.localName, id: BigInt(raw).toString(), text: OBJECT, display: '', ...(['1', 'true', 'on'].includes(custom) ? { custom: true } : {}) };
           }
-          else if (t.namespaceURI === W && t.localName === 'footnoteRef' && context.noteStory) {
+          else if (t.namespaceURI === W && (t.localName === 'footnoteRef' || t.localName === 'endnoteRef') && context.noteStory === (t.localName === 'footnoteRef' ? 'footnote' : 'endnote')) {
             if (t.children.length || t.textContent.trim()) throw new UnsupportedDocumentError('malformed note marks');
-            push(); text = OBJECT; push(); runs.at(-1).noteMark = { kind: 'footnoteRef', text: OBJECT, display: '' };
+            push(); text = OBJECT; push(); runs.at(-1).noteMark = { kind: t.localName, text: OBJECT, display: '' };
           }
           else if (t.namespaceURI === W && ['footnoteRef','endnoteRef'].includes(t.localName)) {
             // Ordinal one is displayed using the section's FOOTNOTE format
@@ -1571,6 +1585,7 @@ export class DocxPackage {
     checkMarkers(paragraphs);
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
+    pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
     pkg.trackRevisions = attempt(() => { const node = child(settings?.documentElement, 'trackRevisions'); return !!node && !['0', 'false', 'off'].includes(node.getAttributeNS(W, 'val') || ''); }, false);
     pkg.updateFields = attempt(() => readContextualFlag(settings?.documentElement, 'updateFields') ?? false, false);
     pkg.hideSpellingErrors = attempt(() => readContextualFlag(settings?.documentElement, 'hideSpellingErrors') ?? false, false);
@@ -1614,42 +1629,44 @@ export class DocxPackage {
         });
       }
     }
-    const referencedNotes = footnoteReferences(paragraphs);
-    if (referencedNotes.length) attempt(() => {
-      const notesPath = relatedPartPath(parts, 'footnotes');
-      if (!notesPath) throw new UnsupportedDocumentError('a missing footnotes part');
-      const root = xml(parts[notesPath]).documentElement;
-      if (root.namespaceURI !== W || root.localName !== 'footnotes') throw new UnsupportedDocumentError('an invalid footnotes part');
-      const footnotePr = child(settings?.documentElement, 'footnotePr');
-      const restart = value(child(footnotePr, 'numRestart'));
-      if (restart && restart !== 'continuous') unsupported('footnote numbering that restarts each page or section; note numbers displayed continuously in read-only preview');
-      const startValue = value(child(footnotePr, 'numStart'));
-      const definition = pkg.pageStories ||= { sections: sectionSourceNodes.map(() => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
-      pkg.initialFootnotes = [...new Set(referencedNotes.map(r => r.id))];
-      definition.footnotes = { part: notesPath, format: value(child(footnotePr, 'numFmt')) || 'decimal', start: startValue && /^\d+$/.test(startValue) ? Number(startValue) : 1 };
-      try { formatPageNumber(1, definition.footnotes.format); }
-      catch {
-        unsupported(`footnote numbering format ${definition.footnotes.format}; note numbers displayed as decimal in read-only preview`);
-        definition.footnotes.format = 'decimal';
-      }
-      const wanted = new Set(referencedNotes.map(r => r.id));
-      for (const node of children(root)) {
-        if (node.namespaceURI !== W || node.localName !== 'footnote') continue;
-        const type = node.getAttributeNS(W, 'type');
-        const id = BigInt(node.getAttributeNS(W, 'id') || '0').toString();
-        if (type && type !== 'normal' || !wanted.has(id)) continue;
-        const noteTables = [];
-        const noteParagraphs = readBlocks(children(node), { pageStory: notesPath, noteStory: 'footnote' }, 0, noteTables);
-        documentBlocks(noteParagraphs, noteTables);
-        checkMarkers(noteParagraphs);
-        const path = footnoteStoryPath(notesPath, id);
-        const editable = !preview && !noteParagraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.sectionEnd) && !noteTables.length;
-        definition.stories[path] = { kind: 'footnote', noteId: id, paragraphs: noteParagraphs, tables: noteTables, editable };
-        pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])) });
-        wanted.delete(id);
-      }
-      if (wanted.size) throw new UnsupportedDocumentError('a missing footnote');
-    }, null);
+    pkg.initialNotes = {};
+    for (const kind of ['footnote', 'endnote']) {
+      const names = NOTE_KINDS[kind], referencedNotes = noteReferences(paragraphs, kind);
+      if (!referencedNotes.length) continue;
+      attempt(() => {
+        const notesPath = relatedPartPath(parts, names.part);
+        if (!notesPath) throw new UnsupportedDocumentError(`a missing ${names.part} part`);
+        const root = xml(parts[notesPath]).documentElement;
+        if (root.namespaceURI !== W || root.localName !== names.part) throw new UnsupportedDocumentError(`an invalid ${names.part} part`);
+        const definition = pkg.pageStories ||= { sections: sectionSourceNodes.map(() => ({ header: {}, footer: {}, firstPageDifferent: false })), stories: {}, evenAndOdd: false };
+        pkg.initialNotes[kind] = [...new Set(referencedNotes.map(r => r.id))];
+        if (kind === 'footnote') pkg.initialFootnotes = pkg.initialNotes[kind];
+        const settingsKey = kind === 'footnote' ? 'footnotes' : 'endnotes';
+        definition[settingsKey] = { part: notesPath, ...readNoteSettings(child(settings?.documentElement, `${kind}Pr`), kind) };
+        try { formatPageNumber(1, definition[settingsKey].format); }
+        catch {
+          unsupported(`${kind} numbering format ${definition[settingsKey].format}; note numbers displayed as decimal in read-only preview`);
+          definition[settingsKey].format = 'decimal';
+        }
+        const wanted = new Set(referencedNotes.map(r => r.id));
+        for (const node of children(root)) {
+          if (node.namespaceURI !== W || node.localName !== names.element) continue;
+          const type = node.getAttributeNS(W, 'type');
+          const id = BigInt(node.getAttributeNS(W, 'id') || '0').toString();
+          if (type && type !== 'normal' || !wanted.has(id)) continue;
+          const noteTables = [];
+          const noteParagraphs = readBlocks(children(node), { pageStory: notesPath, noteStory: kind }, 0, noteTables);
+          documentBlocks(noteParagraphs, noteTables);
+          checkMarkers(noteParagraphs);
+          const path = footnoteStoryPath(notesPath, id);
+          const editable = !preview && !noteParagraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.sectionEnd) && !noteTables.length;
+          definition.stories[path] = { kind, noteId: id, paragraphs: noteParagraphs, tables: noteTables, editable };
+          pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])) });
+          wanted.delete(id);
+        }
+        if (wanted.size) throw new UnsupportedDocumentError(`a missing ${kind}`);
+      }, null);
+    }
     pkg.hasPlainTextControls = paragraphs.some(p => p.blockControls?.some(c => c.plainText) || p.runs.some(r => r.contentControl?.plainText));
     // Editing a plain drawing frame reuses the strict WML reader and the shape
     // renderer's feature checks, without reparsing or rasterizing the package.
@@ -1795,22 +1812,37 @@ export class DocxPackage {
   export(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
     const parts = this.exportBodyParts(paragraphs, pageSettings, numbering, styles, tables, assets, comments, trackRevisions);
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
+    // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
+    if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
     this.pruneFootnotes(parts, paragraphs);
+    this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     return new Blob([zipSync(parts)], { type: DOCX_TYPE });
   }
   /** Reserve a new footnote in the notes part (created if needed): { id, part, path, settings }. */
-  addFootnote() {
+  addFootnote() { return this.addNote('footnote'); }
+  /** Reserve a new endnote in the endnotes part (created if needed): { id, part, path, settings }. */
+  addEndnote() { return this.addNote('endnote'); }
+  addNote(kind) {
     if (this.readOnly) throw new Error('This document is open read-only.');
-    let part = this.pageStories?.footnotes?.part || relatedPartPath(this.parts, 'footnotes');
-    if (!part) part = createFootnotesPart(this.parts);
-    const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, 'footnote')].map(n => Number(n.getAttributeNS(W, 'id'))));
-    for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null) used.add(Number(id)); }
+    const names = NOTE_KINDS[kind], key = `${kind}s`;
+    this.notesParts ||= {};
+    let part = this.pageStories?.[key]?.part || this.notesParts[kind] || relatedPartPath(this.parts, names.part);
+    if (!part) part = kind === 'footnote' ? createFootnotesPart(this.parts) : createNotesPart(this.parts, kind);
+    const used = new Set([...xml(this.parts[part]).getElementsByTagNameNS(W, names.element)].map(n => Number(n.getAttributeNS(W, 'id'))));
+    for (const path of this.storyOriginals.keys()) { const id = footnoteStoryId(path); if (id !== null && path.startsWith(`${part}#`)) used.add(Number(id)); }
     let id = 1; while (used.has(id)) id++;
     const path = footnoteStoryPath(part, String(id));
     this.storyOriginals.set(path, { signature: '', paragraphs: new Map() });
-    this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id));
-    return { id: String(id), part, path, settings: this.pageStories?.footnotes || { part, format: 'decimal', start: 1 } };
+    this.notesParts[kind] = part;
+    if (kind === 'footnote') { this.footnotesPart = part; (this.createdFootnotes ||= new Set()).add(String(id)); }
+    ((this.createdNotes ||= {})[kind] ||= new Set()).add(String(id));
+    return { id: String(id), part, path, settings: { ...NOTE_DEFAULTS[kind], ...this.noteSettings?.[kind], ...this.pageStories?.[key], part } };
+  }
+  /** Note numbering and placement for the whole document (settings footnotePr/endnotePr); written on the next export. */
+  setNoteSettings(kind, values) {
+    if (this.readOnly) throw new Error('This document is open read-only.');
+    (this.noteSettings ||= {})[kind] = { ...this.noteSettings[kind], ...values };
   }
   /** Add an empty header or footer story; its section reference is written on the next export. */
   addPageStory(kind, { variant = 'default', section = 0 } = {}) {
@@ -1828,15 +1860,16 @@ export class DocxPackage {
       if (!original || !edit || !Array.isArray(edit.paragraphs) || !Array.isArray(edit.tables)) throw new Error('Only parsed, existing page stories can be edited.');
       const { paragraphs, tables } = edit;
       if (JSON.stringify({ paragraphs, tables }) === original.signature) continue;
-      // A footnote story is one w:footnote inside its shared notes part.
+      // A note story is one w:footnote or w:endnote inside its shared notes part.
       const noteId = footnoteStoryId(path), part = noteId === null ? path : path.slice(0, path.lastIndexOf('#'));
       let doc, root;
       if (noteId === null) { doc = xml(this.parts[path]); root = doc.documentElement; }
       else {
         if (!noteDocs.has(part)) noteDocs.set(part, xml(parts[part]));
         doc = noteDocs.get(part);
-        root = children(doc.documentElement).find(n => n.namespaceURI === W && n.localName === 'footnote' && n.getAttributeNS(W, 'id') !== null && BigInt(n.getAttributeNS(W, 'id')).toString() === noteId);
-        if (!root) { root = doc.createElementNS(W, 'w:footnote'); root.setAttributeNS(W, 'w:id', noteId); doc.documentElement.append(root); }
+        const element = doc.documentElement.localName === 'endnotes' ? 'endnote' : 'footnote';
+        root = children(doc.documentElement).find(n => n.namespaceURI === W && n.localName === element && n.getAttributeNS(W, 'id') !== null && BigInt(n.getAttributeNS(W, 'id')).toString() === noteId);
+        if (!root) { root = doc.createElementNS(W, `w:${element}`); root.setAttributeNS(W, 'w:id', noteId); doc.documentElement.append(root); }
       }
       if (hasPageStoryControls(root)) throw new Error('Page stories containing content controls are retained without editing.');
       if (paragraphs.some(p => p.sectionEnd || p.bookmarks?.length || p.pageStory && p.pageStory !== part)) throw new Error('Invalid page-story paragraph scope.');
@@ -1856,22 +1889,39 @@ export class DocxPackage {
   }
   /** Different first page for a section (titlePg); written on the next export. */
   setTitlePage(section, on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.titlePages.set(section, !!on); }
+  /** A section's page number format and starting number (w:pgNumType); null removes both; written on the next export. */
+  setPageNumbering(section, value) { if (this.readOnly) throw new Error('This document is open read-only.'); this.pageNumberings.set(section, value ? { format: value.format || 'decimal', ...(Number.isInteger(value.start) ? { start: value.start } : {}) } : null); }
   /** Different odd and even page headers (settings evenAndOddHeaders); written on the next export. */
   setEvenAndOdd(on) { if (this.readOnly) throw new Error('This document is open read-only.'); this.evenAndOdd = !!on; }
-  /** Remove footnotes whose body reference was deleted. */
+  /** Remove footnotes and endnotes whose body reference was deleted. */
   pruneFootnotes(parts, paragraphs) {
-    const part = this.pageStories?.footnotes?.part || this.footnotesPart;
-    if (!part || !parts[part]) return;
-    const referenced = new Set(footnoteReferences(paragraphs).map(r => r.id));
-    const orphanCreated = [...this.createdFootnotes || []].some(id => !referenced.has(id));
-    if (!orphanCreated && JSON.stringify([...referenced].sort()) === JSON.stringify([...this.initialFootnotes || []].sort())) return;
-    const doc = xml(parts[part]);
-    let changed = false;
-    for (const node of children(doc.documentElement)) {
-      if (node.namespaceURI !== W || node.localName !== 'footnote' || (node.getAttributeNS(W, 'type') || 'normal') !== 'normal') continue;
-      if (!referenced.has(BigInt(node.getAttributeNS(W, 'id') || '0').toString())) { node.remove(); changed = true; }
+    for (const kind of ['footnote', 'endnote']) {
+      const names = NOTE_KINDS[kind];
+      const part = this.pageStories?.[`${kind}s`]?.part || this.notesParts?.[kind] || (kind === 'footnote' ? this.footnotesPart : null);
+      if (!part || !parts[part]) continue;
+      const referenced = new Set(noteReferences(paragraphs, kind).map(r => r.id));
+      const created = this.createdNotes?.[kind] || new Set(), initial = this.initialNotes?.[kind] || [];
+      const orphanCreated = [...created].some(id => !referenced.has(id));
+      if (!orphanCreated && JSON.stringify([...referenced].sort()) === JSON.stringify([...initial].sort())) continue;
+      const doc = xml(parts[part]);
+      let changed = false;
+      for (const node of children(doc.documentElement)) {
+        if (node.namespaceURI !== W || node.localName !== names.element || (node.getAttributeNS(W, 'type') || 'normal') !== 'normal') continue;
+        if (!referenced.has(BigInt(node.getAttributeNS(W, 'id') || '0').toString())) { node.remove(); changed = true; }
+      }
+      if (changed) parts[part] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
     }
-    if (changed) parts[part] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
+  }
+  /** Write changed note settings into settings.xml. */
+  writeNoteSettingsParts(parts) {
+    if (!this.noteSettings) return;
+    const { settings, related, path } = openSettings(parts);
+    let changed = false;
+    for (const [kind, values] of Object.entries(this.noteSettings)) {
+      const part = this.pageStories?.[`${kind}s`]?.part || this.notesParts?.[kind] || relatedPartPath(parts, NOTE_KINDS[kind].part);
+      changed = writeNoteSettings(settings, kind, values, separatorIds(parts, part, kind)) || changed;
+    }
+    if (changed) saveSettings(parts, settings, related, path);
   }
   exportBodyParts(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, comments = this.comments, trackRevisions = this.trackRevisions) {
     if (this.readOnly) throw new Error('This document is open read-only. Download the original file to preserve unsupported content.');
@@ -1892,7 +1942,7 @@ export class DocxPackage {
     if (!!trackRevisions !== !!this.trackRevisions) writeTrackRevisions(parts, trackRevisions);
     // No edits means no XML reserialization, including unknown package parts.
     if (this.evenAndOdd !== null) { const { settings, related, path } = openSettings(parts); if (writeEvenAndOdd(settings, this.evenAndOdd)) saveSettings(parts, settings, related, path); }
-    if (!this.createdStories.length && !this.titlePages.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
+    if (!this.createdStories.length && !this.titlePages.size && !this.pageNumberings.size && this.originals.size && JSON.stringify(paragraphs) === this.initial && JSON.stringify(pageSettings) === JSON.stringify(this.initialPageSettings) && JSON.stringify(numbering) === this.initialNumbering && JSON.stringify(styles) === this.initialStyles && JSON.stringify(tables) === this.initialTables) return parts;
     let blocks = documentBlocks(paragraphs, tables);
     listMarkers(paragraphs, numbering);
     writeNumbering(parts, numbering);
@@ -1956,6 +2006,7 @@ export class DocxPackage {
     const outputSections = activeDescendants(doc.documentElement).filter(n => n.namespaceURI === W && n.localName === 'sectPr');
     if (this.createdStories.length) writeCreatedStoryReferences(outputSections, this.createdStories);
     if (this.titlePages.size) writeTitlePages(outputSections, this.titlePages, sectionOrder);
+    if (this.pageNumberings.size) writePageNumbering(outputSections, this.pageNumberings, sectionOrder);
     // These are cached renderer hints, not author-inserted breaks; edits invalidate them.
     for (const hint of [...doc.getElementsByTagNameNS(W, 'lastRenderedPageBreak')]) hint.remove();
     bindImageNamespaces(doc);
