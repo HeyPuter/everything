@@ -97,7 +97,11 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     engine.finishComposition();
     const m = engine.model;
     openConvertTextDialog({ shape: (separator, other) => T.textTableShape(m, { separator, other }), separator: m.text.slice(...m.range).includes('\t') ? 'tab' : m.text.slice(...m.range).includes(',') ? 'comma' : 'paragraph' },
-      choice => { let failure; const ok = engine.execute(() => T.convertTextToTable(engine.model, choice), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return ok; }, { onClose: closeFocus });
+      choice => {
+        const parent = m.tableContext, box = parent && engine.selectionLayout.cells.find(cell => cell.id === parent.cell.id);
+        const availableWidth = box ? box.width * 15 - parent.cell.margins.left - parent.cell.margins.right : undefined;
+        let failure; const ok = engine.execute(() => T.convertTextToTable(engine.model, { ...choice, availableWidth }), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return ok;
+      }, { onClose: closeFocus });
   }
   const quickTableItems = () => QUICK_TABLES.map(t => ({ label: t.name, hint: t.description, icon: 'quickTable', disabled: !ready(), onSelect: () => run((m, engine) => insertQuickTable(m, t.id, (rows, columns) => {
     const [start, end] = m.range; if (start !== end) m.select(end);
@@ -111,7 +115,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     { label: 'Convert Text to Table…', icon: 'convertToTable', disabled: !ready() || !canConvertText(), onSelect: convertTextToTable },
     { label: 'Quick Tables', icon: 'quickTable', disabled: !ready(), items: quickTableItems() },
   ];
-  const canConvertText = () => { const m = model(); return !!m && m.range[0] !== m.range[1] && !m.selectedParagraphs.some(p => p.cellId); };
+  const canConvertText = () => { const m = model(); if (!m || m.range[0] === m.range[1]) return false; const cells = new Set(m.selectedParagraphs.map(p => p.cellId || null)); return cells.size === 1; };
 
   /* ---- Modes: Draw Table, Eraser, Border Painter ---- */
   function setMode(name, on) {

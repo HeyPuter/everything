@@ -17,7 +17,8 @@ OOXML details and the supported subset are in
   vertical stroke adds a column line through them. Eraser: click a line between
   two cells to merge them. Escape ends either tool.
 - Convert Text to Table… (paragraphs, tabs, commas or another character; the
-  column count is read from the text and can be raised; AutoFit choices).
+  column count is read from the text and can be raised; AutoFit choices). Text
+  inside one table cell becomes a nested table.
 - Quick Tables: Calendar (current month), Tabular List, Double Table, Matrix, With
   Subheads — original content, each with a library style.
 
@@ -103,7 +104,7 @@ OOXML details and the supported subset are in
 - Modify Table Style edits library and document-made styles only; styles that came
   with an opened document can be applied to their own tables but are not offered
   for other tables or for editing.
-- Converting text inside a table cell, and converting nested tables to text.
+- Converting a table that contains nested tables to text.
 - Formula bookmarks, `R1C1` references and general (`\*`) formats.
 - The rulers do not yet show table column markers; dragging uses an on-page guide.
 - Table cell spacing, right-to-left tables and tracked structural changes remain

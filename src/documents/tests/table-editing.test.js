@@ -216,6 +216,20 @@ describe('table commands', () => {
     expect(doc.paragraphs.map(paragraphText)).toEqual(['Name,Qty,', 'Pens,2,', 'Ink,1,extra', 'After']);
   });
 
+  it('converts text inside a cell into a nested table', async () => {
+    const { pkg, doc } = tableDocument(1, 1);
+    const cell = doc.tables[0].rows[0].cells[0];
+    doc.selectCell(cell.id); doc.select(doc.selection.focus, doc.selection.focus + 2); doc.replace('x\ty'); doc.insertParagraph(); doc.replace('z\tw');
+    const start = doc.paragraphOffset(doc.paragraphs.findIndex(p => p.cellId === cell.id));
+    doc.select(start, start + 7);
+    T.convertTextToTable(doc, { separator: 'tab', availableWidth: 8000 });
+    const nested = doc.tables.find(t => t.parentCellId === cell.id);
+    expect(nested.rows.map(r => r.cells.length)).toEqual([2, 2]);
+    expect(documentBlocks(doc.paragraphs, doc.tables)[1].rows[0].cells[0].content.map(b => b.type)).toEqual(['table', undefined]);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.tables).toHaveLength(2);
+  });
+
   it('converts paragraphs into cells across columns', () => {
     const pkg = createDocx(['one', 'two', 'three', 'four', 'five', ''].map(t => paragraph(t)), undefined, undefined, undefined, [], {}, WRITING_STYLES);
     const doc = open(pkg);

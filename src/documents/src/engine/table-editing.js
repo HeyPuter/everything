@@ -965,10 +965,13 @@ function applyAutofit(table, autofit) {
 }
 
 /** Convert Text to Table: the selected paragraphs become rows (or, separated by paragraphs, cells). */
-export function convertTextToTable(model, { separator = 'tab', other, columns = null, autofit = 'fixed' } = {}) {
+export function convertTextToTable(model, { separator = 'tab', other, columns = null, autofit = 'fixed', availableWidth } = {}) {
   const char = separatorChar(separator, other), sources = model.selectedParagraphs;
   if (!sources.length || sources.every(p => !paragraphText(p)) && sources.length === 1) throw new Error('Select the text to convert.');
-  if (sources.some(p => p.cellId)) throw new Error('Select text outside tables to convert it.');
+  // Text in one table cell becomes a table nested in that cell.
+  const parentId = sources[0].cellId || null;
+  if (sources.some(p => (p.cellId || null) !== parentId)) throw new Error('Select text within one cell, or outside tables, to convert it.');
+  if (parentId && !(availableWidth > 0)) throw new Error('The cell’s writing width is not known yet.');
   for (const p of sources) { const reason = convertible(p); if (reason) throw new Error(reason); }
   const fieldsOf = sources.map(p => char === null ? [p.runs.map(run => copy(run))] : splitRuns(p.runs, char));
   const count = char === null ? Math.max(1, columns ?? 1) : Math.max(columns ?? 1, ...fieldsOf.map(f => f.length));
@@ -976,7 +979,8 @@ export function convertTextToTable(model, { separator = 'tab', other, columns = 
   const cells = char === null ? sources.map((p, i) => ({ source: p, runs: fieldsOf[i][0] })) : null;
   const rows = char === null ? Math.ceil(sources.length / count) : sources.length;
   if (rows > 1000) throw new Error('A table can have up to 1,000 rows.');
-  const { table, styles } = newTable(model, rows, count, writingWidth(model));
+  const { table, styles } = newTable(model, rows, count, parentId ? Math.floor(availableWidth) - 10 : writingWidth(model));
+  if (parentId) table.parentCellId = parentId;
   applyAutofit(table, autofit);
   const first = model.paragraphs.indexOf(sources[0]), last = model.paragraphs.indexOf(sources.at(-1));
   const make = (source, runs, cell) => {
@@ -993,7 +997,7 @@ export function convertTextToTable(model, { separator = 'tab', other, columns = 
   model.styles = styles; model.stylesEnabled = true;
   // A table needs a paragraph after it; the last converted paragraph's formatting supplies one if none follows.
   const after = model.paragraphs[last + 1];
-  const tail = after && !after.cellId ? [] : [(() => { const p = { ...copy(sources.at(-1)), id: paragraph().id, runs: [] }; delete p.list; return resolveStyledParagraph(p, styles, model.numbering); })()];
+  const tail = after && (after.cellId || null) === parentId ? [] : [(() => { const p = { ...copy(sources.at(-1)), id: paragraph().id, runs: [] }; delete p.list; return resolveStyledParagraph(p, styles, model.numbering); })()];
   model.paragraphs.splice(first, last - first + 1, ...content, ...tail);
   model.tables.push(table);
   model.selectCell(table.rows[0].cells[0].id);
