@@ -7502,9 +7502,10 @@ dialog::backdrop {
     outline-offset: -2px;
   }
 }
-/* On a phone the header row keeps its room: Version history stays in More
-   tools and command search. */
-@media (max-width: 760px) {
+/* Where the header row has no room to spare, as the board name and its
+   save status would give way to it, Version history stays in More tools,
+   command search and its shortcut. */
+@media (max-width: 940px) {
   .editor-actions [data-action="history"] {
     display: none;
   }
