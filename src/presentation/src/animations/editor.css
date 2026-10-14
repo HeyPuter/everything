@@ -1,0 +1,474 @@
+/* The Animations tab's pieces in the editor: gallery pictures, the
+   Animation Pane, canvas badges, previews and path drawing. */
+
+.anim-choice svg {
+  display: block;
+}
+.anim-add-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 72px);
+  gap: 2px;
+  padding: 2px 6px 6px;
+}
+.anim-add-item,
+.anim-more-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 2px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--chrome-ink, var(--ink));
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+.anim-add-item:hover:not(:disabled),
+.anim-add-item:focus-visible,
+.anim-more-item:hover:not(:disabled),
+.anim-more-item:focus-visible {
+  background: var(--chrome-hover, #ebebeb);
+  outline: none;
+}
+.anim-add-item:disabled,
+.anim-more-item:disabled {
+  opacity: 0.4;
+}
+.anim-more-item[aria-selected="true"] {
+  background: var(--chrome-selected, #fbe9e3);
+  border-color: var(--ribbon-accent, #c43e1c);
+}
+
+/* More Effects dialog */
+.anim-more {
+  max-height: min(60dvh, 520px);
+  overflow-y: auto;
+  padding-top: 10px;
+}
+.anim-more-head,
+.anim-dialog-head {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chrome-muted, var(--muted));
+}
+.anim-more-head:first-child {
+  margin-top: 0;
+}
+.anim-more-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 2px;
+}
+
+/* Effect Options dialog */
+.anim-options {
+  padding-top: 12px;
+}
+.anim-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line, #ddd);
+}
+.anim-tabs [role="tab"] {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+}
+.anim-tabs [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--ribbon-accent, #c43e1c);
+  font-weight: 600;
+}
+.anim-tab-panel > label + label,
+.anim-tab-panel > label + .anim-field-row,
+.anim-tab-panel > .anim-field-row + label {
+  margin-top: 12px;
+}
+.anim-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+.anim-field-row.anim-inline {
+  align-items: end;
+  margin-top: 12px;
+}
+.anim-color {
+  height: 34px;
+  padding: 2px 4px;
+}
+
+/* Animation Pane */
+.animation-pane {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  min-width: 300px;
+}
+.anim-pane-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--chrome-line);
+}
+.anim-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--chrome-field-line);
+  border-radius: 5px;
+  background: var(--chrome-field);
+  color: var(--chrome-ink);
+  font-size: 12px;
+}
+.anim-play:disabled {
+  opacity: 0.5;
+}
+.anim-pane-move {
+  display: inline-flex;
+}
+.anim-list {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+.anim-trigger-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--chrome-muted);
+}
+.anim-row {
+  display: grid;
+  grid-template-columns:
+    18px 16px 14px 18px minmax(48px, 1fr) minmax(60px, 0.9fr)
+    22px;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 4px 0 6px;
+  font-size: 12px;
+  color: var(--chrome-ink);
+  cursor: default;
+  user-select: none;
+  outline: none;
+  border: 1px solid transparent;
+}
+.anim-row:hover {
+  background: var(--chrome-hover);
+}
+.anim-row.selected {
+  background: var(--chrome-selected);
+}
+.anim-row:focus-visible {
+  border-color: var(--ribbon-focus);
+}
+.anim-row.dragging {
+  opacity: 0.5;
+}
+.anim-row.anim-sub {
+  color: var(--chrome-muted);
+  min-height: 22px;
+}
+.anim-step {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--chrome-muted);
+}
+.anim-start {
+  display: grid;
+  place-items: center;
+  color: var(--chrome-muted);
+}
+.anim-expand {
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chrome-muted);
+}
+.anim-cat {
+  display: grid;
+  place-items: center;
+}
+.anim-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.anim-time {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+}
+.anim-bar {
+  position: absolute;
+  top: 2px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ico-green, #1fa34a);
+}
+.anim-bar.cls-emph {
+  background: var(--ico-yellow, #f2b600);
+}
+.anim-bar.cls-exit {
+  background: var(--ico-red, #e8352b);
+}
+.anim-bar.cls-path {
+  background: var(--ico-blue, #007aff);
+}
+.anim-row-menu {
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--chrome-muted);
+  opacity: 0;
+}
+.anim-row:hover .anim-row-menu,
+.anim-row.selected .anim-row-menu,
+.anim-row:focus-within .anim-row-menu {
+  opacity: 1;
+}
+.anim-row-menu:hover {
+  background: var(--chrome-pressed);
+}
+.anim-drop-marker {
+  height: 2px;
+  margin: 0 6px;
+  background: var(--ribbon-accent);
+}
+.anim-ruler {
+  display: grid;
+  grid-template-columns:
+    18px 16px 14px 18px minmax(48px, 1fr) minmax(60px, 0.9fr)
+    22px;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 5px 6px 7px;
+  border-top: 1px solid var(--chrome-line);
+  font-size: 11px;
+  color: var(--chrome-muted);
+}
+.anim-ruler-label {
+  grid-column: 1 / 6;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+}
+.anim-ruler-ticks {
+  grid-column: 6;
+  position: relative;
+  height: 14px;
+  overflow: hidden;
+}
+.anim-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums;
+}
+.anim-tick:first-child {
+  transform: none;
+}
+
+/* Canvas: numbered badges beside animated objects */
+.anim-badges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.anim-badge {
+  position: absolute;
+  display: flex;
+  gap: 1px;
+  transform: translate(calc(-100% - 3px), 0);
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+}
+.anim-badge span {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid #8a8a8a;
+  background: #f4f4f4;
+  color: #333;
+  font:
+    600 10px/14px system-ui,
+    sans-serif;
+  text-align: center;
+}
+.anim-badge.chosen span {
+  background: #fde7c0;
+  border-color: #c67a00;
+}
+.anim-badge:focus-visible {
+  outline: 2px solid var(--ribbon-focus);
+  outline-offset: 1px;
+}
+.anim-paths {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.anim-paths path {
+  fill: none;
+  stroke: #6b6b6b;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.anim-path-start,
+.anim-path-end {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: #1fa34a;
+  border: 1px solid #fff;
+}
+.anim-path-end {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  padding: 0;
+  background: #e8352b;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.anim-path-end:focus-visible {
+  outline: 2px solid var(--ribbon-focus);
+  outline-offset: 2px;
+}
+
+/* Preview over the canvas, and the canvas while painting animations */
+.anim-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  cursor: pointer;
+}
+#slide-canvas.anim-previewing .object-hit,
+#slide-canvas.anim-previewing .anim-badges,
+#slide-canvas.anim-previewing .selection-box {
+  visibility: hidden;
+}
+#slide-canvas.anim-painting .object-hit {
+  cursor: copy;
+}
+.anim-path-draw {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+}
+.anim-path-draw svg {
+  width: 100%;
+  height: 100%;
+}
+.anim-path-draw polyline {
+  fill: none;
+  stroke: #1f6fd6;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .anim-badge span {
+    background: #3a3a3a;
+    color: #eee;
+    border-color: #888;
+  }
+  :root:not([data-theme="light"]) .anim-badge.chosen span {
+    background: #6b4a10;
+    border-color: #e0a640;
+  }
+}
+:root[data-theme="dark"] .anim-badge span {
+  background: #3a3a3a;
+  color: #eee;
+  border-color: #888;
+}
+:root[data-theme="dark"] .anim-badge.chosen span {
+  background: #6b4a10;
+  border-color: #e0a640;
+}
+
+/* Phones: the pane rises from the bottom over the slide. */
+@media (max-width: 760px) {
+  .animation-pane {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: auto;
+    min-width: 0;
+    height: min(48dvh, 420px);
+    border-left: 0;
+    border-top: 1px solid var(--chrome-rule);
+    box-shadow: 0 -8px 24px #0000002e;
+  }
+}
+
+/* Slides with animations are marked under their number in the navigator. */
+.slide-item.has-animations .slide-number::after {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 4px auto 0;
+  background: currentColor;
+  opacity: 0.7;
+  clip-path: polygon(
+    50% 0%,
+    61% 35%,
+    98% 35%,
+    68% 57%,
+    79% 91%,
+    50% 70%,
+    21% 91%,
+    32% 57%,
+    2% 35%,
+    39% 35%
+  );
+}

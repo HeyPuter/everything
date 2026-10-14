@@ -118,6 +118,14 @@ import {
   CircleAlert,
   Ban,
   EllipsisVertical,
+  SlidersHorizontal,
+  RotateCcw,
+  CircleCheck,
+  SendHorizontal,
+  TriangleAlert,
+  Lightbulb,
+  GripVertical,
+  Lock,
 } from "lucide";
 import { commandIcon } from "./chrome/icons.js";
 const icons = {
@@ -239,6 +247,14 @@ const icons = {
   CircleAlert,
   Ban,
   EllipsisVertical,
+  SlidersHorizontal,
+  RotateCcw,
+  CircleCheck,
+  SendHorizontal,
+  TriangleAlert,
+  Lightbulb,
+  GripVertical,
+  Lock,
 };
 // A name prefixed "o:" is one of the app's own command icons
 // (src/chrome/icons.js); any other is a Lucide icon.
@@ -630,7 +646,9 @@ export function openMenu({
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
         : anchor;
-  document.body.append(panel);
+  // Inside an open modal dialog (the Reading View), the menu joins it; the
+  // rest of the page is inert there.
+  (anchor?.closest?.("dialog[open]") || document.body).append(panel);
   const parentPanel = parent >= 0 ? chain[parent].panel : null;
   let anchorRect = anchor?.getBoundingClientRect();
   const reposition = () => {
@@ -821,7 +839,12 @@ function onKey(e) {
 function position(panel, anchor, x, y, align, parentPanel) {
   const pad = 8;
   const vw = document.documentElement.clientWidth;
-  const vh = window.innerHeight;
+  // A phone's toolbars can cover the bottom of the layout viewport; the
+  // menu fits the part that shows.
+  const vh = Math.min(
+    window.innerHeight,
+    window.visualViewport?.height || window.innerHeight,
+  );
   panel.style.maxHeight = "";
   panel.style.overflowY = "";
   const rect = panel.getBoundingClientRect();

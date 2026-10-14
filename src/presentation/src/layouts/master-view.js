@@ -344,7 +344,7 @@ export function createMasterView(host) {
   // ---- Notes and handout pages ------------------------------------------
 
   const orientation = () => {
-    const size = P.getNotesPageSize(pres());
+    const size = P.getNotesPageExtent(pres());
     return size.cx > size.cy ? "landscape" : "portrait";
   };
   function setOrientation(value) {
@@ -527,7 +527,7 @@ export function createMasterView(host) {
     canvas.querySelector(".handout-slots")?.remove();
     if (mode !== "handout") return;
     const layer = el("div", { class: "handout-slots", "aria-hidden": "true" });
-    const page = P.getNotesPageSize(pres());
+    const page = P.getNotesPageExtent(pres());
     const slideSize = P.getSlideSize(pres());
     const ratio =
       Number(slideSize?.height || 6858000) /
@@ -879,7 +879,7 @@ export function createMasterView(host) {
       mode && part && part === targetPart() ? slide() : null,
     pageSize: () =>
       mode === "notes" || mode === "handout"
-        ? P.getNotesPageSize(pres())
+        ? P.getNotesPageExtent(pres())
         : null,
     renderPane,
     decorateCanvas,

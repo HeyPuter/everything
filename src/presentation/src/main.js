@@ -2,6 +2,7 @@ import { textEditHistory } from "./text-edit-history.js";
 import { TextFieldEdits, trackTextFields } from "./text-fields.js";
 import { createSlideAdvanceClock } from "./slide-advance-clock.js";
 import { createSlideLaserPointer } from "./slide-laser-pointer.js";
+import { createSlideAnimator } from "./slide-animator.js";
 import { selectionHandleLayout } from "./selection-handles.js";
 import { reflowShapeDiagram } from "../lib/pptx/src/api/fn/diagram-reflow.ts";
 import { buildDiagramDrawing } from "../lib/pptx/src/api/fn/diagram-build.ts";
@@ -89,8 +90,27 @@ import { createDrawTools } from "./draw-tab.js";
 import { createLayoutCommands } from "./layouts/slide-layouts.js";
 import { createMasterView } from "./layouts/master-view.js";
 import { decoratePlaceholders, fitInto } from "./layouts/placeholders.js";
+import { createInsertFeatures } from "./insert/index.js";
+import {
+  libraryMeta,
+  homeRail,
+  promptBox,
+  themeStrip,
+  libraryFilter,
+} from "./start/start-screen.js";
+import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
+import { lucide } from "./draw/draw-icons.js";
+import { createShowInk, addShowInk, SHOW_PEN_COLORS } from "./draw/show-ink.js";
+import { addInkStroke, MM as INK_MM } from "./draw/ink-model.js";
+import { createReview } from "./review/index.js";
+import { createChartTools } from "./charts/chart-tools.js";
+import { createSmartArtTools } from "./smartart/smartart-tools.js";
+import { createFileTools } from "./export/file-tools.js";
+import { createAnimationTools } from "./animations/editor.js";
+import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
+import { AI_MODEL } from "./assistant.js";
 import { zipSync } from "fflate";
 import * as drafts from "./drafts.js";
 import * as recent from "./recent.js";
@@ -137,6 +157,8 @@ let files = [],
   loading = true,
   query = "",
   sort = "modified",
+  // The list shows every presentation ("recent") or only the pinned ones.
+  libraryView = "recent",
   revision = 0,
   savedRevision = -1,
   draftRevision = -1;
@@ -648,7 +670,7 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + S", "Save to Puter"],
         ["Ctrl / ⌘ + Shift + S", "Save a copy to Puter"],
         ["Ctrl / ⌘ + O", "Open from Puter"],
-        ["Ctrl / ⌘ + P", "Print / Save as PDF"],
+        ["Ctrl / ⌘ + P", "Print"],
         ["Ctrl / ⌘ + F or H", "Find, or find and replace"],
         ["Ctrl / ⌘ + = or -", "Zoom in or out"],
         ["Ctrl / ⌘ + 0", "Fit the slide to the window"],
@@ -661,6 +683,20 @@ async function shortcutsDialog() {
         ["Ctrl / ⌘ + A", "Select every object on the slide"],
         ["Ctrl / ⌘ + K", "Add or edit a link on the selected object"],
         ["Ctrl / ⌘ + J", "Open or close the AI assistant"],
+        ["Ctrl / ⌘ + Shift + M", "New comment"],
+        ["F7", "Check spelling"],
+        ["Shift + F7", "Thesaurus"],
+        [
+          "Ctrl / ⌘ + 1 / 2 / 3 / 4 / 5",
+          "Normal, Slide Sorter, Notes Page, Outline View, Reading View",
+        ],
+        ["Ctrl + Shift + Tab", "Show or hide the outline"],
+        ["Ctrl / ⌘ + '", "Show or hide the gridlines"],
+        [
+          "Tab / Shift + Tab in the outline",
+          "Move a line down or up a level; a title becomes a paragraph",
+        ],
+        ["Alt + arrow keys in the slide sorter", "Move the selected slides"],
         ["F5", "Present from the first slide"],
         ["Shift + F5", "Present from the current slide"],
         ["Ctrl + M, or ⌘ + Shift + N on a Mac", "New slide"],
@@ -706,6 +742,8 @@ async function shortcutsDialog() {
         ],
         ["B / W in presentation", "Black or white screen"],
         ["S in presentation", "Pause or resume automatic advance"],
+        ["I in presentation", "Pen on or off"],
+        ["E in presentation", "Erase the ink on the slide"],
         ["Number, then Enter, in presentation", "Go to that slide"],
       ].map(([keys, action]) =>
         el("div", {}, el("span", {}, action), el("kbd", {}, keys)),
@@ -862,7 +900,7 @@ function renderHome() {
   app.replaceChildren(
     el(
       "div",
-      { class: "home" },
+      { class: "home with-rail" },
       el(
         "header",
         { class: "home-header" },
@@ -874,6 +912,33 @@ function renderHome() {
           accountButton(),
         ),
       ),
+      homeRail([
+        {
+          id: "home",
+          label: "Home",
+          icon: "House",
+          run: () => homeSection(".home-main", "#main"),
+        },
+        {
+          id: "new",
+          label: "New",
+          icon: "FilePlus",
+          run: () => homeSection(".home-prompt", ".home-prompt-input"),
+        },
+        {
+          id: "recent",
+          label: "Recent",
+          icon: "Clock",
+          run: () => homeSection(".library", ".search-box input"),
+        },
+        {
+          id: "open",
+          label: "Open",
+          icon: "FolderOpen",
+          action: true,
+          run: run(openPicker),
+        },
+      ]),
       el(
         "main",
         { id: "main", class: "home-main", tabindex: -1 },
@@ -898,6 +963,13 @@ function renderHome() {
             "primary",
           ),
         ),
+        promptBox({
+          themes: deckThemes(),
+          theme: promptTheme,
+          available: () => cloud.canAI(),
+          create: (description, options) =>
+            deckFromPrompt(description, options),
+        }),
         el(
           "section",
           { class: "templates", "aria-label": "Start a presentation" },
@@ -920,6 +992,10 @@ function renderHome() {
             "A warmer point of view",
             "clay",
           ),
+        ),
+        themeStrip(
+          deckThemes().map((t) => ({ ...t, preview: themePreview(t.key) })),
+          (key) => run(() => newThemeDeck(key))(),
         ),
         !account &&
           el(
@@ -944,7 +1020,22 @@ function renderHome() {
           el(
             "div",
             { class: "library-head" },
-            el("h2", {}, "Your presentations"),
+            el(
+              "div",
+              { class: "library-heading" },
+              el("h2", {}, "Your presentations"),
+              libraryFilter(libraryView, (id) => {
+                libraryView = id;
+                for (const b of document.querySelectorAll(
+                  ".library-filter-btn",
+                ))
+                  b.setAttribute(
+                    "aria-pressed",
+                    String(b.dataset.filter === id),
+                  );
+                renderFileList();
+              }),
+            ),
             el(
               "div",
               { class: "library-tools" },
@@ -973,10 +1064,12 @@ function renderHome() {
                     renderFileList();
                   },
                 },
+                // "modified" sorts by when each was last opened here, or
+                // else changed; the value keeps its first name.
                 el(
                   "option",
                   { value: "modified", selected: sort === "modified" },
-                  "Last modified",
+                  "Last opened",
                 ),
                 el(
                   "option",
@@ -1011,6 +1104,44 @@ function templatePreview(type, color) {
   }
   return templatePreviews.get(key);
 }
+// The palettes a new deck can start in, from the app's themes.
+function deckThemes() {
+  return Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name }));
+}
+let promptTheme = "studio";
+function themePreview(key) {
+  const cacheKey = `theme:${key}`;
+  if (!templatePreviews.has(cacheKey)) {
+    const pres = themeDeck(key);
+    templatePreviews.set(cacheKey, preview(pres, P.getSlides(pres)[0]));
+  }
+  return templatePreviews.get(cacheKey);
+}
+async function newThemeDeck(key) {
+  await openDocument(() => ({
+    pres: themeDeck(key),
+    name: "Untitled presentation",
+    color: key,
+  }));
+}
+// Scrolls the library to one of its parts and puts the keyboard there.
+function homeSection(selector, focusSelector) {
+  const target = document.querySelector(selector);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  document.querySelector(focusSelector)?.focus({ preventScroll: true });
+}
+// A deck written by the AI from a description opens as a new presentation.
+async function deckFromPrompt(description, options) {
+  promptTheme = options.theme;
+  const { pres, name } = await generateDeck(description, {
+    ...options,
+    chat: (messages, opts) => cloud.aiChatStream(messages, opts),
+    model: AI_MODEL,
+  });
+  if (options.signal?.aborted || view !== "home") return;
+  await openDocument(() => ({ pres, name, color: options.theme }));
+}
+const libraryRecords = () => libraryMeta(owner());
 function templateCard(type, title, subtitle, color) {
   const thumb = el(
     "div",
@@ -1088,6 +1219,7 @@ function renderFileList() {
       ),
     );
   const searchText = query.normalize("NFC").toLowerCase();
+  const records = libraryRecords();
   const rows = [
     ...localDrafts.map((d) => ({
       kind: "draft",
@@ -1111,6 +1243,17 @@ function renderFileList() {
     // Search and sort by the displayed title so the .pptx extension of cloud
     // files neither matches queries nor shifts alphabetical order.
     .map((f) => ({ ...f, title: fileTitle(f) }))
+    .map((f) => {
+      const opened = records.openedAt(f);
+      return {
+        ...f,
+        pinned: records.isPinned(f),
+        // The date shown and sorted by: when it was last opened here, or
+        // else last changed.
+        modified: opened && opened > (f.modified || 0) ? opened : f.modified,
+      };
+    })
+    .filter((f) => libraryView !== "pinned" || f.pinned)
     .filter((f) => f.title.normalize("NFC").toLowerCase().includes(searchText))
     // Names sort the way file browsers do: "Deck 2" before "Deck 10".
     .sort((a, b) =>
@@ -1120,7 +1263,9 @@ function renderFileList() {
             sensitivity: "base",
           })
         : b.modified - a.modified,
-    );
+    )
+    // Pinned presentations lead the list.
+    .sort((a, b) => b.pinned - a.pinned);
   if (!rows.length) {
     // A failed load already explains itself and offers a retry; do not also
     // claim the library is empty.
@@ -1140,16 +1285,23 @@ function renderFileList() {
         el(
           "h3",
           {},
-          query ? "No matching presentations" : "Your next story starts here",
+          query
+            ? "No matching presentations"
+            : libraryView === "pinned"
+              ? "Nothing pinned yet"
+              : "Your next story starts here",
         ),
         el(
           "p",
           {},
           query
             ? "Try another name."
-            : "Create a presentation above or bring in a PowerPoint file.",
+            : libraryView === "pinned"
+              ? "Pin a presentation from its options to keep it here."
+              : "Create a presentation above or bring in a PowerPoint file.",
         ),
         !query &&
+          libraryView !== "pinned" &&
           button(
             "Import a presentation",
             "Upload",
@@ -1167,7 +1319,7 @@ function renderFileList() {
       { class: "file-table-head" },
       el("span", {}, "NAME"),
       el("span", {}, "LOCATION"),
-      el("span", {}, "MODIFIED"),
+      el("span", {}, "LAST OPENED"),
       el("span"),
     ),
   );
@@ -1182,15 +1334,27 @@ function renderFileList() {
           {
             class: "file-open",
             title: label,
-            onclick: run(() =>
-              f.kind === "draft" ? recover(f) : openCloud(f),
-            ),
+            onclick: run(() => {
+              records.noteOpened(f);
+              return f.kind === "draft" ? recover(f) : openCloud(f);
+            }),
           },
           el("span", { class: "file-icon" }, icon("Presentation", 21)),
           el(
             "span",
             { class: "file-text" },
-            el("strong", {}, label),
+            el(
+              "strong",
+              {},
+              label,
+              f.pinned &&
+                el(
+                  "span",
+                  { class: "file-pin", title: "Pinned" },
+                  lucide("Pin", 12),
+                  el("span", { class: "visually-hidden" }, " (pinned)"),
+                ),
+            ),
             el(
               "small",
               {},
@@ -1288,11 +1452,24 @@ function libraryFileMenu(e, f) {
       document.querySelector('.home-title [aria-label="New presentation"]')
     );
   };
+  const records = libraryRecords();
+  const pinned = records.isPinned(f);
   menu(anchor, [
     {
       label: "Open",
       icon: "FolderOpen",
-      action: run(() => (f.kind === "draft" ? recover(f) : openCloud(f))),
+      action: run(() => {
+        records.noteOpened(f);
+        return f.kind === "draft" ? recover(f) : openCloud(f);
+      }),
+    },
+    {
+      label: pinned ? "Unpin" : "Pin to Top",
+      icon: pinned ? "o:unpinItem" : "o:pinItem",
+      action: () => {
+        records.togglePin(f);
+        renderFileList();
+      },
     },
     ...(f.kind === "recent"
       ? [
@@ -1317,6 +1494,7 @@ function libraryFileMenu(e, f) {
             icon: "X",
             action: () => {
               recent.forgetRecent(owner(), f.path);
+              libraryRecords().forget(f);
               recentFiles = recentFiles.filter((r) => r.path !== f.path);
               renderFileList();
             },
@@ -1346,6 +1524,7 @@ function libraryFileMenu(e, f) {
                   const path = f.path;
                   const renamedPath = await renameCloudPath(path, name);
                   const row = currentRow();
+                  libraryRecords().rename(f, { path: renamedPath });
                   f.path = renamedPath;
                   f.name = `${cleanName(name)}.pptx`;
                   if (row) row.dataset.fileKey = fileKey(f);
@@ -2077,6 +2256,10 @@ function mutate(
   { coalesce = null, onError = fail, onApplied = null } = {},
 ) {
   if (!doc || readOnlyDocument()) return Promise.resolve(false);
+  if (review.blocksEdits()) {
+    review.blockedEdit();
+    return Promise.resolve(false);
+  }
   pendingMutations++;
   const active = doc;
   // Resolves to whether the edit was applied: a control that committed a
@@ -2948,7 +3131,12 @@ function renderReadOnly() {
             run(downloadDeck),
             "secondary",
           ),
-          button("Print", "Printer", run(printDeck), "secondary"),
+          button(
+            "Print",
+            "Printer",
+            run(() => fileTools.openPrintDialog()),
+            "secondary",
+          ),
           button("Present", "Play", run(present)),
         ),
       ),
@@ -2979,6 +3167,7 @@ function renderEditor() {
       "div",
       {
         class: `editor ${chrome.formatPane ? "" : "hide-inspector"} ${chrome.thumbnails ? "" : "hide-slides"} ${chrome.notes ? "" : "hide-notes"}`,
+        "data-view": editorView,
       },
       editorTopbar(),
       fontLoadNotice(),
@@ -3088,6 +3277,8 @@ function renderEditor() {
               }),
             ),
           ),
+          // Slide Sorter and Notes Page take the place of the panes.
+          el("section", { id: "view-host", class: "view-host" }),
           el("aside", {
             class: "inspector",
             id: "inspector",
@@ -3100,6 +3291,7 @@ function renderEditor() {
     ),
   );
   mountAssistant();
+  review.mount();
   updateSaveStatus();
   renderSlideArea();
   renderInspector();
@@ -3111,6 +3303,7 @@ function renderEditor() {
   canvasObserver.observe(document.querySelector("#canvas-area"));
   fitCanvas();
   applyPaneSizes();
+  views.mounted();
 }
 // The title bar: the way back to the library, the quick access commands
 // (save, undo, redo), the menu bar, the presentation's name with its save
@@ -3127,6 +3320,7 @@ function editorTopbar() {
       ["Format", formatMenu],
       ["Arrange", arrangeMenuBar],
       ["Slide", slidesMenu],
+      ["Tools", menuFor("Tools", () => review.toolsMenu())],
       ["Slide Show", slideShowMenuBar],
       ["Help", helpMenu],
     ].map(([label, open]) => ({ label, open })),
@@ -3303,6 +3497,37 @@ function commandSearch() {
   );
   return wrap;
 }
+// Export, print, properties and pictures (src/export): they read the open
+// presentation through these and edit it through mutate.
+const fileTools = createFileTools({
+  P,
+  doc: () => doc,
+  settled,
+  mutate,
+  SKIP: SKIP_MUTATION,
+  previewSrc: (target, s) => cachedPreview(target.previews, target.pres, s),
+  slideDescription,
+  displayShapeText,
+  visibleSlideShapes,
+  slideBounds: (pres, shape) => slideBounds(pres, shape),
+  currentIndex: () => index,
+  selectedSlides: () => selectedSlides(),
+  selectedShapes: () => (view === "editor" && doc ? selectedShapes() : []),
+  readOnly: () => readOnlyDocument(),
+  pruneUnusedMedia,
+  cleanName,
+  toast,
+  fail,
+  refreshFields() {
+    if (P.getSlides(doc.pres).some((s) => slideHasDateFields(doc.pres, s))) {
+      P.refreshPresentationFields(doc.pres);
+      renderSlideArea();
+    }
+  },
+  async download(blob, filename, message) {
+    reportExport(await cloud.downloadBlob(blob, filename), message);
+  },
+});
 // The ribbon, built once per editor from the tab definitions, and refreshed
 // whenever the selection or the presentation changes.
 let ribbon = null;
@@ -3310,7 +3535,14 @@ let ribbonTab = "home";
 // Tabs other modules add to the ribbon: functions returning tab definitions
 // (see tabs.js), each with `after` naming the tab it follows or
 // `contextual: true`.
-const extraTabProviders = [() => [drawTools.tab()], () => masterView.tabs()];
+const extraTabProviders = [
+  () => [drawTools.tab()],
+  () => insertFeatures.tabs(),
+  () => chartTools.tabs(),
+  () => smartArtTools.tabs(),
+  () => [animationTools.tab()],
+  () => masterView.tabs(),
+];
 // Layouts: New Slide on a layout, changing a slide's layout, and Reset.
 const layoutCommands = createLayoutCommands({
   pres: () => doc.pres,
@@ -3345,6 +3577,132 @@ const masterView = createMasterView({
   ribbon: () => ribbon,
 });
 
+// Comments, proofing, accessibility, compare and the read-only mark
+// (review/). It reaches the editor through this surface.
+const review = createReview({
+  doc: () => doc,
+  pres: () => doc?.pres || null,
+  slide: () => slide(),
+  index: () => index,
+  revision: () => revision,
+  chooseSlide: (target) => chooseSlide(target),
+  showObjects: (part, ids) => showObjects(part, ids),
+  selectionIds: () => (doc ? [...selectionIds()] : []),
+  currentShape: () => (doc ? currentShape() : null),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  mutateShape: (shape, fn) => mutateShape(shape, fn),
+  SKIP: SKIP_MUTATION,
+  size: () => currentSize(),
+  slideBounds: (shape) => slideBounds(doc.pres, shape),
+  account: () => account,
+  isTable: (shape) => isTable(shape),
+  replaceInShape: (shape, re, value, only) =>
+    replaceInShape(shape, re, value, only),
+  replaceInCell: (cell, re, value, only) =>
+    replaceInCell(cell, re, value, only),
+  editor: () => richEditor,
+  editShapeText: (part, id) => {
+    if (P.getSlidePartName(slide()) !== part) return;
+    const target = P.findShapeById(slide(), id);
+    if (target) editText(target);
+  },
+  altText: () => altText().catch(fail),
+  setText: (shape, value) => setText(shape, value),
+  setLanguage: (shape, language) =>
+    formatText(withTextBody(shape), { language }),
+  languageItems: () => languageItems(),
+  textColors: (shape) => reviewTextColors(shape),
+  fixContrast: (shape) => fixTextContrast(shape),
+  addTitle: (issue, options) => addAccessibleTitle(issue, options),
+  showIssue: async (issue) => {
+    if (P.getSlidePartName(slide()) !== issue.part)
+      await chooseSlide(issue.slide);
+    showObjects(issue.part, issue.shapeId != null ? [issue.shapeId] : []);
+  },
+  syncToolbar: () => syncToolbar(),
+  refreshEditor: () => {
+    if (view !== "editor") return;
+    renderSlideArea();
+    renderInspector();
+    syncToolbar();
+  },
+  commitText: () => commitText(),
+  settled: () => settled(),
+  fail: (e) => fail(e),
+});
+// The text's colour and the colour behind it, for the contrast check.
+function reviewTextColors(shape) {
+  try {
+    if (!canHoldText(shape) || isTable(shape)) return null;
+    const format = P.getShapeRunFormatEffective(doc.pres, shape, 0, 0);
+    const text = format?.color;
+    if (!text || !/^#?[0-9a-f]{6}$/i.test(text)) return null;
+    const background =
+      P.getShapeFillColorResolvedEffective(doc.pres, shape) ||
+      slideBackground(P.getShapeSlide(shape)).color;
+    if (!background) return null;
+    return {
+      text,
+      background,
+      size: format.size || 18,
+      bold: !!format.bold,
+    };
+  } catch {
+    return null;
+  }
+}
+function fixTextContrast(shape) {
+  if (!shape) return;
+  return mutateShape(shape, (target) => {
+    const colors = reviewTextColors(target);
+    if (!colors) return SKIP_MUTATION;
+    const color = legibleColor(
+      colors.background,
+      [THEMES[theme].ink, "#000000", "#FFFFFF"],
+      4.5,
+    );
+    formatText(target, { color });
+  });
+}
+// A title for a slide without one: in the layout's title position, or just
+// above the slide where only screen readers find it.
+function addAccessibleTitle(issue, { hidden }) {
+  const value = hidden
+    ? (slideDescription(issue.slide, doc.pres) || "")
+        .split("\n")[0]
+        .slice(0, 80) || `Slide ${issue.index + 1}`
+    : `Slide ${issue.index + 1}`;
+  return mutateSlide(issue.slide, (target) => {
+    const size = currentSize();
+    const layout = P.getSlideLayout(target);
+    const fromLayout =
+      layout &&
+      P.getSlideLayoutPlaceholders(layout).some((ph) =>
+        ["title", "ctrTitle"].includes(ph.type),
+      );
+    const added = P.addSlideTitlePlaceholder(target, value, {
+      hidden,
+      slideHeight: size.cy,
+      box: hidden
+        ? {
+            x: 0,
+            y: -Math.round(size.cy * 0.2),
+            w: size.cx,
+            h: Math.round(size.cy * 0.12),
+          }
+        : fromLayout
+          ? undefined
+          : {
+              x: Math.round(size.cx * 0.06),
+              y: Math.round(size.cy * 0.05),
+              w: Math.round(size.cx * 0.88),
+              h: Math.round(size.cy * 0.16),
+            },
+    });
+    if (!hidden) selectIds([P.getShapeId(added)]);
+  });
+}
 const drawTools = createDrawTools({
   P,
   canvas: () => document.querySelector("#slide-canvas"),
@@ -3356,7 +3714,138 @@ const drawTools = createDrawTools({
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
   },
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    if (!doc) return;
+    selectIds(ids);
+    renderSelection();
+    updateSelectionUi();
+    renderInspector();
+  },
+  renderSlide: (s) => preview(doc.pres, s),
+  chat: () =>
+    cloud.canAI() ? globalThis.puter.ai.chat.bind(globalThis.puter.ai) : null,
+  aiModel: AI_MODEL,
+  // Ink to Math sets what it reads as an equation object (src/insert),
+  // looked up when used: the insert features are made after the Draw tab.
+  equation: () => insertFeatures?.equations || null,
+  shapeLabels: Object.fromEntries(
+    SHAPES.map(([preset, label]) => [preset, label]),
+  ),
+}); // Charts: Insert Chart, the data sheet, and the Chart Design and Format tabs.
+const chartTools = createChartTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  showFormatPane: () => show("formatPane", true),
+  refresh: () => {
+    renderInspector();
+  },
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
+  },
+}); // SmartArt: inserting graphics, the Text Pane, the SmartArt Design tab, and
+// Convert to SmartArt for bulleted text.
+const smartArtTools = createSmartArtTools({
+  P,
+  pres: () => doc.pres,
+  slide: () => slide(),
+  selection: () => selectedShapes(),
+  mutateShape: (shape, fn, options) => mutateShape(shape, fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  selectIds: (ids) => selectIds(ids),
+  slideSize: () => currentSize(),
+  theme: () => doc && P.getPresentationTheme(doc.pres),
+  commitText: () => commitText(),
+  skip: SKIP_MUTATION,
+  readOnly: () => readOnlyDocument(),
+  selectTab: (id) => ribbon?.select(id),
+  refreshRibbon: () => syncToolbar(),
+  removeShape: (target, shape) => removeAnyShape(target, shape),
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  setIndentLevel: (shape, i, level, bulleted) =>
+    setParagraphIndentLevel(shape, i, level, bulleted),
+  canHoldText: (shape) => canHoldText(shape),
+  displayText: (shape) => displayShapeText(doc.pres, shape),
+  fields: {
+    field: (...a) => field(...a),
+    colorInput: (...a) => colorInput(...a),
+    numInput: (...a) => numInput(...a),
+  },
 });
+// Icons, media, screenshots, photo albums, equations, header and footer,
+// zooms, action settings and embedded objects (src/insert).
+const insertFeatures = createInsertFeatures({
+  doc: () => doc,
+  slide: () => slide(),
+  currentShape: () => currentShape(),
+  selectedShapes: () => selectedShapes(),
+  selectedIds: () => selectionIds(),
+  selectIds: (ids) => selectIds(ids),
+  selectedSlideParts: () => selectedSlideParts(),
+  commitText: () => commitText(),
+  fail: (e) => fail(e),
+  mutate: (fn) => mutate(fn),
+  mutateSlide: (target, fn) => mutateSlide(target, fn),
+  mutateShape: (obj, fn) => mutateShape(obj, fn),
+  currentSize: () => currentSize(),
+  ribbon: () => ribbon,
+  theme: () => THEMES[theme],
+  readImage: (file) => readImage(file),
+  insertImageFile: (file) => insertImageFile(file),
+  altText: () => altText().catch(fail),
+  goToSlide: (i) => {
+    index = Math.max(0, Math.min(i, P.getSlides(doc.pres).length - 1));
+    clearSelection();
+    renderSlideArea();
+    renderInspector();
+  },
+  previewSrc: (s) => slidePreview(s),
+  language: () => deckLanguage(),
+  normalizeUrl: (value) => normalizeUrl(value),
+  startDrawing: (preset) => startDrawing(preset),
+  refreshCanvas: () => renderSelection(),
+});
+// The Animations tab, the Animation Pane and animation previews.
+const animationTools = createAnimationTools({
+  P,
+  modKey: MOD_KEY,
+  doc: () => doc,
+  slide: () => doc && slide(),
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    selectIds(ids);
+    renderSelection();
+    renderInspector();
+  },
+  topLevelShapes: (s) => {
+    const parents = groupParents(s);
+    return P.getSlideShapes(s).filter((x) => !parents.has(P.getShapeId(x)));
+  },
+  bounds: (shape) => slideBounds(doc.pres, shape),
+  slideSize: () => currentSize(),
+  // One line, for lists and menus.
+  shapeLabel: (shape) =>
+    truncateLabel(shapeLabel(shape, doc.pres).replace(/\s+/g, " ").trim(), 60),
+  renderLayer: (s, layer) => preview(doc.pres, s, layer),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  canvas: () => document.querySelector("#slide-canvas"),
+  editorBody: () => document.querySelector(".editor-body"),
+  refresh: () => syncToolbar(),
+});
+
 function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
@@ -3364,9 +3853,11 @@ function editorRibbon() {
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
+      animationTools.setTabActive(id === "animations");
     },
   });
   ribbon.onError(fail);
+  animationTools.setTabActive(ribbonTab === "animations");
   if (chrome.ribbonCollapsed) ribbon.setCollapsed(true);
   return ribbon.el;
 }
@@ -3502,19 +3993,10 @@ function renderCanvasAids() {
   const inchesWide = size.cx / 914400,
     inchesHigh = size.cy / 914400;
   if (chrome.gridlines || chrome.guides) {
-    const aids = el("div", { class: "canvas-aids", "aria-hidden": "true" });
-    if (chrome.gridlines) {
-      // The grid spacing is a twelfth of an inch; the lines drawn
-      // are every half inch, with the inches stronger.
-      aids.style.setProperty("--grid-x", `${100 / (inchesWide * 2)}%`);
-      aids.style.setProperty("--grid-y", `${100 / (inchesHigh * 2)}%`);
-      aids.classList.add("grid");
-    }
-    if (chrome.guides)
-      aids.append(
-        el("div", { class: "guide-line vertical" }),
-        el("div", { class: "guide-line horizontal" }),
-      );
+    // The grid at the deck's spacing, and the drawing guides, which can be
+    // dragged (see views/grid-guides.js).
+    const aids = el("div", { class: "canvas-aids" });
+    views.grid.decorate(aids, canvas);
     canvas.append(aids);
   }
   if (chrome.ruler) {
@@ -3602,7 +4084,7 @@ function statusBar() {
           type: "button",
           class: "status-item status-button desktop-only",
           id: "status-accessibility",
-          onclick: run(checkAccessibility),
+          onclick: () => checkAccessibility(),
         },
         icon("o:accessibility", 15),
         el("span", {}, "Accessibility: Investigate"),
@@ -3622,6 +4104,20 @@ function statusBar() {
         },
         icon("o:notesPane", 15),
         el("span", {}, "Notes"),
+      ),
+      // Shown once the editor has a comments pane to open.
+      el(
+        "button",
+        {
+          type: "button",
+          class: "status-item status-button desktop-only",
+          id: "status-comments",
+          "aria-pressed": "false",
+          hidden: true,
+          onclick: () => statusComments()?.toggle(),
+        },
+        icon("o:showComments", 15),
+        el("span", {}, "Comments"),
       ),
       el(
         "div",
@@ -3693,7 +4189,10 @@ function updateZoomUi() {
     );
   document
     .querySelector(".status-view.fit")
-    ?.setAttribute("aria-pressed", String(zoom === "fit"));
+    ?.setAttribute(
+      "aria-pressed",
+      String(viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+    );
   const zoomIn = document.querySelector('.zoom-control [aria-label="Zoom in"]');
   const zoomOut = document.querySelector(
     '.zoom-control [aria-label="Zoom out"]',
@@ -3701,21 +4200,33 @@ function updateZoomUi() {
   disableControl(zoomIn, !nextZoomStep(1), workspace);
   disableControl(zoomOut, !nextZoomStep(-1), workspace);
 }
+// The comments pane, when the editor has one.
+let statusApi = null;
+function statusComments() {
+  const api = (statusApi ??= ribbonApi());
+  return typeof api.toggleComments === "function"
+    ? {
+        toggle: () => api.toggleComments(),
+        open: () => !!api.commentsOpen?.(),
+      }
+    : null;
+}
 function updateStatusBar() {
   const notes = document.querySelector("#status-notes");
   if (notes) notes.setAttribute("aria-pressed", String(showing("notes")));
+  const comments = document.querySelector("#status-comments");
+  if (comments) {
+    const pane = statusComments();
+    comments.hidden = !pane;
+    comments.setAttribute("aria-pressed", String(!!pane?.open()));
+  }
   for (const node of document.querySelectorAll(".status-views [data-view]"))
     node.setAttribute(
       "aria-pressed",
       String(node.dataset.view === currentView()),
     );
   const a11y = document.querySelector("#status-accessibility span");
-  if (a11y && doc) {
-    const issues = accessibilityIssues().length;
-    a11y.textContent = issues
-      ? "Accessibility: Investigate"
-      : "Accessibility: Good to go";
-  }
+  if (a11y && doc) a11y.textContent = review.accessibilityStatus();
 }
 // The proofing language of the deck's text: what the browser's spell checker
 // is told, and what new text is marked with.
@@ -3770,108 +4281,9 @@ function languageItems() {
     })),
   ];
 }
-// The accessibility checker: pictures without alternative text, slides
-// without titles, and text whose colour is too close to its background.
-function accessibilityIssues() {
-  const issues = [];
-  if (!doc) return issues;
-  P.getSlides(doc.pres).forEach((s, i) => {
-    let titled = false;
-    for (const shape of visibleSlideShapes(s)) {
-      const kind = P.getShapeKind(shape);
-      if (kind === "picture" && !P.getShapeDescription?.(shape))
-        issues.push({
-          slide: s,
-          index: i,
-          shape,
-          kind: "Missing alternative text",
-          hint: shapeLabel(shape, doc.pres),
-        });
-      if (
-        P.getShapePlaceholderType?.(shape) === "title" ||
-        P.getShapePlaceholderType?.(shape) === "ctrTitle"
-      )
-        titled = titled || !!shapeText(shape, doc.pres)?.trim();
-    }
-    if (!titled && !slideTitle(s, doc.pres))
-      issues.push({
-        slide: s,
-        index: i,
-        kind: "Missing slide title",
-        hint: `Slide ${i + 1}`,
-      });
-  });
-  return issues;
-}
-async function checkAccessibility() {
-  const issues = accessibilityIssues();
-  const list = el("div", { class: "a11y-list" });
-  if (!issues.length)
-    list.append(
-      el(
-        "p",
-        {},
-        "No accessibility issues found. People with disabilities should not have difficulty reading this presentation.",
-      ),
-    );
-  const groups = Map.groupBy
-    ? Map.groupBy(issues, (x) => x.kind)
-    : new Map(
-        issues.reduce(
-          (m, x) => m.set(x.kind, [...(m.get(x.kind) || []), x]),
-          new Map(),
-        ),
-      );
-  let picked = null;
-  for (const [kind, entries] of groups) {
-    list.append(el("h3", {}, `${kind} (${entries.length})`));
-    const ul = el("ul", {});
-    for (const issue of entries)
-      ul.append(
-        el(
-          "li",
-          {},
-          el(
-            "button",
-            {
-              type: "button",
-              class: "text-button",
-              onclick: (e) => {
-                picked = issue;
-                e.currentTarget
-                  .closest("dialog")
-                  ?.dispatchEvent(new Event("cancel"));
-              },
-            },
-            `${issue.hint}${issue.shape ? ` (slide ${issue.index + 1})` : ""}`,
-          ),
-        ),
-      );
-    list.append(ul);
-  }
-  list.append(
-    el(
-      "p",
-      { class: "helper" },
-      "Add alternative text with Review › Alt Text, and give every slide a title so people using screen readers can find their way.",
-    ),
-  );
-  await dialog({
-    title: "Accessibility",
-    body: el("div", { class: "dialog-body" }, list),
-    cancel: null,
-    confirm: "Close",
-  });
-  if (picked) {
-    await chooseSlide(picked.slide);
-    if (picked.shape) {
-      selectIds([P.getShapeId(picked.shape)]);
-      renderSelection();
-      renderInspector();
-      if (picked.kind === "Missing alternative text") altText();
-    }
-  }
-  updateStatusBar();
+// The accessibility checker lives with the review panes (review/).
+function checkAccessibility() {
+  review.openAccessibility();
 }
 // Alternative text for the selected object, in a dialog of its own.
 async function altText() {
@@ -3908,8 +4320,8 @@ async function altText() {
   const value = decorative.checked ? "" : input.value.trim();
   mutateShape(obj, (obj) => P.setShapeDescription(obj, value));
 }
-// The editor's views: Normal, plus the others as they are added (see
-// setView).
+// The editor's views: Normal, Outline View, Slide Sorter and Notes Page
+// (src/views), and Reading View, which plays the show inside the window.
 let editorView = "normal";
 const currentView = () => editorView;
 const VIEW_HANDLERS = {};
@@ -3927,18 +4339,85 @@ for (const kind of ["slide", "notes", "handout"])
     },
   };
 function supportsView(id) {
-  return id === "normal" || !!VIEW_HANDLERS[id];
+  return id === "normal" || id === "reading" || !!VIEW_HANDLERS[id];
 }
-function setView(id) {
+// `remount` enters the view again after the editor was drawn anew.
+function setView(id, { remount = false } = {}) {
   if (id === "reading") return present({ from: "current", reading: true });
   if (!supportsView(id)) return;
   const previous = editorView;
+  if (previous === id && !remount) {
+    syncToolbar();
+    return;
+  }
+  if (previous !== id) {
+    commitText();
+    VIEW_HANDLERS[previous]?.leave?.();
+  }
   editorView = id;
-  if (previous !== "normal") VIEW_HANDLERS[previous]?.leave?.();
-  if (id !== "normal") VIEW_HANDLERS[id].enter();
   document.querySelector(".editor")?.setAttribute("data-view", id);
-  syncToolbar();
+  if (id !== "normal") {
+    clearSelection();
+    VIEW_HANDLERS[id].enter();
+  }
+  if (!remount) views.viewChanged(id);
+  renderSelection();
+  updatePanelToggles();
+  updateZoomUi();
+  if (id === "normal" && previous !== "normal")
+    document.querySelector("#main")?.focus({ preventScroll: true });
 }
+// The zoom of the view in front, when it keeps its own.
+const viewZoom = () => VIEW_HANDLERS[editorView]?.zoom || null;
+const views = createViews({
+  P,
+  doc: () => doc,
+  docKey: () => doc && (doc.path || doc.id),
+  currentSlide: () => slide(),
+  currentSize: () => currentSize(),
+  currentView,
+  setView,
+  show,
+  showing,
+  chrome,
+  saveChrome,
+  renderCanvasAids: () => renderCanvasAids(),
+  sync: () => syncToolbar(),
+  thumbnail: (s) => cachedPreview(doc.previews, doc.pres, s),
+  slideLabel: (s, i) => thumbLabel(s, i, false),
+  markers: (s) => ({
+    transition: (transitionDetails(s)?.effect || "none") !== "none",
+    animation: /<(\w+:)?timing[\s>]/.test(P.getSlideXmlString(s)),
+  }),
+  selectedParts: () => selectedSlideParts(),
+  choose: (part, extras) => {
+    const s = P.getSlides(doc.pres).find((x) => P.getSlidePartName(x) === part);
+    return s ? chooseSlide(s, { extras }) : Promise.resolve();
+  },
+  settle: (parts) => settleIndex(parts),
+  settleIndex: (i) => {
+    index = Math.max(0, Math.min(i, P.getSlides(doc.pres).length - 1));
+  },
+  mutate: (fn, options) => mutate(fn, options),
+  mutateSlide: (target, fn, options) => mutateSlide(target, fn, options),
+  SKIP: SKIP_MUTATION,
+  undo: () => undo(),
+  redo: () => redo(),
+  addSlideAfter: (s) => addSlideAfter(s),
+  duplicateSlides: (list) => duplicateSlides(list),
+  deleteSlides: (list) => deleteSlides(list),
+  setSlidesHidden: (list, hidden) => setSlidesHidden(list, hidden),
+  moveSlides: (list, direction) =>
+    moveSlides(list, direction, [P.getSlidePartName(slide())]),
+  stepZoom: (direction) => stepZoom(direction),
+  setZoom: (level) => setZoom(level),
+  zoomFactor: () => zoomFactor(),
+  zoomIsFit: () => (viewZoom() ? viewZoom().isFit() : zoom === "fit"),
+  zoomChanged: () => updateZoomUi(),
+  toast,
+  fail,
+});
+Object.assign(VIEW_HANDLERS, views.handlers);
 function setColorMode(id) {
   chrome.colorMode = id;
   saveChrome();
@@ -5263,6 +5742,7 @@ async function placeDrawn(tool, at) {
     }
     setSlideBounds(doc.pres, obj, next);
     if (isText) setText(obj, "");
+    insertFeatures.afterDraw(obj, tool, at);
   });
   if (!applied) return;
   ribbon?.select("shape-format");
@@ -5286,11 +5766,22 @@ function ribbonApi() {
     const list = selectedShapes();
     if (!list.length) return null;
     if (list.length === 1 && isTable(list[0])) return "table";
+    if (list.length === 1 && chartTools.isChart(list[0])) return "chart";
+    if (list.length === 1 && smartArtTools.isSmartArt(list[0]))
+      return "smartart";
     if (list.every((s) => P.getShapeKind(s) === "picture")) return "picture";
     return "shape";
   };
   return {
     extraTabs: () => extraTabProviders.flatMap((provide) => provide()),
+    insertChart: () => chartTools.insert(),
+    ...(P.addSlideSmartArt
+      ? {
+          insertSmartArt: () => smartArtTools.insert(),
+          canConvertToSmartArt: () => smartArtTools.canConvert(),
+          convertToSmartArtMenu: () => smartArtTools.convertMenu(),
+        }
+      : {}),
     modKey: MOD_KEY,
     newSlideKeys: IS_MAC ? "⌘+Shift+N" : "Ctrl+M",
     selection: () => selectedShapes(),
@@ -5337,6 +5828,15 @@ function ribbonApi() {
         icon: "o:duplicate",
         onSelect: () => duplicateSlides(actionSlides(slide())),
       },
+      ...(assistant
+        ? [
+            {
+              label: "New Slide from Prompt…",
+              icon: "o:newSlidePrompt",
+              onSelect: () => newSlideFromPrompt().catch(fail),
+            },
+          ]
+        : []),
     ],
     canChangeLayout: () => layoutCommands.canChangeLayout(),
     layoutMenu: () => layoutCommands.layoutItems(actionSlides(slide())),
@@ -5614,6 +6114,7 @@ function ribbonApi() {
       },
     ],
     hasAssistant: () => !!assistant,
+    newSlideFromPrompt: () => newSlideFromPrompt().catch(fail),
     designIdeas: () => {
       openAssistant(
         "Suggest a cleaner, more professional design for the current slide and apply it, keeping all of its content.",
@@ -5750,8 +6251,12 @@ function ribbonApi() {
     toggleHideSlide: () =>
       setSlidesHidden(actionSlides(slide()), !P.isSlideHidden(slide())),
     // Review
-    spelling: () => checkSpelling(),
-    checkAccessibility: () => checkAccessibility().catch(fail),
+    spelling: () => review.spelling.open(),
+    reviewTab: (api) => review.tab(api),
+    newComment: () => review.newComment(),
+    toggleComments: () => review.comments.toggle(),
+    commentsOpen: () => review.comments.isOpen(),
+    checkAccessibility: () => checkAccessibility(),
     altText: () => altText().catch(fail),
     languageMenu: languageItems,
     // View
@@ -5761,6 +6266,8 @@ function ribbonApi() {
     showing,
     show,
     zoomMenu: () => zoomItems(),
+    zoomDialog: () => views.openZoomDialog(),
+    gridDialog: () => views.grid.gridDialog(),
     fitToWindow: () => setZoom("fit"),
     colorMode: () => chrome.colorMode,
     setColorMode,
@@ -5959,6 +6466,8 @@ function ribbonApi() {
     tableInsert,
     tableDeleteMenu,
     distributeTable,
+    ...insertFeatures.api(),
+    shapesMenu: () => [...shapesMenu(), ...insertFeatures.shapesGallery()],
   };
 }
 // Table styles: the ones the engine can write (the predefined table styles by
@@ -6066,27 +6575,6 @@ function previewTransition() {
     .querySelector(".slide-image")
     ?.animate(frames, { duration, easing: "ease-out" });
 }
-// Spelling: the browser's own checker, switched on for the deck's text and
-// pointed at the slides that have text to check.
-function checkSpelling() {
-  const notes = document.querySelector("#speaker-notes");
-  if (notes) notes.spellcheck = true;
-  const obj = currentShape();
-  if (obj && canEditText(obj)) {
-    editText(obj);
-    toast("Misspelled words are underlined; right-click one for suggestions.");
-    return;
-  }
-  const withText = shapes().find(
-    (s) => canEditText(s) && shapeText(s, doc.pres)?.trim(),
-  );
-  if (withText) {
-    selectIds([P.getShapeId(withText)]);
-    renderSelection();
-    editText(withText);
-    toast("Misspelled words are underlined; right-click one for suggestions.");
-  } else toast("There is no text on this slide to check.");
-}
 // The toolbar's font and size lists are built once and follow the selection.
 // A value they do not carry, as an imported deck's font or half-point size,
 // joins the list in its own order rather than on top of it, and only for as
@@ -6127,6 +6615,7 @@ function syncToolbar() {
     ribbon?.refresh();
     updateStatusBar();
     renderSelectionPane();
+    animationTools.sync();
   });
 }
 const navigatorVisible = () =>
@@ -6192,12 +6681,14 @@ function fitCanvas() {
 }
 // The step above or below the current zoom, or undefined at the ladder's end.
 function nextZoomStep(direction, current = zoomFactor()) {
+  const steps = viewZoom()?.steps || ZOOM_STEPS;
   return direction > 0
-    ? ZOOM_STEPS.find((step) => step > current + 0.01)
-    : [...ZOOM_STEPS].reverse().find((step) => step < current - 0.01);
+    ? steps.find((step) => step > current + 0.01)
+    : [...steps].reverse().find((step) => step < current - 0.01);
 }
 // The slide's scale on screen, whatever set it.
 function zoomFactor() {
+  if (viewZoom()) return viewZoom().factor();
   if (zoom !== "fit") return zoom;
   const canvas = document.querySelector("#slide-canvas");
   const size = currentSize();
@@ -6207,6 +6698,12 @@ function zoomFactor() {
 }
 // A new zoom keeps the middle of the view where it was.
 function setZoom(next) {
+  // Slide Sorter and Notes Page zoom on their own.
+  if (viewZoom()) {
+    viewZoom().set(next);
+    updateZoomUi();
+    return;
+  }
   const area = document.querySelector("#canvas-area");
   const center = area && {
     x: (area.scrollLeft + area.clientWidth / 2) / Math.max(1, area.scrollWidth),
@@ -6229,20 +6726,27 @@ function stepZoom(direction) {
   if (next) setZoom(next);
 }
 function zoomItems() {
+  const setting = viewZoom() ? viewZoom().setting() : zoom;
   return [
     {
       label: "Fit to screen",
       icon: "Maximize",
       shortcut: `${MOD_KEY}+0`,
-      checked: zoom === "fit",
+      checked: setting === "fit",
       onSelect: () => setZoom("fit"),
     },
     { separator: true },
     ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((level) => ({
       label: `${Math.round(level * 100)}%`,
-      checked: zoom === level,
+      checked: setting === level,
       onSelect: () => setZoom(level),
     })),
+    { separator: true },
+    {
+      label: "Zoom…",
+      icon: "o:zoom",
+      onSelect: () => views.openZoomDialog().catch(fail),
+    },
   ];
 }
 function zoomMenu(e) {
@@ -6311,6 +6815,34 @@ function toggleAssistant(force) {
 }
 function openAssistant(prompt = null) {
   assistant?.open({ prompt });
+}
+// The assistant drafts a slide, after the current one, from a description.
+async function newSlideFromPrompt() {
+  if (!assistant || !doc) return;
+  const input = el("textarea", {
+    class: "input",
+    rows: 3,
+    maxlength: 2000,
+    autofocus: true,
+    placeholder:
+      "For example: our three goals for next year, with a line on each",
+    "aria-label": "Describe the slide",
+  });
+  const after = index + 1;
+  const ok = await dialog({
+    title: "New Slide from Prompt",
+    body: el(
+      "form",
+      { class: "dialog-body" },
+      el("label", {}, "What should the new slide say?", input),
+    ),
+    confirm: "Draft Slide",
+  });
+  const text = input.value.trim();
+  if (!ok || !text || !assistant) return;
+  assistant.ask(
+    `Add one new slide right after slide ${after} about the following, with its title, content and speaker notes, matching the palette and style of the slides around it:\n${text}`,
+  );
 }
 // Text typed on the slide is committed when its editor closes; the
 // assistant's edits wait for that rather than cut the typing short.
@@ -6439,6 +6971,34 @@ const menuFor = (label, items) => (anchor) =>
     align: "auto",
     minWidth: 240,
   });
+// Presentations to reopen from the File menu: the newest in the library and
+// those opened from elsewhere on the drive, without the one already open.
+function recentMenuItems() {
+  const open = doc?.path;
+  const seen = new Set();
+  const list = [
+    ...files.map((f) => ({
+      ...f,
+      at: Number(f.modified || f.created || 0) * 1000,
+    })),
+    ...recentFiles.map((r) => ({ ...r, at: cloud.modifiedMs(r) ?? r.at ?? 0 })),
+  ]
+    .filter(
+      (f) => f.path && f.path !== open && !seen.has(f.path) && seen.add(f.path),
+    )
+    .sort((a, b) => (b.at || 0) - (a.at || 0))
+    .slice(0, 8);
+  if (!list.length)
+    return [{ label: "No recent presentations", disabled: true }];
+  return list.map((f) => ({
+    label: cleanName(f.name || cloud.displayName(f.path), {
+      maxLength: Infinity,
+    }),
+    icon: "Presentation",
+    hint: cloud.folderName(f.path) || null,
+    onSelect: run(() => openCloud(f)),
+  }));
+}
 // The File menu. The phone's File options button, the only menu button its
 // layout keeps, carries the other menus too.
 function fileMenu(anchor) {
@@ -6460,6 +7020,11 @@ function fileMenu(anchor) {
         shortcut: `${M}+O`,
         onSelect: run(openPicker),
       },
+      {
+        label: "Open recent",
+        icon: "Clock",
+        items: recentMenuItems(),
+      },
       { label: "Import PPTX", icon: "Upload", onSelect: pickLocal },
       { separator: true },
       {
@@ -6474,25 +7039,65 @@ function fileMenu(anchor) {
         shortcut: `${M}+Shift+S`,
         onSelect: run(saveCopy),
       },
+      {
+        label: "Save as template…",
+        icon: "LayoutTemplate",
+        onSelect: run(() => fileTools.saveAsTemplate()),
+      },
+      {
+        label: "Export…",
+        icon: "o:exportFile",
+        onSelect: run(() => fileTools.openExportDialog()),
+      },
       { label: "Rename", icon: "Pencil", onSelect: run(renameDoc) },
-      { label: "Slide size", icon: "Maximize", onSelect: run(slideSizeDialog) },
+      {
+        label: "Close",
+        icon: "X",
+        onSelect: run(async () => {
+          if (await leaveEditor()) await home();
+        }),
+      },
+      { separator: true },
+      {
+        label: "Compress pictures…",
+        icon: "o:compressPictures",
+        disabled: readOnlyDocument(),
+        onSelect: run(() => fileTools.openCompressDialog()),
+      },
+      {
+        label: "File size…",
+        icon: "o:fileSize",
+        onSelect: run(() => fileTools.openFileSizeDialog()),
+      },
       {
         label: "Embed font",
         icon: "Type",
         disabled: readOnlyDocument(),
         onSelect: pickFont,
       },
+      ...review.fileMenuItems(),
+      { separator: true },
+      {
+        label: "Page setup (slide size)…",
+        icon: "Maximize",
+        onSelect: run(slideSizeDialog),
+      },
+      {
+        label: "Print…",
+        icon: "Printer",
+        shortcut: `${M}+P`,
+        onSelect: run(() => fileTools.openPrintDialog()),
+      },
+      {
+        label: "Properties",
+        icon: "Info",
+        onSelect: run(() => fileTools.openPropertiesDialog()),
+      },
       { separator: true },
       {
         label: "Download PowerPoint (.pptx)",
         icon: "Download",
         onSelect: run(downloadDeck),
-      },
-      {
-        label: "Print / Save as PDF",
-        icon: "Printer",
-        shortcut: `${M}+P`,
-        onSelect: run(printDeck),
       },
       {
         label: "Download as images",
@@ -6518,6 +7123,19 @@ function fileMenu(anchor) {
             { label: "Insert", icon: "Plus", items: insertItems() },
             { label: "Format", icon: "Type", items: formatItems() },
             { label: "Slide", icon: "LayoutTemplate", items: slideItems() },
+            {
+              label: "Review",
+              icon: "o:showComments",
+              items: [
+                {
+                  label: "New Comment",
+                  icon: "o:newComment",
+                  onSelect: () => review.newComment(),
+                },
+                { separator: true },
+                ...review.toolsMenu(),
+              ],
+            },
             {
               label: "Account and settings",
               icon: "User",
@@ -6592,6 +7210,8 @@ function editItems() {
 const editMenu = menuFor("Edit", editItems);
 function viewItems() {
   return [
+    ...views.menuItems(),
+    { separator: true },
     {
       label: "Slide navigator",
       icon: "PanelLeft",
@@ -6629,6 +7249,18 @@ function viewItems() {
     { label: "Zoom", icon: "Maximize", items: zoomItems() },
     { separator: true },
     {
+      label: "Ruler",
+      icon: "o:ruler",
+      checked: !!chrome.ruler,
+      onSelect: () => show("ruler", !chrome.ruler),
+    },
+    {
+      label: "Grid and Guides",
+      icon: "o:gridlines",
+      items: views.grid.menuItems(),
+    },
+    { separator: true },
+    {
       label: "Master",
       icon: "o:slideMaster",
       items: [
@@ -6662,6 +7294,12 @@ function insertItems() {
     { label: "Image", icon: "Image", onSelect: () => insertImage() },
     { label: "Shape", icon: "Square", items: shapeItems() },
     { label: "Table", icon: "Table", onSelect: run(tableDialog) },
+    { label: "Chart…", icon: "o:chart", onSelect: () => chartTools.insert() },
+    P.addSlideSmartArt && {
+      label: "SmartArt…",
+      icon: "o:smartArt",
+      onSelect: () => smartArtTools.insert(),
+    },
     { separator: true },
     {
       label: "Link",
@@ -6672,6 +7310,8 @@ function insertItems() {
     },
     { separator: true },
     { label: "New slide", icon: "Plus", items: layoutItems(slide()) },
+    { separator: true },
+    ...insertFeatures.menuItems(),
   ];
 }
 const insertMenu = menuFor("Insert", insertItems);
@@ -6796,6 +7436,14 @@ function formatItems() {
       icon: "AlignStartVertical",
       disabled: !obj,
       items: arrangeItems(),
+    },
+    {
+      label: "Animation Painter",
+      icon: "o:animationPainter",
+      shortcut: `${MOD_KEY}+Alt+Shift+C`,
+      checked: animationTools.painting,
+      disabled: !animationTools.painting && !animationTools.current().length,
+      onSelect: () => animationTools.startPainter(false),
     },
     { separator: true },
     { label: "Theme", icon: "Palette", onSelect: run(themeDialog) },
@@ -7100,7 +7748,7 @@ function canvasPreview(s) {
   ].join("|");
   const hit = cache.get(part);
   if (hit?.key === key) return hit.src;
-  const src = preview(doc.pres, s, { prompts: true });
+  const src = preview(doc.pres, s, null, { prompts: true });
   cache.set(part, { key, src });
   return src;
 }
@@ -7216,9 +7864,12 @@ function renderSlideArea(refreshNavigator = true) {
       rows.delete(part);
       if (!row) row = slideRow(part);
       row.className = `slide-item ${i === index ? "active" : ""} ${hidden ? "hidden-slide" : ""} ${chosen ? "selected" : ""}`;
+      // A slide with animations is marked beside its number.
+      if (P.slideHasAnimations(s)) row.classList.add("has-animations");
       row.querySelector(".slide-number").textContent = i + 1;
       const thumb = row.querySelector(".slide-thumb");
       thumb.setAttribute("aria-label", thumbLabel(s, i, chosen));
+      review.decorateThumb(thumb, s);
       if (i === index) thumb.setAttribute("aria-current", "true");
       else thumb.removeAttribute("aria-current");
       const badge = thumb.querySelector(".slide-hidden");
@@ -7345,7 +7996,9 @@ function renderSlideArea(refreshNavigator = true) {
   };
   renderCanvasAids();
   drawTools.attach();
+  animationTools.attach();
   renderSelection();
+  review.afterRenderSlide();
   focusTarget?.focus();
   const selectedHit =
     focusSelection && canvas.querySelector(".object-hit.selected");
@@ -7357,6 +8010,7 @@ function renderSlideArea(refreshNavigator = true) {
       document.querySelector("#main")
     )?.focus({ preventScroll: true });
   }
+  views.refresh();
 }
 // A navigator row for one slide, built once and kept. Its buttons look the
 // slide up when used: the deck behind the row changes with every edit and
@@ -7794,6 +8448,7 @@ function renderSelection() {
     insert: fillPlaceholder,
   });
   masterView.decorateCanvas(canvas);
+  insertFeatures.decorateCanvas(canvas);
 }
 // What an empty content placeholder's buttons can insert: tables and
 // pictures always, and what else the Insert tab offers.
@@ -8446,8 +9101,13 @@ function snapTargets(
   threshold,
   moving = new Set([P.getShapeId(obj)]),
 ) {
-  const xs = [0, size.cx / 2, size.cx];
-  const ys = [0, size.cy / 2, size.cy];
+  // The drawing guides always offer themselves; the slide and the other
+  // objects do while smart guides are on.
+  const guides = views.grid.snapTargets();
+  const smart = views.grid.smartGuides();
+  const xs = [...guides.xs, ...(smart ? [0, size.cx / 2, size.cx] : [])];
+  const ys = [...guides.ys, ...(smart ? [0, size.cy / 2, size.cy] : [])];
+  if (!smart) return { xs, ys, threshold };
   const parents = groupParents(slide());
   const visible = new Set(visibleSlideShapes(slide()).map(P.getShapeId));
   for (const other of shapes()) {
@@ -8494,6 +9154,24 @@ function snapBounds(b, mode, { xs, ys, threshold }, { dx = 0, dy = 0 } = {}) {
   const y = Math.abs(dy) >= threshold ? nearest(yEdges, ys, threshold) : null;
   const bounds = { ...b };
   const guides = [];
+  // An edge that meets no guide settles on the grid when snapping is on.
+  const onGrid = (values) => views.grid.gridDelta(values);
+  const gx = !x && Math.abs(dx) > 0 ? onGrid(xEdges.slice(0, 1)) : null;
+  const gy = !y && Math.abs(dy) > 0 ? onGrid(yEdges.slice(0, 1)) : null;
+  if (gx != null) {
+    if (moving) bounds.x += gx;
+    else if (left) {
+      bounds.x += gx;
+      bounds.w -= gx;
+    } else bounds.w += gx;
+  }
+  if (gy != null) {
+    if (moving) bounds.y += gy;
+    else if (top) {
+      bounds.y += gy;
+      bounds.h -= gy;
+    } else bounds.h += gy;
+  }
   if (x) {
     if (moving) bounds.x += x.delta;
     else if (left) {
@@ -9226,11 +9904,18 @@ async function editDiagramText(target) {
 
 function editText(target, event = null) {
   if (readOnlyDocument()) return;
+  if (review.blocksEdits()) return review.blockedEdit();
   const i = shapeIndex(target);
   if (i < 0) return;
   const obj = shapes()[i];
+  if (insertFeatures.open(obj)) return;
   if (P.isDiagramShape(obj)) {
-    editDiagramText(obj);
+    if (P.getShapeSmartArt?.(obj)?.layout) smartArtTools.openPane(obj);
+    else editDiagramText(obj);
+    return;
+  }
+  if (chartTools.isChart(obj)) {
+    chartTools.editData(obj);
     return;
   }
   if (isTable(obj)) {
@@ -9907,6 +10592,12 @@ function editText(target, event = null) {
   input.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && ["s", "p"].includes(e.key.toLowerCase()))
       return;
+    // Spelling, Thesaurus and New Comment work from inside the text too.
+    if (
+      e.key === "F7" ||
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyM")
+    )
+      return;
     e.stopPropagation();
     // Keys pressed while an input method composes text belong to the
     // composition: Escape there drops a candidate, not the whole edit.
@@ -9983,7 +10674,7 @@ function editText(target, event = null) {
   const controls = (node) =>
     node instanceof Element &&
     node.closest(
-      ".ribbon, .ribbon-gallery-panel, .ribbon-fold-panel, #inspector, .menu, .menubar, .mobile-only",
+      ".ribbon, .ribbon-gallery-panel, .ribbon-fold-panel, #inspector, .menu, .menubar, .mobile-only, .review-pane",
     );
   let closed = false;
   function close() {
@@ -10073,7 +10764,36 @@ function editText(target, event = null) {
     setParagraphs,
     paragraphState,
     selectionFormat,
+    // For the review panes and AutoCorrect: the text as typed so far.
+    text: () =>
+      read()
+        .runs.map((run) => run.text)
+        .join(""),
+    selectionOffsets: () => selection(),
+    setSelection,
+    replaceRange,
+    selectedText: () => {
+      const sel = selection();
+      return sel
+        ? read()
+            .runs.map((run) => run.text)
+            .join("")
+            .slice(sel[0], sel[1])
+        : "";
+    },
+    replaceSelection: (value) => {
+      const sel = selection();
+      if (!sel || sel[0] === sel[1]) return false;
+      replaceRange(sel[0], sel[1], value);
+      saved = [sel[0], sel[0] + value.length];
+      return true;
+    },
+    superscript: (from, to) => {
+      setSelection(from, to);
+      apply({ baseline: 30000 }, { refocus: false });
+    },
   };
+  review.attachEditor(richEditor);
   input.focus();
   getSelection()?.selectAllChildren(input);
 }
@@ -10388,6 +11108,8 @@ function colorInput(
 }
 function renderInspector() {
   syncToolbar();
+  chartTools.sync();
+  smartArtTools.sync();
   assistant?.refresh();
   const panel = document.querySelector("#inspector");
   if (!panel) return;
@@ -10546,11 +11268,13 @@ function renderInspectorContents(panel, obj) {
           ? "Format Background"
           : multiSelected()
             ? "Format"
-            : P.getShapeKind(obj) === "picture"
-              ? "Format Picture"
-              : isTable(obj)
-                ? "Format Table"
-                : "Format Shape",
+            : chartTools.formatTitle(obj) ||
+              smartArtTools.formatTitle(obj) ||
+              (P.getShapeKind(obj) === "picture"
+                ? "Format Picture"
+                : isTable(obj)
+                  ? "Format Table"
+                  : "Format Shape"),
       ),
       iconButton(
         "Close format panel",
@@ -10836,6 +11560,9 @@ function renderInspectorContents(panel, obj) {
       ),
     );
   }
+  const chartSection =
+    smartArtTools.inspector(obj) || chartTools.inspector(obj);
+  if (chartSection) body.append(...chartSection);
   if (!isTable(obj)) body.append(...textBox.childNodes);
 
   // Only ordinary shapes take a fill: groups, tables, and charts refuse one,
@@ -13192,11 +13919,29 @@ function objectContextMenu(e, s) {
     label: "Object options",
     contextual: true,
     items: [
+      ...(chartTools.isChart(obj)
+        ? [
+            {
+              label: "Edit Data",
+              icon: "o:editData",
+              shortcut: "Enter",
+              onSelect: () => chartTools.editData(obj),
+            },
+            {
+              label: "Change Chart Type…",
+              icon: "o:changeChartType",
+              onSelect: () => chartTools.changeType(obj),
+            },
+            { separator: true },
+          ]
+        : []),
       ...(canEditText(obj) || isTable(obj) || P.isDiagramShape(obj)
         ? [
             {
               label: P.isDiagramShape(obj)
-                ? "Edit diagram text"
+                ? P.getShapeSmartArt?.(obj)?.layout
+                  ? "Show Text Pane"
+                  : "Edit diagram text"
                 : isTable(obj)
                   ? "Edit cell"
                   : "Edit text",
@@ -13207,6 +13952,7 @@ function objectContextMenu(e, s) {
             { separator: true },
           ]
         : []),
+      ...insertFeatures.contextItems(obj),
       ...clipboardItems(),
       {
         label: "Duplicate",
@@ -13302,18 +14048,7 @@ function canvasContextMenu(e) {
       {
         label: "Grid and Guides",
         icon: "o:gridlines",
-        items: [
-          {
-            label: "Gridlines",
-            checked: !!chrome.gridlines,
-            onSelect: () => show("gridlines", !chrome.gridlines),
-          },
-          {
-            label: "Guides",
-            checked: !!chrome.guides,
-            onSelect: () => show("guides", !chrome.guides),
-          },
-        ],
+        items: views.grid.menuItems(),
       },
       {
         label: "Format Background…",
@@ -13500,7 +14235,30 @@ const BACKGROUND_LABELS = {
   image: "Image",
   inherit: "From layout",
 };
-async function present() {
+// Ink drawn during a show stays on the slides only if the presenter says so.
+async function keepShowInk(pres, strokes) {
+  const count = [...strokes.values()].reduce((n, list) => n + list.length, 0);
+  const keep = await dialog({
+    title: "Keep your ink?",
+    body: el(
+      "p",
+      { class: "dialog-body" },
+      `You drew ${count} ink stroke${count === 1 ? "" : "s"} during the slide show. Keep ${count === 1 ? "it" : "them"} on the slides?`,
+    ),
+    actions: [
+      { label: "Discard", value: false },
+      { label: "Keep Ink", value: true, kind: "primary" },
+    ],
+  });
+  if (!keep || doc?.pres !== pres) return;
+  await mutate(() => {
+    addShowInk(P, doc.pres, strokes, addInkStroke, INK_MM);
+  });
+}
+// `reading` plays the show in Reading View: inside the window, under its
+// title bar, with a status bar for moving through it.
+async function present(options = {}) {
+  const reading = !!options?.reading;
   await settled();
   if (document.querySelector("dialog.presenter[open]")) return;
   const pres = doc.pres;
@@ -13583,6 +14341,46 @@ async function present() {
     status.textContent = error.message;
     stage.classList.add("has-status");
   }
+  // The presenter's pen: ink kept per slide while the show runs, which may
+  // be kept on the slides when it ends.
+  const showInk = createShowInk(frame, {
+    slideKey: () => P.getSlidePartName(all[n]),
+  });
+  const inkButton = iconButton("Pen", "Pencil", () => toggleInk(), {
+    "aria-pressed": "false",
+    title: "Pen (I). E erases the ink on this slide.",
+  });
+  const inkMenuButton = iconButton(
+    "Pen color and ink",
+    "ChevronDown",
+    (e) =>
+      menu(
+        e.currentTarget,
+        [
+          ...SHOW_PEN_COLORS.map(([name, value]) => ({
+            label: name,
+            checked: showInk.color === value,
+            onSelect: () => {
+              showInk.setColor(value);
+              toggleInk(true);
+            },
+          })),
+          { separator: true },
+          {
+            label: "Erase Ink on Slide",
+            shortcut: "E",
+            onSelect: () => showInk.clearSlide(),
+          },
+        ],
+        { label: "Pen" },
+      ),
+    { ...MENU_BUTTON, class: "btn icon-btn presenter-ink-menu" },
+  );
+  function toggleInk(on = !showInk.enabled) {
+    if (on && laser.enabled) toggleLaser();
+    showInk.setEnabled(on);
+    inkButton.setAttribute("aria-pressed", String(on));
+  }
   const laserButton = iconButton(
     "Laser pointer",
     "Pointer",
@@ -13594,6 +14392,7 @@ async function present() {
   );
   function toggleLaser() {
     try {
+      if (!laser.enabled && showInk.enabled) toggleInk(false);
       laser.setEnabled(!laser.enabled);
       laserButton.setAttribute("aria-pressed", String(laser.enabled));
       status.textContent = "";
@@ -13603,6 +14402,15 @@ async function present() {
     }
   }
   const size = P.getSlideSize(pres) || { width: 12192000, height: 6858000 };
+  // Media, zooms and action settings (src/insert/show.js).
+  const showInserted = insertFeatures.slideShow({
+    pres,
+    all,
+    frame,
+    size,
+    show: (i) => show(i),
+    close: () => close(),
+  });
   function fitFrame() {
     const area = frame.parentElement;
     if (!area) return;
@@ -13624,6 +14432,7 @@ async function present() {
     links.replaceChildren();
     const parents = groupParents(current);
     for (const shape of visibleSlideShapes(current)) {
+      if (showInserted.claims(shape)) continue;
       const link = linkOf(shape);
       // An address the app would not accept in its own link dialog gets no
       // region: the file may have been written elsewhere.
@@ -13664,6 +14473,31 @@ async function present() {
       links.append(node);
     }
   }
+  // Shapes that play effects when clicked get a region of their own.
+  function placeTriggers() {
+    for (const { shapeId, box } of animator?.triggers || []) {
+      if (!box) continue;
+      const shape = P.findShapeById(all[n], Number(shapeId));
+      const name = shape ? P.getShapeName(shape) || "object" : "object";
+      const node = el("button", {
+        type: "button",
+        class: "presenter-link presenter-trigger",
+        title: `Play the effects of ${name}`,
+        "aria-label": `Play the effects of ${name}`,
+        onclick: (e) => {
+          e.stopPropagation();
+          animator?.playTrigger(shapeId);
+        },
+      });
+      Object.assign(node.style, {
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
+      });
+      links.append(node);
+    }
+  }
   function follow(link) {
     if (link.kind === "slide") {
       const i = all.findIndex(
@@ -13683,7 +14517,7 @@ async function present() {
   const previous = iconButton("Previous slide", "ChevronLeft", () =>
       showPrevious(),
     ),
-    next = iconButton("Next slide", "ChevronRight", () => show(n + 1));
+    next = iconButton("Next slide", "ChevronRight", () => advance());
   // Speaker notes and the slide to come sit beside the slide when asked for.
   const notesText = el("p", { class: "presenter-notes-text" });
   const upcoming = el("img", {
@@ -13738,6 +14572,13 @@ async function present() {
   let shown = false;
   let ended = false;
   let currentTransition;
+  // The current slide's animations: an advance plays its next click step
+  // before the show moves on.
+  let animator = null;
+  function advance() {
+    if (!ended && animator?.next()) return;
+    show(n + 1);
+  }
   const advanceClock = createSlideAdvanceClock(() => show(n + 1));
   const pauseButton = iconButton(
     "Pause automatic advance",
@@ -13777,6 +14618,7 @@ async function present() {
     typed = "";
   }
   function showPrevious() {
+    if (!ended && animator?.previous()) return;
     show(ended ? n : n - 1, { backward: true });
   }
   let transitionToken = 0;
@@ -13788,6 +14630,9 @@ async function present() {
     image.classList.remove("entering", "fade", "push", "zoom", "backward");
   }
   function show(i, { backward = false } = {}) {
+    const redirected = ended ? i : showInserted.navigate(i, n, { backward });
+    if (redirected === null) return;
+    i = redirected;
     laser.hide();
     clearTyped();
     const wrapped = showTiming.loop && (i < 0 || i >= all.length);
@@ -13843,6 +14688,8 @@ async function present() {
       playbackTransition?.durationMs ??
       { fast: 500, med: 750, slow: 1000 }[playbackTransition?.speed ?? "fast"];
     clearTransition();
+    animator?.destroy();
+    animator = null;
     if (
       shown &&
       (n !== from || wrapped) &&
@@ -13881,10 +14728,24 @@ async function present() {
     shown = true;
     // The navigator already rendered nearby slides from this same state;
     // distant ones render once here and are kept for the navigator.
-    image.src = cachedPreview(previews, pres, all[n]);
+    image.src =
+      showInserted.imageFor(all[n]) ?? cachedPreview(previews, pres, all[n]);
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
+    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    if (backward) animator.finish();
+    else {
+      const playing = animator;
+      Promise.resolve(readiness).then(() => {
+        if (animator === playing) playing.start();
+      });
+    }
     placeLinks(all[n]);
-    counter.textContent = `${n + 1} / ${all.length}`;
+    showInserted.slideShown(all[n], n);
+    showInk.show();
+    placeTriggers();
+    counter.textContent = reading
+      ? `Slide ${n + 1} of ${all.length}`
+      : `${n + 1} / ${all.length}`;
     previous.disabled = n === 0 && !showTiming.loop;
     next.disabled = false;
     const text = P.getSlideNotes(all[n]) || "";
@@ -13915,7 +14776,12 @@ async function present() {
     syncPause();
   }
   function close() {
+    showInserted.dispose();
+    animator?.destroy();
+    animator = null;
     laser.dispose();
+    const inkDrawn = showInk.hasInk ? showInk.strokes() : null;
+    showInk.dispose();
     releaseFonts();
     advanceClock.dispose();
     clearTransition();
@@ -13928,6 +14794,7 @@ async function present() {
     d.close();
     d.remove();
     if (refreshDates && doc?.pres === pres) renderSlideArea();
+    if (inkDrawn) keepShowInk(pres, inkDrawn).catch(fail);
     if (before?.isConnected) before.focus();
     else if (before?.matches(".object-hit"))
       document
@@ -13965,25 +14832,54 @@ async function present() {
   document.addEventListener("fullscreenchange", syncFullscreen);
   const slideArea = el("div", { class: "presenter-slide-area" }, frame);
   frameObserver.observe(slideArea);
-  const controls = el(
-    "div",
-    { class: "presenter-controls" },
-    button("Exit", "X", close),
-    previous,
-    counter,
-    next,
-    notesButton,
-    laserButton,
-    pauseButton,
-    timer,
-    fullscreen,
-  );
+  const controls = reading
+    ? readingBar({
+        previous,
+        next,
+        counter,
+        count: all.length,
+        current: () => n,
+        show: (i) => show(i, { backward: i < n }),
+        close,
+        titleOf: (i) => slideTitle(all[i], pres),
+        // Another view from the bar: the show ends on the slide it reached.
+        switchTo: (id) => {
+          const part = P.getSlidePartName(all[n]);
+          close();
+          const at = P.getSlides(doc.pres).findIndex(
+            (s) => P.getSlidePartName(s) === part,
+          );
+          if (at >= 0) index = at;
+          if (id === "show") present({ from: "current" }).catch(fail);
+          else {
+            renderSlideArea();
+            setView(id);
+          }
+        },
+      })
+    : el(
+        "div",
+        { class: "presenter-controls" },
+        button("Exit", "X", close),
+        previous,
+        counter,
+        next,
+        notesButton,
+        laserButton,
+        inkButton,
+        inkMenuButton,
+        pauseButton,
+        timer,
+        fullscreen,
+      );
+  if (reading) placeReadingDialog(d);
   controlsObserver.observe(controls);
   stage.append(slideArea, notes, status, controls);
   d.append(stage);
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (laser.enabled) toggleLaser();
+    else if (showInk.enabled) toggleInk(false);
     else close();
   });
   d.addEventListener("keydown", (e) => {
@@ -13993,6 +14889,11 @@ async function present() {
     if (e.key === "Escape" && laser.enabled) {
       e.preventDefault();
       toggleLaser();
+      return;
+    }
+    if (e.key === "Escape" && showInk.enabled) {
+      e.preventDefault();
+      toggleInk(false);
       return;
     }
     if (
@@ -14005,7 +14906,10 @@ async function present() {
     // own print would only produce a blank page behind the slideshow.
     if ((e.ctrlKey || e.metaKey) && ["p", "s"].includes(e.key.toLowerCase())) {
       e.preventDefault();
-      (e.key.toLowerCase() === "p" ? printDeck() : saveCloud()).catch(fail);
+      (e.key.toLowerCase() === "p"
+        ? fileTools.openPrintDialog()
+        : saveCloud()
+      ).catch(fail);
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -14017,6 +14921,14 @@ async function present() {
       e.preventDefault();
       toggleLaser();
     }
+    if (key === "i") {
+      e.preventDefault();
+      toggleInk();
+    }
+    if (key === "e") {
+      e.preventDefault();
+      showInk.clearSlide();
+    }
     if (key !== "b" && key !== "w" && wasBlank) {
       restoreBlank();
       setPaused(false);
@@ -14027,7 +14939,7 @@ async function present() {
       (e.key === "Enter" && !typed)
     ) {
       e.preventDefault();
-      show(n + 1);
+      advance();
     }
     if (
       key === "p" ||
@@ -14091,7 +15003,7 @@ async function present() {
       close();
       return;
     }
-    if (currentTransition?.advanceOnClick !== false) show(n + 1);
+    if (currentTransition?.advanceOnClick !== false) advance();
   });
   stage.addEventListener("click", (e) => {
     if (e.target.closest(".presenter-controls")) return;
@@ -14129,7 +15041,7 @@ async function present() {
       const dy = end.clientY - start.y;
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
         swiped = true;
-        if (dx < 0) show(n + 1);
+        if (dx < 0) advance();
         else showPrevious();
       }
     },
@@ -14142,6 +15054,7 @@ async function present() {
     },
     { passive: true },
   );
+  await showInserted.prepare();
   const releaseFonts = retainDocumentFonts(pres);
   document.body.append(d);
   try {
@@ -14153,55 +15066,6 @@ async function present() {
     throw error;
   }
 }
-async function printDeck() {
-  const target = doc;
-  if (!target) return;
-  await settled();
-  if (doc !== target) return;
-  const slides = P.getSlides(doc.pres).filter((s) => !P.isSlideHidden(s));
-  if (!slides.length) {
-    toast("There are no visible slides to print.");
-    return;
-  }
-  if (slides.some((s) => slideHasDateFields(doc.pres, s))) {
-    P.refreshPresentationFields(doc.pres);
-    renderSlideArea();
-  }
-  const size = currentSize();
-  const width = size.cx / 914400;
-  const height = size.cy / 914400;
-  const print = el(
-    "div",
-    { id: "print-slides", style: `--print-slide-height: ${height}in` },
-    el("style", { media: "print" }, `@page { size: ${width}in ${height}in; }`),
-    // The navigator already rendered nearby slides from this same state.
-    ...slides.map((s) =>
-      el(
-        "div",
-        { class: "print-page" },
-        el("img", {
-          src: cachedPreview(doc.previews, doc.pres, s),
-          alt: slideDescription(s, doc?.pres),
-        }),
-      ),
-    ),
-  );
-  document.querySelector("#print-slides")?.remove();
-  document.body.append(print);
-  await Promise.all(
-    [...print.querySelectorAll("img")].map((img) =>
-      img.decode().catch(() => {}),
-    ),
-  );
-  if (doc !== target) {
-    print.remove();
-    return;
-  }
-  if (!print.isConnected) return;
-  window.print();
-  setTimeout(() => print.remove(), 1000);
-}
-
 document.addEventListener("keydown", (e) => {
   if (
     e.defaultPrevented ||
@@ -14224,12 +15088,16 @@ document.addEventListener("keydown", (e) => {
       'select, input[type="color"], input[type="range"], input[type="checkbox"]',
     );
   const mod = e.ctrlKey || e.metaKey;
+  if (review.keydown(e)) return;
+  if (!typing && animationTools.onKey(e)) return;
   if (mod && !e.altKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     if (editing) e.target.blur();
     (e.shiftKey ? saveCopy() : saveCloud()).catch(fail);
     return;
   }
+  // The views by number (Cmd/Ctrl+1 to 5), Show Outline, and the grid.
+  if (views.keydown(e)) return;
   if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "o") {
     e.preventDefault();
     if (editing) e.target.blur();
@@ -14239,7 +15107,7 @@ document.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "p") {
     e.preventDefault();
     if (editing) e.target.blur();
-    printDeck().catch(fail);
+    fileTools.openPrintDialog().catch(fail);
     return;
   }
   // F5 presents from the first slide, Shift+F5 from the current one.

@@ -665,6 +665,15 @@ const fileMenuOpener = (page) =>
 async function openFileMenu(page) {
   await fileMenuOpener(page).click();
 }
+// File > Print…, then Print in the print dialog with its settings as they are.
+async function printFromMenu(page) {
+  await openFileMenu(page);
+  await page.getByRole("menuitem", { name: "Print…", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Print" })
+    .getByRole("button", { name: "Print", exact: true })
+    .click();
+}
 // A menu bar menu: on the bar, or, on a phone, a submenu of the File
 // options button that stands in for the bar.
 async function openBarMenu(page, name) {
@@ -3824,10 +3833,7 @@ for (const [width, height] of [
         return timeout(callback, delay, ...args);
       };
     });
-    await openFileMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-      .click();
+    await printFromMenu(page);
     await page.waitForFunction(() => window.__printStarted);
     const pdf = await page.pdf({ preferCSSPageSize: true });
     const pages = [
@@ -3844,7 +3850,7 @@ for (const [width, height] of [
 }
 
 for (const modifier of ["Control", "Meta"]) {
-  test(`${modifier}+P prepares slides and commits text still being edited`, async ({
+  test(`${modifier}+P opens Print, commits text still being edited, and prints the slides`, async ({
     page,
   }) => {
     await story(page);
@@ -3859,6 +3865,10 @@ for (const modifier of ["Control", "Meta"]) {
     const input = page.getByRole("textbox", { name: "Edit text", exact: true });
     await input.fill("Print this in-progress title");
     await input.press(`${modifier}+p`);
+    await page
+      .getByRole("dialog", { name: "Print" })
+      .getByRole("button", { name: "Print", exact: true })
+      .click();
     await expect
       .poll(() => page.evaluate(() => window.__printedSlides?.length || 0))
       .toBe(5);
@@ -3893,10 +3903,7 @@ test("a superseded print request cannot open another print dialog after its imag
     };
   });
   const print = async () => {
-    await openFileMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-      .click();
+    await printFromMenu(page);
   };
   await print();
   await page.waitForFunction(() => window.__releasePrintImage);
@@ -3931,10 +3938,7 @@ for (const destination of ["library", "another presentation"]) {
         return ready;
       };
     });
-    await openFileMenu(page);
-    await page
-      .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-      .click();
+    await printFromMenu(page);
     await page.waitForFunction(() => window.__releasePrintImage);
     await page.getByRole("button", { name: "Back to presentations" }).click();
     await expect(
@@ -3953,10 +3957,7 @@ for (const destination of ["library", "another presentation"]) {
     expect(await page.evaluate(() => window.__printCalls)).toBe(0);
     await expect(page.locator("#print-slides")).toHaveCount(0);
     if (destination === "another presentation") {
-      await openFileMenu(page);
-      await page
-        .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-        .click();
+      await printFromMenu(page);
       await expect.poll(() => page.evaluate(() => window.__printCalls)).toBe(1);
     }
   });
@@ -3983,10 +3984,7 @@ test("printing an all-hidden deck explains why there is nothing to print", async
     window.__printCalls = 0;
     window.print = () => window.__printCalls++;
   });
-  await openFileMenu(page);
-  await page
-    .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-    .click();
+  await printFromMenu(page);
   await expect(page.locator("#toast")).toHaveText(
     "There are no visible slides to print.",
   );
@@ -8823,10 +8821,7 @@ test("printing reuses the navigator's slide renders", async ({ page }) => {
     };
   });
   await countSvgRenders(page);
-  await openFileMenu(page);
-  await page
-    .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-    .click();
+  await printFromMenu(page);
   await page.waitForFunction(() => window.__printStarted);
   expect(
     await page.$$eval("#print-slides img", (images) =>
@@ -9952,6 +9947,10 @@ test("the print and save shortcuts work while presenting", async ({ page }) => {
   const presenter = page.getByRole("dialog", { name: "Presentation mode" });
   await expect(presenter).toBeVisible();
   await page.keyboard.press("Control+p");
+  await page
+    .getByRole("dialog", { name: "Print" })
+    .getByRole("button", { name: "Print", exact: true })
+    .click();
   await page.waitForFunction(() => window.__printStarted);
   await expect(page.locator("#print-slides .print-page")).toHaveCount(5);
   await expect(presenter).toBeVisible();
@@ -15969,7 +15968,9 @@ test("the slide size and appearance dialogs open on their first choice", async (
 }) => {
   await story(page);
   await openFileMenu(page);
-  await page.getByRole("menuitem", { name: "Slide size", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Page setup (slide size)…", exact: true })
+    .click();
   await expect(
     page.getByRole("combobox", { name: "Slide size" }),
   ).toBeFocused();
@@ -17513,10 +17514,7 @@ test("automatic dates share a snapshot through editing and undo and refresh for 
       ].map((img) => ({ src: img.src, alt: img.alt }));
     };
   });
-  await openFileMenu(page);
-  await page
-    .getByRole("menuitem", { name: "Print / Save as PDF", exact: true })
-    .click();
+  await printFromMenu(page);
   await expect
     .poll(() => page.evaluate(() => window.__datePrint?.length))
     .toBe(2);

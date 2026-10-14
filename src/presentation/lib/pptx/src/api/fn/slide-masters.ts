@@ -1935,7 +1935,7 @@ const fieldParagraph = (type: string, text: string, algn: string): string => {
 const NOTES_SIZE_DEFAULT = { cx: 6858000, cy: 9144000 };
 
 /** The notes / handout page size (`<p:notesSz>`), portrait by default. */
-export const getNotesPageSize = (
+export const getNotesPageExtent = (
   pres: PresentationData,
 ): { cx: number; cy: number } => {
   const doc = readDoc(pkgOf(pres), PRES_PART_NAME);
@@ -1952,7 +1952,7 @@ const pageSizeOf = (
   kind: ReturnType<typeof getTemplateKind>,
 ): { cx: number; cy: number } => {
   if (kind === "notesMaster" || kind === "handoutMaster")
-    return getNotesPageSize(pres);
+    return getNotesPageExtent(pres);
   const size = getSlideSize(pres);
   return {
     cx: Number(size?.width ?? 12192000),
@@ -1975,7 +1975,7 @@ export const setNotesPageOrientation = (
   orientation: "portrait" | "landscape",
 ): void => {
   const pkg = pkgOf(pres);
-  const before = getNotesPageSize(pres);
+  const before = getNotesPageExtent(pres);
   const long = Math.max(before.cx, before.cy),
     short = Math.min(before.cx, before.cy);
   const after =

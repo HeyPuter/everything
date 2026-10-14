@@ -513,9 +513,9 @@ describe("notes and handout masters", () => {
     expect(P.hasTemplatePlaceholder(handoutView, "slideImage")).toBe(false);
     P.setTemplatePlaceholder(pres, handoutView, "header", false);
     expect(P.hasTemplatePlaceholder(handoutView, "header")).toBe(false);
-    expect(P.getNotesPageSize(pres)).toEqual({ cx: 6858000, cy: 9144000 });
+    expect(P.getNotesPageExtent(pres)).toEqual({ cx: 6858000, cy: 9144000 });
     P.setNotesPageOrientation(pres, "landscape");
-    expect(P.getNotesPageSize(pres)).toEqual({ cx: 9144000, cy: 6858000 });
+    expect(P.getNotesPageExtent(pres)).toEqual({ cx: 9144000, cy: 6858000 });
     expect(P.getTemplatePageSize(pres, notesView)).toEqual({
       cx: 9144000,
       cy: 6858000,

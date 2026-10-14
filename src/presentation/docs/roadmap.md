@@ -50,13 +50,14 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 3. Animations
 
-- [ ] Animations tab: entrance, emphasis, exit and motion path galleries,
+- [x] Animations tab: entrance, emphasis, exit and motion path galleries,
       Effect Options, Add Animation, Animation Painter, Trigger, Start,
       Duration, Delay, Reorder.
-- [ ] Animation Pane with a timeline, play from, drag reordering, and a dialog
+- [x] Animation Pane with a timeline, play from, drag reordering, and a dialog
       for effect, timing and text animation settings.
-- [ ] Animations written to and read from the file's timing tree, previewed on
+- [x] Animations written to and read from the file's timing tree, previewed on
       the canvas, and played in slide shows.
+- [ ] Adding sounds to effects (sounds already in a file are kept).
 
 ### 4. Transitions
 
@@ -75,38 +76,70 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 6. Insert
 
-- [ ] Icons, Video, Audio (from file and recorded), Screenshot, Photo Album,
-      Equation, Header & Footer dialog, Slide Zoom / Section Zoom / Summary
-      Zoom, Action Buttons, Object, Comment.
+- [x] Icons (searchable categories; SVG pictures with a PNG stand-in;
+      Graphics Format tab with fill, outline, styles, Change Graphic and
+      Convert to Shape).
+- [x] Video and Audio from a file, Record Audio (saved as WAV): real media
+      parts with `p14:media` trim, fades and bookmarks, poster frames, canvas
+      controls, a Playback tab, and playback in the slide show (start mode,
+      volume, loop, rewind, hide while not playing, full screen, play across
+      slides).
+- [x] Screenshot (window or screen capture, and screen clipping).
+- [x] Photo Album (order, layouts with titles, captions, frames, black and
+      white).
+- [x] Equation: TeX-style input with structure and symbol palettes, drawn by
+      our own layout engine into an SVG picture that keeps its source and
+      reopens for editing. (Native OMML `a14:m` output is not written yet.)
+- [x] Header & Footer dialog (slides; notes and handouts).
+- [x] Slide Zoom, Section Zoom and Summary Zoom (pictures with slide jumps and
+      zoom settings; zoom transition and return in the slide show; Zoom tab).
+- [x] Action Buttons and the Action Settings dialog (mouse click and mouse
+      over: jumps, end show, sounds, highlight).
+- [x] Object: files embedded as OLE Packages, shown as icons, downloaded when
+      opened.
+- [ ] Comment (area 9).
 
 ### 7. Charts and SmartArt
 
-- [ ] Insert Chart with every common chart type, a data sheet editor, and
+- [x] Insert Chart with every common chart type, a data sheet editor, and
       Chart Design / Format tabs (styles, colors, elements, layouts, switch
       row/column, change type).
-- [ ] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
-      and Format tabs, and Convert to SmartArt for bulleted text.
+- [x] Insert SmartArt graphics by category with a Text Pane, SmartArt Design
+      tab and Format pane section, and Convert to SmartArt for bulleted text.
+- [ ] SmartArt: pictures in picture layouts, per-shape formatting (a SmartArt
+      Format tab).
 
 ### 8. Views
 
-- [ ] Outline View with editable slide titles and body text.
-- [ ] Slide Sorter with sections, zoom, drag reordering and transitions.
-- [ ] Notes Page and Reading View.
-- [ ] Grid and Guides dialog, smart guides, snap to grid, Zoom dialog, status
+- [x] Outline View with editable slide titles and body text.
+- [x] Slide Sorter with sections, zoom, drag reordering and transitions.
+- [x] Notes Page and Reading View.
+- [x] Grid and Guides dialog, smart guides, snap to grid, Zoom dialog, status
       bar view buttons.
 
 ### 9. Review
 
-- [ ] Comments pane with threaded replies, resolve, mentions, previous/next,
-      saved in the file.
-- [ ] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Comments pane with threaded replies, resolve, mentions, previous/next,
+      saved in the file (threaded comment parts; legacy comments read too),
+      draggable markers, thumbnail indicators and a status bar button.
+- [x] Thesaurus, Translate, Language, Check Accessibility pane, Compare.
+- [x] Spelling pane, AutoCorrect while typing, Reading Order pane, and
+      Always Open Read-Only with Edit Anyway.
 
 ### 10. File, print and export
 
-- [ ] Export as PDF, PNG/JPEG, video, animated GIF, outline (RTF/text).
-- [ ] Print dialog with full-page slides, notes pages, outline and handouts
-      (1, 2, 3, 4, 6, 9 per page), frame, scale to fit.
-- [ ] Properties, Save as Template, Compress Pictures, Reduce File Size.
+- [x] Export as PDF (slides, notes pages, handouts, outline; searchable
+      text layer and bookmarks), PNG/JPEG, MP4/WebM video with transitions
+      and timings, animated GIF, outline (RTF/text), template (.potx).
+- [x] Print dialog with preview: full-page slides, notes pages, outline and
+      handouts (1, 2, 3 with lines, 4, 6, 9 per page, across or down),
+      paper and orientation, colour/grayscale/black and white, frame, scale
+      to fit, hidden slides, slide range, header and footer; Save as PDF.
+- [x] Properties (core and extended properties, statistics in app.xml),
+      Save as Template, Compress Pictures (resolution, delete cropped
+      areas, selected or all), File size summary with unused media removal.
+- [x] File menu: Open recent, Close, Page setup (slide size).
+- [ ] OpenDocument (.odp) export: not planned.
 
 ### 11. Format dialogs and panes
 
@@ -119,6 +152,21 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 12. Draw and assistant
 
-- [ ] Lasso Select, Ink to Shape, Ink to Text, Ink to Math, Add Pen, ink
-      replay.
-- [ ] Generate a presentation from a description on the start screen.
+- [x] Lasso Select, Ink to Shape, Ink to Text, Ink to Math, Add Pen, ink
+      replay. Also: stroke and point erasers with sizes, a pen collection
+      (pens, pencils, highlighters; colour, thickness, texture, order) kept
+      on the device, Convert Ink to Shapes, a ruler stencil pens follow,
+      Draw with Touch, and a slide show pen whose ink can be kept. Stroke
+      timing is stored on each ink shape (`P.setShapeInkTiming`, an
+      `a:extLst` extension on `p:cNvPr`) so replay survives a save.
+      (`src/draw/`, `src/draw-tab.js`)
+- [x] Generate a presentation from a description on the start screen, and
+      New Slide from Prompt (Home tab, New Slide menu) through the
+      assistant. (`src/start/deck-from-prompt.js`)
+- [x] Library screen: section rail (Home, New, Recent, Open), Themes strip,
+      Recent / Pinned filter, pin to top, Last opened. (`src/start/`)
+- [x] Ink to Math makes a real equation object (src/insert's
+      `equations.prepare/place`), re-editable by double-click; a LaTeX text
+      box only where that API is missing.
+- [ ] A Shared section in the rail, once Puter exposes files shared with
+      the user.

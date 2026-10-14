@@ -91,8 +91,24 @@ export interface RenderSlideOptions {
    * the prompt per shape (null for none). Slide shows, exports and
    * thumbnails leave this off so prompts never appear as content. */
   readonly placeholderPrompts?:
-    | boolean
-    | ((shape: SlideShapeData) => string | null);
+    boolean | ((shape: SlideShapeData) => string | null);
+  /** Draw one layer of the slide rather than the whole of it, so a show can
+   *  move the parts of a slide independently (animations). `background`
+   *  says whether the slide background and the layout's and master's own
+   *  shapes are drawn; `shape` is asked about each of the slide's top-level
+   *  shapes: false leaves it out, true draws it whole, and a part draws its
+   *  fill and outline (`body`) and/or some of its paragraphs. */
+  readonly layer?: {
+    readonly background: boolean;
+    readonly shape: (shape: SlideShapeData) => boolean | SlideShapeLayerPart;
+  };
+}
+
+export interface SlideShapeLayerPart {
+  /** The shape's geometry: fill, outline and effects. */
+  readonly body: boolean;
+  /** Paragraph indexes to paint; null paints every paragraph. */
+  readonly paragraphs: ReadonlySet<number> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +277,10 @@ export interface TextBodyInput {
   readonly vert?: VerticalLayout;
   /** Multi-column body (`numCol`/`spcCol`); null / omitted is single column. */
   readonly columns?: ColumnLayout | null;
+  /** Paint only these paragraphs (by index). Every paragraph still takes its
+   *  place in the layout, so a paragraph painted alone sits exactly where it
+   *  does in the whole body. Null / omitted paints them all. */
+  readonly visibleParagraphs?: ReadonlySet<number> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -895,7 +915,12 @@ export const layoutTextSvg = (
   measure: TextMeasurer,
 ): string => {
   const { placements, vert, cx, cy } = layoutCore(input, measure);
-  const body = emitPlacements(placements);
+  const visible = input.visibleParagraphs;
+  const body = emitPlacements(
+    visible
+      ? placements.filter((p) => visible.has(p.line.paraIndex))
+      : placements,
+  );
   if (vert === "none" || vert === "upright") return body;
   const deg = vert === "cw90" ? 90 : 270;
   return `<g transform="rotate(${deg} ${fmt(cx)} ${fmt(cy)})">${body}</g>`;

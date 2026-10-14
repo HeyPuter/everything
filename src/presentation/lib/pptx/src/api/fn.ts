@@ -18,8 +18,11 @@ export * from "./fn/template-import.ts";
 export * from "./fn/embedded-fonts.ts";
 export * from "./fn/theme.ts";
 export * from "./fn/properties.ts";
+export * from "./fn/document-statistics.ts";
 export * from "./fn/thumbnail.ts";
 export * from "./fn/slide-show.ts";
+export * from "./fn/view-properties.ts";
+export * from "./fn/outline.ts";
 
 // Slide-level
 export * from "./fn/slide-query.ts";
@@ -40,6 +43,7 @@ export * from "./fn/shape-gradient-read.ts";
 export * from "./fn/shape-fill-stroke.ts";
 export * from "./fn/shape-format-copy.ts";
 export * from "./fn/shape-freeform.ts";
+export * from "./fn/shape-ink.ts";
 export * from "./fn/shape-effects.ts";
 export * from "./fn/shape-text.ts";
 export * from "./fn/shape-runs.ts";
@@ -52,6 +56,15 @@ export * from "./fn/shape-image.ts";
 export * from "./fn/shape-click-action.ts";
 export * from "./fn/shape-image-effects.ts";
 export * from "./fn/shape-animation.ts";
+export * from "./fn/slide-animations.ts";
+
+// Inserted objects: media, vector pictures, actions, embeddings, footers
+export * from "./fn/object-data.ts";
+export * from "./fn/vector-picture.ts";
+export * from "./fn/slide-media.ts";
+export * from "./fn/shape-actions.ts";
+export * from "./fn/ole-object.ts";
+export * from "./fn/header-footer.ts";
 
 // Slide features
 export * from "./fn/slide-background.ts";
@@ -63,6 +76,8 @@ export * from "./fn/slide-title.ts";
 
 // Tables / charts / comments / validation / package introspection
 export * from "./fn/comments.ts";
+export * from "./fn/comment-threads.ts";
+export * from "./fn/custom-properties.ts";
 export * from "./fn/charts.ts";
 export * from "./fn/tables.ts";
 export { getTableStyleResolver } from "./fn/table-styles.ts";

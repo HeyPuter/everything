@@ -625,6 +625,17 @@ export function buildTabs(api) {
         visible: () => api.hasAssistant(),
         run: () => api.designIdeas(),
       },
+      {
+        type: "large",
+        id: "new-slide-prompt",
+        label: "Slide from\nPrompt",
+        icon: "newSlidePrompt",
+        title: "New Slide from Prompt",
+        description:
+          "Describe a slide and the AI assistant drafts it after the current one.",
+        visible: () => api.hasAssistant(),
+        run: () => api.newSlideFromPrompt(),
+      },
     ],
   };
 
@@ -701,6 +712,20 @@ export function buildTabs(api) {
           },
           {
             type: "large",
+            id: "screenshot",
+            label: "Screenshot",
+            icon: "screenshot",
+            title: "Screenshot",
+            description:
+              "Insert a picture of a window or screen, or of a part of it.",
+            visible: () => !!api.screenshot,
+            split: true,
+            run: () => api.screenshot?.(),
+            menu: () => api.screenshotMenu?.() ?? [],
+            menuLabel: "Screenshot options",
+          },
+          {
+            type: "large",
             id: "photo-album",
             label: "Photo\nAlbum",
             icon: "photoAlbum",
@@ -766,6 +791,17 @@ export function buildTabs(api) {
         items: [
           {
             type: "large",
+            id: "insert-zoom",
+            label: "Zoom",
+            icon: "zoomSlide",
+            title: "Zoom",
+            description:
+              "Jump to a slide or section in a slide show, and back.",
+            visible: () => !!api.insertZoomMenu,
+            menu: () => api.insertZoomMenu?.() ?? [],
+          },
+          {
+            type: "large",
             id: "link",
             label: "Link",
             icon: "link",
@@ -783,7 +819,17 @@ export function buildTabs(api) {
             description:
               "Make the selected object go to a slide or web page when clicked in a slide show.",
             enabled: () => api.canLink(),
-            menu: () => api.actionMenu(),
+            split: !!api.actionSettings,
+            run: () => api.actionSettings?.(),
+            menu: () => [
+              ...api.actionMenu(),
+              ...(api.actionButtonsMenu
+                ? [
+                    { separator: true },
+                    { label: "Action Buttons", items: api.actionButtonsMenu() },
+                  ]
+                : []),
+            ],
           },
         ],
       },
@@ -797,7 +843,7 @@ export function buildTabs(api) {
             id: "insert-comment",
             label: "Comment",
             icon: "newComment",
-            title: `New Comment (${M(api)}+Alt+M)`,
+            title: `New Comment (${M(api)}+Shift+M)`,
             visible: () => !!api.newComment,
             run: () => api.newComment?.(),
           },
@@ -863,6 +909,16 @@ export function buildTabs(api) {
               },
             ],
           },
+          {
+            type: "large",
+            id: "object",
+            label: "Object",
+            icon: "object",
+            title: "Object",
+            description: "Embed a file in the presentation, shown as an icon.",
+            visible: () => !!api.insertObject,
+            run: () => api.insertObject?.(),
+          },
         ],
       },
       {
@@ -876,8 +932,12 @@ export function buildTabs(api) {
             label: "Equation",
             icon: "equation",
             title: "Equation",
+            description: "Write a math equation, or insert a common one.",
             visible: () => !!api.insertEquation,
+            split: true,
             run: () => api.insertEquation?.(),
+            menu: () => api.equationMenu?.() ?? [],
+            menuLabel: "Equations",
           },
           {
             type: "large",
@@ -903,7 +963,11 @@ export function buildTabs(api) {
             label: "Video",
             icon: "video",
             title: "Video",
+            description: "Insert a video from your device.",
+            split: true,
             run: () => api.insertVideo?.(),
+            menu: () => api.videoMenu?.() ?? [],
+            menuLabel: "Video sources",
           },
           {
             type: "large",
@@ -911,7 +975,11 @@ export function buildTabs(api) {
             label: "Audio",
             icon: "audio",
             title: "Audio",
+            description: "Insert sound from your device, or record it.",
+            split: true,
             run: () => api.insertAudio?.(),
+            menu: () => api.audioMenu?.() ?? [],
+            menuLabel: "Audio sources",
           },
         ],
       },
@@ -1473,6 +1541,18 @@ export function buildTabs(api) {
             pressed: () => api.showing("notes"),
             run: () => api.show("notes", !api.showing("notes")),
           },
+          {
+            type: "small",
+            id: "grid-settings",
+            label: "Grid Settings",
+            icon: "gridlines",
+            showLabel: true,
+            title: "Grid and Guides",
+            description:
+              "Set the grid spacing, snapping, and which guides show.",
+            visible: () => !!api.gridDialog,
+            run: () => api.gridDialog(),
+          },
         ],
       },
       {
@@ -1708,7 +1788,12 @@ export function buildTabs(api) {
     id: "shape-format",
     label: "Shape Format",
     contextual: true,
-    visible: () => shapeSel() || (some() && !pictureSel() && !tableSel()),
+    visible: () =>
+      shapeSel() ||
+      (some() &&
+        !pictureSel() &&
+        !tableSel() &&
+        !["chart", "smartart"].includes(api.selectionKind())),
     groups: [
       {
         id: "insert-shapes",
@@ -2218,7 +2303,17 @@ export function buildTabs(api) {
   // Tabs from other modules join after the tab they name, or with the
   // contextual tabs at the end.
   const extra = api.extraTabs ? api.extraTabs() : [];
-  const tabs = [home, insert, design, transitions, slideShow, review, viewTab];
+  // The Review tab comes from the review module when the editor has one.
+  const reviewTab = api.reviewTab ? api.reviewTab(api) : review;
+  const tabs = [
+    home,
+    insert,
+    design,
+    transitions,
+    slideShow,
+    reviewTab,
+    viewTab,
+  ];
   for (const t of extra.filter((t) => !t.contextual)) {
     const at = tabs.findIndex((x) => x.id === t.after);
     tabs.splice(at >= 0 ? at + 1 : tabs.length, 0, t);

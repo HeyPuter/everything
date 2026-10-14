@@ -61,7 +61,7 @@ export function templatePicture(pres, partName) {
     });
   }
   const value = {
-    src: preview(pres, view, { prompts: true }),
+    src: preview(pres, view, null, { prompts: true }),
     frames,
     aspect: `${page.cx} / ${page.cy}`,
   };

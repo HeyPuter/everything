@@ -364,9 +364,10 @@ describe("native plot guide line resolution", () => {
       })),
     });
     const copied = chartRenderingView(shape).plotGroups;
+    // Plot groups are written in the order of their first series.
     expect(copied.map((g) => [g.kind, !!g.dropLines, !!g.hiLowLines])).toEqual([
-      ["line", false, true],
       ["area", true, false],
+      ["line", false, true],
     ]);
     const saved = await P.loadPresentation(await P.savePresentation(p));
     expect(preview(saved, P.getSlides(saved).at(-1))).toEqual(preview(p, s));
