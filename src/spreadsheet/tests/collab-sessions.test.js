@@ -3,7 +3,7 @@ import { Workbook } from '../src/core/workbook.js';
 import { RoomClient } from '../src/collab/client.js';
 import { memoryOutbox } from '../src/collab/outbox.js';
 import { call } from '../src/collab/api.js';
-import { environment, owner, editor, viewer, stranger, SERVER, until, wait } from './collab-helpers.js';
+import { environment, owner, editor, viewer, stranger, SERVER, until } from './collab-helpers.js';
 
 const open = [];
 afterEach(() => { for (const c of open.splice(0)) c.close(); });
@@ -99,8 +99,7 @@ describe('co-authoring sessions', () => {
     b.wb.setInput(s, 5, 0, 'offline 1');
     b.wb.insertRows(s, 0, 1);
     b.wb.setInput(s, 0, 0, 'offline header');
-    await wait(30);
-    expect(b.status.state).toBe('offline');
+    await until(() => b.status.state === 'offline', 4000, 'the failed send to show as offline');
     expect(b.status.pending).toBeGreaterThan(0);
     a.wb.setInput(s, 3, 3, 'online');
     await until(() => !a.replica.pending.length, 4000, 'a delivers');
