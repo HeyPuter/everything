@@ -187,14 +187,13 @@ export function themeStrip(themes, pick) {
     el("h2", { class: "home-themes-title" }, "Themes"),
     el(
       "div",
-      { class: "home-themes-row", role: "list" },
+      { class: "home-themes-row" },
       ...themes.map((t) =>
         el(
           "button",
           {
             type: "button",
             class: "home-theme",
-            role: "listitem",
             "data-theme-key": t.key,
             "aria-label": `New presentation in the ${t.name} theme`,
             onclick: () => pick(t.key),

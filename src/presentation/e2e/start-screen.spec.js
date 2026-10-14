@@ -111,9 +111,9 @@ test("an outline the AI got wrong says so and leaves the library open", async ({
 test("a theme starts a new deck in its palette", async ({ page }) => {
   await start(page);
   const themes = page.getByRole("region", { name: "Start in a theme" });
-  await expect(themes.getByRole("listitem")).toHaveCount(4);
+  await expect(themes.getByRole("button", { name: / theme$/ })).toHaveCount(4);
   await themes
-    .getByRole("listitem", { name: "New presentation in the Midnight theme" })
+    .getByRole("button", { name: "New presentation in the Midnight theme" })
     .click();
   await expect(page.locator("#slide-count")).toHaveText("1");
   await expect(page.locator(".document-title")).toHaveText(
