@@ -47,6 +47,7 @@ test('Font dialog: hidden text, live preview, Set As Default and Text Effects', 
   await dialog.getByLabel('Size', { exact: true }).fill('14');
   await dialog.getByRole('button', { name: 'Set As Default' }).click();
   await page.getByRole('dialog', { name: 'Set as default' }).getByRole('button', { name: 'Set As Default' }).click();
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('spinbutton', { name: 'Font size (pt)', exact: true })).toHaveValue('14');
   // Text effects from the Font dialog.
   await select(input, 'Visible');
