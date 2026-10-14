@@ -5002,6 +5002,26 @@ test("the workshop banner keeps keyboard focus while its countdown changes", () 
     assert.equal(ui.doc.querySelector('[data-fac-open="vote"]'), chip);
     assert.match(chip.textContent, /4:59/);
     assert.equal(ui.doc.activeElement, chip);
+    // Screen readers announce a focused control's new name, so the name
+    // keeps the time it had when focused rather than changing each second.
+    const name = () => chip.getAttribute("aria-label") ?? chip.textContent;
+    assert.equal(name(), "Voting: 2 votes left · 5:00");
+    b.workshop = { ...b.workshop, vote: vote({ endsAt: 10000 + 298_000 }) };
+    ui.api.render();
+    assert.match(chip.textContent, /4:58/);
+    assert.equal(name(), "Voting: 2 votes left · 5:00");
+    // What it says otherwise is news and is said, with the time.
+    b.workshop = {
+      vote: vote({ endsAt: 10000 + 297_000 }),
+      ...Object.fromEntries([ballot(editor, ["a"])]),
+    };
+    ui.api.render();
+    assert.equal(name(), "Voting: 1 vote left · 4:57");
+    // Focused anew, it gives the time again.
+    chip.blur();
+    b.workshop = { ...b.workshop, vote: vote({ endsAt: 10000 + 296_000 }) };
+    ui.api.render();
+    assert.equal(name(), "Voting: 1 vote left · 4:56");
   } finally {
     ui.close();
   }

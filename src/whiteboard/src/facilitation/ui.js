@@ -2229,17 +2229,23 @@ export function createFacilitationUI(api) {
       chips.push(["session", t("Board locked for participants")]);
     if (s.lock === "frozen") chips.push(["session", t("Board frozen")]);
     const v = w.vote;
+    // What a chip with a countdown says apart from it.
+    const steady = new Map();
     if (voteOpen(v, now())) {
       const left = v.votes - myBallot(b, v.id, me().id).length;
       const seconds = v.endsAt
         ? Math.max(0, Math.ceil((v.endsAt - now()) / 1000))
         : 0;
+      const voting = labelled(
+        t("Voting"),
+        api.canParticipate()
+          ? fill("{count} votes left", { count: left })
+          : t("in progress"),
+      );
+      steady.set("vote", voting);
       chips.push([
         "vote",
-        labelled(
-          t("Voting"),
-          `${api.canParticipate() ? fill("{count} votes left", { count: left }) : t("in progress")}${seconds ? ` · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""}`,
-        ),
+        `${voting}${seconds ? ` · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : ""}`,
       ]);
     } else if (v?.revealed) chips.push(["vote", t("Voting results revealed")]);
     if (pollOpen(w.poll)) chips.push(["poll", t("Poll open")]);
@@ -2259,8 +2265,23 @@ export function createFacilitationUI(api) {
             !!current[n].querySelector("small") === !!detail,
         )
       )
-        chips.forEach(([, text, detail, html, detailHTML], n) => {
-          const span = current[n].querySelector("span");
+        chips.forEach(([key, text, detail, html, detailHTML], n) => {
+          // Screen readers announce a focused control's new name, so while
+          // a chip has focus its name changes only with what it says, not
+          // with each second counted down; it gives the time again once
+          // focused anew.
+          const chip = current[n],
+            said = steady.get(key);
+          if (
+            !said ||
+            chip !== document.activeElement ||
+            chip.dataset.said !== said
+          )
+            chip.removeAttribute("aria-label");
+          else if (!chip.hasAttribute("aria-label"))
+            chip.setAttribute("aria-label", chip.textContent);
+          if (said) chip.dataset.said = said;
+          const span = chip.querySelector("span");
           if (html) span.innerHTML = html;
           else span.textContent = text;
           if (detail)
@@ -2277,6 +2298,10 @@ export function createFacilitationUI(api) {
               `<button type="button" class="workshop-chip" data-fac-open="${key}"><span data-user-content>${html || escape(text)}</span>${detail ? `<small data-user-content>${detailHTML || escape(detail)}</small>` : ""}</button>`,
           )
           .join("");
+        chips.forEach(([key], n) => {
+          if (steady.has(key))
+            content.children[n].dataset.said = steady.get(key);
+        });
         if (focused)
           content.querySelector(`[data-fac-open="${focused}"]`)?.focus();
       }
