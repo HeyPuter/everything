@@ -48,17 +48,6 @@ export class SheetController extends PlanController {
         const size = vpEl.size || [180, 120];
         rect = { x0: vpEl.at[0] - size[0] / 2, y0: vpEl.at[1] - size[1] / 2, x1: vpEl.at[0] + size[0] / 2, y1: vpEl.at[1] + size[1] / 2 };
         g = new PlanBuilder();
-        g.poly(
-          [
-            [rect.x0, rect.y0],
-            [rect.x1, rect.y0],
-            [rect.x1, rect.y1],
-            [rect.x0, rect.y1],
-          ],
-          true,
-          1,
-          2,
-        );
         viewportTitle(g, view, rect, this.app.doc);
         g.pick([
           [rect.x0, rect.y0],

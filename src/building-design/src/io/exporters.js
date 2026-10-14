@@ -87,6 +87,9 @@ function layerItems(c) {
   return [...c.layer.items.values()].filter((it) => !(c.app.flagsOf(it.id ?? '') & 4)).sort((a, b) => a.z - b.z);
 }
 
+/** Hatches the vector exports draw as lines; other patterns print as a light gray. */
+const HATCHED = new Set([1, 2, 5, 8]);
+
 function blend(col, white = 1) {
   // Ink is black on paper; colours are blended over white by their alpha.
   if (!col) return { rgb: [0, 0, 0], a: 1 };
@@ -109,7 +112,11 @@ function walk2D(app, c, T, s, cb) {
     const group = entries.filter((e) => e[1].z === z);
     for (const [, it] of group)
       for (const f of it.g.fills) {
-        const { rgb, a } = blend(f.color);
+        let { rgb, a } = blend(f.color);
+        if (f.pattern && !HATCHED.has(f.pattern)) {
+          rgb = [0.72, 0.72, 0.72];
+          a = 1;
+        }
         cb.fill(f.poly.map(T), (f.holes || []).map((hh) => hh.map(T)), rgb, a, f.pattern || 0);
       }
     for (const [, it] of group)
