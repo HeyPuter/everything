@@ -1872,3 +1872,24 @@ test("a board guest an administrator makes a member is listed to the identity pr
     ["outsider"],
   );
 });
+
+test("re-provisioning someone with a long externalId links their account again", async () => {
+  const { org, boards, scim, request } = await setup();
+  const externalId = "x".repeat(250);
+  const pat = await scim("Users", "POST", {
+    userName: "pat@example.ca",
+    externalId,
+  });
+  await verifyEmail(org, boards, editor, "pat@example.ca");
+  await request(`Users/${pat.id}`, "DELETE");
+  const again = await scim("Users", "POST", {
+    userName: "pat@example.ca",
+    externalId,
+    active: true,
+  });
+  assert.equal(
+    again["urn:ietf:params:scim:schemas:extension:whiteboard:2.0:User"].linked,
+    true,
+  );
+  assert.equal(await org.active(editor), true);
+});

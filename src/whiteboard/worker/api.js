@@ -650,7 +650,7 @@ async function scimUsers(org, boards, identity, method, id, body, url, base) {
       user?.scimDeleted &&
       user.externalId &&
       body?.externalId != null &&
-      String(body.externalId) !== user.externalId
+      String(body.externalId).slice(0, 200) !== user.externalId
     )
       user = null;
     const stored = user && structuredClone(user);
