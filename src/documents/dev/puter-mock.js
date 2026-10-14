@@ -82,7 +82,11 @@
         await delay(700);
         const m = /Text:\n"""\n([\s\S]*)\n"""$/.exec(String(prompt));
         const text = m ? m[1] : String(prompt);
-        const reply = /Translate this into/.test(prompt) ? `[Translated] ${text}` : /Continue this text/.test(prompt) ? 'And so the story went on, one careful sentence after another.\n\nIt ended where it had to.' : `${text.replace(/\s+/g, ' ').trim()} (revised)`;
+        // The Review tools ask for JSON: proofreading answers (none here) and numbered translations.
+        const numbered = [...String(prompt).matchAll(/^\[(\d+)\] (.*)$/gm)].map(n => n[2]);
+        const reply = /proofreader inside a word processor/.test(prompt) ? '[]'
+          : /Translate each numbered paragraph/.test(prompt) ? JSON.stringify(numbered.map(t => `[Translated] ${t}`))
+          : /Translate this into/.test(prompt) ? `[Translated] ${text}` : /Continue this text/.test(prompt) ? 'And so the story went on, one careful sentence after another.\n\nIt ended where it had to.' : `${text.replace(/\s+/g, ' ').trim()} (revised)`;
         return { message: { role: 'assistant', content: reply }, toString: () => reply };
       },
     },

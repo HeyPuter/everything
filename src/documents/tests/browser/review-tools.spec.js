@@ -473,3 +473,19 @@ test('Combine Documents adds the copy\'s differences to the original and the Rev
   await page.screenshot({ path: info.outputPath('reviewing-horizontal.png') });
   await exported(page, info, 'combined.docx');
 });
+
+test('in the app, Translate Document opens a translated copy', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Hello world.\nSecond line.');
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Translate"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Translate Document' }).click();
+  const pane = page.getByRole('complementary', { name: 'Translator pane' });
+  page.on('dialog', d => d.accept());
+  await pane.getByRole('button', { name: 'Translate document…' }).click();
+  await expect(input).toHaveValue('[Translated] Hello world.\n[Translated] Second line.', { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
