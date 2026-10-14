@@ -575,7 +575,7 @@
   gap: 8px 28px;
 }
 .show-setup-indent {
-  margin-left: 26px;
+  margin: 2px 0 14px 26px;
 }
 .show-setup-range {
   display: inline-flex;
@@ -683,7 +683,7 @@
   flex: none;
 }
 .show-custom-order li.active {
-  background: var(--accent-soft, rgb(37 99 235 / 0.14));
+  background: var(--accent-wash, rgb(37 99 235 / 0.14));
 }
 .show-custom-order:focus-visible {
   outline: 2px solid var(--accent, #2563eb);
