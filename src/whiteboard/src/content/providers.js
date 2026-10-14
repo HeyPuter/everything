@@ -582,15 +582,25 @@ export function normalizeEmbed(value, { generic = true } = {}) {
   return generic ? web(url) : null;
 }
 
-// Chat, meeting, project, code and file tools whose pages refuse to be
-// framed (X-Frame-Options or a CSP frame-ancestors list), so a web embed of
-// them shows an empty frame. Their links belong on link cards. Embeds of
-// them already on a board stay valid; only new ones are steered away.
+// Chat, meeting, project, design, map, code and file tools whose pages
+// refuse to be framed (X-Frame-Options or a CSP frame-ancestors list), so a
+// web embed of them shows an empty frame. Their links belong on link cards.
+// Embeds of them already on a board stay valid; only new ones are steered
+// away. Google Maps short links (maps.app.goo.gl) lead to map pages that
+// refuse framing too; a map's embed code is on google.com/maps/embed.
 const REFUSES_FRAMING =
-  /(^|\.)(slack\.com|teams\.microsoft\.com|teams\.live\.com|notion\.so|atlassian\.net|atlassian\.com|trello\.com|asana\.com|github\.com|gitlab\.com|bitbucket\.org|dropbox\.com|linkedin\.com)\.?$/i;
+  /(^|\.)(slack\.com|teams\.microsoft\.com|teams\.live\.com|notion\.so|notion\.site|atlassian\.net|atlassian\.com|trello\.com|asana\.com|linear\.app|app\.clickup\.com|monday\.com|github\.com|gitlab\.com|bitbucket\.org|dropbox\.com|onedrive\.live\.com|1drv\.ms|sharepoint\.com|linkedin\.com|discord\.com|discord\.gg|webex\.com|canva\.com|goo\.gl)\.?$/i;
+// Pages those sites make to be framed: a Canva design's ?embed view and an
+// Office document's embedview link on SharePoint.
+const madeToFrame = (url) =>
+  (/(^|\.)canva\.com\.?$/i.test(url.hostname) &&
+    url.searchParams.has("embed")) ||
+  (/(^|\.)sharepoint\.com\.?$/i.test(url.hostname) &&
+    (url.searchParams.get("action") === "embedview" ||
+      /\/_layouts\/15\/embed\.aspx$/i.test(url.pathname)));
 export function refusesFraming(value) {
   const url = parse(value);
-  return !!url && REFUSES_FRAMING.test(url.hostname);
+  return !!url && REFUSES_FRAMING.test(url.hostname) && !madeToFrame(url);
 }
 export const providerGroup = (provider) => EMBED_PROVIDERS[provider]?.group;
 export const providerName = (provider) =>

@@ -271,6 +271,18 @@ test("chat, meeting, project and file tools that refuse framing are known, and t
     "https://github.com/fabrikam/platform",
     "https://www.dropbox.com/s/abc/file.pdf",
     "https://SLACK.COM./",
+    "https://linear.app/fabrikam/issue/ENG-42/fix-login",
+    "https://discord.com/channels/123/456",
+    "https://discord.gg/abc",
+    "https://fabrikam.webex.com/meet/ada",
+    "https://app.clickup.com/9011/v/li/901",
+    "https://fabrikam.notion.site/Plan-0123",
+    "https://www.canva.com/design/DAGabc123/view",
+    "https://maps.app.goo.gl/AbCdEfGh",
+    "https://onedrive.live.com/view.aspx?resid=ABC!123",
+    "https://1drv.ms/w/s!abc",
+    "https://fabrikam.monday.com/boards/1",
+    "https://fabrikam.sharepoint.com/sites/Team/SitePages/Home.aspx",
   ])
     assert.equal(refusesFraming(url), true, url);
   for (const url of [
@@ -279,11 +291,29 @@ test("chat, meeting, project and file tools that refuse framing are known, and t
     "https://notslack.com/",
     "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     "not a link",
+    // Their own embed pages are made to be framed.
+    "https://sharing.clickup.com/9011/l/h/abc/def",
+    "https://www.canva.com/design/DAGabc123/view?embed",
+    "https://fabrikam.sharepoint.com/:w:/s/Team/abc?action=embedview",
+    "https://fabrikam.sharepoint.com/sites/Team/_layouts/15/Embed.aspx?UniqueId=abc",
   ])
     assert.equal(refusesFraming(url), false, url);
-  const old = normalizeEmbed("https://github.com/fabrikam/platform");
-  assert.equal(old.provider, "web");
-  assert.ok(validEmbed({ type: "embed", ...old }));
+  for (const url of [
+    "https://github.com/fabrikam/platform",
+    "https://linear.app/fabrikam/issue/ENG-42/fix-login",
+    "https://maps.app.goo.gl/AbCdEfGh",
+    "https://onedrive.live.com/view.aspx?resid=ABC!123",
+  ]) {
+    const old = normalizeEmbed(url);
+    assert.equal(old.provider, "web", url);
+    assert.ok(validEmbed({ type: "embed", ...old }), url);
+  }
+  // OneDrive's own embed links are still Office embeds.
+  assert.equal(
+    normalizeEmbed("https://onedrive.live.com/embed?resid=ABC%21123&authkey=x")
+      .provider,
+    "office",
+  );
 });
 
 test("new link cards are named after the service they link to, in the interface language", async () => {

@@ -131,7 +131,7 @@ Supported services, each normalized to its official embed address:
 - YouTube (privacy-enhanced `youtube-nocookie.com` player, including start times) and Vimeo (including unlisted links).
 - Microsoft Forms, Office Online viewer links (`view.officeapps.live.com`), and OneDrive embed links.
 - Figma files, designs, prototypes, boards, and slides; Loom videos; Miro boards.
-- Other public HTTPS pages, when the page allows framing. Local, private, and bare IP addresses are refused.
+- Other public HTTPS pages, when the page allows framing. Local, private, and bare IP addresses are refused. Pages of services known to refuse framing, such as Slack, Teams, Notion, Jira, Linear, Discord, Webex, monday.com, Canva designs (other than their `?embed` view), OneDrive and SharePoint pages (other than Office embed links), and Google Maps short links, are offered as link cards instead; embeds of them already on a board stay as they are.
 
 Only HTTPS addresses qualify; `javascript:`, `data:`, `blob:`, embedded credentials, and nonstandard ports are rejected. Boards store a canonical URL and provider, and the iframe address is always derived again from that URL, so an edited file cannot point an iframe elsewhere. Frames use `sandbox` (scripts, forms, and popups; never top navigation), a restrictive `allow` list, and `referrerpolicy` (`no-referrer`, or `strict-origin-when-cross-origin` for video players and design tools that verify the embedding site). The application never frames its own origin. Viewers of a Google embed must have access to the underlying Google file; Google shows a sign-in or access request otherwise.
 
