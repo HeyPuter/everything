@@ -8,7 +8,7 @@
 import * as T from '../engine/table-editing.js';
 import { locate as locateParagraph } from '../engine/model.js';
 import { wholeRows, wholeColumns, cellBlockPlacements } from '../engine/table-selection.js';
-import { caretRect } from '../engine/layout.js';
+import { caretRect, imageAtPoint } from '../engine/layout.js';
 import { rowGrid, verticalMerges, cellContext } from '../engine/tables.js';
 
 const NEAR = 4, HANDLE = 11, GUTTER = 20;
@@ -99,8 +99,10 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
         const line = [...f.columns.entries()].sort((a, b) => Math.abs(a[1] - at.x) - Math.abs(b[1] - at.x))[0];
         if (line && Math.abs(line[1] - at.x) <= 6) return { kind: 'insertColumn', frame: f, x: line[1], column: line[0] };
       }
-      if (withinY) for (const [index, x] of f.columns) if (index > 0 && Math.abs(at.x - x) <= NEAR) return { kind: 'column', frame: f, index, x };
-      if (withinX) for (const row of f.rows.values()) if (Math.abs(at.y - row.bottom) <= NEAR) return { kind: 'row', frame: f, row: row.index, y: row.bottom };
+      // A picture under the pointer takes the press, so one that reaches a cell edge can still be selected there.
+      const border = () => !imageAtPoint(engine.selectionLayout, at.page, at.x, at.y);
+      if (withinY) for (const [index, x] of f.columns) if (index > 0 && Math.abs(at.x - x) <= NEAR && border()) return { kind: 'column', frame: f, index, x };
+      if (withinX) for (const row of f.rows.values()) if (Math.abs(at.y - row.bottom) <= NEAR && border()) return { kind: 'row', frame: f, row: row.index, y: row.bottom };
       if (withinX && withinY) return { kind: 'inside', frame: f };
     }
     return null;
