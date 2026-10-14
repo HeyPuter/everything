@@ -35,6 +35,9 @@ test("commands match names, aliases, accents and word order with deterministic r
   );
   assert.deepEqual(searchCommands(entries, "["), searchCommands(entries, ""));
   assert.equal(searchCommands(entries, "does not exist").length, 0);
+  // Boards saved to Puter are listed in the library; there is no separate
+  // list for a command to open.
+  assert.equal(find(entries, "cloud"), undefined);
   assert.equal(searchCommands(entries, "")[0].id, "add:note");
 });
 

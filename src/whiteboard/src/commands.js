@@ -234,7 +234,7 @@ export function commandEntries({
       "tool-arrow",
       "Arrow",
       "Create",
-      "connection connector line fleche connexion",
+      "connection connector line fleche connexion connecteur",
       "A",
       create,
     );
@@ -654,7 +654,7 @@ export function commandEntries({
       "arrange:connect",
       "Connect selected objects",
       "Arrange",
-      "arrow line connector connexion fleche",
+      "arrow line connector connexion connecteur fleche",
       "",
       writable ||
         capacity ||
@@ -839,7 +839,7 @@ export function commandEntries({
       "cloud-save",
       "Save to Puter",
       "Board",
-      "save backup cloud sauvegarder",
+      "save backup cloud sauvegarder nuage",
       "Ctrl/Cmd+S",
     );
     add(
@@ -895,7 +895,6 @@ export function commandEntries({
     "Board",
     "invite collaboration rejoindre",
   );
-  add("cloud", "Cloud boards", "Board", "puter cloud nuage");
   add("import", "Import board file", "Board", "json import importer");
   add(
     "help",

@@ -1721,6 +1721,13 @@ const pairs = {
   "Remove from frame": "Retirer du cadre",
   "Board edit saved": "Modification enregistrée",
   "action|Open": "Ouvrir",
+  "key|Shift": "Maj",
+  "key|Enter": "Entrée",
+  "key|Backspace": "Retour arrière",
+  "key|Delete": "Suppr",
+  "key|Minus": "Moins",
+  "key|Up": "Haut",
+  "key|Down": "Bas",
   "notification|Reply": "Réponse",
   "results|Top": "Premiers",
   "Invite people to edit, comment on, or view this board. Invitation links expire after seven days.":

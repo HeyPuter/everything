@@ -78,6 +78,20 @@ const mac = () =>
       globalThis.navigator?.platform ||
       "",
   );
+// Named keys as the interface language writes them, as the keyboard
+// shortcuts list does: "Maj" and "Entrée" in French.
+const NAMED_KEYS = new Set([
+  "Shift",
+  "Enter",
+  "Backspace",
+  "Delete",
+  "Minus",
+  "Up",
+  "Down",
+]);
+const keyName = (key) => (NAMED_KEYS.has(key) ? t(key, "key") : key);
+export const shortcutKeys = (shortcut) =>
+  shortcut.split("+").map(keyName).join("+");
 // "Ctrl/Cmd+Shift+]" reads ⇧⌘] on a Mac and Ctrl+Shift+] elsewhere.
 export function platformShortcut(shortcut, apple = mac()) {
   if (!shortcut) return "";
@@ -86,16 +100,20 @@ export function platformShortcut(shortcut, apple = mac()) {
   if (!apple)
     return [
       ...parts.map((part) =>
-        part === "Ctrl/Cmd" ? "Ctrl" : part === "Alt/Option" ? "Alt" : part,
+        part === "Ctrl/Cmd"
+          ? "Ctrl"
+          : part === "Alt/Option"
+            ? "Alt"
+            : keyName(part),
       ),
-      key,
+      keyName(key),
     ].join("+");
   const symbols = { "Alt/Option": "⌥", Shift: "⇧", "Ctrl/Cmd": "⌘" };
   return (
     ["Alt/Option", "Shift", "Ctrl/Cmd"]
       .filter((part) => parts.includes(part))
       .map((part) => symbols[part])
-      .join("") + (key === "Delete" ? "⌫" : key)
+      .join("") + (key === "Delete" ? "⌫" : keyName(key))
   );
 }
 

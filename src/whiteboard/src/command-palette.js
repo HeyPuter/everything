@@ -1,6 +1,7 @@
 import { shortcutLetter } from "./shortcut-keys.js";
 import { escape } from "./model.js";
 import { searchCommands } from "./commands.js";
+import { shortcutKeys } from "./context-menu.js";
 import { t, labelled } from "./i18n.js";
 
 const PAGE_SIZE = 50;
@@ -57,7 +58,7 @@ export function createCommandPalette(api) {
     list.innerHTML = shown
       .map(
         (e, n) =>
-          `<div class="command-option" role="option" id="command-option-${n}" data-command="${escape(e.id)}" aria-selected="false" ${e.disabled ? 'aria-disabled="true"' : ""}><span class="command-label"><strong data-user-content>${escape(e.label)}</strong><small>${escape(e.disabled || e.category)}</small></span>${e.shortcut ? `<kbd aria-label="${labelled(t("Keyboard shortcut"), "")}${escape(e.shortcut)}">${escape(e.shortcut)}</kbd>` : ""}</div>`,
+          `<div class="command-option" role="option" id="command-option-${n}" data-command="${escape(e.id)}" aria-selected="false" ${e.disabled ? 'aria-disabled="true"' : ""}><span class="command-label"><strong data-user-content>${escape(e.label)}</strong><small>${escape(e.disabled || e.category)}</small></span>${e.shortcut ? `<kbd aria-label="${labelled(t("Keyboard shortcut"), "")}${escape(shortcutKeys(e.shortcut))}">${escape(shortcutKeys(e.shortcut))}</kbd>` : ""}</div>`,
       )
       .join("");
     const first = shown.find((e) => !e.disabled) || shown[0];

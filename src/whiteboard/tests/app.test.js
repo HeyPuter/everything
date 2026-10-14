@@ -26795,6 +26795,24 @@ test("French shortcut help, palette categories and result counts are translated"
       doc.querySelector("#commands-prev").textContent,
       "Résultats précédents",
     );
+    // Shortcuts name keys as the French tooltips and shortcuts list do,
+    // and the French name of a tool finds it.
+    const results = async (query) => {
+      paletteQuery(app, query);
+      await app.tick();
+      return [...doc.querySelectorAll("#command-results .command-option")].map(
+        (o) => [o.dataset.command, o.querySelector("kbd")?.textContent || ""],
+      );
+    };
+    const redo = (await results("Rétablir")).find(([id]) => id === "redo");
+    assert.equal(redo[1], "Ctrl/Cmd+Maj+Z");
+    assert.ok(
+      (await results("supprimer")).some(([, k]) => k === "Suppr"),
+      "Delete reads Suppr",
+    );
+    const connector = (await results("connecteur")).map(([id]) => id);
+    assert.ok(connector.includes("tool-arrow"), connector.join());
+    assert.ok(connector.includes("arrange:connect"), connector.join());
   } finally {
     await app.close();
   }
