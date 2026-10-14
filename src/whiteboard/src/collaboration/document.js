@@ -941,6 +941,11 @@ export class SharedDocument {
   creator(id) {
     return this.items._map.get(id)?.id.client;
   }
+  // How many objects the board has ever held: Yjs keeps the key of each
+  // one removed, so removed ones count too.
+  objectsEver() {
+    return this.items._map.size;
+  }
   // What validate() counts against the board's limits, as stored.
   counts() {
     return {

@@ -330,6 +330,56 @@ test("objects added and removed within one version can still be recovered", asyn
   );
 });
 
+test("a restoration report names a time in the board's life, and no more objects than it has held", async () => {
+  const env = environment(),
+    boards = env.service;
+  const b = board("Audit"),
+    doc = new SharedDocument();
+  b.items = [item("note", 0, 0, { text: "One" })];
+  doc.commit(b);
+  await boards.call(owner, {
+    op: "create",
+    room: b.id,
+    update: encode(doc.update()),
+  });
+  doc.destroy();
+  const created = env.now;
+  env.now += 60_000;
+  // Three objects added, then two of them removed: four in all.
+  await commit(boards, owner, b.id, (s) =>
+    s.items.push(...[1, 2, 3].map((n) => item("note", n * 100, 0))),
+  );
+  await commit(boards, owner, b.id, (s) => (s.items = s.items.slice(0, 2)));
+  const report = (details) => {
+    env.now++;
+    return boards.call(owner, {
+      op: "history.restored",
+      room: b.id,
+      ...details,
+    });
+  };
+  for (const at of [123, created - 1, env.now + 3600_000, "soon"])
+    await assert.rejects(report({ at, scope: "board", objects: 1 }), {
+      status: 400,
+    });
+  await report({ at: created, scope: "board", objects: 99999 });
+  await report({ at: null, scope: "deleted", objects: 2 });
+  await report({ scope: "objects", objects: -5 });
+  const audit = [...env.data]
+    .filter(
+      ([k, v]) =>
+        k.startsWith("org:audit:") && v.action === "board.content.restored",
+    )
+    .map(([, v]) => v)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((v) => v.details);
+  assert.deepEqual(audit, [
+    { version: created, scope: "board", objects: 4 },
+    { version: null, scope: "deleted", objects: 2 },
+    { version: null, scope: "objects", objects: null },
+  ]);
+});
+
 test("shared history arrives a page at a time so every version can be reached", async () => {
   const env = environment(),
     boards = env.service;

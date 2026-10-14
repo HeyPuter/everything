@@ -2435,18 +2435,43 @@ export class BoardService {
     if (input.op === "history.restored" || input.op === "export") {
       this.perMinute(`${room}|${user.uuid}`, REPORT_LIMIT);
     }
+    // The app reports a restoration it made, which the audit log records.
+    // Its version is a time in the board's life, or none for a version
+    // kept on the device; a few seconds' grace covers instances' clocks.
+    // Whether the restoration's edit is saved before or after the report,
+    // it changes no more objects than the board has ever held.
     if (input.op === "history.restored") {
       await this.member(room, user, true);
+      const at = input.at ?? null;
+      if (
+        at !== null &&
+        !(
+          Number.isFinite(at) &&
+          !(at < meta.created) &&
+          at <= this.now() + 5_000
+        )
+      )
+        fail(400, "Choose a version.");
+      let objects = null;
+      if (Number.isInteger(input.objects) && input.objects >= 0) {
+        const { entry } = await this.board(room, meta);
+        const doc = entry.live || new SharedDocument(this.durable(entry));
+        try {
+          objects = Math.min(input.objects, doc.objectsEver());
+        } finally {
+          if (doc !== entry.live) doc.destroy();
+        }
+      }
       await this.org.audit(
         user,
         "board.content.restored",
         { type: "board", id: room },
         {
-          version: Number(input.at) || null,
+          version: at,
           scope: ["board", "objects", "frame", "deleted"].includes(input.scope)
             ? input.scope
             : "board",
-          objects: Number.isInteger(input.objects) ? input.objects : null,
+          objects,
         },
       );
       return { ok: true };
