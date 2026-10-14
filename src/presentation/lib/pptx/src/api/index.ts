@@ -735,6 +735,7 @@ export {
 
 // Compatibility version of the absorbed source; maintained in this repository.
 export const VERSION = "0.12.0";
+export * from "./format.ts";
 
 // Threaded comments and document custom properties.
 export * from "./fn/comment-threads.ts";

@@ -207,6 +207,16 @@ export interface PieceInput {
    *  support, so the engine draws it as an explicit path (see `wavyPath`). */
   readonly underline: "none" | "single" | "wavy";
   readonly strike: boolean;
+  /** Underline color when it differs from the text's; drawn as a line. */
+  readonly underlineHex?: string;
+  /** A double underline (`dbl`), drawn as two lines. */
+  readonly underlineDouble?: boolean;
+  /** A double strikethrough (`dblStrike`), drawn as two lines. */
+  readonly strikeDouble?: boolean;
+  /** Text outline (`<a:ln>` on the run). */
+  readonly strokeHex?: string;
+  readonly strokeWidthPx?: number;
+  readonly strokeOpacity?: number;
   readonly superSub: 0 | 1 | -1; // 1 superscript, -1 subscript
   readonly href: string | null;
   readonly isBreak: boolean; // <a:br>
@@ -243,6 +253,13 @@ export interface ParaInput {
   readonly endMarker?: FontSpec;
   /** Font of an empty paragraph or the empty line after its final break. */
   readonly emptyLineFont?: FontSpec;
+  /** Custom tab stops, measured from the text box's left inset. */
+  readonly tabStops?: readonly {
+    readonly posPx: number;
+    readonly align: "l" | "ctr" | "r" | "dec";
+  }[];
+  /** Spacing of the default tab stops past the last custom one. */
+  readonly defaultTabPx?: number;
 }
 
 /** Normalized text direction the engine understands. render-slide maps the
@@ -433,8 +450,9 @@ const tokenizePieces = (
     let pieceOffset = 0;
     // JS \s also includes nonbreaking spaces and U+FEFF (a word joiner).
     // Those are part of a break unit, never a discardable inter-word gap.
+    // A tab is a token of its own: its width depends on where it lands.
     const words = text.match(
-      /[^\S\u00a0\u2007\u202f\ufeff]+|[\S\u00a0\u2007\u202f\ufeff]+/gu,
+      /\t|[^\S\t\u00a0\u2007\u202f\ufeff]+|[\S\u00a0\u2007\u202f\ufeff]+/gu,
     );
     for (const word of words ?? []) {
       const isSpace = /^[^\S\u00a0\u2007\u202f\ufeff]+$/u.test(word);
@@ -611,6 +629,70 @@ export interface LayoutCore {
   readonly cy: number;
 }
 
+// Gives each tab on a line the width that carries the text after it to the
+// next tab stop: a custom stop (left, centered, right or decimal) or, past
+// those, the next default stop. Positions count from the box's left inset.
+const placeTabs = (
+  toks: Token[],
+  lineLeft: number,
+  origin: number,
+  para: ParaInput,
+): void => {
+  const stops = [...(para.tabStops ?? [])].sort((a, b) => a.posPx - b.posPx);
+  const step =
+    para.defaultTabPx && para.defaultTabPx > 0 ? para.defaultTabPx : 96;
+  let x = lineLeft;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i]!;
+    if (t.isBreak) continue;
+    if (t.text !== "\t") {
+      x += t.width;
+      continue;
+    }
+    const at = x - origin;
+    const stop = stops.find((s) => s.posPx > at + 0.5);
+    let target: number;
+    let width: number;
+    if (stop) {
+      target = origin + stop.posPx;
+      // The text up to the next tab decides where a non-left stop puts it.
+      let segment = 0,
+        beforePoint = 0,
+        pointSeen = false;
+      for (let k = i + 1; k < toks.length && toks[k]!.text !== "\t"; k++) {
+        const next = toks[k]!;
+        if (next.isBreak) break;
+        segment += next.width;
+        if (!pointSeen) {
+          const point = next.text.search(/[.,]/);
+          if (point >= 0) {
+            pointSeen = true;
+            beforePoint += (next.width * point) / Math.max(1, next.text.length);
+          } else beforePoint += next.width;
+        }
+      }
+      const shift =
+        stop.align === "r"
+          ? segment
+          : stop.align === "ctr"
+            ? segment / 2
+            : stop.align === "dec"
+              ? pointSeen
+                ? beforePoint
+                : segment
+              : 0;
+      width = target - shift - x;
+    } else {
+      const last = stops.length ? stops[stops.length - 1]!.posPx : 0;
+      const from = Math.max(at, last);
+      target = origin + (Math.floor(from / step + 1e-6) + 1) * step;
+      width = target - x;
+    }
+    t.width = Math.max(0, width);
+    x += t.width;
+  }
+};
+
 // Exported (module-level, not part of the package's public surface) for the
 // audit API, which reads the raw placements instead of emitting SVG.
 export const layoutCore = (
@@ -718,6 +800,8 @@ export const layoutCore = (
           ? Math.max(wrapLeft, firstLeft + bulletLead)
           : (isFirst ? firstLeft : wrapLeft) + bulletLead;
         const availableW = wrapRight - lineLeft;
+        if (toks.some((t) => t.text === "\t"))
+          placeTabs(toks, lineLeft, contentLeft, para);
         let unbreakableOverflowW = 0;
         let ascent = 0;
         let descent = 0;
@@ -1073,11 +1157,72 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
   const content = toks.filter((t) => !t.isBreak);
   if (content.length === 0) return "";
   const groups = groupTokens(content);
-  const tspans = groups.map((g) => tspan(g)).join("");
+  let pendingDx = 0;
+  const tspans = groups
+    .map((g) => {
+      if (g.text === "\t" || /^\t+$/.test(g.text)) {
+        pendingDx += g.width;
+        return "";
+      }
+      const out = tspan(g, pendingDx);
+      pendingDx = 0;
+      return out;
+    })
+    .join("");
   if (tspans === "") return "";
   const x0 = line.anchorX + dx;
   const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${line.textAnchor}" xml:space="preserve">${tspans}</text>`;
-  return text + emitWavyUnderlines(groups, line.textAnchor, x0, baselineY);
+  return (
+    text +
+    emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
+    emitDrawnDecorations(groups, line.textAnchor, x0, baselineY)
+  );
+};
+
+const explicitUnderline = (p: PieceInput): boolean =>
+  p.underline === "single" && (!!p.underlineHex || !!p.underlineDouble);
+
+// Colored and double underlines and double strikethroughs have no SVG
+// decoration of their own; they are drawn as lines under or through the run.
+const emitDrawnDecorations = (
+  groups: readonly Group[],
+  textAnchor: "start" | "middle" | "end",
+  x0: number,
+  baselineY: number,
+): string => {
+  if (!groups.some((g) => explicitUnderline(g.piece) || g.piece.strikeDouble))
+    return "";
+  const total = groups.reduce((sum, g) => sum + g.width, 0);
+  let cursor =
+    textAnchor === "middle"
+      ? x0 - total / 2
+      : textAnchor === "end"
+        ? x0 - total
+        : x0;
+  const parts: string[] = [];
+  for (const g of groups) {
+    const p = g.piece;
+    if (g.width > 0 && !/^\t+$/.test(g.text)) {
+      const size = renderedSizePxOf(p);
+      const y0 = baselineY - baselineShiftPxOf(p);
+      const width = Math.max(0.6, size * 0.055);
+      const line = (y: number, color: string) =>
+        `<path d="M${fmt(cursor)} ${fmt(y)}H${fmt(cursor + g.width)}" stroke="${color}" stroke-width="${fmt(width)}" fill="none"/>`;
+      if (explicitUnderline(p)) {
+        const color = p.underlineHex ?? p.fillHex;
+        const y = y0 + size * 0.11;
+        parts.push(line(y, color));
+        if (p.underlineDouble) parts.push(line(y + width * 2.2, color));
+      }
+      if (p.strike && p.strikeDouble) {
+        const y = y0 - size * 0.28;
+        parts.push(line(y - width * 1.2, p.fillHex));
+        parts.push(line(y + width * 1.2, p.fillHex));
+      }
+    }
+    cursor += g.width;
+  }
+  return parts.join("");
 };
 
 interface Group {
@@ -1091,7 +1236,13 @@ const groupTokens = (toks: Token[]): Group[] => {
   for (const t of toks) {
     if (t.isBreak) continue;
     const last = groups[groups.length - 1];
-    if (last && samePiece(last.piece, t.piece)) {
+    const tab = t.text === "\t";
+    if (
+      last &&
+      samePiece(last.piece, t.piece) &&
+      !tab &&
+      !/^\t+$/.test(last.text)
+    ) {
       last.text += t.text;
       last.width += t.width;
     } else {
@@ -1211,13 +1362,20 @@ const samePiece = (a: PieceInput, b: PieceInput): boolean =>
   (a.fillOpacity ?? 1) === (b.fillOpacity ?? 1) &&
   a.underline === b.underline &&
   a.strike === b.strike &&
+  a.underlineHex === b.underlineHex &&
+  a.underlineDouble === b.underlineDouble &&
+  a.strikeDouble === b.strikeDouble &&
+  a.strokeHex === b.strokeHex &&
+  a.strokeWidthPx === b.strokeWidthPx &&
+  a.strokeOpacity === b.strokeOpacity &&
   a.superSub === b.superSub &&
   a.href === b.href;
 
-const tspan = (g: Group): string => {
+const tspan = (g: Group, dx = 0): string => {
   const p = g.piece;
   const sizePx = renderedSizePxOf(p);
   const attrs: string[] = [
+    ...(dx ? [`dx="${fmt(dx)}"`] : []),
     `font-family="${escapeXml(p.family)}"`,
     `font-size="${fmt(sizePx)}"`,
     ...(p.kerning ? [`style="font-kerning:${p.kerning}"`] : []),
@@ -1230,8 +1388,17 @@ const tspan = (g: Group): string => {
   const deco: string[] = [];
   // 'wavy' is drawn as an explicit path by emitWavyUnderlines — resvg has no
   // text-decoration-style support to lean on here.
-  if (p.underline === "single") deco.push("underline");
-  if (p.strike) deco.push("line-through");
+  if (p.underline === "single" && !explicitUnderline(p)) deco.push("underline");
+  if (p.strike && !p.strikeDouble) deco.push("line-through");
+  if (p.strokeHex && (p.strokeWidthPx ?? 0) > 0) {
+    attrs.push(
+      `stroke="${p.strokeHex}"`,
+      `stroke-width="${fmt(p.strokeWidthPx!)}"`,
+      'stroke-linejoin="round"',
+    );
+    if (p.strokeOpacity !== undefined && p.strokeOpacity !== 1)
+      attrs.push(`stroke-opacity="${p.strokeOpacity}"`);
+  }
   if (deco.length) attrs.push(`text-decoration="${deco.join(" ")}"`);
   if (p.letterSpacingPx !== 0)
     attrs.push(`letter-spacing="${fmt(p.letterSpacingPx)}"`);

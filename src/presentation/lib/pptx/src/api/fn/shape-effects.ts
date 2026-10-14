@@ -96,6 +96,8 @@ export type ShapeEffectAny =
       // encodes the mirror as a negative `sy` (e.g. -1 = full-height
       // flip), so renderers must honor the sign, not just the magnitude.
       readonly scaleY?: number;
+      /** Where the fade ends, as a fraction of the reflected height. */
+      readonly endPos?: number;
       readonly blurEmu: number;
       readonly distEmu: number;
       readonly angleDeg: number;
@@ -283,6 +285,7 @@ const parseEffectLst = (
       const opacity = pctFraction("endA");
       const startOpacity = pctFraction("stA");
       const scaleY = pctFraction("sy");
+      const endPos = pctFraction("endPos");
       out.push({
         kind: "reflection",
         blurEmu: blur,
@@ -291,6 +294,7 @@ const parseEffectLst = (
         ...(opacity !== undefined ? { opacity } : {}),
         ...(startOpacity !== undefined ? { startOpacity } : {}),
         ...(scaleY !== undefined ? { scaleY } : {}),
+        ...(endPos !== undefined ? { endPos } : {}),
       });
     } else if (local === "softEdge") {
       const rad =

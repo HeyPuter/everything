@@ -196,6 +196,19 @@ export function buildTabs(api) {
                 run: () => api.clearFormatting(),
                 ...keep,
               },
+              {
+                type: "small",
+                id: "font-dialog",
+                label: "Font Settings",
+                showLabel: false,
+                icon: "fontDialog",
+                title: `Font… (${api.modKey === "⌘" ? "⌘+T" : "Ctrl+Shift+F"})`,
+                description:
+                  "All the font settings at once: style, underline, effects and character spacing.",
+                visible: () => !!api.fontDialog,
+                enabled: () => !!text(),
+                run: () => api.fontDialog(),
+              },
             ],
           },
           {
@@ -393,6 +406,19 @@ export function buildTabs(api) {
                 description: "Split your text into two or more columns.",
                 enabled: () => api.canColumns(),
                 menu: () => api.columnsMenu(),
+              },
+              {
+                type: "small",
+                id: "paragraph-dialog",
+                label: "Paragraph Settings",
+                showLabel: false,
+                icon: "paragraph",
+                title: `Paragraph… (${api.modKey === "⌘" ? "⌥⌘M" : "Ctrl+Alt+M"})`,
+                description:
+                  "Alignment, indentation, spacing and tab stops for the paragraphs.",
+                visible: () => !!api.paragraphDialog,
+                enabled: () => api.canList(),
+                run: () => api.paragraphDialog(),
               },
             ],
           },
@@ -1900,6 +1926,18 @@ export function buildTabs(api) {
               },
               {
                 type: "small",
+                id: "merge-shapes",
+                label: "Merge Shapes",
+                icon: "mergeShapes",
+                title: "Merge Shapes",
+                description:
+                  "Combine the selected shapes into new ones: union, combine, fragment, intersect or subtract.",
+                visible: () => !!api.mergeShapesMenu,
+                enabled: () => !!api.canMergeShapes?.(),
+                menu: () => api.mergeShapesMenu(),
+              },
+              {
+                type: "small",
                 id: "format-text-box",
                 label: "Text Box",
                 icon: "textBox",
@@ -1926,6 +1964,10 @@ export function buildTabs(api) {
             showLabels: false,
             enabled: () => api.canStyleShape(),
             items: () => api.shapeStyleChoices(),
+            sections: (choices) =>
+              api.shapeStyleSections?.(choices) ?? [
+                { label: null, items: choices },
+              ],
             choose: (choice) => api.applyShapeStyle(choice.id),
           },
           {
@@ -1970,6 +2012,18 @@ export function buildTabs(api) {
         label: "WordArt Styles",
         icon: "wordArt",
         items: [
+          {
+            type: "gallery",
+            id: "wordart-gallery",
+            label: "WordArt Styles",
+            columns: 4,
+            panelColumns: 6,
+            itemClass: "style-thumb",
+            showLabels: false,
+            enabled: () => !!text(),
+            items: () => api.wordArtStyleChoices?.() ?? [],
+            choose: (choice) => api.applyWordArtStyle(choice.id),
+          },
           {
             type: "stack",
             items: [
@@ -2060,6 +2114,30 @@ export function buildTabs(api) {
             menu: () => api.transparencyMenu(),
           },
           {
+            type: "large",
+            id: "picture-color",
+            label: "Color",
+            icon: "pictureColor",
+            title: "Color",
+            description:
+              "Change the picture's saturation and tone, or recolor it.",
+            visible: () => !!api.pictureColorMenu,
+            menu: () => api.pictureColorMenu(),
+            menuWidth: 420,
+          },
+          {
+            type: "large",
+            id: "artistic-effects",
+            label: "Artistic\nEffects",
+            icon: "artisticEffects",
+            title: "Artistic Effects",
+            description:
+              "Make the picture look like a sketch, a painting and more.",
+            visible: () => !!api.artisticEffectsMenu,
+            menu: () => api.artisticEffectsMenu(),
+            menuWidth: 300,
+          },
+          {
             type: "stack",
             items: [
               {
@@ -2091,6 +2169,17 @@ export function buildTabs(api) {
         label: "Picture Styles",
         icon: "pictureEffects",
         items: [
+          {
+            type: "gallery",
+            id: "picture-style-gallery",
+            label: "Picture Styles",
+            columns: 4,
+            panelColumns: 4,
+            itemClass: "style-thumb",
+            showLabels: false,
+            items: () => api.pictureStyleChoices?.() ?? [],
+            choose: (choice) => api.applyPictureStyle(choice.id),
+          },
           {
             type: "stack",
             items: [

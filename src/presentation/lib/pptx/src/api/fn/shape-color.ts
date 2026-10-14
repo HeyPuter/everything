@@ -441,6 +441,163 @@ export const resolveDrawingColor = (
 // `#RRGGBB` and color transforms (`<a:lumMod>` etc.) are applied. Without
 // a theme, transforms are not applied and theme tokens are passed through
 // verbatim — this preserves the legacy `getShapeRunFormat` behavior.
+// The color inside a fill-like element (`solidFill`, `gs`, an effect), read
+// the way the run's own color is: resolved with a theme, else literal.
+const readInnerColor = (
+  host: XmlElement | null,
+  ctx?: {
+    readonly theme: PresentationTheme | null;
+    readonly clrMap?: Readonly<Record<string, string>>;
+  },
+): { color: string; opacity: number } | null => {
+  if (!host) return null;
+  const color = host.children.find(
+    (c): c is XmlElement =>
+      c.kind === "element" &&
+      c.name.namespaceURI === NS.dml &&
+      [
+        "srgbClr",
+        "schemeClr",
+        "sysClr",
+        "prstClr",
+        "scrgbClr",
+        "hslClr",
+      ].includes(c.name.localName),
+  );
+  if (!color) return null;
+  const opacity = resolveDrawingOpacity(color);
+  if (ctx) {
+    const hex = resolveDrawingColor(
+      color,
+      ctx.theme,
+      color.name.localName === "schemeClr" ? ctx.clrMap : undefined,
+    );
+    if (hex !== null) return { color: hex, opacity };
+  }
+  const v = getAttrValue(color, qname("", "val", ""));
+  if (v === null) return null;
+  return {
+    color: color.name.localName === "srgbClr" ? `#${v.toUpperCase()}` : v,
+    opacity,
+  };
+};
+
+const intOf = (el: XmlElement, name: string): number => {
+  const n = Number.parseInt(getAttrValue(el, qname("", name, "")) ?? "", 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Underline color, equal-height glyphs, outline, gradient fill and effects.
+const readExtendedRunFormat = (
+  rPr: XmlElement,
+  out: Partial<TextFormat>,
+  ctx?: {
+    readonly theme: PresentationTheme | null;
+    readonly clrMap?: Readonly<Record<string, string>>;
+  },
+): void => {
+  const child = (name: string) =>
+    firstChildElement(rPr, qname("a", name, NS.dml));
+  const normalizeH = getAttrValue(rPr, qname("", "normalizeH", ""));
+  if (normalizeH !== null)
+    out.normalizeHeight = normalizeH === "1" || normalizeH === "true";
+  if (child("uFillTx")) out.underlineColor = null;
+  const uFill = child("uFill");
+  if (uFill) {
+    const color = readInnerColor(
+      firstChildElement(uFill, qname("a", "solidFill", NS.dml)),
+      ctx,
+    );
+    if (color) out.underlineColor = color.color;
+  }
+  const ln = child("ln");
+  if (ln) {
+    if (firstChildElement(ln, qname("a", "noFill", NS.dml))) out.outline = null;
+    else {
+      const color = readInnerColor(
+        firstChildElement(ln, qname("a", "solidFill", NS.dml)),
+        ctx,
+      );
+      if (color) {
+        const dash = firstChildElement(ln, qname("a", "prstDash", NS.dml));
+        const dashValue = dash && getAttrValue(dash, qname("", "val", ""));
+        out.outline = {
+          color: color.color,
+          widthEmu:
+            getAttrValue(ln, qname("", "w", "")) === null
+              ? 12700
+              : intOf(ln, "w"),
+          ...(color.opacity < 1 ? { opacity: color.opacity } : {}),
+          ...(dashValue ? { dash: dashValue } : {}),
+        };
+      }
+    }
+  }
+  const grad = child("gradFill");
+  if (grad) {
+    const gsLst = firstChildElement(grad, qname("a", "gsLst", NS.dml));
+    const stops = (gsLst?.children ?? []).flatMap((gs) => {
+      if (gs.kind !== "element" || gs.name.localName !== "gs") return [];
+      const color = readInnerColor(gs, ctx);
+      return color
+        ? [
+            {
+              offset: intOf(gs, "pos") / 100000,
+              color: color.color,
+              ...(color.opacity < 1 ? { opacity: color.opacity } : {}),
+            },
+          ]
+        : [];
+    });
+    const lin = firstChildElement(grad, qname("a", "lin", NS.dml));
+    if (stops.length >= 2)
+      out.gradient = {
+        stops,
+        angleDeg: lin ? intOf(lin, "ang") / 60000 : 90,
+      };
+  }
+  const effectLst = child("effectLst");
+  if (effectLst) {
+    const effects: {
+      -readonly [K in keyof NonNullable<TextFormat["effects"]>]: NonNullable<
+        TextFormat["effects"]
+      >[K];
+    } = {};
+    for (const e of effectLst.children) {
+      if (e.kind !== "element" || e.name.namespaceURI !== NS.dml) continue;
+      const name = e.name.localName;
+      if (name === "outerShdw" || name === "innerShdw") {
+        const color = readInnerColor(e, ctx);
+        effects.shadow = {
+          color: color?.color ?? "#000000",
+          ...(color && color.opacity < 1 ? { opacity: color.opacity } : {}),
+          blurEmu: intOf(e, "blurRad"),
+          distEmu: intOf(e, "dist"),
+          angleDeg: intOf(e, "dir") / 60000,
+          ...(name === "innerShdw" ? { inner: true } : {}),
+        };
+      } else if (name === "glow") {
+        const color = readInnerColor(e, ctx);
+        effects.glow = {
+          color: color?.color ?? "#000000",
+          ...(color && color.opacity < 1 ? { opacity: color.opacity } : {}),
+          radiusEmu: intOf(e, "rad"),
+        };
+      } else if (name === "reflection") {
+        const stA = getAttrValue(e, qname("", "stA", ""));
+        const endPos = getAttrValue(e, qname("", "endPos", ""));
+        effects.reflection = {
+          startOpacity: stA === null ? 1 : intOf(e, "stA") / 100000,
+          endPos: endPos === null ? 1 : intOf(e, "endPos") / 100000,
+          distEmu: intOf(e, "dist"),
+          blurEmu: intOf(e, "blurRad"),
+        };
+      }
+    }
+    out.effects = effects;
+  }
+};
+
 export const parseRPrLikeElement = (
   rPr: XmlElement,
   ctx?: {
@@ -568,6 +725,7 @@ export const parseRPrLikeElement = (
     const t = getAttrValue(latin, qname("", "typeface", ""));
     if (t !== null) out.font = t;
   }
+  readExtendedRunFormat(rPr, out, ctx);
   const ea = firstChildElement(rPr, qname("a", "ea", NS.dml));
   if (ea !== null) {
     const t = getAttrValue(ea, qname("", "typeface", ""));

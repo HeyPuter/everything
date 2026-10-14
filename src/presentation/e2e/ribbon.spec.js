@@ -217,8 +217,9 @@ test("Shape Styles, Shape Effects and Format Painter restyle shapes", async ({
     .getByRole("option", { name: "Colored Fill - Accent 3", exact: true })
     .click();
   await command(page, "format-shape-effects");
+  await page.getByRole("menuitem", { name: "Shadow", exact: true }).click();
   await page
-    .getByRole("menuitemcheckbox", { name: "Offset: Bottom", exact: true })
+    .getByRole("menuitemradio", { name: "Offset: Bottom", exact: true })
     .click();
   await rectangle(page, [300, 60], [440, 160]);
   const hits = page.locator(".object-hit");
