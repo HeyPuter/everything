@@ -23142,3 +23142,58 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
 - Symbols are ordinary characters; a symbol font choice is written as `w:rFonts` ascii/hAnsi on the
   inserted run. Nonbreaking and optional hyphens are inserted as U+2011 and U+00AD (not
   `w:noBreakHyphen` / `w:softHyphen` elements). `w:sym` (§17.3.3.30) is read but not written.
+
+## Document views (2026-10-13)
+
+Code: [engine/document-views.js](../src/engine/document-views.js) (screen geometry),
+[engine/docx-view-settings.js](../src/engine/docx-view-settings.js) (`w:view`),
+[engine/outline-editing.js](../src/engine/outline-editing.js) (outline commands),
+[views/document-views.js](../src/views/document-views.js), [views/outline-view.js](../src/views/outline-view.js),
+[views/read-mode.js](../src/views/read-mode.js). Fixtures written independently from the schema:
+[tests/fixtures/document-views](../tests/fixtures/document-views) (generator: `tools/document_views_fixture.py`).
+
+### Document view setting (§17.15.1.92 `w:view`, §17.18.102 ST_View)
+
+- Read on open: `print` → Print Layout, `web` → Web Layout, `outline` and `masterPages` → Outline,
+  `normal` → Draft, `none` → Print Layout. Other values and malformed settings parts are ignored.
+- Written on save only when the user chose a different view: the attribute of an existing `w:view`
+  is updated, or a `w:view` element is inserted as the first child after `w:writeProtection`
+  (CT_Settings sequence). Print Layout is never written into a document that did not name a view.
+  A package without a settings part gets one (relationship and content-type override) only for a
+  non-default view. All other settings and parts are kept byte for byte (tested).
+- Read Mode has no ST_View value and is not stored. `w:readModeInkLockDown` (§17.15.1.66) is neither
+  read nor written. `w:zoom` (§17.15.1.94) is preserved but not applied.
+
+### Views are display-only
+
+- Web Layout, Draft and Read Mode lay the unchanged body out on a screen geometry: section page size,
+  margins, columns (`w:cols`), page borders (`w:pgBorders`), header/footer references and vertical
+  alignment are replaced in a private copy for layout only; `w:sectPr` and every part are unchanged.
+  Switching through all views and saving yields the same package as before (unit and browser tests).
+- Web Layout: one column at the window width; the page background (`w:background`) is drawn across
+  the full width; headers and footers are not shown. Draft: the same, on white, without floating
+  drawings (anchored `wp:anchor` objects stay in the document but are not drawn or hit-tested; text
+  still wraps around their reserved area — an approximation), with manual page breaks (`w:br
+  w:type="page"`) and section breaks shown as labelled dotted rules and each break starting a new
+  strip. Footnotes keep their page-bottom placement within a strip.
+- Read Mode: screen pages sized to columns of the window; optional text spacing multiplies auto line
+  spacing (and exact/at-least values) by 1.35, adds 6 pt after paragraphs and 0.6 pt letter spacing
+  in the private layout copy only. Page colours are screen colours, never `w:background`.
+- Printing and PDF export always use the authored pages, whatever view is showing.
+
+### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
+
+- A paragraph's level is its resolved `w:outlineLvl` (direct or from its style chain): 0–8 are
+  heading levels 1–9; 9 or absent is body text. Table cell paragraphs are body text.
+- Promote/Demote/Promote to Heading 1/Demote to Body Text apply the paragraph style whose id is
+  `Heading{n}` (or whose name is `heading n`) when the document defines it, and remove a direct
+  `w:outlineLvl` so the style decides; without such a style a direct `w:outlineLvl` is written (for
+  example level 8 in a document with Heading1–6). Body text applies the default paragraph style.
+  Built-in heading styles keep their fixed level, as in the model's existing rule.
+- Move Up/Down and Navigation-pane dragging reorder whole paragraphs (`w:p`) and tables (`w:tbl`),
+  a heading together with the paragraphs it leads. Sections (`w:sectPr` in `w:pPr`), frames
+  (`w:framePr`) and block-level content controls are not moved (the command reports why). The
+  document's closing empty paragraph stays last. Deleting a section in the Navigation pane removes
+  its paragraphs; new headings are empty paragraphs with the heading style.
+- Gaps: master documents and subdocuments (`w:subDoc`, the `masterPages` view) are not supported;
+  outline numbering linked to headings follows the existing numbering support only.
