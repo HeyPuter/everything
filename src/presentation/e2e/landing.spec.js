@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { addText } from "./editor-commands.js";
 
 // Nobody has to sign in to work: the app opens into a new presentation, and
 // Puter's sign-in is asked for when a presentation is saved to the cloud.
@@ -61,7 +62,7 @@ test("edits stay on this device until the save button signs the guest in", async
   await mockPuter(page);
   await page.goto("/");
   await expect(page.locator(".editor")).toBeVisible();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await expect(page.locator("#save-status")).toHaveText("Saved on this device");
   expect(await page.evaluate(() => window.__writes.length)).toBe(0);

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck } from "../src/model.js";
 import { alternate, fixture } from "../tests/slide-transition-fixture.js";
@@ -23,14 +24,7 @@ async function importDeck(page, pres) {
     buffer: Buffer.from(await P.savePresentation(pres)),
   });
   await expect(page.locator(".slide-image")).toBeVisible();
-  if (
-    !(await page
-      .getByRole("combobox", { name: "Transition", exact: true })
-      .isVisible())
-  )
-    await page
-      .getByRole("button", { name: "Toggle format panel", exact: true })
-      .click();
+  await inspector(page);
 }
 
 async function downloadDeck(page) {

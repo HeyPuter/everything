@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck, text } from "../src/model.js";
 import { NS } from "../lib/pptx/src/internal/xml/index.ts";
@@ -104,10 +105,7 @@ test("inherited custom duration survives effect editing, undo and download", asy
     name: "Transition",
     exact: true,
   });
-  if (!(await control.isVisible()))
-    await page
-      .getByRole("button", { name: "Toggle format panel", exact: true })
-      .click();
+  await inspector(page);
   await control.selectOption("push");
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(control).toHaveValue("fade");

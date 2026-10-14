@@ -5,6 +5,12 @@ import { createGeometryDeck, holeGeometry } from "../tests/geometry-fixture.js";
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import {
+  addText,
+  inspector,
+  ribbonButton,
+  themeDialog,
+} from "./editor-commands.js";
+import {
   P,
   createDeck,
   parseDeck,
@@ -647,14 +653,6 @@ async function countSvgRenders(page) {
     };
   });
 }
-async function inspector(page) {
-  if (
-    !(await page
-      .getByRole("complementary", { name: "Format panel" })
-      .isVisible())
-  )
-    await page.getByRole("button", { name: "Toggle format panel" }).click();
-}
 // The File menu is on the menu bar, or behind the File options button on a
 // phone, where the menu bar gives way.
 const fileMenuOpener = (page) =>
@@ -721,7 +719,7 @@ for (const nextAction of ["new presentation", "sign out"]) {
       await page
         .getByRole("button", { name: "New presentation", exact: true })
         .click();
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator(".object-hit")).toHaveCount(1);
     } else {
       await page.getByRole("button", { name: "Account and settings" }).click();
@@ -859,10 +857,10 @@ test("a slow cloud open cannot replace a presentation started afterward", async 
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.evaluate(() => window.__releaseRead());
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".document-title")).toHaveText(
     "Untitled presentation",
   );
@@ -902,7 +900,7 @@ for (const label of ["Text", "Undo", "Redo"]) {
   }) => {
     await story(page);
     if (label !== "Text") {
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator(".object-hit")).toHaveCount(8);
     }
     if (label === "Redo") {
@@ -1595,7 +1593,7 @@ test("library dates refresh over time without replacing focused controls", async
       exact: true,
     })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.clock.fastForward(125000);
   await expect(page.locator(".object-hit")).toHaveCount(1);
@@ -1720,7 +1718,7 @@ test("create, edit, undo, recover, and download a real PPTX", async ({
   page,
 }, info) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await inspector(page);
   const input = page.getByRole("textbox", { name: "Object text" });
   await input.fill("A better way to present");
@@ -2106,7 +2104,7 @@ test("cloud save writes a PPTX file and changes autosave to the same path", asyn
     .click();
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await expect(page.locator("#save-status")).toContainText("Saved to Puter");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect.poll(() => page.evaluate(() => window.__writes.length)).toBe(2);
   const writes = await page.evaluate(() => window.__writes);
   expect(writes[0].path).toMatch(/\.pptx$/);
@@ -2127,14 +2125,14 @@ test("autosave does not upload a revision the Save button already saved", async 
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await expect(page.locator("#save-status")).toContainText("Saved to Puter");
   // An edit schedules an autosave; saving by hand first leaves it nothing to do.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await expect(page.locator("#toast")).toHaveText("Saved to your Puter cloud.");
   await page.waitForTimeout(2500);
   expect(await page.evaluate(() => window.__writes.length)).toBe(2);
   // A later edit still autosaves.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect.poll(() => page.evaluate(() => window.__writes.length)).toBe(3);
 });
 
@@ -2161,7 +2159,7 @@ test("editor accessibility and blank canvas insertion", async ({ page }) => {
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 1");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await inspector(page);
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
@@ -2192,14 +2190,14 @@ for (const reselect of [false, true]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect(page.locator(".object-hit")).toHaveCount(7);
     await expect(
       page.getByRole("button", { name: "Redo", exact: true }),
     ).toBeEnabled();
-    await page.getByRole("button", { name: "Theme", exact: true }).click();
+    await themeDialog(page);
     if (reselect) {
       await page.getByRole("button", { name: "Midnight", exact: true }).click();
       await page.getByRole("button", { name: "Studio", exact: true }).click();
@@ -2257,7 +2255,7 @@ test("a theme dialog cannot recolor a different presentation opened while it was
     .getByRole("menuitem", { name: "Open from Puter", exact: true })
     .click();
   await page.waitForFunction(() => window.__releasePicker);
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await page.getByRole("button", { name: "Midnight", exact: true }).click();
   await page.evaluate(() => window.__releasePicker());
   await expect(page).toHaveTitle("Another deck | Presentation");
@@ -2306,7 +2304,7 @@ test("canvas text edits, object movement, and themes survive export", async ({
     await page.getByRole("button", { name: "Close format panel" }).isVisible()
   )
     await page.getByRole("button", { name: "Close format panel" }).click();
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await page.getByRole("button", { name: "Midnight", exact: true }).click();
   await page.getByRole("button", { name: "Apply theme", exact: true }).click();
   await expect(page.locator("#save-status")).toContainText(
@@ -2424,35 +2422,22 @@ test("a deleted image leaves the saved file and returns with undo", async ({
   expect(await mediaParts()).toEqual(["ppt/media/image1.png"]);
 });
 
-test("the panel toggles stay in view while the tools scroll on narrow screens", async ({
+test("the pane toggles stay in reach on every screen size", async ({
   page,
 }) => {
   await story(page);
-  const formatToggle = page.getByRole("button", {
-    name: "Toggle format panel",
-  });
-  const slidesToggle = page.getByRole("button", {
-    name: "Toggle slide navigator",
-  });
-  await expect(formatToggle).toBeInViewport({ ratio: 1 });
-  await expect(slidesToggle).toBeInViewport({ ratio: 1 });
-  await expect(
-    page.getByRole("button", { name: "Undo", exact: true }),
-  ).toBeInViewport({
-    ratio: 1,
-  });
-  const toolbar = await page.locator(".toolbar").boundingBox();
-  const toggle = await formatToggle.boundingBox();
-  expect(toggle.x + toggle.width).toBeLessThanOrEqual(
-    toolbar.x + toolbar.width,
-  );
-  // The tools remain usable when they overflow.
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  for (const id of ["view-format-pane", "view-thumbnails"]) {
+    await expect(await ribbonButton(page, "View", id)).toBeInViewport({
+      ratio: 1,
+    });
+    await page.keyboard.press("Escape");
+  }
+  // The menus remain usable when the tools are folded.
+  await themeDialog(page);
   await expect(
     page.getByRole("heading", { name: "Presentation theme" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(formatToggle).toBeInViewport({ ratio: 1 });
 });
 
 test("format panel toggle changes visibility on every screen size", async ({
@@ -2461,35 +2446,34 @@ test("format panel toggle changes visibility on every screen size", async ({
   await story(page);
   const panel = page.getByRole("complementary", { name: "Format panel" });
   const wasVisible = await panel.isVisible();
-  await page.getByRole("button", { name: "Toggle format panel" }).click();
+  await (await ribbonButton(page, "View", "view-format-pane")).click();
   if (wasVisible) await expect(panel).toBeHidden();
   else await expect(panel).toBeVisible();
-  await page.getByRole("button", { name: "Toggle format panel" }).click();
+  await (await ribbonButton(page, "View", "view-format-pane")).click();
   if (wasVisible) await expect(panel).toBeVisible();
   else await expect(panel).toBeHidden();
 });
 
-for (const [label, panelName] of [
-  ["Toggle format panel", "Format panel"],
-  ["Toggle slide navigator", "Slide navigator"],
+for (const [id, panelName] of [
+  ["view-format-pane", "Format panel"],
+  ["view-thumbnails", "Slide navigator"],
 ]) {
-  test(`${label} exposes the panel's visibility and controlled region`, async ({
+  test(`the ${panelName} toggle exposes the panel's visibility`, async ({
     page,
   }) => {
     await story(page);
-    const toggle = page.getByRole("button", { name: label, exact: true });
     const panel = page.getByRole("complementary", {
       name: panelName,
       includeHidden: true,
     });
     const check = async () => {
+      const toggle = await ribbonButton(page, "View", id);
       await expect(toggle).toHaveAttribute(
-        "aria-expanded",
+        "aria-pressed",
         String(await panel.isVisible()),
       );
-      const id = await panel.getAttribute("id");
-      expect(id).toBeTruthy();
-      await expect(toggle).toHaveAttribute("aria-controls", id);
+      await page.keyboard.press("Escape");
+      expect(await panel.getAttribute("id")).toBeTruthy();
     };
     await check();
     if (panelName === "Format panel") {
@@ -2501,22 +2485,23 @@ for (const [label, panelName] of [
     }
     for (let count = 0; count < 2; count++) {
       const visible = await panel.isVisible();
-      await toggle.click();
-      await expect(toggle).toHaveAttribute("aria-expanded", String(!visible));
+      await (await ribbonButton(page, "View", id)).click();
+      await expect(panel).toBeVisible({ visible: !visible });
       await check();
     }
     if (panelName === "Format panel" && page.viewportSize().width <= 1150) {
-      if (!(await panel.isVisible())) await toggle.click();
+      if (!(await panel.isVisible()))
+        await (await ribbonButton(page, "View", id)).click();
       await page
         .getByRole("button", { name: "Close format panel", exact: true })
         .click();
-      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(panel).toBeHidden();
       await check();
     }
   });
 }
 
-test("closing the format panel returns keyboard focus to its toolbar toggle", async ({
+test("closing the format panel returns keyboard focus to the slide", async ({
   page,
 }) => {
   if (page.viewportSize().width > 1150)
@@ -2532,11 +2517,10 @@ test("closing the format panel returns keyboard focus to its toolbar toggle", as
   await expect(
     page.getByRole("complementary", { name: "Format panel" }),
   ).toBeHidden();
-  const toggle = page.getByRole("button", {
-    name: "Toggle format panel",
-    exact: true,
-  });
-  await expect(toggle).toBeFocused();
+  await expect(page.locator("#main")).toBeFocused();
+  // Its toggle opens it again from the keyboard.
+  const toggle = await ribbonButton(page, "View", "view-format-pane");
+  await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("complementary", { name: "Format panel" }),
@@ -2761,7 +2745,7 @@ test("a cloud-assigned suffix beyond the input limit stays visible through downl
     .getByRole("menuitem", { name: "Download PowerPoint (.pptx)", exact: true })
     .click();
   expect((await downloaded).suggestedFilename()).toBe(assigned + ".pptx");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await leaveWithUnsavedCloudEdits(page);
   await expect(
     page.getByRole("button", {
@@ -2854,7 +2838,7 @@ test("a duplicate first-save name follows the cloud filename throughout the edit
       overwrite: true,
     },
   ]);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await leaveWithUnsavedCloudEdits(page);
   await page
     .getByRole("button", {
@@ -2968,7 +2952,7 @@ test("recovery after an overlapping first cloud save keeps newer edits and the s
     .click();
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await page.waitForFunction(() => window.__releaseWrite);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.getByRole("button", { name: "Back to presentations" }).click();
   await page
@@ -3431,9 +3415,9 @@ test("an edit immediately after undo keeps both operations in order", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(2);
   await page.evaluate(() => {
     document.querySelector("#undo").click();
@@ -3512,7 +3496,7 @@ test("late account initialization preserves work already started", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.evaluate(() => window.__releaseAuth());
   await expect(
@@ -3590,7 +3574,7 @@ for (const [navigation, field] of [
           return request;
         };
       });
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await page.waitForFunction(() => window.__releaseNavigation);
       if (navigation === "back")
         await page
@@ -3671,7 +3655,7 @@ test("a download retains its presentation when navigation is already waiting on 
       return request;
     };
   });
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.waitForFunction(() => window.__releaseDraft);
   await page.getByRole("button", { name: "Back to presentations" }).click();
   await openFileMenu(page);
@@ -3759,7 +3743,7 @@ test("a failed recovery save replaces the previous saved status with unsaved cha
       throw new Error("Recovery storage unavailable");
     };
   });
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(page.locator("#toast")).toContainText(
     "Device storage is unavailable",
@@ -4137,7 +4121,7 @@ test("section text keeps its contrast when switching between light and dark pale
     ["Midnight", "#18222b"],
     ["Studio", "#ffffff"],
   ]) {
-    await page.getByRole("button", { name: "Theme", exact: true }).click();
+    await themeDialog(page);
     await page.getByRole("button", { name: theme, exact: true }).click();
     await page
       .getByRole("button", { name: "Apply theme", exact: true })
@@ -4172,7 +4156,7 @@ test("editing one slide renders only the changed thumbnail and canvas", async ({
       return encode(value);
     };
   });
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(thumbnails.nth(0)).not.toHaveAttribute("src", first);
   await expect(thumbnails.nth(1)).toHaveAttribute("src", second);
@@ -4202,7 +4186,7 @@ test("undo and redo re-render only the slide whose content changed", async ({
   await story(page);
   const thumbnails = page.locator(".slide-thumb img");
   const second = await thumbnails.nth(1).getAttribute("src");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   const edited = await thumbnails.nth(0).getAttribute("src");
   await countSvgRenders(page);
@@ -4329,7 +4313,7 @@ for (const commitBeforeRender of [false, true]) {
         return request;
       };
     });
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await page.waitForFunction(() => window.__releaseDraft);
     const notes = page.getByRole("textbox", { name: "Speaker notes" });
     await notes.fill("Keep these notes while the earlier edit finishes.");
@@ -4380,7 +4364,7 @@ test("a stale recovery entry uses the latest name, cloud path, and palette from 
   await expect(other.locator(".document-title")).toHaveText(
     "Updated in another tab",
   );
-  await other.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(other);
   await other.getByRole("button", { name: "Midnight", exact: true }).click();
   await other.getByRole("button", { name: "Apply theme", exact: true }).click();
   await other.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
@@ -4392,12 +4376,12 @@ test("a stale recovery entry uses the latest name, cloud path, and palette from 
     "Updated in another tab",
   );
   await expect(page.locator("#save-status")).toContainText("Saved to Puter");
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await expect(
     page.getByRole("button", { name: "Midnight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.getByRole("button", { name: /^(Save|Sign in to save)$/ }).click();
   await expect(page.locator("#save-status")).toContainText("Saved to Puter");
   expect(await page.evaluate(() => window.__writes.at(-1).path)).toBe(path);
@@ -4411,7 +4395,7 @@ for (const restore of ["undo", "recovery"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Theme", exact: true }).click();
+    await themeDialog(page);
     await page.getByRole("button", { name: "Midnight", exact: true }).click();
     await page
       .getByRole("button", { name: "Apply theme", exact: true })
@@ -4430,7 +4414,7 @@ for (const restore of ["undo", "recovery"]) {
         .getByRole("button", { name: "The big idea Recovery draft" })
         .click();
     }
-    await page.getByRole("button", { name: "Theme", exact: true }).click();
+    await themeDialog(page);
     await expect(
       page.getByRole("button", {
         name: restore === "undo" ? "Studio" : "Midnight",
@@ -4553,7 +4537,7 @@ test("undo preserves a focused slide thumbnail through the navigator refresh", a
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   const thumbnail = page.locator(".slide-thumb").nth(2);
   await thumbnail.focus();
@@ -4784,7 +4768,7 @@ test("inline typing survives completion of an earlier edit", async ({
       return request;
     };
   });
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.waitForFunction(() => window.__releaseDraft);
   await page.locator('[data-object="1"]').dblclick();
   const input = page.getByRole("textbox", { name: "Edit text", exact: true });
@@ -4895,7 +4879,7 @@ for (const action of ["formatting", "movement"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.locator('[data-object="1"]').click();
     await inspector(page);
@@ -5016,19 +5000,16 @@ test("refusing to delete the final slide preserves redo history", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(0);
-  const navigator = page.getByRole("button", {
-    name: "Toggle slide navigator",
-  });
   if (
     !(await page
       .getByRole("button", { name: "Options for slide 1", exact: true })
       .isVisible())
   )
-    await navigator.click();
+    await (await ribbonButton(page, "View", "view-thumbnails")).click();
   await page
     .getByRole("button", { name: "Options for slide 1", exact: true })
     .click();
@@ -5243,7 +5224,7 @@ for (const action of ["moving", "resizing"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect(page.locator(".object-hit")).toHaveCount(7);
@@ -5325,7 +5306,7 @@ for (const [geometry, bounds, direction] of [
       await expect(hit).toHaveCount(1);
       const atBoundary = direction === "Left" || direction === "Up";
       if (atBoundary) {
-        await page.getByRole("button", { name: "Text", exact: true }).click();
+        await addText(page);
         await expect(hit).toHaveCount(2);
         await page.getByRole("button", { name: "Undo", exact: true }).click();
         await expect(hit).toHaveCount(1);
@@ -5627,7 +5608,7 @@ for (const action of ["Forward", "Backward"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect(page.locator(".object-hit")).toHaveCount(7);
@@ -5857,7 +5838,7 @@ for (const source of ["recovery", "import"]) {
         await page
           .getByRole("button", { name: "New presentation", exact: true })
           .click();
-        await page.getByRole("button", { name: "Text", exact: true }).click();
+        await addText(page);
         await expect(page.locator("#save-status")).toHaveText(
           "Saved on this device",
         );
@@ -5921,7 +5902,7 @@ for (const source of ["recovery", "import"]) {
           })
           .click();
         await expect(page.locator("#slide-count")).toHaveText("5");
-        await page.getByRole("button", { name: "Text", exact: true }).click();
+        await addText(page);
         await expect(page.locator(".object-hit")).toHaveCount(8);
       }
       const previousToast = await page.locator("#toast").textContent();
@@ -5959,7 +5940,7 @@ for (const confirm of [false, true]) {
     await page
       .getByRole("button", { name: "New presentation", exact: true })
       .click();
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator("#save-status")).toHaveText(
       "Saved on this device",
     );
@@ -6038,7 +6019,7 @@ test("a failed local draft deletion still allows recovery", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator("#save-status")).toHaveText("Saved on this device");
   await page.getByRole("button", { name: "Back to presentations" }).click();
   await page.evaluate(() => {
@@ -6085,7 +6066,7 @@ for (const first of ["recovery", "deletion", "recovery of another draft"]) {
       await page
         .getByRole("button", { name: "New presentation", exact: true })
         .click();
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator("#save-status")).toHaveText(
         "Saved on this device",
       );
@@ -6221,7 +6202,7 @@ for (const location of ["library", "editor"]) {
       .getByRole("button", { name: /^(Save|Sign in to save)$/ })
       .click();
     await expect(page.locator("#save-status")).toHaveText("Saved to Puter");
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator("#save-status")).toHaveText(
       "Saved on this device",
     );
@@ -6349,7 +6330,7 @@ for (const delayed of ["rename", "read"]) {
       await page.waitForFunction(() => window.__releaseOperation);
       await file.click();
       await expect(page.locator("#slide-count")).toHaveText("1");
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await page
         .getByRole("button", { name: /^(Save|Sign in to save)$/ })
         .click();
@@ -6361,7 +6342,7 @@ for (const delayed of ["rename", "read"]) {
     await expect(page.locator(".document-title")).toHaveText(
       "Renamed while opening.pptx",
     );
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await page
       .getByRole("button", { name: /^(Save|Sign in to save)$/ })
       .click();
@@ -6478,7 +6459,7 @@ for (const superseded of [false, true]) {
       await page
         .getByRole("button", { name: "New presentation", exact: true })
         .click();
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator(".object-hit")).toHaveCount(1);
     }
     await page.evaluate(async () => {
@@ -6518,7 +6499,7 @@ for (const superseded of [false, true]) {
       .getByRole("button", { name: /^(Save|Sign in to save)$/ })
       .click();
     await expect(page.locator("#save-status")).toHaveText("Saved to Puter");
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator("#save-status")).toHaveText(
       "Saved on this device",
     );
@@ -6598,7 +6579,7 @@ for (const pendingRecovery of [false, true]) {
       .getByRole("button", { name: /^(Save|Sign in to save)$/ })
       .click();
     await expect(page.locator("#save-status")).toContainText("Saved to Puter");
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator("#save-status")).toHaveText(
       "Saved on this device",
     );
@@ -6663,7 +6644,7 @@ for (const pendingRecovery of [false, true]) {
       "title",
       "Save to Puter to access this presentation on other devices.",
     );
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator("#save-status")).toHaveText(
       "Saved on this device",
     );
@@ -6733,7 +6714,7 @@ for (const delayed of ["delete", "read"]) {
       await page.waitForFunction(() => window.__releaseFileOperation);
       await file.click();
       await expect(page.locator("#slide-count")).toHaveText("1");
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator("#save-status")).toHaveText(
         "Saved on this device",
       );
@@ -6757,7 +6738,7 @@ for (const delayed of ["delete", "read"]) {
         "title",
         "Save to Puter to access this presentation on other devices.",
       );
-      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await addText(page);
       await expect(page.locator("#save-status")).toHaveText(
         "Saved on this device",
       );
@@ -7108,7 +7089,7 @@ test("a Save awaiting sign-in does not upload a different presentation opened la
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await page.evaluate(() => window.__releaseSignIn());
   await expect(page.locator(".account-button")).toContainText("test-user");
@@ -7228,7 +7209,7 @@ test("speaker notes queued immediately after undo survive export", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await page.evaluate(() => {
     document.querySelector("#undo").click();
@@ -7253,7 +7234,7 @@ test("an edit queued for an object removed by undo preserves redo", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await inspector(page);
   await page.evaluate(() => {
@@ -7916,16 +7897,16 @@ test("new text and shapes stay legible on dark and accent slide backgrounds", as
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await page.getByRole("button", { name: "Midnight", exact: true }).click();
   await page.getByRole("button", { name: "Apply theme", exact: true }).click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.getByRole("button", { name: "Shape", exact: true }).click();
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(9);
   await page.getByRole("button", { name: /^Slide 5:/ }).click();
   await expect(page.locator("#slide-position")).toHaveText("Slide 5 of 5");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await page.getByRole("button", { name: "Shape", exact: true }).click();
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
   await expect(page.locator(".object-hit")).toHaveCount(7);
@@ -7983,7 +7964,7 @@ test("the slide navigator keeps the active slide in view when it changes", async
     list.scrollTop = 0;
     list.scrollLeft = 0;
   });
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   expect(
     await page.evaluate(() => {
@@ -8070,7 +8051,7 @@ test("alignment buttons show the current paragraph alignment", async ({
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await inspector(page);
   const align = (name) =>
     panel(page).getByRole("button", { name: `Align ${name}`, exact: true });
@@ -8334,7 +8315,7 @@ test("the canvas shows the same render as the active slide thumbnail", async ({
           .getAttribute("src"),
     );
   expect(await same()).toBe(true);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   expect(await same()).toBe(true);
   await page.evaluate(() =>
@@ -8428,7 +8409,7 @@ test("the shortcuts dialog documents every editor and presentation shortcut", as
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   // The documented alternative redo shortcut works.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await page.keyboard.press("Control+z");
   await expect(page.locator(".object-hit")).toHaveCount(7);
@@ -8576,7 +8557,7 @@ test("autosave waits while offline and resumes when the connection returns", asy
   const writes = () => page.evaluate(() => window.__writes.length);
   expect(await writes()).toBe(1);
   await context.setOffline(true);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(page.locator("#save-status")).toContainText(
     "Saved on this device",
@@ -8745,7 +8726,7 @@ for (const action of ["Align left", "Remove fill", "retyped X position"]) {
     page,
   }) => {
     await story(page);
-    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await addText(page);
     await expect(page.locator(".object-hit")).toHaveCount(8);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     await expect(page.locator(".object-hit")).toHaveCount(7);
@@ -9134,7 +9115,7 @@ test("resizing an image by its handle keeps its proportions unless Shift is held
   await drag(-30, 10, true);
   const [w2, h2] = await fields(w1);
   expect(w2).not.toBe(h2);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   expect(await fields(w2)).toEqual(["6.5", "1"]);
   await drag(30, 0);
   const [w3, h3] = await fields("6.5");
@@ -9217,7 +9198,7 @@ test("the tool strip fades the edge that hides more tools", async ({
   });
   await expect.poll(fades).toEqual(["24px", "24px"]);
   // Tools under the fade still work.
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await expect(
     page.getByRole("heading", { name: "Presentation theme" }),
   ).toBeVisible();
@@ -9673,7 +9654,7 @@ test("inherited and theme slide backgrounds are reported and kept legible", asyn
   await expect(background.locator("input")).toHaveValue("#000000");
   await closePanel();
   // Text added to the dark slide takes a color that reads on black.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await openFileMenu(page);
   const downloaded = page.waitForEvent("download");
@@ -9838,7 +9819,7 @@ test("the delete confirmation says what a draft and a cloud file each are", asyn
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator("#save-status")).toContainText(
     "Saved on this device",
   );
@@ -9868,10 +9849,10 @@ test("the inline editor takes the text's own font and colors when they stay read
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await page.getByRole("button", { name: "Midnight", exact: true }).click();
   await page.getByRole("button", { name: "Apply theme", exact: true }).click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const object = page.locator(".object-hit");
   await expect(object).toHaveCount(1);
   await object.dblclick();
@@ -10014,7 +9995,7 @@ test("keyboard focus survives duplicating and deleting objects", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await inspector(page);
   const focused = () =>
@@ -10758,7 +10739,7 @@ test("dragged objects snap to the slide's center and other objects' edges unless
   await expect(x).toHaveValue("4.87");
   if (await close.isVisible()) await close.click();
   // Dragging back toward another object's edge snaps to it.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const text = page.locator(".object-hit").nth(1);
   await expect(text).toHaveAccessibleName("Your text here. Select to edit");
   await inspector(page);
@@ -12017,7 +11998,7 @@ test("Tab and Shift+Tab nest list items while editing, and the levels survive la
   page,
 }) => {
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const box = page.locator(".object-hit.selected");
   await expect(box).toHaveCount(1);
   await box.dblclick();
@@ -12934,7 +12915,7 @@ test("presentations open where crypto.randomUUID is unavailable", async ({
     });
   });
   await story(page);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect(page.locator("#save-status")).toHaveText("Saved on this device");
 });
@@ -12997,7 +12978,7 @@ test("the rotation field records no step for the same angle", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await inspector(page);
   const rotation = panel(page).getByRole("spinbutton", {
@@ -13302,7 +13283,7 @@ test("whole-box paragraph settings cover every paragraph", async ({ page }) => {
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const hit = page.locator(".object-hit");
   await hit.dblclick();
   const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
@@ -13495,7 +13476,7 @@ test("opening and leaving the editor without typing records no undo step", async
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const hit = page.locator(".object-hit");
   await hit.dblclick();
   const editor = page.getByRole("textbox", { name: "Edit text", exact: true });
@@ -13840,7 +13821,7 @@ test("stepping the font size at its limit records no undo step", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await inspector(page);
   const size = panel(page).getByRole("spinbutton", { name: "Font size" });
@@ -14570,7 +14551,7 @@ test("a newly inserted or pasted object is selected on its own", async ({
     await expect(chosen).toHaveCount(2);
   };
   await selectPanels();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(objects).toHaveCount(8);
   await expect(chosen).toHaveCount(1);
   await expect(chosen).toHaveAccessibleName("Your text here. Select to edit");
@@ -14674,7 +14655,7 @@ test("arrow keys move several selected objects together, or not at all", async (
     .click();
   await page.getByRole("button", { name: "Shape", exact: true }).click();
   await page.getByRole("menuitem", { name: "Rectangle", exact: true }).click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const objects = page.locator(".object-hit");
   await expect(objects).toHaveCount(2);
   // The text box goes against the slide's right edge.
@@ -14779,7 +14760,7 @@ test("undo and redo inside the canvas text editor step through the typing", asyn
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const box = page.locator(".object-hit");
   await expect(box).toHaveCount(1);
   await box.dblclick();
@@ -14975,7 +14956,7 @@ test("text is edited at the angle its box is turned to", async ({ page }) => {
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   await inspector(page);
   const rotation = panel(page).getByRole("spinbutton", {
@@ -15136,14 +15117,14 @@ test("an edit that fails part-way leaves the presentation as it was", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(1);
   const image = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Image", exact: true }).click();
   await (await image).setFiles(png(PIXEL_PNG));
   await expect(page.locator("#toast")).toHaveText("The media check failed.");
   await expect(page.locator(".object-hit")).toHaveCount(1);
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(page.locator(".object-hit")).toHaveCount(2);
   for (const hit of await page.locator(".object-hit").all())
     await expect(hit).toHaveAccessibleName(/^Your text here/);
@@ -15350,7 +15331,7 @@ test("Replace moves on past a replacement that holds the search text", async ({
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const box = page.locator(".object-hit");
   await expect(box).toHaveCount(1);
   await box.dblclick();
@@ -15527,7 +15508,7 @@ test("formatting chosen in an emptied editor applies to the text typed next", as
   await page
     .getByRole("button", { name: "New presentation", exact: true })
     .click();
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   const box = page.locator(".object-hit");
   await expect(box).toHaveCount(1);
   await box.dblclick();
@@ -15943,12 +15924,11 @@ test("Escape closes the format panel laid over the canvas", async ({
   await page.setViewportSize({ width: 1000, height: 800 });
   await story(page);
   await page.locator('[data-object="1"]').click();
-  const toggle = page.getByRole("button", { name: "Toggle format panel" });
-  await toggle.click();
+  await (await ribbonButton(page, "View", "view-format-pane")).click();
   await expect(panel(page)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel(page)).toBeHidden();
-  await expect(toggle).toBeFocused();
+  await expect(page.locator("#main")).toBeFocused();
   // The object stays selected; a second Escape lets it go.
   await expect(page.locator('[data-object="1"]')).toHaveAttribute(
     "aria-pressed",
@@ -15981,7 +15961,7 @@ test("the slide size and appearance dialogs open on their first choice", async (
     page.getByRole("combobox", { name: "Color mode" }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await themeDialog(page);
   await expect(
     page.getByRole("button", { name: "Studio", exact: true }),
   ).toBeFocused();
@@ -17191,7 +17171,7 @@ test("inserting and copying commit the text open on the canvas", async ({
   const alt = () => page.locator(".slide-image").getAttribute("alt");
   await page.locator('[data-object="1"]').dblclick();
   await editor.fill("Typed then inserted");
-  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await addText(page);
   await expect(editor).toHaveCount(0);
   await expect(page.locator(".object-hit")).toHaveCount(8);
   await expect.poll(alt).toContain("Typed then inserted");
@@ -18056,18 +18036,15 @@ test("panel commands update fitted canvas bounds before the next pointer action"
 }) => {
   await story(page);
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
-  for (const name of [
-    "Toggle format panel",
-    "Close format panel",
-    "Toggle slide navigator",
-    "Toggle slide navigator",
+  for (const [id, name] of [
+    ["view-format-pane"],
+    ["view-format-pane", "Close format panel"],
+    ["view-thumbnails"],
+    ["view-thumbnails"],
   ]) {
-    let command = page.getByRole("button", { name, exact: true });
-    if (!(await command.isVisible()))
-      command = page.getByRole("button", {
-        name: "Toggle format panel",
-        exact: true,
-      });
+    let command = name && page.getByRole("button", { name, exact: true });
+    if (!command || !(await command.isVisible()))
+      command = await ribbonButton(page, "View", id);
     const bounds = await command.evaluate(async (button) => {
       const measure = () => {
         const { x, y, width, height } = document

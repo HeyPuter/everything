@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { inspector } from "./editor-commands.js";
 import { readFile } from "node:fs/promises";
 import { P, parseDeck, MIME } from "../src/model.js";
 import {
@@ -154,9 +155,7 @@ test("inherited transformed paint informs color controls and readable new shape 
   await load(page, await solidPaintInheritanceFixture());
   const shape = page.locator(".object-hit").nth(2);
   await shape.click();
-  const panel = page.getByRole("complementary", { name: "Format panel" });
-  if (!(await panel.isVisible()))
-    await page.getByRole("button", { name: "Toggle format panel" }).click();
+  await inspector(page);
   await expect(page.locator('input[aria-label="Fill color"]')).toHaveValue(
     "#182f44",
   );
