@@ -50,8 +50,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const view = screenView(mode);
     if (view && engine.setView(view)) { layoutChanged(); paintStyleArea(); }
   }
-  const resize = new ResizeObserver(() => { if (isContinuousView(mode)) requestAnimationFrame(relayoutScreen); });
-  resize.observe(host);
+  // Hosts without ResizeObserver (test DOMs) relayout on editor updates instead.
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (isContinuousView(mode)) requestAnimationFrame(relayoutScreen); });
+  resize?.observe(host);
 
   /** Draft view: labelled dotted rules for page and section breaks, painted on screen only. */
   const breakOverlay = (ctx, index, geometry) => {
@@ -568,7 +569,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     get mode() { return mode; },
     outline, read,
     destroy() {
-      resize.disconnect(); keyAbort.abort();
+      resize?.disconnect(); keyAbort.abort();
       if (read.active) read.leave();
       clearTimeout(sendTimer);
       for (const channel of channels) { channel.postMessage({ type: 'closed' }); channel.close(); }

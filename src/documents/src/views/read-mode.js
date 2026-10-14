@@ -157,7 +157,7 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
     wheelAt = now; wheelTotal += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
     if (Math.abs(wheelTotal) > 60) { turn(Math.sign(wheelTotal)); wheelTotal = 0; wheelAt = now + 250; }
   }
-  const resize = new ResizeObserver(() => { if (active) apply(); });
+  const resize = typeof ResizeObserver === 'undefined' ? { observe() {}, disconnect() {} } : new ResizeObserver(() => { if (active) apply(); });
 
   return {
     get active() { return active; },
