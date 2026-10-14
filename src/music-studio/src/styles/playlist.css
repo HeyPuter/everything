@@ -540,3 +540,14 @@
 .pl-ruler.marker-drag {
   cursor: grabbing;
 }
+
+/* Follow button with its mode menu. */
+.pl-follow {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pl-follow-more {
+  width: 14px;
+  margin-left: -2px;
+}

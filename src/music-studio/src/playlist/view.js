@@ -128,6 +128,23 @@ export function createPlaylistView(app, host) {
 
   // ---------------------------------------------------------------- toolbar
 
+  // Following the playhead: 'page' jumps a screen at a time; 'continuous'
+  // keeps the playhead at a fixed spot and scrolls the song under it (falls
+  // back to paging when the system asks for reduced motion).
+  const motionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const reducedMotion = () => Boolean(motionQuery?.matches);
+  function followMode(effective = true) {
+    const m = prefs.get('followMode') === 'continuous' ? 'continuous' : 'page';
+    return effective && m === 'continuous' && reducedMotion() ? 'page' : m;
+  }
+  function setFollowMode(mode) {
+    prefs.set('followMode', mode);
+    if (!prefs.get('autoScroll')) prefs.set('autoScroll', true);
+    announce(mode === 'continuous' ? (reducedMotion() ? 'Continuous follow, paging while reduced motion is on' : 'Continuous follow') : 'Page by page follow');
+  }
+  const FOLLOW_AT = 0.35; // continuous: playhead position in the view
+
+
   const toolBtns = new Map();
   const toolGroup = h('div.pl-tool-group', { role: 'toolbar', 'aria-label': 'Playlist tools' });
   for (const t of TOOLS) {
@@ -161,15 +178,30 @@ export function createPlaylistView(app, host) {
   });
   const snapWrap = h('label.pl-snap-wrap', { title: 'Snap to grid' }, icon('snap-grid', 14), snapSel);
   const followBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Follow playhead', 'aria-pressed': 'false', title: 'Follow the playhead while playing', onclick: () => prefs.toggle('autoScroll') }, icon('pl-follow', 15));
+  const followMenuBtn = h('button.icon-btn.xs.pl-follow-more', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Follow options', title: 'How the view follows the playhead' }, icon('chevron-down', 12));
+  followMenuBtn.addEventListener('click', () => {
+    const mode = followMode(false);
+    openMenu(
+      [
+        { type: 'check', label: 'Follow playhead', checked: Boolean(prefs.get('autoScroll')), run: () => prefs.toggle('autoScroll') },
+        { type: 'sep' },
+        { type: 'radio', label: 'Page by page', checked: mode === 'page', run: () => setFollowMode('page') },
+        { type: 'radio', label: reducedMotion() ? 'Continuous (off with reduced motion)' : 'Continuous', checked: mode === 'continuous', run: () => setFollowMode('continuous') },
+      ],
+      { anchor: followMenuBtn, label: 'Follow options' },
+    );
+  });
+  const followWrap = h('span.pl-follow', followBtn, followMenuBtn);
   const zoomOutBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (-)', onclick: () => V.zoomAt(1 / 1.5) }, icon('zoom-out', 15));
   const zoomInBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (=)', onclick: () => V.zoomAt(1.5) }, icon('zoom-in', 15));
   const fitBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Zoom to fit song', title: 'Zoom to fit the song', onclick: () => V.zoomFit() }, icon('pl-fit', 15));
-  const toolbar = h('div.pl-toolbar', pickerBtn, sourceBtn, h('span.tool-sep'), toolGroup, h('span.tool-sep'), snapWrap, followBtn, h('span.tool-sep'), zoomOutBtn, zoomInBtn, fitBtn);
+  const toolbar = h('div.pl-toolbar', pickerBtn, sourceBtn, h('span.tool-sep'), toolGroup, h('span.tool-sep'), snapWrap, followWrap, h('span.tool-sep'), zoomOutBtn, zoomInBtn, fitBtn);
 
   function syncToolbar() {
     for (const [id, b] of toolBtns) b.setAttribute('aria-pressed', String(V.tool() === id));
     snapSel.value = prefs.get('snap').playlist || 'line';
     followBtn.setAttribute('aria-pressed', String(Boolean(prefs.get('autoScroll'))));
+    followBtn.title = `Follow the playhead while playing (${followMode(false) === 'continuous' ? 'continuous' : 'page by page'})`;
     const showPicker = ui(app).picker !== false;
     pickerBtn.setAttribute('aria-pressed', String(showPicker));
     root.classList.toggle('no-picker', !showPicker);
@@ -944,7 +976,7 @@ export function createPlaylistView(app, host) {
   });
   app.samples.on('change', () => V.markDirty());
   prefs.on('change', (k) => {
-    if (k === 'snap' || k === 'autoScroll' || k === 'playlistUi') {
+    if (k === 'snap' || k === 'autoScroll' || k === 'playlistUi' || k === 'followMode') {
       syncToolbar();
       if (k === 'playlistUi') requestAnimationFrame(() => resize());
     }
@@ -960,13 +992,17 @@ export function createPlaylistView(app, host) {
 
   // ---------------------------------------------------------------- frame
 
+
   let lastHeadX = NaN;
   function updatePlayhead() {
     const song = engine.mode === 'song';
     const pos = engine.position;
     if (song && engine.playing && prefs.get('autoScroll') && !V.hasGesture?.()) {
       const span = V.vp.width / V.vp.pxPerTick;
-      if (pos > V.vp.scroll + span * 0.96 || pos < V.vp.scroll) V.setScroll(pos - span * 0.02, V.scrollY);
+      if (followMode() === 'continuous') {
+        const target = Math.max(0, pos - span * FOLLOW_AT);
+        if (Math.abs(target - V.vp.scroll) * V.vp.pxPerTick >= 0.5) V.setScroll(target, V.scrollY);
+      } else if (pos > V.vp.scroll + span * 0.96 || pos < V.vp.scroll) V.setScroll(pos - span * 0.02, V.scrollY);
     }
     const x = song ? Math.round(V.vp.x(pos)) : -10;
     if (x === lastHeadX) return;
