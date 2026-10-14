@@ -809,7 +809,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const pictureLauncher = command('Format Picture', 'formattingPane', () => openPane('format'));
     track(pictureLauncher, has);
     const picture = [
-      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 5, items: [removeBg, corrections, color, artistic, rows([transparency], [compress], [change]), rows([reset])] },
+      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 7, items: [removeBg, corrections, color, artistic, rows([transparency], [compress], [change]), rows([reset])] },
       { id: 'pictureStyles', label: 'Picture Styles', icon: 'pictureBorder', priority: 6, items: [el('div.ribbon-gallery-frame', {}, pictureGallery, pictureStylesMore), rows([border], [effects], [pictureLayout]), el('div.ribbon-launcher', {}, pictureLauncher)] },
       { id: 'pictureAccessibility', label: 'Accessibility', icon: 'altText', priority: 4, items: [altText()] },
       arrangeGroup('pictureArrange', 8),

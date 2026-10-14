@@ -48,7 +48,9 @@ test('edits, removes and undoes drawing links using the existing keyboard dialog
   await reopenDocx(page,input,edited,original);await choose(input);await input.press('ControlOrMeta+k');await expect(address).toHaveValue(changed);
   await page.getByRole('dialog').getByRole('button',{name:'Open link',exact:true}).click();expect(await page.evaluate(()=>window.linkOpens.at(-1))).toEqual([changed,'_blank','noopener,noreferrer']);
   await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();await page.getByRole('button',{name:'Remove link',exact:true}).click();
-  const removed=await save(page,info,'removed');await reopenDocx(page,input,removed,original);await choose(input);await expect(page.getByRole('button',{name:'Insert or edit link',exact:true})).toHaveAttribute('aria-pressed','false');
+  const removed=await save(page,info,'removed');await reopenDocx(page,input,removed,original);await choose(input);
+  // Selecting the drawing brings up its format tab; the Link command lives on Insert.
+  await page.getByRole('tab',{name:'Insert',exact:true}).click();await expect(page.getByRole('button',{name:'Insert or edit link',exact:true})).toHaveAttribute('aria-pressed','false');
   await choose(input,2);await input.press('ControlOrMeta+k');await expect(address).toHaveValue(outer);
 });
 
