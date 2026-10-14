@@ -66,7 +66,7 @@ export async function verify(key, value, signature) {
 /** The origin of a Puter worker; anything else is refused. */
 export function workerURL(value) {
   const url = new URL(value);
-  const local = /^(127\.0\.0\.1|localhost)$/.test(url.hostname) && url.pathname.startsWith('/__collab');
+  const local = /^(127\.0\.0\.1|localhost|[a-z0-9.-]+\.localhost)$/.test(url.hostname) && url.pathname.startsWith('/__collab');
   if (local) return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
   if (url.protocol !== 'https:' || !/^[a-z0-9-]+\.puter\.work$/.test(url.hostname) || url.port || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid collaboration server address.');
   return url.origin;

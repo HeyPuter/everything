@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:worker && vite build",
+    "build:worker": "vite build --config vite.worker.config.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
