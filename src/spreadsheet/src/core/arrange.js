@@ -163,7 +163,7 @@ export function objectNames(list) {
     if (o.group && !names.has(o.group)) names.set(o.group, next('Group'));
     const kind = o.type === 'image' ? (o.drawingShape || o.nativeDrawing ? 'Shape' : 'Picture')
       : o.type === 'text' ? (o.equation ? 'Equation' : o.style?.effects ? 'WordArt' : 'Text Box')
-        : o.type === 'slicer' ? 'Slicer' : o.type === 'timeline' ? 'Timeline' : o.type === 'scroll' ? 'Scroll Bar' : 'Chart';
+        : o.type === 'slicer' ? 'Slicer' : o.type === 'timeline' ? 'Timeline' : o.type === 'scroll' ? 'Scroll Bar' : o.type === 'smartart' ? 'SmartArt' : 'Chart';
     const fallback = next(kind);
     names.set(o.id, o.name || ((o.type === 'slicer' || o.type === 'timeline') && o.title ? o.title : fallback));
   }

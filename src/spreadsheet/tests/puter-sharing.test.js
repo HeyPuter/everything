@@ -84,8 +84,14 @@ describe('links to a file by its id', () => {
   it('round-trips through the address', () => {
     const url = fileLink({ origin: 'https://sheet.example', pathname: '/' }, 'a b/c');
     expect(url).toBe('https://sheet.example/#/file/a%20b%2Fc');
-    expect(parseAppHash(url.slice(url.indexOf('#')))).toEqual({ route: 'file', id: 'a b/c' });
+    expect(parseAppHash(url.slice(url.indexOf('#')))).toEqual({ route: 'file', id: 'a b/c', range: null });
     expect(parseAppHash('#/file/')).toEqual({ route: 'home' });
+  });
+
+  it('can open the file at a range', () => {
+    const url = fileLink({ origin: 'https://sheet.example', pathname: '/' }, 'u1', "'Q3 plan'!B4");
+    expect(url).toBe("https://sheet.example/#/file/u1?range='Q3%20plan'!B4");
+    expect(parseAppHash(url.slice(url.indexOf('#')))).toEqual({ route: 'file', id: 'u1', range: "'Q3 plan'!B4" });
   });
 });
 

@@ -4,6 +4,10 @@
  * thread's first comment as parentId), the workbook gets xl/persons/person.xml listing the authors, and
  * each thread also keeps a plain note in the legacy comments part (written by the vendored writer from
  * io.js), authored "tc={first comment id}", so a reader that knows only notes still shows it.
+ *
+ * A comment that @mentions people lists them in its <mentions> element: each mention names a person of the
+ * person list (where a Puter user is known by username, anyone else by email address) and where in the
+ * text the "@Name" stands (startIndex and length, in UTF-16 code units).
  */
 import { cellKey, cellName, parseKey } from './cell.js';
 import { xmlTag, xmlText } from './xlsx-export-styles.js';
@@ -36,6 +40,10 @@ function fileTime(iso) {
 export function createPersonList() {
   const people = new Map();
   return {
+    /** The person someone mentions: known by email address where there is one, else by Puter username. */
+    idForMention(m) {
+      return this.idFor({ author: m.name, userId: m.email || m.user || m.name, providerId: 'None' });
+    },
     idFor(item) {
       const userId = item.userId || item.author, providerId = item.providerId || 'None';
       const key = JSON.stringify([item.author, userId, providerId]);
@@ -61,10 +69,18 @@ export function threadedCommentsXml(comments, persons) {
       body += xmlTag('threadedComment', {
         ref, dT: fileTime(item.time), personId: persons.idFor(item), id: item.id,
         ...(i ? { parentId: root } : { done: thread.done ? 1 : null }),
-      }, xmlTag('text', {}, encodeText(item.text)));
+      }, xmlTag('text', {}, encodeText(item.text)) + mentionsXml(item, persons));
     });
   }
   return HEADER + xmlTag('ThreadedComments', { xmlns: THREADED_NS, 'xmlns:x': MAIN }, body);
+}
+
+/** A comment's <mentions>, or '' when it mentions nobody. */
+function mentionsXml(item, persons) {
+  if (!item.mentions?.length) return '';
+  return xmlTag('mentions', {}, item.mentions.map((m) => xmlTag('mention', {
+    mentionpersonId: persons.idForMention(m), mentionId: m.id, startIndex: m.start, length: m.length,
+  })).join(''));
 }
 
 const relationshipsXml = (rels) => rels || `${HEADER}<Relationships xmlns="${PACKAGE_RELS}"></Relationships>`;
@@ -176,6 +192,31 @@ export function readXlsxPersons(xml) {
   return people;
 }
 
+const EMAIL_IN = /[^\s@:<>()",;\\[\]]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/;
+
+/**
+ * The mentions of one threadedComment (its inner XML): who, from the person list, and where. A person's
+ * userId says who they are: an email address in it is theirs; a bare name with no provider is a Puter
+ * username (how this app writes one). The text check is left to the model (normalizeMentions).
+ */
+function readMentions(inner, persons) {
+  const list = /<(?:\w+:)?mentions\b[^>]*>([\s\S]*?)<\/(?:\w+:)?mentions>/.exec(inner);
+  if (!list) return [];
+  const out = [];
+  for (const m of list[1].matchAll(/<(?:\w+:)?mention\b[^>]*>/g)) {
+    const person = persons.get((xlsxAttr(m[0], 'mentionpersonId') || '').toUpperCase());
+    const start = Number(xlsxAttr(m[0], 'startIndex')), length = Number(xlsxAttr(m[0], 'length'));
+    if (!Number.isInteger(start) || !Number.isInteger(length)) continue;
+    const userId = person?.userId || '';
+    const email = EMAIL_IN.exec(userId)?.[0];
+    const mention = { id: (xlsxAttr(m[0], 'mentionId') || '').toUpperCase(), name: person?.name || '', start, length };
+    if (email) mention.email = email.toLowerCase();
+    else if ((!person?.providerId || person.providerId === 'None') && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(userId)) mention.user = userId;
+    out.push(mention);
+  }
+  return out;
+}
+
 /** A threadedComments part as the model's threads ({ "r,c": thread }). */
 export function readThreadedCommentsXml(xml, persons = new Map()) {
   const roots = new Map(), byRef = new Map(), all = [];
@@ -189,12 +230,14 @@ export function readThreadedCommentsXml(xml, persons = new Map()) {
     if (!textMatch) continue;
     const person = persons.get((xlsxAttr(head, 'personId') || '').toUpperCase());
     const time = xlsxAttr(head, 'dT');
+    const mentions = readMentions(inner, persons);
     const item = {
       id, author: person?.name || 'Unknown', text: elementText(textMatch[1] || ''),
       time: time ? (/[zZ]|[+-]\d\d:?\d\d$/.test(time) ? time : `${time}Z`) : null,
       // A person this app wrote (named by display name, with no provider) needs nothing more than the name.
       ...(person?.userId && person.userId !== person.name ? { userId: person.userId } : {}),
       ...(person?.providerId && person.providerId !== 'None' ? { providerId: person.providerId } : {}),
+      ...(mentions.length ? { mentions } : {}),
     };
     all.push({ ref, cell, parentId, item, done: /^(1|true)$/i.test(xlsxAttr(head, 'done') || '') });
   }

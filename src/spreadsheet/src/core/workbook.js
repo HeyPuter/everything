@@ -104,7 +104,7 @@ import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-h
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
-  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
+  return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
 }
 
 export const DEFAULT_ROWS = 100;
@@ -615,7 +615,7 @@ function absoluteDrawingAnchor(sheet, chart) {
   return { ...chart, anchor: { r: 0, c: 0 },
     dx: chart.dx + offset(chart.anchor.c, sheet.colWidths, sheet.defaultColWidth, sheet.hiddenCols),
     dy: chart.dy + offset(chart.anchor.r, sheet.rowHeights, sheet.defaultRowHeight, sheet.hiddenRows, sheet.filterHidden),
-    ...(['image', 'text'].includes(chart.type) ? { range: { r1: 0, c1: 0, r2: 0, c2: 0 } } : {}) };
+    ...(['image', 'text', 'smartart'].includes(chart.type) ? { range: { r1: 0, c1: 0, r2: 0, c2: 0 } } : {}) };
 }
 
 /**
@@ -7942,7 +7942,7 @@ export class Workbook extends EventTarget {
     copy.anchor = { r: row.index, c: col.index };
     copy.dx = col.offset;
     copy.dy = row.offset;
-    if (copy.title && copy.type !== 'image' && copy.type !== 'text' && copy.type !== 'slicer') copy.title = `${copy.title} (copy)`;
+    if (copy.title && !['image', 'text', 'slicer', 'smartart'].includes(copy.type)) copy.title = `${copy.title} (copy)`;
     const full = reanchorCellDrawing(sheet, absoluteDrawingAnchor(sheet, normalizeChart({ ...copy, id: newId() })));
     if (!full) return null;
     this._setCharts(sheet, [...sheet.charts, full], `Duplicate ${objectNoun(full)}`);
@@ -7966,6 +7966,32 @@ export class Workbook extends EventTarget {
     if (JSON.stringify(merged) === JSON.stringify(next[i])) return;
     next[i] = ['anchor', 'dx', 'dy', 'w', 'h'].some(k => Object.hasOwn(patch, k)) ? reanchorCellDrawing(sheet, merged) : merged;
     this._setCharts(sheet, next, label);
+  }
+
+  /**
+   * Change a SmartArt diagram (see smartart.js): its outline, layout, colours, style or shapes' formatting.
+   * With `merge`, a change following one with the same key within a few seconds joins its undo step, so the
+   * words typed into one item of the Text Pane undo together rather than letter by letter.
+   */
+  updateSmartArt(sheetId, id, patch, label = 'Edit SmartArt', { merge = null } = {}) {
+    const before = this._history.at(-1);
+    const ch = this.chartById(sheetId, id);
+    if (ch?.type !== 'smartart') return false;
+    // A diagram another program drew is shown as it left it until it is changed here.
+    this.updateChart(sheetId, id, { ...patch, ...(ch.fallback && !Object.hasOwn(patch, 'fallback') ? { fallback: null } : {}) }, label);
+    if (this._group) return true;
+    const after = this._history.at(-1);
+    if (after === before || !after) return false;
+    const now = Date.now();
+    if (merge && before?.smartArtMerge === `${sheetId}|${id}|${merge}` && now - before.smartArtAt < 4000) {
+      this._history.pop();
+      before.redo = after.redo;
+      before.smartArtAt = now;
+    } else if (merge) {
+      after.smartArtMerge = `${sheetId}|${id}|${merge}`;
+      after.smartArtAt = now;
+    }
+    return true;
   }
 
   /** Ignore Error: the error-checking rule `key` is acknowledged for these cells (saved as <ignoredErrors>). One undo step. */
@@ -9264,7 +9290,8 @@ export class Workbook extends EventTarget {
       this._setRules(sheet, rules, label);
     }
     if (sheet.validations.some((v) => inside(v.range))) this._setValidations(sheet, sheet.validations.map((v) => (inside(v.range) ? { ...v, range: grown(v.range) } : v)), label);
-    if (sheet.charts.some((ch) => ch.type !== 'image' && inside(ch.range))) this._setCharts(sheet, sheet.charts.map((ch) => (ch.type !== 'image' && inside(ch.range) ? { ...ch, range: grown(ch.range) } : ch)), label);
+    const reads = (ch) => ch.type !== 'image' && ch.type !== 'smartart' && inside(ch.range);
+    if (sheet.charts.some(reads)) this._setCharts(sheet, sheet.charts.map((ch) => (reads(ch) ? { ...ch, range: grown(ch.range) } : ch)), label);
   }
 
   /**

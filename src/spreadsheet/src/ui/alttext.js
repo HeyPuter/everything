@@ -5,6 +5,7 @@
  */
 import { el } from './dom.js';
 import { openModal } from './modal.js';
+import { smartArtAltText } from '../core/smartart.js';
 
 export const ALT_TEXT_MAX = 2000;
 
@@ -25,9 +26,14 @@ export function openAltTextDialog(ctx, chartId) {
     ctx.wb.updateChart(ctx.sheetId(), chartId, decorative.checked ? { decorative: true } : { decorative: false, description }, 'Edit alt text');
     modal.close();
   };
+  // A SmartArt graphic left without a description is described by its own text; that can be the starting point.
+  const auto = obj.type === 'smartart' ? smartArtAltText(obj) : null;
+  if (auto) text.placeholder = auto;
+  const fromText = auto && el('button.btn.btn-ghost.alt-text-fill', { type: 'button', onclick: () => { text.value = auto.slice(0, ALT_TEXT_MAX); text.focus(); } }, 'Use the diagram’s text');
   const content = el('form', { onsubmit: submit },
     el('p.small.muted', {}, 'How would you describe this object and its context to someone who is blind or has low vision?'),
     text,
+    auto ? el('div.row.alt-text-auto', {}, el('p.small.muted', {}, 'Left empty, the graphic is read out from its text.'), fromText) : null,
     el('label.find-option', {}, decorative, el('span', {}, 'Mark as decorative')),
     el('p.small.muted', {}, 'Decorative objects add visual interest but aren\'t informative (for example, stylistic borders). People using screen readers will hear that these are decorative.'),
     el('div.row.row-end', {},

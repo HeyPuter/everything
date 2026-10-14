@@ -62,7 +62,8 @@ describe('Code Editor pane', () => {
     await running;
     expect(wb.getValue(wb.activeSheetId, 1, 1)).toBe('ran');
     expect(library.trusted.has(wb.scripts[0].code)).toBe(true);
-    // Trusted now: no question the second time.
+    // Trusted now: no question the second time (the first dialog has finished closing before it runs again).
+    await until(() => !document.querySelector('.modal-panel'));
     await automate.run('runScript', { id: wb.scripts[0].id });
     expect(document.querySelector('.modal-panel')).toBeNull();
   });

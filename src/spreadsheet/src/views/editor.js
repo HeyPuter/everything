@@ -100,6 +100,9 @@ import { openCustomViews } from '../ui/customviews.js';
 import { openZoomDialog } from '../ui/zoomdialog.js';
 import { openSheetViewOptions, askViewName, nextViewName } from '../ui/sheetviews.js';
 import { createSelectionPane } from '../ui/selection-pane.js';
+import { createSmartArtUi, runSmartArtAction, smartArtLook } from '../ui/smartart.js';
+import { createSmartArtPane } from '../ui/smartart-pane.js';
+import { smartArtSvg, smartArtAltText } from '../core/smartart.js';
 import { arrangeTargets } from '../ui/arrange-ribbon.js';
 import { openAdvancedFilter } from '../ui/advanced-filter.js';
 import { fromText as getDataText, fromWorkbook as getDataWorkbook, fromWeb as getDataWeb, fromTable as getDataTable, blankQuery, queryIo, fitQueryTables } from '../ui/get-data.js';
@@ -141,6 +144,9 @@ import { createMenubar, SPECIAL_KINDS } from '../ui/menubar.js';
 import { paletteCommands, openCommandPalette } from '../ui/palette.js';
 import { openVersionHistory } from '../ui/versions.js';
 import { openShareDialog } from '../ui/share.js';
+import { openSendCopyDialog, openSendLinkDialog } from '../ui/send-mail.js';
+import { createMentionNotifier, createMentionAlerts } from '../ui/mention-notify.js';
+import { createMailer } from '../lib/mail.js';
 import { createPeopleBar, peopleHere, roomStatus } from '../ui/coauthor.js';
 import { mapLine, mapGap } from '../collab/ops.js';
 import { openShortcuts } from '../ui/shortcuts.js';
@@ -276,6 +282,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     });
   };
 
+  // Email from this workbook: Send a copy, Send a link, and @mention notes (lib/mail.js).
+  const mailer = createMailer();
+
   /* ---------- Context shared by the components ---------- */
 
   // Text was pasted into the entry under way (the in-cell editor or the formula bar). Pasted text is outside
@@ -335,7 +344,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     onCommand: (cmd, arg) => run(cmd, arg),
     onFilled: (info) => offerAutoFill(info),
     // A chart's own elements (Chart Design, Format and the Format pane) follow the chart selected on the grid.
-    onChartSelection: (id) => { chartUi?.chartSelected(id); notify(); },
+    onChartSelection: (id) => { chartUi?.chartSelected(id); ctx.smartArt?.chartSelected(id); notify(); },
+    // A SmartArt diagram draws the shapes picked in it (a click on one, or the Text Pane's cursor) framed.
+    smartArtSelection: (id) => ctx.smartArt?.selected(id),
     onChartKey: (e, id) => !!chartUi?.onChartKey(e, id),
     canOpen: P.canPickFiles(), // Ctrl+O only where a file picker exists
     onContextMenu: (info) => openCellContextMenu(ctx, info),
@@ -365,6 +376,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }),
   });
   ctx.grid = grid;
+  // SmartArt: the shapes picked in a diagram, and its Text Pane (made below with the other task panes).
+  ctx.notify = notify;
+  ctx.refused = (what) => refusedByProtection(what);
+  ctx.smartArt = createSmartArtUi(ctx);
   // The Paste Options and Auto Fill Options button, at the corner of what was just pasted or filled.
   const optionButton = createOptionButton({ grid, host: grid.el });
   let lastPaste = null; // { text, html, paste, from, mark, external }: what the Paste Options button pastes again
@@ -1176,7 +1191,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const cell = wb.getCell(sheetId, r, c);
     const sheet = wb.sheet(sheetId);
     return {
-      templates: !!templateDoc, pick: P.canPickFiles(), share: P.canShare(), ai: P.canAI(), aiPanel: !!aiPanel?.isOpen, saving: P.isApp() && P.canSaveFiles(),
+      templates: !!templateDoc, pick: P.canPickFiles(), share: P.canShare(), mail: mailer.available(), ai: P.canAI(), aiPanel: !!aiPanel?.isOpen, saving: P.isApp() && P.canSaveFiles(),
       fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
@@ -2571,20 +2586,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         openVersionHistory(doc, { onRestored: () => { grid.refresh(); keepFocus(); } });
         return;
       }
-      case 'share': {
-        // Sharing hands out a file: an unsaved spreadsheet is saved first, as for a link to a range.
+      case 'sendCopy': {
+        // Email the workbook as it is now, from the signed-in user (ui/send-mail.js).
         if (!committed()) return;
         if (session.signedOut && (!await session.signIn() || destroyed)) return;
-        // Saved by hand, not flushed: a flush has nothing to write for a blank book that was never changed. A
-        // file that is not an .xlsx (a .csv opened from the drive) is saved as one first, where its edits go
-        // from now on: shared as it was, it would never see them.
-        if (!doc.path || !doc.isXlsxPath) {
-          try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return; }
-          if (destroyed) return;
-        }
-        if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return; }
+        openSendCopyDialog({ doc, sheetId: grid.sheetId, range: S.isSingle(grid.selection) ? null : { ...grid.range }, mailer, user: session.user, onClose: () => keepFocus() });
+        return;
+      }
+      case 'sendLink': {
+        if (!await savedForSharing()) return;
+        openSendLinkDialog({ doc, mailer, user: session.user, onClose: () => keepFocus() });
+        return;
+      }
+      case 'share': {
+        if (!await savedForSharing()) return;
         openShareDialog({
           path: doc.path, name: doc.name, uid: doc.uid, doc: openLive ? doc : null,
+          onEmailLink: mailer.available() ? () => run('sendLink') : null,
           // Editing together started (or stopped): the workbook opens again as the room's (or as the file).
           onLive: async (room) => {
             if (destroyed) return;
@@ -3528,6 +3546,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'chart': return runChartAction(ctx, arg);
+      case 'smartArt': { if (!committed()) return; const changed = runSmartArtAction(ctx, arg); if (changed) keepFocusUnlessPane(); notify(); return; }
       case 'editChart': {
         const chart = wb.chartById(sheetId, arg || grid.selectedChart);
         if (chart?.type === 'slicer') openSlicerDialog(ctx, chart);
@@ -3535,6 +3554,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (chart?.type === 'scroll') openScrollDialog(ctx, chart);
         else if (chart?.type === 'text' && chart.equation) openEquationDialog(ctx, { equation: chart });
         else if (chart?.type === 'text') openTextBoxDialog(ctx, { textbox: chart });
+        else if (chart?.type === 'smartart') { grid.selectChart(chart.id, { focus: false }); smartArtPane.show({ focus: true }); }
         else if (chart && chart.type !== 'image') openChartDialog(ctx, { chart });
         return;
       }
@@ -3545,7 +3565,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const kind = wb.chartById(sheetId, id)?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
-        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
+        toast(kind === 'slicer' ? 'Slicer deleted' : kind === 'timeline' ? 'Timeline deleted' : kind === 'image' ? 'Image deleted' : kind === 'text' ? 'Text box deleted' : kind === 'smartart' ? 'SmartArt deleted' : 'Chart deleted', { icon: 'trash', duration: 1600 });
         keepFocus();
         return;
       }
@@ -3581,7 +3601,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { toast('This browser cannot copy images; use Download instead', { icon: 'info', duration: 3500 }); return; }
         try {
           let blob;
-          if (ch.type === 'image') {
+          if (ch.type === 'smartart') blob = await svgToPng(smartArtPicture(ch), ch.w, ch.h);
+          else if (ch.type === 'image') {
             const shown = linkedPictureNow(ch);
             const raw = await (await fetch(shown.src)).blob();
             blob = raw.type === 'image/png' && pictureIsPlain(shown) ? raw : await imageToPng(shown.src, shown);
@@ -3591,7 +3612,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             blob = await svgToPng(svg, ch.w, ch.h);
           }
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          toast(ch.type === 'image' ? 'Image copied' : 'Chart copied as a picture', { icon: 'copy', duration: 1800 });
+          toast(ch.type === 'image' ? 'Image copied' : ch.type === 'smartart' ? 'SmartArt copied as a picture' : 'Chart copied as a picture', { icon: 'copy', duration: 1800 });
         } catch (e) {
           console.error(e);
           toast('Could not copy the picture', { icon: 'alert' });
@@ -3606,7 +3627,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         try {
           let blob;
           let name;
-          if (ch.type === 'image' && ch.pictureRef) {
+          if (ch.type === 'smartart') {
+            const format = arg?.format === 'svg' ? 'svg' : 'png', svg = smartArtPicture(ch);
+            blob = format === 'svg' ? new Blob([svg], { type: 'image/svg+xml' }) : await svgToPng(svg, ch.w, ch.h);
+            name = `${P.sanitizeName(ch.name || 'SmartArt') || 'SmartArt'}.${format}`;
+          } else if (ch.type === 'image' && ch.pictureRef) {
             const shown = linkedPictureNow(ch);
             blob = await imageToPng(shown.src, shown);
             name = `${P.sanitizeName(ch.title || 'picture') || 'picture'}.png`;
@@ -3896,6 +3921,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
     const png = file.type === 'image/png';
     return { src: canvas.toDataURL(png ? 'image/png' : 'image/jpeg', 0.86), width: canvas.width, height: canvas.height };
+  }
+
+  /** A SmartArt diagram as a picture of its own, in the workbook's theme (one another program drew, as it drew it). */
+  function smartArtPicture(ch) {
+    if (ch.fallback?.src) return decodeURIComponent(escape(atob(ch.fallback.src.split(',')[1])));
+    return smartArtSvg(ch, ch.w, ch.h, { ...smartArtLook(wb), idPrefix: 'sap', label: ch.decorative ? '' : ch.description || smartArtAltText(ch) });
+  }
+  /** After a SmartArt command the keyboard goes back to the sheet, unless the Text Pane has it. */
+  function keepFocusUnlessPane() {
+    if (!ctx.smartArt?.pane?.el.contains(document.activeElement)) keepFocus();
   }
 
   function svgToPng(svg, width, height) {
@@ -5253,6 +5288,23 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     else refreshTitle();
   }
 
+  /**
+   * Sharing hands out a file: an unsaved spreadsheet is saved first, as for a link to a range. Saved by hand,
+   * not flushed: a flush has nothing to write for a blank book that was never changed. A file that is not an
+   * .xlsx (a .csv opened from the drive) is saved as one first, where its edits go from now on: shared as it
+   * was, it would never see them. Resolves whether there is a file to share now.
+   */
+  async function savedForSharing() {
+    if (grid.editing && !grid.commitEdit()) return false;
+    if (session.signedOut && (!await session.signIn() || destroyed)) return false;
+    if (!doc.path || !doc.isXlsxPath) {
+      try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return false; }
+      if (destroyed) return false;
+    }
+    if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return false; }
+    return true;
+  }
+
   async function saveAs() {
     if (grid.editing && !grid.commitEdit()) return;
     if (session.signedOut && (!await session.signIn() || destroyed)) return;
@@ -5643,6 +5695,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     translate: P.canAI() ? (text, from, to) => aiTranslate(translatePrompt(text, from || '', to || 'English')) : null });
   // Page Layout ▸ Arrange ▸ Selection Pane: the sheet's drawing objects, front first.
   selectionPane = createSelectionPane({ ...ctx, run, notify });
+  // SmartArt Design ▸ Text Pane: the selected diagram's outline to type into.
+  const smartArtPane = ctx.smartArt.pane = createSmartArtPane(ctx);
   const accessibilityPane = createAccessibilityPane({ ...ctx, run, reveal: (item) => {
     if (item.target?.range) { selectLocation(item.sheetId, item.target.range); return; }
     const obj = item.target?.chartId && wb.chartById(item.sheetId, item.target.chartId);
@@ -5681,8 +5735,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const quickAnalysis = createQuickAnalysis({ ...ctx, run });
   const errorTag = createErrorSmartTag({ ...ctx, run, focusFormulaBar: () => formulaBar.focusInput(), refreshErrorTag: () => errorTag.sync() });
   // Threaded comments: the card beside a cell and the Comments pane (Review ▸ Comments).
+  // @mentions: the people a comment can name, telling them when it is posted, and telling the user when a
+  // comment names them (ui/mention-notify.js).
+  const mentionNotifier = createMentionNotifier({ doc, wb, mailer, me: () => session.user });
   const comments = createComments(ctx, { author: () => session.user?.username || 'You', keepFocus: () => keepFocus(),
-    refused: (what) => refusedByProtection(what), onPaneToggle: () => notify() });
+    refused: (what) => refusedByProtection(what), onPaneToggle: () => notify(),
+    mentionPeople: () => mentionNotifier.candidates(),
+    onMentioned: (posted) => { mentionNotifier.notify(posted).catch((e) => console.error(e)); } });
+  const mentionAlerts = createMentionAlerts({
+    wb, me: () => session.user, fileKey: () => doc.uid || doc.path,
+    goTo: (sheetId, r, c) => { if (destroyed) return; if (selectLocation(sheetId, { r1: r, c1: c, r2: r, c2: c })) comments.run('showComment'); },
+  });
+  mentionAlerts.start();
   comments.attach();
   ctx.comments = comments;
   ctx.subscribe(() => comments.sync());
@@ -5743,7 +5807,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // The page's main landmark: the grid (the panel the sheet tabs control) and the find bar over it.
         // The task panes (Accessibility, Thesaurus and Translate, Changes, Selection, Queries) dock at the grid's right
         // edge, under the ribbon and beside whatever column is open to the right; one at a time (see taskPanes).
-        el('main.editor-grid', {}, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el),
+        el('main.editor-grid', {}, grid.el, findBar.el, accessibilityPane.el, languagePane.el, changesPane.el, selectionPane.el, queriesPane.el, smartArtPane.el),
         sheetTabs.el,
         statusBar.el,
         watchWindow.el,
@@ -5755,7 +5819,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       aiPanel?.el,
       aiPanel?.rail));
   // The task panes over the grid take turns: opening one closes whichever other was open, so none hides another.
-  const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane];
+  const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane, smartArtPane];
   for (const pane of taskPanes) {
     const show = pane.show.bind(pane);
     pane.show = (...args) => {
@@ -6221,12 +6285,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       languagePane.destroy();
       changesPane.destroy();
       selectionPane.destroy();
+      smartArtPane.destroy();
       errorTag.destroy();
       quickAnalysis.destroy();
       queriesPane.destroy();
       automate?.destroy();
       chartUi.destroy();
       comments.destroy();
+      mentionAlerts.stop();
       findBar.destroy();
       aiPanel?.destroy();
       grid.destroy();

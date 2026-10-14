@@ -1,0 +1,54 @@
+/* Email: the Send a copy and Send a link dialogs, the @mention picker of comment boxes, and the
+   prompt to share with people mentioned. */
+
+@media (min-width: 640px) { .modal-panel.send-panel { max-width: 520px; } }
+.send-dialog .field { margin-bottom: 14px; }
+.send-from {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 14px;
+  font-size: 12.5px; color: var(--ink-3);
+}
+.send-from span:first-child { display: inline-flex; }
+textarea.input.send-to { resize: vertical; min-height: 54px; font: inherit; line-height: 1.4; }
+textarea.input.send-message { resize: vertical; min-height: 80px; font: inherit; line-height: 1.45; }
+.send-formats { display: flex; flex-wrap: wrap; gap: 6px; }
+.send-format {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px;
+  border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  font-size: 13px; color: var(--ink-2); cursor: pointer;
+}
+.send-format input { margin: 0; accent-color: var(--accent); }
+.send-format span { display: inline-flex; }
+.send-format:has(input:checked) { border-color: var(--accent); color: var(--ink); background: var(--surface-2); }
+.send-format:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) { .send-format:hover { background: var(--surface-2); } }
+.send-dialog .field[hidden] { display: none; }
+.send-size { margin: 0 0 12px; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.send-size.send-size-error { color: var(--critical); }
+.send-dialog .row-end { gap: 8px; }
+.send-dialog .btn-primary { display: inline-flex; align-items: center; gap: 6px; }
+.send-dialog .btn-primary span { display: inline-flex; }
+
+/* The people picker, under the comment box being typed in. */
+.mention-list {
+  position: fixed; z-index: 75; min-width: 240px; max-width: min(320px, 92vw); max-height: 260px; overflow: auto;
+  margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hairline-strong); border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 13px;
+}
+.mention-option { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.mention-option[aria-selected="true"] { background: var(--surface-2); }
+.mention-option[aria-selected="true"] .mention-name { color: var(--comment-mark); }
+.mention-avatar {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--comment-mark); color: #fff; font-size: 10.5px; font-weight: 600;
+}
+.mention-who { min-width: 0; display: flex; flex-direction: column; }
+.mention-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-hint { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-empty { padding: 8px; color: var(--ink-3); font-size: 12.5px; }
+
+.mention-share-mode { align-items: center; gap: 10px; margin: 4px 0 16px; }
+.mention-share .row-end { gap: 8px; flex-wrap: wrap; }

@@ -14,7 +14,7 @@ import { fontKeyFor } from '../core/format.js';
 import { openChartTypeDialog } from './chart-type-dialog.js';
 import { openSelectDataDialog } from './chart-select-data.js';
 
-const DRAWN = new Set(['image', 'text', 'slicer', 'scroll']);
+const DRAWN = new Set(['image', 'text', 'slicer', 'scroll', 'smartart']);
 /** Is this object a chart (not a picture, text box, slicer or form control)? */
 export const isChartObject = obj => !!obj && !DRAWN.has(obj.type);
 
