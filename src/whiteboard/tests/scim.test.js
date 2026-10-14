@@ -1843,3 +1843,32 @@ test("reactivating someone whose address the provider gave to a newcomer does no
     ["new"],
   );
 });
+
+test("a board guest an administrator makes a member is listed to the identity provider", async () => {
+  const { org, boards, scim } = await setup();
+  const uuid = "55555555-5555-4555-8555-555555555555";
+  await org.saveUser(
+    {
+      uuid,
+      username: "outsider",
+      role: "guest",
+      status: "active",
+      license: "guest",
+      created: org.now(),
+      source: "board",
+      teams: [],
+    },
+    true,
+  );
+  assert.equal((await scim("Users")).totalResults, 0);
+  await adminCall(org, boards, owner, {
+    op: "org.users.update",
+    uuid,
+    role: "member",
+  });
+  const listed = await scim("Users");
+  assert.deepEqual(
+    listed.Resources.map((u) => u.userName),
+    ["outsider"],
+  );
+});

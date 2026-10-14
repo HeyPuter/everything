@@ -343,7 +343,12 @@ async function findUser(org, scimId) {
 const listed = (user) =>
   !!user &&
   !user.scimDeleted &&
-  !(user.source === "board" && !user.email && !user.scimManaged);
+  !(
+    user.source === "board" &&
+    user.role === "guest" &&
+    !user.email &&
+    !user.scimManaged
+  );
 // Writes only what a request changed on a stored person, so a change saved
 // meanwhile, such as a deactivation in the console or a group membership
 // the provider sent at the same time, stands.
