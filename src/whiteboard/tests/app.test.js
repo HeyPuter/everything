@@ -3464,10 +3464,21 @@ test("adding, deleting and reordering objects writes only their buttons in the o
     assert.equal(after.length, 35);
     assert.equal(after[3].textContent, "Sticky note: Held 2");
     assert.equal(after.filter((b) => !before.includes(b)).length, 2);
-    // Brought to the front, an object moves to the end of the list alone.
+    // Moved below the others, an object moves to the end of the list alone
+    // (one held key, so one step to undo).
     before = after;
     await click(`#board-outline [data-id="${named("Loose 3").dataset.id}"]`);
-    await click('[data-action="front"]');
+    for (let n = 0; n < 120; n++)
+      doc.querySelector("#canvas").dispatchEvent(
+        new w.KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          shiftKey: true,
+          repeat: n > 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    await tick();
     after = buttons();
     assert.equal(after.at(-1).textContent, "Sticky note: Loose 3");
     assert.equal(after.at(-1).getAttribute("aria-pressed"), "true");
@@ -46501,19 +46512,21 @@ test("Page Up and Page Down change layer order and L picks the connection line",
       item("note", 0, 0, { text: "Bottom" }),
       item("note", 40, 40, { text: "Top" }),
     ]);
-    const order = () =>
-      [...doc.querySelectorAll("#board-outline [data-id]")].map((b) =>
-        b.textContent.replace(/^.*: /, ""),
-      );
-    const before = order();
+    // The outline reads the board's layout, not its layers; the change of
+    // layer is said instead.
+    const said = async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return doc.querySelector("#board-announcer").textContent;
+    };
     [...doc.querySelectorAll("#board-outline [data-id]")]
       .find((b) => b.textContent.endsWith("Bottom"))
       .click();
+    // The selection is said first.
+    await new Promise((r) => setTimeout(r, 350));
     key("PageUp", { cancelable: true });
-    const raised = order();
-    assert.notDeepEqual(raised, before);
+    assert.equal(await said(), "Brought to front");
     key("PageDown", { cancelable: true });
-    assert.deepEqual(order(), before);
+    assert.equal(await said(), "Sent to back");
     key("Escape");
     key("l");
     assert.equal(

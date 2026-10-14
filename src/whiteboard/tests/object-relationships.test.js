@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { item } from "../src/model.js";
 import { setLanguage } from "../src/i18n.js";
-import { objectRelationships } from "../src/accessibility/object-relationships.js";
+import {
+  objectRelationships,
+  outlineOrder,
+} from "../src/accessibility/object-relationships.js";
 
 test("relationship descriptions preserve meaning, language changes and literal authored content", () => {
   const frame = item("frame", 0, 0, { text: "Review" });
@@ -173,4 +176,37 @@ test("an object says its colour, tags, connections, and open discussions", () =>
     globalThis.document = previous;
     dom.window.close();
   }
+});
+
+test("the outline reads the board in rows, left to right, whatever order objects were added in", () => {
+  const note = (text, x, y) => item("note", x, y, { text, w: 100, h: 100 });
+  // Added as 2, 3, 1; the second row's notes sit a little out of line.
+  const two = note("Step 2", 200, 0),
+    three = note("Step 3", 400, 8),
+    one = note("Step 1", 0, -6),
+    five = note("Step 5", 200, 160),
+    four = note("Step 4", 0, 170);
+  const line = item("arrow", 0, 0, { startId: one.id, endId: two.id });
+  const text = (list) => list.map((i) => i.text || i.type);
+  assert.deepEqual(text(outlineOrder([line, two, three, one, five, four])), [
+    "Step 1",
+    "Step 2",
+    "Step 3",
+    "Step 4",
+    "Step 5",
+    "arrow",
+  ]);
+  // Frames keep their presentation order; each holds its objects in
+  // reading order, and what lies outside frames comes last, read the same.
+  const later = item("frame", 0, 0, { text: "B", order: 1 }),
+    first = item("frame", 1000, 0, { text: "A", order: 0 });
+  const inA = [note("A2", 1300, 0), note("A1", 1100, 0)].map((i) => ({
+    ...i,
+    parentId: first.id,
+  }));
+  const inB = [note("B1", 0, 0)].map((i) => ({ ...i, parentId: later.id }));
+  assert.deepEqual(
+    text(outlineOrder([later, ...inB, two, one, first, ...inA])),
+    ["A", "A1", "A2", "B", "B1", "Step 1", "Step 2"],
+  );
 });

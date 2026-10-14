@@ -4,17 +4,39 @@ import { objectNameHTML } from "./object-content.js";
 
 // Objects in the order a screen reader meets them: each frame, in the order
 // frames are presented, followed by what it holds, then everything outside
-// frames. Otherwise the board's own order is kept.
+// frames. Within each, objects are read as the board is, in rows from the
+// top and left to right along a row, whatever order they were added or
+// stacked in; connectors follow, as they are described by what they join.
 export function outlineOrder(items) {
   const frames = items
     .filter((i) => i.type === "frame")
     .sort((a, b) => (a.order || 0) - (b.order || 0));
-  if (!frames.length) return items;
+  if (!frames.length) return readingOrder(items);
   const held = new Map(frames.map((f) => [f.id, []])),
     rest = [];
   for (const i of items)
     if (i.type !== "frame") (held.get(i.parentId) || rest).push(i);
-  return [...frames.flatMap((f) => [f, ...held.get(f.id)]), ...rest];
+  return [
+    ...frames.flatMap((f) => [f, ...readingOrder(held.get(f.id))]),
+    ...readingOrder(rest),
+  ];
+}
+// An object starts a new row unless its top is above the middle of the
+// row's first object, so a row of notes a little out of line stays a row.
+function readingOrder(items) {
+  const lines = [],
+    placed = [];
+  for (const i of items) (i.type === "arrow" ? lines : placed).push(i);
+  placed.sort((a, b) => a.y - b.y || a.x - b.x);
+  const ordered = [];
+  for (let start = 0; start < placed.length;) {
+    const middle = placed[start].y + (placed[start].h || 0) / 2;
+    let end = start + 1;
+    while (end < placed.length && placed[end].y < middle) end++;
+    ordered.push(...placed.slice(start, end).sort((a, b) => a.x - b.x));
+    start = end;
+  }
+  return [...ordered, ...lines];
 }
 
 const COLOR_NAMES = ["Butter", "Sage", "Blue", "Lilac", "Peach", "White"];
