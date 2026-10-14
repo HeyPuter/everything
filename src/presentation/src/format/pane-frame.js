@@ -183,6 +183,9 @@ export function formatFrame(model) {
         role: "tab",
         id: `${id}-top-${t.id}`,
         class: "fmt-top-tab",
+        // Named as shown; the name also lets a refresh find the tab again
+        // to keep the keyboard focus on it.
+        "aria-label": t.label,
         "aria-controls": panelNode.id,
         "data-tab": t.id,
         "data-sections": t.subs.flatMap((s) => s.keys).join(" "),
