@@ -3500,6 +3500,7 @@ function editorRibbon() {
   ribbon = createRibbon({
     tabs: buildTabs(ribbonApi()),
     initial: ribbonTab,
+    focusFallback: workspace,
     onTabChange: (id) => {
       ribbonTab = id;
       document.querySelector(".editor")?.setAttribute("data-ribbon-tab", id);
@@ -14481,7 +14482,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (mod && ["z", "y"].includes(e.key.toLowerCase())) {
-    if (typing) return;
+    // A ribbon box holding the value it applied has nothing of its own to
+    // undo: the shortcut takes back the change it made.
+    const applied =
+      e.target.matches(".ribbon-combo-input") &&
+      e.target.value === (e.target.dataset.value ?? "");
+    if (typing && !applied) return;
     e.preventDefault();
     if (e.key.toLowerCase() === "y" || e.shiftKey) redo();
     else undo();

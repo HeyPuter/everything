@@ -29,7 +29,14 @@ const glyph = (name, size) =>
 let uid = 0;
 const nextId = (prefix) => `${prefix}-${++uid}`;
 
-export function createRibbon({ tabs, initial = "home", onTabChange } = {}) {
+// `focusFallback` gives the element that takes the keyboard focus when the
+// control holding it is switched off by a refresh.
+export function createRibbon({
+  tabs,
+  initial = "home",
+  onTabChange,
+  focusFallback = null,
+} = {}) {
   let active = initial;
   let collapsed = false;
   // Each control's sync, by the tab it is on: a refresh brings the visible
@@ -944,6 +951,7 @@ export function createRibbon({ tabs, initial = "home", onTabChange } = {}) {
   observer.observe(body);
 
   function refresh() {
+    const focused = document.activeElement;
     for (const { tab, fn } of syncers) {
       if (tab !== active || (collapsed && !root.classList.contains("flyout")))
         continue;
@@ -966,6 +974,13 @@ export function createRibbon({ tabs, initial = "home", onTabChange } = {}) {
     );
     tablist.classList.toggle("has-contextual", contextual.length > 0);
     if (activeHidden) select(tabs.find((t) => !t.contextual)?.id || "home");
+    // A control switched off under the keyboard focus hands it on rather
+    // than dropping it onto the page.
+    if (
+      focused?.disabled &&
+      (root.contains(focused) || focused.closest(".ribbon-fold-panel"))
+    )
+      focusFallback?.()?.focus({ preventScroll: true });
   }
 
   select(panels.has(active) ? active : tabs[0].id);
