@@ -1188,10 +1188,11 @@ function lineSection(ctx, obj, edit, theme, { isLine, extra = {} }) {
         edit(
           (s) => (
             ensure(s),
+            // A size the file leaves out stays left out (medium).
             P.setShapeStrokeArrow(s, end, {
               type: current.type,
-              width: current.width ?? "med",
-              length: current.length ?? "med",
+              ...(current.width && { width: current.width }),
+              ...(current.length && { length: current.length }),
               ...patch,
             })
           ),
