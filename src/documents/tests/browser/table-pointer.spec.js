@@ -43,6 +43,14 @@ test('dragging column and row borders resizes them, with one undo each', async (
   expect(after[0].grid[0] + after[0].grid[1]).toBeCloseTo(before[0].grid[0] + before[0].grid[1], -1);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   expect((await tables(page))[0].grid).toEqual(before[0].grid);
+  // The ruler shows the table's column lines; dragging one resizes the same way.
+  const markers = page.locator('.table-ruler-marker');
+  await expect(markers).toHaveCount(4);
+  const marker = await markers.nth(2).boundingBox();
+  await drag(page, { x: marker.x + marker.width / 2, y: marker.y + 4 }, { x: marker.x + marker.width / 2 - 45, y: marker.y + 4 });
+  const ruled = await tables(page);
+  expect(before[0].grid[1] - ruled[0].grid[1]).toBeGreaterThan(500);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   // The bottom border of the first row: a taller minimum height.
   const rowBottom = { x: box[1].x + box[1].w / 2, y: box[1].y + box[1].h };
   await drag(page, rowBottom, { x: rowBottom.x, y: rowBottom.y + 30 });

@@ -84,3 +84,10 @@ button[aria-label="Pen Color"] { position: relative; }
   .table-margin-fields { grid-template-columns: 1fr 1fr; }
   .table-dialog-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Ruler feedback: the column lines of the table at the caret. */
+.table-ruler-markers { position: absolute; top: 0; height: 29px; pointer-events: none; z-index: 2; }
+.table-ruler-marker { position: absolute; bottom: 2px; width: 9px; height: 10px; margin-left: -4.5px; pointer-events: auto; cursor: col-resize; touch-action: none;
+  background: linear-gradient(var(--ink-3), var(--ink-3)) center / 1px 100% no-repeat, var(--surface-3); border: 1px solid var(--ink-3); border-radius: 2px; }
+.table-ruler-marker.is-edge { cursor: default; opacity: .6; }
+.table-ruler-marker.is-dragging { border-color: var(--accent); background-color: var(--accent-wash); }

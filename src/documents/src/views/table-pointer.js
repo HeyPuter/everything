@@ -189,7 +189,7 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     if (!d) return;
     const at = point(e) || d.last;
     const table = d.frame?.table;
-    if (d.kind === 'column' && d.moved) commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' }));
+    if (d.kind === 'column' && d.moved) { commit(m => T.setColumnWidths(m, table, d.widths, { layout: 'fixed' })); refreshRuler(); }
     else if (d.kind === 'row' && d.moved) commit(m => T.setRowsHeight(m, [table.rows[d.row]], d.height, 'atLeast'));
     else if (d.kind === 'resize' && d.moved) commit(m => {
       T.setColumnWidths(m, table, d.widths, { layout: 'fixed' });
@@ -256,6 +256,18 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     });
   }
 
+  function moveColumn(pointerX) {
+    const f = drag.frame, delta = Math.round((pointerX - drag.startX) * 15), i = drag.index, base = drag.base, next = [...base];
+    if (i < base.length) {
+      // An inside border trades width between its two columns.
+      const move = Math.max(T.MIN_COLUMN_WIDTH - base[i - 1], Math.min(base[i] - T.MIN_COLUMN_WIDTH, delta));
+      next[i - 1] = base[i - 1] + move; next[i] = base[i] - move;
+    } else next[i - 1] = Math.max(T.MIN_COLUMN_WIDTH, base[i - 1] + delta);
+    drag.widths = next.map(Math.round); drag.moved = drag.moved || Math.abs(delta) > 15;
+    const x = (f.columns.get(0) ?? f.left) + next.slice(0, i).reduce((a, b) => a + b, 0) / 15;
+    drag.guide = { x, top: f.top, bottom: f.bottom, text: i < base.length ? `${inches(next[i - 1])} | ${inches(next[i])}` : inches(next[i - 1]) };
+  }
+
   /* ---- Pointer events ---- */
   listen(engine.pages, 'pointerdown', e => {
     if (e.button !== 0 || engine.composition || readOnly()) return;
@@ -293,17 +305,8 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       if (!at) return;
       drag.last = at;
       const f = drag.frame, table = f?.table;
-      if (drag.kind === 'column') {
-        const delta = Math.round((at.x - drag.startX) * 15), i = drag.index, base = drag.base, next = [...base];
-        if (i < base.length) {
-          // An inside border trades width between its two columns.
-          const move = Math.max(T.MIN_COLUMN_WIDTH - base[i - 1], Math.min(base[i] - T.MIN_COLUMN_WIDTH, delta));
-          next[i - 1] = base[i - 1] + move; next[i] = base[i] - move;
-        } else next[i - 1] = Math.max(T.MIN_COLUMN_WIDTH, base[i - 1] + delta);
-        drag.widths = next.map(Math.round); drag.moved = drag.moved || Math.abs(delta) > 15;
-        const x = (f.columns.get(0) ?? f.left) + next.slice(0, i).reduce((a, b) => a + b, 0) / 15;
-        drag.guide = { x, top: f.top, bottom: f.bottom, text: i < base.length ? `${inches(next[i - 1])} | ${inches(next[i])}` : inches(next[i - 1]) };
-      } else if (drag.kind === 'row') {
+      if (drag.kind === 'column') { if (drag.ruler) return; moveColumn(at.x); refreshRuler(); }
+      else if (drag.kind === 'row') {
         drag.height = Math.max(0, Math.round(drag.base + (at.y - drag.startY) * 15)); drag.moved = drag.moved || Math.abs(at.y - drag.startY) > 1;
         drag.guide = { y: (f.rows.get(drag.row)?.top ?? f.top) + drag.height / 15, left: f.left, right: f.right, text: `Height ${inches(drag.height)}` };
       } else if (drag.kind === 'resize') {
@@ -354,6 +357,57 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
     else deleteCellsDialog();
   }, { capture: true });
 
+  /* ---- Ruler feedback: column markers of the table at the caret, draggable like the borders ---- */
+  const rulerLayer = document.createElement('div');
+  rulerLayer.className = 'table-ruler-markers';
+  function rulerTop() { return engine.host?.closest?.('.canvas-document-surface')?.querySelector('.canvas-ruler-top') || null; }
+  function refreshRuler() {
+    const top = rulerTop(), horizontal = top?.querySelector('.canvas-ruler-horizontal');
+    const table = drag?.frame?.table || focusTable;
+    if (!top || !horizontal || top.hidden || !table || readOnly()) { rulerLayer.remove(); return; }
+    let page;
+    try { page = caretRect(engine.selectionLayout, engine.model.selection.focus, 'forward').page; } catch { page = firstPage(table); }
+    const f = frameOf(table, page) || frameOf(table, firstPage(table));
+    if (!f) { rulerLayer.remove(); return; }
+    if (rulerLayer.parentNode !== top) top.append(rulerLayer);
+    rulerLayer.style.left = horizontal.style.left; rulerLayer.style.width = horizontal.style.width;
+    const lines = [...f.columns.entries()].sort((a, b) => a[0] - b[0]);
+    const moving = drag?.kind === 'column' && drag.frame.table === table ? drag : null;
+    // While a marker is dragged it keeps its element (and pointer capture); only its position moves.
+    if (moving && rulerLayer.childElementCount === lines.length) {
+      const marker = rulerLayer.children[lines.findIndex(([index]) => index === moving.index)];
+      if (marker) { marker.classList.add('is-dragging'); marker.style.left = `${(moving.guide?.x ?? f.columns.get(moving.index)) * engine.zoom}px`; }
+      return;
+    }
+    rulerLayer.replaceChildren(...lines.map(([index, x]) => {
+      const at = moving && index === moving.index ? moving.guide?.x ?? x : x;
+      const marker = document.createElement('span');
+      marker.className = 'table-ruler-marker' + (moving && index === moving.index ? ' is-dragging' : '') + (index === 0 ? ' is-edge' : '');
+      marker.style.left = `${at * engine.zoom}px`;
+      marker.title = index === 0 ? 'Table edge' : 'Drag to resize the column';
+      if (index > 0) marker.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || readOnly()) return;
+        e.preventDefault(); e.stopPropagation();
+        const base = widths(table);
+        drag = { kind: 'column', frame: f, page: f.page, index, startX: x, base: base.length === table.grid.length ? base : table.grid, last: { page: f.page, x, y: f.top }, ruler: { clientX: e.clientX } };
+        drag.widths = [...drag.base];
+        marker.setPointerCapture?.(e.pointerId);
+      });
+      return marker;
+    }));
+  }
+  // A drag started on the ruler follows the pointer horizontally, wherever it is.
+  listen(rulerLayer, 'pointermove', e => {
+    if (drag?.kind !== 'column' || !drag.ruler) return;
+    moveColumn(drag.startX + (e.clientX - drag.ruler.clientX) / engine.zoom); refreshRuler(); repaint();
+  });
+  listen(rulerLayer, 'pointerup', e => {
+    if (!drag?.ruler) return;
+    e.preventDefault(); const d = drag; drag = null;
+    if (d.moved) commit(m => T.setColumnWidths(m, d.frame.table, d.widths, { layout: 'fixed' }));
+    refreshRuler(); repaint();
+  });
+
   /* ---- A selection from one cell into another becomes a block of cells ---- */
   function syncSelection() {
     const model = engine.model;
@@ -376,9 +430,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       mode = next || null; pen = nextPen ? { ...nextPen } : pen;
       setCursor(modeCursor()); hover = null; repaint();
     },
-    refresh() { syncSelection(); repaint(); },
+    refresh() { syncSelection(); refreshRuler(); repaint(); },
     detach() {
-      abort.abort(); setCursor(null);
+      abort.abort(); setCursor(null); rulerLayer.remove();
       const at = engine.overlays.indexOf(overlay); if (at >= 0) engine.overlays.splice(at, 1);
     },
   };
