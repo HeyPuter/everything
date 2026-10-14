@@ -202,6 +202,51 @@ test('selection pane, align, group and ungroup', async ({ page }, info) => {
   expect(errors).toEqual([]);
 });
 
+test('remove background, artistic effects, layout options, compress and rotating a shape on the page', async ({ page }, info) => {
+  test.setTimeout(240000);
+  const { input, errors } = await start(page);
+  const ribbon = await insertPicture(page, input);
+  await ribbon.getByRole('button', { name: 'Remove Background', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Remove Background' });
+  await expect(dialog.getByText(/of the picture will be removed/)).toBeVisible();
+  await shot(page, 'remove-background');
+  await dialog.getByRole('button', { name: 'Keep Changes' }).click();
+  await expect(dialog).toBeHidden();
+  await ribbon.getByRole('button', { name: 'Artistic Effects', exact: true }).click();
+  await shot(page, 'artistic-effects');
+  await page.getByRole('menuitem', { name: /Pencil/ }).click();
+  // The processed picture keeps the original in its original layer.
+  await expect.poll(async () => (await save(page, info, 'processed')).xml('word/document.xml'), { timeout: 30000 }).toMatch(/a14:imgLayer[^>]*r:embed=[\s\S]*a14:backgroundRemoval[\s\S]*a14:artistic/);
+  // Layout Options beside the picture: in front of text.
+  await page.getByRole('button', { name: 'Layout Options' }).click();
+  await shot(page, 'layout-options');
+  await page.getByRole('menuitemradio', { name: 'In Front of Text' }).click();
+  await expect.poll(async () => (await save(page, info, 'front')).xml('word/document.xml')).toMatch(/<wp:wrapNone\/>/);
+  // Compress Pictures: the picture is resampled for 96 ppi and the original layer is dropped.
+  await ribbon.getByRole('button', { name: 'Compress Pictures', exact: true }).click();
+  const compress = page.getByRole('dialog', { name: 'Compress Pictures' });
+  await compress.getByText('Email (96 ppi)').click();
+  await compress.getByRole('button', { name: 'OK' }).click();
+  await expect.poll(async () => (await save(page, info, 'compressed')).xml('word/document.xml'), { timeout: 30000 }).not.toMatch(/a14:imgLayer/);
+  // A shape rotated with its handle: snapped to 15 degrees through the drawing's transform.
+  await input.press('ControlOrMeta+End');
+  await insertShape(page, 'Rectangle', { x: 300, y: 560 });
+  const host = page.locator('.canvas-editor-content');
+  const rotate = host.getByRole('button', { name: 'Rotate image', exact: true });
+  await expect(rotate).toBeVisible();
+  const frame = await host.locator('.canvas-image-frame').first().boundingBox(), handle = await rotate.boundingBox();
+  const cx = frame.x + frame.width / 2, cy = frame.y + frame.height / 2;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.keyboard.down('Shift'); await page.mouse.down();
+  await page.mouse.move(cx + 80, cy - 70, { steps: 6 }); await page.mouse.move(cx + 120, cy - 10, { steps: 4 });
+  await page.mouse.up(); await page.keyboard.up('Shift');
+  const { path, xml } = await save(page, info, 'rotated-shape');
+  await expect.poll(async () => (await save(page, info, 'rotated-shape')).xml('word/document.xml')).toMatch(/<wps:spPr><a:xfrm rot="(5400000|4500000|3600000|6300000)"/);
+  void xml;
+  await reopenDocx(page, input, path, await input.inputValue(), { timeout: 30000 });
+  expect(errors).toEqual([]);
+});
+
 test('Picture Format at phone width', async ({ page }) => {
   const { input, errors } = await start(page, { width: 390 });
   await insertPicture(page, input);

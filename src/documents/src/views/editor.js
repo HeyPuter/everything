@@ -905,7 +905,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   editorCommands.contextMenuItems = (context, kit) => [...(reviewContextItems?.(context, kit) || []), ...reviewTools.contextMenuItems(context, kit)];
   // Picture Format, Shape Format and Arrange (pictures.js): contextual tabs, panes and drawing commands.
   const pictures = createPictures({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(),
-    base: { openShapes: (anchor, e) => editorCommands.openShapes?.(anchor, e), insertTextBox: () => editorCommands.insertTextBox?.() } });
+    base: { openShapes: (anchor, e) => editorCommands.openShapes?.(anchor, e), insertTextBox: () => editorCommands.insertTextBox?.(), editShapeText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect() } });
   Object.assign(editorCommands, pictures.commands);
   const picturesExtendMenu = editorCommands.extendMenu, picturesContextMenuItems = editorCommands.contextMenuItems;
   editorCommands.extendMenu = (id, kit) => [...(picturesExtendMenu?.(id, kit) || []), ...pictures.extendMenu(id, kit)];

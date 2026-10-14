@@ -348,7 +348,7 @@ export const ARTISTIC_EFFECTS = Object.freeze([
     check(image); const shade = pencilShade(image, amountOf(amount));
     return mapPixels(image, (r, g, b, i) => [shade[i], shade[i], shade[i]]);
   } },
-  { id: 'pencilSketch', name: 'Coloured Pencil', a14: 'artisticPencilSketch', apply(image, amount) {
+  { id: 'pencilSketch', name: 'Colored Pencil', a14: 'artisticPencilSketch', apply(image, amount) {
     check(image); const shade = pencilShade(image, amountOf(amount));
     return mapPixels(image, (r, g, b, i) => {
       const y = luma(r, g, b), k = shade[i] / 255;
@@ -411,7 +411,7 @@ export const ARTISTIC_EFFECTS = Object.freeze([
     }
     return out;
   } },
-  { id: 'watercolor', name: 'Watercolour Wash', a14: 'artisticWatercolorSponge', apply(image, amount) {
+  { id: 'watercolor', name: 'Watercolor Wash', a14: 'artisticWatercolorSponge', apply(image, amount) {
     check(image); const { width, height } = image, a = amountOf(amount), scale = scaleFor(image);
     const washed = blurImage(calmestQuadrant(image, Math.round((2 + a * 3) * scale)), Math.round(scale));
     const edge = edges(grayPlane(washed), width, height), next = random(0xA11E + width * 7 + height * 13);

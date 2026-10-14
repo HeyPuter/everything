@@ -65,6 +65,11 @@ export function materializeDrawing(pkg, model, image) {
   const write = imageWriter(parts, [{ runs: [{ image }] }], model.assets, doc, sourcePart);
   const drawing = write(image);
   doc.documentElement.append(drawing);
+  // A picture inserted in this session keeps its proportions by default; say so in the file it now has.
+  if (!image.shell && image.aspectLocked !== false) {
+    const nv = drawing.getElementsByTagNameNS(PIC, 'cNvPicPr')[0];
+    if (nv && !nv.getElementsByTagNameNS(A, 'picLocks').length) { const locks = doc.createElementNS(A, 'a:picLocks'); locks.setAttribute('noChangeAspect', '1'); nv.append(locks); }
+  }
   const relPath = relationshipPartPath(sourcePart);
   const rels = parts[relPath] ? parseXml(parts[relPath]) : null, originalRels = original[relPath] ? parseXml(original[relPath]) : null;
   const relation = (list, id) => [...(list?.documentElement.children || [])].find(n => n.getAttribute('Id') === id);

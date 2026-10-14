@@ -1177,7 +1177,7 @@ export function nearestStop(line, x, y) {
 export function imageAtPoint(layout, page, x, y, { includeBehindText = false } = {}) {
   let behind = null;
   for (const f of [...(layout.floatingObjects || [])].reverse()) {
-    if (f.page !== page || f.image.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
+    if (f.page !== page || f.image?.hidden || !cellClipContains(f.cellClip, x, y) || !((f.image.flatLine || f.image.flatGroup) ? flatLineContains(f.image,f.x,f.y,f.width,f.height,x,y) : positionedImageContains(f, x, y))) continue;
     if (!f.image.anchor?.behind) return f;
     behind ||= f;
   }

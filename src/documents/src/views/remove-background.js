@@ -31,6 +31,9 @@ export function openRemoveBackground({ image, initial = {}, onApply, onCancel })
   const tint = new OffscreenCanvas(width, height);
   const canvas = el('canvas.rb-canvas', { width, height, role: 'img', 'aria-label': 'Picture preview. The tinted area will be removed.' });
   const ctx = canvas.getContext('2d');
+  // Small pictures are shown larger, so marks can be drawn precisely; CSS still keeps them within the dialog.
+  const enlarge = Math.max(1, Math.min(4, 360 / Math.max(width, height)));
+  if (enlarge > 1) canvas.style.width = `${Math.round(width * enlarge)}px`;
 
   const status = el('p.rb-status', { 'aria-live': 'polite' }, 'Finding the background…');
   const corner = name => el('button.rb-handle', { type: 'button', dataset: { corner: name }, 'aria-label': `Resize subject area from the ${{ nw: 'top left', ne: 'top right', sw: 'bottom left', se: 'bottom right' }[name]} corner`,

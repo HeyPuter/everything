@@ -550,7 +550,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const engine = ready(), image = selected(), source = pictureSource(engine, image), info = describe(image), state = currentProcessed(image);
     const recolor = presets.recolorPresets(palette()), blip = info?.blip || {};
     const recolorId = blip.grayscale ? 'grayscale' : blip.biLevel !== null && blip.biLevel !== undefined ? `bw${Math.round(blip.biLevel * 100)}` : blip.duotone ? null : blip.luminance && Math.abs(blip.luminance.brightness - 0.7) < 0.01 ? 'washout' : 'none';
-    const recolorPreview = p => p.grayscale ? filteredThumb(source, 'grayscale(1)', { width: 48, height: 36 }) : p.biLevel ? filteredThumb(source, `grayscale(1) contrast(40) brightness(${0.5 / Math.max(0.1, p.biLevel)})`, { width: 48, height: 36 })
+    const recolorPreview = p => p.grayscale ? filteredThumb(source, 'grayscale(1)', { width: 48, height: 36 }) : p.biLevel ? processedThumb(source, img => thresholdPixels(img, p.biLevel), { width: 48, height: 36 })
       : p.duotone ? processedThumb(source, img => duotonePixels(img, p.duotone), { width: 48, height: 36 }) : p.luminance ? filteredThumb(source, 'brightness(1.6) contrast(0.35)', { width: 48, height: 36 }) : filteredThumb(source, 'none', { width: 48, height: 36 });
     return [...galleryItems([
       { header: 'Color Saturation', columns: 7, items: presets.SATURATION_PRESETS.map(([label, factor]) => ({ label, selected: Math.abs((state.saturation ?? 1) - factor) < 0.01, preview: filteredThumb(source, `saturate(${factor})`, { width: 48, height: 36 }), onSelect: () => commands.processed('Color Saturation', { saturation: factor === 1 ? null : factor }) })) },
@@ -561,6 +561,11 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     { label: 'More Variations', items: colorItems({ label: 'Recolor', value: null, onPick: c => commands.recolor({ grayscale: false, biLevel: null, duotone: ['000000', typeof c === 'object' ? presets.resolveColor(c, palette()) : c] }) }) },
     { label: 'Set Transparent Color', icon: 'transparentColor', onSelect: setTransparentColor },
     { label: 'Picture Color Options…', onSelect: () => openPane('format', 'picture') }];
+  }
+  function thresholdPixels(img, threshold) {
+    const out = new Uint8ClampedArray(img.data);
+    for (let i = 0; i < out.length; i += 4) { const v = (0.2126 * out[i] + 0.7152 * out[i + 1] + 0.0722 * out[i + 2]) / 255 >= threshold ? 255 : 0; out[i] = out[i + 1] = out[i + 2] = v; }
+    return { data: out, width: img.width, height: img.height };
   }
   function duotonePixels(img, [dark, light]) {
     const [d, l] = [dark, light].map(h => h.match(/../g).map(c => parseInt(c, 16)));
@@ -750,9 +755,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       track(rotate, () => has() && selected()?.kind !== 'chart');
       return { id, label: 'Arrange', icon: 'wrapText', priority, items: [position, wrap, rows([forward], [backward], [pane]), rows([alignButton], [groupButton], [rotate])] };
     };
-    const sizeGroup = (id, priority, { crop = false } = {}) => {
+    const sizeGroup = (id, priority, { crop = false, noun = 'Picture' } = {}) => {
       const spin = (key, label) => {
-        const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${label} (in)`,
+        const input = el('input.canvas-spacing.ribbon-number', { type: 'number', step: 0.01, min: 0.01, max: 22, 'aria-label': `${noun} ${label.toLowerCase()} (in)`,
           onchange: () => { if (!input.checkValidity() || input.value === '') { input.reportValidity(); return; } setSize(key, Number(input.value)); },
           onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); input.dispatchEvent(new Event('change')); } } });
         states.push(input);
@@ -804,11 +809,11 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const pictureLauncher = command('Format Picture', 'formattingPane', () => openPane('format'));
     track(pictureLauncher, has);
     const picture = [
-      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 6, items: [removeBg, corrections, color, artistic, rows([transparency], [compress], [change]), rows([reset])] },
-      { id: 'pictureStyles', label: 'Picture Styles', icon: 'pictureBorder', priority: 7, items: [el('div.ribbon-gallery-frame', {}, pictureGallery, pictureStylesMore), rows([border], [effects], [pictureLayout]), el('div.ribbon-launcher', {}, pictureLauncher)] },
+      { id: 'adjust', label: 'Adjust', icon: 'corrections', priority: 5, items: [removeBg, corrections, color, artistic, rows([transparency], [compress], [change]), rows([reset])] },
+      { id: 'pictureStyles', label: 'Picture Styles', icon: 'pictureBorder', priority: 6, items: [el('div.ribbon-gallery-frame', {}, pictureGallery, pictureStylesMore), rows([border], [effects], [pictureLayout]), el('div.ribbon-launcher', {}, pictureLauncher)] },
       { id: 'pictureAccessibility', label: 'Accessibility', icon: 'altText', priority: 4, items: [altText()] },
       arrangeGroup('pictureArrange', 8),
-      sizeGroup('size', 5, { crop: true }),
+      sizeGroup('size', 7, { crop: true }),
     ];
 
     /* Shape Format */
@@ -816,7 +821,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     track(shapesButton, () => engineReady() && !!base.openShapes);
     const editShape = menuButton('Edit Shape', 'editShape', changeShapeItems, { size: 'small', text: 'Edit Shape' });
     const textBox = command('Draw Text Box', 'textBox', () => base.insertTextBox?.(), { size: 'small', text: 'Text Box' });
+    const editText = command('Edit Text', 'drawingText', () => base.editShapeText?.(), { size: 'small', text: 'Edit Text' });
     track(editShape, shapeOk); track(textBox, () => engineReady() && !!base.insertTextBox);
+    track(editText, () => editable() && kind(selected()) === 'textBox' && !!base.editShapeText);
     const shapeGallery = el('div.ribbon-gallery.pic-shape-gallery', { role: 'listbox', 'aria-label': 'Shape Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '3', shrinkMax: '360' } });
     const quickShapeStyles = () => presets.shapeStyles(!!theme()).filter(s => s.color !== 'dk1' && ['outline', 'fill', 'light', 'intense'].includes(s.kind)).filter((s, i) => i < 7 || s.color === 'accent1' || s.color === 'accent2');
     const shapeStyleButtons = [];
@@ -850,13 +857,13 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const alignText = menuButton('Align Text', 'alignMiddleCenter', alignTextItems, { size: 'small', text: 'Align Text' });
     track(alignText, () => editable() && !!describe(selected())?.body);
     const shape = [
-      { id: 'insertShapes', label: 'Insert Shapes', icon: 'shapes', priority: 3, items: [shapesButton, rows([editShape], [textBox])] },
+      { id: 'insertShapes', label: 'Insert Shapes', icon: 'shapes', priority: 5, items: [shapesButton, rows([editShape], [textBox], [editText])] },
       { id: 'shapeStyles', label: 'Shape Styles', icon: 'shapeFill', priority: 8, items: [el('div.ribbon-gallery-frame', {}, shapeGallery, shapeStylesMore), rows([fillButton], [outlineButton], [shapeEffects]), el('div.ribbon-launcher', {}, shapeLauncher)] },
       { id: 'wordArtStyles', label: 'WordArt Styles', icon: 'wordArt', priority: 4, items: [wordArtQuick, rows([textFill], [textOutline], [textEffects])] },
       { id: 'shapeText', label: 'Text', icon: 'alignMiddleCenter', priority: 3, items: [rows([alignText])] },
       { id: 'shapeAccessibility', label: 'Accessibility', icon: 'altText', priority: 2, items: [altText()] },
-      arrangeGroup('shapeArrange', 7),
-      sizeGroup('shapeSize', 5),
+      arrangeGroup('shapeArrange', 6),
+      sizeGroup('shapeSize', 7, { noun: 'Shape' }),
     ];
     const layoutArrange = arrangeGroup('arrange', 3);
     const refresh = () => {
