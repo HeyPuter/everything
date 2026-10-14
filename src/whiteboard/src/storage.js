@@ -3,22 +3,16 @@ const DB = "whiteboard-v1";
 let dbPromise;
 function db() {
   return (dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 4);
+    const req = indexedDB.open(DB, 3);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains("boards"))
         req.result.createObjectStore("boards", { keyPath: "id" });
-      const revisions = req.result.objectStoreNames.contains("revisions")
-        ? req.transaction.objectStore("revisions")
-        : req.result.createObjectStore("revisions", { keyPath: "id" });
-      if (!revisions.indexNames.contains("boardId"))
-        revisions.createIndex("boardId", "boardId");
-      // Which versions use each picture or file kept in "media". Versions
-      // saved before had theirs inline and are not listed: they keep
-      // working as they are.
-      if (!revisions.indexNames.contains("media"))
-        revisions.createIndex("media", "media", { multiEntry: true });
-      if (!req.result.objectStoreNames.contains("media"))
-        req.result.createObjectStore("media", { keyPath: "id" });
+      if (!req.result.objectStoreNames.contains("revisions")) {
+        const store = req.result.createObjectStore("revisions", {
+          keyPath: "id",
+        });
+        store.createIndex("boardId", "boardId");
+      }
       if (!req.result.objectStoreNames.contains("templates"))
         req.result.createObjectStore("templates", { keyPath: "id" });
       if (!req.result.objectStoreNames.contains("collaboration")) {
@@ -49,14 +43,13 @@ function db() {
     };
   }));
 }
-// A transaction over several stores hands `fn` the transaction itself.
 async function transaction(mode, fn, store = "boards") {
   const database = await db();
   return new Promise((resolve, reject) => {
     const tx = database.transaction(store, mode);
     let req;
     try {
-      req = fn(Array.isArray(store) ? tx : tx.objectStore(store));
+      req = fn(tx.objectStore(store));
     } catch (error) {
       // Whatever the transaction did before the failure is not kept either.
       try {
@@ -81,9 +74,9 @@ const REVISION_BYTES = 50 * 1024 * 1024;
 export const keptRevision = (r) => r.kept ?? r.label !== "Board edit";
 // Pictures and attached files are kept in a board as data URLs, megabytes
 // each, and stay the same from one version to the next. A version keeps
-// each one longer than this in the "media" store once, under a hash of it,
-// and refers to it there: a copy in every version left a board with
-// pictures only a few versions within the budget.
+// each one longer than this once, under a hash of it, and refers to it
+// there: a copy in every version left a board with pictures only a few
+// versions within the budget.
 const MEDIA_CHARS = 16 * 1024;
 const isMedia = (value) =>
   value.length >= MEDIA_CHARS && value.startsWith("data:");
@@ -154,20 +147,60 @@ function withMedia(r, media) {
   delete r.mediaAt;
   return r;
 }
-// Removes pictures no version refers to any more. It runs in the
-// transaction that removed the versions, which another tab's version that
-// refers to the picture cannot interleave with: either that version is
-// already written and counted here, or it finds the picture gone and writes
-// it again.
-function dropUnusedMedia(tx, hashes) {
-  const index = tx.objectStore("revisions").index("media"),
-    media = tx.objectStore("media");
+// Pictures are kept in the versions store, beside the versions, rather than
+// in a store of their own: adding a store takes a newer database version,
+// which a tab still running the release before can then no longer open, and
+// every save there would fail. Each picture is one row, and which versions
+// use it another, small enough to rewrite with each version where the
+// picture is not. Neither has a board, so a board's versions as its index
+// lists them, in this release or the one before, never include them.
+const mediaId = (hash) => `media:${hash}`,
+  usersId = (hash) => `media-users:${hash}`;
+// Notes that version `id` uses these pictures, writing any not kept yet. It
+// runs in the transaction that writes the version; transactions writing one
+// store never overlap, so another tab removing the last version that used a
+// picture does so wholly before, and the picture is written again, or after,
+// and finds this version among its users.
+function useMedia(s, id, hashes, data) {
   for (const hash of hashes) {
-    const users = index.count(hash);
-    users.onsuccess = () => {
-      if (!users.result) media.delete(hash);
+    const read = s.get(usersId(hash));
+    read.onsuccess = () => {
+      const row = read.result;
+      if (!row) {
+        s.put({ id: mediaId(hash), data: data(hash) });
+        s.put({ id: usersId(hash), users: [id] });
+      } else if (!row.users.includes(id))
+        s.put({ ...row, users: [...row.users, id] });
     };
   }
+}
+// Notes that versions no longer use pictures, `gone` holding the versions
+// for each, and removes the pictures no version uses any more; in the
+// transaction that removes the versions.
+function releaseMedia(s, gone) {
+  for (const [hash, ids] of gone) {
+    const read = s.get(usersId(hash));
+    read.onsuccess = () => {
+      const row = read.result;
+      if (!row) return;
+      const users = row.users.filter((user) => !ids.has(user));
+      if (users.length) s.put({ ...row, users });
+      else {
+        s.delete(usersId(hash));
+        s.delete(mediaId(hash));
+      }
+    };
+  }
+}
+// Each picture these versions use, with the versions that use it.
+function mediaOf(versions) {
+  const gone = new Map();
+  for (const r of versions)
+    for (const hash of r.media || []) {
+      if (!gone.has(hash)) gone.set(hash, new Set());
+      gone.get(hash).add(r.id);
+    }
+  return gone;
 }
 // The `updated` stamp each board had when this tab last read or wrote it.
 // A save over a copy another tab wrote since is refused, so neither tab
@@ -343,14 +376,13 @@ export const local = {
     const media = new Map();
     return transaction(
       "readonly",
-      (tx) => {
-        const read = tx.objectStore("revisions").index("boardId").getAll(id);
+      (s) => {
+        const read = s.index("boardId").getAll(id);
         read.onsuccess = () => {
           list = read.result;
           if (bare) return;
-          const store = tx.objectStore("media");
           for (const hash of new Set(list.flatMap((r) => r.media || []))) {
-            const get = store.get(hash);
+            const get = s.get(mediaId(hash));
             get.onsuccess = () => {
               if (!get.result) return;
               media.set(hash, get.result.data);
@@ -362,7 +394,7 @@ export const local = {
         };
         return read;
       },
-      ["revisions", "media"],
+      "revisions",
     ).then(() => (bare ? list : list.map((r) => withMedia(r, media))));
   },
   templates: () => transaction("readonly", (s) => s.getAll(), "templates"),
@@ -370,22 +402,40 @@ export const local = {
   removeTemplate: (id) =>
     transaction("readwrite", (s) => s.delete(id), "templates"),
   // Every recovery version of one board, as when it leaves the trash for
-  // good, and the pictures only they used.
+  // good, and the pictures only they used. A tab still running the release
+  // before prunes versions without noting it beside their pictures, so
+  // every picture's users are checked against the versions left.
   removeRevisions: (id) => {
     revisionIndex.delete(id);
     return transaction(
       "readwrite",
-      (tx) => {
-        const s = tx.objectStore("revisions");
+      (s) => {
         const keys = s.index("boardId").getAllKeys(id);
         keys.onsuccess = () => {
           keys.result.forEach((key) => s.delete(key));
-          const media = tx.objectStore("media").getAllKeys();
-          media.onsuccess = () => dropUnusedMedia(tx, media.result);
+          const left = s.getAllKeys();
+          left.onsuccess = () => {
+            const versions = new Set(left.result);
+            for (const key of left.result) {
+              if (typeof key !== "string" || !key.startsWith("media-users:"))
+                continue;
+              const read = s.get(key);
+              read.onsuccess = () => {
+                const row = read.result,
+                  users = row.users.filter((user) => versions.has(user));
+                if (users.length === row.users.length) return;
+                if (users.length) s.put({ ...row, users });
+                else {
+                  s.delete(key);
+                  s.delete(mediaId(key.slice("media-users:".length)));
+                }
+              };
+            }
+          };
         };
         return keys;
       },
-      ["revisions", "media"],
+      "revisions",
     );
   },
   // Names one version, which keeps it apart from those each edit leaves.
@@ -411,17 +461,16 @@ export const local = {
   removeRevision: (id) =>
     transaction(
       "readwrite",
-      (tx) => {
-        const s = tx.objectStore("revisions"),
-          get = s.get(id);
+      (s) => {
+        const get = s.get(id);
         get.onsuccess = () => {
           if (!get.result) return;
           s.delete(id);
-          dropUnusedMedia(tx, new Set(get.result.media || []));
+          releaseMedia(s, mediaOf([get.result]));
         };
         return get;
       },
-      ["revisions", "media"],
+      "revisions",
     ),
   // A caller that made `b` for this version alone says it is `owned`: it
   // is kept as it is rather than copied again. A version someone named, or
@@ -581,18 +630,12 @@ export const local = {
       const gone = new Set(ids);
       await transaction(
         "readwrite",
-        (tx) => {
-          const s = tx.objectStore("revisions"),
-            last = ids.map((id) => s.delete(id)).at(-1);
-          dropUnusedMedia(
-            tx,
-            new Set(
-              known.list.flatMap((r) => (gone.has(r.id) && r.media) || []),
-            ),
-          );
+        (s) => {
+          const last = ids.map((id) => s.delete(id)).at(-1);
+          releaseMedia(s, mediaOf(known.list.filter((r) => gone.has(r.id))));
           return last;
         },
-        ["revisions", "media"],
+        "revisions",
       );
       known.list = known.list.filter((r) => !gone.has(r.id));
       for (const id of gone) known.ids.delete(id);
@@ -608,24 +651,29 @@ export const local = {
       // after that only referred to.
       await transaction(
         "readwrite",
-        (tx) => {
-          const put = tx.objectStore("revisions").put(written),
-            media = tx.objectStore("media");
-          written.media?.forEach((id) => {
-            const stored = media.count(id);
-            stored.onsuccess = () => {
-              if (!stored.result)
-                media.put({ id, data: found.find((f) => f.hash === id).data });
-            };
-          });
-          if (replaced?.media)
-            dropUnusedMedia(
-              tx,
-              replaced.media.filter((id) => !written.media?.includes(id)),
+        (s) => {
+          const put = s.put(written);
+          useMedia(
+            s,
+            written.id,
+            written.media || [],
+            (hash) => found.find((f) => f.hash === hash).data,
+          );
+          if (replaced)
+            releaseMedia(
+              s,
+              mediaOf([
+                {
+                  id: replaced.id,
+                  media: replaced.media?.filter(
+                    (hash) => !written.media?.includes(hash),
+                  ),
+                },
+              ]),
             );
           return put;
         },
-        ["revisions", "media"],
+        "revisions",
       );
     } catch (error) {
       // A version this one was to replace is still there.

@@ -21,6 +21,10 @@ async function rawRows(store) {
 }
 const rawRevisions = async (id) =>
   (await rawRows("revisions")).filter((r) => r.boardId === id);
+// The pictures versions keep, which share the versions store.
+const rawMedia = async () => (await rawRows("revisions")).filter((r) => r.data);
+// Every row in the versions store, pictures and their users among them.
+const rawAll = () => rawRows("revisions");
 // Each test that reads the stores directly loads the storage module afresh,
 // so it opens the database those reads see.
 let loads = 0;
@@ -331,7 +335,7 @@ test("versions of a board with pictures keep each picture once, so its history i
     "label",
   ]);
   // Written once each, not once a version, and the versions stay small.
-  assert.equal((await rawRows("media")).length, 4);
+  assert.equal((await rawMedia()).length, 4);
   assert.ok((await rawRevisions(three.id)).every((r) => r.bytes < 100_000));
 });
 
@@ -350,13 +354,13 @@ test("a picture no version uses any more is removed with the last version that d
   // picture goes too, but not while the copy's version still shows it.
   b.items[0].src = picture("B", 100_000);
   for (let n = 0; n < 35; n++) await local.checkpoint(b, "Board edit");
-  let media = (await rawRows("media")).map((m) => m.data[23]);
+  let media = (await rawMedia()).map((m) => m.data[23]);
   assert.deepEqual(media.sort(), ["A", "B"]);
   await local.removeRevisions(copy.id);
-  media = (await rawRows("media")).map((m) => m.data[23]);
+  media = (await rawMedia()).map((m) => m.data[23]);
   assert.deepEqual(media, ["B"]);
   await local.removeRevisions(b.id);
-  assert.deepEqual(await rawRows("media"), []);
+  assert.deepEqual(await rawAll(), []);
 });
 
 test("an edit hashes each picture once, not again on every edit", async (t) => {
@@ -424,7 +428,7 @@ test("a version that replaces another takes its place and lets go of pictures on
   assert.equal(versions[0].board.items.length, 2);
   assert.ok(versions[0].created > first.created);
   assert.deepEqual(
-    (await rawRows("media")).map((m) => m.data[23]),
+    (await rawMedia()).map((m) => m.data[23]),
     ["B"],
   );
   // One that is gone, as when it was deleted, is made again.
@@ -455,4 +459,40 @@ test("a version named later is kept, and a deleted one takes only its own pictur
   revisions = await tab.revisions(b.id);
   assert.ok(!revisions.some((r) => r.id === first.id));
   assert.equal(revisions.length, 30);
+});
+
+test("deleting one version lets go of a picture only it used, and pictures left by versions an earlier release pruned are let go later", async (t) => {
+  const local = await fresh();
+  let now = Date.UTC(2026, 9, 9, 9, 0);
+  t.mock.method(Date, "now", () => (now += 2000));
+  const b = board("Photo board");
+  b.items.push(item("image", 0, 0, { src: picture("A", 100_000) }));
+  const first = await local.checkpoint(b, "Board edit");
+  b.items[0].src = picture("B", 100_000);
+  const second = await local.checkpoint(b, "Board edit");
+  await local.removeRevision(first.id);
+  assert.deepEqual(
+    (await rawMedia()).map((m) => m.data[23]),
+    ["B"],
+  );
+  // The release before prunes a version as a plain row, leaving its
+  // picture noted as used.
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open("whiteboard-v1", 3);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("revisions", "readwrite");
+    tx.objectStore("revisions").delete(second.id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+  assert.equal((await rawMedia()).length, 1);
+  // Removing any board's versions for good lets it go.
+  const other = board("Other");
+  await local.checkpoint(other, "Board edit");
+  await local.removeRevisions(other.id);
+  assert.deepEqual(await rawAll(), []);
 });
