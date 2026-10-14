@@ -61,7 +61,10 @@ test('picture styles, border, effects, corrections, color, transparency and alt 
   const ribbon = await insertPicture(page, input);
   await shot(page, 'picture-format');
   // Picture Styles gallery: a white frame with a shadow.
-  await ribbon.getByRole('option', { name: 'White Frame', exact: true }).click();
+  // A narrow ribbon (or a wide UI font) shows fewer thumbnails; the rest are in the gallery's More menu.
+  const whiteFrame = ribbon.getByRole('option', { name: 'White Frame', exact: true });
+  if (await whiteFrame.isVisible()) await whiteFrame.click();
+  else { await ribbon.getByRole('button', { name: 'More Picture Styles', exact: true }).click(); await page.getByRole('menuitem', { name: 'White Frame', exact: true }).click(); }
   await expect(undoButton(page)).toBeEnabled();
   // Picture Border: a theme color and a weight.
   await ribbon.getByRole('button', { name: 'Picture Border', exact: true }).click();

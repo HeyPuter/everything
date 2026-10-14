@@ -12,7 +12,8 @@ test('horizontal multi-page float remains editable with rich content in the UI',
  const input=page.getByRole('textbox',{name:'Document text'});
  await expect(input).not.toHaveValue('',{timeout:120000});
  await expect(input).toHaveJSProperty('readOnly',false);
- expect(await page.locator('canvas.canvas-page').count()).toBeGreaterThan(1);
+ // Pages are painted just after the text model is ready.
+ await expect.poll(()=>page.locator('canvas.canvas-page').count()).toBeGreaterThan(1);
  const original=await input.inputValue();await input.focus();await input.press('ControlOrMeta+Home');await input.pressSequentially('Edited ');
  await expect(input).toHaveValue(/^Edited /);
  for(let index=0;index<7;index++)await input.press('ControlOrMeta+z');
