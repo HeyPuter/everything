@@ -62,7 +62,11 @@ export class StorySession {
       if (this.path !== before.path) throw new Error('A text command cannot switch page stories.');
       if (model.revision !== before.revision) {
         // With Track Changes on, a formatting change keeps the formatting it replaced (§17.13.5.29/.30).
-        if (model.trackChanges && model.trackFormatting !== false && !model.formatTrackingSuppressed && this.path === null) trackFormatChanges(before.state.paragraphs, model.paragraphs, () => model.newRevision('format'), { stylesChanged: JSON.stringify(before.state.styles) !== JSON.stringify(model.styles) });
+        if (model.trackChanges && model.trackFormatting !== false && !model.formatTrackingSuppressed && this.path === null) trackFormatChanges(before.state.paragraphs, model.paragraphs, () => model.newRevision('format'), {
+          // Style definitions and table structure (with its conditional formatting) are not
+          // formatting changes to the text they restyle.
+          stylesChanged: JSON.stringify(before.state.styles) !== JSON.stringify(model.styles) || JSON.stringify(before.state.tables) !== JSON.stringify(model.tables),
+        });
         this.publish(model, before.state);
         this.guard?.(before.state, model, this.path);
       }

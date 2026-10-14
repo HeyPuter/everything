@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, it, expect, describe, beforeEach } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
+import { readFileSync } from 'node:fs';
 import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
@@ -90,6 +91,12 @@ describe('tracked formatting', () => {
     const xml = await documentXml(pkg, model);
     expect(xml).toMatch(/<w:u w:val="single"/);
     expect(xml).not.toMatch(/rPrChange/);
+  });
+
+  it('does not record restyling caused by table structure edits', async () => {
+    const { model, session } = await open(readFileSync('tests/fixtures/review/original.docx'));
+    session.run(m => { m.select(m.text.indexOf('North') + 1); m.insertTableRow(); });
+    expect(model.revisions.filter(r => r.type === 'format')).toEqual([]);
   });
 
   it('shows formatting marks only when chosen', () => {
