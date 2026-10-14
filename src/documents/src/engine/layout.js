@@ -40,6 +40,7 @@ import { floatingParagraph } from './floating-images.js';
 import { exactRowHeight, rowPadding } from './row-height.js';
 import { blockMinimumHeight } from './block-layout.js';
 import { sectionStoryBounds } from './story-clearance.js';
+import { spacedFormat } from './document-views.js';
 import { footnotePlan, endnotePlan, layoutWithFootnotes, pageRestartedNumbers, placeEndnotes } from './footnote-layout.js';
 import { numberedParagraphs } from './footnotes.js';
 import { pageBounds } from './page-bounds.js';
@@ -163,8 +164,12 @@ function layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageSt
 }
 
 function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStories, wrapHints, storyOptions) {
+  const mirroredIndents = new Map(paragraphs.filter(p => p.format?.mirrorIndents && !p.cellId && (p.format.indentRight ?? 0) !== (p.format.indentLeft ?? 0)).map(p => [p.id, ((p.format.indentRight ?? 0) - (p.format.indentLeft ?? 0)) / 15]));
   const paginateParagraphs = createParagraphPaginator();
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
+  // A screen view (web, draft, read) lays every section out on its own display geometry.
+  const viewPage = storyOptions.viewGeometry || (geometry => geometry);
+  page = viewPage(page);
   page = { ...page, allowOversizedLines: !!storyOptions.bestEffort, left: page.left ?? page.margin, right: page.right ?? page.margin, top: page.top ?? page.margin, bottom: page.bottom ?? page.margin };
   const markers = listMarkers(paragraphs, numbering);
   // The initial recto/verso side is retained through later numbering restarts.
@@ -174,7 +179,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const finalPage = page, sectionPages = new Map(); let sectionPage = page;
   for (let i = paragraphs.length - 1; i >= 0; i--) {
     if (paragraphs[i].sectionEnd && paragraphs[i].cellId) throw new Error('Section breaks inside tables are not supported.');
-    if (paragraphs[i].sectionEnd) sectionPage = { ...pageGeometry(paragraphs[i].sectionEnd), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, allowOversizedLines: !!storyOptions.bestEffort };
+    if (paragraphs[i].sectionEnd) sectionPage = { ...viewPage(pageGeometry(paragraphs[i].sectionEnd)), background: finalPage.background, backgroundPicture: finalPage.backgroundPicture, allowOversizedLines: !!storyOptions.bestEffort };
     sectionPages.set(paragraphs[i].id, sectionPage);
   }
   // A drawing in a different section does not participate in column flow.
@@ -617,7 +622,11 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     }
     for (const key of ['lines', 'cells', 'repeatedLines']) placed[key].push(...result[key].map(item => {
       const base = section.sourcePage || section.page;
-      const dx = readingPageGeometry(base, section.firstNumber + item.page - 1).left - base.left;
+      let dx = readingPageGeometry(base, section.firstNumber + item.page - 1).left - base.left;
+      // Mirrored indents (§17.3.1.18): on even pages the left indent becomes the inside (right) one.
+      // Text width is unchanged, so the line only moves sideways.
+      const mirror = key === 'lines' && item.paragraphId && mirroredIndents.get(item.paragraphId);
+      if (mirror && (offset + item.page) % 2 === 1) dx += mirror;
       return { ...shiftTableItem(item, dx, 0), ...(base.bookFold ? { pageMarginShift: dx } : {}), page: offset + item.page, region: regionIds[item.page] };
     }));
     placed.endY = result.endY;
@@ -700,7 +709,7 @@ function mergedRowGroups(rows) {
 }
 
 function measureParagraph(p, documentOffset, measure, page, listMarker, numbering, cellBounds, wrapHints, keepBoundaryLine = false) {
-  const lines = [], format = paragraphFormat(p, numbering), text = paragraphText(p);
+  const lines = [], format = spacedFormat(paragraphFormat(p, numbering), page.textSpacing), text = paragraphText(p);
   if (p.list) format.autoSpacingListId = numbering.instances[p.list.numId].abstractId;
   if (page.doNotUseHTMLParagraphAutoSpacing) format.addParagraphSpacing = true;
   for (const side of ['Before', 'After']) if (format['autoSpace' + side]) {
@@ -751,8 +760,11 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // grapheme, including one that crosses a source run boundary.
     if (styleIndex !== runIndex) {
       runStyle = bodySymbolStyle(p.runs[runIndex], runFormat(p.runs[runIndex]));
+      if (page.textSpacing?.character) runStyle.characterSpacing = (runStyle.characterSpacing || 0) + page.textSpacing.character;
       if (p.runs[runIndex]?.noteMark) runStyle.noteMark = true;
       runHidden = !!p.runs[runIndex]?.vanish && !revisionView.showHidden;
+      // Shown hidden text carries a dotted underline so it reads as hidden; the run itself is unchanged.
+      if (p.runs[runIndex]?.vanish && revisionView.showHidden && (!runStyle.underlineStyle || runStyle.underlineStyle === 'none')) Object.assign(runStyle, { underline: true, underlineStyle: 'dotted', underlineColor: 'auto' });
       const display = runRevisionDisplay(p.runs[runIndex]);
       if (display?.hidden) runHidden = true; else if (display) Object.assign(runStyle, display);
       styleIndex = runIndex;
@@ -1034,6 +1046,12 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       if (format.paragraphShading !== 'auto') line.paragraphBackground = { value: format.paragraphShading, x: paintLeft, width: paintRight - paintLeft, before: 0, after: 0 };
       if (bordered) line.paragraphFrame = { borders: format.paragraphBorders, x: paintLeft, right: paintRight, spaceAfter: format.spaceAfter * 4 / 3, contextualSpacing: format.contextualSpacing, styleId: p.resolvedStyleId ?? p.styleId ?? null };
     }
+  }
+  // Bar tabs draw a vertical rule beside every line of the paragraph, measured from the text margin.
+  const bars = format.tabs.filter(t => t.alignment === 'bar');
+  if (bars.length) for (const line of lines) if (!line.virtual) {
+    const geometry = line.columnMeasureWidth === undefined ? page : columnPage;
+    line.bars = bars.map(t => ({ x: geometry.left + t.position / 15 }));
   }
   return { lines, format, styleId: 'resolvedStyleId' in p ? p.resolvedStyleId : p.styleId ?? null, leadingFlowBreaks: /^[\f\u000e]+/.exec(text)?.[0].length || 0 };
 }

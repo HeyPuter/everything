@@ -25,6 +25,7 @@ import { checkedRowHeight, rowHeight } from './row-height.js';
 import { checkedLineSpacing } from './line-spacing.js';
 import { hasDirectRunFormatting, clearedRun, hasDirectMarkFormatting, clearMark, hasDirectParagraphFormatting, clearParagraph } from './direct-formatting.js';
 import { findText, checkedSearchText, replacedRuns, replacedBookmarks } from './search.js';
+import { advancedFind, replaceAdvanced } from './advanced-search.js';
 import { checkedHyperlinkDestination, hyperlinkLabel, hyperlinkId, hyperlinkAt, hyperlinkRanges, hyperlinkBoundaryChanges } from './hyperlinks.js';
 import { bookmarkEntries, checkedBookmarkName, newBookmarkMarkers, replaceBookmarkMarkers, bookmarkStructureState, repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookmarks.js';
 import { checkedUnderline, underlineDeclaration } from './underlines.js';
@@ -51,7 +52,7 @@ import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers,
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
 let nextId = 0;
 export { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, RUN_FORMAT, runFormat } from './formatting.js';
-import { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, RUN_FORMAT, runFormat, clearAutomaticSpacing } from './formatting.js';
+import { PAGINATION_DEFAULTS, PARAGRAPH_FORMAT, PARAGRAPH_FLAGS, RUN_FORMAT, runFormat, clearAutomaticSpacing } from './formatting.js';
 
 function commandRunFormat(run) {
   const format = runFormat(run);
@@ -366,7 +367,7 @@ export class TextDocument {
         patch.tabs = normalizeTabStops(value);
       } else if (INDENT_KEYS.includes(key)) {
         validateIndent(value);
-      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || key === 'contextualSpacing') {
+      } else if (Object.hasOwn(PAGINATION_DEFAULTS, key) || Object.hasOwn(PARAGRAPH_FLAGS, key) || key === 'contextualSpacing') {
         if (typeof value !== 'boolean') throw new Error('Paragraph pagination must be on or off.');
       } else if (key === 'alignment') {
         if (!['left', 'center', 'right', 'both'].includes(value)) throw new Error('Choose left, center, right or justified alignment.');
@@ -1513,8 +1514,17 @@ export class TextDocument {
     this.didChange();
     return true;
   }
-  findMatches(query, options) { return findText(this.paragraphs, query, options); }
+  findMatches(query, options) {
+    // Advanced options (special characters, wildcards, formatting) use the advanced matcher.
+    if (options?.advanced) return advancedFind(this.paragraphs, query, options, { styles: this.styles, numbering: this.numbering });
+    return findText(this.paragraphs, query, options);
+  }
   replaceMatches(query, text, options = {}, all = false) {
+    if (options.advanced) {
+      const [start, end] = this.range;
+      const matches = this.findMatches(query, options).filter(m => all || m.start === start && m.end === end);
+      return replaceAdvanced(this, matches, text, { wildcards: !!options.wildcards, format: options.replaceFormat || null });
+    }
     checkedSearchText(text);
     const [start, end] = this.range;
     const promptFields=this.hasMacroButtons?bodyFieldRanges(this.paragraphs):null;

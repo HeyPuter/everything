@@ -23319,3 +23319,158 @@ Ink is saved as ordinary DrawingML so every reader shows it; nothing depends on 
 - Strokes in a session are committed as individual groups and gathered into one group when the
   session ends (tool change); a file saved in the middle of a session holds one group per stroke.
 - Ink in headers, footers and table cells is not supported (ink is placed on the body layer).
+## Format area (2026-10-13)
+
+Font, Paragraph, Tabs, Borders and Shading, Bullets and Numbering, Text Effects, Change Case and Style
+dialogs, the Styles pane (Style Inspector, Reveal Formatting), Apply Styles, advanced Find and
+Replace, paste options and Paste Special, Format Painter keys and Dictate. Every change is one model
+transaction (one undo step). Behavior tests: `tests/list-definitions.test.js`,
+`tests/advanced-search.test.js`, `tests/format-inspection.test.js`, `tests/paste-modes.test.js`,
+`tests/format-paragraph-flags.test.js`, `tests/format-area.test.js`. Independent fixture:
+`tools/format_features_fixture.py` writes `tests/fixtures/format-features/format.docx` directly as
+WordprocessingML (regression: `tests/format-features-fixture.test.js`). Browser exports from
+`tests/browser/format-*.spec.js` pass `tools/check-docx-schema.py` (transitional XSD, standard MCE view).
+
+### Run properties (§17.3.2)
+
+- Hidden text: `w:vanish` (§17.3.2.41) is now an editable run property (Font dialog → Hidden, Find
+  formatting, Format Painter). Hidden runs keep their text and caret positions but lay out with no
+  advance; with formatting marks shown they are laid out with a dotted underline (display only). The
+  writer emits `w:vanish w:val="1|0"` in schema order; `w:specVanish` and `w:webHidden` are untouched.
+- Text effects: fill (`w14:textFill`, including no fill), outline (`w14:textOutline`, solid colour,
+  width, round join) and outer shadow (`w14:shadow`: blur, distance, direction, colour, alpha) from the
+  Format Text Effects dialog. These are Office 2010 extensions written under `mc:Ignorable`. Reflection,
+  glow and 3-D formats are preserved when imported but are not offered (the canvas does not paint them).
+- Ligatures (`w14:ligatures`) are offered in the Font dialog only when the document's compatibility
+  settings enable OpenType features (§17.15.3 compatSetting); number forms and stylistic sets are not
+  offered because the canvas does not render them.
+- Set As Default writes the chosen run properties into the default paragraph style (Normal), not into
+  `w:docDefaults`; caps/strike "off" choices remove the style declaration instead of writing off values.
+
+### Paragraph properties (§17.3.1)
+
+- `w:mirrorIndents` (§17.3.1.18) is editable and laid out: on even pages the left (inside) and right
+  (outside) indents swap, as a sideways shift of each line (line width is unchanged). It was
+  previously rejected on import. Mirroring follows physical page parity; it applies to body
+  paragraphs, not table cells.
+- `w:suppressLineNumbers` (§17.3.1.34) and `w:suppressAutoHyphens` (§17.3.1.33) are editable,
+  inherited through styles and written in schema order. They are stored only: this editor neither
+  numbers lines nor hyphenates automatically.
+- `w:contextualSpacing`, keep options, widow control, outline level, indents, spacing and line
+  spacing are set from the Paragraph dialog through the existing paragraph writer.
+- Bar tabs: `w:tab w:val="bar"` (§17.3.1.37, ST_TabJc §17.18.84) are accepted on import, editable in the
+  Tabs dialog, skipped as targets for tab characters and painted as a 1px rule over the full height of
+  each line of the paragraph (including in table cells and mirrored lines). They were previously rejected.
+- Shading (`w:shd`, §17.3.1.31 / §17.3.2.32): the Shading tab offers Clear, Solid and the percentage
+  patterns pct5–pct95. A pattern is written as the flat colour it paints (`w:val="clear"` with the
+  blended fill), using the same blend the importer applies to imported percentage patterns; the
+  pattern itself is not retained. Text shading writes run `w:shd`.
+- Paragraph borders (`w:pBdr`, §17.3.1.24) from the Borders tab: per-side style, width (eighths of a
+  point), colour and distance; Between writes `w:between`. Borders on text (`w:bdr`, §17.3.2.4) are not
+  offered.
+
+### Page borders (§17.6.10)
+
+`w:pgBorders` with `w:offsetFrom` (text/page), `w:display` (all pages, first page, all but first),
+`w:zOrder` and per-side `w:space`. Only single-section documents can change page borders; art borders
+(`w:art`) are not offered.
+
+### Numbering (§17.9)
+
+Define New Bullet, Define New Number Format, Adjust List Indents and Define New Multilevel List write a
+new generated `w:abstractNum`/`w:num` pair copying the list's existing levels and reassign every
+paragraph of that list; imported definitions are left untouched. Supported level properties:
+`w:start`, `w:numFmt` (bullet, decimal, decimalZero, upper/lowerRoman, upper/lowerLetter, none),
+`w:lvlText` (literal text around `%1`–`%9`), `w:lvlJc`, `w:suff` (tab/space/nothing), `w:pPr/w:ind`
+and a numbering-only `w:tab`, and label `w:rPr` (`w:rFonts`, `w:b`, `w:i`, `w:color`). Set Numbering
+Value uses a `w:lvlOverride/w:startOverride` on a new instance (as Restart Numbering does); Continue
+Numbering reassigns the following items to the previous list's `w:numId`. Picture bullets
+(`w:lvlPicBulletId`) and legal numbering choices are not offered.
+
+### Styles (§17.7)
+
+- New Style from Formatting creates a `w:style` (paragraph or character) whose `w:pPr`/`w:rPr` hold the
+  selection's direct formatting, with `w:basedOn` and `w:next`.
+- Deleting a style removes its `w:style` element; paragraphs using it get the default paragraph style
+  (`w:pStyle` rewritten), runs lose `w:rStyle`, and styles based on it are rebased onto its own base.
+  Default and built-in styles (Normal, Title, Subtitle, headings) cannot be deleted. Other definitions
+  keep their original XML.
+- Reveal Formatting reports values as direct when they differ from the style hierarchy (the same
+  comparison Format Painter uses); it reads, never writes.
+
+### Find and Replace
+
+Advanced options search the joined document text (paragraph marks as `^p`), headers and footers
+(each editable header/footer story once) or the selection. Special characters: `^p ^t ^l ^m ^n ^s ^~ ^-
+^+ ^= ^^`, find-only `^? ^# ^$ ^w ^g`, replace-only `^&`. Wildcards (case-sensitive): `? * [ ] [!]
+{n,m} @ < > ( )` and `\1`–`\9` in the replacement. Formatting conditions cover run properties,
+paragraph properties and paragraph/character styles; replacement formatting is applied through the
+ordinary formatting commands after the text replacement, in one transaction. Not supported: sounds
+like, all word forms, and replacing with paragraph marks inside table cells.
+
+### Paste
+
+Keep Source Formatting uses the clipboard fragment as before; Merge Formatting keeps only bold,
+italic, underline and links and leaves the destination's paragraph style and font; Keep Text Only
+pastes plain text. Paste Special adds the clipboard picture when present. Nothing new is written to
+the file format beyond the pasted runs.
+
+### Remaining gaps
+
+Multiple discontiguous selections are not supported: Select All Instances and Select Text With Similar
+Formatting select the first range and highlight the rest. Line numbering and hyphenation are not laid
+out. Page borders cannot be set per section. Dictation depends on the browser's speech service.
+## Document views (2026-10-13)
+
+Code: [engine/document-views.js](../src/engine/document-views.js) (screen geometry),
+[engine/docx-view-settings.js](../src/engine/docx-view-settings.js) (`w:view`),
+[engine/outline-editing.js](../src/engine/outline-editing.js) (outline commands),
+[views/document-views.js](../src/views/document-views.js), [views/outline-view.js](../src/views/outline-view.js),
+[views/read-mode.js](../src/views/read-mode.js). Fixtures written independently from the schema:
+[tests/fixtures/document-views](../tests/fixtures/document-views) (generator: `tools/document_views_fixture.py`).
+
+### Document view setting (§17.15.1.92 `w:view`, §17.18.102 ST_View)
+
+- Read on open: `print` → Print Layout, `web` → Web Layout, `outline` and `masterPages` → Outline,
+  `normal` → Draft, `none` → Print Layout. Other values and malformed settings parts are ignored.
+- Written on save only when the user chose a different view: the attribute of an existing `w:view`
+  is updated, or a `w:view` element is inserted as the first child after `w:writeProtection`
+  (CT_Settings sequence). Print Layout is never written into a document that did not name a view.
+  A package without a settings part gets one (relationship and content-type override) only for a
+  non-default view. All other settings and parts are kept byte for byte (tested).
+- Read Mode has no ST_View value and is not stored. `w:readModeInkLockDown` (§17.15.1.66) is neither
+  read nor written. `w:zoom` (§17.15.1.94) is preserved but not applied.
+
+### Views are display-only
+
+- Web Layout, Draft and Read Mode lay the unchanged body out on a screen geometry: section page size,
+  margins, columns (`w:cols`), page borders (`w:pgBorders`), header/footer references and vertical
+  alignment are replaced in a private copy for layout only; `w:sectPr` and every part are unchanged.
+  Switching through all views and saving yields the same package as before (unit and browser tests).
+- Web Layout: one column at the window width; the page background (`w:background`) is drawn across
+  the full width; headers and footers are not shown. Draft: the same, on white, without floating
+  drawings (anchored `wp:anchor` objects stay in the document but are not drawn or hit-tested; text
+  still wraps around their reserved area — an approximation), with manual page breaks (`w:br
+  w:type="page"`) and section breaks shown as labelled dotted rules and each break starting a new
+  strip. Footnotes keep their page-bottom placement within a strip.
+- Read Mode: screen pages sized to columns of the window; optional text spacing multiplies auto line
+  spacing (and exact/at-least values) by 1.35, adds 6 pt after paragraphs and 0.6 pt letter spacing
+  in the private layout copy only. Page colours are screen colours, never `w:background`.
+- Printing and PDF export always use the authored pages, whatever view is showing.
+
+### Outline levels (§17.3.1.20 `w:outlineLvl`, §17.7.4.17 style `w:pPr`)
+
+- A paragraph's level is its resolved `w:outlineLvl` (direct or from its style chain): 0–8 are
+  heading levels 1–9; 9 or absent is body text. Table cell paragraphs are body text.
+- Promote/Demote/Promote to Heading 1/Demote to Body Text apply the paragraph style whose id is
+  `Heading{n}` (or whose name is `heading n`) when the document defines it, and remove a direct
+  `w:outlineLvl` so the style decides; without such a style a direct `w:outlineLvl` is written (for
+  example level 8 in a document with Heading1–6). Body text applies the default paragraph style.
+  Built-in heading styles keep their fixed level, as in the model's existing rule.
+- Move Up/Down and Navigation-pane dragging reorder whole paragraphs (`w:p`) and tables (`w:tbl`),
+  a heading together with the paragraphs it leads. Sections (`w:sectPr` in `w:pPr`), frames
+  (`w:framePr`) and block-level content controls are not moved (the command reports why). The
+  document's closing empty paragraph stays last. Deleting a section in the Navigation pane removes
+  its paragraphs; new headings are empty paragraphs with the heading style.
+- Gaps: master documents and subdocuments (`w:subDoc`, the `masterPages` view) are not supported;
+  outline numbering linked to headings follows the existing numbering support only.

@@ -108,13 +108,13 @@ const copy = value => structuredClone(value);
  * Direct formatting as it appears: the resolved values that differ from what the styles alone give. This
  * covers imported declarations and in-editor edits alike, however each is stored.
  */
-function directRun(model, run, p) {
+export function directRun(model, run, p) {
   const baseline = clearedRun(run);
   if (model.stylesEnabled) resolveCharacterRun(baseline, model.styles, paragraphRunStyle(p, model.styles));
   const source = runFormat(run), plain = runFormat(baseline);
   return Object.fromEntries(runKeys.filter(key => !same(source[key], plain[key]) && source[key] !== null && source[key] !== undefined).map(key => [key, copy(source[key])]));
 }
-function directParagraph(model, p) {
+export function directParagraph(model, p) {
   const baseline = copy(p);
   clearParagraph(baseline);
   if (model.stylesEnabled) resolveStyledParagraph(baseline, model.styles, model.numbering);
@@ -131,7 +131,8 @@ export function captureFormat(model) {
   const [start, end] = model.range;
   const { index, offset } = locate(model.paragraphs, start), p = model.paragraphs[index];
   const run = model.formatAt(start, start === end ? 'backward' : 'forward');
-  const wholeParagraph = start === end || offset === 0 && end - start >= paragraphText(p).length;
+  // A caret, a whole paragraph or a selection that takes in the paragraph mark carries the paragraph's formatting too.
+  const wholeParagraph = start === end || offset === 0 && end - start >= paragraphText(p).length || end > start - offset + paragraphText(p).length;
   return {
     characterStyle: model.stylesEnabled ? run.styleId || '' : null,
     run: directRun(model, run, p),

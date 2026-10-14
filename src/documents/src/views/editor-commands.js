@@ -267,7 +267,17 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
       root().classList.add('ed-focus');
       root().append(exit);
       window.addEventListener('keydown', onKey, true);
-      focusExit = () => { root().classList.remove('ed-focus'); exit.remove(); window.removeEventListener('keydown', onKey, true); focusExit = null; fitWidth(); focus(); };
+      // Focus fills the screen where the browser allows it; leaving full screen (Esc) leaves Focus too.
+      let fullScreen = false;
+      const onFullScreen = () => { if (fullScreen && !document.fullscreenElement) focusExit?.(); };
+      document.addEventListener('fullscreenchange', onFullScreen);
+      if (document.fullscreenEnabled && !document.fullscreenElement) document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).then(() => { fullScreen = true; }, () => {});
+      focusExit = () => {
+        root().classList.remove('ed-focus'); exit.remove(); window.removeEventListener('keydown', onKey, true);
+        document.removeEventListener('fullscreenchange', onFullScreen);
+        if (fullScreen && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        fullScreen = false; focusExit = null; fitWidth(); focus();
+      };
       fitWidth(); focus();
     },
     stylePreview(id) {
