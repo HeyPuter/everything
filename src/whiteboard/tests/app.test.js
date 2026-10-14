@@ -1070,7 +1070,7 @@ test("built editors join the same board, show participants, synchronize text and
       }),
     );
     const topId = (app) =>
-      app.doc.querySelector("#board-outline button:last-child")?.dataset.id;
+      app.doc.querySelector("#board-outline button:last-of-type")?.dataset.id;
     await until(
       () => [a, b, c].every((app) => topId(app) === initial.items[0].id),
       "Bring to front preserves layer order in all built editors",
@@ -9112,7 +9112,7 @@ test("connector drawing, styling, label editing, reconnection and history work t
   try {
     const { pointer, copy, key } = await snappingBoard(app);
     // Both nodes are editable for select-all clipboard inspection.
-    await click("#board-outline button:nth-child(2)");
+    await click("#board-outline button:nth-of-type(2)");
     await click('[data-action="lock"]');
     const all = () => {
       key("keydown", "a", { ctrlKey: true });
@@ -11655,7 +11655,7 @@ test("command palette executes arrangement and formatting atomically and explain
     assert.ok(selectedClipboard(app).every((i) => i.bold));
     await run("ungroup", "arrange:ungroup");
     assert.ok(selectedClipboard(app).every((i) => !i.groupId));
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     await run("lock selection", "lock");
     const locked = selectedClipboard(app);
     await run("delete", "delete");
@@ -12368,7 +12368,7 @@ test("automatic fitting treats legacy notes as manual and applies mixed selectio
         ]),
       ),
     );
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     assert.equal(
       doc.querySelector("#auto-fit-text").getAttribute("aria-pressed"),
       "false",
@@ -12393,7 +12393,7 @@ test("automatic fitting treats legacy notes as manual and applies mixed selectio
     await click('[data-action="undo"]');
     assert.equal(allClipboard(app)[1].autoFontSize, undefined);
     await click('[data-action="redo"]');
-    await click("#board-outline button:nth-child(2)");
+    await click("#board-outline button:nth-of-type(2)");
     await click('[data-action="change-shape"]');
     await click('[data-shape="text"]');
     assert.equal(selectedClipboard(app)[0].type, "text");
@@ -12537,7 +12537,7 @@ test("quick-connect reuses nearby nodes and existing connections without duplica
         ]),
       ),
     );
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     const source = selectedClipboard(app)[0];
     await click('[data-quick-direction="right"]');
     assert.equal(doc.querySelector("#canvas-text-editor"), null);
@@ -12896,7 +12896,7 @@ test("batch shape conversion retains connections and group metadata, and undo re
     );
     await app.tick();
     const before = allClipboard(app);
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     assert.equal(selectedClipboard(app).length, 3);
     await click('[data-action="change-shape"]');
     await click('[data-shape="diamond"]');
@@ -12920,7 +12920,7 @@ test("batch shape conversion retains connections and group metadata, and undo re
     assert.deepEqual(allClipboard(app), before);
     await click('[data-action="redo"]');
     assert.deepEqual(allClipboard(app), changed);
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     await click('[data-action="change-shape"]');
     await click('[data-shape="text"]');
     assert.ok(
@@ -13263,7 +13263,7 @@ test("bulk import reaches the board capacity with a bounded preview and rejects 
     assert.equal(doc.querySelectorAll("#board-outline button").length, 0);
     await click('[data-action="redo"]');
     assert.equal(allClipboard(app).length, 5000);
-    await click("#board-outline button:first-child");
+    await click("#board-outline button:first-of-type");
     for (const key of ["d", "ArrowRight"]) {
       doc.querySelector("#canvas").dispatchEvent(
         new w.KeyboardEvent("keydown", {
@@ -13402,7 +13402,7 @@ test("equal-spacing drag guides paint both gaps and support Alt, cancellation, u
       canvas,
       { clientX: 200, clientY: 200 },
     );
-    await click("#board-outline button:last-child");
+    await click("#board-outline button:last-of-type");
     const original = selectedClipboard(app)[0];
     const pointer = (type, x, y, extra = {}) =>
       canvas.dispatchEvent(
@@ -13445,7 +13445,7 @@ test("equal-spacing drag guides paint both gaps and support Alt, cancellation, u
     assert.equal(magenta(285, 240), false, "Guides are transient");
     assert.equal(selectedClipboard(app)[0].x, original.x + 300);
     await click('[data-action="undo"]');
-    await click("#board-outline button:last-child");
+    await click("#board-outline button:last-of-type");
     assert.deepEqual(selectedClipboard(app)[0], original);
     pointer("pointerdown", 240, 420);
     pointer("pointermove", 537, 220);
@@ -13453,11 +13453,11 @@ test("equal-spacing drag guides paint both gaps and support Alt, cancellation, u
     assert.deepEqual(selectedClipboard(app)[0], original);
     assert.equal(doc.querySelector('[data-action="redo"]').disabled, false);
     await click('[data-action="redo"]');
-    await click("#board-outline button:last-child");
+    await click("#board-outline button:last-of-type");
     assert.equal(selectedClipboard(app)[0].x, original.x + 300);
     await click('[data-action="home"]');
     await click("[data-open]");
-    await click("#board-outline button:last-child");
+    await click("#board-outline button:last-of-type");
     assert.equal(selectedClipboard(app)[0].x, original.x + 300);
   } finally {
     await app.close();
@@ -19536,7 +19536,7 @@ test("dimension preferences cancel stale resize across tabs, retain redo and kee
     await app.tick();
     assert.equal(selectedClipboard(app)[0].w, 238.5);
     assert.equal(selectedClipboard(app)[0].h, 157.25);
-    await click("#board-outline button:nth-child(2)");
+    await click("#board-outline button:nth-of-type(2)");
     assert.equal(
       doc.querySelector("#object-dimensions").textContent,
       "240 × 160 px",
@@ -38363,14 +38363,14 @@ async function tableSizeFeedbackRegression(kind) {
         item("note", 700, 0, { text: "Keep this thought.", lang: "en-CA" }),
       ]);
       // Tables obtain typography through the ordinary copied-style controls.
-      await app.click("#board-outline button:last-child");
+      await app.click("#board-outline button:last-of-type");
       const size = doc.querySelector("#font-size");
       size.value = "100";
       assert.equal(size.checkValidity(), true);
       size.dispatchEvent(new w.Event("change"));
       await app.tick();
       await app.click("#copy-style");
-      await app.click("#board-outline button:first-child");
+      await app.click("#board-outline button:first-of-type");
       assert.equal(doc.querySelector("#paste-style").disabled, false);
       await app.click("#paste-style");
       assert.equal(selectedClipboard(app)[0].fontSize, 100);
