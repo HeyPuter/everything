@@ -1881,6 +1881,8 @@ export const FUNCTIONS = {
     fn: ([a]) => {
       if (isRange(a) && (a.values.length > 1 || a.values[0].length > 1)) return 64;
       const v = scalar(a);
+      // A picture in a cell (placed there or from IMAGE) is a compound value, neither text nor an error.
+      if (v && typeof v === 'object' && (typeof v.image === 'string' || v.sparkline)) return 128;
       return typeof v === 'number' || v == null ? 1 : typeof v === 'string' ? 2 : typeof v === 'boolean' ? 4 : 16;
     },
     tolerant: true,
@@ -5600,11 +5602,20 @@ export const FUNCTIONS = {
 
   /* A picture inside a cell */
   IMAGE: {
-    fn: ([url, mode], ctx) => {
+    // IMAGE(url, [mode]) with mode 1 fit, 2 stretch, 3 original size; or, with text second,
+    // IMAGE(url, alt_text, [sizing]) with sizing 0 fit, 1 fill, 2 original size, 3 custom (fitted here).
+    fn: ([url, mode, sizing], ctx) => {
       const u = textArg(url); if (isError(u)) return u;
       const t = u.trim();
       if (!/^https?:\/\/\S+$/i.test(t) && !/^data:image\/[a-z0-9.+-]+;base64,/i.test(t)) return err('#VALUE!');
       if (/^https?:/i.test(t) && ctx?.externalBlocked?.()) return err('#BLOCKED!');
+      if (typeof scalar(mode) === 'string' || sizing !== undefined) {
+        const alt = mode === undefined ? '' : textArg(mode); if (isError(alt)) return alt;
+        const s = sizing === undefined ? 0 : toNumber(sizing); if (isError(s)) return s;
+        const fit = { 0: 'contain', 1: 'stretch', 2: 'original', 3: 'contain' }[Math.trunc(s)];
+        if (!fit) return err('#VALUE!');
+        return { image: t, fit, ...(String(alt).trim() ? { alt: String(alt).trim().slice(0, 2000) } : {}) };
+      }
       const m = mode === undefined ? 1 : toNumber(mode); if (isError(m)) return m;
       const fit = { 1: 'contain', 2: 'stretch', 3: 'original' }[Math.trunc(m)];
       if (!fit) return err('#VALUE!');

@@ -16,6 +16,7 @@ import { equationGalleryItems } from './equation.js';
 import { queryForTable } from '../core/queries.js';
 import { pasteGalleryItems } from './pastespecialdialog.js';
 import { chartInsertGroup, chartDesignGroups, chartFormatGroups } from './chart-ribbon.js';
+import { pictureFormatGroups, activePicture } from './picture-ribbon.js';
 import { activeChart } from './chart-actions.js';
 import { GROUP_BLOCKED_COMMANDS, GROUP_BLOCKED_HINT } from '../core/sheet-group.js';
 import { arrangeGroup } from './arrange-ribbon.js';
@@ -248,6 +249,7 @@ const groupsFor = name => ({
   Draw: drawRibbonGroups(),
   'Chart Design': chartDesignGroups(),
   Format: chartFormatGroups(),
+  'Picture Format': pictureFormatGroups(),
   'Page Layout': [
     ['Themes', large(direct('Themes', 'palette', 'themesMenu', null)), direct('Colors', 'themeColors', 'themeColorsMenu', null, { ariaLabel: 'Theme Colors' }),
       direct('Fonts', 'themeFonts', 'themeFontsMenu', null, { ariaLabel: 'Theme Fonts' }), direct('Effects', 'themeEffects', 'themeEffectsMenu', null)],
@@ -406,9 +408,13 @@ export function createRibbon(ctx) {
   const root = el('div.ribbon.toolbar');
   const id = fieldId('ribbon');
   const tabs = el('div.ribbon-tabs', { role: 'tablist', 'aria-label': 'Ribbon' });
-  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format'];
+  const names = [...RIBBON_TABS, 'Table', 'Chart Design', 'Format', 'Picture Format'];
   const CHART_TABS = ['Chart Design', 'Format'];
+  // A selected picture offers Picture Format, as a selected chart offers its two tabs.
+  const PICTURE_TABS = ['Picture Format'];
+  const isContextTab = (name) => CHART_TABS.includes(name) || PICTURE_TABS.includes(name);
   let chartId = null;
+  let pictureId = null;
   const panels = [];
   const buttons = [];
   const dynamic = [];
@@ -546,7 +552,7 @@ export function createRibbon(ctx) {
       });
     }
     if (name === 'Table') { tab.classList.add('ribbon-context-tab'); panel.dataset.tablePanel = ''; }
-    if (CHART_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
+    if (CHART_TABS.includes(name) || PICTURE_TABS.includes(name)) tab.classList.add('ribbon-context-tab', 'ribbon-chart-tab');
     buttons.push(tab); panels.push(panel); tabs.append(tab);
   }
   const toggle = el('button.ribbon-collapse', { type: 'button', 'aria-controls': `${id}-panels`, onclick: () => setCollapsed(!collapsed) });
@@ -620,10 +626,10 @@ export function createRibbon(ctx) {
   const enabled = panel => [...panel.querySelectorAll('.tb-btn, .ribbon-control')].filter(b => !b.disabled && !b.closest('[hidden], [inert]'));
   const rove = (panel, target) => { for (const b of panel.querySelectorAll('.tb-btn, .ribbon-control')) b.tabIndex = b === target ? 0 : -1; };
   function select(name, { expand = true } = {}) {
-    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId)) return;
+    if (!names.includes(name) || (name === 'Table' && !tableId) || (CHART_TABS.includes(name) && !chartId) || (PICTURE_TABS.includes(name) && !pictureId)) return;
     active = name;
     tableNameError.hidden = true;
-    if (name !== 'Table' && !CHART_TABS.includes(name)) lastRegular = name;
+    if (name !== 'Table' && !isContextTab(name)) lastRegular = name;
     if (collapsed && expand) setCollapsed(false);
     refresh();
   }
@@ -655,9 +661,17 @@ export function createRibbon(ctx) {
       if (fresh && !collapsed && !flags.editing) active = 'Chart Design';
       else if (!chartId && CHART_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
     }
+    const nextPictureId = flags.editing ? pictureId : activePicture(ctx)?.id || null;
+    if (nextPictureId !== pictureId) {
+      const fresh = !pictureId && nextPictureId;
+      pictureId = nextPictureId;
+      if (fresh && !collapsed && !flags.editing) active = 'Picture Format';
+      else if (!pictureId && PICTURE_TABS.includes(active)) active = tableId ? 'Table' : lastRegular;
+    }
     for (const name of CHART_TABS) buttons[names.indexOf(name)].hidden = !chartId;
+    for (const name of PICTURE_TABS) buttons[names.indexOf(name)].hidden = !pictureId;
     const contextual = buttons[names.indexOf('Table')];
-    contextual.hidden = !tableId || !!chartId;
+    contextual.hidden = !tableId || !!chartId || !!pictureId;
     // A chart chosen over a collapsed ribbon hides the Table tab without opening Chart Design: never leave a hidden tab selected.
     if (buttons[names.indexOf(active)].hidden) active = lastRegular;
     if (contextualScrollPending && active === 'Table') {

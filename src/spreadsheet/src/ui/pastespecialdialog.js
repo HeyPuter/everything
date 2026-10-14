@@ -35,6 +35,9 @@ export function pasteGallery({ external = false } = {}) {
     { header: 'Other Paste Options' },
     { label: 'Formatting', icon: 'paint', paste: { what: 'formats' } },
     { label: 'Paste Link', icon: 'link', paste: { link: true } },
+    // A picture of the copied cells, as they look now or (linked) as they come to look.
+    { label: 'Picture', icon: 'pastePicture', paste: { picture: true } },
+    { label: 'Linked Picture', icon: 'linkedPicture', paste: { picture: 'linked' } },
   ];
 }
 

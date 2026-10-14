@@ -30,8 +30,9 @@ describe('IMAGE() cells in print', () => {
     const img = td.querySelector('img');
     expect(img.getAttribute('src')).toBe('https://example.com/x.png');
     expect(img.getAttribute('alt')).toBe('');
-    expect(img.style.maxWidth).toBe('100%');
-    expect(img.style.maxHeight).toBe(`${wb.rowHeight(id, 0) - 2}px`);
+    expect(img.style.width).toBe('100%');
+    expect(img.style.height).toBe(`${wb.rowHeight(id, 0) - 2}px`);
+    expect(img.style.objectFit).toBe('contain');
   });
 
   it('stretch or keep the picture\'s own size as the IMAGE mode asks', () => {

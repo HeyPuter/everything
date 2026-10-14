@@ -554,6 +554,36 @@ Object.assign(COMMAND_ICONS, {
   scriptButton: r(2, 4.5, 15, 9, 'gs', 2.4) + p('M7.4 6.9v4.2l3.6-2.1z', 'glint') + p('M12.5 10.5l5 5-2 .3 1.2 2.4-1.2.6-1.2-2.4-1.6 1.4z', 'of'),
 });
 
+/* ---- Pictures: in cells, linked, and the Picture Format tab ---- */
+/** A small landscape picture in the box (x, y, w, h): sky, a hill and the sun. */
+const photo = (x, y, w, h, frame = 'bf') => r(x, y, w, h, frame, 1.2)
+  + p(`M${x} ${y + h * 0.78}l${w * 0.3}-${h * 0.38} ${w * 0.24} ${h * 0.26} ${w * 0.16}-${h * 0.16} ${w * 0.3} ${h * 0.28}v${h * 0.22}h-${w}z`, 'gs')
+  + ci(x + w * 0.7, y + h * 0.3, Math.min(w, h) * 0.12, 'ys');
+Object.assign(COMMAND_ICONS, {
+  // Crop: the two corner brackets of a crop frame over the picture.
+  crop: photo(6, 6, 8, 8, 'bw') + p('M6 2.5v11.5h11.5', 'o thick') + p('M2.5 6h11.5v11.5', 'b thick'),
+  // Corrections: a sun half in light, half in shade.
+  corrections: ci(10, 10, 4.2, 'of') + p('M10 5.8a4.2 4.2 0 0 1 0 8.4z', 'ys')
+    + p('M10 1.8v2M10 16.2v2M1.8 10h2M16.2 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4', 'o'),
+  pictureColor: ci(7.6, 7.8, 4.3, 'rf') + ci(12.4, 7.8, 4.3, 'gf') + ci(10, 12.2, 4.3, 'bf'),
+  // Transparency: a picture fading into a checked ground.
+  transparency: r(2.5, 3.5, 15, 13, 'of', 1.6) + r(2.5, 3.5, 3.75, 3.25, 'nw') + r(10, 3.5, 3.75, 3.25, 'nw') + r(6.25, 6.75, 3.75, 3.25, 'nw')
+    + r(13.75, 6.75, 3.75, 3.25, 'nw') + r(2.5, 10, 3.75, 3.25, 'nw') + r(10, 10, 3.75, 3.25, 'nw') + r(6.25, 13.25, 3.75, 3.25, 'nw') + r(13.75, 13.25, 3.75, 3.25, 'nw')
+    + p('M2.5 16.5 17.5 3.5v13z', 'bw') + r(2.5, 3.5, 15, 13, 'o', 1.6),
+  resetPicture: photo(2.5, 2.5, 11, 10) + ci(14.5, 14.5, 4.4, 'knock') + p('M11.4 14.2a3.1 3.1 0 1 0 1-2.4', 'b thick') + p('M11 10.6v2.2h2.2', 'b thick'),
+  // Picture Styles: a framed picture lifted off the page by its shadow.
+  pictureStyles: r(4.5, 5, 13, 12, 'nw', 1.4) + r(2.5, 3, 13, 12, 'of', 1.4) + photo(4.5, 5, 9, 8),
+  // Place in Cell: a picture settled into one cell of the grid.
+  placeInCell: cells(2.5, 3.5, 15, 13, 2, 2) + photo(3.4, 4.4, 5.7, 4.7, 'bw') + cells(2.5, 3.5, 15, 13, 2, 2, { frame: 'o' }),
+  // Place over Cells: the picture lifted out of its cell to float above the grid.
+  placeOverCells: cells(2.5, 6.5, 15, 11, 3, 3) + r(6.5, 2, 10, 8.5, 'nw', 1.2) + photo(5.5, 1.5, 10, 8),
+  // Linked Picture: a picture of cells, with a link.
+  linkedPicture: r(2.5, 2.5, 13, 11, 'of', 1.4) + cells(4, 4, 10, 8, 2, 3, { head: 'bf', frame: 'o' })
+    + ci(14.5, 14.5, 4.2, 'knock') + p('M12.6 15.6l-.6.6a1.6 1.6 0 0 1-2.3-2.3l1.2-1.2a1.6 1.6 0 0 1 2.3 0M16.4 13.4l.6-.6a1.6 1.6 0 0 0-2.3-2.3l-1.2 1.2a1.6 1.6 0 0 0 0 2.3', 'b thick'),
+  // Paste as Picture: the clipboard holding a picture.
+  pastePicture: r(3, 3.5, 11, 14, 'nf', 2) + r(5.5, 2, 6, 3.2, 'of', 1.2) + photo(8, 8, 9.5, 9),
+});
+
 /** The icons drawn here with a larger canvas in mind are the same drawings; the ribbon shows them at 32px. */
 export function commandIcon(name, size) {
   const body = COMMAND_ICONS[name];

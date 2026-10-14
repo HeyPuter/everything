@@ -261,6 +261,13 @@ export function menubarMenus(f = {}) {
       i('From this device…', 'image', 'insertImage'),
       f.pick && i('From Puter…', 'folderOpen', 'insertImagePuter'),
       i('From a URL…', 'external', 'insertImageUrl'),
+      sep,
+      // The picture as the active cell's value, sized to the cell: it moves, sorts and copies with it.
+      sub('Place in Cell', 'placeInCell', [
+        i('From this device…', 'image', 'insertImage', 'cell'),
+        f.pick && i('From Puter…', 'folderOpen', 'insertImagePuter', 'cell'),
+        i('From a URL…', 'external', 'insertImageUrl', 'cell'),
+      ]),
     ]),
     i('Text box…', 'text', 'insertTextBox'),
     i('Slicer…', 'slicer', 'insertSlicer', null, { disabled: !f.hasTable && !f.pivotReport }),

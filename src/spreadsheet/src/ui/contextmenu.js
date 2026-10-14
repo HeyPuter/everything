@@ -54,13 +54,21 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
   if (kind === 'chart') {
     const slicer = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'slicer';
     const image = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'image';
+    const linked = image && !!ctx.wb.chartById(ctx.sheetId(), chartId)?.pictureRef;
     const scroll = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'scroll';
     const textBox = ctx.wb.chartById(ctx.sheetId(), chartId)?.type === 'text';
     openMenu({
       x, y, label: slicer ? 'Slicer actions' : scroll ? 'Scroll bar actions' : image ? 'Image actions' : textBox ? 'Text box actions' : 'Chart actions', restoreFocus: false, onClose: () => ctx.grid.focus(),
       items: [
         !image && { label: slicer ? 'Edit slicer…' : scroll ? 'Edit scroll bar…' : textBox ? 'Edit text…' : 'Edit chart…', icon: textBox ? 'text' : 'chartColumn', shortcut: 'Enter', onSelect: () => ctx.run('editChart', chartId) },
-        image && { label: 'Replace image…', icon: 'image', onSelect: () => ctx.run('replaceImage', chartId) },
+        image && !linked && { label: 'Replace image…', icon: 'image', onSelect: () => ctx.run('replaceImage', chartId) },
+        image && linked && { label: 'Go to Linked Cells', icon: 'linkedPicture', onSelect: () => ctx.run('replaceImage', chartId) },
+        image && { label: 'Place in Cell', icon: 'placeInCell', onSelect: () => ctx.run('placeObjectInCell', chartId) },
+        image && { label: 'Format Picture', icon: 'pictureStyles', submenu: [
+          { label: 'Crop…', icon: 'crop', disabled: linked, onSelect: () => ctx.run('pictureFormat', { action: 'crop' }) },
+          { label: 'Picture Corrections…', icon: 'corrections', onSelect: () => ctx.run('pictureFormat', { action: 'correctionsDialog' }) },
+          { label: 'Reset Picture', icon: 'resetPicture', onSelect: () => ctx.run('pictureFormat', { action: 'reset' }) },
+        ] },
         { separator: true },
         { label: 'Duplicate', icon: 'duplicate', onSelect: () => ctx.run('duplicateChart', { id: chartId }) },
         { label: slicer ? 'Copy slicer' : scroll ? 'Copy scroll bar' : image ? 'Copy image' : textBox ? 'Copy text' : 'Copy as picture', icon: 'copy', onSelect: () => ctx.run('copyChart', { id: chartId }) },
@@ -210,6 +218,10 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
       ] },
       { label: 'Clear Contents', icon: 'eraser', shortcut: 'Delete', onSelect: () => ctx.run('clear') },
       ...pageBreakItems(ctx, 'cell'),
+      // A picture placed in the cell: lift it out to float over the cells, or describe it.
+      ...(flags?.cellPicture ? [{ separator: true },
+        { label: 'Place over Cells', icon: 'placeOverCells', onSelect: () => ctx.run('placeOverCells') },
+        { label: 'Edit Alt Text…', icon: 'altText', onSelect: () => ctx.run('cellAltText') }] : []),
       { separator: true },
       { label: 'Filter', icon: 'filter', submenu: [
         { label: filtered ? 'Remove Filter' : 'Filter', icon: filtered ? 'filterClear' : 'filter', shortcut: `${MOD_KEY}+Shift+L`, onSelect: () => ctx.run('filter') },

@@ -86,3 +86,46 @@
 .chart-move-form { display: flex; flex-direction: column; gap: 10px; }
 .chart-move-row { display: flex; align-items: center; gap: 10px; }
 .chart-move-row .check { min-width: 110px; }
+
+/* ---- Picture Format: preview galleries, the crop dialog and picture corrections ---- */
+.picture-gallery .picture-tile { padding: 4px; }
+.picture-tile-preview { display: flex; align-items: center; justify-content: center; width: 66px; height: 66px; }
+.picture-thumb { position: relative; display: block; box-sizing: border-box; line-height: 0; }
+.picture-thumb > img, .picture-thumb > svg { width: 100%; height: 100%; display: block; }
+/* A checked ground shows how much a transparent picture lets through. */
+.picture-checker { display: inline-flex; line-height: 0;
+  background: repeating-conic-gradient(#d9d9d9 0% 25%, #ffffff 0% 50%) 0 0 / 10px 10px; }
+.crop-dialog { display: flex; flex-direction: column; gap: 10px; }
+.crop-toolbar { align-items: center; gap: 12px; }
+.crop-aspect-field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.crop-stage { position: relative; align-self: center; margin: 12px; flex: none; user-select: none; touch-action: none;
+  background: repeating-conic-gradient(#d9d9d9 0% 25%, #ffffff 0% 50%) 0 0 / 12px 12px; }
+.crop-picture { position: absolute; inset: 0; line-height: 0; }
+.crop-picture > img, .crop-picture > svg { width: 100%; height: 100%; display: block; }
+.crop-shade { position: absolute; inset: 0; background: rgba(20, 20, 20, .55); pointer-events: none; }
+.crop-frame { position: absolute; box-sizing: border-box; border: 1px solid #ffffff; outline: 1px solid rgba(0, 0, 0, .6); }
+.crop-move { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; background: transparent; border: 0; cursor: move; }
+.crop-move:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+/* The handles: black brackets at the corners, bars at the sides, each with a white edge to show on any picture. */
+.crop-handle { position: absolute; padding: 0; background: #111111; border: 1.5px solid #ffffff; box-sizing: border-box; border-radius: 2px; }
+.crop-handle:focus-visible { background: var(--accent); outline: none; }
+.crop-nw, .crop-ne, .crop-se, .crop-sw { width: 14px; height: 14px; }
+.crop-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.crop-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.crop-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.crop-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.crop-n, .crop-s { left: calc(50% - 10px); width: 20px; height: 7px; cursor: ns-resize; }
+.crop-n { top: -4px; }
+.crop-s { bottom: -4px; }
+.crop-e, .crop-w { top: calc(50% - 10px); width: 7px; height: 20px; cursor: ew-resize; }
+.crop-e { right: -4px; }
+.crop-w { left: -4px; }
+.crop-readout { margin: 0; text-align: center; }
+.picture-corrections-stage { display: flex; justify-content: center; margin-bottom: 12px; }
+.picture-corrections-preview { line-height: 0; }
+.picture-corrections-preview > img, .picture-corrections-preview > svg { width: 100%; height: 100%; display: block; }
+.picture-corrections { display: grid; gap: 8px; margin-bottom: 12px; }
+.picture-correction-row { display: grid; grid-template-columns: 96px 1fr 64px auto; align-items: center; gap: 10px; }
+.picture-correction-number { width: 64px; }
+.picture-lock { gap: 6px; }
+.picture-correction-row input[type="range"] { accent-color: var(--accent); width: 100%; }
