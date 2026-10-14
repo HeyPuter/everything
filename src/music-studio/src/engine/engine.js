@@ -52,6 +52,8 @@ import { compileChannel, compileMixer, compileSequence, compileTrack, instrument
 const SEQ_THROTTLE_MS = 30;
 const AUDITION_SLOTS = 2;
 const AUDITION_SAMPLE = 65535;
+// Messages queued before the audio thread exists that are replayed once it does.
+const REPLAY = new Set(['note', 'allOff', 'play', 'stop', 'seek']);
 
 let modulePromise = null;
 
@@ -123,6 +125,8 @@ export class Engine extends Emitter {
     this._renderJobs = new Map();
     this._renderId = 1;
 
+    // Slots for the initial project, so live notes work (and start audio) right away.
+    this.#syncChannels(store.project);
     store.on('change', (p, prev, info) => this.#onChange(p, prev, info));
     store.on('view', () => this.#onView());
     prefs?.on?.('change', (key) => {
@@ -209,10 +213,13 @@ export class Engine extends Emitter {
     } catch (err) {
       return this.#fail(`Sound is unavailable: the audio engine could not load (${err?.message || err}).`);
     }
-    this.#sendAll();
+    // The full current state goes first; of what was queued while starting,
+    // only live input and transport survive (queued configuration is older
+    // than what #sendAll just sent and would overwrite it).
     const queued = this._queue;
     this._queue = [];
-    for (const m of queued) this.node.port.postMessage(m);
+    this.#sendAll();
+    for (const m of queued) if (this.#replayable(m)) this.node.port.postMessage(m);
     // resume() stays pending while the browser withholds audio; never wait on it.
     resumed?.then(() => {
       if (ctx.state !== 'running') this.#resumeOnGesture();
@@ -222,6 +229,12 @@ export class Engine extends Emitter {
       if (ctx.state === 'suspended' || ctx.state === 'interrupted') this.#resumeOnGesture();
     };
     return true;
+  }
+
+  #replayable(m) {
+    if (m.type === 'channel') return this._audition.includes(m.cfg.slot);
+    if (m.type === 'sample') return m.index === AUDITION_SAMPLE;
+    return REPLAY.has(m.type);
   }
 
   /**

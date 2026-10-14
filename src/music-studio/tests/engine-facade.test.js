@@ -55,6 +55,18 @@ describe('engine facade', () => {
     expect(engine.meters.length).toBeGreaterThanOrEqual(store.project.mixer.length * 2);
   });
 
+  it('plays (and starts audio for) live notes on the initial project before any edit', () => {
+    const store = new Store(demoProject());
+    const engine = new Engine(store, new Prefs(mem()));
+    let starts = 0;
+    engine.start = () => {
+      starts++;
+      return Promise.resolve(false);
+    };
+    engine.noteOn(store.project.channels[0].id, 60, 1);
+    expect(starts).toBe(1);
+  });
+
   it('rejects an already aborted render', async () => {
     const engine = new Engine(new Store(newProject()), new Prefs(mem()));
     const ac = new AbortController();
