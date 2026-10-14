@@ -82,3 +82,16 @@ describe('undo history window', () => {
     app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
   });
 });
+
+describe('scoped shortcuts', () => {
+  it('fall back to the global command when the scoped one is disabled', async () => {
+    const { Commands } = await import('../src/commands/registry.js');
+    const c = new Commands({});
+    let on = false;
+    c.register({ id: 'g', label: 'Global', keys: [','], run() {} }, { id: 's', label: 'Scoped', keys: [','], scope: 'playlist', enabled: () => on, run() {} });
+    expect(c.lookup(',', 'playlist').id).toBe('g');
+    on = true;
+    expect(c.lookup(',', 'playlist').id).toBe('s');
+    expect(c.lookup(',', 'mixer').id).toBe('g');
+  });
+});

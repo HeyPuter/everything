@@ -70,6 +70,9 @@ export function installCurves(V) {
     return `${a.name} point ${n.indexOf(index) + 1} of ${n.length}: ${pos}, ${valueText(a, pt.v)}${seg}`;
   }
 
+  /** Whether a selected automation clip (or the active point's clip) can be stepped through. */
+  V.hasPointTarget = () => Boolean(autoOf(targetClip()));
+
   /** Makes the next (dir 1) or previous (dir -1) point of the target clip active. */
   V.stepPoint = (dir) => {
     const clip = targetClip();

@@ -61,8 +61,8 @@ export function install(app) {
     { id: 'playlist.zoomOut', label: 'Zoom out', keys: ['-'], scope: 'playlist', run: () => view()?.zoomAt(1 / 1.5) },
     { id: 'playlist.zoomFit', label: 'Zoom to fit song', keys: ['Shift+F'], scope: 'playlist', run: () => view()?.zoomFit() },
     // Automation points and curves from the keyboard (playlist/curves.js).
-    { id: 'playlist.pointPrev', label: 'Previous automation point', keys: [','], scope: 'playlist', run: () => view()?.stepPoint?.(-1) },
-    { id: 'playlist.pointNext', label: 'Next automation point', keys: ['.'], scope: 'playlist', run: () => view()?.stepPoint?.(1) },
+    { id: 'playlist.pointPrev', label: 'Previous automation point', keys: [','], scope: 'playlist', enabled: () => Boolean(view()?.hasPointTarget?.()), run: () => view()?.stepPoint?.(-1) },
+    { id: 'playlist.pointNext', label: 'Next automation point', keys: ['.'], scope: 'playlist', enabled: () => Boolean(view()?.hasPointTarget?.()), run: () => view()?.stepPoint?.(1) },
     { id: 'playlist.curveDown', label: 'Bend automation curve down', keys: ['['], scope: 'playlist', run: () => view()?.bendCurve?.(-1) },
     { id: 'playlist.curveUp', label: 'Bend automation curve up', keys: [']'], scope: 'playlist', run: () => view()?.bendCurve?.(1) },
     { id: 'playlist.curveReset', label: 'Make automation curve linear', keys: ['\\'], scope: 'playlist', run: () => view()?.resetCurve?.() },

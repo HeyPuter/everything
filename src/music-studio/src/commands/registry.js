@@ -91,14 +91,21 @@ export class Commands {
     };
   }
 
-  /** The command bound to a key combo, preferring the active panel's scope. */
+  /**
+   * The command bound to a key combo, preferring the active panel's scope. A
+   * scoped command that is disabled right now does not hide a global one on
+   * the same keys (e.g. ',' steps automation points with an automation clip
+   * selected, and jumps between markers otherwise).
+   */
   lookup(combo, scope) {
+    let scoped = null;
     let fallback = null;
     for (const c of this.map.values()) {
       if (!c.keys?.includes(combo)) continue;
-      if (c.scope === scope) return c;
-      if (c.scope === 'global' && !fallback) fallback = c;
+      if (c.scope === scope && !scoped) scoped = c;
+      else if (c.scope === 'global' && !fallback) fallback = c;
     }
+    if (scoped && (!fallback || this.enabled(scoped.id))) return scoped;
     return fallback;
   }
 }
