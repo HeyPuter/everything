@@ -78,6 +78,8 @@ export function openDocumentMenu({ event, behind, selectBehind, engine, pkg, w, 
   if (has('image')) group(x.imageItems());
   if (has('shape')) group([
     w.editShapeText && { label: 'Edit Text', icon: 'drawingText', disabled: !editable, onSelect: () => w.editShapeText() },
+    // A drawing with text frames keeps its per-frame editor here too.
+    engine.model.selectedImage && x.imageItems().find(item => item.label === 'Edit drawing text'),
     w.wrapItems && { label: 'Wrap Text', icon: 'wrapText', disabled: !editable, items: w.wrapItems() || [] },
     w.arrange && { label: 'Bring Forward', icon: 'bringForward', disabled: !w.canArrange?.(), onSelect: () => w.arrange('forward') },
     w.arrange && { label: 'Send Backward', icon: 'sendBackward', disabled: !w.canArrange?.(), onSelect: () => w.arrange('backward') },

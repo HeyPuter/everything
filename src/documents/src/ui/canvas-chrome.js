@@ -475,6 +475,15 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const drawingTabs = w.drawingTabs?.(kit);
   if (drawingTabs) {
     picture.groups = drawingTabs.picture; shapeFormat.groups = drawingTabs.shape;
+    // The image dialog (exact size, rotation, crop, flips, alt text) stays one click away beside the size boxes.
+    for (const groups of [picture.groups, shapeFormat.groups]) {
+      const sizeGroup = groups.find(g => g.label === 'Size');
+      if (!sizeGroup || !c.imageProperties) continue;
+      const imageDialog = command('Image properties', 'pictures', () => c.imageProperties.click());
+      noFocusSteal(imageDialog);
+      when(imageDialog, () => !c.imageProperties.disabled);
+      sizeGroup.items.push(el('div.ribbon-launcher', {}, imageDialog));
+    }
     const at = layout.groups.findIndex(g => g.id === 'arrange');
     if (at >= 0) layout.groups.splice(at, 1, drawingTabs.layoutArrange);
   }
