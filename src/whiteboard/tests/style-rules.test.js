@@ -370,3 +370,13 @@ test("a narrow, very short window scrolls the editor instead of stacking the too
   assert.ok(at >= 0);
   assert.match(rule(".editor {", at), /height:\s*360px/);
 });
+
+test("on phones the tool row stacks above vote badges, comment pins and reactions", () => {
+  // The rail has no box there, so its own stacking never applied and a tap
+  // on Pan could cast a vote on a note scrolled under it.
+  const at = css.indexOf("so the tool\n     row stacks itself above");
+  assert.ok(at >= 0);
+  const tools = rule(".tools {", at);
+  assert.match(tools, /z-index:\s*3/);
+  assert.match(tools, /bottom:\s*77px/);
+});

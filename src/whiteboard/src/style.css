@@ -2497,7 +2497,10 @@ kbd {
   .editor-actions .icon-btn {
     width: 36px;
   }
+  /* The rail has no box of its own here (display: contents), so the tool
+     row stacks itself above vote badges, pins and reactions. */
   .tools {
+    z-index: 3;
     left: 50%;
     top: auto;
     bottom: 77px;
