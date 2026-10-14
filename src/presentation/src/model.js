@@ -1715,14 +1715,28 @@ export function slideDiagramDataStamp(pres, slide) {
 // The parts a slide inherits from (its layout, master and theme) by the
 // buffers that hold them: an edit in a master view replaces a buffer, so a
 // render cached under the old stamp is drawn again.
+// A part's stamp follows its bytes, not the buffer holding them: undo and
+// redo load the deck afresh, and slides whose layout, master and theme read
+// the same keep their thumbnails. Each buffer is hashed once.
 const bufferIds = new WeakMap();
-let nextBufferId = 0;
 const bufferId = (part) => {
-  if (!part) return 0;
-  let id = bufferIds.get(part.data);
-  if (!id) bufferIds.set(part.data, (id = ++nextBufferId));
+  const data = part?.data;
+  if (!data) return 0;
+  if (typeof data !== "object") return contentStamp(data);
+  let id = bufferIds.get(data);
+  if (!id) bufferIds.set(data, (id = contentStamp(data)));
   return id;
 };
+// FNV-1a over the bytes (or characters), with the length.
+function contentStamp(data) {
+  let h = 0x811c9dc5;
+  const n = data.length;
+  for (let i = 0; i < n; i++) {
+    h ^= typeof data === "string" ? data.charCodeAt(i) : data[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${n.toString(36)}.${(h >>> 0).toString(36)}`;
+}
 export function templateStamp(pres, slide) {
   const pkg = P._internalPackageOf(pres);
   const layout = P.getSlideLayout(slide);
