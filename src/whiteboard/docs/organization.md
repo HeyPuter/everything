@@ -116,11 +116,13 @@ and these headers: `X-Whiteboard-Event` (the event), `X-Whiteboard-Delivery` (th
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";
-const expected =
-  "sha256=" + createHmac("sha256", secret).update(rawBody).digest("hex");
-const ok =
-  signature.length === expected.length &&
-  timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+const expected = Buffer.from(
+  "sha256=" + createHmac("sha256", secret).update(rawBody).digest("hex"),
+);
+const given = Buffer.from(signature);
+// timingSafeEqual throws on buffers of different lengths, which a header
+// with non-ASCII characters can have even at the same string length.
+const ok = given.length === expected.length && timingSafeEqual(given, expected);
 ```
 
 A delivery that fails (no answer within 5 seconds, or a status other than 2xx) is retried about 1, 2, 4, 8, and 16 minutes later, six attempts in all, then dropped. Retries are sent as the worker handles requests, so their timing is approximate, and deliveries can arrive out of order: order events by `created` (or `id`, which sorts by time) and ignore a `X-Whiteboard-Delivery` already seen. Every event also remains in the audit log and its export, and can be sent to a SIEM ([Sentinel](sentinel/README.md)).
