@@ -17,7 +17,7 @@ import {
 import { SharedDocument } from "../src/collaboration/document.js";
 import { sameJSON } from "../src/same-json.js";
 import { ListingQueue } from "./listings.js";
-import { oversized } from "../src/model.js";
+import { oversized, MAX_OBJECTS } from "../src/model.js";
 import { providerGroup } from "../src/content/providers.js";
 import { assignmentChanges } from "../src/planning/task.js";
 import { capturedTaskTitle } from "../src/planning/task-title.js";
@@ -2485,7 +2485,9 @@ export class BoardService {
     // Its version is a time in the board's life, or none for a version
     // kept on the device; a few seconds' grace covers instances' clocks.
     // Whether the restoration's edit is saved before or after the report,
-    // it changes no more objects than the board has ever held.
+    // it changes no more objects than the board has ever held, and a
+    // version kept on the device no more than a board can hold besides:
+    // it can bring back objects deleted before the board was shared.
     if (input.op === "history.restored") {
       await this.member(room, user, true);
       const at = input.at ?? null;
@@ -2503,7 +2505,10 @@ export class BoardService {
         const { entry } = await this.board(room, meta);
         const doc = entry.live || new SharedDocument(this.durable(entry));
         try {
-          objects = Math.min(input.objects, doc.objectsEver());
+          objects = Math.min(
+            input.objects,
+            doc.objectsEver() + (at === null ? MAX_OBJECTS : 0),
+          );
         } finally {
           if (doc !== entry.live) doc.destroy();
         }

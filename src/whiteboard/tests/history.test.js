@@ -367,6 +367,10 @@ test("a restoration report names a time in the board's life, and no more objects
   await report({ at: created, scope: "board", objects: 99999 });
   await report({ at: null, scope: "deleted", objects: 2 });
   await report({ scope: "objects", objects: -5 });
+  // A version on the device can hold objects deleted before the board was
+  // shared, which it never held.
+  await report({ at: null, scope: "board", objects: 40 });
+  await report({ at: null, scope: "board", objects: 99999 });
   const audit = [...env.data]
     .filter(
       ([k, v]) =>
@@ -379,6 +383,8 @@ test("a restoration report names a time in the board's life, and no more objects
     { version: created, scope: "board", objects: 4 },
     { version: null, scope: "deleted", objects: 2 },
     { version: null, scope: "objects", objects: null },
+    { version: null, scope: "board", objects: 40 },
+    { version: null, scope: "board", objects: 5004 },
   ]);
 });
 
