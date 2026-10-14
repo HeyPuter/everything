@@ -15,6 +15,7 @@ import { auditCategory, mergePolicy, normalizePolicy } from "../worker/org.js";
 import {
   hmac,
   sendHook,
+  sentinelChunks,
   siem,
   siemRecord,
   unsentAudit,
@@ -8945,4 +8946,76 @@ test("an invitation makes someone who came through organization sharing a member
     ).member.role,
     "editor",
   );
+});
+
+test("Sentinel calls stay under the ingestion API's 1 MB limit, so a large batch cannot block the export", async () => {
+  const { env, call, org, fetched } = setup();
+  const sizes = [];
+  const base = org.fetcher;
+  org.fetcher = async (url, options) => {
+    if (String(url).includes("/dataCollectionRules/")) {
+      const bytes = new TextEncoder().encode(options.body).length;
+      sizes.push(bytes);
+      if (bytes > 1_000_000) return new Response("{}", { status: 413 });
+    }
+    return base(url, options);
+  };
+  await call(owner, { op: "org.setup", name: "Fabrikam" });
+  await call(owner, {
+    op: "org.policy.set",
+    policy: {
+      siem: {
+        mode: "sentinel",
+        sentinel: {
+          tenantId: "11111111-2222-3333-4444-555555555555",
+          clientId: "11111111-2222-3333-4444-666666666666",
+          endpoint: "https://wb-abc.canadacentral-1.ingest.monitor.azure.com",
+          dcrId: "dcr-0123456789abcdef0123456789abcdef",
+          stream: "Custom-WhiteboardAudit",
+        },
+      },
+    },
+    secrets: { sentinel: "entra-secret" },
+  });
+  await org.flush();
+  // A group sync whose records each list hundreds of members.
+  const members = (n) =>
+    Array.from(
+      { length: 100 },
+      (_, i) =>
+        `aaaaaaaa-bbbb-4ccc-8ddd-${String(n * 1000 + i).padStart(12, "0")}`,
+    );
+  for (let n = 0; n < 200; n++) {
+    await org.audit(
+      owner,
+      "team.updated",
+      { type: "team", id: "t" + n, name: "Team " + n },
+      { added: members(n), removed: members(n + 500) },
+    );
+    env.now += 20;
+  }
+  await org.audit(owner, "board.visibility.link", { type: "board", id: "b" });
+  org.pending.length = 0;
+  env.now += 60_000;
+  const result = await siem(org, await org.policy());
+  assert.equal(result.error, undefined);
+  assert.ok(result.sent >= 201);
+  assert.ok(sizes.length > 1 && sizes.every((b) => b <= 1_000_000), sizes);
+  const sent = fetched
+    .filter((f) => f.url.includes("/dataCollectionRules/"))
+    .flatMap((f) => JSON.parse(f.options.body).map((r) => r.Action));
+  assert.ok(sent.includes("board.visibility.link"));
+  // A record too large to send alone goes without its details.
+  const [chunk] = sentinelChunks([
+    siemRecord({
+      id: "x",
+      time: new Date(0).toISOString(),
+      action: "team.updated",
+      details: { members: "m".repeat(2_000_000) },
+    }),
+  ]);
+  const [record] = JSON.parse(chunk);
+  assert.equal(record.Action, "team.updated");
+  assert.equal(record.Details.truncated, true);
+  assert.ok(new TextEncoder().encode(chunk).length < 1_000_000);
 });

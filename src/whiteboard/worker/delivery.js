@@ -261,8 +261,7 @@ async function sentinel(org, policy, records) {
   )
     throw Error("Complete the Sentinel connection settings.");
   const token = await sentinelToken(org, config);
-  // The ingestion API accepts up to 1 MB per call.
-  for (let n = 0; n < records.length; n += 200) {
+  for (const chunk of sentinelChunks(records)) {
     const res = await org.fetcher(
       `${config.endpoint}/dataCollectionRules/${encodeURIComponent(config.dcrId)}/streams/${encodeURIComponent(config.stream)}?api-version=2023-01-01`,
       {
@@ -271,12 +270,44 @@ async function sentinel(org, policy, records) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(records.slice(n, n + 200)),
+        body: chunk,
         signal: signal(),
       },
     );
     if (!res.ok) throw Error(`Sentinel ingestion failed (${res.status}).`);
   }
+}
+// The ingestion API refuses a call over 1 MB, and a refused batch would be
+// sent again at every export, holding back everything after it. Records go
+// in calls kept under that by their encoded size, as a large group sync's
+// member lists can make them several kilobytes each; a record too large to
+// send alone keeps its fields but not its details.
+const SENTINEL_BYTES = 1_000_000 - 50_000;
+const encoder = new TextEncoder();
+export function sentinelChunks(records) {
+  const chunks = [];
+  let parts = [],
+    size = 2;
+  for (const record of records) {
+    let json = JSON.stringify(record);
+    let bytes = encoder.encode(json).length;
+    if (bytes + 2 > SENTINEL_BYTES) {
+      json = JSON.stringify({
+        ...record,
+        Details: { truncated: true, bytes },
+      });
+      bytes = encoder.encode(json).length;
+    }
+    if (parts.length && size + bytes + 1 > SENTINEL_BYTES) {
+      chunks.push(`[${parts.join(",")}]`);
+      parts = [];
+      size = 2;
+    }
+    parts.push(json);
+    size += bytes + 1;
+  }
+  if (parts.length) chunks.push(`[${parts.join(",")}]`);
+  return chunks;
 }
 async function https(org, policy, records) {
   if (!policy.siem.url) throw Error("Add the SIEM HTTPS endpoint.");
