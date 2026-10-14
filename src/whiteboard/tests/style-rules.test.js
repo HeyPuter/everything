@@ -425,3 +425,17 @@ test("in forced colors, floating surfaces and primary buttons keep an edge", () 
     /button\.primary\s*\{\s*border:\s*1px solid ButtonText !important/,
   );
 });
+
+test("a guest's access words in the board tag are never cut; on phones they show alone", () => {
+  // Wider, where the board is kept gives way to them.
+  assert.match(rule(".board-tag-place {"), /text-overflow:\s*ellipsis/);
+  assert.match(rule(".board-tag-access {"), /flex:\s*none/);
+  const phone = css.indexOf(".board-tag[data-access] {");
+  assert.ok(
+    css.lastIndexOf("@media (max-width: 760px)", phone) >
+      css.indexOf(".board-tag-access {"),
+  );
+  assert.match(rule(".board-tag[data-access] {"), /flex-shrink:\s*0/);
+  assert.match(rule(".board-tag-place {", phone), /display:\s*none/);
+  assert.match(rule(".board-tag-access {", phone), /white-space:\s*normal/);
+});

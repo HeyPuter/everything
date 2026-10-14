@@ -4089,8 +4089,12 @@ function observeChrome() {
     // The tag counts at its full length, which does not change with the
     // layout, so the row cannot flap between the two.
     const label = tag?.querySelector(":scope > span");
+    const cut = (el) => el.scrollWidth - el.clientWidth;
     const tagWidth = tag
-      ? tag.offsetWidth + (label ? label.scrollWidth - label.clientWidth : 0)
+      ? tag.offsetWidth +
+        (label
+          ? cut(label) + [...label.children].reduce((w, c) => w + cut(c), 0)
+          : 0)
       : 0;
     const needed =
       shown.reduce((sum, b) => sum + b.offsetWidth, 0) +
@@ -10196,9 +10200,16 @@ function storageLabel(b) {
     : `${t("Personal board")} · ${label}`;
 }
 // The words sit in their own element so a narrow row cuts them with an
-// ellipsis; the tag's title still names them in full.
+// ellipsis; the tag's title still names them in full. The access words are
+// never cut, as they are all that says what this person may do: where
+// the row is short, where the board is kept gives way first.
 function storageTag(b) {
-  return `${icon(STORAGE_TAGS[boardStorage(b)][0])}<span>${storageLabel(b)}</span>`;
+  const access = restrictedAccess(b);
+  return `${icon(STORAGE_TAGS[boardStorage(b)][0])}<span>${
+    access
+      ? `<span class="board-tag-place">${t(STORAGE_TAGS[boardStorage(b)][1])} · </span><span class="board-tag-access">${t(access)}</span>`
+      : storageLabel(b)
+  }</span>`;
 }
 // The status a board shows when it opens, before any save of this visit.
 function savedStatus(b) {

@@ -23630,6 +23630,15 @@ test("a change of this person's role is told once and a restricted role stays sh
     assert.ok(toastEl.classList.contains("visible"));
     assert.equal(toastEl.textContent, "You can now only view this board.");
     assert.equal(tag(), "Shared board · View only");
+    // The access words sit apart, so a short row never cuts them.
+    assert.equal(
+      b.doc.querySelector(".board-tag .board-tag-access").textContent,
+      "View only",
+    );
+    assert.equal(
+      b.doc.querySelector(".board-tag").title,
+      "Shared board · View only",
+    );
     // Told once, not again with each later check-in.
     toastEl.classList.remove("visible");
     b.w.dispatchEvent(new b.w.Event("online"));

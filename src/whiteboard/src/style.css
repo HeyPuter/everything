@@ -1260,6 +1260,20 @@ nav + .workspace-label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Where the board is kept is cut before the access words, which stay
+   whole. */
+.board-tag > span:has(> .board-tag-access) {
+  display: flex;
+}
+.board-tag-place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.board-tag-access {
+  flex: none;
+}
 .board-tag svg {
   flex: none;
   width: 13px;
@@ -2530,6 +2544,22 @@ kbd {
     left: 16px;
     right: 16px;
     top: 15px;
+  }
+  /* A phone shows only the access words, in full: on a short row they
+     take two lines, as the participants button does, rather than an
+     ellipsis, and the board's buttons scroll beside them. */
+  .board-tag[data-access] {
+    flex-shrink: 0;
+    max-width: 40%;
+    min-width: min-content;
+  }
+  .board-tag-place {
+    display: none;
+  }
+  .board-tag-access {
+    flex: 0 1 auto;
+    white-space: normal;
+    line-height: 1.25;
   }
   .selection-tools {
     top: 62px;
