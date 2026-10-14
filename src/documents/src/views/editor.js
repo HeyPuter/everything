@@ -1318,6 +1318,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       : doc.status === 'saving' ? ['Saving…', 'spinner', 'saving']
       : doc.status === 'error' ? ['Not saved', 'alert', 'error']
       : doc.status === 'offline' ? ['Offline', 'wifiOff', 'offline']
+      // A shared document's other tabs leave saving to the owner's (see collab/live.js).
+      : doc.writes === false ? (local ? ['Shared in this browser', 'monitor', 'local'] : ['Shared · saved by the owner', 'cloud', 'saved'])
       : doc.dirty ? ['Unsaved changes', 'cloudOff', 'unsaved']
       : local ? ['On this device', 'monitor', 'local']
       : doc.path ? ['Saved to Puter', 'cloud', 'saved'] : ['Not saved yet', 'cloud', 'unsaved'];
