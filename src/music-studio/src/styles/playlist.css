@@ -531,3 +531,12 @@
     height: 12px;
   }
 }
+
+/* Markers in the ruler: drag to move. */
+.pl-ruler.on-marker {
+  cursor: grab;
+}
+
+.pl-ruler.marker-drag {
+  cursor: grabbing;
+}

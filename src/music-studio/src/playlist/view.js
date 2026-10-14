@@ -92,7 +92,7 @@ export function createPlaylistView(app, host) {
     tabindex: '0',
     'aria-label': 'Song position',
     'aria-valuemin': '0',
-    dataset: { hint: 'Click or drag to set the song position. Drag the top strip (or Shift+drag) to set the loop; double-click clears it. Right-click for markers.' },
+    dataset: { hint: 'Click or drag to set the song position. Drag the top strip (or Shift+drag) to set the loop; double-click clears it. Drag a marker to move it, double-click it to rename, right-click for marker options. Comma and period jump between markers.' },
   });
   const rulerHead = h('div.pl-ruler-head', { 'aria-hidden': 'true' });
   rulerHost.append(rulerHead);
@@ -532,7 +532,7 @@ export function createPlaylistView(app, host) {
     const x = e.clientX - r.left;
     const tick = Math.max(0, V.vp.tick(x));
     if (e.button === 2) {
-      M.rulerMenu(V, tick, { x: e.clientX, y: e.clientY });
+      M.rulerMenu(V, tick, { x: e.clientX, y: e.clientY }, V.markerAt(x, e.clientY - r.top));
       return;
     }
     if (e.button !== 0) return;
@@ -544,6 +544,11 @@ export function createPlaylistView(app, host) {
       // The pointer may already be gone.
     }
     const loopMode = e.shiftKey || e.clientY - r.top < LOOP_STRIP_H + 1;
+    const marker = loopMode ? null : V.markerAt(x, e.clientY - r.top);
+    if (marker) {
+      dragMarker(e, marker, x);
+      return;
+    }
     let move;
     if (loopMode) {
       const a = V.snapRound(tick, e);
@@ -571,7 +576,87 @@ export function createPlaylistView(app, host) {
     rulerHost.addEventListener('pointerup', up);
     rulerHost.addEventListener('pointercancel', up);
   });
-  rulerHost.addEventListener('dblclick', () => {
+  // Markers: drag to move (snapped, one undo step), click to jump, double-click to rename.
+  const measure = typeof document !== 'undefined' ? document.createElement('canvas').getContext?.('2d') : null;
+  if (measure) measure.font = '10px system-ui, -apple-system, sans-serif';
+  /** The marker whose line or label is at ruler point (x, y), or null. */
+  V.markerAt = (x, y) => {
+    if (y < LOOP_STRIP_H + 1) return null;
+    const pad = matchMedia('(pointer: coarse)').matches ? 10 : 4;
+    let best = null;
+    let bestD = Infinity;
+    for (const m of store.project.markers) {
+      const mx = V.vp.x(m.pos);
+      const w = Math.min(120, measure ? measure.measureText(m.name).width : m.name.length * 6) + 4;
+      if (x < mx - pad || x > mx + w + pad) continue;
+      const d = Math.abs(x - mx);
+      if (d < bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    return best;
+  };
+  V.jumpToMarker = (m) => {
+    if (!m) return;
+    if (engine.mode !== 'song') app.setMode('song');
+    engine.seek(m.pos);
+    V.revealTick(m.pos);
+    syncRulerAria();
+    announce(`Marker ${m.name}, bar ${formatBST(m.pos, store.project.sig)}`);
+  };
+  V.renameMarker = async (m) => {
+    const v = await promptDialog({ title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
+    if (v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
+  };
+  V.deleteMarker = (m) => {
+    store.apply('Delete marker', (q) => C.removeMarker(q, m.id));
+    announce(`Deleted marker ${m.name}`);
+  };
+  function dragMarker(e, m, x0) {
+    const r = rulerHost.getBoundingClientRect();
+    const grab = V.vp.tick(x0) - m.pos;
+    let moved = false;
+    rulerHost.classList.add('marker-drag');
+    const move = (ev) => {
+      const x = ev.clientX - r.left;
+      if (!moved && Math.abs(x - x0) < 4) return;
+      if (!moved) {
+        moved = true;
+        store.begin('Move marker');
+      }
+      const pos = V.snapRound(Math.max(0, V.vp.tick(x) - grab), ev);
+      store.preview((p) => C.updateMarker(p, m.id, { pos }));
+    };
+    const up = (ev) => {
+      rulerHost.removeEventListener('pointermove', move);
+      rulerHost.removeEventListener('pointerup', up);
+      rulerHost.removeEventListener('pointercancel', up);
+      rulerHost.classList.remove('marker-drag');
+      if (moved) {
+        store.commit();
+        const now = store.project.markers.find((k) => k.id === m.id);
+        if (now) announce(`Marker ${now.name} moved to bar ${formatBST(now.pos, store.project.sig)}`);
+      } else if (ev.type === 'pointerup') V.jumpToMarker(m);
+    };
+    rulerHost.addEventListener('pointermove', move);
+    rulerHost.addEventListener('pointerup', up);
+    rulerHost.addEventListener('pointercancel', up);
+  }
+  rulerHost.addEventListener('pointermove', (e) => {
+    if (e.buttons) return;
+    const r = rulerHost.getBoundingClientRect();
+    rulerHost.classList.toggle('on-marker', Boolean(V.markerAt(e.clientX - r.left, e.clientY - r.top)));
+  });
+  rulerHost.addEventListener('pointerleave', () => rulerHost.classList.remove('on-marker'));
+
+  rulerHost.addEventListener('dblclick', (e) => {
+    const r = rulerHost.getBoundingClientRect();
+    const m = V.markerAt(e.clientX - r.left, e.clientY - r.top);
+    if (m) {
+      V.renameMarker(m);
+      return;
+    }
     if (!store.project.loop) return;
     store.apply('Clear loop', (p) => E.setLoop(p, null));
     announce('Loop cleared');

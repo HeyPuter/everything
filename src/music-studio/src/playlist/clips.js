@@ -376,3 +376,14 @@ export function nextMarkerName(project) {
   while (used.has(`Marker ${i}`)) i++;
   return `Marker ${i}`;
 }
+
+/**
+ * The marker after (`dir` 1) or before (-1) song tick `pos`, or null. Before
+ * looks past markers within `slack` ticks of `pos`, so pressing "previous"
+ * while playing just after a marker goes to the one before it.
+ */
+export function adjacentMarker(markers, pos, dir, slack = 0) {
+  if (dir > 0) return markers.find((m) => m.pos > pos) || null;
+  for (let i = markers.length - 1; i >= 0; i--) if (markers[i].pos < pos - slack) return markers[i];
+  return null;
+}
