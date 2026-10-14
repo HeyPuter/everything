@@ -142,6 +142,8 @@ export function styleForOutlineLevel(styles, level) {
   return definitions.find(s => s.id === `Heading${level}`) || definitions.find(s => String(s.name).toLowerCase() === `heading ${level}`) || null;
 }
 
+const hasDirectLevel = p => Object.hasOwn(p.formatOverrides || {}, 'outlineLevel') || Object.hasOwn(p.styleContext?.properties || {}, 'outlineLevel') || !p.styleContext && Object.hasOwn(p.format || {}, 'outlineLevel');
+
 /** Give one paragraph an outline level through its style, or a direct level when the document has no such style. */
 function applyLevel(model, p, level) {
   if (outlineLevelOf(p) === level) return;
@@ -149,6 +151,8 @@ function applyLevel(model, p, level) {
   model.select(start, start + paragraphText(p).length);
   const style = styleForOutlineLevel(model.styles, level);
   if (style && (level < BODY_LEVEL || builtinOutlineLevel(effectiveStyleId(p, model.styles)) !== null)) model.setParagraphStyle(style.id);
+  // A direct level would outrank the style just applied: the style decides from now on.
+  if (style && hasDirectLevel(p)) model.setOutlineLevel(null);
   if (outlineLevelOf(p) === level) return;
   // No heading style for this level (or the body style carries a level): set the level directly.
   if (builtinOutlineLevel(effectiveStyleId(p, model.styles)) !== null) {

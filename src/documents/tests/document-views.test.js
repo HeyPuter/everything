@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
+import { readFileSync } from 'node:fs';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { createDocx, DocxPackage, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
@@ -7,6 +8,7 @@ import { layoutDocument } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, readingColumns, lineFocusBand, viewFromSetting, settingFromView, spacedFormat, STRIP_HEIGHT, READING_SPACING } from '../src/engine/document-views.js';
 import { readDocumentView, writeDocumentView } from '../src/engine/docx-view-settings.js';
+import { outlineLevelOf } from '../src/engine/outline-editing.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -147,5 +149,23 @@ describe('switching views does not change the document', () => {
     expect(JSON.stringify(model.paragraphs)).toBe(before);
     const saved = unzipSync(await bytes(pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets)));
     expect(saved).toEqual(unzipSync(base));
+  });
+});
+
+describe('independently written view fixtures', () => {
+  const fixture = name => new Uint8Array(readFileSync(`tests/fixtures/document-views/${name}`));
+  it('opens the outline package in Outline view with its heading and direct levels, and saves it unchanged', async () => {
+    const bytesIn = fixture('outline.docx'), pkg = await DocxPackage.open(bytesIn);
+    expect(pkg.documentView).toBe('outline');
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    expect(model.paragraphs.map(outlineLevelOf)).toEqual([1, 10, 2, 10, 2, 3, 10, 1, 10, 10]);
+    expect(unzipSync(await bytes(pkg.export()))).toEqual(unzipSync(bytesIn));
+  });
+  it('opens the normal-view package in Draft, laid out as two strips around its page break', async () => {
+    const pkg = await DocxPackage.open(fixture('normal.docx'));
+    expect(pkg.documentView).toBe('draft');
+    const layout = fitContinuousPages(layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, pkg.pageStories, { viewGeometry: viewGeometry({ kind: 'draft', width: 900 }) }), null);
+    expect(layout.pageCount).toBe(2);
+    expect(layout.pages.every(p => p.height < 120 && p.width === 900)).toBe(true);
   });
 });

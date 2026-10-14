@@ -274,3 +274,24 @@ test('New Window shows a live copy that follows edits', async ({ page, context }
   await input.pressSequentially(' Seen in the other window.');
   await expect.poll(textOf, { timeout: 8000 }).toContain('Seen in the other window.');
 });
+
+test('a document saved in Outline view opens there and its direct level promotes', async ({ page }, info) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeVisible();
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/document-views/outline.docx');
+  const outline = page.getByRole('tree', { name: 'Document outline' });
+  await expect(outline).toBeVisible();
+  await expect(outline.getByRole('treeitem')).toHaveCount(10);
+  const note = page.locator('.outline-row', { hasText: 'A direct level three note' });
+  await expect(note).toHaveAttribute('aria-level', '3');
+  await note.locator('.outline-text').click();
+  await page.keyboard.press('Shift+Tab');
+  await expect(note).toHaveAttribute('aria-level', '2');
+  // Collapse Plan: its subtree hides; Show First Line Only keeps headings whole.
+  await page.locator('.outline-row', { hasText: 'Plan' }).first().locator('.outline-symbol').dblclick();
+  await expect(outline.getByRole('treeitem')).toHaveCount(4);
+  const saved = await download(page, info, 'outline-fixture');
+  expect(settingsXml(saved)).toContain('<w:view w:val="outline"/>');
+  expect(strFromU8(parts(saved)['word/document.xml'])).toMatch(/<w:pStyle w:val="Heading2"\/><\/w:pPr><w:r>(<w:rPr>.*?<\/w:rPr>)?<w:t[^>]*>A direct level three note/);
+});

@@ -107,6 +107,19 @@ describe('promoting and demoting', () => {
     session.run(m => setOutlineLevels(m, [id('Intro body')], () => BODY_LEVEL));
     expect(outlineLevelOf(model.paragraphs[1])).toBe(BODY_LEVEL);
   });
+  it('drops a direct level when a heading style takes over, so the saved level is the style\'s', async () => {
+    const { session, model, pkg, id } = await outlineDocument(SPEC);
+    session.run(m => setOutlineLevels(m, [id('Intro body')], () => 8));
+    session.run(m => setOutlineLevels(m, [id('Intro body')], () => 2));
+    expect(model.paragraphs[1].styleId).toBe('Heading2');
+    expect(model.paragraphs[1].formatOverrides?.outlineLevel).toBeUndefined();
+    const xml = strFromU8(unzipSync(await bytes(pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets)))['word/document.xml']);
+    const saved = xml.match(/<w:p>(?:(?!<\/w:p>).)*?>Intro body<\/w:t>/)[0];
+    expect(saved).toContain('<w:pStyle w:val="Heading2"/>');
+    expect(saved).not.toContain('<w:outlineLvl');
+    const reopened = await DocxPackage.open(await bytes(pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets)));
+    expect(outlineLevelOf(new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles).paragraphs[1])).toBe(2);
+  });
 });
 
 describe('Navigation pane section commands', () => {
