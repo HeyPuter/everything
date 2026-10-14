@@ -141,8 +141,28 @@
 /* The presentation's name sits in the middle of the bar, as a window title
    does, with its save status beside it. */
 .editor .topbar-title-wrap {
-  justify-content: center;
+  /* Centered while it fits; never pushed past the menus when it doesn't. */
+  justify-content: safe center;
   gap: 4px;
+}
+/* When the bar is short of room the save status gives way first, down to
+   its icon, and then the name, down to a few letters. */
+.editor .topbar-title-wrap > .editor-title {
+  flex: 0 1 auto;
+  min-width: 60px;
+}
+.editor .topbar-title-wrap > .save-status {
+  flex: 0 100 auto;
+  min-width: 16px;
+  overflow: hidden;
+}
+.editor .save-status > svg {
+  flex: none;
+}
+.editor .save-status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .editor .document-title {
   font-size: 13px;
@@ -161,6 +181,26 @@
 }
 .editor .topbar-actions {
   gap: 6px;
+  /* The presentation's actions keep their size; the title gives way. */
+  flex-shrink: 0;
+}
+.editor .document-title {
+  max-width: 100%;
+}
+/* A tablet has no room for the menus beside the title and the actions: the
+   menu bar takes a row of its own under them. */
+@media (max-width: 1230px) and (min-width: 761px) {
+  .editor .topbar-row {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: 0;
+    padding-top: 6px;
+  }
+  .editor .topbar-row > .menubar {
+    order: 1;
+    flex-basis: 100%;
+    margin-bottom: 2px;
+  }
 }
 .command-search {
   display: flex;
@@ -466,9 +506,35 @@
   color: var(--chrome-ink);
   justify-content: center;
 }
-@media (max-width: 760px) {
-  .editor .zoom-slider {
+/* A tablet's status bar leaves the language to the Review tab and shows the
+   accessibility check by its icon (its words stay its accessible name). */
+@media (max-width: 1150px) {
+  .editor .status-bar #status-language {
     display: none;
+  }
+  .editor .status-bar #status-accessibility span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .editor .zoom-slider {
+    width: 90px;
+  }
+}
+/* A phone's status bar keeps the slide count, Notes and zoom; the language,
+   the accessibility check and the views are in the ribbon's Review and View
+   tabs. */
+@media (max-width: 760px) {
+  .editor .zoom-slider,
+  .editor .status-bar .desktop-only {
+    display: none;
+  }
+  .editor .status-bar {
+    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom)
+      max(6px, env(safe-area-inset-left));
   }
 }
 

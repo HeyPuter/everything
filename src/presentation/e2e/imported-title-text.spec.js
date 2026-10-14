@@ -24,19 +24,20 @@ async function load(page, p) {
   return errors;
 }
 
-// Spelling, from its group when a narrow ribbon folds it.
-async function spelling(page) {
+// A Review command, from its group when a narrow ribbon folds it.
+async function reviewCommand(page, id) {
   const button = page.locator(
-    '.ribbon-panel:not([hidden]) [data-command="spelling"]',
+    `.ribbon-panel:not([hidden]) [data-command="${id}"]`,
   );
   if (!(await button.isVisible()))
     await page
       .locator(
-        '.ribbon-panel:not([hidden]) .ribbon-group:has([data-command="spelling"]) > .ribbon-fold',
+        `.ribbon-panel:not([hidden]) .ribbon-group:has([data-command="${id}"]) > .ribbon-fold`,
       )
       .click();
-  await page.locator('[data-command="spelling"]:visible').click();
+  await page.locator(`[data-command="${id}"]:visible`).click();
 }
+const spelling = (page) => reviewCommand(page, "spelling");
 
 test("imported title placeholders support accessibility and unselected spelling", async ({
   page,
@@ -48,9 +49,13 @@ test("imported title placeholders support accessibility and unselected spelling"
   await expect(page.locator("#status-accessibility")).toHaveText(
     "Accessibility: Good to go",
   );
-  // From the keyboard: the status bar is crowded on small screens.
-  await page.locator("#status-accessibility").focus();
-  await page.locator("#status-accessibility").press("Enter");
+  // From the status bar, which leaves the check to the Review tab on a phone.
+  const status = page.locator("#status-accessibility");
+  if (await status.isVisible()) await status.click();
+  else {
+    await page.getByRole("tab", { name: "Review", exact: true }).click();
+    await reviewCommand(page, "check-accessibility");
+  }
   const pane = page.getByRole("complementary", { name: "Accessibility" });
   // The title counts; only the empty subtitle is worth a tip.
   await expect(pane).toContainText("Empty placeholder (1)");
