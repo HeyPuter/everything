@@ -108,6 +108,13 @@ Object.assign(COMMAND_ICONS, {
     p("M3 15c1-4 3-6 4.5-5", "b thick") +
     ci(13.5, 8, 4.5, "kf") +
     p("M7 4.5h3.5V8", "k"),
+  pinItem:
+    p("M7.5 2.5h5l-1 4.5 3 3v1.5h-9V10l3-3z", "bf") +
+    p("M10 11.5v6", "o thick"),
+  unpinItem:
+    p("M7.5 2.5h5l-1 4.5 3 3v1.5h-9V10l3-3z", "of") +
+    p("M10 11.5v6", "o thick") +
+    p("M3.5 3.5l13 13", "r thick"),
   newSlidePrompt:
     r(2.5, 5, 13, 10, "of", 1.4) +
     p("M5 8.5h6M5 11h4", "o ln") +

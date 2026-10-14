@@ -85,6 +85,15 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import {
+  libraryMeta,
+  homeRail,
+  promptBox,
+  themeStrip,
+  libraryFilter,
+} from "./start/start-screen.js";
+import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
+import { lucide } from "./draw/draw-icons.js";
 import { createShowInk, addShowInk, SHOW_PEN_COLORS } from "./draw/show-ink.js";
 import { addInkStroke, MM as INK_MM } from "./draw/ink-model.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
@@ -137,6 +146,8 @@ let files = [],
   loading = true,
   query = "",
   sort = "modified",
+  // The list shows every presentation ("recent") or only the pinned ones.
+  libraryView = "recent",
   revision = 0,
   savedRevision = -1,
   draftRevision = -1;
@@ -838,7 +849,7 @@ function renderHome() {
   app.replaceChildren(
     el(
       "div",
-      { class: "home" },
+      { class: "home with-rail" },
       el(
         "header",
         { class: "home-header" },
@@ -850,6 +861,33 @@ function renderHome() {
           accountButton(),
         ),
       ),
+      homeRail([
+        {
+          id: "home",
+          label: "Home",
+          icon: "House",
+          run: () => homeSection(".home-main", "#main"),
+        },
+        {
+          id: "new",
+          label: "New",
+          icon: "FilePlus",
+          run: () => homeSection(".home-prompt", ".home-prompt-input"),
+        },
+        {
+          id: "recent",
+          label: "Recent",
+          icon: "Clock",
+          run: () => homeSection(".library", ".search-box input"),
+        },
+        {
+          id: "open",
+          label: "Open",
+          icon: "FolderOpen",
+          action: true,
+          run: run(openPicker),
+        },
+      ]),
       el(
         "main",
         { id: "main", class: "home-main", tabindex: -1 },
@@ -874,6 +912,13 @@ function renderHome() {
             "primary",
           ),
         ),
+        promptBox({
+          themes: deckThemes(),
+          theme: promptTheme,
+          available: () => cloud.canAI(),
+          create: (description, options) =>
+            deckFromPrompt(description, options),
+        }),
         el(
           "section",
           { class: "templates", "aria-label": "Start a presentation" },
@@ -896,6 +941,10 @@ function renderHome() {
             "A warmer point of view",
             "clay",
           ),
+        ),
+        themeStrip(
+          deckThemes().map((t) => ({ ...t, preview: themePreview(t.key) })),
+          (key) => run(() => newThemeDeck(key))(),
         ),
         !account &&
           el(
@@ -920,7 +969,22 @@ function renderHome() {
           el(
             "div",
             { class: "library-head" },
-            el("h2", {}, "Your presentations"),
+            el(
+              "div",
+              { class: "library-heading" },
+              el("h2", {}, "Your presentations"),
+              libraryFilter(libraryView, (id) => {
+                libraryView = id;
+                for (const b of document.querySelectorAll(
+                  ".library-filter-btn",
+                ))
+                  b.setAttribute(
+                    "aria-pressed",
+                    String(b.dataset.filter === id),
+                  );
+                renderFileList();
+              }),
+            ),
             el(
               "div",
               { class: "library-tools" },
@@ -949,10 +1013,12 @@ function renderHome() {
                     renderFileList();
                   },
                 },
+                // "modified" sorts by when each was last opened here, or
+                // else changed; the value keeps its first name.
                 el(
                   "option",
                   { value: "modified", selected: sort === "modified" },
-                  "Last modified",
+                  "Last opened",
                 ),
                 el(
                   "option",
@@ -987,6 +1053,44 @@ function templatePreview(type, color) {
   }
   return templatePreviews.get(key);
 }
+// The palettes a new deck can start in, from the app's themes.
+function deckThemes() {
+  return Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name }));
+}
+let promptTheme = "studio";
+function themePreview(key) {
+  const cacheKey = `theme:${key}`;
+  if (!templatePreviews.has(cacheKey)) {
+    const pres = themeDeck(key);
+    templatePreviews.set(cacheKey, preview(pres, P.getSlides(pres)[0]));
+  }
+  return templatePreviews.get(cacheKey);
+}
+async function newThemeDeck(key) {
+  await openDocument(() => ({
+    pres: themeDeck(key),
+    name: "Untitled presentation",
+    color: key,
+  }));
+}
+// Scrolls the library to one of its parts and puts the keyboard there.
+function homeSection(selector, focusSelector) {
+  const target = document.querySelector(selector);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  document.querySelector(focusSelector)?.focus({ preventScroll: true });
+}
+// A deck written by the AI from a description opens as a new presentation.
+async function deckFromPrompt(description, options) {
+  promptTheme = options.theme;
+  const { pres, name } = await generateDeck(description, {
+    ...options,
+    chat: (messages, opts) => cloud.aiChatStream(messages, opts),
+    model: AI_MODEL,
+  });
+  if (options.signal?.aborted || view !== "home") return;
+  await openDocument(() => ({ pres, name, color: options.theme }));
+}
+const libraryRecords = () => libraryMeta(owner());
 function templateCard(type, title, subtitle, color) {
   const thumb = el(
     "div",
@@ -1064,6 +1168,7 @@ function renderFileList() {
       ),
     );
   const searchText = query.normalize("NFC").toLowerCase();
+  const records = libraryRecords();
   const rows = [
     ...localDrafts.map((d) => ({
       kind: "draft",
@@ -1087,6 +1192,17 @@ function renderFileList() {
     // Search and sort by the displayed title so the .pptx extension of cloud
     // files neither matches queries nor shifts alphabetical order.
     .map((f) => ({ ...f, title: fileTitle(f) }))
+    .map((f) => {
+      const opened = records.openedAt(f);
+      return {
+        ...f,
+        pinned: records.isPinned(f),
+        // The date shown and sorted by: when it was last opened here, or
+        // else last changed.
+        modified: opened && opened > (f.modified || 0) ? opened : f.modified,
+      };
+    })
+    .filter((f) => libraryView !== "pinned" || f.pinned)
     .filter((f) => f.title.normalize("NFC").toLowerCase().includes(searchText))
     // Names sort the way file browsers do: "Deck 2" before "Deck 10".
     .sort((a, b) =>
@@ -1096,7 +1212,9 @@ function renderFileList() {
             sensitivity: "base",
           })
         : b.modified - a.modified,
-    );
+    )
+    // Pinned presentations lead the list.
+    .sort((a, b) => b.pinned - a.pinned);
   if (!rows.length) {
     // A failed load already explains itself and offers a retry; do not also
     // claim the library is empty.
@@ -1116,16 +1234,23 @@ function renderFileList() {
         el(
           "h3",
           {},
-          query ? "No matching presentations" : "Your next story starts here",
+          query
+            ? "No matching presentations"
+            : libraryView === "pinned"
+              ? "Nothing pinned yet"
+              : "Your next story starts here",
         ),
         el(
           "p",
           {},
           query
             ? "Try another name."
-            : "Create a presentation above or bring in a PowerPoint file.",
+            : libraryView === "pinned"
+              ? "Pin a presentation from its options to keep it here."
+              : "Create a presentation above or bring in a PowerPoint file.",
         ),
         !query &&
+          libraryView !== "pinned" &&
           button(
             "Import a presentation",
             "Upload",
@@ -1143,7 +1268,7 @@ function renderFileList() {
       { class: "file-table-head" },
       el("span", {}, "NAME"),
       el("span", {}, "LOCATION"),
-      el("span", {}, "MODIFIED"),
+      el("span", {}, "LAST OPENED"),
       el("span"),
     ),
   );
@@ -1158,15 +1283,27 @@ function renderFileList() {
           {
             class: "file-open",
             title: label,
-            onclick: run(() =>
-              f.kind === "draft" ? recover(f) : openCloud(f),
-            ),
+            onclick: run(() => {
+              records.noteOpened(f);
+              return f.kind === "draft" ? recover(f) : openCloud(f);
+            }),
           },
           el("span", { class: "file-icon" }, icon("Presentation", 21)),
           el(
             "span",
             { class: "file-text" },
-            el("strong", {}, label),
+            el(
+              "strong",
+              {},
+              label,
+              f.pinned &&
+                el(
+                  "span",
+                  { class: "file-pin", title: "Pinned" },
+                  lucide("Pin", 12),
+                  el("span", { class: "visually-hidden" }, " (pinned)"),
+                ),
+            ),
             el(
               "small",
               {},
@@ -1264,11 +1401,24 @@ function libraryFileMenu(e, f) {
       document.querySelector('.home-title [aria-label="New presentation"]')
     );
   };
+  const records = libraryRecords();
+  const pinned = records.isPinned(f);
   menu(anchor, [
     {
       label: "Open",
       icon: "FolderOpen",
-      action: run(() => (f.kind === "draft" ? recover(f) : openCloud(f))),
+      action: run(() => {
+        records.noteOpened(f);
+        return f.kind === "draft" ? recover(f) : openCloud(f);
+      }),
+    },
+    {
+      label: pinned ? "Unpin" : "Pin to Top",
+      icon: pinned ? "o:unpinItem" : "o:pinItem",
+      action: () => {
+        records.togglePin(f);
+        renderFileList();
+      },
     },
     ...(f.kind === "recent"
       ? [
@@ -1293,6 +1443,7 @@ function libraryFileMenu(e, f) {
             icon: "X",
             action: () => {
               recent.forgetRecent(owner(), f.path);
+              libraryRecords().forget(f);
               recentFiles = recentFiles.filter((r) => r.path !== f.path);
               renderFileList();
             },
@@ -1322,6 +1473,7 @@ function libraryFileMenu(e, f) {
                   const path = f.path;
                   const renamedPath = await renameCloudPath(path, name);
                   const row = currentRow();
+                  libraryRecords().rename(f, { path: renamedPath });
                   f.path = renamedPath;
                   f.name = `${cleanName(name)}.pptx`;
                   if (row) row.dataset.fileKey = fileKey(f);
@@ -5371,6 +5523,15 @@ function ribbonApi() {
         icon: "o:duplicate",
         onSelect: () => duplicateSlides(actionSlides(slide())),
       },
+      ...(assistant
+        ? [
+            {
+              label: "New Slide from Prompt…",
+              icon: "o:newSlidePrompt",
+              onSelect: () => newSlideFromPrompt().catch(fail),
+            },
+          ]
+        : []),
     ],
     canChangeLayout: () => !!globalThis.__changeLayoutSupported,
     layoutMenu: () => [],
@@ -5646,6 +5807,7 @@ function ribbonApi() {
       },
     ],
     hasAssistant: () => !!assistant,
+    newSlideFromPrompt: () => newSlideFromPrompt().catch(fail),
     designIdeas: () => {
       openAssistant(
         "Suggest a cleaner, more professional design for the current slide and apply it, keeping all of its content.",
@@ -6359,6 +6521,34 @@ function toggleAssistant(force) {
 }
 function openAssistant(prompt = null) {
   assistant?.open({ prompt });
+}
+// The assistant drafts a slide, after the current one, from a description.
+async function newSlideFromPrompt() {
+  if (!assistant || !doc) return;
+  const input = el("textarea", {
+    class: "input",
+    rows: 3,
+    maxlength: 2000,
+    autofocus: true,
+    placeholder:
+      "For example: our three goals for next year, with a line on each",
+    "aria-label": "Describe the slide",
+  });
+  const after = index + 1;
+  const ok = await dialog({
+    title: "New Slide from Prompt",
+    body: el(
+      "form",
+      { class: "dialog-body" },
+      el("label", {}, "What should the new slide say?", input),
+    ),
+    confirm: "Draft Slide",
+  });
+  const text = input.value.trim();
+  if (!ok || !text || !assistant) return;
+  assistant.ask(
+    `Add one new slide right after slide ${after} about the following, with its title, content and speaker notes, matching the palette and style of the slides around it:\n${text}`,
+  );
 }
 // Text typed on the slide is committed when its editor closes; the
 // assistant's edits wait for that rather than cut the typing short.

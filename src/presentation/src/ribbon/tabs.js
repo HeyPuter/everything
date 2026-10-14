@@ -625,6 +625,17 @@ export function buildTabs(api) {
         visible: () => api.hasAssistant(),
         run: () => api.designIdeas(),
       },
+      {
+        type: "large",
+        id: "new-slide-prompt",
+        label: "Slide from\nPrompt",
+        icon: "newSlidePrompt",
+        title: "New Slide from Prompt",
+        description:
+          "Describe a slide and the AI assistant drafts it after the current one.",
+        visible: () => api.hasAssistant(),
+        run: () => api.newSlideFromPrompt(),
+      },
     ],
   };
 
