@@ -196,10 +196,10 @@ test("the show's menu, tools and shortcuts; ink is kept after the show", async (
   await page.keyboard.press("Escape");
   await expect(d).toBeHidden();
   const prompt = page.getByRole("dialog", {
-    name: "Keep your ink annotations?",
+    name: "Keep your ink?",
   });
   await expect(prompt).toBeVisible();
-  await prompt.getByRole("button", { name: "Keep", exact: true }).click();
+  await prompt.getByRole("button", { name: "Keep Ink", exact: true }).click();
   await expect(prompt).toBeHidden();
   const deck = await download(page);
   const ink = P.getSlideShapes(P.getSlides(deck)[1]).filter((s) =>

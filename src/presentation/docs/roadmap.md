@@ -160,6 +160,21 @@ what is being added, and its status. Items are checked off as they land.
 
 ### 12. Draw and assistant
 
-- [ ] Lasso Select, Ink to Shape, Ink to Text, Ink to Math, Add Pen, ink
-      replay.
-- [ ] Generate a presentation from a description on the start screen.
+- [x] Lasso Select, Ink to Shape, Ink to Text, Ink to Math, Add Pen, ink
+      replay. Also: stroke and point erasers with sizes, a pen collection
+      (pens, pencils, highlighters; colour, thickness, texture, order) kept
+      on the device, Convert Ink to Shapes, a ruler stencil pens follow,
+      Draw with Touch, and a slide show pen whose ink can be kept. Stroke
+      timing is stored on each ink shape (`P.setShapeInkTiming`, an
+      `a:extLst` extension on `p:cNvPr`) so replay survives a save.
+      (`src/draw/`, `src/draw-tab.js`)
+- [x] Generate a presentation from a description on the start screen, and
+      New Slide from Prompt (Home tab, New Slide menu) through the
+      assistant. (`src/start/deck-from-prompt.js`)
+- [x] Library screen: section rail (Home, New, Recent, Open), Themes strip,
+      Recent / Pinned filter, pin to top, Last opened. (`src/start/`)
+- [x] Ink to Math makes a real equation object (src/insert's
+      `equations.prepare/place`), re-editable by double-click; a LaTeX text
+      box only where that API is missing.
+- [ ] A Shared section in the rail, once Puter exposes files shared with
+      the user.

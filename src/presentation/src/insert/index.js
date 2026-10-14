@@ -121,11 +121,17 @@ export function createInsertFeatures(host) {
     insertEquation: run(() => equation.insertEquation()),
     equationMenu: equation.menu,
     headerFooter: run(headerFooter.headerFooter),
-    zoomMenu: zoom.menu,
+    insertZoomMenu: zoom.menu,
     insertObject: run(object.insertObject),
     actionSettings: run(() => actions.actionSettings()),
     actionButtonsMenu: actions.menuItems,
   });
+
+  /** Equations for other tools (Ink to Math): draw one, then place it. */
+  const equations = {
+    prepare: (source, color, pt) => equation.prepareEquation(source, color, pt),
+    place: (slide, prepared, at) => equation.placeEquation(slide, prepared, at),
+  };
 
   const tabs = () => [
     icons.tab(),
@@ -226,6 +232,7 @@ export function createInsertFeatures(host) {
   return {
     contextItems,
     api,
+    equations,
     tabs,
     open,
     menuItems,

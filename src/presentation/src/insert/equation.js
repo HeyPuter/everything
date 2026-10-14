@@ -374,33 +374,50 @@ export function createEquationFeatures(ctx) {
     };
   }
 
+  /**
+   * An equation drawn and ready to place: its source, colour, size (points)
+   * and picture. Drawing is asynchronous, so it is done before the edit
+   * that places it.
+   */
+  async function prepareEquation(source, color = "#000000", pt = DEFAULT_PT) {
+    return { source, color, pt, pic: await pictureFor(source, color, pt) };
+  }
+  /**
+   * Places a prepared equation on `slide` with its top left at (x, y), or
+   * centered when no position is given; within an edit. Returns the shape.
+   */
+  function placeEquation(slide, prepared, at = null) {
+    const { source, color, pt, pic } = prepared;
+    const size = ctx.currentSize();
+    const shape = P.addSlideVectorPicture(
+      slide,
+      { png: pic.png, svg: pic.svg },
+      {
+        x: Math.round(at ? at.x : (size.cx - pic.w) / 2),
+        y: Math.round(at ? at.y : (size.cy - pic.h) / 2),
+        w: pic.w,
+        h: pic.h,
+        name: `Equation ${P.getSlideShapes(slide).length + 1}`,
+      },
+    );
+    P.setShapeObjectData(shape, {
+      type: "equation",
+      source,
+      color,
+      pt,
+      w: pic.w,
+    });
+    P.setShapeDescription(shape, `Equation: ${source}`);
+    return shape;
+  }
+
   async function insertEquation(initial = "") {
     ctx.commitText();
     const source = initial || (await editDialog(""));
     if (!source) return;
-    const color = ctx.inkColor();
-    const pic = await pictureFor(source, color, DEFAULT_PT);
-    const size = ctx.currentSize();
+    const prepared = await prepareEquation(source, ctx.inkColor(), DEFAULT_PT);
     await ctx.mutateSlide(ctx.slide(), (slide) => {
-      const shape = P.addSlideVectorPicture(
-        slide,
-        { png: pic.png, svg: pic.svg },
-        {
-          x: Math.round((size.cx - pic.w) / 2),
-          y: Math.round((size.cy - pic.h) / 2),
-          w: pic.w,
-          h: pic.h,
-          name: `Equation ${P.getSlideShapes(slide).length + 1}`,
-        },
-      );
-      P.setShapeObjectData(shape, {
-        type: "equation",
-        source,
-        color,
-        pt: DEFAULT_PT,
-        w: pic.w,
-      });
-      P.setShapeDescription(shape, `Equation: ${source}`);
+      const shape = placeEquation(slide, prepared);
       ctx.selectIds([P.getShapeId(shape)]);
     });
   }
@@ -496,6 +513,8 @@ export function createEquationFeatures(ctx) {
 
   return {
     insertEquation,
+    prepareEquation,
+    placeEquation,
     editEquation,
     isEquation,
     tab,

@@ -3,12 +3,11 @@
 // coordinates (EMU), so going back to a slide shows its ink again, and the
 // same strokes draw on every surface showing the slide (the audience's
 // screen and the presenter's copy). At the end of the show they can become
-// ink shapes on the slides, the same freeform shapes the Draw tab makes.
+// ink on the slides, as the Draw tab makes it (src/draw/ink-model.js).
 
 const SVG = "http://www.w3.org/2000/svg";
 const PT = 12700;
 const MM = 2.835 * PT;
-export const INK_NAME = "Ink";
 export const PEN_WIDTH = Math.round(0.8 * MM);
 export const HIGHLIGHTER_WIDTH = Math.round(5 * MM);
 export const INK_COLORS = [
@@ -72,13 +71,14 @@ export function createShowInk({ size, penColor = "#E81224", onChange } = {}) {
     surface.capture.hidden = !active;
     surface.capture.dataset.tool = tool || "";
     surface.host.classList.toggle("show-inking", active);
+    surface.host.classList.toggle("ink-mode", active && tool !== "eraser");
   }
 
   /** Draws on `host` (an element laid over the slide, in its proportions). */
   function addSurface(host) {
     const doc = host.ownerDocument;
     const svg = doc.createElementNS(SVG, "svg");
-    svg.setAttribute("class", "show-ink");
+    svg.setAttribute("class", "show-ink presenter-ink");
     svg.setAttribute("viewBox", `0 0 ${size.width} ${size.height}`);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("aria-hidden", "true");
@@ -104,17 +104,23 @@ export function createShowInk({ size, penColor = "#E81224", onChange } = {}) {
         capture.setPointerCapture(e.pointerId);
       } catch {}
       if (tool === "eraser") return erase(e, capture, toSlide);
+      // When each point was drawn travels with the stroke, for replay.
+      const t0 = performance.now();
       const stroke = {
         tool,
         color: colors[tool],
         width: tool === "highlighter" ? HIGHLIGHTER_WIDTH : PEN_WIDTH,
-        points: [toSlide(e)],
+        start: Date.now(),
+        points: [{ ...toSlide(e), t: 0 }],
       };
       const live = strokeNode(stroke, doc);
       svg.append(live);
       const move = (ev) => {
         for (const c of ev.getCoalescedEvents?.() || [ev])
-          stroke.points.push(toSlide(c));
+          stroke.points.push({
+            ...toSlide(c),
+            t: Math.round(performance.now() - t0),
+          });
         live.setAttribute("d", pathData(stroke.points));
       };
       const up = () => {
@@ -225,100 +231,4 @@ function segmentDistance(p, a, b) {
     ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len))
     : 0;
   return Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y);
-}
-
-// Ramer–Douglas–Peucker: the fewest points within `tolerance` of the line.
-export function simplifyStroke(points, tolerance) {
-  if (points.length < 3) return points.slice();
-  const keep = new Uint8Array(points.length);
-  keep[0] = keep[points.length - 1] = 1;
-  const stack = [[0, points.length - 1]];
-  const sq = tolerance * tolerance;
-  while (stack.length) {
-    const [a, b] = stack.pop();
-    let best = -1,
-      far = sq;
-    const ax = points[a].x,
-      ay = points[a].y,
-      dx = points[b].x - ax,
-      dy = points[b].y - ay;
-    const len = dx * dx + dy * dy || 1;
-    for (let i = a + 1; i < b; i++) {
-      const t = Math.max(
-        0,
-        Math.min(1, ((points[i].x - ax) * dx + (points[i].y - ay) * dy) / len),
-      );
-      const ex = ax + t * dx - points[i].x,
-        ey = ay + t * dy - points[i].y;
-      const d = ex * ex + ey * ey;
-      if (d > far) {
-        far = d;
-        best = i;
-      }
-    }
-    if (best > 0) {
-      keep[best] = 1;
-      stack.push([a, best], [best, b]);
-    }
-  }
-  return points.filter((_, i) => keep[i]);
-}
-
-/** A stroke as the box and smooth path of a freeform shape. */
-export function strokeGeometry(stroke, slideWidth) {
-  const tolerance = slideWidth / 2000;
-  const kept = simplifyStroke(stroke.points, tolerance);
-  if (kept.length === 1) kept.push({ x: kept[0].x + tolerance, y: kept[0].y });
-  const xs = kept.map((q) => q.x),
-    ys = kept.map((q) => q.y);
-  const minX = Math.min(...xs),
-    minY = Math.min(...ys);
-  const w = Math.max(1, Math.round(Math.max(...xs) - minX)),
-    h = Math.max(1, Math.round(Math.max(...ys) - minY));
-  const local = kept.map((q) => ({ x: q.x - minX, y: q.y - minY }));
-  const commands = [{ type: "moveTo", ...local[0] }];
-  for (let i = 0; i < local.length - 1; i++) {
-    const p0 = local[i - 1] || local[i],
-      p1 = local[i],
-      p2 = local[i + 1],
-      p3 = local[i + 2] || p2;
-    // Catmull-Rom through the points, as cubic Bézier segments.
-    commands.push({
-      type: "cubicTo",
-      x1: p1.x + (p2.x - p0.x) / 6,
-      y1: p1.y + (p2.y - p0.y) / 6,
-      x2: p2.x - (p3.x - p1.x) / 6,
-      y2: p2.y - (p3.y - p1.y) / 6,
-      x: p2.x,
-      y: p2.y,
-    });
-  }
-  return { x: Math.round(minX), y: Math.round(minY), w, h, commands };
-}
-
-/** Adds a stroke to a slide as an ink shape. */
-export function addInkShape(P, slide, stroke, slideWidth) {
-  const g = strokeGeometry(stroke, slideWidth);
-  const shape = P.addSlideShape(slide, {
-    preset: "rect",
-    x: g.x,
-    y: g.y,
-    w: g.w,
-    h: g.h,
-    name: `${INK_NAME} ${Date.now() % 100000}`,
-  });
-  P.setShapeFreeformPaths(shape, [
-    { w: g.w, h: g.h, fill: false, commands: g.commands },
-  ]);
-  P.setShapeNoFill(shape);
-  P.setShapeStroke(shape, {
-    color:
-      stroke.tool === "highlighter"
-        ? `${stroke.color}/alpha=50000`
-        : stroke.color,
-    widthEmu: stroke.width,
-  });
-  P.setShapeStrokeCap(shape, "rnd");
-  P.setShapeStrokeJoin(shape, "round");
-  return shape;
 }

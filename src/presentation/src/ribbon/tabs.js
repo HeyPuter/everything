@@ -625,6 +625,17 @@ export function buildTabs(api) {
         visible: () => api.hasAssistant(),
         run: () => api.designIdeas(),
       },
+      {
+        type: "large",
+        id: "new-slide-prompt",
+        label: "Slide from\nPrompt",
+        icon: "newSlidePrompt",
+        title: "New Slide from Prompt",
+        description:
+          "Describe a slide and the AI assistant drafts it after the current one.",
+        visible: () => api.hasAssistant(),
+        run: () => api.newSlideFromPrompt(),
+      },
     ],
   };
 
@@ -786,8 +797,8 @@ export function buildTabs(api) {
             title: "Zoom",
             description:
               "Jump to a slide or section in a slide show, and back.",
-            visible: () => !!api.zoomMenu,
-            menu: () => api.zoomMenu?.() ?? [],
+            visible: () => !!api.insertZoomMenu,
+            menu: () => api.insertZoomMenu?.() ?? [],
           },
           {
             type: "large",

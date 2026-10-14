@@ -984,6 +984,11 @@ export function createAssistantPanel(env) {
     },
     open,
     close,
+    /** Opens the chat and sends `text` as if the user had typed it. */
+    ask(text) {
+      open({ focus: false });
+      submit(text);
+    },
     toggle(force) {
       if (force ?? !isOpen) open();
       else close();

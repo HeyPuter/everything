@@ -15,7 +15,7 @@ import { createShowSession } from "./session.js";
 import { openAudienceWindow } from "./audience.js";
 import { openSetUpShowDialog } from "./setup-dialog.js";
 import { openCustomShowsDialog } from "./custom-shows.js";
-import { addInkShape } from "./ink.js";
+import { addInkStroke, MM as INK_MM } from "../draw/ink-model.js";
 import { formatClock } from "./rehearse.js";
 import {
   addNarration,
@@ -131,19 +131,19 @@ export function createShowFeatures(ctx) {
   async function keepInk(entries) {
     const count = entries.reduce((n, [, strokes]) => n + strokes.length, 0);
     const keep = await dialog({
-      title: "Keep your ink annotations?",
+      title: "Keep your ink?",
       body: el(
         "div",
         { class: "dialog-body" },
         el(
           "p",
           {},
-          `You drew ${count} ink stroke${count === 1 ? "" : "s"} during the show. Keep them on the slides, where they can be moved or deleted like other drawings?`,
+          `You drew ${count} ink stroke${count === 1 ? "" : "s"} during the slide show. Keep ${count === 1 ? "it" : "them"} on the slides, where ink can be moved, replayed or deleted like other drawings?`,
         ),
       ),
       actions: [
         { label: "Discard", value: false, kind: "secondary" },
-        { label: "Keep", value: true, kind: "primary" },
+        { label: "Keep Ink", value: true, kind: "primary" },
       ],
     });
     if (!keep) return;
@@ -153,7 +153,24 @@ export function createShowFeatures(ctx) {
       for (const [partName, strokes] of entries) {
         const slide = slideByPart(presentation, partName);
         if (!slide) continue;
-        for (const stroke of strokes) addInkShape(P, slide, stroke, width);
+        // As the Draw tab's ink, with when each point was drawn.
+        for (const stroke of strokes)
+          addInkStroke(
+            P,
+            slide,
+            stroke.points.map(({ x, y }) => ({ x, y })),
+            {
+              type: stroke.tool === "highlighter" ? "highlighter" : "pen",
+              color: stroke.color,
+              width: stroke.width / (INK_MM * 12700),
+              texture: "solid",
+            },
+            {
+              tolerance: width / 2000,
+              times: stroke.points.map((p) => p.t ?? 0),
+              start: stroke.start ?? null,
+            },
+          );
       }
     });
   }

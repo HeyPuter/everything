@@ -86,6 +86,16 @@ import { createRibbon } from "./ribbon/ribbon.js";
 import { buildTabs } from "./ribbon/tabs.js";
 import { colorMenuItems, modulate } from "./color-palette.js";
 import { createDrawTools } from "./draw-tab.js";
+import {
+  libraryMeta,
+  homeRail,
+  promptBox,
+  themeStrip,
+  libraryFilter,
+} from "./start/start-screen.js";
+import { generateDeck, themeDeck } from "./start/deck-from-prompt.js";
+import { lucide } from "./draw/draw-icons.js";
+import { SHOW_PEN_COLORS } from "./draw/show-ink.js";
 import { createReview } from "./review/index.js";
 import { createChartTools } from "./charts/chart-tools.js";
 import { createSmartArtTools } from "./smartart/smartart-tools.js";
@@ -96,6 +106,7 @@ import { createAnimationTools } from "./animations/editor.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
+import { AI_MODEL } from "./assistant.js";
 import { zipSync } from "fflate";
 import * as drafts from "./drafts.js";
 import * as recent from "./recent.js";
@@ -142,6 +153,8 @@ let files = [],
   loading = true,
   query = "",
   sort = "modified",
+  // The list shows every presentation ("recent") or only the pinned ones.
+  libraryView = "recent",
   revision = 0,
   savedRevision = -1,
   draftRevision = -1;
@@ -696,6 +709,8 @@ async function shortcutsDialog() {
         ],
         ["B / W in presentation", "Black or white screen"],
         ["S in presentation", "Pause or resume automatic advance"],
+        ["I in presentation", "Pen on or off"],
+        ["E in presentation", "Erase the ink on the slide"],
         ["Number, then Enter, in presentation", "Go to that slide"],
       ].map(([keys, action]) =>
         el("div", {}, el("span", {}, action), el("kbd", {}, keys)),
@@ -852,7 +867,7 @@ function renderHome() {
   app.replaceChildren(
     el(
       "div",
-      { class: "home" },
+      { class: "home with-rail" },
       el(
         "header",
         { class: "home-header" },
@@ -864,6 +879,33 @@ function renderHome() {
           accountButton(),
         ),
       ),
+      homeRail([
+        {
+          id: "home",
+          label: "Home",
+          icon: "House",
+          run: () => homeSection(".home-main", "#main"),
+        },
+        {
+          id: "new",
+          label: "New",
+          icon: "FilePlus",
+          run: () => homeSection(".home-prompt", ".home-prompt-input"),
+        },
+        {
+          id: "recent",
+          label: "Recent",
+          icon: "Clock",
+          run: () => homeSection(".library", ".search-box input"),
+        },
+        {
+          id: "open",
+          label: "Open",
+          icon: "FolderOpen",
+          action: true,
+          run: run(openPicker),
+        },
+      ]),
       el(
         "main",
         { id: "main", class: "home-main", tabindex: -1 },
@@ -888,6 +930,13 @@ function renderHome() {
             "primary",
           ),
         ),
+        promptBox({
+          themes: deckThemes(),
+          theme: promptTheme,
+          available: () => cloud.canAI(),
+          create: (description, options) =>
+            deckFromPrompt(description, options),
+        }),
         el(
           "section",
           { class: "templates", "aria-label": "Start a presentation" },
@@ -910,6 +959,10 @@ function renderHome() {
             "A warmer point of view",
             "clay",
           ),
+        ),
+        themeStrip(
+          deckThemes().map((t) => ({ ...t, preview: themePreview(t.key) })),
+          (key) => run(() => newThemeDeck(key))(),
         ),
         !account &&
           el(
@@ -934,7 +987,22 @@ function renderHome() {
           el(
             "div",
             { class: "library-head" },
-            el("h2", {}, "Your presentations"),
+            el(
+              "div",
+              { class: "library-heading" },
+              el("h2", {}, "Your presentations"),
+              libraryFilter(libraryView, (id) => {
+                libraryView = id;
+                for (const b of document.querySelectorAll(
+                  ".library-filter-btn",
+                ))
+                  b.setAttribute(
+                    "aria-pressed",
+                    String(b.dataset.filter === id),
+                  );
+                renderFileList();
+              }),
+            ),
             el(
               "div",
               { class: "library-tools" },
@@ -963,10 +1031,12 @@ function renderHome() {
                     renderFileList();
                   },
                 },
+                // "modified" sorts by when each was last opened here, or
+                // else changed; the value keeps its first name.
                 el(
                   "option",
                   { value: "modified", selected: sort === "modified" },
-                  "Last modified",
+                  "Last opened",
                 ),
                 el(
                   "option",
@@ -1001,6 +1071,44 @@ function templatePreview(type, color) {
   }
   return templatePreviews.get(key);
 }
+// The palettes a new deck can start in, from the app's themes.
+function deckThemes() {
+  return Object.entries(THEMES).map(([key, t]) => ({ key, name: t.name }));
+}
+let promptTheme = "studio";
+function themePreview(key) {
+  const cacheKey = `theme:${key}`;
+  if (!templatePreviews.has(cacheKey)) {
+    const pres = themeDeck(key);
+    templatePreviews.set(cacheKey, preview(pres, P.getSlides(pres)[0]));
+  }
+  return templatePreviews.get(cacheKey);
+}
+async function newThemeDeck(key) {
+  await openDocument(() => ({
+    pres: themeDeck(key),
+    name: "Untitled presentation",
+    color: key,
+  }));
+}
+// Scrolls the library to one of its parts and puts the keyboard there.
+function homeSection(selector, focusSelector) {
+  const target = document.querySelector(selector);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  document.querySelector(focusSelector)?.focus({ preventScroll: true });
+}
+// A deck written by the AI from a description opens as a new presentation.
+async function deckFromPrompt(description, options) {
+  promptTheme = options.theme;
+  const { pres, name } = await generateDeck(description, {
+    ...options,
+    chat: (messages, opts) => cloud.aiChatStream(messages, opts),
+    model: AI_MODEL,
+  });
+  if (options.signal?.aborted || view !== "home") return;
+  await openDocument(() => ({ pres, name, color: options.theme }));
+}
+const libraryRecords = () => libraryMeta(owner());
 function templateCard(type, title, subtitle, color) {
   const thumb = el(
     "div",
@@ -1078,6 +1186,7 @@ function renderFileList() {
       ),
     );
   const searchText = query.normalize("NFC").toLowerCase();
+  const records = libraryRecords();
   const rows = [
     ...localDrafts.map((d) => ({
       kind: "draft",
@@ -1101,6 +1210,17 @@ function renderFileList() {
     // Search and sort by the displayed title so the .pptx extension of cloud
     // files neither matches queries nor shifts alphabetical order.
     .map((f) => ({ ...f, title: fileTitle(f) }))
+    .map((f) => {
+      const opened = records.openedAt(f);
+      return {
+        ...f,
+        pinned: records.isPinned(f),
+        // The date shown and sorted by: when it was last opened here, or
+        // else last changed.
+        modified: opened && opened > (f.modified || 0) ? opened : f.modified,
+      };
+    })
+    .filter((f) => libraryView !== "pinned" || f.pinned)
     .filter((f) => f.title.normalize("NFC").toLowerCase().includes(searchText))
     // Names sort the way file browsers do: "Deck 2" before "Deck 10".
     .sort((a, b) =>
@@ -1110,7 +1230,9 @@ function renderFileList() {
             sensitivity: "base",
           })
         : b.modified - a.modified,
-    );
+    )
+    // Pinned presentations lead the list.
+    .sort((a, b) => b.pinned - a.pinned);
   if (!rows.length) {
     // A failed load already explains itself and offers a retry; do not also
     // claim the library is empty.
@@ -1130,16 +1252,23 @@ function renderFileList() {
         el(
           "h3",
           {},
-          query ? "No matching presentations" : "Your next story starts here",
+          query
+            ? "No matching presentations"
+            : libraryView === "pinned"
+              ? "Nothing pinned yet"
+              : "Your next story starts here",
         ),
         el(
           "p",
           {},
           query
             ? "Try another name."
-            : "Create a presentation above or bring in a PowerPoint file.",
+            : libraryView === "pinned"
+              ? "Pin a presentation from its options to keep it here."
+              : "Create a presentation above or bring in a PowerPoint file.",
         ),
         !query &&
+          libraryView !== "pinned" &&
           button(
             "Import a presentation",
             "Upload",
@@ -1157,7 +1286,7 @@ function renderFileList() {
       { class: "file-table-head" },
       el("span", {}, "NAME"),
       el("span", {}, "LOCATION"),
-      el("span", {}, "MODIFIED"),
+      el("span", {}, "LAST OPENED"),
       el("span"),
     ),
   );
@@ -1172,15 +1301,27 @@ function renderFileList() {
           {
             class: "file-open",
             title: label,
-            onclick: run(() =>
-              f.kind === "draft" ? recover(f) : openCloud(f),
-            ),
+            onclick: run(() => {
+              records.noteOpened(f);
+              return f.kind === "draft" ? recover(f) : openCloud(f);
+            }),
           },
           el("span", { class: "file-icon" }, icon("Presentation", 21)),
           el(
             "span",
             { class: "file-text" },
-            el("strong", {}, label),
+            el(
+              "strong",
+              {},
+              label,
+              f.pinned &&
+                el(
+                  "span",
+                  { class: "file-pin", title: "Pinned" },
+                  lucide("Pin", 12),
+                  el("span", { class: "visually-hidden" }, " (pinned)"),
+                ),
+            ),
             el(
               "small",
               {},
@@ -1278,11 +1419,24 @@ function libraryFileMenu(e, f) {
       document.querySelector('.home-title [aria-label="New presentation"]')
     );
   };
+  const records = libraryRecords();
+  const pinned = records.isPinned(f);
   menu(anchor, [
     {
       label: "Open",
       icon: "FolderOpen",
-      action: run(() => (f.kind === "draft" ? recover(f) : openCloud(f))),
+      action: run(() => {
+        records.noteOpened(f);
+        return f.kind === "draft" ? recover(f) : openCloud(f);
+      }),
+    },
+    {
+      label: pinned ? "Unpin" : "Pin to Top",
+      icon: pinned ? "o:unpinItem" : "o:pinItem",
+      action: () => {
+        records.togglePin(f);
+        renderFileList();
+      },
     },
     ...(f.kind === "recent"
       ? [
@@ -1307,6 +1461,7 @@ function libraryFileMenu(e, f) {
             icon: "X",
             action: () => {
               recent.forgetRecent(owner(), f.path);
+              libraryRecords().forget(f);
               recentFiles = recentFiles.filter((r) => r.path !== f.path);
               renderFileList();
             },
@@ -1336,6 +1491,7 @@ function libraryFileMenu(e, f) {
                   const path = f.path;
                   const renamedPath = await renameCloudPath(path, name);
                   const row = currentRow();
+                  libraryRecords().rename(f, { path: renamedPath });
                   f.path = renamedPath;
                   f.name = `${cleanName(name)}.pptx`;
                   if (row) row.dataset.fileKey = fileKey(f);
@@ -3482,6 +3638,24 @@ const drawTools = createDrawTools({
     if (drawTools.tool) cancelDrawing();
     syncToolbar();
   },
+  selectedShapes: () => (doc ? selectedShapes() : []),
+  selectShapes: (ids) => {
+    if (!doc) return;
+    selectIds(ids);
+    renderSelection();
+    updateSelectionUi();
+    renderInspector();
+  },
+  renderSlide: (s) => preview(doc.pres, s),
+  chat: () =>
+    cloud.canAI() ? globalThis.puter.ai.chat.bind(globalThis.puter.ai) : null,
+  aiModel: AI_MODEL,
+  // Ink to Math sets what it reads as an equation object (src/insert),
+  // looked up when used: the insert features are made after the Draw tab.
+  equation: () => insertFeatures?.equations || null,
+  shapeLabels: Object.fromEntries(
+    SHAPES.map(([preset, label]) => [preset, label]),
+  ),
 }); // Charts: Insert Chart, the data sheet, and the Chart Design and Format tabs.
 const chartTools = createChartTools({
   P,
@@ -5593,6 +5767,15 @@ function ribbonApi() {
         icon: "o:duplicate",
         onSelect: () => duplicateSlides(actionSlides(slide())),
       },
+      ...(assistant
+        ? [
+            {
+              label: "New Slide from Prompt…",
+              icon: "o:newSlidePrompt",
+              onSelect: () => newSlideFromPrompt().catch(fail),
+            },
+          ]
+        : []),
     ],
     canChangeLayout: () => !!globalThis.__changeLayoutSupported,
     layoutMenu: () => [],
@@ -5868,6 +6051,7 @@ function ribbonApi() {
       },
     ],
     hasAssistant: () => !!assistant,
+    newSlideFromPrompt: () => newSlideFromPrompt().catch(fail),
     designIdeas: () => {
       openAssistant(
         "Suggest a cleaner, more professional design for the current slide and apply it, keeping all of its content.",
@@ -6568,6 +6752,34 @@ function toggleAssistant(force) {
 }
 function openAssistant(prompt = null) {
   assistant?.open({ prompt });
+}
+// The assistant drafts a slide, after the current one, from a description.
+async function newSlideFromPrompt() {
+  if (!assistant || !doc) return;
+  const input = el("textarea", {
+    class: "input",
+    rows: 3,
+    maxlength: 2000,
+    autofocus: true,
+    placeholder:
+      "For example: our three goals for next year, with a line on each",
+    "aria-label": "Describe the slide",
+  });
+  const after = index + 1;
+  const ok = await dialog({
+    title: "New Slide from Prompt",
+    body: el(
+      "form",
+      { class: "dialog-body" },
+      el("label", {}, "What should the new slide say?", input),
+    ),
+    confirm: "Draft Slide",
+  });
+  const text = input.value.trim();
+  if (!ok || !text || !assistant) return;
+  assistant.ask(
+    `Add one new slide right after slide ${after} about the following, with its title, content and speaker notes, matching the palette and style of the slides around it:\n${text}`,
+  );
 }
 // Text typed on the slide is committed when its editor closes; the
 // assistant's edits wait for that rather than cut the typing short.
@@ -13796,6 +14008,7 @@ const BACKGROUND_LABELS = {
   image: "Image",
   inherit: "From layout",
 };
+// Ink drawn during a show stays on the slides only if the presenter says so.
 // `reading` plays the show in Reading View: inside the window, under its
 // title bar, with a status bar for moving through it.
 async function present(options = {}) {
@@ -13891,6 +14104,54 @@ async function present(options = {}) {
     status.textContent = error.message;
     stage.classList.add("has-status");
   }
+  // The presenter's pen: the show's ink (src/show/ink.js), kept per slide
+  // while the show runs and offered to keep on the slides when it ends.
+  const showInk = {
+    get enabled() {
+      return session?.inkTool() === "pen";
+    },
+    setEnabled: (on) => session?.setInkTool(on ? "pen" : null),
+    get color() {
+      return session?.inkColor();
+    },
+    setColor: (value) => session?.setInkColor(value),
+    clearSlide: () => session?.clearInk(),
+  };
+  const inkButton = iconButton("Pen", "Pencil", () => toggleInk(), {
+    "aria-pressed": "false",
+    title: "Pen (I). E erases the ink on this slide.",
+  });
+  const inkMenuButton = iconButton(
+    "Pen color and ink",
+    "ChevronDown",
+    (e) =>
+      menu(
+        e.currentTarget,
+        [
+          ...SHOW_PEN_COLORS.map(([name, value]) => ({
+            label: name,
+            checked: showInk.color === value,
+            onSelect: () => {
+              showInk.setColor(value);
+              toggleInk(true);
+            },
+          })),
+          { separator: true },
+          {
+            label: "Erase Ink on Slide",
+            shortcut: "E",
+            onSelect: () => showInk.clearSlide(),
+          },
+        ],
+        { label: "Pen" },
+      ),
+    { ...MENU_BUTTON, class: "btn icon-btn presenter-ink-menu" },
+  );
+  function toggleInk(on = !showInk.enabled) {
+    if (on && laser.enabled) toggleLaser();
+    showInk.setEnabled(on);
+    inkButton.setAttribute("aria-pressed", String(on));
+  }
   const laserButton = iconButton(
     "Laser pointer",
     "Pointer",
@@ -13902,6 +14163,7 @@ async function present(options = {}) {
   );
   function toggleLaser() {
     try {
+      if (!laser.enabled && showInk.enabled) toggleInk(false);
       laser.setEnabled(!laser.enabled);
       laserButton.setAttribute("aria-pressed", String(laser.enabled));
       status.textContent = "";
@@ -14385,6 +14647,8 @@ async function present(options = {}) {
         next,
         notesButton,
         laserButton,
+        inkButton,
+        inkMenuButton,
         pauseButton,
         timer,
         fullscreen,
@@ -14427,10 +14691,13 @@ async function present(options = {}) {
     // Click steps of the slide's animations, and whether it opened on its
     // last one (reached by going back, or shown without animation).
     animationSteps: () => animator?.steps ?? 0,
+    inkChanged: () =>
+      inkButton.setAttribute("aria-pressed", String(showInk.enabled)),
   });
   d.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (laser.enabled) toggleLaser();
+    else if (showInk.enabled) toggleInk(false);
     else close();
   });
   d.addEventListener("keydown", (e) => {
@@ -14441,6 +14708,11 @@ async function present(options = {}) {
     if (e.key === "Escape" && laser.enabled) {
       e.preventDefault();
       toggleLaser();
+      return;
+    }
+    if (e.key === "Escape" && showInk.enabled) {
+      e.preventDefault();
+      toggleInk(false);
       return;
     }
     if (
@@ -14467,6 +14739,14 @@ async function present(options = {}) {
     if (key === "l") {
       e.preventDefault();
       toggleLaser();
+    }
+    if (key === "i") {
+      e.preventDefault();
+      toggleInk();
+    }
+    if (key === "e") {
+      e.preventDefault();
+      showInk.clearSlide();
     }
     if (key !== "b" && key !== "w" && wasBlank) {
       restoreBlank();

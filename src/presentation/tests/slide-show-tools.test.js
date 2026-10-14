@@ -1,13 +1,7 @@
-// Slide show and recording helpers: ink kept from a show, narrations and
+// Slide show and recording helpers: narrations and
 // live cameras stored on slides, timings, and narrated video timelines.
 import { describe, expect, it } from "vitest";
 import { P, createDeck } from "../src/model.js";
-import {
-  addInkShape,
-  simplifyStroke,
-  strokeGeometry,
-  PEN_WIDTH,
-} from "../src/show/ink.js";
 import {
   addNarration,
   hasNarration,
@@ -40,67 +34,6 @@ function deck(count = 2) {
   for (let i = 1; i < count; i++) P.addBlankSlide(pres);
   return pres;
 }
-
-describe("ink from the show", () => {
-  it("thins a stroke to the points that matter", () => {
-    const line = Array.from({ length: 50 }, (_, i) => ({ x: i * 10, y: 0 }));
-    expect(simplifyStroke(line, 1)).toEqual([line[0], line[49]]);
-    const corner = [
-      { x: 0, y: 0 },
-      { x: 50, y: 0 },
-      { x: 100, y: 0 },
-      { x: 100, y: 50 },
-      { x: 100, y: 100 },
-    ];
-    expect(simplifyStroke(corner, 1)).toEqual([
-      corner[0],
-      corner[2],
-      corner[4],
-    ]);
-  });
-
-  it("boxes a stroke and draws a smooth path through it", () => {
-    const g = strokeGeometry(
-      {
-        points: [
-          { x: 1000, y: 2000 },
-          { x: 5000, y: 9000 },
-          { x: 9000, y: 2000 },
-        ],
-      },
-      SIZE.cx,
-    );
-    expect(g).toMatchObject({ x: 1000, y: 2000, w: 8000, h: 7000 });
-    expect(g.commands[0]).toEqual({ type: "moveTo", x: 0, y: 0 });
-    expect(g.commands.at(-1)).toMatchObject({ type: "cubicTo", x: 8000, y: 0 });
-  });
-
-  it("keeps strokes as ink shapes that survive saving", async () => {
-    const pres = deck(1);
-    const slide = P.getSlides(pres)[0];
-    addInkShape(
-      P,
-      slide,
-      {
-        tool: "highlighter",
-        color: "#FFFF00",
-        width: PEN_WIDTH * 4,
-        points: [
-          { x: 100000, y: 100000 },
-          { x: 900000, y: 400000 },
-        ],
-      },
-      SIZE.cx,
-    );
-    const again = P.getSlides(await roundTrip(pres))[0];
-    const ink = P.getSlideShapes(again).find((s) =>
-      P.getShapeName(s).startsWith("Ink "),
-    );
-    expect(ink).toBeTruthy();
-    expect(P.getShapeBounds(ink)).toMatchObject({ x: 100000, y: 100000 });
-    expect(P.getShapeCustomGeometry(ink).paths).toHaveLength(1);
-  });
-});
 
 describe("recorded narrations", () => {
   it("stores a narration that plays by itself and is found again", async () => {

@@ -556,6 +556,7 @@ export function createShowSession(ctx, show) {
     { title: "More options" },
   );
   function syncToolButtons() {
+    show.inkChanged?.();
     const active = !!ink.tool || show.laserEnabled();
     toolsButton.setAttribute("aria-pressed", String(active));
     subtitlesButton.setAttribute("aria-pressed", String(subtitles.running));
@@ -1226,6 +1227,16 @@ export function createShowSession(ctx, show) {
       rehearsal?.shown(i);
       studio?.shown(i);
     },
+    // The show's own pen button drives the same ink.
+    inkTool: () => ink.tool,
+    setInkTool(tool) {
+      if (tool && show.laserEnabled()) show.toggleLaser();
+      ink.setTool(tool);
+      syncToolButtons();
+    },
+    inkColor: () => ink.colors.pen,
+    setInkColor: (color) => ink.setColor("pen", color),
+    clearInk: () => ink.clear(),
     /** An animation click step played (1) or was taken back (-1). */
     stepped(by) {
       const steps = show.animationSteps?.() ?? 0;
