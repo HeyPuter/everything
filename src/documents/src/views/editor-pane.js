@@ -142,8 +142,9 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
 
   pane.body.append(score, scope, spelling, ai, readability);
 
-  let pending = null;
-  function later() { clearTimeout(pending); pending = setTimeout(refreshAll, 120); }
+  let pending = null, statsPending = null;
+  // Checks run after a pause in typing; statistics follow the selection a moment later.
+  function later() { clearTimeout(pending); pending = setTimeout(refreshAll, 400); }
   async function refreshAll() {
     if (!pane.isOpen) return;
     try { spellingIssues = proofing.enabled ? await proofing.issues() : []; } catch (e) { spellingIssues = []; error(e); }
@@ -170,7 +171,7 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
     pane, overlay,
     open() { pane.open(); },
     refresh() { if (pane.isOpen) later(); },
-    selectionChanged() { if (pane.isOpen) renderStats(); },
+    selectionChanged() { if (pane.isOpen) { clearTimeout(statsPending); statsPending = setTimeout(renderStats, 150); } },
     /** Typing invalidates AI suggestion positions: drop the ones whose text changed. */
     changed() {
       const engine = editor(); if (!engine || !aiSuggestions.length) return;
@@ -179,6 +180,6 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
       if (kept.length !== aiSuggestions.length) { aiSuggestions = kept; renderAi(); }
     },
     get suggestionCount() { return aiSuggestions.filter(x => !ignoredSuggestions.has(key(x))).length; },
-    destroy() { aiBusy?.abort(); clearTimeout(pending); pane.destroy(); },
+    destroy() { aiBusy?.abort(); clearTimeout(pending); clearTimeout(statsPending); pane.destroy(); },
   };
 }
