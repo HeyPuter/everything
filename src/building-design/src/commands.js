@@ -49,7 +49,7 @@ export const COMMANDS = {
   export: { label: 'Export', icon: 'download', run: (app, args) => app.exportDialog(args?.format) },
   print: { label: 'Print or Export PDF', icon: 'printer', accel: 'Ctrl+P', run: (app) => app.exportDialog('pdf') },
   home: { label: 'Home', icon: 'house', run: (app) => app.showHome() },
-  sample: { label: 'Open Sample Project', icon: 'house', run: (app) => app.openSample() },
+  sample: { label: 'Open Sample Project', icon: 'house', run: (app) => app.startProject('sample') },
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
   sharedWithMe: { label: 'Shared With Me', icon: 'users', run: (app) => app.openDialog('shared') },
@@ -115,6 +115,7 @@ export const COMMANDS = {
   dimension: { label: 'Aligned Dimension', icon: 'dimAligned', keys: 'DI', run: tool(DimensionTool) },
   text: { label: 'Text', icon: 'text', keys: 'TX', run: tool(TextTool) },
   detailLine: { label: 'Detail Line', icon: 'detailLine', keys: 'DL', run: tool(LineTool, { kind: 'detailLine' }) },
+  region: { label: 'Filled Region', icon: 'boundary', keys: 'FR', run: tool(SketchTool, { kind: 'region' }), desc: 'Sketch a hatched or solid area in the view' },
   tag: { label: 'Tag by Category', icon: 'tag', keys: 'TG', run: tool(TagTool) },
   tagAll: { label: 'Tag All Not Tagged', icon: 'tagAll', run: (app) => tagAll(app) },
 

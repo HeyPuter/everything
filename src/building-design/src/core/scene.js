@@ -16,7 +16,7 @@ import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.j
 import { hostedBy } from './model.js';
 
 export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'railing', 'component'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'grid', 'dimension', 'text', 'tag', 'detailLine', 'section', 'elevation'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'grid', 'region', 'dimension', 'text', 'tag', 'detailLine', 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'railing', 'component', 'beam']);
 
@@ -67,12 +67,15 @@ export class Scene {
   changed(ev) {
     const doc = this.doc;
     let all = false;
+    let columnType = false;
     const levels = new Set();
     for (const id of ev.ids) {
       const now = doc.get(id);
       const before = this.known.get(id);
       const kind = now?.kind ?? before?.kind;
       if (kind === 'level' || kind === 'wallType' || kind === 'material' || kind === 'project') all = true;
+      // Column outlines bound rooms, and their size lives on the type.
+      if (kind === 'columnType') columnType = true;
       if (LEVEL_SCOPED.has(kind)) {
         if (before?.levelId) levels.add(before.levelId);
         if (now?.levelId) levels.add(now.levelId);
@@ -91,6 +94,7 @@ export class Scene {
       this.walls.invalidate();
       if (rooms) this.rooms.invalidate();
     } else {
+      if (columnType && rooms) this.rooms.invalidate();
       for (const l of levels) {
         this.walls.invalidate(l);
         if (rooms) this.rooms.invalidate(l);

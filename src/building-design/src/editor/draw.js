@@ -39,6 +39,18 @@ import { newId } from '../core/doc.js';
 import { STAIR_SHAPES } from '../core/stairs.js';
 import { MM_PER_FOOT } from '../core/units.js';
 
+export const REGION_PATTERNS = [
+  { value: 'diag', label: 'Diagonal' },
+  { value: 'cross', label: 'Crosshatch' },
+  { value: 'concrete', label: 'Concrete' },
+  { value: 'insulation', label: 'Insulation' },
+  { value: 'brick', label: 'Masonry' },
+  { value: 'wood', label: 'Wood' },
+  { value: 'earth', label: 'Earth' },
+  { value: 'solid', label: 'Solid' },
+  { value: 'none', label: 'Gray tone' },
+];
+
 /** Draw plan graphics of a temporary element on the overlay. */
 export function previewGraphics(app, vc, el, ctx, color, alpha = 0.12) {
   const view = vc.view;
@@ -708,7 +720,11 @@ export class LineTool extends Tool {
 
 export class SketchTool extends Tool {
   get placingKind() {
-    return this.kind === 'shaft' ? null : this.kind;
+    return this.kind === 'shaft' || this.kind === 'region' ? null : this.kind;
+  }
+
+  get viewKinds() {
+    return this.kind === 'region' ? ['plan', 'ceilingPlan', 'elevation', 'section', 'sheet'] : ['plan', 'ceilingPlan'];
   }
 
   constructor(app, opts) {
@@ -719,13 +735,14 @@ export class SketchTool extends Tool {
     this.pts = el ? (el.boundary || el.path || []).slice() : [];
     this.closed = !!el && this.kind !== 'railing';
     this.cursor = null;
-    const defaults = { mode: this.kind === 'railing' ? 'polygon' : this.kind === 'shaft' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
+    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' ? 'polygon' : this.kind === 'shaft' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
     this.o = app.toolOptions(`sketch-${this.kind}`, defaults);
     if (this.editId) this.o.mode = 'polygon';
   }
 
   get title() {
     if (this.kind === 'shaft') return 'Shaft Opening';
+    if (this.kind === 'region') return 'Filled Region';
     const n = { floor: 'Floor', ceiling: 'Ceiling', roof: 'Roof', railing: 'Railing' }[this.kind];
     return this.editId ? `Edit ${n} Boundary` : `Create ${n} ${this.kind === 'railing' ? 'Path' : 'Boundary'}`;
   }
@@ -744,7 +761,7 @@ export class SketchTool extends Tool {
     const o = this.o;
     const modes = [{ value: 'polygon', label: 'Lines', icon: 'polygon' }];
     if (this.kind !== 'railing') modes.push({ value: 'rect', label: 'Rectangle', icon: 'rect' });
-    if (this.kind === 'floor' || this.kind === 'ceiling') modes.push({ value: 'pickRoom', label: 'Pick room', icon: 'room' });
+    if (this.kind === 'floor' || this.kind === 'ceiling' || this.kind === 'region') modes.push({ value: 'pickRoom', label: 'Pick room', icon: 'room' });
     if (this.kind === 'floor' || this.kind === 'roof') modes.push({ value: 'pickWalls', label: 'Pick walls', icon: 'pickWalls' });
     const out = [
       segmented(
@@ -770,6 +787,12 @@ export class SketchTool extends Tool {
       out.push(lengthField(this, 'Overhang', o.overhang, (v) => (o.overhang = v)));
     }
     if (this.kind === 'ceiling') out.push(lengthField(this, 'Height offset', o.offset, (v) => (o.offset = v)));
+    if (this.kind === 'region') {
+      const s = h('select.input.sm', { 'aria-label': 'Fill pattern' }, ...REGION_PATTERNS.map((p) => h('option', { value: p.value }, p.label)));
+      s.value = o.pattern || 'diag';
+      s.addEventListener('change', () => (o.pattern = s.value));
+      out.push(h('div.ob-group', h('label', 'Pattern'), s));
+    }
     out.push(finishCancel(this));
     return out;
   }
@@ -885,6 +908,11 @@ export class SketchTool extends Tool {
     }
     if (pts.length < 3 || Math.abs(signedArea(pts)) < 1000) return this.app.toast('The boundary needs at least three points enclosing an area.', { kind: 'error' });
     if (this.kind === 'shaft') return this.finishShaft(pts);
+    if (this.kind === 'region') {
+      const view = this.vc.view;
+      this.app.commit('Filled region', () => this.doc.add({ kind: 'region', viewId: view.id, boundary: pts, holes: [], pattern: this.o.pattern || 'diag', outline: true }));
+      return this.app.cancelTool();
+    }
     const type = this.app.currentType(this.kind);
     let levelId = this.app.activeLevelId();
     let baseOffset = 0;
@@ -1411,6 +1439,11 @@ export function tagAll(app, kinds = ['door', 'window']) {
 // Views ---------------------------------------------------------------------------------------------------
 
 export class SectionTool extends Tool {
+  constructor(app, opts) {
+    super(app, opts);
+    this.start = null;
+  }
+
   get title() {
     return 'Section';
   }

@@ -201,6 +201,13 @@ const INSTANCE = {
     }),
   ],
   tag: [P('leader', 'Leader Line', 'Graphics', 'bool'), ro('target', 'Tags', 'Other', (el, c) => describe(c.doc, c.doc.get(el.targetId)), 'text')],
+  region: [
+    P('pattern', 'Fill Pattern', 'Graphics', 'select', {
+      options: () => ['diag', 'cross', 'concrete', 'insulation', 'brick', 'wood', 'earth', 'solid', 'none'].map((v) => ({ value: v, label: v === 'none' ? 'Gray tone' : v[0].toUpperCase() + v.slice(1) })),
+    }),
+    P('outline', 'Show Outline', 'Graphics', 'bool'),
+    ro('area', 'Area', 'Dimensions', (el) => polyArea(el.boundary || []), 'area'),
+  ],
   detailLine: [
     P('style', 'Line Style', 'Graphics', 'select', { options: () => ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }),
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),

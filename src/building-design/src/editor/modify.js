@@ -278,7 +278,7 @@ export class MirrorTool extends SelectionTool {
 
   get prompt() {
     if (!this.draw) return 'Click a line, wall or grid to mirror about';
-    return this.start ? 'Click the end of the mirror axis' : 'Click the start of the mirror axis';
+    return this.axisStart ? 'Click the end of the mirror axis' : 'Click the start of the mirror axis';
   }
 
   options() {
@@ -286,7 +286,7 @@ export class MirrorTool extends SelectionTool {
   }
 
   axisFrom(ev) {
-    this.snap(ev, this.start, { exclude: this.exclude });
+    this.snap(ev, this.axisStart, { exclude: this.exclude });
     const line = this.snapRes?.ref?.line || this.snapRes?.line;
     return line ? [line.a, line.b] : null;
   }
@@ -297,15 +297,15 @@ export class MirrorTool extends SelectionTool {
       if (!ax) return;
       return this.apply(ax[0], ax[1]);
     }
-    const p = this.snap(ev, this.start, { exclude: this.exclude });
+    const p = this.snap(ev, this.axisStart, { exclude: this.exclude });
     if (!p) return;
-    if (!this.start) {
-      this.start = p;
+    if (!this.axisStart) {
+      this.axisStart = p;
       this.app.setPrompt(this.prompt);
       return;
     }
-    if (dist(p, this.start) < 1) return;
-    this.apply(this.start, p);
+    if (dist(p, this.axisStart) < 1) return;
+    this.apply(this.axisStart, p);
   }
 
   apply(a, b) {
@@ -316,14 +316,14 @@ export class MirrorTool extends SelectionTool {
   }
 
   move(ev) {
-    if (this.draw) this.cursor = this.snap(ev, this.start, { exclude: this.exclude });
+    if (this.draw) this.cursor = this.snap(ev, this.axisStart, { exclude: this.exclude });
     else this.hoverAxis = this.axisFrom(ev);
     this.app.requestRender();
   }
 
   drawOverlay(ctx, vc, vp) {
     const S = (p) => vc.modelToScreen(p);
-    const ax = this.draw ? (this.start && this.cursor && dist(this.start, this.cursor) > 1 ? [this.start, this.cursor] : null) : this.hoverAxis;
+    const ax = this.draw ? (this.axisStart && this.cursor && dist(this.axisStart, this.cursor) > 1 ? [this.axisStart, this.cursor] : null) : this.hoverAxis;
     if (ax) {
       const d = norm(sub(ax[1], ax[0]));
       const L = 1e5;

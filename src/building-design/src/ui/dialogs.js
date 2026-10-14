@@ -42,10 +42,7 @@ export async function newProjectDialog(app) {
     ),
     actions: [{ label: 'Cancel', value: null }],
   });
-  if (!pick) return;
-  if (app.doc?.modified && !(await confirmDialog('Discard changes?', 'The current project has changes that are not saved. A recovery copy is kept in this browser until you start a new project.', { confirm: 'Continue', danger: true }))) return;
-  if (pick === 'sample') app.openSample();
-  else app.newProject(pick);
+  if (pick) await app.startProject(pick);
 }
 
 // Levels ----------------------------------------------------------------------------------------
@@ -274,7 +271,7 @@ function layersEditor(app, t, rerender) {
 
 function curtainEditor(app, t) {
   const c = t.curtain || {};
-  const set = (patch) => app.commit('Curtain grid', () => app.doc.update(t.id, { curtain: { ...c, ...patch } }));
+  const set = (patch) => app.commit('Curtain grid', () => app.doc.update(t.id, { curtain: { ...(app.doc.get(t.id)?.curtain || {}), ...patch } }));
   const hs = lengthInput(app, c.hSpacing, 'Vertical grid spacing');
   hs.addEventListener('change', () => Number.isFinite(hs.read()) && set({ hSpacing: hs.read() }));
   const vs = lengthInput(app, c.vSpacing, 'Horizontal grid spacing');
@@ -644,10 +641,16 @@ export async function placeViewDialog(app, viewId) {
   let size = null;
   if (view.kind === 'plan' || view.kind === 'ceilingPlan') {
     // Center on the view's content.
+    const cached = app.controllers.has(view.id);
     const c = app.controllerFor(view);
     c.sync();
     const b = c.extents();
     if (b) center = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+    // Only the extents were needed; don't keep GPU layers for a view that isn't open.
+    if (!cached && !app.openViews.includes(view.id)) {
+      c.dispose?.();
+      app.controllers.delete(view.id);
+    }
   } else {
     const aw = area.x1 - area.x0;
     const ah = area.y1 - area.y0;

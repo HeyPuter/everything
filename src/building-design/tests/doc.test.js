@@ -82,6 +82,15 @@ describe('Doc transactions', () => {
     expect(doc.modified).toBe(true);
   });
 
+  it('keeps edits made during a save unsaved', () => {
+    const doc = new Doc();
+    doc.transact('Add', () => doc.add({ kind: 'level', elevation: 0 }));
+    const rev = doc.revision; // serialized here
+    doc.transact('Add', () => doc.add({ kind: 'level', elevation: 3000 }));
+    doc.markSaved(rev); // the write finishes later
+    expect(doc.modified).toBe(true);
+  });
+
   it('round-trips through JSON', () => {
     const doc = createProject({ system: 'imperial', name: 'House' });
     const copy = Doc.fromJSON(JSON.parse(JSON.stringify(doc.toJSON())));

@@ -86,6 +86,13 @@ test('selecting shows properties and editing a value updates the model', async (
   await offset.fill('100');
   await offset.press('Enter');
   expect(await page.evaluate((id) => window.bd.doc.get(id).baseOffset, id)).toBe(100);
+  // Tab after an edit lands on the next field, so typing never reaches canvas shortcuts.
+  const mark = page.locator('#prop-mark');
+  await mark.fill('W1');
+  await mark.press('Tab');
+  await expect(page.locator('#prop-comments')).toBeFocused();
+  await page.keyboard.type('DE');
+  expect(await page.evaluate((id) => window.bd.doc.has(id), id)).toBe(true);
 });
 
 test('the project browser works from the keyboard', async ({ page }) => {

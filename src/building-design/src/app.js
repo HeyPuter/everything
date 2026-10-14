@@ -144,6 +144,8 @@ export class App {
     this.viewStates.clear();
     this.scene?.dispose();
     this.viewport.r3.clear();
+    this.viewport.r3.origin = [0, 0, 0];
+    this.originSet = false;
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');
@@ -1481,6 +1483,14 @@ export class App {
   openSample() {
     const doc = createSampleProject({ system: this.settings.units === 'imperial' ? 'imperial' : 'metric' });
     this.setDoc(doc, null);
+  }
+
+  /** Starts a new or sample project after offering to save unsaved changes. */
+  async startProject(kind) {
+    if (!(await files.confirmDiscard(this))) return false;
+    if (kind === 'sample') this.openSample();
+    else this.newProject(kind);
+    return true;
   }
 
   // Files and dialogs (implemented in io/files.js and ui/dialogs.js) ------------------------------------

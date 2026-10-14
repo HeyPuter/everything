@@ -52,8 +52,9 @@ export class Doc {
     return this.revision !== this.savedRevision;
   }
 
-  markSaved() {
-    this.savedRevision = this.revision;
+  /** `rev` is the revision that was serialized, so edits made during a slow write stay unsaved. */
+  markSaved(rev = this.revision) {
+    this.savedRevision = rev;
   }
 
   // Queries -----------------------------------------------------------------

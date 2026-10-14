@@ -34,6 +34,7 @@ export const KIND_Z = {
   level: 8,
   section: 9,
   elevation: 9,
+  region: 10,
   detailLine: 10,
   dimension: 11,
   tag: 11,

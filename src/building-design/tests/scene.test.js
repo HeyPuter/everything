@@ -42,6 +42,17 @@ describe('sample project', () => {
     expect(scene.mesh(host)).not.toBe(before);
     doc.undo();
   });
+
+  it('recomputes room boundaries when a column type changes size', () => {
+    const t = doc.all('columnType')[0];
+    let calls = 0;
+    const inv = scene.rooms.invalidate.bind(scene.rooms);
+    scene.rooms.invalidate = (...a) => (calls++, inv(...a));
+    doc.transact('Widen', () => doc.update(t.id, { width: (t.width || 300) + 100 }));
+    scene.rooms.invalidate = inv;
+    expect(calls).toBeGreaterThan(0);
+    doc.undo();
+  });
 });
 
 describe('walls attached to roofs', () => {

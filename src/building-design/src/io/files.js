@@ -79,7 +79,7 @@ export async function recover(app) {
 
 // Opening ------------------------------------------------------------------------------------
 
-async function confirmDiscard(app) {
+export async function confirmDiscard(app) {
   if (!app.doc?.modified) return true;
   // Projects kept only in this browser are safe in the recovery store, but ask anyway.
   const r = await unsavedDialog(app.file?.name || app.doc.project.name || 'Untitled');
@@ -131,6 +131,7 @@ export async function handleLaunchItems(app) {
     puter.ui.onLaunchedWithItems(async (items) => {
       const f = items?.[0];
       if (!f) return;
+      if (!(await confirmDiscard(app))) return;
       const blob = await f.read();
       await loadBuffer(app, await blob.arrayBuffer(), { name: baseName(f.name), path: f.path, source: 'cloud' });
     });
@@ -232,9 +233,12 @@ export async function save(app) {
 
 async function writeCloud(app, path, name) {
   try {
-    const blob = await encodeProject(app.doc);
+    const doc = app.doc;
+    const rev = doc.revision;
+    const blob = await encodeProject(doc);
     await cloudWrite(path, blob, true);
-    app.doc.markSaved();
+    doc.markSaved(rev);
+    if (doc !== app.doc) return true;
     app.file = { ...app.file, name, path, source: 'cloud' };
     addRecent({ name, path, source: 'cloud' });
     app.updateTitle();
@@ -248,10 +252,13 @@ async function writeCloud(app, path, name) {
 }
 
 async function writeDevice(app, name, handle) {
-  const blob = await encodeProject(app.doc);
+  const doc = app.doc;
+  const rev = doc.revision;
+  const blob = await encodeProject(doc);
   const r = await deviceSave(blob, `${safeFileName(name)}${NATIVE_EXT}`, handle);
   if (!r) return false;
-  app.doc.markSaved();
+  doc.markSaved(rev);
+  if (doc !== app.doc) return true;
   app.file = { ...app.file, name: baseName(r.name), handle: r.handle || null, source: 'device' };
   app.updateTitle();
   scheduleRecovery(app);
@@ -264,13 +271,17 @@ export async function saveAs(app) {
   const name0 = app.file?.name || app.doc.project.name || 'Untitled';
   if (usePuterPickers()) {
     try {
-      const blob = await encodeProject(app.doc);
+      const doc = app.doc;
+      const rev = doc.revision;
+      const blob = await encodeProject(doc);
       const r = await puterSavePicker(blob, `${safeFileName(name0)}${NATIVE_EXT}`);
       if (!r) return false;
-      app.doc.markSaved();
-      app.file = { name: baseName(r.name), path: r.path, source: 'cloud' };
+      doc.markSaved(rev);
+      if (doc !== app.doc) return true;
+      app.file = { ...app.file, name: baseName(r.name), path: r.path, source: 'cloud', handle: null };
       addRecent({ name: app.file.name, path: r.path, source: 'cloud' });
       app.updateTitle();
+      scheduleRecovery(app);
       toast(`Saved ${app.file.name}.`, { kind: 'success' });
       return true;
     } catch (err) {

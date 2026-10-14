@@ -34,6 +34,36 @@ export class PropertiesPanel {
   }
 
   render() {
+    if (this.deferred) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || (active !== this.body && this.body.contains(active))) {
+      // Rebuilding would drop the focused field, or the field Tab is moving to while a
+      // `change` commits (focus is on <body> then), so let focus settle, rebuild, restore it.
+      this.deferred = true;
+      setTimeout(() => {
+        this.deferred = false;
+        this.renderNow();
+      }, 0);
+      return;
+    }
+    this.renderNow();
+  }
+
+  renderNow() {
+    const active = document.activeElement;
+    const focusables = () => [...this.body.querySelectorAll('button, input, select, textarea, [tabindex]')];
+    const inside = active && active !== this.body && this.body.contains(active);
+    const key = inside ? { id: active.id, idx: focusables().indexOf(active) } : null;
+    const scroll = this.body.scrollTop;
+    this.build();
+    if (key) {
+      const el = (key.id && this.body.querySelector(`#${CSS.escape(key.id)}`)) || focusables()[key.idx];
+      el?.focus({ preventScroll: true });
+    }
+    this.body.scrollTop = scroll;
+  }
+
+  build() {
     const app = this.app;
     const doc = app.doc;
     clear(this.body);

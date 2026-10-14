@@ -59,7 +59,7 @@ export const RIBBON = [
     label: 'Annotate',
     panels: [
       { title: 'Dimension', items: [{ cmd: 'dimension', size: 'lg' }, { cmd: 'measure', size: 'lg' }] },
-      { title: 'Detail', items: [{ cmd: 'detailLine', size: 'lg' }] },
+      { title: 'Detail', items: [{ cmd: 'detailLine', size: 'lg' }, { cmd: 'region', size: 'lg' }] },
       { title: 'Text', items: [{ cmd: 'text', size: 'lg' }] },
       { title: 'Tag', items: [{ cmd: 'tag', size: 'lg' }, { cmd: 'tagAll', size: 'lg' }] },
     ],

@@ -189,6 +189,14 @@ export function planGraphics(pc, el) {
     case 'detailLine':
       if (el.viewId === pc.view.id) drawDetailLine(el, b);
       break;
+    case 'region':
+      if (el.viewId === pc.view.id && el.boundary?.length >= 3) {
+        const pat = PATTERN[el.pattern] ?? 1;
+        b.fill(el.boundary, el.holes || [], el.pattern === 'solid' ? INK(200) : pat ? INK(14) : INK(60), el.pattern === 'solid' ? 0 : pat);
+        b.poly(el.boundary, true, el.outline === false ? W.thin : W.light, 0, el.outline === false ? INK(0) : null);
+        b.pick(el.boundary);
+      }
+      break;
     case 'section':
       planSectionMarker(pc, el, b);
       break;

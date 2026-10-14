@@ -83,6 +83,7 @@ const KIND_CATEGORY = {
   text: 'text',
   tag: 'tags',
   detailLine: 'lines',
+  region: 'lines',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -113,6 +114,7 @@ export const KIND_LABEL = {
   text: 'Text Note',
   tag: 'Tag',
   detailLine: 'Detail Line',
+  region: 'Filled Region',
 };
 
 export const TYPE_KIND = {
