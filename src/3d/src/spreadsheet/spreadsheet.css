@@ -220,7 +220,7 @@
   padding: 4px 6px 12px;
 }
 .ss-empty {
-  color: #888;
+  color: #87888a;
   padding: 6px 10px;
 }
 .ss-tri {
@@ -229,10 +229,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #aaa;
+  color: #aaabad;
 }
 .ss-left-node .ss-left-label {
-  color: #ccc;
+  color: #cdced0;
 }
 .ss-hcell {
   position: relative;
@@ -243,11 +243,11 @@
   user-select: none;
 }
 .ss-hcell:hover {
-  background: #383838;
+  background: #353638;
 }
 .ss-hcell.sorted {
-  color: #fff;
-  background: #3a3a3a;
+  color: #ffffff;
+  background: #37383a;
 }
 .ss-hcell.dragging {
   opacity: 0.55;
@@ -290,10 +290,10 @@
 }
 .ss-row.sel,
 .ss-row.sel .ss-cell.ss-idx {
-  background: #33445e;
+  background: #34435f;
 }
 .ss-cell.sel {
-  background: rgba(71, 114, 179, 0.45);
+  background: rgba(75, 112, 181, 0.45);
 }
 .ss-cell.t-string {
   justify-content: flex-start;
@@ -306,7 +306,7 @@
   align-items: center;
   gap: 4px;
   margin-right: auto;
-  color: #bbb;
+  color: #bbbcbe;
   white-space: pre;
 }
 .ss-filter {
@@ -319,7 +319,7 @@
   opacity: 0.6;
 }
 .ss-filter.missing .ss-fcol {
-  box-shadow: inset 0 0 0 1px rgba(220, 160, 60, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(216, 164, 55, 0.6);
 }
 .ss-filter-hdr {
   display: flex;
@@ -337,7 +337,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #aaa;
+  color: #aaabad;
   padding: 3px 6px;
 }
 .ss-colrow {
@@ -351,6 +351,6 @@
   min-width: 0;
 }
 .ss-coltype {
-  color: #888;
+  color: #87888a;
   font-size: 10px;
 }

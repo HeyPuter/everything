@@ -307,7 +307,7 @@ export class DriversEditor extends GraphEditor {
     g.lineWidth = 1;
     for (let x = Math.floor(v.xf(0) / step) * step; v.fx(x) < W + 1; x += step) {
       const px = Math.round(v.fx(x)) + 0.5;
-      g.strokeStyle = Math.abs(x) < step / 2 ? 'rgba(0,0,0,0.45)' : C.grid;
+      g.strokeStyle = Math.abs(x) < step / 2 ? 'rgba(0, 0, 0,0.45)' : C.grid;
       g.beginPath();
       g.moveTo(px, RULER_H);
       g.lineTo(px, H);
@@ -319,7 +319,7 @@ export class DriversEditor extends GraphEditor {
     const v = this.view;
     g.fillStyle = C.rulerBack;
     g.fillRect(0, 0, W, RULER_H);
-    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fillStyle = 'rgba(0, 0, 0,0.3)';
     g.fillRect(0, RULER_H - 1, W, 1);
     const step = valueStep(v.ppf, 60);
     g.font = '11px Inter, system-ui, sans-serif';

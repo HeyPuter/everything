@@ -216,7 +216,7 @@ const POINT_FS = /* glsl */ `
 varying vec3 vColor;
 void main() { vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(vColor, 1.0); }`;
 
-const SEL = new Color(1, 0.52, 0).convertSRGBToLinear(),
+const SEL = new Color(0.96, 0.554, 0.015).convertSRGBToLinear(),
   WIRE_SEL = new Color(1, 0.62, 0.2).convertSRGBToLinear(),
   WIRE = new Color(0.12, 0.12, 0.12),
   UNSEL_POINT = new Color(0.05, 0.05, 0.05);

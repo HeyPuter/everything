@@ -262,8 +262,8 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { class: 'pe-cursor', 'pointer-events': 'none' },
-    h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(0,0,0,0.35)', 'stroke-width': 3 }),
-    h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(255,255,255,0.9)', 'stroke-width': 1.3 }),
+    h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(0, 0, 0,0.35)', 'stroke-width': 3 }),
+    h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(255, 255, 255,0.9)', 'stroke-width': 1.3 }),
   ) as VNode;
 });
 
@@ -291,7 +291,7 @@ const overlays = new Map<string, Overlay>();
 
 const PATH = new Color(0.82, 0.82, 0.82).convertSRGBToLinear(),
   PATH_SEL = new Color(1, 0.62, 0.25).convertSRGBToLinear(),
-  KEY_SEL = new Color(1, 0.52, 0).convertSRGBToLinear(),
+  KEY_SEL = new Color(0.96, 0.554, 0.015).convertSRGBToLinear(),
   KEY = new Color(0.12, 0.12, 0.12);
 
 /** Blue (0) → green → red (1) weight colours. */

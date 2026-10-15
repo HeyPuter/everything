@@ -421,14 +421,14 @@ editModeHooks.svg.push((v) => {
       const center = new Vector3().setFromMatrixPosition(worldOf(a.ob));
       const r = (b.minimum_distance ?? 0.05) / Math.max(1e-9, pixelsToWorld(v, center, 1));
       for (let i = -2; i <= 2; i++)
-        for (let j = -2; j <= 2; j++) parts.push(h('circle', { cx: minDistPreview.x + i * r, cy: minDistPreview.y + j * r, r: 2, fill: '#fff' }) as VNode);
+        for (let j = -2; j <= 2; j++) parts.push(h('circle', { cx: minDistPreview.x + i * r, cy: minDistPreview.y + j * r, r: 2, fill: '#ffffff' }) as VNode);
     }
   }
   if (cursor.inside && cursor.view === v) {
     const b = curvesBrush(app.doc, activeSculptTool());
     parts.push(
-      h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(0,0,0,0.35)', 'stroke-width': 3 }) as VNode,
-      h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(255,255,255,0.9)', 'stroke-width': 1.3 }) as VNode,
+      h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(0, 0, 0,0.35)', 'stroke-width': 3 }) as VNode,
+      h('circle', { cx: cursor.x, cy: cursor.y, r: b.size, fill: 'none', stroke: 'rgba(255, 255, 255,0.9)', 'stroke-width': 1.3 }) as VNode,
     );
   }
   return parts.length ? h('g', { class: 'hair-cursor', 'pointer-events': 'none' }, parts) : null;
@@ -446,8 +446,8 @@ editModeHooks.svg.push((v) => {
   return h(
     'g',
     { class: 'hair-radial', 'pointer-events': 'none' },
-    h('circle', { cx: radial.cx, cy: radial.cy, r: Math.max(1, r), fill: 'rgba(255,255,255,0.08)', stroke: '#fff', 'stroke-width': 1.5 }),
-    h('text', { x: radial.cx, y: radial.cy + 4, 'text-anchor': 'middle', fill: '#fff', 'font-size': 12, style: 'paint-order:stroke;stroke:#000;stroke-width:3px' }, radial.data === 'size' ? `${Math.round(radial.value)} px` : radial.value.toFixed(3)),
+    h('circle', { cx: radial.cx, cy: radial.cy, r: Math.max(1, r), fill: 'rgba(255, 255, 255,0.08)', stroke: '#ffffff', 'stroke-width': 1.5 }),
+    h('text', { x: radial.cx, y: radial.cy + 4, 'text-anchor': 'middle', fill: '#ffffff', 'font-size': 12, style: 'paint-order:stroke;stroke:#000000;stroke-width:3px' }, radial.data === 'size' ? `${Math.round(radial.value)} px` : radial.value.toFixed(3)),
   );
 });
 
