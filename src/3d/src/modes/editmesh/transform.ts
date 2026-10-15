@@ -111,19 +111,36 @@ transformProviders.push({
       let any = false;
       for (let i = 0; i < nv; i++) if (sel[i] && !me.hide_vert?.[i]) any = true;
       if (!any) continue;
+      const editedKey = me.shape_keys[me.use_shape_key_edit_mode ? me.active_shape_key_index : 0];
+      if (editedKey?.lock_shape) {
+        app.report('WARNING', `Shape key "${editedKey.name}" is locked`);
+        continue;
+      }
       const normal = selectionNormal(me);
       const basisObj = basisFromNormal(normal);
       const wrot = new Matrix3().setFromMatrix4(world);
       const basisWorld = wrot.clone().multiply(basisObj);
       // per-vertex normals for shrink/fatten
       const vn = new Float32Array(base.length);
+      const vnSel = new Uint8Array(nv);
       const cn = cornerNormals(me);
-      for (let c = 0; c < me.indices.length; c++) {
-        const v = me.indices[c] * 3;
-        vn[v] += cn[c * 3];
-        vn[v + 1] += cn[c * 3 + 1];
-        vn[v + 2] += cn[c * 3 + 2];
-      }
+      // vertices on selected faces follow those faces only (so extruded walls don't tilt them)
+      for (const onlySelected of [true, false])
+        for (let f = 0; f < me.offsets.length - 1; f++) {
+          const s = me.offsets[f],
+            e = me.offsets[f + 1];
+          let all = true;
+          for (let c = s; c < e; c++) if (!sel[me.indices[c]]) all = false;
+          if (all !== onlySelected) continue;
+          for (let c = s; c < e; c++) {
+            const v = me.indices[c] * 3;
+            if (!onlySelected && vnSel[me.indices[c]]) continue;
+            vn[v] += cn[c * 3];
+            vn[v + 1] += cn[c * 3 + 1];
+            vn[v + 2] += cn[c * 3 + 2];
+            if (onlySelected) vnSel[me.indices[c]] = 1;
+          }
+        }
       // proportional influence
       const weight = new Float32Array(nv);
       for (let i = 0; i < nv; i++) if (sel[i] && !me.hide_vert?.[i]) weight[i] = 1;
@@ -201,9 +218,33 @@ transformProviders.push({
         });
       }
       const pending = new Set<MeshData>();
+      // mesh symmetry: unselected mirror partners follow, vertices on the mirror plane stay on it
+      const mirrorAxes = [ts.use_mesh_mirror_x, ts.use_mesh_mirror_y, ts.use_mesh_mirror_z].map((b, k) => (b ? k : -1)).filter((k) => k >= 0);
+      const mirrorPairs: [number, number, number][] = []; // moving vertex, partner, axis
+      const onPlane: [number, number][] = [];
+      if (mirrorAxes.length) {
+        const q = (x: number) => Math.round(x * 1e4);
+        const grid = new Map<string, number>();
+        for (let i = 0; i < nv; i++) grid.set(`${q(base[i * 3])},${q(base[i * 3 + 1])},${q(base[i * 3 + 2])}`, i);
+        for (const axis of mirrorAxes)
+          for (let i = 0; i < nv; i++) {
+            if (!weight[i]) continue;
+            if (Math.abs(base[i * 3 + axis]) < 1e-4) {
+              onPlane.push([i, axis]);
+              continue;
+            }
+            const p = [base[i * 3], base[i * 3 + 1], base[i * 3 + 2]];
+            p[axis] = -p[axis];
+            const j = grid.get(p.map(q).join(','));
+            if (j !== undefined && j !== i && !weight[j]) mirrorPairs.push([i, j, axis]);
+          }
+      }
       updaters.push(() => {
         if (!pending.size) return;
         pending.clear();
+        for (const [i, axis] of onPlane) work[i * 3 + axis] = 0;
+        for (const [i, j, axis] of mirrorPairs)
+          for (let k = 0; k < 3; k++) work[j * 3 + k] = k === axis ? -work[i * 3 + k] : work[i * 3 + k];
         const out = new Float32Array(work);
         if (activeKey >= 0) {
           // edit the active shape key instead of the basis

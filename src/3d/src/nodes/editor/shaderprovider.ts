@@ -4,7 +4,8 @@ import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { registerEditor } from '../../ui/screen';
 import { openMenu } from '../../ui/menu';
-import { enumMenu } from '../../ui/widgets';
+import { enumMenu, panel } from '../../ui/widgets';
+import { bool, colorProp, enumProp, num } from '../../ui/props';
 import { NodeEditor } from './editor';
 import { registerNodeEditorProvider } from './context';
 import { shaderEntryPoll } from '../shader/defs';
@@ -20,13 +21,14 @@ type Ed = { shaderType: 'OBJECT' | 'WORLD' };
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return doc.meshes[o.data] ?? doc.curves[o.data] ?? null;
+  return doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data] ?? null;
 }
 
 const DATA_ICON: Record<string, string> = {
   MESH: 'mesh_data',
   CURVE: 'curve_data',
   FONT: 'curve_data',
+  META: 'meta_data',
 };
 
 function changed(label: string) {
@@ -50,7 +52,7 @@ registerNodeEditorProvider({
     if (!ob) return null;
     const ma = activeMaterial(ob);
     if (!ma) return null;
-    const data = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data]) : undefined;
+    const data = ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) : undefined;
     return {
       tree: ma.tree,
       key: `ma:${ma.id}`,
@@ -66,6 +68,33 @@ registerNodeEditorProvider({
     return '';
   },
   menuPoll: (idname, ed) => shaderEntryPoll(idname, ed.shaderType),
+  // sidebar Options: settings of the edited material or world
+  optionsPanels: (ed) => {
+    const e = ed as Ed;
+    if (e.shaderType === 'WORLD') {
+      const w = app.doc.scene.world ? app.doc.worlds[app.doc.scene.world] : undefined;
+      return w ? panel('nd-wo-display', 'Viewport Display', () => [colorProp(w, 'color', 'Color')]) : h('div', { class: 'prop-note' }, 'No world');
+    }
+    const ma = app.activeObject ? activeMaterial(app.activeObject) : null;
+    if (!ma) return h('div', { class: 'prop-note' }, 'No material');
+    return [
+      panel('nd-ma-settings', 'Settings', () => [
+        bool(ma, 'use_backface_culling', 'Backface Culling'),
+        enumProp(ma, 'blend_method', 'Blend Mode', [
+          ['OPAQUE', 'Opaque'],
+          ['CLIP', 'Alpha Clip'],
+          ['HASHED', 'Alpha Hashed'],
+          ['BLEND', 'Alpha Blend'],
+        ]),
+        ma.blend_method === 'CLIP' ? num(ma, 'alpha_threshold', 'Clip Threshold', { min: 0, max: 1, slider: true }) : null,
+      ]),
+      panel('nd-ma-display', 'Viewport Display', () => [
+        colorProp(ma, 'diffuse_color', 'Color', { alpha: true }),
+        num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }),
+        num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true }),
+      ]),
+    ];
+  },
   headerLeft: (ed) => {
     const e = ed as NodeEditor;
     return enumMenu(

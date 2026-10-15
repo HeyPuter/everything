@@ -49,3 +49,15 @@
 .cmp-rl-render:hover {
   background: #666;
 }
+
+.cmp-sample {
+  position: absolute;
+  z-index: 5;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #e6e6e6;
+  font: 11px var(--mono, monospace);
+  white-space: pre;
+  pointer-events: none;
+}

@@ -19,7 +19,7 @@ import { transformGizmo, gizmoPointerDown } from './gizmo';
 import { openMenu } from '../../ui/menu';
 import { objectContextMenu } from './menus';
 import { lastOpPanel } from '../../ui/redo';
-import { editModeHooks, viewportExtensions } from './hooks';
+import { editModeHooks, viewportExtensions, viewportUIHooks } from './hooks';
 import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
@@ -27,7 +27,7 @@ import { placeCursor, cursorToolSettings } from '../../ops/view3d';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
-  keymaps = ['3D View', 'Object Mode', 'Mesh', 'Armature', 'Pose', 'Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint', 'Frames', 'Object Non-modal', 'Window', 'Screen'];
+  keymaps = ['3D View', 'Object Mode', 'Mesh', 'Curve', 'Armature', 'Font', 'Lattice', 'Metaball', 'Pose', 'Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint', 'Frames', 'Object Non-modal', 'Window', 'Screen'];
   nav = new NavCamera();
   shading: Shading = defaultShading();
   overlay: Overlay = defaultOverlay();
@@ -298,6 +298,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       this.showSidebar ? sidebar(this) : null,
       this.showNavGizmo ? navGizmo(this) : null,
       lastOpPanel(this),
+      ...viewportUIHooks.map((f) => f(this)),
     ]);
     this.drawInfo();
   }

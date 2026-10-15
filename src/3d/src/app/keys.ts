@@ -5,11 +5,12 @@ import { app } from './app';
 import { addMenu, applyMenu, objectContextMenu } from '../editors/view3d/menus';
 import { availableModes } from '../editors/view3d/header';
 import { openPie } from '../ui/menu';
+import { parentClearMenu, parentSetMenu } from '../object/menus';
 
 const objectMode = () => app.doc.mode === 'OBJECT';
 
 addKeys('Window', [
-  { key: 'N', ctrl: true, op: 'wm.read_homefile' },
+  { key: 'N', ctrl: true, op: 'wm.call_menu', props: { name: 'TOPBAR_MT_file_new' } },
   { key: 'O', ctrl: true, op: 'wm.open_mainfile' },
   { key: 'S', ctrl: true, op: 'wm.save_mainfile' },
   { key: 'S', ctrl: true, shift: true, op: 'wm.save_as_mainfile' },
@@ -121,8 +122,8 @@ addKeys('Object Mode', [
   { key: 'M', op: 'object.move_to_collection', when: objectMode },
   { key: 'M', shift: true, op: 'object.link_to_collection', when: objectMode },
   { key: 'J', ctrl: true, op: 'object.join', when: objectMode },
-  { key: 'P', ctrl: true, op: 'object.parent_set', when: objectMode },
-  { key: 'P', alt: true, op: 'object.parent_clear', when: objectMode },
+  { key: 'P', ctrl: true, menu: parentSetMenu, menuTitle: 'Set Parent To', when: objectMode },
+  { key: 'P', alt: true, menu: parentClearMenu, menuTitle: 'Clear Parent', when: objectMode },
   { key: 'A', ctrl: true, menu: applyMenu, menuTitle: 'Apply', when: objectMode },
   { key: 'F2', op: 'object.rename' },
   { key: 'C', ctrl: true, op: 'view3d.copybuffer', when: objectMode },

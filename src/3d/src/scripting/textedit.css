@@ -1,0 +1,70 @@
+/* Text Editor: autocomplete list, file conflict bar, overwrite mode. */
+
+.te-autocomplete {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  min-width: 160px;
+  max-width: 320px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 3px;
+  border-radius: 5px;
+  background: var(--w-menu-back);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  font: var(--te-fs) / var(--te-lh) var(--mono);
+}
+.te-ac-item {
+  padding: 0 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  color: var(--c-text);
+}
+.te-ac-item.hl {
+  background: var(--w-menu-item-hl);
+  color: #fff;
+}
+.te-conflict {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 6px;
+  z-index: 4;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(120, 30, 30, 0.92);
+  color: #fff;
+  font-size: 12px;
+}
+.te-conflict .grow {
+  flex: 1;
+  min-width: 0;
+}
+.te-conflict .btn {
+  height: 20px;
+}
+.text-editor.overwrite .te-input {
+  caret-shape: block;
+}
+.te-foot-ovr {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+.te-margin {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}

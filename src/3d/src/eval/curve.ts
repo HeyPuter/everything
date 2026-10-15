@@ -3,7 +3,7 @@
 import type { CurveData, Spline, Vec3 } from '../data/types';
 import type { EvalMesh } from './types';
 import { buildMesh, type PolyFace } from '../mesh/mesh';
-import { triangulatePoly } from '../mesh/mesh';
+import { ShapeUtils, Vector2 } from 'three';
 import { textToCurves } from './text';
 
 export interface SampledSpline {
@@ -75,19 +75,21 @@ export function sampleSpline(s: Spline, resolution: number): SampledSpline {
           y = 0,
           z = 0,
           w = 0,
-          r = 0;
+          r = 0,
+          tl = 0;
         for (let i = 0; i < m; i++) {
           const b = basis(i, order, t, knots) * (ctrl[i].co[3] || 1);
           x += ctrl[i].co[0] * b;
           y += ctrl[i].co[1] * b;
           z += ctrl[i].co[2] * b;
           r += ctrl[i].radius * b;
+          tl += ctrl[i].tilt * b;
           w += b;
         }
         if (w > 0) {
           pts.push([x / w, y / w, z / w]);
           rad.push(r / w);
-          tilt.push(0);
+          tilt.push(tl / w);
         }
       }
     }
@@ -107,7 +109,7 @@ function basis(i: number, k: number, t: number, knots: number[]): number {
 }
 
 /** Parallel-transport frames along a polyline. */
-function frames(points: Vec3[], cyclic: boolean, planarZ: boolean) {
+export function frames(points: Vec3[], cyclic: boolean, planarZ: boolean) {
   const n = points.length;
   const T: Vec3[] = [],
     N: Vec3[] = [],
@@ -142,8 +144,19 @@ const norm = (a: Vec3): Vec3 => {
   return [a[0] / l, a[1] / l, a[2] / l];
 };
 
-export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
-  const splines = isText ? textToCurves(cu) : cu.splines;
+/** Extra shaping from other objects: a bevel profile (cross-section) and a taper (radius along the curve). */
+export interface CurveShapeOptions {
+  /** profile points in the cross-section plane (x: sideways, y: up), object units */
+  profile?: [number, number][];
+  profileClosed?: boolean;
+  /** radius factor for a parameter 0..1 along each spline */
+  taper?: (t: number) => number;
+  /** splines to use instead of the curve's own (e.g. text bent along a path) */
+  splines?: Spline[];
+}
+
+export function curveToMesh(cu: CurveData, isText = false, shape: CurveShapeOptions = {}): EvalMesh {
+  const splines = shape.splines ?? (isText ? textToCurves(cu) : cu.splines);
   const sampled = splines.map((s) => sampleSpline(s, cu.resolution_u));
   const positions: number[] = [],
     faces: PolyFace[] = [];
@@ -153,22 +166,24 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
     positions.push(p[0], p[1], p[2]);
     return positions.length / 3 - 1;
   };
-  const hasGeometry = cu.bevel_depth > 0 || cu.extrude > 0;
+  const profile = shape.profile && shape.profile.length >= 2 ? shape.profile : null;
+  const hasGeometry = cu.bevel_depth > 0 || cu.extrude > 0 || !!profile;
   // 2D fill
   if (is2D && cu.fill_mode !== 'NONE' && (cu.fill_mode as string) !== 'NONE') {
     const closed = sampled.filter((s) => s.cyclic && s.points.length >= 3);
     if (closed.length) {
       const fillAt = (z: number, flip: boolean) => {
         for (const poly of groupOutlines(closed)) {
-          // merge holes into the outline with bridge edges, then ear-clip
-          const ring = bridgeHoles(poly.outer, poly.holes);
+          // earcut handles holes robustly (bridged rings break simple ear clipping)
+          const contour = poly.outer.map((p) => new Vector2(p[0], p[1]));
+          const holes = poly.holes.map((hole) => hole.map((p) => new Vector2(p[0], p[1])));
+          const tris = ShapeUtils.triangulateShape(contour, holes);
           const base = positions.length / 3;
-          ring.forEach((p) => add([p[0], p[1], z + 0]));
-          const tri: number[] = [];
-          triangulatePoly(new Float32Array(ring.flatMap((p) => [p[0], p[1], 0])), Array.from({ length: ring.length }, (_, i) => i), tri, 0);
-          for (let i = 0; i < tri.length; i += 3) {
-            const t = [base + tri[i], base + tri[i + 1], base + tri[i + 2]];
-            faces.push({ verts: flip ? [t[0], t[2], t[1]] : t, material: poly.material });
+          // (triangulateShape may drop duplicated end points: use its arrays for the vertices)
+          for (const p of [...contour, ...holes.flat()]) add([p.x, p.y, z + 0]);
+          for (const t of tris) {
+            const v = [base + t[0], base + t[1], base + t[2]];
+            faces.push({ verts: flip ? [v[0], v[2], v[1]] : v, material: poly.material });
           }
         }
       };
@@ -186,18 +201,25 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
       continue;
     }
     const { N, B } = frames(s.points, s.cyclic, is2D);
-    const ring = cu.bevel_depth > 0 ? Math.max(4, (cu.bevel_resolution + 2) * 2) : 0;
+    const ring = profile ? 0 : cu.bevel_depth > 0 ? Math.max(4, (cu.bevel_resolution + 2) * 2) : 0;
     const rows: number[][] = [];
+    // arc-length parameter for the taper
+    const along: number[] = [0];
+    for (let i = 1; i < n; i++) along.push(along[i - 1] + Math.hypot(s.points[i][0] - s.points[i - 1][0], s.points[i][1] - s.points[i - 1][1], s.points[i][2] - s.points[i - 1][2]));
+    const total = along[n - 1] || 1;
     for (let i = 0; i < n; i++) {
       const p = s.points[i],
-        r = s.radius[i],
+        r = s.radius[i] * (shape.taper ? Math.max(0, shape.taper(along[i] / total)) : 1),
         tilt = s.tilt[i];
       const ct = Math.cos(tilt),
         st = Math.sin(tilt);
       const nn: Vec3 = [N[i][0] * ct + B[i][0] * st, N[i][1] * ct + B[i][1] * st, N[i][2] * ct + B[i][2] * st];
       const bb: Vec3 = [B[i][0] * ct - N[i][0] * st, B[i][1] * ct - N[i][1] * st, B[i][2] * ct - N[i][2] * st];
       const row: number[] = [];
-      if (ring) {
+      if (profile) {
+        // custom cross-section from the bevel object
+        for (const [px, py] of profile) row.push(add([p[0] + (bb[0] * px + nn[0] * py) * r, p[1] + (bb[1] * px + nn[1] * py) * r, p[2] + (bb[2] * px + nn[2] * py) * r]));
+      } else if (ring) {
         // tube profile (optionally stretched by extrude)
         for (let k = 0; k < ring; k++) {
           const a = (k / ring) * Math.PI * 2;
@@ -213,7 +235,7 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
     }
     const segs = s.cyclic ? n : n - 1;
     const rl = rows[0].length;
-    const wrap = ring > 0;
+    const wrap = ring > 0 || (!!profile && !!shape.profileClosed);
     for (let i = 0; i < segs; i++) {
       const a = rows[i],
         b = rows[(i + 1) % n];
@@ -228,7 +250,7 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
         });
       }
     }
-    if (ring && !s.cyclic && cu.use_fill_caps) {
+    if ((ring || (profile && shape.profileClosed)) && !s.cyclic && cu.use_fill_caps) {
       faces.push({ verts: [...rows[0]].reverse(), material: s.material });
       faces.push({ verts: [...rows[n - 1]], material: s.material });
     }
@@ -283,27 +305,3 @@ function groupOutlines(closed: SampledSpline[]): Outline[] {
   return out;
 }
 
-/** Connect holes to the outer ring with zero-width bridges (for ear clipping). */
-function bridgeHoles(outer: Vec3[], holes: Vec3[][]): Vec3[] {
-  let ring = [...outer];
-  const sorted = [...holes].sort((a, b) => Math.max(...b.map((p) => p[0])) - Math.max(...a.map((p) => p[0])));
-  for (const hole of sorted) {
-    let hi = 0;
-    hole.forEach((p, i) => p[0] > hole[hi][0] && (hi = i));
-    const hp = hole[hi];
-    let best = -1,
-      bestD = Infinity;
-    ring.forEach((p, i) => {
-      if (p[0] < hp[0]) return;
-      const d = Math.hypot(p[0] - hp[0], p[1] - hp[1]);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    });
-    if (best < 0) best = 0;
-    const holeSeq = [...hole.slice(hi), ...hole.slice(0, hi + 1)];
-    ring = [...ring.slice(0, best + 1), ...holeSeq, ring[best], ...ring.slice(best + 1)];
-  }
-  return ring;
-}

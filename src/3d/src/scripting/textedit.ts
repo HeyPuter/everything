@@ -16,6 +16,11 @@ import { templates } from './templates';
 import { runJavaScript, output, type RunResult } from './runner';
 import { loadPython, runPythonText } from './python';
 import { uniqueName } from './api';
+import { movePos, wordAt, lineStart, completionPrefix, wordCandidates, MOVE_TYPES, type MoveType } from './textnav';
+import { jsComplete } from './console';
+import { newCurve, newObject } from '../data/defaults';
+import { addObjectToScene, uniqueName as uniqueDataName } from '../ops/object';
+import './textedit.css';
 
 type Lang = TextData['language'];
 
@@ -25,6 +30,11 @@ const settings = {
   fontSize: 12,
   matchCase: false,
   wrapAround: true,
+  /** Find Next continues into the other texts */
+  findAll: false,
+  /** vertical guide at a column */
+  showMargin: false,
+  marginColumn: 80,
 };
 
 function langOf(t: TextData | null): Lang {
@@ -40,8 +50,31 @@ function langFromName(name: string): Lang {
   return 'python';
 }
 
-/** File handles from the File System Access API (when available) for Save. */
+/** File handles from the File System Access API (when available) for Save and Reload. */
 const fileHandles = new Map<string, FileSystemFileHandle>();
+/** Last-modified time of the linked file when it was last read or written (conflict detection). */
+const fileTimes = new Map<string, number>();
+
+/** Navigation entries (Top, Bottom, Line Begin/End, Previous/Next Line and Word). */
+function navItems(op: 'text.move' | 'text.move_select'): MenuItem[] {
+  const sel = op === 'text.move_select';
+  const k = (s: string) => (sel ? `Shift ${s}` : s);
+  const it = (label: string, type: MoveType, sc: string): MenuItem => ({ label, op, props: { type }, shortcut: k(sc) });
+  return [
+    { separator: true },
+    it('Top', 'FILE_TOP', 'Ctrl Home'),
+    it('Bottom', 'FILE_BOTTOM', 'Ctrl End'),
+    { separator: true },
+    it('Line Begin', 'LINE_BEGIN', 'Home'),
+    it('Line End', 'LINE_END', 'End'),
+    { separator: true },
+    it('Previous Line', 'PREVIOUS_LINE', '↑'),
+    it('Next Line', 'NEXT_LINE', '↓'),
+    { separator: true },
+    it('Previous Word', 'PREVIOUS_WORD', 'Ctrl ←'),
+    it('Next Word', 'NEXT_WORD', 'Ctrl →'),
+  ].slice(sel ? 0 : 1);
+}
 
 export class TextEditor implements Editor {
   el: HTMLElement;
@@ -54,6 +87,16 @@ export class TextEditor implements Editor {
   showSidebar = false;
   findText = '';
   replaceText = '';
+  /** typing replaces the character after the caret (Insert) */
+  overwrite = false;
+  /** the file on disk changed since it was opened or saved */
+  conflict = false;
+  private acEl: HTMLElement;
+  private acItems: string[] = [];
+  private acIndex = 0;
+  private acStart = -1;
+  private conflictEl: HTMLElement;
+  private marginEl: HTMLElement;
   errorLine: number | null = null;
   private main: HTMLElement;
   private scroll: HTMLElement;
@@ -100,10 +143,14 @@ export class TextEditor implements Editor {
     this.ta.setAttribute('autocomplete', 'off');
     this.ta.setAttribute('wrap', 'off');
     this.ta.setAttribute('aria-label', 'Text editor');
-    this.content.append(this.curLine, this.pre, this.ta);
+    this.marginEl = div('te-margin');
+    this.content.append(this.curLine, this.marginEl, this.pre, this.ta);
     this.scroll.append(this.gutter, this.content);
     this.empty = div('te-empty');
-    this.main.append(this.scroll, this.empty);
+    this.acEl = div('te-autocomplete');
+    this.acEl.setAttribute('role', 'listbox');
+    this.conflictEl = div('te-conflict');
+    this.main.append(this.scroll, this.empty, this.acEl, this.conflictEl);
     this.sidebarEl = div('te-sidebar');
     this.footer = div('te-footer');
     const body = div('te-body');
@@ -116,9 +163,61 @@ export class TextEditor implements Editor {
     this.ta.addEventListener('click', () => this.updateCaret());
     this.ta.addEventListener('keyup', () => this.updateCaret());
     this.ta.addEventListener('focus', () => this.updateCaret());
-    this.ta.addEventListener('blur', () => this.commitUndo());
+    this.ta.addEventListener('blur', () => {
+      this.commitUndo();
+      setTimeout(() => document.activeElement !== this.ta && this.closeAutocomplete(), 150);
+    });
+    this.ta.addEventListener('focus', () => void this.checkConflict());
+    this.ta.addEventListener('beforeinput', (e) => {
+      // overwrite mode: typed characters replace the one after the caret (never a line break)
+      if (!this.overwrite || e.inputType !== 'insertText' || this.ta.selectionStart !== this.ta.selectionEnd) return;
+      const p = this.ta.selectionStart;
+      if (p < this.ta.value.length && this.ta.value[p] !== '\n') this.ta.setSelectionRange(p, p + 1);
+    });
+    this.scroll.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!this.text) return;
+      openMenu(this.contextMenu(), { x: e.clientX, y: e.clientY });
+    });
+    this.el.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        this.zoom(e.deltaY < 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
+    this.scroll.addEventListener('scroll', () => this.closeAutocomplete());
+    this.el.addEventListener('pointerenter', () => void this.checkConflict());
     document.addEventListener('selectionchange', this.onSelectionChange);
+    addEventListener('focus', this.onWindowFocus);
     this.scroll.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && this.text && (e.target === this.gutter || this.gutter.contains(e.target as Node))) {
+        // line numbers: click selects the line, drag selects a range of lines
+        e.preventDefault();
+        this.ta.focus();
+        const first = this.lineAtY(e.clientY);
+        const sel = (to: number) => {
+          const v = this.ta.value;
+          const a = Math.min(first, to),
+            b = Math.max(first, to);
+          const start = this.lineStartPos(a);
+          let end = this.lineStartPos(b + 1);
+          if (end > v.length) end = v.length;
+          this.ta.setSelectionRange(start, end, to < first ? 'backward' : 'forward');
+          this.updateCaret();
+        };
+        sel(first);
+        const move = (ev: PointerEvent) => sel(this.lineAtY(ev.clientY));
+        const up = () => {
+          removeEventListener('pointermove', move);
+          removeEventListener('pointerup', up);
+        };
+        addEventListener('pointermove', move);
+        addEventListener('pointerup', up);
+        return;
+      }
       if (e.target === this.scroll || e.target === this.gutter || this.gutter.contains(e.target as Node)) {
         e.preventDefault();
         this.ta.focus();
@@ -129,6 +228,8 @@ export class TextEditor implements Editor {
     this.measure();
     this.load();
   }
+
+  private onWindowFocus = () => void this.checkConflict();
 
   private onSelectionChange = () => {
     if (document.activeElement === this.ta) this.updateCaret();
@@ -150,11 +251,7 @@ export class TextEditor implements Editor {
       menu('View', () => this.viewMenu()),
       menu('Text', () => this.textMenu()),
       menu('Edit', () => this.editMenu()),
-      menu('Select', () => [
-        { label: 'Select All', shortcut: 'Ctrl A', action: () => this.selectAll() },
-        { label: 'Select Line', shortcut: 'Shift Ctrl A', action: () => this.selectLine() },
-        { label: 'Select Word', action: () => this.selectWord() },
-      ]),
+      menu('Select', () => this.selectMenu()),
       menu('Format', () => this.formatMenu()),
       menu('Templates', () => templateMenu((tpl) => this.openTemplate(tpl))),
       h('div', { class: 'te-sep' }),
@@ -226,22 +323,26 @@ export class TextEditor implements Editor {
       { label: 'Syntax Highlight', checked: this.syntax, action: () => ((this.syntax = !this.syntax), this.render()) },
       { label: 'Highlight Line', checked: this.highlightLine, action: () => ((this.highlightLine = !this.highlightLine), this.updateCaret()) },
       { separator: true },
-      { label: 'Zoom In', shortcut: 'Ctrl Wheel', action: () => this.zoom(1) },
-      { label: 'Zoom Out', action: () => this.zoom(-1) },
+      { label: 'Zoom In', shortcut: 'Ctrl Wheel Up', op: 'wm.context_cycle_int', props: { data_path: 'space_data.font_size', reverse: false } },
+      { label: 'Zoom Out', shortcut: 'Ctrl Wheel Down', op: 'wm.context_cycle_int', props: { data_path: 'space_data.font_size', reverse: true } },
       { separator: true },
-      { label: 'Top of File', shortcut: 'Ctrl Home', action: () => this.setCaret(0) },
-      { label: 'Bottom of File', shortcut: 'Ctrl End', action: () => this.setCaret(this.ta.value.length) },
+      { label: 'Navigation', submenu: () => navItems('text.move') },
+      { separator: true },
+      { label: 'Area', submenu: () => this.area.areaMenu() },
     ];
   }
 
   private textMenu(): MenuItem[] {
     const t = this.text;
+    const external = !!t && fileHandles.has(t.id);
     return [
       { label: 'New', icon: 'file_blank', shortcut: 'Alt N', op: 'text.new' },
       { label: 'Open…', icon: 'file_folder', shortcut: 'Alt O', op: 'text.open' },
+      { label: 'Reload', shortcut: 'Alt R', op: 'text.reload' },
       { separator: true },
       { label: 'Save', shortcut: 'Alt S', op: 'text.save', disabled: !t },
       { label: 'Save As…', shortcut: 'Shift Ctrl Alt S', op: 'text.save_as', disabled: !t },
+      ...(external ? [{ label: 'Make Internal', op: 'text.make_internal' } as MenuItem] : []),
       { separator: true },
       {
         label: 'Language',
@@ -266,17 +367,58 @@ export class TextEditor implements Editor {
       { label: 'Undo', shortcut: 'Ctrl Z', disabled: !t, action: () => this.exec('undo') },
       { label: 'Redo', shortcut: 'Shift Ctrl Z', disabled: !t, action: () => this.exec('redo') },
       { separator: true },
-      { label: 'Cut', shortcut: 'Ctrl X', disabled: !t, action: () => void this.cut() },
-      { label: 'Copy', shortcut: 'Ctrl C', disabled: !t, action: () => void this.copy() },
-      { label: 'Paste', shortcut: 'Ctrl V', disabled: !t, action: () => void this.paste() },
-      { label: 'Duplicate Line', shortcut: 'Shift Ctrl D', disabled: !t, op: 'text.duplicate_line' },
+      { label: 'Cut', shortcut: 'Ctrl X', op: 'text.cut' },
+      { label: 'Copy', shortcut: 'Ctrl C', op: 'text.copy' },
+      { label: 'Paste', shortcut: 'Ctrl V', op: 'text.paste' },
+      { label: 'Duplicate Line', shortcut: 'Ctrl D', op: 'text.duplicate_line' },
       { separator: true },
-      { label: 'Move Line(s) Up', shortcut: 'Shift Ctrl ↑', disabled: !t, op: 'text.move_lines', props: { direction: 'UP' } },
-      { label: 'Move Line(s) Down', shortcut: 'Shift Ctrl ↓', disabled: !t, op: 'text.move_lines', props: { direction: 'DOWN' } },
+      { label: 'Move Line(s) Up', shortcut: 'Shift Ctrl ↑', op: 'text.move_lines', props: { direction: 'UP' } },
+      { label: 'Move Line(s) Down', shortcut: 'Shift Ctrl ↓', op: 'text.move_lines', props: { direction: 'DOWN' } },
       { separator: true },
-      { label: 'Find & Replace…', shortcut: 'Ctrl F', disabled: !t, op: 'text.start_find' },
-      { label: 'Find Next', shortcut: 'Ctrl G', disabled: !t, op: 'text.find' },
-      { label: 'Jump To…', shortcut: 'Ctrl J', disabled: !t, op: 'text.jump' },
+      { label: 'Find & Replace…', shortcut: 'Ctrl F', op: 'text.start_find' },
+      { label: 'Find Set Selected', shortcut: 'Ctrl G', op: 'text.find_set_selected' },
+      { label: 'Find Next', op: 'text.find' },
+      { label: 'Jump To…', shortcut: 'Ctrl J', op: 'text.jump' },
+      { separator: true },
+      { label: 'Text Autocomplete', shortcut: 'Tab', op: 'text.autocomplete' },
+      { separator: true },
+      {
+        label: 'Text to 3D Object',
+        disabled: !t,
+        submenu: () => [
+          { label: 'One Object', op: 'text.to_3d_object', props: { split_lines: false } },
+          { label: 'One Object Per Line', op: 'text.to_3d_object', props: { split_lines: true } },
+        ],
+      },
+    ];
+  }
+
+  private selectMenu(): MenuItem[] {
+    return [
+      { label: 'All', shortcut: 'Ctrl A', op: 'text.select_all' },
+      { label: 'Line', shortcut: 'Shift Ctrl A', op: 'text.select_line' },
+      { label: 'Word', shortcut: 'Double Click', op: 'text.select_word' },
+      ...navItems('text.move_select'),
+    ];
+  }
+
+  /** Right-click menu in the text. */
+  contextMenu(): MenuItem[] {
+    return [
+      { label: 'Cut', shortcut: 'Ctrl X', op: 'text.cut' },
+      { label: 'Copy', shortcut: 'Ctrl C', op: 'text.copy' },
+      { label: 'Paste', shortcut: 'Ctrl V', op: 'text.paste' },
+      { label: 'Duplicate Line', shortcut: 'Ctrl D', op: 'text.duplicate_line' },
+      { separator: true },
+      { label: 'Move Line(s) Up', shortcut: 'Shift Ctrl ↑', op: 'text.move_lines', props: { direction: 'UP' } },
+      { label: 'Move Line(s) Down', shortcut: 'Shift Ctrl ↓', op: 'text.move_lines', props: { direction: 'DOWN' } },
+      { separator: true },
+      { label: 'Indent', shortcut: 'Tab', op: 'text.indent' },
+      { label: 'Unindent', shortcut: 'Shift Tab', op: 'text.unindent' },
+      { separator: true },
+      { label: 'Toggle Comments', shortcut: 'Ctrl /', op: 'text.comment_toggle' },
+      { separator: true },
+      { label: 'Text Autocomplete', shortcut: 'Tab', op: 'text.autocomplete' },
     ];
   }
 
@@ -311,7 +453,10 @@ export class TextEditor implements Editor {
     this.ta.value = t?.body ?? '';
     this.lastBody = this.ta.value;
     this.errorLine = null;
+    this.conflict = false;
+    this.closeAutocomplete();
     this.render();
+    this.renderConflict();
   }
 
   setText(id: string | null) {
@@ -357,6 +502,7 @@ export class TextEditor implements Editor {
   private onInput() {
     const t = this.text;
     if (!t) return;
+    this.refreshAutocomplete();
     t.body = this.ta.value;
     this.lastBody = t.body;
     this.dirtySincePush = true;
@@ -394,6 +540,11 @@ export class TextEditor implements Editor {
     this.el.style.setProperty('--te-fs', `${settings.fontSize}px`);
     this.el.style.setProperty('--te-lh', `${this.lineHeight}px`);
     this.el.style.setProperty('--te-tab', String(settings.tabWidth));
+  }
+
+  /** Font size step (Ctrl wheel, Ctrl numpad +/-); shared by all Text Editors. */
+  cycleFontSize(d: number) {
+    this.zoom(d);
   }
 
   private zoom(d: number) {
@@ -435,6 +586,9 @@ export class TextEditor implements Editor {
       this.content.style.width = `max(100%, ${Math.ceil(longest * this.charWidth) + 40}px)`;
       this.ta.style.height = `${lines.length * lh + 8}px`;
     }
+    // column guide
+    this.marginEl.style.display = settings.showMargin ? '' : 'none';
+    this.marginEl.style.left = `${6 + settings.marginColumn * this.charWidth}px`;
     // gutter numbers (match wrapped line heights)
     if (this.showLineNumbers) {
       const rows = this.pre.children;
@@ -479,6 +633,7 @@ export class TextEditor implements Editor {
     patch(this.footer, [
       h('span', { class: 'te-foot-file' }, t ? (fh ? `File: ${fh.name}` : 'Text: Internal') : ''),
       h('span', { class: 'hdr-spacer' }),
+      t && this.overwrite ? h('span', { class: 'te-foot-ovr', 'data-tip': 'Overwrite\nTyping replaces characters (Insert toggles)' }, 'OVR') : null,
       t ? h('span', { class: 'te-foot-pos' }, `Ln ${(line ?? 0) + 1}, Col ${(col ?? 0) + 1}`) : null,
       t ? h('span', { class: 'te-foot-lang' }, langOf(t) === 'python' ? 'Python' : langOf(t) === 'javascript' ? 'JavaScript' : 'Plain Text') : null,
     ]);
@@ -516,11 +671,13 @@ export class TextEditor implements Editor {
             h('button', { class: 'btn', onclick: () => this.replaceOne() }, 'Replace'),
           ),
           h('div', { class: 'te-find-row' }, h('button', { class: 'btn grow', onclick: () => this.replaceAll() }, 'Replace All')),
-          h('div', { class: 'te-find-opts' }, checkbox('te-case', 'Match Case', settings.matchCase, (v) => ((settings.matchCase = v), this.renderSidebar())), checkbox('te-wrap', 'Wrap Around', settings.wrapAround, (v) => ((settings.wrapAround = v), this.renderSidebar()))),
+          h('div', { class: 'te-find-opts' }, checkbox('te-case', 'Match Case', settings.matchCase, (v) => ((settings.matchCase = v), this.renderSidebar())), checkbox('te-wrap', 'Wrap Around', settings.wrapAround, (v) => ((settings.wrapAround = v), this.renderSidebar())), checkbox('te-all', 'All Data-Blocks', settings.findAll, (v) => ((settings.findAll = v), this.renderSidebar()), { tip: 'All Data-Blocks\nFind Next continues in the other texts' })),
         ]),
         panel('te-props', 'Properties', () => [
           h('div', { class: 'te-prop' }, numberField({ id: 'te-tabw', label: 'Tab Width', value: settings.tabWidth, int: true, min: 1, max: 8, set: (v) => ((settings.tabWidth = Math.round(v)), this.measure(), this.render()) })),
           h('div', { class: 'te-prop' }, numberField({ id: 'te-fs', label: 'Font Size', value: settings.fontSize, int: true, min: 8, max: 32, set: (v) => ((settings.fontSize = Math.round(v)), this.measure(), this.render()) })),
+          h('div', { class: 'te-prop' }, checkbox('te-margin', 'Margin', settings.showMargin, (v) => ((settings.showMargin = v), this.layout(), this.renderSidebar()))),
+          h('div', { class: 'te-prop' }, numberField({ id: 'te-margin-col', label: 'Margin Column', value: settings.marginColumn, int: true, min: 1, max: 1024, disabled: !settings.showMargin, set: (v) => ((settings.marginColumn = Math.round(v)), this.layout()) })),
           h('div', { class: 'te-sb-label' }, 'Indentation'),
           h(
             'div',
@@ -558,13 +715,14 @@ export class TextEditor implements Editor {
     const hay = settings.matchCase ? this.ta.value : this.ta.value.toLowerCase();
     const needle = settings.matchCase ? q : q.toLowerCase();
     let i = backwards ? hay.lastIndexOf(needle, from) : hay.indexOf(needle, from);
-    if (i < 0 && settings.wrapAround) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
+    if (i < 0 && settings.wrapAround && !settings.findAll) i = backwards ? hay.lastIndexOf(needle) : hay.indexOf(needle);
     return i < 0 ? null : [i, i + q.length];
   }
 
   findNext() {
     if (!this.text) return;
     const m = this.matchAt(this.ta.selectionEnd);
+    if (!m && settings.findAll && this.findInOtherTexts()) return;
     if (!m) {
       app.report('WARNING', `Text not found: ${this.findText}`);
       return;
@@ -572,6 +730,24 @@ export class TextEditor implements Editor {
     this.ta.focus();
     this.ta.setSelectionRange(m[0], m[1]);
     this.revealCaret();
+  }
+
+  /** All Data-Blocks: open the next text (in name order, wrapping) that contains the search text. */
+  private findInOtherTexts(): boolean {
+    const q = settings.matchCase ? this.findText : this.findText.toLowerCase();
+    if (!q) return false;
+    const texts = Object.values(app.doc.texts).sort((a, b) => a.name.localeCompare(b.name));
+    const cur = texts.findIndex((t) => t.id === this.textId);
+    for (let k = 1; k <= texts.length; k++) {
+      const t = texts[(cur + k) % texts.length];
+      const body = settings.matchCase ? t.body : t.body.toLowerCase();
+      const i = body.indexOf(q);
+      if (i < 0) continue;
+      if (t.id !== this.textId) this.setText(t.id);
+      requestAnimationFrame(() => this.setCaret(i, i + q.length));
+      return true;
+    }
+    return false;
   }
 
   private selectionMatches() {
@@ -652,6 +828,48 @@ export class TextEditor implements Editor {
       else if (bottom > sc.scrollTop + sc.clientHeight) sc.scrollTop = bottom - sc.clientHeight + 4;
       this.updateCaret();
     });
+  }
+
+  private typedLine = { digits: '', t: 0 };
+
+  /** Digits typed while the pointer is over the line numbers jump to that line. */
+  private lineNumberKey(e: KeyboardEvent): boolean {
+    if (!/^[0-9]$/.test(e.key) || e.ctrlKey || e.metaKey || e.altKey || !this.showLineNumbers) return false;
+    const over = document.elementFromPoint(app.pointer.x, app.pointer.y);
+    if (!over || !this.gutter.contains(over)) return false;
+    e.preventDefault();
+    const now = performance.now();
+    this.typedLine.digits = (now - this.typedLine.t < 1000 ? this.typedLine.digits : '') + e.key;
+    this.typedLine.t = now;
+    this.goToLine(parseInt(this.typedLine.digits, 10));
+    return true;
+  }
+
+  /** 0-based line index under a client y coordinate. */
+  private lineAtY(y: number) {
+    const rows = this.pre.children;
+    const top = this.pre.getBoundingClientRect().top;
+    const rel = y - top;
+    let lo = 0,
+      hi = rows.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if ((rows[mid] as HTMLElement).offsetTop <= rel) lo = mid;
+      else hi = mid - 1;
+    }
+    return Math.max(0, lo);
+  }
+
+  /** Character offset where 0-based line `n` starts (past the end for n beyond the last line). */
+  private lineStartPos(n: number) {
+    const v = this.ta.value;
+    let pos = 0;
+    for (let i = 0; i < n; i++) {
+      const nl = v.indexOf('\n', pos);
+      if (nl < 0) return v.length + 1;
+      pos = nl + 1;
+    }
+    return pos;
   }
 
   goToLine(n: number) {
@@ -808,6 +1026,257 @@ export class TextEditor implements Editor {
     this.setCaret(s, e);
   }
 
+  /** Move the caret (or extend the selection) like the navigation keys. */
+  moveCaret(type: MoveType, select: boolean) {
+    const v = this.ta.value;
+    const back = this.ta.selectionDirection === 'backward';
+    const focus = back ? this.ta.selectionStart : this.ta.selectionEnd;
+    const anchor = back ? this.ta.selectionEnd : this.ta.selectionStart;
+    const page = Math.max(1, Math.floor(this.scroll.clientHeight / this.lineHeight) - 1);
+    let from = focus;
+    if (!select && this.ta.selectionStart !== this.ta.selectionEnd && (type === 'PREVIOUS_CHARACTER' || type === 'NEXT_CHARACTER')) {
+      // collapsing a selection with left/right lands on its edge
+      const p = type === 'PREVIOUS_CHARACTER' ? this.ta.selectionStart : this.ta.selectionEnd;
+      return this.setCaret(p);
+    }
+    const to = movePos(v, from, type, page);
+    from = to;
+    this.ta.focus();
+    if (select) this.ta.setSelectionRange(Math.min(anchor, to), Math.max(anchor, to), to < anchor ? 'backward' : 'forward');
+    else this.ta.setSelectionRange(to, to);
+    this.revealCaret();
+  }
+
+  /** Set the find text to the selection (or the word at the caret) and find the next match. */
+  findSetSelected() {
+    const v = this.ta.value;
+    let sel = v.slice(this.ta.selectionStart, this.ta.selectionEnd);
+    if (!sel) {
+      const [s, e] = wordAt(v, this.ta.selectionStart);
+      sel = v.slice(s, e);
+    }
+    if (sel && !sel.includes('\n')) this.findText = sel;
+    this.renderSidebar();
+    this.findNext();
+  }
+
+  toggleOverwrite() {
+    this.overwrite = !this.overwrite;
+    this.el.classList.toggle('overwrite', this.overwrite);
+    this.updateCaret();
+  }
+
+  async cutSel() {
+    await this.cut();
+  }
+  async copySel() {
+    await this.copy();
+  }
+  async pasteClip() {
+    await this.paste();
+  }
+
+  // ---------------------------------------------------------------- autocomplete
+
+  /** Completion candidates for the identifier before the caret. */
+  completions(): { word: string; items: string[] } {
+    const before = this.ta.value.slice(0, this.ta.selectionStart);
+    const prefix = completionPrefix(before);
+    if (prefix.includes('.')) {
+      try {
+        const { word, matches } = jsComplete(before);
+        const stem = word.slice(word.lastIndexOf('.') + 1);
+        return { word: stem, items: matches.map((m) => m.slice(m.lastIndexOf('.') + 1)).filter((m) => m !== stem && !m.startsWith('_')) };
+      } catch {
+        return { word: '', items: [] };
+      }
+    }
+    return { word: prefix, items: wordCandidates(this.ta.value, prefix, langOf(this.text)) };
+  }
+
+  /** Complete the word before the caret: insert a unique match, or show the choices. */
+  autocomplete(): boolean {
+    if (!this.text || this.ta.selectionStart !== this.ta.selectionEnd) return false;
+    const { word, items } = this.completions();
+    if (!items.length) {
+      this.closeAutocomplete();
+      return false;
+    }
+    if (items.length === 1) {
+      this.ta.focus();
+      this.insert(items[0].slice(word.length));
+      this.closeAutocomplete();
+      return true;
+    }
+    // extend to the common prefix, then list the choices
+    let common = items[0];
+    for (const it of items) while (!it.startsWith(common)) common = common.slice(0, -1);
+    if (common.length > word.length) this.insert(common.slice(word.length));
+    this.openAutocomplete(items, this.ta.selectionStart - Math.max(word.length, common.length));
+    return true;
+  }
+
+  private openAutocomplete(items: string[], start: number) {
+    this.acItems = items;
+    this.acIndex = 0;
+    this.acStart = start;
+    this.drawAutocomplete();
+  }
+
+  closeAutocomplete() {
+    if (this.acStart < 0) return;
+    this.acStart = -1;
+    this.acItems = [];
+    this.acEl.style.display = 'none';
+  }
+
+  /** Narrow the open list as the user keeps typing. */
+  private refreshAutocomplete() {
+    if (this.acStart < 0) return;
+    const pos = this.ta.selectionStart;
+    const typed = this.ta.value.slice(this.acStart, pos);
+    if (pos < this.acStart || !/^[\w$]*$/.test(typed)) return this.closeAutocomplete();
+    const { items } = this.completions();
+    if (!items.length) return this.closeAutocomplete();
+    this.acItems = items;
+    this.acIndex = Math.min(this.acIndex, items.length - 1);
+    this.drawAutocomplete();
+  }
+
+  private acceptAutocomplete() {
+    const it = this.acItems[this.acIndex];
+    if (!it) return this.closeAutocomplete();
+    const pos = this.ta.selectionStart;
+    this.ta.setSelectionRange(this.acStart, pos);
+    this.insert(it);
+    this.closeAutocomplete();
+  }
+
+  private drawAutocomplete() {
+    const v = this.ta.value;
+    const pos = this.acStart;
+    const line = v.slice(0, pos).split('\n').length - 1;
+    const col = pos - lineStart(v, pos);
+    const row = this.pre.children[line] as HTMLElement | undefined;
+    const mainR = this.main.getBoundingClientRect();
+    const contR = this.content.getBoundingClientRect();
+    const x = contR.left - mainR.left + 6 + col * this.charWidth;
+    const y = (row ? row.offsetTop + row.offsetHeight : (line + 1) * this.lineHeight) + contR.top - mainR.top + 2;
+    this.acEl.style.display = 'block';
+    this.acEl.style.left = `${Math.max(0, Math.min(this.main.clientWidth - 220, x))}px`;
+    this.acEl.style.top = `${Math.min(y, this.main.clientHeight - 40)}px`;
+    patch(
+      this.acEl,
+      this.acItems.slice(0, 40).map((it, i) =>
+        h(
+          'div',
+          {
+            key: it,
+            class: { 'te-ac-item': true, hl: i === this.acIndex },
+            role: 'option',
+            'aria-selected': i === this.acIndex ? 'true' : 'false',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              this.acIndex = i;
+              this.acceptAutocomplete();
+            },
+          },
+          it,
+        ),
+      ),
+    );
+    (this.acEl.children[this.acIndex] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private acKey(e: KeyboardEvent): boolean {
+    if (this.acStart < 0) return false;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const n = Math.min(40, this.acItems.length);
+      this.acIndex = (this.acIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      this.drawAutocomplete();
+    } else if (e.key === 'Enter' || e.key === 'Tab') this.acceptAutocomplete();
+    else if (e.key === 'Escape') this.closeAutocomplete();
+    else return false;
+    e.preventDefault();
+    return true;
+  }
+
+  // ---------------------------------------------------------------- external file
+
+  /** Reload the text from its file on disk. */
+  async reload(): Promise<boolean> {
+    const t = this.text;
+    const fh = t ? fileHandles.get(t.id) : undefined;
+    if (!t || !fh) {
+      app.report('WARNING', 'This text is not linked to a file on disk');
+      return false;
+    }
+    try {
+      const file = await fh.getFile();
+      const body = (await file.text()).replace(/\r\n?/g, '\n');
+      fileTimes.set(t.id, file.lastModified);
+      this.conflict = false;
+      this.ta.focus();
+      this.ta.setSelectionRange(0, this.ta.value.length);
+      this.insert(body);
+      this.ta.setSelectionRange(0, 0);
+      this.commitUndo();
+      this.renderConflict();
+      app.report('INFO', `Reloaded "${fh.name}"`);
+      return true;
+    } catch (e) {
+      app.report('ERROR', `Could not reload: ${(e as Error)?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** Detect a change of the linked file on disk (on focus). */
+  async checkConflict() {
+    const t = this.text;
+    const fh = t ? fileHandles.get(t.id) : undefined;
+    if (!t || !fh) return;
+    try {
+      const f = await fh.getFile();
+      const known = fileTimes.get(t.id) ?? f.lastModified;
+      const changed = f.lastModified > known;
+      if (changed !== this.conflict) {
+        this.conflict = changed;
+        this.renderConflict();
+      }
+    } catch {
+      // permission revoked or file gone: nothing to compare against
+    }
+  }
+
+  resolveConflict(how: 'RELOAD' | 'SAVE' | 'MAKE_INTERNAL' | 'IGNORE') {
+    const t = this.text;
+    if (!t) return;
+    if (how === 'RELOAD') void this.reload();
+    else if (how === 'SAVE') void saveText(this, false);
+    else if (how === 'MAKE_INTERNAL') {
+      fileHandles.delete(t.id);
+      fileTimes.delete(t.id);
+      this.renderFooter();
+    } else void fileHandles.get(t.id)?.getFile().then((f) => fileTimes.set(t.id, f.lastModified));
+    this.conflict = false;
+    this.renderConflict();
+  }
+
+  private renderConflict() {
+    const t = this.text;
+    const fh = t ? fileHandles.get(t.id) : undefined;
+    this.conflictEl.style.display = this.conflict && fh ? 'flex' : 'none';
+    if (!this.conflict || !fh) return patch(this.conflictEl, []);
+    patch(this.conflictEl, [
+      icon('error'),
+      h('span', { class: 'grow' }, `"${fh.name}" was changed on disk`),
+      h('button', { class: 'btn', onclick: () => this.resolveConflict('RELOAD') }, 'Reload from Disk'),
+      h('button', { class: 'btn', onclick: () => this.resolveConflict('SAVE') }, 'Save over It'),
+      h('button', { class: 'btn', onclick: () => this.resolveConflict('MAKE_INTERNAL') }, 'Make Internal'),
+      h('button', { class: 'btn', onclick: () => this.resolveConflict('IGNORE') }, 'Ignore'),
+    ]);
+  }
+
   private newlineWithIndent() {
     const v = this.ta.value;
     const s = this.ta.selectionStart;
@@ -839,12 +1308,20 @@ export class TextEditor implements Editor {
   private onKeyDown(e: KeyboardEvent) {
     e.stopPropagation();
     if (redirectIfElsewhere(e, this.area, this.ta)) return;
+    if (this.acKey(e)) return;
+    if (this.lineNumberKey(e)) return;
     // Text keymap (editable in Preferences ▸ Keymap) and window shortcuts
     if (dispatchEditorKeys(e, this.area, ['Text'], () => this.commitUndo())) return;
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       if (e.shiftKey) this.unindent();
-      else this.indent();
+      else {
+        // Tab right after a word completes it; elsewhere it indents
+        const p = this.ta.selectionStart;
+        const prev = this.ta.value[p - 1];
+        if (p === this.ta.selectionEnd && prev && /[\w$.]/.test(prev) && this.autocomplete()) return;
+        this.indent();
+      }
       return;
     }
     if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -905,6 +1382,7 @@ export class TextEditor implements Editor {
     this.commitUndo();
     this.resizeObs.disconnect();
     document.removeEventListener('selectionchange', this.onSelectionChange);
+    removeEventListener('focus', this.onWindowFocus);
   }
 }
 
@@ -988,7 +1466,15 @@ registerOperators([
     undo: false,
     exec: (ctx) => {
       const ed = textArea(ctx);
-      void pickFile('.py,.js,.mjs,.txt,.json,.md,.glsl,text/*').then(async (file) => {
+      const picker = (window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker;
+      let handle: FileSystemFileHandle | undefined;
+      const pick: Promise<File | null> = picker
+        ? picker({ types: [{ description: 'Text', accept: { 'text/plain': ['.py', '.js', '.mjs', '.txt', '.json', '.md', '.glsl', '.osl'] } }] }).then(
+            async ([h]) => ((handle = h), await h.getFile()),
+            (e) => (e?.name === 'AbortError' ? null : pickFile('.py,.js,.mjs,.txt,.json,.md,.glsl,text/*')),
+          )
+        : pickFile('.py,.js,.mjs,.txt,.json,.md,.glsl,text/*');
+      void pick.then(async (file) => {
         if (!file) return;
         if (file.size > 8 * 1024 * 1024) {
           app.report('ERROR', `${file.name} is too large to open as text`);
@@ -997,6 +1483,10 @@ registerOperators([
         const body = (await file.text()).replace(/\r\n?/g, '\n');
         const t = newText(uniqueName(app.doc.texts, file.name), body, langFromName(file.name));
         app.doc.texts[t.id] = t;
+        if (handle) {
+          fileHandles.set(t.id, handle);
+          fileTimes.set(t.id, file.lastModified);
+        }
         app.pushUndo('Open Text');
         ed?.setText(t.id);
         app.changed('doc');
@@ -1080,6 +1570,90 @@ registerOperators([
     exec: (ctx, p) => withText(ctx)!.convertWhitespace(p.type as 'SPACES'),
   },
   { idname: 'text.toggle_sidebar', label: 'Toggle Sidebar', description: 'Show or hide the Text Editor sidebar', undo: false, poll: (ctx) => !!textArea(ctx), exec: (ctx) => textArea(ctx)!.toggleSidebar() },
+  { idname: 'text.find_set_selected', label: 'Find Set Selected', description: 'Search for the selected text (or the word at the caret) and find its next occurrence', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.findSetSelected() },
+  { idname: 'text.cut', label: 'Cut', description: 'Cut the selected text to the clipboard', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => void withText(ctx)!.cutSel() },
+  { idname: 'text.copy', label: 'Copy', description: 'Copy the selected text to the clipboard', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => void withText(ctx)!.copySel() },
+  { idname: 'text.paste', label: 'Paste', description: 'Paste text from the clipboard', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => void withText(ctx)!.pasteClip() },
+  { idname: 'text.select_all', label: 'Select All', description: 'Select all text', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.selectAll() },
+  { idname: 'text.select_line', label: 'Select Line', description: 'Select the lines of the caret or selection', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.selectLine() },
+  { idname: 'text.select_word', label: 'Select Word', description: 'Select the word at the caret', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.selectWord() },
+  {
+    idname: 'text.move',
+    label: 'Move Cursor',
+    description: 'Move the caret to a position (line begin/end, word, line, page, file top/bottom)',
+    undo: false,
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'LINE_BEGIN', items: MOVE_TYPES }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => withText(ctx)!.moveCaret(p.type as MoveType, false),
+  },
+  {
+    idname: 'text.move_select',
+    label: 'Move Select',
+    description: 'Extend the selection to a position (line begin/end, word, line, page, file top/bottom)',
+    undo: false,
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'LINE_BEGIN', items: MOVE_TYPES }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => withText(ctx)!.moveCaret(p.type as MoveType, true),
+  },
+  { idname: 'text.overwrite_toggle', label: 'Toggle Overwrite', description: 'Typing replaces the characters after the caret instead of inserting', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.toggleOverwrite() },
+  { idname: 'text.autocomplete', label: 'Text Autocomplete', description: 'Complete the word before the caret from the text, keywords and the scripting API', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => void withText(ctx)!.autocomplete() },
+  {
+    idname: 'text.reload',
+    label: 'Reload',
+    description: 'Reload the text from its file on disk',
+    undo: false,
+    poll: (ctx) => !!withText(ctx) && fileHandles.has(withText(ctx)!.textId!),
+    exec: (ctx) => void withText(ctx)!.reload(),
+  },
+  {
+    idname: 'text.make_internal',
+    label: 'Make Internal',
+    description: 'Keep the text only in the project, no longer linked to its file on disk',
+    undo: false,
+    poll: (ctx) => !!withText(ctx) && fileHandles.has(withText(ctx)!.textId!),
+    exec: (ctx) => withText(ctx)!.resolveConflict('MAKE_INTERNAL'),
+  },
+  {
+    idname: 'text.resolve_conflict',
+    label: 'Resolve Conflict',
+    description: 'When the file changed on disk: reload it, save over it, or make the text internal',
+    undo: false,
+    props: [{ id: 'resolution', label: 'Resolution', type: 'enum', default: 'IGNORE', items: [['IGNORE', 'Ignore'], ['RELOAD', 'Reload'], ['SAVE', 'Save'], ['MAKE_INTERNAL', 'Make Internal']] }],
+    poll: (ctx) => !!withText(ctx) && fileHandles.has(withText(ctx)!.textId!),
+    exec: (ctx, p) => withText(ctx)!.resolveConflict(p.resolution as 'IGNORE'),
+  },
+  {
+    idname: 'text.to_3d_object',
+    label: 'Text to 3D Object',
+    description: 'Create a text object from the active text, or one per line',
+    props: [
+      { id: 'split_lines', label: 'Split Lines', type: 'bool', default: false },
+      { id: 'text', label: 'Text', type: 'string', default: '', hidden: true },
+    ],
+    poll: (ctx) => ctx.doc.mode === 'OBJECT' && (!!withText(ctx) || Object.keys(ctx.doc.texts).length > 0),
+    invoke: (ctx, p) => {
+      // remember the text so Adjust Last Operation can run again from any editor
+      p.text = withText(ctx)?.textId ?? p.text;
+      return textTo3D(ctx, p);
+    },
+    exec: (ctx, p) => textTo3D(ctx, p),
+  },
+  {
+    idname: 'wm.context_cycle_int',
+    label: 'Context Int Cycle',
+    description: 'Step an integer setting of the editor under the pointer (e.g. the font size)',
+    undo: false,
+    internal: true,
+    props: [
+      { id: 'data_path', label: 'Data Path', type: 'string', default: 'space_data.font_size' },
+      { id: 'reverse', label: 'Reverse', type: 'bool', default: false },
+    ],
+    poll: (ctx) => !!(ctx.area?.editor as { cycleFontSize?: unknown } | undefined)?.cycleFontSize,
+    exec: (ctx, p) => {
+      if (p.data_path !== 'space_data.font_size') return 'CANCELLED';
+      (ctx.area!.editor as { cycleFontSize(d: number): void }).cycleFontSize(p.reverse ? -1 : 1);
+    },
+  },
 ]);
 
 addKeys('Text', [
@@ -1089,15 +1663,56 @@ addKeys('Text', [
   { key: 'S', alt: true, op: 'text.save' },
   { key: 'S', shift: true, ctrl: true, alt: true, op: 'text.save_as' },
   { key: 'F', ctrl: true, op: 'text.start_find' },
-  { key: 'G', ctrl: true, op: 'text.find' },
   { key: 'H', ctrl: true, op: 'text.replace' },
   { key: 'J', ctrl: true, op: 'text.jump' },
   { key: 'SLASH', ctrl: true, op: 'text.comment_toggle' },
-  { key: 'D', shift: true, ctrl: true, op: 'text.duplicate_line' },
+  { key: 'D', ctrl: true, op: 'text.duplicate_line' },
+  { key: 'G', ctrl: true, op: 'text.find_set_selected' },
+  { key: 'R', alt: true, op: 'text.reload' },
+  { key: 'INSERT', op: 'text.overwrite_toggle' },
+  { key: 'HOME', op: 'text.move', props: { type: 'LINE_BEGIN' } },
+  { key: 'END', op: 'text.move', props: { type: 'LINE_END' } },
+  { key: 'HOME', shift: true, op: 'text.move_select', props: { type: 'LINE_BEGIN' } },
+  { key: 'END', shift: true, op: 'text.move_select', props: { type: 'LINE_END' } },
+  { key: 'HOME', ctrl: true, op: 'text.move', props: { type: 'FILE_TOP' } },
+  { key: 'END', ctrl: true, op: 'text.move', props: { type: 'FILE_BOTTOM' } },
+  { key: 'HOME', shift: true, ctrl: true, op: 'text.move_select', props: { type: 'FILE_TOP' } },
+  { key: 'END', shift: true, ctrl: true, op: 'text.move_select', props: { type: 'FILE_BOTTOM' } },
+  { key: 'A', shift: true, ctrl: true, op: 'text.select_line' },
+  { key: 'NUMPAD_PLUS', ctrl: true, op: 'wm.context_cycle_int', props: { data_path: 'space_data.font_size', reverse: false } },
+  { key: 'NUMPAD_MINUS', ctrl: true, op: 'wm.context_cycle_int', props: { data_path: 'space_data.font_size', reverse: true } },
   { key: 'UP_ARROW', shift: true, ctrl: true, op: 'text.move_lines', props: { direction: 'UP' } },
   { key: 'DOWN_ARROW', shift: true, ctrl: true, op: 'text.move_lines', props: { direction: 'DOWN' } },
   { key: 'T', ctrl: true, op: 'text.toggle_sidebar' },
 ]);
+
+/** Text to 3D Object: one text object, or one per non-empty line, at the 3D cursor. */
+function textTo3D(ctx: OpContext, p: Record<string, unknown>): 'FINISHED' | 'CANCELLED' {
+  const t = ctx.doc.texts[String(p.text)] ?? withText(ctx)?.text;
+  if (!t) return 'CANCELLED';
+  const lines = p.split_lines ? t.body.split('\n') : [t.body];
+  const cursor = ctx.doc.scene.cursor.location;
+  for (const ob of Object.values(ctx.doc.objects)) ob.select = false;
+  let made = 0;
+  lines.forEach((line, i) => {
+    if (p.split_lines && !line.trim()) return;
+    const cu = newCurve(uniqueDataName(ctx.doc, t.name.replace(/\.[a-z0-9]+$/i, ''), 'curves'));
+    cu.dimensions = '2D';
+    cu.body = line;
+    cu.size = 1;
+    cu.fill_mode = 'BOTH';
+    cu.align_x = 'LEFT';
+    cu.align_y = 'TOP_BASELINE' as never;
+    cu.space_line = 1;
+    cu.space_character = 1;
+    ctx.doc.curves[cu.id] = cu;
+    const ob = newObject(cu.name, 'FONT', cu.id);
+    addObjectToScene(ctx.doc, ob, { location: [cursor[0], cursor[1] - i * 1.2, cursor[2]] });
+    made++;
+  });
+  if (!made) return 'CANCELLED';
+  return 'FINISHED';
+}
 
 async function saveText(ed: TextEditor, saveAs: boolean) {
   const t = ed.text;
@@ -1115,6 +1730,8 @@ async function saveText(ed: TextEditor, saveAs: boolean) {
       const w = await (handle as unknown as { createWritable(): Promise<{ write(s: string): Promise<void>; close(): Promise<void> }> }).createWritable();
       await w.write(t.body);
       await w.close();
+      fileTimes.set(t.id, (await handle.getFile()).lastModified);
+      ed.conflict = false;
       app.report('INFO', `Saved "${handle.name}"`);
     } else {
       download(t.body, name, 'text/plain');

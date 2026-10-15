@@ -2,7 +2,7 @@
 import { Matrix4, Quaternion, Vector3, Matrix3 } from 'three';
 import { app, registerOperators, type OpContext } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
-import type { View3D } from '../../editors/view3d/view3d';
+import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { h } from '../../ui/h';
 import type { ArmatureData, Bone, ObjectData, PoseBone } from '../../data/types';
 import { transformProviders, startTransform, type TElement } from '../../ops/transform';
@@ -19,6 +19,9 @@ import { frameHooks } from '../../ops/view3d';
 import { Box3 } from 'three';
 import { modeHandlers } from '../../ops/modes';
 import { insertKeyframesForObjects } from '../../anim/keyframes';
+import { boneVisible, newBoneLike, flipSideName, bonePath, uniqueBoneName as kUniqueBoneName } from './armkernels';
+import { inSelectRegion } from '../../editors/view3d/selectshapes';
+import type { SelectRegion } from '../../editors/view3d/hooks';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -31,6 +34,9 @@ export function activeArmature(): { ob: ObjectData; arm: ArmatureData } | null {
 
 const inArmEdit = () => app.doc.mode === 'EDIT' && !!activeArmature();
 const inPose = () => app.doc.mode === 'POSE' && !!activeArmature();
+
+/** Bones created by Extrude Forked: their mirrored twins follow during the next transform. */
+export const forkedMirror = new Set<string>();
 
 function world(ob: ObjectData) {
   return app.graph.get(ob.id)?.world ?? new Matrix4();
@@ -53,12 +59,12 @@ function bonePoints(ob: ObjectData, b: Bone, posed: boolean): [Vector3, Vector3]
 // ---------------------------------------------------------------------------
 // picking & selection
 
-function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
+export function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
   const a = activeArmature();
   if (!a) return null;
   let best: { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null = null;
   for (const b of a.arm.bones) {
-    if (b.hide) continue;
+    if (!boneVisible(a.arm, b)) continue;
     const [hw, tw] = bonePoints(a.ob, b, posed);
     const hs = v.project(hw),
       ts = v.project(tw);
@@ -99,6 +105,19 @@ editModeHooks.pick.push((v, x, y, o) => {
       a.arm.active_bone = hit.bone.name;
     }
   } else {
+    // Ctrl+click: select the bones on the hierarchy path from the active bone
+    const ev = window.event as PointerEvent | undefined;
+    const act = a.arm.bones.find((b) => b.name === a.arm.active_bone);
+    if (ev?.ctrlKey && !ev.shiftKey && hit && act && act !== hit.bone) {
+      const path = bonePath(a.arm, act, hit.bone);
+      if (path.length) {
+        for (const b of path) b.select = b.select_head = b.select_tail = true;
+        a.arm.active_bone = hit.bone.name;
+        app.pushUndo('Pick Shortest Path');
+        app.changed('select', 'doc');
+        return true;
+      }
+    }
     if (!o.extend) for (const b of a.arm.bones) b.select = b.select_head = b.select_tail = false;
     if (hit) {
       const on = !(o.toggle && hit.bone.select && a.arm.active_bone === hit.bone.name);
@@ -122,17 +141,17 @@ function syncConnected(arm: ArmatureData) {
     }
 }
 
-editModeHooks.box.push((v, x0, y0, x1, y1, mode) => {
+function regionSelect(v: View3D, r: SelectRegion, mode: 'SET' | 'ADD' | 'SUB' | 'AND' | 'XOR', label: string) {
   const a = activeArmature();
   if (!a || (app.doc.mode !== 'EDIT' && app.doc.mode !== 'POSE')) return false;
   const posed = app.doc.mode === 'POSE';
-  const inside = (p: { x: number; y: number }) => p.x >= Math.min(x0, x1) && p.x <= Math.max(x0, x1) && p.y >= Math.min(y0, y1) && p.y <= Math.max(y0, y1);
+  const inside = (p: { x: number; y: number; z: number }) => p.z <= 1 && inSelectRegion(r, p.x, p.y);
+  const apply = (cur: boolean, hit: boolean) => (mode === 'SET' ? hit : mode === 'ADD' ? cur || hit : mode === 'SUB' ? cur && !hit : mode === 'AND' ? cur && hit : cur !== hit);
   for (const b of a.arm.bones) {
-    if (b.hide) continue;
+    if (!boneVisible(a.arm, b)) continue;
     const [hw, tw] = bonePoints(a.ob, b, posed);
     const hi = inside(v.project(hw)),
       ti = inside(v.project(tw));
-    const apply = (cur: boolean, hit: boolean) => (mode === 'SET' ? hit : mode === 'ADD' ? cur || hit : mode === 'SUB' ? cur && !hit : mode === 'AND' ? cur && hit : cur !== hit);
     if (posed) {
       a.ob.pose ??= {};
       const pb = (a.ob.pose[b.name] ??= defaultPoseBone());
@@ -143,17 +162,21 @@ editModeHooks.box.push((v, x0, y0, x1, y1, mode) => {
       b.select = !!(b.select_head && b.select_tail);
     }
   }
-  app.pushUndo('Box Select');
+  if (!posed) syncConnected(a.arm);
+  app.pushUndo(label);
   app.changed('select', 'doc');
   return true;
-});
+}
+
+editModeHooks.box.push((v, x0, y0, x1, y1, mode) => regionSelect(v, { kind: 'box', x0, y0, x1, y1 }, mode, 'Box Select'));
+editModeHooks.region.push((v, r, mode) => regionSelect(v, r, mode, r.kind === 'circle' ? 'Circle Select' : 'Lasso Select'));
 
 // joints & selection overlay in edit mode (pose mode colors come from draw.ts)
 editModeHooks.svg.push((v) => {
   if (!inArmEdit()) return null;
   const a = activeArmature()!;
   const parts = a.arm.bones
-    .filter((b) => !b.hide)
+    .filter((b) => boneVisible(a.arm, b))
     .map((b) => {
       const [hw, tw] = bonePoints(a.ob, b, false);
       const hs = v.project(hw),
@@ -176,7 +199,7 @@ editModeHooks.svg.push((v) => {
 // transforms
 
 transformProviders.push({
-  collect() {
+  collect({ individual }) {
     const a = activeArmature();
     if (!a) return null;
     if (app.doc.mode === 'EDIT') {
@@ -185,28 +208,62 @@ transformProviders.push({
       const els: TElement[] = [];
       const joints: { b: Bone; key: 'head' | 'tail' }[] = [];
       for (const b of a.arm.bones) {
-        if (b.hide) continue;
+        if (!boneVisible(a.arm, b)) continue;
         if (b.select_head) joints.push({ b, key: 'head' });
         if (b.select_tail) joints.push({ b, key: 'tail' });
       }
       if (!joints.length) return null;
       const before = a.arm.bones.map((b) => ({ head: [...b.head], tail: [...b.tail] }));
       const byName = new Map(a.arm.bones.map((b) => [b.name, b]));
+      const selectedJoint = (b: Bone, key: 'head' | 'tail') => joints.some((j) => j.b === b && j.key === key);
+      /** move a joint and the joints connected to it */
+      const place = (b: Bone, key: 'head' | 'tail', p: Vector3) => {
+        b[key] = [p.x, p.y, p.z];
+        if (key === 'head' && b.use_connect && b.parent) {
+          const par = byName.get(b.parent);
+          if (par) par.tail = [p.x, p.y, p.z];
+        }
+        if (key === 'tail') for (const c of a.arm.bones) if (c.parent === b.name && c.use_connect) c.head = [p.x, p.y, p.z];
+      };
+      const mirrorX = !!a.arm.use_mirror_x || forkedMirror.size > 0;
+      // Individual Origins: fully selected bones turn / scale around their own head
+      // (bones in connected selected chains keep moving by joints so the chain stays together)
+      const full = new Set(individual ? a.arm.bones.filter((b) => boneVisible(a.arm, b) && b.select_head && b.select_tail) : []);
+      const whole = [...full].filter((b) => !(b.use_connect && b.parent && full.has(byName.get(b.parent)!)) && !a.arm.bones.some((c) => c.parent === b.name && c.use_connect && full.has(c)));
+      for (const b of whole) {
+        const h0 = V(b.head).applyMatrix4(w),
+          t0 = V(b.tail).applyMatrix4(w);
+        els.push({
+          center: h0,
+          basis: new Matrix3().setFromMatrix4(w),
+          weight: 1,
+          apply(m: Matrix4) {
+            place(b, 'head', h0.clone().applyMatrix4(m).applyMatrix4(inv));
+            place(b, 'tail', t0.clone().applyMatrix4(m).applyMatrix4(inv));
+          },
+          restore() {
+            a.arm.bones.forEach((x, i) => {
+              x.head = [...before[i].head] as [number, number, number];
+              x.tail = [...before[i].tail] as [number, number, number];
+            });
+          },
+        });
+      }
       for (const j of joints) {
+        if (whole.includes(j.b)) continue;
         const p0 = V(j.b[j.key]).applyMatrix4(w);
+        // X-Axis Mirror: the counterpart joint (Bone.L ↔ Bone.R) follows, mirrored
+        const twinName = mirrorX && (a.arm.use_mirror_x || forkedMirror.has(j.b.name)) ? flipSideName(j.b.name) : null;
+        const twin = twinName && twinName !== j.b.name ? byName.get(twinName) : undefined;
+        const followTwin = twin && !selectedJoint(twin, j.key) ? twin : undefined;
         els.push({
           center: p0,
           basis: new Matrix3().setFromMatrix4(w),
           weight: 1,
           apply(m: Matrix4) {
             const p = p0.clone().applyMatrix4(m).applyMatrix4(inv);
-            j.b[j.key] = [p.x, p.y, p.z];
-            // connected relatives follow
-            if (j.key === 'head' && j.b.use_connect && j.b.parent) {
-              const par = byName.get(j.b.parent);
-              if (par) par.tail = [p.x, p.y, p.z];
-            }
-            if (j.key === 'tail') for (const c of a.arm.bones) if (c.parent === j.b.name && c.use_connect) c.head = [p.x, p.y, p.z];
+            place(j.b, j.key, p);
+            if (followTwin) place(followTwin, j.key, new Vector3(-p.x, p.y, p.z));
           },
           restore() {
             a.arm.bones.forEach((b, i) => {
@@ -216,13 +273,14 @@ transformProviders.push({
           },
         });
       }
-      return { elements: els, label: 'Bones', finish() {}, cancel() {}, onUpdate: () => app.changed('doc') };
+      const actBone = a.arm.bones.find((b) => b.name === a.arm.active_bone && (b.select_head || b.select_tail));
+      return { elements: els, active: actBone ? V(actBone.head).applyMatrix4(w) : undefined, label: 'Bones', finish: () => forkedMirror.clear(), cancel: () => forkedMirror.clear(), onUpdate: () => app.changed('doc') };
     }
     if (app.doc.mode === 'POSE' && a.ob.pose) {
       const ev = app.graph.get(a.ob.id);
       if (!ev?.pose) return null;
       const w = world(a.ob);
-      const selected = Object.entries(a.ob.pose).filter(([name, pb]) => pb.select && a.arm.bones.some((b) => b.name === name && !b.hide));
+      const selected = Object.entries(a.ob.pose).filter(([name, pb]) => pb.select && a.arm.bones.some((b) => b.name === name && boneVisible(a.arm, b)));
       // only the top-most selected bones of each chain transform (children follow)
       const selNames = new Set(selected.map(([n]) => n));
       const byName = new Map(a.arm.bones.map((b) => [b.name, b]));
@@ -328,35 +386,35 @@ frameHooks.unshift(() => {
 // ---------------------------------------------------------------------------
 // operators
 
+/** Recalculate Roll directions. */
+export const ROLL_TYPES: [string, string][] = [
+  ['POS_X', 'Local +X Tangent'],
+  ['POS_Z', 'Local +Z Tangent'],
+  ['GLOBAL_POS_X', 'Global +X Axis'],
+  ['GLOBAL_POS_Y', 'Global +Y Axis'],
+  ['GLOBAL_POS_Z', 'Global +Z Axis'],
+  ['NEG_X', 'Local -X Tangent'],
+  ['NEG_Z', 'Local -Z Tangent'],
+  ['GLOBAL_NEG_X', 'Global -X Axis'],
+  ['GLOBAL_NEG_Y', 'Global -Y Axis'],
+  ['GLOBAL_NEG_Z', 'Global -Z Axis'],
+  ['ACTIVE', 'Active Bone'],
+  ['VIEW', 'View Axis'],
+  ['CURSOR', 'Cursor'],
+];
+
 const armEditPoll = (ctx: OpContext) => ctx.doc.mode === 'EDIT' && !!activeArmature();
 const posePoll = (ctx: OpContext) => ctx.doc.mode === 'POSE' && !!activeArmature();
 
 function uniqueBoneName(arm: ArmatureData, base: string) {
-  if (!arm.bones.some((b) => b.name === base)) return base;
-  const stem = base.replace(/\.\d{3}$/, '');
-  for (let i = 1; ; i++) {
-    const n = `${stem}.${String(i).padStart(3, '0')}`;
-    if (!arm.bones.some((b) => b.name === n)) return n;
-  }
+  return kUniqueBoneName(arm, base);
 }
 
-function newBone(arm: ArmatureData, name: string, head: number[], tail: number[], parent: string | null = null, connect = false): Bone {
-  const b: Bone = {
-    name: uniqueBoneName(arm, name),
-    parent,
-    head: [head[0], head[1], head[2]],
-    tail: [tail[0], tail[1], tail[2]],
-    roll: 0,
-    use_connect: connect,
-    use_deform: true,
-    use_inherit_rotation: true,
-    inherit_scale: 'FULL',
-    envelope_distance: 0.25,
-    head_radius: 0.1,
-    tail_radius: 0.05,
-    bbone_segments: 1,
-  };
-  arm.bones.push(b);
+/** New bone; it joins the collections of its parent (or the active bone collection). */
+function newBone(arm: ArmatureData, name: string, head: number[], tail: number[], parent: string | null = null, connect = false, template?: Bone): Bone {
+  const par = parent ? arm.bones.find((x) => x.name === parent) ?? null : null;
+  const b = newBoneLike(arm, name, head, tail, par, connect, template);
+  if (parent && !par) b.parent = parent;
   return b;
 }
 
@@ -465,7 +523,7 @@ registerOperators([
       if (!sel.length) return 'CANCELLED';
       const map = new Map<string, string>();
       const copies = sel.map((b) => {
-        const c = newBone(arm, b.name, b.head, b.tail, b.parent, b.use_connect);
+        const c = newBone(arm, b.name, b.head, b.tail, b.parent, b.use_connect, b);
         c.roll = b.roll;
         map.set(b.name, c.name);
         return c;
@@ -569,25 +627,60 @@ registerOperators([
   {
     idname: 'armature.calculate_roll',
     label: 'Recalculate Roll',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'POS_X', items: [['POS_X', 'Local +X Tangent'], ['GLOBAL_POS_Z', 'Global +Z Axis'], ['CURSOR', 'Cursor']] }],
+    description: 'Point the roll axis of the selected bones in a chosen direction',
+    props: [
+      { id: 'type', label: 'Type', type: 'enum', default: 'POS_X', items: ROLL_TYPES },
+      { id: 'axis_flip', label: 'Flip Axis', type: 'bool', default: false },
+      { id: 'axis_only', label: 'Shortest Rotation', type: 'bool', default: false },
+    ],
     poll: armEditPoll,
     exec: (ctx, p) => {
       const { ob, arm } = activeArmature()!;
+      const inv = world(ob).clone().invert();
+      const type = p.type as string;
+      const byName = new Map(arm.bones.map((b) => [b.name, b]));
+      const act = arm.bones.find((b) => b.name === arm.active_bone);
+      const actZ = act ? new Vector3(0, 0, 1).transformDirection(boneRestMatrix(act)) : null;
+      const view = activeView3D();
+      const viewDir = view ? new Vector3(0, 0, -1).applyQuaternion(view.camera.quaternion).transformDirection(inv).negate() : new Vector3(0, -1, 0);
       for (const b of arm.bones) {
-        if (!b.select) continue;
+        if (!b.select || !boneVisible(arm, b)) continue;
         const y = V(b.tail).sub(V(b.head)).normalize();
-        let target = new Vector3(0, 0, 1);
-        if (p.type === 'CURSOR') target = V(ctx.doc.scene.cursor.location).applyMatrix4(world(ob).clone().invert()).sub(V(b.head));
-        // choose roll so the bone's Z axis points towards the target (projected)
+        // which local axis is aimed (X types aim the X axis, everything else the Z axis)
+        const aimX = type === 'POS_X' || type === 'NEG_X';
+        let target: Vector3 | null = null;
+        if (type.startsWith('GLOBAL_')) {
+          const ax = type.endsWith('X') ? new Vector3(1, 0, 0) : type.endsWith('Y') ? new Vector3(0, 1, 0) : new Vector3(0, 0, 1);
+          if (type.includes('NEG')) ax.negate();
+          target = ax.transformDirection(inv);
+        } else if (type === 'CURSOR') target = V(ctx.doc.scene.cursor.location).applyMatrix4(inv).sub(V(b.head));
+        else if (type === 'VIEW') target = viewDir.clone();
+        else if (type === 'ACTIVE') target = actZ?.clone() ?? null;
+        else {
+          // local tangents: the direction the chain bends in (towards the parent / child bone)
+          const par = b.parent ? byName.get(b.parent) : undefined;
+          const child = arm.bones.find((c) => c.parent === b.name && c.use_connect);
+          const other = par ? V(par.head).sub(V(par.tail)).normalize() : child ? V(child.tail).sub(V(child.head)).normalize() : null;
+          if (other) {
+            const t = other.clone().sub(y.clone().multiplyScalar(other.dot(y)));
+            if (t.lengthSq() > 1e-10) target = t;
+          }
+          target ??= new Vector3(0, 0, 1);
+          if (type.startsWith('NEG')) target.negate();
+        }
+        if (!target) continue;
+        if (p.axis_flip) target.negate();
+        const t = target.clone().sub(y.clone().multiplyScalar(target.dot(y)));
+        if (t.lengthSq() < 1e-12) continue;
+        t.normalize();
         b.roll = 0;
         const m0 = boneRestMatrix(b);
-        const z0 = new Vector3(0, 0, 1).transformDirection(m0);
-        const t = target.clone().sub(y.clone().multiplyScalar(target.dot(y))).normalize();
-        if (t.lengthSq() > 0) {
-          let ang = Math.acos(Math.max(-1, Math.min(1, z0.dot(t))));
-          if (z0.clone().cross(t).dot(y) < 0) ang = -ang;
-          b.roll = ang;
-        }
+        const axis0 = new Vector3(aimX ? 1 : 0, 0, aimX ? 0 : 1).transformDirection(m0);
+        let ang = Math.acos(Math.max(-1, Math.min(1, axis0.dot(t))));
+        if (axis0.clone().cross(t).dot(y) < 0) ang = -ang;
+        // shortest rotation: the axis may point either way
+        if (p.axis_only && Math.abs(ang) > Math.PI / 2) ang -= Math.sign(ang) * Math.PI;
+        b.roll = ang;
       }
     },
   },
@@ -601,38 +694,12 @@ registerOperators([
       let a = p.action as string;
       if (a === 'TOGGLE') a = arm.bones.some((b) => b.select_head || b.select_tail) ? 'DESELECT' : 'SELECT';
       for (const b of arm.bones) {
+        if (!boneVisible(arm, b) && a !== 'DESELECT') continue;
         const v = a === 'SELECT' ? true : a === 'DESELECT' ? false : !b.select;
         b.select = b.select_head = b.select_tail = v;
       }
     },
     redo: false,
-  },
-  {
-    idname: 'armature.symmetrize',
-    label: 'Symmetrize',
-    description: 'Create mirrored copies of selected bones named .L/.R',
-    poll: armEditPoll,
-    exec: () => {
-      const { ob, arm } = activeArmature()!;
-      const swap = (n: string) => n.replace(/([._-])([LlRr])$/, (_, s, c) => s + ({ L: 'R', R: 'L', l: 'r', r: 'l' } as Record<string, string>)[c]);
-      for (const b of arm.bones.filter((x) => x.select)) {
-        const mn = swap(b.name);
-        if (mn === b.name) continue;
-        const existing = arm.bones.find((x) => x.name === mn);
-        const head = [-b.head[0], b.head[1], b.head[2]],
-          tail = [-b.tail[0], b.tail[1], b.tail[2]];
-        if (existing) {
-          existing.head = head as [number, number, number];
-          existing.tail = tail as [number, number, number];
-          existing.roll = -b.roll;
-        } else {
-          const nb = newBone(arm, mn, head, tail, b.parent ? swap(b.parent) : null, b.use_connect);
-          nb.roll = -b.roll;
-          if (nb.parent && !arm.bones.some((x) => x.name === nb.parent)) nb.parent = b.parent;
-        }
-      }
-      ensurePose(ob, arm);
-    },
   },
   {
     idname: 'armature.rename',
@@ -706,15 +773,18 @@ registerOperators([
   {
     idname: 'pose.paste',
     label: 'Paste Pose',
-    props: [{ id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false }],
+    props: [
+      { id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false },
+      { id: 'selected_mask', label: 'On Selected Only', type: 'bool', default: false },
+    ],
     poll: (ctx) => posePoll(ctx) && !!poseClipboard,
     exec: (_ctx, p) => {
       const { ob } = activeArmature()!;
-      const swap = (n: string) => n.replace(/([._-])([LlRr])$/, (_, s, c) => s + ({ L: 'R', R: 'L', l: 'r', r: 'l' } as Record<string, string>)[c]);
+      const swap = (n: string) => flipSideName(n);
       for (const [n, src] of Object.entries(poseClipboard!)) {
         const target = p.flipped ? swap(n) : n;
         const pb = ob.pose?.[target];
-        if (!pb) continue;
+        if (!pb || (p.selected_mask && !pb.select)) continue;
         pb.location = [...src.location] as [number, number, number];
         pb.scale = [...src.scale] as [number, number, number];
         pb.rotation_euler = [...src.rotation_euler] as [number, number, number];
@@ -808,26 +878,6 @@ modeHandlers.POSE = {
 // ---------------------------------------------------------------------------
 // menus & keymap
 
-function armatureMenu(): MenuItem[] {
-  return [
-    { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }] },
-    { separator: true },
-    { label: 'Extrude', op: 'armature.extrude_move', shortcut: 'E' },
-    { label: 'Duplicate', op: 'armature.duplicate_move', shortcut: 'Shift D' },
-    { label: 'Subdivide', op: 'armature.subdivide' },
-    { label: 'Symmetrize', op: 'armature.symmetrize' },
-    { label: 'Switch Direction', op: 'armature.switch_direction' },
-    { separator: true },
-    { label: 'Bone Roll', submenu: () => [{ label: 'Recalculate Roll', op: 'armature.calculate_roll', shortcut: 'Shift N' }, { label: 'Clear Roll', op: 'armature.roll_clear' }] },
-    { label: 'Parent', submenu: () => [{ label: 'Make (Connected)', op: 'armature.parent_set', props: { type: 'CONNECTED' }, shortcut: 'Ctrl P' }, { label: 'Make (Keep Offset)', op: 'armature.parent_set', props: { type: 'OFFSET' } }, { label: 'Clear', op: 'armature.parent_clear', props: { type: 'CLEAR' }, shortcut: 'Alt P' }, { label: 'Disconnect Bone', op: 'armature.parent_clear', props: { type: 'DISCONNECT' } }] },
-    { label: 'Names', submenu: () => [{ label: 'Rename Active Bone…', op: 'armature.rename', shortcut: 'F2' }] },
-    { separator: true },
-    { label: 'Show/Hide', submenu: () => [{ label: 'Reveal Bones', op: 'pose.reveal', shortcut: 'Alt H' }, { label: 'Hide Selected', op: 'pose.hide', shortcut: 'H' }] },
-    { separator: true },
-    { label: 'Delete Bones', op: 'armature.delete', shortcut: 'X' },
-  ];
-}
-
 function poseMenu(): MenuItem[] {
   return [
     { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }] },
@@ -845,38 +895,11 @@ function poseMenu(): MenuItem[] {
   ];
 }
 
-const prevEdit = modeMenus.EDIT;
-modeMenus.EDIT = {
-  ...prevEdit,
-  header: () => (inArmEdit() ? [['Armature', armatureMenu]] : prevEdit?.header?.() ?? []),
-  select: () => (inArmEdit() ? [{ label: 'All', op: 'armature.select_all', props: { action: 'SELECT' } }, { label: 'None', op: 'armature.select_all', props: { action: 'DESELECT' } }, { label: 'Invert', op: 'armature.select_all', props: { action: 'INVERT' } }] : prevEdit?.select?.() ?? []),
-  add: () => (inArmEdit() ? [{ label: 'Single Bone', op: 'armature.bone_primitive_add' }] : prevEdit?.add?.() ?? []),
-  context: () => (inArmEdit() ? armatureMenu() : prevEdit?.context?.() ?? []),
-  headerExtra: () => (inArmEdit() ? null : prevEdit?.headerExtra?.() ?? null),
-};
-
 modeMenus.POSE = {
   header: () => [['Pose', poseMenu]],
   select: () => [{ label: 'All', op: 'pose.select_all', props: { action: 'SELECT' } }, { label: 'None', op: 'pose.select_all', props: { action: 'DESELECT' } }, { label: 'Invert', op: 'pose.select_all', props: { action: 'INVERT' } }, { separator: true }, { label: 'Parent', op: 'pose.select_hierarchy', props: { direction: 'PARENT' } }, { label: 'Child', op: 'pose.select_hierarchy', props: { direction: 'CHILD' } }],
   context: poseMenu,
 };
-
-addKeys('Armature', [
-  { key: 'E', op: 'armature.extrude_move', when: inArmEdit },
-  { key: 'A', op: 'armature.select_all', props: { action: 'SELECT' }, when: inArmEdit },
-  { key: 'A', alt: true, op: 'armature.select_all', props: { action: 'DESELECT' }, when: inArmEdit },
-  { key: 'I', ctrl: true, op: 'armature.select_all', props: { action: 'INVERT' }, when: inArmEdit },
-  { key: 'X', op: 'armature.delete', when: inArmEdit },
-  { key: 'DEL', op: 'armature.delete', when: inArmEdit },
-  { key: 'D', shift: true, op: 'armature.duplicate_move', when: inArmEdit },
-  { key: 'P', ctrl: true, menu: () => [{ label: 'Connected', op: 'armature.parent_set', props: { type: 'CONNECTED' } }, { label: 'Keep Offset', op: 'armature.parent_set', props: { type: 'OFFSET' } }], menuTitle: 'Make Parent', when: inArmEdit },
-  { key: 'P', alt: true, menu: () => [{ label: 'Clear Parent', op: 'armature.parent_clear', props: { type: 'CLEAR' } }, { label: 'Disconnect Bone', op: 'armature.parent_clear', props: { type: 'DISCONNECT' } }], menuTitle: 'Clear Parent', when: inArmEdit },
-  { key: 'N', shift: true, op: 'armature.calculate_roll', when: inArmEdit },
-  { key: 'A', shift: true, op: 'armature.bone_primitive_add', when: inArmEdit },
-  { key: 'F2', op: 'armature.rename', when: () => inArmEdit() || inPose() },
-  { key: 'H', op: 'pose.hide', when: () => inArmEdit() || inPose() },
-  { key: 'H', alt: true, op: 'pose.reveal', when: () => inArmEdit() || inPose() },
-]);
 
 addKeys('Pose', [
   { key: 'A', op: 'pose.select_all', props: { action: 'SELECT' }, when: inPose },
@@ -895,4 +918,4 @@ addKeys('Pose', [
   { key: 'TAB', ctrl: true, op: 'object.posemode_toggle', when: inPose },
 ]);
 
-export { openMenu, renameBone, ensurePose };
+export { openMenu, renameBone, ensurePose, newBone, syncConnected, inArmEdit };

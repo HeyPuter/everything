@@ -1046,11 +1046,16 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
 }
 
 function hookMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
+  // curve hooks move control points before tessellation (src/modes/curve/hooks.ts)
+  if (ctx.ob.type === 'CURVE') return m;
   const target = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   if (!target) return m;
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const inv = new Matrix4().fromArray((mod.matrix_inverse as number[]) ?? new Matrix4().elements);
-  const mat = own.clone().invert().multiply(target.world).multiply(inv).multiply(own);
+  const tw = target.world.clone();
+  const bone = typeof mod.subtarget === 'string' && mod.subtarget ? target.pose?.bones.get(mod.subtarget) : undefined;
+  if (bone) tw.multiply(bone.pose);
+  const mat = own.clone().invert().multiply(tw).multiply(inv).multiply(own);
   const strength = num(mod, 'strength', 1),
     falloff = num(mod, 'falloff_radius', 0);
   const center = new Vector3(...((mod.center as number[]) ?? [0, 0, 0]));

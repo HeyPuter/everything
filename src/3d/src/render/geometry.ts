@@ -40,6 +40,8 @@ export function meshGeometry(m: EvalMesh): GeometryInfo {
       e = m.offsets[f + 1];
     tmp.length = 0;
     triangulatePoly(m.positions, m.indices.subarray(s, e), tmp, s);
+    // flipped quad: use the other diagonal
+    if (e - s === 4 && m.quad_flip?.[f]) tmp.splice(0, 6, ...(tmp[2] === s + 2 ? [s, s + 1, s + 3, s + 1, s + 2, s + 3] : [s, s + 1, s + 2, s, s + 2, s + 3]));
     const mi = m.material_index?.[f] ?? 0;
     let list = byMat.get(mi);
     if (!list) {

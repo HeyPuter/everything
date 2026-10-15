@@ -62,10 +62,27 @@ export function rotationPath(ob: { rotation_mode: string }) {
   return ob.rotation_mode === 'QUATERNION' ? 'rotation_quaternion' : ob.rotation_mode === 'AXIS_ANGLE' ? 'rotation_axis_angle' : 'rotation_euler';
 }
 
-export type KeyingSet = 'Location' | 'Rotation' | 'Scale' | 'LocRotScale' | 'LocRot' | 'LocScale' | 'RotScale' | 'Available' | 'WholeCharacter' | 'BUILTIN_KSI_VisualLocRot';
+export type KeyingSet = 'Location' | 'Rotation' | 'Scale' | 'LocRotScale' | 'LocRot' | 'LocScale' | 'RotScale' | 'Available' | 'WholeCharacter' | 'BUILTIN_KSI_VisualLocRot' | `KS:${string}`;
+
+/** Insert keys for every path of a user keying set; returns the number of paths keyed. */
+export function insertUserKeyingSet(doc: DocumentData, name: string): number {
+  const set = doc.scene.keying_sets?.find((k) => k.name === name);
+  let n = 0;
+  for (const p of set?.paths ?? []) {
+    const ob = p.id ? doc.objects[p.id] : undefined;
+    if (!ob || !p.data_path) continue;
+    keyProperty(doc, ob, p.data_path, p.index);
+    n++;
+  }
+  return n;
+}
 
 export function insertKeyframesForObjects(objects: ObjectData[], ks: KeyingSet = 'LocRotScale') {
   const doc = app.doc;
+  if (ks.startsWith('KS:')) {
+    insertUserKeyingSet(doc, ks.slice(3));
+    return;
+  }
   for (const ob of objects) {
     if (doc.mode === 'POSE' && ob.type === 'ARMATURE' && ob.pose) {
       insertBoneKeys(doc, ob, ks);
@@ -117,7 +134,7 @@ export function deleteKeyframesAt(objects: ObjectData[], frame: number) {
       fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - frame) > 0.5);
       n += before - fc.keyframe_points.length;
     }
-    act.fcurves = act.fcurves.filter((f) => f.keyframe_points.length);
+    act.fcurves = act.fcurves.filter((f) => f.keyframe_points.length || f.sampled_points?.length);
   }
   return n;
 }

@@ -243,20 +243,12 @@ function falloffPie() {
   openPie('Proportional Editing Falloff', items, app.pointer.x, app.pointer.y, 'O');
 }
 
-const fileContextMenu = (): MenuItem[] => [
-  { label: 'New', op: 'wm.read_homefile', shortcut: 'Ctrl N' },
-  { label: 'Open…', op: 'wm.open_mainfile', shortcut: 'Ctrl O' },
-  { separator: true },
-  { label: 'Save', op: 'wm.save_mainfile', shortcut: 'Ctrl S' },
-  { label: 'Save As…', op: 'wm.save_as_mainfile', shortcut: 'Shift Ctrl S' },
-  { label: 'Save Incremental', op: 'wm.save_mainfile', props: { incremental: true }, shortcut: 'Ctrl Alt S' },
-];
 
 addKeys('Window', [
   ...Object.keys(SPACE_KEYS).map((k) => ({ key: k, shift: true, op: 'screen.space_type_set_or_cycle', props: { key: k } })),
   { key: 'SPACE', shift: true, op: 'wm.toolbar' },
   { key: 'F2', ctrl: true, op: 'wm.batch_rename' },
-  { key: 'F4', menu: fileContextMenu, menuTitle: 'File' },
+  { key: 'F4', op: 'wm.call_menu', props: { name: 'TOPBAR_MT_file_context_menu' } },
   { key: 'S', ctrl: true, alt: true, op: 'wm.save_mainfile', props: { incremental: true } },
 ]);
 

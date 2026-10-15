@@ -8,7 +8,7 @@
 // Shader nodes register in shader/defs.ts; Geometry Nodes and Compositor nodes can use the same
 // registry (set `treeTypes`), editor and tree utilities.
 import type { DocumentData, NodeData, NodeTreeData, SocketValue } from '../data/types';
-import type { MenuCategory, NodePropDef, NodeTypeDef, RawNodeData, RawSocket, ResolvedSocket, SocketContext, SocketDef, SocketType, TreeType, NodeClass } from './types';
+import type { MenuCategory, NodePanelDef, NodePropDef, NodeTypeDef, RawNodeData, RawSocket, ResolvedSocket, SocketContext, SocketDef, SocketType, TreeType, NodeClass } from './types';
 
 export const nodeTypes: Record<string, NodeTypeDef> = {};
 const aliases: Record<string, string> = {};
@@ -166,6 +166,8 @@ export function interfaceSockets(tree: NodeTreeData | undefined, inOut: 'INPUT' 
       if (i.default_value !== undefined) s.default = i.default_value;
       if (i.min_value !== undefined) s.min = i.min_value;
       if (i.max_value !== undefined) s.max = i.max_value;
+      if (i.hide_value) s.hide_value = true;
+      if (i.description) s.description = i.description;
       return s;
     });
 }
@@ -197,6 +199,24 @@ export function nodeSockets(node: NodeData, ctx?: SocketContext): { inputs: Reso
     inputs: all.inputs.filter((s) => isAvailable(node, s, false)).map((s) => resolve(def, node, s, false)),
     outputs: all.outputs.filter((s) => isAvailable(node, s, true)).map((s) => resolve(def, node, s, true)),
   };
+}
+
+/** Collapsible input panels of a node: from its type, or from a group's interface. */
+export function nodePanels(node: NodeData, ctx?: SocketContext): NodePanelDef[] {
+  const def = getNodeType(node.type);
+  if (!def) return [];
+  if (def.dynamicSockets && ctx) return def.dynamicSockets(node, ctx).panels ?? def.panels ?? [];
+  return def.panels ?? [];
+}
+
+/** Panels of a group interface, as node panels (inputs only). */
+export function interfacePanels(tree: NodeTreeData | undefined): NodePanelDef[] {
+  if (!tree?.interface_panels?.length) return [];
+  return tree.interface_panels.map((p) => ({
+    name: p.name,
+    inputs: (tree.interface ?? []).filter((i) => i.in_out === 'INPUT' && i.panel === p.identifier).map((i) => i.identifier),
+    closed: !!p.default_closed,
+  }));
 }
 
 export function findSocket(node: NodeData, identifier: string, isOutput: boolean, ctx?: SocketContext): SocketDef | undefined {

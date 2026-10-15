@@ -8,9 +8,14 @@ import type { MeshData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, type PaintBrush } from './brushes';
 import { falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
-import { beginGeometryStroke, meshSession, reevaluate, type Hit, type MeshSession } from './session';
+import { beginGeometryStroke, meshSession, reevaluate, revertToUndoState, type Hit, type MeshSession } from './session';
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
+import { normalFactor, strokeAutomask } from './automask';
+import { brushRadiusPx } from './vgather';
+import { dabTexture } from './brushtex';
+import { boundaryVerts } from './fsdata';
+import { geodesicDistances } from './expandmath';
 
 type Sign = [number, number, number];
 
@@ -21,6 +26,8 @@ interface AnchorPass {
   n: number;
   center: Vector3;
   normal: Vector3;
+  /** pose brush: the joint the region rotates around */
+  pivot?: Vector3;
 }
 
 export interface StrokeState {
@@ -52,14 +59,35 @@ export interface StrokeState {
   dabs: number;
   dabTime: number;
   lastEval: number;
+  /** static auto-masking factors of this stroke */
+  automask?: Float32Array | null;
+  /** dynamic topology: vertices touched since the last refinement, and its state */
+  dynRegion?: Set<number>;
+  dyn?: unknown;
+  /** every vertex moved during the stroke (anchored / drag dot strokes restore them) */
+  strokeVerts?: number[];
+  strokeMark?: Uint8Array;
+  /** brush texture of the current dab (identity symmetry pass only) */
+  texFn?: ((vi: number) => number) | null;
+  texCur?: ((vi: number) => number) | null;
+  /** normal auto-masking: start normal and the current view direction (object space) */
+  startNormal?: Vector3 | null;
+  viewDir?: Vector3 | null;
 }
+
+/** Dynamic topology callbacks (set by dyntopostroke.ts). */
+export const dyntopoHooks = {
+  begin: null as null | ((st: StrokeState) => void),
+  step: null as null | ((st: StrokeState, force: boolean) => void),
+  end: null as null | ((st: StrokeState) => void),
+};
 
 /** UI callbacks (set by the cursor/UI module; kept out of here so the brush code has no DOM deps). */
 export const sculptHooks = {
   afterUpdate: null as null | ((v: View3D) => void),
 };
 
-const ANCHORED = new Set(['GRAB', 'THUMB', 'ROTATE']);
+const ANCHORED = new Set(['GRAB', 'THUMB', 'ROTATE', 'ELASTIC_DEFORM', 'POSE', 'BOUNDARY']);
 let stroke: StrokeState | null = null;
 
 /** Statistics of the last stroke (for profiling / tests). */
@@ -90,7 +118,9 @@ function gather(st: StrokeState, c: Vector3, radius: number, viewDir: Vector3 | 
   let n = 0;
   const nv = s.nv;
   const ff = !!st.brush.use_frontface && viewDir;
+  const hid = s.hiddenV;
   for (let v = 0; v < nv; v++) {
+    if (hid && hid[v]) continue;
     const i = v * 3;
     const dx = P[i] - cx;
     if (dx > radius || dx < -radius) continue;
@@ -117,9 +147,19 @@ function factors(st: StrokeState, n: number, strength: number, applyMask = true)
   const fo = b.falloff,
     hard = b.hardness ?? 0;
   const mask = applyMask ? st.mask : undefined;
+  const am = applyMask ? st.automask : null;
+  const ts = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt;
+  const sn = applyMask && ts?.use_automasking_start_normal ? st.startNormal : null;
+  const vd = applyMask && ts?.use_automasking_view_normal ? st.viewDir : null;
+  const vn = s.vn;
   for (let k = 0; k < n; k++) {
     let f = falloff(fo, gd[k], hard) * strength;
-    if (mask) f *= 1 - mask[gv[k]];
+    const v = gv[k];
+    if (mask) f *= 1 - mask[v];
+    if (am) f *= am[v];
+    if (applyMask && st.texCur) f *= st.texCur(v);
+    if (sn) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], sn.x, sn.y, sn.z, ts!.automasking_start_normal_limit ?? 0.35, ts!.automasking_start_normal_falloff ?? 0.25);
+    if (vd) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], -vd.x, -vd.y, -vd.z, ts!.automasking_view_normal_limit ?? 1.57, ts!.automasking_view_normal_falloff ?? 0.25);
     gf[k] = f;
   }
 }
@@ -158,6 +198,11 @@ function areaPlane(st: StrokeState, n: number, nr: number, fallbackN: Vector3, c
 }
 
 function touch(st: StrokeState, v: number) {
+  if (st.dynRegion) st.dynRegion.add(v);
+  if (st.strokeMark && !st.strokeMark[v]) {
+    st.strokeMark[v] = 1;
+    st.strokeVerts!.push(v);
+  }
   if (st.touchedStamp[v] !== st.stamp) {
     st.touchedStamp[v] = st.stamp;
     st.touched.push(v);
@@ -279,6 +324,78 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
     case 'SMOOTH':
       smoothGathered(st, n, 1);
       break;
+    case 'RELAX': {
+      // tangential smoothing: evens out the topology without shrinking the shape
+      const nb = s.neighbors;
+      const src = P.slice();
+      for (let k = 0; k < n; k++) {
+        const vi = gv[k],
+          i = vi * 3;
+        const a = nb.offsets[vi],
+          e = nb.offsets[vi + 1];
+        if (a === e) continue;
+        let x = 0,
+          y = 0,
+          z = 0;
+        for (let j = a; j < e; j++) {
+          const u = nb.neighbors[j] * 3;
+          x += src[u];
+          y += src[u + 1];
+          z += src[u + 2];
+        }
+        x = x / (e - a) - src[i];
+        y = y / (e - a) - src[i + 1];
+        z = z / (e - a) - src[i + 2];
+        const dn = x * vn[i] + y * vn[i + 1] + z * vn[i + 2];
+        const f = Math.min(1, gf[k]);
+        P[i] += (x - vn[i] * dn) * f;
+        P[i + 1] += (y - vn[i + 1] * dn) * f;
+        P[i + 2] += (z - vn[i + 2] * dn) * f;
+        touch(st, vi);
+      }
+      break;
+    }
+    case 'SIMPLIFY':
+      // dyntopo collapses the edges under the brush; a light smoothing keeps it even
+      smoothGathered(st, n, 0.3);
+      for (let k = 0; k < n; k++) touch(st, gv[k]);
+      break;
+    case 'CLAY_THUMB':
+    case 'MULTIPLANE_SCRAPE': {
+      // planes tilted along the stroke: one leaning back (clay thumb) or two forming a ridge (multiplane)
+      const fwd = strokeDir && strokeDir.lengthSq() > 1e-12 ? strokeDir.clone() : new Vector3(1, 0, 0);
+      fwd.addScaledVector(N, -fwd.dot(N));
+      if (fwd.lengthSq() < 1e-12) fwd.set(N.y, -N.x, 0);
+      fwd.normalize();
+      const side = N.clone().cross(fwd).normalize();
+      const tilt = tool === 'CLAY_THUMB' ? 0.35 : 0.6;
+      const planes =
+        tool === 'CLAY_THUMB'
+          ? [N.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(fwd, -Math.sin(tilt) * sign)]
+          : [N.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(side, Math.sin(tilt)), N.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(side, -Math.sin(tilt))];
+      const off = (b.plane_offset ?? 0) * R;
+      const px = C.x + N.x * off,
+        py = C.y + N.y * off,
+        pz = C.z + N.z * off;
+      for (let k = 0; k < n; k++) {
+        const v = gv[k] * 3;
+        const rx = P[v] - px,
+          ry = P[v + 1] - py,
+          rz = P[v + 2] - pz;
+        // the plane on this vertex's side of the ridge
+        const pl = planes.length === 1 ? planes[0] : rx * side.x + ry * side.y + rz * side.z >= 0 ? planes[0] : planes[1];
+        const d = rx * pl.x + ry * pl.y + rz * pl.z;
+        // clay thumb fills below its plane, multiplane scrape cuts above its planes
+        const move = tool === 'CLAY_THUMB' ? (d * sign < 0 ? -d : 0) : d * sign > 0 ? -d : 0;
+        if (!move) continue;
+        const f = gf[k] * 0.5 * move;
+        P[v] += pl.x * f;
+        P[v + 1] += pl.y * f;
+        P[v + 2] += pl.z * f;
+        touch(st, gv[k]);
+      }
+      break;
+    }
     case 'FLATTEN':
     case 'FILL':
     case 'SCRAPE':
@@ -352,6 +469,149 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
   void sgnv;
 }
 
+/** Anchored pass of the boundary brush: the open border near `c` and a band behind it. */
+function boundaryPass(st: StrokeState, c: Vector3, sg: Sign, strength: number): AnchorPass | null {
+  const s = st.s;
+  const R = st.radiusLocal;
+  const bnd = boundaryVerts(st.me);
+  const P = s.positions;
+  const src: number[] = [];
+  for (let v = 0; v < s.nv; v++) if (bnd[v] && Math.hypot(P[v * 3] - c.x, P[v * 3 + 1] - c.y, P[v * 3 + 2] - c.z) <= R) src.push(v);
+  if (!src.length) return null;
+  const nb = s.neighbors;
+  const d = geodesicDistances(P, nb.offsets, nb.neighbors, src, s.hiddenV);
+  const band = R * 1.5;
+  const verts: number[] = [],
+    ws: number[] = [];
+  const mask = st.mask;
+  const centroid = new Vector3(),
+    inner = new Vector3();
+  for (const v of src) centroid.add(new Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  centroid.multiplyScalar(1 / src.length);
+  for (let v = 0; v < s.nv; v++) {
+    if (!(d[v] < band)) continue;
+    const t = 1 - d[v] / band;
+    const w = t * t * (3 - 2 * t) * strength * (mask ? 1 - mask[v] : 1);
+    if (w <= 0) continue;
+    verts.push(v);
+    ws.push(w);
+    inner.add(new Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  }
+  inner.multiplyScalar(1 / Math.max(1, verts.length));
+  const outward = centroid.clone().sub(inner);
+  if (outward.lengthSq() < 1e-12) outward.set(0, 0, 1);
+  outward.normalize();
+  // the pivot of the expand mode sits behind the border, inside the band
+  const pivot = inner.clone().addScaledVector(outward, -band * 0.5);
+  return { sign: sg, verts: Int32Array.from(verts), w: Float32Array.from(ws), n: verts.length, center: centroid, normal: outward, pivot };
+}
+
+/**
+ * Cloth brush dab: drag the vertices under the brush along the stroke, then let the surrounding
+ * region follow while keeping its original edge lengths (the outer ring stays pinned).
+ */
+function clothDab(st: StrokeState, c: Vector3, dir: Vector3, R: number, strength: number) {
+  const s = st.s;
+  const nb = s.neighbors;
+  const reach = R * 2.5;
+  const n = gather(st, c, reach, null);
+  if (!n) return;
+  const P = s.positions,
+    O = st.orig;
+  const inRegion = new Map<number, number>();
+  for (let k = 0; k < n; k++) inRegion.set(s.gv[k], k);
+  const free = new Float32Array(n);
+  const mask = st.mask;
+  for (let k = 0; k < n; k++) {
+    const v = s.gv[k];
+    // pinned near the outer edge of the region, free inside
+    free[k] = Math.min(1, Math.max(0, (1 - s.gd[k]) * 4)) * (mask ? 1 - mask[v] : 1);
+  }
+  for (let k = 0; k < n; k++) {
+    const d = s.gd[k] * (reach / R);
+    if (d >= 1) continue;
+    const v = s.gv[k] * 3;
+    const f = falloff(st.brush.falloff, d, st.brush.hardness ?? 0) * strength * free[k];
+    P[v] += dir.x * f;
+    P[v + 1] += dir.y * f;
+    P[v + 2] += dir.z * f;
+  }
+  for (let it = 0; it < 6; it++)
+    for (let k = 0; k < n; k++) {
+      const va = s.gv[k];
+      for (let j = nb.offsets[va]; j < nb.offsets[va + 1]; j++) {
+        const vb = nb.neighbors[j];
+        if (vb < va) continue;
+        const kb = inRegion.get(vb);
+        const wa = free[k],
+          wb = kb === undefined ? 0 : free[kb];
+        if (wa + wb === 0) continue;
+        const a = va * 3,
+          b = vb * 3;
+        const rest = Math.hypot(O[b] - O[a], O[b + 1] - O[a + 1], O[b + 2] - O[a + 2]);
+        const dx = P[b] - P[a],
+          dy = P[b + 1] - P[a + 1],
+          dz = P[b + 2] - P[a + 2];
+        const l = Math.hypot(dx, dy, dz) || 1e-9;
+        const corr = (l - rest) / l / (wa + wb);
+        P[a] += dx * corr * wa;
+        P[a + 1] += dy * corr * wa;
+        P[a + 2] += dz * corr * wa;
+        P[b] -= dx * corr * wb;
+        P[b + 1] -= dy * corr * wb;
+        P[b + 2] -= dz * corr * wb;
+      }
+    }
+  for (let k = 0; k < n; k++) touch(st, s.gv[k]);
+}
+
+/** Anchored pass of the elastic deform / pose brushes (wide region, custom weights). */
+function wideAnchorPass(st: StrokeState, tool: string, c: Vector3, sg: Sign, normal: Vector3, strength: number): AnchorPass {
+  const s = st.s;
+  const R = st.radiusLocal;
+  const reach = tool === 'POSE' ? R * 2.2 : R * 3;
+  const n = gather(st, c, reach, null);
+  const P = s.positions;
+  const w = new Float32Array(n);
+  let pivot: Vector3 | undefined;
+  if (tool === 'POSE') {
+    // the joint: centre of the vertices on the outer ring of the region
+    pivot = new Vector3();
+    let cnt = 0;
+    for (let k = 0; k < n; k++)
+      if (s.gd[k] > 0.85) {
+        const i = s.gv[k] * 3;
+        pivot.x += P[i];
+        pivot.y += P[i + 1];
+        pivot.z += P[i + 2];
+        cnt++;
+      }
+    if (cnt) pivot.multiplyScalar(1 / cnt);
+    else pivot.copy(c).addScaledVector(normal, -R);
+    const axis = c.clone().sub(pivot);
+    const len = axis.length() || 1;
+    axis.multiplyScalar(1 / len);
+    for (let k = 0; k < n; k++) {
+      const i = s.gv[k] * 3;
+      const t = ((P[i] - pivot.x) * axis.x + (P[i + 1] - pivot.y) * axis.y + (P[i + 2] - pivot.z) * axis.z) / len;
+      const u = Math.max(0, Math.min(1, t / 0.5));
+      w[k] = u * u * (3 - 2 * u);
+    }
+  } else
+    for (let k = 0; k < n; k++) {
+      // regularized (Kelvinlet-like) falloff: smooth, no hard border
+      const r = (s.gd[k] * reach) / R;
+      w[k] = Math.pow(1 + r * r, -1.5) * Math.max(0, 1 - Math.pow(s.gd[k], 8));
+    }
+  const mask = st.mask,
+    am = st.automask;
+  for (let k = 0; k < n; k++) {
+    const v = s.gv[k];
+    w[k] *= strength * (mask ? 1 - mask[v] : 1) * (am ? am[v] : 1);
+  }
+  return { sign: sg, verts: s.gv.slice(0, n), w, n, center: c, normal, pivot };
+}
+
 function smoothMask(st: StrokeState, n: number) {
   const s = st.s,
     M = st.mask!,
@@ -376,7 +636,7 @@ function smoothMask(st: StrokeState, n: number) {
 // stroke
 
 function strokeTool(b: PaintBrush, smoothToggle: boolean) {
-  if (smoothToggle) return b.sculpt_tool === 'MASK' ? 'MASK_SMOOTH' : 'SMOOTH';
+  if (smoothToggle) return b.sculpt_tool === 'MASK' ? 'MASK_SMOOTH' : b.sculpt_tool === 'SLIDE_RELAX' ? 'RELAX' : 'SMOOTH';
   return b.sculpt_tool;
 }
 
@@ -390,16 +650,41 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   }
   const strength = Math.max(0, b.strength) * d.pressure;
   const sym = app.doc.scene.tool_settings.sculpt;
+  if (sym.use_automasking_view_normal) st.viewDir = s.localRay(v, d.x, d.y).direction;
+  if (d.restore && st.strokeVerts) {
+    // anchored / drag dot: start from the original surface again
+    const P = s.positions,
+      O = st.orig;
+    for (const vi of st.strokeVerts) {
+      P[vi * 3] = O[vi * 3];
+      P[vi * 3 + 1] = O[vi * 3 + 1];
+      P[vi * 3 + 2] = O[vi * 3 + 2];
+      if (st.layer) st.layer[vi] = 0;
+      touch(st, vi);
+    }
+    st.lastHit = null;
+  }
+  const sizeFactor = d.sizeFactor ?? 1;
 
   if (ANCHORED.has(tool)) {
     if (d.first) {
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) return;
-      st.radiusLocal = s.pixelsToLocal(v, hit.world, b.radius);
+      st.radiusLocal = s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world));
       const viewDir = s.localRay(v, d.x, d.y).direction;
       const passes: AnchorPass[] = [];
       for (const sg of st.passes) {
         const c = new Vector3(...mirror(hit.point.toArray(), sg));
+        if (tool === 'ELASTIC_DEFORM' || tool === 'POSE') {
+          passes.push(wideAnchorPass(st, tool, c, sg, mirrorVec(hit.normal, sg), Math.min(1, strength * 1.5)));
+          continue;
+        }
+        if (tool === 'BOUNDARY') {
+          const bp = boundaryPass(st, c, sg, Math.min(1, strength * 1.5));
+          if (bp) passes.push(bp);
+          else if (sg[0] === 1 && sg[1] === 1 && sg[2] === 1) app.report('INFO', 'Boundary: start the stroke near an open border of the mesh');
+          continue;
+        }
         const n = gather(st, c, st.radiusLocal, mirrorVec(viewDir, sg));
         factors(st, n, tool === 'ROTATE' ? Math.min(1, strength * 2) : Math.min(1, strength * 1.5));
         const area = areaPlane(st, n, b.normal_radius_factor ?? 0.5, new Vector3(...mirror(hit.normal.toArray(), sg)), c);
@@ -438,6 +723,57 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     }
     for (const pass of an.passes) {
       const dl = mirrorVec(deltaLocal, pass.sign);
+      if (tool === 'BOUNDARY' && pass.pivot) {
+        const kind = st.brush.boundary_deform_type ?? 'GRAB';
+        // drag along the outward direction of the border = positive amount
+        const amount = dl.dot(pass.normal);
+        for (let k = 0; k < pass.n; k++) {
+          const vi = pass.verts[k],
+            i = vi * 3,
+            w = pass.w[k];
+          let mx = dl.x,
+            my = dl.y,
+            mz = dl.z;
+          if (kind === 'EXPAND') {
+            const ox = O[i] - pass.pivot.x,
+              oy = O[i + 1] - pass.pivot.y,
+              oz = O[i + 2] - pass.pivot.z;
+            const l = Math.hypot(ox, oy, oz) || 1;
+            mx = (ox / l) * amount;
+            my = (oy / l) * amount;
+            mz = (oz / l) * amount;
+          } else if (kind === 'INFLATE') {
+            mx = s.vn[i] * amount;
+            my = s.vn[i + 1] * amount;
+            mz = s.vn[i + 2] * amount;
+          }
+          P[i] = O[i] + mx * w;
+          P[i + 1] = O[i + 1] + my * w;
+          P[i + 2] = O[i + 2] + mz * w;
+          touch(st, vi);
+        }
+        continue;
+      }
+      if (tool === 'POSE' && pass.pivot) {
+        // rotate the part beyond the joint around an axis perpendicular to the view and the drag
+        const vd = mirrorVec(s.localRay(v, an.startScreen.x, an.startScreen.y).direction, pass.sign);
+        const axis = vd.clone().cross(dl);
+        const lever = pass.center.distanceTo(pass.pivot) || st.radiusLocal;
+        const ang = dl.length() / lever;
+        if (axis.lengthSq() < 1e-16 || ang === 0) continue;
+        axis.normalize();
+        for (let k = 0; k < pass.n; k++) {
+          const vi = pass.verts[k],
+            i = vi * 3;
+          const qa = new Quaternion().setFromAxisAngle(axis, ang * pass.w[k]);
+          const p = new Vector3(O[i] - pass.pivot.x, O[i + 1] - pass.pivot.y, O[i + 2] - pass.pivot.z).applyQuaternion(qa);
+          P[i] = pass.pivot.x + p.x;
+          P[i + 1] = pass.pivot.y + p.y;
+          P[i + 2] = pass.pivot.z + p.z;
+          touch(st, vi);
+        }
+        continue;
+      }
       let q: Quaternion | null = null;
       if (tool === 'ROTATE') {
         const axis = pass.normal.clone();
@@ -474,7 +810,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     if (d.first) {
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) return;
-      st.radiusLocal = s.pixelsToLocal(v, hit.world, b.radius);
+      st.radiusLocal = s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world));
       st.snake = {
         anchorWorld: hit.world.clone(),
         anchorLocal: hit.point.clone(),
@@ -506,11 +842,34 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   } else {
     const hit: Hit | null = s.raycast(v, d.x, d.y);
     if (!hit) return;
-    const R = s.pixelsToLocal(v, hit.world, b.radius);
+    const R = d.radiusPx !== undefined ? s.pixelsToLocal(v, hit.world, d.radiusPx) : s.pixelsToLocal(v, hit.world, brushRadiusPx(b, s, v, hit.world) * sizeFactor);
     st.radiusLocal = R;
     const viewDir = s.localRay(v, d.x, d.y).direction;
     const strokeDir = st.lastHit ? hit.point.clone().sub(st.lastHit) : null;
-    if (tool === 'NUDGE') {
+    if (tool === 'CLOTH') {
+      if (st.lastHit && strokeDir && strokeDir.lengthSq() > 0) clothDab(st, st.lastHit, strokeDir, R, strength);
+    } else if (tool === 'SLIDE_RELAX') {
+      if (st.lastHit && strokeDir && strokeDir.lengthSq() > 0)
+        for (const sg of st.passes) {
+          const c = mirrorVec(st.lastHit, sg);
+          const n = gather(st, c, R, mirrorVec(viewDir, sg));
+          factors(st, n, strength);
+          const dl = mirrorVec(strokeDir, sg);
+          const P = s.positions,
+            vn = s.vn;
+          // slide every vertex along its own tangent plane (the shape stays, the topology moves)
+          for (let k = 0; k < n; k++) {
+            const vi = s.gv[k],
+              i = vi * 3,
+              w = s.gf[k] * 0.6;
+            const dn = dl.x * vn[i] + dl.y * vn[i + 1] + dl.z * vn[i + 2];
+            P[i] += (dl.x - vn[i] * dn) * w;
+            P[i + 1] += (dl.y - vn[i + 1] * dn) * w;
+            P[i + 2] += (dl.z - vn[i + 2] * dn) * w;
+            touch(st, vi);
+          }
+        }
+    } else if (tool === 'NUDGE') {
       if (st.lastHit && strokeDir && strokeDir.lengthSq() > 0) {
         for (const sg of st.passes) {
           const c = mirrorVec(st.lastHit, sg);
@@ -531,7 +890,9 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         }
       }
     } else {
+      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs);
       surfaceDab(st, tool, hit.point, hit.normal, viewDir, R, strokeDir, strength);
+      st.texFn = st.texCur = null;
     }
     st.lastHit = hit.point.clone();
   }
@@ -562,6 +923,7 @@ export function surfaceDab(st: StrokeState, tool: string, point: Vector3, normal
   const realTool = tool === 'MASK_SMOOTH' ? 'MASK' : tool;
   const square = realTool === 'CLAY_STRIPS';
   for (const sg of st.passes) {
+    st.texCur = sg[0] === 1 && sg[1] === 1 && sg[2] === 1 ? st.texFn : null;
     const c = mirrorVec(hit.point, sg);
     const vd = mirrorVec(viewDir, sg);
     const n = gather(st, c, square ? R * Math.SQRT2 : R, vd, realTool === 'DRAW_SHARP' ? st.orig : s.positions);
@@ -593,6 +955,21 @@ export function surfaceDab(st: StrokeState, tool: string, point: Vector3, normal
     }
     factors(st, n, realTool === 'SMOOTH' ? Math.min(1, strength) : strength);
     applyTool(st, realTool, n, c, sg, area, R, strokeDir);
+    const grav = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt.gravity ?? 0;
+    if (grav > 0 && realTool !== 'SMOOTH') {
+      // gravity: world down in object space, scaled like the draw brush
+      const down = worldToLocalDir(s, new Vector3(0, 0, -1)).normalize();
+      const k = R * 0.1 * grav;
+      const P = s.positions;
+      for (let i = 0; i < n; i++) {
+        const v = s.gv[i] * 3,
+          f = s.gf[i] * k;
+        P[v] += down.x * f;
+        P[v + 1] += down.y * f;
+        P[v + 2] += down.z * f;
+        touch(st, s.gv[i]);
+      }
+    }
     const auto = b.auto_smooth_factor ?? 0;
     if (auto > 0 && realTool !== 'SMOOTH') {
       factors(st, n, auto);
@@ -632,8 +1009,8 @@ function mirrorVec(v: Vector3, s: Sign): Vector3 {
 }
 
 /** Start a sculpt stroke (LMB in Sculpt Mode). */
-export function sculptStroke(v: View3D, e: PointerEvent): boolean {
-  const b0 = activeBrush('SCULPT');
+export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush | null): boolean {
+  const b0 = override ?? activeBrush('SCULPT');
   const s = meshSession();
   const ob = app.activeObject;
   const me = ob?.data ? app.doc.meshes[ob.data] : undefined;
@@ -646,7 +1023,12 @@ export function sculptStroke(v: View3D, e: PointerEvent): boolean {
   const maskBrush = tool === 'MASK' || tool === 'MASK_SMOOTH';
   // the first hit decides whether the stroke starts on the surface
   const ANCH = ANCHORED.has(tool) || tool === 'SNAKE_HOOK';
-  if (!s.raycast(v, v.local(e).x, v.local(e).y)) return false;
+  const firstHit = s.raycast(v, v.local(e).x, v.local(e).y);
+  if (!firstHit) return false;
+  if (tool === 'SIMPLIFY' && !app.doc.scene.tool_settings.sculpt.use_dyntopo) {
+    app.report('WARNING', 'Simplify works with Dyntopo: enable it in the tool header');
+    return false;
+  }
   void ANCH;
   const old = me.positions;
   beginGeometryStroke(s, me, () => {
@@ -682,39 +1064,55 @@ export function sculptStroke(v: View3D, e: PointerEvent): boolean {
     lastEval: 0,
   };
   if (!hasMask(st.mask) && !maskBrush) st.mask = undefined;
+  st.automask = strokeAutomask(s, me, ts, firstHit.face);
+  const sm = (b0.stroke_method ?? 'SPACE') as string;
+  if (sm === 'ANCHORED' || sm === 'DRAG_DOT') {
+    st.strokeVerts = [];
+    st.strokeMark = new Uint8Array(s.nv);
+  }
+  st.startNormal = firstHit.normal.clone();
+  if (!maskBrush && !ANCHORED.has(tool)) dyntopoHooks.begin?.(st);
   stroke = st;
   runStroke(v, e, {
     spacing: () => (ANCHORED.has(tool) ? 0 : Math.max(1, brush.spacing || 10)),
     radiusPx: () => brush.radius,
+    settings: () => b0,
+    canRestore: !maskBrush && !ANCHORED.has(tool) && tool !== 'SNAKE_HOOK',
     dab: (d) => dab(st, d, tool),
+    cancel: () => {
+      stroke = null;
+      revertToUndoState();
+    },
     update: () => {
       if (st.maskBrush) {
         maskChanged(st.mask!);
-        const m = s.syncedMesh();
+        const m = st.s.syncedMesh();
         if (!m?.geometry.getAttribute('paintMask')) invalidatePaintAttributes();
-        s.flush();
+        st.s.flush();
         app.changed('ui');
         return;
       }
-      if (s.direct) s.flush();
-      else {
+      if (st.dyn) dyntopoHooks.step?.(st, false);
+      if (st.s.direct) st.s.flush();
+      else if (!app.doc.scene.tool_settings.sculpt.use_sculpt_delay_updates) {
         const now = performance.now();
         if (now - st.lastEval > 30) {
           st.lastEval = now;
-          reevaluate(s);
+          reevaluate(st.s);
         }
       }
       sculptHooks.afterUpdate?.(v);
     },
     end: () => {
       stroke = null;
+      if (st.dyn) dyntopoHooks.end?.(st);
       sculptStats.dabs = st.dabs;
       sculptStats.ms = st.dabTime;
-      sculptStats.verts = s.nv;
+      sculptStats.verts = st.s.nv;
       if (!st.maskBrush) {
         updateFlatNormals(st);
-        s.finishGeometry();
-        if (!s.direct) reevaluate(s);
+        st.s.finishGeometry();
+        if (!st.s.direct) reevaluate(st.s);
       } else {
         maskChanged(st.mask!);
         invalidatePaintAttributes();

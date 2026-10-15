@@ -3,7 +3,7 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openMenu } from '../ui/menu';
-import { numberField, enumMenu, checkbox, colorSwatch, textField, panel } from '../ui/widgets';
+import { numberField, enumMenu, checkbox, colorSwatch, textField, panel, button } from '../ui/widgets';
 import type { FCurve, FModifier, Keyframe } from '../data/types';
 import { channelLabel } from '../data/rna';
 import { calcHandles, sortKeyframes, alignHandle } from '../anim/fcurve';
@@ -279,6 +279,26 @@ export function drawModifiersSidebar(ed: GraphEditor): Child {
         'Add Modifier',
         icon('down_arrow_hlt', 'tiny'),
       ),
+      h(
+        'button',
+        {
+          class: 'btn anim-sb-iconbtn',
+          'data-tip': 'Copy F-Modifiers\nCopy the modifiers of the active F-Curve',
+          disabled: !app.poll('graph.fmodifier_copy', ed.area),
+          onclick: () => app.run('graph.fmodifier_copy', {}, { area: ed.area }),
+        },
+        icon('copydown'),
+      ),
+      h(
+        'button',
+        {
+          class: 'btn anim-sb-iconbtn',
+          'data-tip': 'Paste F-Modifiers\nAdd the copied modifiers to the active F-Curve',
+          disabled: !app.poll('graph.fmodifier_paste', ed.area),
+          onclick: () => app.run('graph.fmodifier_paste', { only_active: true }, { area: ed.area }),
+        },
+        icon('pastedown'),
+      ),
     ),
     fc.modifiers.map((m, i) => modifierPanel(fc, m, i)),
   ];
@@ -304,10 +324,41 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
       icon('x'),
     ),
   );
-  return panel(
-    `gm-${i}-${m.type}`,
-    modLabel(m.type),
-    () => {
+  const common = (): Child => [
+    m.type === 'GENERATOR' ? row('', checkbox(`gm-${i}-gadd`, 'Additive', !!m.use_additive, (v) => ((m.use_additive = v), set('Change Generator')))) : null,
+    row(
+      'Frame Range',
+      checkbox(`gm-${i}-rr`, 'Restrict', !!m.use_restricted_range, (v) => {
+        m.use_restricted_range = v;
+        if (v && m.frame_start === undefined) {
+          m.frame_start = app.doc.scene.frame_start;
+          m.frame_end = app.doc.scene.frame_end;
+        }
+        set('Restrict Frame Range');
+      }),
+    ),
+    m.use_restricted_range
+      ? [
+          row('Start', numberField({ id: `gm-${i}-rs`, value: m.frame_start ?? 0, step: 1, set: (v, f) => ((m.frame_start = v), set('Change Frame Range', f)) })),
+          row('End', numberField({ id: `gm-${i}-re`, value: m.frame_end ?? 0, step: 1, set: (v, f) => ((m.frame_end = v), set('Change Frame Range', f)) })),
+          row('Blend In', numberField({ id: `gm-${i}-bi`, value: m.blend_in ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_in = v), set('Change Frame Range', f)) })),
+          row('Out', numberField({ id: `gm-${i}-bo`, value: m.blend_out ?? 0, min: 0, step: 1, set: (v, f) => ((m.blend_out = v), set('Change Frame Range', f)) })),
+        ]
+      : null,
+    row(
+      'Influence',
+      h(
+        'div',
+        { class: 'anim-sb-inline' },
+        checkbox(`gm-${i}-ui`, '', !!m.use_influence, (v) => ((m.use_influence = v), (m.influence ??= 1), set('Toggle Influence'))),
+        numberField({ id: `gm-${i}-inf`, value: m.influence ?? 1, min: 0, max: 1, slider: true, disabled: !m.use_influence, set: (v, f) => ((m.influence = v), set('Change Influence', f)) }),
+      ),
+    ),
+  ];
+  return panel(`gm-${i}-${m.type}`, modLabel(m.type), () => [typeBody(), common()], { header: hdr, className: m.mute ? 'anim-mod muted' : 'anim-mod' });
+
+  function typeBody(): Child {
+    {
       switch (m.type) {
         case 'GENERATOR': {
           const co = m.coefficients ?? [0, 1];
@@ -443,6 +494,64 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
               ),
             ),
           ];
+        case 'FNGENERATOR': {
+          const n = (key: 'amplitude' | 'phase_multiplier' | 'phase_offset' | 'value_offset', label: string, def: number) =>
+            row(label, numberField({ id: `gm-${i}-${key}`, value: m[key] ?? def, step: 0.1, precision: 3, set: (v, f) => ((m[key] = v), set('Change Function', f)) }));
+          return [
+            row(
+              'Type',
+              enumMenu(
+                `gm-${i}-fn`,
+                [
+                  { value: 'SIN', label: 'Sine' },
+                  { value: 'COS', label: 'Cosine' },
+                  { value: 'TAN', label: 'Tangent' },
+                  { value: 'SQRT', label: 'Square Root' },
+                  { value: 'LN', label: 'Natural Logarithm' },
+                  { value: 'SINC', label: 'Normalized Sine' },
+                ],
+                m.function_type ?? 'SIN',
+                (v) => ((m.function_type = v as FModifier['function_type']), set('Change Function')),
+              ),
+            ),
+            row('', checkbox(`gm-${i}-add`, 'Additive', !!m.use_additive, (v) => ((m.use_additive = v), set('Change Function')))),
+            n('amplitude', 'Amplitude', 1),
+            n('phase_multiplier', 'Phase Multiplier', 1),
+            n('phase_offset', 'Phase Offset', 0),
+            n('value_offset', 'Value Offset', 0),
+          ];
+        }
+        case 'ENVELOPE': {
+          const pts = (m.control_points ??= []);
+          const n = (key: 'reference_value' | 'default_min' | 'default_max', label: string, def: number) =>
+            row(label, numberField({ id: `gm-${i}-${key}`, value: m[key] ?? def, step: 0.1, precision: 3, set: (v, f) => ((m[key] = v), set('Change Envelope', f)) }));
+          return [
+            n('reference_value', 'Reference', 0),
+            n('default_min', 'Min', -1),
+            n('default_max', 'Max', 1),
+            h(
+              'div',
+              { class: 'anim-sb-btns' },
+              button(`gm-${i}-addpt`, 'Add Control Point', () => {
+                const f = app.doc.scene.frame_current;
+                if (!pts.some((p) => p.frame === f)) pts.push({ frame: f, min: m.default_min ?? -1, max: m.default_max ?? 1 });
+                pts.sort((a, b) => a.frame - b.frame);
+                set('Add Envelope Point');
+              }),
+            ),
+            pts.map((p, j) => [
+              h(
+                'div',
+                { key: `pth${j}`, class: 'anim-env-head' },
+                h('span', null, `Control Point ${j + 1}`),
+                h('button', { class: 'anim-tg', 'data-tip': 'Delete Control Point', onclick: () => (pts.splice(j, 1), set('Remove Envelope Point')) }, icon('x')),
+              ),
+              row('Frame', numberField({ id: `gm-${i}-p${j}f`, value: p.frame, step: 1, set: (v, f) => ((p.frame = v), set('Change Envelope', f)) })),
+              row('Min', numberField({ id: `gm-${i}-p${j}lo`, value: p.min, step: 0.1, precision: 3, set: (v, f) => ((p.min = v), set('Change Envelope', f)) })),
+              row('Max', numberField({ id: `gm-${i}-p${j}hi`, value: p.max, step: 0.1, precision: 3, set: (v, f) => ((p.max = v), set('Change Envelope', f)) })),
+            ]),
+          ];
+        }
         case 'STEPPED':
           return [
             row(
@@ -467,7 +576,6 @@ function modifierPanel(fc: FCurve, m: FModifier, i: number): Child {
           ];
       }
       return null;
-    },
-    { header: hdr, className: m.mute ? 'anim-mod muted' : 'anim-mod' },
-  );
+    }
+  }
 }

@@ -35,6 +35,8 @@ export function objectTransformMenu(): MenuItem[] {
     { separator: true },
     { label: 'Align to Transform Orientation', op: 'transform.transform', props: { mode: 'ALIGN' } },
     { separator: true },
+    { label: 'Interactive Light Track to Cursor', op: 'object.transform_axis_target', shortcut: 'Shift T' },
+    { separator: true },
     { label: 'Randomize Transform', op: 'object.randomize_transform' },
     { label: 'Align Objects', op: 'object.align' },
   ];

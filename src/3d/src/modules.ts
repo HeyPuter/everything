@@ -9,11 +9,13 @@ import './physics/index';
 import './scripting/index';
 import './modes/index';
 import './greasepencil/index';
+import './metaball/index';
 import './compositor/index';
 import './geonodes/index';
 import './spreadsheet/index';
 import './tracking/index';
 import './sequencer/index';
+import './object/index';
 
 export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit

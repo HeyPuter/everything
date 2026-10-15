@@ -10,6 +10,7 @@ import { addPaintSlot, meshHasUVs, paintImage, pendingImageSaves } from './tpain
 import { paintDisplay, invalidatePaintAttributes } from './display';
 import { armatureWeightsFor } from './armweights';
 import { cursorState } from './cursor';
+import { syncHiddenFromVerts } from './fsdata';
 
 function meshOf(ob: ObjectData, mode: string) {
   const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
@@ -45,6 +46,7 @@ modeHandlers.SCULPT = {
       app.report('WARNING', 'Sculpt Mode needs a mesh with faces');
       return false;
     }
+    syncHiddenFromVerts(me);
     prepare('SCULPT');
     return true;
   },
@@ -82,7 +84,7 @@ modeHandlers.TEXTURE_PAINT = {
     let img = paintImage(ob);
     if (!img) img = addPaintSlot(ob);
     paintDisplay.image = img?.id ?? null;
-    if (!meshHasUVs(me)) app.report('ERROR', 'Missing UVs: the mesh needs a UV map for texture painting (UV ▸ Unwrap in Edit Mode)');
+    if (!meshHasUVs(me)) app.report('WARNING', 'Missing UVs: use Paint ▸ Add Simple UVs, or unwrap the mesh in Edit Mode');
     return true;
   },
   exit: () => {

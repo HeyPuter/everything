@@ -281,8 +281,8 @@ export function insertOnLink(ctx: SocketContext, nodeId: string, linkId: string)
   return true;
 }
 
-/** F: link selected nodes left-to-right using the first compatible free sockets. */
-export function makeLinks(ctx: SocketContext, ids: string[]): number {
+/** Link selected nodes left-to-right using the first compatible free sockets (`replace`: also occupied inputs). */
+export function makeLinks(ctx: SocketContext, ids: string[], replace = false): number {
   const { tree } = ctx;
   const nodes = ids
     .map((id) => nodeById(tree, id)!)
@@ -292,8 +292,11 @@ export function makeLinks(ctx: SocketContext, ids: string[]): number {
   for (let i = 0; i < nodes.length - 1; i++) {
     const a = nodes[i],
       b = nodes[i + 1];
-    const outs = nodeSockets(a, ctx).outputs,
-      ins = nodeSockets(b, ctx).inputs.filter((s) => !tree.links.some((l) => l.to_node === b.id && l.to_socket === s.identifier));
+    if (getNodeType(a.type)?.layout === 'FRAME' || getNodeType(b.type)?.layout === 'FRAME') continue;
+    // neighbours that are already connected are left alone
+    if (replace && tree.links.some((l) => l.from_node === a.id && l.to_node === b.id)) continue;
+    const outs = nodeSockets(a, ctx).outputs.filter((s) => s.type !== 'CUSTOM'),
+      ins = nodeSockets(b, ctx).inputs.filter((s) => s.type !== 'CUSTOM' && (replace || !tree.links.some((l) => l.to_node === b.id && l.to_socket === s.identifier)));
     let done = false;
     for (const pass of [0, 1]) {
       for (const o of outs) {

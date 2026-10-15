@@ -11,6 +11,7 @@
 import { Matrix4 } from 'three';
 import { app, operators, type OpResult } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
+import { newMetaball } from '../metaball/data';
 import { newObject, newMeshData, newMaterial, newCollection, newCamera, newLight, newImage, newText, newAction, newNodeGroup, newWorld, newCurve, newArmature, newLattice, uid } from '../data/defaults';
 import { buildMesh, edgeTopology, emptyMeshArrays, faceCenter, faceVerts, polyNormal } from '../mesh/mesh';
 import { cow, cloneShared } from '../data/cow';
@@ -63,8 +64,8 @@ export function uniqueName(table: Record<string, { name: string }>, base: string
   }
 }
 
-const DATA_TABLE: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', SURFACE: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices' };
-const TABLE_OBTYPE: Record<string, ObjectData['type']> = { meshes: 'MESH', curves: 'CURVE', lights: 'LIGHT', cameras: 'CAMERA', armatures: 'ARMATURE', lattices: 'LATTICE' };
+const DATA_TABLE: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', SURFACE: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+const TABLE_OBTYPE: Record<string, ObjectData['type']> = { meshes: 'MESH', curves: 'CURVE', lights: 'LIGHT', cameras: 'CAMERA', armatures: 'ARMATURE', lattices: 'LATTICE', metaballs: 'META' };
 const TYPE_NAME = Object.fromEntries(ID_TABLES) as Record<string, string>;
 
 /** Active collection (same rules as the outliner/add operators). */
@@ -1997,7 +1998,7 @@ function worldToCameraView(scene: unknown, obj: unknown, coord: unknown) {
 
 export const bpy_extras = { object_utils: { world_to_camera_view: worldToCameraView } };
 
-const ID_CLASSES: Record<string, new (table: string, id: string) => IDStruct> = {
+export const ID_CLASSES: Record<string, new (table: string, id: string) => IDStruct> = {
   objects: ObjectStruct,
   meshes: MeshStruct,
   materials: MaterialStruct,
@@ -2100,7 +2101,7 @@ class IDCollection extends PropCollection<unknown> {
         let type: ObjectData['type'] = 'EMPTY',
           did: string | null = null;
         if (data !== null && data !== undefined) {
-          if (!isIdWrapper(data) || !TABLE_OBTYPE[data.__table]) throw pyError('TypeError', 'BlendDataObjects.new(): object_data must be a Mesh, Curve, Light, Camera, Armature or Lattice (or None)');
+          if (!isIdWrapper(data) || !TABLE_OBTYPE[data.__table]) throw pyError('TypeError', 'BlendDataObjects.new(): object_data must be a Mesh, Curve, Light, Camera, Armature, Lattice or MetaBall (or None)');
           type = TABLE_OBTYPE[data.__table];
           did = data.__id;
           if (data.__table === 'curves' && (tableOf(app.doc, 'curves')[did] as { body?: string })?.body !== undefined) type = 'FONT';
@@ -2152,6 +2153,9 @@ class IDCollection extends PropCollection<unknown> {
         return this.add(newArmature(name || 'Armature'));
       case 'lattices':
         return this.add(newLattice(name || 'Lattice'));
+      case 'metaballs':
+        app.doc.metaballs ??= {};
+        return this.add(newMetaball(name || 'Mball'));
       default:
         throw pyError('RuntimeError', `bpy.data.${this.table}.new() is not supported`);
     }
@@ -2343,7 +2347,7 @@ const sceneWrapper = proxify(new SceneStruct());
 function contextMode() {
   const m = app.doc.mode;
   const t = app.activeObject?.type;
-  if (m === 'EDIT') return t === 'CURVE' || t === 'FONT' ? `EDIT_${t === 'FONT' ? 'TEXT' : 'CURVE'}` : t === 'ARMATURE' ? 'EDIT_ARMATURE' : t === 'LATTICE' ? 'EDIT_LATTICE' : 'EDIT_MESH';
+  if (m === 'EDIT') return t === 'CURVE' || t === 'FONT' ? `EDIT_${t === 'FONT' ? 'TEXT' : 'CURVE'}` : t === 'ARMATURE' ? 'EDIT_ARMATURE' : t === 'LATTICE' ? 'EDIT_LATTICE' : t === 'META' ? 'EDIT_METABALL' : 'EDIT_MESH';
   if (m === 'WEIGHT_PAINT') return 'PAINT_WEIGHT';
   if (m === 'VERTEX_PAINT') return 'PAINT_VERTEX';
   if (m === 'TEXTURE_PAINT') return 'PAINT_TEXTURE';
@@ -2424,7 +2428,7 @@ export class Context {
 // ---------------------------------------------------------------------------
 // bpy.data
 
-const DATA_NAMES = ['objects', 'meshes', 'materials', 'collections', 'cameras', 'lights', 'actions', 'images', 'texts', 'node_groups', 'worlds', 'curves', 'armatures', 'lattices', 'particles', 'brushes'];
+const DATA_NAMES = ['objects', 'meshes', 'materials', 'collections', 'cameras', 'lights', 'actions', 'images', 'texts', 'node_groups', 'worlds', 'curves', 'armatures', 'lattices', 'metaballs', 'particles', 'brushes'];
 
 export const bpyData: Record<string, unknown> & { scenes: ScenesCollection } = {
   __kind: 'struct',
@@ -2459,7 +2463,7 @@ kwMethod(bpyData, 'orphans_purge', ['do_local_ids', 'do_linked_ids', 'do_recursi
 // ---------------------------------------------------------------------------
 // Orphan purge (shared with the outliner.orphans_purge operator)
 
-export const PURGEABLE = ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'materials', 'images', 'actions', 'node_groups', 'textures', 'particles', 'worlds'];
+export const PURGEABLE = ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs', 'materials', 'images', 'actions', 'node_groups', 'textures', 'particles', 'worlds'];
 
 /** Delete data-blocks with zero users and no fake user. Returns how many were removed. */
 export function purgeOrphanData(d: DocumentData, recursive = true): number {

@@ -7,7 +7,9 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, isBrushMode } from './brushes';
 import { meshSession } from './session';
+import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
+import { textureActive } from './brushtex';
 import { sculptHooks } from './sculpt';
 
 export { cursorState };
@@ -21,13 +23,19 @@ export function updateCursor(v: View3D, x: number, y: number) {
   cursorState.hit = null;
   const mode = app.doc.mode;
   const b = activeBrush();
-  if (mode === 'SCULPT' && b) {
+  cursorState.radiusPx = b?.radius ?? 0;
+  if (mode === 'SCULPT' || (b && b.use_locked_size === 'SCENE')) {
     const s = meshSession();
     const hit = s?.raycast(v, x, y);
-    if (s && hit) {
+    if (s && hit && mode === 'SCULPT') {
+      cursorState.lastFace = hit.face;
+      cursorState.lastFaceMesh = s.meshId;
+    }
+    if (s && b) cursorState.radiusPx = hit ? brushRadiusPx(b, s, v, hit.world) : b.use_locked_size === 'SCENE' ? cursorState.radiusPx : b.radius;
+    if (s && hit && b && mode === 'SCULPT') {
       const w = s.world();
       const nWorld = hit.normal.clone().transformDirection(w);
-      const r = s.pixelsToLocal(v, hit.world, b.radius) * s.scale();
+      const r = s.pixelsToLocal(v, hit.world, cursorState.radiusPx) * s.scale();
       cursorState.hit = { point: hit.world, normal: nWorld, radius: r };
     }
   }
@@ -54,7 +62,12 @@ function cursorSvg(v: View3D): VNode | null {
   const rc = cursorState.radial;
   if (rc && v === cursorState.view) {
     const parts: VNode[] = [];
-    if (rc.data === 'size') {
+    if (rc.data === 'angle') {
+      parts.push(
+        h('circle', { cx: rc.cx, cy: rc.cy, r: RADIAL_FULL, fill: 'none', stroke: 'rgba(255,255,255,0.5)', 'stroke-width': 1 }),
+        h('path', { d: `M${rc.cx} ${rc.cy}L${rc.cx + Math.cos(rc.value) * RADIAL_FULL} ${rc.cy - Math.sin(rc.value) * RADIAL_FULL}`, stroke: '#fff', 'stroke-width': 1.5 }),
+      );
+    } else if (rc.data === 'size') {
       parts.push(
         h('circle', {
           cx: rc.cx,
@@ -87,7 +100,7 @@ function cursorSvg(v: View3D): VNode | null {
         }),
       );
     }
-    const label = rc.data === 'size' ? `${Math.round(rc.value)} px` : rc.value.toFixed(3);
+    const label = rc.data === 'size' ? `${Math.round(rc.value)} px` : rc.data === 'angle' ? `${Math.round((rc.value * 180) / Math.PI)}°` : rc.value.toFixed(3);
     parts.push(
       h(
         'text',
@@ -106,11 +119,12 @@ function cursorSvg(v: View3D): VNode | null {
   }
   if (!isBrushMode(app.doc.mode) || !cursorState.inside || cursorState.view !== v || app.modal) return null;
   const b = activeBrush();
-  if (!b) return null;
+  if (!b || b.show_cursor === false) return null;
   const x = cursorState.x,
     y = cursorState.y;
   const sub = b.direction === 'SUBTRACT';
-  const tint = app.doc.mode === 'SCULPT' ? (sub ? 'rgba(110,140,255,0.9)' : 'rgba(255,120,120,0.9)') : 'rgba(255,255,255,0.9)';
+  const css = (c: number[]) => `rgba(${c.map((k) => Math.round(k * 255)).join(',')},0.9)`;
+  const tint = app.doc.mode === 'SCULPT' ? css(sub ? b.cursor_color_subtract ?? [0.43, 0.55, 1] : b.cursor_color_add ?? [1, 0.47, 0.47]) : 'rgba(255,255,255,0.9)';
   const hit = cursorState.hit;
   if (hit && app.doc.mode === 'SCULPT') {
     const d = ringPath(v, hit.point, hit.normal, hit.radius);
@@ -140,7 +154,7 @@ function cursorSvg(v: View3D): VNode | null {
       h('circle', { cx: x, cy: y, r: 1.5, fill: '#fff' }),
     );
   }
-  const r = b.radius;
+  const r = cursorState.radiusPx || b.radius;
   return h(
     'g',
     { key: 'paint-cursor', class: 'paint-cursor', 'pointer-events': 'none' },
@@ -181,19 +195,30 @@ editModeHooks.svg.push(cursorSvg);
 
 const RADIAL_FULL = 120;
 
-function radialGet(data: 'size' | 'strength' | 'weight'): number {
+function radialGet(data: 'size' | 'strength' | 'weight' | 'angle'): number {
   const b = activeBrush();
+  if (data === 'angle') return b?.texture_slot?.angle ?? 0;
   if (data === 'weight') return app.doc.scene.tool_settings.unified_paint.weight;
   if (!b) return 0;
-  return data === 'size' ? b.radius : b.strength;
+  if (data === 'size') return b.use_locked_size === 'SCENE' && cursorState.radiusPx ? cursorState.radiusPx : b.radius;
+  return b.strength;
 }
 
-function radialSet(data: 'size' | 'strength' | 'weight', value: number) {
+function radialSet(data: 'size' | 'strength' | 'weight' | 'angle', value: number) {
   const b = activeBrush();
+  if (data === 'angle') {
+    if (b?.texture_slot) b.texture_slot = { ...b.texture_slot, angle: value };
+    return;
+  }
   if (data === 'weight') app.doc.scene.tool_settings.unified_paint.weight = value;
   else if (b) {
-    if (data === 'size') b.radius = value;
-    else b.strength = value;
+    if (data === 'size') {
+      // scene-locked sizes scale their world radius by the same ratio
+      if (b.use_locked_size === 'SCENE' && cursorState.radiusPx) {
+        b.unprojected_radius = (b.unprojected_radius ?? 0.1) * (value / cursorState.radiusPx);
+        cursorState.radiusPx = value;
+      } else b.radius = value;
+    } else b.strength = value;
   }
 }
 
@@ -211,6 +236,7 @@ registerOperators([
           ['size', 'Radius'],
           ['strength', 'Strength'],
           ['weight', 'Weight'],
+          ['angle', 'Texture Angle'],
         ],
       },
     ],
@@ -218,15 +244,20 @@ registerOperators([
     invoke: (ctx, p) => {
       const v = activeView3D();
       if (!v) return 'CANCELLED';
-      const data = p.data as 'size' | 'strength' | 'weight';
+      const data = p.data as 'size' | 'strength' | 'weight' | 'angle';
       if (data === 'weight' && app.doc.mode !== 'WEIGHT_PAINT') return 'CANCELLED';
+      if (data === 'angle' && !textureActive(activeBrush()!)) {
+        app.report('INFO', 'The brush has no texture to rotate');
+        return 'CANCELLED';
+      }
       const start = radialGet(data);
       const r = v.el.getBoundingClientRect();
       const px = (ctx.event?.x ?? app.pointer.x) - r.left,
         py = (ctx.event?.y ?? app.pointer.y) - r.top;
       const offset = data === 'size' ? start : start * RADIAL_FULL;
       cursorState.view = v;
-      cursorState.radial = { cx: px - offset, cy: py, data, value: start };
+      cursorState.radial =
+        data === 'angle' ? { cx: px - Math.cos(start) * RADIAL_FULL, cy: py + Math.sin(start) * RADIAL_FULL, data, value: start } : { cx: px - offset, cy: py, data, value: start };
       v.drawSvg();
       const update = (e: PointerEvent) => {
         const rc = cursorState.radial;
@@ -235,7 +266,7 @@ registerOperators([
         cursorState.x = q.x;
         cursorState.y = q.y;
         const d = Math.hypot(q.x - rc.cx, q.y - rc.cy);
-        rc.value = data === 'size' ? Math.max(1, Math.min(2000, Math.round(d))) : Math.max(0, Math.min(1, d / RADIAL_FULL));
+        rc.value = data === 'angle' ? Math.atan2(rc.cy - q.y, q.x - rc.cx) : data === 'size' ? Math.max(1, Math.min(2000, Math.round(d))) : Math.max(0, Math.min(1, d / RADIAL_FULL));
         radialSet(data, rc.value);
         v.drawSvg();
         app.changed('ui');
@@ -246,7 +277,7 @@ registerOperators([
         app.changed('ui');
       };
       app.startModal({
-        label: data === 'size' ? 'Brush Radius' : data === 'strength' ? 'Brush Strength' : 'Weight',
+        label: data === 'size' ? 'Brush Radius' : data === 'strength' ? 'Brush Strength' : data === 'angle' ? 'Texture Angle' : 'Weight',
         onPointerMove: update,
         onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : 'CANCELLED'),
         onKey: (e) => {
@@ -261,7 +292,9 @@ registerOperators([
         },
         finish: done,
         header: () =>
-          `${data === 'size' ? 'Radius' : data === 'strength' ? 'Strength' : 'Weight'}: ${data === 'size' ? Math.round(cursorState.radial?.value ?? start) : (cursorState.radial?.value ?? start).toFixed(3)}`,
+          data === 'angle'
+            ? `Texture Angle: ${Math.round(((cursorState.radial?.value ?? start) * 180) / Math.PI)}°`
+            : `${data === 'size' ? 'Radius' : data === 'strength' ? 'Strength' : 'Weight'}: ${data === 'size' ? Math.round(cursorState.radial?.value ?? start) : (cursorState.radial?.value ?? start).toFixed(3)}`,
       });
       return 'RUNNING_MODAL';
     },
@@ -275,6 +308,12 @@ registerOperators([
     exec: (_ctx, p) => {
       const b = activeBrush()!;
       const s = p.scalar as number;
+      if (b.use_locked_size === 'SCENE') {
+        b.unprojected_radius = Math.max(1e-5, (b.unprojected_radius ?? 0.1) * s);
+        const v = activeView3D();
+        if (v) updateCursor(v, cursorState.x, cursorState.y);
+        return;
+      }
       let r = b.radius * s;
       // always change by at least one pixel
       if (Math.round(r) === Math.round(b.radius)) r = b.radius + (s > 1 ? 1 : -1);

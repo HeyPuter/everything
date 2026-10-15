@@ -15,6 +15,22 @@ export interface ToolDef {
   description?: string;
   /** alternates shown when long-pressing (e.g. select box / circle / lasso) */
   group?: string;
+  /** tools sharing this toolbar slot (long-press / right-click to pick one) */
+  alternates?: ToolDef[];
+}
+
+/** Last picked tool of each alternates slot (keyed by the slot's first tool id). */
+const slotPick: Record<string, string> = {};
+
+/** The tool shown in a slot: the active one if it belongs to the slot, else the last picked. */
+function slotTool(t: ToolDef, cur: string): ToolDef {
+  if (!t.alternates) return t;
+  const hit = t.alternates.find((a) => a.id === cur);
+  if (hit) {
+    slotPick[t.id] = hit.id;
+    return hit;
+  }
+  return t.alternates.find((a) => a.id === slotPick[t.id]) ?? t;
 }
 
 const SELECT_TOOLS: ToolDef[] = [
@@ -70,8 +86,10 @@ function toolKey(mode: string) {
 
 export function toolsFor(mode: string): (ToolDef | null)[] {
   if (extraToolLists[mode]) return extraToolLists[mode]();
-  const list = toolsByMode[toolKey(mode)] ?? toolsByMode.OBJECT;
-  return mode === 'SCULPT' || mode.endsWith('PAINT') ? list : [selectSlot(), ...list];
+  const key = toolKey(mode);
+  const list = toolsByMode[key] ?? toolsByMode.OBJECT;
+  // text editing has its own selection tool instead of box / circle / lasso
+  return mode === 'SCULPT' || mode.endsWith('PAINT') || key === 'EDIT_FONT' ? list : [selectSlot(), ...list];
 }
 
 function selectSlot(): ToolDef {
@@ -84,41 +102,67 @@ function lastSelectTool() {
   return SELECT_TOOLS.find((t) => t.id === lastSel)!;
 }
 
+/** Last used tool of each tool group (other than select), shown in the group's toolbar slot. */
+const lastInGroup: Record<string, string> = {};
+
 export function setActiveTool(id: string) {
   activeTools[app.doc.mode] = id;
   if (SELECT_TOOLS.some((t) => t.id === id)) lastSel = id;
+  const t = toolsFor(app.doc.mode).find((x) => x?.id === id);
+  if (t?.group && t.group !== 'select') lastInGroup[t.group] = id;
   app.changed('ui');
+}
+
+/** Collapse grouped tools into one slot each (the active or last used member). */
+function groupSlots(tools: (ToolDef | null)[], cur: string): (ToolDef | null)[] {
+  const shown = new Set<string>();
+  return tools.filter((t) => {
+    if (!t || !t.group || t.group === 'select') return true;
+    if (shown.has(t.group)) return false;
+    const members = tools.filter((x) => x?.group === t.group) as ToolDef[];
+    const rep = members.find((x) => x.id === cur) ?? members.find((x) => x.id === lastInGroup[t.group!]) ?? members[0];
+    if (rep !== t) return false;
+    shown.add(t.group);
+    return true;
+  });
 }
 
 export function toolbar(v: View3D): Child {
   const mode = app.doc.mode;
   const cur = activeTools[mode];
-  const tools = toolsFor(mode);
+  const all = toolsFor(mode);
+  const tools = groupSlots(all, cur);
   return h(
     'div',
     { key: 'toolbar', class: 'v3d-toolbar' },
-    tools.map((t, i) => {
-      if (!t) return h('div', { key: `sep${i}`, class: 'tb-sep' });
+    tools.map((slot, i) => {
+      if (!slot) return h('div', { key: `sep${i}`, class: 'tb-sep' });
+      const t = slotTool(slot, cur);
+      const alts = slot.alternates;
       const isSelectSlot = t.group === 'select';
+      const members = t.group && !isSelectSlot ? (all.filter((x) => x?.group === t.group) as ToolDef[]) : [];
+      const alternates = isSelectSlot ? SELECT_TOOLS : members.length > 1 ? members : null;
+      // tools offered in this slot: explicit alternates of the slot, or the members of its group
+      const choices = alts ?? alternates;
       const active = t.id === cur;
       return h(
         'button',
         {
           key: t.id + i,
-          class: { 'tb-tool': true, on: active, 'has-alt': isSelectSlot },
+          class: { 'tb-tool': true, on: active, 'has-alt': !!choices },
           'data-tool': t.id,
           'data-tip': `${t.label}${t.shortcut ? `\nShortcut: ${t.shortcut}` : ''}${t.description ? `\n${t.description}` : ''}`,
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
-            if (isSelectSlot && (e.button === 2 || e.detail > 1)) {
-              openMenu(SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === cur, action: () => setActiveTool(s.id) })), e.currentTarget as HTMLElement);
+            if (choices && (e.button === 2 || e.detail > 1)) {
+              openMenu(choices.map((s) => ({ label: s.label, icon: s.icon, active: s.id === cur, shortcut: s.shortcut, action: () => setActiveTool(s.id) })), e.currentTarget as HTMLElement);
               return;
             }
             setActiveTool(t.id);
             // long press opens alternates
-            if (isSelectSlot) {
+            if (choices) {
               const el = e.currentTarget as HTMLElement;
-              const timer = setTimeout(() => openMenu(SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === activeTools[mode], action: () => setActiveTool(s.id) })), el), 350);
+              const timer = setTimeout(() => openMenu(choices.map((s) => ({ label: s.label, icon: s.icon, active: s.id === activeTools[mode], shortcut: s.shortcut, action: () => setActiveTool(s.id) })), el), 350);
               const up = () => {
                 clearTimeout(timer);
                 removeEventListener('pointerup', up);
@@ -137,7 +181,7 @@ export function toolbar(v: View3D): Child {
 export function toolHeader(v: View3D): Child {
   const mode = app.doc.mode;
   const cur = activeTools[mode];
-  const all = [...SELECT_TOOLS, ...(toolsFor(mode).filter(Boolean) as ToolDef[])];
+  const all = [...SELECT_TOOLS, ...(toolsFor(mode).filter(Boolean) as ToolDef[]).flatMap((x) => x.alternates ?? [x])];
   const t = all.find((x) => x.id === cur);
   const settings = toolSettingsFor(cur);
   return h('div', { class: 'tool-header' }, t ? h('span', { class: 'th-tool' }, icon(t.icon), h('span', null, t.label)) : null, settings);

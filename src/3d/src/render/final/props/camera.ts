@@ -2,8 +2,8 @@
 // viewport display (composition guides). The overlays are drawn by ../cameraoverlay.ts.
 import { h, type Child } from '../../../ui/h';
 import { app } from '../../../app/app';
-import { panel, enumMenu, numberField, checkbox } from '../../../ui/widgets';
-import { num, bool, enumProp, splitRow } from '../../../ui/props';
+import { panel, numberField, checkbox } from '../../../ui/widgets';
+import { num, bool, enumProp, splitRow, objectProp } from '../../../ui/props';
 import type { CameraData, ObjectData, SceneData } from '../../../data/types';
 import { DEFAULT_SAFE_AREAS } from '../cameraoverlay';
 import { changed, headerToggle, sub } from './common';
@@ -37,7 +37,6 @@ function margins(owner: Record<string, [number, number]>, key: string, label: st
 }
 
 export function cameraPanels(o: ObjectData, ca: CameraData): Child {
-  const doc = app.doc;
   const dof = ca.dof as CameraData['dof'] & { aperture_rotation: number; aperture_ratio: number };
   dof.aperture_rotation ??= 0;
   dof.aperture_ratio ??= 1;
@@ -70,7 +69,7 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
       'ca-dof',
       'Depth of Field',
       () => [
-        splitRow('Focus on Object', enumMenu('ca-focus', [{ value: '', label: '—' }, ...Object.values(doc.objects).filter((x) => x.id !== o.id).map((x) => ({ value: x.id, label: x.name }))], ca.dof.focus_object ?? '', (v) => ((ca.dof.focus_object = v || null), changed('Focus Object')))),
+        objectProp(ca.dof, 'focus_object', 'Focus on Object', { undo: 'Focus Object', filter: (x) => x.id !== o.id }),
         num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, disabled: !!ca.dof.focus_object, anim: { ob: o, path: 'data.dof.focus_distance' } }),
         sub('ca-dof-aperture', 'Aperture', () => [
           num(ca.dof, 'aperture_fstop', 'F-Stop', { min: 0.1, softMax: 128, precision: 1, tip: 'Lower values give a shallower depth of field' }),

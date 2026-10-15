@@ -169,7 +169,7 @@ export class PreferencesEditor implements Editor {
                   { label: 'Save Preferences', op: 'wm.save_userpref' },
                   { label: 'Revert to Saved Preferences', action: () => revertPrefs() },
                   { separator: true },
-                  { label: 'Load Factory Preferences', op: 'wm.read_factory_settings' },
+                  { label: 'Load Factory Preferences', op: 'wm.read_factory_userpref' },
                 ],
                 e.currentTarget as HTMLElement,
               );
@@ -193,6 +193,7 @@ export class PreferencesEditor implements Editor {
             splitRow('Font Size', numberField({ id: 'pf-font', value: prefs.font_size, min: 8, max: 24, int: true, unit: 'pixel', set: (v, f) => f && setPref('font_size', Math.round(v)) })),
             splitRow('', checkbox('pf-tips', 'Tooltips', prefx.show_tooltips, (v) => setPref('show_tooltips', v)), undefined, 'check'),
           ]),
+          panel('pf-editors', 'Editors', () => [splitRow('', checkbox('pf-splash', 'Splash Screen', prefs.show_splash, (v) => setPref('show_splash', v), { tip: 'Splash Screen\nShow the splash screen with recent files when the application starts fresh' }), undefined, 'check')]),
           panel('pf-status', 'Status Bar', () => [splitRow('', checkbox('pf-stats', 'Scene Statistics', prefs.show_statusbar_stats, (v) => setPref('show_statusbar_stats', v)), undefined, 'check')]),
         ];
       case 'VIEWPORT':
@@ -230,7 +231,7 @@ export class PreferencesEditor implements Editor {
           panel('pf-autosave', 'Auto Save', () => [
             splitRow('', checkbox('pf-as', 'Auto Save', prefx.use_auto_save_temporary_files, (v) => setPref('use_auto_save_temporary_files', v), { tip: 'Auto Save\nPeriodically save the session for recovery (in addition to saving after edits)' }), undefined, 'check'),
             splitRow('Timer (Minutes)', numberField({ id: 'pf-as-min', value: prefs.autosave_interval, min: 1, max: 60, int: true, disabled: !prefx.use_auto_save_temporary_files, set: (v, f) => f && setPref('autosave_interval', Math.round(v)) })),
-            h('div', { class: 'prefs-btn-row' }, h('button', { class: 'btn', onclick: () => app.run('wm.recover_last_session') }, 'Recover Last Session')),
+            h('div', { class: 'prefs-btn-row' }, h('button', { class: 'btn', onclick: () => app.run('wm.recover_last_session') }, 'Recover Last Session'), h('button', { class: 'btn', onclick: () => app.run('wm.recover_auto_save') }, 'Recover Auto Save…')),
           ]),
           panel('pf-undo', 'Undo', () => [
             splitRow('Undo Steps', numberField({ id: 'pf-undo-steps', value: prefs.undo_steps, min: 0, max: 512, int: true, set: (v, f) => f && setPref('undo_steps', Math.round(v)) })),

@@ -1,6 +1,6 @@
 // Node types shared by every tree kind: Frame, Reroute, Group Input/Output and group nodes.
 import type { NodeData } from '../data/types';
-import { registerNodeType, interfaceSockets, findSocket } from './registry';
+import { registerNodeType, interfaceSockets, findSocket, interfacePanels } from './registry';
 import type { NodeTypeDef, SocketContext, SocketDef, TreeType } from './types';
 
 export const ALL_TREES: TreeType[] = ['SHADER', 'WORLD', 'GEOMETRY', 'COMPOSITOR'];
@@ -160,6 +160,7 @@ export function makeGroupNodeType(idname: string, treeTypes: TreeType[]): NodeTy
       return {
         inputs: interfaceSockets(g?.tree, 'INPUT'),
         outputs: interfaceSockets(g?.tree, 'OUTPUT'),
+        panels: interfacePanels(g?.tree),
       };
     },
     description: 'Group node',

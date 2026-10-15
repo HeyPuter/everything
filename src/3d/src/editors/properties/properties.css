@@ -1,0 +1,96 @@
+/* Properties editor: search results, panel reordering, multi-drag and button feedback. */
+
+.rail-tab.search-miss {
+  opacity: 0.35;
+}
+.prop-body.searching .search-hl .sr-label,
+.prop-body.searching .checkbox.search-hl .cb-label {
+  color: #f0c060;
+}
+.prop-body {
+  position: relative;
+}
+.panel-drop-line {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+.panel.dragging {
+  opacity: 0.55;
+}
+.ph-grip {
+  cursor: grab;
+}
+.num-field.multi-sel {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+body.eyedropper-active,
+body.eyedropper-active * {
+  cursor: crosshair !important;
+}
+
+/* UI list filter */
+.ul-filter-toggle-row {
+  display: flex;
+  justify-content: center;
+  height: 12px;
+  margin-top: -2px;
+}
+.ul-filter-toggle {
+  width: 28px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  opacity: 0.6;
+  border-radius: 3px;
+}
+.ul-filter-toggle:hover,
+.ul-filter-toggle.on {
+  opacity: 1;
+}
+.ul-filter-toggle .icon {
+  width: 10px;
+  height: 10px;
+}
+.ul-filter {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  margin: 2px 26px 4px 0;
+}
+.ul-filter-text {
+  flex: 1;
+  min-width: 0;
+}
+.ul-fbtn {
+  width: 24px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  background: var(--w-field, #2b2b2b);
+}
+.ul-fbtn.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* header options popover */
+.hdr-toggle.prop-options-btn {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  width: auto;
+  padding: 0 3px;
+}
+.prop-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px;
+}

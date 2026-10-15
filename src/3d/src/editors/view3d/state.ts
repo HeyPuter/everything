@@ -61,8 +61,15 @@ export interface Overlay {
   show_extra_edge_length: boolean;
   show_extra_face_area: boolean;
   show_extra_indices: boolean;
+  /** curve edit mode: which Bézier handles are drawn */
+  display_handle?: 'ALL' | 'SELECTED' | 'NONE';
+  /** curve edit mode: normals (tilt) along the curve */
+  show_curve_normals?: boolean;
   // sculpt / paint
   sculpt_mode_mask_opacity: number;
+  show_sculpt_mask?: boolean;
+  show_sculpt_face_sets?: boolean;
+  sculpt_mode_face_sets_opacity?: number;
   show_paint_wire: boolean;
   weight_paint_mode_opacity: number;
   texture_paint_mode_opacity: number;
@@ -130,6 +137,9 @@ export const defaultOverlay = (): Overlay => ({
   show_extra_face_area: false,
   show_extra_indices: false,
   sculpt_mode_mask_opacity: 0.75,
+  show_sculpt_mask: true,
+  show_sculpt_face_sets: true,
+  sculpt_mode_face_sets_opacity: 1,
   show_paint_wire: false,
   weight_paint_mode_opacity: 1,
   texture_paint_mode_opacity: 1,

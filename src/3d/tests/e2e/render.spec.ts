@@ -16,7 +16,10 @@ const IMPORT = `(p) => import(performance.getEntriesByType('resource').map((e) =
 /** Render a still with the given settings and return a summary of the result. */
 async function renderStill(page: Page, settings: Record<string, unknown>) {
   await page.evaluate((s) => Object.assign((window as any).app.doc.scene.render, { resolution_percentage: 10, raster_samples: 2 }, s), settings);
+  const before = await page.evaluate(() => (window as any).app.reports.length);
   await page.evaluate(() => (window as any).app.run('render.render'));
+  // the job reports when it ends
+  await page.waitForFunction((n) => (window as any).app.reports.slice(n).some((r: any) => /^Render (finished|failed|cancelled)/.test(r.message)), before);
   await page.waitForFunction(async (imp) => {
     const { renderJob } = await (0, eval)(imp)('/src/render/final/job.ts');
     return !renderJob();
@@ -116,9 +119,9 @@ test('Render menu: View Animation and Lock Interface; Output and View Layer pane
   await menu.getByText('Lock Interface').click();
   expect(await page.evaluate(() => (window as any).app.doc.scene.render.use_lock_interface)).toBe(true);
   const props = page.locator('.properties').first();
-  await props.locator('.rail-tab[data-tip="Output"]').click();
+  await props.locator('.rail-tab[data-tab="OUTPUT"]').click();
   for (const t of ['Format', 'Frame Range', 'Output', 'Metadata']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) }).first()).toBeVisible();
-  await props.locator('.rail-tab[data-tip="View Layer"]').click();
+  await props.locator('.rail-tab[data-tab="VIEW_LAYER"]').click();
   await expect(props.getByText('Use for Rendering')).toBeVisible();
   await expect(props.getByText('Object Index')).toBeVisible();
   await expectNoErrors(errors);
@@ -143,7 +146,7 @@ test('Camera data: aperture shape, safe areas and composition guides drawn in ca
   // 2 safe-area rectangles + 4 third lines
   expect(await page.locator('.view3d .camera-guides rect').count()).toBe(2);
   const props = page.locator('.properties').first();
-  await props.locator('.rail-tab[data-tip="Data"]').click();
+  await props.locator('.rail-tab[data-tab="DATA"]').click();
   for (const t of ['Safe Areas', 'Depth of Field', 'Viewport Display']) await expect(props.locator('.panel-header .ph-title', { hasText: new RegExp(`^${t}$`) })).toBeVisible();
   await expectNoErrors(errors);
 });

@@ -16,6 +16,9 @@ src/
   editors/    Editors (view3d/, properties/, outliner.ts, timeline.ts, …)
   ui/         Virtual DOM (h.ts), widgets, menus/pies/popovers, screen/areas, shell, props helpers
   ops/        Operators (object, view3d, screen, transform, data, wm)
+  object/     Object Mode menus and object data management: vertex groups, shape keys, material
+              slots, modifiers, hooks, relations/data transfer, instancing (collection/verts/faces),
+              speakers, quick effects
   io/         Native .p3d format, autosave, legacy import, file operators + format registry,
               fonts.ts (text outlines), formats/ (glTF, FBX, OBJ, STL, PLY, USD, Collada, Alembic),
               blend/ (.blend reader)
@@ -144,11 +147,26 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 
 ### Other extension points
 - `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows)
-- `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`
+- `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`, `dataTabDrawers` (Object Data tab per object type)
+- `editors/properties/uilist.ts` `uiList(..., { specials, up, down })` for list specials menus and reordering
+- `object/instancing.ts` `objectDuplis` (instances an object shows; drawn via `SyncedObject.duplis`)
 - `editors/view3d/draw.ts` `drawHooks`, `render/scene.ts` `sceneSyncHooks`
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
-- `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors)
+- `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
+  `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
+  Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.
+- Screen: `ui/layout.ts` (pure split/join/swap of the layout tree), `ui/screenops.ts` (area
+  operators); header buttons with class `hdr-menu` that open a menu on pointerdown are picked up
+  by F3 menu search and the collapsed-menus button (`captureMenuItems` in `ui/menu.ts`)
+- Top bar menus live in `ui/topbar.ts` (`fileNewTemplates`, `wm.call_menu` names); recent files,
+  the startup file and auto save snapshots in `io/session.ts`; `itemContextHooks` (`ui/menu.ts`)
+  add entries to the right-click menu of menu items
+- `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
+  `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
+  `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
+  key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
 
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).

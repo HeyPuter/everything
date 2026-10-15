@@ -728,6 +728,9 @@ input.num-field.editing {
 .btn-row > * {
   flex: 1;
 }
+.btn-row.btn-stack {
+  flex-direction: column;
+}
 .icon-btn {
   width: 22px;
   height: 22px;
@@ -1171,6 +1174,7 @@ input.num-field.editing {
 .th-settings .num-field,
 .th-settings .text-field {
   width: 60px;
+  flex: none;
 }
 .th-settings .th-label {
   white-space: nowrap;
@@ -1780,6 +1784,9 @@ input.num-field.editing {
   justify-content: flex-start;
   background: var(--w-menu);
 }
+.panel.modifier.active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
 .panel.modifier .mod-header {
   gap: 3px;
 }
@@ -1854,6 +1861,80 @@ input.num-field.editing {
 .ul-right {
   width: 45%;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.ul-right > :first-child:not(.ul-lock) {
+  flex: 1;
+  min-width: 0;
+}
+.ul-right.compact {
+  width: auto;
+}
+.ul-right.wide {
+  width: 62%;
+}
+.col-box {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin: 4px 0;
+}
+.col-box-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.col-box-head > :nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.vw-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0;
+}
+.vw-row .vw-name {
+  flex: 0 0 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.vw-row.on .vw-name {
+  color: var(--accent-text, #fff);
+  font-weight: 600;
+}
+.vw-row .num-field {
+  flex: 1;
+  min-width: 0;
+}
+.ul-lock {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.ul-lock.on,
+.ul-lock:hover {
+  opacity: 1;
 }
 .ul-meta {
   color: #aaa;
@@ -2102,6 +2183,10 @@ input.num-field.editing {
 .anim-ch-row.muted .anim-ch-name {
   opacity: 0.55;
 }
+.anim-ch-row.err .anim-ch-name {
+  color: #ff6b6b;
+  text-decoration: underline wavy rgba(255, 90, 90, 0.7);
+}
 .anim-ch-row .ic svg {
   width: 14px;
   height: 14px;
@@ -2216,9 +2301,11 @@ input.num-field.editing {
 }
 .anim-sb-add {
   padding: 4px 6px 6px;
+  display: flex;
+  gap: 4px;
 }
 .anim-sb-addbtn {
-  width: 100%;
+  flex: 1;
 }
 .anim-sb-inline {
   display: flex;
@@ -2226,6 +2313,16 @@ input.num-field.editing {
   gap: 4px;
 }
 .anim-sb-inline .num-field {
+  flex: 1;
+}
+.anim-env-head {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 0;
+  color: #999;
+  font-size: 11px;
+}
+.anim-env-head span {
   flex: 1;
 }
 .anim-mod-hdr {

@@ -7,7 +7,8 @@ import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTA
 import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
-import { checkbox, numberField, enumRow, colorSwatch, panel } from '../../ui/widgets';
+import { overlayPopoverSections } from './hooks';
+import { checkbox, numberField, enumRow, colorSwatch, panel, enumMenu } from '../../ui/widgets';
 import type { Mode } from '../../data/types';
 import { renderContext } from '../../render/context';
 
@@ -190,12 +191,14 @@ export function viewHeader(v: View3D): Child {
             [
               ['MESH', 'Mesh', 'outliner_ob_mesh'],
               ['CURVE', 'Curve', 'outliner_ob_curve'],
+              ['META', 'Metaball', 'outliner_ob_meta'],
               ['FONT', 'Text', 'outliner_ob_font'],
               ['ARMATURE', 'Armature', 'outliner_ob_armature'],
               ['LATTICE', 'Lattice', 'outliner_ob_lattice'],
               ['EMPTY', 'Empty', 'outliner_ob_empty'],
               ['LIGHT', 'Light', 'outliner_ob_light'],
               ['CAMERA', 'Camera', 'outliner_ob_camera'],
+              ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
             ] as const
           ).map(([t, label, ic]) =>
             h(
@@ -355,13 +358,21 @@ function overlayPopover(v: View3D): Child {
     h('div', { class: 'pop-sub' }, 'Geometry'),
     h('div', { class: 'pop-grid' }, checkbox('o-wire', 'Wireframe', o.show_wireframes, set('show_wireframes')), checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation'))),
     numberField({ id: 'o-wireop', label: 'Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) }),
-    editing
+    editing && app.activeObject?.type === 'CURVE'
+      ? [
+          h('div', { class: 'pop-sub' }, 'Curve Edit Mode'),
+          h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
+          checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
+          numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
+        ]
+      : editing && app.activeObject?.type === 'MESH'
       ? [
           h('div', { class: 'pop-sub' }, 'Mesh Edit Mode'),
           h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals')), checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices'))),
           numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
         ]
       : null,
+    overlayPopoverSections.map((f) => f(v)),
   );
 }
 

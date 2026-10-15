@@ -22,7 +22,9 @@ export type ObjectType =
   | 'ARMATURE'
   | 'LATTICE'
   | 'POINTCLOUD'
-  | 'GREASEPENCIL';
+  | 'GREASEPENCIL'
+  | 'SPEAKER'
+  | 'META';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -61,6 +63,8 @@ export interface ShapeKey {
   mute: boolean;
   relative_key: string; // name of the basis key
   vertex_group?: string;
+  /** protected from edits (Edit Mode shape editing, sculpting) */
+  lock_shape?: boolean;
 }
 
 export interface ColorAttribute {
@@ -89,6 +93,12 @@ export interface MeshData {
   sharp?: Uint32Array;
   /** per-corner edge crease weight (0..1) for subdivision */
   creases?: Float32Array;
+  /** custom split normals, xyz per face corner (overrides the computed shading normals) */
+  custom_normals?: Float32Array;
+  /** per face: split this quad along the other diagonal than the automatic choice */
+  quad_flip?: Uint8Array;
+  /** per face strength for the Weighted Normal modifier's face influence: 0 weak, 1 medium, 2 strong */
+  face_strength?: Uint8Array;
   /** per-face smooth shading flag */
   smooth?: Uint8Array;
   /** per-face material slot index */
@@ -114,6 +124,18 @@ export interface MeshData {
   remesh_voxel_size?: number;
   /** Sculpt mode mask, one value per vertex (0 = unmasked, 1 = fully masked). */
   sculpt_mask?: Float32Array;
+  /** Sculpt face sets, one id per face (ids start at 1). */
+  sculpt_face_set?: Int32Array;
+  /** Face set id drawn without a color (the "default" set). */
+  face_sets_color_default?: number;
+  /** Seed for the face set display colors. */
+  face_sets_color_seed?: number;
+  /** Per-face hidden flag used by Sculpt Mode visibility tools. */
+  hide_poly?: Uint8Array;
+  /** Paint modes: only paint the faces selected in the face selection mask. */
+  use_paint_mask?: boolean;
+  /** Paint modes: only paint the vertices selected in the vertex selection mask. */
+  use_paint_mask_vertex?: boolean;
   /** edges that do not belong to any face (vertex index pairs) */
   loose_edges?: Uint32Array;
   /** UV editor selection, one flag per face corner */
@@ -141,6 +163,8 @@ export interface BezierPoint {
   select_control_point?: boolean;
   select_left_handle?: boolean;
   select_right_handle?: boolean;
+  /** hidden in Edit Mode (not drawn, not selectable) */
+  hide?: boolean;
 }
 
 export interface SplinePoint {
@@ -148,6 +172,7 @@ export interface SplinePoint {
   radius: number;
   tilt: number;
   select?: boolean;
+  hide?: boolean;
 }
 
 export interface Spline {
@@ -173,19 +198,67 @@ export interface CurveData {
   extrude: number;
   offset: number;
   fill_mode: 'FULL' | 'BACK' | 'FRONT' | 'HALF' | 'NONE' | 'BOTH';
+  /** ROUND: tube of bevel_depth; OBJECT: cross-section from bevel_object */
+  bevel_mode?: 'ROUND' | 'OBJECT';
   bevel_object?: ID | null;
+  /** curve object whose height along its X extent scales the radius */
   taper_object?: ID | null;
   use_fill_caps: boolean;
   materials: (ID | null)[];
   // Text (FONT objects share curve data)
   body?: string;
   size?: number;
-  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY';
-  align_y?: 'TOP' | 'CENTER' | 'BOTTOM';
+  align_x?: 'LEFT' | 'CENTER' | 'RIGHT' | 'JUSTIFY' | 'FLUSH';
+  align_y?: 'TOP_BASELINE' | 'TOP' | 'CENTER' | 'BOTTOM' | 'BOTTOM_BASELINE';
   space_line?: number;
   space_character?: number;
+  space_word?: number;
   font_family?: string;
   users?: number;
+  /** per-character styles, parallel to `body` (UTF-16 code units) */
+  body_format?: CharFormat[];
+  underline_position?: number;
+  underline_height?: number;
+  small_caps_scale?: number;
+  shear?: number;
+  offset_x?: number;
+  offset_y?: number;
+  /** text frames; a box with width 0 does not wrap */
+  text_boxes?: TextBox[];
+  overflow?: 'NONE' | 'SCALE' | 'TRUNCATE';
+  /** custom font data-blocks per style (null / missing: built-in font) */
+  font?: ID | null;
+  font_bold?: ID | null;
+  font_italic?: ID | null;
+  font_bold_italic?: ID | null;
+  /** text: curve object the text is bent along */
+  follow_curve?: ID | null;
+}
+
+/** A loaded font file (TrueType / OpenType / WOFF), packed into the document. */
+export interface VectorFontData {
+  id: ID;
+  name: string;
+  filepath: string;
+  bytes: Uint8Array | null;
+  users?: number;
+}
+
+export interface CharFormat {
+  use_bold?: boolean;
+  use_italic?: boolean;
+  use_underline?: boolean;
+  use_small_caps?: boolean;
+  kerning?: number;
+  /** material slot of the character */
+  material_index?: number;
+}
+
+export interface TextBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +351,20 @@ export interface Bone {
   select_head?: boolean;
   select_tail?: boolean;
   layer_collections?: string[];
+  /** names of the bone collections this bone is assigned to */
+  collections?: string[];
+  /** draw as wireframe only */
+  show_wire?: boolean;
+  /** B-Bone display size (default: a tenth of the bone length) */
+  bbone_x?: number;
+  bbone_z?: number;
+}
+
+/** Named group of bones (visibility, selection, organisation). */
+export interface BoneCollection {
+  name: string;
+  is_visible: boolean;
+  is_solo?: boolean;
 }
 
 export interface ArmatureData {
@@ -291,6 +378,10 @@ export interface ArmatureData {
   show_in_front?: boolean;
   active_bone?: string | null;
   users?: number;
+  collections?: BoneCollection[];
+  active_collection_index?: number;
+  /** Edit Mode X-Axis Mirror: joints of `.L`/`.R` counterparts move together */
+  use_mirror_x?: boolean;
 }
 
 export interface PoseBone {
@@ -356,6 +447,10 @@ export interface NodeData {
   open_panels?: string[];
   /** Hide the node's property buttons (show_options off) */
   hide_options?: boolean;
+  /** number key (1-9) that views this node in the node editor */
+  viewer_shortcut?: number;
+  /** show a rendered preview of the node's output above it (shader nodes) */
+  show_preview?: boolean;
 }
 
 export interface LinkData {
@@ -372,9 +467,17 @@ export interface NodeTreeData {
   nodes: NodeData[];
   links: LinkData[];
   /** For node groups: interface sockets */
-  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string }[];
+  interface?: { in_out: 'INPUT' | 'OUTPUT'; name: string; socket_type: string; default_value?: SocketValue; min_value?: number; max_value?: number; identifier: string; hide_value?: boolean; /** identifier of the interface panel holding this input */ panel?: string; /** tooltip of the socket */ description?: string }[];
+  /** node groups: collapsible panels that organize the group node's inputs */
+  interface_panels?: { identifier: string; name: string; default_closed?: boolean }[];
   active_node?: ID | null;
   view?: { x: number; y: number; zoom: number };
+  /** node groups: description shown as a tooltip */
+  description?: string;
+  /** node groups: width of newly added group nodes */
+  default_group_node_width?: number;
+  /** node groups: header color of the group's nodes, by node category ('input', 'shader', …) */
+  color_tag?: string;
 }
 
 export interface NodeGroupData {
@@ -488,8 +591,16 @@ export interface Keyframe {
 }
 
 export interface FModifier {
-  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED';
+  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED' | 'FNGENERATOR' | 'ENVELOPE';
   mute?: boolean;
+  /** influence and restricted frame range (with blend in/out) */
+  use_influence?: boolean;
+  influence?: number;
+  use_restricted_range?: boolean;
+  frame_start?: number;
+  frame_end?: number;
+  blend_in?: number;
+  blend_out?: number;
   // noise
   scale?: number;
   strength?: number;
@@ -509,6 +620,18 @@ export interface FModifier {
   use_max_y?: boolean;
   min_y?: number;
   max_y?: number;
+  // built-in function (FNGENERATOR)
+  function_type?: 'SIN' | 'COS' | 'TAN' | 'SQRT' | 'LN' | 'SINC';
+  amplitude?: number;
+  phase_multiplier?: number;
+  phase_offset?: number;
+  value_offset?: number;
+  use_additive?: boolean;
+  // envelope
+  reference_value?: number;
+  default_min?: number;
+  default_max?: number;
+  control_points?: { frame: number; min: number; max: number }[];
 }
 
 export interface FCurve {
@@ -524,6 +647,8 @@ export interface FCurve {
   select?: boolean;
   color_mode?: 'AUTO_RAINBOW' | 'AUTO_RGB' | 'AUTO_YRGB' | 'CUSTOM';
   color?: Color;
+  /** baked samples (frame, value) used when the curve has no keyframes */
+  sampled_points?: [number, number][];
 }
 
 export interface ActionData {
@@ -532,7 +657,8 @@ export interface ActionData {
   fcurves: FCurve[];
   frame_range?: Vec2;
   use_fake_user?: boolean;
-  /** Pose markers etc omitted */
+  /** markers stored with the action (shown in the Action Editor with Show Pose Markers) */
+  pose_markers?: TimelineMarker[];
   users?: number;
 }
 
@@ -552,6 +678,10 @@ export interface NlaStrip {
   mute: boolean;
   select?: boolean;
   extrapolation: 'HOLD' | 'HOLD_FORWARD' | 'NOTHING';
+  /** strip kind (action clip when absent) */
+  type?: 'CLIP' | 'TRANSITION' | 'META';
+  /** META: the grouped strips, in inner time (action_frame_start..end) */
+  strips?: NlaStrip[];
 }
 
 export interface NlaTrack {
@@ -569,6 +699,8 @@ export interface AnimData {
   action_blend_type?: NlaStrip['blend_type'];
   action_influence?: number;
   drivers: Driver[];
+  /** NLA tweak mode: the strip whose action is being edited */
+  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
 }
 
 export interface DriverVariable {
@@ -698,8 +830,10 @@ export interface ObjectData {
   type: ObjectType;
   data: ID | null;
   parent: ID | null;
-  parent_type: 'OBJECT' | 'BONE' | 'VERTEX';
+  parent_type: 'OBJECT' | 'BONE' | 'VERTEX' | 'VERTEX_3';
   parent_bone: string;
+  /** VERTEX / VERTEX_3 parenting: element indices of the parent (vertices, curve points, lattice points) */
+  parent_vertices?: number[];
   /** inverse of the parent's world matrix at parenting time */
   matrix_parent_inverse: Mat4;
   location: Vec3;
@@ -738,6 +872,11 @@ export interface ObjectData {
   use_empty_image_alpha?: boolean;
   instance_type: 'NONE' | 'COLLECTION' | 'VERTS' | 'FACES';
   instance_collection: ID | null;
+  /** vertex instancing: rotate instances to the vertex normal */
+  use_instance_vertices_rotation?: boolean;
+  /** face instancing: scale instances by the face size */
+  use_instance_faces_scale?: boolean;
+  instance_faces_scale?: number;
   modifiers: ModifierBase[];
   constraints: Constraint[];
   animation_data: AnimData | null;
@@ -751,6 +890,10 @@ export interface ObjectData {
   field: ForceField | null;
   collision: CollisionSettings | null;
   vertex_group_active_index?: number;
+  /** show only the active shape key, at full strength */
+  show_only_shape_key?: boolean;
+  /** sound settings of a SPEAKER object */
+  speaker?: import('../object/speaker').SpeakerSettings;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;
@@ -950,6 +1093,11 @@ export interface ToolSettings {
   use_mesh_automerge: boolean;
   double_threshold: number;
   use_keyframe_insert_auto: boolean;
+  /** markers can't be selected, moved or deleted */
+  lock_markers?: boolean;
+  /** proportional editing of keys in the Dope Sheet / Graph Editor */
+  use_proportional_action?: boolean;
+  use_proportional_fcurve?: boolean;
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';
@@ -979,7 +1127,16 @@ export interface SculptSettings {
   radius: number; // px
   strength: number;
   use_dyntopo?: boolean;
+  /** dynamic topology detail: pixels (relative), percent of the brush, or constant resolution */
   detail_size?: number;
+  detail_type_method?: 'RELATIVE' | 'CONSTANT' | 'BRUSH' | 'MANUAL';
+  detail_refine_method?: 'SUBDIVIDE' | 'COLLAPSE' | 'SUBDIVIDE_COLLAPSE';
+  detail_percent?: number;
+  /** pull the surface down (world -Z) with every dab */
+  gravity?: number;
+  /** meshes with modifiers update their shading only after a stroke */
+  use_sculpt_delay_updates?: boolean;
+  constant_detail_resolution?: number;
   use_frontface?: boolean;
   falloff: 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'CONSTANT';
   autosmooth_factor: number;
@@ -988,6 +1145,22 @@ export interface SculptSettings {
   normal_radius_factor?: number;
   use_space?: boolean;
   spacing?: number;
+  /** auto-masking: limit brushes by topology, face sets, boundaries, cavity or normals */
+  use_automasking_topology?: boolean;
+  use_automasking_face_sets?: boolean;
+  use_automasking_boundary_edges?: boolean;
+  use_automasking_boundary_face_sets?: boolean;
+  use_automasking_cavity?: boolean;
+  use_automasking_cavity_inverted?: boolean;
+  use_automasking_start_normal?: boolean;
+  use_automasking_view_normal?: boolean;
+  automasking_boundary_edges_propagation_steps?: number;
+  automasking_cavity_factor?: number;
+  automasking_cavity_blur_steps?: number;
+  automasking_start_normal_limit?: number;
+  automasking_start_normal_falloff?: number;
+  automasking_view_normal_limit?: number;
+  automasking_view_normal_falloff?: number;
 }
 
 export interface UnitSettings {
@@ -1012,6 +1185,20 @@ export interface RigidBodyWorld {
   time_scale: number;
   frame_start: number;
   frame_end: number;
+}
+
+export interface KeyingSetPath {
+  /** object the path belongs to */
+  id: ID | null;
+  data_path: string;
+  /** array element, or -1 for all elements */
+  index: number;
+}
+
+export interface KeyingSetData {
+  name: string;
+  paths: KeyingSetPath[];
+  active_path_index?: number;
 }
 
 export interface SceneData {
@@ -1046,7 +1233,12 @@ export interface SceneData {
   /** active object id (view layer) */
   active_object: ID | null;
   custom: CustomProps;
-  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter';
+  /** active keying set: a built-in set or `KS:<name>` for one of `keying_sets` */
+  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter' | `KS:${string}`;
+  /** scrubbing stays inside the scene (or preview) frame range */
+  lock_frame_selection_to_range?: boolean;
+  /** user keying sets (absolute property paths) */
+  keying_sets?: KeyingSetData[];
 }
 
 export interface DocumentData {
@@ -1068,8 +1260,12 @@ export interface DocumentData {
   particles: Record<ID, ParticleSettings>;
   texts: Record<ID, TextData>;
   brushes: Record<ID, BrushData>;
+  /** Font data-blocks used by text objects; absent in older files */
+  fonts?: Record<ID, VectorFontData>;
   /** Grease Pencil data-blocks (src/greasepencil); absent in older files */
   grease_pencils?: Record<ID, import('../greasepencil/types').GreasePencilData>;
+  /** Metaball data-blocks (src/metaball); absent in older files */
+  metaballs?: Record<ID, import('../metaball/types').MetaballData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

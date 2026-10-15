@@ -147,7 +147,7 @@ function solidColor(doc: DocumentData, ob: ObjectData, shading: Shading, slot: n
 }
 
 export function materialSlots(doc: DocumentData, ob: ObjectData): (string | null)[] {
-  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
+  const data = ob.data ? ((doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data]) as { materials?: (string | null)[] } | undefined) : undefined;
   const base = data?.materials ?? [];
   if (!ob.object_materials) return base;
   return base.map((m, i) => (ob.material_slots_link?.[i] === 'OBJECT' ? ob.object_materials![i] ?? null : m));
@@ -162,13 +162,16 @@ function assignMaterials(app: App, ctx: RenderContext, view: DrawView, mode: 'SO
     const meshes: Mesh[] = [];
     if (so.mesh) meshes.push(so.mesh);
     so.instances?.children.forEach((c) => meshes.push(c as Mesh));
+    so.duplis?.children.forEach((c) => meshes.push(c as Mesh));
     const xray = (sh.type === 'SOLID' || sh.type === 'WIREFRAME') && sh.show_xray;
     for (const mesh of meshes) {
+      // instances of other objects use those objects' materials
+      const ob = (mesh.userData.source && doc.objects[mesh.userData.source as string]) || so.ev.ob;
       const groups = mesh.geometry.groups;
       const slotsCount = Math.max(1, ...groups.map((g) => (g.materialIndex ?? 0) + 1));
       const mats: Material[] = [];
       for (let s = 0; s < slotsCount; s++) {
-        if (mode === 'ID') mats.push(idMaterial(ctx.sync.objectIndex(ob.id)));
+        if (mode === 'ID') mats.push(idMaterial(ctx.sync.objectIndex(so.ev.ob.id)));
         else if (mode === 'SOLID') {
           const hasColors = !!mesh.geometry.getAttribute('color');
           mats.push(
@@ -344,6 +347,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     const shown = so.root.visible;
     set(so.mesh, false);
     so.instances && set(so.instances, false);
+    so.duplis && set(so.duplis, false);
     if (so.light) set(so.light, so.light.visible);
     const col = helperColor(app, ob, theme.wire);
     const inEdit = editing && app.graph.editObjects.has(ob.id);
@@ -351,14 +355,18 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     const lookingThrough = !!view.sceneCamera && ob.id === ((view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera);
     const showWire =
       shown &&
-      !inEdit &&
+      // curves keep their wire while editing (the control points are an overlay on top)
+      (!inEdit || ob.type !== 'MESH') &&
       !!so.wire &&
       (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || ob.show_wire || ov.show_wireframes || (ob.type !== 'MESH' && !so.mesh?.geometry.index?.count));
     if (so.wire) {
       set(so.wire, showWire);
       const m = so.wire.material as LineBasicMaterial;
       const st = objectColorState(app, ob);
-      if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
+      if (inEdit) {
+        m.color.copy(theme.wire);
+        m.opacity = 1;
+      } else if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
         m.color.copy(st ? col : sh.type === 'WIREFRAME' ? new Color(0, 0, 0) : theme.wire);
         m.opacity = st ? 1 : sh.type === 'WIREFRAME' ? 0.85 : 1;
       } else {
