@@ -362,7 +362,7 @@ export class SceneSync {
     }
     const L = so.light;
     L.color = new Color(la.color[0], la.color[1], la.color[2]);
-    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1];
+    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1, la.volume_factor ?? 1];
     // radiometric watts → three.js photometric-style units (see docs/rendering.md)
     if (L instanceof PointLight) {
       L.intensity = la.energy / (4 * Math.PI);

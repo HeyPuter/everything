@@ -212,3 +212,26 @@ test('Ambient Occlusion pass reaches the Render Layers node', async ({ page }) =
   expect(res.outputs).toContain('AO');
   await expectNoErrors(errors);
 });
+
+test('smoke renders in the realtime engine and follows volume settings', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('object.quick_smoke');
+    for (let f = 1; f <= 20; f++) {
+      a.setFrame(f);
+      a.flush();
+    }
+  });
+  const lit = await renderPixels(page);
+  const shadowed = await renderPixels(page, { use_volumetric_shadows: true });
+  expect(difference(lit, shadowed)).toBeGreaterThan(0.002);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    for (const la of Object.values(a.doc.lights) as any[]) la.volume_factor = 0;
+    a.changed('doc');
+  });
+  const unlit = await renderPixels(page);
+  expect(difference(shadowed, unlit)).toBeGreaterThan(0.002);
+  await expectNoErrors(errors);
+});

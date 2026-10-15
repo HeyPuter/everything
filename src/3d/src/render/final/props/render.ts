@@ -7,7 +7,7 @@ import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
-import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, bloomPanel } from '../../realtime/props';
+import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
 
 export const ENGINES = [
   { value: 'RASTER', label: 'Realtime (Raster)', description: 'Realtime rasterization with shadows, ambient occlusion and bloom' },
@@ -131,6 +131,7 @@ function rasterPanels(r: RenderSettings): Child {
       { closed: true },
     ),
     raytracingPanel(r),
+    volumesPanel(r),
     bloomPanel(r),
     simplifyPanel(r),
     panel(

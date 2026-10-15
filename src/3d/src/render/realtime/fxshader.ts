@@ -47,6 +47,13 @@ export const fxUniforms = {
   ndVolMax: new Uniform([new Vector4(), new Vector4(), new Vector4(), new Vector4()]),
 };
 
+/** Volume Scatter factors per light type (same packing as the influence factors). */
+export const volumeFactorUniforms = {
+  ndLvPoint: new Uniform(new Float32Array(MAX_LIGHTS).fill(1)),
+  ndLvSpot: new Uniform(new Float32Array(MAX_LIGHTS).fill(1)),
+  ndLvDir: new Uniform(new Float32Array(MAX_LIGHTS).fill(1)),
+};
+
 // ---------------------------------------------------------------------------
 // GLSL
 

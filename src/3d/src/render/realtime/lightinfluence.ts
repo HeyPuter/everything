@@ -2,7 +2,7 @@
 // (shadow casters first, then lights with a texture, in scene order); the same order is
 // rebuilt here before each render so every light finds its factors in the shared uniforms.
 import type { Camera, Light, Object3D, Scene } from 'three';
-import { fxUniforms, MAX_LIGHTS } from './fxshader';
+import { fxUniforms, volumeFactorUniforms, MAX_LIGHTS } from './fxshader';
 
 type LightKind = 'point' | 'spot' | 'dir' | 'sun' | 'rect';
 
@@ -15,7 +15,7 @@ interface LightLike {
   isDirectionalLight?: boolean;
   isSunLight?: boolean;
   isRectAreaLight?: boolean;
-  userData: { influence?: [number, number] };
+  userData: { influence?: number[] };
 }
 
 export function lightKind(l: LightLike): LightKind | null {
@@ -42,6 +42,8 @@ export function influenceArrays(lights: LightLike[]): Record<LightKind, Float32A
     rect: fxUniforms.ndLiRect.value,
   };
   for (const a of Object.values(out)) a.fill(0);
+  const vol: Partial<Record<LightKind, Float32Array>> = { point: volumeFactorUniforms.ndLvPoint.value, spot: volumeFactorUniforms.ndLvSpot.value, dir: volumeFactorUniforms.ndLvDir.value };
+  for (const a of Object.values(vol)) a!.fill(1);
   const n: Record<LightKind, number> = { point: 0, spot: 0, dir: 0, sun: 0, rect: 0 };
   for (const l of packedLightOrder(lights)) {
     const k = lightKind(l);
@@ -52,6 +54,8 @@ export function influenceArrays(lights: LightLike[]): Record<LightKind, Float32A
     if (!f) continue;
     out[k][i * 2] = 1 - f[0];
     out[k][i * 2 + 1] = 1 - f[1];
+    const v = vol[k];
+    if (v && f[2] !== undefined) v[i] = f[2];
   }
   return out;
 }

@@ -84,6 +84,7 @@ export function samplingShadowsPanel(r: RenderSettings): Child {
       enumProp(r, 'shadow_cube_size', 'Cube Size', sizeItems([512, 1024, 2048, 4096]) as never, { tip: 'Largest shadow map of point, spot and area lights' }),
       enumProp(r, 'shadow_cascade_size', 'Cascade Size', sizeItems([512, 1024, 2048, 4096]) as never, { tip: 'Largest shadow map of sun lights' }),
       bool(r, 'use_soft_shadows', 'Soft Shadows', { tip: 'Blur shadows according to the size of each light' }),
+      bool(r, 'use_volumetric_shadows', 'Volume Shadows', { tip: 'Volumes such as smoke shade themselves from the lights' }),
     ],
     { closed: true, header: headerToggle(r, 'use_shadows', 'Shadows') },
   );
@@ -150,16 +151,7 @@ export function volumesPanel(r: RenderSettings): Child {
     'rs-volumes',
     'Volumes',
     () => [
-      num(r, 'volumetric_samples', 'Steps', { int: true, min: 1, max: 256, tip: 'Samples taken through volumes (smoke and world volumes)' }),
-      sub(
-        'rs-vol-range',
-        'Custom Range',
-        () => [
-          num(r, 'volumetric_start', 'Start', { unit: 'distance', min: 0.000001, tip: 'Distance from the camera where world volumes start' }),
-          num(r, 'volumetric_end', 'End', { unit: 'distance', min: 0.000001, tip: 'Distance from the camera where world volumes end' }),
-        ],
-        { closed: true, header: headerToggle(r, 'use_volume_custom_range', 'Custom Range') },
-      ),
+      num(r, 'volumetric_samples', 'Steps', { int: true, min: 1, max: 256, tip: 'Samples taken through volumes such as smoke: more is smoother and slower' }),
     ],
     { closed: true },
   );

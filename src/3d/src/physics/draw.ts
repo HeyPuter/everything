@@ -254,6 +254,8 @@ viewportExtensions.push((v) => {
     if (!r) return;
     sync(v.localView);
     syncVolumes(v.localView, camera);
+    // the realtime render engine draws smoke itself (lit, in final renders too)
+    if (v.shading.type === 'RENDERED' && app.doc.scene.render.engine === 'RASTER') for (const e of volumes.values()) e.mesh.visible = false;
     if (!scene.children.some((c) => c.visible)) return;
     r.getCurrentViewport(vp);
     for (const c of scene.children) if (c instanceof Points) (c.material as ShaderMaterial).uniforms.uHalfH.value = vp.w / 2;

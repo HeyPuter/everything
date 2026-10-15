@@ -286,7 +286,7 @@ export class RenderScene {
     if (!L.color.equals(color) || L.intensity !== intensity) changed = true;
     L.color.copy(color);
     L.intensity = intensity;
-    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1];
+    L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1, la.volume_factor ?? 1];
     // realtime: Custom Distance fades the light out at the cutoff distance; otherwise the light
     // reaches as far as it is brighter than the render's light threshold
     const cutoff = this.mode !== 'raster' ? 0 : la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : la.type === 'SUN' || la.type === 'AREA' ? 0 : lightRange(intensity, this.lightThreshold);
