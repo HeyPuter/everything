@@ -822,3 +822,8 @@
   height: 100%;
   display: block;
 }
+
+.nd-header .hdr-toggle,
+.nd-header .hdr-group {
+  flex: none;
+}
