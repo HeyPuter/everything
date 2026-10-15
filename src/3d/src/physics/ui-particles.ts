@@ -4,7 +4,7 @@ import { app } from '../app/app';
 import { panel, enumMenu, opButton, checkbox, textField } from '../ui/widgets';
 import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
 import { uiList } from '../editors/properties/uilist';
-import { insertTabAfter, changed, note, subHeading, objectRow, cachePanel, fieldWeightsPanel } from './ui-common';
+import { insertTabAfter, changed, note, subHeading, objectRow, cachePanel, fieldWeightsPanel, collectionRow } from './ui-common';
 import { particleCacheKey } from './particles';
 import { defaultHairDynamics, defaultParticleSettings, defaultPointCache, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
 import { hairDynKey } from './hairdyn';
@@ -78,6 +78,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
             subHeading('Deflection'),
             bool(s, 'use_size_deflect', 'Size Deflect', { disabled: d || s.use_collision === false }),
             bool(s, 'use_die_on_collision', 'Die on Hit', { disabled: d || s.use_collision === false }),
+            collectionRow(`pa-coll-${s.id}`, s as never, 'collision_collection', 'Collision Collection', 'All colliders', d || s.use_collision === false),
           ]
         : null,
     ]),

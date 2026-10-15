@@ -8,7 +8,7 @@ import { defaultDomainSettings, defaultFlowSettings, fluidCacheKey, type FluidMo
 import { icon } from '../ui/icons';
 import { modifierExtraUI } from '../editors/properties/stack';
 import type { ModifierBase, ObjectData } from '../data/types';
-import { insertTabAfter, changed, note, subHeading, vgroupRow, objectRow, cachePanel, fieldWeightsPanel } from './ui-common';
+import { insertTabAfter, changed, note, subHeading, vgroupRow, objectRow, cachePanel, fieldWeightsPanel, collectionRow } from './ui-common';
 import { meshSimKey } from './meshsim';
 import { RB_CACHE, rapierLoaded } from './rigidbody';
 import { RBC_TYPES } from './rbjoints';
@@ -216,7 +216,10 @@ function clothPanels(ob: ObjectPhysics, m: ClothModifier): Child[] {
     ]),
     panel('ph-cloth-col', 'Collisions', () => [
       num(c, 'collision_quality', 'Quality', { int: true, min: 1, max: 20, disabled: d }),
-      panel('ph-cloth-objcol', 'Object Collisions', () => [num(c, 'distance_min', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !c.use_collision })], { sub: true, header: headerCheck(`cl-oc-${m.id}`, c as never, 'use_collision', 'Object Collisions', d) }),
+      panel('ph-cloth-objcol', 'Object Collisions', () => [
+        num(c, 'distance_min', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !c.use_collision }),
+        collectionRow(`cl-coll-${m.id}`, c as never, 'collection', 'Collision Collection', 'All colliders', d || !c.use_collision),
+      ], { sub: true, header: headerCheck(`cl-oc-${m.id}`, c as never, 'use_collision', 'Object Collisions', d) }),
       panel('ph-cloth-selfcol', 'Self Collisions', () => [num(c, 'self_friction', 'Friction', { min: 0, max: 80, disabled: d || !c.use_self_collision }), num(c, 'self_distance_min', 'Distance', { min: 0.001, max: 0.5, unit: 'distance', disabled: d || !c.use_self_collision })], { sub: true, header: headerCheck(`cl-sc-${m.id}`, c as never, 'use_self_collision', 'Self Collisions', d) }),
     ], { closed: true }),
     panel('ph-cloth-pw', 'Property Weights', () => [
@@ -356,6 +359,10 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
           num(s, 'vorticity', 'Vorticity', { min: 0, max: 4, disabled: d }),
         ], { sub: true }),
       ]),
+      panel('ph-fl-colls', 'Collections', () => [
+        collectionRow(`fl-fgrp-${m.id}`, s as never, 'fluid_group', 'Flow', 'All flows', d),
+        collectionRow(`fl-egrp-${m.id}`, s as never, 'effector_group', 'Effector', 'All effectors', d),
+      ], { closed: true }),
       s.domain_type === 'LIQUID' ? null : panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
       s.domain_type === 'LIQUID' ? null : panel('ph-fl-fire', 'Fire', () => [
         num(s, 'burning_rate', 'Reaction Speed', { min: 0.01, max: 4, disabled: d }),

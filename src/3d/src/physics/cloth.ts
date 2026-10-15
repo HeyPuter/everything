@@ -36,6 +36,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
     shear: true,
     bend: true,
     collide: c.use_collision,
+    collection: c.collection ?? null,
     sewing: !!s.use_sewing_springs,
     internal: s.use_internal_springs ? { maxLength: s.internal_spring_max_length ?? 0, maxDiversion: s.internal_spring_max_diversion ?? Math.PI / 4, normalCheck: !!s.internal_spring_normal_check } : null,
     weights: anyWeights

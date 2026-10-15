@@ -79,6 +79,7 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'tangent_phase',
   'use_size_deflect',
   'use_die_on_collision',
+  'collision_collection',
 ];
 
 /** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
@@ -116,7 +117,7 @@ function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: Parti
     doc.scene.gravity.join(','),
     fps(doc),
     motionKey(doc, ob, pc.frame_start),
-    s.use_collision ? collidersKey(doc, pc.frame_start, ob.id) : '',
+    s.use_collision ? collidersKey(doc, pc.frame_start, ob.id, s.collision_collection ?? null) : '',
     fieldsKey(doc, pc.frame_start),
     // the size only matters to the motion with size deflection
     s.use_size_deflect ? JSON.stringify([s.particle_size, s.size_random]) : '',
@@ -254,7 +255,7 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
   const dt = (dtf / fpsv) * timeScale;
   const g = gravityOf(ctx.doc, (s.effector_weights_gravity ?? 1) * (s.effector_weights_all ?? 1));
   const effs = collectEffectors(ctx, k - 1, ob.id);
-  const cols = s.use_collision !== false && s.physics_type !== 'NO' ? buildColliders(ctx, k, ob.id, 0.05) : [];
+  const cols = s.use_collision !== false && s.physics_type !== 'NO' ? buildColliders(ctx, k, ob.id, 0.05, s.collision_collection ?? null) : [];
   const invMass = 1 / Math.max(1e-4, s.mass);
   const f = [0, 0, 0];
   const damp = Math.pow(1 - Math.min(1, Math.max(0, s.damping ?? 0)), dtf);

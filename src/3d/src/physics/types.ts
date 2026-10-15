@@ -131,6 +131,8 @@ export interface ClothSettings {
 }
 
 export interface ClothCollisionSettings {
+  /** only objects in this collection collide with the cloth */
+  collection?: string | null;
   collision_quality: number;
   use_collision: boolean;
   distance_min: number;
@@ -220,6 +222,8 @@ export interface ParticleSettingsX extends ParticleSettings {
   use_die_on_collision?: boolean;
   /** render the emitter mesh as well */
   use_render_emitter?: boolean;
+  /** only objects in this collection deflect the particles */
+  collision_collection?: string | null;
   object_factor?: number;
   display_method?: 'RENDER' | 'DOT' | 'NONE';
   display_size?: number;

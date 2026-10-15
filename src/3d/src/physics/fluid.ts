@@ -7,7 +7,7 @@ import type { EvalMesh, ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
 import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
-import { arrayChecksum, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
+import { arrayChecksum, collectionMembers, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { triangulate, closestOnTri } from './colliders';
 import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { newGrid, stepGas, type GasGrid, type GasParams } from './smoke-solver';
@@ -41,6 +41,9 @@ export interface FluidDomainSettings {
   flame_vorticity: number;
   flame_max_temp: number;
   display_thickness: number;
+  /** flows and effectors are limited to these collections when set */
+  fluid_group?: string | null;
+  effector_group?: string | null;
   /** field weights (gravity, all fields, and per field type) */
   effector_weights_gravity?: number;
   effector_weights_all?: number;
@@ -153,12 +156,13 @@ export const smokeDraw = new Map<string, SmokeDraw>();
 
 const fluidOf = (ob: ObjectData) => ob.modifiers.find((m) => m.type === 'FLUID') as FluidModifier | undefined;
 
-function participants(doc: DocumentData, kind: 'FLOW' | 'EFFECTOR'): { ob: ObjectData; m: FluidModifier }[] {
+function participants(doc: DocumentData, kind: 'FLOW' | 'EFFECTOR', domain?: FluidModifier): { ob: ObjectData; m: FluidModifier }[] {
   const out: { ob: ObjectData; m: FluidModifier }[] = [];
+  const only = domain ? collectionMembers(doc, kind === 'FLOW' ? domain.domain_settings?.fluid_group : domain.domain_settings?.effector_group) : null;
   for (const id of doc.object_order) {
     const ob = doc.objects[id];
     const m = ob ? fluidOf(ob) : undefined;
-    if (ob && m && m.fluid_type === kind && m.show_viewport && ob.type === 'MESH' && !ob.hide_viewport) out.push({ ob, m });
+    if (ob && m && m.fluid_type === kind && m.show_viewport && ob.type === 'MESH' && !ob.hide_viewport && (!only || only.has(ob.id))) out.push({ ob, m });
   }
   return out;
 }
@@ -177,7 +181,7 @@ function domainHash(doc: DocumentData, ob: ObjectData, m: FluidModifier, mesh: E
     fieldsKey(doc, pc.frame_start),
   ];
   for (const kind of ['FLOW', 'EFFECTOR'] as const)
-    for (const p of participants(doc, kind)) {
+    for (const p of participants(doc, kind, m)) {
       const me = p.ob.data ? doc.meshes[p.ob.data] : undefined;
       parts.push(`${kind}:${p.ob.id}:${JSON.stringify(kind === 'FLOW' ? p.m.flow_settings : p.m.effector_settings)}:${me ? meshSignature(me) : ''}:${JSON.stringify(p.ob.modifiers.filter((x) => x !== p.m))}:${motionKey(doc, p.ob, pc.frame_start)}`);
     }
@@ -425,8 +429,8 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   const n = g.nx * g.ny * g.nz;
   const f = fps(ctx.doc);
   const dtFrame = (s.time_scale || 0) / f;
-  const flows = participants(ctx.doc, 'FLOW');
-  const effectors = participants(ctx.doc, 'EFFECTOR');
+  const flows = participants(ctx.doc, 'FLOW', m);
+  const effectors = participants(ctx.doc, 'EFFECTOR', m);
   // obstacles
   g.solid.fill(0);
   for (const e of effectors) {

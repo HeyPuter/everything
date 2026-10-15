@@ -18,6 +18,8 @@ export interface MeshSimSetup {
   bend: boolean;
   /** collisions with collider objects enabled */
   collide: boolean;
+  /** only colliders in this collection */
+  collection?: string | null;
   /** loose edges pull their vertices together */
   sewing?: boolean;
   internal?: { maxLength: number; maxDiversion: number; normalCheck: boolean } | null;
@@ -84,7 +86,7 @@ export function meshSimHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, 
     doc.scene.gravity.join(','),
     fps(doc),
     motionKey(doc, ob, pc.frame_start),
-    collidersKey(doc, pc.frame_start, ob.id),
+    collidersKey(doc, pc.frame_start, ob.id, ((m as { collision_settings?: { collection?: string | null } }).collision_settings?.collection) ?? null),
     fieldsKey(doc, pc.frame_start),
   ].join('#');
   return strHash(s);
@@ -132,7 +134,7 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
       const t0 = transform(local, worldAt(sctx, ob, k - 1));
       const t1 = transform(local, worldAt(sctx, ob, k));
       const effs = collectEffectors(sctx, k - 1);
-      const cols = st.collide ? buildColliders(sctx, k, ob.id, (st.params.collision?.distance ?? 0) + 0.1) : [];
+      const cols = st.collide ? buildColliders(sctx, k, ob.id, (st.params.collision?.distance ?? 0) + 0.1, st.collection) : [];
       stepFrame(live.state, live.topo, st.params, t0, t1, effs, cols, k, restShape ? transform(restShape, worldAt(sctx, ob, k)) : undefined);
       cache.frames.set(k, Float32Array.from(live.state.x));
       cache.last = k;

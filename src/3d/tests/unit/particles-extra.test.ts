@@ -222,3 +222,23 @@ describe('emission and deflection options', () => {
     expect(framePos(ob2, m2, 40).length).toBe(0);
   });
 });
+
+describe('collision collections', () => {
+  it('particles only bounce off colliders in their collision collection', () => {
+    const lowest = (useCollection: boolean) => {
+      caches.clear();
+      const doc = emptyDocument();
+      const floor = addMesh(doc, 'Floor', plane(10), [0, 0, -1]);
+      floor.collision = { use: true, thickness_outer: 0.02, cloth_friction: 5, damping: 0.1, use_culling: false } as never;
+      const other = newCollection('Other');
+      doc.collections[other.id] = other;
+      const ob = addMesh(doc, 'Source', plane(0.2), [0, 0, 0]);
+      const { m } = emitter(doc, ob, { physics_type: 'NEWTON', count: 10, collision_collection: useCollection ? other.id : null });
+      const g = new Depsgraph(doc);
+      at(g, doc, 40);
+      return Math.min(...framePos(ob, m, 40).map((p) => p.z));
+    };
+    expect(lowest(false)).toBeGreaterThan(-1.05);
+    expect(lowest(true)).toBeLessThan(-2);
+  });
+});

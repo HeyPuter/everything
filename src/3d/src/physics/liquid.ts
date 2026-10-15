@@ -11,7 +11,7 @@ import type { FluidModifier, FluidDomainSettings, FluidFlowSettings } from './fl
 
 /** Helpers shared with the gas domain (set by fluid.ts to avoid an import cycle). */
 export interface FluidShared {
-  participants: (doc: SimContext['doc'], kind: 'FLOW' | 'EFFECTOR') => { ob: ObjectData; m: FluidModifier }[];
+  participants: (doc: SimContext['doc'], kind: 'FLOW' | 'EFFECTOR', domain?: FluidModifier) => { ob: ObjectData; m: FluidModifier }[];
   voxelize: (ctx: SimContext, ob: ObjectData, frame: number, G: GridFrame, surface: number, volume: number, wantNormals: boolean) => Voxels | null;
   gridFrame: (ctx: SimContext, ob: ObjectData, mesh: EvalMesh, res: number, frame: number) => { G: GridFrame; bmin: [number, number, number]; bmax: [number, number, number] };
   domainHash: (doc: SimContext['doc'], ob: ObjectData, m: FluidModifier, mesh: EvalMesh | null) => string;
@@ -84,7 +84,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: Liquid
   const n = nx * ny * nz;
   // obstacles
   g.solid.fill(0);
-  for (const e of F.participants(ctx.doc, 'EFFECTOR')) {
+  for (const e of F.participants(ctx.doc, 'EFFECTOR', m)) {
     if (!e.m.effector_settings?.use_effector) continue;
     const vx = F.voxelize(ctx, e.ob, k, L.G, 0.75, 1, false);
     if (vx) for (let o = 0; o < n; o++) if (vx.w[o] > 0.5) g.solid[o] = 1;
@@ -93,7 +93,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: Liquid
   const pn = Math.max(1, Math.min(4, Math.round(s.particle_number ?? 2)));
   const jitter = Math.max(0, Math.min(1, s.particle_randomness ?? 0.1));
   let counts: Uint16Array | null = null;
-  for (const fl of F.participants(ctx.doc, 'FLOW')) {
+  for (const fl of F.participants(ctx.doc, 'FLOW', m)) {
     const fs = { ...F.flowDefaults(), ...fl.m.flow_settings };
     if (fs.flow_type !== 'LIQUID' || fs.use_flow === false) continue;
     if (fs.flow_behavior === 'GEOMETRY' && !first) continue;

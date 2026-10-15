@@ -124,3 +124,9 @@ export function fieldWeightsPanel(id: string, owner: { effector_weights_gravity?
     { closed: true },
   );
 }
+
+/** Collection selector bound to owner[key] (empty = no collection). */
+export function collectionRow(id: string, owner: Record<string, unknown>, key: string, label: string, none = '—', disabled = false): Child {
+  const items = [{ value: '', label: none }, ...Object.values(app.doc.collections).filter((c) => c.id !== app.doc.scene.collection).map((c) => ({ value: c.id, label: c.name, icon: 'collection' }))];
+  return splitRow(label, enumMenu(id, items, String(owner[key] ?? ''), (v) => ((owner[key] = v || null), changed(`Set ${label}`)), { disabled }));
+}
