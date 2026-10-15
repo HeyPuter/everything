@@ -19,6 +19,7 @@
   background: var(--accent);
   pointer-events: none;
   z-index: 3;
+  color: var(--c-text-on-accent, #fff);
 }
 .panel.dragging {
   opacity: 0.55;
@@ -77,7 +78,7 @@ body.eyedropper-active * {
 }
 .ul-fbtn.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 
 /* header options popover */

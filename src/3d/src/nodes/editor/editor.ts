@@ -9,7 +9,7 @@ import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } fr
 import { checkbox } from '../../ui/widgets';
 import type { MaterialData, NodeData, NodeTreeData } from '../../data/types';
 import { canPreview, nodePreview, onPreviewReady, previewTreeKey } from './preview';
-import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue } from '../registry';
+import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue, NODE_EDITOR_COLORS, nodeEditorSettings } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
 import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
@@ -686,7 +686,7 @@ export class NodeEditor implements Editor {
   drawBack(W = this.el.clientWidth, H = this.el.clientHeight) {
     if (!W || !H) return;
     const g = this.sizeCanvas(this.back, W, H);
-    g.fillStyle = '#1d1d1d';
+    g.fillStyle = NODE_EDITOR_COLORS.back;
     g.fillRect(0, 0, W, H);
     const v = this.view();
     // dot grid (two levels)
@@ -696,10 +696,10 @@ export class NodeEditor implements Editor {
     const ox = ((v.x % s) + s) % s,
       oy = ((v.y % s) + s) % s;
     const big = step * 5 * v.zoom;
-    g.fillStyle = '#2c2c2c';
+    g.fillStyle = NODE_EDITOR_COLORS.grid;
     for (let x = ox; x < W; x += s) for (let y = oy; y < H; y += s) g.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
     if (big > 40) {
-      g.fillStyle = '#353535';
+      g.fillStyle = NODE_EDITOR_COLORS.gridMajor;
       const bx = ((v.x % big) + big) % big,
         by = ((v.y % big) + big) % big;
       for (let x = bx; x < W; x += big) for (let y = by; y < H; y += big) g.fillRect(Math.round(x) - 1.5, Math.round(y) - 1.5, 3, 3);
@@ -2084,7 +2084,7 @@ export class NodeEditor implements Editor {
         self.axisGuide = null;
         if (self.insertTarget && single) {
           const ctx = ctxOf(app.doc, tree);
-          if (insertOnLink(ctx, single.id, self.insertTarget)) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140);
+          if (insertOnLink(ctx, single.id, self.insertTarget) && nodeEditorSettings.insertOffset) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140, nodeEditorSettings.insertMargin);
         }
         self.insertTarget = null;
         if (kind !== 'MOVE') return;

@@ -8,7 +8,7 @@ import { applyMatrixToObject, localMatrix, toMatrix4, fromMatrix4, setRotationFr
 import { cloneShared } from '../data/cow';
 import { bounds, buildMesh, toPolys } from '../mesh/mesh';
 import { startTransform } from './transform';
-import { uiState } from '../app/prefs';
+import { uiState, prefs } from '../app/prefs';
 import { activeView3D } from '../editors/view3d/view3d';
 import { openMenu, promptText } from '../ui/menu';
 import { newConstraint } from '../eval/constraints';
@@ -151,15 +151,31 @@ export function purgeOrphans(doc: DocumentData) {
   for (const t of ['meshes', 'curves', 'lights', 'cameras', 'armatures', 'lattices', 'metaballs'] as const) for (const id of Object.keys(doc[t] ?? {})) if (!used.has(id)) delete (doc[t] as Record<string, unknown>)[id];
 }
 
-function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): ObjectData {
+/** Copy a material for a duplicate; returns the new id. */
+function copyMaterial(doc: DocumentData, id: string, done: Map<string, string>): string {
+  const prev = done.get(id);
+  if (prev) return prev;
+  const src = doc.materials[id];
+  if (!src) return id;
+  const m = cloneShared(src);
+  m.id = uid('ma');
+  m.name = uniqueName(doc, src.name, 'materials');
+  doc.materials[m.id] = m;
+  done.set(id, m.id);
+  return m.id;
+}
+
+function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean, mats = new Map<string, string>()): ObjectData {
   const copy = cloneShared(ob);
   copy.id = uid('ob');
   copy.name = uniqueName(doc, ob.name);
   copy.animation_data = ob.animation_data ? cloneShared(ob.animation_data) : null;
-  if (!linked && ob.data) {
-    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs' };
+  // Preferences ▸ Editing ▸ Copy on Duplicate decides which data a plain duplicate copies
+  const dup = prefs.duplicate;
+  if (!linked && ob.data && dup[ob.type] !== false) {
+    const tables: Record<string, keyof DocumentData> = { MESH: 'meshes', CURVE: 'curves', FONT: 'curves', LIGHT: 'lights', CAMERA: 'cameras', ARMATURE: 'armatures', LATTICE: 'lattices', META: 'metaballs', GREASEPENCIL: 'grease_pencils' };
     const t = tables[ob.type];
-    if (t) {
+    if (t && doc[t]) {
       const src = (doc[t] as Record<string, { id: string; name: string }>)[ob.data];
       if (src) {
         const d = cloneShared(src);
@@ -167,10 +183,15 @@ function duplicateObject(doc: DocumentData, ob: ObjectData, linked: boolean): Ob
         d.name = uniqueName(doc, src.name, t as 'meshes');
         (doc[t] as Record<string, unknown>)[d.id] = d;
         copy.data = d.id;
+        if (dup.MATERIAL) {
+          const slots = (d as unknown as { materials?: (string | null)[] }).materials;
+          if (Array.isArray(slots)) (d as unknown as { materials: (string | null)[] }).materials = slots.map((m) => (m ? copyMaterial(doc, m, mats) : m));
+        }
       }
     }
   }
-  if (copy.animation_data?.action && !linked) {
+  if (!linked && dup.MATERIAL && copy.object_materials) copy.object_materials = copy.object_materials.map((m) => (m ? copyMaterial(doc, m, mats) : m));
+  if (copy.animation_data?.action && !linked && dup.ACTION !== false) {
     const act = doc.actions[copy.animation_data.action];
     if (act) {
       const a = cloneShared(act);
@@ -192,8 +213,9 @@ export function duplicateSelected(doc: DocumentData, linked: boolean) {
   const sel = app.selectedObjects();
   if (!sel.length) return [];
   const map = new Map<string, string>();
+  const mats = new Map<string, string>();
   const copies = sel.map((ob) => {
-    const c = duplicateObject(doc, ob, linked);
+    const c = duplicateObject(doc, ob, linked, mats);
     map.set(ob.id, c.id);
     return c;
   });

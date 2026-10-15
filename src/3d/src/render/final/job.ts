@@ -12,6 +12,7 @@ import { renderSize, frameList, jitter, halton, shutterOffset, formatTime, frame
 import { filterTable, sampleFilter } from './filter';
 import { renderResult, passToRGBA8, encodeRGBA8, download, toBW, EXT, MIME, renderPostHooks, PASS_CHANNELS, type RenderResult, type FileFormat, type PassName } from './result';
 import { studioEquirect } from './environment';
+import { hdriEquirect, hdriEnvironment } from '../studiolights';
 import { ZipWriter } from './zip';
 import { createVideoWriter, type VideoWriter } from './webm';
 import { drawViewport, type DrawView } from '../../editors/view3d/draw';
@@ -229,7 +230,7 @@ function buildOptions(src: Source, mode: 'raster' | 'pathtrace'): BuildOptions {
     localView: src.view.localView,
     useSceneLights: sh.use_scene_lights_render,
     useSceneWorld: sh.use_scene_world_render,
-    studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: studioEquirect(), intensity: sh.studiolight_intensity } : { texture: ctx.studio(), intensity: sh.studiolight_intensity },
+    studio: sh.use_scene_world_render ? null : mode === 'pathtrace' ? { texture: hdriEquirect(sh.studio_hdri) ?? studioEquirect(), intensity: sh.studiolight_intensity } : { texture: hdriEnvironment(ctx.engine.renderer, ctx.engine.pmrem, sh.studio_hdri) ?? ctx.studio(), intensity: sh.studiolight_intensity },
     filmTransparent: r.film_transparent,
     ...realtime,
   };

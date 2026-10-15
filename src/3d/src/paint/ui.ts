@@ -989,7 +989,7 @@ if (toolTab) {
 // header menus
 
 const sc = (km: string, op: string, props?: Record<string, unknown>) => {
-  const k = (keymaps[km] ?? []).find((x) => x.op === op && (!props || Object.entries(props).every(([p, v]) => x.props?.[p] === v)));
+  const k = (keymaps[km] ?? []).find((x) => !x.inactive && x.op === op && (!props || Object.entries(props).every(([p, v]) => x.props?.[p] === v)));
   return k ? keyLabel(k) : undefined;
 };
 
@@ -1317,7 +1317,8 @@ const KEYMAP_OF: Record<BrushMode, string> = {
 const BLOCKED = new Set(['G', 'R', 'S', 'B', 'C', 'W', 'A', 'I', 'K', 'M', 'H', 'X', 'DEL']);
 
 function matchKey(k: KeyItem, name: string, e: KeyboardEvent) {
-  if (k.key !== name) return false;
+  if (k.key !== name || k.inactive || (k.value ?? 'PRESS') !== 'PRESS') return false;
+  if (k.any) return true;
   const ctrl = e.ctrlKey || e.metaKey;
   return !!k.shift === e.shiftKey && !!k.ctrl === ctrl && !!k.alt === e.altKey;
 }

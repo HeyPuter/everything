@@ -1,5 +1,6 @@
 // Image Editor: views image data-blocks and the Render Result (with passes), zoom/pan,
 // channel display, pixel sampling, image data-block management and saving.
+import { canvasGrey } from '../../ui/canvastheme';
 import { h, patch, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app, type ChangeKind } from '../../app/app';
@@ -353,7 +354,7 @@ export class ImageEditor implements Editor, View2D {
     }
     const ctx = c.getContext('2d')!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#303030';
+    ctx.fillStyle = canvasGrey(0x30);
     ctx.fillRect(0, 0, w, hh);
     this.lastKey = this.sourceKey();
     const src = this.source();

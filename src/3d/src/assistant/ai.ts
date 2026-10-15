@@ -2,6 +2,7 @@
 // Puter takes (system, user, assistant with tool_calls, tool); replies come
 // back as text pieces and tool calls as they arrive.
 
+import { prefs } from '../app/prefs';
 import type { AttachmentMeta } from './attach';
 
 /** Message parts. Images and PDFs use the blocks Puter passes to the model as they are (Anthropic's shape). */
@@ -69,6 +70,7 @@ const newCallId = () => `call_${Date.now().toString(36)}_${(++callSeq).toString(
 
 /** puter.ai.chat, streamed. A reply the SDK hands back whole is yielded in the same pieces. */
 export async function* puterChat(messages: ChatMessage[], opts: ChatOptions = {}): AsyncIterable<StreamPart> {
+  if (!prefs.use_online_access) throw new Error('The assistant works online, but online access is turned off (Preferences ▸ System ▸ Network).');
   const p = (globalThis as unknown as { puter?: PuterAI }).puter;
   if (!p?.ai?.chat) throw new Error('The assistant needs Puter, which is not available right now. Check your connection and reload.');
   const options: Record<string, unknown> = { stream: true };

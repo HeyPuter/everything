@@ -63,6 +63,7 @@ export function anyPopupOpen() {
 }
 
 export function closeMenus() {
+  clearTimeout(submenuTimer);
   while (stack.length) {
     const m = stack.pop()!;
     clearRoot(m.el);
@@ -213,6 +214,8 @@ function redrawMenus() {
   for (const m of stack) renderMenu(m);
 }
 
+let submenuTimer = 0;
+
 function renderMenu(m: OpenMenu) {
   const vnodes: Child[] = m.items.map((item, i) => {
     if (item.separator) return h('div', { class: 'menu-sep' });
@@ -248,8 +251,11 @@ function renderMenu(m: OpenMenu) {
         'aria-disabled': disabled ? 'true' : null,
         onpointerenter: () => {
           m.index = i;
-          if (item.submenu && !disabled) openSubmenu(m, item);
-          else closeChild(m);
+          clearTimeout(submenuTimer);
+          if (item.submenu && !disabled) {
+            if (menuSettings.submenuDelay > 0 && !m.child) submenuTimer = window.setTimeout(() => stack.includes(m) && m.index === i && openSubmenu(m, item), menuSettings.submenuDelay);
+            else openSubmenu(m, item);
+          } else closeChild(m);
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
@@ -436,6 +442,23 @@ const PIE_DIRS = [180, 0, 270, 90, 135, 45, 225, 315];
 /** Number keys that pick each direction (laid out like a numeric keypad). */
 const PIE_KEYS = [4, 6, 2, 8, 7, 9, 1, 3];
 
+/** Menu and pie behaviour (Preferences ▸ Interface ▸ Menus sets these). Distances in px, times in ms. */
+export const menuSettings = {
+  pieRadius: 104,
+  /** pointer distance from the center before a direction is highlighted */
+  pieThreshold: 20,
+  /** moving this far confirms the highlighted item at once (0 = off) */
+  pieConfirm: 0,
+  /** releasing the invoking key later than this after opening picks the highlighted item */
+  pieTapTimeout: 250,
+  /** open animation of pie items (0 = none) */
+  pieAnimation: 0,
+  /** delay before a submenu opens on hover */
+  submenuDelay: 0,
+  /** tooltips show operator calls and data paths for scripting */
+  pythonTips: true,
+};
+
 let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; hl: number; opened: number; key?: string } | null = null;
 
 export function pieOpen() {
@@ -456,7 +479,7 @@ export function openPie(title: string, items: (PieItem | null)[], x: number, y: 
       dy = pie.cy - e.clientY;
     const dist = Math.hypot(dx, dy);
     let hl = -1;
-    if (dist > 20) {
+    if (dist > menuSettings.pieThreshold) {
       const ang = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
       let best = 999;
       pie.items.forEach((it, i) => {
@@ -472,6 +495,7 @@ export function openPie(title: string, items: (PieItem | null)[], x: number, y: 
       pie.hl = hl;
       renderPie(title);
     }
+    if (menuSettings.pieConfirm > 0 && hl >= 0 && dist > menuSettings.pieConfirm) choosePie();
   };
   const up = (e: PointerEvent) => {
     if (!pie) return;
@@ -481,7 +505,7 @@ export function openPie(title: string, items: (PieItem | null)[], x: number, y: 
   const keyup = (e: KeyboardEvent) => {
     // release of the invoking key after a drag selects the highlighted item
     if (!pie || !pie.key || e.code !== pie.key) return;
-    if (performance.now() - pie.opened > 250 && pie.hl >= 0) choosePie();
+    if (performance.now() - pie.opened > menuSettings.pieTapTimeout && pie.hl >= 0) choosePie();
   };
   const keydown = (e: KeyboardEvent) => {
     if (!pie) return;
@@ -534,8 +558,10 @@ export function closePie() {
 
 function renderPie(title: string) {
   if (!pie) return;
-  const R = 104;
+  const R = menuSettings.pieRadius;
   const p = pie;
+  p.el.style.setProperty('--pie-anim', `${menuSettings.pieAnimation}ms`);
+  p.el.classList.toggle('pie-animate', menuSettings.pieAnimation > 0);
   patch(p.el, [
     h('div', { class: 'pie-center', style: { left: `${p.cx}px`, top: `${p.cy}px` } }, h('div', { class: 'pie-ring' }), p.hl >= 0 ? h('div', { class: 'pie-dir', style: { transform: `rotate(${90 - PIE_DIRS[p.hl]}deg)` } }) : null),
     h('div', { class: 'pie-title', style: { left: `${p.cx}px`, top: `${p.cy - 44}px` } }, title),

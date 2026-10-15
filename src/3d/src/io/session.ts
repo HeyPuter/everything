@@ -2,7 +2,7 @@
 // the user's startup file (File ▸ Defaults ▸ Save Startup File) and timed autosave snapshots
 // (File ▸ Recover ▸ Auto Save…). Everything lives in IndexedDB; failures degrade to no-ops.
 import { app, onAppReady } from '../app/app';
-import { prefs } from '../app/prefs';
+import { prefs, formatDate } from '../app/prefs';
 import { encodeDocument, decodeDocument } from './native';
 import { projectUiState, fileEvents } from './files';
 
@@ -119,7 +119,8 @@ export function loadProjectBytes(bytes: Uint8Array, name: string, reason = 'Befo
   if (reason) fileEvents.beforeReplace(reason);
   app.setDocument(doc);
   app.filename = name;
-  if (extra.ui && typeof extra.ui === 'object') projectUiState.load(extra.ui as Record<string, unknown>);
+  // Preferences ▸ Save & Load ▸ Load UI
+  if (extra.ui && typeof extra.ui === 'object' && prefs.use_load_ui) projectUiState.load(extra.ui as Record<string, unknown>);
   app.dirty = false;
 }
 
@@ -212,7 +213,7 @@ export async function openSnapshot(s: Snapshot): Promise<boolean> {
   try {
     loadProjectBytes(bytes, s.name);
     app.dirty = true;
-    app.report('INFO', `Recovered the auto save from ${new Date(s.time).toLocaleString()}`);
+    app.report('INFO', `Recovered the auto save from ${formatDate(s.time)}`);
     return true;
   } catch (e) {
     app.report('ERROR', `The auto save could not be opened: ${e instanceof Error ? e.message : String(e)}`);

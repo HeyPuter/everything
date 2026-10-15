@@ -3,6 +3,7 @@ import type { DocumentData, ObjectData, Mode, ID } from '../data/types';
 import { startupDocument } from '../data/defaults';
 import { Depsgraph } from '../eval/depsgraph';
 import { UndoStack } from './undo';
+import { prefs } from './prefs';
 import { modeHandlers } from '../ops/modes';
 
 export type OpResult = 'FINISHED' | 'CANCELLED' | 'RUNNING_MODAL' | 'PASS_THROUGH' | void;
@@ -400,6 +401,8 @@ export class App {
 
   setFrame(frame: number, subframe = 0) {
     const s = this.doc.scene;
+    // Preferences ▸ Animation ▸ Allow Negative Frames
+    if (!prefs.use_negative_frames && frame < 0) (frame = 0), (subframe = 0);
     s.frame_current = Math.round(frame);
     s.frame_subframe = subframe;
     this.changed('frame');

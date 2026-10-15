@@ -9,7 +9,7 @@ import type { FCurve, Keyframe } from '../data/types';
 import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type SidebarTab, type Selectable } from './animeditor';
 import { channelCurves, type Channel, type CurveRef, type SpaceKind } from './channels';
 import { C, curveColor, HANDLE_COLORS } from './theme';
-import { valueStep, formatValue } from './view2d';
+import { valueStep, formatValue, animSettings } from './view2d';
 import { evaluateFCurve } from '../anim/fcurve';
 import { lassoGesture } from './selecttools';
 import { setKeySelected, selectAll, selectColumns, keyBounds, isAnySelected } from './keyedit';
@@ -438,7 +438,7 @@ export class GraphEditor extends AnimEditor {
       return r === active ? 2 : r.fc.select ? 1 : 0;
     }
     for (const { r, i } of order) this.drawCurve(g, r, curveColor(r.fc, i, curves.length), r.fc.select || r === active, W);
-    for (const { r } of order) this.drawPoints(g, r, r === active);
+    for (const { r } of order) if (!animSettings.onlySelectedKeys || r.fc.select || r === active) this.drawPoints(g, r, r === active);
     void H;
   }
 
@@ -446,7 +446,7 @@ export class GraphEditor extends AnimEditor {
     const fc = r.fc;
     if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) return;
     g.strokeStyle = color;
-    g.globalAlpha = selected ? 1 : 0.5;
+    g.globalAlpha = selected ? 1 : animSettings.unselectedAlpha;
     g.lineWidth = selected ? 1.6 : 1.2;
     if (fc.mute) g.setLineDash([6, 4]);
     if (fc.lock) g.globalAlpha *= 0.6;

@@ -40,7 +40,7 @@ export const C = {
   nlaTrackSel: 'rgba(110,70,30,0.55)',
 };
 
-const KEY_COLORS: Record<Keyframe['type'], [string, string]> = {
+export const KEY_COLORS: Record<Keyframe['type'], [string, string]> = {
   KEYFRAME: ['#bfbfbf', '#ffbe33'],
   EXTREME: ['#e8b3cc', '#f28080'],
   BREAKDOWN: ['#b3dbe8', '#54bfed'],

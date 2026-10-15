@@ -2,7 +2,7 @@
 import { Vector3, Matrix3 } from 'three';
 import { h, type VNode } from '../../ui/h';
 import { app } from '../../app/app';
-import { activeTools } from '../../app/prefs';
+import { activeTools, prefs } from '../../app/prefs';
 import type { View3D } from './view3d';
 import { startTransform, transformProviders } from '../../ops/transform';
 import { currentOrientation, orientationBasis } from '../../ops/orientations';
@@ -39,7 +39,7 @@ function gizmoFrame(v: View3D): GizmoFrame | null {
   }
   const s = v.project(pivot);
   if (s.z > 1 || s.z < -1) return null;
-  const size = v.nav.pixelSize(pivot) * 80 * (75 / 75);
+  const size = v.nav.pixelSize(pivot) * 80 * (prefs.gizmo_size / 75);
   return { pivot, basis, screen: { x: s.x, y: s.y }, size };
 }
 

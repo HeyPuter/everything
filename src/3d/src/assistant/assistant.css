@@ -35,6 +35,7 @@
 .as-resize:hover,
 .as-resize:active {
   background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
 }
 
 .assistant {
@@ -110,7 +111,7 @@
   color: var(--c-text-dim);
 }
 .as-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.08);
   color: var(--c-text-hi);
 }
 
@@ -340,10 +341,11 @@
 }
 .as-btn.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .as-btn.primary:hover {
   background: var(--accent-hi);
+  color: var(--c-text-on-accent, #fff);
 }
 .as-btn .as-ic {
   width: 14px;
@@ -374,6 +376,7 @@
   border-radius: 50%;
   background: var(--accent-hi);
   animation: as-pulse 1s ease-in-out infinite;
+  color: var(--c-text-on-accent, #fff);
 }
 @keyframes as-pulse {
   50% {
@@ -411,7 +414,7 @@
   max-height: 200px;
 }
 .as-input::placeholder {
-  color: #777;
+  color: var(--t-77, #777);
 }
 .as-send {
   flex: none;
@@ -421,19 +424,21 @@
   place-items: center;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--c-text-on-accent, #fff);
 }
 .as-send:hover {
   background: var(--accent-hi);
+  color: var(--c-text-on-accent, #fff);
 }
 .as-send.stop {
   background: var(--w-regular);
+  color: var(--c-text);
 }
 .as-send .s {
-  stroke: #fff;
+  stroke: currentColor;
 }
 .as-send .f {
-  fill: #fff;
+  fill: currentColor;
 }
 .as-tray {
   list-style: none;
@@ -480,14 +485,14 @@
   height: 12px;
 }
 .as-tray-remove:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
 }
 .as-spinner {
   display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(var(--hl-rgb, 255, 255, 255), 0.2);
   border-top-color: var(--accent-hi);
   animation: as-spin 0.8s linear infinite;
 }
@@ -498,7 +503,7 @@
 }
 .as-note {
   font-size: 10px;
-  color: #777;
+  color: var(--t-77, #777);
   text-align: center;
 }
 
@@ -511,19 +516,19 @@
   padding: 0 8px;
   margin-left: 4px;
   border-radius: var(--radius);
-  color: #d9d9d9;
+  color: var(--t-d9, #d9d9d9);
   white-space: nowrap;
 }
 .tb-assistant .ic .f {
   fill: #9db7e6;
 }
 .tb-assistant:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.1);
+  color: var(--t-ff, #fff);
 }
 .tb-assistant.on {
   background: var(--w-tab-on);
-  color: #fff;
+  color: var(--t-ff, #fff);
 }
 
 @media (prefers-reduced-motion: reduce) {

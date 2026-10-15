@@ -10,6 +10,18 @@ interface Entry {
 }
 
 const cache = new Map<string, Entry>();
+
+/** Texture sampling quality (Preferences ▸ Viewport ▸ Textures). */
+export const textureSettings = { anisotropy: 8 };
+
+/** Re-apply texture settings to every cached texture. */
+export function applyTextureSettings() {
+  for (const e of cache.values()) {
+    if (e.tex.anisotropy === textureSettings.anisotropy) continue;
+    e.tex.anisotropy = textureSettings.anisotropy;
+    e.tex.needsUpdate = true;
+  }
+}
 let onReady: (() => void) | null = null;
 export function onImageReady(fn: () => void) {
   onReady = fn;
@@ -108,7 +120,7 @@ function entry(img: Img): Entry {
   tex.wrapS = tex.wrapT = RepeatWrapping;
   tex.minFilter = LinearMipmapLinearFilter;
   tex.magFilter = LinearFilter;
-  tex.anisotropy = 8;
+  tex.anisotropy = textureSettings.anisotropy;
   tex.needsUpdate = true;
   return fresh;
 }

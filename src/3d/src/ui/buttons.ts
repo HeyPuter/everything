@@ -4,7 +4,7 @@
 // apply to the button under the pointer.
 import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys, keymaps, keyInputHooks, keyName, keyLabel, type KeyItem } from '../app/keymap';
-import { openMenu, tooltipHooks, type MenuItem } from './menu';
+import { openMenu, tooltipHooks, menuSettings, type MenuItem } from './menu';
 import { bindingAt, bindingValue, buttonHooks, getBinding, type PropBinding } from './binding';
 import { animTarget, fullDataPath, locateOwner, relDataPath, type OwnerLoc } from './rnapath';
 import { keyProperty, keyState } from '../anim/keyframes';
@@ -698,7 +698,8 @@ addKeys('User Interface', [
 ]);
 
 function matches(k: KeyItem, name: string, e: KeyboardEvent) {
-  if (k.key !== name) return false;
+  if (k.key !== name || k.inactive || (k.value ?? 'PRESS') !== 'PRESS') return false;
+  if (k.any) return true;
   const ctrl = e.ctrlKey || e.metaKey;
   return !!k.shift === e.shiftKey && !!k.ctrl === ctrl && !!k.alt === e.altKey;
 }
@@ -728,7 +729,7 @@ keyInputHooks.push((e) => {
 // button context menu
 
 const sc = (op: string, props?: Record<string, unknown>) => {
-  for (const k of keymaps['User Interface'] ?? []) if (k.op === op && (!props || Object.entries(props).every(([a, v]) => (k.props?.[a] ?? false) === v))) return keyLabel(k);
+  for (const k of keymaps['User Interface'] ?? []) if (!k.inactive && k.op === op && (!props || Object.entries(props).every(([a, v]) => (k.props?.[a] ?? false) === v))) return keyLabel(k);
   return '';
 };
 
@@ -841,5 +842,5 @@ tooltipHooks.push((el) => {
   const b = getBinding(el.dataset.id);
   if (!b) return null;
   const loc = ownerLoc(b);
-  return { title: b.label, lines: loc ? [`Python: ${fullDataPath(loc, b.key, b.index)}`] : [] };
+  return { title: b.label, lines: loc && menuSettings.pythonTips ? [`Python: ${fullDataPath(loc, b.key, b.index)}`] : [] };
 });

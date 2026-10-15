@@ -41,7 +41,9 @@ src/
   mask/       Mask data-blocks (bezier splines with feather, shape keys, track parenting),
               rasterization, the clip editor's mask mode, compositor Mask node
   greasepencil/ Grease Pencil objects, Draw/Edit/Sculpt modes, 2D Animation workspace
-  scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info, Preferences
+  scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info
+  prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
+              lights / MatCaps / HDRIs, add-ons, NDOF devices
   assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API
   edit/, modifiers/, storage/document.ts, core/   legacy polygon kernels kept for reuse
                                                  (unwrap/UV) and the legacy .3d.json parser
@@ -92,6 +94,21 @@ registerOperators([{ idname: 'mesh.subdivide', label: 'Subdivide', props: [...Pr
 Key names are event names: `'A'..'Z'`, `'ONE'..`, `'NUMPAD_1'`, `'TAB'`, `'SPACE'`,
 `'DEL'`, `'ESC'`, `'RET'`, `'F1'..`, `'LEFT_ARROW'`, … An editor lists the keymaps it uses in
 `editor.keymaps` (priority order); `Frames`, `Screen`, `Window` always apply. Ctrl also matches Cmd.
+Items may set `value` ('PRESS' default, 'RELEASE', 'CLICK', 'DOUBLE_CLICK') and `repeat: false`;
+`inactive` items are skipped (other key dispatchers must skip them too). Preferences ▸ Keymap
+rewrites the live items (`prefs/keyconfig_core.ts`): register keys with `addKeys` and the editor
+picks them up, including keys added after startup.
+
+### Preferences (`app/prefs.ts`, `prefs/`)
+`prefs` holds the values (persisted in localStorage). Change them with `setPref(key, value)`
+(`prefs/store.ts`): it applies and saves them (unless Auto-Save Preferences is off). Modules react
+through `onPrefsApply(fn)`; most effects are pushed into small settings objects owned by the
+module that uses them (`menuSettings`, `widgetSettings`, `keyframeDefaults`, `animSettings`,
+`textureSettings`, `renderViewSettings`, …) so those modules don't import the preferences.
+Add a section with `registerPrefSection({ id, label, group, draw })` (`prefs/editor.ts`); row
+helpers are in `prefs/ui.ts`. Themes write CSS variables plus canvas colour tables
+(`prefs/themes.ts`); canvas editors can use `canvasGrey(level)` (`ui/canvastheme.ts`) for greys
+that follow the theme. Studio lights, MatCaps and HDRIs: `render/studiolights.ts`.
 
 ### Editors (`ui/screen.ts`)
 ```ts

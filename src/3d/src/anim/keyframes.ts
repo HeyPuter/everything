@@ -2,7 +2,7 @@
 import type { ActionData, DocumentData, FCurve, ObjectData } from '../data/types';
 import { app } from '../app/app';
 import { newAction } from '../data/defaults';
-import { insertKeyframe } from './fcurve';
+import { insertKeyframe, evaluateFCurve, keyframeDefaults } from './fcurve';
 import { getValue } from '../data/rna';
 
 export function ensureAction(doc: DocumentData, ob: ObjectData): ActionData {
@@ -40,11 +40,19 @@ export function ensureFCurve(act: ActionData, path: string, index: number): FCur
       modifiers: [],
       group: bone ? bone[1] : GROUPS[path] ?? undefined,
       // vector transform channels default to "Auto XYZ to RGB"
-      color_mode: /(^|\.)(location|rotation_euler|rotation_quaternion|rotation_axis_angle|scale|delta_location|delta_rotation_euler|delta_scale)$/.test(path) ? (/rotation_(quaternion|axis_angle)$/.test(path) ? 'AUTO_YRGB' : 'AUTO_RGB') : 'AUTO_RAINBOW',
+      color_mode: !keyframeDefaults.xyzToRgb ? 'AUTO_RAINBOW' : /(^|\.)(location|rotation_euler|rotation_quaternion|rotation_axis_angle|scale|delta_location|delta_rotation_euler|delta_scale)$/.test(path) ? (/rotation_(quaternion|axis_angle)$/.test(path) ? 'AUTO_YRGB' : 'AUTO_RGB') : 'AUTO_RAINBOW',
     };
     act.fcurves.push(fc);
   }
   return fc;
+}
+
+/** With "Only Insert Needed", a key is skipped when the curve already has that value there. */
+function needed(act: ActionData, path: string, index: number, frame: number, value: number) {
+  if (!keyframeDefaults.insertNeeded) return true;
+  const fc = act.fcurves.find((f) => f.data_path === path && f.array_index === index);
+  if (!fc || !fc.keyframe_points.length) return true;
+  return Math.abs(evaluateFCurve(fc, frame) - value) > 1e-6 * Math.max(1, Math.abs(value));
 }
 
 /** Insert keyframes for a property path (all array elements when index = -1). */
@@ -54,8 +62,8 @@ export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, ind
   const type = doc.scene.tool_settings.keyframe_type;
   if (Array.isArray(val) || ArrayBuffer.isView(val)) {
     const arr = val as ArrayLike<number>;
-    for (let i = 0; i < arr.length; i++) if (index < 0 || i === index) insertKeyframe(ensureFCurve(act, path, i), frame, Number(arr[i]), { type });
-  } else if (typeof val === 'number' || typeof val === 'boolean') insertKeyframe(ensureFCurve(act, path, 0), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : 'BEZIER' });
+    for (let i = 0; i < arr.length; i++) if ((index < 0 || i === index) && needed(act, path, i, frame, Number(arr[i]))) insertKeyframe(ensureFCurve(act, path, i), frame, Number(arr[i]), { type });
+  } else if ((typeof val === 'number' || typeof val === 'boolean') && needed(act, path, 0, frame, Number(val))) insertKeyframe(ensureFCurve(act, path, 0), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
 }
 
 export function rotationPath(ob: { rotation_mode: string }) {

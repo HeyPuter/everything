@@ -8,7 +8,7 @@ import { startupDocument } from '../../src/data/defaults';
 import { keymaps, addKeys } from '../../src/app/keymap';
 import { highlightLines, tokenizeLine } from '../../src/scripting/highlight';
 import { toPropDef, registerScriptOperator, resultString } from '../../src/scripting/registry';
-import { setBinding, resetBinding, isModified, isActive, displayBinding, originalBinding } from '../../src/scripting/keymap_prefs';
+import { keyconfig, startKeyconfig } from '../../src/prefs/keyconfig';
 import { bpy } from '../../src/scripting/api';
 import { runJavaScript } from '../../src/scripting/runner';
 import { pyLiteral } from '../../src/scripting/oplog';
@@ -93,22 +93,30 @@ describe('script operator properties', () => {
 });
 
 describe('keymap overrides', () => {
-  it('rebinds, disables and restores key items', () => {
+  it('rebinds, disables and restores key items of the live keymaps', () => {
     addKeys('Test Map', [{ key: 'Q', op: 'test.op' }]);
+    startKeyconfig();
     const k = keymaps['Test Map'][0];
-    setBinding('Test Map', k, { key: 'W', ctrl: true });
+    keyconfig.edit(k, { key: 'W', ctrl: true });
     expect(k.key).toBe('W');
     expect(k.ctrl).toBe(true);
-    expect(isModified(k)).toBe(true);
-    expect(originalBinding(k)).toEqual({ key: 'Q', ctrl: false, shift: false, alt: false });
-    setBinding('Test Map', k, { active: false });
-    expect(isActive(k)).toBe(false);
-    expect(k.key).toBe('NONE');
-    expect(displayBinding(k).key).toBe('W');
-    resetBinding(k);
+    expect(keyconfig.isModified(k)).toBe(true);
+    expect(keyconfig.baseFields(k)).toMatchObject({ key: 'Q', ctrl: false, shift: false, alt: false });
+    keyconfig.edit(k, { active: false });
+    expect(k.inactive).toBe(true);
+    expect(k.key).toBe('W');
+    keyconfig.restore(k);
     expect(k.key).toBe('Q');
     expect(k.ctrl).toBeFalsy();
-    expect(isModified(k)).toBe(false);
+    expect(k.inactive).toBeFalsy();
+    expect(keyconfig.isModified(k)).toBe(false);
+    // keys registered later still become restorable defaults
+    addKeys('Test Map', [{ key: 'E', op: 'test.late' }]);
+    const late = keymaps['Test Map'][1];
+    keyconfig.edit(late, { shift: true });
+    expect(late.shift).toBe(true);
+    keyconfig.restore(late);
+    expect(late.shift).toBeFalsy();
   });
 });
 

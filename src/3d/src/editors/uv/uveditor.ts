@@ -1,5 +1,6 @@
 // UV Editor: shows the UVs of the mesh being edited over its texture, with tools (toolbar),
 // a sidebar, header menus, selection, transforms and UV sculpting.
+import { canvasGrey, canvasTextGrey } from '../../ui/canvastheme';
 import { h, patch, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app, registerOperators, type ChangeKind } from '../../app/app';
@@ -744,7 +745,7 @@ export class UVEditor implements Editor, UVView, View2D {
     }
     const g = c.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#303030';
+    g.fillStyle = canvasGrey(0x30);
     g.fillRect(0, 0, W, H);
     const t0 = this.toPx(0, 1),
       t1 = this.toPx(1, 0);
@@ -753,13 +754,13 @@ export class UVEditor implements Editor, UVView, View2D {
       g.imageSmoothingEnabled = this.scale() / Math.max(1, img.width) < 2;
       g.drawImage(imageCanvas(img), t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
     } else {
-      g.fillStyle = '#3a3a3a';
+      g.fillStyle = canvasGrey(0x3a);
       g.fillRect(t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
     }
     this.drawGrid(g, !!img);
     const layers = uvLayers();
     if (!layers.length || layers.every((l) => !l.faces.length)) {
-      g.fillStyle = '#888';
+      g.fillStyle = canvasTextGrey(0x88);
       g.font = '12px Inter, sans-serif';
       g.textAlign = 'center';
       g.fillText(app.doc.mode === 'EDIT' ? 'Select faces in the 3D Viewport to edit their UVs' : 'Enter Edit Mode on a mesh to edit its UVs', W / 2, 24);
