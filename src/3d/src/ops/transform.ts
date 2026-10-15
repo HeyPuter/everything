@@ -564,6 +564,37 @@ function execTransform(mode: TransformMode, p: Record<string, unknown>): 'FINISH
   }
 }
 
+/**
+ * Move each selected element (object or component) to the point returned for it, e.g. for the
+ * Snap menu. `target` gets the element's world position and the active element's position.
+ */
+export function snapSelectedElements(target: (center: Vector3, active: Vector3 | undefined) => Vector3 | null): boolean {
+  const ts = app.doc.scene.tool_settings;
+  const key = app.doc.mode === 'OBJECT' ? 'use_proportional_edit_objects' : 'use_proportional_edit';
+  const prev = ts[key];
+  ts[key] = false;
+  try {
+    const s = openSession('TRANSLATION');
+    if (!s) return false;
+    for (const e of s.data.elements) {
+      if (e.weight < 1) continue;
+      const t = target(e.center.clone(), s.data.active?.clone());
+      if (t) e.apply(T(t.sub(e.center)), { mode: 'TRANSLATION', value: [] });
+    }
+    s.data.onUpdate?.();
+    s.data.finish();
+    app.changed('doc');
+    return true;
+  } finally {
+    ts[key] = prev;
+  }
+}
+
+/** World position of the active element of the current selection (active vertex, point, bone…). */
+export function activeElementPosition(): Vector3 | null {
+  return collect('TRANSLATION')?.active?.clone() ?? null;
+}
+
 /** Move the current selection (objects or components) by a world-space offset, without proportional editing. */
 export function moveSelection(delta: Vector3): boolean {
   return execTransform('TRANSLATION', { value: [delta.x, delta.y, delta.z], orient_type: 'GLOBAL', constraint_axis: [false, false, false], use_proportional_edit: false }) === 'FINISHED';

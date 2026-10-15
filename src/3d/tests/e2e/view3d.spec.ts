@@ -371,3 +371,30 @@ test('navigating with Alt during a move keeps the moved amount', async ({ page }
   expect(await get<number>(page, 'app.activeObject.location[0]')).toBeCloseTo(before, 5);
   await expectNoErrors(errors);
 });
+
+test('snap menu works on edit-mode selections', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.cursor.location = [3, 0, 0];
+    a.changed('doc');
+  });
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('a');
+  await run(page, 'view3d.snap_selected_to_cursor', { use_offset: true }, { invoke: false });
+  const xs = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions).filter((_, i) => i % 3 === 0)');
+  expect(Math.min(...xs)).toBeCloseTo(2, 5);
+  expect(Math.max(...xs)).toBeCloseTo(4, 5);
+  // Selection to Grid rounds every vertex
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.cursor.location = [0.3, 0.2, 0];
+    a.changed('doc');
+  });
+  await run(page, 'view3d.snap_selected_to_cursor', { use_offset: true }, { invoke: false });
+  await run(page, 'view3d.snap_selected_to_grid', {}, { invoke: false });
+  const all = await get<number[]>(page, 'Array.from(app.doc.meshes[app.activeObject.data].positions)');
+  for (const v of all) expect(Math.abs(v - Math.round(v))).toBeLessThan(1e-5);
+  await expectNoErrors(errors);
+});

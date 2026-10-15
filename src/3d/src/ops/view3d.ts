@@ -1,6 +1,7 @@
 // 3D View operators (navigation, framing, cursor, snapping, local view, copy/paste).
 import { Box3, Vector3, Matrix3, Matrix4, Quaternion, Euler } from 'three';
 import { orientationBasis } from './orientations';
+import { snapSelectedElements, activeElementPosition } from './transform';
 import { app, registerOperators } from '../app/app';
 import { activeView3D, worldBounds, View3D } from '../editors/view3d/view3d';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
@@ -480,7 +481,8 @@ registerOperators([
     idname: 'view3d.snap_cursor_to_grid',
     label: 'Snap Cursor to Grid',
     exec: (ctx) => {
-      ctx.doc.scene.cursor.location = ctx.doc.scene.cursor.location.map((v) => Math.round(v)) as [number, number, number];
+      const g = gridStep();
+      ctx.doc.scene.cursor.location = ctx.doc.scene.cursor.location.map((v) => Math.round(v / g) * g) as [number, number, number];
     },
   },
   {
@@ -498,7 +500,8 @@ registerOperators([
     label: 'Snap Cursor to Active',
     poll: () => !!app.activeObject,
     exec: (ctx) => {
-      const p = new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
+      // in edit modes the active element, otherwise the active object's origin
+      const p = (ctx.doc.mode !== 'OBJECT' ? activeElementPosition() : null) ?? new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
       ctx.doc.scene.cursor.location = [p.x, p.y, p.z];
     },
   },
@@ -506,12 +509,12 @@ registerOperators([
     idname: 'view3d.snap_selected_to_cursor',
     label: 'Snap Selection to Cursor',
     props: [{ id: 'use_offset', label: 'Offset', type: 'bool', default: false }],
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
+    poll: (ctx) => (ctx.doc.mode === 'OBJECT' ? app.selectedObjects().length > 0 : ctx.doc.mode === 'EDIT' || ctx.doc.mode === 'POSE'),
     exec: (ctx, p) => {
       const cur = new Vector3(...ctx.doc.scene.cursor.location);
-      const sel = app.selectedObjects();
       const center = selectionMedian() ?? new Vector3();
-      for (const ob of sel) {
+      if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => (p.use_offset ? cur.clone().add(c.sub(center)) : cur.clone())) ? 'FINISHED' : 'CANCELLED';
+      for (const ob of app.selectedObjects()) {
         const w = app.graph.get(ob.id)!.world.clone();
         const pos = new Vector3().setFromMatrixPosition(w);
         const target = p.use_offset ? cur.clone().add(pos.clone().sub(center)) : cur;
@@ -523,12 +526,14 @@ registerOperators([
   {
     idname: 'view3d.snap_selected_to_grid',
     label: 'Snap Selection to Grid',
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
+    poll: (ctx) => (ctx.doc.mode === 'OBJECT' ? app.selectedObjects().length > 0 : ctx.doc.mode === 'EDIT' || ctx.doc.mode === 'POSE'),
+    exec: (ctx) => {
+      const g = gridStep();
+      const round = (v: Vector3) => new Vector3(Math.round(v.x / g) * g, Math.round(v.y / g) * g, Math.round(v.z / g) * g);
+      if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((c) => round(c)) ? 'FINISHED' : 'CANCELLED';
       for (const ob of app.selectedObjects()) {
         const w = app.graph.get(ob.id)!.world.clone();
-        const pos = new Vector3().setFromMatrixPosition(w);
-        w.setPosition(Math.round(pos.x), Math.round(pos.y), Math.round(pos.z));
+        w.setPosition(round(new Vector3().setFromMatrixPosition(w)));
         setWorld(ob, w);
       }
     },
@@ -536,8 +541,9 @@ registerOperators([
   {
     idname: 'view3d.snap_selected_to_active',
     label: 'Snap Selection to Active',
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject && app.selectedObjects().length > 1,
-    exec: () => {
+    poll: (ctx) => (ctx.doc.mode === 'OBJECT' ? !!app.activeObject && app.selectedObjects().length > 1 : ctx.doc.mode === 'EDIT' || ctx.doc.mode === 'POSE'),
+    exec: (ctx) => {
+      if (ctx.doc.mode !== 'OBJECT') return snapSelectedElements((_c, active) => active ?? null) ? 'FINISHED' : 'CANCELLED';
       const target = new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
       for (const ob of app.selectedObjects()) {
         if (ob.id === app.activeObject!.id) continue;
@@ -619,6 +625,11 @@ let clipboard: { objects: { ob: ObjectData; world: number[] }[]; data: Record<st
 function setWorld(ob: ObjectData, w: Matrix4) {
   const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
   applyMatrixToObject(ob, parentInv.multiply(w));
+}
+
+/** Grid spacing of the active viewport (its grid scale), 1 when there is none. */
+function gridStep() {
+  return activeView3D()?.overlay.grid_scale || 1;
 }
 
 /** Median point of the current selection (objects, or components via hooks) */
