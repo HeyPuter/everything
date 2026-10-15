@@ -2,6 +2,7 @@
 // and their Add-menu places).
 import './zones/core';
 import './nodes/meshedit';
+import './nodes/sample';
 import { placeMenus } from './gnmesh-menu';
 
 placeMenus();
