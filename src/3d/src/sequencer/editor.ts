@@ -28,6 +28,8 @@ import { restartPlayback } from './audio';
 import { drawShape, type SelectShape } from './shapes';
 import type { ScopeMode } from './scopes';
 import { lastOpPanel } from '../ui/redo';
+import { readySource } from '../tracking/source';
+import { clipFrameToSourceIndex } from '../tracking/types';
 import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
 import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
@@ -100,6 +102,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   shape: SelectShape | null = null;
   circleRadius = 25;
   private lastSelect: SelectVariant = 'box';
+  /** clip frames already asked for (timeline thumbnails of clip strips) */
+  private clipThumbRequests = new Set<string>();
   private disposed = false;
 
   private bodyEl: HTMLElement;
@@ -1244,6 +1248,26 @@ export class SequencerEditor implements Editor, SeqEditorLike {
           const t = (S.contentFrame(s, frame) + 0.5) / fps;
           const bmp = movieThumb(s.media.bytes, s.media.mime, t, () => this.redraw());
           if (bmp) g.drawImage(bmp, x, y0, tw, h);
+        }
+        return;
+      }
+      case 'MOVIECLIP': {
+        // thumbnails from the clip's decoded frames
+        const clip = s.clip ? app.doc.movieclips?.[s.clip] : undefined;
+        const src = clip ? readySource(clip) : null;
+        if (!this.showThumbnails || !clip || !src || !clip.size[0]) return;
+        const tw = Math.max(8, (h * clip.size[0]) / clip.size[1]);
+        for (let x = Math.max(x0, x0 + Math.floor((0 - x0) / tw) * tw); x < Math.min(W, x0 + w); x += tw) {
+          const idx = clipFrameToSourceIndex(clip, S.contentFrame(s, this.xf(x)) + 1);
+          if (idx < 0) continue;
+          const bmp = src.peek(idx);
+          if (bmp) g.drawImage(bmp, x, y0, tw, h);
+          else if (!this.clipThumbRequests.has(`${clip.id}|${idx}`)) {
+            // evicted frames can be asked for again later
+            if (this.clipThumbRequests.size > 500) this.clipThumbRequests.clear();
+            this.clipThumbRequests.add(`${clip.id}|${idx}`);
+            void src.get(idx).then(() => this.redraw());
+          }
         }
         return;
       }
