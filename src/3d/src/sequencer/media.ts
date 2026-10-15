@@ -275,6 +275,39 @@ export function movieCacheStats() {
 
 let decodeCtx: OfflineAudioContext | null = null;
 export const MIX_RATE = 48000;
+
+/** Playback device settings (Preferences ▸ System ▸ Sound); applied when playback (re)starts. */
+export const audioSettings = { sampleRate: 48000, latency: 'interactive' as AudioContextLatencyCategory, channels: 2 };
+
+/** A live audio context matching the settings; `prev` is reused when it still matches, else closed. */
+export function playbackContext(prev: AudioContext | null): AudioContext {
+  const key = `${audioSettings.sampleRate}|${audioSettings.latency}`;
+  const tagged = prev as (AudioContext & { __key?: string }) | null;
+  if (tagged && tagged.__key === key && tagged.state !== 'closed') {
+    applyChannels(tagged);
+    return tagged;
+  }
+  if (tagged && tagged.state !== 'closed') void tagged.close().catch(() => {});
+  let c: AudioContext & { __key?: string };
+  try {
+    c = new AudioContext({ latencyHint: audioSettings.latency, sampleRate: audioSettings.sampleRate });
+  } catch {
+    // the device may not support the rate: fall back to its own
+    c = new AudioContext({ latencyHint: audioSettings.latency });
+  }
+  c.__key = key;
+  applyChannels(c);
+  return c;
+}
+
+function applyChannels(c: AudioContext) {
+  try {
+    const n = Math.max(1, Math.min(c.destination.maxChannelCount || 2, audioSettings.channels));
+    if (c.destination.channelCount !== n) c.destination.channelCount = n;
+  } catch {
+    // some outputs have a fixed layout
+  }
+}
 const sounds = new WeakMap<Uint8Array, Promise<AudioBuffer | null>>();
 const soundsReady = new WeakMap<Uint8Array, AudioBuffer | null>();
 

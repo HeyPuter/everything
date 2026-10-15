@@ -337,3 +337,26 @@ body.reduce-motion *::after {
 .th-reset:disabled {
   opacity: 0.25;
 }
+
+/* pie menu open animation (Preferences ▸ Interface ▸ Pie Menus) */
+.pie.pie-animate .pie-item,
+.pie.pie-animate .pie-center {
+  animation: pf-pie-in var(--pie-anim, 0ms) ease-out;
+}
+@keyframes pf-pie-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+.prefs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 10px;
+  max-width: 600px;
+  padding: 2px 0 4px 24px;
+}
+.v3d-info-line.v3d-fps.slow {
+  color: var(--c-error-text, #ff6b6b);
+}

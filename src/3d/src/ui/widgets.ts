@@ -2,7 +2,7 @@
 // sliders, checkboxes, enum menus, color swatches with a picker, text fields.
 import { h, type VNode, type Child } from './h';
 import { icon } from './icons';
-import { openMenu, openPopover, setWidgetDragging, type MenuItem } from './menu';
+import { openMenu, openPopover, setWidgetDragging, menuSettings, type MenuItem } from './menu';
 import { app } from '../app/app';
 import { parseExpression, evalExpression } from '../anim/drivers';
 import { buttonHooks, getBinding, bindingValue } from './binding';
@@ -34,6 +34,15 @@ export interface NumberOpts {
 }
 
 const editing = new Map<string, string>(); // id -> text being edited
+
+/** Display options (Preferences ▸ Interface sets these). */
+export const widgetSettings = {
+  /** show 0..1 factors as percentages */
+  factorPercentage: false,
+  /** colour picker layout */
+  colorPicker: 'CIRCLE_HSV' as 'CIRCLE_HSV' | 'CIRCLE_HSL' | 'SQUARE_SV' | 'SQUARE_HS' | 'SQUARE_HV',
+};
+const pct = (o: NumberOpts) => o.unit === 'factor' && widgetSettings.factorPercentage;
 
 export function formatNumber(v: number, unit: Unit = 'none', precision = 3, int = false): string {
   if (!Number.isFinite(v)) return String(v);
@@ -171,7 +180,7 @@ export function numberField(o: NumberOpts): VNode {
     o.slider ? h('div', { class: 'num-fill' }) : null,
     !o.slider && !o.disabled ? h('span', { class: 'num-arrow l', onpointerdown: (e: PointerEvent) => arrowStep(e, o, -1) }, '‹') : null,
     o.label && !o.noLabel ? h('span', { class: 'num-label' }, o.label) : null,
-    h('span', { class: 'num-value' }, formatNumber(o.value, unit, o.precision ?? (o.unit === 'factor' ? 3 : 3), o.int)),
+    h('span', { class: 'num-value' }, pct(o) ? formatNumber(o.value * 100, 'percentage') : formatNumber(o.value, unit, o.precision ?? (o.unit === 'factor' ? 3 : 3), o.int)),
     !o.slider && !o.disabled ? h('span', { class: 'num-arrow r', onpointerdown: (e: PointerEvent) => arrowStep(e, o, 1) }, '›') : null,
   );
 }
@@ -197,7 +206,7 @@ function arrowStep(e: PointerEvent, o: NumberOpts, dir: number) {
 function commitText(o: NumberOpts, text: string) {
   editing.delete(o.id);
   try {
-    const v = parseNumber(text, o.unit === 'factor' ? 'none' : o.unit);
+    const v = parseNumber(text.replace(/%\s*$/, ''), o.unit === 'factor' ? 'none' : o.unit) / (pct(o) ? 100 : 1);
     if (Number.isFinite(v)) o.set(clamp(v, o), true);
   } catch {
     app.report('ERROR', `Invalid expression: ${text}`);
@@ -327,7 +336,7 @@ function startDrag(e: PointerEvent, o: NumberOpts) {
       return;
     }
     if (!moved) {
-      editing.set(o.id, o.int ? String(Math.round(start)) : o.unit === 'angle' ? trim((start * 180) / Math.PI, 4) : trim(start, 5));
+      editing.set(o.id, o.int ? String(Math.round(start)) : o.unit === 'angle' ? trim((start * 180) / Math.PI, 4) : pct(o) ? trim(start * 100, 3) : trim(start, 5));
       app.changed('ui');
       return;
     }
@@ -432,7 +441,7 @@ export function opButton(idname: string, label?: string, props: Record<string, u
       key: `op-${idname}-${label ?? ''}-${JSON.stringify(props)}`,
       class: `btn op ${opts.className ?? ''}`,
       disabled: !enabled,
-      'data-tip': opts.tip ?? '',
+      'data-tip': menuSettings.pythonTips ? `${opts.tip || label || idname}\nPython: bpy.ops.${idname}()` : (opts.tip ?? ''),
       onclick: (e: MouseEvent) => app.run(idname, props, { event: { x: e.clientX, y: e.clientY } }),
     },
     opts.icon ? icon(opts.icon) : null,
@@ -576,6 +585,16 @@ export function rgbToHsv(r: number, g: number, b: number): [number, number, numb
   return [hh, max === 0 ? 0 : d / max, max];
 }
 
+export function hsvToHsl(hh: number, s: number, v: number): [number, number, number] {
+  const l = v * (1 - s / 2);
+  return [hh, l <= 0 || l >= 1 ? 0 : (v - l) / Math.min(l, 1 - l), l];
+}
+
+export function hslToHsv(hh: number, s: number, l: number): [number, number, number] {
+  const v = l + s * Math.min(l, 1 - l);
+  return [hh, v <= 0 ? 0 : 2 * (1 - l / v), v];
+}
+
 export function hsvToRgb(hh: number, s: number, v: number): [number, number, number] {
   const i = Math.floor(hh * 6),
     f = hh * 6 - i,
@@ -628,45 +647,85 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
     return alpha ? [...rgb, a] : rgb;
   };
   const emit = (final: boolean) => set(out(), final);
+  // picker layout: a 2D field (disc or square) for two components and a bar for the third
+  const type = widgetSettings.colorPicker;
+  const circle = type.startsWith('CIRCLE');
+  const toPicker = (H: number, S: number, V: number): [number, number, number] => {
+    if (type === 'CIRCLE_HSL') {
+      const [, sl, l] = hsvToHsl(H, S, V);
+      return [H, sl, l];
+    }
+    if (type === 'SQUARE_SV') return [S, V, H];
+    if (type === 'SQUARE_HS') return [H, S, V];
+    if (type === 'SQUARE_HV') return [H, V, S];
+    return [H, S, V];
+  };
+  const fromPicker = (pa: number, pb: number, pc: number): [number, number, number] => {
+    if (type === 'CIRCLE_HSL') return hslToHsv(pa, pb, pc);
+    if (type === 'SQUARE_SV') return [pc, pa, pb];
+    if (type === 'SQUARE_HS') return [pa, pb, pc];
+    if (type === 'SQUARE_HV') return [pa, pc, pb];
+    return [pa, pb, pc];
+  };
+  const setPicker = (pa: number, pb: number, pc: number) => {
+    [hh, s, v] = fromPicker(pa, pb, pc);
+  };
   let wheelCanvas: HTMLCanvasElement | null = null;
   const drawWheel = (c: HTMLCanvasElement) => {
     wheelCanvas = c;
     const ctx = c.getContext('2d')!;
     const size = c.width,
       r = size / 2;
+    const pc = toPicker(hh, s, v)[2];
     const img = ctx.createImageData(size, size);
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++) {
-        const dx = x - r,
-          dy = y - r,
-          d = Math.hypot(dx, dy) / r;
         const i = (y * size + x) * 4;
-        if (d > 1) {
-          img.data[i + 3] = 0;
-          continue;
+        let pa: number, pb: number;
+        let alphaPx = 1;
+        if (circle) {
+          const dx = x - r,
+            dy = y - r,
+            d = Math.hypot(dx, dy) / r;
+          if (d > 1) {
+            img.data[i + 3] = 0;
+            continue;
+          }
+          pa = (Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1;
+          pb = d;
+          alphaPx = Math.min(1, (1 - d) * r);
+        } else {
+          pa = x / (size - 1);
+          pb = 1 - y / (size - 1);
         }
-        const ang = (Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1;
-        const [cr, cg, cb] = hsvToRgb(ang, d, v);
+        const [ch, cs, cv] = fromPicker(pa, pb, pc);
+        const [cr, cg, cb] = hsvToRgb(ch, cs, cv);
         img.data[i] = cr * 255;
         img.data[i + 1] = cg * 255;
         img.data[i + 2] = cb * 255;
-        img.data[i + 3] = Math.min(1, (1 - d) * r) * 255;
+        img.data[i + 3] = alphaPx * 255;
       }
     ctx.putImageData(img, 0, 0);
   };
   const pop = openPopover(anchor, () => {
     if (wheelCanvas) drawWheel(wheelCanvas);
-    const ang = hh * Math.PI * 2;
+    const [pa, pb, pc] = toPicker(hh, s, v);
+    const ang = pa * Math.PI * 2;
     const cur = hsvToRgb(hh, s, v);
+    const barStops = Array.from({ length: 9 }, (_, k) => {
+      const t = k / 8;
+      const [bh, bs, bv] = fromPicker(pa, pb, t);
+      return `rgb(${hsvToRgb(bh, bs, bv).map((x) => Math.round(x * 255)).join(',')}) ${(1 - t) * 100}%`;
+    }).reverse();
     return h(
       'div',
-      { class: 'color-picker' },
+      { class: 'color-picker', 'data-picker': type },
       h(
         'div',
         { class: 'cp-top' },
         h(
           'div',
-          { class: 'cp-wheel' },
+          { class: { 'cp-wheel': true, 'cp-square': !circle } },
           h('canvas', {
             width: 160,
             height: 160,
@@ -675,10 +734,16 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               const c = e.currentTarget as HTMLCanvasElement;
               const pick = (ev: PointerEvent) => {
                 const r = c.getBoundingClientRect();
-                const dx = ev.clientX - r.left - r.width / 2,
-                  dy = ev.clientY - r.top - r.height / 2;
-                hh = (Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1;
-                s = Math.min(1, Math.hypot(dx, dy) / (r.width / 2));
+                const [, , pcNow] = toPicker(hh, s, v);
+                if (circle) {
+                  const dx = ev.clientX - r.left - r.width / 2,
+                    dy = ev.clientY - r.top - r.height / 2;
+                  setPicker((Math.atan2(-dy, dx) / (Math.PI * 2) + 1) % 1, Math.min(1, Math.hypot(dx, dy) / (r.width / 2)), pcNow);
+                } else {
+                  const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)),
+                    fy = Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height));
+                  setPicker(fx, fy, pcNow);
+                }
                 emit(false);
                 pop.redraw();
               };
@@ -694,18 +759,19 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               addEventListener('pointerup', up);
             },
           }),
-          h('div', { class: 'cp-cursor', style: { left: `${80 + Math.cos(ang) * s * 80}px`, top: `${80 - Math.sin(ang) * s * 80}px` } }),
+          h('div', { class: 'cp-cursor', style: circle ? { left: `${80 + Math.cos(ang) * pb * 80}px`, top: `${80 - Math.sin(ang) * pb * 80}px` } : { left: `${pa * 160}px`, top: `${(1 - pb) * 160}px` } }),
         ),
         h(
           'div',
           {
             class: 'cp-value',
-            style: { background: `linear-gradient(to top, #000, rgb(${hsvToRgb(hh, s, 1).map((x) => x * 255).join(',')}))` },
+            style: { background: `linear-gradient(to bottom, ${barStops.join(', ')})` },
             onpointerdown: (e: PointerEvent) => {
               const bar = e.currentTarget as HTMLElement;
               const pick = (ev: PointerEvent) => {
                 const r = bar.getBoundingClientRect();
-                v = Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height));
+                const [qa, qb] = toPicker(hh, s, v);
+                setPicker(qa, qb, Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / r.height)));
                 emit(false);
                 pop.redraw();
               };
@@ -721,7 +787,7 @@ function openColorPicker(anchor: HTMLElement, initial: number[], set: (v: number
               addEventListener('pointerup', up);
             },
           },
-          h('div', { class: 'cp-vcursor', style: { top: `${(1 - v) * 100}%` } }),
+          h('div', { class: 'cp-vcursor', style: { top: `${(1 - pc) * 100}%` } }),
         ),
       ),
       enumRow('cp-mode', ['RGB', 'HSV', 'HEX'].map((m) => ({ value: m, label: m === 'HEX' ? 'Hex' : m })), mode, (m) => {

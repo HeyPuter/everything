@@ -3,6 +3,7 @@
 // bookmarks and recent folders (kept between sessions), rename / delete / new folder where the
 // folder is writable, sorting, filtering, list and thumbnail display modes. Double-click (or
 // Enter) opens projects, imports models and loads images and texts.
+import { formatDate, prefs } from '../app/prefs';
 import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, registerOperators, type ChangeKind, type OpContext } from '../app/app';
@@ -153,9 +154,10 @@ export class FileBrowser implements Editor {
   sortBy: SortBy = 'ALPHA';
   sortReverse = false;
   filter = '';
-  showHidden = false;
+  /** defaults from Preferences ▸ Save & Load ▸ File Browser */
+  showHidden = prefs.show_hidden_files_datablocks;
   /** only show files of these categories (null: all files) */
-  categories: Set<Category> | null = new Set(['project', 'image', 'model', 'text']);
+  categories: Set<Category> | null = prefs.use_filter_files ? new Set(['project', 'image', 'model', 'text']) : null;
   showSidebar = true;
   selected = new Set<string>();
   active: string | null = null;
@@ -944,7 +946,7 @@ export class FileBrowser implements Editor {
             url ? h('img', { class: 'fb-thumb', src: url, alt: '' }) : h('div', { class: 'fb-icon' }, icon(it.kind === 'dir' ? 'file_folder' : CAT_ICON[cat!])),
             h('span', { class: 'fb-name' }, it.name),
             this.view === 'LIST_VERTICAL' ? h('span', { class: 'fb-size' }, it.kind === 'file' ? formatSize(it.size) : '') : null,
-            this.view === 'LIST_VERTICAL' ? h('span', { class: 'fb-date' }, it.mtime ? new Date(it.mtime).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '') : null,
+            this.view === 'LIST_VERTICAL' ? h('span', { class: 'fb-date' }, it.mtime ? formatDate(it.mtime) : '') : null,
           );
         }),
       );

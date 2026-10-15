@@ -31,7 +31,7 @@ export interface Preferences {
   date_format: 'DEFAULT' | 'LE_SLASH' | 'LE_DOT' | 'ME_SLASH' | 'BE_DASH';
   time_format: 'H24' | 'H12';
   use_mouse_over_open: boolean;
-  /** delays in 1/50 s, as in other timing preferences */
+  /** delays in ms */
   open_toplevel_delay: number;
   open_sublevel_delay: number;
   pie_animation_timeout: number;
@@ -51,15 +51,12 @@ export interface Preferences {
   /** multisample anti-aliasing (applies when the app starts) */
   viewport_aa: 'OFF' | 'MSAA';
   anisotropic_filter: number;
-  /** largest texture size uploaded to the GPU (0 = no limit) */
-  gl_texture_limit: number;
 
   // --- Navigation
   orbit_method: 'TURNTABLE' | 'TRACKBALL';
   view_rotate_sensitivity: number;
   use_rotate_around_active: boolean;
   use_auto_perspective: boolean;
-  use_mouse_depth_navigate: boolean;
   /** animated view transitions in ms (0 = instant) */
   smooth_view: number;
   /** numpad orbit step in degrees */
@@ -108,7 +105,6 @@ export interface Preferences {
   select_mouse: 'LEFT' | 'RIGHT';
 
   // --- Editing
-  material_link: 'OBDATA' | 'OBJECT';
   object_align: 'WORLD' | 'VIEW' | 'CURSOR';
   use_enter_edit_mode: boolean;
   duplicate: Record<string, boolean>;
@@ -121,7 +117,7 @@ export interface Preferences {
 
   // --- Animation
   view2d_grid_spacing_min: number;
-  timecode_style: 'FRAMES' | 'MINIMAL' | 'SMPTE' | 'SECONDS_ONLY';
+  timecode_style: 'MINIMAL' | 'SMPTE' | 'SMPTE_COMPACT' | 'MILLISECONDS' | 'SECONDS_ONLY';
   use_keyframe_insert_needed: boolean;
   use_insertkey_xyz_to_rgb: boolean;
   fcurve_unselected_alpha: number;
@@ -181,10 +177,10 @@ export const defaultPreferences = (): Preferences => ({
   date_format: 'DEFAULT',
   time_format: 'H24',
   use_mouse_over_open: false,
-  open_toplevel_delay: 5,
-  open_sublevel_delay: 2,
-  pie_animation_timeout: 6,
-  pie_tap_timeout: 12,
+  open_toplevel_delay: 100,
+  open_sublevel_delay: 0,
+  pie_animation_timeout: 0,
+  pie_tap_timeout: 250,
   pie_menu_radius: 110,
   pie_menu_threshold: 20,
   pie_menu_confirm: 0,
@@ -198,24 +194,23 @@ export const defaultPreferences = (): Preferences => ({
   view_lens: 50,
   viewport_aa: 'MSAA',
   anisotropic_filter: 8,
-  gl_texture_limit: 0,
 
   orbit_method: 'TURNTABLE',
   view_rotate_sensitivity: 0.43,
   use_rotate_around_active: false,
   use_auto_perspective: true,
-  use_mouse_depth_navigate: false,
   smooth_view: 200,
   rotation_angle: 15,
   view_zoom_axis: 'VERTICAL',
   invert_mouse_zoom: false,
   invert_zoom_wheel: false,
   use_zoom_to_mouse: false,
+  navigation_mode: 'WALK',
   walk_mouse_speed: 1,
   walk_use_mouse_reverse: false,
   walk_speed: 2.5,
   walk_speed_factor: 5,
-  walk_teleport_time: 0.2,
+  walk_teleport_time: 0.25,
   walk_use_gravity: false,
   walk_view_height: 1.6,
   walk_jump_height: 0.4,
@@ -245,19 +240,18 @@ export const defaultPreferences = (): Preferences => ({
   ndof_panz_invert_axis: false,
   select_mouse: 'LEFT',
 
-  material_link: 'OBDATA',
   object_align: 'WORLD',
   use_enter_edit_mode: false,
   duplicate: { MESH: true, CURVE: true, FONT: true, LATTICE: true, META: true, ARMATURE: true, CAMERA: true, LIGHT: true, SPEAKER: true, GREASEPENCIL: true, POINTCLOUD: true, MATERIAL: false, ACTION: true },
-  annotation_color: [0.38, 0.61, 0.78],
+  annotation_color: [0.12, 0.65, 0.95],
   annotation_eraser_radius: 12,
   use_text_edit_auto_close: false,
   sculpt_paint_overlay_color: [0, 0, 0],
   node_use_insert_offset: true,
   node_margin: 40,
 
-  view2d_grid_spacing_min: 45,
-  timecode_style: 'FRAMES',
+  view2d_grid_spacing_min: 50,
+  timecode_style: 'MINIMAL',
   use_keyframe_insert_needed: false,
   use_insertkey_xyz_to_rgb: true,
   fcurve_unselected_alpha: 0.5,
@@ -276,7 +270,7 @@ export const defaultPreferences = (): Preferences => ({
   use_auto_save_temporary_files: true,
   use_preferences_save: true,
   recent_files: 10,
-  use_save_prompt: true,
+  use_save_prompt: false,
   use_load_ui: true,
   use_tabs_as_spaces: true,
   show_hidden_files_datablocks: false,
@@ -316,6 +310,44 @@ export function savePrefs() {
   } catch {
     // storage unavailable: preferences apply to this session only
   }
+}
+
+/** Pen pressure after Preferences ▸ Input ▸ Tablet: full strength at the threshold, softness bends the curve. */
+export function tabletPressure(p: number): number {
+  const t = Math.max(0.01, Math.min(1, prefs.pressure_threshold_max));
+  const x = Math.max(0, Math.min(1, p / t));
+  return Math.pow(x, Math.pow(4, -Math.max(-1, Math.min(1, prefs.pressure_softness))));
+}
+
+/** A date (and time) in the format chosen in Preferences ▸ Interface ▸ Language. */
+export function formatDate(t: number | Date, withTime = true): string {
+  const d = t instanceof Date ? t : new Date(t);
+  if (Number.isNaN(d.getTime())) return '';
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const y = d.getFullYear(),
+    m = p2(d.getMonth() + 1),
+    day = p2(d.getDate());
+  let date: string;
+  switch (prefs.date_format) {
+    case 'LE_SLASH':
+      date = `${day}/${m}/${y}`;
+      break;
+    case 'LE_DOT':
+      date = `${day}.${m}.${y}`;
+      break;
+    case 'ME_SLASH':
+      date = `${m}/${day}/${y}`;
+      break;
+    case 'BE_DASH':
+      date = `${y}-${m}-${day}`;
+      break;
+    default:
+      date = d.toLocaleDateString();
+  }
+  if (!withTime) return date;
+  const hh = d.getHours();
+  const time = prefs.time_format === 'H12' ? `${((hh + 11) % 12) + 1}:${p2(d.getMinutes())} ${hh < 12 ? 'AM' : 'PM'}` : `${p2(hh)}:${p2(d.getMinutes())}`;
+  return `${date} ${time}`;
 }
 
 /** Active workspace tool per mode, e.g. 'builtin.select_box'. */

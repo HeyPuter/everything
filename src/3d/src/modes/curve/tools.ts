@@ -2,7 +2,7 @@
 // handles), Extrude, Extrude to Cursor, Radius and Tilt, with their tool settings.
 import { Matrix4, Vector3 } from 'three';
 import { app, registerOperators, type OpContext } from '../../app/app';
-import { activeTools } from '../../app/prefs';
+import { activeTools, tabletPressure } from '../../app/prefs';
 import { toolsByMode, COMMON_TOOLS, toolSettingsRenderers } from '../../editors/view3d/toolbar';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../../editors/view3d/view3d';
@@ -177,7 +177,7 @@ function startDraw(ctx: OpContext): boolean {
   app.startModal({
     label: 'Draw Curve',
     header: () => 'Draw Curve: release to finish, Esc to cancel',
-    onPointerMove: (e) => add(e.clientX, e.clientY, e.pointerType === 'pen' ? e.pressure : 0.5),
+    onPointerMove: (e) => add(e.clientX, e.clientY, e.pointerType === 'pen' ? tabletPressure(e.pressure) : 0.5),
     onPointerUp: () => {
       finish();
       return 'CANCELLED'; // the curve.draw exec records the undo step

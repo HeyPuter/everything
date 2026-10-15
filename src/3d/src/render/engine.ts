@@ -1,5 +1,6 @@
 // Shared WebGL2 renderer: a single context draws every 3D viewport into its
 // screen rectangle (scissored) behind the DOM interface, sharing GPU resources.
+import { prefs } from '../app/prefs';
 import {
   WebGLRenderer,
   Scene,
@@ -66,7 +67,8 @@ export class RenderEngine {
     container.prepend(this.canvas);
     this.renderer = new WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      // multisampling is fixed when the context is created (Preferences ▸ Viewport ▸ Quality)
+      antialias: prefs.viewport_aa !== 'OFF',
       alpha: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: false,

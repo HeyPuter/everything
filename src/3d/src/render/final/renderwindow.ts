@@ -3,6 +3,7 @@
 import { patch } from '../../ui/h';
 import { app, registerOperators, type AreaLike } from '../../app/app';
 import { shell } from '../../ui/shell';
+import type { Area, EditorTypeId } from '../../ui/screen';
 import { ImageEditor, RENDER_RESULT } from './imageeditor';
 import { renderResult } from './result';
 
@@ -30,14 +31,38 @@ export function isRenderWindowOpen() {
   return !!win;
 }
 
-/** Show the Render Result: in an Image Editor area showing it, or in the floating window. */
-export function showRenderView() {
+/** Where a render shows its result (Preferences ▸ Interface ▸ Temporary Editors). */
+export const renderViewSettings = { mode: 'WINDOW' as 'NONE' | 'AREA' | 'WINDOW' | 'SCREEN' };
+
+/** An area that was switched to the Image Editor to show a render, and its previous editor. */
+let tempArea: { area: Area; prev: EditorTypeId } | null = null;
+
+function showInArea(): boolean {
+  const areas = (shell?.screen?.areas ?? []).filter((a) => a.el.style.display !== 'none');
+  if (!areas.length) return false;
+  const size = (a: Area) => a.el.clientWidth * a.el.clientHeight;
+  const a = areas.reduce((best, x) => (size(x) > size(best) ? x : best));
+  tempArea = { area: a, prev: a.type };
+  a.setType('IMAGE_EDITOR');
+  (a.editor as unknown as ImageEditor).showRenderResult?.();
+  return true;
+}
+
+/** Show the Render Result: in an Image Editor area showing it, or as the preferences say. `force` ignores "Keep User Interface". */
+export function showRenderView(force = false) {
   const ed = screenEditorShowingResult();
   if (ed) {
     ed.showRenderResult();
     return;
   }
+  const mode = renderViewSettings.mode;
+  if (mode === 'NONE' && !force) return;
+  if (mode === 'AREA' && showInArea()) return;
   openWindow();
+  if (mode === 'SCREEN' && win && !win.el.classList.contains('maximized')) {
+    win.el.classList.add('maximized');
+    win.editor.resize();
+  }
 }
 
 export function closeRenderWindow() {
@@ -129,8 +154,12 @@ registerOperators([
     description: 'Toggle the render view showing the last render result (F11)',
     undo: false,
     exec: () => {
-      if (win) closeRenderWindow();
-      else showRenderView();
+      if (tempArea && tempArea.area.type === 'IMAGE_EDITOR' && tempArea.area.el.isConnected) {
+        // back to the editor the area showed before the render
+        tempArea.area.setType(tempArea.prev);
+        tempArea = null;
+      } else if (win) closeRenderWindow();
+      else showRenderView(true);
       return 'CANCELLED';
     },
   },

@@ -9,6 +9,7 @@ import { loadRecovery, decodeDocument } from '../io/native';
 import { projectUiState } from '../io/files';
 import { cloneShared } from '../data/cow';
 import { openDialog, closeDialog } from './dialog';
+import { formatDate } from '../app/prefs';
 import { PreferencesEditor, factoryPrefs, saveUserPrefs, itemLabel, type Section } from './prefs_editor';
 import { purgeOrphanData, PURGEABLE } from './api';
 import { PYODIDE_VERSION, PYODIDE_INDEX_URL } from './python';
@@ -330,7 +331,7 @@ registerOperators([
           app.setDocument(doc);
           app.filename = rec.name;
           if (extra.ui && typeof extra.ui === 'object') projectUiState.load(extra.ui as Record<string, unknown>);
-          app.report('INFO', `Recovered session from ${new Date(rec.time).toLocaleString()}`);
+          app.report('INFO', `Recovered session from ${formatDate(rec.time)}`);
         } catch (e) {
           app.report('ERROR', `The autosaved session could not be recovered: ${(e as Error).message}`);
         }

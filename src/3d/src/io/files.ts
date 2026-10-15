@@ -1,4 +1,5 @@
 // File operators: new / open / save / save as / revert, autosave and import/export registry.
+import { prefs } from '../app/prefs';
 import { app, registerOperators } from '../app/app';
 import { startupDocument } from '../data/defaults';
 import { encodeDocument, decodeDocument, isNativeFile, saveRecovery, download, pickFile, clearRecovery } from './native';
@@ -85,7 +86,8 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
       if (mode === 'open') fileEvents.beforeReplace('Before Opening a File');
       app.setDocument(doc);
       app.filename = file.name;
-      if (extra.ui) projectUiState.load(extra.ui as Record<string, unknown>);
+      // Preferences ▸ Save & Load ▸ Load UI
+      if (extra.ui && prefs.use_load_ui) projectUiState.load(extra.ui as Record<string, unknown>);
       app.report('INFO', `Opened "${file.name}"`);
       for (const f of fileEvents.opened) f(file.name, bytes);
     } else if (name.endsWith('.json') || name.endsWith('.3d.json')) {

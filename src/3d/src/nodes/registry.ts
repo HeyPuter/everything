@@ -265,6 +265,9 @@ export function nodeTypesFor(treeType: TreeType): NodeTypeDef[] {
 // ---------------------------------------------------------------------------
 // Theme colors (header colors per node class, socket colors per type)
 
+/** Node editor behaviour (Preferences ▸ Editing ▸ Node Editor). */
+export const nodeEditorSettings = { insertOffset: true, insertMargin: 40 };
+
 /** Node editor canvas colours (Preferences ▸ Themes writes them). */
 export const NODE_EDITOR_COLORS = { back: '#1d1d1d', grid: '#2c2c2c', gridMajor: '#353535' };
 

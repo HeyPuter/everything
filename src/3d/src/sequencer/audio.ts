@@ -2,7 +2,7 @@
 import { app } from '../app/app';
 import type { SequenceEditor, Strip, SeqChannel } from './types';
 import { finalStart, finalEnd } from './strips';
-import { loadSound, MIX_RATE } from './media';
+import { loadSound, MIX_RATE, playbackContext } from './media';
 import { soundSegment, panGains } from './wav';
 
 interface Voice {
@@ -96,7 +96,9 @@ async function startAt(frame: number) {
   if (!ed) return;
   const list = soundVoices(ed);
   if (!list.length) return;
-  ctx ??= new AudioContext({ latencyHint: 'interactive' });
+  const fresh = playbackContext(ctx);
+  if (fresh !== ctx) master = null;
+  ctx = fresh;
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   master ??= ctx.createGain();
   master.connect(ctx.destination);

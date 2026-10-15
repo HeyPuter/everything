@@ -149,3 +149,118 @@ test('themes: presets restyle the interface and canvases, edits persist, export/
   expect(await rootVar(page, '--accent')).toBe('#aa00aa');
   await expectNoErrors(errors);
 });
+
+async function setPref(page: Page, key: string, value: unknown) {
+  await page.evaluate(async ([k, v]) => (await import('/src/prefs/store.ts')).setPref(k as never, v as never), [key, value] as const);
+}
+
+test('interface preferences: factor display, header position, status bar, navigation controls, info overlay', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'INTERFACE');
+  // a real click on a preference control
+  await page.locator('[data-id="pf-show_statusbar_version"]').dispatchEvent('pointerdown', { button: 0 });
+  await expect(page.locator('.sb-version')).toHaveCount(0);
+  await page.locator('.prefs-main .enum-row button', { hasText: 'Percentage' }).click();
+  await closePrefs(page);
+  // the Roughness factor of the default material shows as a percentage
+  const pct = await page.evaluate(async () => {
+    const w = await import('/src/ui/widgets.ts');
+    const div = document.createElement('div');
+    const { patch } = await import('/src/ui/h.ts');
+    patch(div, [w.numberField({ id: 'x-test', value: 0.25, unit: 'factor', set: () => {} })]);
+    return div.querySelector('.num-value')!.textContent;
+  });
+  expect(pct).toBe('25%');
+
+  await setPref(page, 'header_align', 'BOTTOM');
+  await expect(page.locator('.area[data-editor="VIEW_3D"]').first()).toHaveClass(/header-bottom/);
+  await setPref(page, 'header_align', 'NONE');
+  await expect(page.locator('.area[data-editor="VIEW_3D"]').first()).not.toHaveClass(/header-bottom/);
+
+  await expect(page.locator('.nav-buttons').first()).toBeVisible();
+  await setPref(page, 'show_navigate_ui', false);
+  await expect(page.locator('.nav-buttons')).toHaveCount(0);
+
+  await setPref(page, 'show_view_name', false);
+  await expect(page.locator('.v3d-info-line', { hasText: 'Perspective' })).toHaveCount(0);
+  await expect(page.locator('.v3d-info-line', { hasText: 'Cube' }).first()).toBeVisible();
+
+  await setPref(page, 'show_statusbar_scene_duration', true);
+  await expect(page.locator('.sb-duration')).toContainText('Frames 250');
+  await expectNoErrors(errors);
+});
+
+test('editing and animation preferences change what operators do', async ({ page }) => {
+  const errors = await openApp(page);
+  await setPref(page, 'use_enter_edit_mode', true);
+  await setPref(page, 'object_align', 'CURSOR');
+  const added = await page.evaluate(() => {
+    const a = (window as unknown as { app: { run(id: string, p?: object, o?: object): string; doc: { mode: string } } }).app;
+    a.run('mesh.primitive_cube_add', {}, { invoke: true });
+    return a.doc.mode;
+  });
+  expect(added).toBe('EDIT');
+  const alignDefault = await page.evaluate(async () => (await import('/src/app/app.ts')).operators.get('mesh.primitive_cube_add')!.props!.find((p) => p.id === 'align')!.default);
+  expect(alignDefault).toBe('CURSOR');
+
+  // Copy on Duplicate: meshes stay shared when turned off
+  await page.evaluate(() => (window as unknown as { app: { run(id: string, p?: object): string } }).app.run('object.mode_set', { mode: 'OBJECT' }));
+  await page.evaluate(async () => (await import('/src/prefs/store.ts')).setPref('duplicate', { ...(await import('/src/app/prefs.ts')).prefs.duplicate, MESH: false }));
+  const shared = await page.evaluate(async () => {
+    const a = (window as unknown as { app: { run(id: string, p?: object): string; activeObject: { data: string } } }).app;
+    const before = a.activeObject.data;
+    const { duplicateSelected } = await import('/src/ops/object.ts');
+    const copies = duplicateSelected((a as unknown as { doc: never }).doc, false);
+    return copies[0].data === before;
+  });
+  expect(shared).toBe(true);
+
+  // new keyframes use the default interpolation; negative frames can be blocked
+  await setPref(page, 'keyframe_new_interpolation_type', 'LINEAR');
+  await setPref(page, 'use_negative_frames', false);
+  const anim = await page.evaluate(async () => {
+    const a = (window as unknown as { app: { doc: any; activeObject: any; setFrame(f: number): void } }).app;
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    keyProperty(a.doc, a.activeObject, 'location');
+    const act = a.doc.actions[a.activeObject.animation_data.action];
+    a.setFrame(-5);
+    return { interp: act.fcurves[0].keyframe_points[0].interpolation, frame: a.doc.scene.frame_current };
+  });
+  expect(anim).toEqual({ interp: 'LINEAR', frame: 0 });
+  await expectNoErrors(errors);
+});
+
+test('navigation preferences: numpad orbit step and smooth view', async ({ page }) => {
+  const errors = await openApp(page);
+  await setPref(page, 'rotation_angle', 90);
+  await setPref(page, 'smooth_view', 0);
+  await hoverViewport(page);
+  const yaw = async () => page.evaluate(async () => {
+    const v = (await import('/src/editors/view3d/view3d.ts')).activeView3D()!;
+    const f = v.nav.forward;
+    return (Math.atan2(f.y, f.x) * 180) / Math.PI;
+  });
+  const a0 = await yaw();
+  await page.keyboard.press('Numpad4');
+  const a1 = await yaw();
+  expect(Math.abs((((a1 - a0 + 540) % 360) - 180))).toBeCloseTo(90, 0);
+  await expectNoErrors(errors);
+});
+
+test('auto-save preferences off: changes wait for Save Preferences; revert restores them', async ({ page }) => {
+  const errors = await openApp(page);
+  await openPrefs(page, 'INTERFACE');
+  await page.locator('.prefs-menu-btn').dispatchEvent('pointerdown');
+  await page.locator('.menu-item', { hasText: 'Auto-Save Preferences' }).click();
+  await setPref(page, 'show_splash', false);
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('p3d.preferences.v1') ?? '{}').show_splash);
+  expect(await stored()).not.toBe(false);
+  await expect(page.locator('.prefs-save')).toBeVisible();
+  await page.locator('.prefs-menu-btn').dispatchEvent('pointerdown');
+  await page.locator('.menu-item', { hasText: 'Revert to Saved Preferences' }).click();
+  expect(await page.evaluate(async () => (await import('/src/app/prefs.ts')).prefs.show_splash)).toBe(true);
+  await setPref(page, 'show_splash', false);
+  await page.locator('.prefs-save').click();
+  expect(await stored()).toBe(false);
+  await expectNoErrors(errors);
+});

@@ -9,7 +9,7 @@ import { openMenu, openPopover, openSearch, type MenuItem, type SearchEntry } fr
 import { checkbox } from '../../ui/widgets';
 import type { MaterialData, NodeData, NodeTreeData } from '../../data/types';
 import { canPreview, nodePreview, onPreviewReady, previewTreeKey } from './preview';
-import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue, NODE_EDITOR_COLORS } from '../registry';
+import { getNodeType, nodeSockets, nodeMenu, canConvert, SOCKET_COLORS, propValue, NODE_EDITOR_COLORS, nodeEditorSettings } from '../registry';
 import { connect, ctxOf, linkStatus, nodeById, insertOnLink, removeLinks, makeNode, internalLinks, frameChildren, compatibleGroups } from '../tree';
 import { layoutTree, linkCurve, sockKey, distToCurve, curvePolylineHit, pointInPolygon, type NodeLayout, type SocketPos, HEADER } from './layout';
 import { addReroutes, detachLinks, insertOffset, isFrame, isGroupNode, toggleLinkMute } from '../treeops';
@@ -2086,7 +2086,7 @@ export class NodeEditor implements Editor {
         self.axisGuide = null;
         if (self.insertTarget && single) {
           const ctx = ctxOf(app.doc, tree);
-          if (insertOnLink(ctx, single.id, self.insertTarget)) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140);
+          if (insertOnLink(ctx, single.id, self.insertTarget) && nodeEditorSettings.insertOffset) insertOffset(tree, single, (n) => self.layouts.get(n.id)?.w ?? n.width ?? 140, nodeEditorSettings.insertMargin);
         }
         self.insertTarget = null;
         if (kind !== 'MOVE') return;

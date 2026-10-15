@@ -7,6 +7,8 @@
 //   keyconfig*.ts       key configuration model, presets, persistence; keymap_ui.ts its editor
 import './prefs.css';
 import './effects';
+import './menus_fx';
+import './apply_fx';
 import './sections';
 import './theme_ui';
 import './ops';

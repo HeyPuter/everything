@@ -4,6 +4,7 @@ import './screen.css';
 import { icon } from './icons';
 import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
+import { prefs } from '../app/prefs';
 import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, type Side } from './layout';
 
 export { areaRects, type Side };
@@ -212,7 +213,8 @@ export class Area implements AreaLike {
 
   /** Header at the bottom of the area (flipped, or the editor's default). */
   get headerAtBottom() {
-    return this.flipHeader ?? !!this.editor?.headerBottom;
+    // Preferences ▸ Interface ▸ Header Position can override the editors' own defaults
+    return this.flipHeader ?? (prefs.header_align === 'NONE' ? !!this.editor?.headerBottom : prefs.header_align === 'BOTTOM');
   }
 
   applyUi() {

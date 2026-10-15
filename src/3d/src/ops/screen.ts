@@ -1,4 +1,5 @@
 // Screen-level operators: undo/redo, frames & playback, search, keyframes, areas.
+import { prefs } from '../app/prefs';
 import { app, registerOperators, operators, type AreaLike } from '../app/app';
 import { openMenu, openSearch, captureMenuItems, type SearchEntry, type MenuItem } from '../ui/menu';
 import { openRedoPopup } from '../ui/redo';
@@ -319,7 +320,8 @@ function searchEntries(area: AreaLike | null): SearchEntry[] {
   const inMenus = new Set(menus.map((e) => e.op).filter(Boolean));
   const ops: SearchEntry[] = [];
   for (const op of operators.values()) {
-    if (op.internal || inMenus.has(op.idname)) continue;
+    // Developer Extras list internal operators too
+    if ((op.internal && !prefs.show_developer_ui) || inMenus.has(op.idname)) continue;
     ops.push({ label: op.label, path: op.idname.split('.')[0].replace(/^\w/, (c) => c.toUpperCase()), shortcut: shortcutLabel(op.idname), disabled: !app.poll(op.idname, area), run: () => app.run(op.idname, {}, { area }) });
   }
   ops.sort((a, b) => a.label.localeCompare(b.label));

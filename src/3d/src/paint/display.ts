@@ -62,11 +62,15 @@ const vert = /* glsl */ `
   }
 `;
 
+/** Overlay colours shared by all sculpt / paint display materials (Preferences ▸ Editing). */
+export const paintDisplaySettings = { maskColor: new Color(0, 0, 0) };
+
 const frag = /* glsl */ `
   uniform vec3 uColor;
   uniform float uSpecular;
   uniform int uLighting;
   uniform float uMaskOpacity;
+  uniform vec3 uMaskColor;
   uniform float uWeightOpacity;
   uniform float uFsetOpacity;
   uniform sampler2D uMap;
@@ -120,7 +124,7 @@ const frag = /* glsl */ `
       col = diffuse + vec3(spec);
     }
     #ifdef USE_MASK
-    col *= 1.0 - clamp(vMask, 0.0, 1.0) * uMaskOpacity * 0.85;
+    col = mix(col, uMaskColor, clamp(vMask, 0.0, 1.0) * uMaskOpacity * 0.85);
     #endif
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
@@ -167,6 +171,7 @@ export function paintMaterial(o: PaintMatOpts): ShaderMaterial {
           value: o.lighting === 'FLAT' ? 1 : o.lighting === 'MATCAP' ? 2 : 0,
         },
         uMaskOpacity: { value: 0.75 },
+        uMaskColor: { value: paintDisplaySettings.maskColor },
         uWeightOpacity: { value: 1 },
         uFsetOpacity: { value: 1 },
         uMap: { value: o.map ?? null },

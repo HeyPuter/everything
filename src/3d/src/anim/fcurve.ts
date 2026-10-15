@@ -2,13 +2,23 @@
 // (Penner-style, independently implemented), handle recalculation and modifiers.
 import type { FCurve, Keyframe, Vec2, FModifier } from '../data/types';
 
-export function newKeyframe(frame: number, value: number, interpolation: Keyframe['interpolation'] = 'BEZIER'): Keyframe {
+/** Defaults for new keyframes and curves (Preferences ▸ Animation sets these). */
+export const keyframeDefaults = {
+  interpolation: 'BEZIER' as Keyframe['interpolation'],
+  handle: 'AUTO_CLAMPED' as Keyframe['handle_left_type'],
+  /** skip keys that would not change the curve */
+  insertNeeded: false,
+  /** location / rotation / scale curves are coloured X red, Y green, Z blue */
+  xyzToRgb: true,
+};
+
+export function newKeyframe(frame: number, value: number, interpolation: Keyframe['interpolation'] = keyframeDefaults.interpolation): Keyframe {
   return {
     co: [frame, value],
     handle_left: [frame - 1, value],
     handle_right: [frame + 1, value],
-    handle_left_type: 'AUTO_CLAMPED',
-    handle_right_type: 'AUTO_CLAMPED',
+    handle_left_type: keyframeDefaults.handle,
+    handle_right_type: keyframeDefaults.handle,
     interpolation,
     easing: 'AUTO',
     type: 'KEYFRAME',
@@ -406,7 +416,7 @@ export function insertKeyframe(fc: FCurve, frame: number, value: number, opts: P
   }
   const prev = [...fc.keyframe_points].reverse().find((k) => k.co[0] < frame);
   // newly inserted keys are selected
-  const k = { ...newKeyframe(frame, value, prev?.interpolation ?? 'BEZIER'), select_control_point: true, select_left_handle: true, select_right_handle: true, ...opts };
+  const k = { ...newKeyframe(frame, value, prev?.interpolation ?? keyframeDefaults.interpolation), select_control_point: true, select_left_handle: true, select_right_handle: true, ...opts };
   fc.keyframe_points.push(k);
   sortKeyframes(fc);
   calcHandles(fc);

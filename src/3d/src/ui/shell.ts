@@ -312,9 +312,37 @@ export class Shell {
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, h('kbd', null, k), l))),
       h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
-      h('div', { class: 'sb-right' }, this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null, h('span', { class: 'sb-stats' }, stats), h('span', { class: 'sb-version' }, `v${APP_VERSION}`)),
+      h(
+        'div',
+        { class: 'sb-right' },
+        this.fileStatus ? h('span', { class: 'sb-file' }, this.fileStatus) : null,
+        h('span', { class: 'sb-stats' }, stats),
+        prefs.show_statusbar_scene_duration ? h('span', { class: 'sb-duration' }, sceneDuration()) : null,
+        prefs.show_statusbar_memory ? h('span', { class: 'sb-memory' }, memoryLabel()) : null,
+        prefs.show_statusbar_version ? h('span', { class: 'sb-version' }, `v${APP_VERSION}`) : null,
+      ),
     ]);
   }
+}
+
+/** Scene length as h:mm:ss + frames, and in frames. */
+function sceneDuration() {
+  const s = app.doc.scene;
+  const fps = (s.render?.fps ?? 24) / (s.render?.fps_base || 1);
+  const frames = Math.max(0, s.frame_end - s.frame_start + 1);
+  const secs = Math.floor(frames / fps);
+  const rest = Math.round(frames - secs * fps);
+  const hh = Math.floor(secs / 3600),
+    mm = Math.floor((secs % 3600) / 60),
+    ss = secs % 60;
+  const t = `${hh ? `${hh}:` : ''}${String(mm).padStart(hh ? 2 : 1, '0')}:${String(ss).padStart(2, '0')}+${rest}`;
+  return `Duration: ${t} (Frames ${frames})`;
+}
+
+/** JavaScript heap use where the browser reports it. */
+function memoryLabel() {
+  const m = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+  return m ? `Memory: ${(m.usedJSHeapSize / 1048576).toFixed(0)} MiB` : 'Memory: n/a';
 }
 
 function modeHint() {

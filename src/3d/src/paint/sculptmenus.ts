@@ -15,7 +15,7 @@ const has = (op: string) => operators.has(op);
 
 /** Shortcut label of the first Sculpt keymap item running `op` with matching props. */
 function sc(op: string, props?: Record<string, unknown>) {
-  const k = (keymaps.Sculpt ?? []).find((x) => x.op === op && (!props || Object.entries(props).every(([p, v]) => x.props?.[p] === v)));
+  const k = (keymaps.Sculpt ?? []).find((x) => !x.inactive && x.op === op && (!props || Object.entries(props).every(([p, v]) => x.props?.[p] === v)));
   return k ? keyLabel(k) : undefined;
 }
 
