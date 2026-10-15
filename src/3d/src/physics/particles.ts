@@ -364,7 +364,8 @@ export function resampleKeys(co: ArrayLike<number>, a: number, b: number, n: num
   for (let i = 1; i < k; i++) cum[i] = cum[i - 1] + Math.hypot(co[(a + i) * 3] - co[(a + i - 1) * 3], co[(a + i) * 3 + 1] - co[(a + i - 1) * 3 + 1], co[(a + i) * 3 + 2] - co[(a + i - 1) * 3 + 2]);
   const total = cum[k - 1];
   let seg = 1;
-  const P = (i: number, j: number) => co[(a + Math.max(0, Math.min(k - 1, i))) * 3 + j];
+  // end tangents are extrapolated so straight keys stay straight and evenly spaced
+  const P = (i: number, j: number): number => (i < 0 ? 2 * P(0, j) - P(1, j) : i > k - 1 ? 2 * P(k - 1, j) - P(k - 2, j) : co[(a + i) * 3 + j]);
   for (let s = 0; s < n; s++) {
     const t = n > 1 ? (s / (n - 1)) * total : 0;
     while (seg < k - 1 && cum[seg] < t) seg++;

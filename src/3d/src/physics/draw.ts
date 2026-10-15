@@ -56,6 +56,9 @@ interface Entry {
 const scene = new Scene();
 scene.matrixWorldAutoUpdate = false;
 const entries = new Map<string, Entry>();
+
+/** Particle draw data a mode wants hidden (e.g. hair being edited in Particle Edit mode). */
+export const particleDrawFilter: ((key: string, d: ParticleDraw) => boolean)[] = [];
 const vp = new Vector4();
 
 function build(d: ParticleDraw): Points | LineSegments {
@@ -78,6 +81,7 @@ function sync(localView: Set<string> | null) {
   for (const [key, d] of particleDraw) {
     const ev = app.graph.get(d.objectId);
     if (!ev || !ev.visible || (localView && !localView.has(d.objectId))) continue;
+    if (particleDrawFilter.some((f) => !f(key, d))) continue;
     seen.add(key);
     let e = entries.get(key);
     if (!e || e.data !== d) {

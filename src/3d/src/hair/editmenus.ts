@@ -47,7 +47,7 @@ export function domainButtons(): Child {
       },
       icon(ic),
     );
-  return h('div', { key: 'curves-domain', class: 'hdr-group select-modes' }, btn('POINT', 'curve_points', 'Control Points (1)\nSelect individual control points'), btn('CURVE', 'curve_curves', 'Curves (2)\nSelect whole curves'));
+  return h('div', { key: 'curves-domain', class: 'hdr-group select-modes', style: { flex: 'none' } }, btn('POINT', 'curve_points', 'Control Points (1)\nSelect individual control points'), btn('CURVE', 'curve_curves', 'Curves (2)\nSelect whole curves'));
 }
 
 function selectMenu(): MenuItem[] {

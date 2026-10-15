@@ -14,6 +14,8 @@ import './editmenus';
 import './sculptui';
 import './convert';
 import './properties';
+import './particle/mode';
+import './particle/ui';
 
 OB_ICON.CURVES = 'outliner_ob_curves';
 DATA_ICON.CURVES = 'curves_data';
