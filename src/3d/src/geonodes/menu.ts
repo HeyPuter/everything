@@ -1,7 +1,8 @@
 // Add menu of the Geometry Node Editor (Group and Layout are appended by the node editor).
-// The layout lists every node type in its category; entries whose type is not registered for
-// geometry trees are skipped when the menu is drawn, so new node types only need registering.
-import { registerNodeMenu } from '../nodes/registry';
+// The full layout lists every node type in its category; the registered menu keeps the entries
+// whose types exist when this module loads (node families loaded later place their own entries
+// at their position in the same layout).
+import { getNodeType, registerNodeMenu } from '../nodes/registry';
 import type { MenuCategory, MenuEntry } from '../nodes/types';
 
 const e = (idname: string, label?: string, settings?: MenuEntry['settings']): MenuEntry => ({
@@ -12,7 +13,7 @@ const e = (idname: string, label?: string, settings?: MenuEntry['settings']): Me
 const S = 'SEPARATOR' as const;
 const cat = (label: string, items: MenuCategory['items']): MenuCategory => ({ label, items });
 
-export const GEOMETRY_MENU: MenuCategory[] = [
+export const GEOMETRY_MENU_LAYOUT: MenuCategory[] = [
   cat('Input', [
     cat('Constant', [
       e('FunctionNodeInputBool'),
@@ -397,5 +398,24 @@ export const GEOMETRY_MENU: MenuCategory[] = [
     cat('Deprecated', [e('FunctionNodeAlignEulerToVector'), e('FunctionNodeRotateEuler')]),
   ]),
 ];
+
+/** The layout without entries of unregistered types, empty submenus and stray separators. */
+function prune(items: MenuCategory['items']): MenuCategory['items'] {
+  const out: MenuCategory['items'] = [];
+  for (const it of items) {
+    if (it === 'SEPARATOR') {
+      if (out.length && out[out.length - 1] !== 'SEPARATOR') out.push(it);
+    } else if ('idname' in it) {
+      if (getNodeType(it.idname)?.treeTypes.includes('GEOMETRY')) out.push(it);
+    } else {
+      const sub = prune(it.items);
+      if (sub.length) out.push({ ...it, items: sub });
+    }
+  }
+  while (out.length && out[out.length - 1] === 'SEPARATOR') out.pop();
+  return out;
+}
+
+export const GEOMETRY_MENU: MenuCategory[] = prune(GEOMETRY_MENU_LAYOUT) as MenuCategory[];
 
 registerNodeMenu(['GEOMETRY'], GEOMETRY_MENU);

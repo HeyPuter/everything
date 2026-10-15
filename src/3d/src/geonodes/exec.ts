@@ -41,8 +41,6 @@ export interface ExecContext {
   geometry(id: string): GeometrySet;
   /** all geometries linked into a multi-input socket (in link order) */
   geometries(id: string): GeometrySet[];
-  /** all values linked into a multi-input socket (in link order) */
-  values(id: string): Val[];
   field(id: string, type?: FieldType): Field;
   float(id: string): number;
   int(id: string): number;

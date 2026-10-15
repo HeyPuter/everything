@@ -353,10 +353,6 @@ export class TreeEval {
         const v = self.inputValue(node, s);
         return v instanceof GeometrySet ? v : GeometrySet.empty();
       },
-      values: (id) => {
-        const s = sock(id);
-        return s ? self.inputValues(node, s) : [];
-      },
       geometries: (id) => {
         const s = sock(id);
         if (!s) return [];
