@@ -191,3 +191,18 @@ describe('select pattern for bones', () => {
     expect(a.bones[0].select).toBe(false);
   });
 });
+
+describe('cursor snapping in curve Edit Mode', () => {
+  it('Cursor to Selected uses the selected control points', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('curve.primitive_bezier_curve_add', { location: [3, 0, 0] });
+    app.run('object.mode_set', { mode: 'EDIT' });
+    app.graph.evaluate(app.doc);
+    const cu = app.doc.curves[app.activeObject!.data!];
+    app.run('curve.select_all', { action: 'DESELECT' });
+    const b = cu.splines[0].bezier_points[1];
+    b.select_control_point = b.select_left_handle = b.select_right_handle = true;
+    app.run('view3d.snap_cursor_to_selected');
+    expect(app.doc.scene.cursor.location.map((v) => +v.toFixed(4))).toEqual([3 + b.co[0], b.co[1], b.co[2]]);
+  });
+});
