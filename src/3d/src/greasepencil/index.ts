@@ -18,6 +18,7 @@ import './menus';
 import './interpolate';
 import './cleanup';
 import './layerops';
+import './layergroups';
 import './brushops';
 import './editops';
 import './editmenus';

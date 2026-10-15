@@ -26,7 +26,9 @@ DOPESHEET_MODES.push({
 });
 
 interface GPRow {
-  kind: 'SUMMARY' | 'OBJECT' | 'LAYER';
+  kind: 'SUMMARY' | 'OBJECT' | 'LAYER' | 'GROUP';
+  /** layer group name (GROUP rows) */
+  group?: string;
   ob?: ObjectData;
   gp?: GreasePencilData;
   layer?: GPLayer;
@@ -59,6 +61,7 @@ export function gpObjects(onlySelected: boolean, showHidden: boolean): { ob: Obj
 
 function rowFrames(r: GPRow, all: { ob: ObjectData; gp: GreasePencilData }[]): GPFrame[] {
   if (r.kind === 'LAYER') return r.layer!.frames;
+  if (r.kind === 'GROUP') return r.gp!.layers.filter((l) => l.parent_group === r.group).flatMap((l) => l.frames);
   if (r.kind === 'OBJECT') return r.gp!.layers.flatMap((l) => l.frames);
   return all.flatMap((x) => x.gp.layers.flatMap((l) => l.frames));
 }
@@ -111,12 +114,19 @@ export class GPDopeSheet extends DopeSheet {
     const q = this.search.toLowerCase();
     for (const { ob, gp } of objs) {
       rows.push(mk(`gpo:${ob.id}`, 'OBJECT', ob.name, 0, { kind: 'OBJECT', ob, gp }, 'outliner_ob_greasepencil'));
+      const shownGroups = new Set<string>();
       for (let li = gp.layers.length - 1; li >= 0; li--) {
         const layer = gp.layers[li];
+        const g = layer.parent_group;
+        if (g && !shownGroups.has(g)) {
+          shownGroups.add(g);
+          rows.push(mk(`gpg:${ob.id}:${g}`, 'GROUP', g, 1, { kind: 'GROUP', ob, gp, group: g }, 'file_folder'));
+        }
+        if (g && (gp.layer_groups ?? []).find((x) => x.name === g)?.expanded === false) continue;
         if (q && !layer.name.toLowerCase().includes(q)) continue;
         const key = `gpl:${ob.id}:${li}`;
         if (li === gp.active_layer_index) channelState.selectedGroups.add(key);
-        rows.push(mk(key, 'GROUP', layer.name, 1, { kind: 'LAYER', ob, gp, layer, layerIndex: li }, 'outliner_data_gp_layer'));
+        rows.push(mk(key, 'GROUP', layer.name, g ? 2 : 1, { kind: 'LAYER', ob, gp, layer, layerIndex: li }, 'outliner_data_gp_layer'));
       }
     }
     this.list = { rows, curves: [] };
@@ -280,7 +290,7 @@ export class GPDopeSheet extends DopeSheet {
       if (y > H || y + rh < RULER_H) continue;
       const ch = rows[i];
       const r = ch.gpRow;
-      g.fillStyle = r.kind === 'SUMMARY' ? C.summary : r.kind === 'OBJECT' ? C.objectRow : channelState.selectedGroups.has(ch.key) ? C.channelRowSel : C.channelRow;
+      g.fillStyle = r.kind === 'SUMMARY' ? C.summary : r.kind === 'OBJECT' || r.kind === 'GROUP' ? C.objectRow : channelState.selectedGroups.has(ch.key) ? C.channelRowSel : C.channelRow;
       g.fillRect(0, y, W, rh - 1);
       const cc = r.kind === 'LAYER' ? r.layer!.channel_color : undefined;
       if (cc) {

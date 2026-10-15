@@ -76,6 +76,14 @@ export interface GPLayer {
   active_mask_index?: number;
   /** Display: channel color in the dope sheet */
   channel_color?: Color;
+  /** name of the layer group the layer belongs to */
+  parent_group?: string;
+}
+
+export interface GPLayerGroup {
+  name: string;
+  expanded?: boolean;
+  color_tag?: string;
 }
 
 export interface GPLayerMask {
@@ -103,6 +111,8 @@ export interface GreasePencilData {
   use_onion_fade: boolean;
   use_onion_loop: boolean;
   users?: number;
+  /** layer groups (members are kept next to each other in the stack) */
+  layer_groups?: GPLayerGroup[];
   /** vertex groups (weights live on the drawings, by name) */
   vertex_groups?: { name: string; lock_weight?: boolean }[];
   active_vertex_group_index?: number;

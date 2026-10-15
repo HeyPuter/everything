@@ -53,3 +53,13 @@
   height: 20px;
   padding: 0;
 }
+.gp-layer-specials {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+.gp-layer-specials .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}

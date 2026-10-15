@@ -7,6 +7,7 @@ import { panel, enumRow, enumMenu, checkbox, opButton } from '../ui/widgets';
 import { openMenu } from '../ui/menu';
 import { layerMenu } from './menus';
 import { renameLayer, setLayerParent } from './layerops';
+import { groupsOf, members, groupMenu, TAG_COLORS } from './layergroups';
 import { num, bool, enumProp, colorProp, vecProp, splitRow } from '../ui/props';
 import { propertiesTabs } from '../editors/properties/properties';
 import { uiList } from '../editors/properties/uilist';
@@ -51,13 +52,45 @@ const BLEND_ITEMS: [string, string][] = [
 ];
 
 function layersPanel(gp: GreasePencilData): Child {
-  // displayed top → bottom (the last layer draws on top)
-  const order = gp.layers.map((_, i) => gp.layers.length - 1 - i);
-  const items = order.map((li) => {
+  // displayed top → bottom (the last layer draws on top); groups show above their layers
+  const rows: ({ kind: 'layer'; li: number } | { kind: 'group'; name: string })[] = [];
+  const seen = new Set<string>();
+  const groups = groupsOf(gp);
+  for (let li = gp.layers.length - 1; li >= 0; li--) {
+    const g = gp.layers[li].parent_group;
+    if (g && !seen.has(g)) {
+      seen.add(g);
+      rows.push({ kind: 'group', name: g });
+    }
+    if (g && groups.find((x) => x.name === g)?.expanded === false) continue;
+    rows.push({ kind: 'layer', li });
+  }
+  const order = rows.map((r) => (r.kind === 'layer' ? r.li : -1));
+  const items = rows.map((r, ri) => {
+    if (r.kind === 'group') {
+      const grp = groups.find((x) => x.name === r.name)!;
+      const mem = members(gp, r.name);
+      const hidden = mem.every((l) => l.hide),
+        locked = mem.every((l) => l.lock);
+      return {
+        key: `g${r.name}`,
+        label: r.name,
+        icon: 'file_folder',
+        right: h(
+          'span',
+          { style: { display: 'flex', gap: '1px', alignItems: 'center' } },
+          grp.color_tag ? h('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: TAG_COLORS[grp.color_tag], marginRight: '3px' } }) : null,
+          toggle(`gx${ri}`, grp.expanded !== false, 'disclosure_tri_down', 'disclosure_tri_right', 'Expand\nShow the layers of the group', () => ((grp.expanded = grp.expanded === false), app.changed('ui'))),
+          toggle(`gh${ri}`, !hidden, 'hide_off', 'hide_on', 'Hide\nShow or hide all layers of the group', () => (mem.forEach((l) => (l.hide = !hidden)), changed('Hide Group'))),
+          toggle(`gl${ri}`, locked, 'locked', 'unlocked', 'Locked\nLock or unlock all layers of the group', () => (mem.forEach((l) => (l.lock = !locked)), changed('Lock Group'))),
+        ),
+      };
+    }
+    const li = r.li;
     const l = gp.layers[li];
     return {
       key: `l${li}${l.name}`,
-      label: l.name,
+      label: `${l.parent_group ? '\u2003' : ''}${l.name}`,
       icon: 'outliner_data_gp_layer',
       right: h(
         'span',
@@ -75,6 +108,14 @@ function layersPanel(gp: GreasePencilData): Child {
       ),
     };
   });
+  /** a group row activates its topmost layer */
+  const rowLayer = (i: number) => {
+    const r = rows[i];
+    if (!r) return -1;
+    if (r.kind === 'layer') return r.li;
+    const mem = members(gp, r.name);
+    return gp.layers.indexOf(mem[mem.length - 1]);
+  };
   const act = gp.layers[gp.active_layer_index];
   return panel('gp-layers', 'Layers', () => [
     act
@@ -93,14 +134,24 @@ function layersPanel(gp: GreasePencilData): Child {
           num(act, 'opacity', 'Opacity', { min: 0, max: 1, slider: true }),
         )
       : null,
-    uiList('gp-layer-list', items, order.indexOf(gp.active_layer_index), (i) => app.run('grease_pencil.layer_active', { layer: order[i] }), {
+    uiList('gp-layer-list', items, order.indexOf(gp.active_layer_index), (i) => app.run('grease_pencil.layer_active', { layer: rowLayer(i) }), {
       add: () => app.run('grease_pencil.layer_add', {}, { invoke: false }),
       remove: () => app.run('grease_pencil.layer_remove'),
       up: () => app.run('grease_pencil.layer_move', { direction: 'UP' }),
       down: () => app.run('grease_pencil.layer_move', { direction: 'DOWN' }),
       rename: (i, name) => {
-        const l = gp.layers[order[i]];
-        if (name && !gp.layers.some((x) => x !== l && x.name === name)) renameLayer(gp, l, name);
+        const r = rows[i];
+        name = name.trim();
+        if (!r || !name) return;
+        if (r.kind === 'group') {
+          if (groups.some((g) => g.name === name)) return;
+          for (const l of members(gp, r.name)) l.parent_group = name;
+          groups.find((g) => g.name === r.name)!.name = name;
+          changed('Rename Layer Group');
+          return;
+        }
+        const l = gp.layers[r.li];
+        if (!gp.layers.some((x) => x !== l && x.name === name)) renameLayer(gp, l, name);
         changed('Rename Layer');
       },
       rows: 4,
@@ -119,6 +170,20 @@ function layersPanel(gp: GreasePencilData): Child {
           },
         },
         'Layer',
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+      h(
+        'button',
+        {
+          class: 'btn',
+          'data-tip': 'Layer groups',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(groupMenu(), e.currentTarget as HTMLElement);
+          },
+        },
+        icon('file_folder'),
+        'Group',
         icon('down_arrow_hlt', 'tiny'),
       ),
     ),

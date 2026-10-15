@@ -604,3 +604,44 @@ describe('trace image', () => {
     expect(Math.max(...xs)).toBeLessThan(0.85);
   });
 });
+
+describe('layer groups', () => {
+  beforeEach(() => {
+    setApp(new App(startupDocument()));
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+  });
+  const names = () => gpOf(app.doc, app.activeObject)!.layers.map((l) => `${l.parent_group ? `${l.parent_group}/` : ''}${l.name}`);
+
+  it('groups layers, keeps them together, merges and ungroups', () => {
+    const gp = gpOf(app.doc, app.activeObject)!;
+    gp.layers.push(newLayer('Top'));
+    gp.active_layer_index = 0; // Color
+    expect(app.run('grease_pencil.layer_group_add', { new_layer_group_name: 'Paint' }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Paint/Color', 'Lines', 'Top']);
+    // Top joins the group: it moves next to Color
+    gpOf(app.doc, app.activeObject)!.active_layer_index = 2;
+    expect(app.run('grease_pencil.layer_group_assign', { group: 'Paint' }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Paint/Color', 'Paint/Top', 'Lines']);
+    // an ungrouped layer moving down steps over the whole group
+    gpOf(app.doc, app.activeObject)!.active_layer_index = 2;
+    expect(app.run('grease_pencil.layer_move', { direction: 'DOWN' }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Lines', 'Paint/Color', 'Paint/Top']);
+    // merge the group into one layer
+    gpOf(app.doc, app.activeObject)!.active_layer_index = 1;
+    expect(app.run('grease_pencil.layer_merge', { mode: 'GROUP' }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Lines', 'Paint']);
+    expect(gpOf(app.doc, app.activeObject)!.layer_groups).toEqual([]);
+  });
+
+  it('removing a group keeps or deletes its layers', () => {
+    const gp = gpOf(app.doc, app.activeObject)!;
+    gp.active_layer_index = 1;
+    app.run('grease_pencil.layer_group_add', {}, { invoke: false });
+    expect(app.run('grease_pencil.layer_group_remove', { keep_children: true }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Color', 'Lines']);
+    gpOf(app.doc, app.activeObject)!.active_layer_index = 1;
+    app.run('grease_pencil.layer_group_add', {}, { invoke: false });
+    expect(app.run('grease_pencil.layer_group_remove', { keep_children: false }, { invoke: false })).toBe('FINISHED');
+    expect(names()).toEqual(['Color']);
+  });
+});
