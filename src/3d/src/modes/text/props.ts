@@ -149,6 +149,19 @@ fontDataPanels.push(
       () => {
         const boxes = textBoxes(cu);
         return [
+          splitRow(
+            'Overflow',
+            enumMenu(
+              'cu-overflow',
+              [
+                { value: 'NONE', label: 'Overflow' },
+                { value: 'SCALE', label: 'Scale to Fit' },
+                { value: 'TRUNCATE', label: 'Truncate' },
+              ],
+              cu.overflow ?? 'NONE',
+              (v) => ((cu.overflow = v as 'NONE'), changed('Text Overflow')),
+            ),
+          ),
           ...boxes.map((b, i) =>
             h(
               'div',

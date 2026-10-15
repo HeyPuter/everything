@@ -91,7 +91,27 @@ function rectSpline(x0: number, y0: number, x1: number, y1: number): Spline {
   };
 }
 
+/** Text layout including overflow handling of the last text box (scale to fit / truncate). */
 export function layoutTextWith(cu: CurveData, src: GlyphSource | null): TextLayout {
+  const first = layoutCore(cu, src);
+  if (cu.overflow !== 'SCALE' || !first.overflowed || !src) return first;
+  // shrink the size until everything fits in the boxes
+  let lo = 0.02,
+    hi = 1;
+  let best = layoutCore({ ...cu, size: (cu.size ?? 1) * lo }, src);
+  for (let it = 0; it < 12; it++) {
+    const mid = (lo + hi) / 2;
+    const l = layoutCore({ ...cu, size: (cu.size ?? 1) * mid }, src);
+    if (l.overflowed) hi = mid;
+    else {
+      lo = mid;
+      best = l;
+    }
+  }
+  return best;
+}
+
+function layoutCore(cu: CurveData, src: GlyphSource | null): TextLayout & { overflowed: boolean } {
   const body = cu.body ?? '';
   const size = cu.size ?? 1;
   const lineHeight = 1.2 * size * (cu.space_line ?? 1);
@@ -106,7 +126,7 @@ export function layoutTextWith(cu: CurveData, src: GlyphSource | null): TextLayo
   const lines: TextLine[] = [];
   if (!src) {
     for (let i = 0; i <= body.length; i++) carets[i] = [ox, oy];
-    return { splines, carets, lines: [{ start: 0, end: body.length, y: 0 }], lineHeight, size };
+    return { splines, carets, lines: [{ start: 0, end: body.length, y: 0 }], lineHeight, size, overflowed: false };
   }
   // glyph runs per paragraph
   const spaceAdv = src.advance(' ', 'REGULAR');
@@ -190,7 +210,12 @@ export function layoutTextWith(cu: CurveData, src: GlyphSource | null): TextLayo
   const total = (firstBoxLines - 1) * lineHeight;
   const ay = cu.align_y ?? 'TOP_BASELINE';
   const yOffset = ay === 'CENTER' ? total / 2 - size * 0.35 : ay === 'BOTTOM_BASELINE' ? total : ay === 'BOTTOM' ? total + size * 0.25 : ay === 'TOP' ? -size * 0.8 : 0;
-  const placed = vlines.map((l) => {
+  // lines past the bottom of the last (bounded) box overflow it
+  const lastBox = boxes[boxes.length - 1];
+  const overflows = (l: { box: number; row: number }) => l.box === boxes.length - 1 && lastBox.height > 0 && (l.row + 1) * lineHeight > lastBox.height + 1e-6 && l.row > 0;
+  const overflowed = vlines.some(overflows);
+  const kept = cu.overflow === 'TRUNCATE' ? vlines.filter((l) => !overflows(l)) : vlines;
+  const placed = kept.map((l) => {
     const b = boxes[l.box];
     return { l, b, y: b.y - l.row * lineHeight + (l.box === 0 ? yOffset : 0) };
   });
@@ -237,5 +262,5 @@ export function layoutTextWith(cu: CurveData, src: GlyphSource | null): TextLayo
     if (carets[l.end] === undefined || l.last) carets[l.end] = [x + ox, y + oy];
   }
   for (let i = 0; i <= body.length; i++) carets[i] ??= [ox, oy];
-  return { splines, carets, lines, lineHeight, size };
+  return { splines, carets, lines, lineHeight, size, overflowed };
 }

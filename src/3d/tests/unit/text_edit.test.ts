@@ -75,6 +75,23 @@ describe('text layout', () => {
   });
 });
 
+describe('text box overflow', () => {
+  const body = 'aa bb cc dd ee ff';
+  const boxes = [{ x: 0, y: 0, width: 2.6, height: 1.3 }];
+  it('truncates lines past the last box', () => {
+    const full = layoutTextWith(text(body, { text_boxes: boxes }), mono);
+    const cut = layoutTextWith(text(body, { text_boxes: boxes, overflow: 'TRUNCATE' }), mono);
+    expect(full.lines.length).toBe(3);
+    expect(cut.lines.length).toBe(1);
+    expect(cut.splines.length).toBeLessThan(full.splines.length);
+  });
+  it('scales the text down to fit', () => {
+    const l = layoutTextWith(text(body, { text_boxes: boxes, overflow: 'SCALE' }), mono);
+    expect(l.size).toBeLessThan(1);
+    expect((l.lines.length) * l.lineHeight).toBeLessThanOrEqual(1.3 + 1e-6);
+  });
+});
+
 describe('text editing kernels', () => {
   it('keeps formats in sync with the body', () => {
     const cu = text('Hello');
