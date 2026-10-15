@@ -83,6 +83,15 @@ test('select menu tools: grouped, same-type stepping, circle and lasso', async (
   // Shift ] activates the next math node
   await page.keyboard.press('Shift+BracketRight');
   expect(await withTree(page, '(ed, t) => t.active_node')).toBe(m2);
+  // A selects everything, A twice in a row deselects
+  await page.keyboard.press('a');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('a');
+  expect((await sel()).length).toBeGreaterThan(3);
+  await page.waitForTimeout(400);
+  await page.keyboard.press('a');
+  await page.keyboard.press('a');
+  expect(await sel()).toEqual([]);
   // circle select: C, paint over the value node, confirm with Esc
   await page.mouse.click(box.x + 5, box.y + box.height - 5);
   const hv = await nodeHeader(page, v);

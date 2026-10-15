@@ -539,6 +539,15 @@ const ops: Operator[] = [
 
 registerOperators(ops);
 
+let lastA = 0;
+/** Second A press within a short time (checked on every A press). */
+function doubleTapA() {
+  const now = performance.now();
+  const dbl = now - lastA < 300;
+  lastA = dbl ? 0 : now;
+  return dbl;
+}
+
 /** The node editor under the pointer (for menu keys). */
 function hoverEditor(): NodeEditor | null {
   const ed = (app.hoverArea ?? app.activeArea)?.editor;
@@ -557,8 +566,10 @@ addKeys('Node Editor', [
       openMenu(ed.swapMenuItems(), { x: app.pointer.x, y: app.pointer.y }, { title: 'Swap', onType: (ch) => ed.swapSearch(ch) });
     },
   },
-  { key: 'A', op: 'node.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'node.select_all', props: { action: 'DESELECT' } },
+  // pressing A twice quickly deselects everything
+  { key: 'A', op: 'node.select_all', props: { action: 'DESELECT' }, when: doubleTapA },
+  { key: 'A', op: 'node.select_all', props: { action: 'SELECT' } },
   { key: 'I', ctrl: true, op: 'node.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'node.select_box' },
   { key: 'C', op: 'node.select_circle' },
