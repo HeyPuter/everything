@@ -12,6 +12,8 @@ import { contextTargets, metaOf, nodeEditorOf, type NodeEditorLike } from './ops
 import { libraries, libraryCatalogs, listAssets, libraryDoc, assetRef, type AssetEntry } from './library';
 import { assetTableOfId, blockOf, encodeTarget, isAssetTable } from './types';
 import { catalogTree, type CatalogNode } from './catalogs';
+import { shelfCategoryHooks } from '../paint/assetshelf';
+import type { BrushInfo } from '../paint/brushes';
 
 /** Mark / Clear entries for the current context (3D view selection or Outliner selection). */
 function markClearItems(targets: { table: string; id: string }[], extra: Record<string, unknown> = {}): MenuItem[] {
@@ -119,4 +121,30 @@ addMenuExtras.push({
     if (!ed) return [];
     return groupAssetsFor(ed).map(({ e, path }) => ({ label: e.block.name, path: path ? `Assets ▸ ${path.split('/').join(' ▸ ')}` : 'Assets', icon: 'node_tree', run: () => addAsset(ed, assetRef(e), at) }));
   },
+});
+
+// ---------------------------------------------------------------------------
+// paint modes: brush assets of every library in the brush shelf
+
+shelfCategoryHooks.push((mode) => {
+  const brushes: BrushInfo[] = [];
+  for (const lib of libraries()) {
+    const doc = libraryDoc(lib.id);
+    if (!doc) continue;
+    for (const e of listAssets(lib.id)) {
+      if (e.table !== 'brushes') continue;
+      const b = doc.brushes[e.id];
+      if (!b || b.mode !== mode) continue;
+      const ref = assetRef(e);
+      brushes.push({
+        id: ref,
+        name: b.name,
+        tool: b.sculpt_tool,
+        icon: 'brush',
+        description: `${e.block.asset_data?.description || 'Brush asset'} (${lib.name})`,
+        pick: () => void app.run('brush.asset_activate', { asset: ref }, { invoke: false }),
+      });
+    }
+  }
+  return brushes.length ? [{ name: 'Assets', brushes: brushes.sort((a, b) => a.name.localeCompare(b.name)) }] : [];
 });
