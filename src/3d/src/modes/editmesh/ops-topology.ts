@@ -176,7 +176,7 @@ registerOperators([
 // ---------------------------------------------------------------------------
 // inset
 
-export function insetFaces(m: MeshEdit, thickness: number, depth: number, individual: boolean, outset = false) {
+export function insetFaces(m: MeshEdit, thickness: number, depth: number, individual: boolean, outset = false, opts: { even?: boolean; relative?: boolean } = {}) {
   const fsel = m.selectedFaces();
   if (!fsel.length) return false;
   const groups = individual ? fsel.map((f) => [f]) : [fsel];
@@ -220,7 +220,20 @@ export function insetFaces(m: MeshEdit, thickness: number, depth: number, indivi
       // miter: scale so that the offset distance along each edge normal equals thickness
       const n = d.clone().normalize();
       const cosHalf = Math.max(0.2, d.length() / 2);
-      const len = inward.get(v)!.length() > 1.0001 ? t / cosHalf : t;
+      let len = inward.get(v)!.length() > 1.0001 && opts.even !== false ? t / cosHalf : t;
+      if (opts.relative) {
+        // scale by the average length of the region edges at this vertex
+        let sum = 0,
+          cnt = 0;
+        for (const fi of group) {
+          const f = m.faces[fi];
+          const i = f.verts.indexOf(v);
+          if (i < 0) continue;
+          sum += V(m.p(v)).distanceTo(V(m.p(f.verts[(i + 1) % f.verts.length]))) + V(m.p(v)).distanceTo(V(m.p(f.verts[(i + f.verts.length - 1) % f.verts.length])));
+          cnt += 2;
+        }
+        if (cnt) len *= sum / cnt;
+      }
       const vn = (vertNormal.get(v) ?? new Vector3(0, 0, 1)).normalize();
       const p = V(m.p(v)).addScaledVector(n, len).addScaledVector(vn, depth);
       map.set(v, m.addVert([p.x, p.y, p.z], [[v, 1]], 1));
@@ -1309,13 +1322,15 @@ registerOperators([
       { id: 'use_individual', label: 'Individual', type: 'bool', default: false },
       { id: 'use_outset', label: 'Outset', type: 'bool', default: false },
       { id: 'use_select_inset', label: 'Select Outer', type: 'bool', default: false },
+      { id: 'use_even_offset', label: 'Offset Even', type: 'bool', default: true },
+      { id: 'use_relative_offset', label: 'Offset Relative', type: 'bool', default: false },
     ],
     poll: editPoll,
     invoke: (_ctx, p) => startInsetModal(!!p.use_individual, !!p.use_outset),
     exec: (_ctx, p) =>
       void withEdit((m) => {
         const before = m.faces.length;
-        if (!insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset)) return false;
+        if (!insetFaces(m, p.thickness as number, p.depth as number, !!p.use_individual, !!p.use_outset, { even: p.use_even_offset !== false, relative: !!p.use_relative_offset })) return false;
         if (p.use_select_inset) {
           // select the new rim instead of the inner faces
           const inner = new Set(m.selectedFaces());
