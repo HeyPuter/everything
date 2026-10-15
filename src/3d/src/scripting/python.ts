@@ -5,7 +5,7 @@ import { app } from '../app/app';
 import { Struct, BoundArray, PropCollection, isIdWrapper, pyError } from './rna';
 import { bpy, callOperator, opModules, opNames, type ExecContext } from './api';
 import { operators } from '../app/app';
-import { VecBase, Matrix } from './mathutils';
+import { VecBase, Matrix, mathutils } from './mathutils';
 import { registerScriptOperator, unregisterScriptOperator, registerScriptPanel, unregisterScriptPanel, UILayout, type ScriptProp } from './registry';
 import { output, inScript, type RunResult } from './runner';
 import { pyTimers, setPythonHandlerDispatch } from './handlers';
@@ -273,6 +273,8 @@ export const bridge = {
   root: (name: string) => bpy[name],
   /** A registered script module (bmesh, …) by name. */
   module: (name: string) => scriptModules[name] ?? null,
+  /** The JavaScript mathutils module (the Python submodules forward to it). */
+  mathutils: () => mathutils,
   new_layout: () => new UILayout(),
   /** bpy.app.handlers: Python registers one dispatcher (event, argument) and a counter of its handlers. */
   set_handlers: (dispatch: PyProxyFn | null, count: PyProxyFn | null) => setPythonHandlerDispatch(dispatch as never, count as never),
