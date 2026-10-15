@@ -450,3 +450,24 @@ test('proportional editing in curve Edit Mode', async ({ page }) => {
   await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.use_proportional_edit = false));
   await expectNoErrors(errors);
 });
+
+test('bevel object gives a curve its cross-section', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'curve.primitive_bezier_circle_add', { radius: 0.2 });
+  const circle = await get(page, 'app.activeObject.id');
+  await run(page, 'object.select_all', { action: 'DESELECT' });
+  await run(page, 'curve.primitive_bezier_curve_add');
+  await page.locator('.rail-tab[data-tip="Data"]').first().click();
+  await expect(page.locator('.sr-label', { hasText: 'Taper Object' })).toBeVisible();
+  const faces = await page.evaluate((id) => {
+    const a = (window as any).app;
+    const cu = a.doc.curves[a.activeObject.data];
+    cu.bevel_mode = 'OBJECT';
+    cu.bevel_object = id;
+    a.changed('doc', 'geometry');
+    a.flush();
+    return a.graph.get(a.activeObject.id).mesh.offsets.length - 1;
+  }, circle);
+  expect(faces).toBeGreaterThan(20);
+  await expectNoErrors(errors);
+});

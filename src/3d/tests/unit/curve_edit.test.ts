@@ -262,3 +262,28 @@ describe('mesh to curve', () => {
     expect(splines[0].points.length).toBe(4);
   });
 });
+
+describe('bevel and taper objects', () => {
+  it('sweeps a profile along a curve and tapers the radius', () => {
+    const path = curve(spline([bp([0, 0, 0], [-1, 0, 0], [1, 0, 0], 'ALIGNED'), bp([4, 0, 0], [3, 0, 0], [5, 0, 0], 'ALIGNED')]));
+    path.resolution_u = 4;
+    // square profile, closed
+    const prof: [number, number][] = [
+      [-0.5, -0.5],
+      [0.5, -0.5],
+      [0.5, 0.5],
+      [-0.5, 0.5],
+    ];
+    const m = curveToMesh(path, false, { profile: prof, profileClosed: true });
+    // rings of 4 points joined by quads
+    const rings = m.positions.length / 3 / 4;
+    expect(Number.isInteger(rings)).toBe(true);
+    expect(m.offsets.length - 1).toBe((rings - 1) * 4);
+    const t = curveToMesh(path, false, { profile: prof, profileClosed: true, taper: (u) => 1 - u });
+    // the last ring collapses to the centre line
+    let maxEnd = 0;
+    const nv = t.positions.length / 3;
+    for (let i = nv - 4; i < nv; i++) maxEnd = Math.max(maxEnd, Math.abs(t.positions[i * 3 + 1]), Math.abs(t.positions[i * 3 + 2]));
+    expect(maxEnd).toBeLessThan(1e-6);
+  });
+});

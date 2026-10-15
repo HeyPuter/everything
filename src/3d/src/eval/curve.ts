@@ -142,7 +142,16 @@ const norm = (a: Vec3): Vec3 => {
   return [a[0] / l, a[1] / l, a[2] / l];
 };
 
-export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
+/** Extra shaping from other objects: a bevel profile (cross-section) and a taper (radius along the curve). */
+export interface CurveShapeOptions {
+  /** profile points in the cross-section plane (x: sideways, y: up), object units */
+  profile?: [number, number][];
+  profileClosed?: boolean;
+  /** radius factor for a parameter 0..1 along each spline */
+  taper?: (t: number) => number;
+}
+
+export function curveToMesh(cu: CurveData, isText = false, shape: CurveShapeOptions = {}): EvalMesh {
   const splines = isText ? textToCurves(cu) : cu.splines;
   const sampled = splines.map((s) => sampleSpline(s, cu.resolution_u));
   const positions: number[] = [],
@@ -153,7 +162,8 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
     positions.push(p[0], p[1], p[2]);
     return positions.length / 3 - 1;
   };
-  const hasGeometry = cu.bevel_depth > 0 || cu.extrude > 0;
+  const profile = shape.profile && shape.profile.length >= 2 ? shape.profile : null;
+  const hasGeometry = cu.bevel_depth > 0 || cu.extrude > 0 || !!profile;
   // 2D fill
   if (is2D && cu.fill_mode !== 'NONE' && (cu.fill_mode as string) !== 'NONE') {
     const closed = sampled.filter((s) => s.cyclic && s.points.length >= 3);
@@ -187,18 +197,25 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
       continue;
     }
     const { N, B } = frames(s.points, s.cyclic, is2D);
-    const ring = cu.bevel_depth > 0 ? Math.max(4, (cu.bevel_resolution + 2) * 2) : 0;
+    const ring = profile ? 0 : cu.bevel_depth > 0 ? Math.max(4, (cu.bevel_resolution + 2) * 2) : 0;
     const rows: number[][] = [];
+    // arc-length parameter for the taper
+    const along: number[] = [0];
+    for (let i = 1; i < n; i++) along.push(along[i - 1] + Math.hypot(s.points[i][0] - s.points[i - 1][0], s.points[i][1] - s.points[i - 1][1], s.points[i][2] - s.points[i - 1][2]));
+    const total = along[n - 1] || 1;
     for (let i = 0; i < n; i++) {
       const p = s.points[i],
-        r = s.radius[i],
+        r = s.radius[i] * (shape.taper ? Math.max(0, shape.taper(along[i] / total)) : 1),
         tilt = s.tilt[i];
       const ct = Math.cos(tilt),
         st = Math.sin(tilt);
       const nn: Vec3 = [N[i][0] * ct + B[i][0] * st, N[i][1] * ct + B[i][1] * st, N[i][2] * ct + B[i][2] * st];
       const bb: Vec3 = [B[i][0] * ct - N[i][0] * st, B[i][1] * ct - N[i][1] * st, B[i][2] * ct - N[i][2] * st];
       const row: number[] = [];
-      if (ring) {
+      if (profile) {
+        // custom cross-section from the bevel object
+        for (const [px, py] of profile) row.push(add([p[0] + (bb[0] * px + nn[0] * py) * r, p[1] + (bb[1] * px + nn[1] * py) * r, p[2] + (bb[2] * px + nn[2] * py) * r]));
+      } else if (ring) {
         // tube profile (optionally stretched by extrude)
         for (let k = 0; k < ring; k++) {
           const a = (k / ring) * Math.PI * 2;
@@ -214,7 +231,7 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
     }
     const segs = s.cyclic ? n : n - 1;
     const rl = rows[0].length;
-    const wrap = ring > 0;
+    const wrap = ring > 0 || (!!profile && !!shape.profileClosed);
     for (let i = 0; i < segs; i++) {
       const a = rows[i],
         b = rows[(i + 1) % n];
@@ -229,7 +246,7 @@ export function curveToMesh(cu: CurveData, isText = false): EvalMesh {
         });
       }
     }
-    if (ring && !s.cyclic && cu.use_fill_caps) {
+    if ((ring || (profile && shape.profileClosed)) && !s.cyclic && cu.use_fill_caps) {
       faces.push({ verts: [...rows[0]].reverse(), material: s.material });
       faces.push({ verts: [...rows[n - 1]], material: s.material });
     }

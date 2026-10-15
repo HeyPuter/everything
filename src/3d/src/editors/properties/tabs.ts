@@ -606,9 +606,13 @@ function curveData(o: ObjectData, cu: CurveData): Child {
       num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }),
       num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 }),
       bool(cu, 'use_fill_caps', 'Fill Caps'),
+      ...curveGeometryRows.map((f) => f(o, cu)),
     ]),
   ];
 }
+
+/** Extra rows at the end of the curve Geometry panel (bevel / taper objects). */
+export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
 
 /** Panels of the text (FONT) Object Data tab, before Geometry. */
 export const fontDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];

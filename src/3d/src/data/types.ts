@@ -173,7 +173,10 @@ export interface CurveData {
   extrude: number;
   offset: number;
   fill_mode: 'FULL' | 'BACK' | 'FRONT' | 'HALF' | 'NONE' | 'BOTH';
+  /** ROUND: tube of bevel_depth; OBJECT: cross-section from bevel_object */
+  bevel_mode?: 'ROUND' | 'OBJECT';
   bevel_object?: ID | null;
+  /** curve object whose height along its X extent scales the radius */
   taper_object?: ID | null;
   use_fill_caps: boolean;
   materials: (ID | null)[];
