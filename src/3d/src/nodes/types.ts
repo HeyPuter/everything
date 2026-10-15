@@ -111,6 +111,8 @@ export interface NodePropDef {
   noLabel?: boolean;
   /** only drawn when the predicate holds */
   visible?: (node: NodeData) => boolean;
+  /** enum items that depend on the tree the node is in (defaults to `items`) */
+  itemsFor?: (tree?: NodeTreeData) => [string, string][] | undefined;
 }
 
 /** A collapsible panel of sockets/props inside a node (e.g. Principled BSDF ▸ Subsurface). */

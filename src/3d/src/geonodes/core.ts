@@ -6,6 +6,7 @@ import './nodes/curve';
 import './nodes/point';
 import './nodes/utilities';
 import './nodes/output';
+import './nodes/gnfields';
 import './menu';
 import './curves';
 import './modifier';

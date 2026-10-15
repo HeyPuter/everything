@@ -111,6 +111,21 @@
   height: 12px;
   opacity: 0.8;
 }
+.nd-warn-icon {
+  display: flex;
+  color: #ffc46b;
+  cursor: help;
+}
+.nd-warn-icon svg {
+  width: 12px;
+  height: 12px;
+}
+.nd-warn-icon.error {
+  color: #ff8080;
+}
+.nd-warn-icon.info {
+  color: #b8c6dc;
+}
 .nd-rowwrap {
   position: absolute;
   left: 0;

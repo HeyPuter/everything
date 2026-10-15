@@ -185,6 +185,7 @@ export function evaluateGroup(group: NodeGroupData, m: ModifierBase, env: EvalEn
   if (!cache) caches.set(cacheKey, (cache = new Map()));
   const log: EvalLog = {
     warnings: new Map(),
+    kinds: new Map(),
     executed: 0,
     generation: ++generation,
   };
@@ -329,6 +330,7 @@ registerModifier({
       viewer: r.viewer,
       viewerDomain: r.viewerDomain,
       warnings: r.log.warnings,
+      warningKinds: r.log.kinds,
       ms: performance.now() - t0,
       executed: r.log.executed,
     });

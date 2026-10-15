@@ -6,6 +6,9 @@ import type { GeometrySet } from './geometry';
 import type { FieldType } from './types';
 import type { TreeEval } from './evaluator';
 
+/** Severity of a reported message. */
+export type WarningKind = 'ERROR' | 'WARNING' | 'INFO';
+
 /** Value flowing through a socket. */
 export type Val = number | boolean | string | number[] | Field | GeometrySet | null | undefined;
 
@@ -59,7 +62,8 @@ export interface ExecContext {
   used(output: string): boolean;
   /** anonymous attribute name for a field output created by this node */
   anon(output: string): string;
-  warn(message: string): void;
+  /** report a message on the node (and the modifier); warnings by default */
+  warn(message: string, kind?: WarningKind): void;
 }
 
 export interface GeoNodeExec {

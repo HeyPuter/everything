@@ -71,6 +71,8 @@ export function writeScalar(out: AttrArray, type: FieldType, i: number, v: Scala
   if (c === 1) {
     const x = Array.isArray(v) ? (v[0] ?? 0) : typeof v === 'boolean' ? (v ? 1 : 0) : v;
     out[i] = type === 'BOOLEAN' ? (x ? 1 : 0) : type === 'INT' ? Math.trunc(x) : x;
+  } else if (type === 'MATRIX') {
+    for (let k = 0; k < 16; k++) out[i * 16 + k] = Array.isArray(v) && v.length === 16 ? v[k] : k % 5 === 0 ? 1 : 0;
   } else {
     const arr = Array.isArray(v) ? v : [Number(v), Number(v), Number(v), 1];
     for (let k = 0; k < c; k++) out[i * c + k] = arr[k] ?? (k === 3 ? 1 : 0);
@@ -143,7 +145,18 @@ export const constOf = (f: Field): Scalar | undefined => (f instanceof ConstFiel
 export function convertField(f: Field, to: FieldType): Field {
   const from = f.type;
   if (from === to) return f;
-  if ((from === 'VECTOR' && to === 'ROTATION') || (from === 'ROTATION' && to === 'VECTOR')) return fnField(to, [f], (ins, out, n) => out.set(ins[0].data.subarray(0, n * 3)));
+  if (from === 'VECTOR' && to === 'ROTATION') return fnField(to, [f], (ins, out, n) => out.set(ins[0].data.subarray(0, n * 3)));
+  // a rotation read as a vector gives its canonical Euler angles
+  if (from === 'ROTATION' && to === 'VECTOR')
+    return fnField(to, [f], (ins, out, n) => {
+      const d = ins[0].data,
+        m = new Float64Array(16);
+      for (let i = 0; i < n; i++) {
+        eulerToMatrix(d[i * 3], d[i * 3 + 1], d[i * 3 + 2], m, 0);
+        matrixToEuler(m, 0, out, i * 3);
+      }
+    });
+  if (from === 'MATRIX' || to === 'MATRIX') return convertMatrixField(f, to);
   return fnField(to, [f], (ins, out, n) => {
     const a = ins[0],
       s = a.single ? 0 : 1,
@@ -171,6 +184,76 @@ export function convertField(f: Field, to: FieldType): Field {
       }
     }
   });
+}
+
+/** Rotation ↔ matrix conversions; other types do not convert to or from matrices (identity / zero). */
+function convertMatrixField(f: Field, to: FieldType): Field {
+  const from = f.type;
+  if (from === 'ROTATION' && to === 'MATRIX')
+    return fnField('MATRIX', [f], ([a], out, n) => {
+      const s = a.single ? 0 : 3;
+      for (let i = 0; i < n; i++) eulerToMatrix(a.data[i * s], a.data[i * s + 1], a.data[i * s + 2], out, i * 16);
+    });
+  if (from === 'MATRIX' && to === 'ROTATION')
+    return fnField('ROTATION', [f], ([a], out, n) => {
+      const s = a.single ? 0 : 16;
+      for (let i = 0; i < n; i++) matrixToEuler(a.data, i * s, out, i * 3);
+    });
+  return new ConstField(to, to === 'MATRIX' ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] : 0);
+}
+
+/** XYZ Euler angles to a column-major 4×4 rotation matrix. */
+export function eulerToMatrix(x: number, y: number, z: number, out: ArrayLike<number> & { [i: number]: number }, o = 0) {
+  const cx = Math.cos(x),
+    sx = Math.sin(x),
+    cy = Math.cos(y),
+    sy = Math.sin(y),
+    cz = Math.cos(z),
+    sz = Math.sin(z);
+  out[o] = cy * cz;
+  out[o + 1] = cy * sz;
+  out[o + 2] = -sy;
+  out[o + 3] = 0;
+  out[o + 4] = sx * sy * cz - cx * sz;
+  out[o + 5] = sx * sy * sz + cx * cz;
+  out[o + 6] = sx * cy;
+  out[o + 7] = 0;
+  out[o + 8] = cx * sy * cz + sx * sz;
+  out[o + 9] = cx * sy * sz - sx * cz;
+  out[o + 10] = cx * cy;
+  out[o + 11] = 0;
+  out[o + 12] = out[o + 13] = out[o + 14] = 0;
+  out[o + 15] = 1;
+}
+
+/**
+ * Rotation part of a column-major 4×4 (or 3×3 with `stride` 3) matrix to XYZ Euler angles. The
+ * columns are normalized first; of the two equivalent angle sets the one with the smaller total
+ * magnitude is chosen.
+ */
+export function matrixToEuler(m: ArrayLike<number>, o: number, out: { [i: number]: number }, oo: number, stride = 4) {
+  const col = (c: number) => {
+    const x = m[o + c * stride],
+      y = m[o + c * stride + 1],
+      z = m[o + c * stride + 2];
+    const l = Math.hypot(x, y, z) || 1;
+    return [x / l, y / l, z / l];
+  };
+  const c0 = col(0),
+    c1 = col(1),
+    c2 = col(2);
+  const cy = Math.hypot(c0[0], c0[1]);
+  let a: number[], b: number[];
+  if (cy > 16 * 1.1920929e-7) {
+    a = [Math.atan2(c1[2], c2[2]), Math.atan2(-c0[2], cy), Math.atan2(c0[1], c0[0])];
+    b = [Math.atan2(-c1[2], -c2[2]), Math.atan2(-c0[2], -cy), Math.atan2(-c0[1], -c0[0])];
+  } else {
+    a = b = [Math.atan2(-c2[1], c1[1]), Math.atan2(-c0[2], cy), 0];
+  }
+  const r = Math.abs(a[0]) + Math.abs(a[1]) + Math.abs(a[2]) > Math.abs(b[0]) + Math.abs(b[1]) + Math.abs(b[2]) ? b : a;
+  out[oo] = r[0];
+  out[oo + 1] = r[1];
+  out[oo + 2] = r[2];
 }
 
 export function convertScalar(v: Scalar, from: FieldType, to: FieldType): Scalar {

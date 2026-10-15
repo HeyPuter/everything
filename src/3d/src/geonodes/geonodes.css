@@ -92,3 +92,10 @@
 .gn-warnings .mod-error {
   background: rgba(172, 135, 55, 0.25);
 }
+.gn-warnings .mod-error.gn-error {
+  background: rgba(170, 60, 60, 0.3);
+}
+.gn-warnings .mod-error.gn-info {
+  background: rgba(90, 110, 140, 0.25);
+  color: inherit;
+}
