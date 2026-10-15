@@ -39,7 +39,7 @@ function changed(label: string) {
 registerNodeEditorProvider({
   id: 'SHADER',
   label: 'Shader Editor',
-  icon: 'node_material',
+  icon: 'editor_shader',
   treeType: (ed) => (ed.shaderType === 'WORLD' ? 'WORLD' : 'SHADER'),
   root: (ed) => {
     const doc = app.doc;
@@ -211,7 +211,7 @@ registerNodeEditorProvider({
 registerEditor({
   id: 'SHADER',
   label: 'Shader Editor',
-  icon: 'node_material',
+  icon: 'editor_shader',
   group: 'General',
   create: (a, s) => new NodeEditor(a, s, 'SHADER'),
 });

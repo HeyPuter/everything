@@ -1187,6 +1187,21 @@ input.num-field.editing {
 .menu-item .mi-key:empty + .mi-arrow {
   margin-left: 12px;
 }
+/* menus laid out in columns (e.g. the editor type menu) */
+.menu.menu-cols {
+  max-width: none;
+  column-gap: 0;
+  column-rule: 1px solid #262626;
+}
+.menu.menu-cols > * {
+  break-inside: avoid;
+}
+.menu.menu-cols > .col-break {
+  break-before: column;
+}
+.menu-item.current:not(.hl) {
+  background: rgba(255, 255, 255, 0.07);
+}
 .menu-title {
   padding: 2px 10px 5px;
   margin-bottom: 3px;

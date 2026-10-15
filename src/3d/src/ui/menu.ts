@@ -30,6 +30,8 @@ export interface MenuItem {
   search?: boolean;
   /** the menu's title row (see openMenu's `title`) */
   title?: boolean;
+  /** start a new column at this entry (menus with column breaks are laid out side by side) */
+  columnBreak?: boolean;
 }
 
 let layer: HTMLElement;
@@ -201,7 +203,7 @@ function redrawMenus() {
 function renderMenu(m: OpenMenu) {
   const vnodes: Child[] = m.items.map((item, i) => {
     if (item.separator) return h('div', { class: 'menu-sep' });
-    if (item.heading) return h('div', { class: { 'menu-heading': true, 'menu-title': !!item.title } }, item.heading);
+    if (item.heading) return h('div', { class: { 'menu-heading': true, 'menu-title': !!item.title, 'col-break': !!item.columnBreak } }, item.heading);
     if (item.custom) return h('div', { class: 'menu-custom' }, item.custom());
     if (item.search)
       return h(
@@ -227,7 +229,7 @@ function renderMenu(m: OpenMenu) {
     return h(
       'div',
       {
-        class: { 'menu-item': true, hl: i === m.index, disabled, 'has-sub': !!item.submenu },
+        class: { 'menu-item': true, hl: i === m.index, disabled, 'has-sub': !!item.submenu, current: !!item.active, 'col-break': !!item.columnBreak },
         role: 'menuitem',
         'data-tip': item.submenu ? null : itemTip(item, desc),
         'aria-disabled': disabled ? 'true' : null,
@@ -253,7 +255,7 @@ function renderMenu(m: OpenMenu) {
           if (!disabled && !item.submenu) openItemContext(m, item, e.clientX, e.clientY);
         },
       },
-      h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : item.active ? icon('dot') : itemIcon(item) ? icon(itemIcon(item)!) : null),
+      h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : itemIcon(item) ? icon(itemIcon(item)!) : item.active ? icon('dot') : null),
       h('span', { class: 'mi-label' }, itemLabel(item)),
       h('span', { class: 'mi-key' }, shortcutFor(item)),
       item.submenu ? h('span', { class: 'mi-arrow' }) : null,
@@ -319,6 +321,11 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
   ensureLayer().append(el);
   const m: OpenMenu = { el, items, index: -1, parent };
   if (title) el.dataset.title = title;
+  const cols = items.filter((it) => it.columnBreak).length;
+  if (cols) {
+    el.classList.add('menu-cols');
+    el.style.columnCount = String(cols + 1);
+  }
   renderMenu(m);
   stack.push(m);
   // position within viewport
@@ -713,7 +720,14 @@ function showTip(t: HTMLElement) {
   if (!text) return;
   tipEl = document.createElement('div');
   tipEl.className = 'tooltip';
-  const [title, ...rest] = text.split('\n');
+  let [title, ...rest] = text.split('\n');
+  // "Name (Shift Tab)" titles show their key on the shortcut line like every other tooltip
+  const keyInTitle = /^(.+?) \(((?:Ctrl|Shift|Alt|Cmd|Numpad|F\d+|Space|Tab|Home|Del|Esc|Enter)\b[^)]*|[A-Z0-9])\)$/.exec(title);
+  if (keyInTitle && !rest.some((l) => l.startsWith('Shortcut:'))) {
+    title = keyInTitle[1];
+    const meta = rest.findIndex((l) => l.startsWith('Python:'));
+    rest.splice(meta < 0 ? rest.length : meta, 0, `Shortcut: ${keyInTitle[2]}`);
+  }
   const tt = document.createElement('div');
   tt.className = 'tt-title';
   tt.textContent = title;

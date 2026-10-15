@@ -26,4 +26,8 @@ registerIcons({
   mouse_lmb: '<path class="f" d="M7.5 2.1A3.8 3.8 0 0 0 4 6v1.6h3.5z"/><rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8M8 2v5.6" stroke-width="1"/>',
   mouse_mmb: '<rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8" stroke-width="1"/><rect class="f" x="7" y="3.4" width="2" height="3.4" rx="1"/>',
   mouse_rmb: '<path class="f" d="M8.5 2.1A3.8 3.8 0 0 1 12 6v1.6H8.5z"/><rect class="s" x="4" y="2" width="8" height="12" rx="4" fill="none" stroke-width="1.1"/><path class="s" d="M4 7.6h8M8 2v5.6" stroke-width="1"/>',
+  // editor types: node editors and the drivers editor as plain line icons
+  editor_shader: '<rect class="s" x="1.5" y="2.5" width="6" height="5" rx="1" fill="none" stroke-width="1.2"/><path class="s" d="M7.5 5c2.5 0 1.5 5.5 3 5.5" fill="none" stroke-width="1.2"/><circle class="s" cx="11.8" cy="10.8" r="2.7" fill="none" stroke-width="1.2"/><path class="s" d="M10.4 9.6a1.6 1.6 0 0 1 1.6-.8" fill="none" stroke-width="1"/>',
+  editor_geometry: '<rect class="s" x="1.5" y="2.5" width="6" height="5" rx="1" fill="none" stroke-width="1.2"/><path class="s" d="M7.5 5c2.5 0 1.5 5 3 5" fill="none" stroke-width="1.2"/><path class="s" d="M12 7.5l2.6 6H9.4z" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',
+  drivers: '<path class="s" d="M6 12.5c2.5 0 3-9 7.5-9" fill="none" stroke-width="1.4"/><circle class="s" cx="3.5" cy="12.5" r="2" fill="none" stroke-width="1.2"/><path class="s" d="M3.5 8.5v2M3.5 14.5v1" stroke-width="1.2"/>',
 });
