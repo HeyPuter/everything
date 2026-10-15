@@ -243,7 +243,6 @@ registerOperators([
         cols.map((c, i) => ({
           label: c.name,
           icon: c.hide ? 'hide_on' : 'hide_off',
-          shortcut: i < 9 ? String(i + 1) : '',
           action: () => app.run('object.hide_collection', { collection_index: i + 1 }, { invoke: false }),
         })),
         { x: app.pointer.x, y: app.pointer.y },

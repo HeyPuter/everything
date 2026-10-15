@@ -10,6 +10,7 @@ import { h } from '../ui/h';
 import { opButton } from '../ui/widgets';
 import { modifierExtraUI } from '../editors/properties/stack';
 import { findModifier } from './modifierops';
+import { uniqueIn } from './core';
 import { vertexParentMatrix } from '../eval/vertexparent';
 import { localMatrix } from '../eval/transform';
 
@@ -91,7 +92,10 @@ registerOperators([
         }
       }
       const md = newModifier('HOOK', uid('md'), ob.modifiers);
-      md.name = newModifier('HOOK', md.id, ob.modifiers).name.replace(/^Hook/, `Hook-${target.name}`);
+      md.name = uniqueIn(
+        ob.modifiers.map((m) => m.name),
+        `Hook-${target.name}`,
+      );
       md.object = target.id;
       if (bone) md.subtarget = bone;
       md.vertex_indices = idx;
