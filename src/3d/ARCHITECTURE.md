@@ -162,6 +162,11 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 - Top bar menus live in `ui/topbar.ts` (`fileNewTemplates`, `wm.call_menu` names); recent files,
   the startup file and auto save snapshots in `io/session.ts`; `itemContextHooks` (`ui/menu.ts`)
   add entries to the right-click menu of menu items
+- `ui/props.ts` `propertyAnimMenuHook` (right-click menu of keyframe decorators), `anim/keyingsets.ts`
+  `propertyAnimExtraItems`; `editors/properties/tabs.ts` `sceneKeyingPanel`, `armatureDataPanels`
+- Animation editors (`animation/animeditor.ts`): `selectables()` feeds box/circle/lasso selection,
+  `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
+  key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
 
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).

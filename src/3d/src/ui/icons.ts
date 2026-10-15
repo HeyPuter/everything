@@ -124,6 +124,8 @@ const I: Record<string, string> = {
   x: '<path class="s" d="M4 4l8 8M12 4l-8 8" stroke-width="1.6"/>',
   panel_close: '<path class="s" d="M4 4l8 8M12 4l-8 8" stroke-width="1.4"/>',
   trash: '<path class="s" d="M3 4h10M6 4V2.5h4V4M4.5 4l.7 9.5h5.6l.7-9.5" fill="none" stroke-width="1.3"/>',
+  copydown: '<rect class="s" x="5.5" y="2.5" width="7.5" height="9" rx="1" fill="none" stroke-width="1.3"/><path class="s" d="M3 5.5v8h7" fill="none" stroke-width="1.3"/>',
+  pastedown: '<rect class="s" x="3" y="3.5" width="10" height="10.5" rx="1" fill="none" stroke-width="1.3"/><rect class="f" x="5.5" y="1.5" width="5" height="3.2" rx=".7"/><path class="s" d="M5.5 8.5h5M5.5 11h3.5" stroke-width="1.2"/>',
   duplicate: '<rect class="s" x="5" y="5" width="8.5" height="8.5" rx="1" fill="none" stroke-width="1.3"/><path class="s" d="M3 10.5V3h7.5" fill="none" stroke-width="1.3"/>',
   fake_user_off: '<path class="s" d="M8 13.5 2.8 8.4a3 3 0 0 1 4.2-4.2l1 1 1-1a3 3 0 0 1 4.2 4.2z" fill="none" stroke-width="1.3"/>',
   fake_user_on: '<path class="f" d="M8 13.5 2.8 8.4a3 3 0 0 1 4.2-4.2l1 1 1-1a3 3 0 0 1 4.2 4.2z"/>',

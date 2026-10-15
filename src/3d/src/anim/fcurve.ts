@@ -168,10 +168,30 @@ function ease(k: Keyframe, t: number) {
   return t < 0.5 ? fn(t * 2, k) / 2 : 1 - fn((1 - t) * 2, k) / 2;
 }
 
+/** Linear lookup in baked samples (held at the ends). */
+function evaluateSamples(sp: [number, number][], frame: number): number {
+  if (frame <= sp[0][0]) return sp[0][1];
+  const last = sp[sp.length - 1];
+  if (frame >= last[0]) return last[1];
+  let lo = 0,
+    hi = sp.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (sp[mid][0] <= frame) lo = mid;
+    else hi = mid;
+  }
+  const [x0, y0] = sp[lo],
+    [x1, y1] = sp[hi];
+  return x1 > x0 ? y0 + ((y1 - y0) * (frame - x0)) / (x1 - x0) : y1;
+}
+
+/** Whether a curve has anything to evaluate (keys or baked samples). */
+export const hasCurveData = (fc: FCurve) => fc.keyframe_points.length > 0 || !!fc.sampled_points?.length;
+
 function evaluateRaw(fc: FCurve, frame: number): number {
   const k = fc.keyframe_points;
   const n = k.length;
-  if (!n) return 0;
+  if (!n) return fc.sampled_points?.length ? evaluateSamples(fc.sampled_points, frame) : 0;
   const first = k[0],
     last = k[n - 1];
   if (frame <= first.co[0]) {
@@ -220,36 +240,98 @@ function evaluateRaw(fc: FCurve, frame: number): number {
   }
 }
 
+/** How strongly a modifier applies at a frame (influence and restricted frame range with blending). */
+export function modifierWeight(m: FModifier, frame: number): number {
+  let w = m.use_influence ? Math.max(0, Math.min(1, m.influence ?? 1)) : 1;
+  if (m.use_restricted_range) {
+    const a = m.frame_start ?? 0,
+      b = m.frame_end ?? 0;
+    if (frame < a || frame > b) return 0;
+    const bi = m.blend_in ?? 0,
+      bo = m.blend_out ?? 0;
+    if (bi > 0 && frame < a + bi) w *= (frame - a) / bi;
+    if (bo > 0 && frame > b - bo) w *= (b - frame) / bo;
+  }
+  return w;
+}
+
 export function evaluateFCurve(fc: FCurve, frame: number): number {
   let f = frame;
   // time-domain modifiers
   for (const m of fc.modifiers) {
     if (m.mute) continue;
-    if (m.type === 'CYCLES') f = cycleFrame(fc, m, f);
-    if (m.type === 'STEPPED') {
+    let g = f;
+    if (m.type === 'CYCLES') g = cycleFrame(fc, m, f);
+    else if (m.type === 'STEPPED') {
       const step = m.frame_step || 2,
         off = m.frame_offset || 0;
-      f = Math.floor((f - off) / step) * step + off;
-    }
+      g = Math.floor((f - off) / step) * step + off;
+    } else continue;
+    const w = modifierWeight(m, frame);
+    f = w >= 1 ? g : f + (g - f) * w;
   }
   let v = evaluateRaw(fc, f);
   if (fc.modifiers.length) {
     for (const m of fc.modifiers) {
       if (m.mute) continue;
-      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) v += cycleOffset(fc, m, frame);
-      if (m.type === 'NOISE') v += noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
-      if (m.type === 'GENERATOR' && m.coefficients) {
+      let nv = v;
+      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
+      else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
+      else if (m.type === 'GENERATOR' && m.coefficients) {
         let p = 0;
         m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
-        v = p;
-      }
-      if (m.type === 'LIMITS') {
-        if (m.use_min_y) v = Math.max(m.min_y ?? 0, v);
-        if (m.use_max_y) v = Math.min(m.max_y ?? 0, v);
-      }
+        nv = m.use_additive ? v + p : p;
+      } else if (m.type === 'FNGENERATOR') {
+        const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
+        nv = m.use_additive ? v + g : g;
+      } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
+      else if (m.type === 'LIMITS') {
+        if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
+        if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
+      } else continue;
+      const w = modifierWeight(m, frame);
+      v = w >= 1 ? nv : v + (nv - v) * w;
     }
   }
   return v;
+}
+
+function builtinFunction(type: string, x: number) {
+  switch (type) {
+    case 'COS':
+      return Math.cos(x);
+    case 'TAN':
+      return Math.tan(x);
+    case 'SQRT':
+      return x >= 0 ? Math.sqrt(x) : 0;
+    case 'LN':
+      return x > 0 ? Math.log(x) : 0;
+    case 'SINC':
+      return Math.abs(x) < 1e-9 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+    default:
+      return Math.sin(x);
+  }
+}
+
+/** Envelope: rescale the value from the default range into the range of the control points at this frame. */
+function envelopeValue(m: FModifier, frame: number, v: number) {
+  const pts = [...(m.control_points ?? [])].sort((a, b) => a.frame - b.frame);
+  if (!pts.length) return v;
+  let lo: number, hi: number;
+  if (frame <= pts[0].frame) [lo, hi] = [pts[0].min, pts[0].max];
+  else if (frame >= pts[pts.length - 1].frame) [lo, hi] = [pts[pts.length - 1].min, pts[pts.length - 1].max];
+  else {
+    const i = pts.findIndex((p) => p.frame > frame);
+    const a = pts[i - 1],
+      b = pts[i];
+    const t = (frame - a.frame) / (b.frame - a.frame || 1);
+    lo = a.min + (b.min - a.min) * t;
+    hi = a.max + (b.max - a.max) * t;
+  }
+  const dmin = m.default_min ?? -1,
+    dmax = m.default_max ?? 1;
+  const fac = dmax - dmin !== 0 ? (v - ((m.reference_value ?? 0) + dmin)) / (dmax - dmin) : 0;
+  return lo + fac * (hi - lo);
 }
 
 function cycleFrame(fc: FCurve, m: FModifier, f: number) {

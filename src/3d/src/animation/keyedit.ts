@@ -78,7 +78,7 @@ export function deleteSelected(curves: CurveRef[], removeEmpty = true): number {
     if (before !== fc.keyframe_points.length) calcHandles(fc);
   }
   if (removeEmpty) {
-    for (const r of curves) if (!r.fc.keyframe_points.length) r.action.fcurves = r.action.fcurves.filter((f) => f !== r.fc);
+    for (const r of curves) if (!r.fc.keyframe_points.length && !r.fc.sampled_points?.length) r.action.fcurves = r.action.fcurves.filter((f) => f !== r.fc);
   }
   return n;
 }

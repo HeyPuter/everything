@@ -799,13 +799,14 @@ export function rowAligned(...content: Child[]): VNode {
   return h('div', { class: 'row-aligned' }, ...content);
 }
 
-export function decorator(state: 'none' | 'keyed' | 'animated' | 'driven', onClick?: () => void): VNode {
+export function decorator(state: 'none' | 'keyed' | 'animated' | 'driven', onClick?: () => void, onContext?: (e: MouseEvent) => void): VNode {
   return h(
     'button',
     {
       class: `decorator ${state}`,
       'data-tip': state === 'none' ? 'Insert Keyframe' : state === 'keyed' ? 'Delete Keyframe' : 'Insert Keyframe',
       onclick: onClick ?? null,
+      oncontextmenu: onContext ?? null,
       tabindex: '-1',
     },
     icon(state === 'keyed' ? 'decorate_keyframe' : state === 'animated' ? 'decorate_animate' : 'decorate'),

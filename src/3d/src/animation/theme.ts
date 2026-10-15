@@ -1,4 +1,4 @@
-// Colors for the animation editors (default theme values).
+// Colors for the animation editors.
 import type { FCurve, Keyframe, KeyHandleType } from '../data/types';
 
 export const C = {

@@ -1,4 +1,5 @@
 // Viewport sidebar (N panel): Item / Tool / View tabs.
+import { propertyAnimMenuHook } from '../../ui/props';
 import { Box3, Vector3, Euler, Quaternion } from 'three';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
@@ -36,11 +37,15 @@ export function vecField(ob: ObjectData, key: 'location' | 'rotation_euler' | 's
       },
     }),
     lockButton(ob, key, i),
-    decorator(st, () => {
-      keyProperty(app.doc, ob, key, i);
-      app.pushUndo('Insert Keyframe');
-      app.changed('doc');
-    }),
+    decorator(
+      st,
+      () => {
+        keyProperty(app.doc, ob, key, i);
+        app.pushUndo('Insert Keyframe');
+        app.changed('doc');
+      },
+      propertyAnimMenuHook.open ? (e: MouseEvent) => propertyAnimMenuHook.open!(e, ob, key, i) : undefined,
+    ),
   );
 }
 

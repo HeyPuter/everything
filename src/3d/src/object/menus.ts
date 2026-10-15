@@ -187,6 +187,7 @@ function animationMenu(): MenuItem[] {
     { label: 'Insert Keyframe with Keying Set…', op: 'anim.keyframe_insert_menu', shortcut: 'K' },
     { label: 'Delete Keyframes…', op: 'anim.keyframe_delete_v3d', shortcut: 'Alt I' },
     { label: 'Clear Keyframes…', op: 'anim.keyframe_clear_v3d', shortcut: 'Shift Alt I' },
+    { label: 'Change Keying Set…', op: 'anim.keying_set_active_set', shortcut: 'Shift K' },
     { separator: true },
     { label: 'Bake Action…', op: 'nla.bake' },
   ];

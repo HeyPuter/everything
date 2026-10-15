@@ -59,7 +59,7 @@ function bonePoints(ob: ObjectData, b: Bone, posed: boolean): [Vector3, Vector3]
 // ---------------------------------------------------------------------------
 // picking & selection
 
-function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
+export function pickBone(v: View3D, x: number, y: number, posed: boolean): { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null {
   const a = activeArmature();
   if (!a) return null;
   let best: { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null = null;
@@ -773,15 +773,18 @@ registerOperators([
   {
     idname: 'pose.paste',
     label: 'Paste Pose',
-    props: [{ id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false }],
+    props: [
+      { id: 'flipped', label: 'Flipped on X-Axis', type: 'bool', default: false },
+      { id: 'selected_mask', label: 'On Selected Only', type: 'bool', default: false },
+    ],
     poll: (ctx) => posePoll(ctx) && !!poseClipboard,
     exec: (_ctx, p) => {
       const { ob } = activeArmature()!;
-      const swap = (n: string) => n.replace(/([._-])([LlRr])$/, (_, s, c) => s + ({ L: 'R', R: 'L', l: 'r', r: 'l' } as Record<string, string>)[c]);
+      const swap = (n: string) => flipSideName(n);
       for (const [n, src] of Object.entries(poseClipboard!)) {
         const target = p.flipped ? swap(n) : n;
         const pb = ob.pose?.[target];
-        if (!pb) continue;
+        if (!pb || (p.selected_mask && !pb.select)) continue;
         pb.location = [...src.location] as [number, number, number];
         pb.scale = [...src.scale] as [number, number, number];
         pb.rotation_euler = [...src.rotation_euler] as [number, number, number];
@@ -915,4 +918,4 @@ addKeys('Pose', [
   { key: 'TAB', ctrl: true, op: 'object.posemode_toggle', when: inPose },
 ]);
 
-export { openMenu, renameBone, ensurePose, pickBone, newBone, syncConnected, inArmEdit };
+export { openMenu, renameBone, ensurePose, newBone, syncConnected, inArmEdit };

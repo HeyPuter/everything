@@ -562,8 +562,16 @@ export interface Keyframe {
 }
 
 export interface FModifier {
-  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED';
+  type: 'NOISE' | 'CYCLES' | 'GENERATOR' | 'LIMITS' | 'STEPPED' | 'FNGENERATOR' | 'ENVELOPE';
   mute?: boolean;
+  /** influence and restricted frame range (with blend in/out) */
+  use_influence?: boolean;
+  influence?: number;
+  use_restricted_range?: boolean;
+  frame_start?: number;
+  frame_end?: number;
+  blend_in?: number;
+  blend_out?: number;
   // noise
   scale?: number;
   strength?: number;
@@ -583,6 +591,18 @@ export interface FModifier {
   use_max_y?: boolean;
   min_y?: number;
   max_y?: number;
+  // built-in function (FNGENERATOR)
+  function_type?: 'SIN' | 'COS' | 'TAN' | 'SQRT' | 'LN' | 'SINC';
+  amplitude?: number;
+  phase_multiplier?: number;
+  phase_offset?: number;
+  value_offset?: number;
+  use_additive?: boolean;
+  // envelope
+  reference_value?: number;
+  default_min?: number;
+  default_max?: number;
+  control_points?: { frame: number; min: number; max: number }[];
 }
 
 export interface FCurve {
@@ -598,6 +618,8 @@ export interface FCurve {
   select?: boolean;
   color_mode?: 'AUTO_RAINBOW' | 'AUTO_RGB' | 'AUTO_YRGB' | 'CUSTOM';
   color?: Color;
+  /** baked samples (frame, value) used when the curve has no keyframes */
+  sampled_points?: [number, number][];
 }
 
 export interface ActionData {
@@ -606,7 +628,8 @@ export interface ActionData {
   fcurves: FCurve[];
   frame_range?: Vec2;
   use_fake_user?: boolean;
-  /** Pose markers etc omitted */
+  /** markers stored with the action (shown in the Action Editor with Show Pose Markers) */
+  pose_markers?: TimelineMarker[];
   users?: number;
 }
 
@@ -626,6 +649,10 @@ export interface NlaStrip {
   mute: boolean;
   select?: boolean;
   extrapolation: 'HOLD' | 'HOLD_FORWARD' | 'NOTHING';
+  /** strip kind (action clip when absent) */
+  type?: 'CLIP' | 'TRANSITION' | 'META';
+  /** META: the grouped strips, in inner time (action_frame_start..end) */
+  strips?: NlaStrip[];
 }
 
 export interface NlaTrack {
@@ -643,6 +670,8 @@ export interface AnimData {
   action_blend_type?: NlaStrip['blend_type'];
   action_influence?: number;
   drivers: Driver[];
+  /** NLA tweak mode: the strip whose action is being edited */
+  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
 }
 
 export interface DriverVariable {
@@ -944,6 +973,11 @@ export interface ToolSettings {
   use_mesh_automerge: boolean;
   double_threshold: number;
   use_keyframe_insert_auto: boolean;
+  /** markers can't be selected, moved or deleted */
+  lock_markers?: boolean;
+  /** proportional editing of keys in the Dope Sheet / Graph Editor */
+  use_proportional_action?: boolean;
+  use_proportional_fcurve?: boolean;
   keyframe_type: Keyframe['type'];
   use_uv_select_sync: boolean;
   uv_select_mode: 'VERTEX' | 'EDGE' | 'FACE' | 'ISLAND';
@@ -1008,6 +1042,20 @@ export interface RigidBodyWorld {
   frame_end: number;
 }
 
+export interface KeyingSetPath {
+  /** object the path belongs to */
+  id: ID | null;
+  data_path: string;
+  /** array element, or -1 for all elements */
+  index: number;
+}
+
+export interface KeyingSetData {
+  name: string;
+  paths: KeyingSetPath[];
+  active_path_index?: number;
+}
+
 export interface SceneData {
   name: string;
   frame_start: number;
@@ -1038,7 +1086,12 @@ export interface SceneData {
   /** active object id (view layer) */
   active_object: ID | null;
   custom: CustomProps;
-  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter';
+  /** active keying set: a built-in set or `KS:<name>` for one of `keying_sets` */
+  keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter' | `KS:${string}`;
+  /** scrubbing stays inside the scene (or preview) frame range */
+  lock_frame_selection_to_range?: boolean;
+  /** user keying sets (absolute property paths) */
+  keying_sets?: KeyingSetData[];
 }
 
 export interface DocumentData {

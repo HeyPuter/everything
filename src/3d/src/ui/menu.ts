@@ -125,6 +125,8 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
+          // releasing the press that opened any menu (e.g. a header menu opened on pointerdown) without dragging does not pick an item
+          if (pressStart.time <= openedAt.time && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) < 6) return;
           // the release of the press that opened a context menu picks an item only after a drag
           const p = openPress;
           const opening = !!p && pressCount === p.presses;
@@ -182,7 +184,22 @@ function openSubmenu(m: OpenMenu, item: MenuItem) {
   m.child = sub;
 }
 
+/** When the last top-level menu opened, and where/when the last press started (see item pointerup). */
+const openedAt = { time: 0 };
+const pressStart = { time: -1, x: 0, y: 0 };
+if (typeof addEventListener === 'function')
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      pressStart.time = performance.now();
+      pressStart.x = e.clientX;
+      pressStart.y = e.clientY;
+    },
+    true,
+  );
+
 function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, title?: string): OpenMenu {
+  if (!parent) openedAt.time = performance.now();
   const el = document.createElement('div');
   el.className = 'menu';
   el.setAttribute('role', 'menu');

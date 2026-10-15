@@ -2183,6 +2183,10 @@ input.num-field.editing {
 .anim-ch-row.muted .anim-ch-name {
   opacity: 0.55;
 }
+.anim-ch-row.err .anim-ch-name {
+  color: #ff6b6b;
+  text-decoration: underline wavy rgba(255, 90, 90, 0.7);
+}
 .anim-ch-row .ic svg {
   width: 14px;
   height: 14px;
@@ -2297,9 +2301,11 @@ input.num-field.editing {
 }
 .anim-sb-add {
   padding: 4px 6px 6px;
+  display: flex;
+  gap: 4px;
 }
 .anim-sb-addbtn {
-  width: 100%;
+  flex: 1;
 }
 .anim-sb-inline {
   display: flex;
@@ -2307,6 +2313,16 @@ input.num-field.editing {
   gap: 4px;
 }
 .anim-sb-inline .num-field {
+  flex: 1;
+}
+.anim-env-head {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 0;
+  color: #999;
+  font-size: 11px;
+}
+.anim-env-head span {
   flex: 1;
 }
 .anim-mod-hdr {

@@ -4,17 +4,12 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openPopover } from '../ui/menu';
-import { numberField, enumMenu } from '../ui/widgets';
+import { numberField, enumMenu, checkbox } from '../ui/widgets';
 import type { Keyframe } from '../data/types';
+import { keyingSetItems } from '../anim/keyingsets';
 
-const KEYING_SETS: [string, string][] = [
-  ['LocRotScale', 'Location, Rotation & Scale'],
-  ['Location', 'Location'],
-  ['Rotation', 'Rotation'],
-  ['Scale', 'Scale'],
-  ['Available', 'Available'],
-  ['WholeCharacter', 'Whole Character'],
-];
+/** Playback options kept for the session. */
+export const playbackOptions = { follow: false };
 
 export const KEY_TYPES: [Keyframe['type'], string][] = [
   ['KEYFRAME', 'Keyframe'],
@@ -49,7 +44,7 @@ export function playbackFooter(): Child {
   return h(
     'div',
     { class: 'hdr-row anim-footer-row' },
-    popoverButton('Playback', null, () =>
+    popoverButton('Playback', null, () => [
       enumMenu(
         'anim-sync',
         [
@@ -60,12 +55,19 @@ export function playbackFooter(): Child {
         s.sync_mode,
         (v) => ((s.sync_mode = v as 'NONE'), app.pushUndo('Sync Mode'), app.changed('ui')),
       ),
-    ),
+      h('div', { class: 'pop-label' }, 'Playback'),
+      checkbox('anim-limit-range', 'Limit to Frame Range', !!s.lock_frame_selection_to_range, (v) => ((s.lock_frame_selection_to_range = v), app.pushUndo('Limit to Frame Range'), app.changed('ui')), {
+        tip: 'Scrubbing stays inside the scene (or preview) frame range',
+      }),
+      checkbox('anim-follow', 'Follow Current Frame', playbackOptions.follow, (v) => ((playbackOptions.follow = v), app.changed('ui')), {
+        tip: 'Animation editors scroll to keep the playhead in view during playback',
+      }),
+    ]),
     popoverButton('Keying', 'keyframe', () => [
       h('div', { class: 'pop-label' }, 'Active Keying Set'),
       enumMenu(
         'anim-ks',
-        KEYING_SETS.map(([value, label]) => ({ value, label })),
+        keyingSetItems().map(([value, label]) => ({ value, label })),
         s.keying_set ?? 'LocRotScale',
         (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
       ),

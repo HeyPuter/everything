@@ -25,6 +25,8 @@ const ob = () => app.activeObject;
 
 /** Extra Object-tab panels contributed by other modules (shown after Instancing, e.g. Motion Paths). */
 export const objectExtraPanels: ((o: ObjectData) => Child)[] = [];
+/** Keying Sets panel of the Scene tab (drawn by the animation module). */
+export const sceneKeyingPanel: { draw: (() => Child) | null } = { draw: null };
 const changed = (label: string) => {
   app.pushUndo(label);
   app.changed('doc');
@@ -213,9 +215,11 @@ registerTab({
             ]
           : opButton('rigidbody.world_add', 'Add Rigid Body World'),
       ),
-      panel('sc-keying', 'Keying Sets', () => [
-        enumProp(s as never, 'keying_set' as never, 'Active Keying Set', [['LocRotScale', 'Location, Rotation & Scale'], ['Location', 'Location'], ['Rotation', 'Rotation'], ['Scale', 'Scale'], ['Available', 'Available'], ['WholeCharacter', 'Whole Character']]),
-      ], { closed: true }),
+      sceneKeyingPanel.draw
+        ? sceneKeyingPanel.draw()
+        : panel('sc-keying', 'Keying Sets', () => [
+            enumProp(s as never, 'keying_set' as never, 'Active Keying Set', [['LocRotScale', 'Location, Rotation & Scale'], ['Location', 'Location'], ['Rotation', 'Rotation'], ['Scale', 'Scale'], ['Available', 'Available'], ['WholeCharacter', 'Whole Character']]),
+          ], { closed: true }),
     ];
   },
 });
@@ -662,7 +666,7 @@ export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [
 /** Panels of the text (FONT) Object Data tab, before Geometry. */
 export const fontDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
 
-/** Extra panels of the armature Object Data tab, after Skeleton (e.g. Bone Collections). */
+/** Extra panels of the armature Object Data tab, after Skeleton (e.g. Bone Collections, Selection Sets). */
 export const armatureDataPanels: ((ob: ObjectData, arm: import('../../data/types').ArmatureData) => Child)[] = [];
 
 registerTab({
