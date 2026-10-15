@@ -324,8 +324,28 @@ registerOperators([
     invoke: (ctx, p) => {
       const v = activeView3D()!;
       const r = v.el.getBoundingClientRect();
-      p.location = [(ctx.event?.x ?? app.pointer.x) - r.left, (ctx.event?.y ?? app.pointer.y) - r.top];
-      return sampleDetail(v, p);
+      const x = (ctx.event?.x ?? app.pointer.x) - r.left,
+        y = (ctx.event?.y ?? app.pointer.y) - r.top;
+      p.location = [x, y];
+      if (meshSession()?.raycast(v, x, y)) return sampleDetail(v, p);
+      // started from a button: pick the spot with the next click in the viewport
+      let ok = false;
+      app.startModal({
+        label: 'Sample Detail Size',
+        cursor: 'crosshair',
+        onPointerDown: (e) => {
+          if (e.button !== 0) return 'CANCELLED';
+          const q = v.local(e);
+          p.location = [q.x, q.y];
+          ok = sampleDetail(v, p) !== 'CANCELLED';
+          return ok ? 'FINISHED' : 'CANCELLED';
+        },
+        onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : true),
+        cancel: () => {},
+        header: () => 'Sample Detail Size: click on the mesh, Esc cancels',
+        redoOp: { idname: 'sculpt.sample_detail_size', props: p },
+      });
+      return 'RUNNING_MODAL';
     },
     exec: (_c, p) => {
       const v = activeView3D();

@@ -610,17 +610,22 @@ function brushPanels(mode: BrushMode): Child[] {
     if (am)
       out.push(
         panel('pt-remesh', 'Remesh', () => [
-          numberField({
-            id: 'pt-voxel',
-            label: 'Voxel Size',
-            value: am.me.remesh_voxel_size ?? 0.1,
-            min: 0.0001,
-            max: 10,
-            unit: 'distance',
-            precision: 4,
-            tip: 'Size of the voxel used for volume evaluation (smaller = more detail)',
-            set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
-          }),
+          h(
+            'div',
+            { class: 'row-split' },
+            numberField({
+              id: 'pt-voxel',
+              label: 'Voxel Size',
+              value: am.me.remesh_voxel_size ?? 0.1,
+              min: 0.0001,
+              max: 10,
+              unit: 'distance',
+              precision: 4,
+              tip: 'Size of the voxel used for volume evaluation (smaller = more detail) (R)',
+              set: (x, final) => ((am.me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')),
+            }),
+            button('pt-voxel-sample', icon('eyedropper'), () => app.run('sculpt.sample_detail_size', { mode: 'VOXEL' }), { tip: 'Sample the voxel size from the mesh under the cursor' }),
+          ),
           opButton('object.voxel_remesh', 'Voxel Remesh'),
         ]),
       );
