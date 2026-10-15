@@ -154,6 +154,7 @@
 .fb-empty-small {
   color: #888;
   padding: 2px 8px;
+  grid-column: 1 / -1;
 }
 .fb-path {
   color: #aaa;

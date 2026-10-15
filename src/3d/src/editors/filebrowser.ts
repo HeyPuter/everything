@@ -10,7 +10,8 @@ import { addKeys } from '../app/keymap';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, openPie, promptText, type MenuItem } from '../ui/menu';
 import { textField, enumRow } from '../ui/widgets';
-import { openFile, formats } from '../io/files';
+import { openFile, formats, fileEvents, projectUiState } from '../io/files';
+import { encodeDocument } from '../io/native';
 import { imageFromFile } from '../ops/imageobjects';
 import { newText } from '../data/defaults';
 import { registerIcons } from '../ui/icons';
@@ -316,6 +317,7 @@ export class FileBrowser implements Editor {
       { label: 'Rename…', shortcut: 'F2', disabled: one.length !== 1 || !writable, op: 'file.rename' },
       { label: 'Delete', shortcut: 'X', disabled: !one.length || !writable, op: 'file.delete' },
       { label: 'New Folder', shortcut: 'I', disabled: !this.dir?.getDirectoryHandle, op: 'file.directory_new' },
+      { label: 'Save Project Here…', icon: 'file_3d', disabled: !this.dir?.getDirectoryHandle, op: 'file.save_project_here' },
       { separator: true },
       { label: 'Add Bookmark', shortcut: 'Ctrl B', disabled: !this.dir, op: 'file.bookmark_add' },
       { label: 'Refresh', shortcut: 'R', disabled: !this.dir, op: 'file.refresh' },
@@ -472,7 +474,12 @@ export class FileBrowser implements Editor {
     if (!recentFiles.includes(file)) recentFiles.unshift(file);
     recentFiles.splice(12);
     const cat = category(file.name);
-    if (cat === 'project') await openFile(file, 'open');
+    if (cat === 'project') {
+      await openFile(file, 'open');
+      // a project opened from a writable folder is saved back in place
+      const h = it.handle;
+      if (h?.createWritable && app.filename === file.name && file.name.toLowerCase().endsWith('.p3d')) fileEvents.saveTarget = { name: file.name, write: (bytes) => writeFile(h, bytes) };
+    }
     else if (cat === 'model') await openFile(file, 'import');
     else if (cat === 'image') {
       const img = await imageFromFile(file);
@@ -702,6 +709,27 @@ export class FileBrowser implements Editor {
     promptText(`Rename ${it.kind === 'dir' ? 'Folder' : 'File'}`, it.name, (n) => n && void this.rename(it, n));
   }
 
+  /** Save the current project into this folder (and keep saving there with Ctrl S). */
+  async saveProjectHere(name = app.filename) {
+    const d = await this.writable();
+    if (!d) return false;
+    if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
+    try {
+      const h = await d.getFileHandle!(name, { create: true });
+      await writeFile(h, encodeDocument(app.doc, { ui: projectUiState.save() }));
+      app.filename = name;
+      app.dirty = false;
+      fileEvents.saveTarget = { name, write: (bytes) => writeFile(h, bytes) };
+      app.report('INFO', `Saved "${name}" in ${d.name || 'Browser Storage'}`);
+    } catch (e) {
+      app.report('ERROR', `Cannot save here: ${e instanceof Error ? e.message : e}`);
+      return false;
+    }
+    await this.enter(this.path, false);
+    this.selectOnly(name);
+    return true;
+  }
+
   async addBookmark() {
     const d = this.dir;
     if (!d) return;
@@ -850,6 +878,12 @@ export class FileBrowser implements Editor {
   }
 }
 
+async function writeFile(h: FileHandle, bytes: Uint8Array) {
+  const w = await h.createWritable!();
+  await w.write(bytes as Uint8Array<ArrayBuffer>);
+  await w.close();
+}
+
 /** Copy folder `src` (recursively) into `parent` as `name`. */
 async function copyFolder(src: DirHandle, parent: DirHandle, name: string) {
   const dst = await parent.getDirectoryHandle!(name, { create: true });
@@ -962,6 +996,21 @@ registerOperators([
       }
       void fb.deleteSelected();
     },
+  },
+  {
+    idname: 'file.save_project_here',
+    label: 'Save Project Here',
+    description: 'Save the project into the folder shown in the File Browser; Save then keeps updating that file',
+    undo: false,
+    props: [{ id: 'filename', label: 'File Name', type: 'string', default: '' }],
+    poll: (ctx) => !!fbOf(ctx)?.dir?.getDirectoryHandle,
+    invoke: (ctx, p) => {
+      const fb = fbOf(ctx)!;
+      if (p.filename) return void fb.saveProjectHere(String(p.filename));
+      promptText('Save Project Here', app.filename, (n) => n && void fb.saveProjectHere(n));
+      return 'CANCELLED';
+    },
+    exec: (ctx, p) => void fbOf(ctx)!.saveProjectHere(String(p.filename || '') || undefined),
   },
   { idname: 'file.bookmark_add', label: 'Add Bookmark', description: 'Bookmark the current folder', undo: false, poll: withDir, exec: (ctx) => void fbOf(ctx)!.addBookmark() },
   {

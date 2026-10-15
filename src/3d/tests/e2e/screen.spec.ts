@@ -521,3 +521,42 @@ test('File > External Data: report and find missing files, unpack resources', as
   expect((await dl).suggestedFilename()).toBe('untitled_resources.zip');
   await expectNoErrors(errors);
 });
+
+test('File Browser: save the project into browser storage, then Save updates it in place', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of (root as any).entries()) await root.removeEntry(name, { recursive: true });
+  });
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('FILE_BROWSER'));
+  const fb = page.locator('.area[data-editor="FILE_BROWSER"]');
+  await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
+  await expect(fb.locator('.fb-empty-small', { hasText: 'empty' })).toBeVisible();
+  await page.evaluate(() => { const a = (window as any).app; return a.run('file.save_project_here', { filename: 'proj' }, { area: a.hoverArea }); });
+  await expect(fb.locator('.fb-item', { hasText: 'proj.p3d' })).toBeVisible();
+  expect(await get(page, 'app.filename')).toBe('proj.p3d');
+  // change and save: no download, the stored file is updated
+  let downloaded = false;
+  page.on('download', () => (downloaded = true));
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.activeObject.location[2] = 7;
+    a.pushUndo('Move');
+    a.run('wm.save_mainfile');
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { decodeDocument } = await import('/src/io/native.ts');
+        const root = await navigator.storage.getDirectory();
+        const f = await (await root.getFileHandle('proj.p3d')).getFile();
+        const d = decodeDocument(new Uint8Array(await f.arrayBuffer())).doc;
+        return Object.values(d.objects).find((o: any) => o.name === 'Cube')!.location[2];
+      }),
+    )
+    .toBe(7);
+  expect(downloaded).toBe(false);
+  await expectNoErrors(errors);
+});

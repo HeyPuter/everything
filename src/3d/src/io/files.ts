@@ -38,6 +38,11 @@ export const fileEvents = {
   loadStartup: (() => false) as () => boolean,
   /** opens a recently used file by name */
   openRecent: null as ((name: string) => Promise<boolean>) | null,
+  /**
+   * Where Save writes the current file when it came from a writable folder (File Browser):
+   * Save then updates that file instead of downloading a copy.
+   */
+  saveTarget: null as { name: string; write(bytes: Uint8Array): Promise<void> } | null,
 };
 
 let autosaveTimer = 0;
@@ -70,6 +75,7 @@ function status(s: string) {
 
 export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (mode === 'open') fileEvents.saveTarget = null;
   const name = file.name.toLowerCase();
   try {
     if (isNativeFile(bytes)) {
@@ -108,6 +114,19 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
 export function saveFile(name = app.filename, copy = false) {
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
+  const target = fileEvents.saveTarget;
+  if (target && !copy && target.name === name) {
+    // the file came from a writable folder: update it in place
+    target.write(bytes).then(
+      () => {
+        app.dirty = false;
+        for (const f of fileEvents.saved) f(name, bytes);
+        app.report('INFO', `Saved "${name}"`);
+      },
+      (e) => app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`),
+    );
+    return;
+  }
   download(bytes, name);
   if (!copy) {
     app.filename = name;
@@ -127,12 +146,14 @@ registerOperators([
     exec: (_ctx, p) => {
       if (!p.use_factory_startup && fileEvents.loadStartup()) {
         app.filename = 'untitled.p3d';
+        fileEvents.saveTarget = null;
         app.dirty = false;
         void clearRecovery();
         return;
       }
       app.setDocument(startupDocument());
       app.filename = 'untitled.p3d';
+      fileEvents.saveTarget = null;
       app.dirty = false;
       void clearRecovery();
     },
