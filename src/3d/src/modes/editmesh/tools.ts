@@ -15,6 +15,7 @@ import { editPoll, smoothVertices, deleteGeometry } from './ops-basic';
 import { pickContext, nearestVertex, nearestEdge, raycastFace } from './pick';
 import { startValueModal } from './modal';
 import { dissolveVertex } from './geom';
+import { randomizeVerts } from './ops-vertex';
 import { bisectMesh } from './ops-uv';
 import { fillHoles } from './ops-cleanup';
 
@@ -128,7 +129,10 @@ const dragTools: Record<string, Run> = {
   'builtin.spin_duplicates': op('mesh.spin', () => ({ steps: tp('builtin.spin_duplicates').steps, dupli: true })),
   'builtin.smooth': (_v, e) =>
     void startValueModal({ label: 'Smooth Vertices', idname: 'mesh.vertices_smooth', prop: 'factor', props: { repeat: tp('builtin.smooth').repeat }, initial: 0, min: 0, max: 1, perPixel: 0.004, name: 'Smoothing', apply: (m, f) => smoothVertices(m, f, tp('builtin.smooth').repeat as number) }, e),
-  'builtin.randomize': op('transform.vertex_random', () => tp('builtin.randomize')),
+  'builtin.randomize': (_v, e) => {
+    const o = tp('builtin.randomize');
+    void startValueModal({ label: 'Randomize', idname: 'transform.vertex_random', prop: 'offset', props: { ...o }, initial: 0, perPixel: 0.002, name: 'Amount', apply: (m, x) => randomizeVerts(m, x, o.uniform as number, o.normal as number, o.seed as number) }, e);
+  },
   'builtin.edge_slide': op('transform.edge_slide'),
   'builtin.vertex_slide': op('transform.vert_slide'),
   'builtin.shrink_fatten': op('transform.shrink_fatten'),

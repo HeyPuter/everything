@@ -8,7 +8,6 @@ import { withEdit, worldMatrix, editMeshObjects as editMeshObjectsList } from '.
 import { selectedFaceSet } from './selset';
 import { editPoll } from './ops-basic';
 import { V, vertexNormals } from './geom';
-import { startValueModal } from './modal';
 
 // ---------------------------------------------------------------------------
 // Laplacian smooth
@@ -378,11 +377,6 @@ registerOperators([
       { id: 'seed', label: 'Random Seed', type: 'int', default: 0, min: 0, max: 10000 },
     ],
     poll: editPoll,
-    invoke: (ctx, p) =>
-      startValueModal(
-        { label: 'Randomize', idname: 'transform.vertex_random', prop: 'offset', props: { uniform: p.uniform, normal: p.normal, seed: p.seed }, initial: 0, perPixel: 0.002, name: 'Amount', apply: (m, x) => randomizeVerts(m, x, p.uniform as number, p.normal as number, p.seed as number) },
-        ctx.event,
-      ),
     exec: (_ctx, p) => void withEdit((m) => randomizeVerts(m, p.offset as number, p.uniform as number, p.normal as number, p.seed as number)),
   },
 ]);
