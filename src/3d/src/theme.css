@@ -979,6 +979,29 @@ input.num-field.editing {
   margin: 4px 0;
   background: var(--c-panel-sub);
 }
+/* sub-panels span the whole width of their panel as a darker band (not an inset box) */
+.panel-body > .panel.sub {
+  margin: 2px -10px;
+  border-radius: 0;
+  box-shadow: none;
+  background: rgba(0, 0, 0, 0.1);
+}
+.panel-body > .panel.sub > .panel-header {
+  padding-left: 12px;
+}
+.panel-body > .panel.sub > .panel-body {
+  padding: 2px 10px 6px;
+}
+.popover .panel-body > .panel.sub {
+  margin: 1px 0;
+  background: transparent;
+}
+.popover .panel-body > .panel.sub > .panel-header {
+  padding-left: 0;
+}
+.popover .panel-body > .panel.sub > .panel-body {
+  padding: 2px 0 6px;
+}
 /* a closed sub-panel is just its header row */
 .panel.sub:not(.open) {
   background: transparent;
@@ -1664,8 +1687,11 @@ input.num-field.editing {
   bottom: var(--ov-bottom, 0px);
   width: 270px;
   display: flex;
-  background: rgba(48, 48, 48, 0.95);
-  border-left: 1px solid #222;
+  /* the panels float over the viewport; only the tab strip has a background */
+  background: transparent;
+}
+.v3d-sidebar .sb-body > .panel {
+  box-shadow: 0 0 0 1px var(--c-panel-outline) inset, 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 .sb-body {
   flex: 1;
@@ -1682,11 +1708,16 @@ input.num-field.editing {
 .sb-tab {
   writing-mode: vertical-rl;
   padding: 10px 4px;
-  border-radius: 3px;
-  color: #999;
+  border-radius: 4px;
+  color: #a6a6a6;
+  background: #282828;
+}
+.sb-tab:hover {
+  color: #ddd;
+  background: #333;
 }
 .sb-tab.on {
-  background: #303030;
+  background: #3d3d3d;
   color: #fff;
 }
 .sb-label {
