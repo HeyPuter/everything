@@ -162,7 +162,15 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   places Add-menu entries by the menu's item order. Zones (`geonodes/zones/`) keep their items as JSON on the
   output node (`repeat_items`, `state_items`, …; inputs find them through `props.paired_output`); a zone output
   runs its body through `ZoneEval` (`ExecContext.evaluator` is the running evaluator). `NodeTypeDef.onAdd` adds
-  companion nodes when a node is added interactively.
+  companion nodes when a node is added interactively. `geonodes/menu.ts` holds the full Add-menu layout
+  (`GEOMETRY_MENU_LAYOUT`; the registered menu keeps entries whose types exist when it loads). Matrices are a
+  field type (16 floats, column-major); rotation fields hold XYZ Euler triples (`geonodes/rotmath.ts` converts
+  through quaternions). Dynamic item lists of Format String / Index Switch / Menu Switch use
+  `geonodes/nodes/items.ts` (JSON on the node, sidebar editor, links to the `__item__` socket). Primitives give
+  `MeshComponent.edgeOrder` (`geonodes/ops/edgeorder.ts`); other meshes number edges by first use in faces.
+  Node messages carry a severity (`ExecContext.warn(msg, kind)`); the provider's `nodeWarnings` shows them on
+  node headers. `tests/unit/gnspec.ts` builds trees from JSON specs; `tests/fixtures/geonodes/*.json` hold specs
+  with recorded expected attribute values.
 - `nodes/editor/context.ts` `registerNodeEditorProvider` (Shader, Geometry, Compositor editors; optional
   `linkViewer` for Ctrl Shift click, `viewPanels` / `optionsPanels` for the sidebar's View / Options tabs).
   Tree commands behind the node editor's menus are pure functions in `nodes/treeops.ts` and `nodes/iface.ts`.
