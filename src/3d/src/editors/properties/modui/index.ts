@@ -1,0 +1,7 @@
+// Panels and operators of the modifier families in src/eval/mods.
+import '../../../eval/mods/index';
+import './icons';
+import './modui.css';
+import './weights';
+import './uv';
+import './normals';

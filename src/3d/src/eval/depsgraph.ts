@@ -55,6 +55,11 @@ function aid(a: object | undefined | null): number {
   return id;
 }
 
+/** JSON of a modifier stack with typed arrays (bind data, caches) replaced by identity ids. */
+export function modifiersSignature(mods: ModifierBase[]): string {
+  return JSON.stringify(mods, (_k, v) => (ArrayBuffer.isView(v) ? `#${aid(v)}` : v));
+}
+
 export function meshSignature(me: MeshData) {
   return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
@@ -273,7 +278,7 @@ export class Depsgraph {
       if (cu) s += JSON.stringify(cu);
     }
     if (ob.modifiers.length) {
-      s += '|' + JSON.stringify(ob.modifiers);
+      s += '|' + modifiersSignature(ob.modifiers);
       for (const m of ob.modifiers) {
         const t = modifierTypes[m.type];
         if (!t) continue;

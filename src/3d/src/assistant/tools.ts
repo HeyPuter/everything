@@ -10,6 +10,7 @@ import { operators } from '../app/app';
 import type { DocumentData, ObjectData } from '../data/types';
 import { constraintTypes } from '../eval/constraints';
 import { modifierTypes } from '../eval/modifiers';
+import { modifiersSignature } from '../eval/depsgraph';
 import { getNodeType, nodeTypes } from '../nodes/registry';
 import { bridge, loadPython, runPythonText } from '../scripting/python';
 import { formatValue, jsGlobals, output, runJavaScript } from '../scripting/runner';
@@ -130,7 +131,7 @@ function sceneState(d: DocumentData): SceneState {
       parent: ob.parent,
       data: ob.data,
       geometry: geometryRefs(d, ob),
-      modifiers: JSON.stringify(ob.modifiers),
+      modifiers: modifiersSignature(ob.modifiers),
       constraints: JSON.stringify(ob.constraints),
       materials: JSON.stringify([ob.object_materials, ob.material_slots_link, ob.data && d.meshes[ob.data]?.materials, ob.data && (d.curves[ob.data] as unknown as { materials?: unknown })?.materials]),
       visibility: JSON.stringify([ob.hide, ob.hide_viewport, ob.hide_render, ob.hide_select, ob.display_type]),

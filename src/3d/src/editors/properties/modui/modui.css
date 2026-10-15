@@ -1,0 +1,29 @@
+/* Modifier panels (src/editors/properties/modui) */
+.row-aligned > .tbtn.mod-inv {
+  flex: 0 0 26px;
+  min-width: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.row-aligned > .enum-menu {
+  min-width: 0;
+}
+.mod-curve {
+  margin: 2px 0 4px;
+}
+.mod-wide {
+  display: flex;
+  gap: 2px;
+  margin: 3px 0;
+}
+.mod-wide > * {
+  flex: 1;
+}
+.mod-note {
+  color: var(--c-text-dim);
+  font-size: 11px;
+  padding: 2px 4px 4px;
+  line-height: 1.35;
+}
