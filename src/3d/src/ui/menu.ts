@@ -123,14 +123,12 @@ function renderMenu(m: OpenMenu) {
           renderMenu(m);
         },
         onpointerup: (e: PointerEvent) => {
-          // the release of the click that opened a context menu does not pick an item
-          // (press, drag onto an item and release still does)
+          // the release of the press that opened a context menu picks an item only after a drag
           const p = openPress;
-          openPress = null;
-          if (p && performance.now() - p.t < 500 && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) return;
-          // right button: only the release of the press that opened the menu picks; other
-          // right clicks open the item's own menu
-          if (e.button === 0 || (e.button === 2 && p)) activate(m, item, e);
+          const opening = !!p && pressCount === p.presses;
+          if (opening && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6) return;
+          // right button: only that press-drag-release picks; other right clicks open the item's own menu
+          if (e.button === 0 || (e.button === 2 && opening)) activate(m, item, e);
         },
         oncontextmenu: (e: MouseEvent) => {
           e.preventDefault();
@@ -206,8 +204,10 @@ function createMenu(items: MenuItem[], x: number, y: number, parent?: OpenMenu, 
 export const itemContextHooks: ((item: MenuItem) => MenuItem[])[] = [];
 
 let capturing: MenuItem[][] | null = null;
-/** Where and when the last context menu was opened at the pointer. */
-let openPress: { t: number; x: number; y: number } | null = null;
+/** Where the last context menu was opened at the pointer, and the press count then. */
+let openPress: { presses: number; x: number; y: number } | null = null;
+let pressCount = 0;
+if (typeof addEventListener === 'function') addEventListener('pointerdown', () => pressCount++, { capture: true, passive: true });
 
 /**
  * Run `open` (code that would open a menu, e.g. a header button's pointer handler) and return the
@@ -246,7 +246,7 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   }
   const withTitle = opts.title ? [{ heading: opts.title }, ...items] : items;
   const m = createMenu(withTitle, x, y, undefined, opts.title);
-  openPress = at instanceof HTMLElement ? null : { t: performance.now(), x: at.x, y: at.y };
+  openPress = at instanceof HTMLElement ? null : { presses: pressCount, x: at.x, y: at.y };
   // context menus open with the pointer over the first actionable item, like the reference app
   if (!(at instanceof HTMLElement) && !opts.under) {
     const firstIdx = withTitle.findIndex((i) => !i.heading && !i.separator);
