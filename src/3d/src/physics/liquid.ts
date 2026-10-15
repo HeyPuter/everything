@@ -16,6 +16,7 @@ export interface FluidShared {
   gridFrame: (ctx: SimContext, ob: ObjectData, mesh: EvalMesh, res: number, frame: number) => { G: GridFrame; bmin: [number, number, number]; bmax: [number, number, number] };
   domainHash: (doc: SimContext['doc'], ob: ObjectData, m: FluidModifier, mesh: EvalMesh | null) => string;
   cacheKey: (ob: ObjectData, m: FluidModifier) => string;
+  fieldAccelerations: (ctx: SimContext, G: GridFrame, frame: number, weight: number, types: Record<string, number> | null, u?: Float32Array, v?: Float32Array, w?: Float32Array) => Float32Array | null;
   domainDefaults: () => FluidDomainSettings;
   flowDefaults: () => FluidFlowSettings;
 }
@@ -130,7 +131,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: Liquid
   // gravity in grid cells per second²
   const gw = ctx.doc.scene.use_gravity ? new Vector3(...ctx.doc.scene.gravity) : new Vector3(0, 0, 0);
   const lin = L.G.toGrid.clone().setPosition(0, 0, 0);
-  const gg = gw.applyMatrix4(lin);
+  const gg = gw.applyMatrix4(lin).multiplyScalar(s.effector_weights_gravity ?? 1);
   const f = fps(ctx.doc);
   const dtFrame = (s.time_scale || 0) / f;
   let vmax = 0;
@@ -144,6 +145,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: Liquid
     pressureIterations: 80,
     open: [!s.use_collision_border_left, !s.use_collision_border_right, !s.use_collision_border_front, !s.use_collision_border_back, !s.use_collision_border_bottom, !s.use_collision_border_top],
   };
+  P.accel = F.fieldAccelerations(ctx, L.G, k, s.effector_weights_all ?? 1, s.effector_weights_types ?? null);
   for (let st = 0; st < sub; st++) stepLiquid(g, P);
 }
 

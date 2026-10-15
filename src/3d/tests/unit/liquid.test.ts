@@ -87,3 +87,28 @@ describe('liquid domains', () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe('fields in fluid domains', () => {
+  it('a wind field pushes the liquid sideways', async () => {
+    const { defaultField } = await import('../../src/physics/types');
+    const sideways = (wind: boolean) => {
+      const { doc, domain, dm } = scene();
+      if (wind) {
+        const w = newObject('Wind', 'EMPTY', null);
+        w.rotation_euler = [0, Math.PI / 2, 0];
+        w.field = { ...defaultField('WIND'), strength: 30 };
+        doc.objects[w.id] = w;
+        doc.object_order.push(w.id);
+        doc.collections[doc.scene.collection].objects.push(w.id);
+      }
+      const g = new Depsgraph(doc);
+      doc.scene.frame_current = 30;
+      g.evaluate(doc);
+      const P = getCache<{ particles: Float32Array }, unknown>(fluidCacheKey(domain, dm)).frames.get(30)!.particles;
+      let x = 0;
+      for (let i = 0; i < P.length; i += 3) x += P[i];
+      return x / (P.length / 3);
+    };
+    expect(sideways(true)).toBeGreaterThan(sideways(false) + 0.5);
+  });
+});

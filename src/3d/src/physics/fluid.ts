@@ -9,6 +9,7 @@ import { meshSignature, baseEvalMesh } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
 import { arrayChecksum, rand01, frameOf, getCache, motionKey, outOfTime, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { triangulate, closestOnTri } from './colliders';
+import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { newGrid, stepGas, type GasGrid, type GasParams } from './smoke-solver';
 import { physicsDoc } from './state';
 import { fps } from './meshsim';
@@ -36,6 +37,10 @@ export interface FluidDomainSettings {
   flame_vorticity: number;
   flame_max_temp: number;
   display_thickness: number;
+  /** field weights (gravity, all fields, and per field type) */
+  effector_weights_gravity?: number;
+  effector_weights_all?: number;
+  effector_weights_types?: Record<string, number>;
   use_collision_border_front: boolean;
   use_collision_border_back: boolean;
   use_collision_border_right: boolean;
@@ -93,6 +98,9 @@ export function defaultDomainSettings(): FluidDomainSettings {
     flame_vorticity: 0.5,
     flame_max_temp: 3,
     display_thickness: 1,
+    effector_weights_gravity: 1,
+    effector_weights_all: 1,
+    effector_weights_types: {},
     use_collision_border_front: false,
     use_collision_border_back: false,
     use_collision_border_right: false,
@@ -159,6 +167,7 @@ function domainHash(doc: DocumentData, ob: ObjectData, m: FluidModifier, mesh: E
     doc.scene.gravity.join(','),
     doc.scene.use_gravity,
     fps(doc),
+    fieldsKey(doc, pc.frame_start),
   ];
   for (const kind of ['FLOW', 'EFFECTOR'] as const)
     for (const p of participants(doc, kind)) {
@@ -456,7 +465,7 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
   const P: GasParams = {
     dt,
     up: [up.x, up.y, up.z],
-    gravity: gmag * ((sc.x + sc.y + sc.z) / 3 || gridScale),
+    gravity: gmag * ((sc.x + sc.y + sc.z) / 3 || gridScale) * (s.effector_weights_gravity ?? 1),
     alpha: s.alpha,
     beta: s.beta,
     vorticity: s.vorticity * 4,
@@ -469,7 +478,15 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
     pressureIterations: 30,
     closed: [s.use_collision_border_left, s.use_collision_border_right, s.use_collision_border_front, s.use_collision_border_back, s.use_collision_border_bottom, s.use_collision_border_top],
   };
+  // force fields push the air: acceleration per cell (grid units), evaluated once per frame
+  const fieldAcc = fieldAccelerations(ctx, L.G, k, s.effector_weights_all ?? 1, s.effector_weights_types ?? null, g.u, g.v, g.w);
   for (let st = 0; st < sub; st++) {
+    if (fieldAcc)
+      for (let o = 0; o < n; o++) {
+        g.u[o] += fieldAcc[o * 3] * dt;
+        g.v[o] += fieldAcc[o * 3 + 1] * dt;
+        g.w[o] += fieldAcc[o * 3 + 2] * dt;
+      }
     for (const { fs, vx } of emit) {
       const w = vx.w;
       for (let o = 0; o < n; o++) {
@@ -501,6 +518,39 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
     }
     stepGas(g, P);
   }
+}
+
+/**
+ * Accelerations (grid cells per second², grid axes) the force fields give each cell of a domain grid,
+ * or null without fields. `u v w` are the current cell velocities (grid units per second).
+ */
+export function fieldAccelerations(ctx: SimContext, G: GridFrame, frame: number, weight: number, types: Record<string, number> | null, u?: Float32Array, v?: Float32Array, w?: Float32Array): Float32Array | null {
+  const effs = collectEffectors(ctx, frame - 1);
+  if (!effs.length || weight === 0) return null;
+  const { nx, ny, nz } = G;
+  const toWorld = G.toGrid.clone().invert();
+  const lin = G.toGrid.clone().setPosition(0, 0, 0);
+  const linInv = toWorld.clone().setPosition(0, 0, 0);
+  const out = new Float32Array(nx * ny * nz * 3);
+  const p = new Vector3(),
+    vel = new Vector3(),
+    f = [0, 0, 0];
+  const fpsv = fps(ctx.doc);
+  let o = 0;
+  for (let k = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++, o++) {
+        p.set(i + 0.5, j + 0.5, k + 0.5).applyMatrix4(toWorld);
+        vel.set(u ? u[o] : 0, v ? v[o] : 0, w ? w[o] : 0).applyMatrix4(linInv);
+        f[0] = f[1] = f[2] = 0;
+        effectorForce(effs, p.x, p.y, p.z, vel.x, vel.y, vel.z, frame, f, weight, null, types);
+        vel.set(f[0], f[1], f[2]).applyMatrix4(lin);
+        out[o * 3] = vel.x;
+        out[o * 3 + 1] = vel.y;
+        out[o * 3 + 2] = vel.z;
+      }
+  void fpsv;
+  return out;
 }
 
 export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh, ctx: ModifierContext): { frame: FluidFrame; live: FluidLive } | null {
@@ -608,6 +658,7 @@ fluidShared.fns = {
   gridFrame,
   domainHash,
   cacheKey: fluidCacheKey,
+  fieldAccelerations,
   domainDefaults: defaultDomainSettings,
   flowDefaults: defaultFlowSettings,
 };

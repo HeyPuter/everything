@@ -360,6 +360,7 @@ function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
         num(s, 'flame_max_temp', 'Temperature Maximum', { min: 1, max: 10, disabled: d }),
       ], { closed: true }),
       s.domain_type === 'LIQUID' ? null : panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
+      fieldWeightsPanel('ph-fl-fw', s as never, d),
       cachePanel('ph-fl-cache', fluidCacheKey(ob, m), pc),
     );
   } else if (m.fluid_type === 'FLOW') {

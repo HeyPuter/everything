@@ -35,6 +35,8 @@ export interface LiquidParams {
   pressureIterations: number;
   /** open borders (liquid leaves the domain): -x +x -y +y -z +z */
   open: [boolean, boolean, boolean, boolean, boolean, boolean];
+  /** extra acceleration per cell (force fields), grid units */
+  accel?: Float32Array | null;
 }
 
 export function newLiquidGrid(nx: number, ny: number, nz: number, capacity = 1024): LiquidGrid {
@@ -290,10 +292,11 @@ export function stepLiquid(g: LiquidGrid, P: LiquidParams) {
   g.uOld.set(g.u);
   g.vOld.set(g.v);
   g.wOld.set(g.w);
+  const A = P.accel;
   for (let o = 0; o < n; o++) {
-    g.u[o] += P.gravity[0] * P.dt;
-    g.v[o] += P.gravity[1] * P.dt;
-    g.w[o] += P.gravity[2] * P.dt;
+    g.u[o] += (P.gravity[0] + (A ? A[o * 3] : 0)) * P.dt;
+    g.v[o] += (P.gravity[1] + (A ? A[o * 3 + 1] : 0)) * P.dt;
+    g.w[o] += (P.gravity[2] + (A ? A[o * 3 + 2] : 0)) * P.dt;
   }
   enforceBoundaries(g, P);
   project(g, P);
