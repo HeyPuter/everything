@@ -199,7 +199,7 @@ editModeHooks.svg.push((v) => {
 // transforms
 
 transformProviders.push({
-  collect() {
+  collect({ individual }) {
     const a = activeArmature();
     if (!a) return null;
     if (app.doc.mode === 'EDIT') {
@@ -226,7 +226,31 @@ transformProviders.push({
         if (key === 'tail') for (const c of a.arm.bones) if (c.parent === b.name && c.use_connect) c.head = [p.x, p.y, p.z];
       };
       const mirrorX = !!a.arm.use_mirror_x || forkedMirror.size > 0;
+      // Individual Origins: fully selected bones turn / scale around their own head
+      // (bones in connected selected chains keep moving by joints so the chain stays together)
+      const full = new Set(individual ? a.arm.bones.filter((b) => boneVisible(a.arm, b) && b.select_head && b.select_tail) : []);
+      const whole = [...full].filter((b) => !(b.use_connect && b.parent && full.has(byName.get(b.parent)!)) && !a.arm.bones.some((c) => c.parent === b.name && c.use_connect && full.has(c)));
+      for (const b of whole) {
+        const h0 = V(b.head).applyMatrix4(w),
+          t0 = V(b.tail).applyMatrix4(w);
+        els.push({
+          center: h0,
+          basis: new Matrix3().setFromMatrix4(w),
+          weight: 1,
+          apply(m: Matrix4) {
+            place(b, 'head', h0.clone().applyMatrix4(m).applyMatrix4(inv));
+            place(b, 'tail', t0.clone().applyMatrix4(m).applyMatrix4(inv));
+          },
+          restore() {
+            a.arm.bones.forEach((x, i) => {
+              x.head = [...before[i].head] as [number, number, number];
+              x.tail = [...before[i].tail] as [number, number, number];
+            });
+          },
+        });
+      }
       for (const j of joints) {
+        if (whole.includes(j.b)) continue;
         const p0 = V(j.b[j.key]).applyMatrix4(w);
         // X-Axis Mirror: the counterpart joint (Bone.L ↔ Bone.R) follows, mirrored
         const twinName = mirrorX && (a.arm.use_mirror_x || forkedMirror.has(j.b.name)) ? flipSideName(j.b.name) : null;

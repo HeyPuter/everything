@@ -152,7 +152,8 @@ describe('join curves and armatures', () => {
 });
 
 import { boneRestMatrix } from '../../src/eval/armature';
-import { Vector3 as V3 } from 'three';
+import { Vector3 as V3, Matrix4 as M4 } from 'three';
+import * as transformMod from '../../src/ops/transform';
 
 describe('join keeps bone orientation', () => {
   it('rotated armatures keep their bones\' roll in world space', () => {
@@ -204,5 +205,31 @@ describe('cursor snapping in curve Edit Mode', () => {
     b.select_control_point = b.select_left_handle = b.select_right_handle = true;
     app.run('view3d.snap_cursor_to_selected');
     expect(app.doc.scene.cursor.location.map((v) => +v.toFixed(4))).toEqual([3 + b.co[0], b.co[1], b.co[2]]);
+  });
+});
+
+describe('individual origins for bones', () => {
+  it('scales separate bones around their own heads', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add');
+    app.run('object.mode_set', { mode: 'EDIT' });
+    const arm = app.doc.armatures[app.activeObject!.data!];
+    app.run('armature.select_all', { action: 'SELECT' });
+    app.run('armature.duplicate_move', {}, { invoke: true });
+    app.endModal?.('CANCELLED');
+    arm.bones[1].head = [2, 0, 0];
+    arm.bones[1].tail = [2, 0, 1];
+    for (const b of arm.bones) b.select = b.select_head = b.select_tail = true;
+    app.doc.scene.tool_settings.transform_pivot_point = 'INDIVIDUAL_ORIGINS';
+    app.graph.evaluate(app.doc);
+    const { transformProviders } = transformMod;
+    let data = null as ReturnType<(typeof transformProviders)[number]['collect']>;
+    for (let i = transformProviders.length - 1; i >= 0 && !data; i--) data = transformProviders[i].collect({ proportional: false, connected: false, individual: true });
+    expect(data!.elements.length).toBe(2);
+    const S = new M4().makeScale(2, 2, 2);
+    for (const e of data!.elements) e.apply(new M4().makeTranslation(e.center.x, e.center.y, e.center.z).multiply(S).multiply(new M4().makeTranslation(-e.center.x, -e.center.y, -e.center.z)), { mode: 'RESIZE', value: [2, 2, 2] });
+    expect(arm.bones[0].tail.map((v) => +v.toFixed(4))).toEqual([0, 0, 2]);
+    expect(arm.bones[1].head.map((v) => +v.toFixed(4))).toEqual([2, 0, 0]);
+    expect(arm.bones[1].tail.map((v) => +v.toFixed(4))).toEqual([2, 0, 2]);
   });
 });
