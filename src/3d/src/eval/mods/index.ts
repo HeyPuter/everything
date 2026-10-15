@@ -10,3 +10,4 @@ import './multires';
 import './ocean';
 import './particles';
 import './meshcache';
+import './meshseq';

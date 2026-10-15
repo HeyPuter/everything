@@ -13,7 +13,8 @@ type Rec = Record<string, unknown>;
 function uvMapRow(ob: ObjectData, m: ModifierBase): Child {
   const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
   const name = me?.uv_map_name || 'UVMap';
-  return splitRow('UV Map', enumMenu(`${m.id}.uv_layer`, [{ value: '', label: name, icon: 'uv' }], '', () => undefined));
+  void m;
+  return splitRow('UV Map', h('span', { class: 'mod-file' }, name));
 }
 
 function boneRow(m: Rec, objKey: string, key: string, label: string): Child {
@@ -89,4 +90,3 @@ modifierExtraUI.UV_WARP = (ob, m) => {
   ] as Child[];
 };
 
-void h;
