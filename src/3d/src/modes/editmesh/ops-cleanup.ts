@@ -48,7 +48,33 @@ export function dissolveLimited(m: MeshEdit, o: LimitedDissolveOptions): boolean
     if (ang <= o.angle + 1e-6) cands.push({ k, ang });
   }
   cands.sort((x, y) => x.ang - y.ang);
-  const n = dissolveEdgeSet(m, cands.map((c) => c.k));
+  // grow regions flattest-first; a merge must keep the joined region within the angle limit
+  const parent = m.faces.map((_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]];
+    return x;
+  };
+  const sum = m.faces.map((f) => {
+    const n = new Vector3();
+    const p0 = V(m.p(f.verts[0]));
+    for (let i = 1; i < f.verts.length - 1; i++) n.add(V(m.p(f.verts[i])).sub(p0).cross(V(m.p(f.verts[i + 1])).sub(p0)));
+    return n; // area-weighted normal
+  });
+  const accepted: string[] = [];
+  for (const c of cands) {
+    const [fa, fb] = ef.get(c.k)!.map(([f]) => f);
+    const ra = find(fa),
+      rb = find(fb);
+    if (ra === rb) {
+      accepted.push(c.k);
+      continue;
+    }
+    if (sum[ra].angleTo(sum[rb]) > o.angle + 1e-6) continue;
+    parent[rb] = ra;
+    sum[ra].add(sum[rb]);
+    accepted.push(c.k);
+  }
+  const n = dissolveEdgeSet(m, accepted);
   // vertices left on straight runs
   const sel = new Set(m.selectedVerts());
   const boundary = new Set<number>();
@@ -406,6 +432,7 @@ export function decimate(m: MeshEdit, ratio: number, opts: { weights?: number[];
   const fsel = m.selectedFaces();
   if (!fsel.length || ratio >= 1) return false;
   const selSet = new Set(fsel);
+  const selFaceSizes = new Map(fsel.map((fi) => [fi, m.faces[fi].verts.length]));
   // triangulate the selected faces
   const tris: number[] = [];
   const triSrc: number[] = [];
@@ -591,7 +618,7 @@ export function decimate(m: MeshEdit, ratio: number, opts: { weights?: number[];
   }
   // rebuild: unselected faces unchanged, selected replaced by surviving triangles
   const out: EFace[] = m.faces.filter((_, i) => !selSet.has(i));
-  const newTris: number[] = [];
+  const bySource = new Map<number, number[]>();
   for (let t = 0; t < nt; t++) {
     if (!alive[t]) continue;
     const src = m.faces[triSrc[t]];
@@ -599,12 +626,14 @@ export function decimate(m: MeshEdit, ratio: number, opts: { weights?: number[];
     const f = subFace(m, src, cs);
     f.verts = f.verts.map(find);
     if (new Set(f.verts).size < 3) continue;
-    newTris.push(out.length);
+    (bySource.get(triSrc[t]) ?? bySource.set(triSrc[t], []).get(triSrc[t])!).push(out.length);
     out.push(f);
   }
   m.faces = out;
-  // join triangle pairs back into quads where flat enough
-  trisToQuads(m, new Set(newTris), (40 * Math.PI) / 180);
+  // a quad whose two triangles both survived becomes a quad again
+  const rejoin = new Set<number>();
+  for (const [src, tris] of bySource) if (tris.length === 2 && selFaceSizes.get(src) === 4) tris.forEach((t) => rejoin.add(t));
+  trisToQuads(m, rejoin, Math.PI);
   m.compact();
   return true;
 }
