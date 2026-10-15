@@ -48,6 +48,7 @@ let entries: StoredEntry[] = [];
 const loaded = new Map<string, Loaded>();
 const listeners = new Set<() => void>();
 let indexLoaded: Promise<void> | null = null;
+let indexReady = false;
 /** bumps on every library change (cache keys) */
 export let libraryRevision = 0;
 
@@ -71,6 +72,7 @@ export function loadLibraryIndex(): Promise<void> {
     } catch {
       entries = [];
     }
+    indexReady = true;
     notifyLibraries();
   })();
   return indexLoaded;
@@ -222,11 +224,13 @@ export async function refreshLibrary(id: string) {
   await st.loading;
 }
 
+/** The catalogs of a library (read only: edits go through `doc.asset_catalogs`). */
 export function libraryCatalogs(id: string): AssetCatalog[] {
-  const doc = libraryDoc(id);
-  if (!doc) return [];
-  return (doc.asset_catalogs ??= []);
+  return libraryDoc(id)?.asset_catalogs ?? [];
 }
+
+/** Whether the list of user libraries has been read from storage. */
+export const libraryIndexReady = () => indexReady;
 
 // ---------------------------------------------------------------------------
 // asset listing
@@ -433,4 +437,5 @@ export function resetLibrariesForTests() {
   entries = [];
   loaded.clear();
   indexLoaded = Promise.resolve();
+  indexReady = true;
 }

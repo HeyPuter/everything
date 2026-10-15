@@ -26,6 +26,7 @@ import {
   assetRef,
   findAsset,
   libraryRevision,
+  libraryIndexReady,
   type AssetEntry,
 } from './library';
 import { activateAsset } from './ops';
@@ -1012,6 +1013,11 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
 
   draw() {
     this.lastRevision = libraryRevision;
+    // a library that was deleted (or never existed) falls back to the current file
+    if (this.library !== ALL && libraryIndexReady() && !libraryInfo(this.library)) {
+      this.library = LOCAL;
+      this.catalogPath = null;
+    }
     this.el.classList.toggle('no-sidebar', !this.showSidebar);
     this.el.classList.toggle('no-details', !this.showDetails);
     if (this.showSidebar) patch(this.side, this.sideBar());
