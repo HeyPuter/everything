@@ -37,6 +37,7 @@ import { formatItems } from '../../src/geonodes/nodes/fn_string';
 import { formatString, shortestFloat } from '../../src/geonodes/strformat';
 import { testEnv } from './gnspec';
 import { getNodeType } from '../../src/nodes/registry';
+import { TreeEval } from '../../src/geonodes/evaluator';
 import type { ModifierBase, NodeGroupData, NodeTreeData } from '../../src/data/types';
 
 function group(): { doc: ReturnType<typeof emptyDocument>; g: NodeGroupData; tree: NodeTreeData } {
@@ -324,5 +325,28 @@ describe('matrix attributes', () => {
       [1, 1, 1],
       [2, 2, 2],
     ]);
+  });
+});
+
+describe('data-block inputs', () => {
+  it('pass the chosen object, collection, material, image and font on', () => {
+    const doc = emptyDocument();
+    doc.fonts = { f1: { id: 'f1', name: 'Sans', filepath: '', bytes: null } };
+    const tree: NodeTreeData = { type: 'GEOMETRY', nodes: [], links: [], interface: [] };
+    const te = new TreeEval(
+      testEnv(doc),
+      tree,
+      'x',
+      () => undefined,
+      () => '',
+      new Map(),
+      { warnings: new Map(), executed: 0, generation: 1 },
+    );
+    const font = addNode(tree, 'GeometryNodeInputFont', [0, 0], { font: 'f1' } as Record<string, never>);
+    const missing = addNode(tree, 'GeometryNodeInputFont', [0, 0], { font: 'nope' } as Record<string, never>);
+    const mat = addNode(tree, 'GeometryNodeInputMaterial', [0, 0], { material: 'm1' } as Record<string, never>);
+    expect(te.nodeOutputs(font).Font).toBe('f1');
+    expect(te.nodeOutputs(missing).Font).toBe(null);
+    expect(te.nodeOutputs(mat).Material).toBe('m1');
   });
 });

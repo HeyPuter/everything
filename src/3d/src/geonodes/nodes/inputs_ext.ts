@@ -1,8 +1,11 @@
-// Further input nodes: data-block constants (Object, Collection, Material, Image), instance
+// Further input nodes: data-block constants (Object, Collection, Material, Image, Font), instance
 // attributes (rotation, scale, transform, reference, bounds), Curve Handle Positions, Material
 // Selection, and the Set ID / Set Instance Transform writers.
 import './fdata';
 import { gn, prop } from './defs';
+import { h } from '../../ui/h';
+import { enumMenu } from '../../ui/widgets';
+import { app } from '../../app/app';
 import { Field, InputField, allocField, evalFull, matrixToEuler, type Evaluated, type FieldContext } from '../field';
 import { adaptDomain, geometryBounds, readAttribute, type Component, type InstancesComponent } from '../geometry';
 import { idField, positionField } from '../inputs';
@@ -211,3 +214,39 @@ gn('GeometryNodeMaterialSelection', 'input', {
     };
   },
 });
+
+// ---------------------------------------------------------------------------
+// Font
+
+gn(
+  'GeometryNodeInputFont',
+  'input',
+  {
+    exec: (ctx) => {
+      const v = ctx.node.props.font;
+      return { Font: typeof v === 'string' && v && ctx.env.doc.fonts?.[v] ? v : null };
+    },
+  },
+  {
+    drop: ['font'],
+    drawBody: (ctx) => {
+      const fonts = Object.values(app.doc.fonts ?? {});
+      const cur = typeof ctx.node.props.font === 'string' ? ctx.node.props.font : '';
+      return h(
+        'div',
+        { class: 'gn-id-rows' },
+        enumMenu(
+          `${ctx.key}:font`,
+          [{ value: '', label: '—' }, ...fonts.map((f) => ({ value: f.id, label: f.name, icon: 'outliner_ob_font' }))],
+          cur,
+          (v) => {
+            ctx.node.props.font = v || null;
+            ctx.changed('Set Font', true);
+          },
+          { title: 'Font' },
+        ),
+      );
+    },
+    bodyHeight: () => 26,
+  },
+);
