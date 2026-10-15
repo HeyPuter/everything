@@ -91,7 +91,7 @@ addKeys('3D View', [
   { key: 'G', op: 'transform.translate' },
   { key: 'R', op: 'transform.rotate' },
   { key: 'S', op: 'transform.resize' },
-  { key: 'B', op: 'view3d.select_box_tool' },
+  { key: 'B', op: 'view3d.select_box' },
   { key: 'W', op: 'wm.tool_cycle_select' },
   { key: 'TAB', op: 'object.editmode_toggle' },
   { key: 'TAB', ctrl: true, op: 'object.posemode_toggle', when: () => app.activeObject?.type === 'ARMATURE' },

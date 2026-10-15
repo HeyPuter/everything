@@ -7,6 +7,7 @@ import { activeView3D, type View3D } from '../../editors/view3d/view3d';
 import { h, type VNode } from '../../ui/h';
 import type { BezierPoint, CurveData, HandleType, ObjectData, Spline, SplinePoint, Vec3 } from '../../data/types';
 import { transformProviders, startTransform, type TElement } from '../../ops/transform';
+import { curveTransformExtras } from '../../editors/view3d/transformui';
 import { setGizmoCenterHook, gizmoCenterHook } from '../../editors/view3d/gizmo';
 import { frameHooks } from '../../ops/view3d';
 import { modeMenus } from '../../editors/view3d/modemenus';
@@ -811,7 +812,7 @@ export function addSplineToEditedCurve(sp: Spline, location: number[], rotation?
 
 function curveMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }] },
+    { label: 'Transform', submenu: () => [{ label: 'Move', op: 'transform.translate', shortcut: 'G' }, { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' }, { label: 'Scale', op: 'transform.resize', shortcut: 'S' }, ...curveTransformExtras()] },
     { separator: true },
     { label: 'Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
     { label: 'Separate', op: 'curve.separate', shortcut: 'P' },
@@ -850,7 +851,7 @@ function deleteMenu(): MenuItem[] {
 const prevEdit = modeMenus.EDIT;
 modeMenus.EDIT = {
   ...prevEdit,
-  header: () => (inCurveEdit() ? [['Curve', curveMenu], ['Control Points', () => [{ label: 'Extrude Curve and Move', op: 'curve.extrude_move', shortcut: 'E' }, { separator: true }, { label: 'Set Handle Type', submenu: handleMenu }]], ['Segments', () => [{ label: 'Subdivide', op: 'curve.subdivide' }, { label: 'Switch Direction', op: 'curve.switch_direction' }]]] : prevEdit?.header?.() ?? []),
+  header: () => (inCurveEdit() ? [['Curve', curveMenu], ['Control Points', () => [{ label: 'Extrude Curve and Move', op: 'curve.extrude_move', shortcut: 'E' }, { separator: true }, { label: 'Tilt', op: 'transform.tilt', shortcut: 'Ctrl T' }, { label: 'Clear Tilt', op: 'curve.tilt_clear', shortcut: 'Alt T' }, { separator: true }, { label: 'Set Handle Type', submenu: handleMenu }]], ['Segments', () => [{ label: 'Subdivide', op: 'curve.subdivide' }, { label: 'Switch Direction', op: 'curve.switch_direction' }]]] : prevEdit?.header?.() ?? []),
   select: () => (inCurveEdit() ? [{ label: 'All', op: 'curve.select_all', props: { action: 'SELECT' }, shortcut: 'A' }, { label: 'None', op: 'curve.select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' }, { label: 'Invert', op: 'curve.select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' }, { separator: true }, { label: 'Select Linked', op: 'curve.select_linked', shortcut: 'Ctrl L' }] : prevEdit?.select?.() ?? []),
   add: () =>
     inCurveEdit()

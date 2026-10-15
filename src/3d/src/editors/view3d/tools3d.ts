@@ -6,9 +6,9 @@ import { activeTools } from '../../app/prefs';
 import { editModeHooks } from './hooks';
 import type { View3D } from './view3d';
 import { h, type VNode } from '../../ui/h';
-import { surfaceHit } from '../../ops/view3d';
+import { surfaceHit, cursorToolSettings } from '../../ops/view3d';
 import { toolSettingsRenderers } from './toolbar';
-import { colorSwatch, formatNumber, numberField, enumMenu, opButton } from '../../ui/widgets';
+import { colorSwatch, formatNumber, numberField, enumMenu, opButton, checkbox } from '../../ui/widgets';
 import { newMeshData, newObject } from '../../data/defaults';
 import * as prim from '../../mesh/primitives';
 import { addObjectToScene, uniqueName } from '../../ops/object';
@@ -24,6 +24,8 @@ export interface AnnotationStroke {
 export interface Ruler {
   a: [number, number, number];
   b: [number, number, number];
+  /** corner point: the ruler measures the angle a–c–b (protractor) */
+  c?: [number, number, number];
 }
 
 type SceneExt = SceneData & { annotations?: AnnotationStroke[]; rulers?: Ruler[] };
@@ -80,23 +82,37 @@ editModeHooks.svg.push((v) => {
     const a = v.project(new Vector3(...r.a)),
       b = v.project(new Vector3(...r.b));
     if (a.z > 1 || b.z > 1) return;
-    const len = new Vector3(...r.a).distanceTo(new Vector3(...r.b));
     const on = i === activeRuler;
+    const label = (x: number, y: number, text: string) => [
+      h('rect', { x: x - text.length * 3.6 - 5, y: y - 18, width: text.length * 7.2 + 10, height: 16, rx: 3, fill: 'rgba(0,0,0,.6)' }),
+      h('text', { x, y: y - 6, fill: '#fff', 'font-size': 11, 'text-anchor': 'middle' }, text),
+    ];
+    const seg = (p: { x: number; y: number }, q: { x: number; y: number }) => [
+      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: '#000', 'stroke-width': 3, opacity: 0.6 }),
+      h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: on ? '#fff' : '#ddd', 'stroke-width': 1.2, 'stroke-dasharray': '6 3' }),
+    ];
+    const dot = (p: { x: number; y: number }) => h('circle', { cx: p.x, cy: p.y, r: 4, fill: on ? '#fff' : '#bbb', stroke: '#000' });
+    if (r.c) {
+      // protractor: angle at the corner between the two arms
+      const c = v.project(new Vector3(...r.c));
+      const A = new Vector3(...r.a).sub(new Vector3(...r.c)),
+        B = new Vector3(...r.b).sub(new Vector3(...r.c));
+      const ang = A.lengthSq() && B.lengthSq() ? A.angleTo(B) : 0;
+      const a0 = Math.atan2(a.y - c.y, a.x - c.x),
+        b0 = Math.atan2(b.y - c.y, b.x - c.x);
+      let d = b0 - a0;
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      const R = 22;
+      const arc = `M${c.x + Math.cos(a0) * R} ${c.y + Math.sin(a0) * R}A${R} ${R} 0 0 ${d > 0 ? 1 : 0} ${c.x + Math.cos(b0) * R} ${c.y + Math.sin(b0) * R}`;
+      const mid = a0 + d / 2;
+      parts.push(h('g', { class: 'ruler protractor' }, ...seg(c, a), ...seg(c, b), h('path', { d: arc, fill: 'none', stroke: on ? '#fff' : '#ddd', 'stroke-width': 1.2 }), dot(a), dot(b), dot(c), ...label(c.x + Math.cos(mid) * (R + 22), c.y + Math.sin(mid) * (R + 22) + 6, `${((ang * 180) / Math.PI).toFixed(2)}°`)));
+      return;
+    }
+    const len = new Vector3(...r.a).distanceTo(new Vector3(...r.b));
     const mx = (a.x + b.x) / 2,
       my = (a.y + b.y) / 2;
-    const text = formatNumber(len, 'distance');
-    parts.push(
-      h(
-        'g',
-        { class: 'ruler' },
-        h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#000', 'stroke-width': 3, opacity: 0.6 }),
-        h('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: on ? '#fff' : '#ddd', 'stroke-width': 1.2, 'stroke-dasharray': '6 3' }),
-        h('circle', { cx: a.x, cy: a.y, r: 4, fill: on ? '#fff' : '#bbb', stroke: '#000' }),
-        h('circle', { cx: b.x, cy: b.y, r: 4, fill: on ? '#fff' : '#bbb', stroke: '#000' }),
-        h('rect', { x: mx - text.length * 3.6 - 5, y: my - 18, width: text.length * 7.2 + 10, height: 16, rx: 3, fill: 'rgba(0,0,0,.6)' }),
-        h('text', { x: mx, y: my - 6, fill: '#fff', 'font-size': 11, 'text-anchor': 'middle' }, text),
-      ),
-    );
+    parts.push(h('g', { class: 'ruler' }, ...seg(a, b), dot(a), dot(b), h('circle', { cx: mx, cy: my, r: 3, fill: 'none', stroke: on ? '#fff' : '#bbb', 'stroke-width': 1 }), ...label(mx, my, formatNumber(len, 'distance'))));
   });
   if (preview) parts.push(preview);
   return parts.length ? h('g', { class: 'tools3d' }, parts) : null;
@@ -169,22 +185,33 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
   const sc = scene();
   const { x, y } = localXY(v, e);
   const snap = (ev: PointerEvent, px: number, py: number, depth: Vector3) => (ev.ctrlKey ? surfaceHit(v, px, py) ?? v.unproject(px, py, depth) : v.unproject(px, py, depth));
-  // grab an existing endpoint?
-  let grab: { i: number; end: 'a' | 'b' } | null = null;
+  // grab an existing point? dragging a ruler's midpoint turns it into a protractor
+  let grab: { i: number; end: 'a' | 'b' | 'c' } | null = null;
   (sc.rulers ?? []).forEach((r, i) => {
-    for (const end of ['a', 'b'] as const) {
-      const p = v.project(new Vector3(...r[end]));
+    for (const end of ['a', 'b', 'c'] as const) {
+      const w = r[end];
+      if (!w) continue;
+      const p = v.project(new Vector3(...w));
       if (Math.hypot(p.x - x, p.y - y) < 9) grab = { i, end };
+    }
+    if (!r.c && !grab) {
+      const mid = v.project(new Vector3(...r.a).add(new Vector3(...r.b)).multiplyScalar(0.5));
+      if (Math.hypot(mid.x - x, mid.y - y) < 7) grab = { i, end: 'c' };
     }
   });
   let ruler: Ruler;
-  let end: 'a' | 'b';
+  let end: 'a' | 'b' | 'c';
   let created = false;
+  let converted = false;
   if (grab) {
-    const g = grab as { i: number; end: 'a' | 'b' };
-    sc.rulers = sc.rulers!.map((r) => ({ a: [...r.a], b: [...r.b] }) as Ruler);
+    const g = grab as { i: number; end: 'a' | 'b' | 'c' };
+    sc.rulers = sc.rulers!.map((r) => ({ a: [...r.a], b: [...r.b], ...(r.c ? { c: [...r.c] } : {}) }) as Ruler);
     ruler = sc.rulers[g.i];
     end = g.end;
+    if (end === 'c' && !ruler.c) {
+      ruler.c = new Vector3(...ruler.a).add(new Vector3(...ruler.b)).multiplyScalar(0.5).toArray() as [number, number, number];
+      converted = true;
+    }
     activeRuler = g.i;
   } else {
     const p = surfaceHit(v, x, y) ?? v.unproject(x, y, new Vector3(...app.doc.scene.cursor.location));
@@ -194,7 +221,7 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
     end = 'b';
     created = true;
   }
-  const depth = new Vector3(...ruler[end === 'a' ? 'b' : 'a']);
+  const depth = new Vector3(...(ruler[end] ?? ruler.a));
   let moved = false;
   const move = (ev: PointerEvent) => {
     const q = localXY(v, ev);
@@ -206,6 +233,7 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
   const up = () => {
     removeEventListener('pointermove', move);
     removeEventListener('pointerup', up);
+    if (converted && !moved) delete ruler.c;
     if (created && !moved) {
       // a click without drag does not create a zero length ruler
       sc.rulers = sc.rulers!.filter((r) => r !== ruler);
@@ -433,7 +461,26 @@ toolSettingsRenderers['builtin.annotate'] = () =>
   );
 
 toolSettingsRenderers['builtin.measure'] = () =>
-  h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · Ctrl snaps to surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));
+  h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · drag a midpoint to measure an angle · Ctrl snaps to surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));
 
 toolSettingsRenderers['builtin.add_cube'] = () => h('span', { class: 'th-label' }, 'Drag to define the base (Shift: square), move to set the height, click to confirm');
 
+
+toolSettingsRenderers['builtin.cursor'] = () =>
+  h(
+    'span',
+    { class: 'th-settings' },
+    checkbox('cur-depth', 'Surface Project', cursorToolSettings.use_depth, (x) => ((cursorToolSettings.use_depth = x), app.changed('ui'))),
+    h('span', { class: 'th-label' }, 'Orientation'),
+    enumMenu(
+      'cur-orient',
+      [
+        { value: 'NONE', label: 'None', description: 'Keep the cursor rotation' },
+        { value: 'VIEW', label: 'View', description: 'Orient the cursor to the view' },
+        { value: 'TRANSFORM', label: 'Transform', description: 'Orient the cursor to the transform orientation' },
+        { value: 'GEOMETRY', label: 'Geometry', description: 'Orient the cursor to the surface under the mouse' },
+      ],
+      cursorToolSettings.orientation,
+      (o) => ((cursorToolSettings.orientation = o as typeof cursorToolSettings.orientation), app.changed('ui')),
+    ),
+  );

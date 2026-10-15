@@ -1,6 +1,6 @@
 // Element snapping for interactive transforms: snap targets on other geometry (vertex, edge,
 // edge midpoint, face, volume) found under the mouse, plus the snap indicator overlay.
-import { Matrix4, Vector3 } from 'three';
+import { Matrix3, Matrix4, Vector3 } from 'three';
 import { app } from '../app/app';
 import type { View3D } from '../editors/view3d/view3d';
 import { editModeHooks } from '../editors/view3d/hooks';
@@ -42,6 +42,8 @@ function candidates(v: View3D): Candidate[] {
 export interface SnapHit {
   point: Vector3;
   kind: SnapElement;
+  /** surface normal (world) for face snapping */
+  normal?: Vector3;
 }
 
 /** Find the snap target under the mouse for the enabled element types. */
@@ -104,7 +106,7 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
   if (elements.includes('FACE') || elements.includes('VOLUME')) {
     const hits = rayHits(v, mouse, cands);
     if (hits.length) {
-      if (elements.includes('FACE')) return { point: hits[0].point, kind: 'FACE' };
+      if (elements.includes('FACE')) return { point: hits[0].point, kind: 'FACE', normal: hits[0].normal };
       const first = hits[0];
       const exit = hits.find((h2, i) => i > 0 && h2.id === first.id);
       if (exit) return { point: first.point.clone().lerp(exit.point, 0.5), kind: 'VOLUME' };
@@ -117,7 +119,7 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
 /** All ray/triangle intersections under the mouse, nearest first. */
 function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[]) {
   const { origin, dir } = v.ray(mouse.x, mouse.y);
-  const hits: { t: number; point: Vector3; id: string }[] = [];
+  const hits: { t: number; point: Vector3; id: string; normal: Vector3 }[] = [];
   const a = new Vector3(),
     b = new Vector3(),
     c = new Vector3(),
@@ -159,7 +161,9 @@ function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[])
         if (t <= 1e-6) continue;
         const local = o.clone().addScaledVector(d, t);
         const world = local.applyMatrix4(cand.world);
-        hits.push({ t: world.distanceTo(origin), point: world, id: cand.id });
+        const normal = new Vector3().crossVectors(e1, e2).applyMatrix3(new Matrix3().getNormalMatrix(cand.world)).normalize();
+        if (normal.dot(dir) > 0) normal.negate();
+        hits.push({ t: world.distanceTo(origin), point: world, id: cand.id, normal });
       }
     }
   }

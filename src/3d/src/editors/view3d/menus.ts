@@ -2,6 +2,8 @@
 import type { MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
+import { objectTransformMenu, mirrorMenu } from './transformui';
+import './quadview';
 
 export function viewMenu(): MenuItem[] {
   return [
@@ -14,12 +16,16 @@ export function viewMenu(): MenuItem[] {
     { label: 'Frame All', op: 'view3d.view_all', shortcut: 'Home' },
     { separator: true },
     { label: 'Perspective/Orthographic', op: 'view3d.view_persportho', shortcut: 'Numpad 5' },
-    { label: 'Local View', op: 'view3d.localview', shortcut: 'Numpad /' },
+    { label: 'Local View', submenu: localViewMenu },
     { separator: true },
     { label: 'Cameras', submenu: camerasMenu },
     { label: 'Viewpoint', submenu: viewpointMenu },
     { label: 'Navigation', submenu: navigationMenu },
     { label: 'Align View', submenu: alignViewMenu },
+    { separator: true },
+    { label: 'View Regions', submenu: viewRegionsMenu },
+    { separator: true },
+    { label: 'Play Animation', op: 'screen.animation_play', shortcut: 'Space' },
     { separator: true },
     { label: 'Render Viewport Image', op: 'render.opengl' },
     { label: 'Viewport Render Animation', op: 'render.opengl_animation' },
@@ -30,16 +36,24 @@ export function viewMenu(): MenuItem[] {
 
 function areaMenu(): MenuItem[] {
   const area = app.hoverArea ?? app.activeArea;
-  return area ? (area as unknown as { areaMenu(): MenuItem[] }).areaMenu() : [];
+  if (!area) return [];
+  const items = (area as unknown as { areaMenu(): MenuItem[] }).areaMenu();
+  return [...items, { separator: true }, { label: 'Toggle Quad View', op: 'screen.region_quadview', shortcut: 'Ctrl Alt Q' }];
+}
+
+function localViewMenu(): MenuItem[] {
+  return [
+    { label: 'Toggle Local View', op: 'view3d.localview', shortcut: 'Numpad /' },
+    { label: 'Remove from Local View', op: 'view3d.localview_remove_from', shortcut: 'Alt Numpad /' },
+  ];
 }
 
 function camerasMenu(): MenuItem[] {
   return [
     { label: 'Set Active Object as Camera', op: 'view3d.object_as_camera', shortcut: 'Ctrl Numpad 0' },
     { label: 'Active Camera', op: 'view3d.view_camera', shortcut: 'Numpad 0' },
+    { label: 'Frame Camera Bounds', op: 'view3d.view_center_camera', shortcut: 'Home' },
     { separator: true },
-    { label: 'Align Active Camera to View', op: 'view3d.camera_to_view', shortcut: 'Ctrl Alt Numpad 0' },
-    { label: 'Align Active Camera to Selected', op: 'view3d.camera_to_view_selected' },
     { label: 'Lock Camera to View', op: 'view3d.toggle_lock_camera' },
   ];
 }
@@ -60,12 +74,16 @@ function viewpointMenu(): MenuItem[] {
 }
 
 function navigationMenu(): MenuItem[] {
+  const deg15 = (15 * Math.PI) / 180;
   return [
     { label: 'Orbit Left', op: 'view3d.view_orbit', props: { type: 'ORBITLEFT' }, shortcut: 'Numpad 4' },
     { label: 'Orbit Right', op: 'view3d.view_orbit', props: { type: 'ORBITRIGHT' }, shortcut: 'Numpad 6' },
     { label: 'Orbit Up', op: 'view3d.view_orbit', props: { type: 'ORBITUP' }, shortcut: 'Numpad 8' },
     { label: 'Orbit Down', op: 'view3d.view_orbit', props: { type: 'ORBITDOWN' }, shortcut: 'Numpad 2' },
     { label: 'Orbit Opposite', op: 'view3d.view_orbit', props: { type: 'ORBITOPPOSITE' }, shortcut: 'Numpad 9' },
+    { separator: true },
+    { label: 'Roll Left', op: 'view3d.view_roll', props: { angle: -deg15 }, shortcut: 'Shift Numpad 4' },
+    { label: 'Roll Right', op: 'view3d.view_roll', props: { angle: deg15 }, shortcut: 'Shift Numpad 6' },
     { separator: true },
     { label: 'Pan Left', op: 'view3d.view_pan', props: { type: 'PANLEFT' }, shortcut: 'Ctrl Numpad 4' },
     { label: 'Pan Right', op: 'view3d.view_pan', props: { type: 'PANRIGHT' }, shortcut: 'Ctrl Numpad 6' },
@@ -75,21 +93,35 @@ function navigationMenu(): MenuItem[] {
     { label: 'Zoom In', op: 'view3d.zoom', props: { delta: 1 }, shortcut: 'Numpad +' },
     { label: 'Zoom Out', op: 'view3d.zoom', props: { delta: -1 }, shortcut: 'Numpad -' },
     { label: 'Zoom Region…', op: 'view3d.zoom_border', shortcut: 'Shift B' },
+    { label: 'Dolly View…', op: 'view3d.dolly', props: { delta: 0 }, shortcut: 'Shift Ctrl MMB' },
     { label: 'Zoom Camera 1:1', op: 'view3d.zoom_camera_1_to_1' },
     { separator: true },
     { label: 'Fly Navigation', op: 'view3d.fly' },
-    { label: 'Walk Navigation', op: 'view3d.walk', shortcut: 'Shift `' },
+    { label: 'Walk Navigation', op: 'view3d.walk' },
   ];
 }
 
 function alignViewMenu(): MenuItem[] {
   return [
-    { label: 'Align View to Active', submenu: () => ['TOP', 'BOTTOM', 'FRONT', 'BACK', 'RIGHT', 'LEFT'].map((t) => ({ label: t[0] + t.slice(1).toLowerCase(), op: 'view3d.view_axis', props: { type: t, align_active: true } })) },
+    { label: 'Align View to Active', submenu: () => ([['TOP', 'Shift Numpad 7'], ['BOTTOM', 'Shift Ctrl Numpad 7'], null, ['FRONT', 'Shift Numpad 1'], ['BACK', 'Shift Ctrl Numpad 1'], null, ['RIGHT', 'Shift Numpad 3'], ['LEFT', 'Shift Ctrl Numpad 3']] as ([string, string] | null)[]).map((t) => (t ? { label: t[0][0] + t[0].slice(1).toLowerCase(), op: 'view3d.view_axis', props: { type: t[0], align_active: true }, shortcut: t[1] } : { separator: true })) },
+    { separator: true },
+    { label: 'Align Active Camera to View', op: 'view3d.camera_to_view', shortcut: 'Ctrl Alt Numpad 0' },
+    { label: 'Align Active Camera to Selected', op: 'view3d.camera_to_view_selected' },
     { separator: true },
     { label: 'Center Cursor and Frame All', op: 'view3d.view_all', props: { center: true }, shortcut: 'Shift C' },
     { label: 'Center View to Cursor', op: 'view3d.view_center_cursor' },
+    { separator: true },
     { label: 'View Lock to Active', op: 'view3d.view_lock_to_active' },
     { label: 'View Lock Clear', op: 'view3d.view_lock_clear' },
+  ];
+}
+
+function viewRegionsMenu(): MenuItem[] {
+  return [
+    { label: 'Clipping Region…', op: 'view3d.clip_border', shortcut: 'Alt B' },
+    { label: 'Render Region…', op: 'view3d.render_border', shortcut: 'Ctrl B' },
+    { separator: true },
+    { label: 'Clear Render Region', op: 'view3d.clear_render_border', shortcut: 'Ctrl Alt B' },
   ];
 }
 
@@ -101,8 +133,8 @@ export function selectMenu(): MenuItem[] {
     { label: 'None', op: 'object.select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' },
     { label: 'Invert', op: 'object.select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' },
     { separator: true },
-    { label: 'Box Select', op: 'view3d.select_box_tool', shortcut: 'B' },
-    { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
+    { label: 'Box Select', op: 'view3d.select_box', shortcut: 'B' },
+    { label: 'Circle Select', op: 'view3d.select_circle', shortcut: 'C' },
     { separator: true },
     { label: 'Select All by Type', submenu: () => ['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE', 'EMPTY', 'CAMERA', 'LIGHT'].map((t) => ({ label: t[0] + t.slice(1).toLowerCase(), op: 'object.select_by_type', props: { type: t } })) },
     { label: 'Select Active Camera', op: 'object.select_camera' },
@@ -215,15 +247,7 @@ function curveAddMenu(): MenuItem[] {
 
 export function objectMenu(): MenuItem[] {
   return [
-    { label: 'Transform', submenu: () => [
-      { label: 'Move', op: 'transform.translate', shortcut: 'G' },
-      { label: 'Rotate', op: 'transform.rotate', shortcut: 'R' },
-      { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
-      { separator: true },
-      { label: 'Push/Pull', op: 'transform.push_pull' },
-      { label: 'Randomize Transform', op: 'object.randomize_transform' },
-      { label: 'Align Objects', op: 'object.align' },
-    ] },
+    { label: 'Transform', submenu: objectTransformMenu },
     { label: 'Set Origin', submenu: () => [
       { label: 'Geometry to Origin', op: 'object.origin_set', props: { type: 'GEOMETRY_ORIGIN' } },
       { label: 'Origin to Geometry', op: 'object.origin_set', props: { type: 'ORIGIN_GEOMETRY' } },
@@ -231,7 +255,7 @@ export function objectMenu(): MenuItem[] {
       { label: 'Origin to Center of Mass (Surface)', op: 'object.origin_set', props: { type: 'ORIGIN_CENTER_OF_MASS' } },
     ] },
     { label: 'Apply', shortcut: 'Ctrl A', submenu: applyMenu },
-    { label: 'Mirror', submenu: () => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } })) },
+    { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Clear', submenu: () => [
       { label: 'Location', op: 'object.location_clear', shortcut: 'Alt G' },
       { label: 'Rotation', op: 'object.rotation_clear', shortcut: 'Alt R' },
@@ -373,7 +397,7 @@ export function objectContextMenu(): MenuItem[] {
     { separator: true },
     { label: 'Rename Active Object…', op: 'object.rename', shortcut: 'F2' },
     { separator: true },
-    { label: 'Mirror', submenu: () => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } })) },
+    { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Snap', submenu: snapMenu },
     { label: 'Parent', submenu: () => [{ label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } }, { label: 'Clear Parent', op: 'object.parent_clear', props: { type: 'CLEAR' } }] },
     { label: 'Move to Collection', op: 'object.move_to_collection', shortcut: 'M' },

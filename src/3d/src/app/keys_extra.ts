@@ -3,9 +3,11 @@
 import { Vector3 } from 'three';
 import { app, registerOperators } from './app';
 import { addKeys } from './keymap';
-import { uiState, activeTools } from './prefs';
+import { activeTools } from './prefs';
 import { editorTypes, type EditorTypeId } from '../ui/screen';
-import { openMenu, openPie, promptText, type MenuItem } from '../ui/menu';
+import { openMenu, openPie, promptText, type MenuItem, type PieItem } from '../ui/menu';
+import { currentOrientation, customOrientations, setOrientation } from '../ops/orientations';
+import { BUILTIN_ORIENTATIONS } from '../ops/orientation_list';
 import { activeView3D } from '../editors/view3d/view3d';
 import { toolsFor, setActiveTool } from '../editors/view3d/toolbar';
 import { newModifier } from '../eval/modifiers';
@@ -81,20 +83,6 @@ registerOperators([
       for (const ob of app.selectedObjects()) v.localView!.delete(ob.id);
       if (!v.localView!.size) app.run('view3d.localview');
       renderContext?.engine.requestDraw();
-    },
-    undo: false,
-  },
-  {
-    idname: 'view3d.dolly',
-    label: 'Dolly View',
-    description: 'Move the view forward or backward without changing the pivot distance',
-    props: [{ id: 'delta', label: 'Delta', type: 'int', default: 1 }],
-    poll: () => !!activeView3D(),
-    exec: (_ctx, p) => {
-      const v = activeView3D()!;
-      v.leaveCamera();
-      v.nav.pivot.add(v.nav.forward.multiplyScalar((p.delta as number) * v.nav.distance * 0.2));
-      v.afterNav();
     },
     undo: false,
   },
@@ -233,16 +221,12 @@ registerOperators([
 ]);
 
 function orientationPie() {
-  const items = (['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'VIEW', 'CURSOR', 'PARENT'] as const).map((o) => ({
-    label: o[0] + o.slice(1).toLowerCase(),
-    active: uiState.orientation === o,
-    action: () => {
-      uiState.orientation = o;
-      app.changed('ui');
-    },
-  }));
-  // W E S N NW NE SW SE
-  openPie('Transform Orientation', [items[1], items[0], items[2], items[4], items[3], items[5], items[6], null], app.pointer.x, app.pointer.y, 'COMMA');
+  const cur = currentOrientation();
+  // W E S N NW NE SW SE: the built-in orientations in order, then the first custom one
+  const items: (PieItem | null)[] = BUILTIN_ORIENTATIONS.map(([o, label, ic]) => ({ label, icon: ic, active: cur === o, action: () => setOrientation(o) }));
+  const custom = customOrientations()[0];
+  items.push(custom ? { label: custom.name, icon: 'orientation_local', active: cur === custom.name, action: () => setOrientation(custom.name) } : null);
+  openPie('Transform Orientation', items, app.pointer.x, app.pointer.y, 'COMMA');
 }
 
 function falloffPie() {
@@ -289,8 +273,8 @@ addKeys('3D View', [
   { key: 'NUMPAD_MINUS', shift: true, op: 'view3d.dolly', props: { delta: -1 } },
   { key: 'EQUAL', shift: true, ctrl: true, op: 'view3d.dolly', props: { delta: 1 } },
   { key: 'MINUS', shift: true, ctrl: true, op: 'view3d.dolly', props: { delta: -1 } },
-  { key: 'HOME', ctrl: true, op: 'view3d.view_all' },
-  { key: 'NUMPAD_PERIOD', ctrl: true, op: 'view3d.view_selected' },
+  { key: 'HOME', ctrl: true, op: 'view3d.view_all', props: { use_all_regions: true } },
+  { key: 'NUMPAD_PERIOD', ctrl: true, op: 'view3d.view_selected', props: { use_all_regions: true } },
   { key: 'Z', shift: true, op: 'view3d.toggle_shading', props: { type: 'WIREFRAME' } },
   { key: 'ACCENT_GRAVE', ctrl: true, op: 'view3d.gizmo_toggle' },
   { key: 'COMMA', action: orientationPie },

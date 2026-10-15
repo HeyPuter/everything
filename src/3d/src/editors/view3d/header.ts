@@ -3,8 +3,8 @@ import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
-import { uiState } from '../../app/prefs';
-import type { View3D } from './view3d';
+import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
+import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
 import { checkbox, numberField, enumRow, colorSwatch, panel } from '../../ui/widgets';
@@ -45,15 +45,7 @@ function menuButton(label: string, items: () => MenuItem[]) {
   );
 }
 
-const ORIENTATIONS = [
-  ['GLOBAL', 'Global', 'orientation_global'],
-  ['LOCAL', 'Local', 'orientation_local'],
-  ['NORMAL', 'Normal', 'orientation_normal'],
-  ['GIMBAL', 'Gimbal', 'orientation_gimbal'],
-  ['VIEW', 'View', 'orientation_view'],
-  ['CURSOR', 'Cursor', 'orientation_cursor'],
-  ['PARENT', 'Parent', 'orientation_local'],
-] as const;
+const ORIENTATIONS = BUILTIN_ORIENTATIONS;
 
 const PIVOTS = [
   ['BOUNDING_BOX_CENTER', 'Bounding Box Center', 'pivot_boundbox'],
@@ -95,11 +87,14 @@ function iconToggle(id: string, iconName: string, on: boolean, tip: string, onCl
 }
 
 export function viewHeader(v: View3D): Child {
+  // while a modal operation runs in this viewport its header shows the operation's values
+  if (app.modal?.header && activeView3D() === v) return h('div', { class: 'hdr-row hdr-modal' }, h('span', { class: 'hdr-modal-text', style: 'padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis' }, app.modal.header()));
   const doc = app.doc;
   const ts = doc.scene.tool_settings;
   const mode = MODE_ITEMS.find((m) => m.mode === doc.mode) ?? MODE_ITEMS[0];
   const mm = modeMenus[doc.mode];
-  const orient = ORIENTATIONS.find((o) => o[0] === uiState.orientation) ?? ORIENTATIONS[0];
+  const curOrient = currentOrientation();
+  const orient: readonly [string, string, string] = ORIENTATIONS.find((o) => o[0] === curOrient) ?? [curOrient, curOrient, 'orientation_local'];
   const pivot = PIVOTS.find((p) => p[0] === ts.transform_pivot_point) ?? PIVOTS[3];
   const snapEl = SNAP_ELEMENTS.find((s) => s[0] === ts.snap_elements[0]) ?? SNAP_ELEMENTS[0];
   const propOn = doc.mode === 'OBJECT' ? ts.use_proportional_edit_objects : ts.use_proportional_edit;
@@ -143,11 +138,7 @@ export function viewHeader(v: View3D): Child {
         'data-tip': 'Transform Orientation',
         onpointerdown: (e: PointerEvent) => {
           e.preventDefault();
-          openMenu(
-            ORIENTATIONS.map(([id, label, ic]) => ({ label, icon: ic, active: uiState.orientation === id, action: () => ((uiState.orientation = id), app.changed('ui')) })),
-            e.currentTarget as HTMLElement,
-            { title: 'Transform Orientation' },
-          );
+          openMenu(orientationMenu(), e.currentTarget as HTMLElement, { title: 'Transform Orientations' });
         },
       },
       icon(orient[2]),
@@ -156,7 +147,12 @@ export function viewHeader(v: View3D): Child {
     ),
     iconDrop('pivot', pivot[2], 'Transform Pivot Point', (el) =>
       openMenu(
-        PIVOTS.map(([id, label, ic]) => ({ label, icon: ic, active: ts.transform_pivot_point === id, action: () => setTool('transform_pivot_point', id) })),
+        [
+          ...PIVOTS.map(([id, label, ic]) => ({ label, icon: ic, active: ts.transform_pivot_point === id, action: () => setTool('transform_pivot_point', id) })),
+          ...(doc.mode === 'OBJECT'
+            ? [{ separator: true } as MenuItem, { label: 'Only Locations', checked: !!(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align, action: () => setTool('use_transform_pivot_point_align', !(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align) }]
+            : []),
+        ],
         el,
         { title: 'Pivot Point' },
       ),
@@ -165,23 +161,7 @@ export function viewHeader(v: View3D): Child {
       'div',
       { class: 'hdr-group' },
       iconToggle('snap', ts.use_snap ? 'snap_on' : 'snap_off', ts.use_snap, 'Snap (Shift Tab)\nSnap during transform', () => setTool('use_snap', !ts.use_snap)),
-      iconDrop('snapel', snapEl[2], 'Snapping', (el) =>
-        openPopover(el, () =>
-          h(
-            'div',
-            { class: 'pop-panel' },
-            h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
-            h('div', { class: 'pop-list' }, SNAP_ELEMENTS.map(([id, label, ic]) => h('button', { key: id, class: { 'pop-item': true, on: ts.snap_elements.includes(id) }, onclick: (e: MouseEvent) => {
-              if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
-              else ts.snap_elements = [id];
-              app.pushUndo('Snap Element');
-              app.changed('ui');
-            } }, icon(ic), label))),
-            h('div', { class: 'pop-title' }, 'Snap With'),
-            enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
-          ),
-        { width: 230 }),
-      ),
+      iconDrop('snapel', snapEl[2], 'Snapping', (el) => openPopover(el, snappingPopover, { width: 240 })),
     ),
     h(
       'div',
@@ -189,7 +169,10 @@ export function viewHeader(v: View3D): Child {
       iconToggle('prop', propOn ? 'prop_on' : 'prop_off', propOn, 'Proportional Editing (O)', () => setTool(doc.mode === 'OBJECT' ? 'use_proportional_edit_objects' : 'use_proportional_edit', !propOn)),
       iconDrop('propfall', 'smooth', 'Proportional Editing Falloff', (el) =>
         openMenu(
-          ['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'].map((f) => ({ label: f[0] + f.slice(1).toLowerCase().replace('_', ' '), active: ts.proportional_edit_falloff === f, action: () => setTool('proportional_edit_falloff', f) })),
+          [
+            ...['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'].map((f) => ({ label: f[0] + f.slice(1).toLowerCase().replace('_', ' '), active: ts.proportional_edit_falloff === f, action: () => setTool('proportional_edit_falloff', f) })),
+            ...(doc.mode === 'EDIT' ? [{ separator: true } as MenuItem, { label: 'Connected Only', checked: ts.use_proportional_connected, action: () => setTool('use_proportional_connected', !ts.use_proportional_connected) }] : []),
+          ],
           el,
           { title: 'Proportional Editing Falloff' },
         ),
@@ -246,6 +229,11 @@ export function viewHeader(v: View3D): Child {
             { class: 'pop-panel' },
             h('div', { class: 'pop-title' }, 'Viewport Gizmos'),
             checkbox('nav-g', 'Navigate', v.showNavGizmo, (x) => ((v.showNavGizmo = x), v.drawUI())),
+            checkbox('tool-g', 'Active Tools', v.showToolGizmo, (x) => ((v.showToolGizmo = x), v.drawSvg(), app.changed('ui'))),
+            h('div', { class: 'pop-title' }, 'Object Gizmos'),
+            checkbox('obg-move', 'Move', v.objectGizmos.translate, (x) => ((v.objectGizmos.translate = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('obg-rot', 'Rotate', v.objectGizmos.rotate, (x) => ((v.objectGizmos.rotate = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('obg-scale', 'Scale', v.objectGizmos.scale, (x) => ((v.objectGizmos.scale = x), v.drawSvg(), app.changed('ui'))),
           ),
         ),
       'hidden-icon'),
@@ -282,6 +270,62 @@ export function viewHeader(v: View3D): Child {
       ),
       iconDrop('sh-pop', 'down_arrow_hlt', 'Shading', (el) => openPopover(el, () => shadingPopover(v), { width: 280 }), 'hidden-icon'),
     ),
+  );
+}
+
+/** Transform orientation dropdown: built-in and custom orientations, create / delete. */
+function orientationMenu(): MenuItem[] {
+  const cur = currentOrientation();
+  const custom = customOrientations();
+  return [
+    ...ORIENTATIONS.map(([id, label, ic]) => ({ label, icon: ic, active: cur === id, action: () => setOrientation(id) })),
+    ...(custom.length ? [{ separator: true } as MenuItem, ...custom.map((c) => ({ label: c.name, icon: 'orientation_local', active: cur === c.name, action: () => setOrientation(c.name) }))] : []),
+    { separator: true },
+    { label: 'Create Orientation', icon: 'add', op: 'transform.create_orientation', props: { use: true } },
+    { label: 'Delete Orientation', icon: 'remove', op: 'transform.delete_orientation' },
+  ];
+}
+
+type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number };
+
+/** Snapping popover (header snap dropdown, Shift Ctrl Tab). */
+export function snappingPopover(): Child {
+  const ts = app.doc.scene.tool_settings;
+  const tx = ts as typeof ts & SnapExtras;
+  const deg = Math.PI / 180;
+  return h(
+    'div',
+    { class: 'pop-panel' },
+    h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
+    h(
+      'div',
+      { class: 'pop-list' },
+      SNAP_ELEMENTS.map(([id, label, ic]) =>
+        h(
+          'button',
+          {
+            key: id,
+            class: { 'pop-item': true, on: ts.snap_elements.includes(id) },
+            'data-tip': 'Shift-click to combine several element types',
+            onclick: (e: MouseEvent) => {
+              if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
+              else ts.snap_elements = [id];
+              app.pushUndo('Snap Element');
+              app.changed('ui');
+            },
+          },
+          icon(ic),
+          label,
+        ),
+      ),
+    ),
+    ts.snap_elements.includes('INCREMENT') ? checkbox('snap-abs', 'Absolute Grid Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x)) : null,
+    ts.snap_elements.includes('FACE') ? checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x)) : null,
+    h('div', { class: 'pop-title' }, 'Snap With'),
+    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    h('div', { class: 'pop-title' }, 'Rotation Increment'),
+    numberField({ id: 'snap-rot', label: 'Angle', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d', x) }),
+    numberField({ id: 'snap-rotp', label: 'Precision', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
   );
 }
 

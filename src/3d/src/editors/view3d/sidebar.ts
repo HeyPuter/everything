@@ -4,10 +4,11 @@ import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import type { View3D } from './view3d';
-import { panel, numberField, row, col, checkbox, enumMenu, decorator } from '../../ui/widgets';
+import { panel, numberField, row, col, checkbox, enumMenu, decorator, opButton } from '../../ui/widgets';
 import type { ObjectData } from '../../data/types';
 import { keyState, keyProperty } from '../../anim/keyframes';
 import { renderContext } from '../../render/context';
+import { toolHeader } from './toolbar';
 
 export const sidebarTabs: { id: string; label: string; draw: (v: View3D) => Child; poll?: () => boolean }[] = [];
 
@@ -143,12 +144,14 @@ sidebarTabs.push(
   {
     id: 'Tool',
     label: 'Tool',
-    draw: () => {
+    draw: (v) => {
       const ts = app.doc.scene.tool_settings;
       return [
+        panel('sb-active-tool', 'Active Tool', () => h('div', { class: 'sb-active-tool' }, toolHeader(v))),
         panel('sb-options', 'Options', () => [
           h('div', { class: 'sb-label' }, 'Transform'),
           checkbox('affect-origins', 'Affect Only Origins', !!ts.use_transform_data_origin, (x) => ((ts.use_transform_data_origin = x), app.changed('ui'))),
+          checkbox('affect-locations', 'Affect Only Locations', !!(ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align, (x) => (((ts as { use_transform_pivot_point_align?: boolean }).use_transform_pivot_point_align = x), app.changed('ui'))),
           checkbox('affect-parents', 'Affect Only Parents', !!ts.use_transform_skip_children, (x) => ((ts.use_transform_skip_children = x), app.changed('ui'))),
           app.doc.mode === 'EDIT'
             ? [
@@ -175,6 +178,35 @@ sidebarTabs.push(
             numberField({ id: 'v-cs', label: 'Start', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) }),
             numberField({ id: 'v-ce', label: 'End', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) }),
           ),
+          checkbox('v-localcam', 'Local Camera', v.useLocalCamera, (x) => {
+            v.useLocalCamera = x;
+            if (x && !v.localCamera) v.localCamera = app.doc.scene.camera;
+            v.updateSceneCamera();
+            v.afterNav();
+            app.changed('ui');
+          }),
+          v.useLocalCamera
+            ? enumMenu('v-localcam-ob', Object.values(app.doc.objects).filter((o) => o.type === 'CAMERA').map((o) => ({ value: o.id, label: o.name, icon: 'outliner_ob_camera' })), v.localCamera ?? '', (id) => {
+                v.localCamera = id;
+                v.updateSceneCamera();
+                v.afterNav();
+                app.changed('ui');
+              })
+            : null,
+          v.cameraView ? checkbox('v-region', 'Render Region', !!(app.doc.scene.render as { use_border?: boolean }).use_border, (x) => ((app.doc.scene.render as { use_border?: boolean }).use_border = x, app.pushUndo('Render Region'), app.changed('doc', 'ui'))) : null,
+          v.clipPlanes ? h('div', { class: 'sb-row-btn' }, opButton('view3d.clip_border', 'Clear Clipping Region')) : null,
+        ]),
+        panel('sb-view-lock', 'View Lock', () => [
+          row(
+            'Lock to Object',
+            enumMenu('v-lockob', [{ value: '', label: '—' }, ...Object.values(app.doc.objects).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], v.lockObject ?? '', (id) => {
+              v.lockObject = id || null;
+              if (id) v.lockCursor = false;
+              v.afterNav();
+              app.changed('ui');
+            }),
+          ),
+          !v.lockObject ? checkbox('v-lockcur', 'Lock to 3D Cursor', v.lockCursor, (x) => ((v.lockCursor = x), v.afterNav(), app.changed('ui'))) : null,
           checkbox('v-lock', 'Lock Camera to View', v.lockCameraToView, (x) => ((v.lockCameraToView = x), app.changed('ui'))),
         ]),
         panel('sb-cursor', '3D Cursor', () => [
@@ -211,11 +243,84 @@ sidebarTabs.push(
             ),
           ),
         ]),
-        panel('sb-collections', 'Collections', () => h('div', { class: 'sb-label' }, 'Use the Outliner to manage collection visibility.'), { closed: true }),
+        v.quad
+          ? panel('sb-quad', 'Quad View', () => [
+              checkbox('q-lock', 'Lock', quadMembers(v).some((m) => m.lockRotation), (x) => {
+                for (const m of quadMembers(v)) if (m.quad?.role !== 'USER') m.lockRotation = x;
+                app.changed('ui');
+              }),
+              checkbox('q-sync', 'Sync Zoom/Pan', quadMembers(v).some((m) => m.quadSync), (x) => {
+                for (const m of quadMembers(v)) m.quadSync = x;
+                app.changed('ui');
+              }),
+            ])
+          : null,
+        panel('sb-collections', 'Collections', () => collectionRows(), { closed: true }),
       ];
     },
   },
 );
+
+/** Viewports of the same Quad View group. */
+function quadMembers(v: View3D): View3D[] {
+  if (!v.quad) return [v];
+  return v.area.screen.areas.map((a) => a.editor as unknown as View3D).filter((e) => e?.quad?.group === v.quad!.group);
+}
+
+/** Collection visibility: click a name to show only that collection (Shift adds it), the eye hides it. */
+function collectionRows(): Child {
+  const doc = app.doc;
+  const master = doc.collections[doc.scene.collection];
+  if (!master) return null;
+  const rows: Child[] = [];
+  const all: string[] = [];
+  const walk = (ids: string[], depth: number) => {
+    for (const id of ids) {
+      const c = doc.collections[id];
+      if (!c) continue;
+      all.push(id);
+      rows.push(
+        h(
+          'div',
+          { key: id, class: 'sb-coll', style: `display: flex; align-items: center; gap: 4px; padding-left: ${depth * 12}px` },
+          h(
+            'button',
+            {
+              class: { 'sb-coll-name': true, off: c.hide },
+              style: 'flex: 1; text-align: left; background: none; border: 0; color: inherit; padding: 2px 4px; cursor: pointer; opacity: ' + (c.hide || c.exclude ? '0.5' : '1'),
+              'data-tip': 'Show only this collection (Shift: toggle it)',
+              onclick: (e: MouseEvent) => {
+                if (e.shiftKey) c.hide = !c.hide;
+                else for (const other of all) doc.collections[other].hide = other !== id;
+                app.pushUndo('Hide Collection');
+                app.changed('doc');
+              },
+            },
+            icon('collection'),
+            ' ',
+            c.name,
+          ),
+          h(
+            'button',
+            {
+              class: 'lock-btn',
+              'data-tip': 'Hide in Viewport',
+              onclick: () => {
+                c.hide = !c.hide;
+                app.pushUndo('Hide Collection');
+                app.changed('doc');
+              },
+            },
+            icon(c.hide ? 'hide_on' : 'hide_off'),
+          ),
+        ),
+      );
+      walk(c.children, depth + 1);
+    }
+  };
+  walk(master.children, 0);
+  return rows.length ? rows : h('div', { class: 'sb-label' }, 'No collections');
+}
 
 export function sidebar(v: View3D): Child {
   const tabs = sidebarTabs.filter((t) => !t.poll || t.poll());

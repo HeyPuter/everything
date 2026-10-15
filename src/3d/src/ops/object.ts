@@ -1164,23 +1164,6 @@ registerOperators([
     },
   },
   {
-    idname: 'transform.mirror',
-    label: 'Mirror',
-    props: [{ id: 'axis', label: 'Axis', type: 'int', default: 0, min: 0, max: 2, hidden: true }],
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: (_ctx, p) => {
-      const c = centerOfSelection();
-      const s = [1, 1, 1];
-      s[p.axis as number] = -1;
-      const m = new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new Matrix4().makeScale(s[0], s[1], s[2])).multiply(new Matrix4().makeTranslation(-c.x, -c.y, -c.z));
-      for (const ob of app.selectedObjects()) {
-        const w = m.clone().multiply(app.graph.get(ob.id)!.world);
-        const parentInv = ob.parent ? app.graph.get(ob.parent)!.world.clone().multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
-        applyMatrixToObject(ob, parentInv.multiply(w));
-      }
-    },
-  },
-  {
     idname: 'object.convert',
     label: 'Convert To',
     description: 'Convert selected objects to another type, applying modifiers',

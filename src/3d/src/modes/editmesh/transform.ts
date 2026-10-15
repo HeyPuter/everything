@@ -61,8 +61,37 @@ function basisFromNormal(n: Vector3): Matrix3 {
 /** per-mesh writers registered while collecting (flush the working positions into the mesh) */
 const updaters: (() => void)[] = [];
 
+/** Centers of the connected regions of selected vertices (Individual Origins), per vertex. */
+function regionCenters(me: MeshData, sel: ArrayLike<number | boolean>, world: Matrix4): Map<number, Vector3> {
+  const nb = vertexNeighbors(me);
+  const P = me.positions;
+  const out = new Map<number, Vector3>();
+  const seen = new Uint8Array(P.length / 3);
+  for (let i = 0; i < seen.length; i++) {
+    if (!sel[i] || seen[i] || me.hide_vert?.[i]) continue;
+    const island: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length) {
+      const u = stack.pop()!;
+      island.push(u);
+      for (let k = nb.offsets[u]; k < nb.offsets[u + 1]; k++) {
+        const w = nb.neighbors[k];
+        if (!sel[w] || seen[w] || me.hide_vert?.[w]) continue;
+        seen[w] = 1;
+        stack.push(w);
+      }
+    }
+    const c = new Vector3();
+    for (const u of island) c.add(new Vector3(P[u * 3], P[u * 3 + 1], P[u * 3 + 2]));
+    c.multiplyScalar(1 / island.length).applyMatrix4(world);
+    for (const u of island) out.set(u, c);
+  }
+  return out;
+}
+
 transformProviders.push({
-  collect({ proportional, connected }) {
+  collect({ proportional, connected, individual }) {
     const meshes = editMeshObjects();
     if (!meshes.length) return null;
     updaters.length = 0;
@@ -139,6 +168,7 @@ transformProviders.push({
         }
         for (let i = 0; i < nv; i++) if (!weight[i] && dist[i] < radius && !me.hide_vert?.[i]) weight[i] = falloff(ts.proportional_edit_falloff, dist[i] / radius);
       }
+      const origins = individual ? regionCenters(me, sel, world) : null;
       const keysBefore = me.shape_keys.map((k) => k.data);
       const activeKey = me.use_shape_key_edit_mode && me.active_shape_key_index > 0 ? me.active_shape_key_index : -1;
       for (let i = 0; i < nv; i++) {
@@ -154,6 +184,7 @@ transformProviders.push({
           weight: w,
           distance: dist[i],
           normal: n,
+          origin: origins?.get(i),
           apply(m: Matrix4) {
             const p = center.clone().applyMatrix4(m).applyMatrix4(inv);
             work[idx * 3] = p.x;

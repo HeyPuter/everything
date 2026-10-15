@@ -7,6 +7,8 @@ export interface Preferences {
   /** trackpad: two-finger scroll orbits (true) or zooms (false) */
   trackpad_orbit: boolean;
   orbit_method: 'TURNTABLE' | 'TRACKBALL';
+  /** Shift ` starts walk or fly navigation */
+  navigation_mode?: 'WALK' | 'FLY';
   use_zoom_to_mouse: boolean;
   use_rotate_around_active: boolean;
   use_auto_perspective: boolean;
@@ -81,7 +83,7 @@ export const activeTools: Record<string, string> = {
 
 export const uiState = {
   /** transform orientation */
-  orientation: 'GLOBAL' as 'GLOBAL' | 'LOCAL' | 'NORMAL' | 'GIMBAL' | 'VIEW' | 'CURSOR' | 'PARENT',
+  orientation: 'GLOBAL' as 'GLOBAL' | 'LOCAL' | 'NORMAL' | 'GIMBAL' | 'VIEW' | 'CURSOR' | 'PARENT' | (string & {}),
   /** last used add-menu primitive */
   workspace: 'Layout',
   /** select box mode: SET / ADD / SUB / XOR / AND */
