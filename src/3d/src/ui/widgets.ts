@@ -380,6 +380,8 @@ export function checkbox(id: string, label: string, value: boolean, set: (v: boo
         checkDrag = { value: !value, done: new Set([id]) };
         addEventListener('pointerup', () => (checkDrag = null), { once: true, capture: true });
         set(!value);
+        // Alt+click: set the same value on the other selected items
+        if (e.altKey) buttonHooks.altEdit(id);
       },
       onpointerenter: () => {
         const d = checkDrag;
@@ -467,7 +469,18 @@ export function enumMenu(id: string, items: EnumItem[], value: string, set: (v: 
       },
       onpointerdown: (e: PointerEvent) => {
         e.preventDefault();
-        const menu: MenuItem[] = items.map((it) => ({ label: it.label, icon: it.icon, active: it.value === value, description: it.description, action: () => set(it.value) }));
+        const alt = e.altKey;
+        const menu: MenuItem[] = items.map((it) => ({
+          label: it.label,
+          icon: it.icon,
+          active: it.value === value,
+          description: it.description,
+          action: () => {
+            set(it.value);
+            // opened with Alt: also set the choice on the other selected items
+            if (alt) buttonHooks.altEdit(id);
+          },
+        }));
         openMenu(menu, e.currentTarget as HTMLElement, { title: opts.title });
       },
     },

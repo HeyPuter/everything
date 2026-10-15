@@ -79,3 +79,18 @@ body.eyedropper-active * {
   background: var(--accent);
   color: #fff;
 }
+
+/* header options popover */
+.hdr-toggle.prop-options-btn {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  width: auto;
+  padding: 0 3px;
+}
+.prop-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px;
+}

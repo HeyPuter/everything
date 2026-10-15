@@ -5,7 +5,8 @@ import { icon } from '../../ui/icons';
 import { app, registerOperators, operators, onAppReady, type ChangeKind, type OpContext } from '../../app/app';
 import { addKeys } from '../../app/keymap';
 import { registerEditor, type Area, type Editor } from '../../ui/screen';
-import { textField, setPanelSearch } from '../../ui/widgets';
+import { textField, setPanelSearch, enumRow, checkbox } from '../../ui/widgets';
+import { openPopover } from '../../ui/menu';
 import './properties.css';
 
 export interface PropertiesTab {
@@ -41,6 +42,27 @@ function flatten(c: Child, out: VNode[] = []): VNode[] {
   return out;
 }
 
+const TAB_ORDER = [
+  'TOOL',
+  'RENDER',
+  'OUTPUT',
+  'VIEW_LAYER',
+  'SCENE',
+  'WORLD',
+  'COLLECTION',
+  'OBJECT',
+  'MODIFIER',
+  'SHADERFX',
+  'PARTICLES',
+  'PHYSICS',
+  'CONSTRAINT',
+  'DATA',
+  'BONE',
+  'BONE_CONSTRAINT',
+  'MATERIAL',
+  'TEXTURE',
+];
+
 const isPanelNode = (v: VNode) => v.tag === 'section' && typeof v.attrs['data-panel'] === 'string';
 
 export class Properties implements Editor {
@@ -49,6 +71,10 @@ export class Properties implements Editor {
   tab = 'OBJECT';
   search = '';
   pinned: string | null = null;
+  /** follow tab requests from the Outliner (clicking modifiers, materials, …) */
+  outlinerSync: 'ALWAYS' | 'NEVER' | 'AUTO' = 'AUTO';
+  /** tabs hidden from the rail */
+  hiddenTabs: string[] = [];
   /** user panel order per tab (panel ids) */
   panelOrder: Record<string, string[]> = {};
   private rail: HTMLElement;
@@ -71,9 +97,11 @@ export class Properties implements Editor {
     this.body.className = 'prop-body';
     main.append(this.crumbs, this.body);
     this.el.append(this.rail, main);
-    const st = state as { tab?: string; panelOrder?: Record<string, string[]> } | undefined;
+    const st = state as { tab?: string; panelOrder?: Record<string, string[]>; outlinerSync?: Properties['outlinerSync']; hiddenTabs?: string[] } | undefined;
     if (st?.tab) this.tab = st.tab;
     if (st?.panelOrder) this.panelOrder = { ...st.panelOrder };
+    if (st?.outlinerSync) this.outlinerSync = st.outlinerSync;
+    if (Array.isArray(st?.hiddenTabs)) this.hiddenTabs = [...st.hiddenTabs];
     // Ctrl+wheel cycles the tabs (number fields and menus use it themselves and stop it)
     this.el.addEventListener(
       'wheel',
@@ -96,11 +124,82 @@ export class Properties implements Editor {
         { class: 'hdr-search wide' },
         textField('prop-search', this.search, (v) => this.setSearch(v), { placeholder: 'Search (Ctrl F)', icon: 'search', live: true, className: 'prop-search' }),
       ),
+      h(
+        'button',
+        {
+          class: 'hdr-toggle prop-options-btn',
+          'data-tip': 'Options\nOutliner sync and which tabs are shown',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => this.optionsPopover(), { width: 230, className: 'prop-options' });
+          },
+        },
+        icon('preferences'),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
     );
   }
 
+  /** Header options: outliner sync and per-tab visibility. */
+  private optionsPopover(): Child {
+    const redraw = () => {
+      this.update();
+      app.changed('ui');
+    };
+    return h(
+      'div',
+      { class: 'prop-opts' },
+      h('div', { class: 'olf-head' }, 'Sync with Outliner'),
+      enumRow(
+        'prop-sync',
+        [
+          { value: 'ALWAYS', label: 'Always', description: 'Clicking data in the Outliner always switches to its tab' },
+          { value: 'NEVER', label: 'Never', description: 'The Outliner never changes the tab' },
+          { value: 'AUTO', label: 'Auto', description: 'Switch tabs when the Outliner and this editor share an edge' },
+        ],
+        this.outlinerSync,
+        (v) => ((this.outlinerSync = v as Properties['outlinerSync']), redraw()),
+      ),
+      h('div', { class: 'olf-head' }, 'Visibility'),
+      propertiesTabs.map((t) =>
+        h(
+          'div',
+          { class: 'olf-check', key: t.id },
+          h('span', { class: 'olf-ic' }, icon(t.icon)),
+          checkbox(`prop-vis-${t.id}`, t.label, !this.hiddenTabs.includes(t.id), (v) => {
+            this.hiddenTabs = v ? this.hiddenTabs.filter((x) => x !== t.id) : [...this.hiddenTabs, t.id];
+            redraw();
+          }),
+        ),
+      ),
+    );
+  }
+
+  /** Does this editor share an edge with an Outliner? (Auto outliner sync) */
+  private touchesOutliner(): boolean {
+    const r = this.area.el.getBoundingClientRect();
+    for (const el of document.querySelectorAll<HTMLElement>('.area[data-editor="OUTLINER"]')) {
+      const o = el.getBoundingClientRect();
+      const near = (a: number, b: number) => Math.abs(a - b) < 6;
+      const overlapX = o.left < r.right - 2 && o.right > r.left + 2;
+      const overlapY = o.top < r.bottom - 2 && o.bottom > r.top + 2;
+      if ((overlapX && (near(o.bottom, r.top) || near(o.top, r.bottom))) || (overlapY && (near(o.right, r.left) || near(o.left, r.right)))) return true;
+    }
+    return false;
+  }
+
   availableTabs() {
-    return propertiesTabs.filter((t) => {
+    // object-level tabs follow a fixed order (object, modifiers, particles, physics, constraints, data, …)
+    const rank = (t: PropertiesTab, i: number) => {
+      const k = TAB_ORDER.indexOf(t.id);
+      return k < 0 ? TAB_ORDER.length + i : k;
+    };
+    const ordered = propertiesTabs
+      .map((t, i) => [t, rank(t, i)] as const)
+      .sort((a, b) => (a[0].group ?? 0) - (b[0].group ?? 0) || a[1] - b[1])
+      .map(([t]) => t);
+    return ordered.filter((t) => {
+      if (this.hiddenTabs.includes(t.id)) return false;
       try {
         return t.poll();
       } catch {
@@ -149,8 +248,9 @@ export class Properties implements Editor {
     void kinds;
     const requested = (window as unknown as { __propertiesTab?: string }).__propertiesTab;
     if (requested) {
-      this.tab = requested;
-      delete (window as unknown as { __propertiesTab?: string }).__propertiesTab;
+      if (this.outlinerSync === 'ALWAYS' || (this.outlinerSync === 'AUTO' && this.touchesOutliner())) this.tab = requested;
+      // leave the request for another Properties editor that does follow the Outliner
+      if (this.outlinerSync !== 'NEVER') delete (window as unknown as { __propertiesTab?: string }).__propertiesTab;
     }
     const tabs = this.availableTabs();
     if (!tabs.some((t) => t.id === this.tab)) this.tab = tabs.find((t) => t.id === 'OBJECT')?.id ?? tabs[0]?.id ?? '';
@@ -292,7 +392,7 @@ export class Properties implements Editor {
   }
 
   serialize() {
-    return { tab: this.tab, panelOrder: this.panelOrder };
+    return { tab: this.tab, panelOrder: this.panelOrder, outlinerSync: this.outlinerSync, hiddenTabs: this.hiddenTabs };
   }
 
   dispose() {}

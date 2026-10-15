@@ -4,7 +4,7 @@
 // apply to the button under the pointer.
 import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys, keymaps, keyInputHooks, keyName, keyLabel, type KeyItem } from '../app/keymap';
-import { openMenu, type MenuItem } from './menu';
+import { openMenu, tooltipHooks, type MenuItem } from './menu';
 import { bindingAt, bindingValue, buttonHooks, getBinding, type PropBinding } from './binding';
 import { animTarget, fullDataPath, locateOwner, relDataPath, type OwnerLoc } from './rnapath';
 import { keyProperty, keyState } from '../anim/keyframes';
@@ -812,3 +812,11 @@ export function colorToHex(rgb: number[]) {
 }
 
 export type { OpContext };
+
+// Property tooltips end with the scripting data path of the value.
+tooltipHooks.push((el) => {
+  const b = getBinding(el.dataset.id);
+  if (!b) return null;
+  const loc = ownerLoc(b);
+  return { title: b.label, lines: loc ? [`Python: ${fullDataPath(loc, b.key, b.index)}`] : [] };
+});

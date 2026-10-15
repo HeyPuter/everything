@@ -356,5 +356,15 @@ test('properties: search, tab cycling, panel collapse and reorder', async ({ pag
   await page.mouse.move(grip.x + 4, top.y + 3, { steps: 6 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.prop-body > .panel')].slice(0, 2).map((e) => (e as HTMLElement).dataset.panel))).toEqual(['ob-visibility', first]);
+  // options popover hides a tab from the rail
+  await page.locator('.prop-options-btn').dispatchEvent('pointerdown');
+  await page.locator('.prop-opts .olf-check', { hasText: 'Physics' }).locator('.checkbox').dispatchEvent('pointerdown');
+  await expect(page.locator('.rail-tab[data-tab="PHYSICS"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // property tooltips show the data path
+  await page.locator('.prop-body > .panel > .panel-header', { hasText: 'Transform' }).click();
+  await page.mouse.move(10, 400);
+  await field(page, '.location.1').hover();
+  await expect(page.locator('.tooltip')).toContainText('bpy.data.objects["Cube"].location[1]');
   await expectNoErrors(errors);
 });

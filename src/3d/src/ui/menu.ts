@@ -503,9 +503,18 @@ export function installTooltips(root: HTMLElement) {
   });
 }
 
+/** Extra tooltip content for an element: an optional title (when it has no tip text) and lines (e.g. the data path). */
+export const tooltipHooks: ((el: HTMLElement) => { title?: string; lines: string[] } | null)[] = [];
+
 function showTip(t: HTMLElement) {
   if (!t.isConnected || anyPopupOpen()) return;
-  const text = t.dataset.tip ?? '';
+  let text = t.dataset.tip ?? '';
+  for (const hk of tooltipHooks) {
+    const x = hk(t);
+    if (!x) continue;
+    if (!text && x.title) text = x.title;
+    if (text && x.lines.length) text += `\n${x.lines.join('\n')}`;
+  }
   if (!text) return;
   tipEl = document.createElement('div');
   tipEl.className = 'tooltip';
