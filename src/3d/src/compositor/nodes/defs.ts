@@ -872,6 +872,7 @@ export const COMPOSITOR_MENU: MenuCategory[] = [
       e('CompositorNodeImage'),
       e('CompositorNodeImageInfo'),
       e('CompositorNodeImageCoordinates'),
+      e('CompositorNodeMask'),
       e('CompositorNodeMovieClip'),
       e('CompositorNodeStringToImage'),
       'SEPARATOR',
