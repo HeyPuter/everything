@@ -233,7 +233,8 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
         const along = bPrev ? dNext : dPrev;
         const other = bPrev ? dPrev : dNext;
         const sinA = Math.max(0.05, Math.abs(Math.sin(along.angleTo(other))));
-        target = p.clone().addScaledVector(along.clone().normalize(), Math.min(along.length() * 0.95, offset / sinA));
+        // absolute: the amount is measured along the adjacent edge itself
+        target = p.clone().addScaledVector(along.clone().normalize(), Math.min(along.length() * 0.95, opts.offsetType === 'ABSOLUTE' ? offset : offset / sinA));
       }
       corner.set(`${fi}:${v}`, m.addVert([target.x, target.y, target.z], [[v, 1]], 1));
     }
