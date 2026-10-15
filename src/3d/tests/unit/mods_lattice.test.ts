@@ -28,7 +28,7 @@ const run = (interpolation: string, strength = 1) => {
 const close = (a: Float32Array, b: number[][]) => b.flat().forEach((x, i) => expect(a[i]).toBeCloseTo(x, 3));
 
 describe('Lattice', () => {
-  it('interpolates the lattice deformation like the reference', () => {
+  it('interpolates the lattice deformation to the expected values', () => {
     for (const k of ['KEY_BSPLINE', 'KEY_LINEAR', 'KEY_CARDINAL', 'KEY_CATMULL_ROM']) close(run(k), REF[k]);
     close(run('KEY_CATMULL_ROM', 0.5), REF.half);
   });

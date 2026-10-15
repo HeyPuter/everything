@@ -18,7 +18,7 @@ const maxErr = (a: ArrayLike<number>, b: number[]) => b.reduce((e, v, i) => Math
 
 describe('Corrective Smooth', () => {
   const def = Float32Array.from(REF.input);
-  it('smooths like the reference (simple, length weighted, pinned boundary)', () => {
+  it('smooths to the expected values (simple, length weighted, pinned boundary)', () => {
     const m = grid();
     expect(maxErr(correctiveSmooth(m, def, m.positions, { ...base, onlySmooth: true }), REF.only)).toBeLessThan(2e-4);
     expect(maxErr(correctiveSmooth(m, def, m.positions, { ...base, onlySmooth: true, lengthWeighted: true, iterations: 1, factor: 1 }), REF.lw_only_1)).toBeLessThan(2e-4);

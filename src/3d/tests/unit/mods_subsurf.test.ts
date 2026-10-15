@@ -25,7 +25,7 @@ describe('Subdivision Surface', () => {
 
   it('smooths or keeps boundary corners', () => {
     const plane = () => newMeshData('p', prim.plane(2)) as unknown as EvalMesh;
-    // (smoothed open corners land within a few thousandths of the reference values)
+    // (smoothed open corners land within a few thousandths of the expected values)
     close(pts(run(plane(), { levels: 1 })), [[-0.6719, -0.6719, 0], [-0.6719, 0.6719, 0], [-0.9167, 0, 0], [0, -0.9167, 0], [0, 0, 0], [0, 0.9167, 0], [0.6719, -0.6719, 0], [0.6719, 0.6719, 0], [0.9167, 0, 0]].sort((a, b) => a[0] - b[0] || a[1] - b[1]), 1);
     close(pts(run(plane(), { levels: 1, boundary_smooth: 'PRESERVE_CORNERS' })), [[-1, -1, 0], [-1, 0, 0], [-1, 1, 0], [0, -1, 0], [0, 0, 0], [0, 1, 0], [1, -1, 0], [1, 0, 0], [1, 1, 0]]);
   });
