@@ -15,6 +15,7 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
+import { automaskButton, automaskSettings } from './sculptmenus';
 import { faceMaskOn, isSelectTool, PAINT_SELECT_TOOLS, vertMaskOn } from './selmask';
 import { cursorState, updateCursor } from './cursor';
 import { sculptStroke } from './sculpt';
@@ -294,6 +295,7 @@ function toolHeaderSettings(mode: BrushMode): Child {
         tip: 'Keep the sum of deform weights at 1 while painting',
       }),
     );
+  if (mode === 'SCULPT') parts.push(automaskButton());
   parts.push(symmetryToggles('th'));
   return parts;
 }
@@ -578,6 +580,7 @@ function brushPanels(mode: BrushMode): Child[] {
         ]),
       );
   }
+  if (mode === 'SCULPT') out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am')));
   out.push(panel(`pt-sym-${mode}`, 'Symmetry', () => [row('Mirror', symmetryToggles('pt'))]));
   return out;
 }

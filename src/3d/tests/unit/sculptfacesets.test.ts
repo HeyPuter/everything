@@ -222,3 +222,14 @@ describe('paint selection masks', async () => {
     expect(Array.from(h.faces!)).toEqual([1, 0]);
   });
 });
+
+describe('auto-masking', async () => {
+  const { normalFactor } = await import('../../src/paint/automask');
+  it('fades between the normal limit and the falloff', () => {
+    expect(normalFactor(0, 0, 1, 0, 0, 1, 0.3, 0.2)).toBe(1);
+    expect(normalFactor(1, 0, 0, 0, 0, 1, 0.3, 0.2)).toBe(0);
+    const mid = normalFactor(Math.sin(0.4), 0, Math.cos(0.4), 0, 0, 1, 0.3, 0.2);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+  });
+});

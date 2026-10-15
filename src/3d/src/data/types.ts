@@ -881,6 +881,22 @@ export interface SculptSettings {
   normal_radius_factor?: number;
   use_space?: boolean;
   spacing?: number;
+  /** auto-masking: limit brushes by topology, face sets, boundaries, cavity or normals */
+  use_automasking_topology?: boolean;
+  use_automasking_face_sets?: boolean;
+  use_automasking_boundary_edges?: boolean;
+  use_automasking_boundary_face_sets?: boolean;
+  use_automasking_cavity?: boolean;
+  use_automasking_cavity_inverted?: boolean;
+  use_automasking_start_normal?: boolean;
+  use_automasking_view_normal?: boolean;
+  automasking_boundary_edges_propagation_steps?: number;
+  automasking_cavity_factor?: number;
+  automasking_cavity_blur_steps?: number;
+  automasking_start_normal_limit?: number;
+  automasking_start_normal_falloff?: number;
+  automasking_view_normal_limit?: number;
+  automasking_view_normal_falloff?: number;
 }
 
 export interface UnitSettings {

@@ -11,6 +11,7 @@ import { falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
 import { beginGeometryStroke, meshSession, reevaluate, type Hit, type MeshSession } from './session';
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
+import { normalFactor, strokeAutomask } from './automask';
 
 type Sign = [number, number, number];
 
@@ -52,6 +53,11 @@ export interface StrokeState {
   dabs: number;
   dabTime: number;
   lastEval: number;
+  /** static auto-masking factors of this stroke */
+  automask?: Float32Array | null;
+  /** normal auto-masking: start normal and the current view direction (object space) */
+  startNormal?: Vector3 | null;
+  viewDir?: Vector3 | null;
 }
 
 /** UI callbacks (set by the cursor/UI module; kept out of here so the brush code has no DOM deps). */
@@ -119,9 +125,18 @@ function factors(st: StrokeState, n: number, strength: number, applyMask = true)
   const fo = b.falloff,
     hard = b.hardness ?? 0;
   const mask = applyMask ? st.mask : undefined;
+  const am = applyMask ? st.automask : null;
+  const ts = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt;
+  const sn = applyMask && ts?.use_automasking_start_normal ? st.startNormal : null;
+  const vd = applyMask && ts?.use_automasking_view_normal ? st.viewDir : null;
+  const vn = s.vn;
   for (let k = 0; k < n; k++) {
     let f = falloff(fo, gd[k], hard) * strength;
-    if (mask) f *= 1 - mask[gv[k]];
+    const v = gv[k];
+    if (mask) f *= 1 - mask[v];
+    if (am) f *= am[v];
+    if (sn) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], sn.x, sn.y, sn.z, ts!.automasking_start_normal_limit ?? 0.35, ts!.automasking_start_normal_falloff ?? 0.25);
+    if (vd) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], -vd.x, -vd.y, -vd.z, ts!.automasking_view_normal_limit ?? 1.57, ts!.automasking_view_normal_falloff ?? 0.25);
     gf[k] = f;
   }
 }
@@ -392,6 +407,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
   }
   const strength = Math.max(0, b.strength) * d.pressure;
   const sym = app.doc.scene.tool_settings.sculpt;
+  if (sym.use_automasking_view_normal) st.viewDir = s.localRay(v, d.x, d.y).direction;
 
   if (ANCHORED.has(tool)) {
     if (d.first) {
@@ -648,7 +664,8 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
   const maskBrush = tool === 'MASK' || tool === 'MASK_SMOOTH';
   // the first hit decides whether the stroke starts on the surface
   const ANCH = ANCHORED.has(tool) || tool === 'SNAKE_HOOK';
-  if (!s.raycast(v, v.local(e).x, v.local(e).y)) return false;
+  const firstHit = s.raycast(v, v.local(e).x, v.local(e).y);
+  if (!firstHit) return false;
   void ANCH;
   const old = me.positions;
   beginGeometryStroke(s, me, () => {
@@ -684,6 +701,8 @@ export function sculptStroke(v: View3D, e: PointerEvent, override?: PaintBrush |
     lastEval: 0,
   };
   if (!hasMask(st.mask) && !maskBrush) st.mask = undefined;
+  st.automask = strokeAutomask(s, me, ts, firstHit.face);
+  st.startNormal = firstHit.normal.clone();
   stroke = st;
   runStroke(v, e, {
     spacing: () => (ANCHORED.has(tool) ? 0 : Math.max(1, brush.spacing || 10)),

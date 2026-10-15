@@ -87,3 +87,8 @@ registerIcons({
   sample_group:
     '<path class="f" d="M10.8 2.2a1.8 1.8 0 0 1 2.5 2.5l-1.6 1.6.7.7-1.1 1.1-.7-.7-5 5-2.3.6.6-2.3 5-5-.7-.7 1.1-1.1.7.7z"/><path class="s" d="M1.5 1.5h4v4h-4z" fill="none" stroke-width="1"/>',
 });
+
+registerIcons({
+  automask:
+    '<circle class="s" cx="8" cy="8" r="5.5" fill="none" stroke-width="1.2"/><path class="f" d="M8 2.5A5.5 5.5 0 0 1 8 13.5z" opacity=".6"/><path class="s" d="M3.5 12.5 12.5 3.5" stroke-width="1.2" stroke-linecap="round"/>',
+});

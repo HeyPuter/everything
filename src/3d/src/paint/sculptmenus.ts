@@ -1,11 +1,13 @@
 // Sculpt Mode header menus (Sculpt, Mask, Face Sets), pie menus and the extra Sculpt keymap entries.
 import { app, operators } from '../app/app';
 import { addKeys, keymaps, keyLabel, type KeyItem } from '../app/keymap';
-import { openPie, type MenuItem, type PieItem } from '../ui/menu';
+import { openPie, openPopover, type MenuItem, type PieItem } from '../ui/menu';
+import { icon } from '../ui/icons';
+import { overlayPopoverSections } from '../editors/view3d/hooks';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { toolSettingsRenderers } from '../editors/view3d/toolbar';
 import { h, type Child } from '../ui/h';
-import { checkbox, enumMenu, numberField } from '../ui/widgets';
+import { checkbox, enumMenu, numberField, type Unit } from '../ui/widgets';
 import { activeMeshData } from './session';
 import { faceSetEditTool, maskByColorTool, sculptToolHooks } from './sculpttools';
 
@@ -287,3 +289,99 @@ toolSettingsRenderers[maskByColorTool.id] = () => {
     thBox(140, numberField({ id: 'th-mbc-thr', label: 'Threshold', value: st.threshold, min: 0, max: 1, slider: true, set: set('threshold') })),
   ];
 };
+
+// ---------------------------------------------------------------------------
+// auto-masking (Alt+A pie, tool header popover, sidebar panel)
+
+type AutoKey =
+  | 'use_automasking_topology'
+  | 'use_automasking_face_sets'
+  | 'use_automasking_boundary_edges'
+  | 'use_automasking_boundary_face_sets'
+  | 'use_automasking_cavity'
+  | 'use_automasking_cavity_inverted'
+  | 'use_automasking_start_normal'
+  | 'use_automasking_view_normal';
+const AUTO: [AutoKey, string, string][] = [
+  ['use_automasking_topology', 'Topology', 'Only affect the part of the mesh connected to where the stroke starts'],
+  ['use_automasking_face_sets', 'Face Sets', 'Only affect the face set under the stroke start'],
+  ['use_automasking_boundary_edges', 'Mesh Boundary', 'Do not affect the open borders of the mesh'],
+  ['use_automasking_boundary_face_sets', 'Face Sets Boundary', 'Do not affect the borders between face sets'],
+  ['use_automasking_cavity', 'Cavity', 'Only affect the cavities of the mesh'],
+  ['use_automasking_cavity_inverted', 'Cavity (Inverted)', 'Only affect the raised parts of the mesh'],
+  ['use_automasking_start_normal', 'Area Normal', 'Only affect surfaces facing like the stroke start'],
+  ['use_automasking_view_normal', 'View Normal', 'Only affect surfaces facing the view'],
+];
+
+function toggleAuto(k: AutoKey) {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  ts[k] = !ts[k];
+  if (k === 'use_automasking_cavity' && ts[k]) ts.use_automasking_cavity_inverted = false;
+  if (k === 'use_automasking_cavity_inverted' && ts[k]) ts.use_automasking_cavity = false;
+  app.changed('ui');
+}
+
+function automaskPie() {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  openPie(
+    'Automasking',
+    AUTO.map(([k, label]) => ({ label, active: !!ts[k], action: () => toggleAuto(k) })),
+    app.pointer.x,
+    app.pointer.y,
+    'A',
+  );
+  return [] as MenuItem[];
+}
+
+/** Auto-masking settings (popover / sidebar panel body). */
+export function automaskSettings(prefix: string): Child[] {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  const rows: Child[] = AUTO.map(([k, label, tip]) => checkbox(`${prefix}-${k}`, label, !!ts[k], () => toggleAuto(k), { tip }));
+  const num = (id: string, label: string, key: keyof typeof ts, def: number, o: { min: number; max: number; int?: boolean; unit?: string }) =>
+    numberField({ id: `${prefix}-${id}`, label, value: (ts[key] as number | undefined) ?? def, min: o.min, max: o.max, int: o.int, unit: o.unit as Unit | undefined, slider: !o.int, set: (x) => (((ts as unknown as Record<string, number>)[key as string] = x), app.changed('ui')) });
+  if (ts.use_automasking_boundary_edges || ts.use_automasking_boundary_face_sets) rows.push(num('steps', 'Propagation Steps', 'automasking_boundary_edges_propagation_steps', 1, { min: 1, max: 20, int: true }));
+  if (ts.use_automasking_cavity || ts.use_automasking_cavity_inverted) {
+    rows.push(num('cavf', 'Cavity Factor', 'automasking_cavity_factor', 1, { min: 0, max: 5 }));
+    rows.push(num('cavb', 'Cavity Blur', 'automasking_cavity_blur_steps', 0, { min: 0, max: 25, int: true }));
+  }
+  if (ts.use_automasking_start_normal) {
+    rows.push(num('snl', 'Area Normal Limit', 'automasking_start_normal_limit', 0.35, { min: 0.0001, max: Math.PI, unit: 'angle' }));
+    rows.push(num('snf', 'Area Normal Falloff', 'automasking_start_normal_falloff', 0.25, { min: 0.0001, max: 1 }));
+  }
+  if (ts.use_automasking_view_normal) {
+    rows.push(num('vnl', 'View Normal Limit', 'automasking_view_normal_limit', 1.57, { min: 0.0001, max: Math.PI, unit: 'angle' }));
+    rows.push(num('vnf', 'View Normal Falloff', 'automasking_view_normal_falloff', 0.25, { min: 0.0001, max: 1 }));
+  }
+  return rows;
+}
+
+export function automaskButton(): Child {
+  const ts = app.doc.scene.tool_settings.sculpt;
+  const on = AUTO.some(([k]) => ts[k]);
+  return h(
+    'button',
+    {
+      key: 'th-automask',
+      class: { 'hdr-toggle': true, on },
+      'data-tip': 'Auto-Masking (Alt A)',
+      onclick: (e: MouseEvent) => openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Auto-Masking'), ...automaskSettings('pop-am')), { width: 240 }),
+    },
+    icon('automask'),
+  );
+}
+
+addKeys('Sculpt', [{ key: 'A', alt: true, menu: automaskPie, menuTitle: 'Automasking', when: sculptMode }]);
+
+// ---------------------------------------------------------------------------
+// overlay popover: mask and face set display
+
+overlayPopoverSections.push((v) => {
+  if (app.doc.mode !== 'SCULPT') return null;
+  const o = v.overlay;
+  const set = (k: string) => (x: unknown) => (((o as unknown as Record<string, unknown>)[k] = x), app.changed('ui'));
+  return [
+    h('div', { class: 'pop-sub' }, 'Sculpt'),
+    h('div', { class: 'row-split' }, checkbox('o-smask', 'Mask', o.show_sculpt_mask !== false, set('show_sculpt_mask')), numberField({ id: 'o-smask-op', value: o.sculpt_mode_mask_opacity, min: 0, max: 1, slider: true, set: set('sculpt_mode_mask_opacity') })),
+    h('div', { class: 'row-split' }, checkbox('o-sfs', 'Face Sets', o.show_sculpt_face_sets !== false, set('show_sculpt_face_sets')), numberField({ id: 'o-sfs-op', value: o.sculpt_mode_face_sets_opacity ?? 1, min: 0, max: 1, slider: true, set: set('sculpt_mode_face_sets_opacity') })),
+  ];
+});
