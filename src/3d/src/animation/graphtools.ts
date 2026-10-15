@@ -12,6 +12,7 @@ import { cloneKey, duplicateSelected, finalizeCurve, isKeySelected, setKeySelect
 import * as T from './fcurvetools';
 import { GraphEditor, MOD_TYPES, curveId } from './graph';
 import { blendMenu, smoothMenu, type Prefix } from './menus';
+import { pickFile } from '../io/native';
 
 function graphEd(ctx: OpContext): GraphEditor | null {
   const ed = ctx.area?.editor;
@@ -712,6 +713,62 @@ const sampleOps: Operator[] = [
     },
   },
 ];
+
+sampleOps.push({
+  idname: 'graph.sound_to_samples',
+  label: 'Sound to Samples',
+  description: 'Bake the loudness of an audio file into samples on the selected curves (from the scene start frame)',
+  props: [
+    { id: 'low', label: 'Lowest Frequency', type: 'float', default: 0, min: 0, max: 100000 },
+    { id: 'high', label: 'Highest Frequency', type: 'float', default: 100000, min: 0, max: 100000 },
+    { id: 'attack', label: 'Attack Time', type: 'float', default: 0.005, min: 0, max: 2, step: 0.001, precision: 3 },
+    { id: 'release', label: 'Release Time', type: 'float', default: 0.2, min: 0, max: 5, step: 0.01, precision: 3 },
+    { id: 'threshold', label: 'Threshold', type: 'float', default: 0, min: 0, max: 1, step: 0.01, precision: 3 },
+    { id: 'use_accumulate', label: 'Accumulate', type: 'bool', default: false },
+    { id: 'use_additive', label: 'Additive', type: 'bool', default: false },
+    { id: 'use_square', label: 'Square', type: 'bool', default: false },
+    { id: 'sthreshold', label: 'Square Threshold', type: 'float', default: 0.1, min: 0, max: 1, step: 0.01, precision: 3 },
+  ],
+  poll: (ctx) => !!graphEd(ctx)?.editCurves().some((r) => r.fc.select),
+  invoke: (ctx, p) => {
+    const ed = graphEd(ctx)!;
+    const targets = ed.editCurves().filter((r) => r.fc.select);
+    void (async () => {
+      const file = await pickFile('audio/*,video/*');
+      if (!file) return;
+      try {
+        const Ctx = (window as unknown as { OfflineAudioContext: typeof OfflineAudioContext }).OfflineAudioContext;
+        const audio = await new Ctx(1, 1, 44100).decodeAudioData(await file.arrayBuffer());
+        const mono = new Float32Array(audio.length);
+        for (let c = 0; c < audio.numberOfChannels; c++) {
+          const d = audio.getChannelData(c);
+          for (let i = 0; i < d.length; i++) mono[i] += d[i] / audio.numberOfChannels;
+        }
+        const s = app.doc.scene;
+        const env = T.soundEnvelope(mono, audio.sampleRate, s.render.fps / (s.render.fps_base || 1), {
+          low: p.low as number,
+          high: p.high as number,
+          attack: p.attack as number,
+          release: p.release as number,
+          threshold: p.threshold as number,
+          accumulate: !!p.use_accumulate,
+          additive: !!p.use_additive,
+          square: !!p.use_square,
+          squareThreshold: p.sthreshold as number,
+        });
+        for (const r of targets) {
+          r.fc.keyframe_points = [];
+          r.fc.sampled_points = env.map((v, i): [number, number] => [s.frame_start + i, v]);
+        }
+        app.pushUndo('Sound to Samples');
+        app.changed('doc');
+      } catch (e) {
+        app.report('ERROR', `Could not read the sound file: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+    return 'CANCELLED';
+  },
+});
 
 const duplicateOps: Operator[] = (['action', 'graph'] as const).map((pre) => ({
   idname: `${pre}.duplicate`,

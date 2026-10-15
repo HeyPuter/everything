@@ -317,6 +317,7 @@ export function channelMenu(p: Prefix): MenuItem[] {
       ? [
           { label: 'Keys to Samples', op: 'graph.keys_to_samples', shortcut: 'Alt C' },
           { label: 'Samples to Keys', op: 'graph.samples_to_keys' },
+          { label: 'Sound to Samples…', op: 'graph.sound_to_samples' },
           { label: 'Discontinuity (Euler) Filter', op: 'graph.euler_filter' },
         ]
       : []),

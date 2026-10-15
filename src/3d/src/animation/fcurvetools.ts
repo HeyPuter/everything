@@ -577,3 +577,86 @@ export function samplesToKeys(fc: FCurve): boolean {
   finalizeCurve(fc, false);
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Sound to samples
+
+export interface EnvelopeOptions {
+  /** band limits in Hz (0 / Nyquist to disable) */
+  low: number;
+  high: number;
+  /** seconds for the envelope to rise / fall */
+  attack: number;
+  release: number;
+  /** levels below this are zero */
+  threshold: number;
+  /** sum only rising changes */
+  accumulate: boolean;
+  /** running sum of the envelope */
+  additive: boolean;
+  /** on/off output above `squareThreshold` */
+  square: boolean;
+  squareThreshold: number;
+}
+
+/** Second-order low/high-pass section (bilinear transform of the analog prototype). */
+function biquad(kind: 'low' | 'high', cutoff: number, rate: number) {
+  const w = (2 * Math.PI * Math.min(cutoff, rate * 0.49)) / rate;
+  const cw = Math.cos(w),
+    alpha = Math.sin(w) / Math.SQRT2;
+  const a0 = 1 + alpha;
+  const b = kind === 'low' ? [(1 - cw) / 2, 1 - cw, (1 - cw) / 2] : [(1 + cw) / 2, -(1 + cw), (1 + cw) / 2];
+  return { b0: b[0] / a0, b1: b[1] / a0, b2: b[2] / a0, a1: (-2 * cw) / a0, a2: (1 - alpha) / a0 };
+}
+
+function runBiquad(x: Float32Array, f: ReturnType<typeof biquad>) {
+  const y = new Float32Array(x.length);
+  let x1 = 0,
+    x2 = 0,
+    y1 = 0,
+    y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = f.b0 * x[i] + f.b1 * x1 + f.b2 * x2 - f.a1 * y1 - f.a2 * y2;
+    x2 = x1;
+    x1 = x[i];
+    y2 = y1;
+    y1 = v;
+    y[i] = v;
+  }
+  return y;
+}
+
+/** Per-frame loudness envelope of mono audio. */
+export function soundEnvelope(samples: Float32Array, rate: number, fps: number, o: EnvelopeOptions): number[] {
+  let x = samples;
+  if (o.low > 0) x = runBiquad(x, biquad('high', o.low, rate));
+  if (o.high > 0 && o.high < rate / 2) x = runBiquad(x, biquad('low', o.high, rate));
+  const ka = 1 - Math.exp(-1 / Math.max(1, o.attack * rate)),
+    kr = 1 - Math.exp(-1 / Math.max(1, o.release * rate));
+  const perFrame = rate / fps;
+  const frames = Math.ceil(x.length / perFrame);
+  const out: number[] = new Array(frames).fill(0);
+  let env = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = Math.abs(x[i]);
+    env += (v - env) * (v > env ? ka : kr);
+    const fi = Math.floor(i / perFrame);
+    if (env > out[fi]) out[fi] = env;
+  }
+  let acc = 0,
+    prev = 0;
+  return out.map((v0) => {
+    let v = v0 < o.threshold ? 0 : v0;
+    if (o.square) v = v > o.squareThreshold ? 1 : 0;
+    if (o.accumulate) {
+      if (v > prev) acc += v - prev;
+      prev = v;
+      return acc;
+    }
+    if (o.additive) {
+      acc += v;
+      return acc;
+    }
+    return v;
+  });
+}

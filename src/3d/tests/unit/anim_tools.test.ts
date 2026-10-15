@@ -581,3 +581,26 @@ describe('proportional key editing', () => {
     expect(f).toEqual([0, 11, 23, 31, 40]);
   });
 });
+
+describe('sound to samples', () => {
+  it('follows the loudness of the audio per frame', () => {
+    const rate = 8000,
+      fps = 25;
+    // 0.4 s of a 200 Hz tone, then 0.4 s of silence
+    const x = new Float32Array(rate * 0.8);
+    for (let i = 0; i < rate * 0.4; i++) x[i] = 0.8 * Math.sin((2 * Math.PI * 200 * i) / rate);
+    const base = { low: 0, high: 100000, attack: 0.005, release: 0.05, threshold: 0, accumulate: false, additive: false, square: false, squareThreshold: 0.1 };
+    const env = T.soundEnvelope(x, rate, fps, base);
+    expect(env.length).toBe(20);
+    expect(env[5]).toBeGreaterThan(0.6);
+    expect(env[19]).toBeLessThan(0.05);
+    const sq = T.soundEnvelope(x, rate, fps, { ...base, square: true, squareThreshold: 0.3 });
+    expect(sq[5]).toBe(1);
+    expect(sq[19]).toBe(0);
+    const acc = T.soundEnvelope(x, rate, fps, { ...base, accumulate: true });
+    expect(acc[19]).toBeGreaterThanOrEqual(acc[5]);
+    // a high-pass well above the tone removes it
+    const hp = T.soundEnvelope(x, rate, fps, { ...base, low: 3000 });
+    expect(hp[5]).toBeLessThan(0.1);
+  });
+});

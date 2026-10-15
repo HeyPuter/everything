@@ -392,3 +392,49 @@ test('proportional editing of keys: O toggles, G moves neighbours partly', async
   expect(frames[0]).toBe(1);
   await expectNoErrors(errors);
 });
+
+/** A short mono 16-bit WAV: a tone for `on` seconds, then silence. */
+function wav(seconds: number, on: number, rate = 8000) {
+  const n = Math.round(seconds * rate);
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.write('WAVEfmt ', 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) buf.writeInt16LE(i < on * rate ? Math.round(20000 * Math.sin((2 * Math.PI * 220 * i) / rate)) : 0, 44 + i * 2);
+  return buf;
+}
+
+test('graph editor: sound to samples bakes an audio envelope', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'GRAPH');
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.actions[app.activeObject.animation_data.action].fcurves[0].select = true;
+    app.changed('doc');
+  });
+  const chooser = page.waitForEvent('filechooser');
+  await area(page, 'GRAPH').locator('.hdr-menu', { hasText: 'Channel' }).click();
+  await page.locator('.menu-item', { hasText: 'Sound to Samples' }).click();
+  await (await chooser).setFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: wav(1, 0.5) });
+  await page.waitForFunction(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return !!app.doc.actions[app.activeObject.animation_data.action].fcurves[0].sampled_points;
+  });
+  const sp = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return app.doc.actions[app.activeObject.animation_data.action].fcurves[0].sampled_points as [number, number][];
+  });
+  expect(sp.length).toBeGreaterThan(20);
+  expect(sp[5][1]).toBeGreaterThan(0.3);
+  expect(sp[sp.length - 1][1]).toBeLessThan(sp[5][1] / 4);
+  await expectNoErrors(errors);
+});
