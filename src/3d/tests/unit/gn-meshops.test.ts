@@ -475,3 +475,23 @@ describe('edge paths', () => {
     ]);
   });
 });
+
+describe('Set Mesh Normal', () => {
+  it('free custom normals reach the evaluated mesh; sharpness mode removes them', async () => {
+    const { geometryToEvalMesh } = await import('../../src/geonodes/convert');
+    const t = setup();
+    const s = node(t, 'GeometryNodeSetMeshNormal', { 'Custom Normal': [0, 0, 2] }, { mode: 'FREE', domain: 'POINT' });
+    link(t, cube(t), 'Mesh', s, 'Mesh');
+    const r = run(t, s, 'Mesh');
+    const em = geometryToEvalMesh(r.geometry);
+    expect(em.custom_normals!.length).toBe(24 * 3);
+    expect(Array.from(em.custom_normals!.subarray(0, 6))).toEqual([0, 0, 1, 0, 0, 1]);
+    const s2 = node(t, 'GeometryNodeSetMeshNormal', {}, { mode: 'SHARPNESS' });
+    t.tree.links = t.tree.links.filter((l) => l.to_node !== t.out.id);
+    link(t, s, 'Mesh', s2, 'Mesh');
+    const r2 = run(t, s2, 'Mesh');
+    const em2 = geometryToEvalMesh(r2.geometry);
+    expect(em2.custom_normals).toBeUndefined();
+    expect(Array.from(em2.smooth!)).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+});

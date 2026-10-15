@@ -6,6 +6,7 @@ import './nodes/sample';
 import './nodes/instances2';
 import './nodes/paths';
 import './nodes/boolean';
+import './nodes/normals';
 import { placeMenus } from './gnmesh-menu';
 
 placeMenus();
