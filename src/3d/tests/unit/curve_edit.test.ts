@@ -287,3 +287,16 @@ describe('bevel and taper objects', () => {
     expect(maxEnd).toBeLessThan(1e-6);
   });
 });
+
+import { pathBender } from '../../src/modes/curve/curveops';
+
+describe('text on a path', () => {
+  it('maps distance along the path and offset to the left', () => {
+    const bend = pathBender([new Vector3(0, 0, 0), new Vector3(0, 2, 0), new Vector3(-2, 2, 0)])!;
+    expect(bend(1, 0, 0).map((v) => +v.toFixed(5))).toEqual([0, 1, 0]);
+    // left of +Y is -X
+    expect(bend(1, 0.5, 0).map((v) => +v.toFixed(5))).toEqual([-0.5, 1, 0]);
+    // around the corner: 3 units along is 1 unit into the -X leg
+    expect(bend(3, 0, 0).map((v) => +v.toFixed(5))).toEqual([-1, 2, 0]);
+  });
+});

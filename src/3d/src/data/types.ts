@@ -206,6 +206,8 @@ export interface CurveData {
   font_bold?: ID | null;
   font_italic?: ID | null;
   font_bold_italic?: ID | null;
+  /** text: curve object the text is bent along */
+  follow_curve?: ID | null;
 }
 
 /** A loaded font file (TrueType / OpenType / WOFF), packed into the document. */

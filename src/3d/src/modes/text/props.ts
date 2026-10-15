@@ -2,7 +2,7 @@
 // Paragraph (alignment, spacing), Transform (offset, shear) and Text Boxes.
 import { h } from '../../ui/h';
 import { app } from '../../app/app';
-import { panel, button, opButton } from '../../ui/widgets';
+import { panel, button, opButton, enumMenu } from '../../ui/widgets';
 import { num, enumProp, splitRow } from '../../ui/props';
 import { fontDataPanels } from '../../editors/properties/tabs';
 import type { CurveData } from '../../data/types';
@@ -131,6 +131,15 @@ fontDataPanels.push(
         num(cu, 'offset_x', 'Offset X', { unit: 'distance' }),
         num(cu, 'offset_y', 'Y', { unit: 'distance' }),
         num(cu, 'shear', 'Shear', { min: -1, max: 1 }),
+        splitRow(
+          'Follow Curve',
+          enumMenu(
+            'cu-follow',
+            [{ value: '', label: '—' }, ...Object.values(app.doc.objects).filter((o) => o.type === 'CURVE').map((o) => ({ value: o.id, label: o.name }))],
+            cu.follow_curve ?? '',
+            (v) => ((cu.follow_curve = v || null), changed('Follow Curve')),
+          ),
+        ),
       ];
     }),
   (_ob, cu) =>

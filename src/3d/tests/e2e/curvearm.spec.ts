@@ -471,3 +471,29 @@ test('bevel object gives a curve its cross-section', async ({ page }) => {
   expect(faces).toBeGreaterThan(20);
   await expectNoErrors(errors);
 });
+
+test('text follows a curve path', async ({ page }) => {
+  const errors = await openApp(page);
+  await fresh(page, 'curve.primitive_bezier_circle_add', { radius: 3 });
+  const circle = await get(page, 'app.activeObject.id');
+  await run(page, 'object.select_all', { action: 'DESELECT' });
+  await run(page, 'object.text_add');
+  await page.waitForFunction(() => {
+    const a = (window as any).app;
+    return (a.graph.get(a.activeObject.id)?.mesh?.positions.length ?? 0) > 0;
+  });
+  const extent = (await page.evaluate((id) => {
+    const a = (window as any).app;
+    a.doc.curves[a.activeObject.data].follow_curve = id;
+    a.changed('doc', 'geometry');
+    a.flush();
+    const p = a.graph.get(a.activeObject.id).mesh.positions;
+    let maxR = 0;
+    for (let i = 0; i < p.length; i += 3) maxR = Math.max(maxR, Math.hypot(p[i], p[i + 1]));
+    return maxR;
+  }, circle)) as number;
+  // glyphs now sit around the circle of radius 3
+  expect(extent).toBeGreaterThan(2.5);
+  expect(extent).toBeLessThan(3.3);
+  await expectNoErrors(errors);
+});

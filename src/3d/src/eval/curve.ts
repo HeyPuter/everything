@@ -149,10 +149,12 @@ export interface CurveShapeOptions {
   profileClosed?: boolean;
   /** radius factor for a parameter 0..1 along each spline */
   taper?: (t: number) => number;
+  /** splines to use instead of the curve's own (e.g. text bent along a path) */
+  splines?: Spline[];
 }
 
 export function curveToMesh(cu: CurveData, isText = false, shape: CurveShapeOptions = {}): EvalMesh {
-  const splines = isText ? textToCurves(cu) : cu.splines;
+  const splines = shape.splines ?? (isText ? textToCurves(cu) : cu.splines);
   const sampled = splines.map((s) => sampleSpline(s, cu.resolution_u));
   const positions: number[] = [],
     faces: PolyFace[] = [];

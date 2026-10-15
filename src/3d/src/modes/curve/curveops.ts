@@ -957,3 +957,32 @@ export function insertPointOnSegment(sp: Spline, i: number, t: number): number {
   }
   return i + 1;
 }
+
+// ---------------------------------------------------------------------------
+// paths
+
+/**
+ * Bend points along a path: x is the distance along the path, y the offset to its left
+ * (path in the text object's space; beyond the ends the path continues straight).
+ */
+export function pathBender(points: Vector3[]): ((x: number, y: number, z: number) => Vec3) | null {
+  if (points.length < 2) return null;
+  const acc = [0];
+  for (let i = 1; i < points.length; i++) acc.push(acc[i - 1] + points[i].distanceTo(points[i - 1]));
+  const up = new Vector3(0, 0, 1);
+  return (x, y, z) => {
+    let i = 1;
+    while (i < points.length - 1 && acc[i] < x) i++;
+    const a = points[i - 1],
+      b = points[i];
+    const len = acc[i] - acc[i - 1] || 1e-9;
+    const f = (x - acc[i - 1]) / len;
+    const t = b.clone().sub(a).normalize();
+    const p = a.clone().lerp(b, f);
+    let n = up.clone().cross(t);
+    if (n.lengthSq() < 1e-10) n = new Vector3(0, 1, 0);
+    n.normalize();
+    return [p.x + n.x * y, p.y + n.y * y, p.z + n.z * y + z];
+  };
+}
+

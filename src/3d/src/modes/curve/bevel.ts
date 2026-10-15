@@ -1,5 +1,5 @@
-// Bevel and taper objects: another curve object can give a curve its cross-section (Bevel ▸
-// Object) or scale its radius along the length (Taper Object).
+// Shaping curves with other curve objects: a cross-section (Bevel ▸ Object), the radius along
+// the length (Taper Object), and for text objects a path the text follows (Follow Curve).
 import { h } from '../../ui/h';
 import { app } from '../../app/app';
 import { dataEvaluators } from '../../eval/depsgraph';
@@ -7,7 +7,12 @@ import { curveToMesh, sampleSpline, type CurveShapeOptions } from '../../eval/cu
 import { curveGeometryRows } from '../../editors/properties/tabs';
 import { splitRow } from '../../ui/props';
 import { enumMenu } from '../../ui/widgets';
-import type { CurveData, DocumentData, ObjectData } from '../../data/types';
+import type { CurveData, DocumentData, ObjectData, Spline, Vec3 } from '../../data/types';
+import { Vector3 } from 'three';
+import type { Depsgraph } from '../../eval/depsgraph';
+import { textToCurves } from '../../eval/text';
+import { pathBender } from './curveops';
+export { pathBender };
 
 /** First spline of a curve object, sampled (object space). */
 function sampledSource(doc: DocumentData, id: string | null | undefined, self: ObjectData) {
@@ -20,10 +25,26 @@ function sampledSource(doc: DocumentData, id: string | null | undefined, self: O
   return { cu, sp, sampled: sampleSpline(sp, cu.resolution_u) };
 }
 
+function bendSplines(splines: Spline[], bend: (x: number, y: number, z: number) => Vec3): Spline[] {
+  const tr = (c: Vec3) => bend(c[0], c[1], c[2]);
+  return splines.map((sp) => ({ ...sp, bezier_points: sp.bezier_points.map((b) => ({ ...b, co: tr(b.co), handle_left: tr(b.handle_left), handle_right: tr(b.handle_right) })) }));
+}
+
 /** Shape options and a signature of everything they depend on. */
-export function shapeFor(doc: DocumentData, ob: ObjectData, cu: CurveData): { opts: CurveShapeOptions; sig: string } {
+export function shapeFor(doc: DocumentData, ob: ObjectData, cu: CurveData, graph?: Depsgraph, isText = false, build = true): { opts: CurveShapeOptions; sig: string } {
   const opts: CurveShapeOptions = {};
   let sig = '';
+  if (isText && cu.follow_curve && graph) {
+    const f = sampledSource(doc, cu.follow_curve, ob);
+    const pw = graph.get(cu.follow_curve)?.world,
+      tw = graph.get(ob.id)?.world;
+    if (f && pw && tw) {
+      const m = tw.clone().invert().multiply(pw);
+      sig += `|f${JSON.stringify(f.sp)}${f.cu.resolution_u}${m.elements.map((x) => x.toFixed(5)).join(',')}`;
+      const bend = build ? pathBender(f.sampled.points.map((p) => new Vector3(p[0], p[1], p[2]).applyMatrix4(m))) : null;
+      if (bend) opts.splines = bendSplines(textToCurves(cu), bend);
+    }
+  }
   if (cu.bevel_mode === 'OBJECT') {
     const b = sampledSource(doc, cu.bevel_object, ob);
     if (b) {
@@ -55,13 +76,13 @@ export function shapeFor(doc: DocumentData, ob: ObjectData, cu: CurveData): { op
 
 for (const type of ['CURVE', 'FONT'] as const)
   dataEvaluators[type] = {
-    signature: (doc, ob) => {
+    signature: (doc, ob, graph) => {
       const cu = ob.data ? doc.curves[ob.data] : undefined;
-      return cu ? shapeFor(doc, ob, cu).sig : '';
+      return cu ? shapeFor(doc, ob, cu, graph, type === 'FONT', false).sig : '';
     },
-    build: (doc, ob) => {
+    build: (doc, ob, graph) => {
       const cu = doc.curves[ob.data!];
-      return curveToMesh(cu, type === 'FONT', shapeFor(doc, ob, cu).opts);
+      return curveToMesh(cu, type === 'FONT', shapeFor(doc, ob, cu, graph, type === 'FONT').opts);
     },
   };
 
