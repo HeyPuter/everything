@@ -13,6 +13,8 @@ export interface GnResult {
   viewer?: GeometrySet;
   viewerDomain?: string;
   warnings: Map<string, string[]>;
+  /** severity per `${node path}\n${message}` (warnings when missing) */
+  warningKinds?: Map<string, 'ERROR' | 'WARNING' | 'INFO'>;
   ms: number;
   executed: number;
 }

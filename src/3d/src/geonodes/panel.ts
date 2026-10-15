@@ -143,7 +143,12 @@ function nodesPanel(ob: ObjectData, m: ModifierBase): Child {
   const firstGeo = inputs.find((i) => interfaceSocketType(i.socket_type).type === 'GEOMETRY');
   const outputs = (g?.tree.interface ?? []).filter((i) => i.in_out === 'OUTPUT' && FIELD_TYPES.has(interfaceSocketType(i.socket_type).type));
   const res = gnResults.get(ob.id);
-  const warnings = res && res.modifierId === m.id ? [...res.warnings.values()].flat() : [];
+  // messages with their severity (errors first, then warnings, then info), each listed once
+  const warnings: { text: string; kind: string }[] = [];
+  if (res && res.modifierId === m.id)
+    for (const [key, list] of res.warnings) for (const text of list) if (!warnings.some((w) => w.text === text)) warnings.push({ text, kind: res.warningKinds?.get(`${key}\n${text}`) ?? 'WARNING' });
+  const rank: Record<string, number> = { ERROR: 0, WARNING: 1, INFO: 2 };
+  warnings.sort((a, b) => rank[a.kind] - rank[b.kind]);
   return h(
     'div',
     {
@@ -190,7 +195,7 @@ function nodesPanel(ob: ObjectData, m: ModifierBase): Child {
       ? h(
           'div',
           { class: 'gn-warnings' },
-          warnings.slice(0, 8).map((w, i) => h('div', { key: String(i), class: 'mod-error' }, icon('error'), w)),
+          warnings.slice(0, 8).map((w, i) => h('div', { key: String(i), class: `mod-error gn-${w.kind.toLowerCase()}` }, icon(w.kind === 'INFO' ? 'info' : 'error'), w.text)),
         )
       : null,
     ...(() => {

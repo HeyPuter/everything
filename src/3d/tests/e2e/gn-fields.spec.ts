@@ -141,6 +141,16 @@ test('nodes show the messages they reported on their header', async ({ page }) =
     return w.id;
   });
   await page.waitForTimeout(400);
-  await expect(page.locator(`[data-node="${id}"] .nd-warn-icon`)).toHaveAttribute('data-tip', 'Check the input');
+  await expect(page.locator(`[data-node="${id}"] .nd-warn-icon.error`)).toHaveAttribute('data-tip', 'Check the input');
+  // an info message gets the info style on the node and in the modifier panel
+  await page.evaluate((id) => {
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const n = a.hoverArea.editor.tree().nodes.find((x: { id: string }) => x.id === id);
+    n.props.warning_type = 'INFO';
+    a.changed('doc');
+  }, id);
+  await expect(page.locator(`[data-node="${id}"] .nd-warn-icon.info`)).toBeVisible();
+  await page.locator('.rail-tab[data-tab="MODIFIER"]').first().click();
+  await expect(page.locator('.gn-warnings .mod-error.gn-info', { hasText: 'Check the input' })).toBeVisible();
   await expectNoErrors(errors);
 });

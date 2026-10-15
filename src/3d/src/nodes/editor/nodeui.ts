@@ -361,7 +361,7 @@ export interface NodeRenderState {
   /** tooltip of the node title (a group's description) */
   titleTip?: string;
   /** messages from the last evaluation, shown as an icon on the header */
-  warnings?: string[];
+  warnings?: { messages: string[]; kind: 'ERROR' | 'WARNING' | 'INFO' };
 }
 
 const COLLAPSE_TIP = 'Collapse (H)';
@@ -389,7 +389,9 @@ const TYPE_NAMES: Record<string, string> = {
 function socketTip(node: NodeData, s: ResolvedSocket, isOutput: boolean, linked: boolean): string {
   if (s.type === 'CUSTOM') {
     if (!s.identifier.startsWith('__extend__')) return '';
-    return node.type === 'NodeGroupInput' || node.type === 'NodeGroupOutput' ? 'New Socket\nLink here to add a socket to the group interface' : 'New Item\nLink here to add an item of the linked socket\u2019s type';
+    return node.type === 'NodeGroupInput' || node.type === 'NodeGroupOutput'
+      ? 'New Socket\nLink here to add a socket to the group interface'
+      : 'New Item\nLink here to add an item of the linked socket\u2019s type';
   }
   const lines = [s.label || s.name, `${TYPE_NAMES[s.type] ?? s.type} ${isOutput ? 'output' : 'input'}${linked ? ' (linked)' : ''}`];
   if (!isOutput && !linked && !s.hide_value) {
@@ -574,7 +576,9 @@ export function renderNode(l: NodeLayout, tree: NodeTreeData, st: NodeRenderStat
       ),
       h('span', { class: 'nd-title', 'data-tip': st.titleTip ? `${title}\n${st.titleTip}` : null }, title),
       def?.dynamicSockets && n.props.node_tree !== undefined ? h('span', { class: 'nd-group-icon', 'data-tip': 'Node group (Tab to edit)' }, icon('node_tree')) : null,
-      st.warnings?.length ? h('span', { class: 'nd-warn-icon', 'data-tip': st.warnings.join('\n') }, icon('error')) : null,
+      st.warnings?.messages.length
+        ? h('span', { class: `nd-warn-icon ${st.warnings.kind.toLowerCase()}`, 'data-tip': st.warnings.messages.join('\n') }, icon(st.warnings.kind === 'INFO' ? 'info' : 'error'))
+        : null,
     ),
     st.preview !== undefined ? h('div', { class: 'nd-preview' }, st.preview ? h('img', { src: st.preview, alt: '', draggable: 'false' }) : null) : null,
     n.hide

@@ -120,6 +120,12 @@
   width: 12px;
   height: 12px;
 }
+.nd-warn-icon.error {
+  color: #ff8080;
+}
+.nd-warn-icon.info {
+  color: #b8c6dc;
+}
 .nd-rowwrap {
   position: absolute;
   left: 0;

@@ -376,3 +376,23 @@ describe('primitive edge order', () => {
     expect([t.edges[0], t.edges[1]]).toEqual([Math.min(f0[3], f0[0]), Math.max(f0[3], f0[0])]);
   });
 });
+
+describe('message severity', () => {
+  it('the Warning node reports with its type, also when its result comes from the cache', () => {
+    const doc = emptyDocument();
+    const tree: NodeTreeData = { type: 'GEOMETRY', nodes: [], links: [], interface: [{ in_out: 'OUTPUT', name: 'Geometry', socket_type: 'NodeSocketGeometry', identifier: 'Socket_0' }] };
+    const g: NodeGroupData = { id: uid('ng'), name: 'W', tree, is_modifier: true };
+    doc.node_groups[g.id] = g;
+    const w = addNode(tree, 'GeometryNodeWarning', [0, 0], { warning_type: 'INFO' } as Record<string, never>);
+    w.inputs.Message = 'Just so you know';
+    const sw = addNode(tree, 'GeometryNodeSwitch', [0, 0], { input_type: 'GEOMETRY' } as Record<string, never>);
+    const out = addNode(tree, 'NodeGroupOutput', [0, 0]);
+    const ctx = ctxOf(doc, tree);
+    connect(ctx, w.id, 'Show', sw.id, 'Switch');
+    connect(ctx, sw.id, 'Output', out.id, 'Socket_0');
+    const m = { id: 'md', name: 'GN', type: 'NODES', node_group: g.id } as unknown as ModifierBase;
+    const kinds = () => [...evaluateGroup(g, m, testEnv(doc), GeometrySet.empty(), 'in', 'severity', false).log.kinds!.values()];
+    expect(kinds()).toEqual(['INFO']);
+    expect(kinds()).toEqual(['INFO']);
+  });
+});

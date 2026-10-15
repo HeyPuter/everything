@@ -40,7 +40,7 @@ export interface NodeEditorProvider {
   /** panels of the sidebar's Options tab, e.g. material settings (shown only when this exists) */
   optionsPanels?(ed: unknown): Child;
   /** messages reported by a node when the tree was last evaluated (shown on its header) */
-  nodeWarnings?(ed: unknown, node: NodeData): string[] | undefined;
+  nodeWarnings?(ed: unknown, node: NodeData): { messages: string[]; kind: 'ERROR' | 'WARNING' | 'INFO' } | undefined;
 }
 
 export const providers = new Map<string, NodeEditorProvider>();

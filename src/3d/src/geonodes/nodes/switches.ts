@@ -250,7 +250,7 @@ gn(
     exec: (ctx) => {
       const show = ctx.bool('Show');
       const msg = ctx.string('Message');
-      if (show && msg) ctx.warn(msg);
+      if (show && msg) ctx.warn(msg, (sprop(ctx.node, 'warning_type') || 'ERROR') as 'ERROR' | 'WARNING' | 'INFO');
       return { Show: show };
     },
   },
