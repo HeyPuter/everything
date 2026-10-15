@@ -314,3 +314,29 @@ describe('curve hooks', () => {
     expect(sp[0].bezier_points[0].co[2]).toBeCloseTo(cu.splines[0].bezier_points[0].co[2], 5);
   });
 });
+
+describe('vertex parent', () => {
+  it('an object follows a curve control point it is parented to', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.empty_add', { location: [5, 5, 5] });
+    const child = app.activeObject!;
+    app.run('curve.primitive_bezier_curve_add', { location: [0, 0, 0] });
+    const cob = app.activeObject!;
+    child.select = true;
+    app.run('object.mode_set', { mode: 'EDIT' });
+    const cu = app.doc.curves[cob.data!];
+    app.run('curve.select_all', { action: 'DESELECT' });
+    const b = cu.splines[0].bezier_points[1];
+    b.select_control_point = b.select_left_handle = b.select_right_handle = true;
+    app.graph.evaluate(app.doc);
+    const before = new V3().setFromMatrixPosition(app.graph.get(child.id)!.world);
+    expect(app.run('object.vertex_parent_set')).toBe('FINISHED');
+    expect(child.parent_type).toBe('VERTEX');
+    app.graph.evaluate(app.doc);
+    expect(new V3().setFromMatrixPosition(app.graph.get(child.id)!.world).distanceTo(before)).toBeLessThan(1e-5);
+    b.co = [b.co[0], b.co[1], b.co[2] + 1];
+    app.graph.evaluate(app.doc);
+    const after = new V3().setFromMatrixPosition(app.graph.get(child.id)!.world);
+    expect(after.z - before.z).toBeCloseTo(1, 5);
+  });
+});

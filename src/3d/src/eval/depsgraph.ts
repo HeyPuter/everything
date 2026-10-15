@@ -19,6 +19,9 @@ export interface DataEvaluator {
 }
 export const dataEvaluators: Record<string, DataEvaluator> = {};
 
+/** Parent-local frame for special parent types (e.g. vertex parenting), or null to use the parent's origin. */
+export const parentFrameHooks: ((doc: DocumentData, ob: ObjectData, parent: EvalObject | undefined) => Matrix4 | null)[] = [];
+
 /** Called at the start of every evaluation, after animation (e.g. physics caches stepping to the frame). */
 export const preEvaluateHooks: ((graph: Depsgraph, doc: DocumentData) => void)[] = [];
 
@@ -203,7 +206,15 @@ export class Depsgraph {
       const parent = this.objects.get(ob.parent);
       if (parent) {
         const pm = parent.world.clone();
-        if (ob.parent_type === 'BONE' && ob.parent_bone && parent.pose) {
+        if ((ob.parent_type === 'VERTEX' || ob.parent_type === 'VERTEX_3') && ob.parent_vertices?.length) {
+          for (const hk of parentFrameHooks) {
+            const f = hk(doc, ob, parent);
+            if (f) {
+              pm.multiply(f);
+              break;
+            }
+          }
+        } else if (ob.parent_type === 'BONE' && ob.parent_bone && parent.pose) {
           const bone = parent.pose.bones.get(ob.parent_bone);
           if (bone) {
             // child is relative to the bone tail

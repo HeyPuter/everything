@@ -28,6 +28,7 @@ import './transformmodes';
 import './editxform';
 import './sidebar-items';
 import './join';
+import './vertexparent';
 import './text/text';
 import './text/fontops';
 import './text/props';

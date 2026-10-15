@@ -397,6 +397,8 @@ function latticeMenu(): MenuItem[] {
     { label: 'Flip (Distortion)', submenu: flipMenu, shortcut: 'Alt F' },
     { separator: true },
     { label: 'Make Regular', op: 'lattice.make_regular' },
+    { separator: true },
+    { label: 'Make Vertex Parent', op: 'object.vertex_parent_set', shortcut: 'Ctrl P' },
   ];
 }
 

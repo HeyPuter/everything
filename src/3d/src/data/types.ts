@@ -747,8 +747,10 @@ export interface ObjectData {
   type: ObjectType;
   data: ID | null;
   parent: ID | null;
-  parent_type: 'OBJECT' | 'BONE' | 'VERTEX';
+  parent_type: 'OBJECT' | 'BONE' | 'VERTEX' | 'VERTEX_3';
   parent_bone: string;
+  /** VERTEX / VERTEX_3 parenting: element indices of the parent (vertices, curve points, lattice points) */
+  parent_vertices?: number[];
   /** inverse of the parent's world matrix at parenting time */
   matrix_parent_inverse: Mat4;
   location: Vec3;

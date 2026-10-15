@@ -120,6 +120,8 @@ function controlPointsMenu(): MenuItem[] {
     { label: 'Smooth Curve Weight', op: 'curve.smooth_weight' },
     { separator: true },
     { label: 'Hooks', submenu: hookMenu, shortcut: 'Ctrl H' },
+    { separator: true },
+    { label: 'Make Vertex Parent', op: 'object.vertex_parent_set', shortcut: 'Ctrl P' },
   ];
 }
 
