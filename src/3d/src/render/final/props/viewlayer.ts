@@ -4,6 +4,7 @@ import { registerTab } from '../../../editors/properties/properties';
 import { panel } from '../../../ui/widgets';
 import { bool, num } from '../../../ui/props';
 import { renderSettings, sub } from './common';
+import { aovPanel } from '../../realtime/aov';
 
 registerTab({
   id: 'VIEW_LAYER',
@@ -35,6 +36,7 @@ registerTab({
           r.use_pass_ambient_occlusion ? num(r, 'ambient_occlusion_distance', 'AO Distance', { unit: 'distance', min: 0, softMax: 100, tip: 'Distance of objects that occlude in the Ambient Occlusion pass' }) : null,
         ]),
       ]),
+      aovPanel(r),
       panel(
         'vl-filter',
         'Filter',

@@ -11,7 +11,7 @@ import type { Gpu, Texture, UniformValue } from '../gpu/gpu';
 import { Result, asVec4, convertValue, domainEqual, xfInvert, xfMul, type DataType, type Domain, IDENTITY, type Xform, type Sampling } from './result';
 import { pack, readAs } from './convert';
 
-export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'AO';
+export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'AO' | `AOV:${string}`;
 
 /** Render Layers data: top-down float passes of the last render. */
 export interface LayerSource {

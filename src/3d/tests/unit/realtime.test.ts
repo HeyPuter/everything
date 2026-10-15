@@ -216,3 +216,30 @@ describe('world sun extraction', async () => {
     expect(extractSun(data, W, H, 1000)).toBeNull();
   });
 });
+
+describe('shader AOVs', async () => {
+  const { aovTree, uniqueAovName, aovPassName } = await import('../../src/render/realtime/aov');
+  const { newMaterial } = await import('../../src/data/defaults');
+  it('shades the AOV input as emission through a new active output', () => {
+    const ma = newMaterial();
+    const bsdf = ma.tree.nodes.find((n) => n.type === 'ShaderNodeBsdfPrincipled')!;
+    ma.tree.nodes.push({ id: 'aov', type: 'ShaderNodeOutputAOV', name: 'AOV Output', location: [0, 0], inputs: { Color: [0, 0, 0, 1], Value: 0.5 }, props: { aov_name: 'm' } } as never);
+    ma.tree.links.push({ id: 'l', from_node: bsdf.id, from_socket: 'BSDF', to_node: 'aov', to_socket: 'Color' } as never);
+    expect(aovTree(ma.tree, 'nope', 'COLOR')).toBeNull();
+    const t = aovTree(ma.tree, 'm', 'VALUE')!;
+    const outs = t.nodes.filter((n) => n.type === 'ShaderNodeOutputMaterial');
+    expect(outs.filter((n) => n.props.is_active_output)).toHaveLength(1);
+    const emit = t.nodes.find((n) => n.type === 'ShaderNodeEmission')!;
+    // the value is unlinked: it becomes the emission colour
+    expect(emit.inputs.Color).toEqual([0.5, 0.5, 0.5, 1]);
+    const c = aovTree(ma.tree, 'm', 'COLOR')!;
+    expect(c.links.some((l) => l.to_node === c.nodes.find((n) => n.type === 'ShaderNodeEmission')!.id && l.from_node === bsdf.id)).toBe(true);
+    // the material's own tree is untouched
+    expect(ma.tree.nodes.some((n) => n.type === 'ShaderNodeEmission')).toBe(false);
+  });
+  it('names stay unique', () => {
+    expect(uniqueAovName([])).toBe('AOV');
+    expect(uniqueAovName([{ name: 'AOV' }, { name: 'AOV.001' }])).toBe('AOV.002');
+    expect(aovPassName('x')).toBe('AOV:x');
+  });
+});

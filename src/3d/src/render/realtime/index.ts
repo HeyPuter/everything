@@ -3,3 +3,4 @@ import './probes/lightprobe';
 import './probes/bake';
 import './volumes';
 import './worldprops';
+import './aov';
