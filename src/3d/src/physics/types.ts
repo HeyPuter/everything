@@ -162,7 +162,29 @@ export interface SoftBodyModifier extends ModifierBase {
 }
 
 export interface ParticleSettingsX extends ParticleSettings {
-  physics_type?: 'NEWTON' | 'NO';
+  physics_type?: 'NEWTON' | 'NO' | 'BOIDS' | 'FLUID' | 'KEYED';
+  boids?: import('./boids').BoidSettings;
+  fluid?: import('./sph').ParticleFluidSettings;
+  keyed_targets?: import('./keyed').KeyedTarget[];
+  keyed_loops?: number;
+  active_keyed_index?: number;
+  effector_weights_types?: Record<string, number>;
+  /** render as collection */
+  instance_collection?: string | null;
+  use_collection_pick_random?: boolean;
+  use_whole_collection?: boolean;
+  /** render as lines */
+  line_length_tail?: number;
+  line_length_head?: number;
+  use_velocity_length?: boolean;
+  /** rotation */
+  rotation_mode?: 'NONE' | 'NOR' | 'VEL' | 'GLOB_X' | 'GLOB_Y' | 'GLOB_Z' | 'OB_X' | 'OB_Y' | 'OB_Z';
+  rotation_factor_random?: number;
+  phase_factor?: number;
+  phase_factor_random?: number;
+  angular_velocity_mode?: 'NONE' | 'VELOCITY' | 'HORIZONTAL' | 'VERTICAL' | 'GLOBAL_X' | 'GLOBAL_Y' | 'GLOBAL_Z' | 'RAND';
+  /** emitter children (simple) */
+  child_nbr?: number;
   object_factor?: number;
   display_method?: 'RENDER' | 'DOT' | 'NONE';
   display_size?: number;

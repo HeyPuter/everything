@@ -2,7 +2,7 @@
 // and static hair strands with simple children. Evaluated by the Particle System
 // modifier; points/strands are drawn by the viewport overlay (draw.ts), objects are
 // instanced through EvalMesh.instances.
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3, Vector3 as V3 } from 'three';
 import type { DocumentData, ObjectData, ModifierBase } from '../data/types';
 import type { EvalMesh, GeometryInstance, ModifierContext } from '../eval/types';
 import type { Depsgraph } from '../eval/depsgraph';
@@ -10,10 +10,14 @@ import { meshSignature } from '../eval/depsgraph';
 import { registerModifier } from '../eval/modifiers';
 import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, rand01, strHash, worldAt, type FrameCache, type SimContext } from './common';
 import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides';
+import { boidAccelerations, clampSpeed, defaultBoidSettings, ruleObjects, type BoidSettings } from './boids';
+import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './sph';
+import { keyedPosition, keyedTargetPositions, type KeyedTarget } from './keyed';
 import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
 import { MeshSampler, newSample, type Sample } from './sampling';
 import { physicsDoc } from './state';
+import { localMatrix as localMatrixOf } from '../eval/transform';
 import { fps, gravityOf, simDeps } from './meshsim';
 import { defaultParticleSettings, defaultPointCache, type CollisionSettingsX, type ParticleSettingsX, type ParticleSystemX } from './types';
 
@@ -64,6 +68,11 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'timestep_substeps',
   'use_collision',
   'seed',
+  'boids',
+  'fluid',
+  'keyed_targets',
+  'keyed_loops',
+  'effector_weights_types',
 ];
 
 export function particleCacheKey(ob: ObjectData, m: ModifierBase) {
@@ -92,6 +101,17 @@ function simHash(doc: DocumentData, ob: ObjectData, m: ModifierBase, psys: Parti
     s.use_collision ? collidersKey(doc, pc.frame_start, ob.id) : '',
     fieldsKey(doc, pc.frame_start),
   ];
+  // keyed targets and boid rule objects take part in the motion
+  if (s.physics_type === 'KEYED')
+    for (const t of s.keyed_targets ?? []) {
+      const o = t.object ? doc.objects[t.object] : undefined;
+      if (o) parts.push(`${o.id}:${JSON.stringify(o.particle_systems)}:${JSON.stringify(o.particle_systems.map((p) => doc.particles[p.settings]))}:${motionKey(doc, o, pc.frame_start)}`);
+    }
+  if (s.physics_type === 'BOIDS')
+    for (const r of s.boids?.rules ?? []) {
+      const o = r.object ? doc.objects[r.object] : undefined;
+      if (o) parts.push(`${o.id}:${motionKey(doc, o, pc.frame_start)}`);
+    }
   return strHash(parts.join('#'));
 }
 
@@ -121,6 +141,10 @@ export interface EmitterResult {
   birth: Float32Array;
   life: Float32Array;
   prev: PFrame | undefined;
+  /** emission samples (object space) */
+  samples: Sample[] | null;
+  /** frame of `frame` */
+  at: number;
 }
 
 function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh): PLive {
@@ -189,11 +213,23 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
   const invMass = 1 / Math.max(1e-4, s.mass);
   const f = [0, 0, 0];
   const damp = Math.pow(1 - Math.min(1, Math.max(0, s.damping ?? 0)), dtf);
+  const boids = s.physics_type === 'BOIDS' ? ({ ...defaultBoidSettings(), ...(s.boids ?? {}) } as BoidSettings) : null;
+  const fluid = s.physics_type === 'FLUID' ? ({ ...defaultParticleFluid(), ...(s.fluid ?? {}) } as ParticleFluidSettings) : null;
+  const keyed = s.physics_type === 'KEYED' ? keyedTargetPositions(ctx.doc, s.keyed_targets ?? [], k) : null;
+  const boidAcc = boids ? new Float32Array(n * 3) : null;
+  const prevPos = fluid ? new Float32Array(n * 3) : null;
+  const alive = (i: number) => L.state[i] === 1;
+  const objects = boids ? ruleObjects(ctx.doc, boids, (id, fr) => {
+    const o = ctx.doc.objects[id];
+    return o ? new V3().setFromMatrixPosition(worldAt(ctx, o, fr)) : null;
+  }, k, fpsv) : null;
   for (let ss = 0; ss < sub; ss++) {
     const t0 = k - 1 + ss * dtf,
       t1 = t0 + dtf;
     for (const c of cols) c.setTime((ss + 1) / sub);
     L.step++;
+    if (boids && boidAcc) boidAccelerations(boids, L.pos, L.vel, alive, n, objects!, cols, (i, ch) => rand01(seed, i, L.step, 60 + ch), boidAcc);
+    if (prevPos) prevPos.set(L.pos);
     for (let i = 0; i < n; i++) {
       let st = L.state[i];
       if (st === 2) continue;
@@ -208,6 +244,23 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         continue;
       }
       if (s.physics_type === 'NO') continue;
+      if (keyed) {
+        // keyed particles follow their path from the emission point through the targets
+        if (ss === sub - 1) {
+          const sm = L.samples[i];
+          const start = new V3(sm.px, sm.py, sm.pz).applyMatrix4(B);
+          const out = [0, 0, 0];
+          keyedPosition([start.x, start.y, start.z], keyed, i, (t1 - b) / Math.max(1e-6, L.life[i]), s.keyed_loops ?? 1, out);
+          const j = i * 3;
+          L.vel[j] = (out[0] - L.pos[j]) * fpsv;
+          L.vel[j + 1] = (out[1] - L.pos[j + 1]) * fpsv;
+          L.vel[j + 2] = (out[2] - L.pos[j + 2]) * fpsv;
+          L.pos[j] = out[0];
+          L.pos[j + 1] = out[1];
+          L.pos[j + 2] = out[2];
+        }
+        continue;
+      }
       // time of this particle inside the substep (newborns integrate the remainder only)
       const h = b > t0 ? (dt * (t1 - b)) / dtf : dt;
       if (h <= 0) continue;
@@ -220,9 +273,10 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         vz = L.vel[j + 2];
       f[0] = f[1] = f[2] = 0;
       if (effs.length) effectorForce(effs, px, py, pz, vx, vy, vz, t1, f, s.effector_weights_all ?? 1, null, (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null);
-      let ax = g[0] + f[0] * invMass,
-        ay = g[1] + f[1] * invMass,
-        az = g[2] + f[2] * invMass;
+      // flying boids steer by their rules instead of falling
+      let ax = (boidAcc ? boidAcc[i * 3] : g[0]) + f[0] * invMass,
+        ay = (boidAcc ? boidAcc[i * 3 + 1] : g[1]) + f[1] * invMass,
+        az = (boidAcc ? boidAcc[i * 3 + 2] : g[2]) + f[2] * invMass;
       if (s.drag_factor) {
         const sp = Math.hypot(vx, vy, vz);
         ax -= vx * sp * s.drag_factor;
@@ -238,6 +292,13 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       vx = (vx + ax * h) * damp;
       vy = (vy + ay * h) * damp;
       vz = (vz + az * h) * damp;
+      if (boids) {
+        const sp = Math.hypot(vx, vy, vz);
+        const t = sp > boids.air_speed_max ? boids.air_speed_max / sp : sp > 1e-9 && sp < boids.air_speed_min ? boids.air_speed_min / sp : 1;
+        vx *= t;
+        vy *= t;
+        vz *= t;
+      }
       let nx = px + vx * h,
         ny = py + vy * h,
         nz = pz + vz * h;
@@ -287,6 +348,7 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
       L.vel[j + 1] = vy;
       L.vel[j + 2] = vz;
     }
+    if (fluid && prevPos) relaxFluid(fluid, L.pos, L.vel, prevPos, alive, n, dt);
   }
   // curve guides lead particles along their curves
   if (s.physics_type !== 'NO') {
@@ -339,7 +401,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   if (!frame) return null;
   const birth = cache.live?.birth ?? initLive(s, seed, mesh).birth;
   const life = cache.live?.life ?? new Float32Array(count).fill(s.lifetime);
-  return { frame, birth, life, prev: cache.frames.get(f - 1) };
+  return { frame, birth, life, prev: cache.frames.get(f - 1), samples: cache.live?.samples ?? null, at: f };
 }
 
 const hashSeed = (a: number, b: number) => (Math.imul(a | 0, 2654435761) ^ (b | 0)) >>> 0;
@@ -450,6 +512,57 @@ function instanceMatrix(owner: Matrix4, pos: Vector3, rot: Quaternion, size: num
 
 const X = new Vector3(1, 0, 0);
 
+/** Orientation of an emitted particle (Rotation panel settings). */
+function particleRotation(s: ParticleSettingsX, seed: number, i: number, vel: Vector3 | null, normal: Vector3 | null, owner: Matrix4, ageSec: number): Quaternion {
+  const q = new Quaternion();
+  if (!s.use_rotations) return q;
+  const mode = s.rotation_mode ?? 'VEL';
+  let dir: Vector3 | null = null;
+  if (mode === 'VEL') dir = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : null;
+  else if (mode === 'NOR') dir = normal;
+  else if (mode.startsWith('GLOB_')) dir = new Vector3(mode === 'GLOB_X' ? 1 : 0, mode === 'GLOB_Y' ? 1 : 0, mode === 'GLOB_Z' ? 1 : 0);
+  else if (mode.startsWith('OB_')) dir = new Vector3(mode === 'OB_X' ? 1 : 0, mode === 'OB_Y' ? 1 : 0, mode === 'OB_Z' ? 1 : 0).transformDirection(owner);
+  if (dir) q.setFromUnitVectors(X, dir);
+  const rnd = s.rotation_factor_random ?? 0;
+  if (rnd > 0) {
+    // a random orientation per particle, mixed in by the randomness
+    const u1 = rand01(seed, i, 70),
+      u2 = rand01(seed, i, 71),
+      u3 = rand01(seed, i, 72);
+    const r = new Quaternion(Math.sqrt(1 - u1) * Math.sin(2 * Math.PI * u2), Math.sqrt(1 - u1) * Math.cos(2 * Math.PI * u2), Math.sqrt(u1) * Math.sin(2 * Math.PI * u3), Math.sqrt(u1) * Math.cos(2 * Math.PI * u3));
+    q.slerp(r, Math.min(1, rnd));
+  }
+  const phase = ((s.phase_factor ?? 0) + (s.phase_factor_random ?? 0) * rand01(seed, i, 73)) * Math.PI;
+  if (phase) q.multiply(new Quaternion().setFromAxisAngle(X, phase));
+  const av = s.angular_velocity_mode ?? 'NONE';
+  const speed = s.angular_velocity_factor ?? 0;
+  if (av !== 'NONE' && speed) {
+    let axis: Vector3;
+    if (av === 'GLOBAL_X') axis = new Vector3(1, 0, 0);
+    else if (av === 'GLOBAL_Y') axis = new Vector3(0, 1, 0);
+    else if (av === 'GLOBAL_Z') axis = new Vector3(0, 0, 1);
+    else if (av === 'RAND') axis = new Vector3(rand01(seed, i, 74) - 0.5, rand01(seed, i, 75) - 0.5, rand01(seed, i, 76) - 0.5).normalize();
+    else if (av === 'VELOCITY') axis = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : new Vector3(1, 0, 0);
+    else {
+      // horizontal / vertical spin relative to the direction of travel
+      const d = vel && vel.lengthSq() > 1e-12 ? vel.clone().normalize() : new Vector3(1, 0, 0);
+      const side = new Vector3().crossVectors(d, new Vector3(0, 0, 1));
+      axis = av === 'VERTICAL' ? (side.lengthSq() > 1e-9 ? side.normalize() : new Vector3(0, 1, 0)) : new Vector3(0, 0, 1);
+    }
+    q.premultiply(new Quaternion().setFromAxisAngle(axis, speed * ageSec));
+  }
+  return q;
+}
+
+/** Objects of a collection (recursively, by name) for collection instancing. */
+function collectionObjects(doc: DocumentData, cid: string | null | undefined, depth = 0): ObjectData[] {
+  const c = cid ? doc.collections[cid] : undefined;
+  if (!c || depth > 16) return [];
+  const out = c.objects.map((id) => doc.objects[id]).filter((o): o is ObjectData => !!o);
+  for (const ch of c.children) out.push(...collectionObjects(doc, ch, depth + 1));
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: ModifierContext): EvalMesh {
   const ob = ctx.ob,
     doc = ctx.doc;
@@ -464,8 +577,29 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const show = ctx.render ? 'RENDER' : s.display_method ?? 'RENDER';
   const color = materialColor(doc, ob, s.material_slot ?? 1) ?? [0.9, 0.9, 0.9];
   const inst = s.render_type === 'OBJECT' && s.instance_object ? doc.objects[s.instance_object] : undefined;
-  const wantInstances = show === 'RENDER' && !!inst && inst.id !== ob.id;
+  const coll = s.render_type === 'COLLECTION' ? collectionObjects(doc, s.instance_collection).filter((o) => o.id !== ob.id) : [];
+  const wantInstances = show === 'RENDER' && ((!!inst && inst.id !== ob.id) || coll.length > 0);
   const wantPoints = show === 'DOT' || (show === 'RENDER' && s.render_type === 'HALO');
+  const wantLines = show === 'RENDER' && s.render_type === 'LINE';
+  /** instance(s) of one particle: the object, a picked collection object, or the whole collection */
+  const pushInstances = (out: GeometryInstance[], ow: Matrix4, pos: Vector3, rot: Quaternion, size: number, i: number, seed: number) => {
+    if (inst) {
+      out.push({ objectId: inst.id, matrix: instanceMatrix(ow, pos, rot, size, inst, s.use_scale_instance !== false) });
+      return;
+    }
+    if (!coll.length) return;
+    if (s.use_whole_collection) {
+      const base = new Matrix4().compose(pos, rot, new Vector3(size, size, size));
+      const offset = s.instance_collection ? doc.collections[s.instance_collection]?.instance_offset ?? [0, 0, 0] : [0, 0, 0];
+      for (const o of coll) {
+        const local = new Matrix4().makeTranslation(-offset[0], -offset[1], -offset[2]).multiply(localMatrixOf(o));
+        out.push({ objectId: o.id, matrix: new Matrix4().copy(ow).invert().multiply(base).multiply(local).toArray() });
+      }
+      return;
+    }
+    const o = s.use_collection_pick_random ? coll[Math.floor(rand01(seed, i, 80) * coll.length) % coll.length] : coll[i % coll.length];
+    out.push({ objectId: o.id, matrix: instanceMatrix(ow, pos, rot, size, o, s.use_scale_instance !== false) });
+  };
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
   if (s.type === 'HAIR') {
@@ -491,7 +625,7 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
         const tip = new Vector3(hair.points[b], hair.points[b + 1], hair.points[b + 2]).applyMatrix4(ow);
         const rot = s.use_rotations ? new Quaternion().setFromUnitVectors(X, tip.clone().sub(root).normalize()) : new Quaternion();
         const size = s.particle_size * (1 - s.size_random * rand01(psys.seed, i, 2));
-        instances.push({ objectId: inst!.id, matrix: instanceMatrix(ow, root, rot, size, inst, s.use_scale_instance !== false) });
+        pushInstances(instances, ow, root, rot, size, i, psys.seed);
       }
     }
   } else {
@@ -514,20 +648,56 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
         }
         draw = { objectId: ob.id, space: 'WORLD', points: pts, sizes, lines: null, color, count };
       }
+      if (wantLines) {
+        // a line per particle along its direction of travel
+        const lines = new Float32Array(count * 6);
+        let w = 0;
+        const fpsv = fps(doc);
+        for (let i = 0; i < n; i++) {
+          if (!(frame.state[i] === 1 || (showDead && frame.state[i] === 2))) continue;
+          const px = frame.pos[i * 3],
+            py = frame.pos[i * 3 + 1],
+            pz = frame.pos[i * 3 + 2];
+          let dx = 0,
+            dy = 0,
+            dz = 1;
+          if (res.prev) {
+            dx = px - res.prev.pos[i * 3];
+            dy = py - res.prev.pos[i * 3 + 1];
+            dz = pz - res.prev.pos[i * 3 + 2];
+          }
+          const len = Math.hypot(dx, dy, dz);
+          const scale = s.use_velocity_length ? len * fpsv : 1;
+          if (len > 1e-9) {
+            dx /= len;
+            dy /= len;
+            dz /= len;
+          }
+          const tail = (s.line_length_tail ?? 0) * scale,
+            head = (s.line_length_head ?? 0.1) * scale;
+          lines.set([px - dx * tail, py - dy * tail, pz - dz * tail, px + dx * head, py + dy * head, pz + dz * head], w);
+          w += 6;
+        }
+        draw = { objectId: ob.id, space: 'WORLD', points: null, sizes: null, lines, color, count };
+      }
       if (wantInstances) {
         const p = new Vector3(),
-          q = new Quaternion(),
-          d = new Vector3();
+          d = new Vector3(),
+          nrm = new Vector3();
+        const fpsv = fps(doc);
         for (let i = 0; i < n; i++) {
           if (!(frame.state[i] === 1 || (showDead && frame.state[i] === 2))) continue;
           p.set(frame.pos[i * 3], frame.pos[i * 3 + 1], frame.pos[i * 3 + 2]);
-          q.identity();
-          if (s.use_rotations && res.prev) {
+          let vel: Vector3 | null = null;
+          if (res.prev) {
             d.set(p.x - res.prev.pos[i * 3], p.y - res.prev.pos[i * 3 + 1], p.z - res.prev.pos[i * 3 + 2]);
-            if (d.lengthSq() > 1e-12) q.setFromUnitVectors(X, d.normalize());
+            vel = d;
           }
+          const sm = res.samples?.[i];
+          const normal = sm ? nrm.set(sm.nx, sm.ny, sm.nz).transformDirection(owner) : null;
+          const q = particleRotation(s, seed, i, vel, normal, owner, Math.max(0, (res.at - res.birth[i]) / fpsv));
           const size = s.particle_size * (1 - s.size_random * rand01(seed, i, 2));
-          instances.push({ objectId: inst!.id, matrix: instanceMatrix(owner, p, q, size, inst, s.use_scale_instance !== false) });
+          pushInstances(instances, owner, p, q, size, i, seed);
         }
       }
     }
@@ -567,6 +737,10 @@ registerModifier({
         const s = ps ? doc.particles[ps.settings] : undefined;
         if (s?.instance_object) out.push(s.instance_object);
         if (s && s.type !== 'HAIR') out.push(...simDeps(doc, ob.id));
+        const sx = s as ParticleSettingsX | undefined;
+        for (const t of sx?.keyed_targets ?? []) if (t.object && t.object !== ob.id) out.push(t.object);
+        for (const r of sx?.boids?.rules ?? []) if (r.object && r.object !== ob.id) out.push(r.object);
+        if (sx?.render_type === 'COLLECTION') for (const o of collectionObjects(doc, sx.instance_collection)) if (o.id !== ob.id) out.push(o.id);
       }
     return out;
   },
