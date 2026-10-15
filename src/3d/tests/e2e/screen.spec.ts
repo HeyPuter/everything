@@ -218,3 +218,101 @@ test('Edit menu: repeat history, undo history submenu; splash and system menus',
   expect(reports).toMatch(/Draw Region: 3 iterations/);
   await expectNoErrors(errors);
 });
+
+/** Scripting workspace with a new text in the Text Editor; returns the text area locator. */
+async function newText(page: Page, body: string) {
+  await page.locator('.ws-tab', { hasText: 'Scripting' }).first().click();
+  const te = page.locator('.area[data-editor="TEXT"]');
+  const box = (await te.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('text.new', {}, { area: a.hoverArea });
+  });
+  const ta = te.locator('.te-input');
+  await expect(ta).toBeVisible();
+  await ta.click();
+  await page.keyboard.insertText(body);
+  return ta;
+}
+const body = (page: Page) => page.evaluate(() => Object.values((window as any).app.doc.texts as Record<string, { body: string }>)[0].body);
+
+test('Text Editor: duplicate line, find set selected, autocomplete, overwrite, context menu', async ({ page }) => {
+  const errors = await openApp(page);
+  const ta = await newText(page, 'value = 1\nvalue_total = 2\n');
+  // Ctrl D duplicates the caret line
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Control+d');
+  expect(await body(page)).toBe('value = 1\nvalue = 1\nvalue_total = 2\n');
+  // Ctrl G: the word at the caret becomes the search text and the next match is selected
+  await page.keyboard.press('Control+g');
+  expect(await page.evaluate(() => { const t = document.querySelector('.te-input') as HTMLTextAreaElement; return [t.selectionStart, t.selectionEnd]; })).toEqual([10, 15]);
+  // Tab after a word prefix: two candidates → list; Enter accepts the highlighted one
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('val');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.te-ac-item')).toHaveCount(2);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  expect(await body(page)).toBe('value = 1\nvalue = 1\nvalue_total = 2\nvalue_total');
+  // overwrite mode replaces characters
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Insert');
+  await page.keyboard.type('XY');
+  expect((await body(page)).endsWith('XYlue_total')).toBe(true);
+  await expect(page.locator('.te-foot-ovr')).toBeVisible();
+  await page.keyboard.press('Insert');
+  // right-click menu
+  const tb = (await ta.boundingBox())!;
+  await page.mouse.click(tb.x + 40, tb.y + 10, { button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Toggle Comments' })).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Toggle Comments' }).click();
+  expect((await body(page)).startsWith('# value = 1')).toBe(true);
+  // Ctrl+wheel zooms the font
+  const fs0 = await page.evaluate(() => getComputedStyle(document.querySelector('.text-editor')!).getPropertyValue('--te-fs'));
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  const fs1 = await page.evaluate(() => getComputedStyle(document.querySelector('.text-editor')!).getPropertyValue('--te-fs'));
+  expect(parseInt(fs1)).toBe(parseInt(fs0) + 1);
+  await expectNoErrors(errors);
+});
+
+test('Text Editor: select and navigation operators, text to 3D object, reload from disk', async ({ page }) => {
+  const errors = await openApp(page);
+  await newText(page, 'first line\nsecond line\nthird');
+  const sel = () => page.evaluate(() => { const t = document.querySelector('.te-input') as HTMLTextAreaElement; return [t.selectionStart, t.selectionEnd]; });
+  const run = (op: string, props: Record<string, unknown> = {}) => page.evaluate(([o, p]) => { const a = (window as any).app; return a.run(o, p, { area: a.hoverArea }); }, [op, props] as const);
+  await run('text.move', { type: 'FILE_TOP' });
+  await run('text.move_select', { type: 'NEXT_WORD' });
+  expect(await sel()).toEqual([0, 5]);
+  await run('text.move_select', { type: 'NEXT_LINE' });
+  expect(await sel()).toEqual([0, 16]);
+  await run('text.select_line');
+  expect(await sel()).toEqual([0, 22]);
+  await run('text.select_all');
+  expect(await sel()).toEqual([0, 28]);
+  // text to 3D: one object per line
+  const before = (await get(page, 'Object.keys(app.doc.objects).length')) as number;
+  await run('text.to_3d_object', { split_lines: true });
+  expect(await get(page, 'Object.values(app.doc.objects).filter(o => o.type === "FONT").length')).toBe(3);
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(before + 3);
+  // open a text linked to a (fake) file on disk, change the file, reload
+  await page.evaluate(() => {
+    let content = 'print("v1")\n';
+    let modified = 1000;
+    const handle = { name: 'disk.py', kind: 'file', getFile: async () => new File([content], 'disk.py', { lastModified: modified }) };
+    (window as any).__setDisk = (c: string) => ((content = c), (modified += 1000));
+    (window as any).showOpenFilePicker = async () => [handle];
+  });
+  await run('text.open');
+  await expect.poll(() => get(page, 'Object.values(app.doc.texts).map(t => t.name).join(",")')).toContain('disk.py');
+  await page.evaluate(() => (window as any).__setDisk('print("v2")\n'));
+  // coming back to the window checks the linked file
+  await page.evaluate(() => dispatchEvent(new Event('focus')));
+  await expect(page.locator('.te-conflict')).toBeVisible();
+  await page.locator('.te-conflict .btn', { hasText: 'Reload from Disk' }).click();
+  await expect.poll(() => get(page, 'Object.values(app.doc.texts).find(t => t.name === "disk.py").body')).toBe('print("v2")\n');
+  await expect(page.locator('.te-conflict')).toBeHidden();
+  await expectNoErrors(errors);
+});
