@@ -376,11 +376,13 @@ function startTint(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Fill
 
-function doFill(v: View3D, x: number, y: number) {
+function doFill(v: View3D, x: number, y: number, ctrl = false) {
   const c = drawContext();
   if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
   const b = gpBrush(app.doc, 'builtin.brush.Fill');
-  const res = fillRegion(v, c.ob, c.gp, c.layer!, x, y, b);
+  // Ctrl flips the fill direction for this click
+  const invert = (b.fill_direction === 'INVERT') !== ctrl;
+  const res = fillRegion(v, c.ob, c.gp, c.layer!, x, y, b, invert);
   if (typeof res === 'string') {
     app.report('WARNING', res);
     return;
@@ -435,7 +437,7 @@ editModeHooks.pointer.unshift((v, e) => {
   }
   if (tool === 'builtin.brush.Fill') {
     const p = v.local(e);
-    doFill(v, p.x, p.y);
+    doFill(v, p.x, p.y, e.ctrlKey || e.metaKey);
     return true;
   }
   if (PRIM_OPS[tool]) {
@@ -574,12 +576,13 @@ registerOperators([
     props: [
       { id: 'x', label: 'X', type: 'float', default: 0, hidden: true },
       { id: 'y', label: 'Y', type: 'float', default: 0, hidden: true },
+      { id: 'invert', label: 'Invert', type: 'bool', default: false },
     ],
     poll: () => inDrawMode(),
     exec: (_ctx, p) => {
       const v = activeView3D();
       if (!v) return 'CANCELLED';
-      doFill(v, p.x as number, p.y as number);
+      doFill(v, p.x as number, p.y as number, !!p.invert);
       return 'CANCELLED'; // doFill pushes its own undo step
     },
   },

@@ -26,6 +26,10 @@ registerIcons({
     '<path class="s" d="M1.5 11c1.6-1.6 3-2.2 4.2-2.2M10.3 8.8c1.3 0 2.7.6 4.2 2.2" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M5.7 8.8h4.6" stroke-width="1.2" stroke-dasharray="1.3 1.2" opacity=".6"/><path class="s" d="M8 2.2c3 0 4.3 1.6 4.3 3.4S10.6 13 8 13 3.7 7.4 3.7 5.6 5 2.2 8 2.2z" fill="none" stroke-width="1" stroke-dasharray="2 1.4"/>',
   gp_interpolate:
     '<path class="s" d="M2 13.5C2.8 8 3.8 5 6.5 2.5" fill="none" stroke-width="1.6" stroke-linecap="round"/><path class="s" d="M6 13.5C6.9 9 8.2 6.5 10.5 4.5" fill="none" stroke-width="1.3" stroke-linecap="round" opacity=".45"/><path class="s" d="M10 13.5c1-3.6 2.4-5.6 4.5-7" fill="none" stroke-width="1.6" stroke-linecap="round"/>',
+  gp_fill_normal:
+    '<path class="f" fill-rule="evenodd" d="M2.5 2.5h11v11h-11zM5.8 5.8v4.4h4.4V5.8z" opacity=".7"/><path class="s" d="M2.5 2.5h11v11h-11zM5.8 5.8h4.4v4.4H5.8z" fill="none" stroke-width="1.1"/>',
+  gp_fill_invert:
+    '<path class="f" d="M5.8 5.8h4.4v4.4H5.8z" opacity=".7"/><path class="s" d="M2.5 2.5h11v11h-11zM5.8 5.8h4.4v4.4H5.8z" fill="none" stroke-width="1.1"/>',
   gp_invert: '<circle class="s" cx="8" cy="8" r="5.5" fill="none" stroke-width="1.3"/><path class="f" d="M8 2.5a5.5 5.5 0 0 1 0 11z"/>',
   mod_time:
     '<circle class="s" cx="8" cy="8.5" r="5.6" fill="none" stroke-width="1.3"/><path class="s" d="M8 5v3.7l2.4 1.6" fill="none" stroke-width="1.3" stroke-linecap="round"/><path class="s" d="M6 1.5h4" stroke-width="1.3" stroke-linecap="round"/>',

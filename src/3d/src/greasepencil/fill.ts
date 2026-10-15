@@ -10,7 +10,7 @@ import { frameAt, type GPPoint } from './data';
 import { Placement } from './placement';
 import { layerMatrix } from './render';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
-import { floodFill, dilate, traceContours, simplifyLoop } from './fillmath';
+import { floodFill, dilate, traceContours, simplifyLoop, invertedRegion } from './fillmath';
 import { extensionLines, type ScreenStroke } from './fillgaps';
 
 export { floodFill, dilate, traceContours, simplifyLoop };
@@ -37,7 +37,7 @@ function fillLayers(gp: GreasePencilData, active: GPLayer, mode: GPBrush['fill_l
 }
 
 /** Fill the region under (x, y): returns the boundary curves (layer space) or an error message. */
-export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, layer: GPLayer, x: number, y: number, b: GPBrush): GPPoint[][] | string {
+export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, layer: GPLayer, x: number, y: number, b: GPBrush, invert = false): GPPoint[][] | string {
   const W0 = Math.max(1, Math.round(v.width)),
     H0 = Math.max(1, Math.round(v.height));
   const s = Math.min(1, 1400 / Math.max(W0, H0));
@@ -118,8 +118,8 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
   const sx = Math.round(x * s),
     sy = Math.round(y * s);
   if (boundary[sy * W + sx]) return 'Unable to fill: click inside a closed area, not on a stroke';
-  const region = floodFill(boundary, W, H, sx, sy);
-  if (!region) return 'Unable to fill unclosed areas';
+  const region = invert ? invertedRegion(boundary, W, H, sx, sy) : floodFill(boundary, W, H, sx, sy);
+  if (!region) return invert ? 'Unable to fill: no closed areas next to the clicked one' : 'Unable to fill unclosed areas';
   const grown = dilate(region, W, H, Math.max(0, Math.round((b.dilate ?? 1) * s)) + 1);
   const loops = traceContours(grown, W, H);
   if (!loops.length) return 'Unable to fill';

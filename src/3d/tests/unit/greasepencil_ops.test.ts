@@ -295,7 +295,7 @@ describe('trim', () => {
   });
 });
 
-import { kernels, buildStrokes, changeLength, timeOffset, evaluateDrawing, activeModifiers } from '../../src/greasepencil/modifiers';
+import { kernels, buildStrokes, changeLength, timeOffset, chainFrame, evaluateDrawing, activeModifiers } from '../../src/greasepencil/modifiers';
 import { Matrix4 } from 'three';
 
 describe('grease pencil modifiers', () => {
@@ -352,6 +352,20 @@ describe('grease pencil modifiers', () => {
     expect(timeOffset({ mode: 'FIX', offset: 4 }, 9, 1, 10)).toBe(4);
     expect(timeOffset({ mode: 'REVERSE', offset: 0 }, 1, 1, 10)).toBe(10);
     expect(timeOffset({ mode: 'PINGPONG', offset: 0 }, 12, 1, 10)).toBe(8);
+  });
+
+  it('time offset chain plays segments one after another', () => {
+    const segments = [
+      { name: 'A', seg_start: 1, seg_end: 3, seg_mode: 'NORMAL', seg_repeat: 2 },
+      { name: 'B', seg_start: 10, seg_end: 12, seg_mode: 'REVERSE', seg_repeat: 1 },
+      { name: 'C', seg_start: 20, seg_end: 22, seg_mode: 'PINGPONG', seg_repeat: 1 },
+    ];
+    const m = { mode: 'CHAIN', offset: 0, segments, use_keep_loop: true };
+    const seq = Array.from({ length: 14 }, (_, i) => timeOffset(m, 1 + i, 1, 250));
+    expect(seq).toEqual([1, 2, 3, 1, 2, 3, 12, 11, 10, 20, 21, 22, 21, 1]);
+    // without looping the last frame holds
+    expect(timeOffset({ ...m, use_keep_loop: false }, 40, 1, 250)).toBe(21);
+    expect(chainFrame([], 5, true)).toBe(5);
   });
 
   it('evaluates the stack on a drawing (cached) for an object', () => {
@@ -682,5 +696,36 @@ describe('envelope and hook', () => {
     expect(out.length).toBe(1 + 3);
     expect(xs(out[1].points)).toEqual([0, 2]);
     expect(kernels.GREASE_PENCIL_ENVELOPE([line([0, 1, 2, 3, 4])], { spread: 2, mode: 'FILLS' }, c)[1].cyclic).toBe(true);
+  });
+});
+
+import { invertedRegion } from '../../src/greasepencil/fillmath';
+
+describe('inverted fill', () => {
+  // a 20×20 square outline with a 6×6 square outline inside it, both 1 px wide
+  const W = 30,
+    H = 30;
+  const wall = new Uint8Array(W * H);
+  const rect = (x0: number, y0: number, x1: number, y1: number) => {
+    for (let x = x0; x <= x1; x++) (wall[y0 * W + x] = 1), (wall[y1 * W + x] = 1);
+    for (let y = y0; y <= y1; y++) (wall[y * W + x0] = 1), (wall[y * W + x1] = 1);
+  };
+  rect(5, 5, 25, 25);
+  rect(12, 12, 18, 18);
+  const count = (m: Uint8Array | null) => (m ? m.reduce((a, b) => a + b, 0) : 0);
+
+  it('clicking inside a shape fills its holes', () => {
+    const m = invertedRegion(wall, W, H, 8, 8)!;
+    expect(m[15 * W + 15]).toBe(1);
+    expect(m[8 * W + 8]).toBe(0);
+    expect(count(m)).toBe(5 * 5);
+  });
+
+  it('clicking outside fills every closed area; a hole without holes fills nothing', () => {
+    const m = invertedRegion(wall, W, H, 1, 1)!;
+    expect(m[8 * W + 8]).toBe(1);
+    expect(m[15 * W + 15]).toBe(1);
+    expect(invertedRegion(wall, W, H, 15, 15)).toBeNull();
+    expect(invertedRegion(wall, W, H, 5, 5)).toBeNull();
   });
 });

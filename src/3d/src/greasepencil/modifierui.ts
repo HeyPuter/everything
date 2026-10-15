@@ -112,6 +112,65 @@ function dashSegments(m: M): Child {
   ];
 }
 
+const SEG_MODES = E(['NORMAL', 'Regular'], ['REVERSE', 'Reverse'], ['PINGPONG', 'Ping Pong']);
+
+/** Time Offset ▸ Chain: the list of frame segments played one after another. */
+function chainSegments(m: M): Child {
+  const segs = ((m.segments as Record<string, unknown>[] | undefined) ??= []);
+  const active = Math.min(segs.length - 1, Math.max(0, (m.segment_active_index as number) ?? 0));
+  const seg = segs[active];
+  const move = (d: number) => {
+    const j = active + d;
+    if (j < 0 || j >= segs.length) return;
+    [segs[active], segs[j]] = [segs[j], segs[active]];
+    m.segment_active_index = j;
+    changed('Move Segment');
+  };
+  return [
+    h(
+      'div',
+      { class: 'gpm-seglist' },
+      segs.map((g, i) =>
+        h(
+          'div',
+          { class: { 'gpm-seg': true, on: i === active }, onclick: () => ((m.segment_active_index = i), app.changed('ui')) },
+          `${String(g.name ?? 'Segment')}  ${g.seg_start as number}–${g.seg_end as number}`,
+        ),
+      ),
+      h(
+        'div',
+        { class: 'gpm-seg-btns' },
+        h(
+          'button',
+          {
+            class: 'btn',
+            'data-tip': 'Add a segment',
+            onclick: () => {
+              const last = segs[segs.length - 1];
+              const st = last ? (last.seg_end as number) + 1 : 1;
+              segs.push({ name: `Segment.${String(segs.length).padStart(3, '0')}`, seg_start: st, seg_end: st + 1, seg_mode: 'NORMAL', seg_repeat: 1 });
+              m.segment_active_index = segs.length - 1;
+              changed('Add Segment');
+            },
+          },
+          icon('add'),
+        ),
+        h('button', { class: 'btn', 'data-tip': 'Remove the active segment', disabled: !seg, onclick: () => seg && (segs.splice(active, 1), (m.segment_active_index = Math.max(0, active - 1)), changed('Remove Segment')) }, icon('remove')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment up', disabled: active <= 0, onclick: () => move(-1) }, icon('triangle_up')),
+        h('button', { class: 'btn', 'data-tip': 'Move the segment down', disabled: active >= segs.length - 1, onclick: () => move(1) }, icon('triangle_down')),
+      ),
+    ),
+    seg
+      ? [
+          num(seg, 'seg_start', 'Frame Start', { int: true, min: 0 }),
+          num(seg, 'seg_end', 'End', { int: true, min: 0 }),
+          enumProp(seg, 'seg_mode', 'Mode', SEG_MODES),
+          num(seg, 'seg_repeat', 'Repeat', { int: true, min: 1, max: 1000 }),
+        ]
+      : null,
+  ];
+}
+
 function targetGroup(ob: ObjectData, m: M): Child {
   const gp = gpOf(app.doc, ob);
   const items = [{ value: '', label: '—' }, ...(gp?.vertex_groups ?? []).map((g) => ({ value: g.name, label: g.name, icon: 'group_vertex' }))];
@@ -138,7 +197,8 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
     influence(ob, m),
   ],
   GREASE_PENCIL_TIME: (ob, m) => [
-    enumProp(m, 'mode', 'Mode', E(['NORMAL', 'Regular'], ['REVERSE', 'Reverse'], ['FIX', 'Fixed Frame'], ['PINGPONG', 'Ping Pong'])),
+    enumProp(m, 'mode', 'Mode', E(['NORMAL', 'Regular'], ['REVERSE', 'Reverse'], ['FIX', 'Fixed Frame'], ['PINGPONG', 'Ping Pong'], ['CHAIN', 'Chain'])),
+    m.mode === 'CHAIN' ? chainSegments(m) : null,
     num(m, 'offset', m.mode === 'FIX' ? 'Frame' : 'Frame Offset', { int: true }),
     m.mode !== 'FIX' ? num(m, 'frame_scale', 'Scale', { min: 0.001, max: 100 }) : null,
     m.mode !== 'FIX' ? bool(m, 'use_keep_loop', 'Keep Loop') : null,

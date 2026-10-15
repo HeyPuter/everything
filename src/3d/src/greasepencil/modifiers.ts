@@ -729,6 +729,41 @@ export function layerFrame(ob: ObjectData, c: { layer: GPLayer; layerIndex: numb
   return f;
 }
 
+export interface ChainSegment {
+  name: string;
+  seg_start: number;
+  seg_end: number;
+  seg_mode: 'NORMAL' | 'REVERSE' | 'PINGPONG';
+  seg_repeat: number;
+}
+
+/** Frame shown `t` frames into a chain of segments played one after another (each repeated). */
+export function chainFrame(segs: ChainSegment[], t: number, loop: boolean): number {
+  const parts = segs.map((g) => {
+    const a = Math.round(Math.min(g.seg_start, g.seg_end)),
+      b = Math.round(Math.max(g.seg_start, g.seg_end));
+    const n = b - a + 1;
+    // ping pong plays forward then back without repeating the turning frames
+    const once = g.seg_mode === 'PINGPONG' ? Math.max(1, 2 * n - 2) : n;
+    return { g, a, b, n, once, len: once * Math.max(1, Math.round(g.seg_repeat || 1)) };
+  });
+  const total = parts.reduce((x, p) => x + p.len, 0);
+  if (!total) return t;
+  if (t < 0) t = loop ? ((t % total) + total) % total : 0;
+  else if (t >= total) t = loop ? t % total : total - 1;
+  for (const p of parts) {
+    if (t >= p.len) {
+      t -= p.len;
+      continue;
+    }
+    const k = t % p.once;
+    if (p.g.seg_mode === 'REVERSE') return p.b - k;
+    if (p.g.seg_mode === 'PINGPONG') return p.a + (k < p.n ? k : p.once - k);
+    return p.a + k;
+  }
+  return parts[parts.length - 1].b;
+}
+
 export function timeOffset(m: M, frame: number, sceneStart: number, sceneEnd: number): number {
   const custom = bool(m, 'use_custom_frame_range');
   const s = custom ? num(m, 'frame_start', 1) : sceneStart;
@@ -741,6 +776,8 @@ export function timeOffset(m: M, frame: number, sceneStart: number, sceneEnd: nu
   switch (str(m, 'mode', 'NORMAL')) {
     case 'FIX':
       return off;
+    case 'CHAIN':
+      return chainFrame((m.segments as ChainSegment[] | undefined) ?? [], Math.round((frame - s) * sc) + off, loop);
     case 'REVERSE':
       return wrap(e - Math.round((frame - s) * sc) - off);
     case 'PINGPONG': {

@@ -532,6 +532,7 @@ const wp = () => inWeightPaint();
 addKeys('Grease Pencil', [
   { key: 'F', op: 'grease_pencil.radial_control', props: { data: 'size' }, when: wp },
   { key: 'F', shift: true, op: 'grease_pencil.radial_control', props: { data: 'strength' }, when: wp },
+  { key: 'F', ctrl: true, op: 'grease_pencil.radial_control', props: { data: 'weight' }, when: wp },
   { key: 'D', op: 'grease_pencil.weight_toggle_direction', when: wp },
   { key: 'X', shift: true, op: 'grease_pencil.weight_sample', when: wp },
   { key: 'H', alt: true, op: 'grease_pencil.layer_reveal', when: wp },

@@ -199,7 +199,7 @@ function colorModeRow(b: GPBrush, id: string): Child[] {
       {
         key: `${id}-cm`,
         class: 'btn-row',
-        style: { display: 'flex', gap: '1px' },
+        style: { display: 'flex', gap: '1px', flexShrink: '0', flexWrap: 'nowrap' },
       },
       h(
         'button',
@@ -359,6 +359,26 @@ toolSettingsRenderers['builtin.brush.Fill'] = () => {
         set: (x) => ((b.dilate = Math.round(x)), refresh()),
       }),
     ),
+    h(
+      'div',
+      { class: 'btn-row', key: 'gp-fill-dir', style: { display: 'flex', gap: '1px', flexShrink: '0', flexWrap: 'nowrap' } },
+      (
+        [
+          ['NORMAL', 'gp_fill_normal', 'Normal\nFill the area under the pointer'],
+          ['INVERT', 'gp_fill_invert', 'Inverted (Ctrl)\nFill the closed areas next to the one under the pointer'],
+        ] as const
+      ).map(([d, ic, tip]) =>
+        h(
+          'button',
+          {
+            class: { 'hdr-toggle': true, on: (b.fill_direction ?? 'NORMAL') === d },
+            'data-tip': tip,
+            onclick: () => ((b.fill_direction = d), refresh()),
+          },
+          icon(ic),
+        ),
+      ),
+    ),
     field(100, sizeField(b, 'gp-fill-size', 'Line')),
     field(
       120,
@@ -443,7 +463,7 @@ for (const t of SCULPT_TOOLS)
       dir
         ? h(
             'div',
-            { key: 'gp-sc-dir', style: { display: 'flex', gap: '1px' } },
+            { key: 'gp-sc-dir', style: { display: 'flex', gap: '1px', flexShrink: '0', flexWrap: 'nowrap' } },
             h(
               'button',
               {
@@ -781,7 +801,7 @@ const radial: {
   cx: number;
   cy: number;
   value: number;
-  data: 'size' | 'strength';
+  data: 'size' | 'strength' | 'weight';
   view: View3D | null;
 } = { cx: 0, cy: 0, value: 0, data: 'size', view: null };
 let radialActive = false;
@@ -791,7 +811,7 @@ registerOperators([
   {
     idname: 'grease_pencil.radial_control',
     label: 'Radial Control',
-    description: 'Set the brush size or strength interactively',
+    description: 'Set the brush size, strength or weight interactively',
     props: [
       {
         id: 'data',
@@ -801,6 +821,7 @@ registerOperators([
         items: [
           ['size', 'Size'],
           ['strength', 'Strength'],
+          ['weight', 'Weight'],
         ],
       },
     ],
@@ -810,9 +831,9 @@ registerOperators([
       const v = activeView3D();
       if (!v) return 'CANCELLED';
       const tool = activeTools[app.doc.mode] ?? '';
-      const b = gpBrush(app.doc, tool);
-      const data = p.data as 'size' | 'strength';
-      const start = data === 'size' ? b.size : b.strength;
+      const b = gpBrush(app.doc, tool) as ReturnType<typeof gpBrush> & { weight?: number };
+      const data = p.data as 'size' | 'strength' | 'weight';
+      const start = data === 'size' ? b.size : data === 'weight' ? (b.weight ?? 1) : b.strength;
       const m = v.local({
         clientX: ctx.event?.x ?? app.pointer.x,
         clientY: ctx.event?.y ?? app.pointer.y,
@@ -827,6 +848,7 @@ registerOperators([
       v.drawSvg();
       const apply = (val: number) => {
         if (data === 'size') b.size = Math.max(1, Math.round(val / scale));
+        else if (data === 'weight') b.weight = Math.max(0, Math.min(1, val));
         else b.strength = Math.max(0, Math.min(1, val));
       };
       app.startModal({
@@ -870,7 +892,7 @@ editModeHooks.svg.push((v) => {
       stroke: '#fff',
       'stroke-width': 1.5,
     }),
-    radial.data === 'strength'
+    radial.data !== 'size'
       ? h('circle', {
           cx: radial.cx,
           cy: radial.cy,
