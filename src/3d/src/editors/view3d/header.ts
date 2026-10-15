@@ -248,6 +248,10 @@ export function viewHeader(v: View3D): Child {
       iconToggle('ov', 'overlay', v.overlay.show_overlays, 'Show Overlays (Shift Alt Z)', () => ((v.overlay.show_overlays = !v.overlay.show_overlays), app.changed('ui'))),
       iconDrop('ov-pop', 'down_arrow_hlt', 'Overlays', (el) => openPopover(el, () => overlayPopover(v), { width: 280 }), 'hidden-icon'),
     ),
+    // edit mode overlays get their own dropdown
+    app.doc.mode === 'EDIT' && (app.activeObject?.type === 'MESH' || app.activeObject?.type === 'CURVE')
+      ? iconDrop('ov-edit', 'editmode_hlt', `${app.activeObject.type === 'MESH' ? 'Mesh' : 'Curve'} Edit Mode Overlays`, (el) => openPopover(el, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, `${app.activeObject?.type === 'CURVE' ? 'Curve' : 'Mesh'} Edit Mode`), editOverlaySections(v)), { width: 260 }))
+      : null,
     iconToggle('xray', 'xray', sh.type === 'WIREFRAME' ? sh.show_xray_wireframe : sh.show_xray, 'Toggle X-Ray (Alt Z)', () => {
       if (sh.type === 'WIREFRAME') sh.show_xray_wireframe = !sh.show_xray_wireframe;
       else sh.show_xray = !sh.show_xray;
@@ -345,7 +349,6 @@ function overlayPopover(v: View3D): Child {
     (o as unknown as Record<string, unknown>)[k] = x;
     app.changed('ui');
   };
-  const editing = app.doc.mode === 'EDIT';
   const axisBtn = (k: 'show_axis_x' | 'show_axis_y' | 'show_axis_z', l: string) => h('button', { key: k, class: { on: !!o[k] }, 'data-tip': `Show the ${l} axis line`, onclick: () => set(k)(!o[k]) }, l);
   return h(
     'div',
@@ -364,20 +367,31 @@ function overlayPopover(v: View3D): Child {
       h('div', { class: 'row-split' }, checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }), numberField({ id: 'o-wireop', label: 'Wireframe Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) })),
       checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation')),
     ], { sub: true }),
-    editing && app.activeObject?.type === 'CURVE'
-      ? panel('ov-curve-edit', 'Curve Edit Mode', () => [
-          h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
-          checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
-          numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ], { sub: true })
-      : editing && app.activeObject?.type === 'MESH'
-      ? panel('ov-mesh-edit', 'Mesh Edit Mode', () => [
-          h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals')), checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices'))),
-          numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
-        ], { sub: true })
-      : null,
     overlayPopoverSections.map((f) => f(v)),
   );
+}
+
+/** Overlays of the edit mode (own header popover next to the overlays one). */
+function editOverlaySections(v: View3D): Child {
+  const o = v.overlay;
+  const set = (k: keyof typeof o) => (x: unknown) => {
+    (o as unknown as Record<string, unknown>)[k] = x;
+    app.changed('ui');
+  };
+  if (app.activeObject?.type === 'CURVE')
+    return [
+      h('div', { class: 'pop-line' }, h('span', null, 'Handles'), enumMenu('o-handles', [{ value: 'ALL', label: 'All' }, { value: 'SELECTED', label: 'Selected' }, { value: 'NONE', label: 'None' }], o.display_handle ?? 'SELECTED', set('display_handle'))),
+      checkbox('o-cnorm', 'Normals', o.show_curve_normals !== false, set('show_curve_normals')),
+      numberField({ id: 'o-cnlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
+    ];
+  return [
+    h('div', { class: 'pop-grid' }, checkbox('o-seam', 'Seams', o.show_edge_seams, set('show_edge_seams')), checkbox('o-sharp', 'Sharp', o.show_edge_sharp, set('show_edge_sharp')), checkbox('o-crease', 'Crease', o.show_edge_crease, set('show_edge_crease')), checkbox('o-fcen', 'Center', o.show_face_center, set('show_face_center'))),
+    panel('ov-mesh-measure', 'Measurement', () => [h('div', { class: 'pop-grid' }, checkbox('o-len', 'Edge Length', o.show_extra_edge_length, set('show_extra_edge_length')), checkbox('o-idx', 'Indices', o.show_extra_indices, set('show_extra_indices')))], { sub: true }),
+    panel('ov-mesh-normals', 'Normals', () => [
+      h('div', { class: 'pop-grid' }, checkbox('o-vnorm', 'Vertex Normals', o.show_vertex_normals, set('show_vertex_normals')), checkbox('o-fnorm', 'Face Normals', o.show_face_normals, set('show_face_normals'))),
+      numberField({ id: 'o-nlen', label: 'Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
+    ], { sub: true }),
+  ];
 }
 
 function shadingPopover(v: View3D): Child {
