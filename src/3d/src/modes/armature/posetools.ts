@@ -13,6 +13,7 @@ import { getValue, setValue } from '../../data/rna';
 import { defaultPoseBone, evaluatePose, sortedBones, boneRotation } from '../../eval/armature';
 import { rotationQuaternion, setRotationFromQuaternion, poseBoneMatrix } from '../../eval/transform';
 import { modeMenus } from '../../editors/view3d/modemenus';
+import { editModeHooks } from '../../editors/view3d/hooks';
 import { constraintTypes, boneOnlyConstraints, newConstraint } from '../../eval/constraints';
 import { uid } from '../../data/defaults';
 import { activeView3D } from '../../editors/view3d/view3d';
@@ -124,6 +125,26 @@ function applySlide(mode: SlideMode, p: SlideProps): number {
   return n;
 }
 
+/** Readout of the running in-between slider, drawn over the 3D viewport. */
+let sliderReadout: { label: string; value: number; extra: string } | null = null;
+
+editModeHooks.svg.push((v) => {
+  if (!sliderReadout || !app.modal) return null;
+  const W = v.el.clientWidth,
+    H = v.el.clientHeight;
+  const w = Math.min(320, W - 20),
+    x = (W - w) / 2,
+    y = H - 60;
+  const t = Math.max(0, Math.min(1, sliderReadout.value));
+  return h(
+    'g',
+    { class: 'pose-slider' },
+    h('rect', { x, y, width: w, height: 22, rx: 5, fill: 'rgba(30,30,30,0.9)' }),
+    h('rect', { x: x + 2, y: y + 2, width: Math.max(0, (w - 4) * t), height: 18, rx: 4, fill: 'rgba(80,130,220,0.55)' }),
+    h('text', { x: W / 2, y: y + 15, fill: '#e8e8e8', 'font-size': 12, 'text-anchor': 'middle' }, `${sliderReadout.label}: ${Math.round(sliderReadout.value * 100)}%${sliderReadout.extra}`),
+  );
+});
+
 /** Interactive factor slider in the 3D viewport (status bar readout). */
 function startPoseSlider(label: string, idname: string, mode: SlideMode, props: SlideProps): boolean {
   const { ob, pose } = armPose();
@@ -151,6 +172,7 @@ function startPoseSlider(label: string, idname: string, mode: SlideMode, props: 
     if (!overshoot) value = Math.max(0, Math.min(1, value));
     restore();
     applySlide(mode, current());
+    sliderReadout = { label, value, extra: (channels === 'ALL' ? '' : channels === 'LOC' ? ' · Location' : channels === 'ROT' ? ' · Rotation' : ' · Scale') + (axis !== 'FREE' ? ` (${axis})` : '') };
     app.changed('doc');
   };
   const handler: ModalHandler = {
@@ -196,9 +218,11 @@ function startPoseSlider(label: string, idname: string, mode: SlideMode, props: 
     },
     cancel() {
       restore();
+      sliderReadout = null;
       app.changed('doc');
     },
     finish() {
+      sliderReadout = null;
       handler.redoOp = { idname, props: { ...current() } };
     },
   };
