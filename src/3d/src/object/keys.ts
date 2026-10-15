@@ -3,6 +3,7 @@ import { app } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { linkDataMenu, selectGroupedMenu, selectLinkedMenu } from './menus';
 import { hooksMenu, vertexGroupsMenu } from './hooks';
+import { addModifierMenu } from '../editors/properties/stack';
 
 const objectMode = () => app.doc.mode === 'OBJECT';
 const editMesh = () => app.doc.mode === 'EDIT' && app.activeObject?.type === 'MESH';
@@ -42,6 +43,8 @@ const modKey = (key: string, op: string, mods: { shift?: boolean; ctrl?: boolean
   when: () => !!hoveredModifier(),
 });
 
-addKeys('Property Editor', [modKey('X', 'object.modifier_remove'), modKey('DEL', 'object.modifier_remove'), modKey('D', 'object.modifier_copy', { shift: true }), modKey('A', 'object.modifier_apply', { ctrl: true })]);
+addKeys('Property Editor', [
+  { key: 'A', shift: true, menu: addModifierMenu, menuTitle: 'Add Modifier', when: () => (app.hoverArea?.editor as { tab?: string } | undefined)?.tab === 'MODIFIER' && app.poll('object.modifier_add') },
+  modKey('X', 'object.modifier_remove'), modKey('DEL', 'object.modifier_remove'), modKey('D', 'object.modifier_copy', { shift: true }), modKey('A', 'object.modifier_apply', { ctrl: true })]);
 
 addKeys('Mesh', [{ key: 'G', ctrl: true, alt: true, op: 'object.vertex_group_remove_from', when: editMesh }]);

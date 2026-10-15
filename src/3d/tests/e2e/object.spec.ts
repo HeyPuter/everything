@@ -178,5 +178,8 @@ test('modifier panel shortcuts act on the hovered modifier', async ({ page }) =>
   await page.mouse.move(box.x + box.width - 60, box.y + box.height / 2);
   await page.keyboard.press('x');
   expect(await get(page, `app.activeObject.modifiers.length`)).toBe(1);
+  await page.keyboard.press('Shift+a');
+  await expect(item(page, 'Deform').first()).toBeVisible();
+  await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
