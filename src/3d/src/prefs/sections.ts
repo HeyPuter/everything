@@ -224,6 +224,7 @@ registerPrefSection({
     panel('pf-mouse', 'Mouse', () => [
       pBool('emulate_3_button_mouse', 'Emulate 3 Button Mouse', 'A modifier with the left mouse button acts as the middle button'),
       pEnum('mouse_emulate_3_button_modifier', 'Emulation Modifier', [E('ALT', 'Alt'), E('OSKEY', 'Cmd / Win')], { expand: true, disabled: !prefs.emulate_3_button_mouse }),
+      pBool('use_mouse_continuous', 'Continuous Grab', 'While moving, rotating or scaling, the pointer is captured so motion continues past the window edges'),
       pBool('use_drag_immediately', 'Release Confirms', 'Moving an item by dragging it ends when the button is released'),
       pNum('mouse_double_click_time', 'Double Click Speed', { min: 50, max: 1000, int: true, tip: 'Milliseconds between two presses of a key bound to Double Click' }),
       pNum('drag_threshold_mouse', 'Drag Threshold', { min: 1, max: 50, int: true, unit: 'pixel', tip: 'Distance the pointer moves before a click turns into a drag' }),

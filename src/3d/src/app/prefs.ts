@@ -92,6 +92,8 @@ export interface Preferences {
   mouse_double_click_time: number;
   drag_threshold_mouse: number;
   use_drag_immediately: boolean;
+  /** moves keep going past the window edge (the pointer is captured while transforming) */
+  use_mouse_continuous: boolean;
   pressure_threshold_max: number;
   pressure_softness: number;
   ndof_enabled: boolean;
@@ -238,6 +240,7 @@ export const defaultPreferences = (): Preferences => ({
   mouse_double_click_time: 350,
   drag_threshold_mouse: 4,
   use_drag_immediately: true,
+  use_mouse_continuous: false,
   pressure_threshold_max: 1,
   pressure_softness: 0,
   ndof_enabled: true,
