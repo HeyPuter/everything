@@ -247,3 +247,44 @@ test('cursor tool drag, object gizmos, protractor', async ({ page }) => {
   await expect(page.locator('.protractor text')).toContainText('°');
   await expectNoErrors(errors);
 });
+
+test('B box select adds and removes, Shift+B zoom region in and out', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const selected = () => get<string>(page, `Object.values(app.doc.objects).filter(o => o.select).map(o => o.name).sort().join(',')`);
+  await page.keyboard.press('Alt+A');
+  expect(await selected()).toBe('');
+  // B then drag around the cube adds it; the tool stays the same
+  const toolBefore = await page.evaluate(async () => (await import('/src/app/prefs.ts')).activeTools.OBJECT);
+  await page.keyboard.press('b');
+  await page.mouse.move(c.x - 80, c.y - 80);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 80, c.y + 80, { steps: 3 });
+  await page.mouse.up();
+  expect(await selected()).toBe('Cube');
+  expect(await page.evaluate(async () => (await import('/src/app/prefs.ts')).activeTools.OBJECT)).toBe(toolBefore);
+  // B with the middle button removes from the selection
+  await page.keyboard.press('b');
+  await page.mouse.move(c.x - 80, c.y - 80);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x + 80, c.y + 80, { steps: 3 });
+  await page.mouse.up({ button: 'middle' });
+  expect(await selected()).toBe('');
+  // zoom region: LMB zooms in, MMB zooms out
+  const dist = () => view(page, 'v.nav.distance') as Promise<number>;
+  const d0 = await dist();
+  await page.keyboard.press('Shift+B');
+  await page.mouse.move(c.x - 50, c.y - 50);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 50, c.y + 50, { steps: 3 });
+  await page.mouse.up();
+  const d1 = await dist();
+  expect(d1).toBeLessThan(d0);
+  await page.keyboard.press('Shift+B');
+  await page.mouse.move(c.x - 50, c.y - 50);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x + 50, c.y + 50, { steps: 3 });
+  await page.mouse.up({ button: 'middle' });
+  expect(await dist()).toBeGreaterThan(d1);
+  await expectNoErrors(errors);
+});

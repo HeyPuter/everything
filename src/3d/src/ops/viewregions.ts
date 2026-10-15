@@ -12,6 +12,7 @@ import type { RenderSettings } from '../data/types';
 import { prefs } from '../app/prefs';
 import { h, type VNode } from '../ui/h';
 import { surfaceHit } from './view3d';
+import { selectObjects } from '../editors/view3d/select';
 
 const v3d = () => !!activeView3D();
 
@@ -27,12 +28,21 @@ function redraw(v: View3D) {
 
 const region: { view: View3D | null; mouse: { x: number; y: number } | null; start: { x: number; y: number } | null } = { view: null, mouse: null, start: null };
 
-function dragRegion(v: View3D, label: string, done: (x0: number, y0: number, x1: number, y1: number) => void) {
+export interface RegionDragInfo {
+  /** mouse button that drew the region (0 left, 1 middle) */
+  button: number;
+  shift: boolean;
+  ctrl: boolean;
+}
+
+/** Wait for a rectangle to be dragged in the viewport (crosshair first), then call `done`. */
+export function dragRegion(v: View3D, label: string, done: (x0: number, y0: number, x1: number, y1: number, info: RegionDragInfo) => void, opts: { middle?: boolean; hint?: string } = {}) {
   const r = () => v.el.getBoundingClientRect();
   const local = (e: { clientX: number; clientY: number }) => ({ x: e.clientX - r().left, y: e.clientY - r().top });
   region.view = v;
   region.start = null;
   region.mouse = { x: app.pointer.x - r().left, y: app.pointer.y - r().top };
+  let info: RegionDragInfo = { button: 0, shift: false, ctrl: false };
   const end = () => {
     region.view = null;
     region.start = null;
@@ -42,14 +52,17 @@ function dragRegion(v: View3D, label: string, done: (x0: number, y0: number, x1:
   };
   const handler: ModalHandler = {
     label,
-    header: () => (region.start ? 'Release to set the region' : `${label}: drag a rectangle · Esc to cancel`),
+    header: () => (region.start ? 'Release to set the region' : `${label}: ${opts.hint ?? 'drag a rectangle'} · Esc to cancel`),
     status: () => [
       ['LMB drag', 'Define Region'],
+      ...(opts.middle ? ([['MMB / Shift drag', 'Alternate']] as [string, string][]) : []),
       ['RMB/Esc', 'Cancel'],
     ],
     onPointerDown(e) {
-      if (e.button !== 0) return 'CANCELLED';
+      if (e.button === 2 || (e.button === 1 && !opts.middle) || e.button > 2) return 'CANCELLED';
+      e.preventDefault();
       region.start = local(e);
+      info = { button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey };
       return undefined;
     },
     onPointerMove(e) {
@@ -58,12 +71,12 @@ function dragRegion(v: View3D, label: string, done: (x0: number, y0: number, x1:
       v.drawSvg();
     },
     onPointerUp(e) {
-      if (!region.start || e.button !== 0) return undefined;
+      if (!region.start || e.button !== info.button) return undefined;
       const s = region.start,
         p = local(e);
       end();
       if (Math.abs(p.x - s.x) < 3 || Math.abs(p.y - s.y) < 3) return 'CANCELLED';
-      done(Math.min(s.x, p.x), Math.min(s.y, p.y), Math.max(s.x, p.x), Math.max(s.y, p.y));
+      done(Math.min(s.x, p.x), Math.min(s.y, p.y), Math.max(s.x, p.x), Math.max(s.y, p.y), info);
       return 'FINISHED';
     },
     onKey(e) {
@@ -247,6 +260,26 @@ registerOperators([
       };
       step();
       return 'FINISHED';
+    },
+    undo: false,
+  },
+  {
+    idname: 'view3d.select_box',
+    label: 'Box Select',
+    description: 'Drag a box to add to the selection (MMB or Shift-drag removes from it)',
+    poll: v3d,
+    invoke: () => {
+      const v = activeView3D()!;
+      dragRegion(
+        v,
+        'Box Select',
+        (x0, y0, x1, y1, info) => {
+          selectObjects(v, x0, y0, x1, y1, info.button === 1 || info.shift ? 'SUB' : 'ADD');
+          redraw(v);
+        },
+        { middle: true, hint: 'drag to select, MMB or Shift to deselect' },
+      );
+      return 'RUNNING_MODAL';
     },
     undo: false,
   },

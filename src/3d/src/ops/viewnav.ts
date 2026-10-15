@@ -4,7 +4,7 @@ import { app, registerOperators } from '../app/app';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { keymaps } from '../app/keymap';
 import { renderContext } from '../render/context';
-import './viewregions';
+import { dragRegion } from './viewregions';
 import { raycastScene } from '../editors/view3d/navextra';
 import { openPopover } from '../ui/menu';
 import { snappingPopover } from '../editors/view3d/header';
@@ -19,13 +19,14 @@ function redraw(v: View3D) {
 }
 
 /** Zoom so that the given viewport rectangle fills the view. */
-function zoomToRect(v: View3D, x0: number, y0: number, x1: number, y1: number) {
+function zoomToRect(v: View3D, x0: number, y0: number, x1: number, y1: number, out = false) {
   const w = Math.abs(x1 - x0),
     hgt = Math.abs(y1 - y0);
   if (w < 4 || hgt < 4) return;
   const cx = (x0 + x1) / 2,
     cy = (y0 + y1) / 2;
-  const fit = Math.max(w / v.width, hgt / v.height);
+  // zooming out shows the whole current view inside the rectangle
+  const fit = out ? 1 / Math.max(w / v.width, hgt / v.height) : Math.max(w / v.width, hgt / v.height);
   if (v.cameraView && !v.lockCameraToView) {
     // move the rectangle centre to the view centre, then enlarge the frame
     v.panCameraFrame(v.width / 2 - cx, v.height / 2 - cy);
@@ -49,32 +50,7 @@ registerOperators([
     poll: v3d,
     invoke: () => {
       const v = activeView3D()!;
-      let start: { x: number; y: number } | null = null;
-      const r = () => v.el.getBoundingClientRect();
-      app.startModal({
-        label: 'Zoom to Border',
-        header: () => (start ? 'Release to zoom' : 'Drag to define the zoom region · Esc to cancel'),
-        onPointerDown(e) {
-          if (e.button !== 0) return 'CANCELLED';
-          start = { x: e.clientX - r().left, y: e.clientY - r().top };
-        },
-        onPointerMove(e) {
-          if (start) v.showBox(start.x, start.y, e.clientX - r().left, e.clientY - r().top, 'box');
-        },
-        onPointerUp(e) {
-          if (!start) return;
-          v.boxEl.hidden = true;
-          zoomToRect(v, start.x, start.y, e.clientX - r().left, e.clientY - r().top);
-          return 'FINISHED';
-        },
-        onKey(e) {
-          if (e.type === 'keydown' && e.key === 'Escape') return 'CANCELLED';
-          return true;
-        },
-        cancel() {
-          v.boxEl.hidden = true;
-        },
-      });
+      dragRegion(v, 'Zoom to Border', (x0, y0, x1, y1, info) => zoomToRect(v, x0, y0, x1, y1, info.button === 1), { middle: true, hint: 'drag to zoom in, MMB drag to zoom out' });
       return 'RUNNING_MODAL';
     },
     undo: false,
