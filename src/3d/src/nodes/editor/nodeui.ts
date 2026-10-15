@@ -45,7 +45,14 @@ export function unitOf(sub?: string): Unit {
 function bindSocket(node: NodeData, s: ResolvedSocket, key: string) {
   const base = { owner: node.inputs as Record<string, unknown>, key: s.identifier, label: s.label, def: s.default, min: s.min, max: s.max };
   if (s.type === 'VECTOR' || s.type === 'ROTATION') for (let i = 0; i < (s.dimensions ?? 3); i++) bindProp({ ...base, id: `${key}:${s.identifier}:${i}`, index: i, kind: 'vector' });
-  else bindProp({ ...base, id: `${key}:${s.identifier}`, kind: s.type === 'RGBA' ? 'color' : s.type === 'BOOLEAN' ? 'bool' : s.type === 'MENU' ? 'enum' : 'number', int: s.type === 'INT', items: s.items });
+  else
+    bindProp({
+      ...base,
+      id: `${key}:${s.identifier}`,
+      kind: s.type === 'RGBA' ? 'color' : s.type === 'BOOLEAN' ? 'bool' : s.type === 'MENU' ? 'enum' : 'number',
+      int: s.type === 'INT',
+      items: s.items,
+    });
 }
 
 export function socketValueWidget(node: NodeData, s: ResolvedSocket, key: string, opts: { label?: boolean; vectorColumn?: boolean } = {}): Child {
@@ -254,6 +261,13 @@ export function propWidget(node: NodeData, p: NodePropDef, key: string, ctx: { t
       const obs = Object.values(app.doc.objects);
       return enumMenu(id, [{ value: '', label: '—' }, ...obs.map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], String(v ?? ''), (x) => set(x || null), { title: p.name });
     }
+    case 'COLLECTION':
+    case 'MATERIAL': {
+      const doc = app.doc;
+      const list = p.type === 'COLLECTION' ? Object.values(doc.collections).filter((c) => c.id !== doc.scene.collection) : Object.values(doc.materials);
+      const ic = p.type === 'COLLECTION' ? 'collection' : 'material';
+      return enumMenu(id, [{ value: '', label: '—' }, ...list.map((o) => ({ value: o.id, label: o.name, icon: ic }))], String(v ?? ''), (x) => set(x || null), { title: p.name });
+    }
     default:
       return null;
   }
@@ -414,7 +428,12 @@ function rowContent(node: NodeData, row: Row, key: string, tree: NodeTreeData): 
             if (e.button !== 0) return;
             e.stopPropagation();
             const name = row.panel!.name;
-            const open = new Set(node.open_panels ?? nodePanels(node, { doc: app.doc, tree }).filter((p) => !p.closed).map((p) => p.name));
+            const open = new Set(
+              node.open_panels ??
+                nodePanels(node, { doc: app.doc, tree })
+                  .filter((p) => !p.closed)
+                  .map((p) => p.name),
+            );
             if (open.has(name)) open.delete(name);
             else open.add(name);
             node.open_panels = [...open];

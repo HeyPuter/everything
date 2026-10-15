@@ -121,3 +121,132 @@ describe('warning node', () => {
     expect(r.warnings).toContain('Too many points');
   });
 });
+
+// ---------------------------------------------------------------------------
+// scene inputs (expected values recorded from equivalent scenes)
+
+import { newArmature, newCamera, newObject } from '../../src/data/defaults';
+import { defaultPoseBone } from '../../src/eval/armature';
+import { composeMat } from '../../src/geonodes/geometry';
+import type { Bone } from '../../src/data/types';
+
+function single(r: ReturnType<typeof runSpec>, label: string) {
+  return r.values[label]?.[0];
+}
+const near = (a: unknown, b: number[] | number, eps = 1e-4) => {
+  const x = Array.isArray(a) ? a : [a as number];
+  const y = Array.isArray(b) ? b : [b];
+  expect(x.length).toBe(y.length);
+  x.forEach((v, i) => expect(Math.abs((v as number) - y[i])).toBeLessThan(eps));
+};
+
+describe('scene input nodes', () => {
+  it('Camera Info reports lens values and the projection for the render size', () => {
+    const doc = emptyDocument();
+    doc.scene.render.resolution_x = 1920;
+    doc.scene.render.resolution_y = 1080;
+    const cd = newCamera('Cam');
+    Object.assign(cd, { lens: 35, sensor_width: 32, sensor_height: 20, shift_x: 0.1, shift_y: -0.2, clip_start: 0.2, clip_end: 50, ortho_scale: 7 });
+    cd.dof.focus_distance = 12;
+    doc.cameras[cd.id] = cd;
+    const cam = newObject('Cam', 'CAMERA', cd.id);
+    doc.objects[cam.id] = cam;
+    const cd2 = newCamera('Cam2');
+    Object.assign(cd2, { type: 'ORTHO', ortho_scale: 5, sensor_fit: 'VERTICAL' });
+    doc.cameras[cd2.id] = cd2;
+    const cam2 = newObject('Cam2', 'CAMERA', cd2.id);
+    doc.objects[cam2.id] = cam2;
+    doc.scene.camera = cam2.id;
+    const outs = (n: string): [string, string, string, string, string][] => [
+      [`${n}P`, n, 'Projection Matrix', 'FLOAT4X4', 'POINT'],
+      [`${n}F`, n, 'Focal Length', 'FLOAT', 'POINT'],
+      [`${n}S`, n, 'Sensor', 'FLOAT_VECTOR', 'POINT'],
+      [`${n}H`, n, 'Shift', 'FLOAT_VECTOR', 'POINT'],
+      [`${n}O`, n, 'Is Orthographic', 'BOOLEAN', 'POINT'],
+    ];
+    const r = runSpec(
+      {
+        nodes: {
+          g: { type: 'GeometryNodeMeshLine', inputs: { Count: 1 } },
+          a: { type: 'GeometryNodeCameraInfo', inputs: { Camera: cam.id } },
+          ac: { type: 'GeometryNodeInputActiveCamera' },
+          b: { type: 'GeometryNodeCameraInfo' },
+        },
+        links: [['ac', 'Active Camera', 'b', 'Camera']],
+        geometry: ['g', 'Mesh'],
+        outputs: [...outs('a'), ...outs('b')],
+      },
+      { doc },
+    );
+    near(single(r, 'aP'), [2.1875, 0, 0, 0, 0, 3.88889, 0, 0, 0.2, -0.71111, -1.00803, -1, 0, 0, -0.40161, 0]);
+    near(single(r, 'aF'), 35);
+    near(single(r, 'aS'), [32, 18, 0]);
+    near(single(r, 'aH'), [0.1, -0.35556, 0]);
+    expect(single(r, 'aO')).toBe(false);
+    near(single(r, 'bP'), [0.225, 0, 0, 0, 0, 0.4, 0, 0, 0, 0, -0.002, 0, 0, 0, -1.0002, 1]);
+    near(single(r, 'bS'), [42.66667, 24, 0]);
+    expect(single(r, 'bO')).toBe(true);
+  });
+
+  it('Bone Info reports rest and pose matrices of a bone', () => {
+    const doc = emptyDocument();
+    const arm = newArmature('Arm');
+    const bone = (name: string, parent: string | null, head: number[], tail: number[], roll: number, connect: boolean): Bone =>
+      ({
+        name,
+        parent,
+        head,
+        tail,
+        roll,
+        use_connect: connect,
+        use_deform: true,
+        use_inherit_rotation: true,
+        inherit_scale: 'FULL',
+        envelope_distance: 0.25,
+        head_radius: 0.1,
+        tail_radius: 0.05,
+        bbone_segments: 1,
+      }) as Bone;
+    arm.bones = [bone('Root', null, [0, 0, 0], [0, 0, 2], 0, false), bone('Child', 'Root', [0, 0, 2], [0, 1, 3], 0.3, true)];
+    doc.armatures[arm.id] = arm;
+    const ao = newObject('Arm', 'ARMATURE', arm.id);
+    ao.pose = {
+      Root: { ...defaultPoseBone(), rotation_mode: 'XYZ', rotation_euler: [0.2, 0, 0], location: [0.1, 0, 0] },
+      Child: { ...defaultPoseBone(), rotation_mode: 'XYZ', rotation_euler: [0, 0, 0.4], scale: [1, 2, 1] },
+    };
+    doc.objects[ao.id] = ao;
+    const armWorld = Array.from(composeMat([1, 0, 0], [0, 0, 0.5], [1, 1, 1]));
+    const selfWorld = Array.from(composeMat([0, 0, 1], [0.3, 0, 0], [1, 1, 1]));
+    const outs = (n: string): [string, string, string, string, string][] => [
+      [`${n}P`, n, 'Pose', 'FLOAT4X4', 'POINT'],
+      [`${n}L`, n, 'Local Pose', 'FLOAT4X4', 'POINT'],
+      [`${n}R`, n, 'Rest Pose', 'FLOAT4X4', 'POINT'],
+      [`${n}N`, n, 'Rest Length', 'FLOAT', 'POINT'],
+      [`${n}E`, n, 'Exists', 'BOOLEAN', 'POINT'],
+    ];
+    const r = runSpec(
+      {
+        nodes: {
+          g: { type: 'GeometryNodeMeshLine', inputs: { Count: 1 } },
+          c: { type: 'GeometryNodeBoneInfo', inputs: { Armature: ao.id, 'Bone Name': 'Child' } },
+          rel: { type: 'GeometryNodeBoneInfo', props: { transform_space: 'RELATIVE' }, inputs: { Armature: ao.id, 'Bone Name': 'Child' } },
+          r0: { type: 'GeometryNodeBoneInfo', inputs: { Armature: ao.id, 'Bone Name': 'Root' } },
+          x: { type: 'GeometryNodeBoneInfo', inputs: { Armature: ao.id, 'Bone Name': 'Nope' } },
+        },
+        geometry: ['g', 'Mesh'],
+        outputs: [...outs('c'), ...outs('rel'), ...outs('r0'), ...outs('x')],
+      },
+      { doc, env: { selfWorld, objectWorld: (id) => (id === ao.id ? armWorld : null) } },
+    );
+    near(single(r, 'cR'), [0.95534, 0.20896, -0.20896, 0, 0, 0.70711, 0.70711, 0, 0.29552, -0.67552, 0.67552, 0, 0, 0, 2, 1]);
+    near(single(r, 'cP'), [0.87992, 0.44204, 0.17418, 0, -0.74405, 0.82599, 1.66257, 0, 0.29552, -0.79627, 0.52785, 0, 0.1, -0.39734, 1.96013, 1]);
+    near(single(r, 'cL'), [0.92106, 0.38942, 0, 0, -0.77884, 1.84212, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    near(single(r, 'cN'), 1.41421);
+    near(single(r, 'relP'), [0.56028, 0.82509, -0.0729, 0, -1.04897, 0.84304, 1.47951, 0, 0.64109, -0.37623, 0.66891, 0, 1.27825, -0.00358, 1.00613, 1]);
+    near(single(r, 'relR'), [0.7382, 0.551, -0.38918, 0, -0.33901, 0.80179, 0.49214, 0, 0.58321, -0.23137, 0.77868, 0, 1, 0.29552, 0.95534, 1]);
+    near(single(r, 'r0P'), [1, 0, 0, 0, 0, -0.19867, 0.98007, 0, 0, -0.98007, -0.19867, 0, 0.1, 0, 0, 1]);
+    near(single(r, 'r0N'), 2);
+    expect(single(r, 'xE')).toBe(false);
+    near(single(r, 'xP'), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  });
+});

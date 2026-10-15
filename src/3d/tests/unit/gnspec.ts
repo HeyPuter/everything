@@ -3,7 +3,7 @@
 import '../../src/nodes/common';
 import '../../src/nodes/shader/defs';
 import '../../src/geonodes/core';
-import { emptyDocument, uid } from '../../src/data/defaults';
+import { emptyDocument, newMaterial, uid } from '../../src/data/defaults';
 import type { DocumentData, ModifierBase, NodeData, NodeGroupData, NodeTreeData, SocketValue } from '../../src/data/types';
 import { addNode, connect, ctxOf } from '../../src/nodes/tree';
 import { evaluateGroup } from '../../src/geonodes/modifier';
@@ -20,6 +20,8 @@ export interface GnSpec {
   geometry?: [string, string];
   /** [attribute name, node, socket, data type, domain] */
   outputs?: [string, string, string, string, string][];
+  /** materials created first (inputs refer to them as "@name") */
+  materials?: string[];
 }
 
 export interface GnSpecResult {
@@ -47,6 +49,7 @@ export function testEnv(doc: DocumentData, extra: Partial<EvalEnv> = {}): EvalEn
 
 export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<EvalEnv>; input?: GeometrySet } = {}): GnSpecResult {
   const doc = opts.doc ?? emptyDocument();
+  for (const name of spec.materials ?? []) doc.materials[name] = { ...newMaterial(name), id: name };
   const tree: NodeTreeData = {
     type: 'GEOMETRY',
     nodes: [],
@@ -76,8 +79,9 @@ export function runSpec(spec: GnSpec, opts: { doc?: DocumentData; env?: Partial<
     // menu sockets that the node shows as properties
     const def = getNodeType(d.type);
     for (const [k, v] of Object.entries(d.inputs ?? {})) {
-      if (def?.props.some((p) => p.id === k)) n.props[k] = v;
-      else n.inputs[k] = v;
+      const val = typeof v === 'string' && v.startsWith('@') ? v.slice(1) : v;
+      if (def?.props.some((p) => p.id === k)) n.props[k] = val;
+      else n.inputs[k] = val;
     }
     N[name] = n;
   }

@@ -7,4 +7,6 @@ import './fields';
 import './attributes';
 import './switches';
 import './topology';
+import './inputs_ext';
+import './scene_info';
 export {};
