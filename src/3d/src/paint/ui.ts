@@ -1145,6 +1145,7 @@ const brushKey = (key: string, brush: string, mods: Partial<KeyItem> = {}): KeyI
 });
 const common = (extra: KeyItem[] = []): KeyItem[] => [
   { key: 'F', op: 'wm.radial_control', props: { data: 'size' } },
+  { key: 'F', ctrl: true, op: 'wm.radial_control', props: { data: 'angle' }, when: () => app.doc.mode !== 'WEIGHT_PAINT' },
   {
     key: 'F',
     shift: true,

@@ -9,6 +9,7 @@ import { activeBrush, isBrushMode } from './brushes';
 import { meshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
+import { textureActive } from './brushtex';
 import { sculptHooks } from './sculpt';
 
 export { cursorState };
@@ -61,7 +62,12 @@ function cursorSvg(v: View3D): VNode | null {
   const rc = cursorState.radial;
   if (rc && v === cursorState.view) {
     const parts: VNode[] = [];
-    if (rc.data === 'size') {
+    if (rc.data === 'angle') {
+      parts.push(
+        h('circle', { cx: rc.cx, cy: rc.cy, r: RADIAL_FULL, fill: 'none', stroke: 'rgba(255,255,255,0.5)', 'stroke-width': 1 }),
+        h('path', { d: `M${rc.cx} ${rc.cy}L${rc.cx + Math.cos(rc.value) * RADIAL_FULL} ${rc.cy - Math.sin(rc.value) * RADIAL_FULL}`, stroke: '#fff', 'stroke-width': 1.5 }),
+      );
+    } else if (rc.data === 'size') {
       parts.push(
         h('circle', {
           cx: rc.cx,
@@ -94,7 +100,7 @@ function cursorSvg(v: View3D): VNode | null {
         }),
       );
     }
-    const label = rc.data === 'size' ? `${Math.round(rc.value)} px` : rc.value.toFixed(3);
+    const label = rc.data === 'size' ? `${Math.round(rc.value)} px` : rc.data === 'angle' ? `${Math.round((rc.value * 180) / Math.PI)}°` : rc.value.toFixed(3);
     parts.push(
       h(
         'text',
@@ -189,16 +195,21 @@ editModeHooks.svg.push(cursorSvg);
 
 const RADIAL_FULL = 120;
 
-function radialGet(data: 'size' | 'strength' | 'weight'): number {
+function radialGet(data: 'size' | 'strength' | 'weight' | 'angle'): number {
   const b = activeBrush();
+  if (data === 'angle') return b?.texture_slot?.angle ?? 0;
   if (data === 'weight') return app.doc.scene.tool_settings.unified_paint.weight;
   if (!b) return 0;
   if (data === 'size') return b.use_locked_size === 'SCENE' && cursorState.radiusPx ? cursorState.radiusPx : b.radius;
   return b.strength;
 }
 
-function radialSet(data: 'size' | 'strength' | 'weight', value: number) {
+function radialSet(data: 'size' | 'strength' | 'weight' | 'angle', value: number) {
   const b = activeBrush();
+  if (data === 'angle') {
+    if (b?.texture_slot) b.texture_slot = { ...b.texture_slot, angle: value };
+    return;
+  }
   if (data === 'weight') app.doc.scene.tool_settings.unified_paint.weight = value;
   else if (b) {
     if (data === 'size') {
@@ -225,6 +236,7 @@ registerOperators([
           ['size', 'Radius'],
           ['strength', 'Strength'],
           ['weight', 'Weight'],
+          ['angle', 'Texture Angle'],
         ],
       },
     ],
@@ -232,15 +244,20 @@ registerOperators([
     invoke: (ctx, p) => {
       const v = activeView3D();
       if (!v) return 'CANCELLED';
-      const data = p.data as 'size' | 'strength' | 'weight';
+      const data = p.data as 'size' | 'strength' | 'weight' | 'angle';
       if (data === 'weight' && app.doc.mode !== 'WEIGHT_PAINT') return 'CANCELLED';
+      if (data === 'angle' && !textureActive(activeBrush()!)) {
+        app.report('INFO', 'The brush has no texture to rotate');
+        return 'CANCELLED';
+      }
       const start = radialGet(data);
       const r = v.el.getBoundingClientRect();
       const px = (ctx.event?.x ?? app.pointer.x) - r.left,
         py = (ctx.event?.y ?? app.pointer.y) - r.top;
       const offset = data === 'size' ? start : start * RADIAL_FULL;
       cursorState.view = v;
-      cursorState.radial = { cx: px - offset, cy: py, data, value: start };
+      cursorState.radial =
+        data === 'angle' ? { cx: px - Math.cos(start) * RADIAL_FULL, cy: py + Math.sin(start) * RADIAL_FULL, data, value: start } : { cx: px - offset, cy: py, data, value: start };
       v.drawSvg();
       const update = (e: PointerEvent) => {
         const rc = cursorState.radial;
@@ -249,7 +266,7 @@ registerOperators([
         cursorState.x = q.x;
         cursorState.y = q.y;
         const d = Math.hypot(q.x - rc.cx, q.y - rc.cy);
-        rc.value = data === 'size' ? Math.max(1, Math.min(2000, Math.round(d))) : Math.max(0, Math.min(1, d / RADIAL_FULL));
+        rc.value = data === 'angle' ? Math.atan2(rc.cy - q.y, q.x - rc.cx) : data === 'size' ? Math.max(1, Math.min(2000, Math.round(d))) : Math.max(0, Math.min(1, d / RADIAL_FULL));
         radialSet(data, rc.value);
         v.drawSvg();
         app.changed('ui');
@@ -260,7 +277,7 @@ registerOperators([
         app.changed('ui');
       };
       app.startModal({
-        label: data === 'size' ? 'Brush Radius' : data === 'strength' ? 'Brush Strength' : 'Weight',
+        label: data === 'size' ? 'Brush Radius' : data === 'strength' ? 'Brush Strength' : data === 'angle' ? 'Texture Angle' : 'Weight',
         onPointerMove: update,
         onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : 'CANCELLED'),
         onKey: (e) => {
@@ -275,7 +292,9 @@ registerOperators([
         },
         finish: done,
         header: () =>
-          `${data === 'size' ? 'Radius' : data === 'strength' ? 'Strength' : 'Weight'}: ${data === 'size' ? Math.round(cursorState.radial?.value ?? start) : (cursorState.radial?.value ?? start).toFixed(3)}`,
+          data === 'angle'
+            ? `Texture Angle: ${Math.round(((cursorState.radial?.value ?? start) * 180) / Math.PI)}°`
+            : `${data === 'size' ? 'Radius' : data === 'strength' ? 'Strength' : 'Weight'}: ${data === 'size' ? Math.round(cursorState.radial?.value ?? start) : (cursorState.radial?.value ?? start).toFixed(3)}`,
       });
       return 'RUNNING_MODAL';
     },

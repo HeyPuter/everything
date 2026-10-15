@@ -18,7 +18,7 @@ export const cursorState = {
   radial: null as null | {
     cx: number;
     cy: number;
-    data: 'size' | 'strength' | 'weight';
+    data: 'size' | 'strength' | 'weight' | 'angle';
     value: number;
   },
 };
