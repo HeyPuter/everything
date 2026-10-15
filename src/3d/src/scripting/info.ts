@@ -7,6 +7,7 @@ import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { addKeys } from '../app/keymap';
 import { opLog, type LogEntry } from './oplog';
+import './info.css';
 
 type Entry = Report | LogEntry;
 
@@ -24,6 +25,9 @@ export class InfoEditor implements Editor {
   el: HTMLElement;
   keymaps = ['Info', 'Window', 'Screen'];
   private list: HTMLElement;
+  private boxEl: HTMLElement;
+  /** B: the next drag draws a selection box */
+  boxPending = false;
   private lastCount = -1;
   private unsub: () => void;
   showOps = true;
@@ -43,11 +47,16 @@ export class InfoEditor implements Editor {
     const fn = () => this.draw();
     opLog.listeners.add(fn);
     this.unsub = () => opLog.listeners.delete(fn);
+    this.boxEl = document.createElement('div');
+    this.boxEl.className = 'info-box';
+    this.el.append(this.boxEl);
     this.el.addEventListener('pointerdown', (e) => {
-      if (e.target === this.el || e.target === this.list) {
-        for (const x of entries()) selected.delete(x);
-        this.draw();
-      }
+      if (e.button !== 0) return;
+      this.startBox(e, e.target === this.el || e.target === this.list);
+    });
+    this.el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openMenu(contextMenu(), { x: e.clientX, y: e.clientY }, { title: 'Info' });
     });
     this.draw();
   }
@@ -66,6 +75,8 @@ export class InfoEditor implements Editor {
       { class: 'hdr-row' },
       menu('View', () => [
         { label: 'Scroll to Bottom', action: () => this.scrollBottom() },
+        { label: 'Area', submenu: () => this.area.areaMenu() },
+        { separator: true },
         { separator: true },
         { label: 'Show Operators', checked: this.showOps, action: () => ((this.showOps = !this.showOps), this.draw()) },
         { label: 'Show Info', checked: this.showInfo, action: () => ((this.showInfo = !this.showInfo), this.draw()) },
@@ -76,9 +87,13 @@ export class InfoEditor implements Editor {
         { label: 'Select All', shortcut: 'A', op: 'info.select_all', props: { action: 'SELECT' } },
         { label: 'Deselect All', shortcut: 'Alt A', op: 'info.select_all', props: { action: 'DESELECT' } },
         { label: 'Invert Selection', shortcut: 'Ctrl I', op: 'info.select_all', props: { action: 'INVERT' } },
+        { label: 'Toggle Selection', op: 'info.select_all', props: { action: 'TOGGLE' } },
         { separator: true },
-        { label: 'Copy', shortcut: 'Ctrl C', op: 'info.report_copy' },
+        { label: 'Box Select', shortcut: 'B', op: 'info.select_box' },
+        { separator: true },
         { label: 'Delete', shortcut: 'X', op: 'info.report_delete' },
+        { label: 'Copy', shortcut: 'Ctrl C', op: 'info.report_copy' },
+        { label: 'Replay Operators', shortcut: 'R', op: 'info.report_replay' },
         { separator: true },
         { label: 'Clear All', op: 'info.clear' },
       ]),
@@ -102,8 +117,11 @@ export class InfoEditor implements Editor {
             'aria-selected': selected.has(e) ? 'true' : 'false',
             title: e.message,
             onpointerdown: (ev: PointerEvent) => {
+              if (ev.button !== 0) return;
               ev.stopPropagation();
+              if (this.boxPending) return this.startBox(ev, false);
               this.click(e, ev);
+              this.startBox(ev, false, true);
             },
           },
           h('span', { class: 'info-ic' }, icon(ICON[e.type] ?? 'info_small')),
@@ -134,6 +152,55 @@ export class InfoEditor implements Editor {
     this.draw();
   }
 
+  /**
+   * Drag a box over rows to select them (Shift adds, Ctrl removes). `clearOnClick`: a click
+   * without dragging deselects everything; `afterClick`: the press already picked a row.
+   */
+  startBox(down: PointerEvent, clearOnClick: boolean, afterClick = false) {
+    const pending = this.boxPending;
+    this.boxPending = false;
+    const sx = down.clientX,
+      sy = down.clientY;
+    let dragging = pending;
+    const elR = () => this.el.getBoundingClientRect();
+    const mode = down.shiftKey ? 'ADD' : down.ctrlKey || down.metaKey ? 'SUB' : 'SET';
+    const move = (e: PointerEvent) => {
+      if (!dragging && Math.hypot(e.clientX - sx, e.clientY - sy) < 5) return;
+      dragging = true;
+      const r = elR();
+      const x0 = Math.min(sx, e.clientX),
+        y0 = Math.min(sy, e.clientY);
+      Object.assign(this.boxEl.style, { display: 'block', left: `${x0 - r.left}px`, top: `${y0 - r.top + this.el.scrollTop}px`, width: `${Math.abs(e.clientX - sx)}px`, height: `${Math.abs(e.clientY - sy)}px` });
+    };
+    const up = (e: PointerEvent) => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      this.boxEl.style.display = 'none';
+      if (!dragging) {
+        if (clearOnClick) {
+          for (const x of entries()) selected.delete(x);
+          this.draw();
+        }
+        return;
+      }
+      const y0 = Math.min(sy, e.clientY),
+        y1 = Math.max(sy, e.clientY);
+      const vis = this.visible();
+      const rows = [...this.list.children] as HTMLElement[];
+      if (mode === 'SET') for (const x of vis) selected.delete(x);
+      rows.forEach((row, i) => {
+        const rr = row.getBoundingClientRect();
+        if (rr.bottom < y0 || rr.top > y1 || !vis[i]) return;
+        if (mode === 'SUB') selected.delete(vis[i]);
+        else selected.add(vis[i]);
+      });
+      this.draw();
+    };
+    void afterClick;
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+  }
+
   private scrollBottom() {
     requestAnimationFrame(() => (this.el.scrollTop = this.el.scrollHeight));
   }
@@ -160,6 +227,14 @@ export class InfoEditor implements Editor {
   dispose() {
     this.unsub();
   }
+}
+
+function contextMenu(): MenuItem[] {
+  return [
+    { label: 'Copy', shortcut: 'Ctrl C', op: 'info.report_copy' },
+    { label: 'Delete', shortcut: 'X', op: 'info.report_delete' },
+    { label: 'Replay Operators', shortcut: 'R', op: 'info.report_replay' },
+  ];
 }
 
 export function deleteEntries(list: Entry[]) {
@@ -211,6 +286,30 @@ registerOperators([
     },
   },
   {
+    idname: 'info.select_box',
+    label: 'Box Select',
+    description: 'Drag a box over reports to select them (Shift adds, Ctrl removes)',
+    undo: false,
+    poll: (ctx) => !!infoOf(ctx),
+    exec: (ctx) => {
+      infoOf(ctx)!.boxPending = true;
+      app.report('INFO', 'Drag over the reports to select them');
+    },
+  },
+  {
+    idname: 'info.report_replay',
+    label: 'Replay Operators',
+    description: 'Run the selected operator reports again, in order',
+    poll: (ctx) => !!infoOf(ctx) && infoOf(ctx)!.selection().some((e) => e.type === 'OPERATOR' && !!(e as LogEntry).idname),
+    exec: (ctx) => {
+      const list = infoOf(ctx)!.selection().filter((e): e is LogEntry => e.type === 'OPERATOR' && !!(e as LogEntry).idname);
+      let n = 0;
+      for (const e of list) if (app.run(e.idname!, structuredClone(e.props ?? {}), { invoke: false }) === 'FINISHED') n++;
+      if (!n) return 'CANCELLED';
+      app.report('INFO', `Replayed ${n} operator${n === 1 ? '' : 's'}`);
+    },
+  },
+  {
     idname: 'info.clear',
     label: 'Clear Reports',
     description: 'Delete all reports and the operator log',
@@ -230,6 +329,9 @@ addKeys('Info', [
   { key: 'C', ctrl: true, op: 'info.report_copy' },
   { key: 'X', op: 'info.report_delete' },
   { key: 'DEL', op: 'info.report_delete' },
+  { key: 'B', op: 'info.select_box' },
+  { key: 'R', op: 'info.report_replay' },
+  { key: 'W', menu: contextMenu, menuTitle: 'Info' },
 ]);
 
 registerEditor({ id: 'INFO', label: 'Info', icon: 'info', group: 'Scripting', create: (a) => new InfoEditor(a) });

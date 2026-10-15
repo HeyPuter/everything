@@ -316,3 +316,63 @@ test('Text Editor: select and navigation operators, text to 3D object, reload fr
   await expect(page.locator('.te-conflict')).toBeHidden();
   await expectNoErrors(errors);
 });
+
+test('Console menus and operators; Info box select, replay and context menu', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.ws-tab', { hasText: 'Scripting' }).first().click();
+  const con = page.locator('.area[data-editor="CONSOLE"]');
+  const cb = (await con.boundingBox())!;
+  await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+  const input = con.locator('.pc-input');
+  await input.click();
+  await input.fill('alpha beta gamma');
+  const run = (op: string, props: Record<string, unknown> = {}) => page.evaluate(([o, p]) => { const a = (window as any).app; return a.run(o, p, { area: a.hoverArea }); }, [op, props] as const);
+  await run('console.move', { type: 'LINE_END' });
+  await run('console.delete', { type: 'PREVIOUS_WORD' });
+  await expect(input).toHaveValue('alpha beta ');
+  await run('console.move', { type: 'LINE_BEGIN' });
+  await run('console.move', { type: 'NEXT_WORD', select: true });
+  expect(await input.evaluate((i: HTMLInputElement) => [i.selectionStart, i.selectionEnd])).toEqual([0, 5]);
+  await run('console.indent');
+  await expect(input).toHaveValue('    alpha beta ');
+  await run('console.unindent');
+  await expect(input).toHaveValue('alpha beta ');
+  // history: switch to JavaScript, run two lines, step back through them
+  await run('console.language_set', { language: 'JAVASCRIPT' });
+  await input.fill('1 + 1');
+  await page.keyboard.press('Enter');
+  await input.fill('2 + 2');
+  await page.keyboard.press('Enter');
+  await run('console.history_cycle', { reverse: true });
+  await expect(input).toHaveValue('2 + 2');
+  await run('console.history_cycle', { reverse: true });
+  await expect(input).toHaveValue('1 + 1');
+  // right-click menu
+  await page.mouse.click(cb.x + 100, cb.y + 100, { button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Backward in History' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Info: two operator reports, box select them, replay adds two more cubes
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.run('mesh.primitive_cube_add', { location: [3, 0, 0] }, { invoke: false });
+    a.run('mesh.primitive_cube_add', { location: [-3, 0, 0] }, { invoke: false });
+  });
+  const info = page.locator('.area[data-editor="INFO"]');
+  const rows = info.locator('.info-row.operator');
+  await expect(rows).toHaveCount(2);
+  const r1 = (await rows.nth(0).boundingBox())!;
+  const r2 = (await rows.nth(1).boundingBox())!;
+  await page.mouse.move(r1.x + r1.width - 10, r1.y + 3);
+  await page.mouse.down();
+  await page.mouse.move(r2.x + r2.width - 20, r2.y + r2.height - 3, { steps: 4 });
+  await page.mouse.up();
+  await expect(info.locator('.info-row.sel')).toHaveCount(2);
+  const n = (await get(page, 'Object.keys(app.doc.objects).length')) as number;
+  await page.keyboard.press('r');
+  expect(await get(page, 'Object.keys(app.doc.objects).length')).toBe(n + 2);
+  await page.mouse.click(r1.x + 30, r1.y + 3, { button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Replay Operators' })).toBeVisible();
+  await page.locator('.menu .menu-item', { hasText: 'Delete' }).click();
+  await expectNoErrors(errors);
+});

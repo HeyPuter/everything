@@ -7,6 +7,9 @@ export interface LogEntry {
   type: 'OPERATOR';
   message: string;
   time: number;
+  /** the operator and properties, for replaying the entry */
+  idname?: string;
+  props?: Record<string, unknown>;
 }
 
 export const opLog = {
@@ -57,7 +60,13 @@ operatorListeners.add((idname, props) => {
   const op = operators.get(idname);
   // like the reference Info log: record data-changing operators (plus script runs), not view navigation
   if (!op || op.internal || (op.undo === false && idname !== 'text.run_script')) return;
-  opLog.entries.push({ type: 'OPERATOR', message: formatOpCall(idname, props), time: Date.now() });
+  let copy: Record<string, unknown> | undefined;
+  try {
+    copy = structuredClone(props);
+  } catch {
+    copy = undefined;
+  }
+  opLog.entries.push({ type: 'OPERATOR', message: formatOpCall(idname, props), time: Date.now(), idname, props: copy });
   if (opLog.entries.length > 1000) opLog.entries.splice(0, opLog.entries.length - 1000);
   opLog.listeners.forEach((f) => f());
   if (typeof requestAnimationFrame === 'function') app.changed('ui');
