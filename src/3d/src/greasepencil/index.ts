@@ -32,6 +32,7 @@ import './effects';
 import './vertexpaint';
 import './weightpaint';
 import './sculptui';
+import './overlays';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

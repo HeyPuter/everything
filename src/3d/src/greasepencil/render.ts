@@ -57,6 +57,7 @@ import { gpOf, frameAt, onionFrames, onionAlpha, slotStyle } from './data';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
 import { activeModifiers, layerFrame, evaluateDrawing } from './modifiers';
 import { applyEffects } from './effectsgl';
+import { fadeFactor } from './overlays';
 import type { ShaderFx } from './types';
 
 // ---------------------------------------------------------------------------
@@ -727,7 +728,7 @@ function syncObject(doc: DocumentData, ev: EvalObject) {
 }
 
 /** Fill an object's private scene with meshes for its entries (and the mask stencil passes). */
-function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData) {
+function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData, viewport = true) {
   while (s.meshes.length < entries.length) {
     const m = newGPMesh(s.id);
     s.meshes.push(m);
@@ -744,6 +745,7 @@ function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData) {
     }
     if (e.masks?.length) syncMasks(s, e, order, used, s.mode3D);
     applyEntry(m, e, ob, s.mode3D);
+    if (viewport && !e.onion && !e.holdout) m.material.uniforms.uOpacity.value *= fadeFactor(s.id, e.layerIndex, gpOf(app.doc, ob)?.active_layer_index ?? -1);
     m.renderOrder = order.n++;
   });
   for (let i = used.n; i < s.maskMeshes.length; i++) s.maskMeshes[i].visible = false;
@@ -1052,7 +1054,7 @@ renderSceneHooks.push((rs, appRef, o) => {
         f.s.mode3D = gp.stroke_depth_order === '3D';
         f.s.inFront = ev.ob.show_in_front;
         f.s.group.matrix.copy(ev.world);
-        fillSynced(f.s, entries, ev.ob);
+        fillSynced(f.s, entries, ev.ob, false);
         f.proxy.renderOrder = 1000;
         f.proxy.visible = true;
         seenImages.add(ev.id);

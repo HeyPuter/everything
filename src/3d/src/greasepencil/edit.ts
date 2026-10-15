@@ -6,6 +6,7 @@ import { app, registerOperators } from '../app/app';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { transformProviders, type TElement } from '../ops/transform';
 import { falloffWeight, seededRandom } from '../ops/transform_math';
+import { gpOverlay } from './overlays';
 import { setGizmoCenterHook, gizmoCenterHook } from '../editors/view3d/gizmo';
 import { frameHooks } from '../ops/view3d';
 import { renderContext } from '../render/context';
@@ -251,15 +252,19 @@ const lines = new LineSegments(
     opacity: 0.8,
   }),
 );
-pts.frustumCulled = lines.frustumCulled = false;
+const dimGeo = new BufferGeometry();
+// edit lines of the unselected strokes
+const dimLines = new LineSegments(dimGeo, new LineBasicMaterial({ color: 0x9a9a9a, depthTest: false, transparent: true, opacity: 0.5 }));
+pts.frustumCulled = lines.frustumCulled = dimLines.frustumCulled = false;
 pts.renderOrder = 2;
-ovScene.add(lines, pts);
+ovScene.add(dimLines, lines, pts);
 let ovKey = '';
 
-function rebuildOverlay() {
+function rebuildOverlay(allLines: boolean) {
   const pos: number[] = [],
     col: number[] = [],
-    seg: number[] = [];
+    seg: number[] = [],
+    dim: number[] = [];
   const v = new Vector3(),
     w = new Vector3();
   for (const t of editTargets()) {
@@ -277,9 +282,9 @@ function rebuildOverlay() {
           if (d.select![i]) col.push(1, 0.52, 0);
           else col.push(0.05, 0.05, 0.05);
         }
-        if (anySel && i + 1 < b) {
+        if ((anySel || allLines) && i + 1 < b) {
           w.set(d.position[i * 3 + 3], d.position[i * 3 + 4], d.position[i * 3 + 5]).applyMatrix4(t.world);
-          seg.push(v.x, v.y, v.z, w.x, w.y, w.z);
+          (anySel ? seg : dim).push(v.x, v.y, v.z, w.x, w.y, w.z);
         }
       }
     }
@@ -287,16 +292,20 @@ function rebuildOverlay() {
   ptsGeo.setAttribute('position', new Float32BufferAttribute(pos, 3));
   ptsGeo.setAttribute('color', new Float32BufferAttribute(col, 3));
   linesGeo.setAttribute('position', new Float32BufferAttribute(seg, 3));
+  dimGeo.setAttribute('position', new Float32BufferAttribute(dim, 3));
 }
 
 viewportExtensions.push((v) => {
   const fn = (_s: unknown, camera: import('three').Camera) => {
     if (!inGPEdit() || !v.overlay.show_overlays) return;
-    const key = `${app.revision}|${app.doc.scene.frame_current}`;
+    const o = gpOverlay(v);
+    const allLines = o.use_gpencil_edit_lines !== false && (!o.use_gpencil_multiedit_line_only || gpTS(app.doc).use_grease_pencil_multi_frame_editing);
+    const key = `${app.revision}|${app.doc.scene.frame_current}|${allLines}`;
     if (key !== ovKey) {
       ovKey = key;
-      rebuildOverlay();
+      rebuildOverlay(allLines);
     }
+    (pts.material as PointsMaterial).opacity = o.vertex_opacity;
     renderContext?.engine.renderer.render(ovScene, camera);
   };
   v.extraOverlays.push(fn);

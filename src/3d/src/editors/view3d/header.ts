@@ -335,6 +335,9 @@ function setTool(key: string, value: unknown) {
   app.changed('ui', 'doc');
 }
 
+/** Extra sections of the Viewport Overlays popover (e.g. grease pencil options). */
+export const overlayPopoverHooks: ((v: View3D) => Child)[] = [];
+
 function overlayPopover(v: View3D): Child {
   const o = v.overlay;
   const set = (k: keyof typeof o) => (x: unknown) => {
@@ -362,6 +365,7 @@ function overlayPopover(v: View3D): Child {
           numberField({ id: 'o-nlen', label: 'Normal Size', value: o.normals_length, min: 0.0001, max: 100, set: (x) => set('normals_length')(x) }),
         ]
       : null,
+    overlayPopoverHooks.map((f) => f(v)),
   );
 }
 
