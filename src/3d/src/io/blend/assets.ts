@@ -53,8 +53,9 @@ export function parseCatalogFile(text: string): { id: string; path: string }[] {
 }
 
 /** The large stored preview of an ID as an image URL (needs a canvas; undefined otherwise). */
-function previewOf(f: BlendFile, id: BStruct): string | undefined {
-  const pv = id.ref('preview');
+function previewOf(f: BlendFile, s: BStruct, id: BStruct): string | undefined {
+  // the preview pointer lives on the data-block type (or on its ID header in some versions)
+  const pv = s.ref('preview') ?? id.ref('preview');
   if (!pv) return undefined;
   const w = pv.num('w', 0, 1),
     h = pv.num('h', 0, 1);
@@ -119,7 +120,7 @@ export function readAssetMarks(f: BlendFile, ctx: Ctx, convertWorld: (s: BStruct
         tags: ad.list('tags', 1000).map((t) => t.str('name')).filter(Boolean),
         catalog_id: catalog,
       };
-      const pv = previewOf(f, idSub);
+      const pv = previewOf(f, s, idSub);
       if (pv) block.asset_data.preview = pv;
       if (table !== 'objects' && table !== 'collections') block.use_fake_user = true;
       n++;
