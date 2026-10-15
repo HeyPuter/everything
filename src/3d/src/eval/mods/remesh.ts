@@ -32,25 +32,34 @@ export function gridRemesh(m: EvalMesh, o: GridRemeshOptions): EvalMesh {
   // the grid is offset by half a cell so a cell is centred on the middle of the bounds
   const origin = center.map((c) => c - size / 2 - cell / 2);
   const q = new SurfaceQuery(m);
-  const fn = new Vector3(),
-    a = new Vector3(),
-    b = new Vector3(),
-    c = new Vector3();
-  // inside test: the nearest surface point's face looks away from the sample
+  // inside test per grid row: count surface crossings of a ray along +X (parity)
   const inside = new Uint8Array(n * n * n);
-  const p = new Vector3();
+  const start = new Vector3(),
+    dir = new Vector3(1, 0, 0);
+  const x0 = origin[0] - cell;
   for (let z = 0; z < n; z++)
-    for (let y = 0; y < n; y++)
-      for (let x = 0; x < n; x++) {
-        p.set(origin[0] + (x + 0.5) * cell, origin[1] + (y + 0.5) * cell, origin[2] + (z + 0.5) * cell);
-        const h = q.nearest(p);
-        if (!h) continue;
-        a.fromArray(q.positions, h.tri[0] * 3);
-        b.fromArray(q.positions, h.tri[1] * 3);
-        c.fromArray(q.positions, h.tri[2] * 3);
-        fn.subVectors(b, a).cross(c.sub(a));
-        if (fn.dot(p.clone().sub(h.point)) < 0) inside[(z * n + y) * n + x] = 1;
+    for (let y = 0; y < n; y++) {
+      const py = origin[1] + (y + 0.5) * cell,
+        pz = origin[2] + (z + 0.5) * cell;
+      const hits: number[] = [];
+      let from = x0;
+      for (let guard = 0; guard < 4096; guard++) {
+        const h = q.raycast(start.set(from, py, pz), dir, Infinity, true);
+        if (!h) break;
+        hits.push(h.point.x);
+        from = h.point.x + Math.max(1e-6, cell * 1e-4);
       }
+      let k = 0,
+        parity = 0;
+      for (let x = 0; x < n; x++) {
+        const cx = origin[0] + (x + 0.5) * cell;
+        while (k < hits.length && hits[k] < cx) {
+          parity ^= 1;
+          k++;
+        }
+        if (parity) inside[(z * n + y) * n + x] = 1;
+      }
+    }
   const at = (x: number, y: number, z: number) => (x < 0 || y < 0 || z < 0 || x >= n || y >= n || z >= n ? 0 : inside[(z * n + y) * n + x]);
   const b2 = new MeshBuilder();
   const corner = new Map<number, number>();
