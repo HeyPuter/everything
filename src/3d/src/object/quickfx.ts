@@ -82,7 +82,6 @@ registerOperators([
     props: [
       { id: 'density', label: 'Density', type: 'enum', default: 'MEDIUM', items: [['LOW', 'Low'], ['MEDIUM', 'Medium'], ['HIGH', 'High']] },
       { id: 'length', label: 'Length', type: 'float', default: 0.1, min: 0.001, subtype: 'distance' },
-      { id: 'radius', label: 'Hair Radius', type: 'float', default: 0.001, min: 0, subtype: 'distance' },
     ],
     poll: (ctx) => objectMode(ctx) && meshes().length > 0,
     exec: (ctx, p) => {
@@ -93,7 +92,7 @@ registerOperators([
         let name = 'Fur';
         for (let i = 1; Object.values(doc.particles).some((x) => x.name === name); i++) name = `Fur.${String(i).padStart(3, '0')}`;
         const s = defaultParticleSettings(uid('pa'), name);
-        Object.assign(s, { type: 'HAIR', count, hair_length: p.length as number, display_size: p.radius as number, frame_start: doc.scene.frame_start, frame_end: doc.scene.frame_start + 199, child_radius: Math.max(0.001, (p.length as number) * 0.5) });
+        Object.assign(s, { type: 'HAIR', count, hair_length: p.length as number, frame_start: doc.scene.frame_start, frame_end: doc.scene.frame_start + 199, child_radius: Math.max(0.001, (p.length as number) * 0.5) });
         doc.particles[s.id] = s;
         let psName = 'Fur';
         for (let i = 1; ob.particle_systems.some((x) => x.name === psName); i++) psName = `Fur.${String(i).padStart(3, '0')}`;
