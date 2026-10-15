@@ -42,6 +42,7 @@ const SHADES: Record<string, Shade> = {
   MULTIPLANE_SCRAPE: { h: (x, y) => Math.max(0, 0.22 - Math.abs(x) * 0.6) * smoothstep(0.75, 0.4, Math.abs(y)) },
   ELASTIC_DEFORM: { h: (x, y) => Math.pow(1 + ((x - 0.1) ** 2 + (y + 0.1) ** 2) * 12, -1.5) * 0.35 },
   POSE: { h: (x, y) => (x > -0.1 ? smoothstep(0.75, 0.6, Math.abs(y + (x + 0.1) * 0.6)) * 0.12 * smoothstep(-0.1, 0.2, x) : 0) },
+  CLOTH: { h: (x, y) => Math.sin(x * 9 + Math.sin(y * 3) * 1.5) * 0.04 * smoothstep(0.8, 0.2, Math.hypot(x, y)) },
   SLIDE_RELAX: { h: (x, y) => Math.sin((x + y * 0.2) * 10) * 0.03 * smoothstep(0.7, 0.2, Math.hypot(x, y)) },
   SIMPLIFY: { h: (x, y) => (Math.abs(Math.sin(x * 14)) + Math.abs(Math.sin(y * 14))) * 0.015 * smoothstep(0.2, 0.6, Math.hypot(x, y)) },
   ROTATE: { h: (x, y) => Math.sin(Math.atan2(y, x) * 3 + Math.hypot(x, y) * 8) * 0.06 * smoothstep(0.7, 0.1, Math.hypot(x, y)) },

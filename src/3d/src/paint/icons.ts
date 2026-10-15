@@ -118,3 +118,7 @@ registerIcons({
 registerIcons({
   brush_paint_clone: '<path class="s" d="M2.5 2.5h7v7h-7z" fill="none" stroke-width="1.2" stroke-dasharray="1.6 1.2"/><path class="f" d="M6.5 6.5h7v7h-7z" opacity=".75"/>',
 });
+
+registerIcons({
+  brush_sculpt_cloth: '<path class="f" d="M2 4c2 1 4 1 6 0s4-1 6 0v8c-2 2-4 0-6 1s-4 1-6-1z" opacity=".35"/><path class="s" d="M2 4c2 1 4 1 6 0s4-1 6 0M2 12c2 2 4 0 6 1s4 1 6-1M5 5l1 7M10 4.6 9.5 12.6" fill="none" stroke-width="1.1"/>',
+});

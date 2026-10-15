@@ -247,7 +247,7 @@ test('brush shelf, Properties tool tab and tool header popovers', async ({ page 
   await page.locator('.ps-tile[data-brush="brush_clay_strips"]').click();
   await expect(page.locator('.tool-header')).toContainText('Clay Strips');
   await page.locator('.ps-tab', { hasText: 'Transform' }).click();
-  await expect(page.locator('.paint-shelf .ps-tile')).toHaveCount(8);
+  await expect(page.locator('.paint-shelf .ps-tile')).toHaveCount(9);
   await page.locator('.ps-search').fill('snake');
   await page.locator('.ps-tab', { hasText: 'All' }).click();
   await expect(page.locator('.paint-shelf .ps-tile')).toHaveCount(1);

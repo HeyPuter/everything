@@ -467,6 +467,65 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
   void sgnv;
 }
 
+/**
+ * Cloth brush dab: drag the vertices under the brush along the stroke, then let the surrounding
+ * region follow while keeping its original edge lengths (the outer ring stays pinned).
+ */
+function clothDab(st: StrokeState, c: Vector3, dir: Vector3, R: number, strength: number) {
+  const s = st.s;
+  const nb = s.neighbors;
+  const reach = R * 2.5;
+  const n = gather(st, c, reach, null);
+  if (!n) return;
+  const P = s.positions,
+    O = st.orig;
+  const inRegion = new Map<number, number>();
+  for (let k = 0; k < n; k++) inRegion.set(s.gv[k], k);
+  const free = new Float32Array(n);
+  const mask = st.mask;
+  for (let k = 0; k < n; k++) {
+    const v = s.gv[k];
+    // pinned near the outer edge of the region, free inside
+    free[k] = Math.min(1, Math.max(0, (1 - s.gd[k]) * 4)) * (mask ? 1 - mask[v] : 1);
+  }
+  for (let k = 0; k < n; k++) {
+    const d = s.gd[k] * (reach / R);
+    if (d >= 1) continue;
+    const v = s.gv[k] * 3;
+    const f = falloff(st.brush.falloff, d, st.brush.hardness ?? 0) * strength * free[k];
+    P[v] += dir.x * f;
+    P[v + 1] += dir.y * f;
+    P[v + 2] += dir.z * f;
+  }
+  for (let it = 0; it < 6; it++)
+    for (let k = 0; k < n; k++) {
+      const va = s.gv[k];
+      for (let j = nb.offsets[va]; j < nb.offsets[va + 1]; j++) {
+        const vb = nb.neighbors[j];
+        if (vb < va) continue;
+        const kb = inRegion.get(vb);
+        const wa = free[k],
+          wb = kb === undefined ? 0 : free[kb];
+        if (wa + wb === 0) continue;
+        const a = va * 3,
+          b = vb * 3;
+        const rest = Math.hypot(O[b] - O[a], O[b + 1] - O[a + 1], O[b + 2] - O[a + 2]);
+        const dx = P[b] - P[a],
+          dy = P[b + 1] - P[a + 1],
+          dz = P[b + 2] - P[a + 2];
+        const l = Math.hypot(dx, dy, dz) || 1e-9;
+        const corr = (l - rest) / l / (wa + wb);
+        P[a] += dx * corr * wa;
+        P[a + 1] += dy * corr * wa;
+        P[a + 2] += dz * corr * wa;
+        P[b] -= dx * corr * wb;
+        P[b + 1] -= dy * corr * wb;
+        P[b + 2] -= dz * corr * wb;
+      }
+    }
+  for (let k = 0; k < n; k++) touch(st, s.gv[k]);
+}
+
 /** Anchored pass of the elastic deform / pose brushes (wide region, custom weights). */
 function wideAnchorPass(st: StrokeState, tool: string, c: Vector3, sg: Sign, normal: Vector3, strength: number): AnchorPass {
   const s = st.s;
@@ -711,7 +770,9 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     st.radiusLocal = R;
     const viewDir = s.localRay(v, d.x, d.y).direction;
     const strokeDir = st.lastHit ? hit.point.clone().sub(st.lastHit) : null;
-    if (tool === 'SLIDE_RELAX') {
+    if (tool === 'CLOTH') {
+      if (st.lastHit && strokeDir && strokeDir.lengthSq() > 0) clothDab(st, st.lastHit, strokeDir, R, strength);
+    } else if (tool === 'SLIDE_RELAX') {
       if (st.lastHit && strokeDir && strokeDir.lengthSq() > 0)
         for (const sg of st.passes) {
           const c = mirrorVec(st.lastHit, sg);
