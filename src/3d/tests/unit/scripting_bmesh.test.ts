@@ -100,6 +100,10 @@ const OPS: [string, string, string][] = [
   ['bevel one edge', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [[...bm.edges][0]], offset: 0.2, segments: 1, affect: "EDGES"}); print(cnt(bm), r.faces.length, r.verts.length)', '10,15,7 1 4'],
   ['bevel one edge, 3 segments', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [[...bm.edges][0]], offset: 0.2, segments: 3, affect: "EDGES"}); print(cnt(bm), r.faces.length)', '14,21,9 3'],
   ['bevel a vertex', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [[...bm.verts][0]], offset: 0.2, segments: 1, affect: "VERTICES"}); print(cnt(bm), r.faces.length)', '10,15,7 1'],
+  ['bevel all vertices', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [...bm.verts], offset: 0.3, segments: 1, affect: "VERTICES"}); print(cnt(bm), r.faces.length, r.edges.length, r.verts.length, bm.calc_volume(true).toFixed(3))', '24,36,14 8 24 24 7.964'],
+  ['bevel all edges', 'const bm = cube(); const r = bmesh.ops.bevel(bm, {geom: [...bm.edges], offset: 0.2, segments: 1, affect: "EDGES"}); print(cnt(bm), r.faces.length, r.verts.length)', '24,48,26 20 24'],
+  ['inset_region of part of a solid', 'const bm = cube(); bmesh.ops.inset_region(bm, {faces: [...bm.faces].slice(0, 3), thickness: 0.1, depth: -0.1}); print(cnt(bm), [...bm.edges].every((e) => e.is_manifold && e.is_contiguous))', '16,28,14 true'],
+  ['spin faces all around', 'const bm = grid(1, 1); bmesh.ops.spin(bm, {geom: [...bm.faces], cent: [2, 0, 0], axis: [0, 1, 0], angle: 2 * Math.PI, steps: 8, use_merge: true}); print(cnt(bm), [...bm.edges].every((e) => e.is_manifold && e.is_contiguous))', '32,64,32 true'],
   ['bridge_loops', 'const bm = bmesh.new(); bmesh.ops.create_circle(bm, {segments: 8, radius: 1}); bmesh.ops.create_circle(bm, {segments: 8, radius: 1, matrix: mathutils.Matrix.Translation([0, 0, 2])}); const r = bmesh.ops.bridge_loops(bm, {edges: [...bm.edges]}); print(cnt(bm), r.faces.length, r.edges.length)', '16,24,8 8 8'],
   ['holes_fill', 'const bm = cube(); bmesh.ops.delete(bm, {geom: top(bm), context: "FACES_ONLY"}); const r = bmesh.ops.holes_fill(bm, {edges: [...bm.edges], sides: 4}); print(cnt(bm), r.faces[0].normal.z)', '8,12,6 1'],
   ['holes_fill (too many sides)', 'const bm = cube(); bmesh.ops.delete(bm, {geom: top(bm), context: "FACES_ONLY"}); print(bmesh.ops.holes_fill(bm, {edges: [...bm.edges], sides: 3}).faces.length)', '0'],
@@ -132,6 +136,161 @@ const OPS: [string, string, string][] = [
   ['mirror', 'const bm = cube(); bmesh.ops.translate(bm, {verts: [...bm.verts], vec: [1, 0, 0]}); bmesh.ops.mirror(bm, {geom: all(bm), axis: "X", merge_dist: 0.001}); print(cnt(bm))', '12,20,11'],
 ];
 
+describe('bmesh and mesh data-blocks', () => {
+  it('round-trips a mesh keeping UVs, materials, smooth flags, seams, creases and vertex groups', () => {
+    const me = mesh('Cube');
+    me.uvs = Float32Array.from(me.uvs, (_, i) => (i % 7) / 10);
+    me.material_index = Uint16Array.from({ length: 6 }, (_, i) => i % 3);
+    me.smooth = Uint8Array.from({ length: 6 }, (_, i) => i & 1);
+    me.seams = Uint32Array.from(me.indices, (_, i) => (i < 4 ? 1 : 0));
+    me.vertex_groups = [{ name: 'Top' }];
+    me.weights = [Float32Array.from({ length: 8 }, (_, i) => (me.positions[i * 3 + 2] > 0 ? 0.75 : 0))];
+    me.color_attributes = [{ name: 'Col', domain: 'CORNER', data: Float32Array.from({ length: me.indices.length * 4 }, (_, i) => (i % 4) / 4) }];
+    const before = structuredClone({ uvs: me.uvs, mat: me.material_index, smooth: me.smooth, idx: me.indices, w: me.weights[0], col: me.color_attributes[0].data });
+    const out = run(`
+      const me = D.meshes['Cube'];
+      const bm = bmesh.new();
+      bm.from_mesh(me);
+      const dl = bm.verts.layers.deform.active;
+      print(bm.verts.length, bm.faces.length, bm.loops.layers.uv.active.name, [...bm.edges].filter((e) => e.seam).length, [...bm.verts].filter((v) => v.getItem(dl).get(0) === 0.75).length);
+      bm.to_mesh(me);
+      bm.free();`);
+    expect(out).toBe('8 6 UVMap 4 4');
+    expect(Array.from(me.uvs)).toEqual(Array.from(before.uvs));
+    expect(Array.from(me.material_index!)).toEqual(Array.from(before.mat));
+    expect(Array.from(me.smooth!)).toEqual(Array.from(before.smooth));
+    expect(Array.from(me.indices)).toEqual(Array.from(before.idx));
+    expect(Array.from(me.weights[0])).toEqual(Array.from(before.w));
+    expect(Array.from(me.color_attributes[0].data)).toEqual(Array.from(before.col));
+    expect(Array.from(me.seams!).filter(Boolean).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('carries UVs and materials through operators', () => {
+    const out = run(`
+      const me = D.meshes['Cube'];
+      const bm = bmesh.new();
+      bm.from_mesh(me);
+      const uv = bm.loops.layers.uv.active;
+      for (const f of bm.faces) { f.material_index = 2; for (const l of f.loops) l.getItem(uv).uv = [0.25, 0.5]; }
+      bmesh.ops.subdivide_edges(bm, {edges: [...bm.edges], cuts: 2, use_grid_fill: true});
+      bmesh.ops.triangulate(bm, {faces: [...bm.faces]});
+      const uvs = new Set(); for (const f of bm.faces) for (const l of f.loops) uvs.add(l[uv].uv.toArray().map((x) => x.toFixed(3)).join(','));
+      print(bm.faces.length, [...bm.faces].every((f) => f.material_index === 2), [...uvs].join(' '));
+      bm.to_mesh(me);`);
+    expect(out).toBe('108 true 0.250,0.500');
+    expect(counts(mesh('Cube'))).toEqual([56, 108]);
+  });
+
+  it('reads the evaluated mesh of an object', () => {
+    const out = run(`
+      const ob = D.objects['Cube'];
+      const m = ob.modifiers.new('Sub', 'SUBSURF'); m.levels = 1;
+      const bm = bmesh.new();
+      bm.from_object(ob, C.evaluated_depsgraph_get());
+      print(bm.verts.length, bm.faces.length);`);
+    expect(out).toBe('26 24');
+  });
+
+  it('builds closed solids with outward normals', () => {
+    const out = run(`
+      const vol = (fn) => { const bm = bmesh.new(); fn(bm); const r = bm.calc_volume(true).toFixed(3); bm.free(); return r; };
+      print(vol((bm) => bmesh.ops.create_cube(bm, {size: 2})));
+      print(vol((bm) => bmesh.ops.create_uvsphere(bm, {u_segments: 32, v_segments: 16, radius: 1})));
+      print(vol((bm) => bmesh.ops.create_icosphere(bm, {subdivisions: 3, radius: 1})));
+      print(vol((bm) => bmesh.ops.create_cone(bm, {cap_ends: true, segments: 32, radius1: 1, radius2: 0.5, depth: 2})));
+      print(vol((bm) => { bmesh.ops.create_cube(bm, {size: 2}); const t = [...bm.faces].filter((f) => f.normal.z > 0.5); const r = bmesh.ops.extrude_face_region(bm, {geom: t}); bmesh.ops.translate(bm, {vec: [0, 0, 1], verts: r.geom.filter((x) => x instanceof bmesh.types.BMVert)}); bmesh.ops.delete(bm, {geom: t, context: 'FACES'}); }));
+      print(vol((bm) => { bmesh.ops.create_cube(bm, {size: 2}); bmesh.ops.reverse_faces(bm, {faces: [...bm.faces].slice(0, 3)}); bmesh.ops.recalc_face_normals(bm, {faces: [...bm.faces]}); }));`);
+    expect(out.split('\n')).toEqual(['8.000', '4.122', '4.047', '3.642', '12.000', '8.000']);
+  });
+});
+
+describe('bmesh elements', () => {
+  it('give adjacency, measurements and readable output', () => {
+    const out = run(PRELUDE + `
+      const bm = cube();
+      bm.verts.ensure_lookup_table(); bm.edges.ensure_lookup_table(); bm.faces.ensure_lookup_table();
+      const v = bm.verts[0], e = bm.edges[0], f = bm.faces[0], l = f.loops[0];
+      print(v.link_edges.length, v.link_faces.length, v.link_loops.length, v.is_manifold, v.is_boundary, v.calc_shell_factor().toFixed(3));
+      print(e.calc_length(), e.calc_face_angle().toFixed(4), e.is_convex, e.is_contiguous, e.other_vert(e.verts[0]) === e.verts[1]);
+      print(f.calc_area(), f.calc_perimeter(), f.calc_center_median().toArray(), f.normal.toArray());
+      print(l.vert === f.verts[0], l.link_loop_next.link_loop_prev === l, l.link_loop_radial_next.edge === l.edge, l.calc_angle().toFixed(4));
+      print(String(v), String(bm));`);
+    expect(out.split('\n')).toEqual([
+      '3 3 3 true false 1.732',
+      '2 1.5708 true true true',
+      '4 8 [-1, 0, 0] [-1, 0, 0]',
+      'true true true 1.5708',
+      '<BMVert(index=0, co=(-1, -1, -1))> <BMesh(totvert=8, totedge=12, totface=6, totloop=24)>',
+    ]);
+  });
+
+  it('raise helpful errors', () => {
+    const err = (code: string) => {
+      try {
+        run(PRELUDE + code);
+        return 'no error';
+      } catch (e) {
+        return String((e as Error).message).split(' (line')[0];
+      }
+    };
+    expect(err('const bm = cube(); bm.verts[0]')).toMatch(/IndexError: BMVertSeq\[index\]: outdated internal index table, run ensure_lookup_table\(\) first/);
+    expect(err('const bm = cube(); bm.faces.new([...bm.faces][0].verts)')).toMatch(/ValueError: faces.new\(...\): face already exists/);
+    expect(err('const bm = cube(); bm.edges.new([...bm.edges][0].verts)')).toMatch(/ValueError: edges.new\(\): this edge exists/);
+    expect(err('const bm = cube(); const v = [...bm.verts][0]; bm.verts.remove(v); v.co')).toMatch(/ReferenceError: BMesh data of type BMVert has been removed/);
+    expect(err('const bm = cube(); bmesh.ops.extrude(bm, {})')).toMatch(/AttributeError: bmesh.ops has no operator 'extrude'. Available: .*extrude_face_region/);
+    expect(err('const bm = cube(); bmesh.ops.translate(bm, {vector: [1, 0, 0]})')).toMatch(/TypeError: bmesh.ops.translate\(\): unexpected keyword argument 'vector' \(expected: vec, space, verts, use_shape\)/);
+    expect(err('const bm = cube(); bm.free(); bm.verts.length')).toMatch(/ReferenceError: BMesh data of type BMesh has been removed/);
+  });
+
+  it('keep custom data in layers', () => {
+    const out = run(PRELUDE + `
+      const bm = cube();
+      const uv = bm.loops.layers.uv.new('Map');
+      const col = bm.loops.layers.color.verify();
+      const dl = bm.verts.layers.deform.verify();
+      const fl = bm.verts.layers.float.new('weight');
+      const v = [...bm.verts][0], l = [...bm.faces][0].loops[0];
+      l[uv].uv = [0.5, 0.25]; l[uv].pin_uv = true;
+      l[col] = [1, 0, 0, 1];
+      v[dl].setItem(2, 0.5);
+      v[fl] = 3.5;
+      const c = bm.copy();
+      const v2 = [...c.verts][0], l2 = [...c.faces][0].loops[0];
+      const uv2 = c.loops.layers.uv.get('Map');
+      print(l2[uv2].uv.toArray(), l2[uv2].pin_uv, l2[c.loops.layers.color.active].toArray(), v2[c.verts.layers.deform.active].items(), v2[c.verts.layers.float.get('weight')]);
+      print(bm.loops.layers.uv.keys(), bm.loops.layers.uv.active.name, bm.verts.layers.deform.is_singleton);`);
+    expect(out).toBe('[0.5, 0.25] true [1, 0, 0, 1] [[2, 0.5]] 3.5\n["Map"] Map true');
+  });
+});
+
+describe('bmesh in Edit Mode', () => {
+  it('edits the mesh of the object in Edit Mode and keeps Edit Mode working', () => {
+    const out = run(`
+      bpy.ops.object.mode_set({mode: 'EDIT'});
+      const me = C.object.data;
+      const bm = bmesh.from_edit_mesh(me);
+      print(bm.verts.length, [...bm.verts].filter((v) => v.select).length, bmesh.from_edit_mesh(me) === bm, [...bm.select_mode]);
+      for (const v of bm.verts) v.select = false;
+      const t = [...bm.faces].filter((f) => f.normal.z > 0.5);
+      const r = bmesh.ops.extrude_face_region(bm, {geom: t});
+      const nv = r.geom.filter((x) => x instanceof bmesh.types.BMVert);
+      bmesh.ops.translate(bm, {vec: [0, 0, 1], verts: nv});
+      bmesh.ops.delete(bm, {geom: t, context: 'FACES'});
+      for (const x of r.geom) x.select_set(true);
+      bmesh.update_edit_mesh(me);
+      print(C.mode, me.vertices.length, me.polygons.length, bmesh.from_edit_mesh(me) === bm);`);
+    expect(out).toBe('8 8 true ["VERT"]\nEDIT_MESH 12 10 true');
+    const me = mesh('Cube');
+    expect(app.doc.mode).toBe('EDIT');
+    expect(Array.from(me.select_vert!).filter(Boolean).length).toBe(4);
+    expect(Math.max(...Array.from(me.positions).filter((_, i) => i % 3 === 2))).toBeCloseTo(2);
+  });
+
+  it('needs the mesh to be in Edit Mode', () => {
+    expect(() => run(`bmesh.from_edit_mesh(C.object.data)`)).toThrow(/is not in Edit Mode/);
+  });
+});
+
 describe('bmesh.ops', () => {
   for (const [name, code, expected] of OPS) it(name, () => expect(run(PRELUDE + code)).toBe(expected));
 });
@@ -154,5 +313,113 @@ describe('bmesh in Python', () => {
       print(idx[bm.verts[3]], bm.verts[3] in bm.verts, repr(bm.verts[0])[:15])
     `);
     expect(out).toBe('8 12 True True\n3 True <BMVert(index=0');
+  });
+
+  it('runs operators with keyword arguments and returns dicts', () => {
+    if (!ok) return;
+    const out = runPy(`
+      import bpy, bmesh
+      from mathutils import Matrix, Vector
+      bm = bmesh.new()
+      bmesh.ops.create_cube(bm, size=2, matrix=Matrix.Translation((0, 0, 1)))
+      top = [f for f in bm.faces if f.normal.z > 0.5]
+      ret = bmesh.ops.extrude_face_region(bm, geom=top)
+      verts = [e for e in ret['geom'] if isinstance(e, bmesh.types.BMVert)]
+      bmesh.ops.translate(bm, vec=Vector((0, 0, 1)), verts=verts)
+      bmesh.ops.delete(bm, geom=top, context='FACES')
+      print(type(ret).__name__, sorted(ret.keys()), len(ret.get('geom')), len(bm.verts), len(bm.faces), round(bm.calc_volume(), 3))
+      r = bmesh.ops.triangulate(bm, faces=bm.faces[:])
+      fm = r['face_map']
+      print(type(fm).__name__, len(fm), all(isinstance(k, bmesh.types.BMFace) for k in fm))
+      print(bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001))
+      try:
+          bmesh.ops.extrude(bm, geom=[])
+      except AttributeError as e:
+          print('AttributeError', str(e)[:36])
+      try:
+          bmesh.ops.translate(bm, vector=(1, 0, 0))
+      except TypeError as e:
+          print('TypeError', str(e)[:60])
+      me = bpy.data.meshes.new('Tower')
+      bm.to_mesh(me)
+      bm.free()
+      print(len(me.vertices), len(me.polygons))
+    `);
+    expect(out.split('\n')).toEqual([
+      "dict ['geom'] 9 12 10 12.0",
+      'dict 20 True',
+      'None',
+      "AttributeError bmesh.ops has no operator 'extrude'.",
+      "TypeError bmesh.ops.translate(): unexpected keyword argument 'vector' ",
+      '12 20',
+    ]);
+  });
+
+  it('reads and writes layers, vertex groups and the lookup table', () => {
+    if (!ok) return;
+    const out = runPy(`
+      import bmesh
+      bm = bmesh.new()
+      bmesh.ops.create_grid(bm, x_segments=2, y_segments=2, size=1)
+      uv = bm.loops.layers.uv.verify()
+      deform = bm.verts.layers.deform.verify()
+      for f in bm.faces:
+          for l in f.loops:
+              l[uv].uv = (l.vert.co.x * 0.5 + 0.5, l.vert.co.y * 0.5 + 0.5)
+      for v in bm.verts:
+          v[deform][0] = 1.0 if v.co.x > 0 else 0.25
+      bm.verts.ensure_lookup_table()
+      v = bm.verts[0]
+      dv = v[deform]
+      print(dict(dv), len(dv), 0 in dv, 1 in dv, dv.get(1, 'none'), list(dv.keys()))
+      del dv[0]
+      print(len(v[deform]))
+      l = bm.faces[:][0].loops[0]
+      print(tuple(round(x, 2) for x in l[uv].uv), l[uv].pin_uv, uv.name, bm.loops.layers.uv.active.name)
+      bm.verts.sort(key=lambda v: (v.co.y, -v.co.x))
+      print([round(v.co.x) for v in bm.verts][:3], [v.index for v in bm.verts][:3])
+      try:
+          bm.verts[0]
+      except IndexError as e:
+          print('IndexError', 'ensure_lookup_table' in str(e))
+      bm.verts.ensure_lookup_table()
+      print(round(bm.verts[0].co.x), bm.verts[-1].co.y)
+      e = bm.edges.get((bm.verts[0], bm.verts[1]))
+      print(isinstance(e, bmesh.types.BMEdge), bm.edges.get((bm.verts[0], bm.verts[8])))
+      bm.select_history.add(bm.verts[4])
+      print(len(bm.select_history), bm.select_history.active == bm.verts[4])
+    `);
+    expect(out.split('\n')).toEqual([
+      '{0: 0.25} 1 True False none [0]',
+      '0',
+      '(0.0, 0.0) False UVMap UVMap',
+      '[1, 0, -1] [0, 1, 2]',
+      'IndexError True',
+      '1 1.0',
+      'True None',
+      '1 True',
+    ]);
+  });
+
+  it('edits the mesh in Edit Mode and offers utils and geometry', () => {
+    if (!ok) return;
+    const out = runPy(`
+      import bpy, bmesh
+      bpy.ops.object.mode_set(mode='EDIT')
+      me = bpy.context.object.data
+      bm = bmesh.from_edit_mesh(me)
+      bm.faces.ensure_lookup_table()
+      f = bm.faces[0]
+      a, b = f.verts[0], f.verts[2]
+      nf, nl = bmesh.utils.face_split(f, a, b)
+      print(len(bm.faces), isinstance(nf, bmesh.types.BMFace), isinstance(nl, bmesh.types.BMLoop))
+      ne, nv = bmesh.utils.edge_split(nl.edge, a, 0.5)
+      print(len(bm.verts), tuple(round(x, 2) for x in nv.co) == tuple(round(x, 2) for x in (a.co + b.co) / 2))
+      bm.faces.ensure_lookup_table()
+      print(bmesh.geometry.intersect_face_point(bm.faces[1], bm.faces[1].calc_center_median()))
+      bmesh.update_edit_mesh(me)
+      print(bpy.context.mode, len(me.vertices), len(me.polygons))
+    `);
+    expect(out.split('\n')).toEqual(['7 True True', '9 True', 'True', 'EDIT_MESH 9 7']);
   });
 });

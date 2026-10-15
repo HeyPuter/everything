@@ -102,6 +102,12 @@ kwMethod(utils, 'edge_rotate', ['edge', 'ccw']);
 kwMethod(utils, 'face_split', ['face', 'vert_a', 'vert_b', 'coords', 'use_exist', 'example']);
 kwMethod(utils, 'face_join', ['faces', 'remove']);
 kwMethod(utils, 'vert_collapse_edge', ['vert', 'edge', 'kill_degenerate_faces', 'kill_loose_edges']);
+kwMethod(utils, 'vert_dissolve', ['vert']);
+kwMethod(utils, 'vert_splice', ['vert', 'vert_target']);
+kwMethod(utils, 'vert_separate', ['vert', 'edges']);
+kwMethod(utils, 'loop_separate', ['loop']);
+kwMethod(utils, 'face_flip', ['faces']);
+kwMethod(utils, 'face_vert_separate', ['face', 'vert']);
 
 export const geometry = {
   __type: 'module',
@@ -125,3 +131,4 @@ export const geometry = {
   },
   toString: () => '<module bmesh.geometry>',
 };
+kwMethod(geometry, 'intersect_face_point', ['face', 'point']);

@@ -2047,6 +2047,35 @@ kwMethod(BMesh.prototype, 'transform', ['matrix', 'filter']);
 kwMethod(BMesh.prototype, 'calc_volume', ['signed']);
 kwMethod(BMesh.prototype, 'select_flush', ['select']);
 
+// keyword arguments (Python) / trailing option objects (JavaScript) for element methods
+kwMethod(BMVert.prototype, 'calc_edge_angle', ['fallback']);
+kwMethod(BMVert.prototype, 'select_set', ['select']);
+kwMethod(BMVert.prototype, 'hide_set', ['hide']);
+kwMethod(BMVert.prototype, 'copy_from', ['other']);
+kwMethod(BMVert.prototype, 'copy_from_vert_interp', ['vert_pair', 'fac']);
+kwMethod(BMVert.prototype, 'copy_from_face_interp', ['face']);
+kwMethod(BMEdge.prototype, 'calc_face_angle', ['fallback']);
+kwMethod(BMEdge.prototype, 'calc_face_angle_signed', ['fallback']);
+kwMethod(BMEdge.prototype, 'calc_tangent', ['loop']);
+kwMethod(BMEdge.prototype, 'other_vert', ['vert']);
+kwMethod(BMEdge.prototype, 'select_set', ['select']);
+kwMethod(BMEdge.prototype, 'hide_set', ['hide']);
+kwMethod(BMEdge.prototype, 'copy_from', ['other']);
+kwMethod(BMFace.prototype, 'copy', ['verts', 'edges']);
+kwMethod(BMFace.prototype, 'copy_from', ['other']);
+kwMethod(BMFace.prototype, 'copy_from_face_interp', ['face', 'vert']);
+kwMethod(BMFace.prototype, 'select_set', ['select']);
+kwMethod(BMFace.prototype, 'hide_set', ['hide']);
+kwMethod(BMLoop.prototype, 'copy_from', ['other']);
+kwMethod(BMLoop.prototype, 'copy_from_face_interp', ['face', 'vert', 'multires']);
+kwMethod(BMVertSeq.prototype, 'remove', ['vert']);
+kwMethod(BMEdgeSeq.prototype, 'remove', ['edge']);
+kwMethod(BMFaceSeq.prototype, 'remove', ['face']);
+kwMethod(BMLayerCollection.prototype, 'remove', ['layer']);
+kwMethod(BMEditSelSeq.prototype, 'add', ['element']);
+kwMethod(BMEditSelSeq.prototype, 'remove', ['element']);
+kwMethod(BMEditSelSeq.prototype, 'discard', ['element']);
+
 /** Copy the layer layout of `src` into `dst` (same slots). */
 export function copyLayers(src: BMesh, dst: BMesh) {
   for (const d of ['verts', 'edges', 'faces', 'loops'] as Domain[]) {

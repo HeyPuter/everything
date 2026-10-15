@@ -1404,6 +1404,8 @@ defOp(
       g = out;
     }
     if (a.use_merge && !a.use_duplicate && steps && Math.abs(Math.abs(angle) - 2 * Math.PI) < 1e-4) {
+      // a closed sweep has no caps
+      for (const f of [...first.faces, ...g.faces]) killFace(f);
       const weld = new Map<BMVert, BMVert>();
       lastMap.forEach((last, orig) => {
         if (last !== orig && last._bm && orig._bm) weld.set(last, orig);

@@ -151,21 +151,11 @@ defOp(
       const r = edges.reduce((s, e) => s + dist(e.v1._co, center), 0) / edges.length;
       for (const v of splitVerts) v._co = [...add(center, scale(normalize(sub(v._co, center)), r))];
     }
-    // cuts on a face side running from corner p to corner q
-    const sideCuts = (p: BMVert, q: BMVert): BMVert[] | null => {
-      for (const [e, c] of cutsOf) {
-        if (!eset.has(e)) continue;
-        if (c.a === p && c.b === q) return c.verts;
-        if (c.a === q && c.b === p) return [...c.verts].reverse();
-      }
-      return null;
-    };
     const cutIndex = new Map<string, BMVert[]>();
     for (const c of cutsOf.values()) {
       cutIndex.set(`${c.a.__key}>${c.b.__key}`, c.verts);
       cutIndex.set(`${c.b.__key}>${c.a.__key}`, [...c.verts].reverse());
     }
-    void sideCuts;
     const side = (p: BMVert, q: BMVert) => cutIndex.get(`${p.__key}>${q.__key}`) ?? null;
     const innerVerts: BMVert[] = [],
       innerEdges = new Set<BMEdge>(),
@@ -526,7 +516,8 @@ defOp(
     }
     // interpolated corner data for moved corners
     const oldData = new Map<BMLoop, unknown[]>();
-    for (const f of R) for (const l of faceLoops(f)) oldData.set(l, l._cd.map(cloneValue));
+    const oldEdges = new Set<BMEdge>();
+    for (const f of R) for (const l of faceLoops(f)) oldData.set(l, l._cd.map(cloneValue)), oldEdges.add(l.edge);
     for (const f of R) {
       const ls = faceLoops(f);
       const pts = ls.map((l) => l.vert._co.slice());
@@ -544,6 +535,8 @@ defOp(
       relinkFace(bm, f, map);
       ls.forEach((l, i) => data[i] && (l._cd = data[i]!));
     }
+    // region edges between two moved vertices were replaced
+    for (const e of oldEdges) if (e._bm && !e._l.length) killEdge(e);
     const rims: BMFace[] = [];
     // the boundary loops were relinked: rebuild rims from the recorded old vertices
     const inv = new Map<BMVert, BMVert>();
@@ -700,6 +693,83 @@ function runKernel(bm: BMesh, selVerts: Set<BMVert>, selEdges: Set<BMEdge> | nul
   return { newFaces, newVerts, allFaces };
 }
 
+/** One-segment vertex bevel: each vertex is cut off by a face through points on its edges. */
+function chamferVerts(bm: BMesh, verts: BMVert[], offset: number, type: string) {
+  const targets = new Set(verts.filter((v) => v._bm && v._e.length));
+  const limit = new Map<string, number>();
+  for (const v of targets)
+    for (const e of v._e) {
+      const o = e.other(v);
+      const L = e.calc_length();
+      limit.set(`${v.__key}>${o.__key}`, targets.has(o) ? L * 0.5 : L * 0.999);
+    }
+  const cuts = new Map<BMVert, BMVert[]>();
+  for (const v of targets) {
+    const list: BMVert[] = [];
+    for (const e of v._e.slice()) {
+      // the original neighbour (past the cut vertex it may already have made)
+      let orig = e.other(v);
+      while (!limit.has(`${v.__key}>${orig.__key}`) && orig._e.length === 2) {
+        const nxt = orig._e.find((x) => x !== e)?.other(orig);
+        if (!nxt || nxt === v) break;
+        orig = nxt;
+      }
+      const L = e.calc_length();
+      const want = type === 'PERCENT' ? (offset / 100) * dist(v._co, orig._co) : offset;
+      const d = Math.min(want, limit.get(`${v.__key}>${orig.__key}`) ?? L * 0.999, L * 0.999);
+      if (d <= 0) continue;
+      const [nv] = splitEdge(bm, e, v, d / L);
+      nv._sel = v._sel;
+      list.push(nv);
+    }
+    cuts.set(v, list);
+  }
+  const caps: BMFace[] = [];
+  const newEdges = new Set<BMEdge>();
+  for (const [v, list] of cuts) {
+    const cs = new Set(list);
+    for (const l of vertLoops(v)) {
+      const f = l.face;
+      if (f._len <= 3 || !cs.has(l._prev.vert) || !cs.has(l._next.vert)) continue;
+      const r = splitFace(bm, f, l._prev, l._next);
+      if (r) {
+        newEdges.add(r[1]);
+        r[1]._sel = v._sel;
+      }
+    }
+    const ring = [...cs];
+    const example = vertLoops(v)[0]?.face ?? null;
+    killVert(v);
+    // close the hole when the cut vertices form a ring
+    const ringEdges = [...newEdges].filter((e) => e._bm && cs.has(e.v1) && cs.has(e.v2));
+    if (ring.length >= 3 && ringEdges.length === ring.length) {
+      const order: BMVert[] = [ring[0]];
+      while (order.length < ring.length) {
+        const last = order[order.length - 1];
+        const nxt = ringEdges.find((e) => (e.v1 === last || e.v2 === last) && !order.includes(e.other(last)));
+        if (!nxt) break;
+        order.push(nxt.other(last));
+      }
+      if (order.length === ring.length) {
+        let vote = 0;
+        for (let i = 0; i < order.length; i++) {
+          const e = edgeBetween(order[i], order[(i + 1) % order.length]);
+          if (e) for (const x of e._l) vote += x.vert === order[i] ? -1 : 1;
+        }
+        const vs = vote < 0 ? order.reverse() : order;
+        const data = vs.map((x) => vertLoops(x)[0]?._cd.map(cloneValue) ?? null);
+        const cap = makeFace(bm, vs, { example, loopData: data });
+        cap._sel = vs.every((x) => x._sel);
+        caps.push(cap);
+      }
+    }
+  }
+  for (const f of bm._f) f._no = faceNormal(f);
+  const edges = new Set<BMEdge>();
+  for (const f of caps) for (const l of faceLoops(f)) edges.add(l.edge);
+  return { faces: caps, edges: [...edges], verts: [...cuts.values()].flat().filter((v) => !!v._bm) };
+}
+
 defOp(
   'bevel',
   {
@@ -743,6 +813,7 @@ defOp(
       const sv = new Set<BMVert>(g.verts);
       for (const e of g.edges) sv.add(e.v1), sv.add(e.v2);
       if (!sv.size) return empty;
+      if (segs === 1) return chamferVerts(bm, [...sv], offset, offType);
       r = runKernel(bm, sv, null, (m) => bevelVertices(m, offset, segs, profile));
     }
     if (!r) return empty;
