@@ -9,3 +9,4 @@ import './skin';
 import './multires';
 import './ocean';
 import './particles';
+import './meshcache';

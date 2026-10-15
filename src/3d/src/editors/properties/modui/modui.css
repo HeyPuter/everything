@@ -36,3 +36,14 @@
   flex: 1 1 auto;
   white-space: nowrap;
 }
+.mod-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+  line-height: var(--row);
+  background: var(--w-field);
+  border-radius: var(--radius);
+}
