@@ -182,9 +182,33 @@ transformProviders.push({
         });
       }
       const pending = new Set<MeshData>();
+      // mesh symmetry: unselected mirror partners follow, vertices on the mirror plane stay on it
+      const mirrorAxes = [ts.use_mesh_mirror_x, ts.use_mesh_mirror_y, ts.use_mesh_mirror_z].map((b, k) => (b ? k : -1)).filter((k) => k >= 0);
+      const mirrorPairs: [number, number, number][] = []; // moving vertex, partner, axis
+      const onPlane: [number, number][] = [];
+      if (mirrorAxes.length) {
+        const q = (x: number) => Math.round(x * 1e4);
+        const grid = new Map<string, number>();
+        for (let i = 0; i < nv; i++) grid.set(`${q(base[i * 3])},${q(base[i * 3 + 1])},${q(base[i * 3 + 2])}`, i);
+        for (const axis of mirrorAxes)
+          for (let i = 0; i < nv; i++) {
+            if (!weight[i]) continue;
+            if (Math.abs(base[i * 3 + axis]) < 1e-4) {
+              onPlane.push([i, axis]);
+              continue;
+            }
+            const p = [base[i * 3], base[i * 3 + 1], base[i * 3 + 2]];
+            p[axis] = -p[axis];
+            const j = grid.get(p.map(q).join(','));
+            if (j !== undefined && j !== i && !weight[j]) mirrorPairs.push([i, j, axis]);
+          }
+      }
       updaters.push(() => {
         if (!pending.size) return;
         pending.clear();
+        for (const [i, axis] of onPlane) work[i * 3 + axis] = 0;
+        for (const [i, j, axis] of mirrorPairs)
+          for (let k = 0; k < 3; k++) work[j * 3 + k] = k === axis ? -work[i * 3 + k] : work[i * 3 + k];
         const out = new Float32Array(work);
         if (activeKey >= 0) {
           // edit the active shape key instead of the basis

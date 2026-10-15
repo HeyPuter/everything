@@ -191,3 +191,25 @@ test('edge mode: Ctrl+Alt+click selects an edge ring without the edges between; 
   expect(await counts(page)).toEqual([12, 10]);
   await expectNoErrors(errors);
 });
+
+test('mesh symmetry: the X toggle in the header mirrors a move to the partner vertex', async ({ page }) => {
+  const errors = await editCube(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const me = a.doc.meshes[a.activeObject.data];
+    const sel = new Uint8Array(me.positions.length / 3);
+    for (let i = 0; i < sel.length; i++) sel[i] = me.positions[i * 3] > 0.5 && me.positions[i * 3 + 1] > 0.5 && me.positions[i * 3 + 2] > 0.5 ? 1 : 0;
+    me.select_vert = sel;
+    a.changed('doc', 'select');
+  });
+  await page.locator('.mesh-symmetry .hdr-toggle', { hasText: 'X' }).click();
+  expect(await get(page, 'app.doc.scene.tool_settings.use_mesh_mirror_x')).toBe(true);
+  await hoverViewport(page);
+  await page.keyboard.press('g');
+  await page.keyboard.press('z');
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  const zs = await get(page, `(() => { const P = app.doc.meshes[app.activeObject.data].positions; const out = []; for (let i = 0; i < P.length; i += 3) if (P[i + 1] > 0.5 && P[i + 2] > 1.5) out.push(Math.round(P[i] * 100) / 100); return out.sort(); })()`);
+  expect(zs).toEqual([-1, 1]);
+  await expectNoErrors(errors);
+});

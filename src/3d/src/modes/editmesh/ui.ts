@@ -515,7 +515,33 @@ function selectModeButtons() {
       },
       icon(ic),
     );
-  return h('div', { class: 'hdr-group select-modes' }, btn(0, 'snap_vertex', 'Vertex', 'VERT'), btn(1, 'snap_edge', 'Edge', 'EDGE'), btn(2, 'snap_face', 'Face', 'FACE'));
+  return [h('div', { key: 'selmodes', class: 'hdr-group select-modes' }, btn(0, 'snap_vertex', 'Vertex', 'VERT'), btn(1, 'snap_edge', 'Edge', 'EDGE'), btn(2, 'snap_face', 'Face', 'FACE')), symmetryButtons()];
+}
+
+/** Mesh symmetry toggles: edits on one side are mirrored to the other. */
+function symmetryButtons() {
+  const ts = app.doc.scene.tool_settings;
+  const keys = ['use_mesh_mirror_x', 'use_mesh_mirror_y', 'use_mesh_mirror_z'] as const;
+  return h(
+    'div',
+    { key: 'symmetry', class: 'hdr-group mesh-symmetry', 'data-tip': 'Mesh Symmetry: mirror edits across the local axes' },
+    icon('mod_mirror'),
+    keys.map((k, i) =>
+      h(
+        'button',
+        {
+          key: k,
+          class: { 'hdr-toggle': true, on: !!ts[k] },
+          'data-tip': `Mirror editing across the local ${'XYZ'[i]} axis`,
+          onclick: () => {
+            ts[k] = !ts[k];
+            app.changed('ui');
+          },
+        },
+        'XYZ'[i],
+      ),
+    ),
+  );
 }
 
 modeMenus.EDIT = {
