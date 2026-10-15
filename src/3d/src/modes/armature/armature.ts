@@ -249,7 +249,8 @@ transformProviders.push({
           },
         });
       }
-      return { elements: els, label: 'Bones', finish: () => forkedMirror.clear(), cancel: () => forkedMirror.clear(), onUpdate: () => app.changed('doc') };
+      const actBone = a.arm.bones.find((b) => b.name === a.arm.active_bone && (b.select_head || b.select_tail));
+      return { elements: els, active: actBone ? V(actBone.head).applyMatrix4(w) : undefined, label: 'Bones', finish: () => forkedMirror.clear(), cancel: () => forkedMirror.clear(), onUpdate: () => app.changed('doc') };
     }
     if (app.doc.mode === 'POSE' && a.ob.pose) {
       const ev = app.graph.get(a.ob.id);

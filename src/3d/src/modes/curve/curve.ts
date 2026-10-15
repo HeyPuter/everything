@@ -416,8 +416,10 @@ transformProviders.push({
         els.push({ center: pts[k], basis, weight: weight[k], distance: dist[k], apply: (m: Matrix4) => movePoint(r.s, r.i, m), restore } as TElement);
       });
     }
+    const act = activePoint();
     return {
       elements: els,
+      active: act && cu.splines[act.s] ? K.pointCo(cu.splines[act.s], act.i).applyMatrix4(w) : undefined,
       label: 'Curve',
       finish() {},
       cancel() {},

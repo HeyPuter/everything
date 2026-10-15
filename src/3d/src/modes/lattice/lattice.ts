@@ -360,7 +360,7 @@ transformProviders.push({
       });
     }
     if (!els.length) return null;
-    return { elements: els, label: 'Lattice', finish() {}, cancel() {}, onUpdate: () => app.changed('doc') };
+    return { elements: els, active: activePoint >= 0 && activePoint < n && sel[activePoint] ? pts[activePoint] : undefined, label: 'Lattice', finish() {}, cancel() {}, onUpdate: () => app.changed('doc') };
   },
 });
 
