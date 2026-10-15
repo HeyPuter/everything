@@ -757,3 +757,16 @@ describe('connect vertex path', () => {
     expect([...m.edgeFaces().values()].every((l) => l.length <= 2)).toBe(true);
   });
 });
+
+import { insetFaces } from '../../src/modes/editmesh/ops-topology';
+
+describe('inset positions', () => {
+  it('insets a two-face region keeping the fold vertices on the shared edge', () => {
+    const m = cube();
+    selectFaces(m, (c) => c[2] > 0.9 || c[0] > 0.9);
+    insetFaces(m, 0.2, 0, false);
+    const pts = sorted(m);
+    for (const p of [[-0.8, -0.8, 1], [1, 0.8, -0.8], [1, 0.8, 1], [1, -0.8, 1]]) expect(pts).toContainEqual(p);
+    expect(counts(m)).toEqual([14, 24, 12]);
+  });
+});
