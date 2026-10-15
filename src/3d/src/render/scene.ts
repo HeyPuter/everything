@@ -47,6 +47,8 @@ export interface SyncedObject {
   bones?: Group;
   points?: Points;
   instances?: Group;
+  /** collection / vertex / face instances of other objects (src/object/instancing.ts) */
+  duplis?: Group;
   geomVersion: number;
   helperKey: string;
   ev: EvalObject;

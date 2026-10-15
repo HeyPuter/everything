@@ -4,6 +4,7 @@ import { app } from '../../app/app';
 import { modeMenus } from './modemenus';
 import { objectTransformMenu, mirrorMenu } from './transformui';
 import './quadview';
+import { objectModeContextMenu, selectByTypeMenu, selectGroupedMenu, selectLinkedMenu, selectMoreLessMenu } from '../../object/menus';
 
 export function viewMenu(): MenuItem[] {
   return [
@@ -135,31 +136,17 @@ export function selectMenu(): MenuItem[] {
     { separator: true },
     { label: 'Box Select', op: 'view3d.select_box', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle', shortcut: 'C' },
+    { label: 'Lasso Select', op: 'view3d.select_lasso_tool' },
     { separator: true },
-    { label: 'Select All by Type', submenu: () => ['MESH', 'CURVE', 'FONT', 'ARMATURE', 'LATTICE', 'EMPTY', 'CAMERA', 'LIGHT'].map((t) => ({ label: t[0] + t.slice(1).toLowerCase(), op: 'object.select_by_type', props: { type: t } })) },
     { label: 'Select Active Camera', op: 'object.select_camera' },
     { label: 'Select Mirror', op: 'object.select_mirror', shortcut: 'Shift Ctrl M' },
     { label: 'Select Random', op: 'object.select_random' },
     { separator: true },
-    { label: 'Select More/Less', submenu: () => [
-      { label: 'Parent', op: 'object.select_hierarchy', props: { direction: 'PARENT' }, shortcut: '[' },
-      { label: 'Child', op: 'object.select_hierarchy', props: { direction: 'CHILD' }, shortcut: ']' },
-      { label: 'Extend Parent', op: 'object.select_hierarchy', props: { direction: 'PARENT', extend: true }, shortcut: 'Shift [' },
-      { label: 'Extend Child', op: 'object.select_hierarchy', props: { direction: 'CHILD', extend: true }, shortcut: 'Shift ]' },
-    ] },
-    { label: 'Select Grouped', submenu: () => [
-      { label: 'Children', op: 'object.select_grouped', props: { type: 'CHILDREN_RECURSIVE' } },
-      { label: 'Immediate Children', op: 'object.select_grouped', props: { type: 'CHILDREN' } },
-      { label: 'Parent', op: 'object.select_grouped', props: { type: 'PARENT' } },
-      { label: 'Siblings', op: 'object.select_grouped', props: { type: 'SIBLINGS' } },
-      { label: 'Type', op: 'object.select_grouped', props: { type: 'TYPE' } },
-      { label: 'Collection', op: 'object.select_grouped', props: { type: 'COLLECTION' } },
-      { label: 'Light Type', op: 'object.select_grouped', props: { type: 'LIGHT_TYPE' } },
-    ] },
-    { label: 'Select Linked', submenu: () => [
-      { label: 'Object Data', op: 'object.select_linked', props: { type: 'OBDATA' } },
-      { label: 'Material', op: 'object.select_linked', props: { type: 'MATERIAL' } },
-    ] },
+    { label: 'Select More/Less', submenu: selectMoreLessMenu },
+    { separator: true },
+    { label: 'Select All by Type', submenu: selectByTypeMenu },
+    { label: 'Select Grouped', submenu: selectGroupedMenu, shortcut: 'Shift G' },
+    { label: 'Select Linked', submenu: selectLinkedMenu, shortcut: 'Shift L' },
     { label: 'Select Pattern…', op: 'object.select_pattern' },
   ];
 }
@@ -177,7 +164,7 @@ export function addMenu(): MenuItem[] {
     ...addMenuHooks.flatMap((f) => f()),
     { separator: true },
     { label: 'Armature', icon: 'outliner_ob_armature', op: 'object.armature_add' },
-    { label: 'Lattice', icon: 'outliner_ob_lattice', op: 'object.add', props: { type: 'LATTICE' } },
+    { label: 'Lattice', icon: 'outliner_ob_lattice', submenu: () => [{ label: 'Lattice', icon: 'outliner_ob_lattice', op: 'object.add', props: { type: 'LATTICE' } }, { label: 'Lattice Deform Selected', icon: 'mod_lattice', op: 'object.lattice_add_to_selected' }] },
     { separator: true },
     { label: 'Empty', icon: 'outliner_ob_empty', submenu: () =>
       [
@@ -189,7 +176,7 @@ export function addMenu(): MenuItem[] {
         ['SPHERE', 'Sphere'],
         ['CONE', 'Cone'],
       ].map(([t, l]) => ({ label: l, icon: 'outliner_ob_empty', op: 'object.empty_add', props: { type: t } })) },
-    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', op: 'image.import_as_mesh_planes' }] },
+    { label: 'Image', icon: 'image', submenu: () => [{ label: 'Reference', op: 'object.empty_image_add', props: { background: false } }, { label: 'Background', op: 'object.empty_image_add', props: { background: true } }, { label: 'Mesh Plane', op: 'image.import_as_mesh_planes' }, { label: 'Empty Image', op: 'object.empty_add', props: { type: 'IMAGE' } }] },
     { separator: true },
     { label: 'Light', icon: 'outliner_ob_light', submenu: () =>
       [
@@ -200,6 +187,8 @@ export function addMenu(): MenuItem[] {
       ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.light_add', props: { type: t } })) },
     { separator: true },
     { label: 'Camera', icon: 'outliner_ob_camera', op: 'object.camera_add' },
+    { separator: true },
+    { label: 'Speaker', icon: 'outliner_ob_speaker', op: 'object.speaker_add' },
     { separator: true },
     { label: 'Force Field', icon: 'force_force', submenu: () =>
       [
@@ -245,127 +234,7 @@ function curveAddMenu(): MenuItem[] {
   ];
 }
 
-export function objectMenu(): MenuItem[] {
-  return [
-    { label: 'Transform', submenu: objectTransformMenu },
-    { label: 'Set Origin', submenu: () => [
-      { label: 'Geometry to Origin', op: 'object.origin_set', props: { type: 'GEOMETRY_ORIGIN' } },
-      { label: 'Origin to Geometry', op: 'object.origin_set', props: { type: 'ORIGIN_GEOMETRY' } },
-      { label: 'Origin to 3D Cursor', op: 'object.origin_set', props: { type: 'ORIGIN_CURSOR' } },
-      { label: 'Origin to Center of Mass (Surface)', op: 'object.origin_set', props: { type: 'ORIGIN_CENTER_OF_MASS' } },
-    ] },
-    { label: 'Apply', shortcut: 'Ctrl A', submenu: applyMenu },
-    { label: 'Mirror', submenu: mirrorMenu },
-    { label: 'Clear', submenu: () => [
-      { label: 'Location', op: 'object.location_clear', shortcut: 'Alt G' },
-      { label: 'Rotation', op: 'object.rotation_clear', shortcut: 'Alt R' },
-      { label: 'Scale', op: 'object.scale_clear', shortcut: 'Alt S' },
-      { label: 'Origin', op: 'object.origin_clear', shortcut: 'Alt O' },
-    ] },
-    { label: 'Snap', submenu: snapMenu, shortcut: 'Shift S' },
-    { separator: true },
-    { label: 'Duplicate Objects', op: 'object.duplicate_move', shortcut: 'Shift D' },
-    { label: 'Duplicate Linked', op: 'object.duplicate_move_linked', shortcut: 'Alt D' },
-    { label: 'Join', op: 'object.join', shortcut: 'Ctrl J' },
-    { separator: true },
-    { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
-    { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
-    { separator: true },
-    { label: 'Parent', submenu: () => [
-      { label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' }, shortcut: 'Ctrl P' },
-      { label: 'Object (Keep Transform)', op: 'object.parent_set', props: { type: 'OBJECT', keep_transform: true } },
-      { label: 'Object (Without Inverse)', op: 'object.parent_no_inverse_set' },
-      { label: 'Armature Deform With Automatic Weights', op: 'object.parent_set', props: { type: 'ARMATURE_AUTO' } },
-      { label: 'Armature Deform With Empty Groups', op: 'object.parent_set', props: { type: 'ARMATURE_NAME' } },
-      { label: 'Bone', op: 'object.parent_set', props: { type: 'BONE' } },
-      { separator: true },
-      { label: 'Clear Parent', op: 'object.parent_clear', props: { type: 'CLEAR' }, shortcut: 'Alt P' },
-      { label: 'Clear and Keep Transformation', op: 'object.parent_clear', props: { type: 'CLEAR_KEEP_TRANSFORM' } },
-      { label: 'Clear Parent Inverse', op: 'object.parent_clear', props: { type: 'CLEAR_INVERSE' } },
-    ] },
-    { label: 'Collection', submenu: () => [
-      { label: 'Move to Collection…', op: 'object.move_to_collection', shortcut: 'M' },
-      { label: 'Link to Collection…', op: 'object.link_to_collection', shortcut: 'Shift M' },
-      { separator: true },
-      { label: 'Create New Collection', op: 'collection.create', shortcut: 'Ctrl G' },
-      { label: 'Remove from All Collections', op: 'collection.objects_remove_all' },
-    ] },
-    { label: 'Relations', submenu: () => [
-      { label: 'Make Single User', op: 'object.make_single_user' },
-      { label: 'Link/Transfer Data', submenu: () => [
-        { label: 'Link Object Data', op: 'object.make_links_data', props: { type: 'OBDATA' } },
-        { label: 'Link Materials', op: 'object.make_links_data', props: { type: 'MATERIAL' } },
-        { label: 'Copy Modifiers', op: 'object.make_links_data', props: { type: 'MODIFIERS' } },
-      ], shortcut: 'Ctrl L' },
-    ] },
-    { label: 'Constraint', submenu: () => [
-      { label: 'Add Constraint (with Targets)', op: 'object.constraint_add_with_targets' },
-      { label: 'Copy Constraints to Selected Objects', op: 'object.constraints_copy' },
-      { label: 'Clear Object Constraints', op: 'object.constraints_clear' },
-    ] },
-    { label: 'Track', submenu: () => [
-      { label: 'Damped Track Constraint', op: 'object.track_set', props: { type: 'DAMPTRACK' } },
-      { label: 'Track To Constraint', op: 'object.track_set', props: { type: 'TRACKTO' } },
-      { label: 'Lock Track Constraint', op: 'object.track_set', props: { type: 'LOCKTRACK' } },
-      { label: 'Clear Track', op: 'object.track_clear' },
-    ] },
-    { separator: true },
-    { label: 'Animation', submenu: () => [
-      { label: 'Insert Keyframe', op: 'anim.keyframe_insert', shortcut: 'I' },
-      { label: 'Insert Keyframe with Keying Set', op: 'anim.keyframe_insert_menu', shortcut: 'K' },
-      { label: 'Delete Keyframes…', op: 'anim.keyframe_delete_v3d', shortcut: 'Alt I' },
-      { label: 'Clear Keyframes…', op: 'anim.keyframe_clear_v3d', shortcut: 'Shift Alt I' },
-      { separator: true },
-      { label: 'Bake Action…', op: 'nla.bake' },
-    ] },
-    { separator: true },
-    { label: 'Shade Smooth', op: 'object.shade_smooth' },
-    { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
-    { label: 'Shade Flat', op: 'object.shade_flat' },
-    { separator: true },
-    { label: 'Rigid Body', submenu: () => [
-      { label: 'Add Active', op: 'rigidbody.objects_add', props: { type: 'ACTIVE' } },
-      { label: 'Add Passive', op: 'rigidbody.objects_add', props: { type: 'PASSIVE' } },
-      { label: 'Remove', op: 'rigidbody.objects_remove' },
-      { separator: true },
-      { label: 'Bake to Keyframes', op: 'rigidbody.bake_to_keyframes' },
-    ] },
-    { label: 'Convert', submenu: () => [
-      { label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } },
-      { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } },
-      { separator: true },
-      { label: 'Image Empty to Mesh Plane', op: 'image.convert_to_mesh_plane' },
-    ] },
-    { separator: true },
-    { label: 'Show/Hide', submenu: () => [
-      { label: 'Show Hidden Objects', op: 'object.hide_view_clear', shortcut: 'Alt H' },
-      { label: 'Hide Selected', op: 'object.hide_view_set', shortcut: 'H' },
-      { label: 'Hide Unselected', op: 'object.hide_view_set', props: { unselected: true }, shortcut: 'Shift H' },
-    ] },
-    { label: 'Clean Up', submenu: () => [{ label: 'Clear Keyframes', op: 'anim.keyframe_clear_v3d' }] },
-    { separator: true },
-    { label: 'Delete', op: 'object.delete', shortcut: 'X' },
-    { label: 'Delete Globally', op: 'object.delete', props: { use_global: true } },
-  ];
-}
-
-export function applyMenu(): MenuItem[] {
-  return [
-    { label: 'Location', op: 'object.transform_apply', props: { location: true, rotation: false, scale: false } },
-    { label: 'Rotation', op: 'object.transform_apply', props: { location: false, rotation: true, scale: false } },
-    { label: 'Scale', op: 'object.transform_apply', props: { location: false, rotation: false, scale: true } },
-    { label: 'All Transforms', op: 'object.transform_apply', props: { location: true, rotation: true, scale: true } },
-    { label: 'Rotation & Scale', op: 'object.transform_apply', props: { location: false, rotation: true, scale: true } },
-    { separator: true },
-    { label: 'Location to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'LOC' } },
-    { label: 'All Transforms to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'ALL' } },
-    { separator: true },
-    { label: 'Visual Transform', op: 'object.visual_transform_apply' },
-    { label: 'Visual Geometry to Mesh', op: 'object.convert', props: { target: 'MESH' } },
-    { label: 'Make Instances Real', op: 'object.duplicates_make_real' },
-    { label: 'Parent Inverse', op: 'object.parent_inverse_apply' },
-  ];
-}
+export { objectMenu, applyMenu } from '../../object/menus';
 
 export function snapMenu(): MenuItem[] {
   return [
@@ -384,28 +253,5 @@ export function snapMenu(): MenuItem[] {
 export function objectContextMenu(): MenuItem[] {
   const m = modeMenus[app.doc.mode]?.context;
   if (m) return m();
-  return [
-    { label: 'Shade Smooth', op: 'object.shade_smooth' },
-    { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
-    { label: 'Shade Flat', op: 'object.shade_flat' },
-    { separator: true },
-    { label: 'Convert To', submenu: () => [{ label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } }, { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } }] },
-    { separator: true },
-    { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
-    { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
-    { separator: true },
-    { label: 'Duplicate Objects', op: 'object.duplicate_move', shortcut: 'Shift D' },
-    { label: 'Duplicate Linked', op: 'object.duplicate_move_linked', shortcut: 'Alt D' },
-    { separator: true },
-    { label: 'Rename Active Object…', op: 'object.rename', shortcut: 'F2' },
-    { separator: true },
-    { label: 'Mirror', submenu: mirrorMenu },
-    { label: 'Snap', submenu: snapMenu },
-    { label: 'Parent', submenu: () => [{ label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } }, { label: 'Clear Parent', op: 'object.parent_clear', props: { type: 'CLEAR' } }] },
-    { label: 'Move to Collection', op: 'object.move_to_collection', shortcut: 'M' },
-    { separator: true },
-    { label: 'Insert Keyframe', op: 'anim.keyframe_insert', shortcut: 'I' },
-    { separator: true },
-    { label: 'Delete', op: 'object.delete', shortcut: 'X' },
-  ];
+  return objectModeContextMenu();
 }

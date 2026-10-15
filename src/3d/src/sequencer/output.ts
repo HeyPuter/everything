@@ -82,7 +82,7 @@ finalRenderHooks.createVideoWriter = async (W, H, fps, frames) => {
   if (!hasSound(ed) || !frames.length) return null;
   // with a frame step the video plays faster than real time: no matching audio
   if (frames.length > 1 && frames[1] - frames[0] !== 1) return null;
-  const buf = await mixdown(ed!, fps, frames[0], frames[frames.length - 1] + 1, MIX_RATE, 2).catch(() => null);
+  const buf = await mixdown(ed, fps, frames[0], frames[frames.length - 1] + 1, MIX_RATE, 2).catch(() => null);
   if (!buf) return null;
   const w = await createAVWriter(W, H, fps, buf);
   if (!w) app.report('WARNING', 'This browser cannot encode audio: the WebM has no sound (use Render ▸ Render Audio)');
@@ -122,7 +122,7 @@ registerOperators([
     exec: (_c, p) => {
       const s = app.doc.scene;
       const fps = s.render.fps / (s.render.fps_base || 1);
-      const ed = s.sequence_editor!;
+      const ed = s.sequence_editor;
       const name = (p.filename as string) || `${s.name || 'Scene'}.wav`;
       app.report('INFO', 'Mixing down audio…');
       void mixdown(ed, fps, s.frame_start, s.frame_end + 1, p.mixrate as number, p.channels === 'MONO' ? 1 : 2)

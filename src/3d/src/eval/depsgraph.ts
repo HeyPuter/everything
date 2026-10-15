@@ -5,6 +5,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { DocumentData, ObjectData, MeshData, ModifierBase } from '../data/types';
 import type { EvalMesh, ModifierContext } from './types';
 import { localMatrix, toMatrix4 } from './transform';
+import { vertexParentMatrix } from './vertexparent';
 import { modifierTypes } from './modifiers';
 import { constraintTypes } from './constraints';
 import { evaluatePose, type PoseResult } from './armature';
@@ -47,6 +48,13 @@ export function meshSignature(me: MeshData) {
   return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
     .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}`;
+}
+
+/** The mesh as if only its active shape key were applied, at full strength (shape key pinning). */
+export function pinnedShapeKey(me: MeshData): MeshData {
+  const act = me.active_shape_key_index;
+  if (me.shape_keys.length < 2 || act <= 0 || act >= me.shape_keys.length) return { ...me, shape_keys: me.shape_keys.map((k) => ({ ...k, value: 0 })) };
+  return { ...me, shape_keys: me.shape_keys.map((k, i) => ({ ...k, value: i === act ? 1 : 0, mute: i === act ? false : k.mute })) };
 }
 
 export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
@@ -160,6 +168,16 @@ export class Depsgraph {
       }
     }
     for (const ob of order) this.evaluateData(doc, ob, this.objects.get(ob.id)!);
+    // vertex parents follow the evaluated (deformed) parent mesh: refresh them and their children
+    if (order.some((o) => o.parent_type === 'VERTEX' || o.parent_type === 'VERTEX_3')) {
+      const moved = new Set<string>();
+      for (const ob of order) {
+        if ((ob.parent_type === 'VERTEX' || ob.parent_type === 'VERTEX_3' || (ob.parent && moved.has(ob.parent))) && ob.parent) {
+          moved.add(ob.id);
+          this.evaluateTransform(doc, ob, this.objects.get(ob.id)!);
+        }
+      }
+    }
     return this;
   }
 
@@ -202,6 +220,11 @@ export class Depsgraph {
             const tail = new Matrix4().makeTranslation(0, bone.length, 0);
             pm.multiply(bone.pose).multiply(tail);
           }
+        } else if (ob.parent_type === 'VERTEX' || ob.parent_type === 'VERTEX_3') {
+          const pos = parent.mesh?.positions ?? (parent.ob.data ? doc.meshes[parent.ob.data]?.positions : undefined);
+          const verts = ob.parent_vertices ?? [0, 0, 0];
+          const vm = pos && vertexParentMatrix(pos, ob.parent_type === 'VERTEX' ? [verts[0]] : verts);
+          if (vm) pm.multiply(vm);
         }
         ev.world.premultiply(new Matrix4().multiplyMatrices(pm, toMatrix4(ob.matrix_parent_inverse)));
       }
@@ -226,7 +249,7 @@ export class Depsgraph {
   /** Signature of all inputs to an object's evaluated geometry. */
   private dataSignature(doc: DocumentData, ob: ObjectData, me: MeshData | null): string {
     const edit = this.editObjects.has(ob.id);
-    let s = `${ob.type}|${edit ? 'E' : ''}|${this.render ? 'R' : ''}|`;
+    let s = `${ob.type}|${edit ? 'E' : ''}|${this.render ? 'R' : ''}|${ob.show_only_shape_key && me ? `pin${me.active_shape_key_index}` : ''}|`;
     if (me) s += meshSignature(me);
     else if (ob.data) {
       const cu = doc.curves[ob.data];
@@ -277,7 +300,7 @@ export class Depsgraph {
     }
     const edit = this.editObjects.has(ob.id);
     let mesh: EvalMesh;
-    if (me) mesh = baseEvalMesh(me, edit);
+    if (me) mesh = baseEvalMesh(ob.show_only_shape_key ? pinnedShapeKey(me) : me, edit);
     else {
       const cu = doc.curves[ob.data!];
       mesh = curveToMesh(cu, ob.type === 'FONT');

@@ -432,6 +432,7 @@ export function newObject(name: string, type: ObjectType, data: ID | null): Obje
     empty_display_type: 'PLAIN_AXES',
     empty_display_size: 1,
     instance_type: 'NONE',
+    instance_faces_scale: 1,
     instance_collection: null,
     modifiers: [],
     constraints: [],

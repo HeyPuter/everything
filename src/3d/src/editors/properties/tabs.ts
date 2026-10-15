@@ -12,6 +12,14 @@ import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
 import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
+import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
+import { propertiesCollection } from '../../object/relations';
+import { objectCollectionsPanel } from '../../object/collections';
+
+/** Small lock toggle used inside list rows. */
+function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
+  return h('button', { class: { 'ul-lock': true, on }, 'data-tip': tip, onpointerdown: (e: PointerEvent) => e.stopPropagation(), onclick: (e: MouseEvent) => (e.stopPropagation(), toggle()) }, icon(on ? 'locked' : 'unlocked'));
+}
 
 const ob = () => app.activeObject;
 
@@ -315,13 +323,20 @@ registerTab({
   },
   draw: () => {
     const doc = app.doc;
-    const act = app.activeObject;
-    const c = (act && Object.values(doc.collections).find((x) => x.objects.includes(act.id) && x.id !== doc.scene.collection)) ?? Object.values(doc.collections).find((x) => x.id !== doc.scene.collection);
+    const c = propertiesCollection();
     if (!c) return h('div', { class: 'prop-note' }, 'No collection');
     return [
       h('div', { class: 'id-row' }, icon('collection'), textField('col-name', c.name, (v) => ((c.name = uniqueName(doc, v, 'collections')), changed('Rename Collection')))),
       panel('col-restrict', 'Restrictions', () => [boolHeading(c, 'hide_select', 'Selectable', '', {}), bool(c, 'hide_render', 'Disable in Renders'), bool(c, 'holdout' as never, 'Holdout'), bool(c, 'indirect_only' as never, 'Indirect Only')]),
-      panel('col-instancing', 'Instancing', () => [vecProp(c, 'instance_offset', 'Offset', { unit: 'distance' })], { closed: true }),
+      panel(
+        'col-instancing',
+        'Instancing',
+        () => [
+          vecProp(c, 'instance_offset', 'Offset', { unit: 'distance' }),
+          h('div', { class: 'btn-row btn-stack' }, opButton('object.instance_offset_from_cursor'), opButton('object.instance_offset_from_object'), opButton('object.instance_offset_to_cursor')),
+        ],
+        { closed: true },
+      ),
     ];
   },
 });
@@ -362,14 +377,16 @@ registerTab({
           if (!v) o.parent_type = 'OBJECT';
           changed('Set Parent');
         })),
-        o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex']]) : null,
+        o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex'], ['VERTEX_3', '3 Vertices']]) : null,
         o.parent && o.parent_type === 'BONE' ? textProp(o, 'parent_bone', 'Parent Bone') : null,
         num(o as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
       ], { closed: true }),
-      panel('ob-collections', 'Collections', () => Object.values(doc.collections).filter((c) => c.objects.includes(o.id)).map((c) => h('div', { key: c.id, class: 'chip-row' }, icon('collection'), c.id === doc.scene.collection ? 'Scene Collection' : c.name)), { closed: true }),
+      panel('ob-collections', 'Collections', () => objectCollectionsPanel(o), { closed: true }),
       panel('ob-instancing', 'Instancing', () => [
         enumProp(o, 'instance_type', 'Instancing', [['NONE', 'None'], ['COLLECTION', 'Collection'], ['VERTS', 'Vertices'], ['FACES', 'Faces']]),
         o.instance_type === 'COLLECTION' ? splitRow('Collection', enumMenu('ob-inst-col', Object.values(doc.collections).filter((c) => c.id !== doc.scene.collection).map((c) => ({ value: c.id, label: c.name })), o.instance_collection ?? '', (v) => ((o.instance_collection = v), changed('Instance Collection')))) : null,
+        o.instance_type === 'VERTS' ? bool(o as never, 'use_instance_vertices_rotation' as never, 'Align to Vertex Normal') : null,
+        o.instance_type === 'FACES' ? [bool(o as never, 'use_instance_faces_scale' as never, 'Scale by Face Size'), o.use_instance_faces_scale && o.instance_faces_scale !== undefined ? num(o as never, 'instance_faces_scale' as never, 'Factor', { min: 0.001, max: 10000 }) : null] : null,
       ], { closed: true }),
       objectExtraPanels.map((p) => p(o)),
       panel('ob-visibility', 'Visibility', () => [
@@ -420,7 +437,7 @@ export function customProps(custom: Record<string, unknown>): Child {
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)
 
-export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number } = {}): Child {
+export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number; noUnlink?: boolean } = {}): Child {
   const cur = items.find((i) => i.id === current);
   return h(
     'div',
@@ -444,7 +461,7 @@ export function dataBlockSelector<T extends { id: string; name: string; use_fake
           opts.users && opts.users > 1 ? h('button', { class: 'ids-users', 'data-tip': 'Display number of users of this data (click to make a single-user copy)', onclick: () => opts.duplicate?.() }, String(opts.users)) : null,
           h('button', { class: { 'ids-btn': true, on: !!cur.use_fake_user }, 'data-tip': 'Fake User\nSave this data-block even if it has no users', onclick: () => ((cur.use_fake_user = !cur.use_fake_user), changed('Fake User')) }, icon(cur.use_fake_user ? 'fake_user_on' : 'fake_user_off')),
           opts.duplicate ? h('button', { class: 'ids-btn', 'data-tip': 'New (duplicate)', onclick: () => opts.duplicate!() }, icon('duplicate')) : null,
-          h('button', { class: 'ids-btn', 'data-tip': 'Unlink Data-Block', onclick: () => set(null) }, icon('x')),
+          opts.noUnlink ? null : h('button', { class: 'ids-btn', 'data-tip': 'Unlink Data-Block', onclick: () => set(null) }, icon('x')),
         ]
       : h('button', { class: 'btn ids-new', onclick: create }, icon('add'), 'New'),
   );
@@ -458,6 +475,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
   const users = Object.values(doc.objects).filter((x) => x.data === me.id).length;
   return [
     dataBlockSelector('me', 'mesh_data', Object.values(doc.meshes), me.id, (id) => id && ((o.data = id), changed('Assign Mesh')), () => {}, {
+      noUnlink: true,
       users,
       duplicate: () => {
         const d = cloneShared(me);
@@ -471,12 +489,15 @@ function meshData(o: ObjectData, me: MeshData): Child {
     panel('me-vgroups', 'Vertex Groups', () => [
       uiList(
         'vg',
-        me.vertex_groups.map((g) => ({ key: g.name, label: g.name, icon: 'group_vertex' })),
+        me.vertex_groups.map((g, i) => ({ key: g.name, label: g.name, icon: 'group_vertex', rightSize: 'compact' as const, right: lockToggle(!!g.lock_weight, 'Lock weights', () => ((me.vertex_groups[i] = { ...g, lock_weight: !g.lock_weight }), changed('Lock Vertex Group'))) })),
         o.vertex_group_active_index ?? 0,
         (i) => ((o.vertex_group_active_index = i), app.changed('doc')),
         {
           add: () => app.run('object.vertex_group_add'),
           remove: () => app.run('object.vertex_group_remove'),
+          specials: vertexGroupSpecials,
+          up: me.vertex_groups.length > 1 ? () => app.run('object.vertex_group_move', { direction: 'UP' }) : undefined,
+          down: me.vertex_groups.length > 1 ? () => app.run('object.vertex_group_move', { direction: 'DOWN' }) : undefined,
           rename: (i, name) => {
             me.vertex_groups[i].name = name;
             changed('Rename Vertex Group');
@@ -491,12 +512,25 @@ function meshData(o: ObjectData, me: MeshData): Child {
     panel('me-shapekeys', 'Shape Keys', () => [
       uiList(
         'sk',
-        me.shape_keys.map((k, i) => ({ key: k.name, label: k.name, icon: 'shapekey_data', right: i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null })),
+        me.shape_keys.map((k, i) => ({
+          key: k.name,
+          label: k.name,
+          icon: 'shapekey_data',
+          rightSize: 'wide' as const,
+          right: [
+            i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null,
+            i > 0 ? checkbox(`sk-mute.${me.id}.${i}`, '', !k.mute, (v) => ((k.mute = !v), changed('Shape Key Mute'))) : null,
+            lockToggle(!!k.lock_shape, 'Lock shape against edits', () => ((me.shape_keys[i] = { ...k, lock_shape: !k.lock_shape }), changed('Lock Shape Key'))),
+          ],
+        })),
         me.active_shape_key_index,
         (i) => ((me.active_shape_key_index = i), app.changed('doc')),
         {
           add: () => app.run('object.shape_key_add', { from_mix: false }),
           remove: () => app.run('object.shape_key_remove'),
+          specials: shapeKeySpecials,
+          up: me.shape_keys.length > 2 ? () => app.run('object.shape_key_move', { type: 'UP' }) : undefined,
+          down: me.shape_keys.length > 2 ? () => app.run('object.shape_key_move', { type: 'DOWN' }) : undefined,
           rename: (i, name) => {
             me.shape_keys[i].name = name;
             changed('Rename Shape Key');
@@ -518,7 +552,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
         : me.shape_keys.length
           ? h('div', { class: 'prop-note' }, 'The Basis key is the rest shape.')
           : null,
-      me.shape_keys.length ? bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode') : null,
+      me.shape_keys.length ? [bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'), bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode')] : null,
     ]),
     panel('me-uvmaps', 'UV Maps', () => [uiList('uv', [{ key: me.uv_map_name, label: me.uv_map_name, icon: 'uv' }], 0, () => {}, { rename: (_i, name) => ((me.uv_map_name = name), changed('Rename UV Map')) })]),
     panel('me-colors', 'Color Attributes', () => [
@@ -530,6 +564,11 @@ function meshData(o: ObjectData, me: MeshData): Child {
         { add: () => app.run('geometry.color_attribute_add'), remove: () => app.run('geometry.color_attribute_remove') },
       ),
     ]),
+    panel('me-remesh', 'Remesh', () => [
+      splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
+      h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
+    ], { closed: true }),
+    panel('me-geodata', 'Geometry Data', () => [h('div', { class: 'btn-row' }, opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data'))], { closed: true }),
     panel('me-normals', 'Normals', () => [
       splitRow('Auto Smooth', checkbox('me-autosmooth', '', me.auto_smooth_angle !== undefined, (v) => ((me.auto_smooth_angle = v ? (30 * Math.PI) / 180 : undefined), changed('Auto Smooth')))),
       me.auto_smooth_angle !== undefined ? num(me as never, 'auto_smooth_angle' as never, 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,
@@ -540,7 +579,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
 function lightData(o: ObjectData, la: LightData): Child {
   const anim = (path: string) => ({ ob: o, path: `data.${path}` });
   return [
-    dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}),
+    dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}, { noUnlink: true }),
     panel('la-light', 'Light', () => [
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
@@ -566,7 +605,7 @@ function lightData(o: ObjectData, la: LightData): Child {
 function cameraData(o: ObjectData, ca: CameraData): Child {
   const doc = app.doc;
   return [
-    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}),
+    dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }),
     panel('ca-lens', 'Lens', () => [
       enumProp(ca, 'type', 'Type', [['PERSP', 'Perspective'], ['ORTHO', 'Orthographic'], ['PANO', 'Panoramic']]),
       ca.type === 'ORTHO'
@@ -594,7 +633,7 @@ function cameraData(o: ObjectData, ca: CameraData): Child {
 function curveData(o: ObjectData, cu: CurveData): Child {
   const isText = o.type === 'FONT';
   return [
-    dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}),
+    dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
       ? panel('cu-text', 'Text', () => [
           splitRow('Body', h('textarea', { class: 'text-body', value: cu.body ?? '', onchange: (e: Event) => ((cu.body = (e.target as HTMLTextAreaElement).value), changed('Edit Text')), onkeydown: (e: KeyboardEvent) => e.stopPropagation() })),
@@ -615,6 +654,9 @@ function curveData(o: ObjectData, cu: CurveData): Child {
   ];
 }
 
+/** Object Data tab contents for object types defined by feature modules (e.g. speakers). */
+export const dataTabDrawers: Record<string, (o: ObjectData) => Child> = {};
+
 registerTab({
   id: 'DATA',
   label: 'Data',
@@ -627,6 +669,8 @@ registerTab({
   draw: () => {
     const o = ob()!;
     const doc = app.doc;
+    const extra = dataTabDrawers[o.type];
+    if (extra) return extra(o);
     if (o.type === 'MESH' && o.data) return meshData(o, doc.meshes[o.data]);
     if (o.type === 'LIGHT' && o.data) return lightData(o, doc.lights[o.data]);
     if (o.type === 'CAMERA' && o.data) return cameraData(o, doc.cameras[o.data]);
@@ -634,7 +678,7 @@ registerTab({
     if (o.type === 'ARMATURE' && o.data) {
       const arm = doc.armatures[o.data];
       return [
-        dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}),
+        dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}, { noUnlink: true }),
         panel('ar-skeleton', 'Skeleton', () => [enumRow('ar-pose', [{ value: 'POSE', label: 'Pose Position' }, { value: 'REST', label: 'Rest Position' }], arm.pose_position, (v) => ((arm.pose_position = v as 'POSE'), changed('Pose Position')))]),
         panel('ar-display', 'Viewport Display', () => [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')]),
         panel('ar-bones', 'Bones', () => arm.bones.map((b) => h('div', { key: b.name, class: { 'chip-row': true, on: arm.active_bone === b.name }, onclick: () => ((arm.active_bone = b.name), app.changed('doc')) }, icon('bone_data'), b.name))),
@@ -690,6 +734,9 @@ registerTab({
         {
           add: () => app.run('object.material_slot_add'),
           remove: () => app.run('object.material_slot_remove'),
+          specials: materialSpecials,
+          up: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'UP' }) : undefined,
+          down: slots.length > 1 ? () => app.run('object.material_slot_move', { direction: 'DOWN' }) : undefined,
           extra: app.doc.mode === 'EDIT' ? h('div', { class: 'btn-row' }, opButton('object.material_slot_assign', 'Assign'), opButton('object.material_slot_select', 'Select'), opButton('object.material_slot_deselect', 'Deselect')) : null,
         },
       ),

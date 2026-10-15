@@ -111,6 +111,11 @@ transformProviders.push({
       let any = false;
       for (let i = 0; i < nv; i++) if (sel[i] && !me.hide_vert?.[i]) any = true;
       if (!any) continue;
+      const editedKey = me.shape_keys[me.use_shape_key_edit_mode ? me.active_shape_key_index : 0];
+      if (editedKey?.lock_shape) {
+        app.report('WARNING', `Shape key "${editedKey.name}" is locked`);
+        continue;
+      }
       const normal = selectionNormal(me);
       const basisObj = basisFromNormal(normal);
       const wrot = new Matrix3().setFromMatrix4(world);

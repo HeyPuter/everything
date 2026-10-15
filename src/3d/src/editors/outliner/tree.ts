@@ -141,6 +141,7 @@ export const OB_ICON: Record<string, string> = {
   LATTICE: 'outliner_ob_lattice',
   POINTCLOUD: 'outliner_ob_pointcloud',
   GREASEPENCIL: 'outliner_ob_greasepencil',
+  SPEAKER: 'outliner_ob_speaker',
 };
 export const DATA_ICON: Record<string, string> = {
   MESH: 'mesh_data',

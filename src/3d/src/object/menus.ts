@@ -1,0 +1,368 @@
+// Object Mode menus: Object menu and its submenus, Apply (Ctrl A), Link/Transfer Data (Ctrl L),
+// Set Parent To (Ctrl P), the object context menu and the Select menu entries.
+import { app } from '../app/app';
+import type { DocumentData } from '../data/types';
+import type { MenuItem } from '../ui/menu';
+import { snapMenu } from '../editors/view3d/menus';
+import { addModifierMenu } from '../editors/properties/stack';
+import { objectTransformMenu as transformMenu, mirrorMenu } from '../editors/view3d/transformui';
+
+export { mirrorMenu };
+
+export function originMenu(): MenuItem[] {
+  return [
+    { label: 'Geometry to Origin', op: 'object.origin_set', props: { type: 'GEOMETRY_ORIGIN' } },
+    { label: 'Origin to Geometry', op: 'object.origin_set', props: { type: 'ORIGIN_GEOMETRY' } },
+    { label: 'Origin to 3D Cursor', op: 'object.origin_set', props: { type: 'ORIGIN_CURSOR' } },
+    { label: 'Origin to Center of Mass (Surface)', op: 'object.origin_set', props: { type: 'ORIGIN_CENTER_OF_MASS' } },
+    { label: 'Origin to Center of Mass (Volume)', op: 'object.origin_set', props: { type: 'ORIGIN_CENTER_OF_VOLUME' } },
+  ];
+}
+
+function clearMenu(): MenuItem[] {
+  return [
+    { label: 'Location', op: 'object.location_clear', shortcut: 'Alt G' },
+    { label: 'Rotation', op: 'object.rotation_clear', shortcut: 'Alt R' },
+    { label: 'Scale', op: 'object.scale_clear', shortcut: 'Alt S' },
+    { separator: true },
+    { label: 'Origin', op: 'object.origin_clear', shortcut: 'Alt O' },
+  ];
+}
+
+export function applyMenu(): MenuItem[] {
+  const t = (location: boolean, rotation: boolean, scale: boolean) => ({ location, rotation, scale });
+  return [
+    { label: 'Location', op: 'object.transform_apply', props: t(true, false, false) },
+    { label: 'Rotation', op: 'object.transform_apply', props: t(false, true, false) },
+    { label: 'Scale', op: 'object.transform_apply', props: t(false, false, true) },
+    { label: 'All Transforms', op: 'object.transform_apply', props: t(true, true, true) },
+    { label: 'Rotation & Scale', op: 'object.transform_apply', props: t(false, true, true) },
+    { separator: true },
+    { label: 'Location to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'LOC' } },
+    { label: 'Rotation to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'ROT' } },
+    { label: 'Scale to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'SCALE' } },
+    { label: 'All Transforms to Deltas', op: 'object.transforms_to_deltas', props: { mode: 'ALL' } },
+    { label: 'Animated Transforms to Deltas', op: 'object.anim_transforms_to_deltas' },
+    { separator: true },
+    { label: 'Visual Transform', op: 'object.visual_transform_apply' },
+    { label: 'Visual Geometry to Mesh', op: 'object.convert', props: { target: 'MESH' } },
+    { label: 'Visual Geometry to Objects', op: 'object.visual_geometry_to_objects' },
+    { label: 'Make Instances Real', op: 'object.duplicates_make_real' },
+    { label: 'Parent Inverse', op: 'object.parent_inverse_apply' },
+  ];
+}
+
+/** Collection tree as menu items, each running `op` with the collection id. */
+function collectionTree(doc: DocumentData, op: string, cid = doc.scene.collection, withNew = true): MenuItem[] {
+  const c = doc.collections[cid];
+  if (!c) return [];
+  const self: MenuItem = { label: c.name, icon: cid === doc.scene.collection ? 'scene' : 'collection', op, props: { collection: cid } };
+  const kids = c.children
+    .filter((ch) => doc.collections[ch])
+    .map((ch): MenuItem => {
+      const cc = doc.collections[ch];
+      return cc.children.length ? { label: cc.name, icon: 'collection', submenu: () => collectionTree(doc, op, ch, withNew) } : { label: cc.name, icon: 'collection', op, props: { collection: ch } };
+    });
+  return [self, ...kids, ...(withNew && op === 'object.move_to_collection' ? [{ separator: true }, { label: 'New Collection', icon: 'add', op, props: { collection: cid, is_new: true } }] : [])];
+}
+
+export function moveToCollectionMenu(): MenuItem[] {
+  return collectionTree(app.doc, 'object.move_to_collection');
+}
+
+function collectionMenu(): MenuItem[] {
+  return [
+    { label: 'Move to Collection', submenu: moveToCollectionMenu, shortcut: 'M' },
+    { label: 'Link to Collection', submenu: () => collectionTree(app.doc, 'object.link_to_collection'), shortcut: 'Shift M' },
+    { separator: true },
+    { label: 'Create New Collection', op: 'collection.create', shortcut: 'Ctrl G' },
+    { label: 'Remove from Collection…', op: 'collection.objects_remove', shortcut: 'Ctrl Alt G' },
+    { label: 'Remove from All Collections', op: 'collection.objects_remove_all', shortcut: 'Shift Ctrl Alt G' },
+    { separator: true },
+    { label: 'Add Selected to Active Collection', op: 'collection.objects_add_active', shortcut: 'Shift Ctrl G' },
+    { label: 'Remove Selected from Active Collection', op: 'collection.objects_remove_active', shortcut: 'Shift Alt G' },
+  ];
+}
+
+function singleUserMenu(): MenuItem[] {
+  return [
+    { label: 'Object & Data', op: 'object.make_single_user', props: { obdata: true, material: false, animation: false } },
+    { label: 'Object & Data & Materials', op: 'object.make_single_user', props: { obdata: true, material: true, animation: false } },
+    { label: 'Materials', op: 'object.make_single_user', props: { obdata: false, material: true, animation: false } },
+    { label: 'Object Animation', op: 'object.make_single_user', props: { obdata: false, material: false, animation: true } },
+  ];
+}
+
+function relationsMenu(): MenuItem[] {
+  return [{ label: 'Make Instance Face', op: 'object.make_dupli_face' }, { separator: true }, { label: 'Make Single User', submenu: singleUserMenu }];
+}
+
+/** Parent types that make sense for the active (parent) object. */
+export function parentSetMenu(): MenuItem[] {
+  const parent = app.activeObject;
+  const items: MenuItem[] = [
+    { label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } },
+    { label: 'Object (Keep Transform)', op: 'object.parent_set', props: { type: 'OBJECT', keep_transform: true } },
+  ];
+  if (parent?.type === 'ARMATURE')
+    items.push(
+      { label: 'Armature Deform', op: 'object.parent_set', props: { type: 'ARMATURE' } },
+      { label: '   With Empty Groups', op: 'object.parent_set', props: { type: 'ARMATURE_NAME' } },
+      { label: '   With Automatic Weights', op: 'object.parent_set', props: { type: 'ARMATURE_AUTO' } },
+      { label: 'Bone', op: 'object.parent_set', props: { type: 'BONE' } },
+    );
+  if (parent?.type === 'CURVE') items.push({ label: 'Curve Deform', op: 'object.parent_set', props: { type: 'CURVE' } });
+  if (parent?.type === 'LATTICE') items.push({ label: 'Lattice Deform', op: 'object.parent_set', props: { type: 'LATTICE' } });
+  return items;
+}
+
+export function parentClearMenu(): MenuItem[] {
+  return [
+    { label: 'Clear Parent', op: 'object.parent_clear', props: { type: 'CLEAR' } },
+    { label: 'Clear and Keep Transformation', op: 'object.parent_clear', props: { type: 'CLEAR_KEEP_TRANSFORM' } },
+    { label: 'Clear Parent Inverse', op: 'object.parent_clear', props: { type: 'CLEAR_INVERSE' } },
+  ];
+}
+
+function parentMenu(): MenuItem[] {
+  return [
+    ...parentSetMenu(),
+    { separator: true },
+    { label: 'Make Parent without Inverse', op: 'object.parent_no_inverse_set' },
+    { label: 'Make Parent without Inverse (Keep Transform)', op: 'object.parent_no_inverse_set', props: { keep_transform: true } },
+    { separator: true },
+    ...parentClearMenu(),
+  ];
+}
+
+function modifiersMenu(): MenuItem[] {
+  return [
+    { label: 'Add Modifier', submenu: addModifierMenu, disabled: !app.poll('object.modifier_add') },
+    { label: 'Copy Modifiers to Selected Objects', op: 'object.modifiers_copy_to_selected' },
+    { separator: true },
+    { label: 'Clear Object Modifiers', op: 'object.modifiers_clear' },
+  ];
+}
+
+function constraintsMenu(): MenuItem[] {
+  return [
+    { label: 'Add Constraint (with Targets)', op: 'object.constraint_add_with_targets' },
+    { label: 'Copy Constraints to Selected Objects', op: 'object.constraints_copy' },
+    { separator: true },
+    { label: 'Clear Object Constraints', op: 'object.constraints_clear' },
+  ];
+}
+
+function trackMenu(): MenuItem[] {
+  return [
+    { label: 'Damped Track Constraint', op: 'object.track_set', props: { type: 'DAMPTRACK' } },
+    { label: 'Track To Constraint', op: 'object.track_set', props: { type: 'TRACKTO' } },
+    { label: 'Lock Track Constraint', op: 'object.track_set', props: { type: 'LOCKTRACK' } },
+    { separator: true },
+    { label: 'Clear Track', op: 'object.track_clear', props: { type: 'CLEAR' } },
+    { label: 'Clear Track (Keep Transformation)', op: 'object.track_clear', props: { type: 'CLEAR_KEEP_TRANSFORM' } },
+  ];
+}
+
+export function linkDataMenu(): MenuItem[] {
+  const l = (label: string, type: string): MenuItem => ({ label, op: 'object.make_links_data', props: { type } });
+  return [
+    l('Link Object Data', 'OBDATA'),
+    l('Link Materials', 'MATERIAL'),
+    l('Link Animation Data', 'ANIMATION'),
+    l('Link Collections', 'GROUPS'),
+    l('Link Instance Collection', 'DUPLICOLLECTION'),
+    l('Link Fonts to Text', 'FONTS'),
+    l('Copy Modifiers', 'MODIFIERS'),
+    { label: 'Copy UV Maps', op: 'object.join_uvs' },
+    { separator: true },
+    { label: 'Transfer Mesh Data', op: 'object.data_transfer' },
+    { label: 'Transfer Mesh Data Layout', op: 'object.datalayout_transfer' },
+  ];
+}
+
+function animationMenu(): MenuItem[] {
+  return [
+    { label: 'Insert Keyframe', op: 'anim.keyframe_insert', shortcut: 'I' },
+    { label: 'Insert Keyframe with Keying Set…', op: 'anim.keyframe_insert_menu', shortcut: 'K' },
+    { label: 'Delete Keyframes…', op: 'anim.keyframe_delete_v3d', shortcut: 'Alt I' },
+    { label: 'Clear Keyframes…', op: 'anim.keyframe_clear_v3d', shortcut: 'Shift Alt I' },
+    { separator: true },
+    { label: 'Bake Action…', op: 'nla.bake' },
+  ];
+}
+
+function rigidBodyMenu(): MenuItem[] {
+  const shapes: [string, string][] = [
+    ['BOX', 'Box'],
+    ['SPHERE', 'Sphere'],
+    ['CAPSULE', 'Capsule'],
+    ['CYLINDER', 'Cylinder'],
+    ['CONE', 'Cone'],
+    ['CONVEX_HULL', 'Convex Hull'],
+    ['MESH', 'Mesh'],
+  ];
+  return [
+    { label: 'Add Active', op: 'rigidbody.objects_add', props: { type: 'ACTIVE' } },
+    { label: 'Add Passive', op: 'rigidbody.objects_add', props: { type: 'PASSIVE' } },
+    { separator: true },
+    { label: 'Remove', op: 'rigidbody.objects_remove' },
+    { separator: true },
+    { label: 'Change Shape', submenu: () => shapes.map(([v, l]) => ({ label: l, op: 'rigidbody.shape_change', props: { type: v } })), disabled: !app.poll('rigidbody.shape_change') },
+    { label: 'Calculate Mass', op: 'rigidbody.mass_calculate' },
+    { label: 'Copy from Active', op: 'rigidbody.object_settings_copy' },
+    { label: 'Apply Transformation', op: 'object.visual_transform_apply' },
+    { label: 'Bake to Keyframes', op: 'rigidbody.bake_to_keyframes' },
+    { separator: true },
+    { label: 'Connect', op: 'rigidbody.connect' },
+  ];
+}
+
+export function convertMenu(): MenuItem[] {
+  return [
+    { label: 'Mesh', icon: 'outliner_ob_mesh', op: 'object.convert', props: { target: 'MESH' } },
+    { label: 'Curve', icon: 'outliner_ob_curve', op: 'object.convert', props: { target: 'CURVE' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'FONT') },
+    { label: 'Point Cloud', icon: 'outliner_ob_pointcloud', op: 'object.convert', props: { target: 'POINTCLOUD' }, disabled: !app.selectedObjects().some((o) => o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT') },
+  ];
+}
+
+function showHideMenu(): MenuItem[] {
+  return [
+    { label: 'Show Hidden Objects', op: 'object.hide_view_clear', shortcut: 'Alt H' },
+    { separator: true },
+    { label: 'Hide Selected', op: 'object.hide_view_set', props: { unselected: false }, shortcut: 'H' },
+    { label: 'Hide Unselected', op: 'object.hide_view_set', props: { unselected: true }, shortcut: 'Shift H' },
+  ];
+}
+
+function cleanUpMenu(): MenuItem[] {
+  return [
+    { label: 'Clean Vertex Group Weights', op: 'object.vertex_group_clean', props: { group_select_mode: 'ALL' } },
+    { label: 'Limit Total Vertex Groups', op: 'object.vertex_group_limit_total' },
+    { separator: true },
+    { label: 'Remove Unused Material Slots', op: 'object.material_slot_remove_unused' },
+    { label: 'Remove All Materials', op: 'object.material_slot_remove_all' },
+  ];
+}
+
+export function objectMenu(): MenuItem[] {
+  return [
+    { label: 'Transform', submenu: transformMenu },
+    { label: 'Set Origin', submenu: originMenu },
+    { label: 'Mirror', submenu: mirrorMenu },
+    { label: 'Clear', submenu: clearMenu },
+    { label: 'Apply', shortcut: 'Ctrl A', submenu: applyMenu },
+    { label: 'Snap', submenu: snapMenu, shortcut: 'Shift S' },
+    { separator: true },
+    { label: 'Duplicate Objects', op: 'object.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Linked', op: 'object.duplicate_move_linked', shortcut: 'Alt D' },
+    { label: 'Join', op: 'object.join', shortcut: 'Ctrl J' },
+    { separator: true },
+    { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
+    { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
+    { separator: true },
+    { label: 'Collection', submenu: collectionMenu },
+    { separator: true },
+    { label: 'Relations', submenu: relationsMenu },
+    { label: 'Parent', submenu: parentMenu },
+    { label: 'Modifiers', submenu: modifiersMenu },
+    { label: 'Constraint', submenu: constraintsMenu },
+    { label: 'Track', submenu: trackMenu },
+    { label: 'Link/Transfer Data', submenu: linkDataMenu, shortcut: 'Ctrl L' },
+    { separator: true },
+    { label: 'Shade Smooth', op: 'object.shade_smooth' },
+    { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
+    { label: 'Shade Flat', op: 'object.shade_flat' },
+    { separator: true },
+    { label: 'Animation', submenu: animationMenu },
+    { label: 'Rigid Body', submenu: rigidBodyMenu },
+    { separator: true },
+    { label: 'Quick Effects', submenu: () => [{ label: 'Quick Fur', op: 'object.quick_fur' }, { label: 'Quick Smoke', op: 'object.quick_smoke' }] },
+    { separator: true },
+    { label: 'Convert', submenu: convertMenu },
+    { separator: true },
+    { label: 'Show/Hide', submenu: showHideMenu },
+    { label: 'Clean Up', submenu: cleanUpMenu },
+    { separator: true },
+    { label: 'Delete', op: 'object.delete', props: { use_global: false }, shortcut: 'X' },
+    { label: 'Delete Globally', op: 'object.delete', props: { use_global: true }, shortcut: 'Shift X' },
+  ];
+}
+
+/** Right click / W in Object Mode. */
+export function objectModeContextMenu(): MenuItem[] {
+  return [
+    { label: 'Shade Smooth', op: 'object.shade_smooth' },
+    { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
+    { label: 'Shade Flat', op: 'object.shade_flat' },
+    { separator: true },
+    { label: 'Convert To', submenu: convertMenu },
+    { label: 'Set Origin', submenu: originMenu },
+    { separator: true },
+    { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
+    { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
+    { separator: true },
+    { label: 'Duplicate Objects', op: 'object.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Linked', op: 'object.duplicate_move_linked', shortcut: 'Alt D' },
+    { separator: true },
+    { label: 'Rename Active Object…', op: 'object.rename', shortcut: 'F2' },
+    { separator: true },
+    { label: 'Mirror', submenu: mirrorMenu },
+    { label: 'Snap', submenu: snapMenu },
+    { label: 'Parent', submenu: parentMenu },
+    { label: 'Move to Collection', submenu: moveToCollectionMenu },
+    { separator: true },
+    { label: 'Insert Keyframe', op: 'anim.keyframe_insert', shortcut: 'I' },
+    { label: 'Insert Keyframe with Keying Set…', op: 'anim.keyframe_insert_menu', shortcut: 'K' },
+    { separator: true },
+    { label: 'Delete', op: 'object.delete', props: { use_global: false }, shortcut: 'X' },
+  ];
+}
+
+export function selectMoreLessMenu(): MenuItem[] {
+  return [
+    { label: 'More', op: 'object.select_more', shortcut: 'Ctrl Numpad +' },
+    { label: 'Less', op: 'object.select_less', shortcut: 'Ctrl Numpad -' },
+    { separator: true },
+    { label: 'Parent', op: 'object.select_hierarchy', props: { direction: 'PARENT', extend: false }, shortcut: '[' },
+    { label: 'Child', op: 'object.select_hierarchy', props: { direction: 'CHILD', extend: false }, shortcut: ']' },
+    { separator: true },
+    { label: 'Extend Parent', op: 'object.select_hierarchy', props: { direction: 'PARENT', extend: true }, shortcut: 'Shift [' },
+    { label: 'Extend Child', op: 'object.select_hierarchy', props: { direction: 'CHILD', extend: true }, shortcut: 'Shift ]' },
+  ];
+}
+
+export function selectGroupedMenu(): MenuItem[] {
+  const g = (label: string, type: string): MenuItem => ({ label, op: 'object.select_grouped', props: { type } });
+  return [
+    g('Children', 'CHILDREN_RECURSIVE'),
+    g('Immediate Children', 'CHILDREN'),
+    g('Parent', 'PARENT'),
+    g('Siblings', 'SIBLINGS'),
+    g('Type', 'TYPE'),
+    g('Collection', 'COLLECTION'),
+    g('Hook', 'HOOK'),
+    g('Pass', 'PASS'),
+    g('Color', 'COLOR'),
+    g('Light Type', 'LIGHT_TYPE'),
+  ];
+}
+
+export function selectLinkedMenu(): MenuItem[] {
+  const l = (label: string, type: string): MenuItem => ({ label, op: 'object.select_linked', props: { type } });
+  return [l('Object Data', 'OBDATA'), l('Material', 'MATERIAL'), l('Instanced Collection', 'DUPGROUP'), l('Particle System', 'PARTICLE')];
+}
+
+export function selectByTypeMenu(): MenuItem[] {
+  return [
+    ['MESH', 'Mesh', 'outliner_ob_mesh'],
+    ['CURVE', 'Curve', 'outliner_ob_curve'],
+    ['FONT', 'Text', 'outliner_ob_font'],
+    ['ARMATURE', 'Armature', 'outliner_ob_armature'],
+    ['LATTICE', 'Lattice', 'outliner_ob_lattice'],
+    ['EMPTY', 'Empty', 'outliner_ob_empty'],
+    ['CAMERA', 'Camera', 'outliner_ob_camera'],
+    ['LIGHT', 'Light', 'outliner_ob_light'],
+    ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
+  ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.select_by_type', props: { type: t } }));
+}

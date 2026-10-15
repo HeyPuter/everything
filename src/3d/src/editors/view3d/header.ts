@@ -196,6 +196,7 @@ export function viewHeader(v: View3D): Child {
               ['EMPTY', 'Empty', 'outliner_ob_empty'],
               ['LIGHT', 'Light', 'outliner_ob_light'],
               ['CAMERA', 'Camera', 'outliner_ob_camera'],
+              ['SPEAKER', 'Speaker', 'outliner_ob_speaker'],
             ] as const
           ).map(([t, label, ic]) =>
             h(

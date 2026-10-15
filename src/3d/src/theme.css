@@ -728,6 +728,9 @@ input.num-field.editing {
 .btn-row > * {
   flex: 1;
 }
+.btn-row.btn-stack {
+  flex-direction: column;
+}
 .icon-btn {
   width: 22px;
   height: 22px;
@@ -1780,6 +1783,9 @@ input.num-field.editing {
   justify-content: flex-start;
   background: var(--w-menu);
 }
+.panel.modifier.active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
 .panel.modifier .mod-header {
   gap: 3px;
 }
@@ -1854,6 +1860,80 @@ input.num-field.editing {
 .ul-right {
   width: 45%;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.ul-right > :first-child:not(.ul-lock) {
+  flex: 1;
+  min-width: 0;
+}
+.ul-right.compact {
+  width: auto;
+}
+.ul-right.wide {
+  width: 62%;
+}
+.col-box {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin: 4px 0;
+}
+.col-box-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.col-box-head > :nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.vw-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0;
+}
+.vw-row .vw-name {
+  flex: 0 0 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.vw-row.on .vw-name {
+  color: var(--accent-text, #fff);
+  font-weight: 600;
+}
+.vw-row .num-field {
+  flex: 1;
+  min-width: 0;
+}
+.ul-lock {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.ul-lock.on,
+.ul-lock:hover {
+  opacity: 1;
 }
 .ul-meta {
   color: #aaa;

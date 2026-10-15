@@ -5,12 +5,15 @@ import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
 import { keyInputHooks } from '../../app/keymap';
+import { openMenu, type MenuItem } from '../../ui/menu';
 
 export interface ListItem {
   key: string;
   label: string;
   icon?: string;
   right?: Child;
+  /** width of the right-hand part: 'compact' (just icons) or 'wide' (several widgets) */
+  rightSize?: 'compact' | 'wide';
 }
 
 interface ListFilter {
@@ -58,7 +61,7 @@ export function uiList(
   items: ListItem[],
   active: number,
   setActive: (i: number) => void,
-  opts: { add?: () => void; remove?: () => void; rename?: (i: number, name: string) => void; extra?: Child; up?: () => void; down?: () => void; rows?: number } = {},
+  opts: { add?: () => void; remove?: () => void; rename?: (i: number, name: string) => void; extra?: Child; up?: () => void; down?: () => void; rows?: number; specials?: () => MenuItem[] } = {},
 ): Child {
   const f = filterOf(id);
   const visible = visibleIndices(items, f);
@@ -127,7 +130,7 @@ export function uiList(
                   },
                 })
               : h('span', { class: 'ul-label' }, it.label),
-            it.right ? h('span', { class: 'ul-right' }, it.right) : null,
+            it.right ? h('span', { class: { 'ul-right': true, compact: it.rightSize === 'compact', wide: it.rightSize === 'wide' } }, it.right) : null,
           );
         }),
       ),
@@ -136,6 +139,20 @@ export function uiList(
         { class: 'ul-side' },
         opts.add ? h('button', { class: 'icon-btn', 'data-tip': 'Add', onclick: opts.add }, icon('add')) : null,
         opts.remove ? h('button', { class: 'icon-btn', 'data-tip': 'Remove', disabled: !items.length, onclick: opts.remove }, icon('remove')) : null,
+        opts.specials
+          ? h(
+              'button',
+              {
+                class: 'icon-btn ul-specials',
+                'data-tip': 'More options',
+                onpointerdown: (e: PointerEvent) => {
+                  e.preventDefault();
+                  openMenu(opts.specials!(), e.currentTarget as HTMLElement);
+                },
+              },
+              icon('down_arrow_hlt'),
+            )
+          : null,
         opts.up ? h('button', { class: 'icon-btn', 'data-tip': 'Move Up', onclick: opts.up }, icon('triangle_up')) : null,
         opts.down ? h('button', { class: 'icon-btn', 'data-tip': 'Move Down', onclick: opts.down }, icon('triangle_down')) : null,
       ),

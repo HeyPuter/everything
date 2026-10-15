@@ -22,7 +22,8 @@ export type ObjectType =
   | 'ARMATURE'
   | 'LATTICE'
   | 'POINTCLOUD'
-  | 'GREASEPENCIL';
+  | 'GREASEPENCIL'
+  | 'SPEAKER';
 
 export type RotationMode = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX' | 'QUATERNION' | 'AXIS_ANGLE';
 
@@ -61,6 +62,8 @@ export interface ShapeKey {
   mute: boolean;
   relative_key: string; // name of the basis key
   vertex_group?: string;
+  /** protected from edits (Edit Mode shape editing, sculpting) */
+  lock_shape?: boolean;
 }
 
 export interface ColorAttribute {
@@ -693,7 +696,9 @@ export interface ObjectData {
   type: ObjectType;
   data: ID | null;
   parent: ID | null;
-  parent_type: 'OBJECT' | 'BONE' | 'VERTEX';
+  parent_type: 'OBJECT' | 'BONE' | 'VERTEX' | 'VERTEX_3';
+  /** vertex indices of a VERTEX (first) / VERTEX_3 (all three) parent */
+  parent_vertices?: [number, number, number];
   parent_bone: string;
   /** inverse of the parent's world matrix at parenting time */
   matrix_parent_inverse: Mat4;
@@ -733,6 +738,11 @@ export interface ObjectData {
   use_empty_image_alpha?: boolean;
   instance_type: 'NONE' | 'COLLECTION' | 'VERTS' | 'FACES';
   instance_collection: ID | null;
+  /** vertex instancing: rotate instances to the vertex normal */
+  use_instance_vertices_rotation?: boolean;
+  /** face instancing: scale instances by the face size */
+  use_instance_faces_scale?: boolean;
+  instance_faces_scale?: number;
   modifiers: ModifierBase[];
   constraints: Constraint[];
   animation_data: AnimData | null;
@@ -746,6 +756,10 @@ export interface ObjectData {
   field: ForceField | null;
   collision: CollisionSettings | null;
   vertex_group_active_index?: number;
+  /** show only the active shape key, at full strength */
+  show_only_shape_key?: boolean;
+  /** sound settings of a SPEAKER object */
+  speaker?: import('../object/speaker').SpeakerSettings;
   pass_index?: number;
   is_shadow_catcher?: boolean;
   is_holdout?: boolean;
