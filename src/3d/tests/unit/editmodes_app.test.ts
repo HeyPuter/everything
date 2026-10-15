@@ -112,3 +112,67 @@ describe('custom fonts', () => {
     expect((doc.curves[ob.data!] as CurveData).font).toBe('vf1');
   });
 });
+
+describe('join curves and armatures', () => {
+  it('joins curve splines into the active curve, in place', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('curve.primitive_bezier_curve_add', { location: [0, 0, 0] });
+    const a = app.activeObject!;
+    app.run('curve.primitive_bezier_circle_add', { location: [5, 0, 0] });
+    const b = app.activeObject!;
+    a.select = b.select = true;
+    app.doc.scene.active_object = a.id;
+    app.graph.evaluate(app.doc);
+    expect(app.run('object.join')).toBe('FINISHED');
+    expect(app.doc.objects[b.id]).toBeUndefined();
+    const cu = app.doc.curves[a.data!];
+    expect(cu.splines.length).toBe(2);
+    // circle points moved by the object offset
+    const xs = cu.splines[1].bezier_points.map((p) => p.co[0]);
+    expect(Math.min(...xs)).toBeGreaterThan(3);
+  });
+
+  it('joins armatures, renaming clashing bones and keeping collections', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add', { location: [0, 0, 0] });
+    const a = app.activeObject!;
+    app.run('object.armature_add', { location: [2, 0, 0] });
+    const b = app.activeObject!;
+    a.select = b.select = true;
+    app.doc.scene.active_object = a.id;
+    app.graph.evaluate(app.doc);
+    expect(app.run('object.join')).toBe('FINISHED');
+    const arm = app.doc.armatures[a.data!];
+    expect(arm.bones.map((x) => x.name)).toEqual(['Bone', 'Bone.001']);
+    expect(arm.bones[1].head.map((v) => +v.toFixed(4))).toEqual([2, 0, 0]);
+    expect(arm.bones[1].collections).toEqual(['Bones']);
+    expect(arm.collections!.length).toBe(1);
+    expect(Object.keys(a.pose!)).toEqual(['Bone', 'Bone.001']);
+  });
+});
+
+import { boneRestMatrix } from '../../src/eval/armature';
+import { Vector3 as V3 } from 'three';
+
+describe('join keeps bone orientation', () => {
+  it('rotated armatures keep their bones\' roll in world space', () => {
+    app.run('object.select_all', { action: 'DESELECT' });
+    app.run('object.armature_add', { location: [0, 0, 0] });
+    const a = app.activeObject!;
+    app.run('object.armature_add', { location: [0, 0, 0], rotation: [0.3, 0.7, 1.1] });
+    const b = app.activeObject!;
+    app.doc.armatures[b.data!].bones[0].roll = 0.4;
+    app.graph.evaluate(app.doc);
+    const before = app.graph.get(b.id)!.world.clone().multiply(boneRestMatrix(app.doc.armatures[b.data!].bones[0]));
+    a.select = b.select = true;
+    app.doc.scene.active_object = a.id;
+    app.run('object.join');
+    app.graph.evaluate(app.doc);
+    const after = app.graph.get(a.id)!.world.clone().multiply(boneRestMatrix(app.doc.armatures[a.data!].bones[1]));
+    for (let c = 0; c < 3; c++) {
+      const x = new V3().setFromMatrixColumn(before, c).normalize(),
+        y = new V3().setFromMatrixColumn(after, c).normalize();
+      expect(x.distanceTo(y)).toBeLessThan(1e-4);
+    }
+  });
+});

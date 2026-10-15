@@ -25,6 +25,7 @@ import './curve/bevel';
 import './transformmodes';
 import './editxform';
 import './sidebar-items';
+import './join';
 import './text/text';
 import './text/fontops';
 import './text/props';
