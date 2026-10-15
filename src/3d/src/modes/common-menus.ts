@@ -1,6 +1,9 @@
 // Submenus shared by the curve, lattice, armature and metaball edit modes.
 import type { MenuItem } from '../ui/menu';
 import { snapMenu } from '../editors/view3d/menus';
+import { app } from '../app/app';
+import { addKeys } from '../app/keymap';
+import { genericEditMode } from './editxform';
 
 export function transformSubmenu(extra: MenuItem[] = []): MenuItem {
   return {
@@ -18,7 +21,7 @@ export function transformSubmenu(extra: MenuItem[] = []): MenuItem {
 }
 
 export function mirrorSubmenu(): MenuItem {
-  return { label: 'Mirror', submenu: () => ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } })) };
+  return { label: 'Mirror', submenu: mirrorMenuItems, shortcut: 'Ctrl M' };
 }
 
 export function snapSubmenu(): MenuItem {
@@ -35,3 +38,14 @@ export function showHideSubmenu(prefix: string, reveal: string, hide: string): M
     ],
   };
 }
+
+/** Ctrl M mirror menu and Shift Alt S To Sphere for the curve, armature, lattice and metaball edit modes. */
+export function mirrorMenuItems(): MenuItem[] {
+  return ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } }));
+}
+
+for (const km of ['Curve', 'Armature', 'Lattice', 'Metaball'])
+  addKeys(km, [
+    { key: 'M', ctrl: true, menu: mirrorMenuItems, menuTitle: 'Mirror', when: genericEditMode },
+    { key: 'S', alt: true, shift: true, op: 'transform.tosphere', when: () => genericEditMode() && app.activeObject?.type !== 'ARMATURE' },
+  ]);
