@@ -555,3 +555,34 @@ describe('add grease pencil', () => {
   });
 });
 
+
+import { meshFaceStrokes, strokeRibbon } from '../../src/greasepencil/convert';
+
+describe('conversion', () => {
+  it('mesh faces become closed strokes; strokes become ribbons', () => {
+    const s = meshFaceStrokes([0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1], [0, 4], [0, 1, 2, 3]);
+    expect(s.length).toBe(1);
+    expect(s[0].cyclic).toBe(true);
+    const r = strokeRibbon(line([0, 1, 2]));
+    expect(r.faces.length).toBe(2);
+    expect(r.positions.length).toBe(3 * 2 * 3);
+  });
+  it('converts a cube to grease pencil and back to a mesh', async () => {
+    setApp(new App(startupDocument()));
+    await import('../../src/ops/object');
+    const cube = Object.values(app.doc.objects).find((o) => o.type === 'MESH')!;
+    app.run('object.select_all', { action: 'DESELECT' });
+    cube.select = true;
+    app.doc.scene.active_object = cube.id;
+    app.flush();
+    const r = app.run('object.convert', { target: 'GREASEPENCIL' }, { invoke: false });
+    expect(r).toBe('FINISHED');
+    const gpOb = app.activeObject!;
+    expect(gpOb.type).toBe('GREASEPENCIL');
+    expect(gpOf(app.doc, gpOb)!.drawings[0].offsets.length - 1).toBe(6);
+    expect(app.doc.objects[cube.id]).toBeUndefined();
+    app.flush();
+    expect(app.run('object.convert', { target: 'MESH' }, { invoke: false })).toBe('FINISHED');
+    expect(app.activeObject!.type).toBe('MESH');
+  });
+});

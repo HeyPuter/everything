@@ -333,6 +333,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Convert', submenu: () => [
       { label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } },
       { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } },
+      { label: 'Grease Pencil', op: 'object.convert', props: { target: 'GREASEPENCIL' } },
       { separator: true },
       { label: 'Image Empty to Mesh Plane', op: 'image.convert_to_mesh_plane' },
     ] },
@@ -389,7 +390,7 @@ export function objectContextMenu(): MenuItem[] {
     { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
     { label: 'Shade Flat', op: 'object.shade_flat' },
     { separator: true },
-    { label: 'Convert To', submenu: () => [{ label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } }, { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } }] },
+    { label: 'Convert To', submenu: () => [{ label: 'Mesh', op: 'object.convert', props: { target: 'MESH' } }, { label: 'Curve', op: 'object.convert', props: { target: 'CURVE' } }, { label: 'Grease Pencil', op: 'object.convert', props: { target: 'GREASEPENCIL' } }] },
     { separator: true },
     { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
     { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },

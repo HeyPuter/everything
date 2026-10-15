@@ -25,6 +25,7 @@ import './primitives';
 import './drawtools';
 import './modifiers';
 import './modifierui';
+import './convert';
 import './effects';
 import './vertexpaint';
 import './weightpaint';
