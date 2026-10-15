@@ -51,7 +51,7 @@ export const defaultPreferences = (): Preferences => ({
   show_statusbar_scene_duration: false,
   show_statusbar_memory: false,
   show_statusbar_version: true,
-  show_tooltips_python: false,
+  show_tooltips_python: true,
   gizmo_size: 75,
   font_size: 11,
 });

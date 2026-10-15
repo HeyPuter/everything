@@ -2,6 +2,7 @@
 import { h, patch, clearRoot, type VNode, type Child } from './h';
 import { icon } from './icons';
 import { app, operators } from '../app/app';
+import { prefs } from '../app/prefs';
 
 export interface MenuItem {
   label?: string;
@@ -410,6 +411,8 @@ export interface PieItem {
 
 /** Pie menu item order: W, E, S, N, NW, NE, SW, SE. */
 const PIE_DIRS = [180, 0, 270, 90, 135, 45, 225, 315];
+/** Number keys that pick each direction (laid out like a numeric keypad). */
+const PIE_KEYS = [4, 6, 2, 8, 7, 9, 1, 3];
 
 let pie: { el: HTMLElement; items: (PieItem | null)[]; cx: number; cy: number; hl: number; opened: number; key?: string } | null = null;
 
@@ -509,16 +512,16 @@ export function closePie() {
 
 function renderPie(title: string) {
   if (!pie) return;
-  const R = 110;
+  const R = 104;
   const p = pie;
   patch(p.el, [
-    h('div', { class: 'pie-center', style: { left: `${p.cx}px`, top: `${p.cy}px` } }, h('div', { class: 'pie-ring' }), p.hl >= 0 ? h('div', { class: 'pie-dir', style: { transform: `rotate(${-PIE_DIRS[p.hl]}deg)` } }) : null),
-    h('div', { class: 'pie-title', style: { left: `${p.cx}px`, top: `${p.cy - R - 46}px` } }, title),
+    h('div', { class: 'pie-center', style: { left: `${p.cx}px`, top: `${p.cy}px` } }, h('div', { class: 'pie-ring' }), p.hl >= 0 ? h('div', { class: 'pie-dir', style: { transform: `rotate(${90 - PIE_DIRS[p.hl]}deg)` } }) : null),
+    h('div', { class: 'pie-title', style: { left: `${p.cx}px`, top: `${p.cy - 44}px` } }, title),
     ...p.items.map((it, i) => {
       if (!it) return null;
       const a = (PIE_DIRS[i] * Math.PI) / 180;
       const x = p.cx + Math.cos(a) * R,
-        y = p.cy - Math.sin(a) * R * 0.82;
+        y = p.cy - Math.sin(a) * R * 1.1;
       const align = Math.abs(Math.cos(a)) < 0.2 ? 'center' : Math.cos(a) > 0 ? 'left' : 'right';
       return h(
         'div',
@@ -531,7 +534,8 @@ function renderPie(title: string) {
           },
         },
         it.icon ? icon(it.icon) : null,
-        h('span', null, it.label),
+        h('span', { class: 'pie-label' }, it.label),
+        h('span', { class: 'pie-num' }, String(PIE_KEYS[i])),
       );
     }),
   ]);
@@ -711,6 +715,7 @@ function showTip(t: HTMLElement) {
   tt.textContent = title;
   tipEl.append(tt);
   for (const line of rest) {
+    if (line.startsWith('Python:') && !prefs.show_tooltips_python) continue;
     const d = document.createElement('div');
     d.className = line.startsWith('Python:') || line.startsWith('Shortcut:') ? 'tt-meta' : 'tt-desc';
     d.textContent = line;
