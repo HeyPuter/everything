@@ -162,13 +162,16 @@ function assignMaterials(app: App, ctx: RenderContext, view: DrawView, mode: 'SO
     const meshes: Mesh[] = [];
     if (so.mesh) meshes.push(so.mesh);
     so.instances?.children.forEach((c) => meshes.push(c as Mesh));
+    so.duplis?.children.forEach((c) => meshes.push(c as Mesh));
     const xray = (sh.type === 'SOLID' || sh.type === 'WIREFRAME') && sh.show_xray;
     for (const mesh of meshes) {
+      // instances of other objects use those objects' materials
+      const ob = (mesh.userData.source && doc.objects[mesh.userData.source as string]) || so.ev.ob;
       const groups = mesh.geometry.groups;
       const slotsCount = Math.max(1, ...groups.map((g) => (g.materialIndex ?? 0) + 1));
       const mats: Material[] = [];
       for (let s = 0; s < slotsCount; s++) {
-        if (mode === 'ID') mats.push(idMaterial(ctx.sync.objectIndex(ob.id)));
+        if (mode === 'ID') mats.push(idMaterial(ctx.sync.objectIndex(so.ev.ob.id)));
         else if (mode === 'SOLID') {
           const hasColors = !!mesh.geometry.getAttribute('color');
           mats.push(
@@ -344,6 +347,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     const shown = so.root.visible;
     set(so.mesh, false);
     so.instances && set(so.instances, false);
+    so.duplis && set(so.duplis, false);
     if (so.light) set(so.light, so.light.visible);
     const col = helperColor(app, ob, theme.wire);
     const inEdit = editing && app.graph.editObjects.has(ob.id);

@@ -719,6 +719,11 @@ export interface ObjectData {
   use_empty_image_alpha?: boolean;
   instance_type: 'NONE' | 'COLLECTION' | 'VERTS' | 'FACES';
   instance_collection: ID | null;
+  /** vertex instancing: rotate instances to the vertex normal */
+  use_instance_vertices_rotation?: boolean;
+  /** face instancing: scale instances by the face size */
+  use_instance_faces_scale?: boolean;
+  instance_faces_scale?: number;
   modifiers: ModifierBase[];
   constraints: Constraint[];
   animation_data: AnimData | null;

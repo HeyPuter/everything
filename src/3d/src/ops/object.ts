@@ -1583,30 +1583,6 @@ registerOperators([
     },
   },
   {
-    idname: 'object.duplicates_make_real',
-    label: 'Make Instances Real',
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && app.selectedObjects().some((o) => o.instance_type === 'COLLECTION'),
-    exec: (ctx) => {
-      const doc = ctx.doc;
-      for (const inst of app.selectedObjects()) {
-        if (inst.instance_type !== 'COLLECTION' || !inst.instance_collection) continue;
-        const col = doc.collections[inst.instance_collection];
-        const iw = app.graph.get(inst.id)!.world;
-        for (const id of col.objects) {
-          const src = doc.objects[id];
-          if (!src) continue;
-          const c = duplicateObject(doc, src, true);
-          for (const cc of Object.values(doc.collections)) cc.objects = cc.objects.filter((x) => x !== c.id);
-          doc.collections[activeCollection(doc)].objects.push(c.id);
-          applyMatrixToObject(c, iw.clone().multiply(app.graph.get(src.id)!.world));
-          c.parent = null;
-        }
-        inst.instance_type = 'NONE';
-        inst.instance_collection = null;
-      }
-    },
-  },
-  {
     idname: 'object.align',
     label: 'Align Objects',
     props: [{ id: 'align_mode', label: 'Align Mode', type: 'enum', default: 'OPT_2', items: [['OPT_1', 'Negative Sides'], ['OPT_2', 'Centers'], ['OPT_3', 'Positive Sides']] }, { id: 'relative_to', label: 'Relative To', type: 'enum', default: 'OPT_4', items: [['OPT_1', 'Scene Origin'], ['OPT_2', '3D Cursor'], ['OPT_3', 'Selection'], ['OPT_4', 'Active']] }, { id: 'align_axis', label: 'Align', type: 'bools', default: [false, false, false] }],

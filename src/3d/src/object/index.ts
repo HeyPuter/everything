@@ -7,4 +7,5 @@ import './modifierops';
 import './hooks';
 import './select';
 import './relations';
+import './instancing';
 import './keys';

@@ -90,3 +90,22 @@ test('vertex group and shape key lists: specials menus, move buttons, locks', as
   await expect(sk.locator('.ul-row')).toHaveCount(3);
   await expectNoErrors(errors);
 });
+
+test('add menu collection instance draws the collection', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'collection.create', { name: 'Kit' });
+  await hoverViewport(page);
+  await page.keyboard.press('Shift+a');
+  await item(page, 'Collection Instance').first().hover();
+  await item(page, 'Kit').last().click();
+  await page.waitForTimeout(300);
+  const count = await page.evaluate(async () => {
+    const { renderContext } = await import('/src/render/context.ts');
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const so = renderContext.sync.objects.get(a.activeObject.id);
+    return so?.duplis?.children.length ?? 0;
+  });
+  expect(await get(page, `app.activeObject.instance_type`)).toBe('COLLECTION');
+  expect(count).toBe(1);
+  await expectNoErrors(errors);
+});

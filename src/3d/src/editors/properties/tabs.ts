@@ -385,6 +385,8 @@ registerTab({
       panel('ob-instancing', 'Instancing', () => [
         enumProp(o, 'instance_type', 'Instancing', [['NONE', 'None'], ['COLLECTION', 'Collection'], ['VERTS', 'Vertices'], ['FACES', 'Faces']]),
         o.instance_type === 'COLLECTION' ? splitRow('Collection', enumMenu('ob-inst-col', Object.values(doc.collections).filter((c) => c.id !== doc.scene.collection).map((c) => ({ value: c.id, label: c.name })), o.instance_collection ?? '', (v) => ((o.instance_collection = v), changed('Instance Collection')))) : null,
+        o.instance_type === 'VERTS' ? bool(o as never, 'use_instance_vertices_rotation' as never, 'Align to Vertex Normal') : null,
+        o.instance_type === 'FACES' ? [bool(o as never, 'use_instance_faces_scale' as never, 'Scale by Face Size'), o.use_instance_faces_scale && o.instance_faces_scale !== undefined ? num(o as never, 'instance_faces_scale' as never, 'Factor', { min: 0.001, max: 10000 }) : null] : null,
       ], { closed: true }),
       objectExtraPanels.map((p) => p(o)),
       panel('ob-visibility', 'Visibility', () => [

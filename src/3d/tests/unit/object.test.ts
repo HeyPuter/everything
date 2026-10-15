@@ -528,3 +528,78 @@ describe('relations', () => {
     expect(col.instance_offset).toEqual([1, 2, 3]);
   });
 });
+
+describe('instancing', () => {
+  it('lists collection instances with the collection offset and nesting', async () => {
+    const { objectDuplis } = await import('../../src/object/instancing');
+    const ob = cube();
+    select(ob);
+    run('collection.create', { name: 'Inst' });
+    const col = Object.values(app.doc.collections).find((c) => c.name === 'Inst')!;
+    col.instance_offset = [1, 0, 0];
+    run('object.collection_instance_add', { collection: col.id, location: [5, 0, 0], rotation: [0, 0, 0] });
+    const inst = app.activeObject!;
+    app.graph.evaluate(app.doc, false);
+    const d = objectDuplis(app.doc, app.graph, inst);
+    expect(d.map((x) => x.source)).toEqual([ob.id]);
+    expect(near(d[0].matrix.elements.slice(12, 15), [4, 0, 0])).toBe(true);
+    // an instance of a collection holding an instance
+    run('collection.create', { name: 'Outer' });
+    const outer = Object.values(app.doc.collections).find((c) => c.name === 'Outer')!;
+    run('object.collection_instance_add', { collection: outer.id, location: [0, 10, 0], rotation: [0, 0, 0] });
+    app.graph.evaluate(app.doc, false);
+    const nested = objectDuplis(app.doc, app.graph, app.activeObject!);
+    expect(nested.length).toBe(1);
+    expect(near(nested[0].matrix.elements.slice(12, 15), [4, 10, 0])).toBe(true);
+  });
+
+  it('instances children on vertices and faces', async () => {
+    const { objectDuplis } = await import('../../src/object/instancing');
+    const parent = cube();
+    const kid = addCube('Kid Mesh');
+    kid.parent = parent.id;
+    parent.instance_type = 'VERTS';
+    app.graph.evaluate(app.doc, false);
+    expect(objectDuplis(app.doc, app.graph, parent).length).toBe(8);
+    parent.instance_type = 'FACES';
+    expect(objectDuplis(app.doc, app.graph, parent).length).toBe(6);
+  });
+
+  it('adds instances to the render scene with the source materials', async () => {
+    const { RenderScene } = await import('../../src/render/final/renderscene');
+    const ob = cube();
+    select(ob);
+    run('collection.create', { name: 'Inst' });
+    const col = Object.values(app.doc.collections).find((c) => c.name === 'Inst')!;
+    run('object.collection_instance_add', { collection: col.id, location: [5, 0, 0], rotation: [0, 0, 0] });
+    run('object.collection_instance_add', { collection: col.id, location: [-5, 0, 0], rotation: [0, 0, 0] });
+    app.graph.evaluate(app.doc, false);
+    const rs = new RenderScene('raster');
+    rs.build(app, { mode: 'raster', final: true });
+    const counts: number[] = [];
+    rs.scene.traverse((o) => {
+      const im = o as unknown as { isInstancedMesh?: boolean; count: number };
+      if (im.isInstancedMesh) counts.push(im.count);
+    });
+    expect(counts).toEqual([1, 1]);
+  });
+});
+
+describe('make instances real', () => {
+  it('creates real objects from collection and vertex instances', () => {
+    const ob = cube();
+    select(ob);
+    run('collection.create', { name: 'Inst' });
+    const col = Object.values(app.doc.collections).find((c) => c.name === 'Inst')!;
+    run('object.collection_instance_add', { collection: col.id, location: [5, 0, 0], rotation: [0, 0, 0] });
+    const inst = app.activeObject!;
+    const before = Object.keys(app.doc.objects).length;
+    select(inst);
+    run('object.duplicates_make_real');
+    expect(Object.keys(app.doc.objects).length).toBe(before + 1);
+    const made = app.activeObject!;
+    expect(made.data).toBe(ob.data);
+    expect(made.location.map((v) => +v.toFixed(4))).toEqual([5, 0, 0]);
+    expect(inst.instance_type).toBe('NONE');
+  });
+});
