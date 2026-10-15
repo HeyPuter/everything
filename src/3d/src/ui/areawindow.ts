@@ -26,7 +26,7 @@ export function openAreaWindow(st: AreaState | LayoutNode, opts: { width: number
   const w = Math.max(360, Math.min(innerWidth - 40, Math.round(opts.width))),
     hh = Math.max(240, Math.min(innerHeight - 80, Math.round(opts.height)));
   let unsub: (() => void) | null = null;
-  const dlg = openDialog({
+  const dlgOpts = {
     id,
     title: opts.title ?? editorTypes.get(first?.type)?.label ?? 'Window',
     floating: true,
@@ -41,10 +41,21 @@ export function openAreaWindow(st: AreaState | LayoutNode, opts: { width: number
       areaWindows.delete(id);
       if (app.hoverArea && sc.areas.includes(app.hoverArea as Area)) app.hoverArea = null;
     },
-  });
+  };
+  const dlg = openDialog(dlgOpts);
   sc.load(layout);
   hookEngine();
-  unsub = app.subscribe((kinds) => sc.update(kinds));
+  unsub = app.subscribe((kinds) => {
+    sc.update(kinds);
+    // a single-editor window is titled after its editor
+    if (!opts.title && sc.areas.length === 1) {
+      const t = editorTypes.get(sc.areas[0].type)?.label ?? 'Window';
+      if (t !== dlgOpts.title) {
+        dlgOpts.title = t;
+        dlg.redraw();
+      }
+    }
+  });
   areaWindows.set(id, sc);
   const box = dlg.el.querySelector<HTMLElement>('.dialog');
   if (box) {

@@ -258,6 +258,7 @@ export class Area implements AreaLike {
     this.drawHeader();
     this.editor.update(new Set(['doc', 'ui']));
     this.editor.resize?.();
+    app.changed('ui');
   }
 
   /** View ▸ Area menu: split, maximize, fullscreen, swap, join, close. */

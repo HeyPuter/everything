@@ -601,6 +601,7 @@ test('Duplicate Area into New Window shows a working editor in a floating window
   await win.locator('.editor-type').dispatchEvent('pointerdown');
   await page.locator('.menu .menu-item', { hasText: '3D Viewport' }).click();
   await expect(win.locator('.area[data-editor="VIEW_3D"] canvas.aw-mirror')).toHaveCount(1);
+  await expect(win.locator('.dlg-title-text')).toHaveText('3D Viewport');
   await expect
     .poll(() =>
       page.evaluate(() => {
