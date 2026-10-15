@@ -286,3 +286,16 @@ describe('geometry node groups from scripts', () => {
     expect(maxZ).toBeCloseTo(6);
   });
 });
+
+describe('object helpers', () => {
+  it('bound_box corners and the plain duplicate operator', () => {
+    expect(
+      run(`
+      const ob = D.objects['Cube'];
+      print(ob.bound_box[0].join(','), ob.bound_box[6].join(','));
+      bpy.ops.object.select_all({action: 'DESELECT'}); ob.select_set(true); C.view_layer.objects.active = ob;
+      print([...bpy.ops.object.duplicate()][0], C.object.name, C.object.location.x);
+    `),
+    ).toBe('-1,-1,-1 1,1,1\nFINISHED Cube.001 0');
+  });
+});

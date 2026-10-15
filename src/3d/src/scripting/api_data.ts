@@ -907,6 +907,21 @@ class ObjectData_ {
   get shader_effects() {
     return new ShaderEffects((this as unknown as ObjectStruct).__id);
   }
+  /** The 8 corners of the evaluated geometry's box in object space (zeros without geometry). */
+  get bound_box() {
+    ensureEvaluated();
+    const P = app.graph.get((this as unknown as ObjectStruct).__id)?.mesh?.positions;
+    const lo = [Infinity, Infinity, Infinity],
+      hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; P && i < P.length; i += 3)
+      for (let k = 0; k < 3; k++) {
+        lo[k] = Math.min(lo[k], P[i + k]);
+        hi[k] = Math.max(hi[k], P[i + k]);
+      }
+    if (!Number.isFinite(lo[0])) return Array.from({ length: 8 }, () => [0, 0, 0]);
+    const c = (x: number, y: number, z: number) => [x ? hi[0] : lo[0], y ? hi[1] : lo[1], z ? hi[2] : lo[2]];
+    return [c(0, 0, 0), c(0, 0, 1), c(0, 1, 1), c(0, 1, 0), c(1, 0, 0), c(1, 0, 1), c(1, 1, 1), c(1, 1, 0)];
+  }
 }
 mixin(ObjectStruct, ObjectData_, true);
 
