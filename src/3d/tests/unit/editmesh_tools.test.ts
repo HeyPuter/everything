@@ -740,3 +740,20 @@ describe('fill', () => {
     expect(m.faces.filter((f) => f.verts.length === 4).length).toBe(8);
   });
 });
+
+import { connectTwo } from '../../src/modes/editmesh/ops-edges';
+
+describe('connect vertex path', () => {
+  it('cuts across several faces between two vertices', () => {
+    const m = fromPrim(prim.grid(4, 4));
+    const at = (x: number, y: number) => Array.from({ length: m.vcount }, (_, i) => i).find((i) => Math.abs(m.p(i)[0] - x) < 1e-6 && Math.abs(m.p(i)[1] - y) < 1e-6)!;
+    const before = m.faces.length;
+    // across the grid: from the left edge to the right edge on a diagonal
+    const path = connectTwo(m, at(-1, -1), at(1, 0));
+    expect(path).not.toBeNull();
+    expect(path![path!.length - 1]).toBe(at(1, 0));
+    expect(m.faces.length).toBeGreaterThan(before);
+    // still a valid 2-manifold sheet: every edge has one or two faces
+    expect([...m.edgeFaces().values()].every((l) => l.length <= 2)).toBe(true);
+  });
+});

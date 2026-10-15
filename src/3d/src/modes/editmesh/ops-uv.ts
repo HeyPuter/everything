@@ -407,43 +407,6 @@ registerOperators([
     },
   },
   {
-    idname: 'mesh.vert_connect_path',
-    label: 'Connect Vertex Path',
-    description: 'Split faces by connecting selected vertices that share a face',
-    poll: editPoll,
-    exec: () => {
-      if (!withEdit((m) => {
-        const sel = new Set(m.selectedVerts());
-        if (sel.size < 2) return false;
-        const out: EFace[] = [];
-        let changed = false;
-        for (const f of m.faces) {
-          const idx = f.verts.map((v, i) => (sel.has(v) ? i : -1)).filter((i) => i >= 0);
-          if (idx.length !== 2 || (idx[1] - idx[0] + f.verts.length) % f.verts.length === 1 || (idx[0] - idx[1] + f.verts.length) % f.verts.length === 1) {
-            out.push(f);
-            continue;
-          }
-          const [i, j] = idx;
-          const part = (from: number, to: number) => {
-            const verts: number[] = [],
-              uvs: number[] = [];
-            for (let k = from; ; k = (k + 1) % f.verts.length) {
-              verts.push(f.verts[k]);
-              uvs.push(f.uvs[k * 2], f.uvs[k * 2 + 1]);
-              if (k === to) break;
-            }
-            return m.makeFace(verts, f, uvs);
-          };
-          out.push(part(i, j), part(j, i));
-          changed = true;
-        }
-        m.faces = out;
-        return changed;
-      }))
-        return 'CANCELLED';
-    },
-  },
-  {
     idname: 'mesh.bisect',
     label: 'Bisect',
     description: 'Cut the selected geometry along a plane through the 3D cursor facing the view',

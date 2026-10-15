@@ -3,9 +3,9 @@
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { MeshEdit, edgeKey, type EFace } from './meshedit';
-import { withEdit } from './context';
+import { withEdit, selectHistory } from './context';
 import { editPoll } from './ops-basic';
-import { V, vertexNormals, splitFace, insertVertexOnEdge, faceEdgeKeys } from './geom';
+import { V, vertexNormals, splitFace, splitEdge, insertVertexOnEdge, faceEdgeKeys } from './geom';
 import { startValueModal } from './modal';
 
 // ---------------------------------------------------------------------------
@@ -286,6 +286,70 @@ export function connectVertexPairs(m: MeshEdit): number {
 }
 
 // ---------------------------------------------------------------------------
+// connect vertex path: cut across faces between consecutive selected vertices
+
+/** Split faces along a straight-ish path from vertex a to vertex b; returns the path's vertices. */
+export function connectTwo(m: MeshEdit, a: number, b: number): number[] | null {
+  const pa = V(m.p(a)),
+    pb = V(m.p(b));
+  // cut plane through a and b, containing the average normal around them
+  const vn = vertexNormals(m);
+  const avg = vn[a].clone().add(vn[b]);
+  if (avg.lengthSq() < 1e-12) avg.set(0, 0, 1);
+  const dir = pb.clone().sub(pa);
+  const pn = dir.clone().cross(avg).normalize();
+  if (pn.lengthSq() < 1e-12) return null;
+  const side = (v: number) => V(m.p(v)).sub(pa).dot(pn);
+  const path = [a];
+  let cur = a,
+    prev = -1;
+  for (let guard = 0; guard < 10000; guard++) {
+    // faces ahead: around the current vertex but not the ones holding the segment just cut
+    const faces = m.faces.map((_, i) => i).filter((i) => m.faces[i].verts.includes(cur) && (prev < 0 || !m.faces[i].verts.includes(prev)));
+    const direct = faces.find((fi) => m.faces[fi].verts.includes(b));
+    if (direct !== undefined) {
+      const f = m.faces[direct];
+      const i = f.verts.indexOf(cur),
+        j = f.verts.indexOf(b);
+      const n = f.verts.length;
+      if ((i + 1) % n !== j && (j + 1) % n !== i) splitFace(m, direct, i, j);
+      path.push(b);
+      return path;
+    }
+    // cross the face edge that the plane cuts closest to b
+    let best: { fi: number; x: number; y: number; t: number; d: number } | null = null;
+    for (const fi of faces) {
+      const f = m.faces[fi];
+      const n = f.verts.length;
+      for (let k = 0; k < n; k++) {
+        const x = f.verts[k],
+          y = f.verts[(k + 1) % n];
+        if (x === cur || y === cur) continue;
+        const sx = side(x),
+          sy = side(y);
+        if ((sx > 1e-9 && sy > 1e-9) || (sx < -1e-9 && sy < -1e-9) || Math.abs(sx - sy) < 1e-12) continue;
+        const t = sx / (sx - sy);
+        const p = V(m.p(x)).lerp(V(m.p(y)), t);
+        if (p.clone().sub(V(m.p(cur))).dot(dir) <= 1e-9) continue;
+        const d = p.distanceTo(pb);
+        if (!best || d < best.d) best = { fi, x, y, t, d };
+      }
+    }
+    if (!best) return null;
+    const nv = best.t < 1e-6 ? best.x : best.t > 1 - 1e-6 ? best.y : splitEdge(m, best.x, best.y, best.t, 1);
+    const f = m.faces[best.fi];
+    const i = f.verts.indexOf(cur),
+      j = f.verts.indexOf(nv);
+    const n = f.verts.length;
+    if (i >= 0 && j >= 0 && (i + 1) % n !== j && (j + 1) % n !== i) splitFace(m, best.fi, i, j);
+    path.push(nv);
+    prev = cur;
+    cur = nv;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // sharpness
 
 function setSharp(m: MeshEdit, pred: (a: number, b: number) => boolean | null) {
@@ -362,6 +426,38 @@ registerOperators([
     props: [{ id: 'type', label: 'Type', type: 'enum', default: 'EDGE', items: [['EDGE', 'Faces by Edges'], ['VERT', 'Faces & Edges by Vertices']] }],
     poll: editPoll,
     exec: (_ctx, p) => (withEdit((m) => edgeSplit(m, p.type as 'EDGE')) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'mesh.vert_connect_path',
+    label: 'Connect Vertex Path',
+    description: 'Cut a path of new edges through the selected vertices, in the order they were picked',
+    poll: editPoll,
+    exec: () => {
+      let ok = false;
+      withEdit((m, ob) => {
+        const sel = m.selectedVerts();
+        if (sel.length < 2) return false;
+        // picking order when every selected vertex was picked, else the two selected vertices
+        const hist = selectHistory.filter((e) => e.objectId === ob.id && e.kind === 'VERT' && m.sel[e.index]).map((e) => e.index);
+        const order = [...new Set(hist)];
+        const seq = order.length === sel.length ? order : sel.length === 2 ? sel : null;
+        if (!seq) return connectVertexPairs(m) > 0 ? ((ok = true), undefined) : false;
+        const all: number[] = [];
+        for (let i = 0; i + 1 < seq.length; i++) {
+          const p = connectTwo(m, seq[i], seq[i + 1]);
+          if (!p) return false;
+          all.push(...p);
+        }
+        // the new path is the selection
+        m.sel = m.sel.map(() => 0);
+        for (const v of all) m.sel[v] = 1;
+        ok = true;
+      });
+      if (!ok) {
+        app.report('ERROR', 'Could not connect the selected vertices');
+        return 'CANCELLED';
+      }
+    },
   },
   {
     idname: 'mesh.vert_connect',
