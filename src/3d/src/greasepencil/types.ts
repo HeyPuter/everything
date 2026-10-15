@@ -61,12 +61,13 @@ export interface GPLayer {
   scale: Vec3;
   /** keyframes sorted by frame_number */
   frames: GPFrame[];
-  /** Relations: parent object (and bone), pass index for modifier / effect filters, render view layer */
+  /** Relations: parent object (and bone), pass index for modifier / effect filters */
   parent?: string | null;
   parent_type?: 'OBJECT' | 'BONE';
   parent_bone?: string;
+  /** inverse of the parent's world matrix at parenting time, relative to the object (column-major) */
+  parent_inverse?: number[];
   pass_index?: number;
-  viewlayer_render?: string;
   /** Masks: the layer only shows inside (or outside, inverted) the strokes of its mask layers */
   use_masks?: boolean;
   mask_layers?: GPLayerMask[];

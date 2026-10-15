@@ -1,10 +1,10 @@
 // Layer operators beyond add / remove / move: isolate, merge modes, material isolation and
 // the material specials (lock unused / unselected, copy to selected objects, select by material).
-import { Box3, Vector3 } from 'three';
+import { Box3, Vector3, Matrix4 } from 'three';
 import { app, registerOperators, operators } from '../app/app';
 import { frameHooks } from '../ops/view3d';
 import { worldBounds } from '../editors/view3d/view3d';
-import { layerMatrix } from './render';
+import { layerMatrix, parentWorld } from './render';
 import type { ObjectData } from '../data/types';
 import { gpOf, frameAt, toStrokes, fromStrokes, setKeyframe, compactDrawings, normalizeDrawing } from './data';
 import { activeGP } from './ops';
@@ -244,3 +244,116 @@ frameHooks.push(() => {
   for (const o of sel) if (gpOf(app.doc, o)) gpWorldBounds(o, box);
   return box.isEmpty() ? null : box;
 });
+
+// ---------------------------------------------------------------------------
+// layer masks
+
+const activeLayerOf = () => {
+  const c = activeGP();
+  const l = c ? c.gp.layers[c.gp.active_layer_index] : null;
+  return c && l ? { ...c, layer: l } : null;
+};
+
+registerOperators([
+  {
+    idname: 'grease_pencil.layer_mask_add',
+    label: 'Add New Mask Layer',
+    description: 'Mask the active layer with another layer',
+    props: [{ id: 'name', label: 'Layer', type: 'string', default: '' }],
+    poll: () => (activeGP()?.gp.layers.length ?? 0) > 1,
+    exec: (_c, p) => {
+      const c = activeLayerOf()!;
+      const name = p.name as string;
+      if (!name || name === c.layer.name || !c.gp.layers.some((l) => l.name === name)) return 'CANCELLED';
+      const list = (c.layer.mask_layers ??= []);
+      if (list.some((m) => m.name === name)) {
+        app.report('ERROR', 'Layer already added');
+        return 'CANCELLED';
+      }
+      list.push({ name, hide: false, invert: false });
+      c.layer.active_mask_index = list.length - 1;
+      c.layer.use_masks = true;
+    },
+  },
+  {
+    idname: 'grease_pencil.relative_layer_mask_add',
+    label: 'Mask with Layer Above/Below',
+    description: 'Mask the active layer with the layer above or below it',
+    props: [
+      {
+        id: 'mode',
+        label: 'Mode',
+        type: 'enum',
+        default: 'ABOVE',
+        items: [
+          ['ABOVE', 'Above'],
+          ['BELOW', 'Below'],
+        ],
+      },
+    ],
+    poll: () => (activeGP()?.gp.layers.length ?? 0) > 1,
+    exec: (_c, p) => {
+      const c = activeLayerOf()!;
+      const other = c.gp.layers[c.gp.active_layer_index + (p.mode === 'ABOVE' ? 1 : -1)];
+      if (!other) return 'CANCELLED';
+      return app.run('grease_pencil.layer_mask_add', { name: other.name }, { invoke: false }) === 'FINISHED' ? undefined : 'CANCELLED';
+    },
+    undo: false,
+  },
+  {
+    idname: 'grease_pencil.layer_mask_remove',
+    label: 'Remove Mask Layer',
+    description: 'Stop masking the active layer with the active mask',
+    poll: () => (activeLayerOf()?.layer.mask_layers?.length ?? 0) > 0,
+    exec: () => {
+      const { layer } = activeLayerOf()!;
+      const list = layer.mask_layers!;
+      const i = Math.min(list.length - 1, layer.active_mask_index ?? 0);
+      list.splice(i, 1);
+      layer.active_mask_index = Math.max(0, i - 1);
+    },
+  },
+  {
+    idname: 'grease_pencil.layer_mask_reorder',
+    label: 'Reorder Grease Pencil Layer Mask',
+    props: [
+      {
+        id: 'direction',
+        label: 'Direction',
+        type: 'enum',
+        default: 'UP',
+        items: [
+          ['UP', 'Up'],
+          ['DOWN', 'Down'],
+        ],
+      },
+    ],
+    poll: () => (activeLayerOf()?.layer.mask_layers?.length ?? 0) > 1,
+    exec: (_c, p) => {
+      const { layer } = activeLayerOf()!;
+      const list = layer.mask_layers!;
+      const i = layer.active_mask_index ?? 0;
+      const j = p.direction === 'UP' ? i - 1 : i + 1;
+      if (j < 0 || j >= list.length) return 'CANCELLED';
+      [list[i], list[j]] = [list[j], list[i]];
+      layer.active_mask_index = j;
+    },
+  },
+]);
+
+// renaming a layer keeps the masks pointing at it
+export function renameLayer(gp: GreasePencilData, layer: GPLayer, name: string) {
+  const old = layer.name;
+  layer.name = name;
+  for (const l of gp.layers) for (const m of l.mask_layers ?? []) if (m.name === old) m.name = name;
+}
+
+/** Parent a layer keeping its strokes where they are. */
+export function setLayerParent(ob: ObjectData, layer: GPLayer, parent: string | null, type: 'OBJECT' | 'BONE' = 'OBJECT', bone = '') {
+  layer.parent = parent;
+  layer.parent_type = type;
+  layer.parent_bone = bone;
+  const pw = parent ? parentWorld(layer) : null;
+  const obWorld = app.graph.get(ob.id)?.world ?? new Matrix4();
+  layer.parent_inverse = pw ? pw.invert().multiply(obWorld).toArray() : undefined;
+}

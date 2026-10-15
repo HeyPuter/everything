@@ -370,3 +370,30 @@ describe('grease pencil modifiers', () => {
     expect(app.run('object.modifier_add', { type: 'GREASE_PENCIL_THICKNESS' }, { invoke: false })).toBe('CANCELLED');
   });
 });
+
+import { renameLayer } from '../../src/greasepencil/layerops';
+
+describe('layer masks', () => {
+  beforeEach(() => {
+    setApp(new App(startupDocument()));
+    app.run('object.grease_pencil_add', { type: 'STROKE' });
+  });
+
+  it('adds, reorders and removes masks; renaming a layer keeps its masks', () => {
+    const gp = gpOf(app.doc, app.activeObject)!;
+    gp.layers.push(newLayer('Top'));
+    gp.active_layer_index = 1; // Lines
+    expect(app.run('grease_pencil.relative_layer_mask_add', { mode: 'BELOW' }, { invoke: false })).toBe('FINISHED');
+    expect(app.run('grease_pencil.layer_mask_add', { name: 'Top' }, { invoke: false })).toBe('FINISHED');
+    const l = () => gpOf(app.doc, app.activeObject)!.layers[1];
+    expect(l().mask_layers!.map((m) => m.name)).toEqual(['Color', 'Top']);
+    expect(l().use_masks).toBe(true);
+    expect(app.run('grease_pencil.layer_mask_add', { name: 'Top' }, { invoke: false })).toBe('CANCELLED');
+    expect(app.run('grease_pencil.layer_mask_reorder', { direction: 'UP' }, { invoke: false })).toBe('FINISHED');
+    expect(l().mask_layers!.map((m) => m.name)).toEqual(['Top', 'Color']);
+    renameLayer(gpOf(app.doc, app.activeObject)!, gpOf(app.doc, app.activeObject)!.layers[2], 'Above');
+    expect(l().mask_layers![0].name).toBe('Above');
+    expect(app.run('grease_pencil.layer_mask_remove', {}, { invoke: false })).toBe('FINISHED');
+    expect(l().mask_layers!.length).toBe(1);
+  });
+});

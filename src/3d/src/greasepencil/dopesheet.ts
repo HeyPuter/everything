@@ -282,6 +282,12 @@ export class GPDopeSheet extends DopeSheet {
       const r = ch.gpRow;
       g.fillStyle = r.kind === 'SUMMARY' ? C.summary : r.kind === 'OBJECT' ? C.objectRow : channelState.selectedGroups.has(ch.key) ? C.channelRowSel : C.channelRow;
       g.fillRect(0, y, W, rh - 1);
+      const cc = r.kind === 'LAYER' ? r.layer!.channel_color : undefined;
+      if (cc) {
+        // custom channel color: a tinted row
+        g.fillStyle = `rgba(${cc.map((x) => Math.round(Math.pow(Math.max(0, Math.min(1, x)), 1 / 2.2) * 255)).join(',')},0.28)`;
+        g.fillRect(0, y, W, rh - 1);
+      }
       const yc = Math.round(y + rh / 2) + 0.5;
       const byFrame = new Map<number, { sel: boolean; type: GPKeyframeType }>();
       for (const f of rowFrames(r, all)) {

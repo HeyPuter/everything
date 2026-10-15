@@ -3,8 +3,11 @@
 import { app } from '../app/app';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
-import { panel, enumRow } from '../ui/widgets';
-import { num, bool, enumProp, colorProp, vecProp } from '../ui/props';
+import { panel, enumRow, enumMenu, checkbox } from '../ui/widgets';
+import { openMenu } from '../ui/menu';
+import { layerMenu } from './menus';
+import { renameLayer, setLayerParent } from './layerops';
+import { num, bool, enumProp, colorProp, vecProp, splitRow } from '../ui/props';
 import { propertiesTabs } from '../editors/properties/properties';
 import { uiList } from '../editors/properties/uilist';
 import { dataBlockSelector } from '../editors/properties/tabs';
@@ -97,11 +100,29 @@ function layersPanel(gp: GreasePencilData): Child {
       down: () => app.run('grease_pencil.layer_move', { direction: 'DOWN' }),
       rename: (i, name) => {
         const l = gp.layers[order[i]];
-        if (name && !gp.layers.some((x) => x !== l && x.name === name)) l.name = name;
+        if (name && !gp.layers.some((x) => x !== l && x.name === name)) renameLayer(gp, l, name);
         changed('Rename Layer');
       },
       rows: 4,
     }),
+    h(
+      'div',
+      { class: 'gp-layer-specials' },
+      h(
+        'button',
+        {
+          class: 'btn',
+          'data-tip': 'Layer specials',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openMenu(layerMenu(), e.currentTarget as HTMLElement);
+          },
+        },
+        'Layer',
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+    ),
+    act ? masksPanel(gp, act) : null,
     act
       ? panel(
           'gp-layer-transform',
@@ -126,7 +147,105 @@ function layersPanel(gp: GreasePencilData): Child {
           { sub: true, closed: true },
         )
       : null,
+    act ? relationsPanel(gp, act) : null,
+    act
+      ? panel('gp-layer-display', 'Display', () => [channelColor(act)], { sub: true, closed: true })
+      : null,
   ]);
+}
+
+function channelColor(l: GPLayer): Child {
+  const on = !!l.channel_color;
+  return [
+    checkbox('gp-l-chcol', 'Custom Channel Color', on, (x) => ((l.channel_color = x ? [0.2, 0.6, 0.85] : undefined), changed('Channel Color'))),
+    on ? colorProp(l as { channel_color: [number, number, number] }, 'channel_color', 'Channel Color') : null,
+  ];
+}
+
+function masksPanel(gp: GreasePencilData, act: GPLayer): Child {
+  const masks = act.mask_layers ?? [];
+  const ai = Math.min(masks.length - 1, Math.max(0, act.active_mask_index ?? 0));
+  const others = gp.layers.filter((l) => l !== act && !masks.some((m) => m.name === l.name));
+  return panel(
+    'gp-layer-masks',
+    'Masks',
+    () => [
+      uiList(
+        'gp-mask-list',
+        masks.map((m, i) => ({
+          key: `m${i}${m.name}`,
+          label: m.name,
+          icon: 'outliner_data_gp_layer',
+          right: h(
+            'span',
+            { style: { display: 'flex', gap: '1px' } },
+            toggle(`mi${i}`, m.invert, 'gp_invert', 'gp_invert', 'Invert\nShow the layer outside this mask instead', () => ((m.invert = !m.invert), changed('Invert Mask'))),
+            toggle(`mh${i}`, !m.hide, 'hide_off', 'hide_on', 'Use Mask\nTurn this mask on or off', () => ((m.hide = !m.hide), changed('Toggle Mask'))),
+          ),
+        })),
+        ai,
+        (i) => ((act.active_mask_index = i), app.changed('ui')),
+        {
+          add: () => {
+            const btn = document.activeElement as HTMLElement | null;
+            openMenu(
+              others.length
+                ? others.map((l) => ({ label: l.name, icon: 'outliner_data_gp_layer', op: 'grease_pencil.layer_mask_add', props: { name: l.name } }))
+                : [{ label: 'No other layers', disabled: true }],
+              btn && btn.closest('.uilist') ? btn : { x: app.pointer.x, y: app.pointer.y },
+            );
+          },
+          remove: () => app.run('grease_pencil.layer_mask_remove'),
+          up: () => app.run('grease_pencil.layer_mask_reorder', { direction: 'UP' }),
+          down: () => app.run('grease_pencil.layer_mask_reorder', { direction: 'DOWN' }),
+          rows: 3,
+        },
+      ),
+    ],
+    {
+      sub: true,
+      closed: !act.use_masks,
+      header: checkbox('gp-masks-on', '', !!act.use_masks, (v) => ((act.use_masks = v), changed('Use Masks')), { tip: 'Use Masks\nThe layer only shows inside the strokes of its mask layers' }),
+    },
+  );
+}
+
+function relationsPanel(gp: GreasePencilData, act: GPLayer): Child {
+  const ob = app.activeObject!;
+  const target = act.parent ? app.doc.objects[act.parent] : null;
+  const arm = target?.type === 'ARMATURE' && target.data ? app.doc.armatures[target.data] : null;
+  return panel(
+    'gp-layer-relations',
+    'Relations',
+    () => [
+      splitRow(
+        'Parent',
+        enumMenu(
+          'gp-l-parent',
+          [{ value: '', label: '—' }, ...Object.values(app.doc.objects).filter((o) => o.id !== ob.id).map((o) => ({ value: o.id, label: o.name, icon: 'object_data' }))],
+          act.parent ?? '',
+          (v) => (setLayerParent(ob, act, v || null), changed('Layer Parent')),
+        ),
+      ),
+      arm
+        ? [
+            enumProp(act as { parent_type: string }, 'parent_type', 'Parent Type', [
+              ['OBJECT', 'Object'],
+              ['BONE', 'Bone'],
+            ], { onChange: () => setLayerParent(ob, act, act.parent ?? null, act.parent_type, act.parent_bone) }),
+            act.parent_type === 'BONE'
+              ? splitRow(
+                  'Bone',
+                  enumMenu('gp-l-bone', [{ value: '', label: '—' }, ...arm.bones.map((b) => ({ value: b.name, label: b.name, icon: 'bone_data' }))], act.parent_bone ?? '', (v) => (setLayerParent(ob, act, act.parent ?? null, 'BONE', v), changed('Parent Bone'))),
+                )
+              : null,
+          ]
+        : null,
+      num(act as { pass_index: number }, 'pass_index', 'Pass Index', { int: true, min: 0, max: 255 }),
+    ],
+    { sub: true, closed: true },
+  );
+  void gp;
 }
 
 function onionPanel(gp: GreasePencilData): Child {
