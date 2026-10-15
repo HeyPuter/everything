@@ -33,6 +33,8 @@ export interface PaintBrush extends BrushData {
   /** radius in screen pixels (VIEW) or in scene units (SCENE, `unprojected_radius`) */
   use_locked_size?: 'VIEW' | 'SCENE';
   unprojected_radius?: number;
+  /** texture paint clone brush: image to copy from (null: the painted image) */
+  clone_image?: string | null;
   /** texture modulating the strength */
   texture_slot?: import('./brushtex').BrushTexture;
   /** brush cursor display */
@@ -109,6 +111,7 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_tex_soften', 'Soften', 'SOFTEN', 'brush_paint_blur', 'Blurs the image under the brush'),
     S('brush_tex_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the image along the stroke'),
     S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
+    S('brush_tex_clone', 'Clone', 'CLONE', 'brush_paint_clone', 'Copies the texture from a source point (Ctrl+click to set it) or from another image'),
   ],
 };
 
@@ -175,6 +178,10 @@ function extraBrushes(): PaintBrush[] {
       blend: 'MIX',
     }),
     base('brush_tex_smear', 'Smear', 'SMEAR', 'TEXTURE_PAINT', {
+      strength: 1,
+      blend: 'MIX',
+    }),
+    base('brush_tex_clone', 'Clone', 'CLONE', 'TEXTURE_PAINT', {
       strength: 1,
       blend: 'MIX',
     }),

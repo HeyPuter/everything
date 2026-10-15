@@ -53,6 +53,7 @@ const SHADES: Record<string, Shade> = {
   P_AVERAGE: { h: () => 0, color: (x, y, c) => mix(mix(c, [0.2, 0.4, 0.9], x > 0 ? 0.8 : 0), [0.6, 0.45, 0.6], smoothstep(0.5, 0.35, Math.hypot(x, y))) },
   P_SMEAR: { h: () => 0, color: (x, y, c) => mix(c, [0.2, 0.5, 0.9], smoothstep(0.15, -0.1, x + Math.sin(y * 6) * 0.15 * smoothstep(0.6, 0, Math.abs(y)))) },
   P_FILL: { h: () => 0, color: () => [0.95, 0.75, 0.2] },
+  P_CLONE: { h: () => 0, color: (x, y, c) => (Math.hypot(x + 0.3, y - 0.3) < 0.25 || Math.hypot(x - 0.25, y + 0.25) < 0.25 ? [0.3, 0.6, 0.9] : c) },
   W_DRAW: { h: () => 0, color: (x, y) => heat(smoothstep(0.7, 0.05, Math.hypot(x, y))) },
   W_BLUR: { h: () => 0, color: (x) => heat(0.5 + x * 0.35) },
   W_AVERAGE: { h: () => 0, color: (x, y) => heat(Math.hypot(x, y) < 0.45 ? 0.55 : x > 0 ? 0.9 : 0.15) },

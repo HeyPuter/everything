@@ -114,3 +114,7 @@ registerIcons({
   brush_sculpt_slide: '<path class="f" d="M1 11h14v4H1z" opacity=".35"/><path class="s" d="M1 11h14M4 11V8M8 11V8M12 11V8" stroke-width="1.2"/><path class="s" d="M3 4.5h9" stroke-width="1.2" stroke-linecap="round"/><path class="f" d="M14 4.5 11.5 2.8v3.4z"/>',
   brush_sculpt_simplify: '<path class="s" d="M2 13 8 3 14 13zM5 8h6M8 13 5 8" fill="none" stroke-width="1.1" stroke-linejoin="round"/><path class="s" d="M11 8 8 13" fill="none" stroke-width="1.1" stroke-dasharray="1.4 1.2"/>',
 });
+
+registerIcons({
+  brush_paint_clone: '<path class="s" d="M2.5 2.5h7v7h-7z" fill="none" stroke-width="1.2" stroke-dasharray="1.6 1.2"/><path class="f" d="M6.5 6.5h7v7h-7z" opacity=".75"/>',
+});

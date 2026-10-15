@@ -26,7 +26,7 @@ import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks
 import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
-import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs } from './tpaint';
+import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource } from './tpaint';
 import { strokeActive } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
@@ -485,6 +485,15 @@ function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
     );
   }
   rows.push(strengthRow(b, `${p}-s`));
+  if (mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'CLONE') {
+    const imgs = Object.values(app.doc.images);
+    rows.push(
+      row(
+        'Clone from',
+        enumMenu(`${p}-clone`, [{ value: '', label: 'Same Image (Ctrl+click source)' }, ...imgs.map((im) => ({ value: im.id, label: im.name, icon: 'image' }))], b.clone_image ?? '', (x) => ((b.clone_image = x || null), changed()), { tip: 'Image the clone brush copies from' }),
+      ),
+    );
+  }
   if (mode === 'SCULPT') {
     const dt = directionToggle(b);
     if (dt) rows.push(row('Direction', dt));
@@ -1375,6 +1384,20 @@ editModeHooks.pointer.push((v, e) => {
     weightPaintStroke(v, e);
   } else texturePaintStroke(v, e);
   return true;
+});
+
+// clone source marker
+editModeHooks.svg.push((v) => {
+  if (app.doc.mode !== 'TEXTURE_PAINT' || activeBrush('TEXTURE_PAINT')?.sculpt_tool !== 'CLONE' || !cloneSource.world) return null;
+  const q = v.project(cloneSource.world);
+  if (q.z < -1 || q.z > 1) return null;
+  return h(
+    'g',
+    { key: 'clone-src', 'pointer-events': 'none' },
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#000', 'stroke-width': 3, opacity: 0.5 }),
+    h('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', stroke: '#fff', 'stroke-width': 1.3 }),
+    h('path', { d: `M${q.x - 11} ${q.y}h22M${q.x} ${q.y - 11}v22`, stroke: '#fff', 'stroke-width': 1 }),
+  ) as VNode;
 });
 
 editModeHooks.hover.push((v, e) => {

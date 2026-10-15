@@ -207,6 +207,39 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   const ts = app.doc.scene.tool_settings;
   const invert = e.ctrlKey || e.metaKey;
   const tool = e.shiftKey ? 'SOFTEN' : b.sculpt_tool;
+  let clone: DabOpts['clone'];
+  if (tool === 'CLONE') {
+    const p0 = v.local(e);
+    const h0 = s.raycast(v, p0.x, p0.y);
+    if (invert) {
+      // Ctrl+click: pick the clone source
+      if (h0) {
+        cloneSource.uv = hitUV(s, me, h0.tri, h0.point);
+        cloneSource.world = h0.world.clone();
+        v.drawSvg();
+      }
+      return true;
+    }
+    if (!cloneSource.uv || !h0) {
+      if (!cloneSource.uv) app.report('INFO', 'Clone: Ctrl+click on the mesh to set the source first');
+      return true;
+    }
+    const startUV = hitUV(s, me, h0.tri, h0.point);
+    const srcImg = b.clone_image ? app.doc.images[b.clone_image] : null;
+    let data: Uint8ClampedArray = st.orig,
+      sw = W,
+      sh = H;
+    if (srcImg && srcImg.id !== img.id) {
+      const c2 = imageCanvas(srcImg);
+      const x2 = c2.getContext('2d', { willReadFrequently: true });
+      if (x2) {
+        data = x2.getImageData(0, 0, c2.width, c2.height).data;
+        sw = c2.width;
+        sh = c2.height;
+      }
+    }
+    clone = { data, W: sw, H: sh, du: cloneSource.uv[0] - startUV[0], dv: cloneSource.uv[1] - startUV[1] };
+  }
   const colLin = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
   const color = [linearToSrgb(colLin[0]), linearToSrgb(colLin[1]), linearToSrgb(colLin[2])];
   const mode = (b.blend ?? 'MIX') as BlendMode;
@@ -239,6 +272,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         mode,
         uvDelta: delta,
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
+        clone,
       });
       lastUV = uv;
     },
@@ -310,7 +344,12 @@ interface DabOpts {
   uvDelta: [number, number] | null;
   /** brush radius in pixels for this dab */
   radius: number;
+  /** clone: source pixels and the texel offset from the painted texel to its source */
+  clone?: { data: Uint8ClampedArray; W: number; H: number; du: number; dv: number };
 }
+
+/** Clone source picked with Ctrl+click (UV of the paint texture, plus the world point for the marker). */
+export const cloneSource = { uv: null as [number, number] | null, world: null as Vector3 | null };
 
 const BLEED = 2; // texels painted beyond triangle edges to hide UV seams
 
@@ -544,6 +583,18 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
           out[1] = (src[p + 1] + (gg / n - src[p + 1]) * k) / 255;
           out[2] = (src[p + 2] + (bb / n - src[p + 2]) * k) / 255;
           out[3] = (src[p + 3] + (aa / n - src[p + 3]) * k) / 255;
+        } else if (o.tool === 'CLONE' && o.clone) {
+          const cl = o.clone;
+          // texel → uv → shifted uv → source texel (wrapping)
+          const u = (x + 0.5) / st.W + cl.du,
+            vv = 1 - (y + 0.5) / st.H + cl.dv;
+          const sx = Math.min(cl.W - 1, Math.floor((((u % 1) + 1) % 1) * cl.W)),
+            sy = Math.min(cl.H - 1, Math.floor((1 - (((vv % 1) + 1) % 1)) * cl.H));
+          const q = (sy * cl.W + sx) * 4;
+          const sa = accumulate ? Math.min(1, alpha[ti] + a) : Math.max(alpha[ti], a);
+          if (!accumulate && sa <= alpha[ti]) return;
+          alpha[ti] = sa;
+          for (let c = 0; c < 4; c++) out[c] = (orig[p + c] + (cl.data[q + c] - orig[p + c]) * sa) / 255;
         } else if (o.tool === 'SMEAR') {
           if (!o.uvDelta) return;
           const W = st.W,
