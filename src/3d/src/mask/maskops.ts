@@ -7,6 +7,8 @@ import { maskTable, newMask, newLayer, activeLayer } from './types';
 import { recalcHandles, switchDirection, makeConsistent, circleSpline, squareSpline, insertShapeKey, keyedData, applyData } from './geom';
 import { hostMask, selectedPoints, allPoints, deselectAll, aspectOf, m2s, s2m, selectWhere, updateHandles, type MaskHost } from './clipmask';
 import { currentClipEditor } from '../tracking/editor';
+import { activeTrack, markerAt, sceneToClipFrame } from '../tracking/types';
+import { parentResolver } from './parent';
 import { pointInPolygon } from '../sequencer/selection';
 
 type V = [number, number];
@@ -423,6 +425,48 @@ const ops: Operator[] = [
     poll: () => editing() && !!activeLayer(curMask()),
     exec: (_c, p) => addPrimitive((x, y, r, a) => squareSpline(x, y, r, a), p),
   },
+  // ------------------------------------------------------------------ parenting
+  {
+    idname: 'mask.parent_set',
+    label: 'Make Parent',
+    description: 'Make the selected points follow the active track of the clip',
+    poll: () => {
+      if (!anySel()) return false;
+      const c = currentClipEditor()?.clip;
+      return !!c && !!activeTrack(c);
+    },
+    exec: (ctx) => {
+      const ed = currentClipEditor()!;
+      const c = ed.clip!;
+      const t = activeTrack(c)!;
+      const f = sceneToClipFrame(c, ctx.doc.scene.frame_current);
+      const mk = markerAt(t, f);
+      if (!mk) {
+        app.report('ERROR', 'The active track has no marker at this frame');
+        return 'CANCELLED';
+      }
+      const res = parentResolver(ctx.doc);
+      for (const { point } of selectedPoints(curMask())) {
+        bakeParent(point, res, ctx.doc.scene.frame_current);
+        point.parent = { clip: c.id, track: t.name, frame: f, co: [mk.co[0], mk.co[1]] };
+      }
+      done();
+    },
+  },
+  {
+    idname: 'mask.parent_clear',
+    label: 'Clear Parent',
+    description: 'Stop the selected points following a track (they stay where they are now)',
+    poll: () => anySel() && selectedPoints(curMask()).some((x) => !!x.point.parent),
+    exec: (ctx) => {
+      const res = parentResolver(ctx.doc);
+      for (const { point } of selectedPoints(curMask())) {
+        bakeParent(point, res, ctx.doc.scene.frame_current);
+        delete point.parent;
+      }
+      done();
+    },
+  },
   // ------------------------------------------------------------------ animation
   {
     idname: 'mask.shape_key_insert',
@@ -475,6 +519,15 @@ const ops: Operator[] = [
     invoke: (_c, p) => (startTransform(p.mode as Mode) ? 'RUNNING_MODAL' : 'CANCELLED'),
   },
 ];
+
+/** Move a parented point's stored position to where it shows now (before changing its parent). */
+function bakeParent(p: MaskPoint, res: ReturnType<typeof parentResolver>, frame: number) {
+  const d = p.parent ? res(p, frame) : null;
+  if (!d) return;
+  p.co = [p.co[0] + d[0], p.co[1] + d[1]];
+  p.handle_left = [p.handle_left[0] + d[0], p.handle_left[1] + d[1]];
+  p.handle_right = [p.handle_right[0] + d[0], p.handle_right[1] + d[1]];
+}
 
 function addPrimitive(make: (x: number, y: number, r: number, aspect: number) => MaskSpline, p: Record<string, unknown>) {
   const ed = maskEditor()!;
@@ -750,6 +803,8 @@ addKeys('Mask Editing', [
   { key: 'H', shift: true, op: 'mask.hide_view_set', props: { unselected: true } },
   { key: 'C', alt: true, op: 'mask.cyclic_toggle' },
   { key: 'N', shift: true, op: 'mask.normals_make_consistent' },
+  { key: 'P', ctrl: true, op: 'mask.parent_set' },
+  { key: 'P', alt: true, op: 'mask.parent_clear' },
   { key: 'I', op: 'mask.shape_key_insert' },
   { key: 'I', alt: true, op: 'mask.shape_key_clear' },
   { key: 'D', shift: true, op: 'mask.duplicate_move' },

@@ -285,11 +285,24 @@ export function insertShapeKey(layer: MaskLayer, frame: number): MaskShapeKey {
   return key;
 }
 
-/** The layer as it is at a frame (keyed positions applied to a copy). */
-export function layerAt(layer: MaskLayer, frame: number): MaskLayer {
-  const data = keyedData(layer, frame);
-  if (!data) return layer;
+/** Offset of a parented point at a frame (from the marker it follows). */
+export type ParentResolver = (p: MaskPoint, frame: number) => V | null;
+
+/** The layer as it is at a frame: keyed positions, then parent motion (applied to a copy). */
+export function layerAt(layer: MaskLayer, frame: number, parent?: ParentResolver, useKeys = true): MaskLayer {
+  const data = useKeys ? keyedData(layer, frame) : null;
+  const parented = !!parent && layer.splines.some((s) => s.points.some((p) => p.parent));
+  if (!data && !parented) return layer;
   const copy: MaskLayer = { ...layer, splines: layer.splines.map((s) => ({ ...s, points: s.points.map((p) => ({ ...p })) })) };
-  applyData(copy, data);
+  if (data) applyData(copy, data);
+  if (parented)
+    for (const s of copy.splines)
+      for (const p of s.points) {
+        const d = p.parent ? parent!(p, frame) : null;
+        if (!d) continue;
+        p.co = add(p.co, d);
+        p.handle_left = add(p.handle_left, d);
+        p.handle_right = add(p.handle_right, d);
+      }
   return copy;
 }

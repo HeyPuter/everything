@@ -7,8 +7,18 @@ export type MaskHandleType = 'AUTO' | 'VECTOR' | 'ALIGNED' | 'FREE';
 
 export type MaskBlend = 'MERGE_ADD' | 'MERGE_SUBTRACT' | 'ADD' | 'SUBTRACT' | 'LIGHTEN' | 'DARKEN' | 'MUL' | 'DIFFERENCE' | 'REPLACE';
 
+/** A point following a tracking marker: it moves by the marker's motion since `frame`. */
+export interface MaskParent {
+  clip: ID;
+  track: string;
+  /** clip frame when parented and the marker position then */
+  frame: number;
+  co: [number, number];
+}
+
 export interface MaskPoint {
   co: [number, number];
+  parent?: MaskParent | null;
   handle_left: [number, number];
   handle_right: [number, number];
   handle_type: MaskHandleType;
@@ -46,8 +56,6 @@ export interface MaskLayer {
   shape_keys: MaskShapeKey[];
   /** index of the active spline (new points go there) */
   active_spline: number;
-  /** tracking marker the layer's splines follow: [clip id, track name] (optional) */
-  parent?: { clip: ID; track: string; frame: number; co: [number, number] } | null;
 }
 
 export interface MaskData {

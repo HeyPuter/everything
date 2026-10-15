@@ -4,7 +4,8 @@
 import { app } from '../app/app';
 import type { MaskData, MaskLayer, MaskPoint, MaskSpline } from './types';
 import { maskTable, activeLayer, newPoint } from './types';
-import { recalcHandles, alignHandles, sampleSpline, featherOutline, insertPoint } from './geom';
+import { recalcHandles, alignHandles, sampleSpline, featherOutline, insertPoint, layerAt } from './geom';
+import { parentResolver } from './parent';
 
 type V = [number, number];
 
@@ -44,6 +45,20 @@ export function aspectOf(ed: MaskHost) {
 }
 
 const visibleLayers = (m: MaskData) => m.layers.filter((l) => !l.hide);
+
+/** Points as shown (parents applied; edits go to the stored points by the same deltas). */
+export function shownPoints(m: MaskData): Map<MaskPoint, MaskPoint> {
+  const out = new Map<MaskPoint, MaskPoint>();
+  const f = app.doc.scene.frame_current;
+  const res = parentResolver(app.doc);
+  for (const l of m.layers) {
+    const L = layerAt(l, f, res, false);
+    l.splines.forEach((s, i) => s.points.forEach((p, j) => out.set(p, L.splines[i].points[j])));
+  }
+  return out;
+}
+
+const shown = (E: Map<MaskPoint, MaskPoint>, p: MaskPoint) => E.get(p) ?? p;
 const editableLayers = (m: MaskData) => m.layers.filter((l) => !l.hide && !l.hide_select);
 
 export function allPoints(m: MaskData, editable = true): { layer: MaskLayer; spline: MaskSpline; point: MaskPoint }[] {
@@ -71,9 +86,13 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D) {
   if (!m) return;
   const aspect = aspectOf(ed);
   const act = activeLayer(m);
+  const frame = app.doc.scene.frame_current;
+  const res = parentResolver(app.doc);
   for (const layer of visibleLayers(m)) {
     const isAct = layer === act;
-    for (const [si, sp] of layer.splines.entries()) {
+    const shownLayer = layerAt(layer, frame, res, false);
+    for (const [si, sp0] of layer.splines.entries()) {
+      const sp = shownLayer.splines[si];
       if (!sp.points.length) continue;
       const samples = sampleSpline(sp, 16);
       const line = samples.map((s) => m2s(ed, s.p));
@@ -95,6 +114,7 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D) {
         g.closePath();
         g.stroke();
       }
+      void sp0;
       const selected = sp.points.some((p) => p.select);
       const active = isAct && layer.active_spline === si;
       g.lineWidth = active ? 2 : 1.5;
@@ -169,8 +189,10 @@ export function hitMask(ed: MaskHost, x: number, y: number): Hit | null {
   if (!m) return null;
   let best: Hit | null = null,
     bd = 8;
+  const E = shownPoints(m);
   for (const { layer, spline, point } of allPoints(m)) {
-    const c = m2s(ed, point.co);
+    const sp = shown(E, point);
+    const c = m2s(ed, sp.co);
     const d = Math.hypot(c[0] - x, c[1] - y);
     if (d < bd) {
       bd = d;
@@ -178,8 +200,8 @@ export function hitMask(ed: MaskHost, x: number, y: number): Hit | null {
     }
     if (showsHandles(point))
       for (const [side, h] of [
-        ['left', point.handle_left],
-        ['right', point.handle_right],
+        ['left', sp.handle_left],
+        ['right', sp.handle_right],
       ] as const) {
         const hs = m2s(ed, h);
         const dh = Math.hypot(hs[0] - x, hs[1] - y);
@@ -198,10 +220,13 @@ export function hitSegment(ed: MaskHost, x: number, y: number, radius: number, l
   if (!m) return null;
   let best: Extract<Hit, { kind: 'segment' }> | null = null,
     bd = radius;
-  for (const layer of layers ?? editableLayers(m))
-    for (const spline of layer.splines) {
+  const f = app.doc.scene.frame_current;
+  const res = parentResolver(app.doc);
+  for (const layer of layers ?? editableLayers(m)) {
+    const L = layerAt(layer, f, res, false);
+    for (const [si, spline] of layer.splines.entries()) {
       if (spline.points.length < 2) continue;
-      const s = sampleSpline(spline, 24);
+      const s = sampleSpline(L.splines[si], 24);
       for (let i = 0; i < s.length; i++) {
         const a = m2s(ed, s[i].p);
         const d = Math.hypot(a[0] - x, a[1] - y);
@@ -211,6 +236,7 @@ export function hitSegment(ed: MaskHost, x: number, y: number, radius: number, l
         }
       }
     }
+  }
   return best;
 }
 
@@ -422,8 +448,9 @@ function addFeather(ed: MaskHost, m: MaskData, e: PointerEvent): boolean {
   const p = ed.local(e);
   let best: MaskPoint | null = null,
     bd = Infinity;
+  const E = shownPoints(m);
   for (const { point } of allPoints(m)) {
-    const c = m2s(ed, point.co);
+    const c = m2s(ed, shown(E, point).co);
     const d = Math.hypot(c[0] - p.x, c[1] - p.y);
     if (d < bd) {
       bd = d;
@@ -436,7 +463,8 @@ function addFeather(ed: MaskHost, m: MaskData, e: PointerEvent): boolean {
     const q = ed.local(ev);
     const a = s2m(ed, q.x, q.y);
     const aspect = aspectOf(ed);
-    P.weight = Math.hypot((a[0] - P.co[0]) * aspect, a[1] - P.co[1]) / aspect;
+    const co = shown(shownPoints(m), P).co;
+    P.weight = Math.hypot((a[0] - co[0]) * aspect, a[1] - co[1]) / aspect;
     refresh(ed);
   };
   set(e);
@@ -476,8 +504,9 @@ export function selectInRect(ed: MaskHost, m: MaskData, x0: number, y0: number, 
 /** (De)select points whose screen position passes a test. */
 export function selectWhere(ed: MaskHost, m: MaskData, test: (x: number, y: number) => boolean, mode: 'SET' | 'ADD' | 'SUB') {
   if (mode === 'SET') deselectAll(m);
+  const E = shownPoints(m);
   for (const { point } of allPoints(m)) {
-    const [x, y] = m2s(ed, point.co);
+    const [x, y] = m2s(ed, shown(E, point).co);
     if (test(x, y)) point.select = mode !== 'SUB';
   }
 }

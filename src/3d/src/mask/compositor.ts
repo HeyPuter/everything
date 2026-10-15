@@ -10,6 +10,7 @@ import { Result, IDENTITY, type Domain, type Xform } from '../compositor/eval/re
 import { cachedTexture } from '../compositor/eval/cache';
 import { maskTable } from './types';
 import { maskPixels, maskKey } from './raster';
+import { parentResolver } from './parent';
 import { app } from '../app/app';
 import { compositingGroup } from '../compositor/data';
 import { recomposite } from '../compositor/session';
@@ -68,8 +69,9 @@ registerExec('CompositorNodeMask', (x) => {
   const [W, H] = fixed ? [Math.max(1, Number(x.prop('size_x')) || 256), Math.max(1, Number(x.prop('size_y')) || 256)] : x.env.renderSize;
   const feather = x.prop('use_feather') !== false;
   const frame = x.env.frame;
-  const tex = cachedTexture(`mask|${maskKey(mask, frame)}|${W}x${H}|${feather}`, () => {
-    const px = maskPixels(mask, frame, W, H, feather);
+  const parent = parentResolver(x.env.doc);
+  const tex = cachedTexture(`mask|${maskKey(mask, frame, parent)}|${W}x${H}|${feather}`, () => {
+    const px = maskPixels(mask, frame, W, H, feather, parent);
     const out = new Float32Array(W * H * 4);
     // textures are bottom-up
     for (let y = 0; y < H; y++)
@@ -96,7 +98,8 @@ onAppReady((a) =>
     const g = compositingGroup(a.doc);
     const ids = g ? g.tree.nodes.filter((n) => n.type === 'CompositorNodeMask' && n.props.mask && masks[n.props.mask as string]).map((n) => n.props.mask as string) : [];
     if (!ids.length) return;
-    const sig = ids.map((id) => maskKey(masks[id], a.doc.scene.frame_current)).join(',');
+    const parent = parentResolver(a.doc);
+    const sig = ids.map((id) => maskKey(masks[id], a.doc.scene.frame_current, parent)).join(',');
     if (sig === lastSig) return;
     lastSig = sig;
     clearTimeout(timer);

@@ -7,6 +7,7 @@ import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInp
 import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
 import { rasterizeMask } from '../mask/raster';
+import { parentResolver } from '../mask/parent';
 import { app } from '../app/app';
 import { hasRetiming, speedAt } from './retime';
 import { drawTextStrip } from './text';
@@ -190,7 +191,7 @@ export class SequencerRender {
         // the mask's own animation runs from the strip start
         const mf = m.frame_start + Math.floor(frame - s.frame_start);
         maskCanvas ??= document.createElement('canvas');
-        rasterizeMask(m, mf, this.Wk, this.Hk, true, maskCanvas);
+        rasterizeMask(m, mf, this.Wk, this.Hk, true, maskCanvas, parentResolver(app.doc));
         const src = c.upload(maskCanvas, o.W, o.H);
         const out = this.finish(s, src);
         c.dropSource(src);

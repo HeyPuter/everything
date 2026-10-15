@@ -88,6 +88,13 @@ export function maskMenu(): MenuItem[] {
       ],
     },
     {
+      label: 'Parent',
+      submenu: () => [
+        { label: 'Make Parent', op: 'mask.parent_set', shortcut: 'Ctrl P' },
+        { label: 'Clear Parent', op: 'mask.parent_clear', shortcut: 'Alt P' },
+      ],
+    },
+    {
       label: 'Show/Hide',
       submenu: () => [
         { label: 'Reveal Hidden', op: 'mask.hide_view_clear', shortcut: 'Alt H' },
@@ -172,6 +179,7 @@ export function maskToolbar(ed: Host): Child {
         ),
       ]),
       panel('mask-t-anim', 'Animation', () => [h('div', { class: 'btn-row' }, opButton('mask.shape_key_insert', 'Insert Key'), opButton('mask.shape_key_clear', 'Clear Key'))]),
+      panel('mask-t-parent', 'Parenting', () => [h('div', { class: 'btn-row' }, opButton('mask.parent_set', 'Parent'), opButton('mask.parent_clear', 'Clear'))]),
     );
   return h('div', { key: 'toolbar', class: 'clip-toolbar' }, h('div', { class: 'sb-body' }, body));
 }
@@ -256,6 +264,7 @@ export function maskSidebar(ed: Host): Child[] {
               ['FREE', 'Free'],
             ]),
             num(p, 'weight', 'Feather', { min: 0, softMax: 0.25, precision: 4 }),
+            splitRow('Parent', h('span', { class: 'seq-src' }, p.parent ? `Track “${p.parent.track}”` : 'None')),
           ]
         : [h('div', { class: 'sb-empty' }, 'No selected point')],
     ),

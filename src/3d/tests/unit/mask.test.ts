@@ -71,3 +71,25 @@ describe('mask geometry', () => {
     expect(newLayer().shape_keys).toEqual([]);
   });
 });
+
+import { parentResolver } from '../../src/mask/parent';
+import { newMovieClip, newTrack, newMarker } from '../../src/tracking/types';
+
+describe('mask parenting', () => {
+  it('parented points follow their marker from the parenting frame', () => {
+    const clip = newMovieClip('MC', 'clip', { size: [100, 100], frame_duration: 10 });
+    const t = newTrack(clip.tracking, 'T');
+    t.markers.push(newMarker(1, [0.5, 0.5], clip.size, 10, 30), newMarker(5, [0.6, 0.45], clip.size, 10, 30));
+    clip.tracking.tracks.push(t);
+    const doc = { movieclips: { MC: clip } } as never;
+    const m = newMask('m');
+    const sq = G.squareSpline(0.5, 0.5, 0.1);
+    for (const p of sq.points) p.parent = { clip: 'MC', track: 'T', frame: 1, co: [0.5, 0.5] };
+    m.layers[0].splines.push(sq);
+    const res = parentResolver(doc);
+    const at1 = G.layerAt(m.layers[0], 1, res).splines[0].points[0].co;
+    const at5 = G.layerAt(m.layers[0], 5, res).splines[0].points[0].co;
+    closeTo(at1, sq.points[0].co);
+    closeTo(at5, [sq.points[0].co[0] + 0.1, sq.points[0].co[1] - 0.05]);
+  });
+});

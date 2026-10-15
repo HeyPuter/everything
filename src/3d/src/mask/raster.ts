@@ -2,7 +2,7 @@
 // feathers are built from offset outlines stacked into a falloff ramp, then layers combine with
 // their blend mode and opacity. Output: a grayscale image (white = inside).
 import type { MaskData, MaskLayer, MaskSpline } from './types';
-import { layerAt, sampleSpline, featherOutline } from './geom';
+import { layerAt, sampleSpline, featherOutline, type ParentResolver } from './geom';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type Canvas = HTMLCanvasElement | OffscreenCanvas;
@@ -87,7 +87,7 @@ const OPS: Record<string, GlobalCompositeOperation> = {
 let layerCanvas: Canvas | null = null;
 
 /** Rasterize a mask at a frame into a W×H canvas (grayscale, opaque). */
-export function rasterizeMask(mask: MaskData, frame: number, W: number, H: number, feather = true, target?: Canvas): Canvas {
+export function rasterizeMask(mask: MaskData, frame: number, W: number, H: number, feather = true, target?: Canvas, parent?: ParentResolver): Canvas {
   W = Math.max(1, Math.round(W));
   H = Math.max(1, Math.round(H));
   const out = target ?? makeCanvas(W, H);
@@ -104,7 +104,7 @@ export function rasterizeMask(mask: MaskData, frame: number, W: number, H: numbe
   const lg = layerCanvas.getContext('2d') as Ctx;
   for (const layer of mask.layers) {
     if (layer.hide_render || !layer.splines.length) continue;
-    drawLayer(lg, layerAt(layer, frame), W, H, feather);
+    drawLayer(lg, layerAt(layer, frame, parent), W, H, feather);
     g.globalAlpha = Math.max(0, Math.min(1, layer.alpha));
     if (layer.blend === 'SUBTRACT' || layer.blend === 'MERGE_SUBTRACT') {
       // acc × (1 − layer): multiply by the inverted layer
@@ -129,8 +129,8 @@ export function rasterizeMask(mask: MaskData, frame: number, W: number, H: numbe
 }
 
 /** Mask coverage as floats (row 0 at the top). */
-export function maskPixels(mask: MaskData, frame: number, W: number, H: number, feather = true): Float32Array {
-  const c = rasterizeMask(mask, frame, W, H, feather);
+export function maskPixels(mask: MaskData, frame: number, W: number, H: number, feather = true, parent?: ParentResolver): Float32Array {
+  const c = rasterizeMask(mask, frame, W, H, feather, undefined, parent);
   const d = (c.getContext('2d') as Ctx).getImageData(0, 0, c.width, c.height).data;
   const out = new Float32Array(c.width * c.height);
   for (let i = 0; i < out.length; i++) out[i] = d[i * 4] / 255;
@@ -138,8 +138,8 @@ export function maskPixels(mask: MaskData, frame: number, W: number, H: number, 
 }
 
 /** A cheap fingerprint of what a mask renders at a frame (texture caches). */
-export function maskKey(mask: MaskData, frame: number): string {
-  const s = JSON.stringify(mask.layers.map((l) => [l.hide_render, l.alpha, l.blend, l.invert, l.falloff, layerAt(l, frame).splines.map((sp) => [sp.use_cyclic, sp.use_fill, sp.points.map((p) => [p.co, p.handle_left, p.handle_right, p.weight])])]));
+export function maskKey(mask: MaskData, frame: number, parent?: ParentResolver): string {
+  const s = JSON.stringify(mask.layers.map((l) => [l.hide_render, l.alpha, l.blend, l.invert, l.falloff, layerAt(l, frame, parent).splines.map((sp) => [sp.use_cyclic, sp.use_fill, sp.points.map((p) => [p.co, p.handle_left, p.handle_right, p.weight])])]));
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return `${mask.id}|${(h >>> 0).toString(36)}|${s.length}`;

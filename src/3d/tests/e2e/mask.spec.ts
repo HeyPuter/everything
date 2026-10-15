@@ -99,3 +99,35 @@ test('mask: Add ▸ Circle, box select, delete, layers and the sequencer mask st
   expect([strip.type, strip.mask]).toEqual(['MASK', id]);
   await expectNoErrors(errors);
 });
+
+test('mask: points parented to a track (Ctrl P) follow it', async ({ page }) => {
+  const { errors } = await maskingWorkspace(page);
+  await page.evaluate(async () => {
+    const T = await import('/src/tracking/types.ts' as any);
+    const app = (window as any).app;
+    const c = T.newMovieClip('MC_t', 'clip', { size: [640, 360], frame_duration: 20 });
+    const t = T.newTrack(c.tracking, 'A');
+    for (let f = 1; f <= 10; f++) t.markers.push(T.newMarker(f, [0.3 + f * 0.02, 0.5], c.size, 21, 71));
+    c.tracking.tracks.push(t);
+    c.tracking.active_track = t.name;
+    T.clipTable(app.doc)['MC_t'] = c;
+    app.hoverArea.editor.setClip('MC_t');
+    app.run('mask.new');
+    app.run('mask.primitive_square_add', { size: 0.2, location: [0.4, 0.5] });
+    app.pushUndo('setup');
+  });
+  await page.keyboard.press('a');
+  await page.keyboard.press('Control+p');
+  const parented = await page.evaluate(() => (Object.values((window as any).app.doc.masks)[0] as any).layers[0].splines[0].points.every((p: any) => p.parent?.track === 'A'));
+  expect(parented).toBe(true);
+  await page.evaluate(() => (window as any).app.setFrame(6));
+  const moved = await page.evaluate(async () => {
+    const M = await import('/src/mask/clipmask.ts' as any);
+    const m = Object.values((window as any).app.doc.masks)[0] as any;
+    const E = M.shownPoints(m);
+    const p = m.layers[0].splines[0].points[0];
+    return E.get(p).co[0] - p.co[0];
+  });
+  expect(moved).toBeCloseTo(0.1, 5);
+  await expectNoErrors(errors);
+});
