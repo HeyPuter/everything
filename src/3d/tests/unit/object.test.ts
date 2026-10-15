@@ -874,3 +874,18 @@ describe('visual geometry to objects', () => {
     ]);
   });
 });
+
+describe('aim at target', () => {
+  it('points -Z at the target and keeps position and scale', async () => {
+    const { aimMatrix } = await import('../../src/object/axistarget');
+    const { Matrix4, Vector3 } = await import('three');
+    const w = new Matrix4().compose(new Vector3(5, 0, 0), new (await import('three')).Quaternion(), new Vector3(2, 2, 2));
+    const m = aimMatrix(w, new Vector3(0, 0, 0))!;
+    const minusZ = new Vector3(0, 0, -1).transformDirection(m);
+    expect(near(minusZ.toArray(), [-1, 0, 0], 1e-5)).toBe(true);
+    expect(near(m.elements.slice(12, 15), [5, 0, 0])).toBe(true);
+    expect(new Vector3().setFromMatrixColumn(m, 0).length()).toBeCloseTo(2);
+    const down = aimMatrix(new Matrix4().makeTranslation(0, 0, 5), new Vector3(0, 0, 0))!;
+    expect(near(new Vector3(0, 0, -1).transformDirection(down).toArray(), [0, 0, -1], 1e-5)).toBe(true);
+  });
+});

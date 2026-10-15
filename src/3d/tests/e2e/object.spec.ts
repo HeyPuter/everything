@@ -229,3 +229,24 @@ test('speaker: add, give it a sound, it plays during playback', async ({ page })
   expect(peak).toBeGreaterThan(0.01);
   await expectNoErrors(errors);
 });
+
+test('shift T aims the selection at the surface under the mouse', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const light = Object.values(a.doc.objects).find((o: any) => o.type === 'LIGHT') as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('object.select_all', { action: 'DESELECT' });
+    light.select = true;
+    light.rotation_euler = [0, 0, 0];
+    a.doc.scene.active_object = light.id;
+    a.changed('doc', 'select');
+  });
+  const c = await hoverViewport(page);
+  await page.keyboard.press('Shift+t');
+  await page.mouse.move(c.x + 5, c.y + 5);
+  await page.mouse.down();
+  await page.mouse.up();
+  const rot = (await get(page, `app.activeObject.rotation_euler`)) as number[];
+  expect(rot.some((r) => Math.abs(r) > 0.01)).toBe(true);
+  await expectNoErrors(errors);
+});

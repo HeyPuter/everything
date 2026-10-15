@@ -13,4 +13,5 @@ import './rigidmass';
 import './collections';
 import './speaker';
 import './quickfx';
+import './axistarget';
 import './keys';

@@ -18,6 +18,7 @@ addKeys('Object Mode', [
   { key: 'G', ctrl: true, alt: true, op: 'collection.objects_remove', when: objectMode },
   { key: 'H', ctrl: true, op: 'object.hide_collection', when: objectMode },
   { key: 'M', ctrl: true, op: 'transform.mirror', props: { interactive: true }, when: objectMode },
+  { key: 'T', shift: true, op: 'object.transform_axis_target', when: objectMode },
 ]);
 
 addKeys('Mesh', [
