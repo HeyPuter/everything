@@ -35,6 +35,7 @@ import { connectedOf, isConnected } from './connect';
 import { keysOf, keyValue, fadeProp } from './fades';
 import { keyFrames, KEY_PATHS } from './stripanim';
 import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
+import { prevWord, nextWord } from './textcursor';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
@@ -1375,6 +1376,17 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     pv.addEventListener('dblclick', (e) => {
       // double click on a text strip edits its text; elsewhere fits the preview
       const hit = hasEditor() ? this.preview.stripAt(e.clientX, e.clientY) : null;
+      const editing = editedText();
+      if (editing && hit === editing) {
+        // double click while editing selects the word
+        const [fx, fy] = this.preview.toFrame(e.clientX, e.clientY);
+        const i = indexAt(editing, fx, fy);
+        const text = editing.text ?? '';
+        textEdit.anchor = prevWord(text, Math.min(text.length, i + 1));
+        textEdit.cursor = nextWord(text, Math.max(0, textEdit.anchor));
+        this.preview.draw();
+        return;
+      }
       if (hit?.type === 'TEXT') {
         selectStrip(hit, {});
         const [fx, fy] = this.preview.toFrame(e.clientX, e.clientY);
