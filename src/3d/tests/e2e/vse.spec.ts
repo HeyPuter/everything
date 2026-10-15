@@ -406,3 +406,26 @@ test('sequencer: a text strip can use an embedded font file', async ({ page }) =
   expect(loaded.ok).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('sequencer: Curves strip modifier brightens through its curve', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    const ed = app.doc.scene.sequence_editor;
+    for (const s of ed.strips) s.select = false;
+    const c = ed.strips.find((x: any) => x.name === 'Color');
+    c.color = [0.5, 0.5, 0.5];
+    c.select = true;
+    ed.active_strip = 'Color';
+    ed.strips.find((x: any) => x.name === 'Text').mute = true;
+    app.run('sequencer.strip_modifier_add', { type: 'CURVES' });
+    c.modifiers[0].curve_mapping.curve_0 = [0, 0, 0, 0.5, 0.9, 0, 1, 1, 0];
+    app.changed('doc');
+  });
+  await page.waitForTimeout(800);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const v = await page.evaluate(([x, y]) => (window as any).app.hoverArea.editor.preview.sample(x, y)?.rgba[0], [pv.x + 40, pv.y + pv.height / 2] as const);
+  expect(v).toBeGreaterThan(0.85);
+  await expectNoErrors(errors);
+});

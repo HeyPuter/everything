@@ -416,6 +416,7 @@ function modifierAddItems(): MenuItem[] {
   return [
     { label: 'Brightness/Contrast', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
     { label: 'Color Balance', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
+    { label: 'Curves', op: 'sequencer.strip_modifier_add', props: { type: 'CURVES' } },
     { label: 'White Balance', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
   ];
 }

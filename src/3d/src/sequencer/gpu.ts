@@ -5,6 +5,7 @@
 import type { BlendType, ColorBalanceData } from './types';
 import { BLEND_ITEMS } from './strips';
 import { brightContrastParams } from './blend';
+import { CURVE_GLSL } from '../compositor/color/curvemap';
 
 export interface Target {
   tex: WebGLTexture;
@@ -264,6 +265,19 @@ void main() {
   o = mix(texture(uA, vUv), texture(uB, vUv), k);
 }`;
 
+/** Curves: combined curve, then the red / green / blue curves (rows 0–3 of the lookup table). */
+const FS_CURVES = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform sampler2D uLut; uniform vec4 uP[4]; uniform vec3 uBlack; uniform vec3 uWhite;
+${CURVE_GLSL}
+void main() {
+  vec4 p = texture(uTex, vUv);
+  if (p.a <= 0.0) { o = p; return; }
+  vec3 c = (p.rgb / p.a - uBlack) / max(uWhite - uBlack, vec3(1e-6));
+  vec3 r = vec3(cmp_curve(uLut, uP[1], 1, cmp_curve(uLut, uP[0], 0, c.r)), cmp_curve(uLut, uP[2], 2, cmp_curve(uLut, uP[0], 0, c.g)), cmp_curve(uLut, uP[3], 3, cmp_curve(uLut, uP[0], 0, c.b)));
+  o = vec4(max(r, 0.0) * p.a, p.a);
+}`;
+
 type Prog = { p: WebGLProgram; u: Map<string, WebGLUniformLocation | null> };
 
 /** 3×3 column-major matrix (image pixels → frame pixels). */
@@ -310,6 +324,43 @@ export class Compositor {
     this.progs.fill = this.program(VS_FULL, FS_FILL);
     this.progs.copy = this.program(VS_FULL, FS_COPY);
     this.progs.maskmix = this.program(VS_FULL, FS_MASKMIX);
+    this.progs.curves = this.program(VS_FULL, FS_CURVES);
+  }
+
+  private luts = new Map<string, WebGLTexture>();
+  private lutParams = new Map<string, { data: Float32Array; params: Float32Array }>();
+
+  /** Apply RGB curves (lookup table baked from the curve mapping, cached by its key). */
+  curves(dst: Target, src: Target, key: string, bake: () => { data: Float32Array; params: Float32Array }, black: number[], white: number[]) {
+    const gl = this.gl;
+    let tex = this.luts.get(key);
+    const lut = tex ? this.lutParams.get(key)! : bake();
+    if (!tex) {
+      tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, lut.data.length / 4 / 4, 4, 0, gl.RGBA, gl.FLOAT, lut.data);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      if (this.luts.size > 32) {
+        const [k, t] = this.luts.entries().next().value!;
+        gl.deleteTexture(t);
+        this.luts.delete(k);
+        this.lutParams.delete(k);
+      }
+      this.luts.set(key, tex);
+      this.lutParams.set(key, { data: new Float32Array(0), params: lut.params });
+    }
+    this.bindTarget(dst);
+    const u = this.use('curves');
+    this.bindTex(0, src.tex);
+    this.bindTex(1, tex);
+    gl.uniform1i(u('uTex'), 0);
+    gl.uniform1i(u('uLut'), 1);
+    gl.uniform4fv(u('uP'), lut.params);
+    gl.uniform3f(u('uBlack'), black[0] ?? 0, black[1] ?? 0, black[2] ?? 0);
+    gl.uniform3f(u('uWhite'), white[0] ?? 1, white[1] ?? 1, white[2] ?? 1);
+    this.draw();
   }
 
   /** dst = mix(original, modified, luminance of mask). */

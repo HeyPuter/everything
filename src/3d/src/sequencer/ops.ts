@@ -845,11 +845,11 @@ const ops: Operator[] = [
     idname: 'sequencer.strip_modifier_add',
     label: 'Add Strip Modifier',
     description: 'Add a modifier to the strip',
-    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'COLOR_BALANCE', items: [['COLOR_BALANCE', 'Color Balance'], ['BRIGHT_CONTRAST', 'Brightness/Contrast'], ['WHITE_BALANCE', 'White Balance']] }],
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'COLOR_BALANCE', items: [['COLOR_BALANCE', 'Color Balance'], ['BRIGHT_CONTRAST', 'Brightness/Contrast'], ['WHITE_BALANCE', 'White Balance'], ['CURVES', 'Curves']] }],
     poll: () => !!activeStrip() && activeStrip()!.type !== 'SOUND',
     exec: (_c, p) => {
       const s = activeStrip()!;
-      const base = p.type === 'COLOR_BALANCE' ? 'Color Balance' : p.type === 'WHITE_BALANCE' ? 'White Balance' : 'Brightness/Contrast';
+      const base = p.type === 'COLOR_BALANCE' ? 'Color Balance' : p.type === 'WHITE_BALANCE' ? 'White Balance' : p.type === 'CURVES' ? 'Curves' : 'Brightness/Contrast';
       let name = base;
       for (let i = 1; s.modifiers.some((m) => m.name === name); i++) name = `${base}.${String(i).padStart(3, '0')}`;
       s.modifiers.push(S.newModifier(p.type as ModifierType, name));

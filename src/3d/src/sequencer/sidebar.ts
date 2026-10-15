@@ -12,6 +12,8 @@ import { stripIcon } from './theme';
 import { restartPlayback } from './audio';
 import { movieCacheStats } from './media';
 import { pickFiles, fileBytes } from './add';
+import { drawCurves } from '../nodes/editor/rampui';
+import type { NodeData, NodeTreeData } from '../data/types';
 
 const edited: PropOpts = { onChange: () => (afterEdit(), restartPlayback()) };
 
@@ -431,6 +433,15 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
   return panel(`seq-mod-${i}-${m.type}`, '', () => {
     if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 }), maskRows(s, m)];
     if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value'), maskRows(s, m)];
+    if (m.type === 'CURVES') {
+      m.curve_mapping ??= {};
+      // the curve widget of the RGB Curves node, drawing into the modifier's mapping
+      const node = { id: oid(m), type: 'ShaderNodeRGBCurve', name: m.name, location: [0, 0], inputs: {}, props: m.curve_mapping } as unknown as NodeData;
+      return [
+        h('div', { class: 'seq-curves' }, drawCurves({ node, tree: { type: 'COMPOSITOR', nodes: [], links: [] } as unknown as NodeTreeData, key: `seq-curve-${oid(m)}`, where: 'sidebar', changed: (label, final) => (app.changed('doc'), final !== false && app.pushUndo(label)) })),
+        maskRows(s, m),
+      ];
+    }
     const cb = m.color_balance!;
     const lgg = cb.correction_method === 'LIFT_GAMMA_GAIN';
     return [
@@ -467,6 +478,7 @@ export function modifiersTab(): Child {
                 { label: 'Color Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
                 { label: 'Brightness/Contrast', icon: 'seq_adjustment', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
                 { label: 'White Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
+                { label: 'Curves', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'CURVES' } },
               ],
               e.currentTarget as HTMLElement,
             );

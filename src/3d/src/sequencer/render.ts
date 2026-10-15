@@ -7,6 +7,7 @@ import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInp
 import { getMovie, loadImage } from './media';
 import { valueAt } from './fades';
 import { animatedStrip } from './stripanim';
+import { bakeCurveTable, nodeCurves } from '../compositor/color/curvemap';
 import { rasterizeMask } from '../mask/raster';
 import { parentResolver } from '../mask/parent';
 import { app } from '../app/app';
@@ -365,6 +366,11 @@ export class SequencerRender {
       if (m.type === 'COLOR_BALANCE' && m.color_balance) c.colorBalance(n, img, m.color_balance, m.color_multiply ?? 1);
       else if (m.type === 'BRIGHT_CONTRAST') c.brightContrast(n, img, m.bright ?? 0, m.contrast ?? 0);
       else if (m.type === 'WHITE_BALANCE') c.whiteBalance(n, img, m.white_value ?? [1, 1, 1]);
+      else if (m.type === 'CURVES' && m.curve_mapping) {
+        const cm = m.curve_mapping;
+        const key = JSON.stringify([0, 1, 2, 3].map((i) => cm[`curve_${i}`]).concat([cm.curve_extend ?? '']));
+        c.curves(n, img, key, () => bakeCurveTable(nodeCurves(cm, 4)), (cm.black_level as number[]) ?? [0, 0, 0], (cm.white_level as number[]) ?? [1, 1, 1]);
+      }
       else {
         c.release(n);
         continue;

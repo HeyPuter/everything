@@ -4,6 +4,7 @@ import type { SceneData } from '../data/types';
 import type { BlendType, ColorBalanceData, ModifierType, SeqChannel, SequenceEditor, SequencerToolSettings, Strip, StripModifier, StripType } from './types';
 import { MAX_CHANNELS } from './types';
 import { hasRetiming, contentLength, mapContent } from './retime';
+import { defaultCurves } from '../nodes/curves';
 
 // ---------------------------------------------------------------------------
 // classification
@@ -251,6 +252,7 @@ export function newColorBalance(): ColorBalanceData {
 export function newModifier(type: ModifierType, name: string): StripModifier {
   if (type === 'COLOR_BALANCE') return { name, type, mute: false, show_expanded: true, color_balance: newColorBalance(), color_multiply: 1 };
   if (type === 'WHITE_BALANCE') return { name, type, mute: false, show_expanded: true, white_value: [1, 1, 1] };
+  if (type === 'CURVES') return { name, type, mute: false, show_expanded: true, curve_mapping: defaultCurves('RGB') };
   return { name, type, mute: false, show_expanded: true, bright: 0, contrast: 0 };
 }
 
