@@ -867,21 +867,30 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
-function screw(m: EvalMesh, mod: ModifierBase): EvalMesh {
+function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const angle = num(mod, 'angle', Math.PI * 2),
-    steps = Math.max(2, Math.round(num(mod, 'steps', 16))),
-    height = num(mod, 'screw_offset', 0),
+    steps = Math.max(1, Math.round(ctx?.render ? num(mod, 'render_steps', 16) : num(mod, 'steps', 16))),
     iterations = Math.max(1, Math.round(num(mod, 'iterations', 1)));
+  let height = num(mod, 'screw_offset', 0);
   const axis = ['X', 'Y', 'Z'].indexOf(str(mod, 'axis', 'Z'));
   const ax = new Vector3(axis === 0 ? 1 : 0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0);
+  // an axis object sets the pivot and direction (its own axis), and optionally the screw offset
+  const om = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  const pivot = new Vector3();
+  if (om) {
+    pivot.setFromMatrixPosition(om);
+    ax.transformDirection(om);
+    if (bool(mod, 'use_object_screw_offset')) height = pivot.dot(ax);
+  }
   const P = m.positions,
     nv = P.length / 3;
-  // profile edges: loose edges or boundary edges of the input (use all edges if mesh has no faces)
+  // profile edges: loose edges or the edges of the input
   const et = edgeTopology(m);
   let pairs: number[] = [];
   if (m.offsets.length - 1 === 0) pairs = Array.from(m.looseEdges ?? []);
   else for (let e = 0; e < et.count; e++) pairs.push(et.verts[e * 2], et.verts[e * 2 + 1]);
-  const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4 && !height;
+  // a full turn without offset closes on itself
+  const full = Math.abs(Math.abs(angle) - Math.PI * 2) < 1e-4 && !height && iterations === 1;
   const total = steps * iterations;
   const rings = full ? total : total + 1;
   const b = new MeshBuilder();
@@ -892,23 +901,31 @@ function screw(m: EvalMesh, mod: ModifierBase): EvalMesh {
     const rot = new Matrix4().makeRotationAxis(ax, angle * iterations * t);
     const row: number[] = [];
     for (let k = 0; k < nv; k++) {
-      v.set(P[k * 3], P[k * 3 + 1], P[k * 3 + 2]).applyMatrix4(rot).addScaledVector(ax, height * iterations * t);
+      v.set(P[k * 3], P[k * 3 + 1], P[k * 3 + 2]).sub(pivot).applyMatrix4(rot).add(pivot).addScaledVector(ax, height * iterations * t);
       row.push(b.addVert(v.x, v.y, v.z, r === 0 ? k : -1));
     }
     ids.push(row);
   }
-  const smooth = bool(mod, 'use_smooth_shade') ? 1 : 0;
-  for (let r = 0; r < total; r++) {
-    const a = ids[r],
-      c = ids[(r + 1) % rings];
-    for (let i = 0; i < pairs.length; i += 2) {
+  const smooth = bool(mod, 'use_smooth_shade', true) ? 1 : 0;
+  const flip = bool(mod, 'use_normal_flip') || bool(mod, 'use_flip'); // (older files used use_flip)
+  const su = bool(mod, 'use_stretch_u'),
+    sv = bool(mod, 'use_stretch_v');
+  for (let i = 0; i < pairs.length; i += 2)
+    for (let r = 0; r < total; r++) {
+      const a = ids[r],
+        c = ids[(r + 1) % rings];
       const p = pairs[i],
         q = pairs[i + 1];
-      b.addFace([a[p], a[q], c[q], c[p]], [r / total, 0, r / total, 1, (r + 1) / total, 1, (r + 1) / total, 0], smooth);
+      const u0 = su ? r / total : r / steps,
+        u1 = su ? (r + 1) / total : (r + 1) / steps;
+      const v0 = sv ? i / pairs.length : 0,
+        v1 = sv ? (i + 2) / pairs.length : 1;
+      const face = [a[p], a[q], c[q], c[p]];
+      const uv = [u0, v0, u0, v1, u1, v1, u1, v0];
+      if (flip) b.addFace([face[3], face[2], face[1], face[0]], [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], smooth);
+      else b.addFace(face, uv, smooth);
     }
-  }
   let out = b.build();
-  if (bool(mod, 'use_flip')) out = transformMesh(out, new Matrix4().makeScale(1, 1, 1)); // winding handled below
   if (bool(mod, 'use_merge_vertices')) out = weld(out, num(mod, 'merge_threshold', 0.01));
   return out;
 }
@@ -1906,7 +1923,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     supportsEditMode: true,
     apply: mirrorMesh,
   },
-  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_flip: false }), apply: screw },
+  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', object: null, use_object_screw_offset: false, use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_normal_flip: false, use_stretch_u: false, use_stretch_v: false }), deps: (m) => [m.object as string], apply: screw },
   SOLIDIFY: {
     type: 'SOLIDIFY',
     label: 'Solidify',
