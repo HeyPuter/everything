@@ -224,3 +224,7 @@ button.ol-mode:hover {
   flex-direction: column;
   gap: 2px;
 }
+.ol-spacer-row {
+  flex: none;
+  pointer-events: none;
+}

@@ -65,6 +65,11 @@ interface Cell {
   isolate?: () => void;
 }
 
+/** Row height and list padding (px), used to draw only the visible part of long trees. */
+const ROW_H = 22;
+const PAD = 2;
+const VIRTUAL_MIN = 150;
+
 type DragInfo = { kind: 'objects'; ids: string[] } | { kind: 'collection'; id: string } | { kind: 'material'; id: string };
 type DropZone = 'INTO' | 'BEFORE' | 'AFTER';
 
@@ -97,6 +102,7 @@ export class Outliner implements Editor {
   private openDrag: { open: boolean; done: Set<string> } | null = null;
   /** pending click on an already selected item (applied on release when no drag started) */
   private pendingClick: { row: Row; ctrl: boolean; shift: boolean } | null = null;
+  private scrollQueued = false;
 
   constructor(
     public area: Area,
@@ -122,6 +128,15 @@ export class Outliner implements Editor {
       if (!(e.target as HTMLElement).closest('.ol-row')) openMenu(emptyMenu(this), { x: e.clientX, y: e.clientY });
     });
     this.list.addEventListener('pointerdown', (e) => this.onListDown(e));
+    // long trees only draw the rows in view: redraw when scrolled
+    this.list.addEventListener('scroll', () => {
+      if (this.rows.length < VIRTUAL_MIN || this.scrollQueued) return;
+      this.scrollQueued = true;
+      requestAnimationFrame(() => {
+        this.scrollQueued = false;
+        this.update();
+      });
+    });
     this.el.addEventListener('pointerenter', () => setCurrentOutliner(this));
     this.list.addEventListener('dragover', (e) => {
       if (this.drag && !(e.target as HTMLElement).closest('.ol-row')) this.setHint(null);
@@ -512,9 +527,22 @@ export class Outliner implements Editor {
     const cols = this.displayMode === 'VIEW_LAYER' || this.displayMode === 'SCENES' ? COLUMNS.filter((c) => this.filter[c.show]) : [];
     const idModes = this.displayMode === 'BLENDER_FILE' || this.displayMode === 'ORPHAN_DATA';
     const hiddenCols = this.hiddenCollections(doc);
-    patch(
-      this.list,
-      this.rows.map((r, i) => {
+    const total = this.rows.length;
+    let first = 0,
+      last = total;
+    if (total >= VIRTUAL_MIN) {
+      const top = this.list.scrollTop,
+        height = this.list.clientHeight || 800;
+      first = Math.max(0, Math.floor((top - PAD) / ROW_H) - 15);
+      last = Math.min(total, Math.ceil((top + height) / ROW_H) + 15);
+      // a row being renamed that scrolled away stops renaming
+      const ri = this.renaming ? this.rows.findIndex((r) => r.key === this.renaming) : -1;
+      if (ri >= 0 && (ri < first || ri >= last)) this.renaming = null;
+    }
+    patch(this.list, [
+      first > 0 ? h('div', { key: '#top', class: 'ol-spacer-row', style: { height: `${first * ROW_H}px` } }) : null,
+      this.rows.slice(first, last).map((r, k) => {
+        const i = first + k;
         const ob = r.ob;
         const selected = this.isSelected(r);
         const active = this.isActive(r);
@@ -649,7 +677,18 @@ export class Outliner implements Editor {
             : null,
         );
       }),
-    );
+      last < total ? h('div', { key: '#bottom', class: 'ol-spacer-row', style: { height: `${(total - last) * ROW_H}px` } }) : null,
+    ]);
+  }
+
+  /** Scroll so that row `i` is visible ('nearest') or centered. */
+  scrollToRow(i: number, block: 'nearest' | 'center' = 'nearest') {
+    const l = this.list;
+    const top = PAD + i * ROW_H;
+    if (block === 'center') l.scrollTop = Math.max(0, top - l.clientHeight / 2 + ROW_H / 2);
+    else if (top < l.scrollTop) l.scrollTop = top;
+    else if (top + ROW_H > l.scrollTop + l.clientHeight) l.scrollTop = top + ROW_H - l.clientHeight;
+    if (this.rows.length >= VIRTUAL_MIN) this.update();
   }
 
   /** Collections hidden in the viewport through themselves or a parent. */
@@ -980,12 +1019,15 @@ export class Outliner implements Editor {
   boxSelect(top: number, bottom: number, mode: 'SET' | 'ADD' | 'SUB') {
     const before = this.selectionSignature();
     if (mode === 'SET') this.deselectAll();
-    const els = [...this.list.querySelectorAll<HTMLElement>('.ol-row')];
+    // rows are a fixed height, so the range maps directly to row indices (also for rows not drawn)
+    const lr = this.list.getBoundingClientRect();
+    const y0 = top - lr.top + this.list.scrollTop - PAD,
+      y1 = bottom - lr.top + this.list.scrollTop - PAD;
+    const i0 = Math.max(0, Math.floor(y0 / ROW_H)),
+      i1 = Math.min(this.rows.length - 1, Math.floor(y1 / ROW_H));
     let first: Row | null = null;
-    for (const el of els) {
-      const b = el.getBoundingClientRect();
-      if (b.bottom < top || b.top > bottom) continue;
-      const r = this.rows.find((x) => x.key === el.dataset.key);
+    for (let i = i0; i <= i1; i++) {
+      const r = this.rows[i];
       if (!r || r.kind === 'group' || r.kind === 'file' || r.kind === 'scene' || (r.kind === 'collection' && r.id === app.doc.scene.collection)) continue;
       this.setSelected(r, mode !== 'SUB');
       first ??= r;
@@ -1168,9 +1210,9 @@ export class Outliner implements Editor {
     }
     const r = key ? this.rows.find((x) => x.key === key) : undefined;
     if (!r || !this.canRename(r)) return false;
+    this.scrollToRow(this.rows.indexOf(r));
     this.renaming = r.key;
     this.update();
-    this.list.querySelector('.ol-rename')?.scrollIntoView({ block: 'nearest' });
     return true;
   }
 
@@ -1240,11 +1282,10 @@ export class Outliner implements Editor {
     }
     this.setOpen('scene', true);
     this.update();
-    const row = this.rows.find((r) => r.ekey === ekey);
-    if (row) {
-      this.activeKey = row.ekey;
-      const el = this.list.querySelector<HTMLElement>(`.ol-row[data-key="${CSS.escape(row.key)}"]`);
-      el?.scrollIntoView({ block: 'center' });
+    const i = this.rows.findIndex((r) => r.ekey === ekey);
+    if (i >= 0) {
+      this.activeKey = this.rows[i].ekey;
+      this.scrollToRow(i, 'center');
     }
   }
 
@@ -1328,7 +1369,10 @@ export class Outliner implements Editor {
     if (target.kind !== 'collection' || target.id !== app.doc.scene.collection) this.setSelected(target, true);
     this.activate(target);
     this.commitSelection(before);
-    requestAnimationFrame(() => this.list.querySelector<HTMLElement>(`.ol-row[data-key="${CSS.escape(target.key)}"]`)?.scrollIntoView({ block: 'nearest' }));
+    requestAnimationFrame(() => {
+      const i = this.rows.findIndex((r) => r.key === target.key);
+      if (i >= 0) this.scrollToRow(i);
+    });
   }
 
   selectAll(action: 'SELECT' | 'DESELECT' | 'INVERT' | 'TOGGLE') {
