@@ -201,6 +201,9 @@ void main() {
     c *= uCbMul;
   } else if (uOp == 2) {
     c = c * uBC.x + uBC.y;
+  } else if (uOp == 3) {
+    // white balance: uP0 is the colour that should become white
+    c = c / max(uP0, vec3(1e-4));
   }
   o = vec4(max(c, 0.0) * a, a);
 }`;
@@ -553,6 +556,17 @@ export class Compositor {
     gl.uniform1i(u('uOp'), 2);
     const [a, b] = brightContrastParams(bright, contrast);
     gl.uniform2f(u('uBC'), a, b);
+    this.draw();
+  }
+
+  whiteBalance(dst: Target, src: Target, white: number[]) {
+    const gl = this.gl;
+    this.bindTarget(dst);
+    const u = this.use('color');
+    this.bindTex(0, src.tex);
+    gl.uniform1i(u('uTex'), 0);
+    gl.uniform1i(u('uOp'), 3);
+    gl.uniform3f(u('uP0'), white[0] ?? 1, white[1] ?? 1, white[2] ?? 1);
     this.draw();
   }
 

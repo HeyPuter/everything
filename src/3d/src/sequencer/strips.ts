@@ -249,6 +249,7 @@ export function newColorBalance(): ColorBalanceData {
 
 export function newModifier(type: ModifierType, name: string): StripModifier {
   if (type === 'COLOR_BALANCE') return { name, type, mute: false, show_expanded: true, color_balance: newColorBalance(), color_multiply: 1 };
+  if (type === 'WHITE_BALANCE') return { name, type, mute: false, show_expanded: true, white_value: [1, 1, 1] };
   return { name, type, mute: false, show_expanded: true, bright: 0, contrast: 0 };
 }
 

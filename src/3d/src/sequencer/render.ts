@@ -295,6 +295,7 @@ export class SequencerRender {
       const n = c.acquire();
       if (m.type === 'COLOR_BALANCE' && m.color_balance) c.colorBalance(n, img, m.color_balance, m.color_multiply ?? 1);
       else if (m.type === 'BRIGHT_CONTRAST') c.brightContrast(n, img, m.bright ?? 0, m.contrast ?? 0);
+      else if (m.type === 'WHITE_BALANCE') c.whiteBalance(n, img, m.white_value ?? [1, 1, 1]);
       else {
         c.release(n);
         continue;

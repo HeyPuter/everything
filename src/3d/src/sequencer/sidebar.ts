@@ -356,6 +356,7 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
   );
   return panel(`seq-mod-${i}-${m.type}`, '', () => {
     if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 })];
+    if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value')];
     const cb = m.color_balance!;
     const lgg = cb.correction_method === 'LIFT_GAMMA_GAIN';
     return [
@@ -390,6 +391,7 @@ export function modifiersTab(): Child {
               [
                 { label: 'Color Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
                 { label: 'Brightness/Contrast', icon: 'seq_adjustment', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
+                { label: 'White Balance', icon: 'seq_color', op: 'sequencer.strip_modifier_add', props: { type: 'WHITE_BALANCE' } },
               ],
               e.currentTarget as HTMLElement,
             );

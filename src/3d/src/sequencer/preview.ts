@@ -33,6 +33,8 @@ export class PreviewRegion {
   private gen = 0;
   private disposed = false;
   showOverlays = true;
+  /** preview overlay options */
+  opts = { safeAreas: false, cursor: true, outline: true };
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
 
@@ -87,6 +89,31 @@ export class PreviewRegion {
     this.zoom = 1;
     this.panX = this.panY = 0;
     this.fitted = true;
+    this.draw();
+    this.request();
+  }
+
+  /** Zoom and pan so the selected strips' images fill the region (fit the frame if none). */
+  frameSelected() {
+    const [W, H] = this.res();
+    const sel = previewStrips(app.doc.scene.frame_current).filter((s) => s.select);
+    if (!sel.length) return this.fit();
+    const pts = sel.flatMap((s) => stripImageCorners(s, W, H));
+    const x0 = Math.min(...pts.map((p) => p[0])),
+      x1 = Math.max(...pts.map((p) => p[0])),
+      y0 = Math.min(...pts.map((p) => p[1])),
+      y1 = Math.max(...pts.map((p) => p[1]));
+    this.zoom = 1;
+    this.panX = this.panY = 0;
+    const L = this.layout();
+    const w = this.el.clientWidth - 16,
+      h = this.el.clientHeight - 16;
+    this.zoom = Math.max(0.05, Math.min(40, Math.min(w / Math.max(1, (x1 - x0) * L.sx), h / Math.max(1, (y1 - y0) * L.s))));
+    // centre the box: pan by the offset of its centre from the frame centre at the new zoom
+    const L2 = this.layout();
+    this.panX = -((x0 + x1) / 2 - W / 2) * L2.sx;
+    this.panY = ((y0 + y1) / 2 - H / 2) * L2.s;
+    this.fitted = false;
     this.draw();
     this.request();
   }
@@ -248,10 +275,11 @@ export class PreviewRegion {
     const [W, H] = this.res();
     const act = activeStrip();
     const editing = editedText();
+    if (this.opts.safeAreas) this.drawSafeAreas(g);
     if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
-    this.drawCursor(g);
+    if (this.opts.cursor) this.drawCursor(g);
     for (const s of previewStrips(app.doc.scene.frame_current)) {
-      if (!s.select || s === editing) continue;
+      if (!this.opts.outline || !s.select || s === editing) continue;
       const pts = stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y));
       g.strokeStyle = s === act ? T.active : T.selected;
       g.lineWidth = s === act ? 2 : 1.5;
@@ -260,6 +288,30 @@ export class PreviewRegion {
       g.closePath();
       g.stroke();
     }
+  }
+
+  /** Title-safe and action-safe frames (inset by a share of the frame size) and a centre cross. */
+  private drawSafeAreas(g: CanvasRenderingContext2D) {
+    const [W, H] = this.res();
+    const rect = (mx: number, my: number) => {
+      const [x0, y0] = this.toLocal(W * mx, H * my),
+        [x1, y1] = this.toLocal(W * (1 - mx), H * (1 - my));
+      g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
+    };
+    g.save();
+    g.strokeStyle = 'rgba(255,255,255,0.35)';
+    g.setLineDash([5, 4]);
+    rect(0.1, 0.05);
+    rect(0.035, 0.035);
+    g.setLineDash([]);
+    const [cx, cy] = this.toLocal(W / 2, H / 2);
+    g.beginPath();
+    g.moveTo(cx - 8, cy);
+    g.lineTo(cx + 8, cy);
+    g.moveTo(cx, cy - 8);
+    g.lineTo(cx, cy + 8);
+    g.stroke();
+    g.restore();
   }
 
   /** The 2D cursor: a ring with tick marks. */

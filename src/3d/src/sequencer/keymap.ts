@@ -1,7 +1,7 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
 import { addMenu, selectMenu, changeMenu, retimingMenu } from './menus';
-import { pivotPie, mirrorItems } from './previewops';
+import { pivotPie, mirrorItems, viewPie } from './previewops';
 
 addKeys('Sequencer', [
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
@@ -50,6 +50,7 @@ addKeys('Sequencer', [
   { key: 'G', ctrl: true, op: 'sequencer.meta_make' },
   { key: 'G', ctrl: true, alt: true, op: 'sequencer.meta_separate' },
   { key: 'HOME', op: 'sequencer.view_all' },
+  { key: 'ACCENT_GRAVE', action: () => viewPie(false) },
   { key: 'NUMPAD_PERIOD', op: 'sequencer.view_selected' },
   { key: 'NUMPAD_0', op: 'sequencer.view_frame' },
   { key: 'PAGE_UP', op: 'sequencer.strip_jump', props: { next: false, center: false } },
@@ -92,6 +93,8 @@ addKeys('SequencerPreview', [
   { key: 'H', op: 'sequencer.mute', props: { unselected: false } },
   { key: 'H', alt: true, op: 'sequencer.unmute', props: { unselected: false } },
   { key: 'HOME', op: 'sequencer.view_all_preview' },
+  { key: 'ACCENT_GRAVE', action: () => viewPie(true) },
+  { key: 'NUMPAD_PERIOD', op: 'sequencer.view_selected' },
   { key: 'NUMPAD_1', op: 'sequencer.view_zoom_ratio', props: { ratio: 1 } },
   { key: 'NUMPAD_2', op: 'sequencer.view_zoom_ratio', props: { ratio: 0.5 } },
   { key: 'NUMPAD_4', op: 'sequencer.view_zoom_ratio', props: { ratio: 0.25 } },

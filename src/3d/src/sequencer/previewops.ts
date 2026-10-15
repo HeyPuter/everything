@@ -76,3 +76,43 @@ export function mirrorItems(): MenuItem[] {
 }
 
 export { setCursorPoint };
+
+/** ` (accent grave): view pie of the timeline or the preview. */
+export function viewPie(preview: boolean) {
+  const x = app.pointer.x,
+    y = app.pointer.y;
+  if (preview)
+    openPie(
+      'View',
+      [
+        { label: 'Fit Preview in Window', op: 'sequencer.view_all_preview' },
+        { label: 'Frame Selected', op: 'sequencer.view_selected' },
+        { label: 'Zoom 1:1', op: 'sequencer.view_zoom_ratio', props: { ratio: 1 } },
+        null,
+        null,
+        null,
+        null,
+        null,
+      ],
+      x,
+      y,
+      'Backquote',
+    );
+  else
+    openPie(
+      'View',
+      [
+        { label: 'Frame All', op: 'sequencer.view_all' },
+        { label: 'Frame Selected', op: 'sequencer.view_selected' },
+        { label: 'Go to Current Frame', op: 'sequencer.view_frame' },
+        { label: 'Set Preview Range to Strips', op: 'sequencer.set_range_to_strips', props: { preview: true } },
+        null,
+        null,
+        null,
+        null,
+      ],
+      x,
+      y,
+      'Backquote',
+    );
+}

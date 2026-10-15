@@ -288,3 +288,23 @@ test('sequencer: preview transforms with axis constraint, pivot, mirror and the 
   expect(await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.find((x: any) => x.name === 'Text').use_flip_x)).toBe(true);
   await expectNoErrors(errors);
 });
+
+test('sequencer: blade tool splits on click and cuts out a box on drag', async ({ page }) => {
+  const { errors } = await videoWorkspace(page);
+  await page.locator('.seq-toolbar [data-tip^="Blade"]').last().click();
+  const a = await stripPoint(page, 'Color', 0.5);
+  await page.mouse.click(a.x, a.y);
+  expect((await strips(page)).length).toBe(5);
+  // drag across Color.001 on channel 1: the middle goes, the gap closes
+  const l = await stripPoint(page, 'Color.001', 0.25);
+  const r = await stripPoint(page, 'Color.001', 0.75);
+  await page.mouse.move(l.x, l.y);
+  await page.mouse.down();
+  await page.mouse.move(r.x, r.y + 5, { steps: 4 });
+  await page.mouse.up();
+  const ch1 = await page.evaluate(() => (window as any).app.doc.scene.sequence_editor.strips.filter((s: any) => s.channel === 1).map((s: any) => [s.frame_start + s.frame_offset_start, s.frame_start + s.frame_duration - s.frame_offset_end]).sort((x: number[], y: number[]) => x[0] - y[0]));
+  const total = ch1.reduce((n: number, [x, y]: number[]) => n + (y - x), 0);
+  expect(total).toBeLessThan(100);
+  expect(ch1.length).toBe(5);
+  await expectNoErrors(errors);
+});

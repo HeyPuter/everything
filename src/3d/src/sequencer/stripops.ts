@@ -12,6 +12,8 @@ import { subtitlesSrt } from './subtitles';
 import { effectTypesFor, changeEffectType, swapData } from './stripdata';
 export { effectTypesFor };
 import { addFade, clearFade, crossfadeSounds, type FadeType } from './fades';
+import { boxBlade } from './blade';
+import { withConnected } from './connect';
 
 const anySelected = () => hasEditor() && seqList().some((s) => s.select);
 const act = () => (hasEditor() ? activeStrip() : null);
@@ -85,6 +87,38 @@ function multicamAt(frame: number): Strip | null {
 }
 
 const ops: Operator[] = [
+  {
+    idname: 'sequencer.box_blade',
+    label: 'Box Blade',
+    description: 'Cut the strips inside a frame range and channel range, removing the part inside',
+    props: [
+      { id: 'frame_start', label: 'Start Frame', type: 'int', default: 0 },
+      { id: 'frame_end', label: 'End Frame', type: 'int', default: 0 },
+      { id: 'channel_start', label: 'Start Channel', type: 'int', default: 1, min: 1, max: 128 },
+      { id: 'channel_end', label: 'End Channel', type: 'int', default: 1, min: 1, max: 128 },
+      { id: 'remove_gaps', label: 'Remove Gaps', type: 'bool', default: true },
+      { id: 'ignore_connections', label: 'Ignore Connections', type: 'bool', default: false },
+    ],
+    poll: () => hasEditor() && seqList().length > 0,
+    exec: (_c, p) => {
+      const list = seqList();
+      const c0 = Math.min(p.channel_start as number, p.channel_end as number),
+        c1 = Math.max(p.channel_start as number, p.channel_end as number);
+      const f0 = p.frame_start as number,
+        f1 = p.frame_end as number;
+      let cand = list.filter((s) => !isLocked(s) && s.channel >= c0 && s.channel <= c1);
+      // connected strips are cut with the ones in the box
+      if (!p.ignore_connections) cand = withConnected(list, cand).filter((s) => !isLocked(s));
+      const lo = Math.min(...cand.map((s) => s.channel), c0),
+        hi = Math.max(...cand.map((s) => s.channel), c1);
+      const r = boxBlade(seqEditor(), list, cand, f0, f1, lo, hi, !!p.remove_gaps);
+      if (!r.removed.length) return 'CANCELLED';
+      const ed = seqEditor();
+      if (ed.active_strip && !S.findStrip(ed.strips, ed.active_strip)) ed.active_strip = null;
+      afterEdit();
+      restartPlayback();
+    },
+  },
   {
     idname: 'sequencer.fades_add',
     label: 'Add Fades',

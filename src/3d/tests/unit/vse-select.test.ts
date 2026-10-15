@@ -139,3 +139,34 @@ describe('connected strips', () => {
     expect(connectedOf(e.strips, a)).toEqual([b]);
   });
 });
+
+import { boxBlade } from '../../src/sequencer/blade';
+
+describe('box blade', () => {
+  it('cuts strips in the box, removes the middle and closes the gap', () => {
+    const e = ed();
+    const a = add(e, 'COLOR', 1, 1, 100, 'a');
+    const b = add(e, 'COLOR', 2, 1, 100, 'b');
+    const r = boxBlade(e, e.strips, [a, b], 41, 61, 1, 2, true);
+    expect(r.closed).toBe(20);
+    const ranges = e.strips.map((s) => [s.channel, S.finalStart(s), S.finalEnd(s)]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    expect(ranges).toEqual([
+      [1, 1, 41],
+      [1, 41, 81],
+      [2, 1, 41],
+      [2, 41, 81],
+    ]);
+  });
+
+  it('keeps the gap when something else fills the range or when asked to', () => {
+    const e = ed();
+    const a = add(e, 'COLOR', 1, 1, 100, 'a');
+    add(e, 'COLOR', 3, 1, 100, 'other');
+    const r = boxBlade(e, e.strips, [a], 41, 61, 1, 1, true);
+    expect(r.closed).toBe(0);
+    expect(e.strips.filter((s) => s.channel === 1).map((s) => [S.finalStart(s), S.finalEnd(s)])).toEqual([
+      [1, 41],
+      [61, 101],
+    ]);
+  });
+});

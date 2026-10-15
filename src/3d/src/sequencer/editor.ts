@@ -169,6 +169,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       showOverlays: this.showOverlays,
       splitRatio: this.splitRatio,
       previewSize: this.preview.size,
+      previewOverlays: { ...this.preview.opts },
       fitted: this.fitted,
     };
   }
@@ -182,6 +183,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
     if (['select', 'select_circle', 'select_lasso', 'cursor', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
+    if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
+    this.preview.showOverlays = this.showOverlays;
   }
 
   get keymaps(): string[] {
@@ -412,16 +415,23 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private overlayPopover(): Child {
     const t = (key: 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets', label: string) =>
       checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
+    const o = this.preview.opts;
+    const pt = (key: keyof typeof o, label: string) => checkbox(`seq-pov-${key}`, label, o[key], (v) => ((o[key] = v), this.preview.draw(), app.changed('ui')));
     return h(
       'div',
       { class: 'pop-panel' },
-      h('div', { class: 'pop-title' }, 'Strips'),
-      t('showStripName', 'Name'),
-      t('showStripSource', 'Source'),
-      t('showStripDuration', 'Duration'),
-      t('showWaveforms', 'Waveforms'),
-      t('showThumbnails', 'Thumbnails'),
-      t('showOffsets', 'Offsets'),
+      this.hasPreview() ? [h('div', { class: 'pop-title' }, 'Preview Overlays'), pt('outline', 'Image Outline'), pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas')] : null,
+      this.hasTimeline()
+        ? [
+            h('div', { class: 'pop-title' }, 'Strips'),
+            t('showStripName', 'Name'),
+            t('showStripSource', 'Source'),
+            t('showStripDuration', 'Duration'),
+            t('showWaveforms', 'Waveforms'),
+            t('showThumbnails', 'Thumbnails'),
+            t('showOffsets', 'Offsets'),
+          ]
+        : null,
     );
   }
 
@@ -465,7 +475,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     };
     patch(this.toolbarEl, [
       selectSlot('select', this.tool, (v) => (this.tool = timelineTool(v))),
-      tb('blade', 'seq_blade', this.tool === 'blade', 'Blade\nSplit strips at the clicked frame', () => (this.tool = 'blade')),
+      tb('blade', 'seq_blade', this.tool === 'blade', 'Blade\nClick to split strips at a frame; drag a box to cut out a section (Shift keeps the gap)', () => (this.tool = 'blade')),
       tb('slip', 'seq_slip', this.tool === 'slip', 'Slip\nSlip the content of a strip under its handles', () => (this.tool = 'slip')),
     ]);
     patch(this.pvToolbar, [
@@ -637,7 +647,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   // ------------------------------------------------------------------ view ops
 
   viewAll() {
-    if (this.view === 'PREVIEW') return this.preview.fit();
+    if (this.view === 'PREVIEW' || this.hover === 'preview') return this.preview.fit();
     const sc = app.doc.scene;
     let a = sc.frame_start,
       b = sc.frame_end;
@@ -666,7 +676,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   }
 
   viewSelected() {
-    if (this.view === 'PREVIEW') return this.preview.fit();
+    if (this.view === 'PREVIEW' || this.hover === 'preview') return this.preview.frameSelected();
     const sel = hasEditor() ? seqList().filter((s) => s.select) : [];
     if (!sel.length) return;
     this.fitFrames(Math.min(...sel.map(S.finalStart)), Math.max(...sel.map(S.finalEnd)));
@@ -1409,11 +1419,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (e.button !== 0) return;
     if (y < RULER_H) return this.scrub(e);
     if (this.markersVisible() && y > this.H - MARKER_H) return this.markerDown(e, x);
-    if (this.tool === 'blade') {
-      const hit = this.hitTest(x, y);
-      if (hit) app.run('sequencer.split', { frame: Math.round(this.xf(x)), channel: hit.strip.channel, type: e.shiftKey ? 'HARD' : 'SOFT', use_cursor_position: true, ignore_selection: true, side: 'NO_CHANGE' }, { invoke: false });
-      return;
-    }
+    if (this.tool === 'blade') return this.bladeDown(e);
     const keyHit = this.retimingKeyAt(x, y);
     if (keyHit) return this.retimingKeyDown(e, keyHit);
     const hit = this.hitTest(x, y);
@@ -1498,6 +1504,39 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const cleanup = () => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  }
+
+  /** Blade tool: click splits the strip under the pointer, dragging a box cuts out its contents. */
+  private bladeDown(e: PointerEvent) {
+    const p0 = this.local(e);
+    let dragging = false;
+    const move = (ev: PointerEvent) => {
+      const p = this.local(ev);
+      if (!dragging && Math.hypot(p.x - p0.x, p.y - p0.y) > 4) dragging = true;
+      if (!dragging) return;
+      // the box snaps to whole frames and channels
+      const f0 = Math.round(this.xf(Math.min(p0.x, p.x))),
+        f1 = Math.round(this.xf(Math.max(p0.x, p.x)));
+      this.boxRect = { x0: this.fx(f0), x1: this.fx(f1), y0: p0.y, y1: p.y };
+      this.redraw();
+    };
+    const up = (ev: PointerEvent) => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      this.boxRect = null;
+      this.redraw();
+      const p = this.local(ev);
+      if (!dragging) {
+        const hit = this.hitTest(p0.x, p0.y);
+        if (hit) app.run('sequencer.split', { frame: Math.round(this.xf(p0.x)), channel: hit.strip.channel, type: e.shiftKey ? 'HARD' : 'SOFT', use_cursor_position: true, ignore_selection: true, side: 'NO_CHANGE' }, { invoke: false });
+        return;
+      }
+      const c0 = Math.floor(this.pointerChannel(e.clientY)),
+        c1 = Math.floor(this.pointerChannel(ev.clientY));
+      app.run('sequencer.box_blade', { frame_start: Math.round(this.xf(Math.min(p0.x, p.x))), frame_end: Math.round(this.xf(Math.max(p0.x, p.x))), channel_start: Math.max(1, Math.min(c0, c1)), channel_end: Math.max(1, Math.max(c0, c1)), remove_gaps: !e.shiftKey, ignore_connections: e.altKey }, { invoke: false });
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);

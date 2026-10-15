@@ -85,7 +85,7 @@ export interface StripCrop {
   max_y: number;
 }
 
-export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST';
+export type ModifierType = 'COLOR_BALANCE' | 'BRIGHT_CONTRAST' | 'WHITE_BALANCE';
 
 export interface ColorBalanceData {
   correction_method: 'LIFT_GAMMA_GAIN' | 'OFFSET_POWER_SLOPE';
@@ -114,6 +114,8 @@ export interface StripModifier {
   /** BRIGHT_CONTRAST */
   bright?: number;
   contrast?: number;
+  /** WHITE_BALANCE: this colour becomes white */
+  white_value?: number[];
 }
 
 /** Retiming key: timeline offset from frame_start → content frame offset. */
