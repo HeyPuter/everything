@@ -72,6 +72,7 @@ export function sculptToolSlots(available: (op: string) => boolean): (ToolDef | 
   }
   out.push(null);
   if (available('sculpt.mesh_filter')) out.push(meshFilterTool);
+  if (available('sculpt.color_filter')) out.push({ id: 'builtin.color_filter', label: 'Color Filter', icon: 'color_filter', description: 'Adjust the colors of the mesh: drag left / right to set the strength' });
   if (available('sculpt.face_set_edit')) out.push(faceSetEditTool);
   if (available('sculpt.mask_by_color')) out.push(maskByColorTool);
   return out.filter((t, i, a) => t || (i > 0 && a[i - 1]));

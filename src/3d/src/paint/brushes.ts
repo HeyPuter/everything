@@ -79,6 +79,9 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     null,
     S('brush_mask', 'Mask', 'MASK', 'brush_sculpt_mask', 'Paints a mask that protects vertices (Ctrl: erase)', 'M'),
     S('brush_draw_face_sets', 'Draw Face Sets', 'DRAW_FACE_SETS', 'brush_sculpt_face_set', 'Paints a new face set (Ctrl: grows the face set under the stroke start)'),
+    null,
+    S('brush_sculpt_paint', 'Paint', 'PAINT', 'brush_paint_draw', 'Paints the color attribute of the mesh (Ctrl: secondary color, Shift: blur)'),
+    S('brush_sculpt_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the colors of the mesh along the stroke'),
   ],
   VERTEX_PAINT: [
     S('brush_vertpaint', 'Paint', 'DRAW', 'brush_paint_draw', 'Paints the active color attribute'),
@@ -120,6 +123,8 @@ function base(id: string, name: string, tool: string, mode: BrushMode, extra: Pa
 function extraBrushes(): PaintBrush[] {
   return [
     base('brush_draw_face_sets', 'Draw Face Sets', 'DRAW_FACE_SETS', 'SCULPT', { strength: 1, falloff_shape: 'SPHERE' }),
+    base('brush_sculpt_paint', 'Paint', 'PAINT', 'SCULPT', { strength: 1, blend: 'MIX', falloff_shape: 'SPHERE' }),
+    base('brush_sculpt_smear', 'Smear', 'SMEAR', 'SCULPT', { strength: 1, blend: 'MIX', falloff_shape: 'SPHERE' }),
     base('brush_vert_blur', 'Blur', 'BLUR', 'VERTEX_PAINT', {
       strength: 1,
       blend: 'MIX',

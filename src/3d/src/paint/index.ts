@@ -7,6 +7,7 @@ import './sculptops';
 import './facesetops';
 import './gestureops';
 import './meshfilter';
+import './colorfilter';
 import './expand';
 import './maskops';
 import './trim';

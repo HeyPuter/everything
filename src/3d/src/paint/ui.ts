@@ -325,7 +325,7 @@ function toolHeaderSettings(mode: BrushMode): Child {
       icon('down_arrow_hlt', 'tiny'),
     ),
   );
-  if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) {
+  if (paintsColor(mode, b)) {
     parts.push(colorFields('th-col'));
     parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   }
@@ -406,6 +406,12 @@ function falloffPreview(b: PaintBrush): VNode {
 // ---------------------------------------------------------------------------
 // brush settings content (shared by the sidebar / Properties panels and the tool header popovers)
 
+/** Brushes that paint with the brush color (color fields, blend, color picker). */
+function paintsColor(mode: BrushMode, b: PaintBrush) {
+  if (mode === 'SCULPT') return b.sculpt_tool === 'PAINT';
+  return (mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL');
+}
+
 function pressureToggle(b: PaintBrush, key: 'use_pressure_size' | 'use_pressure_strength', id: string) {
   const on = key === 'use_pressure_strength' ? b.use_pressure_strength !== false : !!b.use_pressure_size;
   return h(
@@ -453,7 +459,7 @@ function setSizeUnit(b: PaintBrush, unit: 'VIEW' | 'SCENE') {
 
 function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   const rows: Child[] = [];
-  if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
+  if (paintsColor(mode, b)) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   if (mode === 'WEIGHT_PAINT') {
     rows.push(weightField(`${p}-w`));
     if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, `${p}-wblend`, BLENDS)));
@@ -641,7 +647,7 @@ function brushPanels(mode: BrushMode): Child[] {
         panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
     );
-    if ((mode === 'VERTEX_PAINT' || mode === 'TEXTURE_PAINT') && (b.sculpt_tool === 'DRAW' || b.sculpt_tool === 'TEXDRAW' || b.sculpt_tool === 'FILL')) {
+    if (paintsColor(mode, b)) {
       out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
       out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows('pt-pal'), { closed: true }));
     }
@@ -1020,7 +1026,7 @@ registerOperators([
     label: 'Swap Colors',
     description: 'Swap primary and secondary brush colors',
     undo: false,
-    poll: () => app.doc.mode === 'VERTEX_PAINT' || app.doc.mode === 'TEXTURE_PAINT',
+    poll: () => app.doc.mode === 'VERTEX_PAINT' || app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'SCULPT',
     exec: () => {
       const up = app.doc.scene.tool_settings.unified_paint;
       const c = up.color;
@@ -1034,11 +1040,11 @@ registerOperators([
     label: 'Sample Color',
     description: 'Use the color under the cursor as the brush color',
     undo: false,
-    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT') && !!activeView3D(),
+    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D(),
     exec: (ctx) => {
       const v = activeView3D()!;
       const p = pointerIn(v, ctx.event);
-      const ok = app.doc.mode === 'VERTEX_PAINT' ? sampleVertexColor(v, p.x, p.y) : sampleImageColor(v, p.x, p.y);
+      const ok = app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, p.x, p.y) : sampleVertexColor(v, p.x, p.y);
       if (!ok) return 'CANCELLED';
       changed();
     },
@@ -1086,6 +1092,9 @@ const common = (extra: KeyItem[] = []): KeyItem[] => [
 
 addKeys('Sculpt', [
   ...common([
+    { key: 'X', op: 'paint.brush_colors_flip' },
+    { key: 'X', shift: true, op: 'paint.sample_color' },
+    { key: 'X', ctrl: true, op: 'sculpt.color_filter', props: { type: 'FILL', strength: 1, use_immediate: true } },
     brushKey('V', 'brush_draw'),
     brushKey('S', 'brush_smooth'),
     brushKey('P', 'brush_pinch'),
@@ -1279,7 +1288,15 @@ editModeHooks.pointer.push((v, e) => {
       return true;
     }
   }
-  if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
+  const sb = mode === 'SCULPT' ? activeBrush('SCULPT') : null;
+  if (sb && (sb.sculpt_tool === 'PAINT' || sb.sculpt_tool === 'SMEAR')) {
+    // painting in Sculpt Mode shows the color attribute in solid shading
+    if (v.shading.type === 'SOLID' && v.shading.color_type !== 'VERTEX') {
+      v.shading.color_type = 'VERTEX';
+      app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
+    }
+    vertexPaintStroke(v, e, sb);
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
   else if (mode === 'SCULPT') sculptStroke(v, e);
   else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {

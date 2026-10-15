@@ -14,7 +14,7 @@ import { brushThumb } from './brushthumbs';
 
 /** Category names of the brush groups (separated by gaps in the toolbar lists). */
 const GROUPS: Record<BrushMode, string[]> = {
-  SCULPT: ['Add/Subtract', 'Contrast & Smooth', 'Transform', 'Utilities'],
+  SCULPT: ['Add/Subtract', 'Contrast & Smooth', 'Transform', 'Utilities', 'Paint'],
   VERTEX_PAINT: ['Paint'],
   WEIGHT_PAINT: ['Paint'],
   TEXTURE_PAINT: ['Paint'],

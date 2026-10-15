@@ -100,3 +100,8 @@ registerIcons({
 registerIcons({
   pressure: '<path class="f" d="M11.6 1.6a1.6 1.6 0 0 1 2.3 2.3L7.4 10.4 5 11l.6-2.4z"/><path class="s" d="M2 14c1.5-1 2.2-1 3 0s1.6 1 3 0" fill="none" stroke-width="1.2" stroke-linecap="round"/>',
 });
+
+registerIcons({
+  color_filter:
+    '<circle class="f" cx="6" cy="6.5" r="3.6" opacity=".45"/><circle class="f" cx="10" cy="6.5" r="3.6" opacity=".7"/><circle class="f" cx="8" cy="10" r="3.6" opacity=".3"/><path class="s" d="M2 14.5h12" stroke-width="1.2" stroke-linecap="round"/>',
+});

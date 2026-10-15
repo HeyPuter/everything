@@ -270,3 +270,33 @@ test('brush shelf, Properties tool tab and tool header popovers', async ({ page 
   await expect(page.locator('.tool-header')).toContainText('Smooth');
   await expectNoErrors(errors);
 });
+
+test('sculpt paint brush and color fill (Ctrl+X)', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'SCULPT', 'mesh.primitive_uv_sphere_add', { segments: 32, ring_count: 16, radius: 4 });
+  await page.evaluate(() => {
+    const a = (window as unknown as W).app;
+    a.run('paint.brush_select', { brush: 'brush_sculpt_paint' });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+  });
+  const c = await viewportCenter(page);
+  await page.mouse.move(c.x - 40, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 40, c.y, { steps: 8 });
+  await page.mouse.up();
+  const red = () =>
+    page.evaluate(() => {
+      const a = (window as unknown as W).app;
+      const me = a.doc.meshes[a.activeObject.data];
+      const d = me.color_attributes[me.active_color_index].data as Float32Array;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 1] < 0.9) n++;
+      return { n, nv: me.positions.length / 3 };
+    });
+  const r1 = await red();
+  expect(r1.n).toBeGreaterThan(0);
+  expect(r1.n).toBeLessThan(r1.nv);
+  await page.keyboard.press('Control+x');
+  expect((await red()).n).toBe(r1.nv);
+  await expectNoErrors(errors);
+});

@@ -43,7 +43,7 @@ export function vertexColors(me: MeshData, a: ColorAttribute): Float32Array {
 }
 
 /** Write a vertex's color into the attribute and the GPU color buffer. */
-function writeVertex(s: MeshSession, a: ColorAttribute, vi: number, rgba: ArrayLike<number>, gpu: Float32Array | null) {
+export function writeVertex(s: MeshSession, a: ColorAttribute, vi: number, rgba: ArrayLike<number>, gpu: Float32Array | null) {
   const o = s.vf.offsets,
     C = s.vf.corners;
   if (a.domain === 'POINT') for (let k = 0; k < 4; k++) a.data[vi * 4 + k] = rgba[k];
@@ -55,15 +55,15 @@ function writeVertex(s: MeshSession, a: ColorAttribute, vi: number, rgba: ArrayL
   }
 }
 
-function gpuColors(s: MeshSession): Float32Array | null {
+export function gpuColors(s: MeshSession): Float32Array | null {
   const g = s.liveGeometry();
   const a = g?.getAttribute('color');
   return a && a.count === s.nc && a.itemSize === 4 ? (a.array as Float32Array) : null;
 }
 
-export function vertexPaintStroke(v: View3D, e: PointerEvent): boolean {
+export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBrush): boolean {
   const am = activeMeshData();
-  const b = activeBrush('VERTEX_PAINT');
+  const b = override ?? activeBrush('VERTEX_PAINT');
   const s = meshSession();
   if (!am || !b || !s) return false;
   const { me } = am;
@@ -74,7 +74,11 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent): boolean {
   const a = me.color_attributes[index];
   const ts = app.doc.scene.tool_settings;
   const invert = e.ctrlKey || e.metaKey;
-  const tool = e.shiftKey ? 'BLUR' : b.sculpt_tool;
+  // sculpt mode paint brushes: Paint / Smear map onto the vertex paint tools
+  const sculpt = app.doc.mode === 'SCULPT';
+  const tool = e.shiftKey ? 'BLUR' : b.sculpt_tool === 'PAINT' ? 'DRAW' : b.sculpt_tool;
+  const sMask = sculpt && me.sculpt_mask && me.sculpt_mask.length === s.nv ? me.sculpt_mask : null;
+  const sHidden = sculpt ? s.hiddenV : null;
   const color = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const orig = vertexColors(me, oldData === a.data ? { ...a, data: a.data.slice() } : { ...a, data: oldData });
@@ -106,6 +110,12 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent): boolean {
         scratch,
       );
       if (!n) return;
+      if (sMask || sHidden)
+        for (let k = 0; k < n; k++) {
+          const vi = s.gv[k];
+          if (sHidden?.[vi]) s.gf[k] = 0;
+          else if (sMask) s.gf[k] *= 1 - sMask[vi];
+        }
       const gpu = gpuColors(s);
       if (tool === 'DRAW') {
         for (let k = 0; k < n; k++) {
@@ -165,7 +175,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent): boolean {
       else reevaluate(s);
     },
     end: () => {
-      app.pushUndo('Vertex Paint');
+      app.pushUndo(sculpt ? b.name : 'Vertex Paint');
       app.changed('doc');
     },
   });

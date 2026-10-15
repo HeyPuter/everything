@@ -64,7 +64,7 @@ export function brushThumb(tool: string, mode: string, size = 64): string {
   const key = `${mode}:${tool}:${size}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const shadeKey = mode === 'SCULPT' ? tool : mode === 'WEIGHT_PAINT' ? `W_${tool}` : `P_${tool === 'TEXDRAW' ? 'DRAW' : tool === 'SOFTEN' ? 'BLUR' : tool}`;
+  const shadeKey = mode === 'SCULPT' && tool !== 'PAINT' && tool !== 'SMEAR' ? tool : mode === 'WEIGHT_PAINT' ? `W_${tool}` : `P_${tool === 'TEXDRAW' || tool === 'PAINT' ? 'DRAW' : tool === 'SOFTEN' ? 'BLUR' : tool}`;
   const sh = SHADES[shadeKey] ?? SHADES.DRAW;
   if (typeof document === 'undefined') return '';
   const c = document.createElement('canvas');
