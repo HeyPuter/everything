@@ -1872,6 +1872,22 @@ input.num-field.editing {
 .ul-right:has(> :nth-child(3)) {
   width: 62%;
 }
+.col-box {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin: 4px 0;
+}
+.col-box-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.col-box-head > :nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
 .vw-row {
   display: flex;
   align-items: center;

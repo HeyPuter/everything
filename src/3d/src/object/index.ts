@@ -10,4 +10,5 @@ import './relations';
 import './instancing';
 import './vweights';
 import './rigidmass';
+import './collections';
 import './keys';

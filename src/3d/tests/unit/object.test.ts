@@ -737,3 +737,27 @@ describe('convert to point cloud', () => {
     expect(me.offsets.length).toBe(1);
   });
 });
+
+describe('object collections panel ops', () => {
+  it('links, removes, unlinks and selects', () => {
+    const ob = cube();
+    select(ob);
+    const col = Object.values(app.doc.collections).find((c) => c.objects.includes(ob.id))!;
+    run('object.collection_add');
+    const fresh = Object.values(app.doc.collections).find((c) => c.name === 'Collection.001')!;
+    expect(fresh.objects).toEqual([ob.id]);
+    // removing from the only scene collection is refused
+    expect(run('object.collection_remove', { collection: col.id })).toBe('CANCELLED');
+    run('collection.create', { name: 'Two' });
+    const two = Object.values(app.doc.collections).find((c) => c.name === 'Two')!;
+    run('object.collection_remove', { collection: col.id });
+    expect(col.objects).not.toContain(ob.id);
+    run('object.collection_link', { collection: col.id });
+    expect(col.objects).toContain(ob.id);
+    run('object.collection_unlink', { collection: two.id });
+    expect(Object.values(app.doc.collections).some((c) => c.children.includes(two.id))).toBe(false);
+    run('object.select_all', { action: 'DESELECT' });
+    run('object.collection_objects_select', { collection: col.id });
+    expect(ob.select).toBe(true);
+  });
+});

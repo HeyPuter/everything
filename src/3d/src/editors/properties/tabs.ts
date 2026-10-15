@@ -14,6 +14,7 @@ import { materialSlots } from '../view3d/draw';
 import { uiList } from './uilist';
 import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../object/listmenus';
 import { propertiesCollection } from '../../object/relations';
+import { objectCollectionsPanel } from '../../object/collections';
 
 /** Small lock toggle used inside list rows. */
 function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
@@ -381,7 +382,7 @@ registerTab({
         o.parent && o.parent_type === 'BONE' ? textProp(o, 'parent_bone', 'Parent Bone') : null,
         num(o as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
       ], { closed: true }),
-      panel('ob-collections', 'Collections', () => Object.values(doc.collections).filter((c) => c.objects.includes(o.id)).map((c) => h('div', { key: c.id, class: 'chip-row' }, icon('collection'), c.id === doc.scene.collection ? 'Scene Collection' : c.name)), { closed: true }),
+      panel('ob-collections', 'Collections', () => objectCollectionsPanel(o), { closed: true }),
       panel('ob-instancing', 'Instancing', () => [
         enumProp(o, 'instance_type', 'Instancing', [['NONE', 'None'], ['COLLECTION', 'Collection'], ['VERTS', 'Vertices'], ['FACES', 'Faces']]),
         o.instance_type === 'COLLECTION' ? splitRow('Collection', enumMenu('ob-inst-col', Object.values(doc.collections).filter((c) => c.id !== doc.scene.collection).map((c) => ({ value: c.id, label: c.name })), o.instance_collection ?? '', (v) => ((o.instance_collection = v), changed('Instance Collection')))) : null,
