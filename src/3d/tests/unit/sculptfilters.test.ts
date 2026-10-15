@@ -297,3 +297,20 @@ describe('cloth filter', async () => {
     expect(len).toBeLessThan(0.45);
   });
 });
+
+describe('brush textures', async () => {
+  const { proceduralTex, sampleTex } = await import('../../src/paint/brushtex');
+  it('produces values in 0..1 and varies over the brush', () => {
+    for (const src of ['NOISE', 'CELLS', 'STRIPES', 'RINGS']) {
+      const vals = new Set<number>();
+      for (let i = 0; i < 20; i++) {
+        const v = proceduralTex(src, i * 0.13 - 1, i * 0.07 - 0.5);
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+        vals.add(Math.round(v * 100));
+      }
+      expect(vals.size).toBeGreaterThan(3);
+    }
+    expect(sampleTex({ source: 'IMAGE', image: null, map_mode: 'VIEW_PLANE', angle: 0, scale: 1 }, 0, 0)).toBe(1);
+  });
+});

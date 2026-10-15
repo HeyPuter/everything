@@ -226,6 +226,7 @@ if (typeof document !== 'undefined' && !document.getElementById('paint-shelf-sty
 .th-pop { display: flex; align-items: center; gap: 2px; background: none; border: 1px solid transparent; color: var(--text, #ddd); font: inherit; font-size: 12px; padding: 1px 6px; border-radius: 4px; cursor: pointer; }
 .th-pop:hover { background: rgba(255,255,255,0.08); }
 .th-brush img { border-radius: 3px; }
+.paint-tex-preview { display: block; margin: 4px auto; border-radius: 4px; }
 .tool-header:has(.th-brush) { min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .tool-header:has(.th-brush) > * { flex-shrink: 0; }
 `;

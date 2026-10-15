@@ -9,7 +9,8 @@ import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, type BlendMode } from './math';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
-import { gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { dabTexture } from './brushtex';
 import { paintFilter } from './fsdata';
 
 /** Make sure the mesh has an active color attribute (point domain 'Color', white). */
@@ -87,6 +88,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
   const scratch = {};
   let lastHit: Vector3 | null = null;
   const tmp = [0, 0, 0, 1];
+  let dabCount = 0;
   runStroke(v, e, {
     spacing: () => Math.max(1, b.spacing || 10),
     radiusPx: () => b.radius,
@@ -106,6 +108,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
           strength: 1,
           normalAngle: NORMAL_ANGLE,
           sizeFactor: d.sizeFactor,
+          tex: dabTexture(b, s, v, d.x, d.y, brushRadiusPx(b, s, v, hit?.world) * (d.sizeFactor ?? 1), dabCount++),
         },
         scratch,
       );

@@ -13,6 +13,7 @@ import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
 import { normalFactor, strokeAutomask } from './automask';
 import { brushRadiusPx } from './vgather';
+import { dabTexture } from './brushtex';
 
 type Sign = [number, number, number];
 
@@ -64,6 +65,9 @@ export interface StrokeState {
   /** every vertex moved during the stroke (anchored / drag dot strokes restore them) */
   strokeVerts?: number[];
   strokeMark?: Uint8Array;
+  /** brush texture of the current dab (identity symmetry pass only) */
+  texFn?: ((vi: number) => number) | null;
+  texCur?: ((vi: number) => number) | null;
   /** normal auto-masking: start normal and the current view direction (object space) */
   startNormal?: Vector3 | null;
   viewDir?: Vector3 | null;
@@ -151,6 +155,7 @@ function factors(st: StrokeState, n: number, strength: number, applyMask = true)
     const v = gv[k];
     if (mask) f *= 1 - mask[v];
     if (am) f *= am[v];
+    if (applyMask && st.texCur) f *= st.texCur(v);
     if (sn) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], sn.x, sn.y, sn.z, ts!.automasking_start_normal_limit ?? 0.35, ts!.automasking_start_normal_falloff ?? 0.25);
     if (vd) f *= normalFactor(vn[v * 3], vn[v * 3 + 1], vn[v * 3 + 2], -vd.x, -vd.y, -vd.z, ts!.automasking_view_normal_limit ?? 1.57, ts!.automasking_view_normal_falloff ?? 0.25);
     gf[k] = f;
@@ -748,7 +753,9 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         }
       }
     } else {
+      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs);
       surfaceDab(st, tool, hit.point, hit.normal, viewDir, R, strokeDir, strength);
+      st.texFn = st.texCur = null;
     }
     st.lastHit = hit.point.clone();
   }
@@ -779,6 +786,7 @@ export function surfaceDab(st: StrokeState, tool: string, point: Vector3, normal
   const realTool = tool === 'MASK_SMOOTH' ? 'MASK' : tool;
   const square = realTool === 'CLAY_STRIPS';
   for (const sg of st.passes) {
+    st.texCur = sg[0] === 1 && sg[1] === 1 && sg[2] === 1 ? st.texFn : null;
     const c = mirrorVec(hit.point, sg);
     const vd = mirrorVec(viewDir, sg);
     const n = gather(st, c, square ? R * Math.SQRT2 : R, vd, realTool === 'DRAW_SHARP' ? st.orig : s.positions);

@@ -47,6 +47,8 @@ export interface GatherOptions {
   normalAngle?: number;
   /** pen pressure factor for the radius */
   sizeFactor?: number;
+  /** brush texture factor per vertex */
+  tex?: ((vi: number) => number) | null;
 }
 
 /**
@@ -158,7 +160,7 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
     best[vi] = 0;
     if (allowed && !allowed[vi]) continue;
     s.gv[n] = vi;
-    s.gf[n] = f;
+    s.gf[n] = o.tex ? f * o.tex(vi) : f;
     n++;
   }
   return n;

@@ -33,6 +33,8 @@ export interface PaintBrush extends BrushData {
   /** radius in screen pixels (VIEW) or in scene units (SCENE, `unprojected_radius`) */
   use_locked_size?: 'VIEW' | 'SCENE';
   unprojected_radius?: number;
+  /** texture modulating the strength */
+  texture_slot?: import('./brushtex').BrushTexture;
   /** brush cursor display */
   show_cursor?: boolean;
   cursor_color_add?: [number, number, number];

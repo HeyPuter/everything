@@ -33,6 +33,8 @@ import { invalidatePaintAttributes } from './display';
 import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
 import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
+import { sampleTex, setImageCanvasSource, TEX_SOURCES, type BrushTexture } from './brushtex';
+import { imageCanvas } from '../render/images';
 import { Vector3 } from 'three';
 
 // ---------------------------------------------------------------------------
@@ -335,6 +337,7 @@ function toolHeaderSettings(mode: BrushMode): Child {
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
   parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
+  if (mode !== 'TEXTURE_PAINT') parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => textureRows(b, 'thp')));
   parts.push(popButton('th-p-stroke', 'Stroke', 'Stroke', () => strokeRows(b, mode, 'thp')));
   parts.push(popButton('th-p-falloff', 'Falloff', 'Falloff', () => falloffRows(b, mode, 'thp')));
   parts.push(popButton('th-p-cursor', 'Cursor', 'Cursor', () => cursorRows(b, mode, 'thp')));
@@ -564,6 +567,68 @@ function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   ];
 }
 
+function textureRows(b: PaintBrush, p: string): Child[] {
+  const t: BrushTexture = b.texture_slot ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
+  const set = (patch: Partial<BrushTexture>) => {
+    b.texture_slot = { ...t, ...patch };
+    changed();
+  };
+  const images = Object.values(app.doc.images);
+  const rows: Child[] = [
+    row('Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: 'Pattern that modulates the brush strength' })),
+  ];
+  if (t.source === 'IMAGE')
+    rows.push(
+      images.length
+        ? row('Image', enumMenu(`${p}-timg`, images.map((im) => ({ value: im.id, label: im.name, icon: 'image' })), t.image ?? '', (x) => set({ image: x }), { tip: 'Image used as the brush texture (bright = strong)' }))
+        : h('div', { class: 'sb-label' }, 'No images in the file: open one in the Image Editor first'),
+    );
+  if (t.source === 'NONE') return rows;
+  rows.push(
+    h('canvas', {
+      key: `${p}-tprev-${t.source}-${t.image}-${t.angle}-${t.scale}`,
+      class: 'paint-tex-preview',
+      width: 96,
+      height: 96,
+      ref: (c: HTMLCanvasElement) => {
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        const img = ctx.createImageData(96, 96);
+        const cos = Math.cos(-t.angle),
+          sin = Math.sin(-t.angle);
+        for (let y = 0; y < 96; y++)
+          for (let x = 0; x < 96; x++) {
+            const dx = (x / 48 - 1) / t.scale,
+              dy = (1 - y / 48) / t.scale;
+            const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
+            const i = (y * 96 + x) * 4;
+            img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            img.data[i + 3] = 255;
+          }
+        ctx.putImageData(img, 0, 0);
+      },
+    }),
+    row(
+      'Mapping',
+      enumMenu(
+        `${p}-tmap`,
+        [
+          { value: 'VIEW_PLANE', label: 'View Plane' },
+          { value: 'TILED', label: 'Tiled' },
+          { value: 'RANDOM', label: 'Random' },
+        ],
+        t.map_mode,
+        (x) => set({ map_mode: x as BrushTexture['map_mode'] }),
+        { tip: 'View Plane: follows the brush · Tiled: fixed on the screen · Random: new rotation and offset per dab' },
+      ),
+    ),
+    numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }),
+    numberField({ id: `${p}-tscale`, label: 'Size', value: t.scale, min: 0.01, max: 100, softMax: 4, set: (x) => set({ scale: x }) }),
+    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the strength', set: (x) => set({ strength: x }) }),
+  );
+  return rows;
+}
+
 function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   return [
     checkbox(`${p}-cur`, 'Show Cursor', b.show_cursor !== false, (x) => ((b.show_cursor = x), changed()), { tip: 'Draw the brush outline under the pointer' }),
@@ -643,6 +708,7 @@ function brushPanels(mode: BrushMode): Child[] {
         ...mainRows(b, mode, 'pt'),
         panel(`pt-adv-${mode}`, 'Advanced', () => advancedRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-stroke-${mode}`, 'Stroke', () => strokeRows(b, mode, 'pt'), { sub: true, closed: true }),
+        mode !== 'TEXTURE_PAINT' ? panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt'), { sub: true, closed: true }) : null,
         panel(`pt-falloff-${mode}`, 'Falloff', () => falloffRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
@@ -1450,3 +1516,5 @@ for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
     { key: 'E', alt: true, menu: strokeMethodMenu, menuTitle: 'Stroke Method', when: () => isBrushMode(app.doc.mode) },
     { key: 'S', shift: true, op: 'paint.brush_smooth_stroke_toggle', when: () => isBrushMode(app.doc.mode) },
   ]);
+
+setImageCanvasSource(imageCanvas);

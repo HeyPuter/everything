@@ -10,7 +10,8 @@ import { blendWeight, normalizeAllWeights, normalizeVertexWeights, type BlendMod
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
 import { paintFilter } from './fsdata';
-import { gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { dabTexture } from './brushtex';
 import { invalidatePaintAttributes, writeCornerValues } from './display';
 import { barycentric } from './vpaint';
 import { armatureWeightsFor } from './armweights';
@@ -87,6 +88,7 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
   let lastHit: Vector3 | null = null;
   let lastEval = 0;
   const touched: number[] = [];
+  let dabCount = 0;
   runStroke(v, e, {
     spacing: () => Math.max(1, b.spacing || 10),
     radiusPx: () => b.radius,
@@ -106,6 +108,7 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
           strength: 1,
           normalAngle: NORMAL_ANGLE,
           sizeFactor: d.sizeFactor,
+          tex: dabTexture(b, s, v, d.x, d.y, brushRadiusPx(b, s, v, hit?.world) * (d.sizeFactor ?? 1), dabCount++),
         },
         scratch,
       );
