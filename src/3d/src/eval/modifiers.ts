@@ -1593,6 +1593,29 @@ function armatureMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Eval
   return { ...m, positions };
 }
 
+/** Weights of the four neighbouring lattice points around parameter t ∈ [0, 1). */
+export function latticeWeights(t: number, type: string, out: number[]) {
+  const t2 = t * t,
+    t3 = t2 * t;
+  if (type === 'KEY_BSPLINE') {
+    out[0] = -t3 / 6 + t2 / 2 - t / 2 + 1 / 6;
+    out[1] = t3 / 2 - t2 + 2 / 3;
+    out[2] = -t3 / 2 + t2 / 2 + t / 2 + 1 / 6;
+    out[3] = t3 / 6;
+  } else if (type === 'KEY_CARDINAL' || type === 'KEY_CATMULL_ROM') {
+    const c = type === 'KEY_CARDINAL' ? 0.71 : 0.5;
+    out[0] = -c * t3 + 2 * c * t2 - c * t;
+    out[1] = (2 - c) * t3 + (c - 3) * t2 + 1;
+    out[2] = (c - 2) * t3 + (3 - 2 * c) * t2 + c * t;
+    out[3] = c * t3 - c * t2;
+  } else {
+    out[0] = 0;
+    out[1] = 1 - t;
+    out[2] = t;
+    out[3] = 0;
+  }
+}
+
 function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const lt = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   const lat = lt?.ob.data ? ctx.doc.lattices[lt.ob.data] : undefined;
@@ -1603,32 +1626,50 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
   const { points_u: U, points_v: V, points_w: W, points } = lat;
   const rest = (i: number, n: number) => (n > 1 ? i / (n - 1) - 0.5 : 0);
   const strength = num(mod, 'strength', 1);
+  const type = lat.interpolation ?? 'KEY_BSPLINE';
+  const wu = [0, 0, 0, 0],
+    wv = [0, 0, 0, 0],
+    ww = [0, 0, 0, 0];
+  const setup = (x: number, n: number, w: number[]): number => {
+    if (n <= 1) {
+      w.fill(0);
+      w[1] = 1;
+      return 0;
+    }
+    const u = (x + 0.5) * (n - 1);
+    const i = Math.floor(u);
+    latticeWeights(u - i, type, w);
+    return i;
+  };
+  const clampI = (i: number, n: number) => Math.max(0, Math.min(n - 1, i));
   return deform(m, mod, (p) => {
     p.applyMatrix4(toLat);
-    // trilinear interpolation of displacement from rest grid
-    const fu = U > 1 ? Math.max(0, Math.min(U - 1.0001, (p.x + 0.5) * (U - 1))) : 0,
-      fv = V > 1 ? Math.max(0, Math.min(V - 1.0001, (p.y + 0.5) * (V - 1))) : 0,
-      fw = W > 1 ? Math.max(0, Math.min(W - 1.0001, (p.z + 0.5) * (W - 1))) : 0;
-    const iu = Math.floor(fu),
-      iv = Math.floor(fv),
-      iw = Math.floor(fw),
-      tu = fu - iu,
-      tv = fv - iv,
-      tw = fw - iw;
-    const d = new Vector3();
-    for (let a = 0; a < 2; a++)
-      for (let b = 0; b < 2; b++)
-        for (let c = 0; c < 2; c++) {
-          const u = Math.min(U - 1, iu + a),
-            v = Math.min(V - 1, iv + b),
-            w = Math.min(W - 1, iw + c);
+    const iu = setup(p.x, U, wu),
+      iv = setup(p.y, V, wv),
+      iw = setup(p.z, W, ww);
+    let dx = 0,
+      dy = 0,
+      dz = 0;
+    for (let c = 0; c < 4; c++) {
+      if (!ww[c]) continue;
+      const w = clampI(iw + c - 1, W);
+      for (let b = 0; b < 4; b++) {
+        if (!wv[b]) continue;
+        const v = clampI(iv + b - 1, V);
+        for (let a = 0; a < 4; a++) {
+          if (!wu[a]) continue;
+          const u = clampI(iu + a - 1, U);
+          const wt = wu[a] * wv[b] * ww[c];
           const idx = ((w * V + v) * U + u) * 3;
-          const wt = (a ? tu : 1 - tu) * (b ? tv : 1 - tv) * (c ? tw : 1 - tw);
-          d.x += (points[idx] - rest(u, U)) * wt;
-          d.y += (points[idx + 1] - rest(v, V)) * wt;
-          d.z += (points[idx + 2] - rest(w, W)) * wt;
+          dx += (points[idx] - rest(u, U)) * wt;
+          dy += (points[idx + 1] - rest(v, V)) * wt;
+          dz += (points[idx + 2] - rest(w, W)) * wt;
         }
-    p.addScaledVector(d, strength);
+      }
+    }
+    p.x += dx * strength;
+    p.y += dy * strength;
+    p.z += dz * strength;
     p.applyMatrix4(back);
   });
 }
