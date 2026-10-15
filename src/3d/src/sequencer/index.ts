@@ -3,6 +3,8 @@
 import './style';
 import './icons';
 import './ops';
+import './selectops';
+import './stripops';
 import './keymap';
 import './output';
 import { app, onAppReady } from '../app/app';

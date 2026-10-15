@@ -33,7 +33,7 @@ export function inputCount(t: StripType) {
 }
 /** Strips whose content does not change over time (length can be changed freely). */
 export function isStill(s: Strip) {
-  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
+  return s.type === 'COLOR' || s.type === 'TEXT' || s.type === 'ADJUSTMENT' || s.type === 'MULTICAM' || (s.type === 'IMAGE' && (s.elements?.length ?? 0) <= 1);
 }
 /** Strips that produce pixels (everything but sound). */
 export function isVisual(s: Strip) {
@@ -62,6 +62,7 @@ export const STRIP_LABELS: Record<StripType, string> = {
   SPEED: 'Speed',
   GLOW: 'Glow',
   GAUSSIAN_BLUR: 'Gaussian Blur',
+  MULTICAM: 'Multicam Selector',
 };
 
 export const BLEND_ITEMS: [BlendType, string][] = [
@@ -219,6 +220,10 @@ export function newStrip(type: StripType, name: string, channel: number, frame_s
     case 'META':
       s.strips = [];
       break;
+    case 'MULTICAM':
+      s.multicam_source = 1;
+      s.blend_type = 'REPLACE';
+      break;
   }
   return s;
 }
@@ -349,6 +354,8 @@ export function speedInputFrame(sp: Strip, input: Strip, frame: number): number 
 /** Move a strip in time (meta children follow). */
 export function translateStrip(s: Strip, df: number) {
   s.frame_start += df;
+  // fade keys travel with the strip
+  if (s.keys && df) for (const k of Object.values(s.keys)) for (const p of k ?? []) p[0] += df;
   if (s.strips) for (const c of s.strips) translateStrip(c, df);
 }
 
@@ -662,6 +669,13 @@ export function splitStrips(ed: { strips: Strip[] }, list: Strip[], targets: Str
     renamed.set(s.name, name);
     out.push(r);
   }
+  // right halves stay connected to the right halves of their partners
+  for (const r of out)
+    if (r.connections) {
+      const next = r.connections.map((n) => renamed.get(n)).filter((n): n is string => !!n);
+      if (next.length) r.connections = next;
+      else delete r.connections;
+    }
   // effects depending on split strips
   for (const e of list) {
     if (!inputCount(e.type) || out.includes(e)) continue;

@@ -1,5 +1,6 @@
 // Styles for the Video Sequencer editor (injected once).
 const css = /* css */ `
+.seq-sb-note { color: var(--text-dim, #999); font-size: 11px; padding: 2px 4px 4px; line-height: 1.35; }
 .seq-ed { position: absolute; inset: 0; display: flex; flex-direction: column; background: #1c1c1c; }
 .seq-body { flex: 1; display: flex; min-height: 0; }
 .seq-left { flex: 1; display: flex; flex-direction: column; min-width: 0; }

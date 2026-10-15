@@ -1,12 +1,20 @@
 // Sequencer keymaps (default left-click-select layout).
 import { addKeys } from '../app/keymap';
-import { addMenu, selectMenu } from './menus';
+import { addMenu, selectMenu, changeMenu } from './menus';
 
 addKeys('Sequencer', [
   { key: 'A', op: 'sequencer.select_all', props: { action: 'SELECT' } },
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'sequencer.select_box' },
+  { key: 'B', ctrl: true, op: 'sequencer.select_box', props: { include_handles: true } },
+  { key: 'C', op: 'sequencer.select_circle' },
+  { key: 'NUMPAD_PLUS', ctrl: true, op: 'sequencer.select_more' },
+  { key: 'NUMPAD_MINUS', ctrl: true, op: 'sequencer.select_less' },
+  { key: 'L', op: 'sequencer.select_linked_pick' },
+  { key: 'L', shift: true, op: 'sequencer.select_linked_pick', props: { extend: true } },
+  { key: 'L', ctrl: true, op: 'sequencer.select_linked' },
+  { key: 'C', ctrl: true, alt: true, op: 'sequencer.connect', props: { toggle: true } },
   { key: 'LEFT_BRACKET', op: 'sequencer.select_side_of_frame', props: { side: 'LEFT' } },
   { key: 'RIGHT_BRACKET', op: 'sequencer.select_side_of_frame', props: { side: 'RIGHT' } },
   { key: 'G', shift: true, menu: () => selectMenu().find((m) => m.label === 'Select Grouped')!.submenu!(), menuTitle: 'Select Grouped' },
@@ -19,6 +27,10 @@ addKeys('Sequencer', [
   { key: 'H', ctrl: true, op: 'sequencer.lock' },
   { key: 'H', ctrl: true, alt: true, op: 'sequencer.unlock' },
   { key: 'R', op: 'sequencer.reassign_inputs' },
+  { key: 'R', alt: true, op: 'sequencer.reload' },
+  { key: 'R', shift: true, alt: true, op: 'sequencer.reload', props: { adjust_length: true } },
+  { key: 'C', shift: true, menu: changeMenu, menuTitle: 'Change' },
+  ...['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO'].map((key, i) => ({ key, op: 'sequencer.split_multicam', props: { camera: i + 1 } })),
   { key: 'S', alt: true, op: 'sequencer.swap_inputs' },
   { key: 'O', alt: true, op: 'sequencer.offset_clear' },
   { key: 'D', shift: true, op: 'sequencer.duplicate_move' },
@@ -57,6 +69,7 @@ addKeys('SequencerPreview', [
   { key: 'A', alt: true, op: 'sequencer.select_all', props: { action: 'DESELECT' } },
   { key: 'I', ctrl: true, op: 'sequencer.select_all', props: { action: 'INVERT' } },
   { key: 'B', op: 'sequencer.select_box' },
+  { key: 'C', op: 'sequencer.select_circle' },
   { key: 'G', op: 'sequencer.strip_transform', props: { mode: 'TRANSLATE' } },
   { key: 'R', op: 'sequencer.strip_transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'sequencer.strip_transform', props: { mode: 'RESIZE' } },

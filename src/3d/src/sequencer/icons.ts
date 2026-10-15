@@ -1,5 +1,6 @@
 // Original icons for the sequencer (16×16 grid, theme-coloured through the f/s classes).
 import { registerIcons } from '../ui/icons';
+import { TAG_COLORS } from './theme';
 
 registerIcons({
   // editor & view types
@@ -22,4 +23,14 @@ registerIcons({
   seq_split: '<rect class="f" x="1" y="5" width="6" height="6" rx="1"/><rect class="f" x="9" y="5" width="6" height="6" rx="1" opacity=".7"/><path class="s" d="M8 2v12" stroke-width="1.2"/>',
   mute_on: '<rect class="s" x="2.5" y="2.5" width="11" height="11" rx="2" fill="none" stroke-width="1.2"/>',
   file_add_media: '<path class="s" d="M4 2h5l3 3v9H4z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="s" d="M8 7v5M5.5 9.5h5" stroke-width="1.4"/>',
+});
+
+// strip colour tags: a rounded swatch in the tag colour, and a chain link for connected strips
+registerIcons(
+  Object.fromEntries(
+    Object.entries(TAG_COLORS).map(([tag, color]) => [`seq_tag_${tag.slice(6)}`, `<rect x="2.5" y="2.5" width="11" height="11" rx="2.5" fill="${color}"/><rect x="2.5" y="2.5" width="11" height="11" rx="2.5" fill="none" stroke="#000" stroke-opacity=".35"/>`]),
+  ),
+);
+registerIcons({
+  linked: '<path class="s" d="M7 9.5 9.5 7M6.3 7.2 4.6 8.9a2.3 2.3 0 0 0 3.3 3.3l1.7-1.7M9.7 8.8l1.7-1.7a2.3 2.3 0 0 0-3.3-3.3L6.4 5.5" fill="none" stroke-width="1.4" stroke-linecap="round"/>',
 });

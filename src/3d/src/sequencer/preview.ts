@@ -1,11 +1,13 @@
 // Preview region: shows the sequencer output at the current frame (GPU composite), with zoom/pan,
 // selection outlines and image transforms of the selected strips.
+import { drawShape, type SelectShape } from './shapes';
 import { app } from '../app/app';
 import { withCompositor, SequencerRender, Cancelled } from './render';
 import { renderScenePreview } from './scene';
 import { pauseIdleMovies } from './media';
 import { stripImageCorners, previewStrips, pointInPoly } from './transform';
 import { activeStrip, hasEditor } from './context';
+import type { Strip } from './types';
 import { T } from './theme';
 
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
@@ -30,6 +32,7 @@ export class PreviewRegion {
   private disposed = false;
   showOverlays = true;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  shape: SelectShape | null = null;
 
   constructor(private onRendered: () => void) {
     this.el = document.createElement('div');
@@ -236,6 +239,7 @@ export class PreviewRegion {
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.setLineDash([]);
     }
+    drawShape(g, this.shape);
   }
 
   private drawOverlays(g: CanvasRenderingContext2D) {
@@ -261,6 +265,18 @@ export class PreviewRegion {
     // selected strips under the cursor win when cycling is not needed
     for (const s of list) if (pointInPoly(fx, fy, stripImageCorners(s, W, H))) return s;
     return null;
+  }
+
+  /** Visible strips whose image bounds (client pixels) pass a test. */
+  stripsWhere(test: (r: { x0: number; y0: number; x1: number; y1: number }) => boolean): Strip[] {
+    const [W, H] = this.res();
+    const r = this.el.getBoundingClientRect();
+    return previewStrips(app.doc.scene.frame_current).filter((s) => {
+      const c = stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y));
+      const xs = c.map((p) => p[0] + r.left),
+        ys = c.map((p) => p[1] + r.top);
+      return test({ x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) });
+    });
   }
 
   /** Strips whose image centre lies inside a client rectangle. */

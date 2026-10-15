@@ -25,7 +25,8 @@ export type StripType =
   | 'TRANSFORM'
   | 'SPEED'
   | 'GLOW'
-  | 'GAUSSIAN_BLUR';
+  | 'GAUSSIAN_BLUR'
+  | 'MULTICAM';
 
 export type BlendType =
   | 'REPLACE'
@@ -217,6 +218,8 @@ export interface Strip {
   speed_frame_number?: number;
   speed_length?: number;
   blend_effect?: BlendType;
+  /** MULTICAM: channel shown by the selector */
+  multicam_source?: number;
   factor?: number;
   // legacy Transform effect
   translation_unit?: 'PIXELS' | 'PERCENT';
@@ -229,6 +232,10 @@ export interface Strip {
   // meta
   strips?: Strip[];
   channels?: SeqChannel[];
+  /** names of the strips this one is connected to (selected and edited together) */
+  connections?: string[];
+  /** animated opacity / volume (fades): [timeline frame, value] keys, linear */
+  keys?: Partial<Record<'blend_alpha' | 'volume', [number, number][]>>;
 }
 
 export interface SeqChannel {

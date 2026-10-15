@@ -22,13 +22,28 @@ import { PreviewRegion, type PreviewSize } from './preview';
 import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './media';
 import { addFiles } from './add';
 import { restartPlayback } from './audio';
+import { drawShape, type SelectShape } from './shapes';
+import { boxHit, rectCircle, rectLasso, sameTime } from './selection';
+import { connectedOf, isConnected } from './connect';
+import { keysOf, keyValue, fadeProp } from './fades';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
-type Tool = 'select_box' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'move' | 'rotate' | 'scale';
+type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'move' | 'rotate' | 'scale';
+
+/** Variants of the select tool slot (box / circle / lasso). */
+const SELECT_VARIANTS = [
+  { id: 'box', label: 'Select Box', icon: 'select_box', tip: 'Select strips by clicking or dragging a box' },
+  { id: 'circle', label: 'Select Circle', icon: 'select_circle', tip: 'Select strips by painting over them with a circle' },
+  { id: 'lasso', label: 'Select Lasso', icon: 'select_lasso', tip: 'Select strips inside a drawn shape' },
+] as const;
+type SelectVariant = (typeof SELECT_VARIANTS)[number]['id'];
+const timelineTool = (v: SelectVariant): Tool => (v === 'box' ? 'select_box' : v === 'circle' ? 'select_circle' : 'select_lasso');
+const previewTool = (v: SelectVariant): PreviewTool => (v === 'box' ? 'select' : v === 'circle' ? 'select_circle' : 'select_lasso');
+const variantOf = (t: string): SelectVariant | null => (t === 'select_box' || t === 'select' ? 'box' : t === 'select_circle' ? 'circle' : t === 'select_lasso' ? 'lasso' : null);
 
 const VIEWS: { value: ViewType; label: string; icon: string }[] = [
   { value: 'SEQUENCER', label: 'Sequencer', icon: 'seq_sequencer' },
@@ -75,6 +90,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private hoverStrip: Strip | null = null;
   private hoverHandle: 'LEFT' | 'RIGHT' | null = null;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  shape: SelectShape | null = null;
+  circleRadius = 25;
+  private lastSelect: SelectVariant = 'box';
   private disposed = false;
 
   private bodyEl: HTMLElement;
@@ -153,8 +171,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const k of ['x0', 'ppf', 'cy0', 'chH', 'chWidth', 'splitRatio'] as const) if (typeof s[k] === 'number') (this as Record<string, unknown>)[k] = s[k];
     for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
-    if (s.tool === 'blade' || s.tool === 'slip' || s.tool === 'select_box') this.tool = s.tool;
-    if (['select', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
+    if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
+    if (['select', 'select_circle', 'select_lasso', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
   }
 
@@ -382,13 +400,47 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 
   private drawToolbars() {
     const tb = (key: string, ic: string, on: boolean, tip: string, set: () => void) => h('button', { key, class: { 'tb-tool': true, on }, 'data-tip': tip, onclick: () => (set(), this.drawToolbars(), app.changed('ui')) }, icon(ic));
+    // the select slot shows its current variant; right click, double click or a long press picks another
+    const selectSlot = (key: string, cur: string, setTool: (v: SelectVariant) => void) => {
+      const v = variantOf(cur);
+      const shown = SELECT_VARIANTS.find((x) => x.id === (v ?? this.lastSelect)) ?? SELECT_VARIANTS[0];
+      const pick = (el: HTMLElement) =>
+        openMenu(
+          SELECT_VARIANTS.map((x) => ({ label: x.label, icon: x.icon, active: x.id === v, action: () => ((this.lastSelect = x.id), setTool(x.id), this.drawToolbars(), app.changed('ui')) })),
+          el,
+        );
+      return h(
+        'button',
+        {
+          key,
+          class: { 'tb-tool': true, on: !!v, 'has-alt': true },
+          'data-tool': `${key}-${shown.id}`,
+          'data-tip': `${shown.label}\n${shown.tip}`,
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            const el = e.currentTarget as HTMLElement;
+            if (e.button === 2 || e.detail > 1) return pick(el);
+            setTool(shown.id);
+            this.drawToolbars();
+            app.changed('ui');
+            const timer = setTimeout(() => pick(el), 350);
+            const up = () => {
+              clearTimeout(timer);
+              removeEventListener('pointerup', up);
+            };
+            addEventListener('pointerup', up);
+          },
+        },
+        icon(shown.icon),
+      );
+    };
     patch(this.toolbarEl, [
-      tb('select', 'select_box', this.tool === 'select_box', 'Select Box\nSelect strips by clicking or dragging a box', () => (this.tool = 'select_box')),
+      selectSlot('select', this.tool, (v) => (this.tool = timelineTool(v))),
       tb('blade', 'seq_blade', this.tool === 'blade', 'Blade\nSplit strips at the clicked frame', () => (this.tool = 'blade')),
       tb('slip', 'seq_slip', this.tool === 'slip', 'Slip\nSlip the content of a strip under its handles', () => (this.tool = 'slip')),
     ]);
     patch(this.pvToolbar, [
-      tb('pselect', 'select_box', this.pvTool === 'select', 'Select Box\nSelect strips in the preview; drag to move them', () => (this.pvTool = 'select')),
+      selectSlot('pselect', this.pvTool, (v) => (this.pvTool = previewTool(v))),
       h('div', { key: 'sep', class: 'tb-sep' }),
       tb('pmove', 'transform_move', this.pvTool === 'move', 'Move\nMove the selected strips’ images', () => (this.pvTool = 'move')),
       tb('prot', 'transform_rotate', this.pvTool === 'rotate', 'Rotate\nRotate the selected strips’ images', () => (this.pvTool = 'rotate')),
@@ -544,6 +596,12 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       return { strip: s, handle: null };
     }
     return null;
+  }
+
+  pickStrip(clientX: number, clientY: number): Strip | null {
+    if (this.hover === 'preview') return this.preview.stripAt(clientX, clientY);
+    const { x, y } = this.local({ clientX, clientY });
+    return y > RULER_H ? (this.hitTest(x, y)?.strip ?? null) : null;
   }
 
   // ------------------------------------------------------------------ view ops
@@ -702,6 +760,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.strokeRect(Math.min(b.x0, b.x1) + 0.5, Math.min(b.y0, b.y1) + 0.5, Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
       g.setLineDash([]);
     }
+    drawShape(g, this.shape);
     if (!hasEditor() || !seqList().length) {
       g.fillStyle = 'rgba(255,255,255,0.35)';
       g.font = FONT;
@@ -823,6 +882,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.stroke();
       g.lineWidth = 1;
     }
+    this.drawFadeCurve(g, s, x0, y0, w, hgt);
     // handles: shown for the hovered strip and for selected handles
     const hw = this.handleWidth(r);
     if (!S.inputCount(s.type)) {
@@ -844,11 +904,13 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       if (src && src !== s.name) parts.push(src);
     }
     if (this.showStripDuration) parts.push(String(S.finalDuration(s)));
+    const linked = isConnected(seqList(), s);
+    if (linked && w > 24 && titleH >= 12) drawLink(g, Math.max(x0, 0) + hw + 4, y0 + titleH / 2);
     if (parts.length && w > 12) {
       g.font = FONT;
       g.textBaseline = 'middle';
       g.fillStyle = 'rgba(0,0,0,0.6)';
-      const tx = Math.max(x0, 0) + hw + 3;
+      const tx = Math.max(x0, 0) + hw + 3 + (linked ? 13 : 0);
       const ty = y0 + titleH / 2 + 0.5;
       const text = parts.join(' | ');
       g.save();
@@ -881,6 +943,34 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     g.stroke();
     g.lineWidth = 1;
     g.restore();
+  }
+
+  /** Opacity / volume animation as a line over the strip, with the faded part darkened. */
+  private drawFadeCurve(g: CanvasRenderingContext2D, s: Strip, x0: number, y0: number, w: number, hgt: number) {
+    const keys = keysOf(s, fadeProp(s));
+    if (!keys) return;
+    const top = Math.max(1, ...keys.map((k) => k[1]));
+    const yOf = (v: number) => y0 + hgt - (Math.max(0, v) / top) * hgt;
+    const xs: number[] = [x0];
+    for (const [f] of keys) {
+      const x = this.fx(f);
+      if (x > x0 && x < x0 + w) xs.push(x);
+    }
+    xs.push(x0 + w);
+    const pts = xs.map((x) => [x, yOf(keyValue(keys, this.xf(x)))] as const);
+    g.beginPath();
+    g.moveTo(x0, y0);
+    for (const [x, y] of pts) g.lineTo(x, y);
+    g.lineTo(x0 + w, y0);
+    g.closePath();
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fill();
+    g.beginPath();
+    pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.strokeStyle = 'rgba(255,255,255,0.75)';
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.lineWidth = 1;
   }
 
   private drawBody(g: CanvasRenderingContext2D, s: Strip, x0: number, y0: number, w: number, h: number, W: number) {
@@ -1187,31 +1277,44 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const hit = this.hitTest(x, y);
     if (this.tool === 'slip') {
       if (!hit) return;
-      selectStrip(hit.strip, {});
+      selectStrip(hit.strip, { ignoreConnections: e.altKey });
       app.changed('doc');
       startSlip(this, e.clientX, hit.strip);
       return;
     }
-    // select box tool
+    const ctrl = e.ctrlKey || e.metaKey;
+    const ignoreConnections = e.altKey;
+    const shapeMode = e.shiftKey ? 'ADD' : ctrl ? 'SUB' : 'SET';
+    if (this.tool === 'select_circle') return this.startCircle(shapeMode === 'SET' ? 'SET' : shapeMode, e);
+    // select box / lasso tool
     const x0 = e.clientX,
       y0 = e.clientY;
-    if (!hit) {
+    const dragShape = (ev: PointerEvent) => {
+      if (this.tool === 'select_lasso') this.startLasso(e, shapeMode, ev);
+      else this.startBoxSelect(e, shapeMode, true, { ignoreConnections });
+    };
+    if (!hit || this.tool === 'select_lasso') {
       let dragging = false;
       const move = (ev: PointerEvent) => {
         if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) {
           dragging = true;
           cleanup();
-          this.startBoxSelect(e, e.shiftKey ? 'ADD' : e.ctrlKey || e.metaKey ? 'SUB' : 'SET', true);
+          dragShape(ev);
         }
       };
       const up = () => {
         cleanup();
-        if (!dragging && hasEditor()) {
-          if (!e.shiftKey) {
-            selectStrip(null, {});
-            app.pushUndo('Deselect');
-            app.changed('doc');
-          }
+        if (dragging || !hasEditor()) return;
+        if (hit) return this.clickSelect(hit, e);
+        if (ctrl) {
+          // Ctrl click on empty space: everything on that side of the playhead
+          app.run('sequencer.select_side_of_frame', { side: this.xf(x) < app.doc.scene.frame_current ? 'LEFT' : 'RIGHT', extend: e.shiftKey });
+          return;
+        }
+        if (!e.shiftKey) {
+          selectStrip(null, {});
+          app.pushUndo('Deselect');
+          app.changed('doc');
         }
       };
       const cleanup = () => {
@@ -1225,16 +1328,17 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const s = hit.strip;
     const wasSelected = s.select;
     // press: make sure the pressed strip is selected so it can be dragged
-    if (hit.handle) selectStrip(s, { extend: e.shiftKey, handle: hit.handle });
-    else if (!s.select) selectStrip(s, { extend: e.shiftKey });
-    else if (s.select_left_handle || s.select_right_handle) selectStrip(s, { extend: true });
+    if (ctrl) this.selectLinkedTime(hit, e.shiftKey, ignoreConnections);
+    else if (hit.handle) selectStrip(s, { extend: e.shiftKey, handle: hit.handle, ignoreConnections });
+    else if (!s.select) selectStrip(s, { extend: e.shiftKey, ignoreConnections });
+    else if (s.select_left_handle || s.select_right_handle) selectStrip(s, { extend: true, ignoreConnections });
     app.changed('doc');
     let dragging = false;
     const move = (ev: PointerEvent) => {
       if (!dragging && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 4) {
         dragging = true;
         cleanup();
-        if (hit.handle) startSlide(this, x0, y0, { handleStrip: s, handleSide: hit.handle, label: 'Trim Strip' });
+        if (hit.handle && !ctrl) startSlide(this, x0, y0, { label: 'Trim Strip', ...(ignoreConnections || !isConnected(seqList(), s) ? { handleStrip: s, handleSide: hit.handle } : {}) });
         else startSlide(this, x0, y0);
       }
     };
@@ -1242,8 +1346,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       cleanup();
       if (dragging) return;
       // click: shift toggles, plain click selects only this strip
-      if (e.shiftKey && wasSelected && !hit.handle) selectStrip(s, { toggle: true });
-      else if (!e.shiftKey && !hit.handle) selectStrip(s, {});
+      if (ctrl) {
+        // already selected on press
+      } else if (e.shiftKey && wasSelected && !hit.handle) selectStrip(s, { toggle: true, ignoreConnections });
+      else if (!e.shiftKey && !hit.handle) selectStrip(s, { ignoreConnections });
       app.pushUndo('Select');
       app.changed('doc');
     };
@@ -1255,7 +1361,41 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     addEventListener('pointerup', up);
   }
 
-  startBoxSelect(e: { clientX: number; clientY: number }, mode: 'SET' | 'ADD' | 'SUB' = 'SET', startNow = false) {
+  /** Plain click on a strip (lasso / circle tools fall back to it). */
+  private clickSelect(hit: { strip: Strip; handle: 'LEFT' | 'RIGHT' | null }, e: PointerEvent) {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl) this.selectLinkedTime(hit, e.shiftKey, e.altKey);
+    else if (e.shiftKey && hit.strip.select && !hit.handle) selectStrip(hit.strip, { toggle: true, ignoreConnections: e.altKey });
+    else selectStrip(hit.strip, { extend: e.shiftKey, handle: hit.handle, ignoreConnections: e.altKey });
+    app.pushUndo('Select');
+    app.changed('doc');
+  }
+
+  /** Ctrl click: the strip plus strips on other channels sharing its range (or the clicked edge). */
+  private selectLinkedTime(hit: { strip: Strip; handle: 'LEFT' | 'RIGHT' | null }, extend: boolean, ignoreConnections: boolean) {
+    const s = hit.strip;
+    selectStrip(s, { extend, handle: hit.handle, ignoreConnections });
+    const list = seqList();
+    if (!hit.handle) {
+      for (const o of sameTime(list, s)) {
+        o.select = true;
+        o.select_left_handle = o.select_right_handle = false;
+      }
+      return;
+    }
+    for (const o of list) {
+      if (o === s || o.channel === s.channel || S.inputCount(o.type)) continue;
+      if (hit.handle === 'LEFT' && S.finalStart(o) === S.finalStart(s)) {
+        o.select = true;
+        o.select_left_handle = true;
+      } else if (hit.handle === 'RIGHT' && S.finalEnd(o) === S.finalEnd(s)) {
+        o.select = true;
+        o.select_right_handle = true;
+      }
+    }
+  }
+
+  startBoxSelect(e: { clientX: number; clientY: number }, mode: 'SET' | 'ADD' | 'SUB' = 'SET', startNow = false, opts: { includeHandles?: boolean; ignoreConnections?: boolean } = {}) {
     if (!hasEditor()) return;
     if (this.hover === 'preview') return this.previewBox(e, mode);
     const p0 = this.local(e);
@@ -1294,12 +1434,25 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         ry1 = Math.max(b.y0, b.y1);
       const list = seqList();
       if (m === 'SET') deselectAll(list);
+      const hits: Strip[] = [];
       for (const s of list) {
         const r = this.stripRect(s);
         if (r.x1 < rx0 || r.x0 > rx1 || r.y1 < ry0 || r.y0 > ry1) continue;
-        s.select = m !== 'SUB';
-        s.select_left_handle = s.select_right_handle = false;
+        const part = opts.includeHandles && !S.inputCount(s.type) ? boxHit(r.x0, r.x1, rx0, rx1, this.handleWidth(r)) : 'STRIP';
+        if (m === 'SUB') {
+          s.select = false;
+          s.select_left_handle = s.select_right_handle = false;
+          continue;
+        }
+        s.select = true;
+        if (part === 'LEFT') s.select_left_handle = true;
+        else if (part === 'RIGHT') s.select_right_handle = true;
+        else {
+          s.select_left_handle = s.select_right_handle = false;
+          hits.push(s);
+        }
       }
+      if (!opts.ignoreConnections && m !== 'SUB') for (const s of hits) for (const c of connectedOf(list, s)) c.select = true;
       app.pushUndo('Box Select');
       app.changed('doc');
     };
@@ -1311,6 +1464,133 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     };
     addEventListener('pointermove', move, true);
     addEventListener('pointerdown', down, true);
+    addEventListener('pointerup', up, true);
+  }
+
+  /** Strips touched by a shape given in client pixels (timeline or preview). */
+  private shapeHits(region: 'timeline' | 'preview', test: (r: { x0: number; y0: number; x1: number; y1: number }) => boolean): Strip[] {
+    if (!hasEditor()) return [];
+    if (region === 'preview') return this.preview.stripsWhere(test);
+    const c = this.canvas.getBoundingClientRect();
+    return seqList().filter((s) => {
+      const r = this.stripRect(s);
+      return r.y1 > RULER_H && test({ x0: r.x0 + c.left, x1: r.x1 + c.left, y0: r.y0 + c.top, y1: r.y1 + c.top });
+    });
+  }
+
+  private applyShape(hits: Strip[], add: boolean, region: 'timeline' | 'preview') {
+    const list = seqList();
+    for (const s of hits) {
+      for (const x of region === 'timeline' && add ? [s, ...connectedOf(list, s)] : [s]) {
+        x.select = add;
+        x.select_left_handle = x.select_right_handle = false;
+      }
+    }
+    if (hits.length) app.changed('select');
+  }
+
+  private setShape(region: 'timeline' | 'preview', shape: SelectShape | null) {
+    if (region === 'preview') {
+      this.preview.shape = shape;
+      this.preview.draw();
+    } else {
+      this.shape = shape;
+      this.redraw();
+    }
+  }
+
+  private regionOrigin(region: 'timeline' | 'preview') {
+    const r = (region === 'preview' ? this.preview.el : this.canvas).getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  }
+
+  /**
+   * Circle select. With a pointer event (tool drag) it paints while the button is held; without
+   * one (C) it stays active: LMB paints, Shift/Ctrl/MMB deselects, the wheel resizes, RMB/Esc ends.
+   */
+  startCircle(mode: 'SET' | 'ADD' | 'SUB' = 'ADD', drag?: PointerEvent) {
+    if (!hasEditor()) return;
+    const region = this.hover === 'preview' ? 'preview' : 'timeline';
+    const o = this.regionOrigin(region);
+    const at = drag ? { x: drag.clientX, y: drag.clientY } : app.pointer;
+    const circle = { kind: 'circle' as const, x: at.x - o.left, y: at.y - o.top, r: this.circleRadius };
+    if (mode === 'SET') deselectAll();
+    let paint: 'ADD' | 'SUB' | null = drag ? (mode === 'SUB' ? 'SUB' : 'ADD') : null;
+    const apply = () => {
+      if (!paint) return;
+      const cx = circle.x + o.left,
+        cy = circle.y + o.top;
+      this.applyShape(this.shapeHits(region, (r) => rectCircle(r, cx, cy, circle.r)), paint === 'ADD', region);
+    };
+    this.setShape(region, circle);
+    apply();
+    const self = this;
+    const end = () => self.setShape(region, null);
+    app.startModal({
+      label: 'Circle Select',
+      cursor: 'crosshair',
+      header: () => (drag ? 'Circle Select' : 'Circle Select: LMB select, Shift / MMB deselect, wheel resize, RMB / Esc confirm'),
+      onPointerMove(e) {
+        circle.x = e.clientX - o.left;
+        circle.y = e.clientY - o.top;
+        apply();
+        self.setShape(region, circle);
+      },
+      onPointerDown(e) {
+        if (drag) return undefined;
+        if (e.button === 2) return 'FINISHED';
+        paint = e.button === 1 || e.shiftKey || e.ctrlKey || e.metaKey || mode === 'SUB' ? 'SUB' : 'ADD';
+        apply();
+        return undefined;
+      },
+      onPointerUp() {
+        if (drag) return 'FINISHED';
+        paint = null;
+        return undefined;
+      },
+      onWheel(e) {
+        circle.r = Math.max(5, Math.min(400, circle.r * (e.deltaY > 0 ? 1 / 1.1 : 1.1)));
+        self.circleRadius = circle.r;
+        self.setShape(region, circle);
+      },
+      onKey(e) {
+        if (e.type !== 'keydown') return true;
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') return 'FINISHED';
+        if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') circle.r = Math.min(400, circle.r * 1.1);
+        else if (e.key === '-' || e.code === 'NumpadSubtract') circle.r = Math.max(5, circle.r / 1.1);
+        self.circleRadius = circle.r;
+        self.setShape(region, circle);
+        return true;
+      },
+      cancel: end,
+      finish: end,
+    });
+  }
+
+  /** Lasso select: draw a freehand shape from `e`; on release, strips inside it are (de)selected. */
+  startLasso(e: { clientX: number; clientY: number }, mode: 'SET' | 'ADD' | 'SUB' = 'SET', first?: { clientX: number; clientY: number }) {
+    if (!hasEditor()) return;
+    const region = this.hover === 'preview' ? 'preview' : 'timeline';
+    const o = this.regionOrigin(region);
+    const pts: [number, number][] = [[e.clientX - o.left, e.clientY - o.top]];
+    if (first) pts.push([first.clientX - o.left, first.clientY - o.top]);
+    const shape = { kind: 'lasso' as const, pts };
+    this.setShape(region, shape);
+    const move = (ev: PointerEvent) => {
+      pts.push([ev.clientX - o.left, ev.clientY - o.top]);
+      this.setShape(region, shape);
+    };
+    const up = () => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      this.setShape(region, null);
+      const poly = pts.map(([x, y]) => [x + o.left, y + o.top] as [number, number]);
+      if (mode === 'SET') deselectAll();
+      this.applyShape(this.shapeHits(region, (r) => rectLasso(r, poly)), mode !== 'SUB', region);
+      app.pushUndo('Lasso Select');
+      app.changed('doc');
+    };
+    addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
   }
 
@@ -1484,6 +1764,33 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const hit = this.preview.stripAt(e.clientX, e.clientY);
     const x0 = e.clientX,
       y0 = e.clientY;
+    const pmode = e.shiftKey ? 'ADD' : e.ctrlKey || e.metaKey ? 'SUB' : 'SET';
+    if (this.pvTool === 'select_circle') return this.startCircle(pmode, e);
+    if (this.pvTool === 'select_lasso') {
+      let dragging = false;
+      const move = (ev: PointerEvent) => {
+        if (dragging || Math.hypot(ev.clientX - x0, ev.clientY - y0) <= 4) return;
+        dragging = true;
+        cleanup();
+        this.startLasso(e, pmode, ev);
+      };
+      const up = () => {
+        cleanup();
+        if (dragging) return;
+        if (!hit) {
+          if (!e.shiftKey) selectStrip(null, {});
+        } else selectStrip(hit, { extend: e.shiftKey, toggle: e.shiftKey && hit.select, ignoreConnections: true });
+        app.pushUndo('Select');
+        app.changed('select');
+      };
+      const cleanup = () => {
+        removeEventListener('pointermove', move);
+        removeEventListener('pointerup', up);
+      };
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', up);
+      return;
+    }
     if (this.pvTool !== 'select') {
       if (hit && !hit.select) selectStrip(hit, { extend: e.shiftKey });
       app.changed('select');
@@ -1553,6 +1860,20 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     }
     return false;
   }
+}
+
+/** Small chain-link glyph marking connected strips (centred vertically on y). */
+function drawLink(g: CanvasRenderingContext2D, x: number, y: number) {
+  g.save();
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = 1.4;
+  g.beginPath();
+  roundRect(g, x, y - 2.5, 6, 5, 2.5);
+  g.stroke();
+  g.beginPath();
+  roundRect(g, x + 4, y - 2.5, 6, 5, 2.5);
+  g.stroke();
+  g.restore();
 }
 
 export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, hh: number, r: number) {

@@ -76,6 +76,7 @@ export function rename(s: Strip, name: string) {
     for (const x of l) {
       if (x.input_1 === old) x.input_1 = name;
       if (x.input_2 === old) x.input_2 = name;
+      if (x.connections) x.connections = x.connections.map((n) => (n === old ? name : n));
       if (x.strips) walk(x.strips);
     }
   };
@@ -131,6 +132,7 @@ function effectPanel(s: Strip): Child {
       num(s, 'quality', 'Quality', { int: true, min: 1, max: 5 }),
       bool(s, 'use_only_boost', 'Only Boost'),
     );
+  if (t === 'MULTICAM') rows.push(num(s, 'multicam_source', 'Source Channel', { int: true, min: 0, max: 127 }), h('div', { class: 'seq-sb-note' }, 'Cut to another camera with the number keys (1–9, 0) while hovering the timeline.'));
   if (t === 'GAUSSIAN_BLUR') rows.push(num(s, 'size_x', 'Size X', { min: 0, softMax: 200, precision: 1 }), num(s, 'size_y', 'Y', { min: 0, softMax: 200, precision: 1 }));
   if (t === 'SPEED') {
     rows.push(enumProp(s, 'speed_control', 'Speed Control', [['STRETCH', 'Stretch'], ['MULTIPLY', 'Multiply'], ['FRAME_NUMBER', 'Frame Number'], ['LENGTH', 'Length']]));
@@ -190,9 +192,16 @@ function textStylePanels(s: Strip): Child {
   ];
 }
 
+/** A faded property shows its key count and a button to remove the fade instead of a plain value. */
+function fadeRow(s: Strip, prop: 'blend_alpha' | 'volume', label: string): Child {
+  const keys = s.keys?.[prop];
+  if (!keys?.length) return null;
+  return splitRow(label, h('div', { class: 'row-aligned' }, h('span', { class: 'seq-src' }, `Faded (${keys.length} keys)`), opButton('sequencer.fades_clear', 'Clear')));
+}
+
 function compositingPanel(s: Strip): Child {
   if (!isVisual(s)) return null;
-  return panel('seq-compositing', 'Compositing', () => [enumProp(s, 'blend_type', 'Blend', BLEND_ITEMS), num(s, 'blend_alpha', 'Opacity', { min: 0, max: 1, slider: true, precision: 3 })]);
+  return panel('seq-compositing', 'Compositing', () => [enumProp(s, 'blend_type', 'Blend', BLEND_ITEMS), fadeRow(s, 'blend_alpha', 'Opacity') ?? num(s, 'blend_alpha', 'Opacity', { min: 0, max: 1, slider: true, precision: 3 })]);
 }
 
 function transformPanels(s: Strip): Child {
@@ -226,7 +235,7 @@ function videoColorPanels(s: Strip): Child {
 function soundPanel(s: Strip): Child {
   if (s.type !== 'SOUND' && s.type !== 'SCENE') return null;
   if (s.type === 'SCENE') return null;
-  return panel('seq-sound', 'Sound', () => [num(s, 'volume', 'Volume', { min: 0, max: 100, softMax: 2, precision: 3, ...edited }), num(s, 'pan', 'Pan', { min: -1, max: 1, slider: true, precision: 3, ...edited }), bool(s, 'show_waveform', 'Display Waveform'), num(s, 'sound_offset', 'Sound Offset', { unit: 'time', precision: 3, ...edited })]);
+  return panel('seq-sound', 'Sound', () => [fadeRow(s, 'volume', 'Volume') ?? num(s, 'volume', 'Volume', { min: 0, max: 100, softMax: 2, precision: 3, ...edited }), num(s, 'pan', 'Pan', { min: -1, max: 1, slider: true, precision: 3, ...edited }), bool(s, 'show_waveform', 'Display Waveform'), num(s, 'sound_offset', 'Sound Offset', { unit: 'time', precision: 3, ...edited })]);
 }
 
 function sourcePanel(s: Strip): Child {

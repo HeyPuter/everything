@@ -4,6 +4,7 @@ import type { SequenceEditor, Strip, SeqChannel } from './types';
 import { finalStart, finalEnd } from './strips';
 import { loadSound, MIX_RATE } from './media';
 import { soundSegment, panGains } from './wav';
+import { keysOf, keyValue } from './fades';
 
 interface Voice {
   s: Strip;
@@ -35,6 +36,13 @@ function schedule(ctx: BaseAudioContext, dest: AudioNode, buf: AudioBuffer, v: V
   src.buffer = buf;
   const gain = ctx.createGain();
   gain.gain.value = Math.max(0, v.s.volume ?? 1);
+  const keys = keysOf(v.s, 'volume');
+  if (keys) {
+    // fade keys: ramp the gain between them on the audio clock (frame f plays at t0 + (f - from) / fps)
+    const at = (f: number) => t0 + (f - from) / fps;
+    gain.gain.setValueAtTime(Math.max(0, keyValue(keys, from)), t0);
+    for (const [f, val] of keys) if (f > from) gain.gain.linearRampToValueAtTime(Math.max(0, val), at(f));
+  }
   let node: AudioNode = src;
   node.connect(gain);
   node = gain;

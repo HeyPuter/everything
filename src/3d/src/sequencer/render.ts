@@ -5,6 +5,7 @@ import type { SeqChannel, SequenceEditor, Strip } from './types';
 import { Compositor, placementMatrix, isPixelExact, type Source, type Target } from './gpu';
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
+import { valueAt } from './fades';
 import { drawTextStrip } from './text';
 import type { RGBA8Image } from './scene';
 
@@ -64,7 +65,19 @@ export class SequencerRender {
     if (this.o.cancelled?.()) throw new Cancelled();
   }
 
+  /** lists being rendered (innermost last): multicam selectors look up their source channel here */
+  private lists: Strip[][] = [];
+
   async renderList(list: Strip[], channels: SeqChannel[] | undefined, frame: number): Promise<Target> {
+    this.lists.push(list);
+    try {
+      return await this.renderListInner(list, channels, frame);
+    } finally {
+      this.lists.pop();
+    }
+  }
+
+  private async renderListInner(list: Strip[], channels: SeqChannel[] | undefined, frame: number): Promise<Target> {
     const c = this.comp;
     let acc = c.acquire();
     c.clear(acc);
@@ -84,7 +97,7 @@ export class SequencerRender {
       }
       if (!layer) continue;
       const out = c.acquire();
-      c.blend(out, acc, layer, s.blend_type, s.blend_alpha);
+      c.blend(out, acc, layer, s.blend_type, valueAt(s, 'blend_alpha', frame));
       c.release(acc);
       c.release(layer);
       acc = out;
@@ -165,6 +178,16 @@ export class SequencerRender {
       }
       case 'META': {
         const t = await this.renderList(s.strips ?? [], s.channels, frame);
+        return this.finish(s, c.asSource(t, o.W, o.H), true, t);
+      }
+      case 'MULTICAM': {
+        // shows the strip of the source channel (below the selector) at this frame
+        const list = this.lists[this.lists.length - 1] ?? [];
+        const ch = s.multicam_source ?? 0;
+        if (ch <= 0 || ch >= s.channel) return null;
+        const src = list.find((x) => x.channel === ch && !x.mute && x.type !== 'SOUND' && activeAt(x, frame));
+        const t = src ? await this.renderStrip(src, frame) : null;
+        if (!t) return null;
         return this.finish(s, c.asSource(t, o.W, o.H), true, t);
       }
       case 'SOUND':
