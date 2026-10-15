@@ -430,3 +430,93 @@ describe('pose tools', () => {
     expect(values(e)).toEqual([1, 2, 9, 4]);
   });
 });
+
+import type { NlaStrip, NlaTrack } from '../../src/data/types';
+import { makeStrip } from '../../src/animation/actionops';
+import { applyAnimData } from '../../src/anim/evaluate';
+import { makeMetas, removeMetas, addTransitions, swapStrips, applyStripScale, alignActionToStrip, enterTweak, exitTweak, actionUsers } from '../../src/animation/nlaedit';
+
+function constAction(name: string, value: number, a = 1, b = 11) {
+  const act = newAction(name);
+  act.fcurves = [curve([value, value], [a, b])];
+  doc.actions[act.id] = act;
+  return act;
+}
+const track = (strips: NlaStrip[]): NlaTrack => ({ name: 'T', strips, mute: false, is_solo: false });
+
+describe('NLA editing', () => {
+  it('blends across a transition between two strips', () => {
+    const a = constAction('A', 2),
+      b = constAction('B', 10);
+    const s1 = { ...makeStrip(a, 1, 'HOLD'), select: true };
+    const s2 = { ...makeStrip(b, 31, 'HOLD_FORWARD'), select: true };
+    const t = track([s1, s2]);
+    expect(addTransitions(t)).toBe(1);
+    expect(t.strips.map((s) => s.type ?? 'CLIP')).toEqual(['CLIP', 'TRANSITION', 'CLIP']);
+    cube.animation_data = { action: null, nla_tracks: [t], drivers: [] };
+    applyAnimData(doc, cube, cube.animation_data, 21);
+    expect(cube.location[0]).toBeCloseTo(6, 5);
+    applyAnimData(doc, cube, cube.animation_data, 5);
+    expect(cube.location[0]).toBeCloseTo(2, 5);
+  });
+
+  it('groups strips into a meta strip that keeps playing them, and ungroups again', () => {
+    const a = constAction('A', 2),
+      b = constAction('B', 10);
+    const s1 = { ...makeStrip(a, 1, 'HOLD'), select: true };
+    const s2 = { ...makeStrip(b, 11, 'HOLD_FORWARD'), select: true };
+    const t = track([s1, s2]);
+    expect(makeMetas(t)).toBe(1);
+    expect(t.strips.length).toBe(1);
+    const meta = t.strips[0];
+    expect([meta.type, meta.frame_start, meta.frame_end]).toEqual(['META', 1, 21]);
+    // move the meta: its strips follow
+    meta.frame_start += 100;
+    meta.frame_end += 100;
+    cube.animation_data = { action: null, nla_tracks: [t], drivers: [] };
+    applyAnimData(doc, cube, cube.animation_data, 115);
+    expect(cube.location[0]).toBeCloseTo(10, 5);
+    applyAnimData(doc, cube, cube.animation_data, 105);
+    expect(cube.location[0]).toBeCloseTo(2, 5);
+    expect(removeMetas(t)).toBe(1);
+    expect(t.strips.map((s) => [s.frame_start, s.frame_end])).toEqual([
+      [101, 111],
+      [111, 121],
+    ]);
+  });
+
+  it('swaps two strips and bakes strip scale into the action', () => {
+    const a = constAction('A', 2),
+      b = constAction('B', 10, 1, 5);
+    const s1 = { ...makeStrip(a, 1), select: true };
+    const s2 = { ...makeStrip(b, 20), select: true };
+    const t = track([s1, s2]);
+    expect(swapStrips(t)).toBe(true);
+    expect(t.strips[0]).toBe(s2);
+    expect([s2.frame_start, s1.frame_end]).toEqual([1, 24]);
+    s1.scale = 2;
+    s1.frame_end = s1.frame_start + 20;
+    expect(applyStripScale(s1, a)).toBe(true);
+    expect(a.fcurves[0].keyframe_points.map((k) => k.co[0])).toEqual([1, 21]);
+    expect([s1.scale, s1.action_frame_end]).toEqual([1, 21]);
+  });
+
+  it('enters and leaves tweak mode, lining the action up with the strip', () => {
+    const a = constAction('A', 2);
+    const s = { ...makeStrip(a, 50), select: true };
+    cube.animation_data = { action: null, nla_tracks: [track([s])], drivers: [] };
+    expect(actionUsers(doc, a.id)).toBe(1);
+    expect(enterTweak(doc, cube.animation_data, 0, 0, false, true)).toBe(true);
+    expect(cube.animation_data.action).toBe(a.id);
+    expect(a.fcurves[0].keyframe_points[0].co[0]).toBe(50);
+    expect([s.action_frame_start, s.frame_start]).toEqual([50, 50]);
+    expect(cube.animation_data.nla_tracks[0].is_solo).toBe(true);
+    applyAnimData(doc, cube, cube.animation_data, 55);
+    expect(cube.location[0]).toBeCloseTo(2, 5);
+    expect(exitTweak(cube.animation_data, true)).toBe(true);
+    expect(cube.animation_data.action).toBe(null);
+    expect(cube.animation_data.nla_tracks[0].is_solo).toBe(false);
+    // already aligned: nothing to move
+    expect(alignActionToStrip(doc, s)).toBe(false);
+  });
+});

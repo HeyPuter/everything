@@ -57,34 +57,80 @@ function restValue(path: string, index: number, current: number): number {
 
 type Accum = Map<string, { path: string; index: number; value: unknown }>;
 
-function blendAction(doc: DocumentData, ob: ObjectData, acc: Accum, action: ActionData, frame: number, blend: NlaStrip['blend_type'], influence: number) {
+type Values = Map<string, { path: string; index: number; value: number }>;
+
+/** Raw channel values of an action at a frame. */
+function actionValues(action: ActionData, frame: number, out: Values = new Map()): Values {
   for (const fc of action.fcurves) {
     if (fc.mute || !fc.keyframe_points.length) continue;
-    const v = evaluateFCurve(fc, frame);
-    const key = `${fc.data_path}|${fc.array_index}`;
+    out.set(`${fc.data_path}|${fc.array_index}`, { path: fc.data_path, index: fc.array_index, value: evaluateFCurve(fc, frame) });
+  }
+  return out;
+}
+
+/** Channel values a strip produces at a scene frame (action clips, meta strips). */
+function stripValues(doc: DocumentData, s: NlaStrip, frame: number): Values | null {
+  if (s.type === 'META') {
+    const inner = stripActionFrame(s, frame);
+    const hit = s.strips?.length ? trackStripAt({ name: '', strips: s.strips, mute: false, is_solo: false }, inner) : null;
+    if (!hit) return null;
+    return hit.strip.type === 'TRANSITION' ? transitionValues(doc, s.strips!, hit.strip, hit.frame) : stripValues(doc, hit.strip, hit.frame);
+  }
+  if (s.type === 'TRANSITION') return null;
+  const action = doc.actions[s.action];
+  return action ? actionValues(action, stripActionFrame(s, frame)) : null;
+}
+
+/** A transition blends from the end of the strip before it to the start of the strip after it. */
+function transitionValues(doc: DocumentData, strips: NlaStrip[], tr: NlaStrip, frame: number): Values | null {
+  const sorted = [...strips].sort((a, b) => a.frame_start - b.frame_start);
+  const i = sorted.indexOf(tr);
+  const prev = sorted[i - 1],
+    next = sorted[i + 1];
+  if (!prev || !next) return null;
+  const a = stripValues(doc, prev, prev.frame_end) ?? new Map(),
+    b = stripValues(doc, next, next.frame_start) ?? new Map();
+  const len = tr.frame_end - tr.frame_start;
+  const t = len > 0 ? Math.max(0, Math.min(1, (frame - tr.frame_start) / len)) : 1;
+  const out: Values = new Map();
+  for (const [k, va] of a) {
+    const vb = b.get(k);
+    out.set(k, { ...va, value: vb ? va.value + (vb.value - va.value) * t : va.value });
+  }
+  for (const [k, vb] of b) if (!out.has(k)) out.set(k, vb);
+  return out;
+}
+
+function blendValues(doc: DocumentData, ob: ObjectData, acc: Accum, values: Values, blend: NlaStrip['blend_type'], influence: number) {
+  for (const [key, e] of values) {
+    const v = e.value;
     const prev = acc.get(key);
     if (blend === 'REPLACE' && influence >= 1) {
-      acc.set(key, { path: fc.data_path, index: fc.array_index, value: v });
+      acc.set(key, { path: e.path, index: e.index, value: v });
       continue;
     }
     let cur: number;
     if (prev && typeof prev.value === 'number') cur = prev.value;
     else {
-      const raw = getValue(doc, ob, fc.data_path, fc.array_index);
+      const raw = getValue(doc, ob, e.path, e.index);
       if (typeof raw !== 'number' && typeof raw !== 'boolean') {
-        acc.set(key, { path: fc.data_path, index: fc.array_index, value: v });
+        acc.set(key, { path: e.path, index: e.index, value: v });
         continue;
       }
-      cur = restValue(fc.data_path, fc.array_index, Number(raw));
+      cur = restValue(e.path, e.index, Number(raw));
     }
     let target = v;
-    const tail = fc.data_path.split('.').pop();
+    const tail = e.path.split('.').pop();
     if (blend === 'ADD') target = cur + v;
     else if (blend === 'COMBINE') target = tail === 'scale' ? cur * v : cur + v;
     else if (blend === 'SUBTRACT') target = cur - v;
     else if (blend === 'MULTIPLY') target = cur * v;
-    acc.set(key, { path: fc.data_path, index: fc.array_index, value: cur + (target - cur) * influence });
+    acc.set(key, { path: e.path, index: e.index, value: cur + (target - cur) * influence });
   }
+}
+
+function blendAction(doc: DocumentData, ob: ObjectData, acc: Accum, action: ActionData, frame: number, blend: NlaStrip['blend_type'], influence: number) {
+  blendValues(doc, ob, acc, actionValues(action, frame), blend, influence);
 }
 
 /** last animation result written per object property (see applyAnimData) */
@@ -93,15 +139,27 @@ const lastWritten = new Map<string, { frame: number; anim: number }>();
 export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, frame: number) {
   const acc: Accum = new Map();
   const solo = ad.nla_tracks.some((t) => t.is_solo);
-  for (const track of ad.nla_tracks) {
+  const tw = ad.tweak;
+  const tweakStrip = tw ? ad.nla_tracks[tw.track]?.strips[tw.strip] : undefined;
+  for (let ti = 0; ti < ad.nla_tracks.length; ti++) {
+    const track = ad.nla_tracks[ti];
+    if (tw && tweakStrip && ti === tw.track) {
+      // tweak mode: the edited strip's action is evaluated through the strip's time mapping
+      const action = doc.actions[tweakStrip.action];
+      if (action) blendAction(doc, ob, acc, action, stripActionFrame(tweakStrip, frame), tweakStrip.blend_type, tweakStrip.influence ?? 1);
+      continue;
+    }
     if (track.mute || (solo && !track.is_solo)) continue;
+    // tracks above the edited one only count with full-stack evaluation
+    if (tw && tweakStrip && ti > tw.track && !tw.upper) continue;
     const hit = trackStripAt(track, frame);
     if (!hit) continue;
-    const action = doc.actions[hit.strip.action];
-    if (action) blendAction(doc, ob, acc, action, stripActionFrame(hit.strip, hit.frame), hit.strip.blend_type, stripInfluence(hit.strip, hit.frame));
+    const s = hit.strip;
+    const values = s.type === 'TRANSITION' ? transitionValues(doc, track.strips, s, hit.frame) : stripValues(doc, s, hit.frame);
+    if (values) blendValues(doc, ob, acc, values, s.blend_type, stripInfluence(s, hit.frame));
   }
-  // a soloed track disables the active action as well
-  if (ad.action && !solo) {
+  if (!(tw && tweakStrip) && ad.action && !solo) {
+    // a soloed track disables the active action as well
     const action = doc.actions[ad.action];
     if (action) blendAction(doc, ob, acc, action, frame, ad.action_blend_type ?? 'REPLACE', ad.action_influence ?? 1);
   }

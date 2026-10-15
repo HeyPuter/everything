@@ -531,6 +531,10 @@ export interface NlaStrip {
   mute: boolean;
   select?: boolean;
   extrapolation: 'HOLD' | 'HOLD_FORWARD' | 'NOTHING';
+  /** strip kind (action clip when absent) */
+  type?: 'CLIP' | 'TRANSITION' | 'META';
+  /** META: the grouped strips, in inner time (action_frame_start..end) */
+  strips?: NlaStrip[];
 }
 
 export interface NlaTrack {
@@ -548,6 +552,8 @@ export interface AnimData {
   action_blend_type?: NlaStrip['blend_type'];
   action_influence?: number;
   drivers: Driver[];
+  /** NLA tweak mode: the strip whose action is being edited */
+  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
 }
 
 export interface DriverVariable {

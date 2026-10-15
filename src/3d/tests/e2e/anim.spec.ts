@@ -230,3 +230,50 @@ test('pose mode: in-between slider, propagate, names and selection sets', async 
   expect(names).toEqual(['Bone', 'Arm.R', 'Arm.L']);
   await expectNoErrors(errors);
 });
+
+test('NLA: tweak mode, meta strips, transitions and strip menu', async ({ page }) => {
+  const errors = await openApp(page);
+  await setup(page, 'NLA');
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { pushDown, copyAction, makeStrip } = await import('/src/animation/actionops.ts');
+    const ob = app.activeObject;
+    const act = app.doc.actions[ob.animation_data.action];
+    const strip = pushDown(app.doc, ob);
+    strip.select = true;
+    const b = copyAction(app.doc, act);
+    const s2 = makeStrip(b, 80);
+    ob.animation_data.nla_tracks[0].strips.push(s2);
+    app.pushUndo('nla setup');
+    app.changed('doc');
+  });
+  await page.waitForTimeout(200);
+  const box = (await page.locator('.anim-main canvas').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Shift+T');
+  const types = () =>
+    page.evaluate(() => (window as any).app.activeObject.animation_data.nla_tracks[0].strips.map((s: { type?: string }) => s.type ?? 'CLIP')); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await types()).toEqual(['CLIP', 'TRANSITION', 'CLIP']);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Control+G');
+  expect(await types()).toEqual(['META']);
+  await page.keyboard.press('Control+Alt+G');
+  expect(await types()).toEqual(['CLIP', 'CLIP']);
+  // tweak the active strip
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const strips = app.activeObject.animation_data.nla_tracks[0].strips;
+    strips.forEach((s: { select: boolean }, i: number) => (s.select = i === 0));
+    app.changed('doc');
+  });
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!(window as any).app.activeObject.animation_data.tweak)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expect(page.locator('.hdr-toggle', { hasText: 'Tweaking' })).toBeVisible();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!(window as any).app.activeObject.animation_data.tweak)).toBe(false); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.locator('.hdr-menu', { hasText: 'Strip' }).click();
+  for (const label of ['Make Meta', 'Linked Duplicate', 'Apply Scale', 'Make Single User', 'Start Tweaking Strip Actions (Full Stack)']) await expect(page.locator('.menu-item', { hasText: label }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

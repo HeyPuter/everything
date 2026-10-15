@@ -14,6 +14,7 @@ import { C, drawKey } from './theme';
 import { aggregate } from './aggregate';
 import { pushDown, makeStrip, newTrack, stripFits, sortStrips, actionRange, ensureAnimData } from './actionops';
 import { browseActions } from './actionui';
+import { moveChannelsMenu, previewRangeMenu } from './menus';
 
 export interface StripRef {
   ob: ObjectData;
@@ -118,83 +119,22 @@ export class NlaEditor extends AnimEditor {
         },
       ]),
       menuButton('Marker', markerMenu),
-      menuButton('Add', () => [
-        {
-          label: 'Action',
-          submenu: () => actionClipMenu(),
-          shortcut: 'Shift A',
-        },
-        { separator: true },
-        { label: 'Add Tracks', op: 'nla.tracks_add' },
-        {
-          label: 'Add Tracks Above Selected',
-          op: 'nla.tracks_add',
-          props: { above_selected: true },
-        },
-      ]),
-      menuButton('Track', () => [
-        { label: 'Add Tracks', op: 'nla.tracks_add' },
-        {
-          label: 'Add Tracks Above Selected',
-          op: 'nla.tracks_add',
-          props: { above_selected: true },
-        },
-        { label: 'Delete Tracks', op: 'nla.tracks_delete' },
-      ]),
-      menuButton('Strip', () => [
-        {
-          label: 'Transform',
-          submenu: () => [
+      menuButton('Add', () => this.addMenu()),
+      menuButton('Track', () => this.trackMenu()),
+      menuButton('Strip', () => this.stripMenu()),
+      this.tweaking()
+        ? h(
+            'button',
             {
-              label: 'Move',
-              op: 'nla.transform',
-              props: { mode: 'TRANSLATION' },
-              shortcut: 'G',
+              key: 'tweak',
+              class: { 'hdr-toggle': true, wide: true, on: true },
+              'data-tip': 'Stop Tweaking Strip Actions\nReturn to editing the NLA stack (Tab)',
+              onclick: () => app.run('nla.tweakmode_exit', {}, { area: this.area }),
             },
-            {
-              label: 'Scale',
-              op: 'nla.transform',
-              props: { mode: 'RESIZE' },
-              shortcut: 'S',
-            },
-          ],
-        },
-        {
-          label: 'Snap',
-          submenu: () => [
-            {
-              label: 'Selection to Current Frame',
-              op: 'nla.snap',
-              props: { type: 'CFRA' },
-            },
-            {
-              label: 'Selection to Nearest Frame',
-              op: 'nla.snap',
-              props: { type: 'NEAREST_FRAME' },
-            },
-            {
-              label: 'Selection to Nearest Second',
-              op: 'nla.snap',
-              props: { type: 'NEAREST_SECOND' },
-            },
-            {
-              label: 'Selection to Nearest Marker',
-              op: 'nla.snap',
-              props: { type: 'NEAREST_MARKER' },
-            },
-          ],
-          shortcut: 'Shift S',
-        },
-        { separator: true },
-        { label: 'Split', op: 'nla.split', shortcut: 'Y' },
-        { label: 'Duplicate', op: 'nla.duplicate_move', shortcut: 'Shift D' },
-        { label: 'Delete', op: 'nla.delete', shortcut: 'X' },
-        { separator: true },
-        { label: 'Toggle Muting', op: 'nla.mute_toggle', shortcut: 'H' },
-        { separator: true },
-        { label: 'Clear Scale', op: 'nla.clear_scale', shortcut: 'Alt S' },
-        { label: 'Sync Action Length', op: 'nla.action_sync_length' },
-      ]),
+            icon('nla'),
+            'Tweaking',
+          )
+        : null,
       h('div', { class: 'hdr-spacer' }),
       hdrToggle(
         'only-sel',
@@ -220,6 +160,80 @@ export class NlaEditor extends AnimEditor {
     );
   }
 
+  tweaking() {
+    return this.list.rows.some((r) => r.ob?.animation_data?.tweak);
+  }
+
+  addMenu(): MenuItem[] {
+    return [
+      { label: 'Action', submenu: () => actionClipMenu(), shortcut: 'Shift A' },
+      { label: 'Transition', op: 'nla.transition_add', shortcut: 'Shift T' },
+      { separator: true },
+      { label: 'Selected Objects', op: 'nla.selected_objects_add' },
+    ];
+  }
+
+  trackMenu(): MenuItem[] {
+    return [
+      { label: 'Add', op: 'nla.tracks_add', shortcut: 'Shift A' },
+      { label: 'Add Above Selected', op: 'nla.tracks_add', props: { above_selected: true }, shortcut: 'Shift Ctrl A' },
+      { label: 'Delete', op: 'nla.tracks_delete', shortcut: 'X' },
+      { separator: true },
+      { label: 'Move', submenu: moveChannelsMenu },
+      { separator: true },
+      { label: 'Remove Empty Animation Data', op: 'anim.channels_clean_empty' },
+    ];
+  }
+
+  tweakItems(): MenuItem[] {
+    return this.tweaking()
+      ? [{ label: 'Stop Tweaking Strip Actions', op: 'nla.tweakmode_exit', shortcut: 'Tab' }]
+      : [
+          { label: 'Start Editing Stashed Action', op: 'nla.tweakmode_enter', props: { isolate_action: true }, shortcut: 'Shift Tab' },
+          { label: 'Start Tweaking Strip Actions (Full Stack)', op: 'nla.tweakmode_enter', props: { use_upper_stack_evaluation: true }, shortcut: 'Tab' },
+          { label: 'Start Tweaking Strip Actions (Lower Stack)', op: 'nla.tweakmode_enter', props: { use_upper_stack_evaluation: false } },
+        ];
+  }
+
+  stripMenu(): MenuItem[] {
+    return [
+      {
+        label: 'Transform',
+        submenu: () => [
+          { label: 'Move', op: 'nla.transform', props: { mode: 'TRANSLATION' }, shortcut: 'G' },
+          { label: 'Scale', op: 'nla.transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
+          { separator: true },
+          { label: 'Swap', op: 'nla.swap', shortcut: 'Alt F' },
+          { separator: true },
+          { label: 'Move Up', op: 'nla.move_up', shortcut: 'Page Up' },
+          { label: 'Move Down', op: 'nla.move_down', shortcut: 'Page Down' },
+        ],
+      },
+      { label: 'Snap', submenu: snapItems, shortcut: 'Shift S' },
+      { separator: true },
+      { label: 'Split', op: 'nla.split', shortcut: 'Y' },
+      { separator: true },
+      { label: 'Duplicate', op: 'nla.duplicate_move', shortcut: 'Alt D' },
+      { label: 'Linked Duplicate', op: 'nla.duplicate_linked_move', shortcut: 'Shift D' },
+      { label: 'Delete', op: 'nla.delete', shortcut: 'X' },
+      { separator: true },
+      { label: 'Make Meta', op: 'nla.meta_add', shortcut: 'Ctrl G' },
+      { label: 'Remove Meta', op: 'nla.meta_remove', shortcut: 'Ctrl Alt G' },
+      { separator: true },
+      { label: 'Toggle Muting', op: 'nla.mute_toggle', shortcut: 'H' },
+      { separator: true },
+      { label: 'Bake Action', op: 'nla.bake' },
+      { separator: true },
+      { label: 'Apply Scale', op: 'nla.apply_scale', shortcut: 'Ctrl A' },
+      { label: 'Clear Scale', op: 'nla.clear_scale', shortcut: 'Alt S' },
+      { label: 'Sync Action Length', op: 'nla.action_sync_length' },
+      { separator: true },
+      { label: 'Make Single User', op: 'nla.make_single_user', shortcut: 'U' },
+      { separator: true },
+      ...this.tweakItems(),
+    ];
+  }
+
   viewMenu(): MenuItem[] {
     return [
       {
@@ -240,17 +254,14 @@ export class NlaEditor extends AnimEditor {
         shortcut: 'Numpad .',
       },
       { label: 'Frame All', op: 'nla.view_all', shortcut: 'Home' },
+      { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
       {
         label: 'Go to Current Frame',
         op: 'nla.view_frame',
         shortcut: 'Numpad 0',
       },
       { separator: true },
-      {
-        label: 'Clear Preview Range',
-        op: 'anim.previewrange_clear',
-        shortcut: 'Alt P',
-      },
+      ...previewRangeMenu('nla.previewrange_set'),
       { separator: true },
       {
         label: this.area.screen.maximized === this.area ? 'Back to Previous' : 'Maximize Area',
@@ -346,32 +357,33 @@ export class NlaEditor extends AnimEditor {
 
   channelContextMenu(): MenuItem[] {
     return [
-      { label: 'Add Tracks', op: 'nla.tracks_add' },
-      {
-        label: 'Add Tracks Above Selected',
-        op: 'nla.tracks_add',
-        props: { above_selected: true },
-      },
-      { label: 'Delete Tracks', op: 'nla.tracks_delete' },
+      { label: 'Track Ordering', submenu: moveChannelsMenu },
       { separator: true },
-      { label: 'Expand Channels', op: 'anim.channels_expand' },
-      { label: 'Collapse Channels', op: 'anim.channels_collapse' },
+      { label: 'Add Track', op: 'nla.tracks_add' },
+      { label: 'Add Track Above Selected', op: 'nla.tracks_add', props: { above_selected: true } },
+      { separator: true },
+      { label: 'Delete Tracks', op: 'nla.tracks_delete' },
+      { label: 'Remove Empty Animation Data', op: 'anim.channels_clean_empty' },
     ];
   }
 
   protected mainContextMenu(): MenuItem[] {
     return [
-      { heading: 'Strip' },
-      {
-        label: 'Add Action Strip',
-        submenu: () => actionClipMenu(),
-        shortcut: 'Shift A',
-      },
+      { heading: 'NLA' },
+      ...this.tweakItems(),
+      { separator: true },
+      { label: 'Duplicate', op: 'nla.duplicate_move', shortcut: 'Alt D' },
+      { label: 'Linked Duplicate', op: 'nla.duplicate_linked_move', shortcut: 'Shift D' },
       { separator: true },
       { label: 'Split', op: 'nla.split', shortcut: 'Y' },
-      { label: 'Duplicate', op: 'nla.duplicate_move', shortcut: 'Shift D' },
-      { label: 'Toggle Muting', op: 'nla.mute_toggle', shortcut: 'H' },
       { label: 'Delete', op: 'nla.delete', shortcut: 'X' },
+      { separator: true },
+      { label: 'Make Meta', op: 'nla.meta_add', shortcut: 'Ctrl G' },
+      { label: 'Remove Meta', op: 'nla.meta_remove', shortcut: 'Ctrl Alt G' },
+      { separator: true },
+      { label: 'Swap', op: 'nla.swap', shortcut: 'Alt F' },
+      { separator: true },
+      { label: 'Snap', submenu: snapItems },
     ];
   }
 
@@ -410,14 +422,17 @@ export class NlaEditor extends AnimEditor {
         g.fillRect(0, y, W, rh - 1);
         const ad = ch.ob.animation_data!;
         const soloed = ad.nla_tracks.some((o) => o.is_solo) && !t.is_solo;
-        const dim = t.mute || soloed;
-        t.strips.forEach((s, si) => this.drawStrip(g, s, y, rh, dim, t.strips[si + 1], si === 0 && ch.trackIndex === 0, W));
+        const tw = ad.tweak;
+        const tweakStrip = tw ? ad.nla_tracks[tw.track]?.strips[tw.strip] : null;
+        // in tweak mode the tracks above the edited one are dimmed unless the full stack is evaluated
+        const dim = t.mute || soloed || (!!tw && (ch.trackIndex ?? 0) > tw.track && !tw.upper);
+        t.strips.forEach((s, si) => this.drawStrip(g, s, y, rh, dim, t.strips[si + 1], si === 0 && ch.trackIndex === 0, W, s === tweakStrip));
       }
     }
     g.textBaseline = 'alphabetic';
   }
 
-  private drawStrip(g: CanvasRenderingContext2D, s: NlaStrip, y: number, rh: number, dim: boolean, next: NlaStrip | undefined, first: boolean, W: number) {
+  private drawStrip(g: CanvasRenderingContext2D, s: NlaStrip, y: number, rh: number, dim: boolean, next: NlaStrip | undefined, first: boolean, W: number, tweaked = false) {
     const v = this.view;
     const x0 = v.fx(s.frame_start),
       x1 = v.fx(s.frame_end);
@@ -433,8 +448,28 @@ export class NlaEditor extends AnimEditor {
     if (x1 < 0 || x0 > W) return;
     g.globalAlpha = dim || s.mute ? 0.45 : 1;
     roundRect(g, x0, top, Math.max(2, x1 - x0), hh, 3);
-    g.fillStyle = s.select ? C.nlaStripSelected : '#594a3a';
+    const base = s.type === 'TRANSITION' ? ['#3c5a78', '#6fa0d8'] : s.type === 'META' ? ['#5a4470', '#a070d0'] : tweaked ? ['#3f7040', '#5fc060'] : ['#594a3a', C.nlaStripSelected];
+    g.fillStyle = s.select ? base[1] : base[0];
     g.fill();
+    if (s.type === 'TRANSITION') {
+      // a diagonal shows the blend from one strip to the next
+      g.strokeStyle = 'rgba(255,255,255,0.5)';
+      g.beginPath();
+      g.moveTo(x0, top + hh);
+      g.lineTo(x1, top);
+      g.stroke();
+    } else if (s.type === 'META' && s.strips) {
+      // inner strip boundaries
+      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      const k = (s.frame_end - s.frame_start) / Math.max(1e-6, s.action_frame_end - s.action_frame_start);
+      for (const c of s.strips.slice(1)) {
+        const x = Math.round(v.fx(s.frame_start + (c.frame_start - s.action_frame_start) * k)) + 0.5;
+        g.beginPath();
+        g.moveTo(x, top + 2);
+        g.lineTo(x, top + hh - 2);
+        g.stroke();
+      }
+    }
     g.strokeStyle = s === this.activeStrip ? '#ffffff' : '#000';
     if (s.mute) g.setLineDash([4, 3]);
     g.lineWidth = 1;
@@ -764,7 +799,7 @@ export class NlaEditor extends AnimEditor {
           }),
         ),
       ]),
-      panel('nla-clip', 'Action Clip', () => [
+      s.type === 'TRANSITION' || s.type === 'META' ? null : panel('nla-clip', 'Action Clip', () => [
         row(
           'Action',
           h(
@@ -934,6 +969,15 @@ export function resolveOverlaps(refs: StripRef[]) {
   }
 }
 
+function snapItems(): MenuItem[] {
+  return [
+    { label: 'Selection to Current Frame', op: 'nla.snap', props: { type: 'CFRA' } },
+    { label: 'Selection to Nearest Frame', op: 'nla.snap', props: { type: 'NEAREST_FRAME' } },
+    { label: 'Selection to Nearest Second', op: 'nla.snap', props: { type: 'NEAREST_SECOND' } },
+    { label: 'Selection to Nearest Marker', op: 'nla.snap', props: { type: 'NEAREST_MARKER' } },
+  ];
+}
+
 function actionClipMenu(): MenuItem[] {
   const acts = Object.values(app.doc.actions).sort((a, b) => a.name.localeCompare(b.name));
   if (!acts.length) return [{ label: 'No actions available', disabled: true }];
@@ -1065,23 +1109,6 @@ registerOperators([
         }
       }
       resolveOverlaps(sel);
-    },
-  },
-  {
-    idname: 'nla.duplicate_move',
-    label: 'Duplicate Strips',
-    description: 'Duplicate selected NLA-Strips, adding the new strips to new track(s)',
-    poll: pollSel,
-    invoke: (ctx) => {
-      const ed = nlaEd(ctx)!;
-      const copies = duplicateStrips(ed);
-      if (!copies.length) return 'CANCELLED';
-      ed.refresh();
-      const ok = ed.startTransform('TRANSLATION', { ...app.pointer }, false);
-      return ok ? 'RUNNING_MODAL' : 'FINISHED';
-    },
-    exec: (ctx) => {
-      if (!duplicateStrips(nlaEd(ctx)!).length) return 'CANCELLED';
     },
   },
   {
@@ -1307,26 +1334,6 @@ registerOperators([
   },
 ]);
 
-function duplicateStrips(ed: NlaEditor): NlaStrip[] {
-  const sel = ed.selectedStrips();
-  const out: NlaStrip[] = [];
-  for (const r of sel) {
-    const c: NlaStrip = { ...r.strip, select: true };
-    r.strip.select = false;
-    // place the copy in a new track above the original
-    const idx = r.ad.nla_tracks.indexOf(r.track);
-    let target = r.ad.nla_tracks[idx + 1];
-    if (!target || target.lock || !stripFits(target, c.frame_start, c.frame_end)) {
-      target = newTrack(r.ad);
-      r.ad.nla_tracks.splice(idx + 1, 0, target);
-    }
-    target.strips.push(c);
-    sortStrips(target);
-    out.push(c);
-  }
-  return out;
-}
-
 function addActionClip(ctx: OpContext, actionId: string) {
   const ed = nlaEd(ctx);
   const act = ctx.doc.actions[actionId];
@@ -1396,40 +1403,14 @@ addKeys('NLA Editor', [
     when: overMain,
   },
   { key: 'S', op: 'nla.transform', props: { mode: 'RESIZE' }, when: overMain },
-  { key: 'D', shift: true, op: 'nla.duplicate_move', when: overMain },
+  { key: 'D', shift: true, op: 'nla.duplicate_linked_move', when: overMain },
   { key: 'X', op: 'nla.delete', when: overMain },
   { key: 'DEL', op: 'nla.delete', when: overMain },
   { key: 'H', op: 'nla.mute_toggle' },
   { key: 'Y', op: 'nla.split' },
   { key: 'A', shift: true, op: 'nla.actionclip_add' },
   { key: 'S', alt: true, op: 'nla.clear_scale' },
-  {
-    key: 'S',
-    shift: true,
-    menu: () => [
-      {
-        label: 'Selection to Current Frame',
-        op: 'nla.snap',
-        props: { type: 'CFRA' },
-      },
-      {
-        label: 'Selection to Nearest Frame',
-        op: 'nla.snap',
-        props: { type: 'NEAREST_FRAME' },
-      },
-      {
-        label: 'Selection to Nearest Second',
-        op: 'nla.snap',
-        props: { type: 'NEAREST_SECOND' },
-      },
-      {
-        label: 'Selection to Nearest Marker',
-        op: 'nla.snap',
-        props: { type: 'NEAREST_MARKER' },
-      },
-    ],
-    menuTitle: 'Snap',
-  },
+  { key: 'S', shift: true, menu: snapItems, menuTitle: 'Snap' },
   { key: 'HOME', op: 'nla.view_all' },
   { key: 'NUMPAD_PERIOD', op: 'nla.view_selected' },
   { key: 'NUMPAD_0', op: 'nla.view_frame' },
