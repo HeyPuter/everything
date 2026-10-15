@@ -254,6 +254,16 @@ precision highp float;
 in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform int uOpaque; uniform vec3 uBg;
 void main() { vec4 c = texture(uTex, vUv); if (uOpaque == 1) { c.rgb += uBg * (1.0 - c.a); c.a = 1.0; } o = c; }`;
 
+/** Modifier masks: keep the original where the mask is black, the modified image where white. */
+const FS_MASKMIX = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o; uniform sampler2D uA; uniform sampler2D uB; uniform sampler2D uM;
+void main() {
+  vec4 m = texture(uM, vUv);
+  float k = clamp(dot(m.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+  o = mix(texture(uA, vUv), texture(uB, vUv), k);
+}`;
+
 type Prog = { p: WebGLProgram; u: Map<string, WebGLUniformLocation | null> };
 
 /** 3×3 column-major matrix (image pixels → frame pixels). */
@@ -299,6 +309,21 @@ export class Compositor {
     this.progs.glow = this.program(VS_FULL, FS_GLOW);
     this.progs.fill = this.program(VS_FULL, FS_FILL);
     this.progs.copy = this.program(VS_FULL, FS_COPY);
+    this.progs.maskmix = this.program(VS_FULL, FS_MASKMIX);
+  }
+
+  /** dst = mix(original, modified, luminance of mask). */
+  maskMix(dst: Target, original: Target, modified: Target, mask: Target) {
+    const gl = this.gl;
+    this.bindTarget(dst);
+    const u = this.use('maskmix');
+    this.bindTex(0, original.tex);
+    this.bindTex(1, modified.tex);
+    this.bindTex(2, mask.tex);
+    gl.uniform1i(u('uA'), 0);
+    gl.uniform1i(u('uB'), 1);
+    gl.uniform1i(u('uM'), 2);
+    this.draw();
   }
 
   private program(vs: string, fs: string): Prog {

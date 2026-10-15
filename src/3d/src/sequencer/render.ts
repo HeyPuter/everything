@@ -1,7 +1,7 @@
 // Sequencer evaluation: renders the channel stack at a frame on the GPU compositor.
 // Each strip produces a full-frame premultiplied image (source → crop/transform → colour →
 // modifiers) that is blended over the channels below with its blend mode and opacity.
-import type { SeqChannel, SequenceEditor, Strip } from './types';
+import type { SeqChannel, SequenceEditor, Strip, StripModifier } from './types';
 import { Compositor, placementMatrix, isPixelExact, type Source, type Target } from './gpu';
 import { renderStack, contentFrame, effectFac, effectInputs, findStrip, speedInputFrame, TRANSITIONS, activeAt, allStrips } from './strips';
 import { getMovie, loadImage } from './media';
@@ -110,8 +110,58 @@ export class SequencerRender {
     return acc;
   }
 
+  /** masks of the modifiers of strips being rendered (released after the strip) */
+  private modMasks = new Map<StripModifier, Target>();
+  /** strips whose modifier masks are being prepared (a strip cannot mask itself through others) */
+  private masking = new Set<Strip>();
+
   /** A strip's full-frame image at `frame` (null if it produces nothing). */
   async renderStrip(s: Strip, frame: number): Promise<Target | null> {
+    const prepared: StripModifier[] = [];
+    for (const m of s.modifiers ?? []) {
+      if (m.mute || !m.input_mask_type || m.input_mask_type === 'NONE') continue;
+      const t = await this.modifierMask(m, s, frame);
+      if (t) {
+        this.modMasks.set(m, t);
+        prepared.push(m);
+      }
+    }
+    try {
+      return await this.renderStripInner(s, frame);
+    } finally {
+      for (const m of prepared) {
+        this.comp.release(this.modMasks.get(m));
+        this.modMasks.delete(m);
+      }
+    }
+  }
+
+  /** The mask image of a modifier: another strip's image or a rasterized mask data-block. */
+  private async modifierMask(m: StripModifier, owner: Strip, frame: number): Promise<Target | null> {
+    const c = this.comp;
+    const o = this.o;
+    if (m.input_mask_type === 'STRIP') {
+      const src = m.input_mask_strip ? findStrip(this.all, m.input_mask_strip) : null;
+      if (!src || src === owner || this.masking.has(src)) return null;
+      this.masking.add(owner);
+      try {
+        return await this.renderStrip(src, frame);
+      } finally {
+        this.masking.delete(owner);
+      }
+    }
+    const mk = m.input_mask_id ? app.doc.masks?.[m.input_mask_id] : undefined;
+    if (!mk) return null;
+    maskCanvas ??= document.createElement('canvas');
+    rasterizeMask(mk, frame, this.Wk, this.Hk, true, maskCanvas, parentResolver(app.doc));
+    const src = c.upload(maskCanvas, o.W, o.H);
+    const t = c.acquire();
+    c.place(t, src, placementMatrix(o.W, o.H, o.W, o.H, { offset_x: 0, offset_y: 0, scale_x: 1, scale_y: 1, rotation: 0, origin: [0.5, 0.5] }, o.k), [0, 0, o.W, o.H], false, false, true);
+    c.dropSource(src);
+    return t;
+  }
+
+  private async renderStripInner(s: Strip, frame: number): Promise<Target | null> {
     const c = this.comp;
     const o = this.o;
     switch (s.type) {
@@ -308,13 +358,21 @@ export class SequencerRender {
     }
     for (const m of s.modifiers ?? []) {
       if (m.mute) continue;
-      const n = c.acquire();
+      let n = c.acquire();
       if (m.type === 'COLOR_BALANCE' && m.color_balance) c.colorBalance(n, img, m.color_balance, m.color_multiply ?? 1);
       else if (m.type === 'BRIGHT_CONTRAST') c.brightContrast(n, img, m.bright ?? 0, m.contrast ?? 0);
       else if (m.type === 'WHITE_BALANCE') c.whiteBalance(n, img, m.white_value ?? [1, 1, 1]);
       else {
         c.release(n);
         continue;
+      }
+      // a mask limits where the modifier applies
+      const mask = this.modMasks.get(m);
+      if (mask) {
+        const mixed = c.acquire();
+        c.maskMix(mixed, img, n, mask);
+        c.release(n);
+        n = mixed;
       }
       c.release(img);
       img = n;

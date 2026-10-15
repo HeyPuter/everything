@@ -131,3 +131,32 @@ test('mask: points parented to a track (Ctrl P) follow it', async ({ page }) => 
   expect(moved).toBeCloseTo(0.1, 5);
   await expectNoErrors(errors);
 });
+
+test('mask: a strip modifier limited to a mask only changes the inside', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const { shell } = await import('/src/ui/shell.ts' as any);
+    const { workspaceTemplates } = await import('/src/ui/screen.ts' as any);
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    const app = (window as any).app;
+    const { newMask, maskTable } = await import('/src/mask/types.ts' as any);
+    const G = await import('/src/mask/geom.ts' as any);
+    const m = newMask('MA_t', 'Spot');
+    maskTable(app.doc)['MA_t'] = m;
+    m.layers[0].splines.push(G.circleSpline(0.5, 0.5, 0.3, 16 / 9));
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 40, color: [0.5, 0.5, 0.5] }, { invoke: false });
+    app.run('sequencer.strip_modifier_add', { type: 'BRIGHT_CONTRAST' });
+    const s = app.doc.scene.sequence_editor.strips[0];
+    Object.assign(s.modifiers[0], { bright: 40, input_mask_type: 'ID', input_mask_id: 'MA_t' });
+    app.changed('doc');
+  });
+  await page.waitForTimeout(1000);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const v = await page.evaluate(([cx, cy, x0, y0]) => {
+    const pr = (window as any).app.hoverArea.editor.preview;
+    return { inside: pr.sample(cx, cy)?.rgba[0], outside: pr.sample(x0, y0)?.rgba[0] };
+  }, [pv.x + pv.width / 2, pv.y + pv.height / 2, pv.x + 30, pv.y + pv.height / 2] as const);
+  expect(v.inside).toBeGreaterThan(v.outside + 0.2);
+  await expectNoErrors(errors);
+});

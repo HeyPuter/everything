@@ -117,6 +117,10 @@ export interface StripModifier {
   contrast?: number;
   /** WHITE_BALANCE: this colour becomes white */
   white_value?: number[];
+  /** limit the modifier to a mask: another strip's image or a mask data-block */
+  input_mask_type?: 'NONE' | 'STRIP' | 'ID';
+  input_mask_strip?: string | null;
+  input_mask_id?: string | null;
 }
 
 /** Retiming key: timeline offset from frame_start → content frame offset. */

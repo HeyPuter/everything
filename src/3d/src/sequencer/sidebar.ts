@@ -77,6 +77,7 @@ export function rename(s: Strip, name: string) {
       if (x.input_1 === old) x.input_1 = name;
       if (x.input_2 === old) x.input_2 = name;
       if (x.connections) x.connections = x.connections.map((n) => (n === old ? name : n));
+      for (const m of x.modifiers ?? []) if (m.input_mask_strip === old) m.input_mask_strip = name;
       if (x.strips) walk(x.strips);
     }
   };
@@ -352,6 +353,42 @@ function vec3Rows(owner: ColorBalanceData, key: 'lift' | 'gamma' | 'gain' | 'off
   );
 }
 
+/** Mask input of a modifier: none, another strip or a mask data-block. */
+function maskRows(s: Strip, m: StripModifier): Child {
+  const type = m.input_mask_type ?? 'NONE';
+  const set = (label: string) => (app.pushUndo(label), app.changed('doc'));
+  const rows: Child[] = [
+    splitRow(
+      'Mask Input',
+      enumMenu(
+        `seq-modmask-${oid(m)}`,
+        [
+          { value: 'NONE', label: 'None' },
+          { value: 'STRIP', label: 'Strip', description: 'Use another strip’s image as the mask' },
+          { value: 'ID', label: 'Mask', description: 'Use a mask drawn in the clip editor' },
+        ],
+        type,
+        (v) => ((m.input_mask_type = v as 'NONE'), set('Mask Input Type')),
+      ),
+    ),
+  ];
+  if (type === 'STRIP')
+    rows.push(
+      splitRow(
+        'Mask Strip',
+        enumMenu(`seq-modmask-s-${oid(m)}`, [{ value: '', label: '—' }, ...seqList().filter((x) => x !== s && x.type !== 'SOUND').map((x) => ({ value: x.name, label: x.name, icon: stripIcon(x.type) }))], m.input_mask_strip ?? '', (v) => ((m.input_mask_strip = v || null), set('Mask Strip'))),
+      ),
+    );
+  if (type === 'ID')
+    rows.push(
+      splitRow(
+        'Mask',
+        enumMenu(`seq-modmask-m-${oid(m)}`, [{ value: '', label: '—' }, ...Object.values(app.doc.masks ?? {}).map((x) => ({ value: x.id, label: x.name, icon: 'mod_mask' }))], m.input_mask_id ?? '', (v) => ((m.input_mask_id = v || null), set('Mask'))),
+      ),
+    );
+  return rows;
+}
+
 function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
   const header = h(
     'span',
@@ -368,8 +405,8 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
     button(`seq-mod-x-${i}`, icon('x'), () => app.run('sequencer.strip_modifier_remove', { name: m.name }), { tip: 'Remove Modifier' }),
   );
   return panel(`seq-mod-${i}-${m.type}`, '', () => {
-    if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 })];
-    if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value')];
+    if (m.type === 'BRIGHT_CONTRAST') return [num(m, 'bright', 'Brightness', { precision: 3 }), num(m, 'contrast', 'Contrast', { min: -100, max: 100, precision: 3 }), maskRows(s, m)];
+    if (m.type === 'WHITE_BALANCE') return [color(m as never, 'white_value', 'White Value'), maskRows(s, m)];
     const cb = m.color_balance!;
     const lgg = cb.correction_method === 'LIFT_GAMMA_GAIN';
     return [
@@ -380,6 +417,7 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
         lgg ? [vec3Rows(cb, 'lift', 'Lift', 'invert_lift'), vec3Rows(cb, 'gamma', 'Gamma', 'invert_gamma'), vec3Rows(cb, 'gain', 'Gain', 'invert_gain')] : [vec3Rows(cb, 'offset', 'Offset', 'invert_offset'), vec3Rows(cb, 'power', 'Power', 'invert_power'), vec3Rows(cb, 'slope', 'Slope', 'invert_slope')],
       ),
       num(m, 'color_multiply', 'Multiply', { min: 0, max: 20, softMax: 2, precision: 3 }),
+      maskRows(s, m),
     ];
   }, { header, className: 'seq-mod-panel' });
 }
