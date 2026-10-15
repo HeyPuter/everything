@@ -35,6 +35,8 @@ export interface PaintBrush extends BrushData {
   unprojected_radius?: number;
   /** texture paint clone brush: image to copy from (null: the painted image) */
   clone_image?: string | null;
+  /** boundary brush deformation */
+  boundary_deform_type?: 'GRAB' | 'EXPAND' | 'INFLATE';
   /** texture modulating the strength */
   texture_slot?: import('./brushtex').BrushTexture;
   /** brush cursor display */
@@ -84,6 +86,7 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_pose', 'Pose', 'POSE', 'brush_sculpt_pose', 'Rotates the part under the brush around the joint at the edge of the brush'),
     S('brush_nudge', 'Nudge', 'NUDGE', 'brush_sculpt_nudge', 'Pushes vertices along the stroke direction'),
     S('brush_rotate', 'Rotate', 'ROTATE', 'brush_sculpt_rotate', 'Rotates vertices around the brush center'),
+    S('brush_boundary', 'Boundary', 'BOUNDARY', 'brush_sculpt_boundary', 'Deforms the open border of the mesh near the brush (grab, expand or inflate)'),
     S('brush_cloth', 'Cloth', 'CLOTH', 'brush_sculpt_cloth', 'Drags the surface like cloth: the area around the brush follows and folds'),
     S('brush_slide_relax', 'Slide Relax', 'SLIDE_RELAX', 'brush_sculpt_slide', 'Slides the topology along the stroke (Shift: relax it)'),
     null,
@@ -141,6 +144,7 @@ function extraBrushes(): PaintBrush[] {
     base('brush_pose', 'Pose', 'POSE', 'SCULPT', { strength: 1 }),
     base('brush_slide_relax', 'Slide Relax', 'SLIDE_RELAX', 'SCULPT', { strength: 0.5 }),
     base('brush_cloth', 'Cloth', 'CLOTH', 'SCULPT', { strength: 1, spacing: 5 }),
+    base('brush_boundary', 'Boundary', 'BOUNDARY', 'SCULPT', { strength: 1 }),
     base('brush_simplify', 'Simplify', 'SIMPLIFY', 'SCULPT', { strength: 0.5 }),
     base('brush_draw_face_sets', 'Draw Face Sets', 'DRAW_FACE_SETS', 'SCULPT', { strength: 1, falloff_shape: 'SPHERE' }),
     base('brush_sculpt_paint', 'Paint', 'PAINT', 'SCULPT', { strength: 1, blend: 'MIX', falloff_shape: 'SPHERE' }),

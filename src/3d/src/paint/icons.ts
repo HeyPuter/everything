@@ -122,3 +122,7 @@ registerIcons({
 registerIcons({
   brush_sculpt_cloth: '<path class="f" d="M2 4c2 1 4 1 6 0s4-1 6 0v8c-2 2-4 0-6 1s-4 1-6-1z" opacity=".35"/><path class="s" d="M2 4c2 1 4 1 6 0s4-1 6 0M2 12c2 2 4 0 6 1s4 1 6-1M5 5l1 7M10 4.6 9.5 12.6" fill="none" stroke-width="1.1"/>',
 });
+
+registerIcons({
+  brush_sculpt_boundary: '<path class="f" d="M1 15V8c3 0 4-3 7-3s4 3 7 3v7z" opacity=".35"/><path class="s" d="M1 8c3 0 4-3 7-3s4 3 7 3" fill="none" stroke-width="1.6"/><path class="s" d="M8 5V1.5" stroke-width="1.1"/><path class="f" d="M8 .5 9.8 2.8H6.2z"/>',
+});

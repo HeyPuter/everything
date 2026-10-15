@@ -14,6 +14,8 @@ import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } fr
 import { normalFactor, strokeAutomask } from './automask';
 import { brushRadiusPx } from './vgather';
 import { dabTexture } from './brushtex';
+import { boundaryVerts } from './fsdata';
+import { geodesicDistances } from './expandmath';
 
 type Sign = [number, number, number];
 
@@ -85,7 +87,7 @@ export const sculptHooks = {
   afterUpdate: null as null | ((v: View3D) => void),
 };
 
-const ANCHORED = new Set(['GRAB', 'THUMB', 'ROTATE', 'ELASTIC_DEFORM', 'POSE']);
+const ANCHORED = new Set(['GRAB', 'THUMB', 'ROTATE', 'ELASTIC_DEFORM', 'POSE', 'BOUNDARY']);
 let stroke: StrokeState | null = null;
 
 /** Statistics of the last stroke (for profiling / tests). */
@@ -467,6 +469,43 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
   void sgnv;
 }
 
+/** Anchored pass of the boundary brush: the open border near `c` and a band behind it. */
+function boundaryPass(st: StrokeState, c: Vector3, sg: Sign, strength: number): AnchorPass | null {
+  const s = st.s;
+  const R = st.radiusLocal;
+  const bnd = boundaryVerts(st.me);
+  const P = s.positions;
+  const src: number[] = [];
+  for (let v = 0; v < s.nv; v++) if (bnd[v] && Math.hypot(P[v * 3] - c.x, P[v * 3 + 1] - c.y, P[v * 3 + 2] - c.z) <= R) src.push(v);
+  if (!src.length) return null;
+  const nb = s.neighbors;
+  const d = geodesicDistances(P, nb.offsets, nb.neighbors, src, s.hiddenV);
+  const band = R * 1.5;
+  const verts: number[] = [],
+    ws: number[] = [];
+  const mask = st.mask;
+  const centroid = new Vector3(),
+    inner = new Vector3();
+  for (const v of src) centroid.add(new Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  centroid.multiplyScalar(1 / src.length);
+  for (let v = 0; v < s.nv; v++) {
+    if (!(d[v] < band)) continue;
+    const t = 1 - d[v] / band;
+    const w = t * t * (3 - 2 * t) * strength * (mask ? 1 - mask[v] : 1);
+    if (w <= 0) continue;
+    verts.push(v);
+    ws.push(w);
+    inner.add(new Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  }
+  inner.multiplyScalar(1 / Math.max(1, verts.length));
+  const outward = centroid.clone().sub(inner);
+  if (outward.lengthSq() < 1e-12) outward.set(0, 0, 1);
+  outward.normalize();
+  // the pivot of the expand mode sits behind the border, inside the band
+  const pivot = inner.clone().addScaledVector(outward, -band * 0.5);
+  return { sign: sg, verts: Int32Array.from(verts), w: Float32Array.from(ws), n: verts.length, center: centroid, normal: outward, pivot };
+}
+
 /**
  * Cloth brush dab: drag the vertices under the brush along the stroke, then let the surrounding
  * region follow while keeping its original edge lengths (the outer ring stays pinned).
@@ -640,6 +679,12 @@ function dab(st: StrokeState, d: Dab, tool: string) {
           passes.push(wideAnchorPass(st, tool, c, sg, mirrorVec(hit.normal, sg), Math.min(1, strength * 1.5)));
           continue;
         }
+        if (tool === 'BOUNDARY') {
+          const bp = boundaryPass(st, c, sg, Math.min(1, strength * 1.5));
+          if (bp) passes.push(bp);
+          else if (sg[0] === 1 && sg[1] === 1 && sg[2] === 1) app.report('INFO', 'Boundary: start the stroke near an open border of the mesh');
+          continue;
+        }
         const n = gather(st, c, st.radiusLocal, mirrorVec(viewDir, sg));
         factors(st, n, tool === 'ROTATE' ? Math.min(1, strength * 2) : Math.min(1, strength * 1.5));
         const area = areaPlane(st, n, b.normal_radius_factor ?? 0.5, new Vector3(...mirror(hit.normal.toArray(), sg)), c);
@@ -678,6 +723,37 @@ function dab(st: StrokeState, d: Dab, tool: string) {
     }
     for (const pass of an.passes) {
       const dl = mirrorVec(deltaLocal, pass.sign);
+      if (tool === 'BOUNDARY' && pass.pivot) {
+        const kind = st.brush.boundary_deform_type ?? 'GRAB';
+        // drag along the outward direction of the border = positive amount
+        const amount = dl.dot(pass.normal);
+        for (let k = 0; k < pass.n; k++) {
+          const vi = pass.verts[k],
+            i = vi * 3,
+            w = pass.w[k];
+          let mx = dl.x,
+            my = dl.y,
+            mz = dl.z;
+          if (kind === 'EXPAND') {
+            const ox = O[i] - pass.pivot.x,
+              oy = O[i + 1] - pass.pivot.y,
+              oz = O[i + 2] - pass.pivot.z;
+            const l = Math.hypot(ox, oy, oz) || 1;
+            mx = (ox / l) * amount;
+            my = (oy / l) * amount;
+            mz = (oz / l) * amount;
+          } else if (kind === 'INFLATE') {
+            mx = s.vn[i] * amount;
+            my = s.vn[i + 1] * amount;
+            mz = s.vn[i + 2] * amount;
+          }
+          P[i] = O[i] + mx * w;
+          P[i + 1] = O[i + 1] + my * w;
+          P[i + 2] = O[i + 2] + mz * w;
+          touch(st, vi);
+        }
+        continue;
+      }
       if (tool === 'POSE' && pass.pivot) {
         // rotate the part beyond the joint around an axis perpendicular to the view and the drag
         const vd = mirrorVec(s.localRay(v, an.startScreen.x, an.startScreen.y).direction, pass.sign);

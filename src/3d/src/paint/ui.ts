@@ -525,6 +525,22 @@ function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
       rows.push(numberField({ id: `${p}-as`, label: 'Auto-Smooth', value: b.auto_smooth_factor ?? 0, min: 0, max: 1, slider: true, tip: 'Smooth the surface after each dab', set: (x) => ((b.auto_smooth_factor = x), changed()) }));
     if (PLANE_TOOLS.has(b.sculpt_tool))
       rows.push(numberField({ id: `${p}-po`, label: 'Plane Offset', value: b.plane_offset ?? 0, min: -2, max: 2, softMin: -0.5, softMax: 0.5, slider: true, tip: 'Offset of the brush plane from the surface', set: (x) => ((b.plane_offset = x), changed()) }));
+    if (b.sculpt_tool === 'BOUNDARY')
+      rows.push(
+        row(
+          'Deformation',
+          enumMenu(
+            `${p}-bdef`,
+            [
+              { value: 'GRAB', label: 'Grab' },
+              { value: 'EXPAND', label: 'Expand' },
+              { value: 'INFLATE', label: 'Inflate' },
+            ],
+            b.boundary_deform_type ?? 'GRAB',
+            (x) => ((b.boundary_deform_type = x as 'GRAB'), changed()),
+          ),
+        ),
+      );
     if (b.sculpt_tool === 'CREASE') rows.push(numberField({ id: `${p}-pinch`, label: 'Pinch', value: b.crease_pinch_factor ?? 0.5, min: 0, max: 1, slider: true, set: (x) => ((b.crease_pinch_factor = x), changed()) }));
   } else rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
   rows.push(checkbox(`${p}-ff`, 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
