@@ -4,6 +4,7 @@ import type { DocumentData, NodeData, NodeTreeData, ObjectData, SocketValue } fr
 import type { Field } from './field';
 import type { GeometrySet } from './geometry';
 import type { FieldType } from './types';
+import type { TreeEval } from './evaluator';
 
 /** Value flowing through a socket. */
 export type Val = number | boolean | string | number[] | Field | GeometrySet | null | undefined;
@@ -30,6 +31,8 @@ export interface EvalEnv {
 
 export interface ExecContext {
   node: NodeData;
+  /** the evaluator running this node (zones evaluate their bodies through it) */
+  evaluator: TreeEval;
   tree: NodeTreeData;
   env: EvalEnv;
   /** unique, deterministic path of the node (for anonymous attribute names) */

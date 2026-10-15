@@ -82,13 +82,17 @@ export function bevelVertices(m: MeshEdit, offset: number, segments = 1, profile
   const vf = m.vertexFaces();
   const nb = m.neighbors();
   const segs = Math.max(1, Math.round(segments));
+  // cut vertex → the beveled vertex it was cut for (a neighbour beveled earlier shows up as its cut vertex)
+  const owner = new Map<number, number>();
   for (const v of verts) {
     const cut = new Map<number, number>();
     for (const w of nb[v]) {
       const len = V(m.p(v)).distanceTo(V(m.p(w)));
       const t = Math.min(0.49, offset / Math.max(len, 1e-9));
       const p = V(m.p(v)).lerp(V(m.p(w)), t);
-      cut.set(w, m.addVert([p.x, p.y, p.z], [[v, 1 - t], [w, t]], 1));
+      const id = m.addVert([p.x, p.y, p.z], [[v, 1 - t], [w, t]], 1);
+      cut.set(w, id);
+      owner.set(id, v);
     }
     const rows: number[][] = [];
     for (const fi of vf[v]) {
@@ -99,8 +103,8 @@ export function bevelVertices(m: MeshEdit, offset: number, segments = 1, profile
       const prev = f.verts[(i - 1 + n) % n],
         next = f.verts[(i + 1) % n];
       // the cut across this face's corner: straight, or curved with intermediate points
-      const a = cut.get(prev)!,
-        b = cut.get(next)!;
+      const a = cut.get(prev) ?? cut.get(owner.get(prev)!)!,
+        b = cut.get(next) ?? cut.get(owner.get(next)!)!;
       const row = [a];
       if (segs > 1) {
         const pa = V(m.p(a)),
@@ -208,6 +212,8 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
   const ef = m.edgeFaces();
   const faces0 = m.faces.map((f) => [...f.verts]);
   const corner = new Map<string, number>(); // `${face}:${vertex}` -> new vertex id
+  // a corner that slides along an unbeveled edge is shared by the faces on both sides of that edge
+  const along = new Map<string, number>(); // `${vertex}>${neighbour}` -> new vertex id
   faces0.forEach((verts, fi) => {
     const n = verts.length;
     for (let i = 0; i < n; i++) {
@@ -230,18 +236,32 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
         const sinHalf = Math.max(0.05, Math.sin(a.angleTo(b) / 2));
         target = p.clone().addScaledVector(bis, offset / sinHalf);
       } else {
-        const along = bPrev ? dNext : dPrev;
+        const dir = bPrev ? dNext : dPrev;
         const other = bPrev ? dPrev : dNext;
-        const sinA = Math.max(0.05, Math.abs(Math.sin(along.angleTo(other))));
+        const sinA = Math.max(0.05, Math.abs(Math.sin(dir.angleTo(other))));
         // absolute: the amount is measured along the adjacent edge itself
-        target = p.clone().addScaledVector(along.clone().normalize(), Math.min(along.length() * 0.95, opts.offsetType === 'ABSOLUTE' ? offset : offset / sinA));
+        target = p.clone().addScaledVector(dir.clone().normalize(), Math.min(dir.length() * 0.95, opts.offsetType === 'ABSOLUTE' ? offset : offset / sinA));
+        const key = `${v}>${bPrev ? next : prev}`;
+        const shared = along.get(key);
+        if (shared !== undefined) {
+          corner.set(`${fi}:${v}`, shared);
+          continue;
+        }
+        const id = m.addVert([target.x, target.y, target.z], [[v, 1]], 1);
+        along.set(key, id);
+        corner.set(`${fi}:${v}`, id);
+        continue;
       }
       corner.set(`${fi}:${v}`, m.addVert([target.x, target.y, target.z], [[v, 1]], 1));
     }
   });
   const added: EFace[] = [];
   const segs = Math.max(1, segments);
+  // strips meeting at a corner with the same two ends share their profile
+  const profiles = new Map<string, number[]>();
   const rowVerts = (x: number, y: number, orig: number): number[] => {
+    const known = profiles.get(`${x}:${y}:${orig}`) ?? profiles.get(`${y}:${x}:${orig}`)?.slice().reverse();
+    if (known) return known;
     const rows = [x];
     const p0 = V(m.p(x)),
       p1 = V(m.p(y)),
@@ -257,6 +277,7 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       rows.push(m.addVert([q.x, q.y, q.z], [[orig, 1]], 1));
     }
     rows.push(y);
+    profiles.set(`${x}:${y}:${orig}`, rows);
     return rows;
   };
   // strips
@@ -352,7 +373,9 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
     });
     for (const rows of junction.get(v) ?? []) rows.forEach((r) => ids.add(r));
     const rows = junction.get(v) ?? [];
-    if (ids.size >= 3 && rows.length >= 2) {
+    // rows that are one shared profile leave no gap to close
+    const distinct = new Set(rows.map((r) => [...r].sort((a, b) => a - b).join(','))).size;
+    if (ids.size >= 3 && rows.length >= 2 && distinct >= 2) {
       const ring = orderAround(m, v, [...ids]);
       const corners = new Set<number>();
       faces0.forEach((verts, fi) => {
