@@ -170,3 +170,17 @@ describe('key configuration', () => {
     expect(late.shift).toBeUndefined();
   });
 });
+
+describe('keyconfig options', () => {
+  it('Tool Keys turn the transform keys into tool switches', () => {
+    const keymaps: Record<string, KeyItem[]> = { '3D View': [{ key: 'G', op: 'transform.translate' }, { key: 'R', op: 'transform.rotate' }, { key: 'S', op: 'transform.resize' }] };
+    const kc = new KeyconfigState(keymaps, []);
+    kc.snapshot();
+    kc.load({ ...emptyKeyconfig(), options: { spacebar_action: 'PLAY', use_select_all_toggle: false, use_v3d_tab_menu: false, use_key_activate_tools: true } });
+    expect(keymaps['3D View'].map((k) => [k.op, k.props?.name])).toEqual([
+      ['wm.tool_set_by_id', 'builtin.move'],
+      ['wm.tool_set_by_id', 'builtin.rotate'],
+      ['wm.tool_set_by_id', 'builtin.scale'],
+    ]);
+  });
+});

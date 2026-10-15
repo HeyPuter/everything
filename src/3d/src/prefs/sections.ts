@@ -32,6 +32,9 @@ registerPrefSection({
     ]),
     panel('pf-editors', 'Editors', () => [
       pBool('show_navigate_ui', 'Navigation Controls', 'Show the zoom, pan, camera and projection buttons under the navigation gizmo of the 3D Viewport'),
+      pBool('show_corner_split', 'Corner Splitting', 'Drag an area corner to split it or join it with a neighbour', { heading: 'Areas' }),
+      pBool('show_edge_resize', 'Edge Resize', 'Drag the gap between areas to resize them'),
+      pBool('show_regions_visibility_toggle', 'Region Toggles', 'Show the small arrow that brings back a hidden header'),
       pEnum('color_picker_type', 'Color Picker Type', [
         E('CIRCLE_HSV', 'Circle (HSV)', 'Hue around a disc, saturation outwards, value on the bar'),
         E('CIRCLE_HSL', 'Circle (HSL)', 'Hue around a disc, saturation outwards, lightness on the bar'),

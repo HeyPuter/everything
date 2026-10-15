@@ -33,9 +33,11 @@ export interface KeyconfigOptions {
   use_select_all_toggle: boolean;
   /** Tab opens the mode pie (Ctrl Tab toggles Edit Mode) */
   use_v3d_tab_menu: boolean;
+  /** G / R / S switch to the move / rotate / scale tool instead of moving at once */
+  use_key_activate_tools: boolean;
 }
 
-export const defaultOptions = (): KeyconfigOptions => ({ spacebar_action: 'PLAY', use_select_all_toggle: false, use_v3d_tab_menu: false });
+export const defaultOptions = (): KeyconfigOptions => ({ spacebar_action: 'PLAY', use_select_all_toggle: false, use_v3d_tab_menu: false, use_key_activate_tools: false });
 
 /** Everything the user changed; also the import / export file format. */
 export interface KeyconfigData {
@@ -176,6 +178,13 @@ function optionRules(o: KeyconfigOptions): { rules: PresetRule[]; add: PresetAdd
     rules.push({ km: '3D View', match: { op: 'view3d.pie_mode', key: 'TAB', ctrl: true }, set: { ctrl: false } });
     rules.push({ km: '3D View', match: { op: 'object.posemode_toggle', key: 'TAB', ctrl: true }, set: { active: false } });
   }
+  if (o.use_key_activate_tools)
+    for (const [op, key, name] of [
+      ['transform.translate', 'G', 'builtin.move'],
+      ['transform.rotate', 'R', 'builtin.rotate'],
+      ['transform.resize', 'S', 'builtin.scale'],
+    ])
+      rules.push({ km: '3D View', match: { op, key, ctrl: false, shift: false, alt: false }, set: { op: 'wm.tool_set_by_id', props: { name } } });
   return { rules, add };
 }
 
@@ -452,6 +461,7 @@ export function normalizeKeyconfig(raw: unknown): KeyconfigData {
   if (['PLAY', 'TOOL', 'SEARCH'].includes(o.spacebar_action as string)) out.options.spacebar_action = o.spacebar_action as KeyconfigOptions['spacebar_action'];
   if (typeof o.use_select_all_toggle === 'boolean') out.options.use_select_all_toggle = o.use_select_all_toggle;
   if (typeof o.use_v3d_tab_menu === 'boolean') out.options.use_v3d_tab_menu = o.use_v3d_tab_menu;
+  if (typeof o.use_key_activate_tools === 'boolean') out.options.use_key_activate_tools = o.use_key_activate_tools;
   if (r.edits && typeof r.edits === 'object') for (const [id, e] of Object.entries(r.edits as Record<string, unknown>)) if (e && typeof e === 'object') out.edits[id] = pickFields(e as Record<string, unknown>);
   if (Array.isArray(r.removed)) out.removed = r.removed.filter((x): x is string => typeof x === 'string');
   if (Array.isArray(r.added))

@@ -536,3 +536,14 @@ body.reduce-motion *::after {
   margin-right: 3px;
   color: var(--c-warning-text, #ffb54d);
 }
+
+/* Preferences ▸ Interface ▸ Editors ▸ Areas */
+body.no-corner-split .area-corner {
+  display: none;
+}
+body.no-edge-resize .divider {
+  pointer-events: none;
+}
+body.no-region-toggles .area-header-reveal {
+  display: none !important;
+}

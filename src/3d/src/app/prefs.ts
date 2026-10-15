@@ -14,6 +14,12 @@ export interface Preferences {
   show_splash: boolean;
   /** zoom / pan / camera / perspective buttons under the navigation gizmo */
   show_navigate_ui: boolean;
+  /** drag an area corner to split / join areas */
+  show_corner_split: boolean;
+  /** drag the gaps between areas to resize them */
+  show_edge_resize: boolean;
+  /** small arrows that bring back hidden headers */
+  show_regions_visibility_toggle: boolean;
   color_picker_type: 'CIRCLE_HSV' | 'CIRCLE_HSL' | 'SQUARE_SV' | 'SQUARE_HS' | 'SQUARE_HV';
   /** header placement of newly shown editors: keep each editor's own default, or force top / bottom */
   header_align: 'NONE' | 'TOP' | 'BOTTOM';
@@ -163,6 +169,9 @@ export const defaultPreferences = (): Preferences => ({
   show_developer_ui: false,
   show_splash: true,
   show_navigate_ui: true,
+  show_corner_split: true,
+  show_edge_resize: true,
+  show_regions_visibility_toggle: true,
   color_picker_type: 'CIRCLE_HSV',
   header_align: 'NONE',
   factor_display_type: 'FACTOR',

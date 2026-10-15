@@ -29,6 +29,9 @@ onPrefsApply((p) => {
   document.body.classList.toggle('no-tooltips', !p.show_tooltips);
   document.body.classList.toggle('no-text-aa', !p.use_text_antialiasing);
   document.body.classList.toggle('reduce-motion', p.use_reduce_motion);
+  document.body.classList.toggle('no-corner-split', !p.show_corner_split);
+  document.body.classList.toggle('no-edge-resize', !p.show_edge_resize);
+  document.body.classList.toggle('no-region-toggles', !p.show_regions_visibility_toggle);
   app.undo.limit = Math.max(0, Math.min(512, Math.round(p.undo_steps)));
   keyTiming.doubleClick = Math.max(50, Math.min(1000, p.mouse_double_click_time));
   clearInterval(autosaveTimer);

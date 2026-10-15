@@ -254,6 +254,18 @@ export class KeymapView {
       ),
       splitRow('', checkbox('km-selall', 'Select All Toggles', o.use_select_all_toggle, (v) => set({ use_select_all_toggle: v }), { tip: 'Select All Toggles\nA deselects everything when something is already selected' }), undefined, 'check'),
       splitRow('', checkbox('km-tabpie', 'Tab for Pie Menu', o.use_v3d_tab_menu, (v) => set({ use_v3d_tab_menu: v }), { tip: 'Tab for Pie Menu\nTab opens the mode pie menu; Ctrl Tab toggles Edit Mode' }), undefined, 'check'),
+      splitRow(
+        'Tool Keys',
+        enumRow(
+          'km-toolkeys',
+          [
+            { value: 'IMMEDIATE', label: 'Immediate', description: 'G, R and S move, rotate and scale right away' },
+            { value: 'TOOL', label: 'Active Tool', description: 'G, R and S switch to the Move, Rotate and Scale tools' },
+          ],
+          o.use_key_activate_tools ? 'TOOL' : 'IMMEDIATE',
+          (v) => set({ use_key_activate_tools: v === 'TOOL' }),
+        ),
+      ),
     ], { closed: true });
   }
 
