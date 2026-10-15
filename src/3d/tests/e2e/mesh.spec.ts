@@ -269,3 +269,17 @@ test('Bisect and Poly Build tools work from the toolbar', async ({ page }) => {
   expect((await counts(page))[0]).toBe(before - 1);
   await expectNoErrors(errors);
 });
+
+test('Alt+N normals menu: Merge stores custom normals that survive leaving Edit Mode', async ({ page }) => {
+  const errors = await editCube(page);
+  await page.keyboard.press('a');
+  await page.keyboard.press('Alt+n');
+  await page.locator('.menu-item', { hasText: /^Merge/ }).first().click();
+  await page.waitForTimeout(50);
+  await hoverViewport(page);
+  await page.keyboard.press('Tab');
+  const n = await get(page, 'app.doc.meshes[app.activeObject.data].custom_normals?.length');
+  const corners = await get(page, 'app.doc.meshes[app.activeObject.data].indices.length');
+  expect(n).toBe(corners * 3);
+  await expectNoErrors(errors);
+});

@@ -84,7 +84,10 @@ function mirrorMenu(): MenuItem[] {
 }
 
 function hooksMenu(): MenuItem[] {
-  return [{ label: 'Hook to New Object', op: 'object.hook_add_newob' }];
+  return [
+    { label: 'Hook to New Object', op: 'object.hook_add_newob' },
+    { label: 'Hook to Selected Object', op: 'object.hook_add_selob' },
+  ];
 }
 
 function vertexGroupMenu(): MenuItem[] {

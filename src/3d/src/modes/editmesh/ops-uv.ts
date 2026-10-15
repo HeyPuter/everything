@@ -470,6 +470,39 @@ registerOperators([
   },
 ]);
 
+registerOperators([
+  {
+    idname: 'object.hook_add_selob',
+    label: 'Hook to Selected Object',
+    description: 'Hook the selected vertices to the other selected object',
+    poll: (ctx) => editPoll(ctx) && app.selectedObjects().some((o) => o.id !== app.activeObject?.id),
+    exec: () => {
+      const { ob, me } = editMeshObjects().find((e) => e.ob.id === app.activeObject?.id) ?? {};
+      const target = app.selectedObjects().find((o) => o.id !== app.activeObject?.id);
+      if (!ob || !me?.select_vert || !target) return 'CANCELLED';
+      const idx: number[] = [];
+      const c = new Vector3();
+      me.select_vert.forEach((s, i) => {
+        if (!s) return;
+        idx.push(i);
+        c.add(new Vector3(me.positions[i * 3], me.positions[i * 3 + 1], me.positions[i * 3 + 2]));
+      });
+      if (!idx.length) {
+        app.report('ERROR', 'Select vertices to hook');
+        return 'CANCELLED';
+      }
+      c.multiplyScalar(1 / idx.length);
+      const md = newModifier('HOOK', uid('md'), ob.modifiers);
+      md.object = target.id;
+      md.vertex_indices = idx;
+      md.center = [c.x, c.y, c.z];
+      // the hook object's current transform is the rest position
+      md.matrix_inverse = (app.graph.get(target.id)?.world ?? new Matrix4()).clone().invert().toArray();
+      ob.modifiers.push(md);
+    },
+  },
+]);
+
 function uvIslands(m: MeshEdit, faces: number[]): number[][] {
   // islands connected through shared vertices with matching UVs
   const fs = new Set(faces);
