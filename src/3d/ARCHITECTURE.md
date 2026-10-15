@@ -16,6 +16,9 @@ src/
   editors/    Editors (view3d/, properties/, outliner.ts, timeline.ts, …)
   ui/         Virtual DOM (h.ts), widgets, menus/pies/popovers, screen/areas, shell, props helpers
   ops/        Operators (object, view3d, screen, transform, data, wm)
+  object/     Object Mode menus and object data management: vertex groups, shape keys, material
+              slots, modifiers, hooks, relations/data transfer, instancing (collection/verts/faces),
+              speakers, quick effects
   io/         Native .p3d format, autosave, legacy import, file operators + format registry,
               fonts.ts (text outlines), formats/ (glTF, FBX, OBJ, STL, PLY, USD, Collada, Alembic),
               blend/ (.blend reader)
@@ -144,7 +147,9 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
 
 ### Other extension points
 - `eval/modifiers.ts` `registerModifier`, `editors/properties/stack.ts` `modifierFields` (panel rows)
-- `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`
+- `editors/properties/properties.ts` `registerTab`, `tabs.ts` `objectExtraPanels`, `dataTabDrawers` (Object Data tab per object type)
+- `editors/properties/uilist.ts` `uiList(..., { specials, up, down })` for list specials menus and reordering
+- `object/instancing.ts` `objectDuplis` (instances an object shows; drawn via `SyncedObject.duplis`)
 - `editors/view3d/draw.ts` `drawHooks`, `render/scene.ts` `sceneSyncHooks`
 - `render/final` `renderPostHooks` (compositor), sequencer frame hooks in `job.ts`
 - `app/keymap.ts` `keyInputHooks` (raw text input, e.g. Text Edit Mode)
