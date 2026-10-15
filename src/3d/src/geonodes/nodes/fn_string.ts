@@ -8,7 +8,6 @@ import { formatItems } from './itemdata';
 
 export { formatItems };
 import type { SocketDef } from '../../nodes/types';
-import type { NodeData } from '../../data/types';
 
 const cps = (s: string) => Array.from(s);
 
