@@ -1,5 +1,6 @@
 // Animation conversion: actions (legacy F-curve lists and Blender 4.4+/5.x layered, slotted
 // actions whose keys live in channelbags), NLA tracks and drivers.
+import { compileExpr } from '../../anim/driverexpr';
 import type { ActionData, AnimData, Driver, DriverVariable, FCurve, FModifier, Interpolation, Keyframe, KeyHandleType, NlaStrip, NlaTrack } from '../../data/types';
 import { uid } from '../../data/defaults';
 import type { BStruct } from './reader';
@@ -177,28 +178,53 @@ function convertDrivers(adt: BStruct, ctx: Ctx, prefix: string): Driver[] {
     const type = (['AVERAGE', 'SCRIPTED', 'SUM', 'MIN', 'MAX'] as const)[drv.num('type')] ?? 'AVERAGE';
     const vars: DriverVariable[] = [];
     for (const v of drv.list('variables', 100)) {
-      const vt = (['SINGLE_PROP', 'ROTATION_DIFF', 'LOC_DIFF', 'TRANSFORMS'] as const)[v.num('type')];
+      const vt = (['SINGLE_PROP', 'ROTATION_DIFF', 'LOC_DIFF', 'TRANSFORMS', 'CONTEXT_PROP'] as const)[v.num('type')];
       if (!vt) {
         ctx.warn.add('Driver variables of unsupported type skipped', v.str('name'));
         continue;
       }
       const targets: DriverVariable['targets'] = [];
       const nt = Math.max(0, Math.min(8, v.num('num_targets')));
-      const TRANS = ['LOC_X', 'LOC_Y', 'LOC_Z', 'ROT_X', 'ROT_Y', 'ROT_Z', 'SCALE_X', 'SCALE_Y', 'SCALE_Z', 'ROT_W', 'SCALE_AVG'];
+      const TRANS = ['LOC_X', 'LOC_Y', 'LOC_Z', 'ROT_X', 'ROT_Y', 'ROT_Z', 'SCALE_X', 'SCALE_Y', 'SCALE_Z', 'SCALE_AVG', 'ROT_W'];
+      const ROT_MODES = ['AUTO', 'XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX', 'QUATERNION', 'SWING_TWIST_X', 'SWING_TWIST_Y', 'SWING_TWIST_Z'];
       for (let i = 0; i < nt; i++) {
         const t = v.sub('targets', i);
         if (!t) continue;
         const id = t.ref('id');
-        const isOb = id ? id.idName && id.sub('id')?.str('name').startsWith('OB') : false;
-        const tgt: DriverVariable['targets'][number] = { id: isOb ? ctx.objectRef(id) : null, data_path: t.cstr('rna_path') };
+        const code = id?.sub('id')?.str('name').slice(0, 2) ?? '';
+        const isOb = code === 'OB';
+        const tgt: DriverVariable['targets'][number] = { id: isOb ? ctx.objectRef(id) : code === 'SC' ? 'scene' : null, data_path: t.cstr('rna_path') };
+        if (code === 'SC') tgt.id_type = 'SCENE';
         if (vt === 'TRANSFORMS') tgt.transform_type = TRANS[t.num('transChan')] ?? 'LOC_X';
-        if (id && !isOb) ctx.warn.add('Driver targets on non-object data-blocks not supported', `${rna} → ${id.idName}`);
+        const bone = t.str('pchan_name');
+        if (bone) tgt.bone_target = bone;
+        const flag = t.num('flag');
+        // target flags: (1 << 2) local, with (1 << 3) the raw channels without constraints
+        tgt.transform_space = flag & 4 ? (flag & 8 ? 'LOCAL_SPACE' : 'TRANSFORM_SPACE') : 'WORLD_SPACE';
+        tgt.rotation_mode = ROT_MODES[t.num('rotation_mode')] ?? 'AUTO';
+        if (vt === 'CONTEXT_PROP') tgt.context_property = t.num('context_property') === 1 ? 'ACTIVE_VIEW_LAYER' : 'ACTIVE_SCENE';
+        if (t.has('fallback_value')) {
+          tgt.fallback_value = t.num('fallback_value');
+          if (flag & (1 << 5)) tgt.use_fallback_value = true;
+        }
+        if (id && !isOb && code !== 'SC') ctx.warn.add('Driver targets on non-object data-blocks not supported', `${rna} → ${id.idName}`);
         targets.push(tgt);
       }
       vars.push({ name: v.str('name'), type: vt, targets });
     }
     const d: Driver = { data_path: prefix + rna, array_index: fc.num('array_index'), type, expression: drv.str('expression'), variables: vars };
-    if (type === 'SCRIPTED') ctx.warn.add('Scripted driver expressions are Python in the source file; check them', d.data_path);
+    // the driver's own F-Curve maps its value (keys and modifiers)
+    const curve = convertFCurve(fc, ctx, prefix);
+    if (curve) d.fcurve = { ...curve, select: false };
+    if (drv.num('flag') & (1 << 3)) d.use_self = true;
+    if (type === 'SCRIPTED') {
+      // the expression evaluator covers the usual Python math subset; flag what it can't parse
+      try {
+        compileExpr(d.expression);
+      } catch {
+        ctx.warn.add('Driver expressions that could not be read (check them)', `${d.data_path}: ${d.expression}`);
+      }
+    }
     out.push(d);
   }
   return out;
