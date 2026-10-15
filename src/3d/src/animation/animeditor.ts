@@ -15,6 +15,7 @@ import { C } from './theme';
 import { buildChannels, channelSelected, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
 import { markerMenu, markerAt, markersLocked } from './markers';
+import { playbackOptions } from './footer';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
@@ -356,7 +357,12 @@ export abstract class AnimEditor implements Editor {
 
   // ---------------------------------------------------------------- Editor
 
-  update(_kinds?: Set<ChangeKind>) {
+  update(kinds?: Set<ChangeKind>) {
+    // Follow Current Frame: page the view along with the playhead during playback
+    if (app.playing && playbackOptions.follow && kinds?.has('frame') && this.mainW) {
+      const x = this.view.fx(app.doc.scene.frame_current);
+      if (x < 0 || x > this.mainW) this.view.panPx(-(x - this.mainW * 0.1), 0);
+    }
     this.refresh();
   }
 
@@ -1086,7 +1092,12 @@ export abstract class AnimEditor implements Editor {
 
   scrub(e: PointerEvent) {
     const set = (ev: PointerEvent) => {
-      const f = Math.round(this.view.xf(this.local(ev).x));
+      let f = Math.round(this.view.xf(this.local(ev).x));
+      const sc = app.doc.scene;
+      if (sc.lock_frame_selection_to_range) {
+        const [a, b] = sc.use_preview_range ? [sc.frame_preview_start ?? sc.frame_start, sc.frame_preview_end ?? sc.frame_end] : [sc.frame_start, sc.frame_end];
+        f = Math.max(a, Math.min(b, f));
+      }
       if (f !== app.doc.scene.frame_current) app.setFrame(f);
     };
     set(e);

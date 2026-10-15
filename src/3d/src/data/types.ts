@@ -954,6 +954,8 @@ export interface SceneData {
   custom: CustomProps;
   /** active keying set: a built-in set or `KS:<name>` for one of `keying_sets` */
   keying_set?: 'LocRotScale' | 'Location' | 'Rotation' | 'Scale' | 'Available' | 'WholeCharacter' | `KS:${string}`;
+  /** scrubbing stays inside the scene (or preview) frame range */
+  lock_frame_selection_to_range?: boolean;
   /** user keying sets (absolute property paths) */
   keying_sets?: KeyingSetData[];
 }
