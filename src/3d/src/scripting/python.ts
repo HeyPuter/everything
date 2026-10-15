@@ -12,6 +12,7 @@ import mathutilsPy from './py/mathutils.py?raw';
 import bpyPy from './py/bpy.py?raw';
 import runtimePy from './py/p3d_runtime.py?raw';
 import bpyExtrasPy from './py/bpy_extras.py?raw';
+import { pyModuleFiles, scriptModules } from './jsmodules';
 
 export const PYODIDE_VERSION = '314.0.7';
 export const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
@@ -41,6 +42,18 @@ export const python = {
 let py: PyodideAPI | null = null;
 let runtime: Record<string, PyProxyFn> | null = null;
 let loading: Promise<PyodideAPI> | null = null;
+
+type PyodideModule = { loadPyodide: (o: Record<string, unknown>) => Promise<PyodideAPI> };
+/** Where the runtime comes from: the CDN in the browser; tests point it at a local copy. */
+let pyodideSource: { load: () => Promise<PyodideModule>; indexURL?: string } = {
+  load: () => import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`) as Promise<PyodideModule>,
+  indexURL: PYODIDE_INDEX_URL,
+};
+
+/** Loads the runtime from elsewhere (a local package in tests) instead of the CDN. */
+export function setPyodideSource(load: () => Promise<PyodideModule>, indexURL?: string) {
+  pyodideSource = { load, indexURL };
+}
 
 function setState(s: PyState, err = '') {
   python.state = s;
@@ -257,6 +270,8 @@ export const bridge = {
     app.report(type === 'ERROR' || type === 'WARNING' ? type : 'INFO', msg);
   },
   root: (name: string) => bpy[name],
+  /** A registered script module (bmesh, …) by name. */
+  module: (name: string) => scriptModules[name] ?? null,
   new_layout: () => new UILayout(),
 };
 
@@ -282,9 +297,12 @@ export function loadPython(): Promise<PyodideAPI> {
   output.push(`Loading Python runtime… (Pyodide ${PYODIDE_VERSION} from cdn.jsdelivr.net)`, 'INFO');
   loading = (async () => {
     try {
-      const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timed out after 90 s')), 90000));
-      const mod = (await Promise.race([import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`), timeout])) as { loadPyodide: (o: Record<string, unknown>) => Promise<PyodideAPI> };
-      const inst = await Promise.race([mod.loadPyodide({ indexURL: PYODIDE_INDEX_URL }), timeout]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error('timed out after 90 s')), 90000)));
+      timeout.catch(() => {});
+      const mod = await Promise.race([pyodideSource.load(), timeout]);
+      const inst = await Promise.race([mod.loadPyodide(pyodideSource.indexURL ? { indexURL: pyodideSource.indexURL } : {}), timeout]);
+      clearTimeout(timer);
       inst.setStdout({ batched: (s: string) => output.push(s, 'OUTPUT') });
       inst.setStderr({ batched: (s: string) => output.push(s, 'ERROR') });
       inst.registerJsModule('_p3d_bridge', bridge);
@@ -293,6 +311,7 @@ export function loadPython(): Promise<PyodideAPI> {
       inst.FS.writeFile('/home/pyodide/p3d/bpy.py', bpyPy);
       inst.FS.writeFile('/home/pyodide/p3d/p3d_runtime.py', runtimePy);
       inst.FS.writeFile('/home/pyodide/p3d/bpy_extras.py', bpyExtrasPy);
+      for (const [file, src] of Object.entries(pyModuleFiles)) inst.FS.writeFile(`/home/pyodide/p3d/${file}`, src);
       inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils");
       runtime = inst.pyimport('p3d_runtime');
       py = inst;
