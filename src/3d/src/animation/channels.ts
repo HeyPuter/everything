@@ -84,6 +84,7 @@ export function objectIcon(ob: ObjectData) {
     LATTICE: 'outliner_ob_lattice',
     POINTCLOUD: 'outliner_ob_pointcloud',
     GREASEPENCIL: 'outliner_ob_greasepencil',
+    META: 'outliner_ob_meta',
   };
   return m[ob.type] ?? 'object';
 }

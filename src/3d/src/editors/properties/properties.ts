@@ -79,7 +79,7 @@ export class Properties implements Editor {
       ['RENDER', 'OUTPUT', 'VIEW_LAYER', 'SCENE', 'WORLD', 'COLLECTION', 'TOOL'].includes(this.tab)
         ? h('span', { class: 'crumb' }, icon(this.tab === 'WORLD' ? 'world' : 'scene_data'), this.tab === 'WORLD' ? `Scene  ›  ${app.doc.scene.world ? app.doc.worlds[app.doc.scene.world]?.name : ''}` : app.doc.scene.name)
         : ob
-          ? h('span', { class: 'crumb' }, icon('object'), ob.name, this.tab === 'DATA' && ob.data ? h('span', { class: 'crumb-sub' }, ' › ', (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data])?.name ?? '') : null)
+          ? h('span', { class: 'crumb' }, icon('object'), ob.name, this.tab === 'DATA' && ob.data ? h('span', { class: 'crumb-sub' }, ' › ', (app.doc.meshes[ob.data] ?? app.doc.curves[ob.data] ?? app.doc.lights[ob.data] ?? app.doc.cameras[ob.data] ?? app.doc.armatures[ob.data] ?? app.doc.metaballs?.[ob.data])?.name ?? '') : null)
           : null,
     ]);
     const content = tab ? tab.draw(this) : h('div', { class: 'prop-empty' }, 'No context');

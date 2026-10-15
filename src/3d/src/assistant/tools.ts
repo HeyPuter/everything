@@ -114,7 +114,7 @@ function geometryRefs(d: DocumentData, ob: ObjectData): unknown[] {
     const me = d.meshes[ob.data];
     return me ? [me, me.positions, me.indices, me.offsets, me.smooth, me.uvs] : [];
   }
-  const tables: Partial<Record<string, Record<string, unknown>>> = { CURVE: d.curves, SURFACE: d.curves, FONT: d.curves, LIGHT: d.lights, CAMERA: d.cameras, ARMATURE: d.armatures, LATTICE: d.lattices };
+  const tables: Partial<Record<string, Record<string, unknown>>> = { CURVE: d.curves, SURFACE: d.curves, FONT: d.curves, LIGHT: d.lights, CAMERA: d.cameras, ARMATURE: d.armatures, LATTICE: d.lattices, META: d.metaballs };
   const t = tables[ob.type];
   const data = t?.[ob.data];
   return data ? [JSON.stringify(data, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v as unknown as ArrayLike<number>) : v))] : [];

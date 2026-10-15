@@ -662,7 +662,7 @@ export function activeMaterial(o: ObjectData | null): MaterialData | null {
 function slotOwner(o: ObjectData): { materials: (string | null)[] } | null {
   const doc = app.doc;
   if (!o.data) return null;
-  return (doc.meshes[o.data] ?? doc.curves[o.data]) ?? null;
+  return (doc.meshes[o.data] ?? doc.curves[o.data] ?? doc.metaballs?.[o.data]) ?? null;
 }
 
 registerTab({

@@ -87,6 +87,7 @@ export const ID_TABLES: [keyof DocumentData, string][] = [
   ['curves', 'Curve'],
   ['armatures', 'Armature'],
   ['lattices', 'Lattice'],
+  ['metaballs', 'MetaBall'],
   ['particles', 'ParticleSettings'],
   ['brushes', 'Brush'],
 ];

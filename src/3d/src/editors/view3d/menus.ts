@@ -140,6 +140,14 @@ export function addMenu(): MenuItem[] {
     { label: 'Mesh', icon: 'outliner_ob_mesh', submenu: meshAddMenu },
     { label: 'Curve', icon: 'outliner_ob_curve', submenu: curveAddMenu },
     { label: 'Surface', icon: 'outliner_ob_curve', submenu: () => [{ label: 'NURBS Curve', icon: 'curve_data', op: 'curve.primitive_nurbs_curve_add' }, { label: 'NURBS Circle', icon: 'circle', op: 'curve.primitive_nurbs_circle_add' }] },
+    { label: 'Metaball', icon: 'outliner_ob_meta', submenu: () =>
+      [
+        ['BALL', 'Ball', 'meta_ball'],
+        ['CAPSULE', 'Capsule', 'meta_capsule'],
+        ['PLANE', 'Plane', 'meta_plane'],
+        ['ELLIPSOID', 'Ellipsoid', 'meta_ellipsoid'],
+        ['CUBE', 'Cube', 'meta_cube'],
+      ].map(([t, l, i]) => ({ label: l, icon: i, op: 'object.metaball_add', props: { type: t } })) },
     { label: 'Text', icon: 'outliner_ob_font', op: 'object.text_add' },
     { label: 'Point Cloud', icon: 'outliner_ob_pointcloud', op: 'object.pointcloud_add' },
     ...addMenuHooks.flatMap((f) => f()),
