@@ -96,6 +96,8 @@ export abstract class AnimEditor implements Editor {
   }
   rowH = 18;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** markers drawn over the bottom of the content instead of in their own row (short editors) */
+  compactMarkers = false;
   /** transient overlays drawn over the main region (circle/lasso select, slider tools) */
   overlay: { circle?: { x: number; y: number; r: number }; lasso?: { x: number; y: number }[]; slider?: { label: string; text: string; t: number | null; t0?: number } } | null = null;
   protected canvas: HTMLCanvasElement;
@@ -355,7 +357,7 @@ export abstract class AnimEditor implements Editor {
   }
   /** bottom of the content region (top of the markers row) */
   contentBottom() {
-    return this.mainH - (this.markersVisible() ? MARKER_H : 0);
+    return this.mainH - (this.markersVisible() && !this.compactMarkers ? MARKER_H : 0);
   }
   rowTop(i: number) {
     return RULER_H + i * this.rowH - this.scrollY;
@@ -368,7 +370,7 @@ export abstract class AnimEditor implements Editor {
     const r = this.canvas.getBoundingClientRect();
     const y = e.clientY - r.top;
     if (y < RULER_H) return 'ruler';
-    if (this.markersVisible() && y > r.height - MARKER_H) return 'markers';
+    if (this.markersVisible() && y > r.height - (this.compactMarkers ? 12 : MARKER_H)) return 'markers';
     return 'main';
   }
   local(e: { clientX: number; clientY: number }) {
@@ -913,6 +915,7 @@ export abstract class AnimEditor implements Editor {
 
   protected drawMarkers(g: CanvasRenderingContext2D, W: number, H: number) {
     if (!this.markersVisible()) return;
+    if (this.compactMarkers) return this.drawCompactMarkers(g, W, H);
     const top = H - MARKER_H;
     g.fillStyle = 'rgba(0,0,0,0.25)';
     g.fillRect(0, top, W, MARKER_H);
@@ -939,6 +942,32 @@ export abstract class AnimEditor implements Editor {
       g.fill();
       g.fillStyle = m.select ? '#fff' : '#bbb';
       g.fillText(m.name, x + 8, top + 14);
+    }
+  }
+
+  /** Small markers along the bottom edge (no separate row). */
+  protected drawCompactMarkers(g: CanvasRenderingContext2D, W: number, H: number) {
+    g.font = '10px Inter, system-ui, sans-serif';
+    g.textAlign = 'left';
+    for (const m of app.doc.scene.timeline_markers) {
+      const x = Math.round(this.view.fx(m.frame)) + 0.5;
+      if (x < -100 || x > W + 10) continue;
+      g.strokeStyle = m.select ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)';
+      g.setLineDash([3, 3]);
+      g.beginPath();
+      g.moveTo(x, RULER_H);
+      g.lineTo(x, H - 9);
+      g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = m.select ? C.markerSelected : C.marker;
+      g.beginPath();
+      g.moveTo(x, H - 2);
+      g.lineTo(x - 4, H - 8);
+      g.lineTo(x + 4, H - 8);
+      g.closePath();
+      g.fill();
+      g.fillStyle = m.select ? '#fff' : '#bbb';
+      g.fillText(m.name, x + 6, H - 2);
     }
   }
 

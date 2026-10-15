@@ -277,3 +277,39 @@ test('NLA: tweak mode, meta strips, transitions and strip menu', async ({ page }
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('timeline: summary keys can be selected and moved, ruler scrubs, markers', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { keyProperty } = await import('/src/anim/keyframes.ts');
+    const ob = app.activeObject;
+    [0, 1, 3].forEach((v: number, i: number) => {
+      ob.location[0] = v;
+      keyProperty(app.doc, ob, 'location', -1, 1 + i * 20);
+    });
+    for (const fc of app.doc.actions[ob.animation_data.action].fcurves) fc.keyframe_points.forEach((k: { select_control_point: boolean }) => (k.select_control_point = false));
+    app.pushUndo('keys');
+    app.changed('doc');
+  });
+  await page.waitForTimeout(200);
+  const tl = page.locator('.timeline-ed canvas');
+  const box = (await tl.boundingBox())!;
+  // scrub on the ruler
+  await page.mouse.click(box.x + box.width / 2, box.y + 8);
+  expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBeGreaterThan(20); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // select all keys and move them 5 frames
+  await page.mouse.move(box.x + box.width / 2, box.y + 28);
+  await page.keyboard.press('A');
+  await page.keyboard.press('G');
+  await page.keyboard.type('5');
+  await page.keyboard.press('Enter');
+  const frames = await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return app.doc.actions[app.activeObject.animation_data.action].fcurves[0].keyframe_points.map((k: { co: number[] }) => k.co[0]);
+  });
+  expect(frames).toEqual([6, 26, 46]);
+  await page.keyboard.press('M');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.timeline_markers.length)).toBe(1); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await expectNoErrors(errors);
+});
