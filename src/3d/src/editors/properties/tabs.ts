@@ -321,7 +321,6 @@ export function customProps(custom: Record<string, unknown>): Child {
 // ---------------------------------------------------------------------------
 // Data-block selector (browse / name / new / unlink)
 
-
 export function dataBlockSelector<T extends { id: string; name: string; use_fake_user?: boolean }>(id: string, iconName: string, items: T[], current: string | null, set: (id: string | null) => void, create: () => void, opts: { duplicate?: () => void; users?: number; noUnlink?: boolean } = {}): Child {
   const cur = items.find((i) => i.id === current);
   return h(
