@@ -6,6 +6,7 @@ import type { MaskData, MaskLayer, MaskPoint, MaskSpline } from './types';
 import { maskTable, activeLayer, newPoint } from './types';
 import { recalcHandles, alignHandles, sampleSpline, featherOutline, insertPoint, layerAt } from './geom';
 import { parentResolver } from './parent';
+import { rasterizeMask, maskKey } from './raster';
 
 type V = [number, number];
 
@@ -81,9 +82,10 @@ const showsHandles = (p: MaskPoint) => p.select && p.handle_type !== 'AUTO' && p
 // ---------------------------------------------------------------------------
 // drawing
 
-export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D) {
+export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = true) {
   const m = hostMask(ed);
   if (!m) return;
+  if (!splines) return drawSelectShape(g, ed.shapeOverlay);
   const aspect = aspectOf(ed);
   const act = activeLayer(m);
   const frame = app.doc.scene.frame_current;
@@ -176,6 +178,45 @@ export function drawSelectShape(g: CanvasRenderingContext2D, sh: MaskHost['shape
   else sh.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
   if (sh.kind === 'lasso') g.closePath();
   g.stroke();
+  g.restore();
+}
+
+let matte: { key: string; canvas: HTMLCanvasElement } | null = null;
+
+/** The rasterized mask over the frame: darkening outside it, or as the matte alone. */
+export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: 'NONE' | 'COMBINED' | 'ALPHACHANNEL') {
+  const m = hostMask(ed);
+  if (!m || mode === 'NONE') return;
+  const [W, H] = ed.frameSize();
+  // rasterize at most at screen resolution
+  const a = ed.toScreen(0, 0),
+    b = ed.toScreen(W, H);
+  const sw = Math.max(16, Math.min(W, Math.round(Math.abs(b[0] - a[0]) * (devicePixelRatio || 1)))),
+    sh = Math.max(16, Math.round((sw * H) / W));
+  const f = app.doc.scene.frame_current;
+  const res = parentResolver(app.doc);
+  const key = `${maskKey(m, f, res)}|${sw}x${sh}|${mode}`;
+  if (matte?.key !== key) {
+    const c = matte?.canvas ?? document.createElement('canvas');
+    rasterizeMask(m, f, sw, sh, true, c, res);
+    if (mode === 'COMBINED') {
+      // inside stays white, outside becomes half grey: multiplied over the footage
+      const x = c.getContext('2d')!;
+      x.globalCompositeOperation = 'screen';
+      x.fillStyle = '#808080';
+      x.fillRect(0, 0, sw, sh);
+      x.globalCompositeOperation = 'source-over';
+    }
+    matte = { key, canvas: c };
+  }
+  const p0 = ed.toScreen(0, 0),
+    px = ed.toScreen(W, 0),
+    py = ed.toScreen(0, H);
+  g.save();
+  const dpr = g.getTransform().a;
+  g.setTransform((dpr * (px[0] - p0[0])) / sw, (dpr * (px[1] - p0[1])) / sw, (dpr * (py[0] - p0[0])) / sh, (dpr * (py[1] - p0[1])) / sh, dpr * p0[0], dpr * p0[1]);
+  if (mode === 'COMBINED') g.globalCompositeOperation = 'multiply';
+  g.drawImage(matte.canvas, 0, 0);
   g.restore();
 }
 

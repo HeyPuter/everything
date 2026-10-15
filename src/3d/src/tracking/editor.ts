@@ -27,7 +27,7 @@ import { stabilizationMatrix, autoscaleFactor, type Affine2 } from './stabilize'
 import { drawToolbar, drawSidebar, drawPatternPreviews } from './panels';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
-import { drawMask, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
 import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
 import { maskTable } from '../mask/types';
@@ -45,6 +45,9 @@ export interface ClipOverlays {
   show_stable: boolean;
   use_mute_footage: boolean;
   show_cache: boolean;
+  /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
+  show_mask_spline?: boolean;
+  mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
 }
 
 export const COLORS = {
@@ -387,8 +390,10 @@ export class ClipEditor implements Editor {
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
-    if (this.mode === 'MASK') drawMask(this, ctx);
-    else {
+    if (this.mode === 'MASK') {
+      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+      drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    } else {
       this.drawMarkers(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
     }
@@ -424,7 +429,8 @@ export class ClipEditor implements Editor {
     ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
-    drawMask(this, ctx);
+    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+    drawMask(this, ctx, this.overlays.show_mask_spline !== false);
     ctx.font = '11px var(--mono, monospace)';
     ctx.fillStyle = '#9a9a9a';
     ctx.textAlign = 'left';
@@ -1352,6 +1358,20 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
       ed.drawUI();
     },
   });
+  const maskModes: [NonNullable<ClipOverlays['mask_overlay_mode']>, string][] = [
+    ['NONE', 'None'],
+    ['COMBINED', 'Combined (darken outside)'],
+    ['ALPHACHANNEL', 'Alpha Channel (matte only)'],
+  ];
+  if (ed.mode === 'MASK')
+    return [
+      { heading: 'Mask Display' },
+      { label: 'Spline', checked: ov.show_mask_spline !== false, keepOpen: true, action: () => ((ov.show_mask_spline = ov.show_mask_spline === false), ed.draw()) },
+      { label: 'Overlay', submenu: () => maskModes.map(([v, l]) => ({ label: l, active: (ov.mask_overlay_mode ?? 'NONE') === v, action: () => ((ov.mask_overlay_mode = v), ed.draw()) })) },
+      { separator: true },
+      { heading: 'Clip Display' },
+      tog('Mute', 'use_mute_footage', 'Ctrl H'),
+    ];
   return [
     { heading: 'Marker Display' },
     tog('Pattern', 'show_marker_pattern'),
