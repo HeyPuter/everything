@@ -10,7 +10,7 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { activeMeshData, dropSession, meshSession } from './session';
 import { boundaryVerts, faceSetBoundaryVerts, faceSetsOf, hiddenFacesOf, looseVertexParts } from './fsdata';
 import { commitMask, editableMask } from './gestureops';
-import { faceUnderCursor, sculptPoll } from './facesetops';
+import { faceUnderCursor, lastHoveredFaceSet, sculptPoll } from './facesetops';
 import { topologySteps } from './expandmath';
 import { invalidatePaintAttributes } from './display';
 import { vertexColors } from './vpaint';
@@ -380,12 +380,15 @@ registerOperators([
     props: [{ id: 'face_set', label: 'Face Set', type: 'int', default: 0, hidden: true }, ...extractProps],
     poll: sculptPoll,
     invoke: (ctx, p) => {
-      const f = faceUnderCursor(ctx);
-      if (f === null) {
-        app.report('INFO', 'Face Set Extract: hover the face set to extract and run it again (e.g. from F3 search)');
+      if ((p.face_set as number) < 0) p.face_set = lastHoveredFaceSet();
+      else {
+        const f = faceUnderCursor(ctx);
+        p.face_set = f === null ? 0 : (faceSetsOf(activeMeshData()!.me)?.[f] ?? 1);
+      }
+      if (!p.face_set) {
+        app.report('INFO', 'Face Set Extract: point at the face set to extract');
         return 'CANCELLED';
       }
-      p.face_set = faceSetsOf(activeMeshData()!.me)?.[f] ?? 1;
       return registered('sculpt.face_set_extract').exec!(ctx, p);
     },
     exec: (_ctx, p) => {

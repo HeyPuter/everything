@@ -11,6 +11,8 @@ import './expand';
 import './maskops';
 import './trim';
 import './sculpttransform';
+import './symops';
+import './voxeledit';
 import './vpaint';
 import './wpaint';
 import './tpaint';

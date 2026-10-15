@@ -81,8 +81,8 @@ export function sculptMenu(): MenuItem[] {
   return clean([
     { label: 'Transform', submenu: transformMenu },
     sep,
-    op('Toggle Visibility', 'sculpt.face_set_change_visibility', { mode: 'TOGGLE' }),
-    op('Hide Active Face Set', 'sculpt.face_set_change_visibility', { mode: 'HIDE_ACTIVE' }),
+    op('Toggle Visibility', 'sculpt.face_set_change_visibility', { mode: 'TOGGLE', active_face_set: -1 }),
+    op('Hide Active Face Set', 'sculpt.face_set_change_visibility', { mode: 'HIDE_ACTIVE', active_face_set: -1 }),
     op('Show All', 'paint.hide_show_all', { action: 'SHOW' }),
     op('Invert Visible', 'paint.visibility_invert'),
     op('Hide Masked', 'paint.hide_show_masked', { action: 'HIDE' }),
@@ -90,8 +90,8 @@ export function sculptMenu(): MenuItem[] {
     op('Shrink Visibility', 'paint.visibility_filter', { action: 'SHRINK' }),
     { label: 'Show/Hide', submenu: showHideMenu },
     sep,
-    op('Fair Positions', 'sculpt.face_set_edit', { mode: 'FAIR_POSITIONS' }),
-    op('Fair Tangency', 'sculpt.face_set_edit', { mode: 'FAIR_TANGENCY' }),
+    op('Fair Positions', 'sculpt.face_set_edit', { mode: 'FAIR_POSITIONS', active_face_set: -1 }),
+    op('Fair Tangency', 'sculpt.face_set_edit', { mode: 'FAIR_TANGENCY', active_face_set: -1 }),
     op('Line Project', 'sculpt.project_line_gesture'),
     { label: 'Trim/Add', submenu: trimMenu },
     sep,
@@ -177,13 +177,13 @@ export function faceSetsMenu(): MenuItem[] {
     sep,
     { label: 'Initialize Face Sets', submenu: faceSetsInitMenu },
     sep,
-    op('Grow Face Set', 'sculpt.face_set_edit', { mode: 'GROW' }),
-    op('Shrink Face Set', 'sculpt.face_set_edit', { mode: 'SHRINK' }),
+    op('Grow Face Set', 'sculpt.face_set_edit', { mode: 'GROW', active_face_set: -1 }),
+    op('Shrink Face Set', 'sculpt.face_set_edit', { mode: 'SHRINK', active_face_set: -1 }),
     sep,
     op('Expand Face Set by Topology', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'GEODESIC' }),
     op('Expand Active Face Set', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'BOUNDARY_FACE_SET' }),
     sep,
-    op('Extract Face Set', 'sculpt.face_set_extract'),
+    op('Extract Face Set', 'sculpt.face_set_extract', { face_set: -1 }),
     sep,
     op('Randomize Colors', 'sculpt.face_sets_randomize_colors'),
   ]);
@@ -229,6 +229,7 @@ const sculptMode = () => app.doc.mode === 'SCULPT';
 const k = (key: string, op: string, props?: Record<string, unknown>, mods: Partial<KeyItem> = {}): KeyItem => ({ key, op, props, ...mods, when: sculptMode });
 
 addKeys('Sculpt', [
+  k('R', 'object.voxel_size_edit'),
   k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: true }, { shift: true }),
   k('A', 'sculpt.expand', { target: 'MASK', falloff_type: 'NORMALS', invert: false, use_mask_preserve: true }, { shift: true, alt: true }),
   k('W', 'sculpt.expand', { target: 'FACE_SETS', falloff_type: 'GEODESIC', invert: false, use_mask_preserve: false, use_modify_active: false }, { shift: true }),

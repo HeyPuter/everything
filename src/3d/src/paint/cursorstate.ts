@@ -9,6 +9,9 @@ export const cursorState = {
   view: null as View3D | null,
   /** world hit point and normal under the cursor (sculpt mode surface cursor) */
   hit: null as { point: Vector3; normal: Vector3; radius: number } | null,
+  /** last face hovered in Sculpt Mode (face set tools run from menus use it) */
+  lastFace: -1,
+  lastFaceMesh: '',
   /** radial control in progress */
   radial: null as null | {
     cx: number;

@@ -6,6 +6,7 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { vertexFaces } from '../mesh/mesh';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
+import { cursorState } from './cursorstate';
 import { faceCount, faceSetsOf, growFaceSet, hiddenFacesOf, initFaceSets, maxFaceSet, setHiddenFaces, shrinkFaceSet, type FaceSetInitMode } from './fsdata';
 
 export const sculptPoll = () => app.doc.mode === 'SCULPT' && !!activeMeshData();
@@ -19,8 +20,15 @@ export function faceUnderCursor(ctx?: OpContext): number | null {
   const x = (ctx?.event?.x ?? app.pointer.x) - r.left,
     y = (ctx?.event?.y ?? app.pointer.y) - r.top;
   if (x < 0 || y < 0 || x > r.width || y > r.height) return null;
-  const hit = s.raycast(v, x, y);
-  return hit ? hit.face : null;
+  return s.raycast(v, x, y)?.face ?? null;
+}
+
+/** Face set last hovered in the viewport (for face set operators run from menus). */
+export function lastHoveredFaceSet(): number {
+  const s = meshSession();
+  const am = activeMeshData();
+  if (!s || !am || cursorState.lastFaceMesh !== s.meshId || cursorState.lastFace < 0 || cursorState.lastFace >= s.nf) return 0;
+  return faceSetsOf(am.me)?.[cursorState.lastFace] ?? 1;
 }
 
 /** Face set id under the pointer (0 when the pointer is not over the mesh). */
@@ -178,7 +186,8 @@ registerOperators([
     ],
     poll: sculptPoll,
     invoke: (ctx, p) => {
-      p.active_face_set = faceSetUnderCursor(ctx);
+      // menus pass -1: use the face set last hovered in the viewport
+      p.active_face_set = (p.active_face_set as number) < 0 ? lastHoveredFaceSet() : faceSetUnderCursor(ctx);
       return operators.get('sculpt.face_set_edit')!.exec!(ctx, p);
     },
     exec: (_ctx, p) => {
@@ -211,7 +220,7 @@ registerOperators([
     ],
     poll: sculptPoll,
     invoke: (ctx, p) => {
-      p.active_face_set = faceSetUnderCursor(ctx);
+      p.active_face_set = (p.active_face_set as number) < 0 ? lastHoveredFaceSet() : faceSetUnderCursor(ctx);
       return operators.get('sculpt.face_set_change_visibility')!.exec!(ctx, p);
     },
     exec: (_ctx, p) => {

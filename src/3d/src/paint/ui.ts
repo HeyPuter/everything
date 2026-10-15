@@ -271,6 +271,16 @@ function symmetryToggles(prefix: string) {
 }
 const field = (w: number, c: Child) => h('div', { style: { width: `${w}px`, flex: 'none' } }, c);
 
+const SYM_DIRS: [string, string][] = [
+  ['NEGATIVE_X', '-X to +X'],
+  ['POSITIVE_X', '+X to -X'],
+  ['NEGATIVE_Y', '-Y to +Y'],
+  ['POSITIVE_Y', '+Y to -Y'],
+  ['NEGATIVE_Z', '-Z to +Z'],
+  ['POSITIVE_Z', '+Z to -Z'],
+];
+const symState = { direction: 'NEGATIVE_X' };
+
 function toolHeaderSettings(mode: BrushMode): Child {
   const b = activeBrush(mode);
   if (!b) return null;
@@ -597,7 +607,17 @@ function brushPanels(mode: BrushMode): Child[] {
       );
   }
   if (mode === 'SCULPT') out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am')));
-  out.push(panel(`pt-sym-${mode}`, 'Symmetry', () => [row('Mirror', symmetryToggles('pt'))]));
+  out.push(
+    panel(`pt-sym-${mode}`, 'Symmetry', () => [
+      row('Mirror', symmetryToggles('pt')),
+      mode === 'SCULPT'
+        ? [
+            row('Direction', enumMenu('pt-symdir', SYM_DIRS.map(([value, label]) => ({ value, label })), symState.direction, (x) => ((symState.direction = x), changed()), { tip: 'Which half is copied over the other' })),
+            opButton('sculpt.symmetrize', 'Symmetrize', { direction: symState.direction }),
+          ]
+        : null,
+    ]),
+  );
   return out;
 }
 

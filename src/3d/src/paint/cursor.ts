@@ -21,10 +21,14 @@ export function updateCursor(v: View3D, x: number, y: number) {
   cursorState.hit = null;
   const mode = app.doc.mode;
   const b = activeBrush();
-  if (mode === 'SCULPT' && b) {
+  if (mode === 'SCULPT') {
     const s = meshSession();
     const hit = s?.raycast(v, x, y);
     if (s && hit) {
+      cursorState.lastFace = hit.face;
+      cursorState.lastFaceMesh = s.meshId;
+    }
+    if (s && hit && b) {
       const w = s.world();
       const nWorld = hit.normal.clone().transformDirection(w);
       const r = s.pixelsToLocal(v, hit.world, b.radius) * s.scale();
