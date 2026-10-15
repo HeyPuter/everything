@@ -207,3 +207,110 @@ describe('clean up', () => {
     expect(m.vcount).toBe(7);
   });
 });
+
+import { solidify, wireframe, gridFill, beautifyFill, convexHull, intersectKnife, intersectBoolean, splitFacesByEdges } from '../../src/modes/editmesh/ops-faces';
+import { duplicateSelection } from '../../src/modes/editmesh/ops-basic';
+
+function twoCubes() {
+  const m = cube();
+  selectAll(m);
+  duplicateSelection(m);
+  moveSelected(m, new Vector3(1, 1, 1));
+  return m;
+}
+
+describe('face tools', () => {
+  it('solidifies a face', () => {
+    const m = cube();
+    selectFaces(m, (c) => c[2] > 0.9);
+    solidify(m, 0.1);
+    expect(counts(m)).toEqual([12, 20, 11]);
+    expect(m.selectedVerts().length).toBe(4);
+  });
+
+  it('builds a wireframe', () => {
+    const m = cube();
+    selectAll(m);
+    wireframe(m, { thickness: 0.2, offset: 0, boundary: true, even: true, relative: false, replace: true });
+    expect(counts(m)).toEqual([40, 96, 48]);
+    expect(manifold(m)).toBe(true);
+    const pts = sorted(m);
+    expect(pts).toContainEqual([-0.9423, -0.9423, -0.9423]);
+    expect(pts).toContainEqual([-0.9, -0.9, -1]);
+    const p = fromPrim(prim.plane());
+    selectAll(p);
+    wireframe(p, { thickness: 0.2, offset: 0, boundary: true, even: true, relative: false, replace: true });
+    expect(counts(p)).toEqual([16, 32, 16]);
+    expect(manifold(p)).toBe(true);
+    expect(sorted(p)).toContainEqual([1.1, 1.1, 0]);
+  });
+
+  it('grid fills a closed loop', () => {
+    const ring = (n: number) => {
+      const r = fromPrim(prim.circle(n));
+      r.looseEdges = Array.from({ length: n }, (_, i) => [i, (i + 1) % n] as [number, number]);
+      return r;
+    };
+    const m = ring(12);
+    selectAll(m);
+    expect(gridFill(m, 3, 0)).toBe(true);
+    expect(counts(m)).toEqual([16, 24, 9]);
+    const m2 = ring(16);
+    selectAll(m2);
+    gridFill(m2, 3, 0);
+    expect(counts(m2)).toEqual([24, 38, 15]);
+  });
+
+  it('beautifies triangles without changing counts', () => {
+    const m = fromPrim(prim.grid(2, 2));
+    selectAll(m);
+    // triangulate along one diagonal, then beautify
+    const tris = m.faces.flatMap((f) => [m.makeFace([f.verts[0], f.verts[1], f.verts[2]], f), m.makeFace([f.verts[0], f.verts[2], f.verts[3]], f)]);
+    m.faces = tris;
+    const before = counts(m);
+    beautifyFill(m, Math.PI);
+    expect(counts(m)).toEqual(before);
+  });
+
+  it('makes a convex hull', () => {
+    const m = cube();
+    selectAll(m);
+    subdivide(m, 1, 0);
+    selectAll(m);
+    expect(convexHull(m, { deleteUnused: true, joinTriangles: true, faceThreshold: 0 })).toBe(true);
+    expect(counts(m)).toEqual([8, 12, 6]);
+  });
+
+  it('intersects two overlapping cubes (knife)', () => {
+    const m = twoCubes();
+    intersectKnife(m, 'SELECT_UNSELECT', 'CUT');
+    expect(counts(m)).toEqual([28, 42, 18]);
+    expect(m.selectedVerts().length).toBe(12);
+  });
+
+  it('boolean union / intersect / difference', () => {
+    const u = twoCubes();
+    intersectBoolean(u, 'UNION', false);
+    expect(counts(u)).toEqual([20, 30, 12]);
+    expect(u.selectedVerts().length).toBe(6);
+    expect(manifold(u)).toBe(true);
+    const i = twoCubes();
+    intersectBoolean(i, 'INTERSECT', false);
+    expect(counts(i)).toEqual([8, 12, 6]);
+    const d = twoCubes();
+    intersectBoolean(d, 'DIFFERENCE', false);
+    expect(counts(d)).toEqual([14, 21, 9]);
+    expect(manifold(d)).toBe(true);
+  });
+
+  it('welds a loose edge chain into a face', () => {
+    const m = fromPrim(prim.plane());
+    // a loose path across the plane between two opposite corners, through a middle vertex
+    const mid = m.addVert([0, 0, 0], [], 0);
+    const f = m.faces[0];
+    m.looseEdges.push([f.verts[0], mid], [mid, f.verts[2]]);
+    expect(splitFacesByEdges(m)).toBe(1);
+    expect(m.faces.length).toBe(2);
+    expect(m.looseEdges.length).toBe(0);
+  });
+});

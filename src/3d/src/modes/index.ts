@@ -10,6 +10,7 @@ import './editmesh/knife';
 import './editmesh/rip';
 import './editmesh/ops-extrude';
 import './editmesh/ops-cleanup';
+import './editmesh/ops-faces';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';
