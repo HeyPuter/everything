@@ -140,7 +140,7 @@ export function interpolateAt(gp: GreasePencilData, layer: GPLayer, frame: numbe
 
 const pollInterp = (ctx: OpContext) => {
   const m = ctx.doc.mode;
-  return !!gpOf(ctx.doc, app.activeObject) && (m === 'PAINT_GREASE_PENCIL' || m === 'EDIT' || m === 'SCULPT_GREASE_PENCIL');
+  return !!gpOf(ctx.doc, app.activeObject) && (m === 'PAINT_GREASE_PENCIL' || m === 'EDIT' || m === 'SCULPT_GREASE_PENCIL' || m === 'OBJECT' || m === 'VERTEX_GREASE_PENCIL' || m === 'WEIGHT_GREASE_PENCIL');
 };
 
 function targetLayers(gp: GreasePencilData, which: unknown): GPLayer[] {

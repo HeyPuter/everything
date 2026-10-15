@@ -64,7 +64,7 @@ function rowFrames(r: GPRow, all: { ob: ObjectData; gp: GreasePencilData }[]): G
 }
 
 const isGPEditor = (ed: unknown): ed is GPDopeSheet => ed instanceof GPDopeSheet && ed.gpMode();
-const hoverGP = (ctx?: OpContext): GPDopeSheet | null => {
+export const hoverGP = (ctx?: OpContext): GPDopeSheet | null => {
   const ed = (ctx?.area ?? app.hoverArea ?? app.activeArea)?.editor;
   return isGPEditor(ed) ? ed : null;
 };
@@ -418,7 +418,7 @@ export class GPDopeSheet extends DopeSheet {
 // ---------------------------------------------------------------------------
 // moving keyframes (drag / G)
 
-function layersOf(ed: GPDopeSheet) {
+export function layersOf(ed: GPDopeSheet) {
   return ed.frameSets().flatMap((x) => x.gp.layers.map((l) => ({ gp: x.gp, layer: l })));
 }
 
@@ -570,76 +570,71 @@ registerOperators([
   },
 ]);
 
-function gpSelectMenu(): MenuItem[] {
+export function gpSelectMenu(): MenuItem[] {
   return [
-    {
-      label: 'All',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'SELECT' },
-      shortcut: 'A',
-    },
-    {
-      label: 'None',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'DESELECT' },
-      shortcut: 'Alt A',
-    },
-    {
-      label: 'Invert',
-      op: 'grease_pencil.frames_select_all',
-      props: { action: 'INVERT' },
-      shortcut: 'Ctrl I',
-    },
+    { label: 'All', op: 'grease_pencil.frames_select_all', props: { action: 'SELECT' }, shortcut: 'A' },
+    { label: 'None', op: 'grease_pencil.frames_select_all', props: { action: 'DESELECT' }, shortcut: 'Alt A' },
+    { label: 'Invert', op: 'grease_pencil.frames_select_all', props: { action: 'INVERT' }, shortcut: 'Ctrl I' },
     { separator: true },
-    {
-      label: 'Columns on Current Frame',
-      op: 'grease_pencil.frames_select_column',
-      shortcut: 'Ctrl K',
-    },
+    { label: 'Box Select', op: 'action.select_box', shortcut: 'B' },
+    { separator: true },
+    { label: 'Columns on Selected Keys', op: 'grease_pencil.frames_select_column_keys', shortcut: 'K' },
+    { label: 'Column on Current Frame', op: 'grease_pencil.frames_select_column', shortcut: 'Ctrl K' },
+    { separator: true },
+    { label: 'Before Current Frame', op: 'grease_pencil.frames_select_leftright', props: { mode: 'LEFT' }, shortcut: '[' },
+    { label: 'After Current Frame', op: 'grease_pencil.frames_select_leftright', props: { mode: 'RIGHT' }, shortcut: ']' },
+    { separator: true },
+    { label: 'More', op: 'grease_pencil.frames_select_more', shortcut: 'Ctrl Numpad +' },
+    { label: 'Less', op: 'grease_pencil.frames_select_less', shortcut: 'Ctrl Numpad -' },
+    { label: 'Select Linked', op: 'grease_pencil.frames_select_linked', shortcut: 'L' },
   ];
 }
 
-function gpKeyMenu(): MenuItem[] {
+export function gpKeyMenu(): MenuItem[] {
   return [
-    { label: 'Move', op: 'grease_pencil.frames_move', shortcut: 'G' },
     {
-      label: 'Duplicate',
-      op: 'grease_pencil.frames_duplicate_move',
-      shortcut: 'Shift D',
+      label: 'Transform',
+      submenu: () => [
+        { label: 'Move', op: 'grease_pencil.frames_move', shortcut: 'G' },
+        { label: 'Extend', op: 'grease_pencil.frames_extend', shortcut: 'E' },
+        { label: 'Scale', op: 'grease_pencil.frames_scale', shortcut: 'S' },
+      ],
     },
     {
-      label: 'Delete Keyframes',
-      op: 'grease_pencil.frames_delete',
-      shortcut: 'X',
+      label: 'Snap',
+      shortcut: 'Shift S',
+      submenu: () => [
+        { label: 'Selection to Current Frame', op: 'grease_pencil.frames_snap', props: { type: 'CFRA' } },
+        { label: 'Selection to Nearest Marker', op: 'grease_pencil.frames_snap', props: { type: 'NEAREST_MARKER' } },
+      ],
     },
+    {
+      label: 'Mirror',
+      shortcut: 'Ctrl M',
+      submenu: () => [
+        { label: 'By Times Over Current Frame', op: 'grease_pencil.frames_mirror', props: { type: 'CFRA' } },
+        { label: 'By Times Over First Selected Marker', op: 'grease_pencil.frames_mirror', props: { type: 'MARKER' } },
+      ],
+    },
+    { separator: true },
+    { label: 'Insert Blank Keyframe (Active Layer)', op: 'grease_pencil.insert_blank_frame', props: { all_layers: false }, shortcut: 'I' },
+    { label: 'Insert Blank Keyframe (All Layers)', op: 'grease_pencil.insert_blank_frame', props: { all_layers: true } },
+    { label: 'Jump to Keyframes', op: 'grease_pencil.frames_jump', shortcut: 'Ctrl G' },
+    { separator: true },
+    { label: 'Copy', op: 'grease_pencil.frames_copy', shortcut: 'Ctrl C' },
+    { label: 'Paste', op: 'grease_pencil.frames_paste', shortcut: 'Ctrl V' },
+    { label: 'Duplicate', op: 'grease_pencil.frames_duplicate_move', shortcut: 'Shift D' },
+    { label: 'Delete Keyframes', op: 'grease_pencil.frames_delete', shortcut: 'X' },
     { separator: true },
     {
       label: 'Keyframe Type',
-      submenu: () =>
-        KEY_TYPES.map(([t, l]) => ({
-          label: l,
-          op: 'grease_pencil.frames_keyframe_type',
-          props: { type: t },
-        })),
+      submenu: () => KEY_TYPES.map(([t, l]) => ({ label: l, op: 'grease_pencil.frames_keyframe_type', props: { type: t } })),
       shortcut: 'R',
     },
     { separator: true },
-    {
-      label: 'Insert Blank Keyframe (Active Layer)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: false },
-      shortcut: 'I',
-    },
-    {
-      label: 'Insert Blank Keyframe (All Layers)',
-      op: 'grease_pencil.insert_blank_frame',
-      props: { all_layers: true },
-    },
-    {
-      label: 'Duplicate Active Keyframe (Active Layer)',
-      op: 'grease_pencil.frame_duplicate',
-      props: { all: false },
-    },
+    { label: 'Interpolate Sequence', op: 'grease_pencil.interpolate_sequence' },
+    { label: 'Delete Breakdown Frames', op: 'grease_pencil.delete_breakdown' },
+    { label: 'Delete Duplicate Frames', op: 'grease_pencil.frame_clean_duplicate', props: { selected: true } },
   ];
 }
 

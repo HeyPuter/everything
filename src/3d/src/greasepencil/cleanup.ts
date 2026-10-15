@@ -124,7 +124,7 @@ registerOperators([
     label: 'Delete Duplicate Frames',
     description: 'Remove keyframes that repeat the drawing of the key before them',
     props: [{ id: 'selected', label: 'Selected', type: 'bool', default: false }],
-    poll: pollAny,
+    poll: () => !!gpOf(app.doc, app.activeObject),
     exec: (_c, p) => {
       const gp = gpOf(app.doc, app.activeObject)!;
       let n = 0;

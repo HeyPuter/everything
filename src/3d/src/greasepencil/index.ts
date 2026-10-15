@@ -12,6 +12,7 @@ import './sculpt';
 import './edit';
 import './properties';
 import './dopesheet';
+import './dopesheetops';
 import './workspace';
 import './menus';
 import './interpolate';

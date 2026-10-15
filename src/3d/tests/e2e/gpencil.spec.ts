@@ -220,3 +220,46 @@ test('modifiers and visual effects tabs', async ({ page }) => {
   await page.waitForTimeout(200);
   await expectNoErrors(errors);
 });
+
+test('dope sheet (grease pencil): scale, mirror, copy / paste, select before current frame', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as any).app.run('wm.read_homefile', { app_template: '2D_Animation' }, { invoke: false })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(300);
+  // keys on frames 1, 5, 9 of the active layer
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.setFrame(5);
+    a.run('grease_pencil.insert_blank_frame', {}, { invoke: false });
+    a.setFrame(9);
+    a.run('grease_pencil.insert_blank_frame', {}, { invoke: false });
+    a.setFrame(1);
+  });
+  const keys = () => get(page, `${gp}.layers[${gp}.active_layer_index].frames.map((f) => f.frame_number)`);
+  expect(await keys()).toEqual([1, 5, 9]);
+  const main = page.locator('.anim-main').first();
+  const box = (await main.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('a');
+  // S: scale the timing ×2 around frame 1, typed by mouse (drag twice the distance)
+  const fx = (f: number) => page.evaluate((n) => (window as any).app.hoverArea.editor.view.fx(n), f); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const x5 = (await fx(5)) + box.x,
+    x9 = (await fx(9)) + box.x;
+  await page.mouse.move(x5, box.y + box.height / 2);
+  await page.keyboard.press('s');
+  await page.mouse.move(x9, box.y + box.height / 2, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await keys()).toEqual([1, 9, 17]);
+  // Ctrl M mirrors over the current frame (5)
+  await page.evaluate(() => (window as any).app.setFrame(5)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('Control+m');
+  expect(await keys()).toEqual([-7, 1, 9]);
+  // [ selects the keys before the current frame; Ctrl C / Ctrl V paste them at frame 20
+  await page.keyboard.press('[');
+  expect(await get(page, `${gp}.layers[${gp}.active_layer_index].frames.map((f) => !!f.select)`)).toEqual([true, true, false]);
+  await page.keyboard.press('Control+c');
+  await page.evaluate(() => (window as any).app.setFrame(20)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('Control+v');
+  expect(await keys()).toEqual([-7, 1, 9, 20, 28]);
+  await expectNoErrors(errors);
+});
