@@ -122,10 +122,16 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
   else ({ targets, handleMode } = slideTargets());
   if (!targets.length) return false;
   const orig = new Map(targets.map((s) => [s, snap(s)]));
+  const side = (s: Strip): 'LEFT' | 'RIGHT' | null => (opts.handleStrip ? opts.handleSide ?? null : s.select_left_handle ? 'LEFT' : s.select_right_handle ? 'RIGHT' : null);
+  // touching strips whose shared edit point is being moved (right handle of a, left of b)
+  const rollPairs: [Strip, Strip][] = [];
+  if (handleMode)
+    for (const a of targets)
+      if (side(a) === 'RIGHT')
+        for (const b of targets) if (b !== a && b.channel === a.channel && side(b) === 'LEFT' && finalEnd(a) === finalStart(b)) rollPairs.push([a, b]);
   const others = new Set(list.filter((s) => !targets.includes(s)));
   const markers = app.doc.scene.timeline_markers.map((m) => m.frame);
   const st = { text: '', df: 0, dc: 0 };
-  const side = (s: Strip): 'LEFT' | 'RIGHT' | null => (opts.handleStrip ? opts.handleSide ?? null : s.select_left_handle ? 'LEFT' : s.select_right_handle ? 'RIGHT' : null);
   let lastEvent = { clientX: x0, clientY: y0, ctrlKey: false, metaKey: false };
 
   const apply = () => {
@@ -157,6 +163,12 @@ export function startSlide(ed: SeqEditorLike, x0: number, y0: number, opts: Slid
         translateStrip(s, df);
         s.channel = Math.max(1, Math.min(MAX_CHANNELS, o.channel + dc));
       }
+    }
+    // rolled edit points stay closed when one side runs out of content
+    for (const [a, b] of rollPairs) {
+      if (finalEnd(a) === finalStart(b)) continue;
+      if (df > 0) setLeftHandle(b, finalEnd(a));
+      else setRightHandle(a, finalStart(b));
     }
     afterEdit();
     ed.invalid.clear();
