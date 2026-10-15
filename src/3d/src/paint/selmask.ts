@@ -9,7 +9,8 @@ import { h } from '../ui/h';
 import { icon } from '../ui/icons';
 import { edgeTopology, triangulatePoly, vertexNeighbors } from '../mesh/mesh';
 import { renderContext } from '../render/context';
-import { editModeHooks, viewportExtensions, type SelectRegion } from '../editors/view3d/hooks';
+import { editModeHooks, overlayPopoverSections, viewportExtensions, type SelectRegion } from '../editors/view3d/hooks';
+import { checkbox, numberField } from '../ui/widgets';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { modeMenus } from '../editors/view3d/modemenus';
 import type { MenuItem } from '../ui/menu';
@@ -589,7 +590,7 @@ let cached: { key: unknown[]; group: Group } | null = null;
 const scene = new Scene();
 scene.matrixWorldAutoUpdate = false;
 
-function build(me: MeshData, face: boolean): Group {
+function build(me: MeshData, face: boolean, wireOnly = false): Group {
   const g = new Group();
   g.matrixAutoUpdate = false;
   const sel = selection(me);
@@ -612,9 +613,10 @@ function build(me: MeshData, face: boolean): Group {
   const lg = new BufferGeometry();
   lg.setAttribute('position', new Float32BufferAttribute(pos, 3));
   lg.setAttribute('color', new Float32BufferAttribute(col, 3));
-  const lines = new LineSegments(lg, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: face ? 0.6 : 0.35, depthWrite: false }));
+  const lines = new LineSegments(lg, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: face || wireOnly ? 0.6 : 0.35, depthWrite: false }));
   lines.matrixAutoUpdate = false;
   g.add(lines);
+  if (wireOnly) return g;
   if (ff) {
     // light tint on the selected faces
     const tp: number[] = [];
@@ -664,15 +666,17 @@ function dispose(g: Group) {
 
 function drawMaskOverlay(v: View3D, camera: Camera) {
   const r = renderContext?.engine.renderer;
-  if (!r || !anyMask()) return;
+  const wire = paintMode() && !!v.overlay.show_paint_wire && v.overlay.show_overlays !== false;
+  if (!r || (!anyMask() && !wire)) return;
   const am = activeMeshData();
   if (!am || (v.localView && !v.localView.has(am.ob.id))) return;
   const { ob, me } = am;
   const face = faceMaskOn();
-  const key = [me.positions, me.indices, me.select_vert, me.hide_vert, face];
+  const wireOnly = !anyMask();
+  const key = [me.positions, me.indices, me.select_vert, me.hide_vert, face, wireOnly];
   if (!cached || cached.key.some((k, i) => k !== key[i])) {
     if (cached) dispose(cached.group);
-    cached = { key, group: build(me, face) };
+    cached = { key, group: build(me, face, wireOnly) };
   }
   const ev = app.graph.get(ob.id);
   if (ev) cached.group.matrix.copy(ev.world);
@@ -688,4 +692,17 @@ viewportExtensions.push((v) => {
   return () => {
     v.extraOverlays = v.extraOverlays.filter((f) => f !== fn);
   };
+});
+
+// overlay popover: paint mode display options
+overlayPopoverSections.push((v) => {
+  const mode = app.doc.mode;
+  if (!PAINT_MODES.has(mode)) return null;
+  const o = v.overlay;
+  const set = (k: string) => (x: unknown) => (((o as unknown as Record<string, unknown>)[k] = x), app.changed('ui'));
+  return [
+    h('div', { class: 'pop-sub' }, mode === 'WEIGHT_PAINT' ? 'Weight Paint' : mode === 'VERTEX_PAINT' ? 'Vertex Paint' : 'Texture Paint'),
+    mode === 'WEIGHT_PAINT' ? numberField({ id: 'o-wpop', label: 'Opacity', value: o.weight_paint_mode_opacity, min: 0, max: 1, slider: true, set: set('weight_paint_mode_opacity') }) : null,
+    checkbox('o-pwire', 'Show Wire', !!o.show_paint_wire, set('show_paint_wire'), { tip: 'Draw the mesh edges while painting' }),
+  ];
 });

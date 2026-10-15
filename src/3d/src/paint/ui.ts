@@ -1201,6 +1201,7 @@ addKeys('Sculpt', [
 ]);
 addKeys('Vertex Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
     { key: 'X', ctrl: true, op: 'paint.vertex_color_set' },
@@ -1224,6 +1225,7 @@ addKeys('Weight Paint', [
 ]);
 addKeys('Image Paint', [
   ...common([
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
   ]),
