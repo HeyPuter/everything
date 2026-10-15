@@ -15,6 +15,8 @@ import { defaultSpeaker, type SpeakerSettings } from '../object/speakerdata';
 import { maskTable, newLayer as newMaskLayer, newMask, newPoint as newMaskPoint } from '../mask/types';
 import { clipTable } from '../tracking/types';
 import type { Strip, StripType } from '../sequencer/types';
+import { connect, connectedOf, disconnect } from '../sequencer/connect';
+import { addKey, hasRetiming, resetRetiming, retimable, setSegmentSpeed, speedAt } from '../sequencer/retime';
 import { allStrips, ensureEditor, findStrip, inputCount, newStrip, uniqueName as uniqueStripName, updateEffectRanges } from '../sequencer/strips';
 import { ID_MIXINS, NEW_DATA, NEW_PARAMS, OBJECT_DATA_HOOKS, ObjectStruct, SceneStruct, addDataCollection, bpyData, uniqueName, viewLayer, wrapId, TABLE_OBTYPE } from './api';
 import { Matrix, Vector } from './mathutils';
@@ -956,6 +958,64 @@ function stripStruct(s: Strip, path: string): unknown {
     input_1: { get: () => stripByName((s as unknown as Any).input_1 as string) },
     input_2: { get: () => stripByName((s as unknown as Any).input_2 as string) },
     strips: { get: () => (s.type === 'META' ? new Strips(() => (s.strips ??= []), `${path}.strips`) : undefined) },
+    /** Strips connected to this one (selected and edited together). */
+    connected_strips: { get: () => connectedOf(allStrips(ed()?.strips ?? []), s).map((x) => stripStruct(x, `${seqPath}.strips_all[${q(x.name)}]`)) },
+    connect: {
+      value: (others: unknown) => {
+        const list = allStrips(ed()?.strips ?? []);
+        const more = [...((others ?? []) as Iterable<unknown>)].map((x) => (x as { __strip?: Strip }).__strip).filter((x): x is Strip => !!x);
+        connect(list, [s, ...more]);
+        touched();
+      },
+    },
+    disconnect: {
+      value: () => {
+        const r = disconnect(allStrips(ed()?.strips ?? []), [s]);
+        touched();
+        return r;
+      },
+    },
+    /** Retiming keys (speed changes inside the strip): add(timeline_frame), key.speed, reset(). */
+    retiming_keys: {
+      get: () => {
+        const keys = () => (hasRetiming(s) ? s.retiming_keys! : []);
+        const key = (i: number) => ({
+          __kind: 'struct',
+          __type: 'RetimingKey',
+          index: i,
+          get timeline_frame() {
+            return s.frame_start + keys()[i].frame;
+          },
+          get speed() {
+            return speedAt(s, keys()[i].frame);
+          },
+          set speed(v: number) {
+            if (!setSegmentSpeed(s, i, Number(v))) throw pyError('RuntimeError', 'Error: this segment cannot change speed (last key, a transition or a freeze frame)');
+            touched();
+          },
+        });
+        return Object.assign(new (class extends PropCollection<unknown> {
+          list() {
+            return keys().map((_, i) => key(i));
+          }
+          nameOf() {
+            return '';
+          }
+        })(`${path}.retiming_keys`), {
+          add: (timeline_frame: number) => {
+            if (!retimable(s)) throw pyError('RuntimeError', `Error: ${s.type} strips cannot be retimed`);
+            const i = addKey(s, Number(timeline_frame) - s.frame_start);
+            if (i < 0) throw pyError('RuntimeError', 'Error: no key can be added there (outside the strip, or inside a transition)');
+            touched();
+            return key(i);
+          },
+          reset: () => {
+            resetRetiming(s);
+            touched();
+          },
+        });
+      },
+    },
   });
   return proxify(st);
 }

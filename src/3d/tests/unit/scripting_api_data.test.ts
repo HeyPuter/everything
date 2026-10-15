@@ -318,3 +318,21 @@ describe('properties added to data types', () => {
     ).toBe('1.5\n10 10\n3\n7 1 first 3');
   });
 });
+
+describe('sequencer retiming and connections', () => {
+  it('adds retiming keys, changes a segment speed and connects strips', () => {
+    expect(
+      run(`
+      const ed = C.scene.sequence_editor_create();
+      const shot = ed.strips.new_scene('Shot', C.scene, 1, 1);
+      const col = ed.strips.new_effect('Tint', 'COLOR', 2, 1, {frame_end: 50});
+      const k = shot.retiming_keys.add(51);
+      print(shot.retiming_keys.length, k.timeline_frame);
+      shot.retiming_keys[0].speed = 2;
+      print(shot.retiming_keys[0].speed, shot.frame_final_duration);
+      shot.connect([col]); print(shot.connected_strips.map((x) => x.name).join(','), col.connected_strips[0].name);
+      col.disconnect(); print(shot.connected_strips.length);
+    `),
+    ).toBe('3 51\n2 225\nTint Shot\n0');
+  });
+});
