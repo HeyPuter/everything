@@ -854,3 +854,20 @@ export function curveObjectToCurves(cu: CurveData): CurvesComponent {
   }
   return c;
 }
+
+/**
+ * Input geometry of a geometry nodes modifier on a curve object: its splines (with types and
+ * handles) when the modifier is the first one and the curve has no bevel or extrusion.
+ */
+export function curveObjectModifierInput(
+  doc: { curves: Record<string, CurveData> },
+  ob: { type: string; data?: string | null; modifiers: { id: string; show_viewport?: boolean; show_render?: boolean }[] },
+  modifierId: string,
+  render: boolean,
+): CurvesComponent | null {
+  if (ob.type !== 'CURVE' || !ob.data) return null;
+  const cu = doc.curves[ob.data];
+  if (!cu || cu.bevel_depth || cu.extrude || cu.bevel_mode === 'OBJECT' || !cu.splines.length) return null;
+  const first = ob.modifiers.find((m) => (render ? m.show_render !== false : m.show_viewport !== false));
+  return first?.id === modifierId ? curveObjectToCurves(cu) : null;
+}

@@ -8,6 +8,7 @@ import { alwaysEvaluated, geoExecs, type EvalEnv, type Val } from './exec';
 import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type EvalLog } from './evaluator';
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
+import { curveObjectModifierInput } from './curves/curvedata';
 import { attributeField } from './inputs';
 import { Field, ConstField } from './field';
 import { storeOn } from './nodes/geometry';
@@ -305,7 +306,8 @@ registerModifier({
     const t0 = performance.now();
     const graph = ctx.graph ?? currentGraph;
     const env = makeEnv(ctx.doc, ctx.ob, graph, ctx.frame, ctx.render);
-    const input = evalMeshToGeometry(mesh, ctx.source);
+    const cin = curveObjectModifierInput(ctx.doc, ctx.ob, m.id, ctx.render);
+    const input = cin ? new GeometrySet(undefined, undefined, cin) : evalMeshToGeometry(mesh, ctx.source);
     const withViewer = !ctx.render && viewerActiveFor(ctx.doc, ctx.ob, m);
     const r = evaluateGroup(group, m, env, input, meshSig(mesh), `${ctx.ob.id}/${m.id}`, withViewer);
     const shown = r.viewer ? viewerColors(r.viewer) : r.geometry;
