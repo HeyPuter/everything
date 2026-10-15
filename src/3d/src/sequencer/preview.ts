@@ -37,6 +37,8 @@ export class PreviewRegion {
   opts = { safeAreas: false, cursor: true, outline: true };
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
+  /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
+  sampleInfo: { x: number; y: number; px: [number, number]; rgba: number[] } | null = null;
 
   constructor(private onRendered: () => void) {
     this.el = document.createElement('div');
@@ -269,6 +271,38 @@ export class PreviewRegion {
       g.setLineDash([]);
     }
     drawShape(g, this.shape);
+    if (this.sampleInfo) this.drawSample(g, this.sampleInfo);
+  }
+
+  /** Colour of the shown frame under a client point (null outside the frame). */
+  sample(clientX: number, clientY: number): { px: [number, number]; rgba: number[] } | null {
+    if (!this.hasFrame) return null;
+    const [W, H] = this.res();
+    const [fx, fy] = this.toFrame(clientX, clientY);
+    if (fx < 0 || fy < 0 || fx >= W || fy >= H) return null;
+    const f = this.frame;
+    const x = Math.min(f.width - 1, Math.floor((fx / W) * f.width)),
+      y = Math.min(f.height - 1, Math.floor(((H - fy) / H) * f.height));
+    const d = f.getContext('2d')!.getImageData(x, y, 1, 1).data;
+    return { px: [Math.floor(fx), Math.floor(fy)], rgba: [d[0] / 255, d[1] / 255, d[2] / 255, d[3] / 255] };
+  }
+
+  private drawSample(g: CanvasRenderingContext2D, info: { x: number; y: number; px: [number, number]; rgba: number[] }) {
+    const [r, gg, b, a] = info.rgba;
+    const lines = [`X ${info.px[0]}  Y ${info.px[1]}`, `R ${r.toFixed(3)}  G ${gg.toFixed(3)}  B ${b.toFixed(3)}  A ${a.toFixed(3)}`, `#${[r, gg, b].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase()}`];
+    g.save();
+    g.font = '11px Inter, system-ui, sans-serif';
+    const w = Math.max(...lines.map((l) => g.measureText(l).width)) + 40,
+      h = lines.length * 15 + 10;
+    const x = Math.min(this.el.clientWidth - w - 4, info.x + 14),
+      y = Math.min(this.el.clientHeight - h - 4, info.y + 14);
+    g.fillStyle = 'rgba(30,30,30,0.92)';
+    g.fillRect(x, y, w, h);
+    g.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(gg * 255)},${Math.round(b * 255)})`;
+    g.fillRect(x + 6, y + 6, 22, h - 12);
+    g.fillStyle = '#e6e6e6';
+    lines.forEach((l, i) => g.fillText(l, x + 34, y + 17 + i * 15));
+    g.restore();
   }
 
   private drawOverlays(g: CanvasRenderingContext2D) {

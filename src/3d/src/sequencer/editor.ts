@@ -37,7 +37,7 @@ export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
 type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale';
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale';
 
 /** Variants of the select tool slot (box / circle / lasso). */
 const SELECT_VARIANTS = [
@@ -181,7 +181,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
-    if (['select', 'select_circle', 'select_lasso', 'cursor', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
+    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
     this.preview.showOverlays = this.showOverlays;
@@ -485,6 +485,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       tb('pmove', 'transform_move', this.pvTool === 'move', 'Move\nMove the selected strips’ images', () => (this.pvTool = 'move')),
       tb('prot', 'transform_rotate', this.pvTool === 'rotate', 'Rotate\nRotate the selected strips’ images', () => (this.pvTool = 'rotate')),
       tb('pscale', 'transform_scale', this.pvTool === 'scale', 'Scale\nScale the selected strips’ images', () => (this.pvTool = 'scale')),
+      h('div', { key: 'sep2', class: 'tb-sep' }),
+      tb('psample', 'eyedropper', this.pvTool === 'sample', 'Sample\nShow the colour of the pixel under the pointer while the button is held', () => (this.pvTool = 'sample')),
     ]);
   }
 
@@ -1951,6 +1953,24 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const hit = this.preview.stripAt(e.clientX, e.clientY);
     const x0 = e.clientX,
       y0 = e.clientY;
+    if (this.pvTool === 'sample') {
+      const r = this.preview.el.getBoundingClientRect();
+      const show = (ev: { clientX: number; clientY: number }) => {
+        const v = this.preview.sample(ev.clientX, ev.clientY);
+        this.preview.sampleInfo = v ? { x: ev.clientX - r.left, y: ev.clientY - r.top, ...v } : null;
+        this.preview.draw();
+      };
+      show(e);
+      const up = () => {
+        removeEventListener('pointermove', show);
+        removeEventListener('pointerup', up);
+        this.preview.sampleInfo = null;
+        this.preview.draw();
+      };
+      addEventListener('pointermove', show);
+      addEventListener('pointerup', up);
+      return;
+    }
     if (this.pvTool === 'cursor') {
       const place = (ev: { clientX: number; clientY: number }) => {
         const [fx, fy] = this.preview.toFrame(ev.clientX, ev.clientY);
