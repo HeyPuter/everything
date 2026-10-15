@@ -72,3 +72,17 @@ test('a Text Editor script builds a mesh with bmesh in one undo step', async ({ 
   expect(await get(page, "Object.values(app.doc.objects).some(o => o.name === 'Stairs')")).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('operators from scripts: transforms with values and macro parts', async ({ page }) => {
+  const errors = await openApp(page);
+  await scriptingWorkspace(page);
+  await consoleLine(page, "bpy.ops.object.select_all({action: 'DESELECT'}); D.objects['Cube'].select_set(true); C.view_layer.objects.active = D.objects['Cube']");
+  await consoleLine(page, 'bpy.ops.transform.translate({value: [0, 0, 1]})');
+  await consoleLine(page, 'bpy.ops.object.duplicate_move({TRANSFORM_OT_translate: {value: [3, 0, 0]}})');
+  const pos = await get(page, "Object.values(app.doc.objects).filter(o => o.type === 'MESH').map(o => [o.name, ...o.location]).sort()");
+  expect(pos).toEqual([
+    ['Cube', 0, 0, 1],
+    ['Cube.001', 3, 0, 1],
+  ]);
+  await expectNoErrors(errors);
+});

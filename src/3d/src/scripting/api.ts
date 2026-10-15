@@ -2516,7 +2516,14 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
   const invoke = String(execContext).startsWith('INVOKE');
   if (!app.poll(idname)) throw pyError('RuntimeError', `Operator bpy.ops.${idname}.poll() failed, context is incorrect`);
   const plain: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(props ?? {})) plain[k] = toPlain(v);
+  // macro operators (duplicate_move, extrude_region_move…) take their parts' settings as
+  // TRANSFORM_OT_translate={…}: the first part runs here, the others after it
+  const parts: [string, Record<string, unknown>][] = [];
+  for (const [k, v] of Object.entries(props ?? {})) {
+    const m = /^([A-Z0-9]+)_OT_(\w+)$/.exec(k);
+    if (m) parts.push([`${m[1].toLowerCase()}.${m[2]}`, (v ?? {}) as Record<string, unknown>]);
+    else plain[k] = toPlain(v);
+  }
   // rotation/value props given as Euler etc. are plain arrays now
   const before = app.reports.length;
   const docBefore = app.doc;
@@ -2530,6 +2537,13 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
   }
   if (res === 'FINISHED' || res === undefined) scriptState.mutated = true;
   ensureEvaluated();
+  if (res === 'FINISHED' || res === undefined)
+    for (const [id, p] of parts) {
+      const values = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, toPlain(v)]));
+      // a part with nothing to do (the default zero move) is skipped, as when confirming in place
+      if (id === 'transform.translate' && (!values.value || (values.value as number[]).every((x) => !x))) continue;
+      if (operators.has(id)) callOperator(id, values, 'EXEC_DEFAULT');
+    }
   return (res ?? 'FINISHED') as 'FINISHED';
 }
 
