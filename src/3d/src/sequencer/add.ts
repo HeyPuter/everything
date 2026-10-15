@@ -1,5 +1,6 @@
 // Adding strips: media files (movie + its sound, sound, image / image sequence), generators
 // (colour, text, adjustment layer), scene strips and effect strips.
+import { connect } from './connect';
 import { app } from '../app/app';
 import type { Strip, StripType, MediaFile } from './types';
 import { newStrip, uniqueName, freeChannel, inputCount, finalStart, finalEnd, updateEffectRanges } from './strips';
@@ -100,6 +101,8 @@ export async function addMovie(file: File, frame: number, channel: number): Prom
     out.push(s);
   } else m.channel = channel;
   place(out, channel);
+  // picture and sound move together (names are final after placing)
+  if (out.length > 1) connect(out, out);
   // the movie strip is the active one
   setActive(m);
   return out;
@@ -184,6 +187,8 @@ function typeName(t: StripType): string {
       return 'Gaussian Blur';
     case 'SPEED':
       return 'Speed';
+    case 'MULTICAM':
+      return 'Multicam';
     default:
       return t.charAt(0) + t.slice(1).toLowerCase();
   }
