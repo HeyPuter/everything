@@ -432,7 +432,7 @@ function maskRows(s: Strip, m: StripModifier): Child {
 function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
   const header = h(
     'span',
-    { class: 'seq-mod-hd' },
+    { class: 'seq-mod-hd', onpointerdown: () => s.active_modifier !== m.name && app.run('sequencer.strip_modifier_set_active', { modifier: m.name }) },
     h('button', { class: { 'hdr-toggle': true, on: !m.mute }, 'data-tip': 'Mute\nMute this modifier', onclick: () => ((m.mute = !m.mute), app.pushUndo('Mute Modifier'), app.changed('doc')) }, icon(m.mute ? 'checkbox_dehlt' : 'checkbox_hlt')),
     textField(`seq-mod-name-${oid(m)}`, m.name, (v) => {
       if (!v || s.modifiers.some((x) => x !== m && x.name === v)) return;
@@ -468,7 +468,7 @@ function modifierPanel(s: Strip, m: StripModifier, i: number): Child {
       num(m, 'color_multiply', 'Multiply', { min: 0, max: 20, softMax: 2, precision: 3 }),
       maskRows(s, m),
     ];
-  }, { header, className: 'seq-mod-panel' });
+  }, { header, className: `seq-mod-panel${(s.active_modifier ?? s.modifiers[s.modifiers.length - 1]?.name) === m.name ? ' active' : ''}` });
 }
 
 export function modifiersTab(): Child {

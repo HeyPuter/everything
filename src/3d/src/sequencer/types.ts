@@ -166,6 +166,8 @@ export interface Strip {
   effect_fader: number;
   color_tag: ColorTag;
   modifiers: StripModifier[];
+  /** name of the active modifier (highlighted; copy and other modifier tools start from it) */
+  active_modifier?: string | null;
   // visual
   transform: StripTransform;
   crop: StripCrop;

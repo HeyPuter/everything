@@ -853,6 +853,19 @@ const ops: Operator[] = [
       let name = base;
       for (let i = 1; s.modifiers.some((m) => m.name === name); i++) name = `${base}.${String(i).padStart(3, '0')}`;
       s.modifiers.push(S.newModifier(p.type as ModifierType, name));
+      s.active_modifier = name;
+    },
+  },
+  {
+    idname: 'sequencer.strip_modifier_set_active',
+    label: 'Set Active Modifier',
+    description: 'Make a modifier of the active strip the active one',
+    props: [{ id: 'modifier', label: 'Modifier', type: 'string', default: '' }],
+    poll: () => !!activeStrip()?.modifiers.length,
+    exec: (_c, p) => {
+      const s = activeStrip()!;
+      if (!s.modifiers.some((m) => m.name === p.modifier)) return 'CANCELLED';
+      s.active_modifier = p.modifier as string;
     },
   },
   {

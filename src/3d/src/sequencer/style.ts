@@ -43,6 +43,7 @@ const css = /* css */ `
 .seq-mod-add { padding: 4px 8px 8px; }
 .seq-mod-add .seq-add-mod { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 22px; }
 .seq-mod-panel .ph-title { display: none; }
+.seq-mod-panel.active { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
 .seq-mod-panel .panel-header { gap: 4px; }
 .seq-mod-hd { display: inline-flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
 .seq-mod-hd .text-field { flex: 1; min-width: 40px; }
