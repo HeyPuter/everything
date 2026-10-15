@@ -809,6 +809,21 @@ export class TextEditor implements Editor {
     });
   }
 
+  private typedLine = { digits: '', t: 0 };
+
+  /** Digits typed while the pointer is over the line numbers jump to that line. */
+  private lineNumberKey(e: KeyboardEvent): boolean {
+    if (!/^[0-9]$/.test(e.key) || e.ctrlKey || e.metaKey || e.altKey || !this.showLineNumbers) return false;
+    const over = document.elementFromPoint(app.pointer.x, app.pointer.y);
+    if (!over || !this.gutter.contains(over)) return false;
+    e.preventDefault();
+    const now = performance.now();
+    this.typedLine.digits = (now - this.typedLine.t < 1000 ? this.typedLine.digits : '') + e.key;
+    this.typedLine.t = now;
+    this.goToLine(parseInt(this.typedLine.digits, 10));
+    return true;
+  }
+
   /** 0-based line index under a client y coordinate. */
   private lineAtY(y: number) {
     const rows = this.pre.children;
@@ -1273,6 +1288,7 @@ export class TextEditor implements Editor {
     e.stopPropagation();
     if (redirectIfElsewhere(e, this.area, this.ta)) return;
     if (this.acKey(e)) return;
+    if (this.lineNumberKey(e)) return;
     // Text keymap (editable in Preferences ▸ Keymap) and window shortcuts
     if (dispatchEditorKeys(e, this.area, ['Text'], () => this.commitUndo())) return;
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {

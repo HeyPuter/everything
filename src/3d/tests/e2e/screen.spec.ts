@@ -647,6 +647,11 @@ test('Text Editor: clicking and dragging line numbers selects lines', async ({ p
   await page.mouse.move(b3.x + 5, b3.y + 4, { steps: 3 });
   await page.mouse.up();
   expect(await sel()).toEqual([3, 13]);
+  // typing a number over the line numbers jumps to that line
+  await page.mouse.move(b1.x + 5, b1.y + 4);
+  await page.keyboard.press('3');
+  expect(await sel()).toEqual([7, 7]);
+  expect(await body(page)).toBe('aa\nbbb\ncccc\nd');
   await expectNoErrors(errors);
 });
 
