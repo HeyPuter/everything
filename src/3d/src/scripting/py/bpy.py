@@ -95,15 +95,17 @@ def _is_null(v):
     return v is None or type(v).__name__ in ("JsNull", "JsUndefined")
 
 
-def _wrap(v):
+def _wrap(v, kind=None):
     if _is_null(v):
         return None
     if not isinstance(v, JsProxy):
         return v
-    kind = _br.kind(v)
+    if not kind:
+        kind = _br.wrapkind(v)
+    if kind.startswith("b:"):
+        _, k, n = kind.split(":")
+        return _BOUND[k](v, int(n))
     if kind in ("vector", "euler", "color", "quaternion"):
-        if _br.bound(v):
-            return _BOUND[kind](v)
         vals = list(_br.components(v).to_py())
         if kind == "euler":
             return mathutils.Euler(vals, _br.order(v))
@@ -123,6 +125,9 @@ def _wrap(v):
     if kind == "opmodule":
         return _OpsModule(_br.getattr(v, "__module"))
     return _Struct(v)
+
+
+_METHOD = "\x00method"
 
 
 class _Function:
@@ -162,10 +167,10 @@ class _Struct:
     def __getattr__(self, name):
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
-        kind = _call(_br.attrkind, self._js, name)
-        if kind == "method":
+        v = _call(_br.attr, self._js, name)
+        if v == _METHOD:
             return _Method(self._js, name)
-        return _wrap(_call(_br.getattr, self._js, name))
+        return _wrap(v)
 
     def __setattr__(self, name, value):
         _call(_br.setattr, self._js, name, _tojs(value))
@@ -228,7 +233,9 @@ class _Collection(_Struct):
         return int(_call(_br.len, self._js))
 
     def __iter__(self):
-        return iter([_wrap(x) for x in _call(_br.list, self._js)])
+        r = _call(_br.listkinds, self._js)
+        items, kinds = r[0], r[1].to_py()
+        return iter([_wrap(x, k) for x, k in zip(items, kinds)])
 
     def __getitem__(self, key):
         if isinstance(key, slice):
@@ -236,6 +243,11 @@ class _Collection(_Struct):
         return _wrap(_call(_br.getitem, self._js, _tojs(key)))
 
     def __setitem__(self, key, value):
+        if isinstance(key, slice):
+            if key.step not in (None, 1):
+                raise ValueError("slice assignment with a step is not supported")
+            _call(_br.call, self._js, "set_slice", _tojs([key.start, key.stop, list(value)]), js.Object.new())
+            return
         _call(_br.setitem, self._js, _tojs(key), _tojs(value))
 
     def __contains__(self, key):
@@ -257,17 +269,23 @@ class _Collection(_Struct):
     def items(self):
         return list(zip(self.keys(), self.values()))
 
-    def find(self, key):
-        return int(_call(_br.call, self._js, "find", _tojs([key]), js.Object.new()))
+    def find(self, key, *args, **kw):
+        r = _call(_br.call, self._js, "find", _tojs([key, *args]), _kwargs(kw))
+        return r if not isinstance(r, (int, float)) else int(r)
 
-    def foreach_get(self, attr, seq):
-        vals = list(_call(_br.call, self._js, "foreach_get", _tojs([attr]), js.Object.new()))
+    def foreach_get(self, attr, seq=None):
+        # arrays such as Image.pixels take only the buffer
+        args = [] if seq is None else [attr]
+        if seq is None:
+            seq = attr
+        vals = list(_call(_br.call, self._js, "foreach_get", _tojs(args), js.Object.new()))
         for i, v in enumerate(vals):
             if i < len(seq):
                 seq[i] = v
 
-    def foreach_set(self, attr, seq):
-        _call(_br.call, self._js, "foreach_set", _tojs([attr, list(seq)]), js.Object.new())
+    def foreach_set(self, attr, seq=None):
+        args = [list(attr)] if seq is None else [attr, list(seq)]
+        _call(_br.call, self._js, "foreach_set", _tojs(args), js.Object.new())
 
 
 class _Array(_Collection):
@@ -281,7 +299,7 @@ class _BoundMixin:
     __slots__ = ()
 
     def _len(self):
-        return int(_br.vlen(self._js))
+        return self._n
 
     def _getc(self, i):
         return float(_br.vget(self._js, i))
@@ -291,40 +309,44 @@ class _BoundMixin:
 
 
 class _BoundVector(_BoundMixin, mathutils.Vector):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Vector(self._list())
 
 
 class _BoundColor(_BoundMixin, mathutils.Color):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Color(self._list())
 
 
 class _BoundQuaternion(_BoundMixin, mathutils.Quaternion):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
 
     def copy(self):
         return mathutils.Quaternion(self._list())
 
 
 class _BoundEuler(_BoundMixin, mathutils.Euler):
-    __slots__ = ("_js",)
+    __slots__ = ("_js", "_n")
 
-    def __init__(self, jsobj):
+    def __init__(self, jsobj, n=None):
         object.__setattr__(self, "_js", jsobj)
+        object.__setattr__(self, "_n", int(_br.vlen(jsobj)) if n is None else n)
         object.__setattr__(self, "_order", str(_br.order(jsobj)))
 
     def copy(self):
@@ -436,6 +458,11 @@ class _PropDef:
                 v = list(v)
             if k == "default" and isinstance(v, set):
                 v = sorted(v)[0] if v else None
+            if k == "type" and isinstance(v, type):
+                if not issubclass(v, PropertyGroup):
+                    raise TypeError("%sProperty(type=%s): only bpy.types.PropertyGroup subclasses are supported" % (self.type.title(), v.__name__))
+                o["group"] = v.__name__
+                continue
             o[k] = v
         return o
 
@@ -478,11 +505,11 @@ class _Props:
 
     @staticmethod
     def PointerProperty(**kw):
-        raise TypeError("PointerProperty is not supported by this application")
+        return _PropDef("POINTER", kw)
 
     @staticmethod
     def CollectionProperty(**kw):
-        raise TypeError("CollectionProperty is not supported by this application")
+        return _PropDef("COLLECTION", kw)
 
 
 props = _Props()
@@ -498,6 +525,17 @@ class _TypeMeta(type):
             t = str(_br.typename(obj._js))
             return t == cls.__name__ or cls.__name__ in ("ID", "bpy_struct") and _br.kind(obj._js) == "id"
         return type.__instancecheck__(cls, obj)
+
+    def __setattr__(cls, name, value):
+        # bpy.types.Object.weight = bpy.props.FloatProperty(...) adds a property to every Object
+        if isinstance(value, _PropDef):
+            _call(_br.declare_type_prop, cls.__name__, name, _tojs(value.spec()))
+        type.__setattr__(cls, name, value)
+
+    def __delattr__(cls, name):
+        _br.remove_type_prop(cls.__name__, name)
+        if name in cls.__dict__:
+            type.__delattr__(cls, name)
 
 
 class _Report:
@@ -619,6 +657,23 @@ class _Context(_Struct):
     def window_manager(self):
         return _WindowManager()
 
+    def temp_override(self, **kw):
+        """``with bpy.context.temp_override(active_object=ob, selected_objects=[ob]):``"""
+        return _TempOverride(self, kw)
+
+
+class _TempOverride:
+    def __init__(self, ctx, kw):
+        self._ctx, self._kw = ctx, kw
+
+    def __enter__(self):
+        _call(_br.call, self._ctx._js, "temp_override_begin", _tojs([self._kw]), js.Object.new())
+        return self._ctx
+
+    def __exit__(self, *exc):
+        _call(_br.call, self._ctx._js, "temp_override_end", js.Array.new(), js.Object.new())
+        return False
+
 
 def _make_instance(cls, values):
     inst = cls.__new__(cls)
@@ -721,6 +776,31 @@ def _register_panel(cls):
     _registered[cls] = ("panel", idname, proxies)
 
 
+def _register_menu(cls):
+    idname = getattr(cls, "bl_idname", "") or cls.__name__
+
+    def _draw(layout):
+        inst = cls.__new__(cls)
+        object.__setattr__(inst, "layout", _Struct(layout))
+        cls.draw(inst, context)
+
+    def _poll():
+        try:
+            return bool(cls.poll(context))
+        except Exception:
+            return False
+
+    proxies = [create_proxy(_draw)]
+    spec = _tojs({"idname": idname, "label": getattr(cls, "bl_label", "") or cls.__name__, "language": "python"})
+    js.Reflect.set(spec, "draw", proxies[0])
+    if hasattr(cls, "poll"):
+        p = create_proxy(_poll)
+        proxies.append(p)
+        js.Reflect.set(spec, "poll", p)
+    _call(_br.register_menu, spec)
+    _registered[cls] = ("menu", idname, proxies)
+
+
 def _release(entry):
     for p in entry[2]:
         try:
@@ -746,8 +826,14 @@ class _Utils:
             if not hasattr(cls, "draw"):
                 raise TypeError("register_class(...): panel '%s' needs a draw() method" % cls.__name__)
             _register_panel(cls)
-        elif issubclass(cls, (Menu, PropertyGroup)):
-            raise TypeError("register_class(...): %s subclasses are not supported by this application" % cls.__mro__[1].__name__)
+        elif issubclass(cls, PropertyGroup):
+            props = {k: v.spec() for k, v in _op_props(cls).items()}
+            _call(_br.declare_group, cls.__name__, _tojs(props))
+            _registered[cls] = ("group", cls.__name__, [])
+        elif issubclass(cls, Menu):
+            if not hasattr(cls, "draw"):
+                raise TypeError("register_class(...): menu '%s' needs a draw() method" % cls.__name__)
+            _register_menu(cls)
         else:
             raise TypeError("register_class(...): expected a subclass of bpy.types.Operator or bpy.types.Panel")
 
@@ -758,8 +844,10 @@ class _Utils:
             raise RuntimeError("unregister_class(...): missing bl_rna attribute from '%s' instance (may not be registered)" % cls.__name__)
         if entry[0] == "op":
             _br.unregister_operator(entry[1])
-        else:
+        elif entry[0] == "panel":
             _br.unregister_panel(entry[1])
+        elif entry[0] == "menu":
+            _br.unregister_menu(entry[1])
         _release(entry)
 
     @staticmethod
@@ -790,7 +878,147 @@ utils = _Utils()
 
 data = _wrap(_br.root("data"))
 context = _Context(_br.root("context"))
-app = _wrap(_br.root("app"))
+
+
+# ---------------------------------------------------------------------------
+# bpy.app.handlers / bpy.app.timers (Python functions stay on the Python side)
+
+_HANDLER_NAMES = (
+    "frame_change_pre", "frame_change_post", "depsgraph_update_pre", "depsgraph_update_post",
+    "load_pre", "load_post", "load_factory_startup_post", "save_pre", "save_post",
+    "render_init", "render_pre", "render_post", "render_write", "render_complete", "render_cancel",
+    "undo_pre", "undo_post", "redo_pre", "redo_post", "animation_playback_pre", "animation_playback_post",
+)
+
+
+def _arg_count(fn):
+    """How many positional arguments a handler takes (2 when it takes *args)."""
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return 2
+    n = 0
+    for p in params:
+        if p.kind == p.VAR_POSITIONAL:
+            return 2
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD) and p.default is p.empty:
+            n += 1
+    return n
+
+
+class _Handlers:
+    """Lists of functions called on events; ``persistent`` keeps one across file loads."""
+
+    def __init__(self):
+        for n in _HANDLER_NAMES:
+            setattr(self, n, [])
+
+    @staticmethod
+    def persistent(fn):
+        fn._bpy_persistent = True
+        return fn
+
+    def __repr__(self):
+        return "<bpy.app.handlers>"
+
+
+handlers = _Handlers()
+
+
+def _handler_count(name):
+    return len(getattr(handlers, name, ()))
+
+
+def _handler_dispatch(name, arg=None):
+    if name == "__clear_nonpersistent__":
+        for n in _HANDLER_NAMES:
+            lst = getattr(handlers, n)
+            lst[:] = [f for f in lst if getattr(f, "_bpy_persistent", False)]
+        return 0
+    lst = list(getattr(handlers, name, ()))
+    if not lst:
+        return 0
+    first = context.scene if _is_null(arg) else arg
+    depsgraph = None
+    for fn in lst:
+        try:
+            n = _arg_count(fn)
+            if n >= 2:
+                if depsgraph is None:
+                    depsgraph = context.evaluated_depsgraph_get()
+                fn(first, depsgraph)
+            elif n == 1:
+                fn(first)
+            else:
+                fn()
+        except Exception:
+            import traceback
+
+            sys.stderr.write("Error in %s handler %s:\n" % (name, getattr(fn, "__name__", "?")))
+            traceback.print_exc()
+    return len(lst)
+
+
+_handler_proxies = (create_proxy(_handler_dispatch), create_proxy(_handler_count))
+_br.set_handlers(*_handler_proxies)
+
+
+class _Timers:
+    """Functions run after a delay, then again after the number of seconds they return (None stops)."""
+
+    def __init__(self):
+        self._ids = {}
+
+    def register(self, function, first_interval=0, persistent=False):
+        if self.is_registered(function):
+            raise ValueError("bpy.app.timers.register(): function is already registered")
+
+        def tick():
+            try:
+                r = function()
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                r = None
+            if r is None:
+                self._ids.pop(function, None)
+                return -1
+            return float(r)
+
+        self._ids[function] = _br.timer_add(create_proxy(tick), float(first_interval), bool(persistent))
+
+    def unregister(self, function):
+        i = self._ids.pop(function, None)
+        if i is None:
+            raise ValueError("Error: function is not registered as a timer")
+        _br.timer_remove(i)
+
+    def is_registered(self, function):
+        i = self._ids.get(function)
+        return i is not None and bool(_br.timer_active(i))
+
+    def __repr__(self):
+        return "<bpy.app.timers>"
+
+
+timers = _Timers()
+
+
+class _App(_Struct):
+    __slots__ = ()
+    handlers = handlers
+    timers = timers
+
+    @property
+    def driver_namespace(self):
+        return _driver_namespace
+
+
+_driver_namespace = {}
+app = _App(_br.root("app"))
 
 
 class _Path:
@@ -818,3 +1046,8 @@ class _Path:
 
 
 path = _Path()
+
+
+# `from bpy.types import Operator`, `from bpy.props import FloatProperty`, `from bpy.app.handlers import persistent`
+for _name, _mod in (("types", types), ("props", props), ("utils", utils), ("ops", ops), ("path", path), ("app", app), ("app.handlers", handlers), ("app.timers", timers)):
+    sys.modules["bpy." + _name] = _mod

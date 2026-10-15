@@ -231,6 +231,13 @@ adds entries to File ▸ Import/Export. Native format: `io/native.ts`.
   `overlay` draws transient circle/lasso/slider readouts, `snapTo()`/`snapHeader()` snapping options;
   key-shaping logic lives in `animation/fcurvetools.ts` (pure) and its operators in `graphtools.ts`
 
+### Scripting extension points
+- `scripting/api.ts` `ID_MIXINS[table]` (members for a data-block wrapper), `NEW_DATA` / `addDataCollection` (new
+  `bpy.data` collections), `rna.ts` `mixin` and `arrayFactories` (new()/add()/remove() on lists reached through
+  the generic wrappers), `jsmodules.ts` `registerScriptModule` (a JS global plus `import name` in Python);
+  feature files are loaded through `scripting/api_ext.ts`. `scripting/handlers.ts` fires `bpy.app.handlers`.
+- Unit tests can run Python: `tests/unit/support/python.ts` loads the `pyodide` dev dependency (no network).
+
 ### Registration
 Feature modules are imported for side effects from `src/modules.ts` (`registerModules()`).
 They run before the `App` instance exists: use `onAppReady(fn)` (`app/app.ts`) for anything that

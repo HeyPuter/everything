@@ -18,37 +18,8 @@ import { icon, registerIcons } from '../ui/icons';
 import { panel } from '../ui/widgets';
 import { bool, num } from '../ui/props';
 
-export interface SpeakerSettings {
-  sound: MediaFile | null;
-  volume: number;
-  pitch: number;
-  muted: boolean;
-  /** scene frame at which the sound starts */
-  frame_start: number;
-  distance_reference: number;
-  distance_max: number;
-  attenuation: number;
-  /** full cone angles in radians */
-  cone_angle_inner: number;
-  cone_angle_outer: number;
-  cone_volume_outer: number;
-}
-
-export function defaultSpeaker(): SpeakerSettings {
-  return {
-    sound: null,
-    volume: 1,
-    pitch: 1,
-    muted: false,
-    frame_start: 1,
-    distance_reference: 1,
-    distance_max: 10000,
-    attenuation: 1,
-    cone_angle_inner: 2 * Math.PI,
-    cone_angle_outer: 2 * Math.PI,
-    cone_volume_outer: 1,
-  };
-}
+export { defaultSpeaker, type SpeakerSettings } from './speakerdata';
+import { defaultSpeaker, type SpeakerSettings } from './speakerdata';
 
 const speakerOf = (ob: ObjectData | null | undefined) => (ob?.type === 'SPEAKER' ? ob.speaker ?? null : null);
 

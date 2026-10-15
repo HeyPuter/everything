@@ -23,6 +23,8 @@ export const scriptState = {
 /** Called by every API write. */
 export function touched(kind: 'doc' | 'geometry' | 'select' | 'frame' = 'doc') {
   scriptState.mutated = true;
+  // arrays written in place keep their identity, which the evaluated-mesh cache keys on
+  if (kind === 'geometry') app.graph?.invalidate();
   if (typeof requestAnimationFrame === 'function') app.changed(kind === 'geometry' ? 'geometry' : kind, 'doc');
   else app.revision++;
 }
@@ -334,6 +336,14 @@ export function boundVector(subtype: 'EULER' | 'QUATERNION' | 'COLOR' | 'VECTOR'
   return v;
 }
 
+/** Properties scripts declared on struct types (typeprops.ts): looked up after the stored fields. */
+export const NOT_DECLARED = Symbol('not declared');
+export const structTypeProps: {
+  get: (t: Struct, key: string) => unknown;
+  set: (t: Struct, key: string, v: unknown) => boolean;
+  has: (t: Struct, key: string) => boolean;
+} = { get: () => NOT_DECLARED, set: () => false, has: () => false };
+
 /** Proxy a struct so raw document fields are readable/writable as properties. */
 export function proxify<T extends Struct>(s: T): T {
   return new Proxy(s, {
@@ -344,7 +354,8 @@ export function proxify<T extends Struct>(s: T): T {
       if (Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) return wrapField(t, p, () => t.__resolve());
       const ex = t.__extra();
       if (ex && Object.prototype.hasOwnProperty.call(ex, p)) return wrapField(t, p, () => (t.__resolve() ? t.__extra() : null));
-      return undefined;
+      const declared = structTypeProps.get(t, p);
+      return declared === NOT_DECLARED ? undefined : declared;
     },
     set(t, p, v, r) {
       if (typeof p === 'symbol' || p in t) {
@@ -365,19 +376,27 @@ export function proxify<T extends Struct>(s: T): T {
         touched();
         return true;
       }
+      if (structTypeProps.set(t, p, v)) return true;
       throw pyError('AttributeError', `'${t.__type}' object has no attribute '${p}'`);
     },
     has(t, p) {
       if (p in t) return true;
       if (typeof p === 'symbol') return false;
       const raw = t.__resolve();
-      return !!raw && ((Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) || !!(t.__extra() && p in t.__extra()!));
+      return !!raw && ((Object.prototype.hasOwnProperty.call(raw, p) && !t.__hidden().has(p)) || !!(t.__extra() && p in t.__extra()!) || structTypeProps.has(t, p));
     },
   });
 }
 
 // ---------------------------------------------------------------------------
 // Bound arrays (lists of structs or primitives inside the document)
+
+/**
+ * How to make items for lists reached through the generic wrappers, by path shape (indices and
+ * keys replaced with `[]`, e.g. `bpy.data.masks[].layers[].splines`): enables new() / add() /
+ * remove() / clear() on them.
+ */
+export const arrayFactories: { match: RegExp; make: (args: unknown[], list: unknown[]) => unknown }[] = [];
 
 export class BoundArray {
   readonly __kind = 'array';
@@ -473,6 +492,49 @@ export class BoundArray {
       return def;
     }
   }
+  private factory() {
+    const shape = this.__path.replace(/\[[^\]]*\]/g, '[]');
+    const f = arrayFactories.find((x) => x.match.test(shape));
+    if (!f) throw pyError('TypeError', `${this.__path}: items can't be added or removed from scripts here`);
+    return f;
+  }
+  /** Adds an item (lists the app knows how to fill, e.g. mask layers, splines, selection sets). */
+  new(...args: unknown[]) {
+    const a = this.arr();
+    const item = this.factory().make(args, a);
+    a.push(item);
+    touched();
+    return this.getItem(a.length - 1);
+  }
+  /** Appends `count` default items (points etc.); returns the last one. */
+  add(count: unknown = 1) {
+    const f = this.factory();
+    const a = this.arr();
+    const n = typeof count === 'number' ? Math.max(0, Math.round(count)) : 1;
+    for (let i = 0; i < n; i++) a.push(f.make(typeof count === 'number' ? [] : [count], a));
+    touched();
+    return a.length ? this.getItem(a.length - 1) : null;
+  }
+  remove(item: unknown) {
+    this.factory();
+    const a = this.arr();
+    const raw = item instanceof Struct ? item.__resolve() : typeof item === 'number' ? a[item] : item;
+    const i = a.indexOf(raw as never);
+    if (i < 0) throw pyError('ValueError', `${this.__path}.remove(): item not found`);
+    a.splice(i, 1);
+    touched();
+  }
+  clear() {
+    this.factory();
+    this.arr().length = 0;
+    touched();
+  }
+  move(from: number, to: number) {
+    const a = this.arr();
+    const [x] = a.splice(Number(from), 1);
+    if (x !== undefined) a.splice(Number(to), 0, x);
+    touched();
+  }
   toString() {
     return `<bpy_prop_collection ${this.__path}>`;
   }
@@ -526,10 +588,10 @@ export abstract class PropCollection<T = unknown> {
     if (typeof key === 'string') return this.list().some((x) => this.nameOf(x) === key);
     return this.list().some((x) => same(x, key));
   }
-  find(name: string) {
+  find(name: string, ..._rest: unknown[]): unknown {
     return this.list().findIndex((x) => this.nameOf(x) === name);
   }
-  keys() {
+  keys(): unknown[] {
     return this.list().map((x) => this.nameOf(x));
   }
   values() {
@@ -566,3 +628,48 @@ export function expectId(v: unknown, table: string, what: string): string {
   }
   throw pyError('TypeError', `expected a ${what}, got ${v === null ? 'None' : typeof v === 'object' ? (v as { __type?: string }).__type ?? 'object' : typeof v}`);
 }
+
+// ---------------------------------------------------------------------------
+// extension helpers
+
+/**
+ * Copies the getters, setters and methods of `source` (a class) onto `target` (a class), so
+ * feature files can add members to the wrappers defined in api.ts. Existing members are kept
+ * unless `override` is set.
+ */
+export function mixin(target: { prototype: object }, source: { prototype: object }, override = false) {
+  for (const k of Object.getOwnPropertyNames(source.prototype)) {
+    if (k === 'constructor') continue;
+    if (!override && Object.prototype.hasOwnProperty.call(target.prototype, k)) continue;
+    Object.defineProperty(target.prototype, k, Object.getOwnPropertyDescriptor(source.prototype, k)!);
+  }
+}
+
+/** Steps through a data path (`modifiers["Bevel"].width`, `location[2]`) from a script value. */
+export function resolvePath(root: unknown, path: string): unknown {
+  const tokens = path.match(/[A-Za-z_][A-Za-z0-9_]*|\[\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+)\s*\]/g) ?? [];
+  if (tokens.join('').replace(/\s/g, '') !== path.replace(/\./g, '').replace(/\s/g, '')) throw pyError('ValueError', `Path could not be resolved: "${path}"`);
+  let cur: unknown = root;
+  for (const t of tokens) {
+    if (cur === null || cur === undefined) throw pyError('ValueError', `Path could not be resolved: "${path}"`);
+    const o = cur as Record<string, unknown> & { getItem?: (k: unknown) => unknown; get?: (i: number) => unknown };
+    if (t.startsWith('[')) {
+      const inner = t.slice(1, -1).trim();
+      const key: string | number = /^-?\d+$/.test(inner) ? Number(inner) : JSON.parse(inner.startsWith("'") ? `"${inner.slice(1, -1).replace(/"/g, '\\"')}"` : inner);
+      if (typeof o.getItem === 'function') cur = o.getItem(key);
+      else if (typeof key === 'number' && cur instanceof VecBase) cur = cur.get(key < 0 ? cur.size + key : key);
+      else if (Array.isArray(cur) && typeof key === 'number') cur = cur[key < 0 ? cur.length + key : key];
+      else throw pyError('ValueError', `Path could not be resolved: "${path}"`);
+    } else {
+      if (!(t in (o as object))) throw pyError('ValueError', `Path could not be resolved: "${path}" ("${t}" not found)`);
+      cur = o[t];
+    }
+  }
+  return cur;
+}
+
+/** Set by api_anim.ts: animate `key` of a raw record (used by structs built as plain objects, e.g. node sockets). */
+export const structHooks: {
+  keyframe?: (raw: object, key: string, index: number, frame: unknown) => boolean;
+  driver?: (raw: object, key: string, index: number) => unknown;
+} = {};

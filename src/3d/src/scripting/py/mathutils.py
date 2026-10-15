@@ -1,4 +1,5 @@
-"""Vector math for scripts (Vector, Matrix, Euler, Quaternion, Color).
+"""Vector math for scripts (Vector, Matrix, Euler, Quaternion, Color) and the geometry,
+kdtree, bvhtree and noise submodules.
 
 An independent pure-Python implementation whose public names follow the documented
 `mathutils` module so existing scripts keep working. Matrices are row-major and act on
@@ -7,7 +8,7 @@ column vectors (``M @ v``). Euler order 'XYZ' applies the X rotation first.
 
 import math
 
-__all__ = ("Vector", "Matrix", "Euler", "Quaternion", "Color", "geometry", "noise")
+__all__ = ("Vector", "Matrix", "Euler", "Quaternion", "Color", "geometry", "kdtree", "bvhtree", "noise")
 
 _EPS = 1e-12
 
@@ -247,21 +248,32 @@ class Vector(_Base):
         return math.acos(max(-1.0, min(1.0, self.dot(o) / d)))
 
     def angle_signed(self, other, fallback=None):
-        a = self.angle(other, fallback)
-        return a if self.cross(other) >= 0 else -a
+        o = _seq(other)
+        if self._len() != 2 or len(o) != 2:
+            raise ValueError("Vector.angle_signed(other): only 2D vectors are supported")
+        a = self._list()
+        if math.hypot(a[0], a[1]) < _EPS or math.hypot(o[0], o[1]) < _EPS:
+            if fallback is not None:
+                return fallback
+            raise ValueError("Vector.angle_signed(other): zero length vectors have no valid angle")
+        return -math.atan2(a[0] * o[1] - a[1] * o[0], a[0] * o[0] + a[1] * o[1])
 
     def lerp(self, other, factor):
         return Vector([a + (b - a) * factor for a, b in zip(self._list(), _seq(other))])
 
     def slerp(self, other, factor, fallback=None):
+        """Spherical interpolation of the directions (the result is unit length)."""
         a, b = self.normalized(), Vector(other).normalized()
-        om = a.angle(b, fallback if fallback is not None else 0.0)
-        if abs(om) < 1e-9:
-            return self.lerp(other, factor)
-        s = math.sin(om)
-        la = self.length + (Vector(other).length - self.length) * factor
-        r = a * (math.sin((1 - factor) * om) / s) + b * (math.sin(factor * om) / s)
-        return r * la
+        d = max(-1.0, min(1.0, a.dot(b)))
+        if self.length < _EPS or Vector(other).length < _EPS or d < -1.0 + 1e-6:
+            if fallback is not None:
+                return fallback
+            raise ValueError("Vector.slerp(): zero length vectors or opposite vectors have no unique interpolation")
+        if d > 1.0 - 1e-9:
+            return a.lerp(b, factor).normalized()
+        th = math.acos(d)
+        s = math.sin(th)
+        return a * (math.sin((1 - factor) * th) / s) + b * (math.sin(factor * th) / s)
 
     def project(self, other):
         o = Vector(other)
@@ -277,7 +289,9 @@ class Vector(_Base):
             m = other.to_matrix()
         else:
             m = other.to_3x3()
-        self._assign(m @ self.to_3d())
+        r = m @ self.to_3d()
+        for i in range(min(3, self._len())):
+            self[i] = r[i]
 
     def rotation_difference(self, other):
         a, b = self.normalized(), Vector(other).normalized()
@@ -286,10 +300,7 @@ class Vector(_Base):
         if axis.length < 1e-9:
             if d > 0:
                 return Quaternion()
-            perp = Vector((1, 0, 0)).cross(a)
-            if perp.length < 1e-6:
-                perp = Vector((0, 1, 0)).cross(a)
-            return Quaternion(perp.normalized(), math.pi)
+            return Quaternion(a.orthogonal().normalized(), math.pi)
         return Quaternion(axis.normalized(), math.acos(d))
 
     def to_2d(self):
@@ -308,18 +319,66 @@ class Vector(_Base):
         v = self._list() + [0.0] * size
         return Vector(v[:size])
 
-    def resize_3d(self):
-        raise TypeError("cannot resize a wrapped or fixed-size vector; use to_3d()")
+    def resize(self, size):
+        if type(self) is not Vector:
+            raise TypeError("Vector.resize(): cannot resize a vector that wraps document data")
+        v = self._list() + [0.0] * size
+        object.__setattr__(self, "_d", v[:size])
 
-    def to_track_quat(self, track="Y", up="Z"):
-        axes = {"X": Vector((1, 0, 0)), "Y": Vector((0, 1, 0)), "Z": Vector((0, 0, 1)), "-X": Vector((-1, 0, 0)), "-Y": Vector((0, -1, 0)), "-Z": Vector((0, 0, -1))}
-        return axes[track].rotation_difference(self)
+    def resize_2d(self):
+        self.resize(2)
+
+    def resize_3d(self):
+        self.resize(3)
+
+    def resize_4d(self):
+        w = self[3] if self._len() > 3 else 1.0
+        self.resize(4)
+        self[3] = w
+
+    def to_track_quat(self, track="Z", up="Y"):
+        """Rotation pointing the local `track` axis along this vector, with the local `up`
+        axis turned as close as possible to world +Z."""
+        axes = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1), "-X": (-1, 0, 0), "-Y": (0, -1, 0), "-Z": (0, 0, -1)}
+        if track not in axes:
+            raise ValueError("Vector.to_track_quat(): invalid track axis '%s'" % track)
+        if up not in ("X", "Y", "Z"):
+            raise ValueError("Vector.to_track_quat(): invalid up axis '%s'" % up)
+        if track.lstrip("-") == up:
+            raise ValueError("Vector.to_track_quat(): track and up axis cannot be the same")
+        t, u = Vector(axes[track]), Vector(axes[up])
+        v = self.to_3d()
+        n = v.length
+        if n < 1e-6:
+            return Quaternion()
+        d = v / n
+        target = Vector((0.0, 0.0, 1.0)) - d * d.z
+        if target.length < 1e-6:
+            if t.z == 0:
+                target = t * (-1.0 if d.z > 0 else 1.0)
+            elif t.z * d.z > 0:
+                target = u * (-1.0 if d.z > 0 else 1.0)
+            else:
+                target = Vector((0.0, -1.0, 0.0))
+        target = target.normalized()
+        third = d.cross(target)
+        w = t.cross(u)
+        rows = [[d[i] * t[j] + target[i] * u[j] + third[i] * w[j] for j in range(3)] for i in range(3)]
+        return Matrix(rows).to_quaternion()
 
     def orthogonal(self):
-        x, y, z = self.to_3d()
-        if abs(x) < abs(z):
-            return Vector((0, -z, y)) if abs(x) < abs(y) else Vector((-z, 0, x))
-        return Vector((-y, x, 0))
+        """A vector perpendicular to this one (not normalized)."""
+        a = self._list()
+        if len(a) == 2:
+            return Vector((-a[1], a[0]))
+        ab = [abs(x) for x in a]
+        k = 0 if ab[0] >= ab[1] and ab[0] >= ab[2] else (1 if ab[1] >= ab[2] else 2)
+        i, j = (k + 1) % 3, (k + 2) % 3
+        out = [0.0, 0.0, 0.0]
+        out[k] = -a[i] - a[j]
+        out[i] = a[k]
+        out[j] = a[k]
+        return Vector(out)
 
     # arithmetic
     def __add__(self, o):
@@ -351,8 +410,14 @@ class Vector(_Base):
     def __matmul__(self, o):
         if isinstance(o, Matrix):
             # row vector times matrix
-            m = o.transposed()
-            return m @ self
+            v = self._list()
+            rows = o._rows
+            if len(v) == 3 and len(rows) == 4:
+                v = v + [1.0]
+            if len(v) != len(rows):
+                raise ValueError("vector @ matrix: vector size %d does not match matrix rows %d" % (len(v), len(rows)))
+            out = [sum(v[i] * rows[i][j] for i in range(len(v))) for j in range(len(rows[0]))]
+            return Vector(out[:3] if self._len() == 3 and len(out) == 4 else out)
         return self.dot(o)
 
     def __neg__(self):
@@ -408,6 +473,11 @@ class Vector(_Base):
             return cls([start])
         return cls([start + (stop - start) * i / (size - 1) for i in range(size)])
 
+    @classmethod
+    def Repeat(cls, vector, size):
+        v = _seq(vector)
+        return cls([v[i % len(v)] for i in range(size)])
+
 
 class Color(_Base):
     __slots__ = ()
@@ -432,13 +502,71 @@ class Color(_Base):
     def h(self):
         return self._hsv()[0]
 
+    @h.setter
+    def h(self, x):
+        _, s, v = self._hsv()
+        self.hsv = (x, s, v)
+
     @property
     def s(self):
         return self._hsv()[1]
 
+    @s.setter
+    def s(self, x):
+        h, _, v = self._hsv()
+        self.hsv = (h, x, v)
+
     @property
     def v(self):
         return self._hsv()[2]
+
+    @v.setter
+    def v(self, x):
+        h, s, _ = self._hsv()
+        self.hsv = (h, s, x)
+
+    def _mapped(self, f):
+        return Color([f(c) if i < 3 else c for i, c in enumerate(self._list())])
+
+    def _transformed(self, m):
+        a = self._list()
+        return Color([sum(m[i][k] * a[k] for k in range(3)) for i in range(3)] + a[3:])
+
+    def from_scene_linear_to_srgb(self):
+        return self._mapped(lambda c: 0.0 if c < 0 else (c * 12.92 if c < 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055))
+
+    def from_srgb_to_scene_linear(self):
+        return self._mapped(lambda c: 0.0 if c < 0 else (c / 12.92 if c < 0.04045 else ((c + 0.055) / 1.055) ** 2.4))
+
+    def from_scene_linear_to_xyz_d65(self):
+        return self._transformed(_TO_XYZ)
+
+    def from_xyz_d65_to_scene_linear(self):
+        return self._transformed(_inv3(_TO_XYZ))
+
+    def from_scene_linear_to_aces(self):
+        return self._transformed(_TO_ACES)
+
+    def from_aces_to_scene_linear(self):
+        return self._transformed(_inv3(_TO_ACES))
+
+    def from_scene_linear_to_acescg(self):
+        return self._transformed(_TO_ACESCG)
+
+    def from_acescg_to_scene_linear(self):
+        return self._transformed(_inv3(_TO_ACESCG))
+
+    def from_scene_linear_to_rec2020_linear(self):
+        return self._transformed(_TO_REC2020)
+
+    def from_rec2020_linear_to_scene_linear(self):
+        return self._transformed(_inv3(_TO_REC2020))
+
+    def from_scene_linear_to_rec709_linear(self):
+        return Color(self._list())
+
+    def from_rec709_linear_to_scene_linear(self):
+        return Color(self._list())
 
     @property
     def hsv(self):
@@ -447,8 +575,9 @@ class Color(_Base):
     @hsv.setter
     def hsv(self, hsv):
         h, s, v = hsv
-        i = int(h * 6.0) % 6
-        f = h * 6.0 - int(h * 6.0)
+        h = (h % 1.0) * 6.0
+        i = int(h) % 6
+        f = h - int(h)
         p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
         rgb = [(v, t, p), (q, v, p), (p, v, t), (p, q, v), (t, p, v), (v, p, q)][i]
         for k in range(3):
@@ -476,15 +605,51 @@ class Color(_Base):
         return Color([a - b for a, b in zip(self._list(), _seq(o))])
 
     def __mul__(self, f):
-        return Color([a * f for a in self._list()])
+        if isinstance(f, (int, float)):
+            return Color([a * f for a in self._list()])
+        return Color([a * b for a, b in zip(self._list(), _seq(f))])
 
     __rmul__ = __mul__
+
+    def __truediv__(self, f):
+        if f == 0:
+            raise ZeroDivisionError("Color division by zero")
+        return Color([a / f for a in self._list()])
+
+    def __neg__(self):
+        return Color([-a for a in self._list()])
+
+    def __iadd__(self, o):
+        self._assign(self + o)
+        return self
+
+    def __isub__(self, o):
+        self._assign(self - o)
+        return self
+
+    def __imul__(self, o):
+        self._assign(self * o)
+        return self
 
     def __repr__(self):
         return "Color((%s))" % ", ".join(_fmt(x) for x in self._list())
 
     def __str__(self):
         return "<Color (r=%.4f, g=%.4f, b=%.4f)>" % (self[0], self[1], self[2])
+
+
+# linear Rec.709 primaries (the scene linear space) to other spaces; rows map to output channels
+_TO_XYZ = ((0.412391, 0.357585, 0.180481), (0.212639, 0.715169, 0.072193), (0.019331, 0.119195, 0.950532))
+_TO_ACES = ((0.439633, 0.382989, 0.177378), (0.089776, 0.81344, 0.096784), (0.017541, 0.111547, 0.870912))
+_TO_ACESCG = ((0.613097, 0.339522, 0.047379), (0.070194, 0.916355, 0.013453), (0.020616, 0.10957, 0.869815))
+_TO_REC2020 = ((0.627404, 0.329284, 0.043314), (0.069097, 0.919541, 0.011363), (0.016391, 0.088013, 0.895595))
+_INVERSES = {}
+
+
+def _inv3(m):
+    if m not in _INVERSES:
+        _INVERSES[m] = Matrix(m).inverted()._rows
+    return _INVERSES[m]
 
 
 def _axis_matrix(axis, angle):
@@ -543,15 +708,17 @@ class Euler(_Base):
         o = _seq(other)
         for i in range(3):
             v = self[i]
-            while v - o[i] > math.pi:
-                v -= 2 * math.pi
-            while o[i] - v > math.pi:
-                v += 2 * math.pi
+            d = v - o[i]
+            if abs(d) > math.pi:
+                v -= round(d / (2 * math.pi)) * 2 * math.pi
             self[i] = v
 
     def rotate_axis(self, axis, angle):
-        m = Matrix(_axis_matrix(axis, angle)) @ self.to_matrix()
-        self._assign(m.to_euler(self.order))
+        """Rotate around one of the rotation's own (local) axes."""
+        if axis not in ("X", "Y", "Z"):
+            raise ValueError("Euler.rotate_axis(): expected axis 'X', 'Y' or 'Z'")
+        m = self.to_matrix() @ Matrix(_axis_matrix(axis, angle))
+        self._assign(m.to_euler(self.order, self))
 
     def rotate(self, other):
         m = (other.to_matrix() if isinstance(other, (Euler, Quaternion)) else other.to_3x3()) @ self.to_matrix()
@@ -573,9 +740,19 @@ class Quaternion(_Base):
             s = math.sin(angle / 2.0)
             _Base.__init__(self, (math.cos(angle / 2.0), ax[0] * s, ax[1] * s, ax[2] * s))
         else:
-            _Base.__init__(self, seq)
+            v = _seq(seq)
+            if len(v) == 3:
+                th = math.sqrt(sum(x * x for x in v))
+                if th < _EPS:
+                    v = [1.0, 0.0, 0.0, 0.0]
+                else:
+                    s = math.sin(th / 2.0) / th
+                    v = [math.cos(th / 2.0), v[0] * s, v[1] * s, v[2] * s]
+                    if v[0] < 0:
+                        v = [-x for x in v]
+            _Base.__init__(self, v)
             if len(self._d) != 4:
-                raise ValueError("Quaternion(): expected 4 values (w, x, y, z)")
+                raise ValueError("Quaternion(): expected 4 values (w, x, y, z) or a 3D exponential map")
 
     w = property(lambda s: s[0], lambda s, v: s.__setitem__(0, v))
     x = property(lambda s: s[1], lambda s, v: s.__setitem__(1, v))
@@ -591,13 +768,46 @@ class Quaternion(_Base):
         w = self.normalized()[0]
         return 2.0 * math.acos(max(-1.0, min(1.0, w)))
 
+    @angle.setter
+    def angle(self, a):
+        n = self.magnitude or 1.0
+        ax = self.axis
+        s = math.sin(a / 2.0)
+        self._assign((math.cos(a / 2.0) * n, ax[0] * s * n, ax[1] * s * n, ax[2] * s * n))
+
     @property
     def axis(self):
         q = self.normalized()
         s = math.sqrt(max(0.0, 1.0 - q[0] * q[0]))
         if s < 1e-9:
-            return Vector((1.0, 0.0, 0.0))
+            return Vector((0.0, 1.0, 0.0))
         return Vector((q[1] / s, q[2] / s, q[3] / s))
+
+    @axis.setter
+    def axis(self, v):
+        n = self.magnitude or 1.0
+        a = self.angle
+        ax = Vector(v).normalized()
+        s = math.sin(a / 2.0)
+        self._assign((math.cos(a / 2.0) * n, ax[0] * s * n, ax[1] * s * n, ax[2] * s * n))
+
+    def to_swing_twist(self, axis):
+        """Split into a swing quaternion and a twist angle around 'X', 'Y' or 'Z'."""
+        k = {"X": 1, "Y": 2, "Z": 3}.get(axis)
+        if k is None:
+            raise ValueError("Quaternion.to_swing_twist(): invalid axis '%s'" % axis)
+        q = self.normalized()._list()
+        t = [q[0], 0.0, 0.0, 0.0]
+        t[k] = q[k]
+        n = math.hypot(t[0], t[k])
+        if n < _EPS:
+            t, n = [1.0, 0.0, 0.0, 0.0], 1.0
+        t = [x / n for x in t]
+        if t[0] < 0:
+            t = [-x for x in t]
+        angle = 2.0 * math.atan2(t[k], t[0])
+        swing = Quaternion(q) @ Quaternion((t[0], -t[1], -t[2], -t[3]))
+        return (swing, angle)
 
     def to_axis_angle(self):
         return (self.axis, self.angle)
@@ -620,6 +830,8 @@ class Quaternion(_Base):
 
     def inverted(self):
         n = sum(v * v for v in self._list())
+        if n < _EPS:
+            raise ValueError("Quaternion.inverted(): zero length quaternion has no inverse")
         w, x, y, z = self._list()
         return Quaternion((w / n, -x / n, -y / n, -z / n))
 
@@ -671,7 +883,13 @@ class Quaternion(_Base):
 
     def rotate(self, other):
         q = other if isinstance(other, Quaternion) else other.to_quaternion()
-        self._assign(q @ self)
+        n = self.magnitude
+        self._assign((q.normalized() @ self.normalized()) * n)
+
+    def __truediv__(self, o):
+        if o == 0:
+            raise ZeroDivisionError("Quaternion division by zero")
+        return Quaternion([v / o for v in self._list()])
 
     def make_compatible(self, other):
         if self.dot(other) < 0:
@@ -819,8 +1037,37 @@ class Matrix:
     @classmethod
     def OrthoProjection(cls, axis, size=4):
         m = cls.Identity(size)
-        i = {"X": 0, "Y": 1, "Z": 2, "XY": 2, "XZ": 1, "YZ": 0}[axis if isinstance(axis, str) else "Z"]
-        m._rows[i][i] = 0.0
+        if isinstance(axis, str):
+            zero = {"X": 1, "Y": 0} if size == 2 else {"XY": 2, "XZ": 1, "YZ": 0}
+            if axis not in zero:
+                raise ValueError("Matrix.OrthoProjection(): unknown plane '%s'" % axis)
+            m._rows[zero[axis]][zero[axis]] = 0.0
+            return m
+        k = min(size, 3)
+        n = Vector(_seq(axis)[:k]).normalized()
+        for i in range(k):
+            for j in range(k):
+                m._rows[i][j] -= n[i] * n[j]
+        return m
+
+    @classmethod
+    def Shear(cls, plane, size, factor):
+        m = cls.Identity(size)
+        if size == 2:
+            f = factor if isinstance(factor, (int, float)) else _seq(factor)[0]
+            if plane == "X":
+                m._rows[0][1] = float(f)
+            elif plane == "Y":
+                m._rows[1][0] = float(f)
+            else:
+                raise ValueError("Matrix.Shear(): expected plane 'X' or 'Y' for a 2x2 matrix")
+            return m
+        a, b = (factor, factor) if isinstance(factor, (int, float)) else _seq(factor)[:2]
+        cells = {"XY": ((0, 2), (1, 2)), "XZ": ((0, 1), (2, 1)), "YZ": ((1, 0), (2, 0))}
+        if plane not in cells:
+            raise ValueError("Matrix.Shear(): expected plane 'XY', 'XZ' or 'YZ'")
+        (r1, c1), (r2, c2) = cells[plane]
+        m._rows[r1][c1], m._rows[r2][c2] = float(a), float(b)
         return m
 
     @classmethod
@@ -889,9 +1136,41 @@ class Matrix:
         return (m @ m.transposed()).equals(Matrix.Identity(3), 1e-6)
 
     @property
+    def is_orthogonal_axis_vectors(self):
+        k = min(len(self._rows), 3)
+        cols = [[self._rows[i][j] for i in range(k)] for j in range(k)]
+        for a in range(k):
+            for b in range(a + 1, k):
+                d = sum(x * y for x, y in zip(cols[a], cols[b]))
+                n = math.sqrt(sum(x * x for x in cols[a])) * math.sqrt(sum(x * x for x in cols[b]))
+                if abs(d) > 1e-6 * max(n, 1e-12):
+                    return False
+        return True
+
+    @property
+    def is_identity(self):
+        return self.equals(Matrix.Identity(len(self._rows)), 1e-6)
+
+    @property
     def median_scale(self):
-        s = self.to_scale()
-        return (abs(s[0]) + abs(s[1]) + abs(s[2])) / 3.0
+        """Average scale: the length of a unit diagonal vector after transformation."""
+        m = self.to_3x3()._rows
+        u = 1.0 / math.sqrt(3.0)
+        return math.sqrt(sum(((r[0] + r[1] + r[2]) * u) ** 2 for r in m))
+
+    def adjugated(self):
+        n = len(self._rows)
+        if n == 1:
+            return Matrix([[1.0]])
+
+        def minor(i, j):
+            sub = [[x for c, x in enumerate(r) if c != j] for k, r in enumerate(self._rows) if k != i]
+            return Matrix(sub).determinant() if len(sub) > 1 else sub[0][0]
+
+        return Matrix([[(-1) ** (i + j) * minor(j, i) for j in range(n)] for i in range(n)])
+
+    def adjugate(self):
+        self._rows = self.adjugated()._rows
 
     def copy(self):
         return Matrix(self._rows)
@@ -962,7 +1241,13 @@ class Matrix:
         self._rows = self.inverted(fallback)._rows
 
     def inverted_safe(self):
-        return self.inverted(Matrix.Identity(len(self._rows)))
+        try:
+            return self.inverted()
+        except ValueError:
+            m = self.copy()
+            for i in range(len(m._rows)):
+                m._rows[i][i] += 1e-8
+            return m.inverted(Matrix.Identity(len(self._rows)))
 
     def invert_safe(self):
         self._rows = self.inverted_safe()._rows
@@ -1050,11 +1335,10 @@ class Matrix:
         if isinstance(o, Quaternion):
             return (self.to_3x3() @ o.to_matrix()).to_quaternion()
         v = _seq(o)
-        if len(self._rows) == 4 and len(v) == 3:
+        if len(self._rows[0]) == 4 and len(v) == 3:
+            # 3D vector through a 4x4 matrix: w = 1, no perspective divide, truncated to 3D
             r = self._rows
-            w = r[3][0] * v[0] + r[3][1] * v[1] + r[3][2] * v[2] + r[3][3]
-            w = w if w != 0 else 1.0
-            return Vector([(r[i][0] * v[0] + r[i][1] * v[1] + r[i][2] * v[2] + r[i][3]) / w for i in range(3)])
+            return Vector([r[i][0] * v[0] + r[i][1] * v[1] + r[i][2] * v[2] + r[i][3] for i in range(3)])
         if len(self._rows) == 3 and len(v) == 4:
             v = v[:3]
         return Vector([sum(a * b for a, b in zip(row, v)) for row in self._rows])
@@ -1081,6 +1365,11 @@ class Matrix:
     def __neg__(self):
         return self * -1.0
 
+    def __truediv__(self, f):
+        if f == 0:
+            raise ZeroDivisionError("Matrix division by zero")
+        return self * (1.0 / f)
+
     def __eq__(self, o):
         return isinstance(o, Matrix) and self._rows == o._rows
 
@@ -1093,123 +1382,466 @@ class Matrix:
         return "<Matrix %dx%d %s>" % (len(self._rows), len(self._rows[0]), "\n            ".join("(%s)" % ", ".join("%.4f" % x for x in r) for r in self._rows))
 
 
-class _Geometry:
-    """Subset of mathutils.geometry."""
+# ---------------------------------------------------------------------------
+# Submodules (geometry, kdtree, bvhtree, noise) share one implementation with the
+# JavaScript API: calls are forwarded to it through the scripting bridge.
 
-    @staticmethod
-    def intersect_line_plane(line_a, line_b, plane_co, plane_no, no_flip=False):
-        a, b = Vector(line_a), Vector(line_b)
-        d = b - a
-        n = Vector(plane_no)
-        den = n.dot(d)
-        if abs(den) < _EPS:
-            return None
-        t = n.dot(Vector(plane_co) - a) / den
-        return a + d * t
+import sys as _sys
+import types as _types
 
-    @staticmethod
-    def intersect_point_line(pt, line_p1, line_p2):
-        p, a, b = Vector(pt), Vector(line_p1), Vector(line_p2)
-        d = b - a
-        l2 = d.length_squared
-        t = 0.0 if l2 < _EPS else (p - a).dot(d) / l2
-        return (a + d * t, t)
-
-    @staticmethod
-    def distance_point_to_plane(pt, plane_co, plane_no):
-        return (Vector(pt) - Vector(plane_co)).dot(Vector(plane_no).normalized())
-
-    @staticmethod
-    def normal(*vectors):
-        if len(vectors) == 1:
-            vectors = vectors[0]
-        pts = [Vector(v).to_3d() for v in vectors]
-        n = Vector((0.0, 0.0, 0.0))
-        for i in range(len(pts)):
-            a, b = pts[i], pts[(i + 1) % len(pts)]
-            n.x += (a.y - b.y) * (a.z + b.z)
-            n.y += (a.z - b.z) * (a.x + b.x)
-            n.z += (a.x - b.x) * (a.y + b.y)
-        return n.normalized()
-
-    @staticmethod
-    def area_tri(v1, v2, v3):
-        a = Vector(v1)
-        c = (Vector(v2) - a).cross(Vector(v3) - a)
-        return abs(c) / 2.0 if isinstance(c, float) else c.length / 2.0
-
-    @staticmethod
-    def barycentric_transform(point, tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3):
-        p, a, b, c = Vector(point), Vector(tri_a1), Vector(tri_a2), Vector(tri_a3)
-        v0, v1, v2 = b - a, c - a, p - a
-        d00, d01, d11, d20, d21 = v0.dot(v0), v0.dot(v1), v1.dot(v1), v2.dot(v0), v2.dot(v1)
-        den = d00 * d11 - d01 * d01 or 1.0
-        v = (d11 * d20 - d01 * d21) / den
-        w = (d00 * d21 - d01 * d20) / den
-        u = 1.0 - v - w
-        return Vector(tri_b1) * u + Vector(tri_b2) * v + Vector(tri_b3) * w
+_JS = []
 
 
-geometry = _Geometry()
+def _js(path):
+    """The JavaScript `mathutils.<path>` object (resolved through the bridge on first use)."""
+    if not _JS:
+        import _p3d_bridge
+
+        _JS.append(_p3d_bridge.mathutils())
+    o = _JS[0]
+    for part in path.split("."):
+        o = getattr(o, part)
+    return o
 
 
-class _Noise:
-    """Subset of mathutils.noise (deterministic value noise; original implementation)."""
-
-    def __init__(self):
-        import random as _r
-
-        self._rng = _r.Random(0)
-
-    def seed_set(self, seed):
-        self._rng.seed(seed)
-
-    def random(self):
-        return self._rng.random()
-
-    def random_unit_vector(self, size=3):
-        while True:
-            v = Vector([self._rng.uniform(-1, 1) for _ in range(size)])
-            if 1e-6 < v.length <= 1.0:
-                return v.normalized()
-
-    def random_vector(self, size=3):
-        return Vector([self._rng.uniform(-1, 1) for _ in range(size)])
-
-    @staticmethod
-    def _hash(x, y, z):
-        h = (int(x) * 374761393 + int(y) * 668265263 + int(z) * 2147483647) & 0xFFFFFFFF
-        h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
-        return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0
-
-    def noise(self, position, noise_basis="PERLIN_ORIGINAL"):
-        x, y, z = Vector(position).to_3d()
-        xi, yi, zi = math.floor(x), math.floor(y), math.floor(z)
-        fx, fy, fz = x - xi, y - yi, z - zi
-        sx, sy, sz = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy), fz * fz * (3 - 2 * fz)
-
-        def h(a, b, c):
-            return self._hash(xi + a, yi + b, zi + c)
-
-        def lerp(a, b, t):
-            return a + (b - a) * t
-
-        v = lerp(
-            lerp(lerp(h(0, 0, 0), h(1, 0, 0), sx), lerp(h(0, 1, 0), h(1, 1, 0), sx), sy),
-            lerp(lerp(h(0, 0, 1), h(1, 0, 1), sx), lerp(h(0, 1, 1), h(1, 1, 1), sx), sy),
-            sz,
-        )
-        return v * 2.0 - 1.0
-
-    def fractal(self, position, H=1.0, lacunarity=2.0, octaves=4, noise_basis="PERLIN_ORIGINAL"):
-        p = Vector(position).to_3d()
-        total, amp, norm = 0.0, 1.0, 0.0
-        for _ in range(int(octaves)):
-            total += self.noise(p) * amp
-            norm += amp
-            amp *= lacunarity ** (-H)
-            p = p * lacunarity
-        return total / norm if norm else 0.0
+def _plain(v):
+    if isinstance(v, (Vector, Euler, Quaternion, Color)):
+        return [float(x) for x in v]
+    if isinstance(v, Matrix):
+        return [list(r) for r in v._rows]
+    if isinstance(v, (list, tuple, range)) or type(v).__name__ in ("generator", "map", "_MatrixRow"):
+        return [_plain(x) for x in v]
+    return v
 
 
-noise = _Noise()
+def _tojs(v):
+    from pyodide.ffi import to_js
+
+    p = _plain(v)
+    return to_js(p) if isinstance(p, list) else p
+
+
+def _is_null(v):
+    return v is None or type(v).__name__ in ("JsNull", "JsUndefined")
+
+
+def _topy(v):
+    if _is_null(v):
+        return None
+    from pyodide.ffi import JsProxy
+
+    if not isinstance(v, JsProxy):
+        return v
+    import js
+
+    if js.Array.isArray(v):
+        return [_topy(x) for x in v]
+    kind = js.Reflect.get(v, "__kind")
+    if kind in ("vector", "color", "euler", "quaternion"):
+        vals = [float(x) for x in v.toArray()]
+        return {"color": Color, "quaternion": Quaternion}.get(kind, Vector)(vals)
+    return v
+
+
+_PY_ERRORS = {"TypeError": TypeError, "ValueError": ValueError, "RuntimeError": RuntimeError, "IndexError": IndexError, "AttributeError": AttributeError, "RangeError": ValueError}
+
+
+def _call(fn, *args):
+    from pyodide.ffi import JsException
+
+    try:
+        return fn(*args)
+    except JsException as e:
+        msg = str(e)
+        for name, cls in _PY_ERRORS.items():
+            k = msg.find(name + ": ")
+            if k >= 0:
+                raise cls(msg[k + len(name) + 2:]) from None
+        raise RuntimeError(msg) from None
+
+
+def _fwd(path, *args):
+    return _topy(_call(_js(path), *[_tojs(a) for a in args]))
+
+
+def _vecs(r):
+    return tuple(r) if isinstance(r, list) else r
+
+
+def _f(x):
+    return None if x is None else float(x)
+
+
+def _module(name, doc, fns):
+    m = _types.ModuleType("mathutils." + name, doc)
+    for f in fns:
+        setattr(m, f.__name__, f)
+        f.__module__ = m.__name__
+    _sys.modules[m.__name__] = m
+    return m
+
+
+# --- geometry ---------------------------------------------------------------
+
+def intersect_ray_tri(v1, v2, v3, ray, orig, clip=True):
+    """Ray (direction `ray` from `orig`) against a triangle; None when it misses."""
+    return _fwd("geometry.intersect_ray_tri", v1, v2, v3, ray, orig, bool(clip))
+
+
+def intersect_line_line(v1, v2, v3, v4):
+    """Closest points between two infinite lines, or None when parallel."""
+    return _vecs(_fwd("geometry.intersect_line_line", v1, v2, v3, v4))
+
+
+def intersect_line_line_2d(lineA_p1, lineA_p2, lineB_p1, lineB_p2):
+    return _fwd("geometry.intersect_line_line_2d", lineA_p1, lineA_p2, lineB_p1, lineB_p2)
+
+
+def intersect_line_plane(line_a, line_b, plane_co, plane_no, no_flip=False):
+    return _fwd("geometry.intersect_line_plane", line_a, line_b, plane_co, plane_no, bool(no_flip))
+
+
+def intersect_plane_plane(plane_a_co, plane_a_no, plane_b_co, plane_b_no):
+    return _vecs(_fwd("geometry.intersect_plane_plane", plane_a_co, plane_a_no, plane_b_co, plane_b_no))
+
+
+def intersect_line_sphere(line_a, line_b, sphere_co, sphere_radius, clip=True):
+    return _vecs(_fwd("geometry.intersect_line_sphere", line_a, line_b, sphere_co, float(sphere_radius), bool(clip)))
+
+
+def intersect_line_sphere_2d(line_a, line_b, sphere_co, sphere_radius, clip=True):
+    return _vecs(_fwd("geometry.intersect_line_sphere_2d", line_a, line_b, sphere_co, float(sphere_radius), bool(clip)))
+
+
+def intersect_sphere_sphere_2d(p_a, radius_a, p_b, radius_b):
+    return _vecs(_fwd("geometry.intersect_sphere_sphere_2d", p_a, float(radius_a), p_b, float(radius_b)))
+
+
+def intersect_point_line(pt, line_p1, line_p2):
+    p, t = _fwd("geometry.intersect_point_line", pt, line_p1, line_p2)
+    return (p, float(t))
+
+
+def intersect_point_tri(pt, tri_p1, tri_p2, tri_p3):
+    return _fwd("geometry.intersect_point_tri", pt, tri_p1, tri_p2, tri_p3)
+
+
+def intersect_point_tri_2d(pt, tri_p1, tri_p2, tri_p3):
+    return int(_fwd("geometry.intersect_point_tri_2d", pt, tri_p1, tri_p2, tri_p3))
+
+
+def intersect_point_quad_2d(pt, quad_p1, quad_p2, quad_p3, quad_p4):
+    return int(_fwd("geometry.intersect_point_quad_2d", pt, quad_p1, quad_p2, quad_p3, quad_p4))
+
+
+def intersect_tri_tri_2d(tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3):
+    return bool(_fwd("geometry.intersect_tri_tri_2d", tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3))
+
+
+def closest_point_on_tri(pt, tri_p1, tri_p2, tri_p3):
+    return _fwd("geometry.closest_point_on_tri", pt, tri_p1, tri_p2, tri_p3)
+
+
+def distance_point_to_plane(pt, plane_co, plane_no):
+    return float(_fwd("geometry.distance_point_to_plane", pt, plane_co, plane_no))
+
+
+def area_tri(v1, v2, v3):
+    return float(_fwd("geometry.area_tri", v1, v2, v3))
+
+
+def volume_tri(v1, v2, v3):
+    """Signed volume of the tetrahedron (v1, v2, v3, origin)."""
+    return float(_fwd("geometry.volume_tri", v1, v2, v3))
+
+
+def normal(*vectors):
+    """Unit normal of a polygon given as points (or one sequence of points)."""
+    if len(vectors) == 1:
+        vectors = vectors[0]
+    return _fwd("geometry.normal", list(vectors))
+
+
+def barycentric_transform(point, tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3):
+    return _fwd("geometry.barycentric_transform", point, tri_a1, tri_a2, tri_a3, tri_b1, tri_b2, tri_b3)
+
+
+def interpolate_bezier(knot1, handle1, handle2, knot2, resolution):
+    return _fwd("geometry.interpolate_bezier", knot1, handle1, handle2, knot2, int(resolution))
+
+
+def tessellate_polygon(veclist_list):
+    """Triangles (index triples into the points of all loops in order) filling the loops."""
+    return [tuple(int(i) for i in t) for t in _fwd("geometry.tessellate_polygon", [list(loop) for loop in veclist_list])]
+
+
+def convex_hull_2d(points):
+    return [int(i) for i in _fwd("geometry.convex_hull_2d", list(points))]
+
+
+def box_fit_2d(points):
+    return float(_fwd("geometry.box_fit_2d", list(points)))
+
+
+def box_pack_2d(boxes):
+    """Pack boxes [x, y, width, height]; x and y are written in place. Returns (width, height)."""
+    arr = _tojs([list(b) for b in boxes])
+    w, h = _topy(_call(_js("geometry.box_pack_2d"), arr))
+    for b, placed in zip(boxes, arr):
+        b[0], b[1] = float(placed[0]), float(placed[1])
+    return (float(w), float(h))
+
+
+def points_in_planes(planes, epsilon_coplanar=1e-4, epsilon_isect=1e-6):
+    verts, used = _fwd("geometry.points_in_planes", list(planes), float(epsilon_coplanar), float(epsilon_isect))
+    return (verts, [int(i) for i in used])
+
+
+geometry = _module(
+    "geometry",
+    "Intersection, projection and polygon helpers.",
+    [intersect_ray_tri, intersect_line_line, intersect_line_line_2d, intersect_line_plane, intersect_plane_plane, intersect_line_sphere,
+     intersect_line_sphere_2d, intersect_sphere_sphere_2d, intersect_point_line, intersect_point_tri, intersect_point_tri_2d,
+     intersect_point_quad_2d, intersect_tri_tri_2d, closest_point_on_tri, distance_point_to_plane, area_tri, volume_tri, normal,
+     barycentric_transform, interpolate_bezier, tessellate_polygon, convex_hull_2d, box_fit_2d, box_pack_2d, points_in_planes],
+)
+
+
+# --- kdtree -----------------------------------------------------------------
+
+def _xyz(co):
+    v = _seq(co)
+    return float(v[0]), float(v[1]), float(v[2]) if len(v) > 2 else 0.0
+
+
+def _hits5(flat, n=5):
+    flat = list(flat)
+    return [(Vector(flat[i:i + 3]), int(flat[i + 3]), float(flat[i + 4])) for i in range(0, len(flat), n)]
+
+
+class KDTree:
+    """Balanced 3D k-d tree: insert points, balance(), then search."""
+
+    def __init__(self, size):
+        size = int(size)
+        if size < 0:
+            raise ValueError("KDTree(size): size must be a non-negative integer")
+        self._size = size
+        self._co = []
+        self._ids = []
+        self._tree = None
+
+    def insert(self, co, index):
+        if len(self._ids) >= self._size:
+            raise RuntimeError("Trying to insert more items than KDTree has room for")
+        self._co.extend(_xyz(co))
+        self._ids.append(int(index))
+        self._tree = None
+
+    def balance(self):
+        from pyodide.ffi import to_js
+
+        tree = _call(_js("kdtree.KDTree").new, self._size)
+        _call(tree._insertFlat, to_js(self._co), to_js(self._ids))
+        _call(tree.balance)
+        self._tree = tree
+
+    def _t(self, what):
+        if self._tree is None:
+            raise RuntimeError("KDTree must be balanced before calling %s()" % what)
+        return self._tree
+
+    def find(self, co, filter=None):
+        """Nearest point: (co, index, distance), or (None, None, None)."""
+        x, y, z = _xyz(co)
+        r = _call(self._t("find")._findFlat, x, y, z, filter)
+        hits = _hits5(r)
+        return hits[0] if hits else (None, None, None)
+
+    def find_n(self, co, n):
+        x, y, z = _xyz(co)
+        return _hits5(_call(self._t("find_n")._findNFlat, x, y, z, int(n)))
+
+    def find_range(self, co, radius):
+        x, y, z = _xyz(co)
+        return _hits5(_call(self._t("find_range")._findRangeFlat, x, y, z, float(radius)))
+
+    def __repr__(self):
+        return "<KDTree object (%d points)>" % len(self._ids)
+
+
+kdtree = _module("kdtree", "Balanced k-d tree for nearest-point queries.", [])
+kdtree.KDTree = KDTree
+KDTree.__module__ = "mathutils.kdtree"
+
+
+# --- bvhtree ----------------------------------------------------------------
+
+_NO_HIT = (None, None, None, None)
+
+
+def _hits8(flat):
+    flat = list(flat)
+    return [(Vector(flat[i:i + 3]), Vector(flat[i + 3:i + 6]), int(flat[i + 6]), float(flat[i + 7])) for i in range(0, len(flat), 8)]
+
+
+def _flat_mesh(vertices, polygons):
+    pos, offs, idx = [], [0], []
+    for v in vertices:
+        pos.extend(_xyz(v))
+    for p in polygons:
+        idx.extend(int(i) for i in p)
+        offs.append(len(idx))
+    return pos, offs, idx
+
+
+class BVHTree:
+    """Bounding volume hierarchy over mesh triangles; build with the From* class methods."""
+
+    def __init__(self, tree=None):
+        if tree is None:
+            raise TypeError("BVHTree: use BVHTree.FromPolygons, FromObject or FromBMesh")
+        self._js = tree
+
+    @classmethod
+    def FromPolygons(cls, vertices, polygons, all_triangles=False, epsilon=0.0):
+        from pyodide.ffi import to_js
+
+        pos, offs, idx = _flat_mesh(vertices, polygons)
+        return cls(_call(_js("bvhtree.BVHTree")._fromFlat, to_js(pos), to_js(offs), to_js(idx), bool(all_triangles), float(epsilon)))
+
+    @classmethod
+    def FromObject(cls, object, depsgraph=None, deform=True, render=False, cage=False, epsilon=0.0):
+        ob = getattr(object, "_js", None)
+        if ob is None:
+            raise TypeError("BVHTree.FromObject(): expected an Object")
+        return cls(_call(_js("bvhtree.BVHTree").FromObject, ob, None, bool(deform), bool(render), bool(cage), float(epsilon)))
+
+    @classmethod
+    def FromBMesh(cls, bmesh, epsilon=0.0):
+        jsbm = getattr(bmesh, "_js", None)
+        if jsbm is not None:
+            return cls(_call(_js("bvhtree.BVHTree").FromBMesh, jsbm, float(epsilon)))
+        verts = list(bmesh.verts)
+        upd = getattr(bmesh.verts, "index_update", None)
+        if callable(upd):
+            upd()
+        slot = {id(v): i for i, v in enumerate(verts)}
+        polys = [[slot[id(v)] if id(v) in slot else v.index for v in f.verts] for f in bmesh.faces]
+        return cls.FromPolygons([v.co for v in verts], polys, False, epsilon)
+
+    def ray_cast(self, origin, direction, distance=float("inf")):
+        """First hit along the ray: (location, normal, index, distance) or four Nones."""
+        ox, oy, oz = _xyz(origin)
+        dx, dy, dz = _xyz(direction)
+        hits = _hits8(_call(self._js._rayFlat, ox, oy, oz, dx, dy, dz, float(distance)))
+        return hits[0] if hits else _NO_HIT
+
+    def find_nearest(self, origin, distance=float("inf")):
+        x, y, z = _xyz(origin)
+        hits = _hits8(_call(self._js._nearestFlat, x, y, z, float(distance)))
+        return hits[0] if hits else _NO_HIT
+
+    def find_nearest_range(self, origin, distance=float("inf")):
+        x, y, z = _xyz(origin)
+        return _hits8(_call(self._js._rangeFlat, x, y, z, float(distance)))
+
+    def overlap(self, other_tree):
+        if not isinstance(other_tree, BVHTree):
+            raise TypeError("BVHTree.overlap(): expected a BVHTree")
+        flat = list(_call(self._js._overlapFlat, other_tree._js))
+        return [(int(flat[i]), int(flat[i + 1])) for i in range(0, len(flat), 2)]
+
+    def __repr__(self):
+        return str(self._js.toString())
+
+
+bvhtree = _module("bvhtree", "Bounding volume hierarchy for ray casts and proximity queries.", [])
+bvhtree.BVHTree = BVHTree
+BVHTree.__module__ = "mathutils.bvhtree"
+
+
+# --- noise ------------------------------------------------------------------
+
+def seed_set(seed):
+    """Seed the random functions."""
+    _fwd("noise.seed_set", int(seed))
+
+
+def random():
+    return float(_fwd("noise.random"))
+
+
+def random_unit_vector(size=3):
+    return _fwd("noise.random_unit_vector", int(size))
+
+
+def random_vector(size=3):
+    return _fwd("noise.random_vector", int(size))
+
+
+def noise(position, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.noise", position, noise_basis))
+
+
+def noise_vector(position, noise_basis="PERLIN_ORIGINAL"):
+    return _fwd("noise.noise_vector", position, noise_basis)
+
+
+def turbulence(position, octaves, hard, noise_basis="PERLIN_ORIGINAL", amplitude_scale=0.5, frequency_scale=2.0):
+    return float(_fwd("noise.turbulence", position, int(octaves), bool(hard), noise_basis, float(amplitude_scale), float(frequency_scale)))
+
+
+def turbulence_vector(position, octaves, hard, noise_basis="PERLIN_ORIGINAL", amplitude_scale=0.5, frequency_scale=2.0):
+    return _fwd("noise.turbulence_vector", position, int(octaves), bool(hard), noise_basis, float(amplitude_scale), float(frequency_scale))
+
+
+def fractal(position, H, lacunarity, octaves, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.fractal", position, float(H), float(lacunarity), float(octaves), noise_basis))
+
+
+def multi_fractal(position, H, lacunarity, octaves, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.multi_fractal", position, float(H), float(lacunarity), float(octaves), noise_basis))
+
+
+def hetero_terrain(position, H, lacunarity, octaves, offset, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.hetero_terrain", position, float(H), float(lacunarity), float(octaves), float(offset), noise_basis))
+
+
+def hybrid_multi_fractal(position, H, lacunarity, octaves, offset, gain, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.hybrid_multi_fractal", position, float(H), float(lacunarity), float(octaves), float(offset), float(gain), noise_basis))
+
+
+def ridged_multi_fractal(position, H, lacunarity, octaves, offset, gain, noise_basis="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.ridged_multi_fractal", position, float(H), float(lacunarity), float(octaves), float(offset), float(gain), noise_basis))
+
+
+def variable_lacunarity(position, distortion, noise_type1="PERLIN_ORIGINAL", noise_type2="PERLIN_ORIGINAL"):
+    return float(_fwd("noise.variable_lacunarity", position, float(distortion), noise_type1, noise_type2))
+
+
+def cell(position):
+    return float(_fwd("noise.cell", position))
+
+
+def cell_vector(position):
+    return _fwd("noise.cell_vector", position)
+
+
+def voronoi(position, distance_metric="DISTANCE", exponent=2.5):
+    d, p = _fwd("noise.voronoi", position, distance_metric, float(exponent))
+    return [[float(x) for x in d], p]
+
+
+noise = _module(
+    "noise",
+    "Deterministic procedural noise and random numbers.",
+    [seed_set, random, random_unit_vector, random_vector, noise, noise_vector, turbulence, turbulence_vector, fractal, multi_fractal,
+     hetero_terrain, hybrid_multi_fractal, ridged_multi_fractal, variable_lacunarity, cell, cell_vector, voronoi],
+)
+
+# keep the module namespace to the public names (the functions live in the submodules)
+for _name in list(geometry.__dict__) + list(noise.__dict__):
+    if not _name.startswith("_") and _name not in ("geometry", "noise") and globals().get(_name) is getattr(geometry, _name, getattr(noise, _name, None)):
+        del globals()[_name]
+del _name

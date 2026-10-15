@@ -223,7 +223,7 @@ export function driverAdd(ob: ObjectData, path: string, index = -1, obPath = '')
   const out = indices.map((i) => {
     let d = ad.drivers.find((x) => x.data_path === path && x.array_index === i);
     if (!d) {
-      d = { data_path: path, array_index: i, type: 'SCRIPTED', expression: 'var', variables: [], use_self: false };
+      d = { data_path: path, array_index: i, type: 'SCRIPTED', expression: '0.0', variables: [], use_self: false };
       d.fcurve = { data_path: path, array_index: i, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [{ type: 'GENERATOR', coefficients: [0, 1], use_additive: false }] };
       ad.drivers.push(d);
     }

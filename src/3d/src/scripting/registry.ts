@@ -1,6 +1,8 @@
 // Script-defined operators and panels (`bpy.types.Operator` / `bpy.types.Panel` subclasses
 // registered with `bpy.utils.register_class`). Operators become regular app operators
 // (F3 search, bpy.ops, Adjust Last Operation); panels draw into the 3D viewport sidebar.
+import { registerScriptMenu, unregisterScriptMenu } from './menus';
+import { declareGroup, declareTypeProp, markGroup, removeTypeProp, type TypeProp } from './typeprops';
 import { app, operators, registerOperator, type PropDef, type Operator } from '../app/app';
 import { pyError, kwMethod, Struct } from './rna';
 import { bpy } from './api';
@@ -41,7 +43,17 @@ export const bpyProps = {
   FloatVectorProperty: prop('FLOAT_VECTOR'),
   IntVectorProperty: prop('INT_VECTOR'),
   BoolVectorProperty: prop('BOOL_VECTOR'),
+  /** A property group value: PointerProperty({type: MyGroup}) (MyGroup extends bpy.types.PropertyGroup). */
+  PointerProperty: (opts: { type?: { name?: string } } & Record<string, unknown> = {}) => groupProp('POINTER', opts),
+  /** A list of property group items: CollectionProperty({type: MyGroup}); add() / remove(i) / clear(). */
+  CollectionProperty: (opts: { type?: { name?: string } } & Record<string, unknown> = {}) => groupProp('COLLECTION', opts),
 };
+
+function groupProp(type: 'POINTER' | 'COLLECTION', opts: { type?: { name?: string } } & Record<string, unknown>) {
+  const g = opts.type;
+  if (!g || typeof g !== 'function' || !(g as unknown as { prototype: unknown }).prototype || !((g as unknown as { prototype: unknown }).prototype instanceof JSPropertyGroup)) throw pyError('TypeError', `${type === 'POINTER' ? 'Pointer' : 'Collection'}Property(): type must be a registered bpy.types.PropertyGroup subclass (data-block pointers are not supported)`);
+  return { ...opts, type, group: g.name, __kind: 'propdef' } as unknown as ScriptProp;
+}
 
 const prettify = (id: string) => id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -165,6 +177,7 @@ export type LayoutItem =
   | { t: 'prop'; data: unknown; prop: string; text: string | null; slider?: boolean; toggle?: boolean; expand?: boolean; index?: number; icon_only?: boolean }
   | { t: 'operator'; idname: string; text: string | null; icon?: string; props: Record<string, unknown> }
   | { t: 'separator' }
+  | { t: 'menu'; idname: string; text: string | null; icon?: string }
   | { t: 'layout'; kind: 'row' | 'column' | 'box' | 'split'; align: boolean; layout: UILayout };
 
 export class UILayout {
@@ -192,6 +205,10 @@ export class UILayout {
     const props: Record<string, unknown> = { __kind: 'opprops' };
     this.items.push({ t: 'operator', idname: String(operator), text: text === undefined ? null : text, icon: icon && icon !== 'NONE' ? String(icon) : undefined, props });
     return props;
+  }
+  /** A button that opens a script menu (bpy.types.Menu subclass) by its bl_idname. */
+  menu(menu: string, text: string | null = null, icon = 'NONE') {
+    this.items.push({ t: 'menu', idname: String(menu), text: text === undefined ? null : text, icon: icon && icon !== 'NONE' ? String(icon) : undefined });
   }
   separator(factor = 1) {
     void factor;
@@ -239,6 +256,7 @@ kwMethod(UILayout.prototype, 'label', ['text', 'icon', 'icon_value', 'text_ctxt'
 kwMethod(UILayout.prototype, 'prop', ['data', 'property', 'text', 'icon', 'expand', 'slider', 'toggle', 'icon_only', 'index', 'emboss', 'invert_checkbox', 'placeholder', 'text_ctxt', 'translate', 'event', 'full_event', 'icon_value']);
 kwMethod(UILayout.prototype, 'operator', ['operator', 'text', 'icon', 'emboss', 'depress', 'icon_value', 'text_ctxt', 'translate']);
 kwMethod(UILayout.prototype, 'separator', ['factor', 'type']);
+kwMethod(UILayout.prototype, 'menu', ['menu', 'text', 'icon', 'text_ctxt', 'translate', 'icon_value']);
 kwMethod(UILayout.prototype, 'row', ['align', 'heading', 'heading_ctxt', 'translate']);
 kwMethod(UILayout.prototype, 'column', ['align', 'heading', 'heading_ctxt', 'translate']);
 kwMethod(UILayout.prototype, 'split', ['factor', 'align']);
@@ -308,6 +326,18 @@ export class JSPanel {
   layout!: UILayout;
 }
 
+/** Base class for menus: `class MyMenu extends bpy.types.Menu { static bl_idname = 'OBJECT_MT_mine'; draw(context) { … } }`. */
+export class JSMenu {
+  static bl_idname = '';
+  static bl_label = '';
+  layout!: UILayout;
+}
+
+/** Base class for property groups: `class Settings extends bpy.types.PropertyGroup { static properties = {…} }`. */
+export class JSPropertyGroup {
+  static properties: Record<string, ScriptProp> = {};
+}
+
 type Ctor = { new (): Record<string, unknown>; [k: string]: unknown };
 
 function jsRegister(cls: Ctor) {
@@ -359,20 +389,64 @@ function jsRegister(cls: Ctor) {
     });
     return;
   }
-  throw pyError('TypeError', 'register_class(): expected a subclass of bpy.types.Operator or bpy.types.Panel');
+  if (cls.prototype instanceof JSMenu) {
+    const C = cls as unknown as typeof JSMenu & Ctor;
+    registerScriptMenu({
+      idname: C.bl_idname || C.name,
+      label: C.bl_label || C.name,
+      poll: typeof (C as unknown as { poll?: unknown }).poll === 'function' ? () => !!(C as unknown as { poll: (c: unknown) => boolean }).poll(bpy.context) : undefined,
+      draw: (layout) => {
+        const inst = new C() as unknown as JSMenu & { draw: (c: unknown) => void };
+        inst.layout = layout;
+        inst.draw(bpy.context);
+      },
+      language: 'javascript',
+    });
+    return;
+  }
+  if (cls.prototype instanceof JSPropertyGroup) {
+    declareGroup(cls.name, (cls as unknown as typeof JSPropertyGroup).properties as Record<string, TypeProp>);
+    markGroup(cls.name);
+    return;
+  }
+  throw pyError('TypeError', 'register_class(): expected a subclass of bpy.types.Operator, Panel or PropertyGroup');
+}
+
+/** `bpy.types.Object` etc.: assigning a property declaration adds it to that type. */
+const typeHolders = new Map<string, object>();
+function typeHolder(name: string) {
+  let h = typeHolders.get(name);
+  if (!h)
+    typeHolders.set(
+      name,
+      (h = new Proxy({ __kind: 'type', __name: name } as Record<string, unknown>, {
+        set(t, key, v) {
+          if (typeof key === 'string' && (v as { __kind?: string })?.__kind === 'propdef') declareTypeProp(name, key, v as TypeProp);
+          else t[key as string] = v;
+          return true;
+        },
+        deleteProperty(t, key) {
+          if (typeof key === 'string') removeTypeProp(name, key);
+          delete t[key as string];
+          return true;
+        },
+      })),
+    );
+  return h;
 }
 
 function jsUnregister(cls: Ctor) {
   const id = (cls as unknown as { bl_idname?: string }).bl_idname || cls.name;
-  if (!unregisterScriptOperator(id) && !unregisterScriptPanel(id)) throw pyError('RuntimeError', `unregister_class(): ${id} is not registered`);
+  if (!unregisterScriptOperator(id) && !unregisterScriptPanel(id) && !unregisterScriptMenu(id)) throw pyError('RuntimeError', `unregister_class(): ${id} is not registered`);
 }
 
 /** `bpy.types.<Name>` placeholders so `isinstance`-style checks and base classes exist. */
 export const bpyTypes: Record<string, unknown> = new Proxy(
-  { __kind: 'module', Operator: JSOperator, Panel: JSPanel, UILayout, Struct } as Record<string, unknown>,
+  { __kind: 'module', Operator: JSOperator, Panel: JSPanel, Menu: JSMenu, PropertyGroup: JSPropertyGroup, UILayout, Struct } as Record<string, unknown>,
   {
     get(t, p) {
       if (typeof p === 'symbol' || p in t) return t[p as string];
+      if (/^[A-Z]/.test(p)) return typeHolder(p);
       return undefined;
     },
   },
