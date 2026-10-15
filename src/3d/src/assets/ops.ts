@@ -262,7 +262,8 @@ registerOperators([
     exec: (ctx, p) => {
       const e = editableAsset(ctx, p);
       if (!e?.meta.preview) return 'CANCELLED';
-      delete e.meta.preview;
+      // empty (not missing): the type icon is shown and no new preview is rendered
+      e.meta.preview = '';
       e.meta.preview_custom = false;
       edited(e.library);
     },
