@@ -688,6 +688,7 @@ describe('Add menu placement', () => {
     expect(labels(sub(menu(), ['Curve', 'Operations']))).toEqual([
       'Curve to Mesh',
       'Curve to Points',
+      'Curves to Grease Pencil',
       'Fill Curve',
       'Fillet Curve',
       'Interpolate Curves',
@@ -708,5 +709,103 @@ describe('Add menu placement', () => {
     const input = labels(sub(menu(), ['Input']));
     expect(input.indexOf('Gizmo')).toBeLessThan(input.indexOf('Import'));
     expect(input.indexOf('Constant')).toBeLessThan(input.indexOf('Gizmo'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Grease Pencil
+
+describe('Grease Pencil nodes', () => {
+  /** Line + circle (4 points) joined, converted to one Grease Pencil layer. */
+  function strokes(t: T, asLayers = false) {
+    const c = node(t, 'GeometryNodeCurvePrimitiveCircle', { Resolution: 4 });
+    const l = node(t, 'GeometryNodeCurvePrimitiveLine');
+    const j = node(t, 'GeometryNodeJoinGeometry');
+    link(t, l, 'Curve', j, 'Geometry');
+    link(t, c, 'Curve', j, 'Geometry');
+    const g = node(t, 'GeometryNodeCurvesToGreasePencil', { 'Instances as Layers': asLayers });
+    link(t, j, 'Geometry', g, 'Curves');
+    return g;
+  }
+  it('Curves to Grease Pencil makes a layer of strokes; colors, fill and softness are stroke attributes', () => {
+    let t = setup();
+    const gp = run(t, strokes(t), 'Grease Pencil').greasePencil!;
+    expect(gp.layers.length).toBe(1);
+    expect(Array.from(gp.layers[0].curves.curveOffsets)).toEqual([0, 2, 6]);
+    expect(Array.from(gp.layers[0].curves.cyclic)).toEqual([0, 1]);
+    t = setup();
+    const sc = node(t, 'GeometryNodeSetGreasePencilColor', { Color: [1, 0, 0, 1], Opacity: 0.5 });
+    link(t, strokes(t), 'Grease Pencil', sc, 'Grease Pencil');
+    const d = run(t, sc, 'Grease Pencil').greasePencil!.layers[0].curves;
+    expect(Array.from(d.attrs.get('opacity')!.data)).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]);
+    expect(Array.from(d.attrs.get('vertex_color')!.data.subarray(0, 4))).toEqual([1, 0, 0, 1]);
+    t = setup();
+    const fc = node(t, 'GeometryNodeSetGreasePencilColor', { Color: [0, 1, 0, 1], Opacity: 0.25 }, { mode: 'FILL' });
+    const so = node(t, 'GeometryNodeSetGreasePencilSoftness', { Softness: 0.3 });
+    link(t, strokes(t), 'Grease Pencil', fc, 'Grease Pencil');
+    link(t, fc, 'Grease Pencil', so, 'Grease Pencil');
+    const f = run(t, so, 'Grease Pencil').greasePencil!.layers[0].curves;
+    expect(Array.from(f.attrs.get('fill_opacity')!.data)).toEqual([0.25, 0.25]);
+    expect(Array.from(f.attrs.get('softness')!.data).map((x) => Math.round(x * 10) / 10)).toEqual([0.3, 0.3]);
+    // plain curves give no layers when instances become layers
+    t = setup();
+    expect(run(t, strokes(t, true), 'Grease Pencil').greasePencil).toBeUndefined();
+  });
+  it('Grease Pencil to Curves gives instances per layer or joined curves', () => {
+    let t = setup();
+    const gc = node(t, 'GeometryNodeGreasePencilToCurves');
+    link(t, strokes(t), 'Grease Pencil', gc, 'Grease Pencil');
+    const inst = run(t, gc, 'Curves').instances!;
+    expect(inst.count).toBe(1);
+    expect(Array.from(inst.attrs.get('opacity')!.data)).toEqual([1]);
+    t = setup();
+    const gc2 = node(t, 'GeometryNodeGreasePencilToCurves', { 'Layers as Instances': false });
+    link(t, strokes(t), 'Grease Pencil', gc2, 'Grease Pencil');
+    const c = run(t, gc2, 'Curves').curves!;
+    expect(c.pointCount).toBe(6);
+    expect(Array.from(c.attrs.get('opacity')!.data)).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+  it('instances become layers; Merge Layers joins layers of the same name in the first layer', () => {
+    const t = setup();
+    const c = node(t, 'GeometryNodeCurvePrimitiveCircle', { Resolution: 4 });
+    const ml = node(t, 'GeometryNodeMeshLine', { Count: 3 });
+    const io = node(t, 'GeometryNodeInstanceOnPoints');
+    link(t, ml, 'Mesh', io, 'Points');
+    link(t, c, 'Curve', io, 'Instance');
+    const g = node(t, 'GeometryNodeCurvesToGreasePencil');
+    link(t, io, 'Instances', g, 'Curves');
+    const m = node(t, 'GeometryNodeMergeLayers');
+    link(t, g, 'Grease Pencil', m, 'Grease Pencil');
+    const gp = run(t, m, 'Grease Pencil').greasePencil!;
+    expect(gp.layers.length).toBe(1);
+    const zs = vecs(gp.layers[0].curves.positions).map((p) => p[2]);
+    expect(zs).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]);
+  });
+  it('Named Layer Selection selects layers by name', async () => {
+    const { greasePencilToCurves } = await import('../../src/geonodes/curves/gpencil');
+    const { GreasePencilComponent } = await import('../../src/geonodes/curves/gpdata');
+    const line = new CC(new Float32Array([0, 0, 0, 1, 0, 0]), new Uint32Array([0, 2]), new Uint8Array(1));
+    const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const gp = new GreasePencilComponent([
+      { name: 'Ink', curves: line, transform: id, opacity: 1 },
+      { name: 'Fill', curves: line, transform: [...id.slice(0, 12), 0, 0, 5, 1], opacity: 0.5 },
+    ]);
+    const t = setup();
+    const nls = node(t, 'GeometryNodeInputNamedLayerSelection', { Name: 'Fill' });
+    const gc = node(t, 'GeometryNodeGreasePencilToCurves', { 'Layers as Instances': false });
+    link(t, nls, 'Selection', gc, 'Selection');
+    // feed the component through a group input stand-in: evaluate the field directly
+    const input = new GeometrySet();
+    input.greasePencil = gp;
+    t.tree.interface!.push({ in_out: 'INPUT', name: 'Geometry', socket_type: 'NodeSocketGeometry', identifier: 'Geometry' });
+    const gi = addNode(t.tree, 'NodeGroupInput', [0, 0]);
+    link(t, gi, 'Geometry', gc, 'Grease Pencil');
+    const out = run(t, gc, 'Curves', input).curves!;
+    expect(vecs(out.positions)).toEqual([
+      [0, 0, 5],
+      [1, 0, 5],
+    ]);
+    expect(Array.from(out.attrs.get('opacity')!.data)).toEqual([0.5, 0.5]);
+    void greasePencilToCurves;
   });
 });

@@ -9,6 +9,7 @@ import { TreeEval, pruneCache, hash, coerce, FIELD_TYPES, type NodeCache, type E
 import { GeometrySet, identity, adaptDomain, dataComps, type Component } from './geometry';
 import { evalMeshToGeometry, geometryToEvalMesh, curveDataToCurves, materialSlots } from './convert';
 import { curveObjectModifierInput } from './curves/curvedata';
+import { greasePencilGeometry } from './curves/gpdata';
 import { attributeField } from './inputs';
 import { Field, ConstField } from './field';
 import { storeOn } from './nodes/geometry';
@@ -126,7 +127,10 @@ function makeEnv(doc: DocumentData, ob: ObjectData, graph: Depsgraph, frame: num
         const r = gnResults.get(id);
         if (r && ev.mesh && r.evalMesh === ev.mesh) g = r.geometry;
         else if (cu && !cu.bevel_depth && !cu.extrude && !(o.modifiers ?? []).length) g = new GeometrySet(undefined, undefined, curveDataToCurves(cu));
-        else if (ev.mesh) g = evalMeshToGeometry(ev.mesh, o.type === 'MESH' && o.data ? doc.meshes[o.data] : null);
+        else if (o.type === 'GREASEPENCIL') {
+          g = new GeometrySet();
+          g.greasePencil = greasePencilGeometry(doc, o, frame) ?? undefined;
+        } else if (ev.mesh) g = evalMeshToGeometry(ev.mesh, o.type === 'MESH' && o.data ? doc.meshes[o.data] : null);
         else g = GeometrySet.empty();
         if (g.mesh && o.type === 'MESH' && o.data && !g.mesh.materials.length) {
           const mm = g.mesh.copy();

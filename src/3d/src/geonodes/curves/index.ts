@@ -9,4 +9,5 @@ import './importers';
 import './gizmos';
 import './interpolate';
 import './sound';
+import './gpencil';
 export {};

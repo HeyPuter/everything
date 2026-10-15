@@ -17,6 +17,7 @@ import {
 } from '../geometry';
 import type { AttrArray, DataType, Domain } from '../types';
 import { missingCurveAttr, transformCurveAttrs } from '../curves/curvedata';
+import { joinGreasePencil, transformGreasePencil } from '../curves/gpdata';
 
 const TYPE_RANK: Record<DataType, number> = {
   BOOLEAN: 0,
@@ -271,12 +272,14 @@ export function joinGeometries(list: GeometrySet[]): GeometrySet {
   const points = nonEmpty.map((g) => g.points).filter((x): x is PointsComponent => !!x);
   const curves = nonEmpty.map((g) => g.curves).filter((x): x is CurvesComponent => !!x);
   const inst = nonEmpty.map((g) => g.instances).filter((x): x is InstancesComponent => !!x);
-  return new GeometrySet(
+  const out = new GeometrySet(
     meshes.length ? joinMeshes(meshes) : undefined,
     points.length ? joinPoints(points) : undefined,
     curves.length ? joinCurves(curves) : undefined,
     inst.length ? joinInstances(inst) : undefined,
   );
+  out.greasePencil = joinGreasePencil(nonEmpty.map((g) => g.greasePencil));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +300,9 @@ export function transformComponent(c: Component, m: ArrayLike<number>): Componen
 }
 
 export function transformGeometry(g: GeometrySet, m: ArrayLike<number>): GeometrySet {
-  return g.map((c) => transformComponent(c, m));
+  const out = g.map((c) => transformComponent(c, m));
+  if (g.greasePencil) out.greasePencil = transformGreasePencil(g.greasePencil, m);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
