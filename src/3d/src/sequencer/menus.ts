@@ -421,6 +421,7 @@ function multicamItems(): MenuItem[] {
 }
 
 function modifierAddItems(): MenuItem[] {
+  if (hasEditor() && activeStrip()?.type === 'SOUND') return [{ label: 'Equalizer', op: 'sequencer.strip_modifier_add', props: { type: 'SOUND_EQUALIZER' } }];
   return [
     { label: 'Brightness/Contrast', op: 'sequencer.strip_modifier_add', props: { type: 'BRIGHT_CONTRAST' } },
     { label: 'Color Balance', op: 'sequencer.strip_modifier_add', props: { type: 'COLOR_BALANCE' } },
